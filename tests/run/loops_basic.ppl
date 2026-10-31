@@ -1,0 +1,30 @@
+// expect: 10
+// expect: 25
+// expect: 6
+// expect: 3
+// expect: 120
+let total = 0
+for (const i of 0..5) total += i
+println(total)
+let odd = 0
+for (let i = 0; i < 10; i++) {
+  if (i % 2 == 0) continue
+  odd += i
+}
+println(odd)
+let n = 0
+while (true) {
+  n++
+  if (n > 5) break
+}
+println(n)
+let k = 0
+do { k++ } while (k < 3)
+println(k)
+let f = 1
+const fact = loop {
+  if (n == 1) break f
+  f *= n - 1
+  n--
+}
+println(fact)

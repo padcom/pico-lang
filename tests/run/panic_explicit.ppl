@@ -1,0 +1,5 @@
+// panic: unreachable state
+// exit: 101
+function fail(): never { panic("unreachable state") }
+fail()
+println("not printed")

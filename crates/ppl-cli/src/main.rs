@@ -22,6 +22,14 @@ enum Command {
         #[arg(long, value_name = "FORM")]
         emit: Option<String>,
     },
+    /// Compile and run a program.
+    Run {
+        /// The entry `.ppl` file.
+        file: PathBuf,
+        /// Run in the MIR interpreter instead of building a native binary.
+        #[arg(long)]
+        interp: bool,
+    },
     /// Parse a file and report syntax errors.
     Parse {
         /// The `.ppl` file to parse.
@@ -37,6 +45,7 @@ fn main() -> ExitCode {
     match cli.command {
         Some(Command::Parse { file, dump }) => parse(&file, dump),
         Some(Command::Build { file, emit }) => build(&file, emit.as_deref()),
+        Some(Command::Run { file, interp }) => run(&file, interp),
         None => ExitCode::SUCCESS,
     }
 }
@@ -47,6 +56,29 @@ fn load(path: &Path) -> Option<ppl_driver::Checked> {
         Err(e) => {
             eprintln!("error: cannot read {}: {e}", path.display());
             None
+        }
+    }
+}
+
+fn run(path: &Path, interp: bool) -> ExitCode {
+    let Some(checked) = load(path) else {
+        return ExitCode::from(2);
+    };
+    if checked.has_errors() {
+        eprint!("{}", checked.render_diagnostics());
+        return ExitCode::FAILURE;
+    }
+    if !interp {
+        eprintln!("error: native builds aren't implemented yet; use --interp");
+        return ExitCode::from(2);
+    }
+    let mir = checked.mir.as_ref().expect("MIR after a clean check");
+    let mut out = std::io::stdout();
+    match ppl_driver::run_interp(mir, &mut out) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(p) => {
+            eprint!("{}", p.report());
+            ExitCode::from(ppl_driver::PANIC_EXIT_CODE as u8)
         }
     }
 }

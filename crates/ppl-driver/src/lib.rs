@@ -104,6 +104,26 @@ pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked
     }
 }
 
+/// The exit code of a program that panicked (spec §7.5).
+pub const PANIC_EXIT_CODE: i32 = 101;
+
+/// Runs a checked program in the MIR interpreter, writing its output to `out`. Runs on a
+/// thread with a large stack so deep (but bounded) recursion works.
+pub fn run_interp(
+    mir: &ppl_mir::Program,
+    out: &mut (dyn std::io::Write + Send),
+) -> Result<(), ppl_interp::Panic> {
+    std::thread::scope(|s| {
+        std::thread::Builder::new()
+            .name("ppl-interp".into())
+            .stack_size(1 << 30)
+            .spawn_scoped(s, || ppl_interp::run(mir, out))
+            .expect("spawn interpreter thread")
+            .join()
+            .expect("interpreter thread panicked")
+    })
+}
+
 /// Reads `path` and runs [`check_source`] on it, naming the file by its path.
 pub fn check_file(path: &Path) -> std::io::Result<Checked> {
     let text = std::fs::read_to_string(path)?;

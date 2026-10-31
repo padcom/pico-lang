@@ -9,6 +9,19 @@ use ppl_sema::hir::{Builtin, FnId, GlobalId};
 use ppl_sema::{FloatTy, IntTy, Ty};
 use std::fmt::{self, Write};
 
+/// Panic messages shared by every backend, so interpreted and native runs print the same text.
+pub mod panics {
+    pub const OVERFLOW: &str = "integer overflow";
+    pub const DIV_ZERO: &str = "division by zero";
+    pub const SHIFT: &str = "shift amount out of range";
+    pub const NEG_EXPONENT: &str = "negative exponent";
+    pub const INT_CAST: &str = "integer conversion out of range";
+    pub const FLOAT_CAST: &str = "float conversion out of range";
+    pub const CHAR_CAST: &str = "invalid char code";
+    pub const STACK_OVERFLOW: &str = "stack overflow";
+    pub const INDEX: &str = "index out of bounds";
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Local(pub u32);
 

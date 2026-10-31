@@ -1,3 +1,5 @@
+// expect: 255
 // panic: integer overflow
 const x = 255u8
+println(x)
 println(x + 1u8)

@@ -230,6 +230,7 @@ version = "0.1.0"
 dependencies = [
  "insta",
  "ppl-diag",
+ "ppl-interp",
  "ppl-mir",
  "ppl-sema",
  "ppl-syntax",
@@ -238,6 +239,10 @@ dependencies = [
 [[package]]
 name = "ppl-interp"
 version = "0.1.0"
+dependencies = [
+ "ppl-mir",
+ "ppl-sema",
+]
 
 [[package]]
 name = "ppl-mir"

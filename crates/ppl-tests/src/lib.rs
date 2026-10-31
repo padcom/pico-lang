@@ -210,24 +210,78 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
             checked.render_diagnostics()
         ));
     }
-    // Execution (interpreter and native) arrives in P2.4 and P2.7.
-    let mut checks = Vec::new();
-    if !d.expect.is_empty() {
-        checks.push(format!("{} `expect` line(s)", d.expect.len()));
+    let mir = checked.mir.as_ref().expect("MIR after a clean check");
+    let mut out: Vec<u8> = Vec::new();
+    let result = ppl_driver::run_interp(mir, &mut out);
+    let run = Run {
+        stdout: String::from_utf8_lossy(&out).into_owned(),
+        panic: result.err().map(|p| p.msg),
+    };
+    match compare_run(d, &run, "interpreter") {
+        Some(msg) => Outcome::Fail(msg),
+        None => Outcome::Pass,
     }
-    if d.exit.is_some() {
-        checks.push("`exit`".to_string());
+}
+
+/// What a program did.
+pub struct Run {
+    pub stdout: String,
+    /// The panic message, if it panicked.
+    pub panic: Option<String>,
+}
+
+impl Run {
+    pub fn exit_code(&self) -> i32 {
+        if self.panic.is_some() {
+            ppl_driver::PANIC_EXIT_CODE
+        } else {
+            0
+        }
     }
-    if d.panic.is_some() {
-        checks.push("`panic`".to_string());
+}
+
+/// Checks a run against the directives; returns a readable report of the differences.
+pub fn compare_run(d: &Directives, run: &Run, mode: &str) -> Option<String> {
+    let mut problems = String::new();
+    let mut actual: Vec<String> = run.stdout.split('\n').map(str::to_string).collect();
+    if actual.last().is_some_and(String::is_empty) {
+        actual.pop();
     }
-    if checks.is_empty() {
-        checks.push("running the program".to_string());
+    if actual != d.expect {
+        let _ = write!(
+            problems,
+            "stdout differs (- expected, + actual):\n{}",
+            diff_lines(&d.expect, &actual)
+        );
     }
-    Outcome::Pending(format!(
-        "compiles; waiting for the interpreter to check {}",
-        checks.join(", ")
-    ))
+    let want_exit = d.exit.unwrap_or(if d.panic.is_some() {
+        ppl_driver::PANIC_EXIT_CODE
+    } else {
+        0
+    });
+    if run.exit_code() != want_exit {
+        let _ = writeln!(
+            problems,
+            "exit code: expected {want_exit}, got {}",
+            run.exit_code()
+        );
+    }
+    match (&d.panic, &run.panic) {
+        (Some(want), Some(got)) if want != got => {
+            let _ = writeln!(problems, "panic message: expected {want:?}, got {got:?}");
+        }
+        (Some(want), None) => {
+            let _ = writeln!(
+                problems,
+                "expected a panic ({want:?}), but the program finished normally"
+            );
+        }
+        (None, Some(got)) => {
+            let _ = writeln!(problems, "unexpected panic: {got}");
+        }
+        _ => {}
+    }
+    (!problems.is_empty()).then(|| format!("[{mode}] {}", problems.trim_end()))
 }
 
 fn fail_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {

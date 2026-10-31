@@ -1,0 +1,55 @@
+// expect: 7
+// expect: -3
+// expect: 1
+// expect: -1
+// expect: 2
+// expect: 1024
+// expect: 40
+// expect: 2
+// expect: -2
+// expect: 2147483647
+// expect: 6
+// expect: 9
+// expect: -6
+// expect: 3
+// expect: 255
+// expect: 0.30000000000000004
+// expect: 2.5
+// expect: 1e+21
+// expect: 0.1
+// expect: 3
+// expect: -3
+// expect: 65
+// expect: true
+// expect: false
+// expect: A
+// expect: 3000000000
+println(3 + 4)
+println(-7 / 2)
+println(7 % 3)
+println(-7 % 3)
+println(10 / 4)
+println(2 ** 10)
+println(5 << 3)
+println(5 >> 1)
+println(-3 >> 1)
+println(2147483647i32)
+println(6 & 7)
+println(9 | 1)
+println(~5)
+println(5 ^ 6)
+println(255u8)
+println(0.1 + 0.2)
+println(5.0 / 2.0)
+println(1e21)
+println(0.1f32)
+println(3.9 as i32)
+println(-3.9 as i32)
+const letter: char = "A"
+println(letter as u32)
+println(1 < 2 && 2 < 3)
+println(false || 1 > 2)
+println(65u8 as char)
+const small: i32 = 1500000000
+const wide: i64 = small
+println(wide * 2)

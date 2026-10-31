@@ -6,5 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[dependencies]
+ppl-mir.workspace = true
+ppl-sema.workspace = true
+
 [lints]
 workspace = true

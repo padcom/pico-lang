@@ -1,0 +1,14 @@
+// expect: 1
+// expect: 2
+// expect: 12
+// The entry module's top-level bindings are visible inside its functions.
+let counter = 0
+const step = 1
+function bump(): i64 {
+  counter += step
+  counter
+}
+println(bump())
+println(bump())
+function scaled(k: i64): i64 { counter * k + step * 0 }
+println(scaled(6))

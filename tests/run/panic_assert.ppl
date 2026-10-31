@@ -1,0 +1,5 @@
+// expect: ok
+// panic: counts must match
+assert(1 + 1 == 2)
+println("ok")
+assert(1 + 1 == 3, "counts must match")
