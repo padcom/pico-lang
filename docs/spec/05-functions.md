@@ -56,7 +56,7 @@ Arrow functions capture `this` lexically. Plain `function` expressions inside me
 ## 5.6 Function types
 ```ts
 type Handler = (req: Request) => Response
-type Mapper<T, U> = (x: T) => U throws E        // see §7 on throws polymorphism
+type Mapper<T, U, E extends Error = never> = (x: T) => U throws E   // see §7
 ```
 
 ## 5.7 Generators

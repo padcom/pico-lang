@@ -81,12 +81,15 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
 ## 11.5 Deterministic cleanup: `using`
 ```ts
 {
-  using f = fs.open("data.bin")        // f: File implements Disposable
-  using conn = await db.connect(url)   // AsyncDisposable is awaited
+  using lock = mutex.lock()                   // Disposable: dispose() at scope end
+  await using f = await fs.open("data.bin")   // File implements AsyncDisposable
+  await using conn = await db.connect(url)
   …
 }                                      // disposed in reverse order, also when an exception is thrown
 ```
 `Disposable` has `dispose(): void`, and `AsyncDisposable` has `disposeAsync(): Promise<void>`.
+`await using` (as in TS 5.2) awaits `disposeAsync()` at scope exit. Because all I/O is async, files and
+sockets are `AsyncDisposable`.
 
 ## Open questions
 - How many comptime steps are allowed before the compiler gives up (an infinite-loop guard)?
