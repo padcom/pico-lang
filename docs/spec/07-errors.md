@@ -70,6 +70,12 @@ const config = try {
   enclosing function.
 - `finally` always runs, and its value is ignored.
 
+### `try?` and `try!`
+```ts
+const port = try? parsePort(s)          // port: u16?  (any error becomes null)
+const n = try! parseInt("42")           // a thrown error becomes a panic: use when failure is a bug
+```
+
 ## 7.4 Async
 ```ts
 async function fetchUser(id: i64): Promise<User> throws HttpError { … }
@@ -87,6 +93,5 @@ A panic means a bug. Overflow, out-of-bounds indexing, division by zero, `x!` on
 - in a worker, surface to the parent as a `WorkerPanicked` event/error (§10).
 
 ## Open questions
-- `try?` (error → null) and `try!` (error → panic) sugar: not picked for now. Revisit later?
 - Can `Error` subclasses be structs/enums later (a cheaper error representation)?
 - How is the stack trace symbolized in release builds (embedded symbol tables vs external)?

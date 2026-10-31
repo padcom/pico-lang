@@ -110,7 +110,7 @@ patterns.
 patterns, and a switch whose value is used must be exhaustive.
 ```ts
 switch (cmd) {
-  case "build", "b": build()
+  case "build" | "b": build()
   case "test":       test()
   case Run { file }: run(file)
   default:           usage()
@@ -131,5 +131,3 @@ while (it.next() is Some(v)) use(v)
 These work as in TS: `c ? a : b`, `a?.b?.c()`, `a ?? b`, `a!`.
 
 ## Open questions
-- Should `switch` allow `case` lists with `,` (as above) or `|`?
-- Spread in function calls of fixed arity (`f(...tuple)`)?

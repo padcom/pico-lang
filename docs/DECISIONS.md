@@ -141,7 +141,7 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 86 | Script body | In the **entry module**, top-level code behaves like the body of `main()`: `let` is allowed, and those bindings are locals that other modules can't see or export. Library modules allow only `const`. |
 | 87 | Throwables | Only subclasses of the built-in `Error` class. |
 | 88 | try expression | `try … catch …` is an expression, e.g. `const n = try parse(s) catch (e: ParseError) 0`. |
-| 89 | Error unions | `throws A \| B`; typed `catch` clauses narrow the union. No `try?`/`try!` sugar for now. |
+| 89 | Error unions | `throws A \| B`; typed `catch` clauses narrow the union. (`try?`/`try!` were added later, see #141.) |
 | 90 | Stack traces | Always captured on throw and on panic. |
 | 91 | Throws inference | *(Confirmed in round 17)* Private functions and lambdas may omit `throws` (inferred); exported functions must declare it. |
 
@@ -229,6 +229,17 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 134 | String indexing | `s[i]` returns a `char` (code point). It's O(n), sped up by a cached index; `s.bytes()` gives raw UTF-8. |
 | 135 | Formatter semicolons | Keep the `semicolons` option. |
 | 136 | Structs to JS | Structs cross into JS as plain object copies; classes become handle classes. |
+
+## Round 20 (open questions, part 5)
+| # | Topic | Decision |
+|---|-------|----------|
+| 137 | Async generators | `async function*` and `for await (… of …)`. |
+| 138 | Destructuring defaults | `const { port = 8080 } = opts`, also in parameters. |
+| 139 | Block comments | Not nested (as in JS). |
+| 140 | Tuple spread | `f(...pair)` spreads a tuple into fixed-arity parameters. |
+| 141 | try sugar | `try? e` turns an error into `null` (type `T?`); `try! e` turns an error into a panic. |
+| 142 | switch case lists | `case "build" \| "b":`, the same or-pattern as `match`. |
+| 143 | readonly methods | The `readonly` method modifier marks methods callable through `immutable T`; the compiler checks they don't mutate. |
 
 ## Spec format
 | # | Topic | Decision |

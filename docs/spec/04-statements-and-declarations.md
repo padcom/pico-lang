@@ -6,6 +6,7 @@ const a = 1            // can't be reassigned
 let b: i32 = 2         // can be reassigned
 const { x, y, ...rest } = point
 const [first, second] = pair
+const { port = 8080, host = "localhost" } = opts     // defaults apply when the field is null
 ```
 There's no `var` and no hoisting, and every binding is block-scoped. Using a binding before its
 declaration is a compile error. Top-level function and type declarations are an exception: they
@@ -54,4 +55,3 @@ interface Shape { area(): f64 }
 ```
 
 ## Open questions
-- Is `const` destructuring with defaults (`const { a = 1 } = o`) needed?

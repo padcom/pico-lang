@@ -86,7 +86,7 @@ type      := "d" | "x" | "X" | "o" | "b" | "e" | "E" | "f" | "%" | "?"
 A type can customize how it formats by implementing a `Formattable` interface (draft name).
 
 ## 1.5 Comments
-`// line`, `/* block */`, `/** doc comment */`.
+`// line`, `/* block */` (not nested, as in JS), `/** doc comment */`.
 
 ## 1.6 Reserved words (draft)
 `as async await break case catch class const continue default else enum export extends extern
@@ -95,5 +95,4 @@ operator private protected public readonly return set static struct super switch
 throws true try typeof unsafe where while yield comptime immutable`
 
 ## Open questions
-- Nested block comments?
 - Regex literal vs `/` division ambiguity: use the JS rule (regex is allowed only where an expression can start).

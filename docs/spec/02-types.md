@@ -143,10 +143,13 @@ A plain `type X = Y` is still just an alias.
 - `const` stops a binding from being reassigned, as in TS.
 - `readonly` on a field stops that field from being reassigned (shallow).
 - `immutable T` is a **deep** read-only view: no field anywhere in the reachable object graph can be
-  mutated through it, and only methods marked `immutable`/`readonly` can be called.
+  mutated through it, and only methods marked `readonly` can be called. The compiler checks that a
+  `readonly` method doesn't mutate `this` (deeply) and calls only other `readonly` methods on it.
+```ts
+class Scene { public readonly count(): int { nodes.length } }
+```
 ```ts
 function render(scene: immutable Scene) { scene.nodes.push(x) }  // error
 ```
 
 ## Open questions
-- Exact syntax for the `immutable` modifier on methods (`readonly foo()`?).

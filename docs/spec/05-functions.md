@@ -27,6 +27,12 @@ parameter is a breaking change.
 function sum(...xs: i64[]): i64 { xs.reduce((a, b) => a + b, 0) }
 sum(1, 2, 3)
 sum(...numbers)
+
+function move(x: i32, y: i32) { … }
+const pos: [i32, i32] = [3, 4]
+move(...pos)                     // tuple spread into fixed-arity parameters
+
+function connect({ host, port = 5432 }: DbOptions) { … }   // destructured parameter with default
 ```
 
 ## 5.4 Overloading
@@ -69,7 +75,12 @@ for (const n of fib().take(10)) println(n)
 ```
 Generators compile to stackless state machines, the same machinery as `async`.
 
+Async generators:
+```ts
+async function* lines(path: string): AsyncIterator<string> throws IoError { … }
+for await (const line of lines("log.txt")) println(line)
+```
+
 ## Open questions
 - Do overloads mix with default parameters, or is that disallowed to avoid ambiguity?
 - Are tail calls guaranteed in some form (`return tailcall f()`)?
-- Async generators (`async function*` + `for await`)?
