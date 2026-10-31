@@ -1,6 +1,7 @@
 //! Lexer, parser and AST for ppl.
 
 pub mod lexer;
+pub mod newline;
 pub mod token;
 
 pub use lexer::lex;
