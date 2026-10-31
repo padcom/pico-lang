@@ -434,8 +434,8 @@ pub fn display(v: &Value, t: &Ty) -> String {
 }
 
 /// Formats a float like JavaScript's `Number.prototype.toString`: the shortest digits that
-/// round-trip (at `f32` precision for `f32`), in fixed notation for 1e-7 ≤ |x| < 1e21 and
-/// exponential notation otherwise. `-0` prints as `0`.
+/// round-trip (at `f32` precision for `f32`; ties go to the even digit), in fixed notation for
+/// 1e-7 ≤ |x| < 1e21 and exponential notation otherwise. `-0` prints as `0`.
 pub fn format_float(x: f64, is_f32: bool) -> String {
     if x.is_nan() {
         return "NaN".into();
@@ -450,18 +450,35 @@ pub fn format_float(x: f64, is_f32: bool) -> String {
     if x == 0.0 {
         return "0".into();
     }
-    // Shortest round-trip digits in scientific form: "d.ddde±x".
-    let sci = if is_f32 {
-        format!("{:e}", x as f32)
-    } else {
-        format!("{x:e}")
-    };
+    // The shortest correctly rounded scientific form that round-trips ("d.ddde±x"). Rounding
+    // is half-to-even, so ties pick the even digit, as ECMAScript requires (and as the C
+    // runtime's `%.*e` does).
+    let max = if is_f32 { 9 } else { 17 };
+    let sci = (1..=max)
+        .map(|p| {
+            if is_f32 {
+                format!("{:.*e}", p - 1, x as f32)
+            } else {
+                format!("{:.*e}", p - 1, x)
+            }
+        })
+        .find(|s| {
+            if is_f32 {
+                s.parse::<f32>().ok() == Some(x as f32)
+            } else {
+                s.parse::<f64>().ok() == Some(x)
+            }
+        })
+        .expect("17 significant digits always round-trip");
     let (neg, sci) = match sci.strip_prefix('-') {
         Some(s) => (true, s),
         None => (false, sci.as_str()),
     };
     let (mant, exp) = sci.split_once('e').expect("scientific format");
-    let digits: String = mant.chars().filter(|c| *c != '.').collect();
+    let mut digits: String = mant.chars().filter(|c| *c != '.').collect();
+    while digits.len() > 1 && digits.ends_with('0') {
+        digits.pop();
+    }
     let exp: i32 = exp.parse().expect("exponent");
     js_number_string(neg, &digits, exp + 1)
 }
@@ -503,6 +520,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::excessive_precision)] // the tie cases need their exact binary values
     fn float_formatting_matches_js() {
         let cases: &[(f64, &str)] = &[
             (1.0, "1"),
@@ -527,6 +545,12 @@ mod tests {
         }
         assert_eq!(format_float(0.1f32 as f64, true), "0.1");
         assert_eq!(format_float(16777217.0f32 as f64, true), "16777216");
+        // Ties between two shortest candidates go to the even digit (ECMAScript).
+        assert_eq!(format_float(3684605.25, true), "3684605.2");
+        assert_eq!(
+            format_float(-167581363823776.125, false),
+            "-167581363823776.12"
+        );
     }
 
     #[test]

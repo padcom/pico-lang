@@ -1,1 +1,43 @@
 //! Builds and locates the ppl C runtime.
+//!
+//! The runtime's sources live in `runtime/` at the repository root. The build script compiles
+//! them for the host into a static library that the driver links into every native program.
+//! (Per-target builds come with cross-compilation, P8.1.)
+
+use std::path::{Path, PathBuf};
+
+/// The oldest supported macOS (spec §15.3). Programs are linked with
+/// `-mmacosx-version-min` set to this, matching how the runtime was compiled.
+pub const MACOS_MIN: &str = "13.0";
+
+/// Extra flags for linking a program with the system C compiler on this host.
+pub fn host_link_flags() -> Vec<String> {
+    if cfg!(target_os = "macos") {
+        vec![format!("-mmacosx-version-min={MACOS_MIN}")]
+    } else {
+        Vec::new()
+    }
+}
+
+/// The host runtime as a static library (`libppl_rt.a`).
+pub fn static_lib() -> PathBuf {
+    Path::new(env!("PPL_RUNTIME_DIR")).join("libppl_rt.a")
+}
+
+/// The directory containing `ppl_rt.h`.
+pub fn include_dir() -> PathBuf {
+    PathBuf::from(env!("PPL_RUNTIME_INCLUDE"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn library_exists() {
+        assert!(
+            super::static_lib().is_file(),
+            "{}",
+            super::static_lib().display()
+        );
+        assert!(super::include_dir().join("ppl_rt.h").is_file());
+    }
+}

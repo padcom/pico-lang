@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P2.5: C runtime v0** (see [PLAN.md](PLAN.md#p25-c-runtime-v0))
+**P2.6: LLVM codegen v0** (see [PLAN.md](PLAN.md#p26-llvm-codegen-v0))
 
 Notes:
 - Golden fixtures: `tests/run/**/*.ppl` and `tests/fail/**/*.ppl`, run by `cargo test -p ppl-tests`
@@ -23,7 +23,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | Phase 1 done: lexer, newline filter, AST, parser (`ppl parse --dump`), golden harness |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-10-31 (P2.4) |
+| Last green `scripts/test.sh` | 2026-10-31 (P2.5) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -61,7 +61,7 @@ Notes:
 - [x] P2.2 Type checker: primitives and functions
 - [x] P2.3 MIR design and lowering
 - [x] P2.4 MIR interpreter
-- [ ] P2.5 C runtime v0
+- [x] P2.5 C runtime v0
 - [ ] P2.6 LLVM codegen v0
 - [ ] P2.7 `ppl build` / `ppl run` end to end (**M1: hello world**)
 
@@ -188,3 +188,4 @@ Notes:
 | 2026-10-31 | P2.2 | typeck.rs: bidirectional checking with literal typing from context (range-checked, incl. negated literals), lossless widening recorded as coercions, operator typing, if/blocks/loop-break values, never/void, if-without-else → T?, char inference from 1-char literals, `as` rules, on-demand return-type inference with recursion detection (E0306), built-in signatures. 6 fail fixtures in tests/fail/types. |
 | 2026-10-31 | P2.3 | ppl-mir: CFG of basic blocks over typed locals; statements carry Locs (integer ops trap implicitly); terminators goto/branch/return/call/panic/unreachable; &&/|| and compound &&= lowered to control flow; dead code after divergence goes to unreachable blocks. Lowering reports E0900 for strings/templates/nullable values for now. `ppl build --emit mir`; snapshots in ppl-driver/tests/mir.rs (loops, if expressions, loop/break value). |
 | 2026-10-31 | P2.4 | ppl-interp: Value/Frame interpreter over MIR; integer ops trap (overflow, div0, shift range, negative exponent, casts) with shared messages in ppl_mir::mir::panics; f32 computed at f32 precision; JS-style float printing (format_float, unit-tested); depth limit → stack overflow panic; runs on a 1 GiB-stack thread (driver::run_interp). `ppl run --interp`; panic report 'panic: msg\\n  at file:line:col', exit 101. Harness checks stdout/exit/panic. 10 new run fixtures. |
+| 2026-10-31 | P2.5 | runtime/ (C11): ppl_rt.h + ppl_rt.c with print functions, JS-style number formatting, ppl_panic (format + exit 101), main → ppl_entry. ppl-runtime builds libppl_rt.a via cc (no link directives into the compiler), macOS min 13.0 (decision 180/179). Tests link C programs: panic format, and C vs interpreter float formatting on ~6000 values — found Rust's {:e} picks the odd digit on ties; switched the interpreter to the same shortest-correctly-rounded loop (ties to even, as ECMAScript). |
