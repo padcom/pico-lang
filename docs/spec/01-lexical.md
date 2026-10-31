@@ -105,6 +105,21 @@ type      := "d" | "x" | "X" | "o" | "b" | "e" | "E" | "f" | "%" | "?"
 | `${0.25:.0%}` | `25%` |
 | `${point:?}` | `Point { x: 1, y: 2 }` |
 
+Rules:
+- The spec is parsed and checked against the value's type at **compile time**; an invalid spec
+  is an error.
+- `d x X o b` need an integer. Negative numbers keep their sign (`${-255:x}` is `-ff`), and `#`
+  adds `0x`, `0o` or `0b` (`${255:#X}` is `0xFF`).
+- `e E f %` need a number. Without a precision they use the shortest round-trip digits: `e` in
+  Rust style (`${1234.5:e}` is `1.2345e3`), `f` and `%` in fixed notation.
+- A precision rounds half to even on the exact binary value (`${0.125:.2f}` is `0.12`), as in
+  Python and Rust. It isn't allowed on integers (use `.Nf`), and it truncates strings
+  (`${"zażółć":.4}` is `zażó`).
+- Signs (`+`, ` `) and `0` padding apply only to numbers. Numbers align right by default; strings,
+  `char`s and `bool`s align left. Width counts code points.
+- `?` shows strings and `char`s quoted, with `\\`, the quote, `\n`, `\r`, `\t`, `\0` and
+  `\u{…}` escapes.
+
 A type can customize how it formats by implementing a `Formattable` interface (draft name).
 
 ## 1.5 Comments

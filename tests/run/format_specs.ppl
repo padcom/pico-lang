@@ -1,0 +1,88 @@
+// The table in spec §1.4 (except `${point:?}`, which needs structs).
+// expect: 3.14
+// expect: 00000042
+// expect: 0xff
+// expect: **hi**
+// expect: 25%
+// The tour's examples.
+// expect: +42
+// expect: ff
+// expect: 0xFF
+// expect: 101
+// expect: 1.2345e3
+// expect: left      |
+// expect: |     right|
+// Signs, zero padding, precision, alignment.
+// expect: -0042
+// expect: +3.50
+// expect:  7
+// expect: [  ab  ]
+// expect: [ab   ]
+// expect: zażó
+// expect: __ż__
+// expect: -ff
+// expect: 0b1111111111111111111111111111111111111111111111111111111111111111
+// expect: 377
+// expect: 0o17
+// expect: 1.50e2
+// expect: 1.5E-7
+// expect: 1000000000000000000000
+// expect: 0.0001
+// expect: 12.5%
+// expect: 2
+// expect: 2.0
+// expect: 100.000
+// expect: 0.1
+// expect: "a\"b\n"
+// expect: 'x'
+// expect: '\''
+// expect: true  |
+// expect: NaN|-Infinity|+Infinity
+// expect: 1e0
+// expect: 0.12
+// expect:   -1.5
+println(`${3.14159:.2f}`)
+println(`${42:08}`)
+println(`${255:#x}`)
+println(`${"hi":*^6}`)
+println(`${0.25:.0%}`)
+println(`${42:+}`)
+println(`${255:x}`)
+println(`${255:#X}`)
+println(`${5:b}`)
+println(`${1234.5:e}`)
+println(`${"left":<10}|`)
+println(`|${"right":>10}|`)
+println(`${-42:05}`)
+println(`${3.5:+.2f}`)
+println(`${7: }`)
+println(`[${"ab":^6}]`)
+println(`[${"ab":5}]`)
+println(`${"zażółć":.4}`)
+const ch: char = "ż"
+println(`${ch:_^5}`)
+println(`${-255:x}`)
+println(`${18446744073709551615u64:#b}`)
+println(`${255u8:o}`)
+println(`${15:#o}`)
+println(`${150.0:.2e}`)
+println(`${0.00000015:E}`)
+println(`${1e21:f}`)
+println(`${0.0001:f}`)
+println(`${0.125:%}`)
+println(`${2.5:.0}`)
+println(`${2:.1f}`)
+println(`${100:.3f}`)
+println(`${0.1f32:f}`)
+println(`${"a\"b\n":?}`)
+const x: char = "x"
+println(`${x:?}`)
+const q: char = "'"
+println(`${q:?}`)
+println(`${true:6}|`)
+const nan = 0.0 / 0.0
+const inf = 1.0 / 0.0
+println(`${nan}|${-inf}|${inf:+}`)
+println(`${1.0:e}`)
+println(`${0.125:.2f}`)
+println(`${-1.5:6}`)

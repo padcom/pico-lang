@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.3: Format specs** (see [PLAN.md](PLAN.md#p33-format-specs))
+**P3.4: Structs** (see [PLAN.md](PLAN.md#p34-structs))
 
 Notes:
 - Golden fixtures: `tests/run/**/*.ppl` and `tests/fail/**/*.ppl`, run by `cargo test -p ppl-tests`
@@ -23,7 +23,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-10-31 (P3.2) |
+| Last green `scripts/test.sh` | 2026-10-31 (P3.3) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -68,7 +68,7 @@ Notes:
 ### Phase 3: Core language
 - [x] P3.1 Allocator v0 and string runtime
 - [x] P3.2 char type and template literals
-- [ ] P3.3 Format specs
+- [x] P3.3 Format specs
 - [ ] P3.4 Structs
 - [ ] P3.5 Arrays, fixed arrays, tuples, ranges
 - [ ] P3.6 Null and narrowing infrastructure
@@ -193,3 +193,4 @@ Notes:
 | 2026-10-31 | P2.7 | Driver: build_native (LLVM object + cc link with libppl_rt.a), content-hashed run cache in $TMPDIR/ppl-cache. CLI: `ppl build [-o] [--release] [--emit mir|llvm-ir]`, `ppl run [--interp] [--release] [-- args]`. Harness runs every tests/run fixture interpreted AND native against the same directives: 31 pass. --release (O2) output matches the interpreter. **Milestone M1: hello world native.** |
 | 2026-10-31 | P3.1 | Runtime: ppl_alloc (malloc-backed, never frees, aborts on OOM), PplStr ops ppl_str_new/concat/eq/cmp/char_at (cached position → sequential s[i] O(1); ASCII fast path). MIR Rvalue::StrLen/StrCharAt; string +, +=, ==, <… in interpreter and codegen (codegen does the bounds check so the message stays in ppl_mir::panics). Fixtures: strings (Polish diacritics, emoji), string_index_panic, string_scan (10k chars). Fixed: if-without-else in statement position no longer flagged as a nullable value. |
 | 2026-10-31 | P3.2 | Templates lower to concatenation of quasis and Rvalue::ToStr(part) (runtime ppl_str_from_{i64,u64,f64,f32,bool,char}, interpreter shares display()); `x.toString()` on primitives; triple-quoted and backtick multiline literals verified end to end. Fixtures: run/templates (nesting, $${}, multiline dedent), run/chars, fail/types/char_literal (`const c: char = "ab"`). loops.ppl no longer pending. |
+| 2026-10-31 | P3.3 | ppl_sema::format: spec parser + type check (E0310); Types.formats; MIR Rvalue::Format; interpreter format_spec and C ppl_fmt_{i64,u64,f64,str,char,bool} with a constant PplFmt global from codegen; shortest_digits shared by e/f/%. Fixtures: run/format_specs (all §1.4 examples except `point:?`, every tour example, 40 cases, identical natively), fail/types/format_specs. Decision 181 + spec §1.4 rules. Note: a runtime edit briefly corrupted ppl_rt.c (empty-slice replace); restored from git before anything was committed. |

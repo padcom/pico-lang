@@ -607,12 +607,15 @@ impl FnBuilder<'_, '_> {
                 pieces.push(Operand::Const(Const::Str(q.clone())));
             }
             if let Some(p) = parts.get(i) {
-                if p.spec.is_some() {
-                    self.cx.not_implemented(p.expr.span, "format specs");
-                }
                 let v = self.expr(&p.expr);
                 let t = self.cx.types.final_ty(p.expr.id).clone();
-                pieces.push(self.stringify(v, &t, p.expr.span));
+                match self.cx.types.formats.get(&p.expr.id) {
+                    Some(spec) => {
+                        let s = self.rvalue_to_temp(Rvalue::Format(v, *spec), Ty::Str, p.expr.span);
+                        pieces.push(s);
+                    }
+                    None => pieces.push(self.stringify(v, &t, p.expr.span)),
+                }
             }
         }
         let mut it = pieces.into_iter();

@@ -225,33 +225,32 @@ static int special(double v, char *out) {
     return -1;
 }
 
-/* Finds the shortest "%.*e" rendering that round-trips, then re-lays it out. */
-static int format_shortest(double v, bool is_f32, char *out) {
-    int n = special(v, out);
-    if (n >= 0) return n;
+/* The shortest digits d1…dk (into `digits`, returns k) and exponent *n with
+ * |v| = 0.d1…dk × 10^n that round-trip. Uses the shortest "%.*e" (half-to-even). v finite, > 0. */
+static int shortest_digits(double v, bool is_f32, char *digits, int *n) {
     char sci[40];
     int max = is_f32 ? 9 : 17;
     for (int p = 1; p <= max; p++) {
         snprintf(sci, sizeof sci, "%.*e", p - 1, v);
         if (is_f32 ? (strtof(sci, NULL) == (float)v) : (strtod(sci, NULL) == v)) break;
     }
-    /* sci is "[-]d[.ddd]e[+-]xx" */
     const char *s = sci;
-    bool neg = false;
-    if (*s == '-') {
-        neg = true;
-        s++;
-    }
-    char digits[24];
     int k = 0;
     while (*s && *s != 'e') {
         if (*s != '.') digits[k++] = *s;
         s++;
     }
-    /* strip trailing zeros (snprintf may pad when p digits are needed only for rounding) */
     while (k > 1 && digits[k - 1] == '0') k--;
-    int exp = atoi(s + 1);
-    return js_layout(neg, digits, k, exp + 1, out);
+    *n = atoi(s + 1) + 1;
+    return k;
+}
+
+static int format_shortest(double v, bool is_f32, char *out) {
+    int n = special(v, out);
+    if (n >= 0) return n;
+    char digits[24];
+    int k = shortest_digits(fabs(v), is_f32, digits, &n);
+    return js_layout(v < 0, digits, k, n, out);
 }
 
 int ppl_format_f64(double v, char *buf) { return format_shortest(v, false, buf); }
@@ -266,6 +265,268 @@ void ppl_print_f64(double v) {
 void ppl_print_f32(float v) {
     char buf[40];
     fwrite(buf, 1, (size_t)ppl_format_f32(v, buf), stdout);
+}
+
+/* ---------------------------------------------------------------- format specs
+ *
+ * Must match `ppl_interp::format_spec`. */
+
+typedef struct Buf {
+    char *p;
+    int64_t len, cap;
+} Buf;
+
+static void buf_put(Buf *b, const char *s, int64_t n) {
+    if (b->len + n > b->cap) {
+        int64_t cap = b->cap ? b->cap * 2 : 64;
+        while (cap < b->len + n) cap *= 2;
+        char *p = ppl_alloc(cap);
+        if (b->len) memcpy(p, b->p, (size_t)b->len);
+        b->p = p;
+        b->cap = cap;
+    }
+    if (n) memcpy(b->p + b->len, s, (size_t)n);
+    b->len += n;
+}
+
+static void buf_puts(Buf *b, const char *s) { buf_put(b, s, (int64_t)strlen(s)); }
+
+static void buf_char(Buf *b, uint32_t c) {
+    char tmp[4];
+    buf_put(b, tmp, utf8_encode(c, tmp));
+}
+
+/* Shortest digits in fixed notation (never an exponent). */
+static void put_shortest_fixed(Buf *b, double a, bool is_f32) {
+    if (a == 0.0) {
+        buf_puts(b, "0");
+        return;
+    }
+    char digits[24];
+    int n;
+    int k = shortest_digits(a, is_f32, digits, &n);
+    if (n <= 0) {
+        buf_puts(b, "0.");
+        for (int i = 0; i < -n; i++) buf_puts(b, "0");
+        buf_put(b, digits, k);
+    } else if (n >= k) {
+        buf_put(b, digits, k);
+        for (int i = 0; i < n - k; i++) buf_puts(b, "0");
+    } else {
+        buf_put(b, digits, n);
+        buf_puts(b, ".");
+        buf_put(b, digits + n, k - n);
+    }
+}
+
+/* Rust-style exponent: "1.5e3", "1e-7" (no '+', no zero padding). */
+static void put_exp(Buf *b, const char *mant, int mlen, int e, bool upper) {
+    char tmp[16];
+    buf_put(b, mant, mlen);
+    snprintf(tmp, sizeof tmp, "%c%d", upper ? 'E' : 'e', e);
+    buf_puts(b, tmp);
+}
+
+static void put_float_body(Buf *b, double a, bool is_f32, const PplFmt *f) {
+    char tmp[512];
+    int p = f->precision;
+    switch (f->kind) {
+    case 8: /* f */
+        if (p >= 0) {
+            snprintf(tmp, sizeof tmp, "%.*f", p, a);
+            buf_puts(b, tmp);
+        } else {
+            put_shortest_fixed(b, a, is_f32);
+        }
+        break;
+    case 6: /* e */
+    case 7: /* E */
+        if (p >= 0) {
+            snprintf(tmp, sizeof tmp, "%.*e", p, a);
+            char *e = strchr(tmp, 'e');
+            put_exp(b, tmp, (int)(e - tmp), atoi(e + 1), f->kind == 7);
+        } else if (a == 0.0) {
+            put_exp(b, "0", 1, 0, f->kind == 7);
+        } else {
+            char digits[24], mant[32];
+            int n;
+            int k = shortest_digits(a, is_f32, digits, &n);
+            int m = 0;
+            mant[m++] = digits[0];
+            if (k > 1) {
+                mant[m++] = '.';
+                memcpy(mant + m, digits + 1, (size_t)(k - 1));
+                m += k - 1;
+            }
+            put_exp(b, mant, m, n - 1, f->kind == 7);
+        }
+        break;
+    case 9: { /* % */
+        double y = a * 100.0;
+        if (p >= 0) {
+            snprintf(tmp, sizeof tmp, "%.*f", p, y);
+            buf_puts(b, tmp);
+        } else {
+            put_shortest_fixed(b, y, false);
+        }
+        buf_puts(b, "%");
+        break;
+    }
+    default:
+        if (p >= 0) {
+            snprintf(tmp, sizeof tmp, "%.*f", p, a);
+            buf_puts(b, tmp);
+        } else {
+            int n = format_shortest(a, is_f32, tmp);
+            buf_put(b, tmp, n);
+        }
+    }
+}
+
+/* Applies sign, prefix, width, fill and alignment around `body`. */
+static PplStr *pad(bool neg, const char *prefix, const Buf *body, bool numeric, const PplFmt *f) {
+    const char *sign = neg ? "-" : (numeric && f->sign == 1) ? "+" : (numeric && f->sign == 2) ? " " : "";
+    int64_t len = (int64_t)strlen(sign) + (int64_t)strlen(prefix) + count_chars(body->p, body->len);
+    int64_t width = f->width < 0 ? 0 : f->width;
+    Buf out = {0};
+    if (len >= width) {
+        buf_puts(&out, sign);
+        buf_puts(&out, prefix);
+        buf_put(&out, body->p, body->len);
+    } else if (f->zero && numeric) {
+        buf_puts(&out, sign);
+        buf_puts(&out, prefix);
+        for (int64_t i = 0; i < width - len; i++) buf_puts(&out, "0");
+        buf_put(&out, body->p, body->len);
+    } else {
+        int align = f->align ? f->align : (numeric ? 2 : 1);
+        int64_t missing = width - len;
+        int64_t left = align == 1 ? 0 : align == 2 ? missing : missing / 2;
+        for (int64_t i = 0; i < left; i++) buf_char(&out, f->fill);
+        buf_puts(&out, sign);
+        buf_puts(&out, prefix);
+        buf_put(&out, body->p, body->len);
+        for (int64_t i = 0; i < missing - left; i++) buf_char(&out, f->fill);
+    }
+    return ppl_str_new(out.p, out.len);
+}
+
+static PplStr *fmt_int(bool neg, uint64_t mag, const PplFmt *f, double as_float) {
+    Buf body = {0};
+    char tmp[80];
+    if (f->kind >= 6 && f->kind <= 9) {
+        put_float_body(&body, fabs(as_float), false, f);
+        return pad(as_float < 0, "", &body, true, f);
+    }
+    const char *prefix = "";
+    switch (f->kind) {
+    case 2:
+        snprintf(tmp, sizeof tmp, "%" PRIx64, mag);
+        if (f->alternate) prefix = "0x";
+        break;
+    case 3:
+        snprintf(tmp, sizeof tmp, "%" PRIX64, mag);
+        if (f->alternate) prefix = "0x";
+        break;
+    case 4:
+        snprintf(tmp, sizeof tmp, "%" PRIo64, mag);
+        if (f->alternate) prefix = "0o";
+        break;
+    case 5: {
+        int n = 0;
+        do {
+            tmp[n++] = (char)('0' + (mag & 1));
+            mag >>= 1;
+        } while (mag);
+        for (int i = 0; i < n / 2; i++) {
+            char c = tmp[i];
+            tmp[i] = tmp[n - 1 - i];
+            tmp[n - 1 - i] = c;
+        }
+        tmp[n] = '\0';
+        if (f->alternate) prefix = "0b";
+        break;
+    }
+    default:
+        snprintf(tmp, sizeof tmp, "%" PRIu64, mag);
+    }
+    buf_puts(&body, tmp);
+    return pad(neg, prefix, &body, true, f);
+}
+
+PplStr *ppl_fmt_i64(int64_t v, const PplFmt *f) {
+    uint64_t mag = v < 0 ? (uint64_t)0 - (uint64_t)v : (uint64_t)v;
+    return fmt_int(v < 0, mag, f, (double)v);
+}
+
+PplStr *ppl_fmt_u64(uint64_t v, const PplFmt *f) { return fmt_int(false, v, f, (double)v); }
+
+PplStr *ppl_fmt_f64(double v, int32_t is_f32, const PplFmt *f) {
+    Buf body = {0};
+    bool neg = false;
+    if (isnan(v)) {
+        buf_puts(&body, "NaN");
+    } else {
+        neg = v < 0;
+        if (isinf(v)) buf_puts(&body, "Infinity");
+        else put_float_body(&body, fabs(v), is_f32 != 0, f);
+    }
+    return pad(neg, "", &body, true, f);
+}
+
+/* `"…"` / `'…'` with escapes (debug format). */
+static void put_quoted(Buf *b, const char *s, int64_t len, char q) {
+    char tmp[16];
+    buf_put(b, &q, 1);
+    for (int64_t i = 0; i < len;) {
+        int n = utf8_len((unsigned char)s[i]);
+        uint32_t cp = utf8_decode((const unsigned char *)s + i);
+        if (cp == '\\') buf_puts(b, "\\\\");
+        else if (cp == '\n') buf_puts(b, "\\n");
+        else if (cp == '\r') buf_puts(b, "\\r");
+        else if (cp == '\t') buf_puts(b, "\\t");
+        else if (cp == 0) buf_puts(b, "\\0");
+        else if (cp == (uint32_t)q) {
+            buf_puts(b, "\\");
+            buf_put(b, &q, 1);
+        } else if (cp < 0x20 || cp == 0x7F) {
+            snprintf(tmp, sizeof tmp, "\\u{%x}", cp);
+            buf_puts(b, tmp);
+        } else {
+            buf_put(b, s + i, n);
+        }
+        i += n;
+    }
+    buf_put(b, &q, 1);
+}
+
+PplStr *ppl_fmt_str(const PplStr *s, const PplFmt *f) {
+    Buf body = {0};
+    if (f->kind == 10) {
+        put_quoted(&body, s->data, s->byte_len, '"');
+    } else if (f->precision >= 0 && f->precision < s->char_len) {
+        int64_t b = 0;
+        for (int32_t c = 0; c < f->precision; c++) b += utf8_len((unsigned char)s->data[b]);
+        buf_put(&body, s->data, b);
+    } else {
+        buf_put(&body, s->data, s->byte_len);
+    }
+    return pad(false, "", &body, false, f);
+}
+
+PplStr *ppl_fmt_char(uint32_t c, const PplFmt *f) {
+    Buf body = {0};
+    char tmp[4];
+    int n = utf8_encode(c, tmp);
+    if (f->kind == 10) put_quoted(&body, tmp, n, '\'');
+    else buf_put(&body, tmp, n);
+    return pad(false, "", &body, false, f);
+}
+
+PplStr *ppl_fmt_bool(int32_t v, const PplFmt *f) {
+    Buf body = {0};
+    buf_puts(&body, v ? "true" : "false");
+    return pad(false, "", &body, false, f);
 }
 
 /* ---------------------------------------------------------------- panics */

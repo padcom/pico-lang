@@ -25,6 +25,7 @@ use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel};
 use ppl_mir::mir::{
     BinOp, BlockId, Callee, Const, Loc, Operand, Place, Program, Rvalue, Terminator, UnOp, panics,
 };
+use ppl_sema::format::{Align, FormatSpec, Kind, Sign};
 use ppl_sema::hir::Builtin;
 use ppl_sema::{FloatTy, IntTy, Ty};
 use std::collections::HashMap;
@@ -229,6 +230,12 @@ impl<'ctx> Gen<'ctx, '_> {
                 false,
             ),
             "ppl_str_concat" => ptr.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_fmt_i64" | "ppl_fmt_u64" => ptr.fn_type(&[i64t.into(), ptr.into()], false),
+            "ppl_fmt_f64" => {
+                ptr.fn_type(&[self.cx.f64_type().into(), i32t.into(), ptr.into()], false)
+            }
+            "ppl_fmt_str" => ptr.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_fmt_char" | "ppl_fmt_bool" => ptr.fn_type(&[i32t.into(), ptr.into()], false),
             "ppl_str_from_i64" | "ppl_str_from_u64" => ptr.fn_type(&[i64t.into()], false),
             "ppl_str_from_f64" => ptr.fn_type(&[self.cx.f64_type().into()], false),
             "ppl_str_from_f32" => ptr.fn_type(&[self.cx.f32_type().into()], false),
@@ -498,6 +505,11 @@ impl<'ctx> Gen<'ctx, '_> {
                     self.b.build_call(self.rt(&name), &[arg], "").unwrap(),
                 ))
             }
+            Rvalue::Format(o, spec) => {
+                let t = self.operand_ty(fx, o);
+                let v = self.operand(fx, o)?;
+                Some(self.format(&t, v, spec))
+            }
             Rvalue::StrLen(o) => {
                 let s = self.operand(fx, o)?.into_pointer_value();
                 Some(self.str_len(s).into())
@@ -523,6 +535,102 @@ impl<'ctx> Gen<'ctx, '_> {
                     .unwrap();
                 Some(basic(r))
             }
+        }
+    }
+
+    /// A constant `PplFmt` (see `ppl_rt.h`) for a spec.
+    fn fmt_global(&self, spec: &FormatSpec) -> PointerValue<'ctx> {
+        let i32t = self.i32();
+        let c = |v: i64| i32t.const_int(v as u64, true);
+        let fields: Vec<BasicValueEnum> = vec![
+            c(spec.fill as i64).into(),
+            c(match spec.align {
+                None => 0,
+                Some(Align::Left) => 1,
+                Some(Align::Right) => 2,
+                Some(Align::Center) => 3,
+            })
+            .into(),
+            c(match spec.sign {
+                Sign::Minus => 0,
+                Sign::Plus => 1,
+                Sign::Space => 2,
+            })
+            .into(),
+            c(spec.alternate as i64).into(),
+            c(spec.zero as i64).into(),
+            c(spec.width.map_or(-1, i64::from)).into(),
+            c(spec.precision.map_or(-1, i64::from)).into(),
+            c(match spec.kind {
+                Kind::Default => 0,
+                Kind::Dec => 1,
+                Kind::Hex => 2,
+                Kind::HexUpper => 3,
+                Kind::Oct => 4,
+                Kind::Bin => 5,
+                Kind::Exp => 6,
+                Kind::ExpUpper => 7,
+                Kind::Fixed => 8,
+                Kind::Percent => 9,
+                Kind::Debug => 10,
+            })
+            .into(),
+        ];
+        let value = self.cx.const_struct(&fields, false);
+        let g = self.m.add_global(value.get_type(), None, "ppl.fmt");
+        g.set_linkage(Linkage::Private);
+        g.set_constant(true);
+        g.set_initializer(&value);
+        g.as_pointer_value()
+    }
+
+    fn format(
+        &mut self,
+        t: &Ty,
+        v: BasicValueEnum<'ctx>,
+        spec: &FormatSpec,
+    ) -> BasicValueEnum<'ctx> {
+        let f = self.fmt_global(spec).into();
+        let call = |g: &Self, name: &str, args: &[BasicMetadataValueEnum<'ctx>]| {
+            basic(g.b.build_call(g.rt(name), args, "").unwrap())
+        };
+        match t {
+            Ty::Int(it) => {
+                let wide = self
+                    .b
+                    .build_int_cast_sign_flag(v.into_int_value(), self.i64(), it.signed(), "")
+                    .unwrap();
+                call(
+                    self,
+                    if it.signed() {
+                        "ppl_fmt_i64"
+                    } else {
+                        "ppl_fmt_u64"
+                    },
+                    &[wide.into(), f],
+                )
+            }
+            Ty::Float(ft) => {
+                let d = match ft {
+                    FloatTy::F64 => v.into_float_value(),
+                    FloatTy::F32 => self
+                        .b
+                        .build_float_ext(v.into_float_value(), self.cx.f64_type(), "")
+                        .unwrap(),
+                };
+                let is_f32 = self.i32().const_int(u64::from(*ft == FloatTy::F32), false);
+                call(self, "ppl_fmt_f64", &[d.into(), is_f32.into(), f])
+            }
+            Ty::Str => call(self, "ppl_fmt_str", &[v.into(), f]),
+            Ty::Char => call(self, "ppl_fmt_char", &[v.into(), f]),
+            Ty::Bool => {
+                let w = self
+                    .b
+                    .build_int_z_extend(v.into_int_value(), self.i32(), "")
+                    .unwrap();
+                call(self, "ppl_fmt_bool", &[w.into(), f])
+            }
+            _ => unreachable!("format spec on {t}"),
         }
     }
 

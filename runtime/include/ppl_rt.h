@@ -40,6 +40,26 @@ PplStr *ppl_str_from_f32(float v);
 PplStr *ppl_str_from_bool(int32_t v);
 PplStr *ppl_str_from_char(uint32_t c);
 
+/* A compiled format spec (`${x:08.2f}`), emitted by the compiler as a constant. Field values
+ * mirror `ppl_sema::format::FormatSpec`. */
+typedef struct PplFmt {
+    uint32_t fill;
+    int32_t align;     /* 0 none, 1 left, 2 right, 3 center */
+    int32_t sign;      /* 0 minus, 1 plus, 2 space */
+    int32_t alternate; /* `#` */
+    int32_t zero;      /* `0` */
+    int32_t width;     /* -1: none */
+    int32_t precision; /* -1: none */
+    int32_t kind;      /* 0 default, 1 d, 2 x, 3 X, 4 o, 5 b, 6 e, 7 E, 8 f, 9 %, 10 ? */
+} PplFmt;
+
+PplStr *ppl_fmt_i64(int64_t v, const PplFmt *f);
+PplStr *ppl_fmt_u64(uint64_t v, const PplFmt *f);
+PplStr *ppl_fmt_f64(double v, int32_t is_f32, const PplFmt *f);
+PplStr *ppl_fmt_str(const PplStr *s, const PplFmt *f);
+PplStr *ppl_fmt_char(uint32_t c, const PplFmt *f);
+PplStr *ppl_fmt_bool(int32_t v, const PplFmt *f);
+
 /* The char at code-point index `i`; panics (index out of bounds) at the given location.
  * Sequential access is O(1) thanks to the cached position. */
 uint32_t ppl_str_char_at(PplStr *s, int64_t i, const char *file, int64_t file_len, int32_t line,

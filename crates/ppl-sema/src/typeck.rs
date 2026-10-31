@@ -32,6 +32,8 @@ pub struct Types {
     pub locals: Vec<Vec<Ty>>,
     pub globals: Vec<Ty>,
     pub sigs: Vec<FnSig>,
+    /// Parsed format specs of template parts, keyed by the part's expression.
+    pub formats: HashMap<ExprId, crate::format::FormatSpec>,
 }
 
 impl Types {
@@ -60,6 +62,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
                 .collect(),
             globals: vec![Ty::Error; program.globals.len()],
             sigs: Vec::new(),
+            formats: HashMap::new(),
         },
         diags: Vec::new(),
         state: vec![FnState::Unchecked; program.fns.len()],
@@ -582,6 +585,10 @@ impl<'p> Checker<'p> {
                             )
                             .primary(p.expr.span, "has no string form"),
                         );
+                        continue;
+                    }
+                    if let Some(spec) = &p.spec {
+                        self.format_spec(&p.expr, spec);
                     }
                 }
                 Ty::Str
@@ -667,6 +674,27 @@ impl<'p> Checker<'p> {
                 to.clone()
             }
             ExprKind::Error => Ty::Error,
+        }
+    }
+
+    /// Parses and checks a template part's format spec against the part's type.
+    fn format_spec(&mut self, e: &Expr, spec: &str) {
+        let t = self.types.final_ty(e.id).clone();
+        if t.is_error() {
+            return;
+        }
+        match crate::format::parse(spec).and_then(|f| crate::format::check(&f, &t).map(|()| f)) {
+            Ok(f) => {
+                self.types.formats.insert(e.id, f);
+            }
+            Err(why) => self.diags.push(
+                Diagnostic::error(
+                    codes::INVALID_FORMAT_SPEC,
+                    format!("invalid format spec `{spec}`"),
+                )
+                .primary(e.span, format!("formatted with `:{spec}`"))
+                .note(why),
+            ),
         }
     }
 

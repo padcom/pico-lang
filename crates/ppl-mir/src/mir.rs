@@ -170,6 +170,8 @@ pub enum Rvalue {
     Cast(Operand, Ty),
     /// The string form of a primitive (as `println` shows it): templates and `toString()`.
     ToStr(Operand),
+    /// A template part with a format spec: `${x:08.2f}`.
+    Format(Operand, ppl_sema::format::FormatSpec),
     /// `s.length`: a string's length in code points.
     StrLen(Operand),
     /// `s[i]`: the `char` at code-point index `i` (panics when out of bounds).
@@ -255,6 +257,7 @@ impl fmt::Display for Rvalue {
             Rvalue::Cast(a, t) => write!(f, "{a} as {t}"),
             Rvalue::StrLen(a) => write!(f, "StrLen({a})"),
             Rvalue::ToStr(a) => write!(f, "ToStr({a})"),
+            Rvalue::Format(a, spec) => write!(f, "Format({a}, {spec:?})"),
             Rvalue::StrCharAt(a, i) => write!(f, "StrCharAt({a}, {i})"),
         }
     }

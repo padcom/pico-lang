@@ -65,6 +65,7 @@ codes! {
     RECURSIVE_NEEDS_RETURN_TYPE = 306: "recursive function without a return type",
     MISMATCHED_TYPES = 308: "mismatched types",
     UNKNOWN_MEMBER = 309: "no such member",
+    INVALID_FORMAT_SPEC = 310: "invalid format spec",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

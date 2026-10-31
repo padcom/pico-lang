@@ -236,6 +236,12 @@ impl Interp<'_, '_> {
                 let t = self.operand_ty(frame, o);
                 Ok(Value::Str(display(&self.operand(frame, o), &t).into()))
             }
+            Rvalue::Format(o, spec) => {
+                let t = self.operand_ty(frame, o);
+                Ok(Value::Str(
+                    format_spec(&self.operand(frame, o), &t, spec).into(),
+                ))
+            }
             Rvalue::StrLen(o) => match self.operand(frame, o) {
                 Value::Str(s) => Ok(Value::Int(s.chars().count() as i128)),
                 v => unreachable!("length of {v:?}"),
@@ -479,9 +485,18 @@ pub fn format_float(x: f64, is_f32: bool) -> String {
     if x == 0.0 {
         return "0".into();
     }
-    // The shortest correctly rounded scientific form that round-trips ("d.ddde±x"). Rounding
-    // is half-to-even, so ties pick the even digit, as ECMAScript requires (and as the C
-    // runtime's `%.*e` does).
+    let neg = x < 0.0;
+    let (digits, n) = shortest_digits(x.abs(), is_f32);
+    js_number_string(neg, &digits, n)
+}
+
+/// The shortest digits `d1…dk` and decimal exponent `n` with `|x| = 0.d1…dk × 10^n` that
+/// round-trip. Uses the shortest correctly rounded `%.*e` (rounding half to even, so ties pick
+/// the even digit, as ECMAScript requires, and as the C runtime does). `x` must be finite.
+fn shortest_digits(x: f64, is_f32: bool) -> (String, i32) {
+    if x == 0.0 {
+        return ("0".into(), 1);
+    }
     let max = if is_f32 { 9 } else { 17 };
     let sci = (1..=max)
         .map(|p| {
@@ -499,17 +514,193 @@ pub fn format_float(x: f64, is_f32: bool) -> String {
             }
         })
         .expect("17 significant digits always round-trip");
-    let (neg, sci) = match sci.strip_prefix('-') {
-        Some(s) => (true, s),
-        None => (false, sci.as_str()),
-    };
+    let sci = sci.trim_start_matches('-');
     let (mant, exp) = sci.split_once('e').expect("scientific format");
     let mut digits: String = mant.chars().filter(|c| *c != '.').collect();
     while digits.len() > 1 && digits.ends_with('0') {
         digits.pop();
     }
     let exp: i32 = exp.parse().expect("exponent");
-    js_number_string(neg, &digits, exp + 1)
+    (digits, exp + 1)
+}
+
+// ---------------------------------------------------------------- format specs
+
+use ppl_sema::format::{Align, FormatSpec, Kind, Sign};
+
+/// Formats a template part with a spec (spec §1.4). Must match `ppl_fmt_*` in the C runtime.
+pub fn format_spec(v: &Value, t: &Ty, spec: &FormatSpec) -> String {
+    let is_f32 = matches!(t, Ty::Float(FloatTy::F32));
+    let (neg, prefix, body, numeric) = match v {
+        Value::Int(x) => {
+            let mag = x.unsigned_abs();
+            let body = match spec.kind {
+                Kind::Hex => format!("{mag:x}"),
+                Kind::HexUpper => format!("{mag:X}"),
+                Kind::Oct => format!("{mag:o}"),
+                Kind::Bin => format!("{mag:b}"),
+                Kind::Exp | Kind::ExpUpper | Kind::Fixed | Kind::Percent => {
+                    let (neg, body) = float_body(*x as f64, false, spec);
+                    return pad(neg, "", &body, true, spec);
+                }
+                _ => mag.to_string(),
+            };
+            let prefix = match (spec.alternate, spec.kind) {
+                (true, Kind::Hex | Kind::HexUpper) => "0x",
+                (true, Kind::Oct) => "0o",
+                (true, Kind::Bin) => "0b",
+                _ => "",
+            };
+            (*x < 0, prefix, body, true)
+        }
+        Value::Float(x) => {
+            let (neg, body) = float_body(*x, is_f32, spec);
+            (neg, "", body, true)
+        }
+        Value::Str(s) => {
+            let body = if spec.kind == Kind::Debug {
+                quote(s, '"')
+            } else {
+                match spec.precision {
+                    Some(p) => s.chars().take(p as usize).collect(),
+                    None => s.to_string(),
+                }
+            };
+            (false, "", body, false)
+        }
+        Value::Char(c) => {
+            let body = if spec.kind == Kind::Debug {
+                quote(&c.to_string(), '\'')
+            } else {
+                c.to_string()
+            };
+            (false, "", body, false)
+        }
+        Value::Bool(b) => (false, "", b.to_string(), false),
+        Value::Void | Value::Uninit => (false, "", String::new(), false),
+    };
+    pad(neg, prefix, &body, numeric, spec)
+}
+
+/// The unsigned text of a float for `spec`, and whether it's negative.
+fn float_body(x: f64, is_f32: bool, spec: &FormatSpec) -> (bool, String) {
+    if x.is_nan() {
+        return (false, "NaN".into());
+    }
+    let neg = x < 0.0;
+    let a = x.abs();
+    if a.is_infinite() {
+        return (neg, "Infinity".into());
+    }
+    let p = spec.precision.map(|p| p as usize);
+    let body = match spec.kind {
+        Kind::Fixed => match p {
+            Some(p) => format!("{a:.p$}"),
+            None => shortest_fixed(a, is_f32),
+        },
+        Kind::Exp | Kind::ExpUpper => {
+            let s = match p {
+                Some(p) => format!("{a:.p$e}"),
+                None => shortest_exp(a, is_f32),
+            };
+            if spec.kind == Kind::ExpUpper {
+                s.replace('e', "E")
+            } else {
+                s
+            }
+        }
+        Kind::Percent => {
+            let y = a * 100.0;
+            let s = match p {
+                Some(p) => format!("{y:.p$}"),
+                None => shortest_fixed(y, false),
+            };
+            s + "%"
+        }
+        _ => match p {
+            Some(p) => format!("{a:.p$}"),
+            None => format_float(a, is_f32),
+        },
+    };
+    (neg, body)
+}
+
+/// Shortest round-trip digits in fixed notation (never an exponent).
+fn shortest_fixed(a: f64, is_f32: bool) -> String {
+    let (digits, n) = shortest_digits(a, is_f32);
+    let k = digits.len() as i32;
+    if n <= 0 {
+        format!("0.{}{digits}", "0".repeat((-n) as usize))
+    } else if n >= k {
+        format!("{digits}{}", "0".repeat((n - k) as usize))
+    } else {
+        format!("{}.{}", &digits[..n as usize], &digits[n as usize..])
+    }
+}
+
+/// Shortest round-trip digits in exponential notation, Rust style: `1.2345e3`, `1e-7`.
+fn shortest_exp(a: f64, is_f32: bool) -> String {
+    let (digits, n) = shortest_digits(a, is_f32);
+    let mant = if digits.len() > 1 {
+        format!("{}.{}", &digits[..1], &digits[1..])
+    } else {
+        digits
+    };
+    format!("{mant}e{}", n - 1)
+}
+
+/// `"text"` / `'c'` with escapes: `\\`, the quote, `\n`, `\r`, `\t`, `\0`, and `\u{…}` for
+/// other control characters.
+fn quote(s: &str, q: char) -> String {
+    let mut out = String::new();
+    out.push(q);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\0' => out.push_str("\\0"),
+            c if c == q => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if (c as u32) < 0x20 || c as u32 == 0x7F => {
+                out.push_str(&format!("\\u{{{:x}}}", c as u32))
+            }
+            c => out.push(c),
+        }
+    }
+    out.push(q);
+    out
+}
+
+fn pad(neg: bool, prefix: &str, body: &str, numeric: bool, spec: &FormatSpec) -> String {
+    let sign = match (neg, spec.sign) {
+        (true, _) => "-",
+        (false, Sign::Plus) if numeric => "+",
+        (false, Sign::Space) if numeric => " ",
+        _ => "",
+    };
+    let len = sign.chars().count() + prefix.chars().count() + body.chars().count();
+    let width = spec.width.unwrap_or(0) as usize;
+    if len >= width {
+        return format!("{sign}{prefix}{body}");
+    }
+    let missing = width - len;
+    if spec.zero && numeric {
+        return format!("{sign}{prefix}{}{body}", "0".repeat(missing));
+    }
+    let align = spec
+        .align
+        .unwrap_or(if numeric { Align::Right } else { Align::Left });
+    let (left, right) = match align {
+        Align::Left => (0, missing),
+        Align::Right => (missing, 0),
+        Align::Center => (missing / 2, missing - missing / 2),
+    };
+    let fill = |n: usize| spec.fill.to_string().repeat(n);
+    format!("{}{sign}{prefix}{body}{}", fill(left), fill(right))
 }
 
 /// Lays out `0.d1d2…dk × 10^n` the way ECMAScript's Number::toString does.

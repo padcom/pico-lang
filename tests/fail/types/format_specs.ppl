@@ -1,0 +1,15 @@
+// error: E0310
+// at: 11:12
+// error: E0310
+// at: 12:12
+// error: E0310
+// at: 13:12
+// error: E0310
+// at: 14:12
+// error: E0310
+// at: 15:12
+println(`${3.14:.2q}`)
+println(`${"text":x}`)
+println(`${42:.2}`)
+println(`${"s":+}`)
+println(`${1.5:#f}`)
