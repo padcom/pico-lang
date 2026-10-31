@@ -162,4 +162,4 @@ Before starting it:
 | Date | Task | Notes |
 |------|------|-------|
 | 2026-10-31 | Spec | Design interview completed. Spec chapters 00–15 and DECISIONS.md #1–162 written. |
-| 2026-10-31 | Plan | PLAN.md split into ~95 session-sized tasks, and PROGRESS.md created. |
+| 2026-10-31 | Plan | PLAN.md split into 103 session-sized tasks, and PROGRESS.md created. |
