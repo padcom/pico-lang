@@ -1,0 +1,14 @@
+---
+source: crates/ppl-syntax/src/parser/tests.rs
+expression: "ok(r##\"\nx => x * 2\n(x: f64) => x * x\n() => { count++ }\n(a, b) => a + b\n(n: i64): i64 => fib(n)\nasync () => await f()\nasync x => x\nfunction (a: int): int { a }\nc ? (a) : b\n(a)\n\"##)"
+---
+(arrow (params x) (* x 2))
+(arrow (params (x f64)) (* x x))
+(arrow (params) (block (post++ count)))
+(arrow (params a b) (+ a b))
+(arrow (params (n i64)) (-> i64) (call fib n))
+(arrow async (params) (await (call f)))
+(arrow async (params x) x)
+(fn (params (a int)) (-> int) (block a))
+(?: c (paren a) b)
+(paren a)

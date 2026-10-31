@@ -1,0 +1,7 @@
+---
+source: crates/ppl-syntax/src/parser/tests.rs
+expression: "ok(r##\"\nif (x)\n  foo()\nelse\n  bar()\nif (a) {\n  b()\n}\nelse if (c) {\n  d()\n}\nif (x) for (const i of xs) f(i)\n\"##)"
+---
+(if x (call foo) (call bar))
+(if a (block (call b)) (if c (block (call d))))
+(if x (block (for-of const i xs (call f i))))

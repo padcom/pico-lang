@@ -1,0 +1,17 @@
+---
+source: crates/ppl-syntax/src/parser/tests.rs
+expression: "ok(r##\"\ntype A = Map<string, Array<int>>\ntype B = (A | B)[]\ntype C = string?[]\ntype D = [f32; 4]\ntype E = [string, i32]\ntype F = (x: T, y?: U, ...z: V[]) => W throws E\ntype G = \"north\" | \"south\"\ntype H = { kind: \"click\", x: i32 } | { kind: \"key\", code: u32 }\ntype I = immutable Scene\ntype J = distinct f64\ntype K = Add<T> & Zero\ntype L = extern \"C\" (a: ptr<void>, b: ptr<void>) => c_int\ntype M =\n  | A\n  | B\n\"##)"
+---
+(type A Map<string, Array<int>>)
+(type B (A | B)[])
+(type C string?[])
+(type D [f32; 4])
+(type E [string, i32])
+(type F (x: T, y?: U, ...z: V[]) => W throws E)
+(type G "north" | "south")
+(type H { kind: "click", x: i32 } | { kind: "key", code: u32 })
+(type I immutable Scene)
+(type J distinct f64)
+(type K Add<T> & Zero)
+(type L extern "C" (a: ptr<void>, b: ptr<void>) => c_int)
+(type M A | B)

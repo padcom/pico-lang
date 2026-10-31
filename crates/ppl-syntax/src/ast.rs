@@ -400,6 +400,8 @@ pub enum PatternKind {
     /// `Shape.Circle`
     Path(Path),
     Lit(Lit),
+    /// A negated numeric literal: `-1`.
+    Neg(Box<Pattern>),
     /// `0..10`
     Range {
         start: Box<Pattern>,

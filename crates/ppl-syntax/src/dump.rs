@@ -418,6 +418,7 @@ pub fn pat_s(p: &Pattern) -> S {
         PatternKind::Ident(i) => atom(i.name.clone()),
         PatternKind::Path(path) => atom(path_str(path)),
         PatternKind::Lit(l) => atom(lit_str(l)),
+        PatternKind::Neg(p) => atom(format!("-{}", pat_s(p).flat())),
         PatternKind::Range { start, end } => list("..", vec![pat_s(start), pat_s(end)]),
         PatternKind::TupleStruct { path, elems } => {
             let mut items = vec![atom(path_str(path))];

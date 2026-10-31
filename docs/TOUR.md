@@ -85,7 +85,7 @@ const yes = true
 const nothing = null
 
 const digits = /\d+(\.\d+)?/g     // regex literal, checked at compile time
-const broken = /[a-/              // error: invalid regex
+const broken = /(abc/              // error: invalid regex (unclosed group)
 ```
 
 ### Characters
@@ -787,7 +787,7 @@ for (const [i, name] of names.enumerate()) println(`${i}: ${name}`)
 for (const [a, b] of xs.zip(ys)) println(a + b)
 
 class Tree implements Iterable<i32> {
-  public *[Symbol.iterator](): Iterator<i32> { … }   // any Iterable works with for-of
+  public *iterator(): Iterator<i32> { … }   // any Iterable works with for-of (method name TBD)
 }
 
 async function* lines(path: string): AsyncIterator<string> throws IoError { … }

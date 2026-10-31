@@ -1,0 +1,26 @@
+---
+source: crates/ppl-syntax/src/parser/tests.rs
+expression: "ok(r##\"\n1 + 2 * 3\n(1 + 2) * 3\na - b - c\na ** b ** c\n-2 ** 2\na = b = c\nx += y *= 2\na ? b : c ? d : e\na || b && c\na ?? b\n(a || b) ?? c\na | b ^ c & d\na == b < c\na < b == c\n0..n - 1\n1 << 2 + 3\nx as i32 + 1\nx as i64 as f64\n!a && b\ntypeof x == \"string\"\na instanceof B || c\nawait f() + 1\n\"##)"
+---
+(+ 1 (* 2 3))
+(* (paren (+ 1 2)) 3)
+(- (- a b) c)
+(** a (** b c))
+(** (neg 2) 2)
+(= a (= b c))
+(+= x (*= y 2))
+(?: a b (?: c d e))
+(|| a (&& b c))
+(?? a b)
+(?? (paren (|| a b)) c)
+(| a (^ b (& c d)))
+(== a (< b c))
+(== (< a b) c)
+(.. 0 (- n 1))
+(<< 1 (+ 2 3))
+(+ (as x i32) 1)
+(as (as x i64) f64)
+(&& (! a) b)
+(== (typeof x) "string")
+(|| (instanceof a B) c)
+(+ (await (call f)) 1)

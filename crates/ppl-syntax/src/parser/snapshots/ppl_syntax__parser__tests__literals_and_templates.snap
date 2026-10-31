@@ -1,0 +1,14 @@
+---
+source: crates/ppl-syntax/src/parser/tests.rs
+expression: "ok(r##\"\n[1, 2, ...rest]\n[0; 16]\n[]\n`a${x}b${y:>4}c`\n`outer ${`inner ${z}`}`\nconst re = /\\d+/g\nconst obj = { x: 1, y }\nPoint { x: 1, y: 2 }\nPair<int, string> { first: 1, second: \"a\" }\nShape.Circle { r: 1 }\n\"##)"
+---
+(array 1 2 (... rest))
+(array-repeat 0 16)
+(array)
+(template "a" (${} x) "b" (${} y :>4) "c")
+(template "outer " (${} (template "inner " (${} z))))
+(const re /\d+/g)
+(const obj (object (x: 1) y))
+(object Point (x: 1) (y: 2))
+(object Pair<int, string> (first: 1) (second: "a"))
+(object Shape.Circle (r: 1))

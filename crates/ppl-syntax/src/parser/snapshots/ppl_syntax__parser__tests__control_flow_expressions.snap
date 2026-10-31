@@ -1,0 +1,20 @@
+---
+source: crates/ppl-syntax/src/parser/tests.rs
+expression: "ok(r##\"\nconst grade = if (s > 90) \"A\" else if (s > 75) \"B\" else \"C\"\nconst bonus = if (vip) 100\nconst line = readLine() ?? break null\nreturn\nreturn x + 1\nthrow new Error(\"x\")\nconst port = try parsePort(s) catch (e: ParseError) 8080\nconst m = try? parsePort(s)\nconst n = try! parseInt(\"42\")\nyield a\nyield* inner()\nreturn tailcall count(n - 1)\ncomptime if (target.os == \"windows\") a else b\ncomptime.readFile(\"x\")\nunsafe.cast<u32>(x)\nconst t = arena { parts.length }\n\"##)"
+---
+(const grade (if (> s 90) "A" (if (> s 75) "B" "C")))
+(const bonus (if vip 100))
+(const line (?? (call readLine) (break null)))
+(return)
+(return (+ x 1))
+(throw (new Error "x"))
+(const port (try (call parsePort s) (catch (typed e ParseError) 8080)))
+(const m (try? (call parsePort s)))
+(const n (try! (call parseInt "42")))
+(yield a)
+(yield* (call inner))
+(return (tailcall (call count (- n 1))))
+(comptime (if (== (. target os) "windows") a b))
+(call (. comptime readFile) "x")
+(call (. unsafe cast) (targs u32) x)
+(const t (arena (block (. parts length))))

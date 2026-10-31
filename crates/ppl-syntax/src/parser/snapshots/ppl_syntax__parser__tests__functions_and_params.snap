@@ -1,0 +1,30 @@
+---
+source: crates/ppl-syntax/src/parser/tests.rs
+expression: "ok(r##\"\nfunction add(a: i32, b: i32): i32 { a + b }\nfunction greet(name: string, greeting = \"Hello\", suffix?: string): string {}\nfunction sum(...xs: i64[]): i64 {}\nfunction connect({ host, port = 5432 }: DbOptions) {}\nfunction max<T extends Comparable<T>>(a: T, b: T): T { a }\nfunction s<T>(xs: T[]): T where T: Add<T> & Zero { xs[0] }\nfunction z<comptime N: i32>(): [f32; N] {}\nasync function f(id: i64): Promise<User> throws HttpError {}\nfunction* fib(): Iterator<i64> {}\nunsafe function poke(p: ptr<u8>, v: u8) {}\nexport decorator function memoize(fn: FunctionDecl): FunctionDecl {}\n\"##)"
+---
+(function add (params (a i32) (b i32)) (-> i32) (block (+ a b)))
+(function
+  greet
+  (params (name string) (greeting (= "Hello")) (suffix ? string))
+  (-> string)
+  (block))
+(function sum (params (... xs i64[])) (-> i64) (block))
+(function connect (params ((object-pat host (= port 5432)) DbOptions)) (block))
+(function
+  max
+  (generics (T (extends Comparable<T>)))
+  (params (a T) (b T))
+  (-> T)
+  (block a))
+(function
+  s
+  (generics T)
+  (params (xs T[]))
+  (-> T)
+  (where (: T Add<T> & Zero))
+  (block (index xs 0)))
+(function z (generics (comptime N i32)) (params) (-> [f32; N]) (block))
+(function f async (params (id i64)) (-> Promise<User>) (throws HttpError) (block))
+(function fib generator (params) (-> Iterator<i64>) (block))
+(function poke unsafe (params (p ptr<u8>) (v u8)) (block))
+(export (function memoize decorator (params (fn FunctionDecl)) (-> FunctionDecl) (block)))

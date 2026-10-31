@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P1.8: Parser: expressions** (see [PLAN.md](PLAN.md#p18-parser-expressions))
+**P1.12: Parser error recovery** (see [PLAN.md](PLAN.md#p112-parser-error-recovery))
 
 Notes:
 - Crates live in `crates/<name>`; shared deps go in `[workspace.dependencies]` of the root Cargo.toml.
@@ -15,9 +15,9 @@ Notes:
 | Area | State |
 |------|-------|
 | Spec | ✅ complete: 16 chapters, 162 decisions, no open questions |
-| Compiler | workspace skeleton: 10 empty crates, `ppl --version` |
+| Compiler | front end: lexer, newline filter, AST, parser (`ppl parse --dump`) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-10-31 (P1.7) |
+| Last green `scripts/test.sh` | 2026-10-31 (P1.11) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -43,10 +43,10 @@ Notes:
 - [x] P1.5 Lexer: templates, multiline strings, regex
 - [x] P1.6 Statement-termination rule
 - [x] P1.7 AST and pretty-printer
-- [ ] P1.8 Parser: expressions
-- [ ] P1.9 Parser: statements and blocks
-- [ ] P1.10 Parser: declarations and types
-- [ ] P1.11 Parser: patterns, match, switch, try
+- [x] P1.8 Parser: expressions
+- [x] P1.9 Parser: statements and blocks
+- [x] P1.10 Parser: declarations and types
+- [x] P1.11 Parser: patterns, match, switch, try
 - [ ] P1.12 Parser error recovery
 - [ ] P1.13 Golden-test harness
 
@@ -174,3 +174,4 @@ Notes:
 | 2026-10-31 | P1.5 | Templates via a substitution stack, format-spec capture at a top-level `:` (ternary-aware), triple-quoted dedent, regex literals (decision 165). Committed together with P1.4. |
 | 2026-10-31 | P1.6 | newline::filter with bracket stack; trailing/leading continuation sets (decision 166, provisional: generic closers and `?` end a line); table-driven tests for every §1.2 example. |
 | 2026-10-31 | P1.7 | ast.rs covers the whole language (exprs incl. control flow as expressions, patterns, stmts, decls, members); dump.rs S-expression printer with width-based breaking; unit tests on hand-built ASTs. `ppl parse --dump` gets wired in P1.8. |
+| 2026-10-31 | P1.8–P1.11 | Parser (one module, committed together): Pratt expressions, statements, declarations, types, patterns, match/switch/try. `ppl parse --dump`. 14 insta snapshot groups; `tests/spec_samples.rs` parses every ```ts block in docs/spec and docs/TOUR.md (2 spec blocks skipped with reasons). Decisions 167–172. |

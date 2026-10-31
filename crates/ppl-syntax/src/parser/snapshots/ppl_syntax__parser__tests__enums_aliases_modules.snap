@@ -1,0 +1,28 @@
+---
+source: crates/ppl-syntax/src/parser/tests.rs
+expression: "ok(r##\"\nenum Color { Red, Green, Blue }\nenum Shape {\n  Circle(r: f64),\n  Rect(w: f64, h: f64),\n  Empty,\n}\nenum ParseFail implements Throwable {\n  Eof,\n  Unexpected(ch: char, at: int),\n  message(): string { \"x\" }\n}\ntype Id = i64 | string\ntype Meters = distinct f64\nimport { a, b as c } from \"./x\"\nimport * as geo from \"./geometry\"\nexport { Vec2 } from \"./geometry\"\nexport { a, b as c }\nexport * from \"./all\"\nexport const ORIGIN = Vec2 { x: 0, y: 0 }\nexport struct P { x: i32 }\n@link(\"SDL2\")\nextern \"C\" {\n  function SDL_Init(flags: u32): i32\n  function SDL_Delay(ms: u32): void\n}\n@comptimeLimit(50_000_000)\ncomptime const PRIMES = sieve(10)\n\"##)"
+---
+(enum Color (variant Red) (variant Green) (variant Blue))
+(enum Shape (variant Circle (r f64)) (variant Rect (w f64) (h f64)) (variant Empty))
+(enum
+  ParseFail
+  (implements Throwable)
+  (variant Eof)
+  (variant Unexpected (ch char) (at int))
+  (method message (params) (-> string) (block "x")))
+(type Id i64 | string)
+(type Meters distinct f64)
+(import a (as b c) (from "./x"))
+(import (* geo) (from "./geometry"))
+(export-list Vec2 (from "./geometry"))
+(export-list a (as b c))
+(export-all "./all")
+(export (const ORIGIN (object Vec2 (x: 0) (y: 0))))
+(export (struct P (field x i32)))
+(decorated
+  (@link "SDL2")
+  (extern
+    "C"
+    (function SDL_Init (params (flags u32)) (-> i32))
+    (function SDL_Delay (params (ms u32)) (-> void))))
+(decorated (@comptimeLimit 50000000) (comptime-const PRIMES (call sieve 10)))

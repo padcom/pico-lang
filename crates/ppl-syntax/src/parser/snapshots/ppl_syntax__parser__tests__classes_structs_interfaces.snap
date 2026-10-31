@@ -1,0 +1,41 @@
+---
+source: crates/ppl-syntax/src/parser/tests.rs
+expression: "ok(r##\"\nstruct Vec2 { x: f32; y: f32 }\n@pod struct V { pos: [f32; 3] }\nstruct Vec3 {\n  x: f32\n  length(): f32 { x }\n  operator +(o: Vec3): Vec3 { o }\n  operator -(): Vec3 { this }\n}\nabstract class Shape {\n  public abstract area(): f64\n}\nfinal class Config {}\nclass Animal {\n  static count = 0\n  static { Animal.count = 0 }\n  public readonly id: i64\n  private items: T[] = []\n  constructor(public name: string, protected age: i32) { count++ }\n  constructor(name: string) { this(name, 0) }\n  public get description(): string { name }\n  public set nickname(v: string) { name = v }\n  public virtual speak(): string { \"...\" }\n  helper() {}\n  @validate.email public email: string = \"\"\n  public submit(@nonEmpty note: string) {}\n  public readonly count(): int { 1 }\n  get(i: int): T { items[i] }\n  public *iterator(): Iterator<i32> {}\n}\nclass Dog extends Animal implements Pet, Named {\n  public override speak(): string { \"Woof\" }\n}\ninterface Shape2 extends Named {\n  area(): f64\n  describe(): string { \"x\" }\n}\n\"##)"
+---
+(struct Vec2 (field x f32) (field y f32))
+(decorated @pod (struct V (field pos [f32; 3])))
+(struct
+  Vec3
+  (field x f32)
+  (method length (params) (-> f32) (block x))
+  (operator+ (params (o Vec3)) (-> Vec3) (block o))
+  (operator- (params) (-> Vec3) (block this)))
+(class abstract Shape (method public abstract area (params) (-> f64)))
+(class final Config)
+(class
+  Animal
+  (field static count (= 0))
+  (static-block (block (= (. Animal count) 0)))
+  (field public readonly id i64)
+  (field private items T[] (= (array)))
+  (constructor (params (public name string) (protected age i32)) (block (post++ count)))
+  (constructor (params (name string)) (block (call this name 0)))
+  (get public description (params) (-> string) (block name))
+  (set public nickname (params (v string)) (block (= name v)))
+  (method public virtual speak (params) (-> string) (block "..."))
+  (method helper (params) (block))
+  (field @validate.email public email string (= ""))
+  (method public submit (params (@nonEmpty note string)) (block))
+  (method public readonly count (params) (-> int) (block 1))
+  (method get (params (i int)) (-> T) (block (index items i)))
+  (method public iterator generator (params) (-> Iterator<i32>) (block)))
+(class
+  Dog
+  (extends Animal)
+  (implements Pet Named)
+  (method public override speak (params) (-> string) (block "Woof")))
+(interface
+  Shape2
+  (extends Named)
+  (method area (params) (-> f64))
+  (method describe (params) (-> string) (block "x")))
