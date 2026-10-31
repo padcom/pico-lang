@@ -275,6 +275,11 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 160 | WASI workers | No workers on `wasm32-wasi` (wasi-threads is unstable). |
 | 161 | External processes | A single cross-platform `Command` API in `std/process` (spawn, pipes, exit status, kill, env, cwd), available wherever the platform supports it. Today that's all native targets. It's a compile error on `wasm32-browser`; on `wasm32-wasi` it's unavailable until WASI gains process support. |
 
+## Round 25 (registry)
+| # | Topic | Decision |
+|---|-------|----------|
+| 162 | Registry | A git-backed index hosted on GitHub (like the crates.io index). Entries point at tagged git sources with content hashes. A web UI can come later. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|

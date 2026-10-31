@@ -68,5 +68,12 @@ A package is a directory containing a `project.json`:
 - Packages ship as source and get compiled together with the consumer, which is what
   monomorphization and comptime need.
 
-## Open questions
-- Registry name and hosting.
+## 8.4 Registry
+The registry is a **git-backed index hosted on GitHub**, similar to the crates.io index:
+- Each package has one index file, `<scope>/<name>.json`, listing its versions. Every version records
+  a git URL, a tag, a commit SHA, a content hash and its dependencies.
+- `ppl publish` checks the package, tags the release and opens a pull request against the index
+  (automated checks merge it).
+- `ppl add` fetches the index (sparse, over HTTPS), resolves versions and downloads sources from git.
+- The index URL can be overridden in `project.json` (`"registry": "…"`) for mirrors and private
+  registries.
