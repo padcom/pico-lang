@@ -7,15 +7,19 @@
 **P3.4: Structs** (see [PLAN.md](PLAN.md#p34-structs))
 
 Notes:
-- Golden fixtures: `tests/run/**/*.ppl` and `tests/fail/**/*.ppl`, run by `cargo test -p ppl-tests`
-  (`PPL_TEST_FILTER=name` for a subset). Directives are documented in `crates/ppl-tests/src/lib.rs`.
-- When a stage lands, add it to `ppl_driver::Stage::IMPLEMENTED` and call it from
-  `ppl_driver::check_source`. Pending fixtures for that stage then start being checked for real.
-  `tests/fail/types/nominal.ppl` (E0308) is waiting for the type checker.
-- New error codes go in `crates/ppl-diag/src/codes.rs` (E02xx for resolution).
-- Commit only through a `scripts/test.sh` exit-status check.
-- No open spec questions. Decision 178 matters for stdlib work: Web-standard APIs take their
-  options object as a struct (`fetch(url, { … })`); ppl's own APIs use named arguments.
+- Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
+  `run_interp` and `build_native` run it. New features touch: resolver (`ppl-sema/src/resolve.rs`,
+  replace an E0900 "not implemented"), typeck, MIR lowering, the interpreter **and** codegen (+ C
+  runtime when needed). Golden fixtures run interpreted and native; they must agree.
+- Value representation so far: primitives in registers/allocas, strings as `PplStr*` (see
+  `runtime/include/ppl_rt.h`). Structs (P3.4) are the first aggregate: decide their MIR/LLVM
+  layout (inline values, field places) and make `Place` support fields.
+- Integer literals without context default to `int`; there are no inference variables, so
+  `const g = if (c) 1 else 2` is `int` even if later returned as `i32` (by design, §1.3).
+- `tests/fail/types/nominal.ppl` waits for classes (P3.9).
+- Commit only through a `scripts/test.sh` exit-status check. When editing files with scripts,
+  assert that anchors exist and slices are non-empty (an empty-slice replace once corrupted
+  `ppl_rt.c`; it was restored from git).
 
 ## Current state
 | Area | State |
