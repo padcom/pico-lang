@@ -292,3 +292,5 @@ waiting for the author's review.
 | # | Topic | Decision |
 |---|-------|----------|
 | 163 | Error codes | `E00xx` lexical, `E01xx` syntax, `E02xx` names and modules, `E03xx` types (`E0308` mismatched types as in §14.2). The registry lives in `ppl-diag/src/codes.rs`, and codes are never reused. |
+| 164 | Keywords | `do` is reserved (the §1.6 list had left it out, but `do … while` needs it). `type`, `of`, `from` and `arena` are contextual, as in TS. Reserved words are still allowed as property names after `.` (`map.get(k)`, `ages.set(…)`). |
+| 165 | Regex vs `/` | A `/` starts a regex unless the previous significant token ends an expression: an identifier, a literal, `)`, `]`, `this`, `super`, `null`, `true`, `false`, or a postfix `!`/`++`/`--` after one of those. A `}` does **not** end an expression, so `} /re/` is a regex. Newlines don't change the state, which matches §1.2 (`x\n/ 2` divides). |

@@ -94,4 +94,8 @@ A type can customize how it formats by implementing a `Formattable` interface (d
 false finally for function get if implements import in instanceof interface let match new null
 operator private protected public readonly return set static struct super switch this throw
 throws true try typeof unsafe where while yield comptime immutable tailcall virtual override
-abstract final loop using distinct decorator is`
+abstract final loop using distinct decorator is do`
+
+`type`, `of`, `from` and `arena` are **contextual**: they're keywords only where the grammar
+expects them (`type X = …`, `for (x of …)`, `import … from`, `arena { … }`) and ordinary
+identifiers everywhere else.

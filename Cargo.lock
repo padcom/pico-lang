@@ -243,6 +243,11 @@ version = "0.1.0"
 [[package]]
 name = "ppl-syntax"
 version = "0.1.0"
+dependencies = [
+ "insta",
+ "ppl-diag",
+ "unicode-ident",
+]
 
 [[package]]
 name = "ppl-tests"

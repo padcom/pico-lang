@@ -18,6 +18,7 @@ ppl-runtime = { path = "crates/ppl-runtime" }
 ppl-driver = { path = "crates/ppl-driver" }
 clap = { version = "4.6", features = ["derive"] }
 insta = "1.49"
+unicode-ident = "1"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P1.4: Lexer: core tokens** (see [PLAN.md](PLAN.md#p14-lexer-core-tokens))
+**P1.6: Statement-termination rule** (see [PLAN.md](PLAN.md#p16-statement-termination-rule))
 
 Notes:
 - Crates live in `crates/<name>`; shared deps go in `[workspace.dependencies]` of the root Cargo.toml.
@@ -17,7 +17,7 @@ Notes:
 | Spec | ✅ complete: 16 chapters, 162 decisions, no open questions |
 | Compiler | workspace skeleton: 10 empty crates, `ppl --version` |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-10-31 (P1.3) |
+| Last green `scripts/test.sh` | 2026-10-31 (P1.4) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -39,8 +39,8 @@ Notes:
 - [x] P1.1 Toolchain setup
 - [x] P1.2 Workspace skeleton
 - [x] P1.3 Diagnostics
-- [ ] P1.4 Lexer: core tokens
-- [ ] P1.5 Lexer: templates, multiline strings, regex
+- [x] P1.4 Lexer: core tokens
+- [x] P1.5 Lexer: templates, multiline strings, regex
 - [ ] P1.6 Statement-termination rule
 - [ ] P1.7 AST and pretty-printer
 - [ ] P1.8 Parser: expressions
@@ -170,3 +170,5 @@ Notes:
 | 2026-10-31 | Tour | docs/TOUR.md: an example of every feature. Open questions for the user: `Some(v)` in §3.5 (no Option type), undeclared `cache` in the §11.2 `@memoize` example, `env: { "LANG": "C" }` object literal (§13.3), option bags vs named args for Web APIs, the WasmGC wording in §9.2 vs PLAN. |
 | 2026-10-31 | P1.2 | Cargo workspace (edition 2024, resolver 3) with 10 crates, `ppl` binary (clap) with `--version` + integration test, scripts/test.sh (fmt, clippy -D warnings, test). |
 | 2026-10-31 | P1.3 | ppl-diag: SourceMap/FileId/Span, Diagnostic builder, error-code registry (decision 163), plain renderer matching §14.2 (snapshots). Fixed the spec example's column (4:20 → 4:19). |
+| 2026-10-31 | P1.4 | Lexer (with P1.5): tokens, keywords (decision 164: `do` added, contextual `type`/`of`/`from`/`arena`), numbers with suffixes, strings/escapes, comments, newline tokens. |
+| 2026-10-31 | P1.5 | Templates via a substitution stack, format-spec capture at a top-level `:` (ternary-aware), triple-quoted dedent, regex literals (decision 165). Committed together with P1.4. |
