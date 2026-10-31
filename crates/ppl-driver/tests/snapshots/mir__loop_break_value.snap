@@ -1,0 +1,56 @@
+---
+source: crates/ppl-driver/tests/mir.rs
+expression: "mir(r#\"\nfunction first(limit: i64): i64 {\n  let i = 0\n  const found = loop {\n    i++\n    if (i * i > limit) break i\n  }\n  found\n}\nfunction never(): never { panic(\"boom\") }\nassert(first(10) == 4, \"first\")\n\"#)"
+---
+fn first(_0: i64) -> i64 {
+    let _1: i64 // i
+    let _2: i64 // found
+    let _3: i64
+    let _4: i64
+    let _5: i64
+    let _6: i64
+    let _7: bool
+  bb0:
+    _1 = const 0_i64
+    goto bb1
+  bb1:
+    _4 = _1
+    _5 = Add(_4, const 1_i64)
+    _1 = _5
+    _6 = Mul(_1, _1)
+    _7 = Gt(_6, _0)
+    branch _7 -> [true: bb3, false: bb4]
+  bb2:
+    _2 = _3
+    return _2
+  bb3:
+    _3 = _1
+    goto bb2
+  bb4:
+    goto bb5
+  bb5:
+    goto bb1
+  bb6:
+    goto bb5
+}
+
+fn never() -> never {
+  bb0:
+    panic const "boom" @10:27
+  bb1:
+    return
+}
+
+fn <main>() -> void {
+    let _0: i64
+    let _1: bool
+  bb0:
+    _0 = call first(const 10_i64) -> bb1
+  bb1:
+    _1 = Eq(_0, const 4_i64)
+    branch _1 -> [true: bb2, false: bb3]
+  bb2:
+    return
+  bb3:
+    panic const "first" @11:1
+}

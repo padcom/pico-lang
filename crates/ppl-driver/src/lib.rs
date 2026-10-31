@@ -1,6 +1,7 @@
 //! Compilation pipeline, caching, targets and linking for ppl.
 //!
-//! [`check_source`] runs the front end: parsing, name resolution, type checking. Later stages plug in
+//! [`check_source`] runs the front end: parsing, name resolution, type checking, and lowering
+//! to MIR. Later stages plug in
 //! there as they're built, and [`Stage::IMPLEMENTED`] tells tools which diagnostics can
 //! currently be produced. Each stage runs only if the previous ones reported no errors.
 
@@ -53,6 +54,8 @@ pub struct Checked {
     pub hir: Option<ppl_sema::hir::Program>,
     /// Type information, if resolution succeeded.
     pub types: Option<ppl_sema::Types>,
+    /// The MIR, if type checking succeeded.
+    pub mir: Option<ppl_mir::Program>,
     pub diags: Vec<Diagnostic>,
 }
 
@@ -73,12 +76,18 @@ pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked
     let (module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
     let mut hir = None;
     let mut types = None;
+    let mut mir = None;
     if !diags.iter().any(Diagnostic::is_error) {
         let (program, mut d) = ppl_sema::resolve(&module, file);
         diags.append(&mut d);
         if !diags.iter().any(Diagnostic::is_error) {
             let (t, mut d) = ppl_sema::check(&program);
             diags.append(&mut d);
+            if !diags.iter().any(Diagnostic::is_error) {
+                let (m, mut d) = ppl_mir::lower(&program, &t, sm.file(file));
+                diags.append(&mut d);
+                mir = Some(m);
+            }
             types = Some(t);
         }
         hir = Some(program);
@@ -90,6 +99,7 @@ pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked
         module,
         hir,
         types,
+        mir,
         diags,
     }
 }

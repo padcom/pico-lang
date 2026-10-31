@@ -209,6 +209,7 @@ dependencies = [
  "clap",
  "ppl-diag",
  "ppl-driver",
+ "ppl-mir",
  "ppl-syntax",
 ]
 
@@ -227,7 +228,9 @@ dependencies = [
 name = "ppl-driver"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "ppl-diag",
+ "ppl-mir",
  "ppl-sema",
  "ppl-syntax",
 ]
@@ -239,6 +242,12 @@ version = "0.1.0"
 [[package]]
 name = "ppl-mir"
 version = "0.1.0"
+dependencies = [
+ "insta",
+ "ppl-diag",
+ "ppl-sema",
+ "ppl-syntax",
+]
 
 [[package]]
 name = "ppl-runtime"

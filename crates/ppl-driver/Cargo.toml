@@ -8,8 +8,12 @@ publish = false
 
 [dependencies]
 ppl-diag.workspace = true
+ppl-mir.workspace = true
 ppl-sema.workspace = true
 ppl-syntax.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
 
 [lints]
 workspace = true

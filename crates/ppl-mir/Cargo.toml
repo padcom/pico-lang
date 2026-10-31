@@ -6,5 +6,13 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[dependencies]
+ppl-diag.workspace = true
+ppl-sema.workspace = true
+ppl-syntax.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
 [lints]
 workspace = true
