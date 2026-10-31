@@ -1,0 +1,95 @@
+---
+source: crates/ppl-driver/tests/llvm_ir.rs
+expression: "ir(r#\"\nfunction add(a: i32, b: i32): i32 { a + b }\nfunction half(a: u64): u64 { a / 2 }\nfunction neg(x: f64): f64 { -x * 2.0 }\n\"#)"
+---
+; ModuleID = 'test.ppl'
+source_filename = "test.ppl"
+
+@ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
+@ppl.cstr.1 = private unnamed_addr constant [8 x i8] c"test.ppl"
+@ppl.cstr.2 = private unnamed_addr constant [16 x i8] c"division by zero"
+
+define internal i32 @ppl.add(i32 %0, i32 %1) {
+start:
+  %a = alloca i32, align 4
+  %b = alloca i32, align 4
+  %t2 = alloca i32, align 4
+  store i32 %0, ptr %a, align 4
+  store i32 %1, ptr %b, align 4
+  br label %bb0
+
+bb0:                                              ; preds = %start
+  %2 = load i32, ptr %a, align 4
+  %3 = load i32, ptr %b, align 4
+  %4 = call { i32, i1 } @llvm.sadd.with.overflow.i32(i32 %2, i32 %3)
+  %5 = extractvalue { i32, i1 } %4, 0
+  %6 = extractvalue { i32, i1 } %4, 1
+  br i1 %6, label %panic, label %ok
+
+panic:                                            ; preds = %bb0
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.1, i64 8, i32 2, i32 37)
+  unreachable
+
+ok:                                               ; preds = %bb0
+  store i32 %5, ptr %t2, align 4
+  %7 = load i32, ptr %t2, align 4
+  ret i32 %7
+}
+
+define internal i64 @ppl.half(i64 %0) {
+start:
+  %a = alloca i64, align 8
+  %t1 = alloca i64, align 8
+  store i64 %0, ptr %a, align 4
+  br label %bb0
+
+bb0:                                              ; preds = %start
+  %1 = load i64, ptr %a, align 4
+  br i1 false, label %panic, label %ok
+
+panic:                                            ; preds = %bb0
+  call void @ppl_panic(ptr @ppl.cstr.2, i64 16, ptr @ppl.cstr.1, i64 8, i32 3, i32 30)
+  unreachable
+
+ok:                                               ; preds = %bb0
+  %2 = udiv i64 %1, 2
+  store i64 %2, ptr %t1, align 4
+  %3 = load i64, ptr %t1, align 4
+  ret i64 %3
+}
+
+define internal double @ppl.neg(double %0) {
+start:
+  %x = alloca double, align 8
+  %t1 = alloca double, align 8
+  %t2 = alloca double, align 8
+  store double %0, ptr %x, align 8
+  br label %bb0
+
+bb0:                                              ; preds = %start
+  %1 = load double, ptr %x, align 8
+  %2 = fneg double %1
+  store double %2, ptr %t1, align 8
+  %3 = load double, ptr %t1, align 8
+  %4 = fmul double %3, 2.000000e+00
+  store double %4, ptr %t2, align 8
+  %5 = load double, ptr %t2, align 8
+  ret double %5
+}
+
+define void @ppl_entry() {
+start:
+  br label %bb0
+
+bb0:                                              ; preds = %start
+  ret void
+}
+
+; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
+declare { i32, i1 } @llvm.sadd.with.overflow.i32(i32, i32) #0
+
+; Function Attrs: cold noreturn
+declare void @ppl_panic(ptr, i64, ptr, i64, i32, i32) #1
+
+attributes #0 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #1 = { cold noreturn }

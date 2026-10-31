@@ -349,7 +349,9 @@ impl Interp<'_, '_> {
             (Value::Int(x), Ty::Float(ft)) => Ok(Value::Float(round(x as f64, *ft))),
             (Value::Float(x), Ty::Int(it)) => {
                 let t = x.trunc();
-                if x.is_nan() || t < it.min() as f64 || t > it.max() as f64 {
+                // Both bounds are exact powers of two (`max as f64` would round up).
+                let (lo, hi_excl) = (it.min() as f64, (it.max() + 1) as f64);
+                if x.is_nan() || t < lo || t >= hi_excl {
                     return Err(self.panic(panics::FLOAT_CAST, loc));
                 }
                 Ok(Value::Int(t as i128))

@@ -47,7 +47,7 @@ fn printing_and_panic_format() {
 void ppl_entry(void) {
     ppl_print_i64(-42); ppl_print_newline();
     ppl_print_u64(18446744073709551615ull); ppl_print_newline();
-    ppl_print_bool(true); ppl_print_newline();
+    ppl_print_bool(1); ppl_print_newline();
     ppl_print_str("zażółć", 10); ppl_print_char(0x1F642); ppl_print_newline();
     ppl_print_f64(0.1 + 0.2); ppl_print_newline();
     ppl_print_f32(0.1f); ppl_print_newline();

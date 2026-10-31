@@ -13,13 +13,15 @@ void ppl_print_i64(int64_t v) { printf("%" PRId64, v); }
 
 void ppl_print_u64(uint64_t v) { printf("%" PRIu64, v); }
 
-void ppl_print_bool(bool v) { fputs(v ? "true" : "false", stdout); }
+void ppl_print_bool(int32_t v) { fputs(v ? "true" : "false", stdout); }
 
 void ppl_print_str(const char *ptr, int64_t len) {
     if (len > 0) fwrite(ptr, 1, (size_t)len, stdout);
 }
 
 void ppl_print_newline(void) { putchar('\n'); }
+
+void ppl_print_string(const PplStr *s) { ppl_print_str(s->data, s->byte_len); }
 
 /* Encodes a Unicode scalar value as UTF-8; returns the byte count. */
 static int utf8_encode(uint32_t c, char *out) {
@@ -149,6 +151,66 @@ _Noreturn void ppl_panic(const char *msg, int64_t msg_len, const char *file, int
     fprintf(stderr, ":%d:%d\n", line, col);
     fflush(stderr);
     exit(PPL_PANIC_EXIT_CODE);
+}
+
+_Noreturn void ppl_panic_str(const PplStr *msg, const char *file, int64_t file_len, int32_t line,
+                             int32_t col) {
+    ppl_panic(msg->data, msg->byte_len, file, file_len, line, col);
+}
+
+/* ---------------------------------------------------------------- integer power */
+
+static bool fits_s(__int128 v, int32_t bits) {
+    __int128 lim = (__int128)1 << (bits - 1);
+    return v >= -lim && v < lim;
+}
+
+int64_t ppl_ipow_s(int64_t base, int64_t exp, int32_t bits, int32_t *overflow) {
+    __int128 b = base, acc = 1;
+    *overflow = 0;
+    while (exp > 0) {
+        if (exp & 1) {
+            acc *= b;
+            if (!fits_s(acc, bits)) {
+                *overflow = 1;
+                return 0;
+            }
+        }
+        exp >>= 1;
+        if (exp > 0) {
+            b *= b;
+            /* |b| >= 2 and b*b out of range: the result is out of range too. */
+            if (!fits_s(b, bits)) {
+                *overflow = 1;
+                return 0;
+            }
+        }
+    }
+    return (int64_t)acc;
+}
+
+uint64_t ppl_ipow_u(uint64_t base, uint64_t exp, int32_t bits, int32_t *overflow) {
+    unsigned __int128 b = base, acc = 1;
+    unsigned __int128 lim = (unsigned __int128)1 << bits;
+    *overflow = 0;
+    while (exp > 0) {
+        if (exp & 1) {
+            acc *= b;
+            if (acc >= lim) {
+                *overflow = 1;
+                return 0;
+            }
+        }
+        exp >>= 1;
+        if (exp > 0) {
+            b *= b;
+            if (b >= lim) {
+                *overflow = 1;
+                return 0;
+            }
+        }
+    }
+    return (uint64_t)acc;
 }
 
 /* ---------------------------------------------------------------- entry */

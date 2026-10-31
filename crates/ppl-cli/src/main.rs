@@ -18,7 +18,7 @@ enum Command {
     Build {
         /// The entry `.ppl` file.
         file: PathBuf,
-        /// Print an intermediate form instead of building: `mir`.
+        /// Print an intermediate form instead of building: `mir` or `llvm-ir`.
         #[arg(long, value_name = "FORM")]
         emit: Option<String>,
     },
@@ -99,8 +99,15 @@ fn build(path: &Path, emit: Option<&str>) -> ExitCode {
             );
             ExitCode::SUCCESS
         }
+        Some("llvm-ir") => {
+            print!(
+                "{}",
+                ppl_codegen::emit_llvm_ir(checked.mir.as_ref().expect("MIR after a clean check"))
+            );
+            ExitCode::SUCCESS
+        }
         Some(other) => {
-            eprintln!("error: unknown --emit form `{other}` (expected `mir`)");
+            eprintln!("error: unknown --emit form `{other}` (expected `mir` or `llvm-ir`)");
             ExitCode::from(2)
         }
         None => {
