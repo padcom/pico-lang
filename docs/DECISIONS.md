@@ -103,6 +103,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 66 | Regex literals | JS-style `/…/flags` regex literals, validated at compile time. |
 | 63 | Format specs | Python/Rust-style mini-language after the top-level `:` in `${…}`: fill, align, sign, `#`, `0`, width, precision, type (`d x X o b e E f % ?`). |
 
+## Round 5 (expressions & control flow)
+| # | Topic | Decision |
+|---|-------|----------|
+| 70 | Loops | C-style `for(;;)`, `for-of`, `while`, `do-while`, and `loop` with `break value`. **No labeled** break/continue. |
+| 71 | if without else | Used as a value it has type `T?` (null when the condition is false). |
+| 72 | Match features | Guards (`if`), or-patterns and ranges, as-bindings (`c as Rect { w, h }`), `is` patterns with bindings and narrowing. |
+| 73 | Operators | Keep `++`/`--` and all compound assignments, including `??=`, `&&=` and `\|\|=`. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
