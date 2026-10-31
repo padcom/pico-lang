@@ -7,6 +7,102 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ---------------------------------------------------------------- memory */
+
+void *ppl_alloc(int64_t size) {
+    void *p = malloc(size > 0 ? (size_t)size : 1);
+    if (!p) {
+        fflush(stdout);
+        fputs("fatal: out of memory\n", stderr);
+        abort();
+    }
+    return p;
+}
+
+/* ---------------------------------------------------------------- strings */
+
+static int64_t count_chars(const char *bytes, int64_t len) {
+    int64_t n = 0;
+    for (int64_t i = 0; i < len; i++) {
+        /* Count every byte that isn't a continuation byte (10xxxxxx). */
+        if (((unsigned char)bytes[i] & 0xC0) != 0x80) n++;
+    }
+    return n;
+}
+
+static PplStr *str_alloc(int64_t byte_len) {
+    PplStr *s = ppl_alloc((int64_t)sizeof(PplStr) + byte_len);
+    s->byte_len = byte_len;
+    s->cache_char = 0;
+    s->cache_byte = 0;
+    return s;
+}
+
+PplStr *ppl_str_new(const char *bytes, int64_t byte_len) {
+    PplStr *s = str_alloc(byte_len);
+    memcpy(s->data, bytes, (size_t)byte_len);
+    s->char_len = count_chars(bytes, byte_len);
+    return s;
+}
+
+PplStr *ppl_str_concat(const PplStr *a, const PplStr *b) {
+    PplStr *s = str_alloc(a->byte_len + b->byte_len);
+    memcpy(s->data, a->data, (size_t)a->byte_len);
+    memcpy(s->data + a->byte_len, b->data, (size_t)b->byte_len);
+    s->char_len = a->char_len + b->char_len;
+    return s;
+}
+
+int32_t ppl_str_eq(const PplStr *a, const PplStr *b) {
+    return a->byte_len == b->byte_len && memcmp(a->data, b->data, (size_t)a->byte_len) == 0;
+}
+
+int32_t ppl_str_cmp(const PplStr *a, const PplStr *b) {
+    int64_t n = a->byte_len < b->byte_len ? a->byte_len : b->byte_len;
+    int c = memcmp(a->data, b->data, (size_t)n);
+    if (c != 0) return c < 0 ? -1 : 1;
+    return a->byte_len < b->byte_len ? -1 : a->byte_len > b->byte_len;
+}
+
+/* Length in bytes of the UTF-8 sequence starting with `lead`. */
+static int utf8_len(unsigned char lead) {
+    if (lead < 0x80) return 1;
+    if (lead < 0xE0) return 2;
+    if (lead < 0xF0) return 3;
+    return 4;
+}
+
+static uint32_t utf8_decode(const unsigned char *p) {
+    switch (utf8_len(p[0])) {
+    case 1: return p[0];
+    case 2: return ((uint32_t)(p[0] & 0x1F) << 6) | (p[1] & 0x3F);
+    case 3: return ((uint32_t)(p[0] & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+    default:
+        return ((uint32_t)(p[0] & 0x07) << 18) | ((uint32_t)(p[1] & 0x3F) << 12) |
+               ((uint32_t)(p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+    }
+}
+
+uint32_t ppl_str_char_at(PplStr *s, int64_t i, const char *file, int64_t file_len, int32_t line,
+                         int32_t col) {
+    if (i < 0 || i >= s->char_len) {
+        ppl_panic("index out of bounds", 19, file, file_len, line, col);
+    }
+    if (s->byte_len == s->char_len) return (unsigned char)s->data[i]; /* ASCII */
+    int64_t c = 0, b = 0;
+    if (i >= s->cache_char) {
+        c = s->cache_char;
+        b = s->cache_byte;
+    }
+    while (c < i) {
+        b += utf8_len((unsigned char)s->data[b]);
+        c++;
+    }
+    s->cache_char = c;
+    s->cache_byte = b;
+    return utf8_decode((const unsigned char *)s->data + b);
+}
+
 /* ---------------------------------------------------------------- printing */
 
 void ppl_print_i64(int64_t v) { printf("%" PRId64, v); }

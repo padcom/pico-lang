@@ -23,6 +23,20 @@ typedef struct PplStr {
     char data[];
 } PplStr;
 
+/* Memory. v0 is backed by malloc and never frees; the GC (P4.x) keeps this API. Never
+ * returns NULL: running out of memory aborts the program. */
+void *ppl_alloc(int64_t size);
+
+/* Strings. */
+PplStr *ppl_str_new(const char *bytes, int64_t byte_len); /* counts code points */
+PplStr *ppl_str_concat(const PplStr *a, const PplStr *b);
+int32_t ppl_str_eq(const PplStr *a, const PplStr *b);
+int32_t ppl_str_cmp(const PplStr *a, const PplStr *b); /* <0, 0, >0 in code-point order */
+/* The char at code-point index `i`; panics (index out of bounds) at the given location.
+ * Sequential access is O(1) thanks to the cached position. */
+uint32_t ppl_str_char_at(PplStr *s, int64_t i, const char *file, int64_t file_len, int32_t line,
+                         int32_t col);
+
 /* Printing to stdout (buffered; flushed at exit and before a panic). */
 void ppl_print_i64(int64_t v);
 void ppl_print_u64(uint64_t v);

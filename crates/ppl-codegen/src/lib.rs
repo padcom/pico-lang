@@ -228,6 +228,19 @@ impl<'ctx> Gen<'ctx, '_> {
                 ],
                 false,
             ),
+            "ppl_str_concat" => ptr.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_str_eq" | "ppl_str_cmp" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_str_char_at" => i32t.fn_type(
+                &[
+                    ptr.into(),
+                    i64t.into(),
+                    ptr.into(),
+                    i64t.into(),
+                    i32t.into(),
+                    i32t.into(),
+                ],
+                false,
+            ),
             "ppl_ipow_s" | "ppl_ipow_u" => {
                 i64t.fn_type(&[i64t.into(), i64t.into(), i32t.into(), ptr.into()], false)
             }
@@ -473,6 +486,83 @@ impl<'ctx> Gen<'ctx, '_> {
                 let v = self.operand(fx, o)?;
                 Some(self.cast(fx, v, &from, to, loc))
             }
+            Rvalue::StrLen(o) => {
+                let s = self.operand(fx, o)?.into_pointer_value();
+                Some(self.str_len(s).into())
+            }
+            Rvalue::StrCharAt(o, i) => {
+                let s = self.operand(fx, o)?.into_pointer_value();
+                let i = self.operand(fx, i)?.into_int_value();
+                // Unsigned compare: negative indices are out of bounds too.
+                let len = self.str_len(s);
+                let bad = self
+                    .b
+                    .build_int_compare(IntPredicate::UGE, i, len, "")
+                    .unwrap();
+                self.check(fx, bad, panics::INDEX, loc);
+                let [f, fl, l, c] = self.loc_args(loc);
+                let r = self
+                    .b
+                    .build_call(
+                        self.rt("ppl_str_char_at"),
+                        &[s.into(), i.into(), f, fl, l, c],
+                        "",
+                    )
+                    .unwrap();
+                Some(basic(r))
+            }
+        }
+    }
+
+    /// Loads `PplStr.char_len` (the second field).
+    fn str_len(&self, s: PointerValue<'ctx>) -> IntValue<'ctx> {
+        let i64t = self.i64();
+        let header = self
+            .cx
+            .struct_type(&[i64t.into(), i64t.into(), i64t.into(), i64t.into()], false);
+        let p = self.b.build_struct_gep(header, s, 1, "char_len").unwrap();
+        self.b.build_load(i64t, p, "").unwrap().into_int_value()
+    }
+
+    fn str_binary(
+        &mut self,
+        op: BinOp,
+        a: BasicValueEnum<'ctx>,
+        b: BasicValueEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        let zero = self.i32().const_zero();
+        match op {
+            BinOp::Add => basic(
+                self.b
+                    .build_call(self.rt("ppl_str_concat"), &[a.into(), b.into()], "")
+                    .unwrap(),
+            ),
+            BinOp::Eq | BinOp::Ne => {
+                let eq = basic(
+                    self.b
+                        .build_call(self.rt("ppl_str_eq"), &[a.into(), b.into()], "")
+                        .unwrap(),
+                )
+                .into_int_value();
+                let pred = if op == BinOp::Eq {
+                    IntPredicate::NE
+                } else {
+                    IntPredicate::EQ
+                };
+                self.b.build_int_compare(pred, eq, zero, "").unwrap().into()
+            }
+            _ => {
+                let c = basic(
+                    self.b
+                        .build_call(self.rt("ppl_str_cmp"), &[a.into(), b.into()], "")
+                        .unwrap(),
+                )
+                .into_int_value();
+                self.b
+                    .build_int_compare(int_predicate(op, true), c, zero, "")
+                    .unwrap()
+                    .into()
+            }
         }
     }
 
@@ -642,6 +732,7 @@ impl<'ctx> Gen<'ctx, '_> {
                     }
                 }
             }
+            Ty::Str => self.str_binary(op, x, y),
             Ty::Bool | Ty::Char => {
                 let pred = int_predicate(op, false);
                 self.b
@@ -977,6 +1068,14 @@ impl<'ctx> Gen<'ctx, '_> {
             _ => return,
         };
         self.b.build_call(self.rt(name), &[arg], "").unwrap();
+    }
+}
+
+/// The value of a call that returns one.
+fn basic(call: inkwell::values::CallSiteValue<'_>) -> BasicValueEnum<'_> {
+    match call.try_as_basic_value() {
+        inkwell::values::ValueKind::Basic(v) => v,
+        _ => unreachable!("call returns void"),
     }
 }
 

@@ -1,0 +1,11 @@
+// expect: 10000
+// expect: 5000
+// Sequential indexing uses the cached position, so this stays linear.
+let text = ""
+for (let i = 0; i < 5000; i++) text += "żx"
+println(text.length)
+let count = 0
+for (let i = 0; i < text.length; i++) {
+  if (text[i] == "ż") count++
+}
+println(count)

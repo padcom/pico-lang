@@ -1,0 +1,5 @@
+// expect: c
+// panic: index out of bounds
+const s = "abc"
+println(s[2])
+println(s[3])

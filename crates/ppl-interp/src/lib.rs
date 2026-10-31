@@ -232,6 +232,18 @@ impl Interp<'_, '_> {
                 let v = self.operand(frame, o);
                 self.cast(v, &from, to, loc)
             }
+            Rvalue::StrLen(o) => match self.operand(frame, o) {
+                Value::Str(s) => Ok(Value::Int(s.chars().count() as i128)),
+                v => unreachable!("length of {v:?}"),
+            },
+            Rvalue::StrCharAt(o, i) => match (self.operand(frame, o), self.operand(frame, i)) {
+                (Value::Str(s), Value::Int(i)) => usize::try_from(i)
+                    .ok()
+                    .and_then(|i| s.chars().nth(i))
+                    .map(Value::Char)
+                    .ok_or_else(|| self.panic(panics::INDEX, loc)),
+                v => unreachable!("indexing {v:?}"),
+            },
         }
     }
 
@@ -324,6 +336,17 @@ impl Interp<'_, '_> {
                 Ne => a != b,
                 _ => unreachable!("type-checked bool operator"),
             })),
+            (Value::Str(a), Value::Str(b), _) => Ok(match op {
+                Add => Value::Str(format!("{a}{b}").into()),
+                // Byte order of UTF-8 is code-point order.
+                Eq => Value::Bool(a == b),
+                Ne => Value::Bool(a != b),
+                Lt => Value::Bool(a < b),
+                Le => Value::Bool(a <= b),
+                Gt => Value::Bool(a > b),
+                Ge => Value::Bool(a >= b),
+                _ => unreachable!("type-checked string operator"),
+            }),
             (Value::Char(a), Value::Char(b), _) => Ok(Value::Bool(match op {
                 Eq => a == b,
                 Ne => a != b,

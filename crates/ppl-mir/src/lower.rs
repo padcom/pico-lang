@@ -326,7 +326,6 @@ impl FnBuilder<'_, '_> {
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, ty),
             ExprKind::Assign { op, var, value } => {
                 let place = self.place(*var);
-                let vt = self.var_ty(*var);
                 match op {
                     None => {
                         let v = self.expr(value);
@@ -354,10 +353,6 @@ impl FnBuilder<'_, '_> {
                         self.switch_to(join);
                     }
                     Some(op) => {
-                        if vt == Ty::Str {
-                            self.cx.not_implemented(e.span, "string operations");
-                            return Operand::Const(Const::Void);
-                        }
                         let v = self.expr(value);
                         self.assign(
                             place,
@@ -390,9 +385,15 @@ impl FnBuilder<'_, '_> {
                 if *prefix { new } else { old }
             }
             ExprKind::Call { callee, args } => self.call(e, callee, args, ty),
-            ExprKind::Member { .. } | ExprKind::Index { .. } => {
-                self.cx.not_implemented(e.span, "string operations");
-                Operand::Const(Const::Void)
+            ExprKind::Member { object, name, .. } => {
+                debug_assert_eq!(name, "length", "the type checker only allows `.length`");
+                let s = self.expr(object);
+                self.rvalue_to_temp(Rvalue::StrLen(s), ty, e.span)
+            }
+            ExprKind::Index { object, index } => {
+                let s = self.expr(object);
+                let i = self.expr(index);
+                self.rvalue_to_temp(Rvalue::StrCharAt(s, i), ty, e.span)
             }
             ExprKind::Template { .. } => {
                 self.cx.not_implemented(e.span, "template literals");
@@ -545,10 +546,6 @@ impl FnBuilder<'_, '_> {
             }
             ast::BinOp::Nullish => Operand::Const(Const::Void),
             _ => {
-                if *self.cx.types.final_ty(l.id) == Ty::Str {
-                    self.cx.not_implemented(e.span, "string operations");
-                    return Operand::Const(Const::Void);
-                }
                 let lv = self.expr(l);
                 let rv = self.expr(r);
                 self.rvalue_to_temp(Rvalue::Binary(bin_op(op), lv, rv), ty, e.span)
@@ -568,9 +565,9 @@ impl FnBuilder<'_, '_> {
         let then_bb = self.new_block();
         let else_bb = self.new_block();
         let join = self.new_block();
-        if else_.is_none() && has_value(&ty) {
-            self.check_representable(&ty, span);
-        }
+        // An `if` without `else` has type `T?`, but its value is only representable once it's
+        // stored somewhere, and locals are checked when declared.
+        let _ = span;
         let result =
             (else_.is_some() && has_value(&ty)).then(|| Place::Local(self.temp(ty.clone())));
         self.terminate(Terminator::Branch {

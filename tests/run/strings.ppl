@@ -1,0 +1,33 @@
+// expect: Hello, world!
+// expect: 13
+// expect: zażółć gęślą jaźń
+// expect: 17
+// expect: ż
+// expect: ń
+// expect: 🙂👍
+// expect: 2
+// expect: 👍
+// expect: true
+// expect: false
+// expect: true
+// expect: true
+// expect: abc!!!
+const greeting = "Hello" + ", " + "world!"
+println(greeting)
+println(greeting.length)
+const pl = "zażółć gęślą jaźń"
+println(pl)
+println(pl.length)
+println(pl[2])
+println(pl[pl.length - 1])
+const emoji = "🙂" + "👍"
+println(emoji)
+println(emoji.length)
+println(emoji[1])
+println(greeting == "Hello, world!")
+println("a" == "b")
+println("apple" < "banana")
+println("ż" > "z")
+let s = "abc"
+for (let i = 0; i < 3; i++) s += "!"
+println(s)
