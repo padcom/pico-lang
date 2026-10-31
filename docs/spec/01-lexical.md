@@ -42,6 +42,27 @@ Inside `${ … }`, a format spec can follow a `:` at the top level of the expres
 nested parens, ternaries or object literals doesn't count):
 `${x:.2f}`, `${n:08d}`, `${n:x}`, `${s:>10}`, `${v:?}` (debug representation).
 
+Grammar (a Python/Rust-style mini-language):
+```
+spec      := [[fill] align] [sign] ["#"] ["0"] [width] ["." precision] [type]
+fill      := any char except '}'
+align     := "<" | ">" | "^"
+sign      := "+" | "-" | " "
+width     := digits
+precision := digits
+type      := "d" | "x" | "X" | "o" | "b" | "e" | "E" | "f" | "%" | "?"
+```
+| Example | Output |
+|---------|--------|
+| `${3.14159:.2f}` | `3.14` |
+| `${42:08}` | `00000042` |
+| `${255:#x}` | `0xff` |
+| `${"hi":*^6}` | `**hi**` |
+| `${0.25:.0%}` | `25%` |
+| `${point:?}` | `Point { x: 1, y: 2 }` |
+
+A type can customize how it formats by implementing a `Formattable` interface (draft name).
+
 ## 1.5 Comments
 `// line`, `/* block */`, `/** doc comment */`.
 
@@ -54,5 +75,4 @@ throws true try typeof unsafe where while yield comptime immutable`
 ## Open questions
 - Nested block comments?
 - Char literal syntax: `c'a'` (draft) vs something else.
-- Exact format-spec grammar (Python-like? Rust-like?).
 - Raw/multiline string forms beyond template literals?

@@ -95,6 +95,7 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 60 | Nullable shorthand | `T?` is shorthand for `T \| null`. |
 | 61 | Distinct aliases | `type Meters = distinct f64` creates a new nominal type with zero runtime cost. |
 | 62 | char | A separate `char` type (Unicode scalar value). |
+| 63 | Format specs | Python/Rust-style mini-language after the top-level `:` in `${…}`: fill, align, sign, `#`, `0`, width, precision, type (`d x X o b e E f % ?`). |
 
 ## Spec format
 | # | Topic | Decision |
