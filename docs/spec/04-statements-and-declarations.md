@@ -15,7 +15,11 @@ can be referenced from anywhere in the module.
 A program's root module runs top to bottom. Top-level statements in imported modules run once,
 in dependency order, before the importer's own code.
 
-Module-level bindings must be `const`. Module-level `let` is a compile error, because there is no
+**Entry module.** The top-level code of the module passed to `ppl run`/`ppl build` behaves like the
+body of `main()`. `let` is allowed there, and its bindings are ordinary locals: functions declared in
+the module can't access them and they can't be exported.
+
+**Library modules.** Every other module's bindings must be `const`. Module-level `let` is a compile error, because there is no
 global mutable state; this fits the strictly isolated threads (§10). A `const` holding a mutable
 object (e.g. `const cache = new Map()`) is per thread: every worker evaluates module
 initializers in its own heap.

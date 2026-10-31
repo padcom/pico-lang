@@ -135,6 +135,16 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 84 | private | Class-private: accessible only inside the class body. |
 | 85 | Globals | Only `const` at module level; module-level `let` is forbidden. Mutable state lives in objects passed explicitly. |
 
+## Round 9 (scripts & errors)
+| # | Topic | Decision |
+|---|-------|----------|
+| 86 | Script body | In the **entry module**, top-level code behaves like the body of `main()`: `let` is allowed, and those bindings are locals that other modules can't see or export. Library modules allow only `const`. |
+| 87 | Throwables | Only subclasses of the built-in `Error` class. |
+| 88 | try expression | `try … catch …` is an expression, e.g. `const n = try parse(s) catch (e: ParseError) 0`. |
+| 89 | Error unions | `throws A \| B`; typed `catch` clauses narrow the union. No `try?`/`try!` sugar for now. |
+| 90 | Stack traces | Always captured on throw and on panic. |
+| 91 | Throws inference | Private functions and lambdas may omit `throws` (inferred); exported functions must declare it. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
