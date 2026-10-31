@@ -47,6 +47,9 @@ const m: Meters = new Feet(3)   // error: Feet is not Meters
 Object type literals (`{ x: f64, y: f64 }`) are anonymous types. A plain `{ x, y }` literal is
 accepted when the expected type is a named struct/class/record type, and it constructs that type.
 
+When the expected type is `Map<string, V>`, an object literal with identifier or string keys
+builds that map: `env: { "LANG": "C", PATH: p }`.
+
 ## 2.4 Nullability
 `T | null` is the only optional type, and `T?` is shorthand for it (`string?`). Narrowing works with `!= null`,
 `?.`, `??`, and `!` (a non-null assertion that panics when the value is null).
@@ -101,7 +104,7 @@ struct Vec3 {
 | Syntax | Meaning |
 |--------|---------|
 | `T[]` / `Array<T>` | growable, GC-managed array |
-| `[T; N]` | fixed-size inline array (value type) |
+| `[T; N]` | fixed-size inline array (value type); `[value; N]` builds one filled with `value` |
 | `[A, B]` | tuple (value type) |
 | `Map<K, V>`, `Set<T>` | hash collections using `equals`/`hashCode` |
 

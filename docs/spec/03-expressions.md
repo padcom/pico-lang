@@ -25,7 +25,12 @@ const bonus = if (vip) 100    // bonus: int?
 const p = Point { x: 1, y: 2 }   // explicit type
 const q: Point = { x: 1, y: 2 }  // expected type known
 ```
-A `{` at the start of a statement always opens a block.
+A `{` at the start of a statement always opens a block. Elsewhere, `{` opens an **object
+literal** if it's `{}`, starts with `...`, `name:`, `"key":` or `name,`, or is exactly `{ name }`;
+otherwise it opens a block (`const area = { const w = 3; w * h }`).
+
+`Name {` (or `Name<A, B> {`) directly after a dotted name, on the same line, is a struct or class
+literal.
 
 ## 3.3 Operators
 In order of precedence, highest first:
@@ -46,6 +51,11 @@ In order of precedence, highest first:
 | `&&` `\|\|` `??` | `??` can't be mixed with `&&`/`\|\|` without parens |
 | `?:` | ternary |
 | `=` `+=` `-=` `*=` `/=` `%=` `**=` `<<=` `>>=` `&=` `\|=` `^=` `&&=` `\|\|=` `??=` | assignment |
+
+Rows that list several operators keep JavaScript's order inside the row: `||` and `??` bind
+loosest, then `&&`; among the bitwise operators `|` is loosest, then `^`, then `&`. Unary
+operators bind tighter than `**`, so `-2 ** 2` is `(-2) ** 2`, and `as` sits between them
+(`x as i32 + 1` is `(x as i32) + 1`).
 
 `++`/`--` and compound assignment work as in TS. Overflow from `++` panics like any other
 integer overflow.
@@ -107,7 +117,9 @@ patterns.
 
 ### Modernized `switch`
 `switch` works the same way, written in statement style. It never falls through, `case` takes
-patterns, and a switch whose value is used must be exhaustive.
+patterns, and a switch whose value is used must be exhaustive. Because `:` ends a case, a
+top-level `case x:` is a name pattern, not a type test; write a type test in parentheses,
+`case (s: string):`, or use `match`. Any pattern can be parenthesized.
 ```ts
 switch (cmd) {
   case "build" | "b": build()
@@ -124,7 +136,7 @@ be true:
 if (shape is Circle { r }) println(r)
 if (!(x is string)) return
 x.toUpperCase()                     // x narrowed to string here
-while (it.next() is Some(v)) use(v)
+while (queue.next() is Job { id }) process(id)
 ```
 
 ## 3.6 Ternary, optional chaining, nullish

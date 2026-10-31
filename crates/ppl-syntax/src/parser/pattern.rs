@@ -53,6 +53,16 @@ impl Parser {
                 mk(PatternKind::Wildcard, start)
             }
             TokenKind::Punct(Punct::LBracket) => self.array_pattern(ctx),
+            // `(pattern)`: grouping, e.g. `case (s: string):` (spec §3.5).
+            TokenKind::Punct(Punct::LParen) if !binding => {
+                let open = self.bump().span;
+                let inner = self.pattern(PatCtx::Match);
+                self.expect_close(Punct::RParen, open);
+                Pattern {
+                    kind: inner.kind,
+                    span: open.to(self.prev_span()),
+                }
+            }
             TokenKind::Punct(Punct::LBrace) => {
                 let (fields, rest) = self.field_patterns(ctx);
                 mk(

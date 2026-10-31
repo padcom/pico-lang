@@ -85,6 +85,14 @@ for (const n of fib().take(10)) println(n)
 ```
 Generators compile to stackless state machines, the same machinery as `async`.
 
+A type is iterable with `for-of` when it implements `Iterable<T>`, whose single method is
+`iterator(): Iterator<T>`. A generator method is the usual way to write it:
+```ts
+class Tree implements Iterable<i32> {
+  public *iterator(): Iterator<i32> { yield 1 }
+}
+```
+
 Async generators:
 ```ts
 async function* lines(path: string): AsyncIterator<string> throws IoError { … }

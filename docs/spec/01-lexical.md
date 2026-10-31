@@ -23,6 +23,23 @@ const a = 1; const b = 2  // `;` separates statements on one line
 Lines that start with `-`, `+`, `(` or `[` begin a **new** statement. The two-line program
 `f\n(x)` is therefore two statements, unlike in JavaScript.
 
+Details of the rule:
+- A line ending with `>`, `>>`, `>>>`, `?`, `!`, `++` or `--` is **complete**, because those
+  tokens close generics (`let m: Map<K, V>`), mark nullable types (`let s: string?`) or are
+  postfix operators. To split a ternary, start the next line with `?` or `:`.
+- Every other binary or assignment operator, `,`, `.`, `?.`, `:` and `=>` at the end of a line
+  continues it.
+- A line starting with `.`, `?.`, `..`, a binary operator other than `+`/`-`, an assignment
+  operator, `?`, `:`, `=>`, `|` (multi-line unions), or `as`/`is`/`instanceof`/`throws`/`where`/
+  `extends`/`implements` continues the previous line. That includes `/`: a regex literal can't
+  start a line that follows an expression.
+- Template substitutions `${ … }` behave like parentheses.
+- Where a statement can't end, a newline is simply skipped: after `if (…)`, `while (…)` and
+  `for (…)`, before `else`/`catch`/`finally`, after decorators, and inside object literals,
+  struct literals and `match` bodies.
+- Two statements on one line need a `;`, unless the first ends with `}`
+  (`if (x) { … } f()`).
+
 ## 1.3 Literals
 ```ts
 42  0xFF  0o17  0b1010  1_000_000       // integer literals
@@ -35,6 +52,10 @@ true  false  null
 /\d+(\.\d+)?/g                           // regex literal, validated at compile time
                                          // (`/` starts a regex only where an expression can begin)
 ```
+A `/` starts a regex literal unless the previous token ends an expression: an identifier, a
+literal, `)`, `]`, `this`, `super`, `null`, `true`, `false`, or a postfix `!`/`++`/`--` after one
+of those. After `}`, `/` starts a regex.
+
 Untyped numeric literals take their type from context. With no context, an integer literal is
 `int` (i64) and a float literal is `number` (f64).
 

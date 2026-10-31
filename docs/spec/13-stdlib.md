@@ -10,6 +10,10 @@ the built-in error classes, `fetch`, `Request`, `Response`, `Headers`, `URL`, `U
 `structuredClone`, `crypto` (`getRandomValues`, `randomUUID`, `subtle`), `performance.now()`,
 `AbortController`, `AbortSignal`, `Worker`.
 
+APIs that mirror a Web standard take that standard's **options object**, as a struct built from
+an object literal (`fetch(url, { method: "POST", headers })`, `postMessage(m, { transfer })`).
+ppl's own APIs take options as named arguments (`new Command("git", args, cwd: repo)`).
+
 ```ts
 const res = await fetch("https://api.example.com/users")
 const users = await res.json<User[]>()        // typed, generated like JSON.parse<T>

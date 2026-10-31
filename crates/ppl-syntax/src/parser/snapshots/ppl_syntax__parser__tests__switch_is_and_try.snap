@@ -1,12 +1,14 @@
 ---
 source: crates/ppl-syntax/src/parser/tests.rs
-expression: "ok(r##\"\nswitch (cmd) {\n  case \"build\" | \"b\": build()\n  case \"test\":        test()\n  case Run { file }:  run(file)\n  default:            usage()\n}\nconst code = switch (r) {\n  case Ok(_): 0\n  case Err(e): { log(e); 1 }\n}\nif (shape is Circle { r }) println(r)\nif (!(x is string)) return\nwhile (it.next() is Some(v)) use(v)\nconst config = try {\n  readConfig(path)\n} catch (e: IoError { path }) {\n  Config.default()\n} catch (e: ParseError) {\n  throw new ConfigError(\"bad config\", cause: e)\n} finally {\n  log.flush()\n}\ntry f() catch (e) g()\n\"##)"
+expression: "ok(r##\"\nswitch (cmd) {\n  case \"build\" | \"b\": build()\n  case \"test\":        test()\n  case Run { file }:  run(file)\n  case (n: i64):      repeat(n)\n  case limit:         stop()\n  default:            usage()\n}\nconst code = switch (r) {\n  case Ok(_): 0\n  case Err(e): { log(e); 1 }\n}\nif (shape is Circle { r }) println(r)\nif (!(x is string)) return\nwhile (it.next() is Some(v)) use(v)\nconst config = try {\n  readConfig(path)\n} catch (e: IoError { path }) {\n  Config.default()\n} catch (e: ParseError) {\n  throw new ConfigError(\"bad config\", cause: e)\n} finally {\n  log.flush()\n}\ntry f() catch (e) g()\n\"##)"
 ---
 (switch
   cmd
   (case (| "build" "b") (block (call build)))
   (case "test" (block (call test)))
   (case (struct-pat Run file) (block (call run file)))
+  (case (typed n i64) (block (call repeat n)))
+  (case limit (block (call stop)))
   (default (block (call usage))))
 (const
   code

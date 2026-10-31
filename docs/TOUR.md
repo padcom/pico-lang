@@ -326,6 +326,7 @@ const [label, value] = pair
 
 const ages = new Map<string, i32>()
 ages.set("Ann", 31)
+const env: Map<string, string> = { "LANG": "C", HOME: "/home/ann" }   // Map literal
 const tags = new Set<string>(["a", "b"])
 ```
 
@@ -569,6 +570,7 @@ switch (cmd) {
   case "build" | "b": build()
   case "test":        test()
   case Run { file }:  run(file)
+  case (n: i64):      repeat(n)        // a type test needs parentheses in `case`
   default:            usage()
 }
 
@@ -787,7 +789,7 @@ for (const [i, name] of names.enumerate()) println(`${i}: ${name}`)
 for (const [a, b] of xs.zip(ys)) println(a + b)
 
 class Tree implements Iterable<i32> {
-  public *iterator(): Iterator<i32> { … }   // any Iterable works with for-of (method name TBD)
+  public *iterator(): Iterator<i32> { … }   // Iterable<T> has one method: iterator()
 }
 
 async function* lines(path: string): AsyncIterator<string> throws IoError { … }
@@ -1237,7 +1239,7 @@ self.onmessage = (job: Job) => {
 w.postMessage(() => 1)                    // error: closures aren't Sendable
 
 const buf = new ArrayBuffer(64 << 20)
-w.postMessage(Frame { pixels: buf }, transfer: [buf])   // moved, not copied
+w.postMessage(Frame { pixels: buf }, { transfer: [buf] })   // moved, not copied
 println(buf.byteLength)                   // 0: detached in the sender
 ```
 
@@ -1260,7 +1262,7 @@ const ac = new AbortController()
 setTimeout(() => ac.abort(), 5000)
 
 try {
-  const res = await fetch(url, signal: ac.signal)   // throws HttpError | AbortError
+  const res = await fetch(url, { signal: ac.signal })   // throws HttpError | AbortError
 } catch (e: AbortError) {
   println("timed out")
 }
@@ -1311,9 +1313,10 @@ comptime const PRIMES = sieve(10_000_000)  // raise the 10M step limit
 import { decorator, ClassDecl, FunctionDecl, ast } from "std/meta"
 
 export decorator function memoize(fn: FunctionDecl): FunctionDecl {
+  const cache = fn.addStatic("cache", `new Map<u64, ${fn.returnType}>()`)   // hidden static
   fn.wrapBody((args, call) => `
     const key = ${args.hashKey()}
-    cache.get(key) ?? cache.set(key, ${call})
+    ${cache}.get(key) ?? ${cache}.set(key, ${call})
   `)                                      // quasi-quote template, type-checked on expansion
 }
 
@@ -1478,10 +1481,12 @@ document.body.innerHTML = render({ count: 1 })   // structs cross as plain objec
 
 ### Web-style globals
 ```ts
-const res = await fetch("https://api.example.com/users",
+// Web APIs take their standard options object (a struct built from an object literal)
+const res = await fetch("https://api.example.com/users", {
   method: "POST",
-  headers: new Headers([["content-type", "application/json"]]),
-  body: JSON.stringify(newUser))
+  headers: new Headers({ "content-type": "application/json" }),   // Map literal
+  body: JSON.stringify(newUser),
+})
 const users = await res.json<User[]>()   // typed, generated like JSON.parse<T>
 
 const url = new URL("https://x.dev/search?q=ppl")
@@ -1527,10 +1532,10 @@ const lines = await Command.shell("ls | wc -l").output()   // through the shell,
 ```ts
 import { serve } from "std/http"
 
-serve(async (req: Request): Promise<Response> => {
+serve({ port: 8080 }, async (req: Request): Promise<Response> => {   // Deno.serve shape
   if (req.url.endsWith("/health")) return new Response("ok")
   Response.json({ hello: "world" })
-}, port: 8080)
+})
 
 import { listen, connect } from "std/net"
 const server = await listen(port: 9000)

@@ -12,13 +12,13 @@ Notes:
   `// error:` directives from `tests/fail/parse/*.ppl`).
 - Commit only through a `scripts/test.sh` exit-status check (piping its output through `grep`
   once hid a clippy failure).
-- Waiting for the user: the 5 TOUR.md questions (log entry "Tour") and the *(provisional)*
-  decisions 166–168, 170 and 172 in docs/DECISIONS.md.
+- No open spec questions. Decision 178 matters for stdlib work: Web-standard APIs take their
+  options object as a struct (`fetch(url, { … })`); ppl's own APIs use named arguments.
 
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | 16 chapters, 172 decisions (5 provisional, pending review) |
+| Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | front end: lexer, newline filter, AST, parser (`ppl parse --dump`) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
 | Last green `scripts/test.sh` | 2026-10-31 (P1.12) |
@@ -180,3 +180,4 @@ Notes:
 | 2026-10-31 | P1.7 | ast.rs covers the whole language (exprs incl. control flow as expressions, patterns, stmts, decls, members); dump.rs S-expression printer with width-based breaking; unit tests on hand-built ASTs. `ppl parse --dump` gets wired in P1.8. |
 | 2026-10-31 | P1.8–P1.11 | Parser (one module, committed together): Pratt expressions, statements, declarations, types, patterns, match/switch/try. `ppl parse --dump`. 14 insta snapshot groups; `tests/spec_samples.rs` parses every ```ts block in docs/spec and docs/TOUR.md (2 spec blocks skipped with reasons). Decisions 167–172. |
 | 2026-10-31 | P1.12 | Recovery: statement-level sync (no separator error after a failed statement, stops at statement keywords on a new line), bracket-depth-safe member/arm recovery, unclosed `(`/`[` end before a declaration keyword (newline filter), enum variant/method lookahead. Targeted messages: `var`, `for-in`, `===`, conditions without parens, trailing-operator line continuation. 6 multi-error fixtures in tests/fail/parse with `// error:` directives + snapshots. |
+| 2026-10-31 | Review | Author answered all pending questions. Confirmed 166–168, 170, 172 (now in spec §1.2/§1.3/§2.8/§3.2/§3.3/§3.5); new decisions 173–178: no Option type, decorator hidden statics (`addStatic`), Map literals, WasmGC interim note, `Iterable.iterator()`, Web-standard options objects. Parser: parenthesized patterns (`case (s: string):`). Spec and TOUR examples updated. |

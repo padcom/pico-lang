@@ -37,14 +37,18 @@ attached to. What a decorator can do:
 | **Wrap functions** | `@memoize`, `@log`, `@route("GET", "/users")` (wrap or register) |
 | **Validate** | `@mustUse`, custom lint rules that emit compile errors and warnings |
 
-Decorators **can't** add new top-level declarations to a module.
+Decorators **can't** add new top-level declarations to a module. They can attach **hidden
+statics** to the declaration they decorate: `decl.addStatic(name, init)` creates private,
+once-initialized state (per thread, like module `const`s) that only the generated code can
+reference. It returns a reference to splice into templates.
 ```ts
 import { decorator, ClassDecl, FunctionDecl } from "std/meta"
 
 export decorator function memoize(fn: FunctionDecl): FunctionDecl {
+  const cache = fn.addStatic("cache", `new Map<u64, ${fn.returnType}>()`)
   fn.wrapBody((args, call) => `
     const key = ${args.hashKey()}
-    cache.get(key) ?? cache.set(key, ${call})
+    ${cache}.get(key) ?? ${cache}.set(key, ${call})
   `)
 }
 

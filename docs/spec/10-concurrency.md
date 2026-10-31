@@ -49,7 +49,7 @@ Sendable. Sending one is a compile error.
 Large byte buffers can be **moved** instead of copied:
 ```ts
 const buf = new ArrayBuffer(64 << 20)
-w.postMessage(Frame { pixels: buf }, transfer: [buf])
+w.postMessage(Frame { pixels: buf }, { transfer: [buf] })
 buf.byteLength            // 0: buf is detached in the sender
 ```
 Only `ArrayBuffer` and its typed-array views (`Uint8Array`, `Float32Array`, …) are transferable.
@@ -75,5 +75,5 @@ error.
 ```ts
 const ac = new AbortController()
 setTimeout(() => ac.abort(), 5000)
-const res = await fetch(url, signal: ac.signal)    // throws HttpError | AbortError
+const res = await fetch(url, { signal: ac.signal })    // throws HttpError | AbortError
 ```

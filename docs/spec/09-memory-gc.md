@@ -21,6 +21,9 @@
   ```
 - **Web**: `wasm32-browser` uses **WasmGC**, so the browser's collector manages ppl objects and they
   can be handed to JS without copying. WASI and native targets use the ppl collector.
+  *Interim:* LLVM can't emit WasmGC, so until ppl's own WasmGC backend exists, `wasm32-browser`
+  builds use linear memory with the ppl collector (as on WASI). Values then cross to JS as copies
+  or handles instead of shared GC objects.
 
 ## 9.3 Weak references & finalization
 These are JS-compatible: `WeakRef<T>`, `WeakMap<K, V>`, `WeakSet<T>` and `FinalizationRegistry<T>`.

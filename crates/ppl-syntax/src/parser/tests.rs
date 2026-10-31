@@ -340,6 +340,7 @@ match (v) {
   s: string => "type test",
   n: i64 if n < 0 => "typed guard",
   Rect(w, h) if w == h => "square",
+  (Circle(_) | Empty) => "grouped",
 }
 const k = match (code) {
   200 | 201 | 204 => "ok"
@@ -356,6 +357,8 @@ switch (cmd) {
   case "build" | "b": build()
   case "test":        test()
   case Run { file }:  run(file)
+  case (n: i64):      repeat(n)
+  case limit:         stop()
   default:            usage()
 }
 const code = switch (r) {
