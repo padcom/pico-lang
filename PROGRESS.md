@@ -8,13 +8,17 @@
 
 Notes:
 - Crates live in `crates/<name>`; shared deps go in `[workspace.dependencies]` of the root Cargo.toml.
-- `insta` isn't a dependency yet; add it (workspace dep, dev-dependency of ppl-diag) when needed.
-- Open spec questions from the TOUR.md review are still waiting for the user (see the log entry below).
+- The harness should absorb `crates/ppl-syntax/tests/parse_fail.rs` (it already reads
+  `// error:` directives from `tests/fail/parse/*.ppl`).
+- Commit only through a `scripts/test.sh` exit-status check (piping its output through `grep`
+  once hid a clippy failure).
+- Waiting for the user: the 5 TOUR.md questions (log entry "Tour") and the *(provisional)*
+  decisions 166–168, 170 and 172 in docs/DECISIONS.md.
 
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ complete: 16 chapters, 162 decisions, no open questions |
+| Spec | 16 chapters, 172 decisions (5 provisional, pending review) |
 | Compiler | front end: lexer, newline filter, AST, parser (`ppl parse --dump`) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
 | Last green `scripts/test.sh` | 2026-10-31 (P1.12) |
