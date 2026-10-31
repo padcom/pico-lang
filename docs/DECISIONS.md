@@ -111,6 +111,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 72 | Match features | Guards (`if`), or-patterns and ranges, as-bindings (`c as Rect { w, h }`), `is` patterns with bindings and narrowing. |
 | 73 | Operators | Keep `++`/`--` and all compound assignments, including `??=`, `&&=` and `\|\|=`. |
 
+## Round 6 (functions)
+| # | Topic | Decision |
+|---|-------|----------|
+| 74 | Closure capture | By value for `const`, by reference for `let`. Semantics identical to JS; a captured `let` is boxed only when a closure captures it. |
+| 75 | Named args | Any parameter can be passed by name; positional arguments come first. Parameter names are part of the API. |
+| 76 | Overloading | Real overloading by parameter types, resolved statically (most specific wins, ambiguity is an error). |
+| 77 | Rest params | `...args: T[]` and spread `f(...arr)`. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
