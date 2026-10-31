@@ -185,6 +185,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 110 | Tests | Vitest-like `describe/test/expect` in `*.test.ppl` files. |
 | 111 | Formatter | A few options (indent, lineWidth, quotes, semicolons) under `fmt` in `project.json`. |
 
+## Round 15 (targets)
+| # | Topic | Decision |
+|---|-------|----------|
+| 112 | Target names | LLVM triples, with short aliases (`windows-x64`, …). |
+| 113 | Linking | Dynamic system libc on every platform; bundled stubs and lld make cross-compiling work without SDKs. |
+| 114 | Windows | MinGW (GNU) ABI. |
+| 115 | Min OS | Modern only: macOS 13+, Windows 10+, Linux 5.x / glibc 2.31. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
