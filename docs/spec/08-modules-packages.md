@@ -70,4 +70,3 @@ A package is a directory containing a `project.json`:
 
 ## Open questions
 - Registry name and hosting.
-- Lockfile name: `project.lock`?

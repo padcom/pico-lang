@@ -33,6 +33,7 @@ sql`SELECT * FROM t WHERE id = ${id}`    // tagged template
 true  false  null
 10u8  300i16  1.5f32  2f64              // literal suffixes
 /\d+(\.\d+)?/g                           // regex literal, validated at compile time
+                                         // (`/` starts a regex only where an expression can begin)
 ```
 Untyped numeric literals take their type from context. With no context, an integer literal is
 `int` (i64) and a float literal is `number` (f64).
@@ -96,4 +97,3 @@ throws true try typeof unsafe where while yield comptime immutable tailcall virt
 abstract final loop using distinct decorator is`
 
 ## Open questions
-- Regex literal vs `/` division ambiguity: use the JS rule (regex is allowed only where an expression can start).

@@ -139,7 +139,7 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | # | Topic | Decision |
 |---|-------|----------|
 | 86 | Script body | In the **entry module**, top-level code behaves like the body of `main()`: `let` is allowed, and those bindings are locals that other modules can't see or export. Library modules allow only `const`. |
-| 87 | Throwables | Only subclasses of the built-in `Error` class. |
+| 87 | Throwables | Subclasses of the built-in `Error` class (amended by #150: structs/enums implementing `Throwable` too). |
 | 88 | try expression | `try … catch …` is an expression, e.g. `const n = try parse(s) catch (e: ParseError) 0`. |
 | 89 | Error unions | `throws A \| B`; typed `catch` clauses narrow the union. (`try?`/`try!` were added later, see #141.) |
 | 90 | Stack traces | Always captured on throw and on panic. |
@@ -248,6 +248,16 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 145 | Workspaces | `"workspace": ["packages/*"]` in the root `project.json`, with one shared lockfile. |
 | 146 | Overloads + defaults | Allowed; only calls that are actually ambiguous are errors. |
 | 147 | Tail calls | `return tailcall f(…)` is guaranteed (LLVM `musttail`); if it can't be honored, that's a compile error. |
+
+## Round 22 (closing open questions, part 1)
+| # | Topic | Decision |
+|---|-------|----------|
+| 148 | Lockfile | `project.lock`. |
+| 149 | Regex vs `/` | The JS rule: `/` starts a regex literal only where an expression can begin. |
+| 150 | Lightweight errors | Structs and enums can be thrown when they `implement Throwable`. `Error` subclasses remain the default; lightweight throwables don't capture a stack trace, which is what makes them cheap. |
+| 151 | Release traces | Release binaries keep raw addresses. `ppl symbolize` maps them using a separate debug file (`.dbg` / `.pdb` / `.dSYM`). Debug builds are symbolized in-process. |
+| 152 | Comptime limits | 10M evaluation steps by default, configurable with `@comptimeLimit(n)`. |
+| 153 | Comptime diagnostics | `decl.error/warn/note(msg, span?)`, attached to source spans. |
 
 ## Spec format
 | # | Topic | Decision |

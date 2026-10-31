@@ -20,6 +20,12 @@ const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl
   except reading files under the package root (`comptime.readFile`).
 - `target` (os, arch, features) and `build` (mode, flags) are available at comptime.
 - Types are values at comptime (`comptime T: type`).
+- **Limit**: 10 million evaluation steps per top-level comptime evaluation, after which a compile
+  error shows the comptime backtrace. Override it with `@comptimeLimit(50_000_000)` on the
+  declaration.
+- **Diagnostics**: decorators and comptime code report through `decl.error(msg, span?)`,
+  `decl.warn(…)` and `decl.note(…)`. These show up as normal compiler diagnostics pointing at the
+  decorated source.
 
 ## 11.2 Decorators
 A decorator is a **comptime function** that receives a description of the declaration it's
@@ -92,5 +98,3 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
 sockets are `AsyncDisposable`.
 
 ## Open questions
-- How many comptime steps are allowed before the compiler gives up (an infinite-loop guard)?
-- Do comptime functions get their own throws/diagnostic API (`c.error`, `c.warn`)?

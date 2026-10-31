@@ -7,10 +7,11 @@ ppl has two failure mechanisms:
 | For | expected failures (I/O, parsing, validation) | bugs (overflow, out-of-bounds, failed `assert`, `!` on null) |
 | Declared | yes, `throws E` is **checked** | no |
 | Caught by | `try`/`catch` | only at the top level or a thread boundary |
-| Stack trace | always captured | always captured |
+| Stack trace | always captured (except lightweight `Throwable`s) | always captured |
 
 ## 7.1 Error types
-Only subclasses of the built-in `Error` class can be thrown.
+Two kinds of value can be thrown: subclasses of the built-in `Error` class (the default), and
+**lightweight** structs/enums that `implement Throwable`.
 ```ts
 class Error {
   constructor(public message: string, public cause: Error? = null) {}
@@ -20,8 +21,21 @@ class Error {
 class IoError extends Error { constructor(public path: string, msg: string) { super(msg) } }
 class ParseError extends Error { constructor(public line: i32) { super(`parse error at ${line}`) } }
 ```
-`throw` takes an expression whose type is a subclass of `Error`. A stack trace is **always**
-captured when an error is thrown.
+`throw` takes an `Error` subclass or a `Throwable`. `Error` subclasses **always** capture a stack
+trace when they're thrown.
+
+### Lightweight throwables
+```ts
+enum ParseFail implements Throwable { Eof, Unexpected(ch: char, at: int) }
+function next(): Token throws ParseFail { … throw ParseFail.Eof }
+```
+`Throwable` requires only `message(): string`. Lightweight throwables are values, so there's no
+allocation and no stack capture, which suits hot parsing loops and `--no-gc` code.
+
+### Symbolization
+Debug builds symbolize traces in-process. Release binaries print raw addresses plus a build ID,
+and `ppl symbolize trace.txt` resolves them from the separate debug file (`.dbg`, `.pdb`,
+`.dSYM`) that the release build produced next to the binary.
 
 ## 7.2 Checked `throws`
 A function that can throw must declare the errors it throws:
@@ -93,5 +107,3 @@ A panic means a bug. Overflow, out-of-bounds indexing, division by zero, `x!` on
 - in a worker, surface to the parent as a `WorkerPanicked` event/error (§10).
 
 ## Open questions
-- Can `Error` subclasses be structs/enums later (a cheaper error representation)?
-- How is the stack trace symbolized in release builds (embedded symbol tables vs external)?
