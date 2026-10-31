@@ -1,0 +1,706 @@
+# Implementation plan
+
+This plan breaks the ppl compiler into **small tasks**, each sized to fit in one working session.
+Work through them in order. Live status is tracked in [PROGRESS.md](PROGRESS.md), the language
+definition is in [docs/spec/](docs/spec/), and the reasoning behind each design choice is in
+[docs/DECISIONS.md](docs/DECISIONS.md).
+
+## How tasks are written
+Every task has:
+- **ID**: `P<phase>.<n>`, used in PROGRESS.md and commit messages (`P2.3: …`).
+- **Goal**: one sentence.
+- **Spec**: the sections to read first. Read *only* these, to save tokens.
+- **Do**: the concrete deliverables.
+- **Done when**: the tests or commands that prove the task is finished.
+
+Ground rules that apply to every task:
+1. Before starting, read PROGRESS.md and the task's spec sections. Read nothing else unless you need it.
+2. Every feature comes with golden tests (`tests/run`, `tests/fail`) or Rust unit tests.
+3. `scripts/test.sh` has to pass before a commit, and you commit right after it does (no need to ask).
+4. Update PROGRESS.md: tick the task, write a 1–3 line log entry, and set **Next task**.
+5. Keep tasks small. If one turns out bigger than expected, split it into `P2.3a`/`P2.3b` here.
+6. Spec gaps found while implementing get a decision, which is recorded in DECISIONS.md and the spec chapter.
+
+---
+
+## Architecture (bootstrap compiler)
+
+```
+ .ppl ──► ppl-syntax ──► ppl-sema ──────► ppl-mir ─────► ppl-codegen ──► .o ──► linker ──► exe/wasm
+          lexer          resolve names    monomorphize   LLVM (inkwell)          (cc now,
+          parser → AST   type check       lower → CFG    debug info              bundled lld later)
+                         → typed HIR      ppl-interp ◄── used for comptime and `--interp` tests
+```
+
+| Crate | Responsibility |
+|-------|----------------|
+| `ppl-diag` | source map, spans, diagnostics rendering (Elm/Rust style), error codes |
+| `ppl-syntax` | tokens, lexer, newline rule, AST, parser, AST pretty-printer |
+| `ppl-sema` | name resolution, types, inference, narrowing, checked throws, typed HIR |
+| `ppl-mir` | mid-level IR (CFG of basic blocks), lowering from HIR, monomorphization, MIR dump |
+| `ppl-interp` | MIR interpreter: comptime, `ppl run --interp`, and a second test oracle |
+| `ppl-codegen` | MIR → LLVM IR via inkwell, object emission, target machine setup |
+| `ppl-runtime` | runtime in **C** (strings, alloc/GC, panics, unwinding, event loop), compiled per target with clang |
+| `ppl-driver` | the pipeline, caching, target selection, linking |
+| `ppl-cli` | the `ppl` binary (subcommands) |
+| `ppl-tests` | golden-test harness |
+
+**Why the runtime is in C:** it's compiled with clang for every target (we bundle the same LLVM),
+it's easy to link into native and wasm, and it's simple to swap pieces for ppl code later.
+
+**Golden tests:**
+- `tests/run/**/*.ppl` hold `// expect:` lines (stdout), plus optional `// exit: N` and `// panic: msg`.
+  Each test runs **twice**: through the interpreter and as a native binary. Both outputs must match.
+- `tests/fail/**/*.ppl` hold `// error: E0xxx` and `// at: line:col`. Compilation must fail with exactly
+  those errors.
+- Diagnostics rendering is checked with `insta` snapshots.
+
+**Risks to keep in mind:**
+- **LLVM can't emit WasmGC.** `wasm32-browser` therefore starts on linear memory with the ppl GC
+  (the same as WASI). A WasmGC backend is a separate, later emitter (P8.7).
+- Unwinding: native targets use LLVM Itanium/SEH exception handling and wasm uses the wasm
+  exception-handling proposal. If that blocks progress, fall back to explicit error-return lowering
+  (P3.19 decides).
+- Precise GC needs root maps. Start with a **shadow stack**, which is portable and works on wasm,
+  and optimize later.
+
+---
+
+## Phase 1: Foundation (front end, no codegen)
+
+### P1.1 Toolchain setup
+- **Goal**: get a reproducible development environment.
+- **Do**: install rustup (stable) and LLVM via Homebrew (pin a version inkwell supports, e.g. 18). Write
+  `docs/DEVELOPMENT.md` with the exact versions, `LLVM_SYS_*_PREFIX` setup and the commands. Add
+  `rust-toolchain.toml`.
+- **Done when**: `cargo --version`, `llvm-config --version` and `clang --version` work and are documented.
+
+### P1.2 Workspace skeleton
+- **Goal**: an empty Cargo workspace with all the crates, plus the test script.
+- **Do**: create the crates from the table (empty libs), `ppl-cli` with `ppl --version`, and
+  `scripts/test.sh` (fmt check, clippy, `cargo test`). Add a `.gitignore` for `target/`.
+- **Done when**: `scripts/test.sh` passes and `cargo run -p ppl-cli -- --version` prints the version.
+
+### P1.3 Diagnostics
+- **Spec**: 14 §14.2
+- **Do**: `SourceMap`, `FileId`, `Span`, `Diagnostic { code, severity, message, labels, notes, help }`
+  and a renderer that matches the spec's example (custom, or `ariadne`/`codespan-reporting`).
+- **Done when**: an insta snapshot of a rendered diagnostic matches §14.2's layout.
+
+### P1.4 Lexer: core tokens
+- **Spec**: 01 §1.1, §1.3 (except templates), §1.5, §1.6
+- **Do**: the `Token` enum, keywords, identifiers, punctuators (longest match), integer and float
+  literals (hex, octal, binary, `_`, suffixes `u8`…`f64`), `'…'`/`"…"` with escapes, comments, and
+  newlines kept as tokens.
+- **Done when**: unit tests cover every literal form and the error cases (unterminated string, bad
+  suffix).
+
+### P1.5 Lexer: templates, multiline strings, regex
+- **Spec**: 01 §1.3, §1.4
+- **Do**: backtick templates with nested `${}` (a mode stack), format-spec capture after a top-level `:`,
+  triple-quoted `'''`/`"""`/```` ``` ```` with indent stripping, and regex literals using the JS rule
+  (the lexer is told by the previous token whether an expression can start).
+- **Done when**: unit tests for nesting (`` `a${`b${c}`}` ``), `${x:.2f}`, `${a ? b : c}` (no spec),
+  dedent behavior, `a / b / c` vs `/re/g`.
+
+### P1.6 Statement-termination rule
+- **Spec**: 01 §1.2
+- **Do**: a token filter that turns newlines into statement terminators or drops them, using the
+  bracket depth, the operator at the end of the line and the operator at the start of the next line.
+- **Done when**: table-driven tests cover every example in §1.2, including `f\n(x)` as two statements.
+
+### P1.7 AST and pretty-printer
+- **Spec**: skim 03, 04, 05
+- **Do**: AST node types for expressions, statements, declarations and types (cover the *whole*
+  language now, even though the parser fills it in gradually). Add a `ppl parse --dump file.ppl`
+  S-expression printer.
+- **Done when**: it compiles and the printer has unit tests on hand-built ASTs.
+
+### P1.8 Parser: expressions
+- **Spec**: 03 §3.3, §3.6
+- **Do**: a Pratt parser using the precedence table, covering literals, identifiers, unary and binary
+  operators, assignment, ternary, calls (positional + named arguments), member access, `?.`,
+  indexing, `!`, `as`, ranges `a..b`, and arrow functions.
+- **Done when**: snapshot tests of `--dump` output for precedence and associativity cases.
+
+### P1.9 Parser: statements and blocks
+- **Spec**: 03 §3.1–3.2, 04 §4.1, §4.3
+- **Do**: `const`/`let`, block expressions, `if`/`else` as an expression, `while`, `do-while`, C-style
+  `for`, `for-of`, `loop`, `break [value]`, `continue`, `return`, and the block-vs-object-literal rule.
+- **Done when**: snapshot tests pass, including `{` at statement start parsing as a block.
+
+### P1.10 Parser: declarations and types
+- **Spec**: 02 (type syntax), 05 §5.1–5.3, 06 §6.1–6.2, 04 §4.4
+- **Do**: functions (params, defaults, `?`, rest, return type, `throws`), type syntax (unions, `T?`,
+  arrays, `[T; N]`, tuples, generics, function types, `immutable`), `struct`, `enum`, `class`,
+  `interface`, `type`, `distinct`, `import`/`export`, decorators `@x(...)`, modifiers.
+- **Done when**: every code sample in spec chapters 00–06 parses (add them as test fixtures).
+
+### P1.11 Parser: patterns, match, switch, try
+- **Spec**: 03 §3.5, 07 §7.3
+- **Do**: the full pattern grammar, `match`, `switch`/`case`/`default`, `is`, `try`/`catch`/`finally`
+  as an expression, `try?`/`try!`, `throw`, and `using`/`await using`.
+- **Done when**: every code sample in spec chapters 03 and 07 parses.
+
+### P1.12 Parser error recovery
+- **Do**: sync points (statement start, `}`), "expected X, found Y" diagnostics with helpful
+  suggestions, and several errors per file.
+- **Done when**: `tests/fail/parse/*.ppl` show sensible multi-error output (snapshots).
+
+### P1.13 Golden-test harness
+- **Do**: the `ppl-tests` crate that discovers `tests/run` and `tests/fail` and parses the `// expect:`,
+  `// error:`, `// exit:` and `// panic:` directives. For now it runs the stages that exist (parse only)
+  and reports clear diffs.
+- **Done when**: `cargo test -p ppl-tests` runs the fixtures. One deliberately broken fixture shows a
+  readable failure, and is then fixed.
+
+---
+
+## Phase 2: First executable (hello world, native and interpreted)
+
+### P2.1 Name resolution
+- **Spec**: 04 §4.1–4.2, 08 §8.1 (single file for now)
+- **Do**: scopes, block scoping, use-before-declaration errors, order-independent top-level
+  `function`/type declarations, entry-module script body, and globals (`println` etc.) as built-ins.
+- **Done when**: fail tests cover unknown names, use-before-declaration and duplicate declarations.
+
+### P2.2 Type checker: primitives and functions
+- **Spec**: 02 §2.1–2.2, 03 §3.1, 05 §5.1
+- **Do**: the type representation, a primitive type table, literal typing from context (default
+  `int`/`number`), lossless-widening rules, `as`, operator typing, blocks/`if` as expressions,
+  `void`/`never`, function signatures, and return-type inference (required for recursive functions).
+- **Done when**: run tests type-check and fail tests cover mismatches, narrowing without `as`, and
+  `if` without `else` (typed `T?`; the null runtime comes in P3.6).
+
+### P2.3 MIR design and lowering
+- **Do**: the MIR (functions → basic blocks → statements over typed locals; terminators: goto, branch,
+  return, call, panic), lowering of the P2.2 subset, and `ppl build --emit mir`.
+- **Done when**: MIR dump snapshots exist for loops, `if` expressions and `loop`/`break value`.
+
+### P2.4 MIR interpreter
+- **Do**: `ppl-interp` executes MIR. Integers trap on overflow, and `println` prints primitives and
+  string literals. Add `ppl run --interp`.
+- **Done when**: the harness runs `tests/run` in interpreter mode and hello world passes.
+
+### P2.5 C runtime v0
+- **Spec**: 07 §7.5
+- **Do**: `runtime/` C sources: `ppl_println_*`, `ppl_panic(msg, file, line)` (prints and exits 101),
+  `main` calling `ppl_entry`, overflow/bounds panic helpers, and a build via the `cc` crate for the host.
+- **Done when**: a C unit test (or Rust test linking the runtime) shows the panic output format.
+
+### P2.6 LLVM codegen v0
+- **Do**: inkwell setup, function and local lowering, integer/float/bool arithmetic using
+  `llvm.*.with.overflow` and a panic on overflow, comparisons, branches, loops, calls, and runtime
+  calls for printing. Emit `.o` for the host target.
+- **Done when**: `--emit llvm-ir` snapshots for simple functions match.
+
+### P2.7 `ppl build` / `ppl run` end to end
+- **Do**: the driver links object files with the system `cc` into an executable. `ppl run` builds to
+  a cache directory and executes the result. The harness runs every `tests/run` test natively too and
+  compares outputs.
+- **Done when**: `ppl run hello.ppl` prints `Hello, world!`, and the interpreter and native outputs
+  agree on all tests (fib, loops, overflow panic). **Milestone M1.**
+
+---
+
+## Phase 3: Core language (single module, leaking allocator)
+
+### P3.1 Allocator v0 and string runtime
+- **Spec**: 02 §2.1 (string), 09 §9.1
+- **Do**: the `ppl_alloc` API (malloc-backed, nothing freed yet, but behind the API the GC will use)
+  and a UTF-8 string object (length in code points cached, plus byte length). Concatenation, `==`,
+  `.length`, and `s[i]` (O(n) with a cached index) returning `char`.
+- **Done when**: run tests cover string ops and multibyte text (emoji, Polish diacritics).
+
+### P3.2 char type and template literals
+- **Spec**: 01 §1.3 (char inference), §1.4
+- **Do**: `char` inference from one-character literals, template literal lowering (`${}` without
+  specs), multiline literals, and a `toString` protocol for primitives.
+- **Done when**: run tests pass, and a fail test covers `const c: char = "ab"`.
+
+### P3.3 Format specs
+- **Spec**: 01 §1.4
+- **Do**: parse the format-spec mini-language at compile time (invalid spec → compile error), with
+  runtime formatting functions for ints, floats and strings (fill/align/sign/#/0/width/precision/type),
+  plus `?` debug output for primitives.
+- **Done when**: every example in the §1.4 table is a run test.
+
+### P3.4 Structs
+- **Spec**: 02 §2.7, 03 §3.2
+- **Do**: struct declarations, both literal forms, field access and assignment, methods with
+  implicit members, value-copy semantics, field-wise `==`, and nested structs.
+- **Done when**: run tests show copy semantics (mutating a copy doesn't affect the original).
+
+### P3.5 Arrays, fixed arrays, tuples, ranges
+- **Spec**: 02 §2.8, 04 §4.3, 01 (ranges)
+- **Do**: `T[]` (growable: push, pop, length, index with a bounds panic), `[T; N]` inline, tuples
+  `[A, B]` (accessed by destructuring or `t[0]` with a constant index), `a..b`, `.step(n)`, `for-of`
+  over arrays and ranges.
+- **Done when**: run tests pass, including an out-of-bounds panic test.
+
+### P3.6 Null and narrowing infrastructure
+- **Spec**: 02 §2.4
+- **Do**: `T?` representation (tagged for values, null pointer for references), `null`, `?.`, `??`,
+  `!` (panics), `??=`, and the flow-sensitive narrowing framework (`!= null`, early return).
+- **Done when**: run and fail tests cover using `T?` as `T` without narrowing.
+
+### P3.7 Enums and basic match
+- **Spec**: 02 §2.6, 03 §3.5
+- **Do**: payload enums (tagged-union layout), construction with named args, `match` with literal,
+  wildcard, binding and variant (positional and named) patterns, an exhaustiveness checker
+  (Maranget-style usefulness), and an error that lists the missing patterns.
+- **Done when**: run tests pass, and a fail test shows the missing-case diagnostic.
+
+### P3.8 Advanced patterns and switch
+- **Spec**: 03 §3.5
+- **Do**: guards, or-patterns, range patterns, `as` bindings, tuple/array patterns with `...rest`,
+  type-test patterns, `is` with bindings and narrowing, and the modernized `switch` (`case a | b`).
+- **Done when**: every §3.5 example is a run test.
+
+### P3.9 Classes I
+- **Spec**: 06 §6.1 (no inheritance)
+- **Do**: heap layout, `new`, constructors, parameter properties, private-by-default visibility,
+  methods, implicit members, get/set, static members and static init blocks, identity `==`, and
+  definite assignment.
+- **Done when**: run tests pass, and fail tests cover private access and an unassigned field.
+
+### P3.10 Classes II: inheritance
+- **Spec**: 06 §6.1, §6.3
+- **Do**: `extends`, `super(...)`, vtables, `virtual`/`override`/`abstract`/`final`, the required
+  `override` diagnostic, constructor overloading and `this(...)` delegation, and `instanceof`.
+- **Done when**: run tests cover polymorphic dispatch, and fail tests cover a missing `override` and
+  overriding a non-virtual method.
+
+### P3.11 Interfaces
+- **Spec**: 06 §6.2–6.3
+- **Do**: nominal `implements`, itables with fat pointers, default methods, conflicting-default
+  errors, structs/enums implementing interfaces (boxing), and interface inheritance.
+- **Done when**: run tests pass, and a fail test covers a structurally matching class without
+  `implements`.
+
+### P3.12 Unions and literal types
+- **Spec**: 02 §2.5–2.6
+- **Do**: a union representation (a tag plus payload, reusing the enum machinery), literal types,
+  `typeof`/`instanceof`/discriminant narrowing, and lowering discriminated object unions to
+  anonymous enums.
+- **Done when**: every §2.5 and §2.6 example is a run test.
+
+### P3.13 Generics I: functions
+- **Spec**: 02 §2.9
+- **Do**: generic functions, type-argument inference, monomorphization in MIR (an instance cache and
+  name mangling), and `extends` constraints.
+- **Done when**: a run test with `max<T>` over several types passes and the MIR dump shows the instances.
+
+### P3.14 Generics II: types and where
+- **Do**: generic structs, classes and interfaces, `where` clauses, generic methods, and default
+  type parameters.
+- **Done when**: a user-defined generic `Stack<T>` and `Pair<A, B>` work in run tests.
+
+### P3.15 Closures
+- **Spec**: 05 §5.5–5.6
+- **Do**: arrow and function expressions, closure conversion (`const` captured by value, captured
+  `let` boxed), lexical `this` in arrows, and function types.
+- **Done when**: the §5.5 counter example and a list of closures capturing a loop variable both work.
+
+### P3.16 Function features
+- **Spec**: 05 §5.2–5.4, §5.4.1
+- **Do**: named arguments, defaults (which can reference earlier parameters), optional parameters,
+  rest/spread, tuple spread, overload resolution (most specific wins, ambiguity is an error), and
+  `tailcall` (`musttail`, or a compile error).
+- **Done when**: run tests pass, a fail test covers an ambiguous overload, and a deep `tailcall`
+  recursion doesn't overflow the stack.
+
+### P3.17 Operators and equality protocols
+- **Spec**: 03 §3.3–3.4, 02 §2.7 (protocols)
+- **Do**: `operator` declarations (binary, unary, `[]`, `[]=`), derived compound assignment,
+  `Equatable`/`Hashable`/`Comparable` with automatic derivation for structs, enums and tuples, and
+  a built-in `@derive(Eq, Hash, Ord)` for classes (reimplemented as a ppl decorator in P6.6).
+- **Done when**: `Vec2` arithmetic and sorting structs by `compareTo` work.
+
+### P3.18 Distinct types, aliases, immutability
+- **Spec**: 02 §2.10–2.11
+- **Do**: `type` aliases, `distinct` types, `readonly` fields, `immutable T` deep checking, and
+  `readonly` methods.
+- **Done when**: fail tests cover mutation through `immutable` and mixing `Meters`/`Feet`.
+
+### P3.19 Exceptions I
+- **Spec**: 07 §7.1–7.3
+- **Do**: decide on and implement the unwinding strategy (LLVM EH plus a C personality function, or
+  error-return lowering). Then: the `Error` class, `throw`, `try`/`catch`/`finally` as an expression,
+  typed catch clauses, and the checked-`throws` analysis with error-union narrowing.
+- **Done when**: run tests pass, and fail tests cover an unhandled checked error.
+
+### P3.20 Exceptions II
+- **Spec**: 07 §7.2 (inference, polymorphism), `try?`/`try!`, lightweight `Throwable`
+- **Do**: throws inference for private functions and lambdas, throws polymorphism in HOFs,
+  `try?`/`try!`, and struct/enum `Throwable` (no stack trace).
+- **Done when**: `lines.map(l => parseInt(l))` throws exactly `ParseError` at the call site (both
+  run and fail tests).
+
+### P3.21 Panics and stack traces
+- **Spec**: 07 §7.5
+- **Do**: panic unwinding that runs `finally`, the top-level handler, stack capture
+  (`backtrace`-style in C), and symbolized output in debug builds.
+- **Done when**: the panic output includes a symbolized trace on macOS (snapshot with addresses
+  normalized).
+
+### P3.22 Core collections and Array API
+- **Spec**: 13 §13.1 (Map/Set/Array)
+- **Do**: `Map`/`Set` (hash tables built on `hashCode`/`equals`), Array methods (map, filter,
+  reduce, find, some, every, sort, slice, join, includes, indexOf), and string methods (split, trim,
+  startsWith, includes, replace, toUpperCase, padStart, …), written in ppl where possible
+  (`stdlib/core/*.ppl`).
+- **Done when**: run tests cover the common APIs and throws propagation through `map`.
+
+### P3.23 Iterators and generators
+- **Spec**: 05 §5.7, 04 §4.3
+- **Do**: `Iterable`/`Iterator` protocols, `function*`/`yield` lowered to a state machine in MIR,
+  lazy adapters (`map`, `filter`, `take`, `zip`, `enumerate`), and `for-of` over any iterable.
+- **Done when**: the `fib().take(10)` example works.
+
+### P3.24 Modules
+- **Spec**: 08 §8.1–8.2, 04 §4.2
+- **Do**: multi-file compilation, extensionless resolution, `import`/`export` forms (named,
+  `* as`, `as`, re-export), const-only library modules (`let` → error), initialization order,
+  init-cycle detection, and `std/` path mapping to the bundled `stdlib/` directory.
+- **Done when**: multi-file fixtures (`tests/run/modules/<case>/main.ppl`) pass, and fail tests
+  cover a cycle and a library `let`.
+
+### P3.25 Destructuring and spread
+- **Spec**: 04 §4.1
+- **Do**: object/array/tuple destructuring with defaults and rest, destructured parameters, and
+  spread in array literals.
+- **Done when**: the §4.1 and §5.3 examples are run tests.
+
+### P3.26 `using` and Disposable
+- **Spec**: 11 §11.5
+- **Do**: `using` with `Disposable` (sync), reverse-order disposal on every exit path, exceptions
+  included. (`await using` comes in P5.3.)
+- **Done when**: run tests show the disposal order with and without exceptions.
+
+---
+
+## Phase 4: Memory management
+
+### P4.1 Shadow stack and type maps
+- **Spec**: 09 §9.1–9.2
+- **Do**: per-type GC layout descriptors (offsets of references, including inside structs), and
+  shadow-stack frames for GC roots emitted by codegen.
+- **Done when**: a debug `gc.dumpRoots()` lists the expected roots in a test.
+
+### P4.2 Mark-sweep GC
+- **Do**: a precise, non-moving mark-sweep collector with a per-thread heap (still one thread),
+  allocation-triggered collection, and `std/gc` `collect()`/`stats()`.
+- **Done when**: an allocation stress test runs in bounded memory (it checks `gc.stats()`).
+
+### P4.3 Generational and incremental GC
+- **Do**: a nursery (bump allocation) with promotion, write barriers emitted by codegen, incremental
+  old-generation marking, `pause()`/`resume()`/`collectYoung()`, and pause-time stats.
+- **Done when**: the stress test passes, and a benchmark records max pause < 1 ms for a game-like
+  workload (documented in PROGRESS.md).
+
+### P4.4 Weak references and finalization
+- **Spec**: 09 §9.3
+- **Do**: `WeakRef`, `WeakMap`, `WeakSet`, `FinalizationRegistry` (callbacks queued for the event
+  loop; until P5.1 they run at exit).
+- **Done when**: run tests show a weak reference cleared after `gc.collect()`.
+
+### P4.5 Unsafe and pointers
+- **Spec**: 09 §9.5
+- **Do**: `unsafe` blocks and functions, `ptr<T>` operations, `sizeof`/`alignof`, `@pod`
+  (C layout, no references), and `unsafe.cast`.
+- **Done when**: fail tests cover pointer use outside `unsafe` and a reference field in a `@pod` struct.
+
+### P4.6 Arenas
+- **Spec**: 09 §9.4
+- **Do**: the scoped `arena { }` block (allocations redirected, escape analysis rejects references
+  leaving the block) and the `Arena` object in unsafe code.
+- **Done when**: the §9.4 examples are run tests, and a fail test covers an escaping reference.
+
+---
+
+## Phase 5: Async and concurrency
+
+### P5.1 Event loop
+- **Spec**: 10 §10.1
+- **Do**: a runtime loop (kqueue on macOS first, behind an interface), timers (`setTimeout`,
+  `setInterval`, `clearTimeout`), `queueMicrotask`, and exit when nothing is pending.
+- **Done when**: timer-ordering run tests pass.
+
+### P5.2 async/await
+- **Spec**: 10 §10.1, 07 §7.4
+- **Do**: lower async functions to MIR state machines, eager `Promise<T>` with throws tracking,
+  `await` rethrowing (checked), top-level `await`, and `Promise.all`/`race`/`allSettled`.
+- **Done when**: run tests cover ordering with JS-identical output, and a fail test covers an
+  unhandled awaited error.
+
+### P5.3 Async generators and `await using`
+- **Do**: `async function*`, `for await`, `AsyncIterator`, and `await using` with `AsyncDisposable`.
+- **Done when**: the §5.7 async example and an `await using` ordering test pass.
+
+### P5.4 Cancellation
+- **Spec**: 10 §10.5
+- **Do**: `AbortController`, `AbortSignal`, `AbortError`, and `signal` support in timers.
+- **Done when**: an aborted timer rejects with `AbortError` in a run test.
+
+### P5.5 Workers
+- **Spec**: 10 §10.2–10.3
+- **Do**: OS threads, each with its own heap and module instances, `Worker<In, Out>`,
+  `postMessage`/`onmessage`, the Sendable check (compile error), deep copy (cycles preserved),
+  `terminate`, and panic → `onerror`.
+- **Done when**: a ping-pong test passes, and a fail test covers sending a closure.
+
+### P5.6 Transferables, inline workers, pools
+- **Spec**: 10 §10.3–10.4
+- **Do**: `ArrayBuffer`/typed arrays (off-heap) with `transfer` and detaching, inline capture-free
+  workers with `w.call()`, `parallelMap`, and `WorkerPool`.
+- **Done when**: a `parallelMap` hashing test passes, and a fail test covers an inline worker that
+  captures.
+
+---
+
+## Phase 6: Comptime and metaprogramming
+
+### P6.1 Constant folding
+- **Do**: fold pure constant expressions in MIR, with overflow during folding reported as a compile error.
+- **Done when**: the MIR dump shows `const KB = 1 << 10` folded.
+
+### P6.2 `comptime` evaluation
+- **Spec**: 11 §11.1
+- **Do**: `comptime const`, `comptime { }`, `comptime if`, and `comptime` params run via `ppl-interp`;
+  `target`/`build` info, `comptime.readFile`, and the 10M step limit with `@comptimeLimit`.
+- **Done when**: the CRC table example works, and a fail test covers an infinite loop hitting the
+  step limit.
+
+### P6.3 Types as comptime values
+- **Do**: `comptime T: type` and type reflection at comptime (fields, methods).
+- **Done when**: a generic `vec<comptime N>` example works.
+
+### P6.4 Decorators and std/meta
+- **Spec**: 11 §11.2
+- **Do**: `decorator function`, the `ClassDecl`/`FunctionDecl`/… API, adding members, wrapping
+  functions, and diagnostics through `decl.error/warn/note`.
+- **Done when**: the `@memoize` and `@mustHaveId` examples work.
+
+### P6.5 Quasi-quote templates and the AST builder
+- **Do**: backtick code templates parsed and type-checked during expansion, plus the `ast.*` builder.
+- **Done when**: a decorator that generates a `toString()` method passes.
+
+### P6.6 `@derive` in ppl
+- **Do**: reimplement `@derive(Eq, Hash, Ord)` as a stdlib decorator and remove the built-in.
+- **Done when**: the P3.17 tests still pass.
+
+### P6.7 Runtime reflection
+- **Spec**: 11 §11.3
+- **Do**: whole-program, on-demand metadata emission, and `reflect.typeOf` (fields, methods,
+  interfaces, decorators, `get`/`set`).
+- **Done when**: the §11.3 example works, and binary size is unchanged when reflection isn't used.
+
+### P6.8 JSON
+- **Spec**: 11 §11.4
+- **Do**: compile-time generated `JSON.parse<T>` (validation with precise error paths) and
+  `JSON.stringify`, plus `@json.name`.
+- **Done when**: the Config example passes, including error messages.
+
+---
+
+## Phase 7: Standard library (async I/O)
+
+### P7.1 std/fs and std/path
+- **Spec**: 13 §13.2–13.4
+- **Do**: async file operations (thread-pool backed in the runtime), `File` as `AsyncDisposable`,
+  `readDir` as an async iterator, and `std/path`.
+- **Done when**: run tests use a temp directory.
+
+### P7.2 std/process
+- **Spec**: 13 (External processes)
+- **Do**: args, env, exit, cwd, stdio streams, and `Command` (spawn, output, pipes, status, kill, env,
+  cwd, no shell) plus `Command.shell`, implemented with POSIX spawn (macOS/Linux) and
+  `CreateProcessW` (Windows, verified in P8.3).
+- **Done when**: run tests spawn `echo` and `cat` with pipes.
+
+### P7.3 std/net
+- **Do**: TCP listen/connect, UDP, and DNS on the event loop.
+- **Done when**: a TCP echo test runs server and client in one process.
+
+### P7.4 Web Streams and encoding
+- **Do**: `ReadableStream`/`WritableStream`/`TransformStream`, `TextEncoder`/`TextDecoder`, and
+  `std/encoding` (base64, hex).
+- **Done when**: piping through a TransformStream works in a run test.
+
+### P7.5 fetch and std/http
+- **Do**: `URL`, `URLSearchParams`, `Headers`, `Request`, `Response` (`json<T>()`), an HTTP/1.1
+  client `fetch` (TLS via a bundled library, decided at task time), `std/http` `serve`, and WebSocket.
+- **Done when**: a `serve` + `fetch` round-trip test passes.
+
+### P7.6 Regex
+- **Spec**: 01 (regex literals)
+- **Do**: the `RegExp` engine (port or bind one, decided at task time), compile-time validation of
+  literals, and string methods that take regexes.
+- **Done when**: an invalid regex literal gives a compile error, and common JS regex tests pass.
+
+### P7.7 Time
+- **Do**: `std/time` (`Instant`, `Duration`, `DateTime`, time zones), the `Date` global, and
+  `performance.now()`.
+- **Done when**: run tests cover formatting and arithmetic.
+
+### P7.8 Crypto
+- **Do**: `crypto.getRandomValues`, `randomUUID`, hashes, HMAC, AEAD, and signatures (bind a vetted C
+  library).
+- **Done when**: known-answer tests pass.
+
+### P7.9 Math, collections, fmt
+- **Do**: `std/math` (Vec2/3/4, Mat4, Quat, bigint, random), `std/collections`, and `std/fmt`
+  (`Formattable` hook for user types in `${x:…}`).
+- **Done when**: run tests pass.
+
+### P7.10 std/test and `ppl test`
+- **Spec**: 14 §14.3
+- **Do**: `describe`/`test`/`expect` matchers (`toBe`, `toEqual`, `toThrow`, `toPanic`, `rejects`),
+  hooks, `*.test.ppl` discovery, one worker per file, `--watch`, and `bench` with `ppl bench`.
+- **Done when**: the stdlib's own tests are rewritten as `*.test.ppl` and run in CI.
+
+---
+
+## Phase 8: Targets
+
+### P8.1 Cross-compilation infrastructure
+- **Spec**: 15
+- **Do**: target triples and aliases, a `--target` flag, per-target runtime builds (clang), linking
+  through **lld** (via LLVM, no system linker), and the glibc version suffix.
+- **Done when**: building `linux-x64` from macOS produces an ELF binary (verified with `file`, run
+  under Docker if available).
+
+### P8.2 Linux gnu and musl
+- **Do**: glibc stubs (generate versioned stub libs, as Zig does), musl static linking, and epoll in
+  the event loop.
+- **Done when**: the golden tests pass in a Linux container for gnu and musl.
+
+### P8.3 Windows (MinGW)
+- **Do**: MinGW import libraries, CodeView debug info, IOCP in the event loop, and `CreateProcessW`.
+- **Done when**: golden tests pass under Windows (or Wine) for `windows-x64`.
+
+### P8.4 macOS cross builds
+- **Do**: bundled `.tbd` stubs, x64 and arm64 from any host, and universal-binary support (optional).
+- **Done when**: both architectures build from macOS arm64, and an x64 binary runs under Rosetta.
+
+### P8.5 wasm32-wasi
+- **Spec**: 12 §12.5
+- **Do**: the wasm32-wasip2 target, WASI-backed runtime pieces (fs, clocks, random, sockets, http),
+  the shadow-stack GC on linear memory, and compile errors for unavailable modules (no workers, no
+  Command).
+- **Done when**: golden tests run under wasmtime (installed in that task).
+
+### P8.6 wasm32-browser (linear memory)
+- **Spec**: 12 §12.3
+- **Do**: wasm32-unknown-unknown with the ppl GC, ESM glue `app.js`, `@export("js")`, a generated
+  `.d.ts`, structs crossing as plain objects, classes as handles, and the event loop bridged to the
+  browser.
+- **Done when**: golden tests run in node/deno through the glue, and a demo page works.
+
+### P8.7 WasmGC backend (later)
+- **Do**: a separate wasm emitter from MIR that uses WasmGC types (LLVM can't do this), so ppl
+  objects become browser-GC objects.
+- **Done when**: the golden tests pass on the WasmGC build, with a measured size/perf comparison.
+
+### P8.8 JS imports from .d.ts
+- **Spec**: 12 §12.3
+- **Do**: a `.d.ts` subset parser, best-effort mapping (handles, simple shapes → structs, else
+  `JsValue`), `js:` specifiers, and `std/js` `JsValue`.
+- **Done when**: a DOM demo using `lib.dom.d.ts` builds and runs.
+
+### P8.9 Platform files and conditionals
+- **Spec**: 15 §15.4, 13 (matrix)
+- **Do**: `x.linux.ppl`/`x.wasm.ppl` resolution, `target.*` at comptime, and the stdlib availability
+  matrix enforced with clear errors.
+- **Done when**: fail tests cover importing `std/fs` for the browser.
+
+---
+
+## Phase 9: C interop
+
+### P9.1 extern "C"
+- **Spec**: 12 §12.1
+- **Do**: `extern "C"` blocks, the type mapping table, `@link`, automatic string → C-string
+  conversion, the safe/unsafe call rules, and callbacks.
+- **Done when**: calling libc `strlen`/`qsort` works, and a fail test covers a pointer call outside
+  `unsafe`.
+
+### P9.2 C header import
+- **Spec**: 12 §12.2
+- **Do**: `c:` specifiers parsed through libclang (clang-sys), generated bindings (functions, structs,
+  enums, literal macros), and include/link settings from `project.json`/pkg-config.
+- **Done when**: `import * as m from "c:math.h"` works, and an SDL2 or raylib demo opens a window
+  (manual check).
+
+### P9.3 Export to C
+- **Spec**: 12 §12.4
+- **Do**: `@export("c")`, `--lib shared|static`, `.h` generation, and lazy heap initialization for
+  threads calling in from C.
+- **Done when**: a C program links against a ppl static library and calls it.
+
+---
+
+## Phase 10: Tooling and ecosystem
+
+### P10.1 Formatter
+- **Spec**: 14 §14.4
+- **Do**: a lossless CST or trivia-preserving printer, the configured options, and `ppl fmt --check`.
+- **Done when**: formatting every fixture is idempotent and the fixtures are formatted in CI.
+
+### P10.2 Lint
+- **Do**: `ppl lint` covering naming conventions and unused variables/imports.
+- **Done when**: snapshot tests pass.
+
+### P10.3 Package manager
+- **Spec**: 08 §8.3–8.4
+- **Do**: the `project.json` schema, `ppl init`/`add`/`remove`, git dependencies, semver resolution
+  (majors coexist), `project.lock` with hashes, and workspaces.
+- **Done when**: a two-package workspace with one git dependency builds offline from the lockfile.
+
+### P10.4 Registry
+- **Do**: the index format (`scope/name.json`), sparse HTTPS fetching, `ppl publish` (tag + PR via
+  `gh`), and registry override.
+- **Done when**: publishing to a test index repo, then installing from it, works.
+
+### P10.5 Incremental compilation
+- **Spec**: 14 §14.6
+- **Do**: content-hash caching per module (parsed, checked, MIR) and per monomorphized instance, with
+  invalidation by dependency signature.
+- **Done when**: a no-op rebuild of a 50-module project takes < 200 ms (measured).
+
+### P10.6 LSP and VS Code extension
+- **Do**: `ppl lsp` (diagnostics, hover, go-to-definition, completion, rename, format), plus a
+  minimal VS Code extension with a TextMate grammar.
+- **Done when**: a manual check in VS Code, plus LSP protocol tests.
+
+### P10.7 REPL and JIT
+- **Do**: `ppl run` through LLVM ORC JIT (no linking), and a REPL that keeps state between lines.
+- **Done when**: `ppl run` on a script is faster than AOT and the REPL handles multi-line input.
+
+### P10.8 Debugging
+- **Spec**: 14 §14.5
+- **Do**: DWARF/CodeView emission, `ppl dap` built on lldb-dap, pretty-printers for ppl values,
+  and `ppl symbolize` for release traces.
+- **Done when**: breakpoints and value display work in VS Code (manual check).
+
+### P10.9 Documentation tooling
+- **Do**: `ppl doc` (HTML from `/** */`) and `ppl explain E####` for every error code.
+- **Done when**: stdlib docs are generated.
+
+### P10.10 Release packaging
+- **Spec**: 14 §14.6
+- **Do**: a single static `ppl` binary (LLVM, lld and libclang statically linked) containing the
+  runtime sources/prebuilt libs, stubs and stdlib, plus release CI for all host platforms.
+- **Done when**: downloading the binary on a clean machine is enough to run `ppl build --target …`
+  for every target.
+
+---
+
+## Phase 11: Later
+- **P11.1** `--no-gc` subset (`str`, `StrBuf<N>`, lightweight throwables only) and a bare-metal
+  target.
+- **P11.2** riscv64.
+- **P11.3** Android (`aarch64-linux-android`).
+- **P11.4** iOS (`aarch64-apple-ios`).
+- **P11.5** Self-hosting investigation (rewrite parts of the compiler in ppl).

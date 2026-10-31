@@ -283,4 +283,4 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
-| 57 | Docs | Markdown in `docs/`: `PLAN.md`, `DECISIONS.md`, and `spec/NN-chapter.md`. |
+| 57 | Docs | Markdown: `PLAN.md` and `PROGRESS.md` at the repo root; `docs/DECISIONS.md` and `docs/spec/NN-chapter.md`. |

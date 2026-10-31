@@ -18,7 +18,7 @@ a familiar syntax with native performance is meant to feel at home for as many p
 ## Status
 
 Specification complete: all 16 chapters are written and every open question is resolved
-(162 recorded decisions). Next up is Phase 1, the bootstrap compiler. See [docs/PLAN.md](docs/PLAN.md), [docs/DECISIONS.md](docs/DECISIONS.md) and
+(162 recorded decisions). Next up is Phase 1, the bootstrap compiler. See [PLAN.md](PLAN.md), [PROGRESS.md](PROGRESS.md), [docs/DECISIONS.md](docs/DECISIONS.md) and
 [docs/spec/](docs/spec/).
 
 ```ts
