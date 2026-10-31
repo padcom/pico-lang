@@ -17,7 +17,8 @@ a familiar syntax with native performance is meant to feel at home for as many p
 
 ## Status
 
-Specification phase. See [docs/PLAN.md](docs/PLAN.md), [docs/DECISIONS.md](docs/DECISIONS.md) and
+Specification phase: all 16 chapters are drafted and open questions are being resolved through the
+design interview. See [docs/PLAN.md](docs/PLAN.md), [docs/DECISIONS.md](docs/DECISIONS.md) and
 [docs/spec/](docs/spec/).
 
 ```ts

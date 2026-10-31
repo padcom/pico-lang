@@ -75,7 +75,9 @@ const n = v.as<f64>()          // throws JsError on type mismatch
 export function render(state: AppState): string { … }
 ```
 `ppl build --target wasm32-browser` produces `app.wasm`, `app.js` (ESM glue) and `app.d.ts` for
-the exported API.
+the exported API. Structs and enums cross the boundary as **plain JS object copies**
+(`{ x, y }`, `{ kind: "Circle", r }`), while classes are exposed as JS handle classes wrapping
+WasmGC references.
 
 ## 12.4 Exporting to C
 ```ts
@@ -92,4 +94,3 @@ implemented on top of it.
 
 ## Open questions
 - C++ interop: out of scope?
-- How are ppl structs exposed to JS: copied plain objects or handle classes?

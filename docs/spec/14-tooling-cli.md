@@ -72,5 +72,4 @@ pretty-printing of ppl values (strings, arrays, maps, enums).
   runtime and the stdlib sources.
 
 ## Open questions
-- Is the `semicolons` formatter option worth it, or always none?
 - Benchmarks (`bench()` in std/test)?

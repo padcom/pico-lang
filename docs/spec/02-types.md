@@ -6,11 +6,12 @@
 | `i8 i16 i32 i64` | signed integers |
 | `u8 u16 u32 u64` | unsigned integers |
 | `f32 f64` | IEEE-754 floats |
-| `int` | alias for `i64` |
+| `isize usize` | pointer-sized integers (FFI and unsafe code) |
+| `int` | alias for `i64`; the type of `.length` and indices |
 | `number` | alias for `f64` |
 | `bool` | `true` / `false` |
 | `char` | a Unicode scalar value |
-| `string` | immutable UTF-8 text; `.length` counts code points |
+| `string` | immutable UTF-8 text; `.length` counts code points; `s[i]` returns a `char` (O(n) with a cached index); `s.bytes()` gives the UTF-8 bytes |
 | `null` | the only "absent" value |
 | `unknown` | top type; must be narrowed before use |
 | `never` | bottom type |

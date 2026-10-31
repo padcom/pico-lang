@@ -222,6 +222,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 131 | C export | `@export("c")` builds ppl shared/static libraries with a generated `.h`. |
 | 132 | Debugging | DWARF (CodeView/PDB on Windows) plus a DAP debug adapter for VS Code. |
 
+## Round 19 (open questions, part 4)
+| # | Topic | Decision |
+|---|-------|----------|
+| 133 | Pointer-sized ints | `isize`/`usize` exist for FFI and unsafe code. `.length` and indices are `int` (i64), which is JS-friendly. |
+| 134 | String indexing | `s[i]` returns a `char` (code point). It's O(n), sped up by a cached index; `s.bytes()` gives raw UTF-8. |
+| 135 | Formatter semicolons | Keep the `semicolons` option. |
+| 136 | Structs to JS | Structs cross into JS as plain object copies; classes become handle classes. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
