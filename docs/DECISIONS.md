@@ -153,6 +153,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 94 | Specifiers | Extensionless relative imports: `./util` resolves `util.ppl`, then `util/index.ppl`. |
 | 95 | Stdlib access | Common names are global (print/println, assert, panic, Math, JSON, Map, Set, Array, Promise, Error); the rest is imported from `std/…`. |
 
+## Round 11 (memory & concurrency)
+| # | Topic | Decision |
+|---|-------|----------|
+| 96 | Messages | Deep-copied into the receiver's heap. The compiler enforces **Sendable** (no closures, handles, pointers). |
+| 97 | Worker API | Web Worker-like: `new Worker<In, Out>("./job")`, `postMessage`/`onmessage`, the same API on every target. |
+| 98 | Arenas | Both a safe scoped `arena { … }` block (compiler forbids escapes) and an explicit `Arena` object inside `unsafe`. |
+| 99 | Event loop | Implicit, like Node; top-level `await`; the process exits when nothing is pending. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
