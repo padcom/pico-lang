@@ -1,0 +1,46 @@
+# CLAUDE.md
+
+This repo is **ppl**, the padcom programming language. It has TypeScript-based syntax and compiles
+through LLVM to native code (Linux, macOS, Windows) and WebAssembly. The compiler is written in Rust
+and the runtime in C.
+
+## Start of every session
+1. Read **[PROGRESS.md](PROGRESS.md)** first. It names the **Next task** and records the current state.
+2. Read that task in **[PLAN.md](PLAN.md)**, plus only the spec sections it lists under **Spec**
+   (in `docs/spec/`). Don't read the whole spec or every decision; tokens are limited.
+3. Work on **one task per session** unless the user asks for more.
+
+## Commit rules (mandatory)
+- **Commit automatically, without asking**, as soon as a task (or a meaningful part of one) is
+  implemented and `scripts/test.sh` passes.
+- Also commit automatically whenever vital information gets recorded: a new decision in
+  `docs/DECISIONS.md`, spec changes, or plan changes.
+- Message format: `P<x.y>: <summary>` for tasks, a plain summary otherwise.
+- Never commit with failing tests. If you have to stop mid-task, record where you got to in
+  PROGRESS.md instead.
+
+## End of every task
+1. Make sure `scripts/test.sh` is green.
+2. Update PROGRESS.md: tick the task, add a log line, set **Next task**, and note any
+   known issues for the next session.
+3. Commit (code and PROGRESS.md together).
+
+## Conventions
+- Every feature needs tests: golden tests in `tests/run/**/*.ppl` (`// expect:` output, run both
+  interpreted and native) and `tests/fail/**/*.ppl` (`// error: E0xxx`), or Rust unit tests and
+  `insta` snapshots.
+- A task that's too big gets split in PLAN.md (`P3.7a`, `P3.7b`), and the split is noted in
+  PROGRESS.md.
+- If implementation exposes a gap or contradiction in the spec, ask the user. Record the answer in
+  `docs/DECISIONS.md` (next free number) and in the relevant spec chapter, then commit.
+- Ask before installing system software (rustup, LLVM, wasmtime, …).
+- `.ppl` code blocks in docs use the `ts` fence for highlighting.
+
+## Map
+| Path | Contents |
+|------|----------|
+| `PROGRESS.md` | status, next task, session log |
+| `PLAN.md` | architecture and all tasks (P1.1 … P11.5) |
+| `docs/spec/` | the language specification (chapters 00–15) |
+| `docs/DECISIONS.md` | numbered design decisions and their reasons |
+| `docs/DEVELOPMENT.md` | toolchain versions and setup (created in P1.1) |

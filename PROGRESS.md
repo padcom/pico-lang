@@ -1,9 +1,7 @@
 # Progress
 
-> **Starting a new session?** Paste this prompt:
->
-> *"Read PROGRESS.md, then do the **Next task** from PLAN.md. Read only the spec sections that
-> task lists. When the tests pass, commit, update PROGRESS.md and stop."*
+> **Starting a new session?** CLAUDE.md already tells the agent what to do, so *"continue"* is
+> enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
 **P1.1: Toolchain setup** (see [PLAN.md](PLAN.md#p11-toolchain-setup))
@@ -163,3 +161,4 @@ Before starting it:
 |------|------|-------|
 | 2026-10-31 | Spec | Design interview completed. Spec chapters 00–15 and DECISIONS.md #1–162 written. |
 | 2026-10-31 | Plan | PLAN.md split into 103 session-sized tasks, and PROGRESS.md created. |
+| 2026-10-31 | Setup | CLAUDE.md added (session start, auto-commit rules). |
