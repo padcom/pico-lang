@@ -4,19 +4,20 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P1.2: Workspace skeleton** (see [PLAN.md](PLAN.md#p12-workspace-skeleton))
+**P1.3: Diagnostics** (see [PLAN.md](PLAN.md#p13-diagnostics))
 
-Before starting it:
-- `source scripts/env.sh` first; cargo and llvm-config aren't on PATH otherwise (see docs/DEVELOPMENT.md).
-- `scripts/test.sh` should source `scripts/env.sh` itself.
+Notes:
+- Crates live in `crates/<name>`; shared deps go in `[workspace.dependencies]` of the root Cargo.toml.
+- `insta` isn't a dependency yet; add it (workspace dep, dev-dependency of ppl-diag) when needed.
+- Open spec questions from the TOUR.md review are still waiting for the user (see the log entry below).
 
 ## Current state
 | Area | State |
 |------|-------|
 | Spec | ✅ complete: 16 chapters, 162 decisions, no open questions |
-| Compiler | not started |
+| Compiler | workspace skeleton: 10 empty crates, `ppl --version` |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | n/a (script arrives in P1.2) |
+| Last green `scripts/test.sh` | 2026-10-31 (P1.2) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -36,7 +37,7 @@ Before starting it:
 
 ### Phase 1: Foundation
 - [x] P1.1 Toolchain setup
-- [ ] P1.2 Workspace skeleton
+- [x] P1.2 Workspace skeleton
 - [ ] P1.3 Diagnostics
 - [ ] P1.4 Lexer: core tokens
 - [ ] P1.5 Lexer: templates, multiline strings, regex
@@ -166,3 +167,5 @@ Before starting it:
 | 2026-10-31 | Plan | PLAN.md split into 103 session-sized tasks, and PROGRESS.md created. |
 | 2026-10-31 | Setup | CLAUDE.md added (session start, auto-commit rules). |
 | 2026-10-31 | P1.1 | Rust 1.99.0 + LLVM 23.1.3 were already installed (keg-only). Pinned toolchain, added scripts/env.sh and docs/DEVELOPMENT.md. Used LLVM 23 instead of 18 (inkwell 0.11 supports it); inkwell smoke test OK. |
+| 2026-10-31 | Tour | docs/TOUR.md: an example of every feature. Open questions for the user: `Some(v)` in §3.5 (no Option type), undeclared `cache` in the §11.2 `@memoize` example, `env: { "LANG": "C" }` object literal (§13.3), option bags vs named args for Web APIs, the WasmGC wording in §9.2 vs PLAN. |
+| 2026-10-31 | P1.2 | Cargo workspace (edition 2024, resolver 3) with 10 crates, `ppl` binary (clap) with `--version` + integration test, scripts/test.sh (fmt, clippy -D warnings, test). |

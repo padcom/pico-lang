@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+
+[workspace.dependencies]
+ppl-diag = { path = "crates/ppl-diag" }
+ppl-syntax = { path = "crates/ppl-syntax" }
+ppl-sema = { path = "crates/ppl-sema" }
+ppl-mir = { path = "crates/ppl-mir" }
+ppl-interp = { path = "crates/ppl-interp" }
+ppl-codegen = { path = "crates/ppl-codegen" }
+ppl-runtime = { path = "crates/ppl-runtime" }
+ppl-driver = { path = "crates/ppl-driver" }
+clap = { version = "4.6", features = ["derive"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

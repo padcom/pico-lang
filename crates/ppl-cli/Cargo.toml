@@ -1,0 +1,17 @@
+[package]
+name = "ppl-cli"
+description = "The ppl command-line tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "ppl"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "ppl-tests"
+description = "Golden-test harness for ppl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true

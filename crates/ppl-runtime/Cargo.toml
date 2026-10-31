@@ -1,0 +1,10 @@
+[package]
+name = "ppl-runtime"
+description = "Builds and locates the ppl C runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true

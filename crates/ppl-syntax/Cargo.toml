@@ -1,0 +1,10 @@
+[package]
+name = "ppl-syntax"
+description = "Lexer, parser and AST for ppl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
