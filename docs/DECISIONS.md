@@ -177,6 +177,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 106 | JS calls | Both: typed imports through `.d.ts` (`js:` specifiers) and a dynamic `JsValue` escape hatch. |
 | 107 | .d.ts mapping | Best effort: classes/interfaces become nominal handles, simple value shapes are converted to structs, everything else becomes `JsValue`. |
 
+## Round 14 (stdlib & tooling)
+| # | Topic | Decision |
+|---|-------|----------|
+| 108 | Stdlib style | Web/Deno-compatible: fetch, URL, Request/Response, Web Streams, timers, Web Crypto shape; `std/*` covers the rest. |
+| 109 | I/O | **Async only**, with no `*Sync` variants. Scripts use top-level `await`. |
+| 110 | Tests | Vitest-like `describe/test/expect` in `*.test.ppl` files. |
+| 111 | Formatter | A few options (indent, lineWidth, quotes, semicolons) under `fmt` in `project.json`. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
