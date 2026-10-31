@@ -161,6 +161,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 98 | Arenas | Both a safe scoped `arena { … }` block (compiler forbids escapes) and an explicit `Arena` object inside `unsafe`. |
 | 99 | Event loop | Implicit, like Node; top-level `await`; the process exits when nothing is pending. |
 
+## Round 12 (comptime, decorators, reflection, cleanup)
+| # | Topic | Decision |
+|---|-------|----------|
+| 100 | Comptime marking | Both automatic constant folding and an explicit `comptime` keyword (consts, blocks, params, `comptime if`). |
+| 101 | Decorator powers | Add members, wrap/register functions, validate (emit diagnostics). They **can't** generate new top-level declarations. |
+| 102 | Reflection cost | Whole-program, on demand: metadata only for types that can reach a reflection call. |
+| 103 | Cleanup | TS `using` with `Disposable`/`AsyncDisposable`. No `defer`. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
