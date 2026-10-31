@@ -1,0 +1,7 @@
+// error: E0201
+// at: 6:9
+// error: E0201
+// at: 7:1
+const count = 1
+println(coutn)
+prinltn(count)

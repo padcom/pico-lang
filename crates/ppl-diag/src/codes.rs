@@ -46,8 +46,27 @@ codes! {
     MISSING_SEPARATOR = 104: "expected a newline or `;` between statements",
     INVALID_MODIFIER = 105: "modifier not allowed here",
     MIXED_NULLISH = 106: "`??` mixed with `&&` or `||` without parentheses",
+    // Names
+    UNKNOWN_NAME = 201: "cannot find a name in this scope",
+    USE_BEFORE_DECL = 202: "name used before its declaration",
+    DUPLICATE_DECL = 203: "name declared twice in the same scope",
+    ASSIGN_TO_CONST = 204: "assignment to a `const` binding",
+    BREAK_OUTSIDE_LOOP = 205: "`break` or `continue` outside a loop",
+    UNKNOWN_TYPE = 206: "cannot find a type",
+    MISSING_PARAM_TYPE = 207: "parameter without a type annotation",
+    NOT_A_VALUE = 208: "a type or built-in used as a value",
+    BREAK_VALUE_IN_WHILE = 209: "`break` with a value outside `loop`",
     // Types
+    LITERAL_OUT_OF_RANGE = 301: "literal out of range for its type",
+    WRONG_ARG_COUNT = 302: "wrong number of arguments",
+    NOT_CALLABLE = 303: "called value is not a function",
+    INVALID_OPERANDS = 304: "operator can't be applied to these types",
+    INVALID_CAST = 305: "invalid `as` conversion",
+    RECURSIVE_NEEDS_RETURN_TYPE = 306: "recursive function without a return type",
     MISMATCHED_TYPES = 308: "mismatched types",
+    UNKNOWN_MEMBER = 309: "no such member",
+    // Internal
+    NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }
 
 pub fn describe(code: Code) -> Option<&'static str> {

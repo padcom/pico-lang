@@ -1,8 +1,8 @@
 //! Compilation pipeline, caching, targets and linking for ppl.
 //!
-//! Only the front end exists so far: [`check_file`] lexes and parses. Later stages (name
-//! resolution, type checking, MIR, codegen) plug into [`check_source`] as they're built, and
-//! [`Stage::IMPLEMENTED`] tells tools which diagnostics can currently be produced.
+//! [`check_source`] runs the front end: parsing, then name resolution. Later stages plug in
+//! there as they're built, and [`Stage::IMPLEMENTED`] tells tools which diagnostics can
+//! currently be produced. Each stage runs only if the previous ones reported no errors.
 
 use ppl_diag::{Code, Diagnostic, SourceMap};
 use ppl_syntax::ast::Module;
@@ -21,7 +21,7 @@ pub enum Stage {
 
 impl Stage {
     /// The stages the compiler runs today.
-    pub const IMPLEMENTED: &'static [Stage] = &[Stage::Parse];
+    pub const IMPLEMENTED: &'static [Stage] = &[Stage::Parse, Stage::Resolve];
 
     pub fn is_implemented(self) -> bool {
         Stage::IMPLEMENTED.contains(&self)
@@ -49,6 +49,8 @@ impl Stage {
 pub struct Checked {
     pub sm: SourceMap,
     pub module: Module,
+    /// The resolved program, if parsing succeeded.
+    pub hir: Option<ppl_sema::hir::Program>,
     pub diags: Vec<Diagnostic>,
 }
 
@@ -66,8 +68,21 @@ impl Checked {
 pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked {
     let mut sm = SourceMap::new();
     let file = sm.add(name, text);
-    let (module, diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
-    Checked { sm, module, diags }
+    let (module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
+    let mut hir = None;
+    if !diags.iter().any(Diagnostic::is_error) {
+        let (program, mut d) = ppl_sema::resolve(&module, file);
+        diags.append(&mut d);
+        hir = Some(program);
+    }
+    // Report in source order, whichever pass found each problem.
+    diags.sort_by_key(|d| d.main_span().map(|s| (s.file, s.start)));
+    Checked {
+        sm,
+        module,
+        hir,
+        diags,
+    }
 }
 
 /// Reads `path` and runs [`check_source`] on it, naming the file by its path.
@@ -87,6 +102,7 @@ mod tests {
         assert_eq!(Stage::of(codes::UNEXPECTED_TOKEN), Stage::Parse);
         assert_eq!(Stage::of(codes::MISMATCHED_TYPES), Stage::Typecheck);
         assert!(Stage::Parse.is_implemented());
+        assert!(Stage::Resolve.is_implemented());
         assert!(!Stage::Typecheck.is_implemented());
     }
 

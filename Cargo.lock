@@ -228,6 +228,7 @@ name = "ppl-driver"
 version = "0.1.0"
 dependencies = [
  "ppl-diag",
+ "ppl-sema",
  "ppl-syntax",
 ]
 
@@ -246,6 +247,11 @@ version = "0.1.0"
 [[package]]
 name = "ppl-sema"
 version = "0.1.0"
+dependencies = [
+ "insta",
+ "ppl-diag",
+ "ppl-syntax",
+]
 
 [[package]]
 name = "ppl-syntax"

@@ -1,0 +1,14 @@
+// error: E0203
+// at: 8:10
+// error: E0203
+// at: 11:7
+// error: E0203
+// at: 14:7
+function f(): i64 { 1 }
+function f(): i64 { 2 }
+{
+  let a = 1
+  let a = 2
+}
+const b = 1
+const b = 2

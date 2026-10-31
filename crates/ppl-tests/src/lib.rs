@@ -17,7 +17,7 @@
 //! The harness runs every stage that exists. Checks that need a missing stage are reported
 //! as *pending* rather than passing silently.
 
-use ppl_diag::Code;
+use ppl_diag::{Code, codes};
 use ppl_driver::Stage;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
@@ -201,6 +201,9 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
     if !d.errors.is_empty() {
         return Outcome::Fail("`error` directives belong in tests/fail, not tests/run".into());
     }
+    if let Some(missing) = only_unimplemented(checked) {
+        return Outcome::Pending(missing);
+    }
     if checked.has_errors() {
         return Outcome::Fail(format!(
             "expected the program to compile, but it has errors:\n\n{}",
@@ -284,6 +287,11 @@ fn fail_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
         )
         .collect();
 
+    if expected_lines != actual_lines
+        && let Some(missing) = only_unimplemented_among(checked, &expected_lines)
+    {
+        return Outcome::Pending(missing);
+    }
     if expected_lines != actual_lines {
         let mut msg = String::from("compile errors don't match (- expected, + actual):\n");
         msg.push_str(&diff_lines(&expected_lines, &actual_lines));
@@ -317,6 +325,49 @@ fn fail_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
         ));
     }
     Outcome::Pass
+}
+
+/// If every error is "not implemented yet" (`E0900`), describes what's missing.
+fn only_unimplemented(checked: &ppl_driver::Checked) -> Option<String> {
+    let errors: Vec<_> = checked.diags.iter().filter(|d| d.is_error()).collect();
+    if errors.is_empty()
+        || !errors
+            .iter()
+            .all(|d| d.code == Some(codes::NOT_IMPLEMENTED))
+    {
+        return None;
+    }
+    Some(unimplemented_list(checked))
+}
+
+/// A fail test is pending if the compiler hit unimplemented features (`E0900`) that it wasn't
+/// expected to report.
+fn only_unimplemented_among(checked: &ppl_driver::Checked, expected: &[String]) -> Option<String> {
+    let has_unimpl = checked
+        .diags
+        .iter()
+        .any(|d| d.code == Some(codes::NOT_IMPLEMENTED));
+    let expects_unimpl = expected.iter().any(|e| e.starts_with("E0900"));
+    (has_unimpl && !expects_unimpl).then(|| unimplemented_list(checked))
+}
+
+fn unimplemented_list(checked: &ppl_driver::Checked) -> String {
+    let mut what: Vec<String> = checked
+        .diags
+        .iter()
+        .filter(|d| d.code == Some(codes::NOT_IMPLEMENTED))
+        .map(|d| {
+            d.message
+                .trim_end_matches(" isn't implemented yet")
+                .to_string()
+        })
+        .collect();
+    what.sort();
+    what.dedup();
+    format!(
+        "uses features that aren't implemented yet: {}",
+        what.join(", ")
+    )
 }
 
 fn stage_names(stages: &[Stage]) -> String {

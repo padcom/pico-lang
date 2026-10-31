@@ -1,0 +1,10 @@
+// error: E0205
+// at: 7:1
+// error: E0205
+// at: 8:1
+// error: E0209
+// at: 9:16
+break
+continue
+while (true) { break 1 }
+loop { break 2 }

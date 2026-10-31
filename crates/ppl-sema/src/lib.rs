@@ -1,1 +1,8 @@
 //! Name resolution, type checking and typed HIR for ppl.
+
+pub mod hir;
+pub mod resolve;
+pub mod ty;
+
+pub use resolve::resolve;
+pub use ty::{FloatTy, IntTy, Ty};

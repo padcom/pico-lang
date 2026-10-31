@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P2.1: Name resolution** (see [PLAN.md](PLAN.md#p21-name-resolution))
+**P2.2: Type checker: primitives and functions** (see [PLAN.md](PLAN.md#p22-type-checker-primitives-and-functions))
 
 Notes:
 - Golden fixtures: `tests/run/**/*.ppl` and `tests/fail/**/*.ppl`, run by `cargo test -p ppl-tests`
@@ -23,7 +23,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | Phase 1 done: lexer, newline filter, AST, parser (`ppl parse --dump`), golden harness |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-10-31 (P1.13) |
+| Last green `scripts/test.sh` | 2026-10-31 (P2.1) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -57,7 +57,7 @@ Notes:
 - [x] P1.13 Golden-test harness
 
 ### Phase 2: First executable
-- [ ] P2.1 Name resolution
+- [x] P2.1 Name resolution
 - [ ] P2.2 Type checker: primitives and functions
 - [ ] P2.3 MIR design and lowering
 - [ ] P2.4 MIR interpreter
@@ -184,3 +184,4 @@ Notes:
 | 2026-10-31 | P1.12 | Recovery: statement-level sync (no separator error after a failed statement, stops at statement keywords on a new line), bracket-depth-safe member/arm recovery, unclosed `(`/`[` end before a declaration keyword (newline filter), enum variant/method lookahead. Targeted messages: `var`, `for-in`, `===`, conditions without parens, trailing-operator line continuation. 6 multi-error fixtures in tests/fail/parse with `// error:` directives + snapshots. |
 | 2026-10-31 | Review | Author answered all pending questions. Confirmed 166–168, 170, 172 (now in spec §1.2/§1.3/§2.8/§3.2/§3.3/§3.5); new decisions 173–178: no Option type, decorator hidden statics (`addStatic`), Map literals, WasmGC interim note, `Iterable.iterator()`, Web-standard options objects. Parser: parenthesized patterns (`case (s: string):`). Spec and TOUR examples updated. |
 | 2026-10-31 | P1.13 | `ppl-tests`: discovery (multi-file dirs with main.ppl), directive parser (expect/exit/panic/error/at, malformed directives fail), LCS diff, pass/pending/fail report. `ppl-driver` got `check_source`/`check_file` and `Stage` (code ranges to stages); the harness marks checks for unbuilt stages as pending. Fixtures: run/{hello,fib,loops,overflow_panic}, fail/types/nominal. Broke two fixtures on purpose (wrong code + position; non-compiling run test), checked the report was readable, restored them. **Phase 1 complete.** |
+| 2026-10-31 | P2.1 | ppl-sema: Ty, HIR (ExprIds, resolved Vars, desugared for/for-of-range/do-while), resolver: block scopes with TDZ-style use-before-declaration, order-independent top-level functions, entry globals, built-ins, const assignment, break/continue placement, did-you-mean suggestions. E02xx codes; E0900 'not implemented' makes golden fixtures pending. Driver sorts diagnostics by position. 6 fail fixtures in tests/fail/names. |

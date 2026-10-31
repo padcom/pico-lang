@@ -1,0 +1,6 @@
+// error: E0207
+// at: 5:12
+// error: E0206
+// at: 6:15
+function f(x) { x }
+function g(y: Integer) { y }

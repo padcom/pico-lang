@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 ppl-diag.workspace = true
+ppl-sema.workspace = true
 ppl-syntax.workspace = true
 
 [lints]

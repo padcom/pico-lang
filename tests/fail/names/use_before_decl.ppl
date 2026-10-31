@@ -1,0 +1,16 @@
+// error: E0202
+// at: 9:9
+// error: E0202
+// at: 10:11
+// error: E0202
+// at: 13:11
+// Top-level functions may be used before their declaration; bindings may not.
+println(double(2))
+println(later)
+const y = y + 1
+const later = 1
+{
+  println(x)
+  const x = 2
+}
+function double(n: i64): i64 { n * 2 }
