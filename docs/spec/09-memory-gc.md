@@ -22,7 +22,12 @@
 - **Web**: `wasm32-browser` uses **WasmGC**, so the browser's collector manages ppl objects and they
   can be handed to JS without copying. WASI and native targets use the ppl collector.
 
-## 9.3 Arenas
+## 9.3 Weak references & finalization
+These are JS-compatible: `WeakRef<T>`, `WeakMap<K, V>`, `WeakSet<T>` and `FinalizationRegistry<T>`.
+Finalization callbacks are **non-deterministic**. They run on the owning thread's event loop at
+some point after collection. Use `using` (§11.5) for deterministic cleanup.
+
+## 9.4 Arenas
 Two forms are available.
 
 **Scoped arena (safe).** Every allocation made inside the block goes to an arena that's freed in
@@ -45,7 +50,7 @@ unsafe {
 }
 ```
 
-## 9.4 Unsafe code
+## 9.5 Unsafe code
 Raw pointers `ptr<T>`, pointer arithmetic, `unsafe.cast<T>(x)`, `sizeof<T>()` and `alignof<T>()`
 are allowed only inside `unsafe { }` blocks or `unsafe function`s.
 ```ts
@@ -55,13 +60,11 @@ unsafe {
 }
 ```
 
-## 9.5 `--no-gc` mode
+## 9.6 `--no-gc` mode
 For embedded targets, compiling with `--no-gc` restricts the language to structs, enums, fixed
 arrays, primitives, arenas and `unsafe`. Class allocation, growable arrays, `string`
 concatenation and closures that capture by reference are compile errors. Exceptions need an
 allocation strategy (still open).
 
 ## Open questions
-- Finalizers? (Deterministic cleanup is decided: `using`, see §11.5.)
-- Weak references (`WeakRef`, `WeakMap`)?
 - Can a string in `--no-gc` mode be a non-growable `str` slice?

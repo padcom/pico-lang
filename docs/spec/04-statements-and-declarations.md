@@ -16,8 +16,8 @@ A program's root module runs top to bottom. Top-level statements in imported mod
 in dependency order, before the importer's own code.
 
 **Entry module.** The top-level code of the module passed to `ppl run`/`ppl build` behaves like the
-body of `main()`. `let` is allowed there, and its bindings are ordinary locals: functions declared in
-the module can't access them and they can't be exported.
+body of `main()`. `let` is allowed there. Those bindings can't be exported, but every function in the entry file
+(named `function`s included) can use them as closures, just as in a JS script.
 
 **Library modules.** Every other module's bindings must be `const`. Module-level `let` is a compile error, because there is no
 global mutable state; this fits the strictly isolated threads (§10). A `const` holding a mutable
@@ -54,5 +54,4 @@ interface Shape { area(): f64 }
 ```
 
 ## Open questions
-- Can `function` declarations in the entry module capture top-level `let`s? (The draft says no; arrow functions assigned to `const` can.)
 - Is `const` destructuring with defaults (`const { a = 1 } = o`) needed?

@@ -143,7 +143,7 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 88 | try expression | `try … catch …` is an expression, e.g. `const n = try parse(s) catch (e: ParseError) 0`. |
 | 89 | Error unions | `throws A \| B`; typed `catch` clauses narrow the union. No `try?`/`try!` sugar for now. |
 | 90 | Stack traces | Always captured on throw and on panic. |
-| 91 | Throws inference | *(Proposed, awaiting confirmation)* Private functions and lambdas may omit `throws` (inferred); exported functions must declare it. |
+| 91 | Throws inference | *(Confirmed in round 17)* Private functions and lambdas may omit `throws` (inferred); exported functions must declare it. |
 
 ## Round 10 (modules & packages)
 | # | Topic | Decision |
@@ -200,6 +200,13 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 117 | Enum patterns | Both positional `Circle(r)` and named `Circle { r }`. |
 | 118 | Interface methods | Implementing an interface method doesn't make it virtual; subclasses can override it only if it's marked `virtual`. |
 | 119 | Meta API | Both quasi-quote code templates (`${}` splicing, parsed and type-checked) and an AST builder API in `std/meta`. |
+
+## Round 17 (open questions, part 2)
+| # | Topic | Decision |
+|---|-------|----------|
+| 120 | Script functions | Named `function`s in the entry file can use top-level `let`s (closures, as in JS scripts). |
+| 121 | Weak refs | `WeakRef`, `WeakMap`, `WeakSet` and `FinalizationRegistry` (JS-compatible, non-deterministic). |
+| 122 | Package versions | Semver-compatible versions unify; different majors can coexist (Cargo-style). |
 
 ## Spec format
 | # | Topic | Decision |

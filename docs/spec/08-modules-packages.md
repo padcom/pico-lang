@@ -59,11 +59,12 @@ A package is a directory containing a `project.json`:
   commit).
 - **Versioning**: semver ranges, resolved into a lockfile (`project.lock`) that pins exact versions
   and content hashes.
+- **Duplicates**: semver-compatible requirements unify to a single version, while different major
+  versions can coexist in one graph (Cargo-style).
 - Packages ship as source and get compiled together with the consumer, which is what
   monomorphization and comptime need.
 
 ## Open questions
 - Registry name and hosting; namespacing (`scope/name` required?).
 - Workspaces / monorepos with several packages?
-- Can one dependency graph contain several versions of the same package (npm-style) or only one (Cargo-style)?
 - Lockfile name: `project.lock`?
