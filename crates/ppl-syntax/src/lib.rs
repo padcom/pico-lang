@@ -1,5 +1,7 @@
 //! Lexer, parser and AST for ppl.
 
+pub mod ast;
+pub mod dump;
 pub mod lexer;
 pub mod newline;
 pub mod token;
