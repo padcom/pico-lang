@@ -1,0 +1,10 @@
+// error: E0304
+// at: 7:11
+// error: E0304
+// at: 8:11
+// error: E0304
+// at: 9:11
+const a = !1
+const b = -true
+const c = 1.5 & 2.0
+const ok = 2 ** 10 + 7 % 3

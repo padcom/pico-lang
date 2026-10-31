@@ -1,0 +1,13 @@
+// error: E0308
+// at: 9:17
+// error: E0308
+// at: 10:19
+// error: E0308
+// at: 12:19
+// error: E0304
+// at: 13:17
+const a: bool = 1
+const s: string = true
+function f(x: i32): i32 { x }
+const r: string = f(1)
+const sum = 1 + "two"

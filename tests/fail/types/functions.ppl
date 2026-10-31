@@ -1,0 +1,19 @@
+// error: E0306
+// at: 9:10
+// error: E0302
+// at: 13:1
+// error: E0308
+// at: 14:8
+// error: E0308
+// at: 18:3
+function fact(n: i64) {
+  if (n <= 1) 1 else n * fact(n - 1)
+}
+function add(a: i32, b: i32): i32 { a + b }
+add(1)
+add(1, true)
+function inferred(x: i32) { x * 2 }
+const y: i32 = inferred(2)
+function bad(): i32 {
+  return
+}

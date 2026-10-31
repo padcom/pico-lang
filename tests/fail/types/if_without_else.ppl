@@ -1,0 +1,8 @@
+// error: E0308
+// at: 6:16
+// error: E0308
+// at: 7:32
+const vip = true
+const b: int = if (vip) 100
+const c: int = if (vip) 1 else "one"
+const d: int = if (vip) 1 else 2
