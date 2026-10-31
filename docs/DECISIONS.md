@@ -64,7 +64,7 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 40 | Exceptions | **Checked** `throws E`. |
 | 41 | Higher-order | Throws are inferred and polymorphic: `map` throws whatever its callback throws. |
 | 42 | Panics | Overflow, out-of-bounds, failed asserts etc. are unchecked panics, catchable only at top level or a thread boundary. |
-| 43 | Async errors | `async function f(): T throws E` returns `Promise<T, E>`; `await` rethrows `E`, checked. |
+| 43 | Async errors | Written TS-style: `async function f(): Promise<T> throws E`. The checker tracks `E` on the promise, and `await` rethrows `E`, checked. |
 
 ## Memory & concurrency
 | # | Topic | Decision |
@@ -86,6 +86,15 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 54 | JS interop | wasm imports and exports with a generated `.d.ts`; existing `.d.ts` files can be read to type JS imports. |
 | 55 | Comptime | Compile-time execution of ordinary ppl code. |
 | 56 | Decorators | Ordinary ppl functions run at compile time that receive a type/AST and return modifications. |
+
+## Round 2 (spec review)
+| # | Topic | Decision |
+|---|-------|----------|
+| 58 | Member access | **Implicit members** inside methods (`x` means `this.x` unless a local shadows it), as in Java/C#/Kotlin. `this.` is still allowed. |
+| 59 | Literal suffixes | `10u8`, `1.5f32`, etc. |
+| 60 | Nullable shorthand | `T?` is shorthand for `T \| null`. |
+| 61 | Distinct aliases | `type Meters = distinct f64` creates a new nominal type with zero runtime cost. |
+| 62 | char | A separate `char` type (Unicode scalar value). |
 
 ## Spec format
 | # | Topic | Decision |

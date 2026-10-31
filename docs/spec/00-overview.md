@@ -34,7 +34,7 @@ function area(s: Shape): f64 {
   }
 }
 
-async function loadConfig(path: string): Config throws IoError | JsonError {
+async function loadConfig(path: string): Promise<Config> throws IoError | JsonError {
   const text = await readFile(path)
   JSON.parse<Config>(text)
 }

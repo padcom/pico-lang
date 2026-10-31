@@ -31,6 +31,8 @@ Lines that start with `-`, `+`, `(` or `[` begin a **new** statement. The two-li
 `template ${expr} and ${x:.2f}`          // template literal with format spec
 sql`SELECT * FROM t WHERE id = ${id}`    // tagged template
 true  false  null
+10u8  300i16  1.5f32  2f64              // literal suffixes
+c'a'  c'\u{1F600}'                       // char literal (draft syntax)
 ```
 Untyped numeric literals take their type from context. With no context, an integer literal is
 `int` (i64) and a float literal is `number` (f64).
@@ -50,8 +52,7 @@ operator private protected public readonly return set static struct super switch
 throws true try typeof unsafe where while yield comptime immutable`
 
 ## Open questions
-- Numeric literal suffixes (`10u8`, `1.5f32`)?
 - Nested block comments?
-- Character literal type (`'a'` vs strings)?
+- Char literal syntax: `c'a'` (draft) vs something else.
 - Exact format-spec grammar (Python-like? Rust-like?).
 - Raw/multiline string forms beyond template literals?

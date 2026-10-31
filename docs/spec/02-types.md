@@ -9,6 +9,7 @@
 | `int` | alias for `i64` |
 | `number` | alias for `f64` |
 | `bool` | `true` / `false` |
+| `char` | a Unicode scalar value |
 | `string` | immutable UTF-8 text; `.length` counts code points |
 | `null` | the only "absent" value |
 | `unknown` | top type; must be narrowed before use |
@@ -46,7 +47,7 @@ Object type literals (`{ x: f64, y: f64 }`) are anonymous types. A plain `{ x, y
 accepted when the expected type is a named struct/class/record type, and it constructs that type.
 
 ## 2.4 Nullability
-`T | null` is the only optional type, and `T?` is shorthand for it. Narrowing works with `!= null`,
+`T | null` is the only optional type, and `T?` is shorthand for it (`string?`). Narrowing works with `!= null`,
 `?.`, `??`, and `!` (a non-null assertion that panics when the value is null).
 
 ## 2.5 Unions and literal types
@@ -82,7 +83,7 @@ struct Vec3 {
   x: f32
   y: f32
   z: f32
-  length(): f32 { Math.sqrt(x*x + y*y + z*z) }
+  length(): f32 { Math.sqrt(x*x + y*y + z*z) }   // members are implicit, `this.` is optional
 }
 ```
 - Structs are stored inline (on the stack, inside arrays, inside other objects) and copied on
@@ -108,7 +109,18 @@ function max<T extends Comparable<T>>(a: T, b: T): T { if (a.compareTo(b) >= 0) 
 function sum<T>(xs: T[]): T where T: Add<T> & Zero { … }
 ```
 
-## 2.10 Immutability
+## 2.10 Distinct types
+`type Meters = distinct f64` creates a new nominal type with the same representation as `f64` and
+no runtime cost. Converting between the two needs `as`.
+```ts
+type Meters = distinct f64
+type Feet = distinct f64
+const m: Meters = 3.0 as Meters
+const f: Feet = m          // error
+```
+A plain `type X = Y` is still just an alias.
+
+## 2.11 Immutability
 - `const` stops a binding from being reassigned, as in TS.
 - `readonly` on a field stops that field from being reassigned (shallow).
 - `immutable T` is a **deep** read-only view: no field anywhere in the reachable object graph can be
@@ -119,7 +131,5 @@ function render(scene: immutable Scene) { scene.nodes.push(x) }  // error
 
 ## Open questions
 - Exact syntax for the `immutable` modifier on methods (`readonly foo()`?).
-- Is `T?` shorthand really wanted alongside `T | null`?
-- Type aliases vs `newtype` (nominal wrappers such as `type Meters = distinct f64`)?
 - Can a struct contain GC references (class fields)? Proposed: yes, and it is then traced.
 - Name of the hashing protocol (`hashCode()` / `Hashable`)?
