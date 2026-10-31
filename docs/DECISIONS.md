@@ -284,3 +284,11 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | # | Topic | Decision |
 |---|-------|----------|
 | 57 | Docs | Markdown: `PLAN.md` and `PROGRESS.md` at the repo root; `docs/DECISIONS.md` and `docs/spec/NN-chapter.md`. |
+
+## Implementation decisions
+Made while building the compiler. Entries marked *(provisional)* fill gaps in the spec and are
+waiting for the author's review.
+
+| # | Topic | Decision |
+|---|-------|----------|
+| 163 | Error codes | `E00xx` lexical, `E01xx` syntax, `E02xx` names and modules, `E03xx` types (`E0308` mismatched types as in §14.2). The registry lives in `ppl-diag/src/codes.rs`, and codes are never reused. |

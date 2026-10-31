@@ -24,7 +24,7 @@ Errors are Elm/Rust-style: the error code, a snippet with the source span marked
 and a suggested fix.
 ```
 error[E0308]: mismatched types
-  ┌─ src/main.ppl:4:20
+  ┌─ src/main.ppl:4:19
   │
 4 │ const m: Meters = new Feet(3)
   │          ------   ^^^^^^^^^^^ expected `Meters`, found `Feet`
