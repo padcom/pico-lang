@@ -32,10 +32,27 @@ Lines that start with `-`, `+`, `(` or `[` begin a **new** statement. The two-li
 sql`SELECT * FROM t WHERE id = ${id}`    // tagged template
 true  false  null
 10u8  300i16  1.5f32  2f64              // literal suffixes
-c'a'  c'\u{1F600}'                       // char literal (draft syntax)
+/\d+(\.\d+)?/g                           // regex literal, validated at compile time
 ```
 Untyped numeric literals take their type from context. With no context, an integer literal is
 `int` (i64) and a float literal is `number` (f64).
+
+A one-character string literal has type `char` when the expected type is `char`:
+```ts
+const c: char = 'a'          // char
+const s = 'a'                // string
+const e: char = "ab"         // error: more than one character
+```
+
+Multiline literals strip indentation. Leading whitespace common to all lines is removed, as are the
+first and last line breaks:
+```ts
+const help = """
+    Usage: ppl <command>
+      build   compile the project
+    """                        // == "Usage: ppl <command>\n  build   compile the project"
+```
+(The exact delimiter, `"""` or a dedented template, is still open.)
 
 ## 1.4 Format specs in templates
 Inside `${ … }`, a format spec can follow a `:` at the top level of the expression (a `:` inside
@@ -74,5 +91,5 @@ throws true try typeof unsafe where while yield comptime immutable`
 
 ## Open questions
 - Nested block comments?
-- Char literal syntax: `c'a'` (draft) vs something else.
-- Raw/multiline string forms beyond template literals?
+- Delimiter for indent-stripped multiline strings (`"""` vs dedented backtick templates).
+- Regex literal vs `/` division ambiguity: use the JS rule (regex is allowed only where an expression can start).
