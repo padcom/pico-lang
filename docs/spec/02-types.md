@@ -90,6 +90,9 @@ struct Vec3 {
   assignment.
 - A struct is never GC-allocated on its own; it is boxed only when converted to `unknown` or an
   interface type.
+- Structs may contain GC references such as strings or class instances, and the GC traces them
+  wherever the struct lives. `@pod struct` restricts a struct to plain data (primitives and other
+  pod structs) with a C-compatible layout, for FFI and GPU buffers.
 - `==` compares fields unless `equals` is defined.
 - Structs can implement interfaces but cannot be inherited from.
 
@@ -100,6 +103,21 @@ struct Vec3 {
 | `[T; N]` | fixed-size inline array (value type) |
 | `[A, B]` | tuple (value type) |
 | `Map<K, V>`, `Set<T>` | hash collections using `equals`/`hashCode` |
+
+### Equality, hashing, ordering
+| Interface | Method | Used by |
+|-----------|--------|---------|
+| `Equatable<T>` | `equals(o: T): bool` | `==`, `!=` |
+| `Hashable` | `hashCode(): u64` | `Map`, `Set` keys |
+| `Comparable<T>` | `compareTo(o: T): i32` | `<`, `<=`, `>`, `>=`, `sort` |
+
+Structs, enums and tuples get all three automatically (field by field, in declaration order).
+Classes opt in with `@derive(Eq, Hash, Ord)`, or implement the methods by hand. A class without
+`equals` compares by identity.
+```ts
+@derive(Eq, Hash)
+class UserId { constructor(public value: i64) {} }
+```
 
 ## 2.9 Generics
 Generics are **monomorphized**: every instantiation is compiled separately.
@@ -131,5 +149,4 @@ function render(scene: immutable Scene) { scene.nodes.push(x) }  // error
 
 ## Open questions
 - Exact syntax for the `immutable` modifier on methods (`readonly foo()`?).
-- Can a struct contain GC references (class fields)? Proposed: yes, and it is then traced.
-- Name of the hashing protocol (`hashCode()` / `Hashable`)?
+- Should `compareTo` return an `Ordering` enum instead of `i32`?

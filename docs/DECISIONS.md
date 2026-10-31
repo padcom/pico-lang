@@ -96,7 +96,10 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 61 | Distinct aliases | `type Meters = distinct f64` creates a new nominal type with zero runtime cost. |
 | 62 | char | A separate `char` type (Unicode scalar value). |
 | 64 | Char literals | No special syntax: a one-character string literal (`'a'` or `"a"`) has type `char` when the expected type is `char`, otherwise `string`. |
-| 65 | Multiline strings | Indent-stripped multiline literals (common leading whitespace removed). |
+| 65 | Multiline strings | Triple-delimited `'''…'''`, `"""…"""` and ```` ```…``` ````, all indent-stripped. Only the backtick form interpolates. |
+| 67 | String kinds | Only backtick strings interpolate `${…}`. `'…'` and `"…"` have no interpolation but process escapes (`\n`, `\u{…}`), as in JS. |
+| 68 | Structs & GC | Structs may hold GC references (traced wherever they live). `@pod struct` enforces plain data (primitives/pod structs only) for FFI and GPU buffers. |
+| 69 | Equality protocols | Methods `equals`, `hashCode`, `compareTo` (interfaces `Equatable`, `Hashable`, `Comparable`). Structs, enums and tuples derive them automatically; classes opt in with `@derive(Eq, Hash, Ord)`. |
 | 66 | Regex literals | JS-style `/…/flags` regex literals, validated at compile time. |
 | 63 | Format specs | Python/Rust-style mini-language after the top-level `:` in `${…}`: fill, align, sign, `#`, `0`, width, precision, type (`d x X o b e E f % ?`). |
 

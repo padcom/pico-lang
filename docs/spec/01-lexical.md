@@ -27,8 +27,8 @@ Lines that start with `-`, `+`, `(` or `[` begin a **new** statement. The two-li
 ```ts
 42  0xFF  0o17  0b1010  1_000_000       // integer literals
 3.14  1e-9  .5                           // float literals
-"double"  'single'                       // strings (identical meaning)
-`template ${expr} and ${x:.2f}`          // template literal with format spec
+"double"  'single'                       // strings: escapes yes, interpolation no
+`template ${expr} and ${x:.2f}`          // only backtick strings interpolate
 sql`SELECT * FROM t WHERE id = ${id}`    // tagged template
 true  false  null
 10u8  300i16  1.5f32  2f64              // literal suffixes
@@ -44,15 +44,20 @@ const s = 'a'                // string
 const e: char = "ab"         // error: more than one character
 ```
 
-Multiline literals strip indentation. Leading whitespace common to all lines is removed, as are the
-first and last line breaks:
-```ts
+Multiline literals use a tripled delimiter (`'''`, `"""` or ```` ``` ````) and strip indentation.
+Leading whitespace common to all lines is removed, as are the first and last line breaks. Only the
+backtick form interpolates:
+````ts
 const help = """
     Usage: ppl <command>
       build   compile the project
-    """                        // == "Usage: ppl <command>\n  build   compile the project"
-```
-(The exact delimiter, `"""` or a dedented template, is still open.)
+    """                        // "Usage: ppl <command>\n  build   compile the project"
+
+const page = ```
+    <h1>${title}</h1>
+    <p>${body}</p>
+    ```
+````
 
 ## 1.4 Format specs in templates
 Inside `${ … }`, a format spec can follow a `:` at the top level of the expression (a `:` inside
@@ -91,5 +96,4 @@ throws true try typeof unsafe where while yield comptime immutable`
 
 ## Open questions
 - Nested block comments?
-- Delimiter for indent-stripped multiline strings (`"""` vs dedented backtick templates).
 - Regex literal vs `/` division ambiguity: use the JS rule (regex is allowed only where an expression can start).
