@@ -169,6 +169,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 102 | Reflection cost | Whole-program, on demand: metadata only for types that can reach a reflection call. |
 | 103 | Cleanup | TS `using` with `Disposable`/`AsyncDisposable`. No `defer`. |
 
+## Round 13 (interop)
+| # | Topic | Decision |
+|---|-------|----------|
+| 104 | FFI safety | FFI calls using only primitives, `@pod` structs and `string` are safe. Anything with pointers or callbacks needs `unsafe`. |
+| 105 | C strings | A `string` in an `extern` signature is auto-converted to a temporary NUL-terminated copy. |
+| 106 | JS calls | Both: typed imports through `.d.ts` (`js:` specifiers) and a dynamic `JsValue` escape hatch. |
+| 107 | .d.ts mapping | Best effort: classes/interfaces become nominal handles, simple value shapes are converted to structs, everything else becomes `JsValue`. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
