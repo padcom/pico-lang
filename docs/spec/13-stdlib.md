@@ -46,6 +46,40 @@ alternatives.
 A JS-compatible `Date` global is kept so ported code works, but new code should use `std/time`.
 `std/math` includes `Vec2`, `Vec3`, `Vec4`, `Mat4` and `Quat` as structs with operator overloads.
 
+### Availability matrix
+| Module / feature | native | wasm32-wasi | wasm32-browser |
+|------------------|:------:|:-----------:|:--------------:|
+| `std/fs` | ✅ | ✅ (preopened dirs) | ❌ compile error |
+| `std/net` | ✅ | ✅ (WASI p2 sockets) | ❌ compile error |
+| `std/process`: args, env, exit, cwd, stdio | ✅ | ✅ | ❌ compile error |
+| `std/process`: `Command` (spawn) | ✅ | ❌ (no WASI support yet) | ❌ |
+| `Worker`, `std/worker` | ✅ | ❌ (wasi-threads unstable) | ✅ (Web Workers) |
+| `fetch`, `std/http` client | ✅ | ✅ (wasi-http) | ✅ (browser fetch) |
+| `std/http` `serve` | ✅ | ✅ (wasi-http incoming) | ❌ |
+| `std/js` | ❌ | ❌ | ✅ |
+| everything else | ✅ | ✅ | ✅ |
+
+Using an unavailable feature is a **compile error** that names the target. `comptime if
+(target…)` or platform-specific files work around it.
+
+### External processes
+One cross-platform API runs wherever the platform supports processes, which is every native
+target. Arguments are passed as an array, never through a shell, so there are no quoting
+differences between Windows and POSIX.
+```ts
+import { Command } from "std/process"
+
+const out = await new Command("git", ["status", "--short"], cwd: repo).output()
+println(out.stdout)                         // string; out.code: i32; out.stderr
+
+const child = new Command("ffmpeg", args, stdin: "pipe", stdout: "pipe", env: { "LANG": "C" }).spawn()
+await child.stdin.write(bytes)
+for await (const chunk of child.stdout) handle(chunk)
+const status = await child.status()         // throws ProcessError when spawning fails
+child.kill()                                // SIGTERM / TerminateProcess
+```
+`Command.shell("ls | wc -l")` runs through the platform shell when that's explicitly wanted.
+
 ## 13.4 Async-only I/O
 No I/O function has a synchronous variant. Scripts use top-level `await`:
 ```ts
@@ -55,4 +89,3 @@ for (const line of text.split("\n")) println(line)
 ```
 
 ## Open questions
-- Full per-target availability matrix for the remaining modules.
