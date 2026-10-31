@@ -1,7 +1,7 @@
 //! Syntax-error fixtures in `tests/fail/parse/*.ppl`.
 //!
-//! Each fixture lists the expected error codes in order with `// error: E0xxx` lines. The
-//! rendered diagnostics are snapshotted, so changes to messages show up in review.
+//! The rendered diagnostics are snapshotted, so changes to messages show up in review. The
+//! `// error:` directives themselves are checked by the golden harness (`ppl-tests`).
 
 use ppl_diag::{SourceMap, render_all};
 use std::path::Path;
@@ -19,16 +19,9 @@ fn parse_failures() {
     for path in paths {
         let name = path.file_stem().unwrap().to_string_lossy().into_owned();
         let text = std::fs::read_to_string(&path).unwrap();
-        let expected: Vec<&str> = text
-            .lines()
-            .filter_map(|l| l.trim().strip_prefix("// error:"))
-            .map(str::trim)
-            .collect();
         let mut sm = SourceMap::new();
         let file = sm.add(format!("parse/{name}.ppl"), text.clone());
         let (_, diags) = ppl_syntax::parse_module(file, &text);
-        let got: Vec<String> = diags.iter().map(|d| d.code.unwrap().to_string()).collect();
-        assert_eq!(got, expected, "error codes for {name}.ppl");
         assert!(
             diags.len() > 1 || name == "unclosed",
             "{name}.ppl should show several errors"

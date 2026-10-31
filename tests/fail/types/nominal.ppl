@@ -1,0 +1,5 @@
+// error: E0308
+// at: 4:19
+class Meters { constructor(public value: f64) {} }
+const m: Meters = new Feet(3)
+class Feet { constructor(public value: f64) {} }

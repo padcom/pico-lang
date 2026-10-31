@@ -1,0 +1,15 @@
+// expect: 0 1 2
+// expect: 10
+// expect: found
+let line = ""
+for (let i = 0; i < 3; i++) {
+  line = if (i == 0) `${i}` else `${line} ${i}`
+}
+println(line)
+let sum = 0
+for (const i of 0..5) sum += i
+println(sum)
+const found = loop {
+  break "found"
+}
+println(found)

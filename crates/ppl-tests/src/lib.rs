@@ -1,1 +1,457 @@
 //! Golden-test harness for ppl.
+//!
+//! Fixtures live in `tests/run/**/*.ppl` (programs that must compile and run) and
+//! `tests/fail/**/*.ppl` (programs that must fail to compile). Expectations are comment
+//! directives:
+//!
+//! | Directive | Meaning |
+//! |-----------|---------|
+//! | `// expect: text` | one line of expected stdout, in order (`run` only) |
+//! | `// exit: N` | expected exit code (default 0, or 101 with `panic`) |
+//! | `// panic: msg` | the program must panic with this message |
+//! | `// error: E0308` | an expected compile error, in order (`fail` only) |
+//! | `// at: 4:19` | position (line:col) of the preceding `error` |
+//!
+//! A directory containing `main.ppl` is one multi-file fixture; its other files are modules.
+//!
+//! The harness runs every stage that exists. Checks that need a missing stage are reported
+//! as *pending* rather than passing silently.
+
+use ppl_diag::Code;
+use ppl_driver::Stage;
+use std::fmt::Write;
+use std::path::{Path, PathBuf};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Run,
+    Fail,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ExpectedError {
+    pub code: Code,
+    pub at: Option<(usize, usize)>,
+    /// Line of the `// error:` directive, for messages.
+    pub line: usize,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct Directives {
+    pub expect: Vec<String>,
+    pub exit: Option<i32>,
+    pub panic: Option<String>,
+    pub errors: Vec<ExpectedError>,
+}
+
+/// Parses the directives in a fixture. Lines that look like directives but are malformed are
+/// errors, so typos don't silently disable a check.
+pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
+    let mut d = Directives::default();
+    let mut problems = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let n = i + 1;
+        let Some(rest) = line.trim_start().strip_prefix("//") else {
+            continue;
+        };
+        let rest = rest.strip_prefix(' ').unwrap_or(rest);
+        let Some((name, value)) = rest.split_once(':') else {
+            continue;
+        };
+        if !matches!(name, "expect" | "exit" | "panic" | "error" | "at") {
+            continue;
+        }
+        // `// expect: text` keeps everything after one space; others are trimmed.
+        let raw = value.strip_prefix(' ').unwrap_or(value);
+        let value = value.trim();
+        match name {
+            "expect" => d.expect.push(raw.to_string()),
+            "exit" => match value.parse() {
+                Ok(code) if d.exit.is_none() => d.exit = Some(code),
+                Ok(_) => problems.push(format!("line {n}: more than one `exit` directive")),
+                Err(_) => problems.push(format!("line {n}: `exit` needs a number, got {value:?}")),
+            },
+            "panic" => {
+                if d.panic.replace(value.to_string()).is_some() {
+                    problems.push(format!("line {n}: more than one `panic` directive"));
+                }
+            }
+            "error" => match parse_code(value) {
+                Some(code) => d.errors.push(ExpectedError {
+                    code,
+                    at: None,
+                    line: n,
+                }),
+                None => problems.push(format!(
+                    "line {n}: `error` needs a code like E0308, got {value:?}"
+                )),
+            },
+            "at" => {
+                let pos = value
+                    .split_once(':')
+                    .and_then(|(l, c)| Some((l.trim().parse().ok()?, c.trim().parse().ok()?)));
+                match (pos, d.errors.last_mut()) {
+                    (Some(p), Some(e)) if e.at.is_none() => e.at = Some(p),
+                    (Some(_), _) => {
+                        problems.push(format!("line {n}: `at` must follow an `error` directive"))
+                    }
+                    (None, _) => {
+                        problems.push(format!("line {n}: `at` needs line:col, got {value:?}"))
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+    if problems.is_empty() {
+        Ok(d)
+    } else {
+        Err(problems)
+    }
+}
+
+fn parse_code(s: &str) -> Option<Code> {
+    let digits = s.strip_prefix('E')?;
+    if digits.len() != 4 {
+        return None;
+    }
+    digits.parse().ok().map(Code)
+}
+
+#[derive(Debug)]
+pub struct Fixture {
+    /// The `.ppl` file (or `main.ppl` of a multi-file fixture).
+    pub path: PathBuf,
+    /// Path relative to the tests root, for display (`run/hello.ppl`).
+    pub name: String,
+    pub kind: Kind,
+}
+
+/// Finds every fixture under `root/run` and `root/fail`, sorted by name.
+pub fn discover(root: &Path) -> Vec<Fixture> {
+    let mut out = Vec::new();
+    for (sub, kind) in [("run", Kind::Run), ("fail", Kind::Fail)] {
+        let dir = root.join(sub);
+        if dir.is_dir() {
+            walk(&dir, root, kind, &mut out);
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+fn walk(dir: &Path, root: &Path, kind: Kind, out: &mut Vec<Fixture>) {
+    let main = dir.join("main.ppl");
+    let is_case_dir = main.is_file() && dir != root.join("run") && dir != root.join("fail");
+    if is_case_dir {
+        out.push(fixture(main, root, kind));
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    paths.sort();
+    for p in paths {
+        if p.is_dir() {
+            walk(&p, root, kind, out);
+        } else if p.extension().is_some_and(|e| e == "ppl") {
+            out.push(fixture(p, root, kind));
+        }
+    }
+}
+
+fn fixture(path: PathBuf, root: &Path, kind: Kind) -> Fixture {
+    let name = path
+        .strip_prefix(root)
+        .unwrap_or(&path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    Fixture { path, name, kind }
+}
+
+#[derive(Debug)]
+pub enum Outcome {
+    Pass,
+    /// Everything that could run passed, but some checks need stages that don't exist yet.
+    Pending(String),
+    Fail(String),
+}
+
+/// Runs one fixture through the stages that exist.
+pub fn run(f: &Fixture) -> Outcome {
+    let text = match std::fs::read_to_string(&f.path) {
+        Ok(t) => t,
+        Err(e) => return Outcome::Fail(format!("cannot read: {e}")),
+    };
+    let directives = match parse_directives(&text) {
+        Ok(d) => d,
+        Err(problems) => {
+            return Outcome::Fail(format!("bad directives:\n  {}", problems.join("\n  ")));
+        }
+    };
+    let checked = ppl_driver::check_source(f.name.clone(), text);
+    match f.kind {
+        Kind::Run => run_test(&directives, &checked),
+        Kind::Fail => fail_test(&directives, &checked),
+    }
+}
+
+fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
+    if !d.errors.is_empty() {
+        return Outcome::Fail("`error` directives belong in tests/fail, not tests/run".into());
+    }
+    if checked.has_errors() {
+        return Outcome::Fail(format!(
+            "expected the program to compile, but it has errors:\n\n{}",
+            checked.render_diagnostics()
+        ));
+    }
+    // Execution (interpreter and native) arrives in P2.4 and P2.7.
+    let mut checks = Vec::new();
+    if !d.expect.is_empty() {
+        checks.push(format!("{} `expect` line(s)", d.expect.len()));
+    }
+    if d.exit.is_some() {
+        checks.push("`exit`".to_string());
+    }
+    if d.panic.is_some() {
+        checks.push("`panic`".to_string());
+    }
+    if checks.is_empty() {
+        checks.push("running the program".to_string());
+    }
+    Outcome::Pending(format!(
+        "compiles; waiting for the interpreter to check {}",
+        checks.join(", ")
+    ))
+}
+
+fn fail_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
+    if d.errors.is_empty() {
+        return Outcome::Fail(
+            "a tests/fail fixture needs at least one `// error: E0xxx` directive".into(),
+        );
+    }
+    if !d.expect.is_empty() || d.exit.is_some() || d.panic.is_some() {
+        return Outcome::Fail("`expect`/`exit`/`panic` directives belong in tests/run".into());
+    }
+    let actual: Vec<(Code, (usize, usize))> = checked
+        .diags
+        .iter()
+        .filter(|diag| diag.is_error())
+        .map(|diag| {
+            let pos = diag
+                .main_span()
+                .map_or((0, 0), |s| checked.sm.file(s.file).line_col(s.start));
+            (diag.code.unwrap_or(Code(0)), pos)
+        })
+        .collect();
+
+    // Expected errors from stages that don't exist yet can't be checked. The errors the
+    // implemented stages report must still match the expected ones from those stages.
+    let missing: Vec<Stage> = {
+        let mut v: Vec<Stage> = d
+            .errors
+            .iter()
+            .map(|e| Stage::of(e.code))
+            .filter(|s| !s.is_implemented())
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let checkable: Vec<&ExpectedError> = d
+        .errors
+        .iter()
+        .filter(|e| Stage::of(e.code).is_implemented())
+        .collect();
+
+    let fmt_expected = |e: &ExpectedError| match e.at {
+        Some((l, c)) => format!("{} at {l}:{c}", e.code),
+        None => e.code.to_string(),
+    };
+    let expected_lines: Vec<String> = checkable.iter().map(|e| fmt_expected(e)).collect();
+    // Show actual positions only where the expectation gives one, so diffs stay aligned.
+    let actual_lines: Vec<String> = actual
+        .iter()
+        .enumerate()
+        .map(
+            |(i, (code, (l, c)))| match checkable.get(i).and_then(|e| e.at) {
+                Some(_) => format!("{code} at {l}:{c}"),
+                None => code.to_string(),
+            },
+        )
+        .collect();
+
+    if expected_lines != actual_lines {
+        let mut msg = String::from("compile errors don't match (- expected, + actual):\n");
+        msg.push_str(&diff_lines(&expected_lines, &actual_lines));
+        if !missing.is_empty() {
+            let _ = write!(
+                msg,
+                "\n(errors from the {} aren't checked yet)\n",
+                stage_names(&missing)
+            );
+        }
+        if !checked.diags.is_empty() {
+            let _ = write!(
+                msg,
+                "\nactual diagnostics:\n\n{}",
+                checked.render_diagnostics()
+            );
+        }
+        return Outcome::Fail(msg);
+    }
+    if !missing.is_empty() {
+        let codes: Vec<String> = d
+            .errors
+            .iter()
+            .filter(|e| !Stage::of(e.code).is_implemented())
+            .map(|e| e.code.to_string())
+            .collect();
+        return Outcome::Pending(format!(
+            "{}: waiting for the {}",
+            codes.join(", "),
+            stage_names(&missing)
+        ));
+    }
+    Outcome::Pass
+}
+
+fn stage_names(stages: &[Stage]) -> String {
+    stages
+        .iter()
+        .map(|s| s.name())
+        .collect::<Vec<_>>()
+        .join(" and ")
+}
+
+/// A line diff (longest common subsequence): ` ` same, `-` only in `expected`, `+` only in
+/// `actual`.
+pub fn diff_lines(expected: &[String], actual: &[String]) -> String {
+    let (n, m) = (expected.len(), actual.len());
+    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if expected[i] == actual[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let mut out = String::new();
+    let (mut i, mut j) = (0, 0);
+    while i < n || j < m {
+        if i < n && j < m && expected[i] == actual[j] {
+            let _ = writeln!(out, "    {}", expected[i]);
+            i += 1;
+            j += 1;
+        } else if j < m && (i == n || lcs[i][j + 1] >= lcs[i + 1][j]) {
+            let _ = writeln!(out, "  + {}", actual[j]);
+            j += 1;
+        } else {
+            let _ = writeln!(out, "  - {}", expected[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Results of a whole run.
+pub struct Report {
+    pub passed: Vec<String>,
+    pub pending: Vec<(String, String)>,
+    pub failed: Vec<(String, String)>,
+}
+
+impl Report {
+    pub fn summary(&self) -> String {
+        format!(
+            "golden tests: {} passed, {} pending, {} failed",
+            self.passed.len(),
+            self.pending.len(),
+            self.failed.len()
+        )
+    }
+
+    /// A readable report: failures in full, pending fixtures as one line each.
+    pub fn render(&self) -> String {
+        let mut out = String::new();
+        for (name, msg) in &self.failed {
+            let _ = writeln!(out, "──── FAIL {name}\n{}", msg.trim_end());
+            out.push('\n');
+        }
+        if !self.pending.is_empty() {
+            out.push_str("pending:\n");
+            for (name, why) in &self.pending {
+                let _ = writeln!(out, "  {name}: {why}");
+            }
+        }
+        out.push_str(&self.summary());
+        out.push('\n');
+        out
+    }
+}
+
+/// Runs every fixture under `root` whose name contains `filter` (if given).
+pub fn run_all(root: &Path, filter: Option<&str>) -> Report {
+    let mut report = Report {
+        passed: Vec::new(),
+        pending: Vec::new(),
+        failed: Vec::new(),
+    };
+    for f in discover(root) {
+        if filter.is_some_and(|flt| !f.name.contains(flt)) {
+            continue;
+        }
+        match run(&f) {
+            Outcome::Pass => report.passed.push(f.name),
+            Outcome::Pending(why) => report.pending.push((f.name, why)),
+            Outcome::Fail(msg) => report.failed.push((f.name, msg)),
+        }
+    }
+    report
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn directives() {
+        let d = parse_directives(
+            "// expect: Hello\n// expect:\n// expect:   two  \n// exit: 3\n// panic: boom\nx\n",
+        )
+        .unwrap();
+        assert_eq!(d.expect, vec!["Hello", "", "  two  "]);
+        assert_eq!(d.exit, Some(3));
+        assert_eq!(d.panic.as_deref(), Some("boom"));
+
+        let d = parse_directives("// error: E0308\n// at: 4:19\n// error: E0100\n").unwrap();
+        assert_eq!(d.errors.len(), 2);
+        assert_eq!(d.errors[0].at, Some((4, 19)));
+        assert_eq!(d.errors[1].at, None);
+
+        // Ordinary comments that merely contain a colon are ignored.
+        assert_eq!(
+            parse_directives("// note: hi\n// see: x\n").unwrap(),
+            Directives::default()
+        );
+    }
+
+    #[test]
+    fn malformed_directives_are_reported() {
+        let errs =
+            parse_directives("// error: 308\n// at: 3\n// exit: x\n// at: 1:1\n").unwrap_err();
+        assert_eq!(errs.len(), 4, "{errs:?}");
+    }
+
+    #[test]
+    fn diff_marks_changes() {
+        let e: Vec<String> = ["a", "b", "c"].map(String::from).to_vec();
+        let a: Vec<String> = ["a", "x", "c", "d"].map(String::from).to_vec();
+        assert_eq!(diff_lines(&e, &a), "    a\n  + x\n  - b\n    c\n  + d\n");
+    }
+}

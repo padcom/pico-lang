@@ -1,8 +1,7 @@
 //! The `ppl` command-line tool.
 
 use clap::{Parser, Subcommand};
-use ppl_diag::{SourceMap, render_all};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 /// The padcom programming language toolchain.
@@ -33,24 +32,21 @@ fn main() -> ExitCode {
     }
 }
 
-fn parse(path: &PathBuf, dump: bool) -> ExitCode {
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
+fn parse(path: &Path, dump: bool) -> ExitCode {
+    let checked = match ppl_driver::check_file(path) {
+        Ok(c) => c,
         Err(e) => {
             eprintln!("error: cannot read {}: {e}", path.display());
             return ExitCode::from(2);
         }
     };
-    let mut sm = SourceMap::new();
-    let file = sm.add(path.display().to_string(), text);
-    let (module, diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
     if dump {
-        print!("{}", ppl_syntax::dump::dump_module(&module));
+        print!("{}", ppl_syntax::dump::dump_module(&checked.module));
     }
-    if diags.is_empty() {
+    if checked.diags.is_empty() {
         ExitCode::SUCCESS
     } else {
-        eprint!("{}", render_all(&diags, &sm));
+        eprint!("{}", checked.render_diagnostics());
         ExitCode::FAILURE
     }
 }

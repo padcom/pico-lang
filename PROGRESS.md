@@ -4,14 +4,16 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P1.13: Golden-test harness** (see [PLAN.md](PLAN.md#p113-golden-test-harness))
+**P2.1: Name resolution** (see [PLAN.md](PLAN.md#p21-name-resolution))
 
 Notes:
-- Crates live in `crates/<name>`; shared deps go in `[workspace.dependencies]` of the root Cargo.toml.
-- The harness should absorb `crates/ppl-syntax/tests/parse_fail.rs` (it already reads
-  `// error:` directives from `tests/fail/parse/*.ppl`).
-- Commit only through a `scripts/test.sh` exit-status check (piping its output through `grep`
-  once hid a clippy failure).
+- Golden fixtures: `tests/run/**/*.ppl` and `tests/fail/**/*.ppl`, run by `cargo test -p ppl-tests`
+  (`PPL_TEST_FILTER=name` for a subset). Directives are documented in `crates/ppl-tests/src/lib.rs`.
+- When a stage lands, add it to `ppl_driver::Stage::IMPLEMENTED` and call it from
+  `ppl_driver::check_source`. Pending fixtures for that stage then start being checked for real.
+  `tests/fail/types/nominal.ppl` (E0308) is waiting for the type checker.
+- New error codes go in `crates/ppl-diag/src/codes.rs` (E02xx for resolution).
+- Commit only through a `scripts/test.sh` exit-status check.
 - No open spec questions. Decision 178 matters for stdlib work: Web-standard APIs take their
   options object as a struct (`fetch(url, { … })`); ppl's own APIs use named arguments.
 
@@ -19,9 +21,9 @@ Notes:
 | Area | State |
 |------|-------|
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
-| Compiler | front end: lexer, newline filter, AST, parser (`ppl parse --dump`) |
+| Compiler | Phase 1 done: lexer, newline filter, AST, parser (`ppl parse --dump`), golden harness |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-10-31 (P1.12) |
+| Last green `scripts/test.sh` | 2026-10-31 (P1.13) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -52,7 +54,7 @@ Notes:
 - [x] P1.10 Parser: declarations and types
 - [x] P1.11 Parser: patterns, match, switch, try
 - [x] P1.12 Parser error recovery
-- [ ] P1.13 Golden-test harness
+- [x] P1.13 Golden-test harness
 
 ### Phase 2: First executable
 - [ ] P2.1 Name resolution
@@ -181,3 +183,4 @@ Notes:
 | 2026-10-31 | P1.8–P1.11 | Parser (one module, committed together): Pratt expressions, statements, declarations, types, patterns, match/switch/try. `ppl parse --dump`. 14 insta snapshot groups; `tests/spec_samples.rs` parses every ```ts block in docs/spec and docs/TOUR.md (2 spec blocks skipped with reasons). Decisions 167–172. |
 | 2026-10-31 | P1.12 | Recovery: statement-level sync (no separator error after a failed statement, stops at statement keywords on a new line), bracket-depth-safe member/arm recovery, unclosed `(`/`[` end before a declaration keyword (newline filter), enum variant/method lookahead. Targeted messages: `var`, `for-in`, `===`, conditions without parens, trailing-operator line continuation. 6 multi-error fixtures in tests/fail/parse with `// error:` directives + snapshots. |
 | 2026-10-31 | Review | Author answered all pending questions. Confirmed 166–168, 170, 172 (now in spec §1.2/§1.3/§2.8/§3.2/§3.3/§3.5); new decisions 173–178: no Option type, decorator hidden statics (`addStatic`), Map literals, WasmGC interim note, `Iterable.iterator()`, Web-standard options objects. Parser: parenthesized patterns (`case (s: string):`). Spec and TOUR examples updated. |
+| 2026-10-31 | P1.13 | `ppl-tests`: discovery (multi-file dirs with main.ppl), directive parser (expect/exit/panic/error/at, malformed directives fail), LCS diff, pass/pending/fail report. `ppl-driver` got `check_source`/`check_file` and `Stage` (code ranges to stages); the harness marks checks for unbuilt stages as pending. Fixtures: run/{hello,fib,loops,overflow_panic}, fail/types/nominal. Broke two fixtures on purpose (wrong code + position; non-compiling run test), checked the report was readable, restored them. **Phase 1 complete.** |

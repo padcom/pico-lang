@@ -208,6 +208,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ppl-diag",
+ "ppl-driver",
  "ppl-syntax",
 ]
 
@@ -225,6 +226,10 @@ dependencies = [
 [[package]]
 name = "ppl-driver"
 version = "0.1.0"
+dependencies = [
+ "ppl-diag",
+ "ppl-syntax",
+]
 
 [[package]]
 name = "ppl-interp"
@@ -254,6 +259,10 @@ dependencies = [
 [[package]]
 name = "ppl-tests"
 version = "0.1.0"
+dependencies = [
+ "ppl-diag",
+ "ppl-driver",
+]
 
 [[package]]
 name = "proc-macro2"

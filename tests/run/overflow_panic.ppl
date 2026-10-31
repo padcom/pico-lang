@@ -1,0 +1,3 @@
+// panic: integer overflow
+const x = 255u8
+println(x + 1u8)
