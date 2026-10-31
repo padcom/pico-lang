@@ -149,6 +149,9 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | # | Topic | Decision |
 |---|-------|----------|
 | 92 | Manifest | `project.json` (JSON, package.json-like). |
+| 93 | Package sources | A central ppl registry plus git URLs. |
+| 94 | Specifiers | Extensionless relative imports: `./util` resolves `util.ppl`, then `util/index.ppl`. |
+| 95 | Stdlib access | Common names are global (print/println, assert, panic, Math, JSON, Map, Set, Array, Promise, Error); the rest is imported from `std/…`. |
 
 ## Spec format
 | # | Topic | Decision |
