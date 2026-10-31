@@ -213,14 +213,44 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
     let mir = checked.mir.as_ref().expect("MIR after a clean check");
     let mut out: Vec<u8> = Vec::new();
     let result = ppl_driver::run_interp(mir, &mut out);
-    let run = Run {
+    let interp = Run {
         stdout: String::from_utf8_lossy(&out).into_owned(),
         panic: result.err().map(|p| p.msg),
+        exit: None,
     };
-    match compare_run(d, &run, "interpreter") {
-        Some(msg) => Outcome::Fail(msg),
-        None => Outcome::Pass,
+    let mut problems: Vec<String> = compare_run(d, &interp, "interpreter").into_iter().collect();
+    match run_native(checked) {
+        Ok(native) => problems.extend(compare_run(d, &native, "native")),
+        Err(e) => problems.push(format!("[native] {e}")),
     }
+    if problems.is_empty() {
+        Outcome::Pass
+    } else {
+        Outcome::Fail(problems.join("\n\n"))
+    }
+}
+
+/// Builds the program (cached) and runs the executable.
+fn run_native(checked: &ppl_driver::Checked) -> Result<Run, String> {
+    let exe = ppl_driver::build_cached(checked, ppl_driver::BuildOptions::default())?;
+    let out = std::process::Command::new(&exe)
+        .output()
+        .map_err(|e| format!("cannot run {}: {e}", exe.display()))?;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let code = out.status.code().unwrap_or(-1);
+    let panic = (code == ppl_driver::PANIC_EXIT_CODE).then(|| {
+        stderr
+            .lines()
+            .next()
+            .and_then(|l| l.strip_prefix("panic: "))
+            .unwrap_or("")
+            .to_string()
+    });
+    Ok(Run {
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        panic,
+        exit: Some(code),
+    })
 }
 
 /// What a program did.
@@ -228,15 +258,17 @@ pub struct Run {
     pub stdout: String,
     /// The panic message, if it panicked.
     pub panic: Option<String>,
+    /// The process exit code (native runs); derived from `panic` for the interpreter.
+    pub exit: Option<i32>,
 }
 
 impl Run {
     pub fn exit_code(&self) -> i32 {
-        if self.panic.is_some() {
+        self.exit.unwrap_or(if self.panic.is_some() {
             ppl_driver::PANIC_EXIT_CODE
         } else {
             0
-        }
+        })
     }
 }
 

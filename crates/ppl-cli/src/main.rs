@@ -14,10 +14,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Compile a program.
+    /// Compile a program to a native executable.
     Build {
         /// The entry `.ppl` file.
         file: PathBuf,
+        /// Where to write the executable (default: the file name without `.ppl`).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Optimize.
+        #[arg(long)]
+        release: bool,
         /// Print an intermediate form instead of building: `mir` or `llvm-ir`.
         #[arg(long, value_name = "FORM")]
         emit: Option<String>,
@@ -29,6 +35,12 @@ enum Command {
         /// Run in the MIR interpreter instead of building a native binary.
         #[arg(long)]
         interp: bool,
+        /// Optimize.
+        #[arg(long)]
+        release: bool,
+        /// Arguments for the program.
+        #[arg(last = true)]
+        args: Vec<String>,
     },
     /// Parse a file and report syntax errors.
     Parse {
@@ -44,13 +56,29 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::Parse { file, dump }) => parse(&file, dump),
-        Some(Command::Build { file, emit }) => build(&file, emit.as_deref()),
-        Some(Command::Run { file, interp }) => run(&file, interp),
+        Some(Command::Build {
+            file,
+            output,
+            release,
+            emit,
+        }) => build(
+            &file,
+            output,
+            ppl_driver::BuildOptions { release },
+            emit.as_deref(),
+        ),
+        Some(Command::Run {
+            file,
+            interp,
+            release,
+            args,
+        }) => run(&file, interp, ppl_driver::BuildOptions { release }, &args),
         None => ExitCode::SUCCESS,
     }
 }
 
 fn load(path: &Path) -> Option<ppl_driver::Checked> {
+    // `ppl_driver::check_file` names the file by its path, which then appears in diagnostics.
     match ppl_driver::check_file(path) {
         Ok(c) => Some(c),
         Err(e) => {
@@ -60,50 +88,67 @@ fn load(path: &Path) -> Option<ppl_driver::Checked> {
     }
 }
 
-fn run(path: &Path, interp: bool) -> ExitCode {
+fn checked_or_report(path: &Path) -> Result<ppl_driver::Checked, ExitCode> {
     let Some(checked) = load(path) else {
-        return ExitCode::from(2);
+        return Err(ExitCode::from(2));
     };
     if checked.has_errors() {
         eprint!("{}", checked.render_diagnostics());
-        return ExitCode::FAILURE;
+        return Err(ExitCode::FAILURE);
     }
-    if !interp {
-        eprintln!("error: native builds aren't implemented yet; use --interp");
-        return ExitCode::from(2);
+    Ok(checked)
+}
+
+fn run(path: &Path, interp: bool, opts: ppl_driver::BuildOptions, args: &[String]) -> ExitCode {
+    let checked = match checked_or_report(path) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    if interp {
+        let mir = checked.mir.as_ref().expect("MIR after a clean check");
+        let mut out = std::io::stdout();
+        return match ppl_driver::run_interp(mir, &mut out) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(p) => {
+                eprint!("{}", p.report());
+                ExitCode::from(ppl_driver::PANIC_EXIT_CODE as u8)
+            }
+        };
     }
-    let mir = checked.mir.as_ref().expect("MIR after a clean check");
-    let mut out = std::io::stdout();
-    match ppl_driver::run_interp(mir, &mut out) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(p) => {
-            eprint!("{}", p.report());
-            ExitCode::from(ppl_driver::PANIC_EXIT_CODE as u8)
+    let exe = match ppl_driver::build_cached(&checked, opts) {
+        Ok(exe) => exe,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match std::process::Command::new(&exe).args(args).status() {
+        Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8),
+        Err(e) => {
+            eprintln!("error: cannot run {}: {e}", exe.display());
+            ExitCode::FAILURE
         }
     }
 }
 
-fn build(path: &Path, emit: Option<&str>) -> ExitCode {
-    let Some(checked) = load(path) else {
-        return ExitCode::from(2);
+fn build(
+    path: &Path,
+    output: Option<PathBuf>,
+    opts: ppl_driver::BuildOptions,
+    emit: Option<&str>,
+) -> ExitCode {
+    let checked = match checked_or_report(path) {
+        Ok(c) => c,
+        Err(code) => return code,
     };
-    if checked.has_errors() {
-        eprint!("{}", checked.render_diagnostics());
-        return ExitCode::FAILURE;
-    }
+    let mir = checked.mir.as_ref().expect("MIR after a clean check");
     match emit {
         Some("mir") => {
-            print!(
-                "{}",
-                ppl_mir::dump(checked.mir.as_ref().expect("MIR after a clean check"))
-            );
+            print!("{}", ppl_mir::dump(mir));
             ExitCode::SUCCESS
         }
         Some("llvm-ir") => {
-            print!(
-                "{}",
-                ppl_codegen::emit_llvm_ir(checked.mir.as_ref().expect("MIR after a clean check"))
-            );
+            print!("{}", ppl_codegen::emit_llvm_ir(mir));
             ExitCode::SUCCESS
         }
         Some(other) => {
@@ -111,8 +156,14 @@ fn build(path: &Path, emit: Option<&str>) -> ExitCode {
             ExitCode::from(2)
         }
         None => {
-            eprintln!("error: native builds aren't implemented yet; use --emit mir");
-            ExitCode::from(2)
+            let exe = output.unwrap_or_else(|| PathBuf::from(path.file_stem().unwrap_or_default()));
+            match ppl_driver::build_native(&checked, &exe, opts) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            }
         }
     }
 }

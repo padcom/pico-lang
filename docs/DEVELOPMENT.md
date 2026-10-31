@@ -56,6 +56,19 @@ clang --version        # Homebrew clang version 23.1.3
 A throwaway crate depending on `inkwell = { version = "0.11", features = ["llvm23-1"] }` builds,
 links against libLLVM and prints module IR (checked during P1.1).
 
+## Building and running programs
+
+```sh
+cargo run -p ppl-cli -- run hello.ppl            # native (built into $TMPDIR/ppl-cache)
+cargo run -p ppl-cli -- run --interp hello.ppl   # MIR interpreter
+cargo run -p ppl-cli -- build hello.ppl -o hello --release
+cargo run -p ppl-cli -- build --emit mir hello.ppl     # or --emit llvm-ir
+```
+
+Native builds link with the system `cc` (Apple clang or Homebrew clang both work) until the
+bundled lld arrives in P8.1. The C runtime in `runtime/` is compiled by `ppl-runtime`'s build
+script with `-mmacosx-version-min=13.0`.
+
 ## Not installed yet
 
 These come with the tasks that need them (ask before installing):

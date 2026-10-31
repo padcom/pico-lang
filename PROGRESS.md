@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P2.7: `ppl build` / `ppl run` end to end** (see [PLAN.md](PLAN.md#p27-ppl-build--ppl-run-end-to-end))
+**P3.1: Allocator v0 and string runtime** (see [PLAN.md](PLAN.md#p31-allocator-v0-and-string-runtime))
 
 Notes:
 - Golden fixtures: `tests/run/**/*.ppl` and `tests/fail/**/*.ppl`, run by `cargo test -p ppl-tests`
@@ -21,9 +21,9 @@ Notes:
 | Area | State |
 |------|-------|
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
-| Compiler | Phase 1 done: lexer, newline filter, AST, parser (`ppl parse --dump`), golden harness |
+| Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-10-31 (P2.6) |
+| Last green `scripts/test.sh` | 2026-10-31 (P2.7) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -63,7 +63,7 @@ Notes:
 - [x] P2.4 MIR interpreter
 - [x] P2.5 C runtime v0
 - [x] P2.6 LLVM codegen v0
-- [ ] P2.7 `ppl build` / `ppl run` end to end (**M1: hello world**)
+- [x] P2.7 `ppl build` / `ppl run` end to end (**M1: hello world**)
 
 ### Phase 3: Core language
 - [ ] P3.1 Allocator v0 and string runtime
@@ -190,3 +190,4 @@ Notes:
 | 2026-10-31 | P2.4 | ppl-interp: Value/Frame interpreter over MIR; integer ops trap (overflow, div0, shift range, negative exponent, casts) with shared messages in ppl_mir::mir::panics; f32 computed at f32 precision; JS-style float printing (format_float, unit-tested); depth limit → stack overflow panic; runs on a 1 GiB-stack thread (driver::run_interp). `ppl run --interp`; panic report 'panic: msg\\n  at file:line:col', exit 101. Harness checks stdout/exit/panic. 10 new run fixtures. |
 | 2026-10-31 | P2.5 | runtime/ (C11): ppl_rt.h + ppl_rt.c with print functions, JS-style number formatting, ppl_panic (format + exit 101), main → ppl_entry. ppl-runtime builds libppl_rt.a via cc (no link directives into the compiler), macOS min 13.0 (decision 180/179). Tests link C programs: panic format, and C vs interpreter float formatting on ~6000 values — found Rust's {:e} picks the odd digit on ties; switched the interpreter to the same shortest-correctly-rounded loop (ties to even, as ECMAScript). |
 | 2026-10-31 | P2.6 | ppl-codegen (inkwell 0.11/LLVM 23): allocas per MIR local, overflow intrinsics → cold noreturn ppl_panic, div0/MIN÷-1/shift/cast checks (casts range-checked in i128; float→int with exact power-of-two bounds — same bug fixed in the interpreter, new fixture), integer ** via runtime ppl_ipow_s/u, strings as PplStr* (runtime header gained PplStr, ppl_print_string, ppl_panic_str), internal `ppl.<name>` functions + external ppl_entry, object emission for the host. `ppl build --emit llvm-ir`; IR snapshots in ppl-driver/tests/llvm_ir.rs. |
+| 2026-10-31 | P2.7 | Driver: build_native (LLVM object + cc link with libppl_rt.a), content-hashed run cache in $TMPDIR/ppl-cache. CLI: `ppl build [-o] [--release] [--emit mir|llvm-ir]`, `ppl run [--interp] [--release] [-- args]`. Harness runs every tests/run fixture interpreted AND native against the same directives: 31 pass. --release (O2) output matches the interpreter. **Milestone M1: hello world native.** |

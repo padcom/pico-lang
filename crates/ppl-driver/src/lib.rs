@@ -7,7 +7,7 @@
 
 use ppl_diag::{Code, Diagnostic, SourceMap};
 use ppl_syntax::ast::Module;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Compiler stages, in pipeline order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -122,6 +122,80 @@ pub fn run_interp(
             .join()
             .expect("interpreter thread panicked")
     })
+}
+
+/// Settings for native builds.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BuildOptions {
+    /// `--release`: optimize.
+    pub release: bool,
+}
+
+/// Compiles a checked program to a native executable at `exe`: an object file from LLVM,
+/// linked with the C runtime by the system `cc`.
+pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result<(), String> {
+    let mir = checked.mir.as_ref().ok_or("the program has errors")?;
+    if let Some(dir) = exe.parent()
+        && !dir.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    }
+    let obj = exe.with_extension("o");
+    ppl_codegen::emit_object(
+        mir,
+        &obj,
+        ppl_codegen::Options {
+            optimize: opts.release,
+        },
+    )?;
+    let mut cmd = std::process::Command::new("cc");
+    cmd.arg(&obj)
+        .arg(ppl_runtime::static_lib())
+        .args(ppl_runtime::host_link_flags());
+    if cfg!(target_os = "linux") {
+        cmd.arg("-lm");
+    }
+    cmd.arg("-o").arg(exe);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("cannot run the linker (`cc`): {e}"))?;
+    let _ = std::fs::remove_file(&obj);
+    if !out.status.success() {
+        return Err(format!(
+            "linking failed:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok(())
+}
+
+/// Where `ppl run` puts the executable for a source file: a cache directory keyed by the
+/// file's path and contents, so unchanged programs aren't rebuilt.
+pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
+    use std::hash::{Hash, Hasher};
+    let file = checked.sm.file(ppl_diag::FileId(0));
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    file.name.hash(&mut h);
+    file.text.hash(&mut h);
+    opts.release.hash(&mut h);
+    env!("CARGO_PKG_VERSION").hash(&mut h);
+    let stem = Path::new(&file.name)
+        .file_stem()
+        .map_or("main".into(), |s| s.to_string_lossy().into_owned());
+    std::env::temp_dir()
+        .join("ppl-cache")
+        .join(format!("{:016x}", h.finish()))
+        .join(stem)
+}
+
+/// Builds (unless cached) and returns the executable for `ppl run`.
+pub fn build_cached(checked: &Checked, opts: BuildOptions) -> Result<PathBuf, String> {
+    let exe = cached_executable(checked, opts);
+    if !exe.is_file() {
+        build_native(checked, &exe, opts)?;
+    }
+    Ok(exe)
 }
 
 /// Reads `path` and runs [`check_source`] on it, naming the file by its path.
