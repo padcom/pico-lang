@@ -119,6 +119,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 76 | Overloading | Real overloading by parameter types, resolved statically (most specific wins, ambiguity is an error). |
 | 77 | Rest params | `...args: T[]` and spread `f(...arr)`. |
 
+## Round 7 (classes & interfaces)
+| # | Topic | Decision |
+|---|-------|----------|
+| 78 | Open/final | Classes can be extended by default (`final class` prevents it). Methods are **final by default** and must be `virtual` to be overridden (C#-style). |
+| 79 | Override | The `override` keyword is required. |
+| 80 | Default methods | Interfaces can have default method implementations, which replace mixins. |
+| 81 | Constructors | TS `constructor`, overloadable, with delegation via `this(...)` and parameter properties. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
