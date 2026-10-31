@@ -93,7 +93,7 @@ Patterns:
 | literal | `42`, `"north"`, `true`, `null` |
 | wildcard | `_` |
 | binding | `x` |
-| enum variant | `Circle { r }`, `Circle(r)` (positional) |
+| enum variant | `Circle { r }` (named) or `Circle(r)` (positional); both forms are allowed |
 | struct/class | `Point { x: 0, y }` (also matches subclasses with `instanceof` semantics) |
 | tuple / array | `[a, b]`, `[first, ...rest]` |
 | or | `p1 \| p2` |
@@ -131,6 +131,5 @@ while (it.next() is Some(v)) use(v)
 These work as in TS: `c ? a : b`, `a?.b?.c()`, `a ?? b`, `a!`.
 
 ## Open questions
-- Positional enum patterns `Circle(r)` vs named `Circle { r }`: allow both?
 - Should `switch` allow `case` lists with `,` (as above) or `|`?
 - Spread in function calls of fixed arity (`f(...tuple)`)?

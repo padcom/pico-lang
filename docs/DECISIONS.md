@@ -193,6 +193,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 114 | Windows | MinGW (GNU) ABI. |
 | 115 | Min OS | Modern only: macOS 13+, Windows 10+, Linux 5.x / glibc 2.31. |
 
+## Round 16 (open questions, part 1)
+| # | Topic | Decision |
+|---|-------|----------|
+| 116 | compareTo | Returns `i32` (negative, zero or positive), as with JS sort comparators. |
+| 117 | Enum patterns | Both positional `Circle(r)` and named `Circle { r }`. |
+| 118 | Interface methods | Implementing an interface method doesn't make it virtual; subclasses can override it only if it's marked `virtual`. |
+| 119 | Meta API | Both quasi-quote code templates (`${}` splicing, parsed and type-checked) and an AST builder API in `std/meta`. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|

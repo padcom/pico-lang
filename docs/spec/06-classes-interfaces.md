@@ -51,7 +51,8 @@ class Circle implements Shape {
 - Interfaces are **nominal**. A type conforms only by declaring `implements` explicitly.
 - Default methods take the place of mixins. If two interfaces provide conflicting defaults, the
   class has to override that method.
-- Interface members are always public.
+- Interface members are always public. A method that implements an interface member is **not**
+  automatically virtual: subclasses can override it only if it's marked `virtual`.
 - Interfaces can `extend` other interfaces and can be generic.
 - Structs and enums can also `implement` interfaces.
 - There are no `sealed` hierarchies. For a closed set of cases, use an `enum`.
@@ -62,4 +63,3 @@ class Circle implements Shape {
 - Calls through an interface type go through an interface table (fat pointer: object + itable).
 
 ## Open questions
-- Are interface methods implicitly virtual in implementing classes?

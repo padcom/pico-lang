@@ -149,4 +149,3 @@ function render(scene: immutable Scene) { scene.nodes.push(x) }  // error
 
 ## Open questions
 - Exact syntax for the `immutable` modifier on methods (`readonly foo()`?).
-- Should `compareTo` return an `Ordering` enum instead of `i32`?
