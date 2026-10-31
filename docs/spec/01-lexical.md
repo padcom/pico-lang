@@ -92,7 +92,8 @@ A type can customize how it formats by implementing a `Formattable` interface (d
 `as async await break case catch class const continue default else enum export extends extern
 false finally for function get if implements import in instanceof interface let match new null
 operator private protected public readonly return set static struct super switch this throw
-throws true try typeof unsafe where while yield comptime immutable`
+throws true try typeof unsafe where while yield comptime immutable tailcall virtual override
+abstract final loop using distinct decorator is`
 
 ## Open questions
 - Regex literal vs `/` division ambiguity: use the JS rule (regex is allowed only where an expression can start).

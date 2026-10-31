@@ -44,7 +44,17 @@ function len(s: string): i64 { s.length }
 function len<T>(a: T[]): i64 { a.length }
 function len(m: Map<string, i32>): i64 { m.size }
 ```
-Overloads can't differ only in return type. Named arguments take part in resolution.
+Overloads can't differ only in return type. Named arguments take part in resolution. Overloads
+can have default parameters, and a call that is actually ambiguous is a compile error.
+
+## 5.4.1 Guaranteed tail calls
+```ts
+function loopUntil(n: i64, acc: i64): i64 {
+  if (n == 0) return acc
+  return tailcall loopUntil(n - 1, acc + n)    // guaranteed constant stack, otherwise a compile error
+}
+```
+Ordinary calls in tail position may be optimized, but only `tailcall` guarantees it.
 
 ## 5.5 Closures
 Closures capture **by value for `const`** and **by reference for `let`**. The observable
@@ -82,5 +92,3 @@ for await (const line of lines("log.txt")) println(line)
 ```
 
 ## Open questions
-- Do overloads mix with default parameters, or is that disallowed to avoid ambiguity?
-- Are tail calls guaranteed in some form (`return tailcall f()`)?

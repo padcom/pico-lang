@@ -241,6 +241,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 142 | switch case lists | `case "build" \| "b":`, the same or-pattern as `match`. |
 | 143 | readonly methods | The `readonly` method modifier marks methods callable through `immutable T`; the compiler checks they don't mutate. |
 
+## Round 21 (open questions, part 6)
+| # | Topic | Decision |
+|---|-------|----------|
+| 144 | Package names | Scoped names are required: `scope/name` (e.g. `padcom/http-router`). |
+| 145 | Workspaces | `"workspace": ["packages/*"]` in the root `project.json`, with one shared lockfile. |
+| 146 | Overloads + defaults | Allowed; only calls that are actually ambiguous are errors. |
+| 147 | Tail calls | `return tailcall f(…)` is guaranteed (LLVM `musttail`); if it can't be honored, that's a compile error. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|

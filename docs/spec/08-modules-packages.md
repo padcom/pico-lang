@@ -61,10 +61,13 @@ A package is a directory containing a `project.json`:
   and content hashes.
 - **Duplicates**: semver-compatible requirements unify to a single version, while different major
   versions can coexist in one graph (Cargo-style).
+- **Names** must be scoped, `scope/name`. Imports use the full name:
+  `import { Router } from "padcom/http-router"`.
+- **Workspaces**: a root `project.json` with `"workspace": ["packages/*"]` groups several packages
+  under one shared lockfile. Members depend on each other by name.
 - Packages ship as source and get compiled together with the consumer, which is what
   monomorphization and comptime need.
 
 ## Open questions
-- Registry name and hosting; namespacing (`scope/name` required?).
-- Workspaces / monorepos with several packages?
+- Registry name and hosting.
 - Lockfile name: `project.lock`?
