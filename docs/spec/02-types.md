@@ -151,5 +151,3 @@ class Scene { public readonly count(): int { nodes.length } }
 ```ts
 function render(scene: immutable Scene) { scene.nodes.push(x) }  // error
 ```
-
-## Open questions

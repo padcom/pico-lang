@@ -61,5 +61,3 @@ class Circle implements Shape {
 - Calls to non-virtual methods and to struct methods are static.
 - Calls to virtual methods go through a vtable.
 - Calls through an interface type go through an interface table (fat pointer: object + itable).
-
-## Open questions

@@ -53,5 +53,3 @@ enum Color { Red, Green, Blue }
 class Point { … }
 interface Shape { area(): f64 }
 ```
-
-## Open questions

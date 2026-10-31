@@ -78,5 +78,3 @@ pretty-printing of ppl values (strings, arrays, maps, enums).
   hash. Monomorphized instances are cached per instantiation.
 - **Single binary**: the `ppl` executable bundles LLVM, lld, libclang (for `c:` imports), the
   runtime and the stdlib sources.
-
-## Open questions

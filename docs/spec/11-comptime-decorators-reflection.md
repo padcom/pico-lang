@@ -96,5 +96,3 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
 `Disposable` has `dispose(): void`, and `AsyncDisposable` has `disposeAsync(): Promise<void>`.
 `await using` (as in TS 5.2) awaits `disposeAsync()` at scope exit. Because all I/O is async, files and
 sockets are `AsyncDisposable`.
-
-## Open questions

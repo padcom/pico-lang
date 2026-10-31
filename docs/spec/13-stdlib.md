@@ -87,5 +87,3 @@ import { readText } from "std/fs"
 const text = await readText("notes.txt")
 for (const line of text.split("\n")) println(line)
 ```
-
-## Open questions

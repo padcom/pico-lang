@@ -77,5 +77,3 @@ const ac = new AbortController()
 setTimeout(() => ac.abort(), 5000)
 const res = await fetch(url, signal: ac.signal)    // throws HttpError | AbortError
 ```
-
-## Open questions

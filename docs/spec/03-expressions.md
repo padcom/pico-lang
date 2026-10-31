@@ -129,5 +129,3 @@ while (it.next() is Some(v)) use(v)
 
 ## 3.6 Ternary, optional chaining, nullish
 These work as in TS: `c ? a : b`, `a?.b?.c()`, `a ?? b`, `a!`.
-
-## Open questions

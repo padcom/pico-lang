@@ -49,5 +49,3 @@ Newer facilities can be used where they exist (io_uring on Linux, for example).
 At comptime: `target.os` (`"linux" | "macos" | "windows" | "wasi" | "browser"`), `target.arch`,
 `target.triple`. Modules can also be platform-specific by file name: `fs.linux.ppl`,
 `fs.windows.ppl`, `fs.wasm.ppl`.
-
-## Open questions

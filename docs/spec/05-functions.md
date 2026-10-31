@@ -90,5 +90,3 @@ Async generators:
 async function* lines(path: string): AsyncIterator<string> throws IoError { … }
 for await (const line of lines("log.txt")) println(line)
 ```
-
-## Open questions

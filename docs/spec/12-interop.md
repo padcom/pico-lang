@@ -91,5 +91,3 @@ heap, initialized lazily.
 ## 12.5 WASI
 `wasm32-wasi` uses WASI preview 2 for fs, clocks, sockets and random. The `std/*` modules are
 implemented on top of it.
-
-## Open questions
