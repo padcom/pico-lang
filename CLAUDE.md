@@ -43,4 +43,5 @@ and the runtime in C.
 | `PLAN.md` | architecture and all tasks (P1.1 … P11.5) |
 | `docs/spec/` | the language specification (chapters 00–15) |
 | `docs/DECISIONS.md` | numbered design decisions and their reasons |
+| `docs/TOUR.md` | an example of every language feature (for review, not normative) |
 | `docs/DEVELOPMENT.md` | toolchain versions and setup (created in P1.1) |
