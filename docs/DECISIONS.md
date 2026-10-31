@@ -127,6 +127,14 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 80 | Default methods | Interfaces can have default method implementations, which replace mixins. |
 | 81 | Constructors | TS `constructor`, overloadable, with delegation via `this(...)` and parameter properties. |
 
+## Round 8 (open questions in ch. 3–6)
+| # | Topic | Decision |
+|---|-------|----------|
+| 82 | Overridable keyword | `virtual`. |
+| 83 | Sealed | No `sealed` classes. Exhaustiveness comes from enums and unions only. |
+| 84 | private | Class-private: accessible only inside the class body. |
+| 85 | Globals | Only `const` at module level; module-level `let` is forbidden. Mutable state lives in objects passed explicitly. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|

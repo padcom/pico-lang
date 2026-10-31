@@ -21,7 +21,7 @@ class Dog extends Animal {
   public override speak(): string { "Woof" }
 }
 ```
-- **Visibility**: class members are **private by default**. Use `public` or `protected` to widen
+- **Visibility**: class members are **private by default**. `private` means class-private. Use `public` or `protected` to widen
   them. Module-level declarations are private unless `export`ed.
 - **Implicit members**: inside methods, `name` means `this.name` unless a local shadows it.
 - **Inheritance**: single inheritance. Classes are **open** to extension by default, and
@@ -54,6 +54,7 @@ class Circle implements Shape {
 - Interface members are always public.
 - Interfaces can `extend` other interfaces and can be generic.
 - Structs and enums can also `implement` interfaces.
+- There are no `sealed` hierarchies. For a closed set of cases, use an `enum`.
 
 ## 6.3 Dispatch
 - Calls to non-virtual methods and to struct methods are static.
@@ -61,7 +62,4 @@ class Circle implements Shape {
 - Calls through an interface type go through an interface table (fat pointer: object + itable).
 
 ## Open questions
-- Keyword for overridable methods: `virtual` (C#) or `open` (Kotlin)? The draft uses `virtual`.
 - Are interface methods implicitly virtual in implementing classes?
-- `sealed` classes/interfaces for exhaustive `match` over a class hierarchy?
-- Should `private` mean class-private or module-private (like Swift `fileprivate`)?

@@ -15,6 +15,11 @@ can be referenced from anywhere in the module.
 A program's root module runs top to bottom. Top-level statements in imported modules run once,
 in dependency order, before the importer's own code.
 
+Module-level bindings must be `const`. Module-level `let` is a compile error, because there is no
+global mutable state; this fits the strictly isolated threads (§10). A `const` holding a mutable
+object (e.g. `const cache = new Map()`) is per thread: every worker evaluates module
+initializers in its own heap.
+
 ## 4.3 Loops
 ```ts
 for (let i = 0; i < n; i++) { … }          // C-style
@@ -46,5 +51,3 @@ interface Shape { area(): f64 }
 
 ## Open questions
 - Is `const` destructuring with defaults (`const { a = 1 } = o`) needed?
-- Should module-level `let` (global mutable state) be allowed, given per-thread heaps? Proposed:
-  yes, and each thread gets its own copy (thread-local).
