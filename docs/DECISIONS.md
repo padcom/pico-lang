@@ -145,6 +145,11 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 90 | Stack traces | Always captured on throw and on panic. |
 | 91 | Throws inference | *(Proposed, awaiting confirmation)* Private functions and lambdas may omit `throws` (inferred); exported functions must declare it. |
 
+## Round 10 (modules & packages)
+| # | Topic | Decision |
+|---|-------|----------|
+| 92 | Manifest | `project.json` (JSON, package.json-like). |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|
