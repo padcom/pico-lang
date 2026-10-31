@@ -70,7 +70,7 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 
 ### P1.1 Toolchain setup
 - **Goal**: get a reproducible development environment.
-- **Do**: install rustup (stable) and LLVM via Homebrew (pin a version inkwell supports, e.g. 18). Write
+- **Do**: install rustup (stable) and LLVM via Homebrew (pin a version inkwell supports: LLVM 23 with inkwell 0.11, see docs/DEVELOPMENT.md). Write
   `docs/DEVELOPMENT.md` with the exact versions, `LLVM_SYS_*_PREFIX` setup and the commands. Add
   `rust-toolchain.toml`.
 - **Done when**: `cargo --version`, `llvm-config --version` and `clang --version` work and are documented.
