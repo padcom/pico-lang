@@ -54,4 +54,5 @@ interface Shape { area(): f64 }
 ```
 
 ## Open questions
+- Can `function` declarations in the entry module capture top-level `let`s? (The draft says no; arrow functions assigned to `const` can.)
 - Is `const` destructuring with defaults (`const { a = 1 } = o`) needed?

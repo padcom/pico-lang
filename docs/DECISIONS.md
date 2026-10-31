@@ -143,7 +143,7 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 88 | try expression | `try … catch …` is an expression, e.g. `const n = try parse(s) catch (e: ParseError) 0`. |
 | 89 | Error unions | `throws A \| B`; typed `catch` clauses narrow the union. No `try?`/`try!` sugar for now. |
 | 90 | Stack traces | Always captured on throw and on panic. |
-| 91 | Throws inference | Private functions and lambdas may omit `throws` (inferred); exported functions must declare it. |
+| 91 | Throws inference | *(Proposed, awaiting confirmation)* Private functions and lambdas may omit `throws` (inferred); exported functions must declare it. |
 
 ## Spec format
 | # | Topic | Decision |
