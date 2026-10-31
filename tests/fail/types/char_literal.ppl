@@ -1,0 +1,6 @@
+// error: E0308
+// at: 5:17
+// error: E0305
+// at: 6:12
+const c: char = "ab"
+const b = (true as char)

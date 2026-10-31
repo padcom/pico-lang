@@ -232,6 +232,10 @@ impl Interp<'_, '_> {
                 let v = self.operand(frame, o);
                 self.cast(v, &from, to, loc)
             }
+            Rvalue::ToStr(o) => {
+                let t = self.operand_ty(frame, o);
+                Ok(Value::Str(display(&self.operand(frame, o), &t).into()))
+            }
             Rvalue::StrLen(o) => match self.operand(frame, o) {
                 Value::Str(s) => Ok(Value::Int(s.chars().count() as i128)),
                 v => unreachable!("length of {v:?}"),

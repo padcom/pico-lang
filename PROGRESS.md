@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.2: char type and template literals** (see [PLAN.md](PLAN.md#p32-char-type-and-template-literals))
+**P3.3: Format specs** (see [PLAN.md](PLAN.md#p33-format-specs))
 
 Notes:
 - Golden fixtures: `tests/run/**/*.ppl` and `tests/fail/**/*.ppl`, run by `cargo test -p ppl-tests`
@@ -23,7 +23,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-10-31 (P3.1) |
+| Last green `scripts/test.sh` | 2026-10-31 (P3.2) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -67,7 +67,7 @@ Notes:
 
 ### Phase 3: Core language
 - [x] P3.1 Allocator v0 and string runtime
-- [ ] P3.2 char type and template literals
+- [x] P3.2 char type and template literals
 - [ ] P3.3 Format specs
 - [ ] P3.4 Structs
 - [ ] P3.5 Arrays, fixed arrays, tuples, ranges
@@ -192,3 +192,4 @@ Notes:
 | 2026-10-31 | P2.6 | ppl-codegen (inkwell 0.11/LLVM 23): allocas per MIR local, overflow intrinsics → cold noreturn ppl_panic, div0/MIN÷-1/shift/cast checks (casts range-checked in i128; float→int with exact power-of-two bounds — same bug fixed in the interpreter, new fixture), integer ** via runtime ppl_ipow_s/u, strings as PplStr* (runtime header gained PplStr, ppl_print_string, ppl_panic_str), internal `ppl.<name>` functions + external ppl_entry, object emission for the host. `ppl build --emit llvm-ir`; IR snapshots in ppl-driver/tests/llvm_ir.rs. |
 | 2026-10-31 | P2.7 | Driver: build_native (LLVM object + cc link with libppl_rt.a), content-hashed run cache in $TMPDIR/ppl-cache. CLI: `ppl build [-o] [--release] [--emit mir|llvm-ir]`, `ppl run [--interp] [--release] [-- args]`. Harness runs every tests/run fixture interpreted AND native against the same directives: 31 pass. --release (O2) output matches the interpreter. **Milestone M1: hello world native.** |
 | 2026-10-31 | P3.1 | Runtime: ppl_alloc (malloc-backed, never frees, aborts on OOM), PplStr ops ppl_str_new/concat/eq/cmp/char_at (cached position → sequential s[i] O(1); ASCII fast path). MIR Rvalue::StrLen/StrCharAt; string +, +=, ==, <… in interpreter and codegen (codegen does the bounds check so the message stays in ppl_mir::panics). Fixtures: strings (Polish diacritics, emoji), string_index_panic, string_scan (10k chars). Fixed: if-without-else in statement position no longer flagged as a nullable value. |
+| 2026-10-31 | P3.2 | Templates lower to concatenation of quasis and Rvalue::ToStr(part) (runtime ppl_str_from_{i64,u64,f64,f32,bool,char}, interpreter shares display()); `x.toString()` on primitives; triple-quoted and backtick multiline literals verified end to end. Fixtures: run/templates (nesting, $${}, multiline dedent), run/chars, fail/types/char_literal (`const c: char = "ab"`). loops.ppl no longer pending. |

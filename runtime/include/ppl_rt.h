@@ -32,6 +32,14 @@ PplStr *ppl_str_new(const char *bytes, int64_t byte_len); /* counts code points 
 PplStr *ppl_str_concat(const PplStr *a, const PplStr *b);
 int32_t ppl_str_eq(const PplStr *a, const PplStr *b);
 int32_t ppl_str_cmp(const PplStr *a, const PplStr *b); /* <0, 0, >0 in code-point order */
+/* String forms of primitives (templates, `toString()`), as `println` shows them. */
+PplStr *ppl_str_from_i64(int64_t v);
+PplStr *ppl_str_from_u64(uint64_t v);
+PplStr *ppl_str_from_f64(double v);
+PplStr *ppl_str_from_f32(float v);
+PplStr *ppl_str_from_bool(int32_t v);
+PplStr *ppl_str_from_char(uint32_t c);
+
 /* The char at code-point index `i`; panics (index out of bounds) at the given location.
  * Sequential access is O(1) thanks to the cached position. */
 uint32_t ppl_str_char_at(PplStr *s, int64_t i, const char *file, int64_t file_len, int32_t line,

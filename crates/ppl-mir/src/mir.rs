@@ -168,6 +168,8 @@ pub enum Rvalue {
     Unary(UnOp, Operand),
     /// Numeric/char conversion to the given type.
     Cast(Operand, Ty),
+    /// The string form of a primitive (as `println` shows it): templates and `toString()`.
+    ToStr(Operand),
     /// `s.length`: a string's length in code points.
     StrLen(Operand),
     /// `s[i]`: the `char` at code-point index `i` (panics when out of bounds).
@@ -252,6 +254,7 @@ impl fmt::Display for Rvalue {
             Rvalue::Unary(op, a) => write!(f, "{op:?}({a})"),
             Rvalue::Cast(a, t) => write!(f, "{a} as {t}"),
             Rvalue::StrLen(a) => write!(f, "StrLen({a})"),
+            Rvalue::ToStr(a) => write!(f, "ToStr({a})"),
             Rvalue::StrCharAt(a, i) => write!(f, "StrCharAt({a}, {i})"),
         }
     }

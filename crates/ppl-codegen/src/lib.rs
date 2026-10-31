@@ -229,6 +229,10 @@ impl<'ctx> Gen<'ctx, '_> {
                 false,
             ),
             "ppl_str_concat" => ptr.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_str_from_i64" | "ppl_str_from_u64" => ptr.fn_type(&[i64t.into()], false),
+            "ppl_str_from_f64" => ptr.fn_type(&[self.cx.f64_type().into()], false),
+            "ppl_str_from_f32" => ptr.fn_type(&[self.cx.f32_type().into()], false),
+            "ppl_str_from_bool" | "ppl_str_from_char" => ptr.fn_type(&[i32t.into()], false),
             "ppl_str_eq" | "ppl_str_cmp" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
             "ppl_str_char_at" => i32t.fn_type(
                 &[
@@ -485,6 +489,14 @@ impl<'ctx> Gen<'ctx, '_> {
                 let from = self.operand_ty(fx, o);
                 let v = self.operand(fx, o)?;
                 Some(self.cast(fx, v, &from, to, loc))
+            }
+            Rvalue::ToStr(o) => {
+                let t = self.operand_ty(fx, o);
+                let v = self.operand(fx, o)?;
+                let (name, arg) = self.primitive_arg(&t, v, "ppl_str_from")?;
+                Some(basic(
+                    self.b.build_call(self.rt(&name), &[arg], "").unwrap(),
+                ))
             }
             Rvalue::StrLen(o) => {
                 let s = self.operand(fx, o)?.into_pointer_value();
@@ -1038,36 +1050,42 @@ impl<'ctx> Gen<'ctx, '_> {
         }
     }
 
-    fn print(&mut self, t: &Ty, v: BasicValueEnum<'ctx>) {
-        let (name, arg): (&str, BasicMetadataValueEnum) = match t {
+    /// The runtime function `<prefix>_<kind>` for a primitive, and the argument it takes
+    /// (integers widened to 64 bits, `bool` as `i32`).
+    fn primitive_arg(
+        &self,
+        t: &Ty,
+        v: BasicValueEnum<'ctx>,
+        prefix: &str,
+    ) -> Option<(String, BasicMetadataValueEnum<'ctx>)> {
+        let (kind, arg): (&str, BasicMetadataValueEnum) = match t {
             Ty::Int(it) => {
                 let wide = self
                     .b
                     .build_int_cast_sign_flag(v.into_int_value(), self.i64(), it.signed(), "")
                     .unwrap();
-                (
-                    if it.signed() {
-                        "ppl_print_i64"
-                    } else {
-                        "ppl_print_u64"
-                    },
-                    wide.into(),
-                )
+                (if it.signed() { "i64" } else { "u64" }, wide.into())
             }
-            Ty::Float(FloatTy::F64) => ("ppl_print_f64", v.into()),
-            Ty::Float(FloatTy::F32) => ("ppl_print_f32", v.into()),
+            Ty::Float(FloatTy::F64) => ("f64", v.into()),
+            Ty::Float(FloatTy::F32) => ("f32", v.into()),
             Ty::Bool => {
                 let w = self
                     .b
                     .build_int_z_extend(v.into_int_value(), self.i32(), "")
                     .unwrap();
-                ("ppl_print_bool", w.into())
+                ("bool", w.into())
             }
-            Ty::Char => ("ppl_print_char", v.into()),
-            Ty::Str => ("ppl_print_string", v.into()),
-            _ => return,
+            Ty::Char => ("char", v.into()),
+            Ty::Str => ("string", v.into()),
+            _ => return None,
         };
-        self.b.build_call(self.rt(name), &[arg], "").unwrap();
+        Some((format!("{prefix}_{kind}"), arg))
+    }
+
+    fn print(&mut self, t: &Ty, v: BasicValueEnum<'ctx>) {
+        if let Some((name, arg)) = self.primitive_arg(t, v, "ppl_print") {
+            self.b.build_call(self.rt(&name), &[arg], "").unwrap();
+        }
     }
 }
 

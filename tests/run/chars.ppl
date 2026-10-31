@@ -1,0 +1,19 @@
+// expect: a
+// expect: true
+// expect: false
+// expect: 380
+// expect: 🙂
+// expect: z < ż
+// expect: x is a string of length 1
+const c: char = 'a'
+println(c)
+const z: char = "z"
+println(z < "ż")
+println(c == "b")
+const zz: char = "ż"
+println(zz as u32)
+const smile: char = 128578u32 as char
+println(smile)
+println(`${z} < ${zz}`)
+const s = 'x'
+println(`${s} is a string of length ${s.length}`)

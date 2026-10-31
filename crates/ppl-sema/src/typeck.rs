@@ -1121,6 +1121,32 @@ impl<'p> Checker<'p> {
                 self.set(callee, Ty::Void);
                 self.builtin(e, *b, args)
             }
+            // `x.toString()` on primitives.
+            ExprKind::Member {
+                object,
+                name,
+                name_span,
+            } if name == "toString" => {
+                let t = self.infer(object);
+                self.set(callee, Ty::Void);
+                if !is_printable(&t) {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNKNOWN_MEMBER,
+                            format!("`{t}` has no member `toString`"),
+                        )
+                        .primary(*name_span, "unknown member"),
+                    );
+                    return Ty::Error;
+                }
+                if !args.is_empty() {
+                    self.diags.push(
+                        Diagnostic::error(codes::WRONG_ARG_COUNT, "`toString` takes no arguments")
+                            .primary(e.span, "wrong number of arguments"),
+                    );
+                }
+                Ty::Str
+            }
             _ => {
                 let t = self.infer(callee);
                 for a in args {

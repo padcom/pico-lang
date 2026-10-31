@@ -64,6 +64,39 @@ int32_t ppl_str_cmp(const PplStr *a, const PplStr *b) {
     return a->byte_len < b->byte_len ? -1 : a->byte_len > b->byte_len;
 }
 
+static int utf8_encode(uint32_t c, char *out);
+int ppl_format_f64(double v, char *buf);
+int ppl_format_f32(float v, char *buf);
+
+PplStr *ppl_str_from_i64(int64_t v) {
+    char buf[24];
+    int n = snprintf(buf, sizeof buf, "%" PRId64, v);
+    return ppl_str_new(buf, n);
+}
+
+PplStr *ppl_str_from_u64(uint64_t v) {
+    char buf[24];
+    int n = snprintf(buf, sizeof buf, "%" PRIu64, v);
+    return ppl_str_new(buf, n);
+}
+
+PplStr *ppl_str_from_f64(double v) {
+    char buf[40];
+    return ppl_str_new(buf, ppl_format_f64(v, buf));
+}
+
+PplStr *ppl_str_from_f32(float v) {
+    char buf[40];
+    return ppl_str_new(buf, ppl_format_f32(v, buf));
+}
+
+PplStr *ppl_str_from_bool(int32_t v) { return v ? ppl_str_new("true", 4) : ppl_str_new("false", 5); }
+
+PplStr *ppl_str_from_char(uint32_t c) {
+    char buf[4];
+    return ppl_str_new(buf, utf8_encode(c, buf));
+}
+
 /* Length in bytes of the UTF-8 sequence starting with `lead`. */
 static int utf8_len(unsigned char lead) {
     if (lead < 0x80) return 1;

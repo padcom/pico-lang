@@ -395,10 +395,7 @@ impl FnBuilder<'_, '_> {
                 let i = self.expr(index);
                 self.rvalue_to_temp(Rvalue::StrCharAt(s, i), ty, e.span)
             }
-            ExprKind::Template { .. } => {
-                self.cx.not_implemented(e.span, "template literals");
-                Operand::Const(Const::Void)
-            }
+            ExprKind::Template { quasis, parts } => self.template(quasis, parts, e.span),
             ExprKind::If { cond, then, else_ } => {
                 self.if_expr(cond, then, else_.as_deref(), ty, e.span)
             }
@@ -594,9 +591,48 @@ impl FnBuilder<'_, '_> {
         }
     }
 
+    /// Converts a value to its string form (no-op for strings).
+    fn stringify(&mut self, v: Operand, t: &Ty, span: Span) -> Operand {
+        if *t == Ty::Str {
+            return v;
+        }
+        self.rvalue_to_temp(Rvalue::ToStr(v), Ty::Str, span)
+    }
+
+    /// `` `a${x}b` `` → `"a" + ToStr(x) + "b"`, skipping empty pieces.
+    fn template(&mut self, quasis: &[String], parts: &[hir::TemplatePart], span: Span) -> Operand {
+        let mut pieces: Vec<Operand> = Vec::new();
+        for (i, q) in quasis.iter().enumerate() {
+            if !q.is_empty() {
+                pieces.push(Operand::Const(Const::Str(q.clone())));
+            }
+            if let Some(p) = parts.get(i) {
+                if p.spec.is_some() {
+                    self.cx.not_implemented(p.expr.span, "format specs");
+                }
+                let v = self.expr(&p.expr);
+                let t = self.cx.types.final_ty(p.expr.id).clone();
+                pieces.push(self.stringify(v, &t, p.expr.span));
+            }
+        }
+        let mut it = pieces.into_iter();
+        let Some(mut acc) = it.next() else {
+            return Operand::Const(Const::Str(String::new()));
+        };
+        for p in it {
+            acc = self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Add, acc, p), Ty::Str, span);
+        }
+        acc
+    }
+
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr], ty: Ty) -> Operand {
         let loc = self.loc(e.span);
         match &callee.kind {
+            ExprKind::Member { object, name, .. } if name == "toString" => {
+                let v = self.expr(object);
+                let t = self.cx.types.final_ty(object.id).clone();
+                self.stringify(v, &t, e.span)
+            }
             ExprKind::Fn(id) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
                 let dest = has_value(&ty).then(|| Place::Local(self.temp(ty.clone())));
