@@ -181,6 +181,15 @@ pub fn parse(spec: &str) -> Result<FormatSpec, String> {
 
 /// Checks that `spec` makes sense for a value of type `ty`.
 pub fn check(spec: &FormatSpec, ty: &Ty) -> Result<(), String> {
+    if let Ty::Struct(..) = ty {
+        if spec.kind != Kind::Debug {
+            return Err(format!("`{ty}` only has the debug format `?`"));
+        }
+        if spec.zero || spec.sign != Sign::Minus || spec.precision.is_some() {
+            return Err("structs take only fill, alignment and width".into());
+        }
+        return Ok(());
+    }
     let numeric = ty.is_numeric();
     let is_int = ty.is_int();
     let integer_kind = matches!(

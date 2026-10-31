@@ -6,6 +6,7 @@
 //! exceptions can later lower to `invoke`.
 
 use ppl_sema::hir::{Builtin, FnId, GlobalId};
+use ppl_sema::ty::StructId;
 use ppl_sema::{FloatTy, IntTy, Ty};
 use std::fmt::{self, Write};
 
@@ -42,11 +43,42 @@ pub struct Program {
     pub fns: Vec<Function>,
     pub entry: FnId,
     pub globals: Vec<GlobalDecl>,
+    pub structs: Vec<StructLayout>,
+}
+
+/// A struct's fields, in declaration order.
+#[derive(Debug)]
+pub struct StructLayout {
+    pub name: String,
+    pub fields: Vec<(String, Ty)>,
 }
 
 impl Program {
     pub fn func(&self, id: FnId) -> &Function {
         &self.fns[id.0 as usize]
+    }
+
+    pub fn layout(&self, id: StructId) -> &StructLayout {
+        &self.structs[id.0 as usize]
+    }
+
+    /// The type of `place` inside `f`.
+    pub fn place_ty(&self, f: &Function, place: &Place) -> Ty {
+        let mut t = match place.base {
+            Base::Local(l) => f.local_ty(l).clone(),
+            Base::Global(g) => self.globals[g.0 as usize].ty.clone(),
+            Base::Deref(l) => match f.local_ty(l) {
+                Ty::Ref(inner) => (**inner).clone(),
+                other => unreachable!("deref of non-reference {other}"),
+            },
+        };
+        for i in &place.proj {
+            t = match t {
+                Ty::Struct(sid, _) => self.layout(sid).fields[*i as usize].1.clone(),
+                other => unreachable!("field {i} of {other}"),
+            };
+        }
+        t
     }
 }
 
@@ -88,10 +120,49 @@ pub struct BasicBlock {
     pub term: Terminator,
 }
 
+/// Where a place starts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Place {
+pub enum Base {
     Local(Local),
     Global(GlobalId),
+    /// The value a reference-typed local points to (`this` in methods).
+    Deref(Local),
+}
+
+/// A memory location: a base and a path of struct field indices.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Place {
+    pub base: Base,
+    pub proj: Vec<u32>,
+}
+
+impl Place {
+    pub fn local(l: Local) -> Place {
+        Place {
+            base: Base::Local(l),
+            proj: Vec::new(),
+        }
+    }
+
+    pub fn global(g: GlobalId) -> Place {
+        Place {
+            base: Base::Global(g),
+            proj: Vec::new(),
+        }
+    }
+
+    pub fn deref(l: Local) -> Place {
+        Place {
+            base: Base::Deref(l),
+            proj: Vec::new(),
+        }
+    }
+
+    pub fn field(&self, i: u32) -> Place {
+        let mut p = self.clone();
+        p.proj.push(i);
+        p
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -170,6 +241,10 @@ pub enum Rvalue {
     Cast(Operand, Ty),
     /// The string form of a primitive (as `println` shows it): templates and `toString()`.
     ToStr(Operand),
+    /// A struct value from its fields (in declaration order).
+    Aggregate(StructId, Vec<Operand>),
+    /// A reference to a place (a method receiver).
+    Ref(Place),
     /// A template part with a format spec: `${x:08.2f}`.
     Format(Operand, ppl_sema::format::FormatSpec),
     /// `s.length`: a string's length in code points.
@@ -219,10 +294,15 @@ pub enum Terminator {
 
 impl fmt::Display for Place {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Place::Local(l) => write!(f, "_{}", l.0),
-            Place::Global(g) => write!(f, "@g{}", g.0),
+        match self.base {
+            Base::Local(l) => write!(f, "_{}", l.0)?,
+            Base::Global(g) => write!(f, "@g{}", g.0)?,
+            Base::Deref(l) => write!(f, "(*_{})", l.0)?,
         }
+        for i in &self.proj {
+            write!(f, ".{i}")?;
+        }
+        Ok(())
     }
 }
 
@@ -257,6 +337,11 @@ impl fmt::Display for Rvalue {
             Rvalue::Cast(a, t) => write!(f, "{a} as {t}"),
             Rvalue::StrLen(a) => write!(f, "StrLen({a})"),
             Rvalue::ToStr(a) => write!(f, "ToStr({a})"),
+            Rvalue::Aggregate(sid, ops) => {
+                let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();
+                write!(f, "struct#{}{{{}}}", sid.0, ops.join(", "))
+            }
+            Rvalue::Ref(p) => write!(f, "&{p}"),
             Rvalue::Format(a, spec) => write!(f, "Format({a}, {spec:?})"),
             Rvalue::StrCharAt(a, i) => write!(f, "StrCharAt({a}, {i})"),
         }

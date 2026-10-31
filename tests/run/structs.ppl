@@ -1,0 +1,71 @@
+// expect: 1 2
+// expect: 3
+// expect: a = Vec2 { x: 1, y: 2 }, b = Vec2 { x: 10, y: 2 }
+// expect: after move: Vec2 { x: 3, y: 4 }
+// expect: callee got 100, caller still 3
+// expect: true false
+// expect: Particle { pos: Vec2 { x: 5, y: 4 }, label: "dust" }
+// expect: 5 4
+// expect: Size { w: 16, h: 9 } area 148
+// expect: 25
+// expect: origin.x = 7
+// expect: [Vec2 { x: 0, y: 0 }      ]
+// expect: Empty {}
+// expect: scaled: Vec2 { x: 6, y: 8 }
+struct Vec2 {
+  x: i32
+  y: i32
+  lengthSquared(): i32 { x * x + y * y }
+  moveBy(dx: i32, dy: i32) {
+    x += dx
+    this.y = y + dy
+  }
+  scaled(k: i32): Vec2 { Vec2 { x: x * k, y: y * k } }
+}
+struct Size { w: i32; h: i32 }
+struct Particle {
+  pos: Vec2
+  label: string
+}
+struct Empty {}
+
+const a = Vec2 { x: 1, y: 2 }
+println(`${a.x} ${a.y}`)
+const q: Vec2 = { x: 1, y: 1 }
+println(q.lengthSquared() + 1)
+
+// Copy semantics: changing a copy leaves the original alone.
+let b = a
+b.x = 10
+println(`a = ${a:?}, b = ${b:?}`)
+
+let m = Vec2 { x: 1, y: 1 }
+m.moveBy(2, 3)
+println(`after move: ${m:?}`)
+
+function bump(v: Vec2): i32 {
+  let w = v
+  w.x = 100
+  w.x
+}
+println(`callee got ${bump(m)}, caller still ${m.x}`)
+
+println(`${a == Vec2 { x: 1, y: 2 }} ${a == b}`)
+
+let p = Particle { label: "dust", pos: m }
+p.pos.x = 5
+println(`${p:?}`)
+println(`${p.pos.x} ${m.y}`)
+
+const w: i32 = 16
+const s = Size { w, h: 9 }
+println(`${s:?} area ${s.w * s.w - s.h * 4 * 3}`)
+println(Vec2 { x: 3, y: 4 }.lengthSquared())
+
+// `const` only fixes the binding (decision 182): fields can still change.
+const origin = Vec2 { x: 0, y: 0 }
+origin.x = 7
+println(`origin.x = ${origin.x}`)
+println(`[${Vec2 { x: 0, y: 0 }:<25?}]`)
+println(`${Empty {}:?}`)
+println(`scaled: ${m.scaled(2):?}`)

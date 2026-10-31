@@ -1,0 +1,26 @@
+// error: E0311
+// at: 19:11
+// error: E0309
+// at: 20:27
+// error: E0312
+// at: 21:21
+// error: E0313
+// at: 22:11
+// error: E0308
+// at: 23:18
+// error: E0309
+// at: 24:13
+// error: E0304
+// at: 25:12
+// error: E0302
+// at: 26:1
+struct P { x: i32; y: i32 }
+function len(p: P): i32 { p.x }
+const a = P { x: 1 }
+const b = P { x: 1, y: 2, z: 3 }
+const c = P { x: 1, x: 2, y: 3 }
+const d = { x: 1, y: 2 }
+const e = P { x: "one", y: 2 }
+const f = a.z
+println(`${a}`)
+len(a, a)

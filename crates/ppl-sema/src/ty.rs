@@ -1,6 +1,11 @@
 //! Semantic types (spec §2.1–§2.2).
 
 use std::fmt;
+use std::sync::Arc;
+
+/// Identifies a `struct` declaration in the program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct StructId(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IntTy {
@@ -108,6 +113,10 @@ pub enum Ty {
     Never,
     /// The type of the `null` literal.
     Null,
+    /// A user-defined struct (the name is kept for messages).
+    Struct(StructId, Arc<str>),
+    /// Internal: a reference to a value (method receivers). Not writable in source.
+    Ref(Box<Ty>),
     /// `T?`
     Nullable(Box<Ty>),
     /// A type error was already reported; suppresses follow-up errors.
@@ -194,6 +203,8 @@ impl fmt::Display for Ty {
             Ty::Void => f.write_str("void"),
             Ty::Never => f.write_str("never"),
             Ty::Null => f.write_str("null"),
+            Ty::Struct(_, name) => f.write_str(name),
+            Ty::Ref(t) => write!(f, "&{t}"),
             Ty::Nullable(t) => write!(f, "{t}?"),
             Ty::Error => f.write_str("{error}"),
         }

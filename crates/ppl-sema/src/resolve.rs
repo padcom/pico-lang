@@ -26,6 +26,8 @@ pub fn resolve(module: &ast::Module, file: FileId) -> (Program, Vec<Diagnostic>)
         top_globals: HashMap::new(),
         globals_declared: HashSet::new(),
         f: FnState::default(),
+        structs: Vec::new(),
+        top_structs: HashMap::new(),
     };
     let program = r.program(module);
     (program, r.diags)
@@ -53,6 +55,8 @@ struct FnState {
     scopes: Vec<Scope>,
     loops: Vec<LoopKind>,
     in_entry: bool,
+    /// Inside a method: the `this` local and its struct.
+    this: Option<(LocalId, StructId)>,
 }
 
 struct Resolver {
@@ -65,12 +69,16 @@ struct Resolver {
     top_globals: HashMap<String, GlobalId>,
     globals_declared: HashSet<GlobalId>,
     f: FnState,
+    structs: Vec<StructDef>,
+    top_structs: HashMap<String, StructId>,
 }
 
 enum Found {
     Var(Var),
     Fn(FnId),
     Builtin(Builtin),
+    /// A field or method of `this` (implicit member).
+    Member(String),
 }
 
 impl Resolver {
@@ -102,11 +110,29 @@ impl Resolver {
 
     fn program(&mut self, module: &ast::Module) -> Program {
         // Pass 1: top-level functions and bindings.
-        let mut fn_decls: Vec<(FnId, &ast::FnDecl)> = Vec::new();
+        let mut fn_decls: Vec<(FnId, &ast::FnDecl, Option<StructId>)> = Vec::new();
+        let mut struct_decls: Vec<(StructId, &ast::StructDecl)> = Vec::new();
         let mut first_seen: HashMap<String, Span> = HashMap::new();
         for stmt in &module.stmts {
             match &stmt.kind {
                 ast::StmtKind::Decl(d) => {
+                    if let ast::DeclKind::Struct(sd) = &d.kind {
+                        if let Some(dec) = d.decorators.first() {
+                            self.not_implemented(dec.span, "decorators");
+                        }
+                        if self.check_duplicate(&mut first_seen, &sd.name) {
+                            continue;
+                        }
+                        let id = StructId(self.structs.len() as u32);
+                        self.structs.push(StructDef {
+                            name: sd.name.name.clone(),
+                            name_span: sd.name.span,
+                            fields: Vec::new(),
+                            methods: Vec::new(),
+                        });
+                        self.top_structs.insert(sd.name.name.clone(), id);
+                        struct_decls.push((id, sd));
+                    }
                     if let ast::DeclKind::Function(f) = &d.kind
                         && let Some(name) = &f.name
                     {
@@ -119,7 +145,7 @@ impl Resolver {
                         let id = FnId(self.fns.len() as u32);
                         self.fns.push(None);
                         self.top_fns.insert(name.name.clone(), id);
-                        fn_decls.push((id, f));
+                        fn_decls.push((id, f, None));
                     }
                 }
                 ast::StmtKind::Let {
@@ -151,9 +177,15 @@ impl Resolver {
             }
         }
 
-        // Pass 2: function bodies.
-        for (id, f) in fn_decls {
-            let func = self.function(f, false);
+        // Pass 1b: struct fields and methods (all struct names are known now).
+        for (sid, sd) in &struct_decls {
+            self.struct_members(*sid, sd, &mut fn_decls);
+        }
+        self.check_struct_cycles();
+
+        // Pass 2: function and method bodies.
+        for (id, f, this) in fn_decls {
+            let func = self.function(f, false, this);
             self.fns[id.0 as usize] = Some(func);
         }
 
@@ -176,6 +208,7 @@ impl Resolver {
             body: block,
             span: module.span,
             is_entry: true,
+            this: None,
         }));
 
         Program {
@@ -188,6 +221,129 @@ impl Resolver {
             entry: entry_id,
             globals: std::mem::take(&mut self.globals),
             expr_spans: std::mem::take(&mut self.spans),
+            structs: std::mem::take(&mut self.structs),
+        }
+    }
+
+    fn struct_members<'a>(
+        &mut self,
+        sid: StructId,
+        sd: &'a ast::StructDecl,
+        fn_decls: &mut Vec<(FnId, &'a ast::FnDecl, Option<StructId>)>,
+    ) {
+        if let Some(g) = sd.generics.first() {
+            self.not_implemented(g.span, "generic structs");
+        }
+        if let Some(t) = sd.implements.first() {
+            self.not_implemented(t.span, "interfaces");
+        }
+        let mut seen: HashMap<String, Span> = HashMap::new();
+        for m in &sd.members {
+            if let Some(dec) = m.decorators.first() {
+                self.not_implemented(dec.span, "decorators");
+            }
+            if !m.mods.is_empty() {
+                self.not_implemented(m.span, "member modifiers");
+            }
+            match &m.kind {
+                ast::MemberKind::Field {
+                    name,
+                    ty,
+                    optional,
+                    init,
+                } => {
+                    if self.check_duplicate(&mut seen, name) {
+                        continue;
+                    }
+                    if *optional || init.is_some() {
+                        self.not_implemented(m.span, "optional fields and field defaults");
+                    }
+                    let ty = match ty {
+                        Some(t) => self.resolve_type(t),
+                        None => {
+                            self.error(
+                                codes::MISSING_PARAM_TYPE,
+                                name.span,
+                                format!("field `{}` needs a type", name.name),
+                                "add a type annotation, e.g. `: f32`",
+                            );
+                            Ty::Error
+                        }
+                    };
+                    self.structs[sid.0 as usize].fields.push(FieldDef {
+                        name: name.name.clone(),
+                        ty,
+                        span: name.span,
+                    });
+                }
+                ast::MemberKind::Method(f) => {
+                    let Some(name) = &f.name else { continue };
+                    if self.check_duplicate(&mut seen, name) {
+                        continue;
+                    }
+                    let id = FnId(self.fns.len() as u32);
+                    self.fns.push(None);
+                    self.structs[sid.0 as usize]
+                        .methods
+                        .push((name.name.clone(), id));
+                    fn_decls.push((id, f, Some(sid)));
+                }
+                ast::MemberKind::Operator { .. } => {
+                    self.not_implemented(m.span, "operator overloading")
+                }
+                ast::MemberKind::Getter(_) | ast::MemberKind::Setter(_) => {
+                    self.not_implemented(m.span, "getters and setters")
+                }
+                ast::MemberKind::Constructor(_) | ast::MemberKind::StaticBlock(_) => {
+                    self.not_implemented(m.span, "constructors and static blocks in structs")
+                }
+            }
+        }
+    }
+
+    /// A struct that contains itself by value (directly or through other structs) has no size.
+    fn check_struct_cycles(&mut self) {
+        fn visit(r: &Resolver, id: StructId, path: &mut Vec<StructId>) -> Option<Vec<StructId>> {
+            if let Some(pos) = path.iter().position(|p| *p == id) {
+                return Some(path[pos..].to_vec());
+            }
+            path.push(id);
+            for f in &r.structs[id.0 as usize].fields {
+                if let Ty::Struct(inner, _) = &f.ty
+                    && let Some(c) = visit(r, *inner, path)
+                {
+                    return Some(c);
+                }
+            }
+            path.pop();
+            None
+        }
+        let mut reported: HashSet<StructId> = HashSet::new();
+        for i in 0..self.structs.len() {
+            let id = StructId(i as u32);
+            if reported.contains(&id) {
+                continue;
+            }
+            if let Some(cycle) = visit(self, id, &mut Vec::new())
+                && cycle[0] == id
+            {
+                reported.extend(cycle.iter().copied());
+                let names: Vec<&str> = cycle
+                    .iter()
+                    .map(|c| self.structs[c.0 as usize].name.as_str())
+                    .collect();
+                let d = Diagnostic::error(
+                    codes::RECURSIVE_STRUCT,
+                    format!("struct `{}` contains itself", names[0]),
+                )
+                .primary(
+                    self.structs[i].name_span,
+                    "this struct would have infinite size",
+                )
+                .note(format!("{} → {}", names.join(" → "), names[0]))
+                .help("structs are stored inline; use a class for recursive data");
+                self.diags.push(d);
+            }
         }
     }
 
@@ -241,7 +397,11 @@ impl Resolver {
                         }
                     }
                 }
-                ast::StmtKind::Decl(d) if matches!(d.kind, ast::DeclKind::Function(_)) => {}
+                ast::StmtKind::Decl(d)
+                    if matches!(
+                        d.kind,
+                        ast::DeclKind::Function(_) | ast::DeclKind::Struct(_)
+                    ) => {}
                 _ => {
                     let last = i + 1 == stmts.len();
                     self.lower_stmt(stmt, &mut out, if last { Some(&mut tail) } else { None });
@@ -255,7 +415,12 @@ impl Resolver {
         }
     }
 
-    fn function(&mut self, f: &ast::FnDecl, is_entry: bool) -> Function {
+    fn function(
+        &mut self,
+        f: &ast::FnDecl,
+        is_entry: bool,
+        this_struct: Option<StructId>,
+    ) -> Function {
         let name = f.name.clone().expect("named function");
         if f.flags.is_async || f.flags.generator || f.flags.is_unsafe || f.flags.decorator {
             let what = if f.flags.is_async {
@@ -280,6 +445,17 @@ impl Resolver {
             ..Default::default()
         };
         self.f.scopes.push(Scope::default());
+        if let Some(sid) = this_struct {
+            let ty = self.struct_ty(sid);
+            let id = LocalId(self.f.locals.len() as u32);
+            self.f.locals.push(Binding {
+                name: "this".into(),
+                mutable: false,
+                ty: Some(ty),
+                span: name.span,
+            });
+            self.f.this = Some((id, sid));
+        }
         let mut params = Vec::new();
         for p in &f.params {
             let ast::PatternKind::Ident(pname) = &p.pat.kind else {
@@ -335,8 +511,12 @@ impl Resolver {
                 }
             }
         };
+        let full_name = match this_struct {
+            Some(sid) => format!("{}.{}", self.structs[sid.0 as usize].name, name.name),
+            None => name.name.clone(),
+        };
         Function {
-            name: name.name.clone(),
+            name: full_name,
             name_span: name.span,
             params,
             ret,
@@ -345,7 +525,12 @@ impl Resolver {
             body,
             span: f.span,
             is_entry,
+            this: self.f.this,
         }
+    }
+
+    fn struct_ty(&self, id: StructId) -> Ty {
+        Ty::Struct(id, self.structs[id.0 as usize].name.as_str().into())
     }
 
     // ------------------------------------------------------------ scopes
@@ -384,6 +569,13 @@ impl Resolver {
             if let Some(&decl) = scope.later.get(name) {
                 self.use_before_decl(name, span, decl);
                 return None;
+            }
+        }
+        // Inside a method, `name` means `this.name` unless a local shadows it.
+        if let Some((_, sid)) = self.f.this {
+            let def = &self.structs[sid.0 as usize];
+            if def.field(name).is_some() || def.method(name).is_some() {
+                return Some(Found::Member(name.to_string()));
             }
         }
         if let Some(&g) = self.top_globals.get(name) {
@@ -451,10 +643,45 @@ impl Resolver {
             .map(|(_, c)| c.to_string())
     }
 
+    /// The target of an assignment to a bare name (a variable, or an implicit member).
+    fn resolve_target(&mut self, name: &str, span: Span) -> Option<Target> {
+        if let Some(Found::Member(field)) = self.peek_member(name) {
+            let (this, _) = self.f.this.expect("member lookup implies a method");
+            let object = self.expr(ExprKind::Var(Var::Local(this)), span);
+            let id = self.expr(ExprKind::Error, span).id;
+            return Some(Target::Field {
+                id,
+                object: Box::new(object),
+                name: field,
+                name_span: span,
+            });
+        }
+        let var = self.resolve_var(name, span)?;
+        self.check_mutable(var, span);
+        Some(Target::Var(var))
+    }
+
+    /// Whether `name` resolves to an implicit member (without reporting anything).
+    fn peek_member(&self, name: &str) -> Option<Found> {
+        if self
+            .f
+            .scopes
+            .iter()
+            .any(|s| s.names.contains_key(name) || s.later.contains_key(name))
+        {
+            return None;
+        }
+        let (_, sid) = self.f.this?;
+        let def = &self.structs[sid.0 as usize];
+        def.field(name)
+            .is_some()
+            .then(|| Found::Member(name.to_string()))
+    }
+
     fn resolve_var(&mut self, name: &str, span: Span) -> Option<Var> {
         match self.lookup(name, span)? {
             Found::Var(v) => Some(v),
-            Found::Fn(_) | Found::Builtin(_) => {
+            Found::Fn(_) | Found::Builtin(_) | Found::Member(_) => {
                 self.error(
                     codes::NOT_A_VALUE,
                     span,
@@ -491,6 +718,9 @@ impl Resolver {
             ast::TypeKind::Path { path, args } if path.len() == 1 && args.is_empty() => {
                 match Ty::from_name(&path[0].name) {
                     Some(ty) => ty,
+                    None if self.top_structs.contains_key(&path[0].name) => {
+                        self.struct_ty(self.top_structs[&path[0].name])
+                    }
                     None => {
                         self.error(
                             codes::UNKNOWN_TYPE,
@@ -771,7 +1001,7 @@ impl Resolver {
         let update = self.expr(
             ExprKind::Assign {
                 op: Some(ast::BinOp::Add),
-                var: Var::Local(i),
+                target: Target::Var(Var::Local(i)),
                 value: Box::new(one),
             },
             span,
@@ -836,8 +1066,30 @@ impl Resolver {
                 Some(Found::Var(v)) => ExprKind::Var(v),
                 Some(Found::Fn(f)) => ExprKind::Fn(f),
                 Some(Found::Builtin(b)) => ExprKind::Builtin(b),
+                Some(Found::Member(field)) => {
+                    let (this, _) = self.f.this.expect("member lookup implies a method");
+                    let object = self.expr(ExprKind::Var(Var::Local(this)), span);
+                    ExprKind::Member {
+                        object: Box::new(object),
+                        name: field,
+                        name_span: span,
+                    }
+                }
                 None => ExprKind::Error,
             },
+            A::This => match self.f.this {
+                Some((this, _)) => ExprKind::Var(Var::Local(this)),
+                None => {
+                    self.error(
+                        codes::NOT_A_VALUE,
+                        span,
+                        "`this` outside a method",
+                        "not inside a method",
+                    );
+                    ExprKind::Error
+                }
+            },
+            A::Object { ty, fields } => self.object_literal(ty.as_deref(), fields, span),
             A::Paren(inner) => return self.lower_expr(inner),
             A::Template { tag, quasis, exprs } => {
                 if tag.is_some() {
@@ -857,17 +1109,11 @@ impl Resolver {
             }
             A::Unary { op, expr } => match op {
                 ast::UnOp::PreInc | ast::UnOp::PreDec | ast::UnOp::PostInc | ast::UnOp::PostDec => {
-                    let target = strip_parens(expr);
-                    let ast::ExprKind::Ident(name) = &target.kind else {
-                        self.not_implemented(expr.span, "`++`/`--` on anything but a variable");
+                    let Some(target) = self.lower_target(expr) else {
                         return self.error_expr(span);
                     };
-                    let Some(var) = self.resolve_var(name, target.span) else {
-                        return self.error_expr(span);
-                    };
-                    self.check_mutable(var, target.span);
                     ExprKind::IncDec {
-                        var,
+                        target,
                         inc: matches!(op, ast::UnOp::PreInc | ast::UnOp::PostInc),
                         prefix: matches!(op, ast::UnOp::PreInc | ast::UnOp::PreDec),
                     }
@@ -884,19 +1130,13 @@ impl Resolver {
                 Box::new(self.lower_expr(rhs)),
             ),
             A::Assign { op, target, value } => {
-                let t = strip_parens(target);
-                let ast::ExprKind::Ident(name) = &t.kind else {
-                    self.not_implemented(target.span, "assignment to anything but a variable");
-                    return self.error_expr(span);
-                };
                 let value = self.lower_expr(value);
-                let Some(var) = self.resolve_var(name, t.span) else {
+                let Some(target) = self.lower_target(target) else {
                     return self.error_expr(span);
                 };
-                self.check_mutable(var, t.span);
                 ExprKind::Assign {
                     op: *op,
-                    var,
+                    target,
                     value: Box::new(value),
                 }
             }
@@ -1024,6 +1264,111 @@ impl Resolver {
             }
         };
         self.expr(kind, span)
+    }
+}
+
+impl Resolver {
+    /// An assignment target: a variable, an implicit member, or `object.field`.
+    fn lower_target(&mut self, e: &ast::Expr) -> Option<Target> {
+        let t = strip_parens(e);
+        match &t.kind {
+            ast::ExprKind::Ident(name) => self.resolve_target(name, t.span),
+            ast::ExprKind::Member {
+                object,
+                prop,
+                optional: false,
+            } => {
+                let object = self.lower_expr(object);
+                let id = self.expr(ExprKind::Error, t.span).id;
+                Some(Target::Field {
+                    id,
+                    object: Box::new(object),
+                    name: prop.name.clone(),
+                    name_span: prop.span,
+                })
+            }
+            _ => {
+                self.not_implemented(e.span, "assignment to anything but a variable or a field");
+                None
+            }
+        }
+    }
+
+    /// `Point { x: 1, y }` or `{ x: 1, y }`.
+    fn object_literal(
+        &mut self,
+        ty: Option<&ast::Type>,
+        fields: &[ast::ObjField],
+        span: Span,
+    ) -> ExprKind {
+        let sid = match ty.map(|t| &t.kind) {
+            None => None,
+            Some(ast::TypeKind::Path { path, args }) if path.len() == 1 => {
+                if !args.is_empty() {
+                    self.not_implemented(ty.unwrap().span, "generic structs");
+                }
+                match self.top_structs.get(&path[0].name) {
+                    Some(id) => Some(*id),
+                    None => {
+                        let what = if Ty::from_name(&path[0].name).is_some() {
+                            "isn't a struct"
+                        } else {
+                            "isn't declared"
+                        };
+                        self.error(
+                            codes::UNKNOWN_TYPE,
+                            path[0].span,
+                            format!("cannot find struct `{}`", path[0].name),
+                            format!("`{}` {what}", path[0].name),
+                        );
+                        return ExprKind::Error;
+                    }
+                }
+            }
+            Some(_) => {
+                self.not_implemented(span, "this kind of struct literal");
+                return ExprKind::Error;
+            }
+        };
+        let mut inits = Vec::new();
+        for f in fields {
+            match f {
+                ast::ObjField::KeyValue {
+                    key: ast::PropKey::Ident(k),
+                    value,
+                } => {
+                    let value = self.lower_expr(value);
+                    inits.push(FieldInit {
+                        name: k.name.clone(),
+                        name_span: k.span,
+                        value,
+                    });
+                }
+                ast::ObjField::Shorthand(k) => {
+                    let ident = ast::Expr {
+                        kind: ast::ExprKind::Ident(k.name.clone()),
+                        span: k.span,
+                    };
+                    let value = self.lower_expr(&ident);
+                    inits.push(FieldInit {
+                        name: k.name.clone(),
+                        name_span: k.span,
+                        value,
+                    });
+                }
+                ast::ObjField::KeyValue {
+                    key: ast::PropKey::Str(_, s),
+                    ..
+                } => self.not_implemented(*s, "string keys in object literals"),
+                ast::ObjField::Spread(e) => {
+                    self.not_implemented(e.span, "spread in object literals")
+                }
+            }
+        }
+        ExprKind::Object {
+            ty: sid,
+            fields: inits,
+        }
     }
 }
 

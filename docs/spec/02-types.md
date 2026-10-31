@@ -98,6 +98,13 @@ struct Vec3 {
   wherever the struct lives. `@pod struct` restricts a struct to plain data (primitives and other
   pod structs) with a C-compatible layout, for FFI and GPU buffers.
 - `==` compares fields unless `equals` is defined.
+- Methods receive `this` by reference, so a method that assigns to fields changes the value it
+  was called on. Everything else (assignment, arguments, return values) copies.
+- `const` only stops the binding from being reassigned: `const p = Point { … }` still allows
+  `p.x = 5` and mutating method calls, as with TS objects. Use `immutable T` (§2.11) for a deep
+  read-only view.
+- A struct literal must give every field exactly once. `${p:?}` shows `Point { x: 1, y: 2 }`;
+  structs have no other string form until they implement `Formattable`.
 - Structs can implement interfaces but cannot be inherited from.
 
 ## 2.8 Tuples and arrays

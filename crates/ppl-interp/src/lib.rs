@@ -5,10 +5,12 @@
 //! `f32`); printing uses [`format_float`] for numbers.
 
 use ppl_mir::mir::{
-    self, BinOp, Callee, Const, Loc, Operand, Place, Program, Rvalue, Terminator, UnOp, panics,
+    self, Base, BinOp, Callee, Const, Loc, Operand, Place, Program, Rvalue, Terminator, UnOp,
+    panics,
 };
 use ppl_sema::hir::{Builtin, FnId};
 use ppl_sema::{FloatTy, IntTy, Ty};
+use std::cell::RefCell;
 use std::io::Write;
 use std::rc::Rc;
 
@@ -23,8 +25,19 @@ pub enum Value {
     Bool(bool),
     Char(char),
     Str(Rc<str>),
+    /// A struct value (fields in declaration order). Cloning copies it deeply.
+    Struct(Vec<Value>),
+    /// A reference into a variable: the cell and the field path inside it.
+    Ref(Cell, Rc<[u32]>),
     Void,
     Uninit,
+}
+
+/// Storage for one variable. Locals and globals live in cells so references can point at them.
+pub type Cell = Rc<RefCell<Value>>;
+
+fn cell(v: Value) -> Cell {
+    Rc::new(RefCell::new(v))
 }
 
 /// A panic: the message and where it happened.
@@ -50,7 +63,9 @@ pub fn run(program: &Program, out: &mut dyn Write) -> Result<(), Panic> {
     let mut it = Interp {
         p: program,
         out,
-        globals: vec![Value::Uninit; program.globals.len()],
+        globals: (0..program.globals.len())
+            .map(|_| cell(Value::Uninit))
+            .collect(),
         depth: 0,
     };
     let r = it
@@ -63,21 +78,18 @@ pub fn run(program: &Program, out: &mut dyn Write) -> Result<(), Panic> {
 struct Interp<'p, 'o> {
     p: &'p Program,
     out: &'o mut dyn Write,
-    globals: Vec<Value>,
+    globals: Vec<Cell>,
     depth: usize,
 }
 
 struct Frame<'p> {
     f: &'p mir::Function,
-    locals: Vec<Value>,
+    locals: Vec<Cell>,
 }
 
 impl Frame<'_> {
     fn ty(&self, p: &Program, place: &Place) -> Ty {
-        match place {
-            Place::Local(l) => self.f.local_ty(*l).clone(),
-            Place::Global(g) => p.globals[g.0 as usize].ty.clone(),
-        }
+        p.place_ty(self.f, place)
     }
 }
 
@@ -98,28 +110,56 @@ impl Interp<'_, '_> {
         let f = self.p.func(id);
         let mut frame = Frame {
             f,
-            locals: vec![Value::Uninit; f.locals.len()],
+            locals: (0..f.locals.len()).map(|_| cell(Value::Uninit)).collect(),
         };
         for (p, a) in f.params.iter().zip(args) {
-            frame.locals[p.0 as usize] = a;
+            *frame.locals[p.0 as usize].borrow_mut() = a;
         }
         let r = self.exec(&mut frame);
         self.depth -= 1;
         r
     }
 
-    fn read(&self, frame: &Frame, place: &Place) -> Value {
-        match place {
-            Place::Local(l) => frame.locals[l.0 as usize].clone(),
-            Place::Global(g) => self.globals[g.0 as usize].clone(),
+    /// The cell a place lives in and the full field path inside it.
+    fn locate(&self, frame: &Frame, place: &Place) -> (Cell, Vec<u32>) {
+        match place.base {
+            Base::Local(l) => (frame.locals[l.0 as usize].clone(), place.proj.clone()),
+            Base::Global(g) => (self.globals[g.0 as usize].clone(), place.proj.clone()),
+            Base::Deref(l) => match &*frame.locals[l.0 as usize].borrow() {
+                Value::Ref(c, path) => {
+                    let mut full = path.to_vec();
+                    full.extend(&place.proj);
+                    (c.clone(), full)
+                }
+                v => unreachable!("deref of {v:?}"),
+            },
         }
     }
 
-    fn write(&mut self, frame: &mut Frame, place: &Place, v: Value) {
-        match place {
-            Place::Local(l) => frame.locals[l.0 as usize] = v,
-            Place::Global(g) => self.globals[g.0 as usize] = v,
+    fn read(&self, frame: &Frame, place: &Place) -> Value {
+        let (c, path) = self.locate(frame, place);
+        let v = c.borrow();
+        let mut cur: &Value = &v;
+        for i in &path {
+            cur = match cur {
+                Value::Struct(fields) => &fields[*i as usize],
+                other => unreachable!("field {i} of {other:?}"),
+            };
         }
+        cur.clone()
+    }
+
+    fn write(&mut self, frame: &mut Frame, place: &Place, v: Value) {
+        let (c, path) = self.locate(frame, place);
+        let mut root = c.borrow_mut();
+        let mut cur: &mut Value = &mut root;
+        for i in &path {
+            cur = match cur {
+                Value::Struct(fields) => &mut fields[*i as usize],
+                other => unreachable!("field {i} of {other:?}"),
+            };
+        }
+        *cur = v;
     }
 
     fn operand(&self, frame: &Frame, o: &Operand) -> Value {
@@ -236,6 +276,18 @@ impl Interp<'_, '_> {
                 let t = self.operand_ty(frame, o);
                 Ok(Value::Str(display(&self.operand(frame, o), &t).into()))
             }
+            Rvalue::Aggregate(_, ops) => Ok(Value::Struct(
+                ops.iter().map(|o| self.operand(frame, o)).collect(),
+            )),
+            Rvalue::Ref(place) => {
+                let (c, path) = self.locate(frame, place);
+                Ok(Value::Ref(c, path.into()))
+            }
+            Rvalue::Format(o, spec) if matches!(self.operand_ty(frame, o), Ty::Struct(..)) => {
+                let t = self.operand_ty(frame, o);
+                let text = debug_struct(self.p, &self.operand(frame, o), &t);
+                Ok(Value::Str(pad(false, "", &text, false, spec).into()))
+            }
             Rvalue::Format(o, spec) => {
                 let t = self.operand_ty(frame, o);
                 Ok(Value::Str(
@@ -346,6 +398,11 @@ impl Interp<'_, '_> {
                 Ne => a != b,
                 _ => unreachable!("type-checked bool operator"),
             })),
+            (a @ Value::Struct(_), b @ Value::Struct(_), _) => Ok(match op {
+                Eq => Value::Bool(values_eq(&a, &b)),
+                Ne => Value::Bool(!values_eq(&a, &b)),
+                _ => unreachable!("type-checked struct operator"),
+            }),
             (Value::Str(a), Value::Str(b), _) => Ok(match op {
                 Add => Value::Str(format!("{a}{b}").into()),
                 // Byte order of UTF-8 is code-point order.
@@ -464,8 +521,45 @@ pub fn display(v: &Value, t: &Ty) -> String {
         (Value::Bool(b), _) => b.to_string(),
         (Value::Char(c), _) => c.to_string(),
         (Value::Str(s), _) => s.to_string(),
-        (Value::Void, _) | (Value::Uninit, _) => String::new(),
+        (Value::Struct(_) | Value::Ref(..) | Value::Void | Value::Uninit, _) => String::new(),
     }
+}
+
+/// Field-wise equality (floats compare as IEEE values, so `NaN != NaN`).
+fn values_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Struct(x), Value::Struct(y)) => x.iter().zip(y).all(|(p, q)| values_eq(p, q)),
+        (Value::Float(x), Value::Float(y)) => x == y,
+        _ => a == b,
+    }
+}
+
+/// The debug form of a struct: `Point { x: 1, y: 2 }`, fields in their own debug form.
+fn debug_struct(p: &Program, v: &Value, t: &Ty) -> String {
+    let (Value::Struct(fields), Ty::Struct(sid, _)) = (v, t) else {
+        unreachable!("not a struct")
+    };
+    let layout = p.layout(*sid);
+    if fields.is_empty() {
+        return format!("{} {{}}", layout.name);
+    }
+    let debug = FormatSpec {
+        kind: Kind::Debug,
+        ..FormatSpec::default()
+    };
+    let parts: Vec<String> = layout
+        .fields
+        .iter()
+        .zip(fields)
+        .map(|((name, fty), fv)| {
+            let text = match fty {
+                Ty::Struct(..) => debug_struct(p, fv, fty),
+                _ => format_spec(fv, fty, &debug),
+            };
+            format!("{name}: {text}")
+        })
+        .collect();
+    format!("{} {{ {} }}", layout.name, parts.join(", "))
 }
 
 /// Formats a float like JavaScript's `Number.prototype.toString`: the shortest digits that
@@ -577,7 +671,9 @@ pub fn format_spec(v: &Value, t: &Ty, spec: &FormatSpec) -> String {
             (false, "", body, false)
         }
         Value::Bool(b) => (false, "", b.to_string(), false),
-        Value::Void | Value::Uninit => (false, "", String::new(), false),
+        Value::Struct(_) | Value::Ref(..) | Value::Void | Value::Uninit => {
+            (false, "", String::new(), false)
+        }
     };
     pad(neg, prefix, &body, numeric, spec)
 }

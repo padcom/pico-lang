@@ -1,9 +1,10 @@
-// The table in spec §1.4 (except `${point:?}`, which needs structs).
+// The table in spec §1.4.
 // expect: 3.14
 // expect: 00000042
 // expect: 0xff
 // expect: **hi**
 // expect: 25%
+// expect: Point { x: 1, y: 2 }
 // The tour's examples.
 // expect: +42
 // expect: ff
@@ -46,6 +47,9 @@ println(`${42:08}`)
 println(`${255:#x}`)
 println(`${"hi":*^6}`)
 println(`${0.25:.0%}`)
+struct Point { x: i32; y: i32 }
+const point = Point { x: 1, y: 2 }
+println(`${point:?}`)
 println(`${42:+}`)
 println(`${255:x}`)
 println(`${255:#X}`)

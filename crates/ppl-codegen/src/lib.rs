@@ -23,10 +23,12 @@ use inkwell::values::{
 };
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel};
 use ppl_mir::mir::{
-    BinOp, BlockId, Callee, Const, Loc, Operand, Place, Program, Rvalue, Terminator, UnOp, panics,
+    Base, BinOp, BlockId, Callee, Const, Loc, Operand, Place, Program, Rvalue, Terminator, UnOp,
+    panics,
 };
 use ppl_sema::format::{Align, FormatSpec, Kind, Sign};
 use ppl_sema::hir::Builtin;
+use ppl_sema::ty::StructId;
 use ppl_sema::{FloatTy, IntTy, Ty};
 use std::collections::HashMap;
 use std::path::Path;
@@ -93,7 +95,19 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         globals: Vec::new(),
         cstrings: HashMap::new(),
         file: None,
+        structs: Vec::new(),
+        debug_fns: HashMap::new(),
     };
+    // Struct types first (named, so they can refer to each other), then their bodies.
+    g.structs = program
+        .structs
+        .iter()
+        .map(|s| cx.opaque_struct_type(&format!("ppl.{}", s.name)))
+        .collect();
+    for (i, s) in program.structs.iter().enumerate() {
+        let fields: Vec<BasicTypeEnum> = s.fields.iter().filter_map(|(_, t)| g.ty(t)).collect();
+        g.structs[i].set_body(&fields, false);
+    }
     g.declare();
     for i in 0..program.fns.len() {
         g.function(i);
@@ -110,6 +124,10 @@ struct Gen<'ctx, 'p> {
     globals: Vec<Option<GlobalValue<'ctx>>>,
     cstrings: HashMap<String, GlobalValue<'ctx>>,
     file: Option<GlobalValue<'ctx>>,
+    /// LLVM struct types, by `StructId`.
+    structs: Vec<inkwell::types::StructType<'ctx>>,
+    /// Generated `${s:?}` helpers, by `StructId`.
+    debug_fns: HashMap<u32, FunctionValue<'ctx>>,
 }
 
 /// Per-function state.
@@ -130,7 +148,8 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Float(FloatTy::F64) => self.cx.f64_type().into(),
             Ty::Bool => self.cx.bool_type().into(),
             Ty::Char => self.cx.i32_type().into(),
-            Ty::Str => self.ptr().into(),
+            Ty::Str | Ty::Ref(_) => self.ptr().into(),
+            Ty::Struct(sid, _) => self.structs[sid.0 as usize].into(),
             Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Nullable(_) => return None,
         })
     }
@@ -362,18 +381,40 @@ impl<'ctx> Gen<'ctx, '_> {
         }
     }
 
+    /// A pointer to a place: the base's storage, then one GEP per field.
     fn place_ptr(&self, fx: &FnCx<'ctx, '_>, p: &Place) -> Option<PointerValue<'ctx>> {
-        match p {
-            Place::Local(l) => fx.locals[l.0 as usize],
-            Place::Global(g) => self.globals[g.0 as usize].map(|g| g.as_pointer_value()),
+        let (mut ptr, mut ty) = match p.base {
+            Base::Local(l) => (fx.locals[l.0 as usize]?, fx.func.local_ty(l).clone()),
+            Base::Global(g) => (
+                self.globals[g.0 as usize]?.as_pointer_value(),
+                self.p.globals[g.0 as usize].ty.clone(),
+            ),
+            Base::Deref(l) => {
+                let slot = fx.locals[l.0 as usize]?;
+                let target = self
+                    .b
+                    .build_load(self.ptr(), slot, "")
+                    .unwrap()
+                    .into_pointer_value();
+                let Ty::Ref(inner) = fx.func.local_ty(l) else {
+                    unreachable!("deref of non-reference")
+                };
+                (target, (**inner).clone())
+            }
+        };
+        for i in &p.proj {
+            let Ty::Struct(sid, _) = ty else {
+                unreachable!("field of {ty}")
+            };
+            let st = self.structs[sid.0 as usize];
+            ptr = self.b.build_struct_gep(st, ptr, *i, "").unwrap();
+            ty = self.p.layout(sid).fields[*i as usize].1.clone();
         }
+        Some(ptr)
     }
 
     fn place_ty(&self, fx: &FnCx<'ctx, '_>, p: &Place) -> Ty {
-        match p {
-            Place::Local(l) => fx.func.local_ty(*l).clone(),
-            Place::Global(g) => self.p.globals[g.0 as usize].ty.clone(),
-        }
+        self.p.place_ty(fx.func, p)
     }
 
     fn store(&self, fx: &FnCx<'ctx, '_>, p: &Place, v: BasicValueEnum<'ctx>) {
@@ -508,8 +549,36 @@ impl<'ctx> Gen<'ctx, '_> {
             Rvalue::Format(o, spec) => {
                 let t = self.operand_ty(fx, o);
                 let v = self.operand(fx, o)?;
+                if let Ty::Struct(sid, _) = t {
+                    let text = self.debug_struct_value(sid, v);
+                    // Width, fill and alignment apply to the whole text.
+                    let outer = FormatSpec {
+                        kind: Kind::Default,
+                        ..*spec
+                    };
+                    return Some(self.format(&Ty::Str, text, &outer));
+                }
                 Some(self.format(&t, v, spec))
             }
+            Rvalue::Aggregate(sid, ops) => {
+                let st = self.structs[sid.0 as usize];
+                let mut agg = st.get_undef();
+                let mut index = 0;
+                for (o, (_, fty)) in ops.iter().zip(&self.p.layout(*sid).fields) {
+                    if self.ty(fty).is_none() {
+                        continue;
+                    }
+                    let v = self.operand(fx, o).expect("field value");
+                    agg = self
+                        .b
+                        .build_insert_value(agg, v, index, "")
+                        .unwrap()
+                        .into_struct_value();
+                    index += 1;
+                }
+                Some(agg.into())
+            }
+            Rvalue::Ref(place) => self.place_ptr(fx, place).map(Into::into),
             Rvalue::StrLen(o) => {
                 let s = self.operand(fx, o)?.into_pointer_value();
                 Some(self.str_len(s).into())
@@ -536,6 +605,130 @@ impl<'ctx> Gen<'ctx, '_> {
                 Some(basic(r))
             }
         }
+    }
+
+    /// Field-wise equality of two struct values.
+    fn struct_eq(
+        &mut self,
+        sid: StructId,
+        a: BasicValueEnum<'ctx>,
+        b: BasicValueEnum<'ctx>,
+    ) -> IntValue<'ctx> {
+        let (a, b) = (a.into_struct_value(), b.into_struct_value());
+        let mut acc = self.cx.bool_type().const_int(1, false);
+        let fields = self.p.layout(sid).fields.clone();
+        let mut index = 0;
+        for (_, fty) in &fields {
+            if self.ty(fty).is_none() {
+                continue;
+            }
+            let x = self.b.build_extract_value(a, index, "").unwrap();
+            let y = self.b.build_extract_value(b, index, "").unwrap();
+            index += 1;
+            let eq = match fty {
+                Ty::Struct(inner, _) => self.struct_eq(*inner, x, y),
+                Ty::Str => self.str_binary(BinOp::Eq, x, y).into_int_value(),
+                Ty::Float(_) => self
+                    .b
+                    .build_float_compare(
+                        FloatPredicate::OEQ,
+                        x.into_float_value(),
+                        y.into_float_value(),
+                        "",
+                    )
+                    .unwrap(),
+                _ => self
+                    .b
+                    .build_int_compare(IntPredicate::EQ, x.into_int_value(), y.into_int_value(), "")
+                    .unwrap(),
+            };
+            acc = self.b.build_and(acc, eq, "").unwrap();
+        }
+        acc
+    }
+
+    /// The debug text of a struct value, via a generated `ppl.debug.<Name>` helper.
+    fn debug_struct_value(
+        &mut self,
+        sid: StructId,
+        v: BasicValueEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        let f = self.debug_fn(sid);
+        let tmp = self
+            .b
+            .build_alloca(self.structs[sid.0 as usize], "debug.arg")
+            .unwrap();
+        self.b.build_store(tmp, v).unwrap();
+        basic(self.b.build_call(f, &[tmp.into()], "").unwrap())
+    }
+
+    /// `ppl.debug.<Name>(ptr) -> PplStr*`: "Name { a: …, b: … }".
+    fn debug_fn(&mut self, sid: StructId) -> FunctionValue<'ctx> {
+        if let Some(f) = self.debug_fns.get(&sid.0) {
+            return *f;
+        }
+        let layout_name = self.p.layout(sid).name.clone();
+        let fields = self.p.layout(sid).fields.clone();
+        let fn_ty = self.ptr().fn_type(&[self.ptr().into()], false);
+        let f = self.m.add_function(
+            &format!("ppl.debug.{layout_name}"),
+            fn_ty,
+            Some(Linkage::Internal),
+        );
+        self.debug_fns.insert(sid.0, f);
+        let saved = self.b.get_insert_block();
+        let entry = self.cx.append_basic_block(f, "entry");
+        self.b.position_at_end(entry);
+        let this = f.get_nth_param(0).unwrap().into_pointer_value();
+        let st = self.structs[sid.0 as usize];
+        let debug = FormatSpec {
+            kind: Kind::Debug,
+            ..FormatSpec::default()
+        };
+        let concat = |g: &mut Self, a: BasicValueEnum<'ctx>, b: BasicValueEnum<'ctx>| {
+            basic(
+                g.b.build_call(g.rt("ppl_str_concat"), &[a.into(), b.into()], "")
+                    .unwrap(),
+            )
+        };
+        let mut acc: BasicValueEnum = if fields.is_empty() {
+            self.str_literal(&format!("{layout_name} {{}}")).into()
+        } else {
+            self.str_literal(&format!("{layout_name} {{ ")).into()
+        };
+        let mut index = 0;
+        for (i, (name, fty)) in fields.iter().enumerate() {
+            let sep = if i == 0 {
+                format!("{name}: ")
+            } else {
+                format!(", {name}: ")
+            };
+            let sep = self.str_literal(&sep).into();
+            acc = concat(self, acc, sep);
+            let Some(lt) = self.ty(fty) else { continue };
+            let p = self.b.build_struct_gep(st, this, index, "").unwrap();
+            index += 1;
+            let text = match fty {
+                Ty::Struct(inner, _) => {
+                    let g = self.debug_fn(*inner);
+                    basic(self.b.build_call(g, &[p.into()], "").unwrap())
+                }
+                _ => {
+                    let v = self.b.build_load(lt, p, "").unwrap();
+                    self.format(fty, v, &debug)
+                }
+            };
+            acc = concat(self, acc, text);
+        }
+        if !fields.is_empty() {
+            let close = self.str_literal(" }").into();
+            acc = concat(self, acc, close);
+        }
+        self.b.build_return(Some(&acc)).unwrap();
+        if let Some(bb) = saved {
+            self.b.position_at_end(bb);
+        }
+        f
     }
 
     /// A constant `PplFmt` (see `ppl_rt.h`) for a spec.
@@ -853,6 +1046,14 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
             }
             Ty::Str => self.str_binary(op, x, y),
+            Ty::Struct(sid, _) => {
+                let eq = self.struct_eq(*sid, x, y);
+                if op == BinOp::Ne {
+                    self.b.build_not(eq, "").unwrap().into()
+                } else {
+                    eq.into()
+                }
+            }
             Ty::Bool | Ty::Char => {
                 let pred = int_predicate(op, false);
                 self.b

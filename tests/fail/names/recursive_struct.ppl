@@ -1,0 +1,7 @@
+// error: E0210
+// at: 5:8
+// error: E0210
+// at: 6:8
+struct Loop { inner: Loop }
+struct A { b: B }
+struct B { a: A }

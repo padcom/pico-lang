@@ -34,6 +34,12 @@ pub struct Types {
     pub sigs: Vec<FnSig>,
     /// Parsed format specs of template parts, keyed by the part's expression.
     pub formats: HashMap<ExprId, crate::format::FormatSpec>,
+    /// Field index of each `object.field` (member expressions and assignment targets).
+    pub fields: HashMap<ExprId, u32>,
+    /// For each struct literal, the field index of each initializer, in source order.
+    pub objects: HashMap<ExprId, (StructId, Vec<u32>)>,
+    /// Method calls: the call expression and the method it calls.
+    pub methods: HashMap<ExprId, FnId>,
 }
 
 impl Types {
@@ -63,6 +69,9 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             globals: vec![Ty::Error; program.globals.len()],
             sigs: Vec::new(),
             formats: HashMap::new(),
+            fields: HashMap::new(),
+            objects: HashMap::new(),
+            methods: HashMap::new(),
         },
         diags: Vec::new(),
         state: vec![FnState::Unchecked; program.fns.len()],
@@ -510,12 +519,11 @@ impl<'p> Checker<'p> {
             }
             ExprKind::Unary(op, inner) => self.unary(e, *op, inner, want),
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, want),
-            ExprKind::Assign { op, var, value } => {
-                let vt = self.var_ty(*var, e.span);
+            ExprKind::Assign { op, target, value } => {
+                let (vt, origin) = self.target_ty(target);
                 match op {
                     None => {
-                        let b = self.var_binding(*var);
-                        self.check(value, &Expect::from(vt, Some(b.span)));
+                        self.check(value, &Expect::from(vt, origin));
                     }
                     Some(op) => {
                         self.compound(e, *op, vt, value);
@@ -523,8 +531,9 @@ impl<'p> Checker<'p> {
                 }
                 Ty::Void
             }
-            ExprKind::IncDec { var, .. } => {
-                let t = self.var_ty(*var, e.span);
+            ExprKind::Object { ty, fields } => self.object(e, *ty, fields, want),
+            ExprKind::IncDec { target, .. } => {
+                let (t, _) = self.target_ty(target);
                 if !t.is_int() && !t.is_error() {
                     self.invalid_operand(e.span, "`++`/`--`", &t, "an integer");
                     return Ty::Error;
@@ -541,6 +550,7 @@ impl<'p> Checker<'p> {
                 match (&ot, name.as_str()) {
                     (Ty::Str, "length") => Ty::INT,
                     (Ty::Error, _) => Ty::Error,
+                    (Ty::Struct(sid, _), _) => self.field(e.id, *sid, name, *name_span),
                     _ => {
                         self.diags.push(
                             Diagnostic::error(
@@ -577,7 +587,20 @@ impl<'p> Checker<'p> {
             ExprKind::Template { parts, .. } => {
                 for p in parts {
                     let t = self.infer(&p.expr);
-                    if !is_printable(&t) {
+                    let debug_struct = matches!(t, Ty::Struct(..))
+                        && p.spec.as_deref().is_some_and(|s| s.ends_with('?'));
+                    if !is_printable(&t) && !debug_struct {
+                        if matches!(t, Ty::Struct(..)) {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::INVALID_OPERANDS,
+                                    format!("`{t}` has no string form"),
+                                )
+                                .primary(p.expr.span, "a struct in a template")
+                                .help("show its fields with the debug format: `${value:?}`"),
+                            );
+                            continue;
+                        }
                         self.diags.push(
                             Diagnostic::error(
                                 codes::INVALID_OPERANDS,
@@ -674,6 +697,173 @@ impl<'p> Checker<'p> {
                 to.clone()
             }
             ExprKind::Error => Ty::Error,
+        }
+    }
+
+    /// The type of an assignment target, and the span that declared it.
+    fn target_ty(&mut self, t: &Target) -> (Ty, Option<Span>) {
+        match t {
+            Target::Var(v) => {
+                let span = self.var_binding(*v).span;
+                (self.var_ty(*v, span), Some(span))
+            }
+            Target::Field {
+                id,
+                object,
+                name,
+                name_span,
+            } => {
+                let ot = self.infer(object);
+                match ot {
+                    Ty::Struct(sid, _) => {
+                        let t = self.field(*id, sid, name, *name_span);
+                        let span = self
+                            .program
+                            .struct_def(sid)
+                            .field(name)
+                            .map(|(_, f)| f.span);
+                        (t, span)
+                    }
+                    Ty::Error => (Ty::Error, None),
+                    other => {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::UNKNOWN_MEMBER,
+                                format!("`{other}` has no field `{name}`"),
+                            )
+                            .primary(*name_span, "unknown field"),
+                        );
+                        (Ty::Error, None)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Looks up a struct field for `object.name` and records its index under `id`.
+    fn field(&mut self, id: ExprId, sid: StructId, name: &str, span: Span) -> Ty {
+        let def = self.program.struct_def(sid);
+        match def.field(name) {
+            Some((i, f)) => {
+                self.types.fields.insert(id, i as u32);
+                f.ty.clone()
+            }
+            None => {
+                let mut d = Diagnostic::error(
+                    codes::UNKNOWN_MEMBER,
+                    format!("`{}` has no field `{name}`", def.name),
+                )
+                .primary(span, "unknown field")
+                .secondary(def.name_span, format!("`{}` is declared here", def.name));
+                if def.method(name).is_some() {
+                    d = d.help(format!("`{name}` is a method; call it: `{name}()`"));
+                } else if !def.fields.is_empty() {
+                    let names: Vec<&str> = def.fields.iter().map(|f| f.name.as_str()).collect();
+                    d = d.note(format!("its fields are: {}", names.join(", ")));
+                }
+                self.diags.push(d);
+                Ty::Error
+            }
+        }
+    }
+
+    /// A struct literal: every field exactly once.
+    fn object(
+        &mut self,
+        e: &Expr,
+        ty: Option<StructId>,
+        fields: &[FieldInit],
+        want: Option<&Expect>,
+    ) -> Ty {
+        let sid = match (ty, want.map(|w| &w.ty)) {
+            (Some(s), _) => s,
+            (None, Some(Ty::Struct(s, _))) => *s,
+            _ => {
+                for f in fields {
+                    self.infer(&f.value);
+                }
+                self.diags.push(
+                    Diagnostic::error(codes::UNKNOWN_OBJECT_TYPE, "can't tell which struct this object literal builds")
+                        .primary(e.span, "no struct type is expected here")
+                        .help("name the type: `Point { x: 1, y: 2 }`, or annotate the binding: `const p: Point = { … }`"),
+                );
+                return Ty::Error;
+            }
+        };
+        let def = self.program.struct_def(sid);
+        let mut seen: Vec<Option<Span>> = vec![None; def.fields.len()];
+        let mut order = Vec::new();
+        for f in fields {
+            match def.field(&f.name) {
+                Some((i, fd)) => {
+                    if let Some(prev) = seen[i] {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::DUPLICATE_FIELD,
+                                format!("field `{}` is given twice", f.name),
+                            )
+                            .primary(f.name_span, "given again here")
+                            .secondary(prev, "first given here"),
+                        );
+                    }
+                    seen[i] = Some(f.name_span);
+                    order.push(i as u32);
+                    self.check(&f.value, &Expect::from(fd.ty.clone(), Some(fd.span)));
+                }
+                None => {
+                    self.infer(&f.value);
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNKNOWN_MEMBER,
+                            format!("`{}` has no field `{}`", def.name, f.name),
+                        )
+                        .primary(f.name_span, "unknown field")
+                        .secondary(def.name_span, format!("`{}` is declared here", def.name)),
+                    );
+                    order.push(u32::MAX);
+                }
+            }
+        }
+        let missing: Vec<&str> = def
+            .fields
+            .iter()
+            .zip(&seen)
+            .filter(|(_, s)| s.is_none())
+            .map(|(f, _)| f.name.as_str())
+            .collect();
+        if !missing.is_empty() {
+            let list = missing
+                .iter()
+                .map(|m| format!("`{m}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.diags.push(
+                Diagnostic::error(
+                    codes::MISSING_FIELDS,
+                    format!(
+                        "missing field{} {list}",
+                        if missing.len() == 1 { "" } else { "s" }
+                    ),
+                )
+                .primary(e.span, format!("`{}` needs every field", def.name))
+                .secondary(def.name_span, format!("`{}` is declared here", def.name)),
+            );
+        }
+        self.types.objects.insert(e.id, (sid, order));
+        self.program.struct_ty(sid)
+    }
+
+    /// Whether `==` is defined: primitives, strings, and structs whose fields all are.
+    fn equatable(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error => true,
+            Ty::Struct(sid, _) => self
+                .program
+                .struct_def(*sid)
+                .fields
+                .iter()
+                .all(|f| self.equatable(&f.ty)),
+            _ => false,
         }
     }
 
@@ -922,10 +1112,7 @@ impl<'p> Checker<'p> {
                 let (lt, rt) = self.operands(l, r, None);
                 let t = self.join(e.span, op, l, &lt, r, &rt);
                 let ok = match op {
-                    Eq | Ne => matches!(
-                        t,
-                        Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error
-                    ),
+                    Eq | Ne => self.equatable(&t),
                     _ => matches!(
                         t,
                         Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Error
@@ -1094,86 +1281,123 @@ impl<'p> Checker<'p> {
         }
     }
 
+    /// Checks a call of the function `id` (a free function or a method; `this` isn't an
+    /// argument) and returns its result type.
+    fn call_fn(&mut self, e: &Expr, id: FnId, args: &[Expr]) -> Ty {
+        let f = self.program.func(id);
+        if f.ret.is_none() {
+            match self.state[id.0 as usize] {
+                FnState::InProgress => {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::RECURSIVE_NEEDS_RETURN_TYPE,
+                            format!("recursive function `{}` needs a return type", f.name),
+                        )
+                        .primary(f.name_span, "add a return type, e.g. `: i64`")
+                        .secondary(e.span, "recursive call here")
+                        .note("the return type of a recursive function can't be inferred"),
+                    );
+                    self.types.sigs[id.0 as usize].ret = Ty::Error;
+                    self.state[id.0 as usize] = FnState::Done;
+                }
+                FnState::Unchecked => self.check_fn(id),
+                FnState::Done => {}
+            }
+        }
+        let sig = self.types.sigs[id.0 as usize].clone();
+        if args.len() != sig.params.len() {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::WRONG_ARG_COUNT,
+                    format!(
+                        "`{}` takes {} argument{}, but {} were given",
+                        f.name,
+                        sig.params.len(),
+                        if sig.params.len() == 1 { "" } else { "s" },
+                        args.len()
+                    ),
+                )
+                .primary(e.span, "wrong number of arguments")
+                .secondary(f.name_span, "declared here"),
+            );
+            for a in args {
+                self.infer(a);
+            }
+            return sig.ret;
+        }
+        for (a, (p, pid)) in args.iter().zip(sig.params.iter().zip(&f.params)) {
+            let origin = Some(f.local(*pid).span);
+            self.check(a, &Expect::from(p.clone(), origin));
+        }
+        sig.ret
+    }
+
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr]) -> Ty {
         match &callee.kind {
             ExprKind::Fn(id) => {
                 self.set(callee, Ty::Void);
-                let f = self.program.func(*id);
-                if f.ret.is_none() {
-                    match self.state[id.0 as usize] {
-                        FnState::InProgress => {
-                            self.diags.push(
-                                Diagnostic::error(
-                                    codes::RECURSIVE_NEEDS_RETURN_TYPE,
-                                    format!("recursive function `{}` needs a return type", f.name),
-                                )
-                                .primary(f.name_span, "add a return type, e.g. `: i64`")
-                                .secondary(callee.span, "recursive call here")
-                                .note("the return type of a recursive function can't be inferred"),
-                            );
-                            self.types.sigs[id.0 as usize].ret = Ty::Error;
-                            self.state[id.0 as usize] = FnState::Done;
-                        }
-                        FnState::Unchecked => self.check_fn(*id),
-                        FnState::Done => {}
-                    }
-                }
-                let sig = self.types.sigs[id.0 as usize].clone();
-                if args.len() != sig.params.len() {
-                    self.diags.push(
-                        Diagnostic::error(
-                            codes::WRONG_ARG_COUNT,
-                            format!(
-                                "`{}` takes {} argument{}, but {} were given",
-                                f.name,
-                                sig.params.len(),
-                                if sig.params.len() == 1 { "" } else { "s" },
-                                args.len()
-                            ),
-                        )
-                        .primary(e.span, "wrong number of arguments")
-                        .secondary(f.name_span, "declared here"),
-                    );
-                    for a in args {
-                        self.infer(a);
-                    }
-                    return sig.ret;
-                }
-                for (a, (p, pid)) in args.iter().zip(sig.params.iter().zip(&f.params)) {
-                    let origin = Some(f.local(*pid).span);
-                    self.check(a, &Expect::from(p.clone(), origin));
-                }
-                sig.ret
+                self.call_fn(e, *id, args)
             }
             ExprKind::Builtin(b) => {
                 self.set(callee, Ty::Void);
                 self.builtin(e, *b, args)
             }
-            // `x.toString()` on primitives.
             ExprKind::Member {
                 object,
                 name,
                 name_span,
-            } if name == "toString" => {
+            } => {
                 let t = self.infer(object);
                 self.set(callee, Ty::Void);
-                if !is_printable(&t) {
+                if let Ty::Struct(sid, sname) = &t {
+                    let def = self.program.struct_def(*sid);
+                    if let Some(m) = def.method(name) {
+                        self.types.methods.insert(e.id, m);
+                        return self.call_fn(e, m, args);
+                    }
+                    let what = if def.field(name).is_some() {
+                        "is a field, not a method"
+                    } else {
+                        "isn't declared"
+                    };
                     self.diags.push(
                         Diagnostic::error(
                             codes::UNKNOWN_MEMBER,
-                            format!("`{t}` has no member `toString`"),
+                            format!("`{sname}` has no method `{name}`"),
+                        )
+                        .primary(*name_span, format!("`{name}` {what}")),
+                    );
+                    for a in args {
+                        self.infer(a);
+                    }
+                    return Ty::Error;
+                }
+                // `x.toString()` on primitives.
+                if name == "toString" && is_printable(&t) {
+                    if !args.is_empty() {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::WRONG_ARG_COUNT,
+                                "`toString` takes no arguments",
+                            )
+                            .primary(e.span, "wrong number of arguments"),
+                        );
+                    }
+                    return Ty::Str;
+                }
+                for a in args {
+                    self.infer(a);
+                }
+                if !t.is_error() {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNKNOWN_MEMBER,
+                            format!("`{t}` has no method `{name}`"),
                         )
                         .primary(*name_span, "unknown member"),
                     );
-                    return Ty::Error;
                 }
-                if !args.is_empty() {
-                    self.diags.push(
-                        Diagnostic::error(codes::WRONG_ARG_COUNT, "`toString` takes no arguments")
-                            .primary(e.span, "wrong number of arguments"),
-                    );
-                }
-                Ty::Str
+                Ty::Error
             }
             _ => {
                 let t = self.infer(callee);

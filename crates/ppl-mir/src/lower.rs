@@ -37,11 +37,24 @@ pub fn lower(
             ty: t.clone(),
         })
         .collect();
+    let structs = program
+        .structs
+        .iter()
+        .map(|s| mir::StructLayout {
+            name: s.name.clone(),
+            fields: s
+                .fields
+                .iter()
+                .map(|f| (f.name.clone(), f.ty.clone()))
+                .collect(),
+        })
+        .collect();
     let mir = mir::Program {
         file: file.name.clone(),
         fns,
         entry: program.entry,
         globals,
+        structs,
     };
     (mir, cx.diags)
 }
@@ -81,10 +94,17 @@ impl Cx<'_> {
             cur: BlockId(0),
             loops: Vec::new(),
         };
-        for (l, t) in f.locals.iter().zip(local_tys) {
+        for (i, (l, t)) in f.locals.iter().zip(local_tys).enumerate() {
             b.check_representable(t, l.span);
+            // `this` is passed by reference.
+            let is_this = f.this.is_some_and(|(this, _)| this.0 as usize == i);
+            let ty = if is_this {
+                Ty::Ref(Box::new(t.clone()))
+            } else {
+                t.clone()
+            };
             b.locals.push(LocalDecl {
-                ty: t.clone(),
+                ty,
                 name: Some(l.name.clone()),
             });
         }
@@ -109,7 +129,13 @@ impl Cx<'_> {
             .collect();
         mir::Function {
             name: f.name.clone(),
-            params: f.params.iter().map(|p| Local(p.0)).collect(),
+            // A method's `this` reference is its first parameter.
+            params: f
+                .this
+                .map(|(this, _)| Local(this.0))
+                .into_iter()
+                .chain(f.params.iter().map(|p| Local(p.0)))
+                .collect(),
             ret,
             locals: b.locals,
             blocks,
@@ -220,8 +246,11 @@ impl FnBuilder<'_, '_> {
 
     fn place(&self, v: Var) -> Place {
         match v {
-            Var::Local(l) => Place::Local(Local(l.0)),
-            Var::Global(g) => Place::Global(g),
+            Var::Local(l) if self.hir_fn.this.is_some_and(|(this, _)| this == l) => {
+                Place::deref(Local(l.0))
+            }
+            Var::Local(l) => Place::local(Local(l.0)),
+            Var::Global(g) => Place::global(g),
         }
     }
 
@@ -232,10 +261,66 @@ impl FnBuilder<'_, '_> {
         }
     }
 
+    /// The type of an expression's value (after coercion).
+    fn ty_of(&self, e: &Expr) -> &Ty {
+        self.cx.types.final_ty(e.id)
+    }
+
+    fn place_ty(&self, p: &Place) -> Ty {
+        let mut t = match p.base {
+            mir::Base::Local(l) => self.locals[l.0 as usize].ty.clone(),
+            mir::Base::Global(g) => self.cx.types.globals[g.0 as usize].clone(),
+            mir::Base::Deref(l) => match &self.locals[l.0 as usize].ty {
+                Ty::Ref(inner) => (**inner).clone(),
+                other => unreachable!("deref of {other}"),
+            },
+        };
+        for i in &p.proj {
+            t = match t {
+                Ty::Struct(sid, _) => self.cx.program.struct_def(sid).fields[*i as usize]
+                    .ty
+                    .clone(),
+                other => unreachable!("field of {other}"),
+            };
+        }
+        t
+    }
+
+    /// A place holding the value of `e`: variables and field paths directly, anything else in
+    /// a temporary.
+    fn place_of(&mut self, e: &Expr) -> Place {
+        match &e.kind {
+            ExprKind::Var(v) => self.place(*v),
+            ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Struct(..)) => {
+                let i = self.cx.types.fields[&e.id];
+                self.place_of(object).field(i)
+            }
+            _ => match self.expr(e) {
+                Operand::Copy(p) => p,
+                c @ Operand::Const(_) => {
+                    let ty = self.ty_of(e).clone();
+                    let t = self.temp(ty);
+                    self.assign(Place::local(t), Rvalue::Use(c), e.span);
+                    Place::local(t)
+                }
+            },
+        }
+    }
+
+    fn target_place(&mut self, t: &hir::Target) -> Place {
+        match t {
+            hir::Target::Var(v) => self.place(*v),
+            hir::Target::Field { id, object, .. } => {
+                let i = self.cx.types.fields[id];
+                self.place_of(object).field(i)
+            }
+        }
+    }
+
     fn rvalue_to_temp(&mut self, rv: Rvalue, ty: Ty, span: Span) -> Operand {
         let t = self.temp(ty);
-        self.assign(Place::Local(t), rv, span);
-        Operand::Copy(Place::Local(t))
+        self.assign(Place::local(t), rv, span);
+        Operand::Copy(Place::local(t))
     }
 
     // ------------------------------------------------------------ blocks
@@ -324,8 +409,8 @@ impl FnBuilder<'_, '_> {
                 self.rvalue_to_temp(Rvalue::Unary(op, v), ty, e.span)
             }
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, ty),
-            ExprKind::Assign { op, var, value } => {
-                let place = self.place(*var);
+            ExprKind::Assign { op, target, value } => {
+                let place = self.target_place(target);
                 match op {
                     None => {
                         let v = self.expr(value);
@@ -335,7 +420,7 @@ impl FnBuilder<'_, '_> {
                         // `x &&= v`: assign only if `x` is true (`||=`: if false).
                         let assign_bb = self.new_block();
                         let join = self.new_block();
-                        let cur = Operand::Copy(place);
+                        let cur = Operand::Copy(place.clone());
                         let (t, f) = if *op == ast::BinOp::And {
                             (assign_bb, join)
                         } else {
@@ -348,14 +433,14 @@ impl FnBuilder<'_, '_> {
                         });
                         self.switch_to(assign_bb);
                         let v = self.expr(value);
-                        self.assign(place, Rvalue::Use(v), e.span);
+                        self.assign(place.clone(), Rvalue::Use(v), e.span);
                         self.terminate(Terminator::Goto(join));
                         self.switch_to(join);
                     }
                     Some(op) => {
                         let v = self.expr(value);
                         self.assign(
-                            place,
+                            place.clone(),
                             Rvalue::Binary(bin_op(*op), Operand::Copy(place), v),
                             e.span,
                         );
@@ -363,14 +448,21 @@ impl FnBuilder<'_, '_> {
                 }
                 Operand::Const(Const::Void)
             }
-            ExprKind::IncDec { var, inc, prefix } => {
-                let place = self.place(*var);
-                let vt = self.var_ty(*var);
+            ExprKind::IncDec {
+                target,
+                inc,
+                prefix,
+            } => {
+                let place = self.target_place(target);
+                let vt = self.place_ty(&place);
                 let Ty::Int(it) = vt else {
                     return Operand::Const(Const::Void);
                 };
-                let old =
-                    self.rvalue_to_temp(Rvalue::Use(Operand::Copy(place)), vt.clone(), e.span);
+                let old = self.rvalue_to_temp(
+                    Rvalue::Use(Operand::Copy(place.clone())),
+                    vt.clone(),
+                    e.span,
+                );
                 let op = if *inc {
                     mir::BinOp::Add
                 } else {
@@ -385,10 +477,27 @@ impl FnBuilder<'_, '_> {
                 if *prefix { new } else { old }
             }
             ExprKind::Call { callee, args } => self.call(e, callee, args, ty),
-            ExprKind::Member { object, name, .. } => {
-                debug_assert_eq!(name, "length", "the type checker only allows `.length`");
+            ExprKind::Member { object, .. } if *self.ty_of(object) == Ty::Str => {
                 let s = self.expr(object);
                 self.rvalue_to_temp(Rvalue::StrLen(s), ty, e.span)
+            }
+            ExprKind::Member { .. } => {
+                let place = self.place_of(e);
+                Operand::Copy(place)
+            }
+            ExprKind::Object { fields, .. } => {
+                let (sid, order) = self.cx.types.objects[&e.id].clone();
+                let mut ops: Vec<Option<Operand>> = vec![None; order.len()];
+                // Evaluate in source order, store in declaration order.
+                for (f, slot) in fields.iter().zip(&order) {
+                    let v = self.expr(&f.value);
+                    ops[*slot as usize] = Some(v);
+                }
+                let ops = ops
+                    .into_iter()
+                    .map(|o| o.expect("every field initialized"))
+                    .collect();
+                self.rvalue_to_temp(Rvalue::Aggregate(sid, ops), ty, e.span)
             }
             ExprKind::Index { object, index } => {
                 let s = self.expr(object);
@@ -403,13 +512,13 @@ impl FnBuilder<'_, '_> {
             ExprKind::Loop(b) => {
                 let body = self.new_block();
                 let exit = self.new_block();
-                let result = has_value(&ty).then(|| Place::Local(self.temp(ty.clone())));
+                let result = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
                 self.terminate(Terminator::Goto(body));
                 self.switch_to(body);
                 self.loops.push(LoopTarget {
                     brk: exit,
                     cont: body,
-                    result,
+                    result: result.clone(),
                 });
                 self.block(b);
                 self.loops.pop();
@@ -463,7 +572,7 @@ impl FnBuilder<'_, '_> {
             ExprKind::Break(value) => {
                 let v = value.as_ref().map(|v| (self.expr(v), self.ty(v)));
                 let target = self.loops.last().expect("resolver checked break placement");
-                let (brk, result) = (target.brk, target.result);
+                let (brk, result) = (target.brk, target.result.clone());
                 if let (Some((v, vt)), Some(r)) = (v, result)
                     && vt != Ty::Never
                 {
@@ -511,7 +620,7 @@ impl FnBuilder<'_, '_> {
     fn binary(&mut self, e: &Expr, op: ast::BinOp, l: &Expr, r: &Expr, ty: Ty) -> Operand {
         match op {
             ast::BinOp::And | ast::BinOp::Or => {
-                let res = Place::Local(self.temp(Ty::Bool));
+                let res = Place::local(self.temp(Ty::Bool));
                 let lv = self.expr(l);
                 let rhs_bb = self.new_block();
                 let short_bb = self.new_block();
@@ -529,11 +638,11 @@ impl FnBuilder<'_, '_> {
                 });
                 self.switch_to(rhs_bb);
                 let rv = self.expr(r);
-                self.assign(res, Rvalue::Use(rv), e.span);
+                self.assign(res.clone(), Rvalue::Use(rv), e.span);
                 self.terminate(Terminator::Goto(join));
                 self.switch_to(short_bb);
                 self.assign(
-                    res,
+                    res.clone(),
                     Rvalue::Use(Operand::Const(Const::Bool(!is_and))),
                     e.span,
                 );
@@ -566,7 +675,7 @@ impl FnBuilder<'_, '_> {
         // stored somewhere, and locals are checked when declared.
         let _ = span;
         let result =
-            (else_.is_some() && has_value(&ty)).then(|| Place::Local(self.temp(ty.clone())));
+            (else_.is_some() && has_value(&ty)).then(|| Place::local(self.temp(ty.clone())));
         self.terminate(Terminator::Branch {
             cond: c,
             then: then_bb,
@@ -576,7 +685,7 @@ impl FnBuilder<'_, '_> {
             self.switch_to(bb);
             if let Some(branch) = branch {
                 let v = self.expr(branch);
-                if let Some(r) = result
+                if let Some(r) = result.clone()
                     && self.ty(branch) != Ty::Never
                 {
                     self.assign(r, Rvalue::Use(v), branch.span);
@@ -631,6 +740,32 @@ impl FnBuilder<'_, '_> {
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr], ty: Ty) -> Operand {
         let loc = self.loc(e.span);
         match &callee.kind {
+            ExprKind::Member { object, .. } if self.cx.types.methods.contains_key(&e.id) => {
+                let m = self.cx.types.methods[&e.id];
+                let recv_ty = self.ty_of(object).clone();
+                let recv = self.place_of(object);
+                let this =
+                    self.rvalue_to_temp(Rvalue::Ref(recv), Ty::Ref(Box::new(recv_ty)), e.span);
+                let mut ops = vec![this];
+                ops.extend(args.iter().map(|a| self.expr(a)));
+                let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+                let next = self.new_block();
+                self.terminate(Terminator::Call {
+                    callee: Callee::Fn(m),
+                    args: ops,
+                    dest: dest.clone(),
+                    next,
+                    loc,
+                });
+                self.switch_to(next);
+                if ty == Ty::Never {
+                    self.diverge(Terminator::Unreachable);
+                }
+                match dest {
+                    Some(p) => Operand::Copy(p),
+                    None => Operand::Const(Const::Void),
+                }
+            }
             ExprKind::Member { object, name, .. } if name == "toString" => {
                 let v = self.expr(object);
                 let t = self.cx.types.final_ty(object.id).clone();
@@ -638,12 +773,12 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Fn(id) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
-                let dest = has_value(&ty).then(|| Place::Local(self.temp(ty.clone())));
+                let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
                 let next = self.new_block();
                 self.terminate(Terminator::Call {
                     callee: Callee::Fn(*id),
                     args,
-                    dest,
+                    dest: dest.clone(),
                     next,
                     loc,
                 });

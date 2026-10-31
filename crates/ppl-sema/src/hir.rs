@@ -4,6 +4,7 @@
 //! by it. `for` loops become [`ExprKind::While`] (with an `update` step that `continue` runs),
 //! and `for (x of a..b)` becomes a counting `while`.
 
+pub use crate::ty::StructId;
 use crate::ty::Ty;
 use ppl_diag::{FileId, Span};
 use ppl_syntax::ast::{BinOp, UnOp};
@@ -31,6 +32,36 @@ pub struct Program {
     pub globals: Vec<Binding>,
     /// Span of every expression, indexed by `ExprId`.
     pub expr_spans: Vec<Span>,
+    pub structs: Vec<StructDef>,
+}
+
+#[derive(Debug)]
+pub struct FieldDef {
+    pub name: String,
+    pub ty: Ty,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub struct StructDef {
+    pub name: String,
+    pub name_span: Span,
+    pub fields: Vec<FieldDef>,
+    /// Methods by name; each is a function whose `this` is set.
+    pub methods: Vec<(String, FnId)>,
+}
+
+impl StructDef {
+    pub fn field(&self, name: &str) -> Option<(usize, &FieldDef)> {
+        self.fields.iter().enumerate().find(|(_, f)| f.name == name)
+    }
+
+    pub fn method(&self, name: &str) -> Option<FnId> {
+        self.methods
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, f)| *f)
+    }
 }
 
 impl Program {
@@ -40,6 +71,14 @@ impl Program {
 
     pub fn global(&self, id: GlobalId) -> &Binding {
         &self.globals[id.0 as usize]
+    }
+
+    pub fn struct_def(&self, id: StructId) -> &StructDef {
+        &self.structs[id.0 as usize]
+    }
+
+    pub fn struct_ty(&self, id: StructId) -> Ty {
+        Ty::Struct(id, self.structs[id.0 as usize].name.as_str().into())
     }
 
     pub fn expr_count(&self) -> usize {
@@ -69,6 +108,8 @@ pub struct Function {
     pub body: Block,
     pub span: Span,
     pub is_entry: bool,
+    /// For methods: the `this` local and its struct. `this` is passed by reference.
+    pub this: Option<(LocalId, StructId)>,
 }
 
 impl Function {
@@ -137,6 +178,26 @@ pub struct Expr {
     pub span: Span,
 }
 
+/// The target of an assignment or `++`/`--`.
+#[derive(Debug)]
+pub enum Target {
+    Var(Var),
+    /// `object.name = …`; `id` keys the field index in the type checker's results.
+    Field {
+        id: ExprId,
+        object: Box<Expr>,
+        name: String,
+        name_span: Span,
+    },
+}
+
+#[derive(Debug)]
+pub struct FieldInit {
+    pub name: String,
+    pub name_span: Span,
+    pub value: Expr,
+}
+
 #[derive(Debug)]
 pub struct TemplatePart {
     pub expr: Expr,
@@ -155,17 +216,22 @@ pub enum ExprKind {
     Builtin(Builtin),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
-    /// `var = value` / `var op= value`.
+    /// `target = value` / `target op= value`.
     Assign {
         op: Option<BinOp>,
-        var: Var,
+        target: Target,
         value: Box<Expr>,
     },
-    /// `++x`, `x--`, …
+    /// `++x`, `p.x--`, …
     IncDec {
-        var: Var,
+        target: Target,
         inc: bool,
         prefix: bool,
+    },
+    /// `Point { x: 1, y }` (`ty` given) or `{ x: 1, y }` (struct taken from the expected type).
+    Object {
+        ty: Option<StructId>,
+        fields: Vec<FieldInit>,
     },
     Call {
         callee: Box<Expr>,

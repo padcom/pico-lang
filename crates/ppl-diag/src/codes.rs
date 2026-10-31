@@ -56,6 +56,7 @@ codes! {
     MISSING_PARAM_TYPE = 207: "parameter without a type annotation",
     NOT_A_VALUE = 208: "a type or built-in used as a value",
     BREAK_VALUE_IN_WHILE = 209: "`break` with a value outside `loop`",
+    RECURSIVE_STRUCT = 210: "struct that contains itself by value",
     // Types
     LITERAL_OUT_OF_RANGE = 301: "literal out of range for its type",
     WRONG_ARG_COUNT = 302: "wrong number of arguments",
@@ -66,6 +67,9 @@ codes! {
     MISMATCHED_TYPES = 308: "mismatched types",
     UNKNOWN_MEMBER = 309: "no such member",
     INVALID_FORMAT_SPEC = 310: "invalid format spec",
+    MISSING_FIELDS = 311: "struct literal without all fields",
+    DUPLICATE_FIELD = 312: "field given twice in a struct literal",
+    UNKNOWN_OBJECT_TYPE = 313: "object literal without a known struct type",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }
