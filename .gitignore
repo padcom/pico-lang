@@ -1,0 +1,9 @@
+/target/
+*.o
+*.obj
+*.exe
+*.wasm
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
