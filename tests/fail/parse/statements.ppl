@@ -1,0 +1,14 @@
+// error: E0100
+// error: E0100
+// error: E0100
+// error: E0100
+// Several broken statements; each should get its own error, and the valid
+// lines between them should parse.
+const a = 1 +
+const b = 2
+let c = (3 * 4
+println(a b)
+const d = 5
+var e = 6
+function f(x: i32 { x }
+const g = 7

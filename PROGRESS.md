@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P1.12: Parser error recovery** (see [PLAN.md](PLAN.md#p112-parser-error-recovery))
+**P1.13: Golden-test harness** (see [PLAN.md](PLAN.md#p113-golden-test-harness))
 
 Notes:
 - Crates live in `crates/<name>`; shared deps go in `[workspace.dependencies]` of the root Cargo.toml.
@@ -17,7 +17,7 @@ Notes:
 | Spec | ✅ complete: 16 chapters, 162 decisions, no open questions |
 | Compiler | front end: lexer, newline filter, AST, parser (`ppl parse --dump`) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-10-31 (P1.11) |
+| Last green `scripts/test.sh` | 2026-10-31 (P1.12) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -47,7 +47,7 @@ Notes:
 - [x] P1.9 Parser: statements and blocks
 - [x] P1.10 Parser: declarations and types
 - [x] P1.11 Parser: patterns, match, switch, try
-- [ ] P1.12 Parser error recovery
+- [x] P1.12 Parser error recovery
 - [ ] P1.13 Golden-test harness
 
 ### Phase 2: First executable
@@ -175,3 +175,4 @@ Notes:
 | 2026-10-31 | P1.6 | newline::filter with bracket stack; trailing/leading continuation sets (decision 166, provisional: generic closers and `?` end a line); table-driven tests for every §1.2 example. |
 | 2026-10-31 | P1.7 | ast.rs covers the whole language (exprs incl. control flow as expressions, patterns, stmts, decls, members); dump.rs S-expression printer with width-based breaking; unit tests on hand-built ASTs. `ppl parse --dump` gets wired in P1.8. |
 | 2026-10-31 | P1.8–P1.11 | Parser (one module, committed together): Pratt expressions, statements, declarations, types, patterns, match/switch/try. `ppl parse --dump`. 14 insta snapshot groups; `tests/spec_samples.rs` parses every ```ts block in docs/spec and docs/TOUR.md (2 spec blocks skipped with reasons). Decisions 167–172. |
+| 2026-10-31 | P1.12 | Recovery: statement-level sync (no separator error after a failed statement, stops at statement keywords on a new line), bracket-depth-safe member/arm recovery, unclosed `(`/`[` end before a declaration keyword (newline filter), enum variant/method lookahead. Targeted messages: `var`, `for-in`, `===`, conditions without parens, trailing-operator line continuation. 6 multi-error fixtures in tests/fail/parse with `// error:` directives + snapshots. |

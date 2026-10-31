@@ -1,0 +1,9 @@
+// error: E0100
+// error: E0100
+// error: E0100
+// error: E0100
+for (const k in obj) println(k)
+for (let i = 0; i < 10 i++) {}
+while x > 0 { x-- }
+do { x++ } until (x > 3)
+const fine = 1

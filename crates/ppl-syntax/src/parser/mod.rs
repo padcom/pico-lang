@@ -60,7 +60,7 @@ pub(crate) struct Parser {
 }
 
 /// Tokens a statement can start with; recovery stops before them.
-fn starts_statement(kind: &TokenKind) -> bool {
+pub(super) fn starts_statement(kind: &TokenKind) -> bool {
     matches!(
         kind,
         TokenKind::Kw(
@@ -225,6 +225,7 @@ impl Parser {
         self.tokens[self.pos] = Token {
             kind: TokenKind::Punct(rest),
             span,
+            newline_before: false,
         };
         true
     }
@@ -291,6 +292,18 @@ impl Parser {
         .primary(span, label);
         if let Some(help) = suggestion(&found, what) {
             d = d.help(help);
+        }
+        // `const a = 1 +` ⏎ `const b = 2`: explain why the next line was read as a continuation.
+        if self.tokens[self.pos].newline_before
+            && self.pos > 0
+            && let TokenKind::Punct(p) = &self.tokens[self.pos - 1].kind
+        {
+            d = d
+                .secondary(self.prev_span(), "the line ends here")
+                .note(format!(
+                    "a line ending with `{}` continues on the next line",
+                    p.as_str()
+                ));
         }
         self.report(d);
     }
@@ -406,8 +419,12 @@ impl Parser {
                 }
                 TokenKind::Punct(Punct::RBrace) if depth == 0 => return,
                 TokenKind::Punct(Punct::LBrace | Punct::LParen | Punct::LBracket) => depth += 1,
-                TokenKind::Punct(Punct::RBrace | Punct::RParen | Punct::RBracket) => depth -= 1,
-                k if depth == 0 && starts_statement(k) => return,
+                TokenKind::Punct(Punct::RBrace | Punct::RParen | Punct::RBracket) => {
+                    depth = (depth - 1).max(0)
+                }
+                k if depth == 0 && starts_statement(k) && self.tokens[self.pos].newline_before => {
+                    return;
+                }
                 _ => {}
             }
             self.bump();

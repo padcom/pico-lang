@@ -28,6 +28,15 @@ pub fn filter(tokens: Vec<Token>) -> Vec<Token> {
     while let Some(tok) = iter.next() {
         match &tok.kind {
             TokenKind::Newline => {
+                // Recovery: a declaration keyword can't appear inside `( )`/`[ ]`, so an
+                // unclosed bracket ends at the line before it.
+                if stack.last() == Some(&Open::Paren)
+                    && iter.peek().is_some_and(|t| starts_declaration(&t.kind))
+                {
+                    while stack.last() == Some(&Open::Paren) {
+                        stack.pop();
+                    }
+                }
                 let in_parens = stack.last() == Some(&Open::Paren);
                 let prev = out.last().map(|t| &t.kind);
                 let redundant = matches!(
@@ -56,6 +65,24 @@ pub fn filter(tokens: Vec<Token>) -> Vec<Token> {
         out.push(tok);
     }
     out
+}
+
+/// Keywords that only start declarations or bindings (never an argument or element).
+fn starts_declaration(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Kw(
+            Kw::Const
+                | Kw::Let
+                | Kw::Class
+                | Kw::Struct
+                | Kw::Enum
+                | Kw::Interface
+                | Kw::Import
+                | Kw::Export
+                | Kw::Extern
+        )
+    )
 }
 
 /// A line ending with this token continues on the next line.

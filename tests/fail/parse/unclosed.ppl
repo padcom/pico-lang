@@ -1,0 +1,6 @@
+// error: E0101
+function main() {
+  if (x) {
+    println("hi")
+  
+const after = 1

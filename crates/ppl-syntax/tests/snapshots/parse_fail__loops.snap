@@ -1,0 +1,31 @@
+---
+source: crates/ppl-syntax/tests/parse_fail.rs
+expression: "render_all(&diags, &sm)"
+---
+error[E0100]: ppl has no `for-in` loop
+  ┌─ parse/loops.ppl:5:14
+  │
+5 │ for (const k in obj) println(k)
+  │              ^^ expected `of`
+  │
+  = help: iterate over keys with `for (const k of obj.keys())`
+
+error[E0100]: expected `;`, found identifier `i`
+  ┌─ parse/loops.ppl:6:24
+  │
+6 │ for (let i = 0; i < 10 i++) {}
+  │                        ^ expected `;`
+
+error[E0100]: expected `(`, found identifier `x`
+  ┌─ parse/loops.ppl:7:7
+  │
+7 │ while x > 0 { x-- }
+  │       ^ expected `(`
+  │
+  = help: conditions are written in parentheses: `while (x > 0) { … }`
+
+error[E0100]: expected `while`, found identifier `until`
+  ┌─ parse/loops.ppl:8:12
+  │
+8 │ do { x++ } until (x > 3)
+  │            ^^^^^ expected `while`

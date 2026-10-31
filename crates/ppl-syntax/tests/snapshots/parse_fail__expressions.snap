@@ -1,0 +1,55 @@
+---
+source: crates/ppl-syntax/tests/parse_fail.rs
+expression: "render_all(&diags, &sm)"
+---
+error[E0100]: ppl has no `===` or `!==`
+  ┌─ parse/expressions.ppl:8:13
+  │
+8 │ const a = x === y
+  │             ^^^ use `==` or `!=`
+  │
+  = note: `==` is already strict: it never converts between types
+
+error[E0106]: `??` can't be mixed with `&&` or `||`
+  ┌─ parse/expressions.ppl:9:11
+  │
+9 │ const b = a ?? b || c
+  │           ^^^^^^^^^^^ add parentheses to make the order explicit
+
+error[E0103]: positional argument after a named argument
+   ┌─ parse/expressions.ppl:10:22
+   │
+10 │ const c = f(name: 1, 2)
+   │             ----     ^ positional argument
+   │             │
+   │             named arguments start here
+   │
+   = help: move positional arguments before the named ones
+
+error[E0100]: expected an expression, found keyword `const`
+   ┌─ parse/expressions.ppl:12:1
+   │
+11 │ const d = [1, 2,
+   │                - the line ends here
+12 │ const e = 1
+   │ ^^^^^ expected an expression
+   │
+   = note: a line ending with `,` continues on the next line
+
+error[E0102]: invalid assignment target
+   ┌─ parse/expressions.ppl:13:1
+   │
+13 │ 5 = x
+   │ ^ can't assign to this
+
+error[E0100]: expected an expression, found `}`
+   ┌─ parse/expressions.ppl:14:22
+   │
+14 │ const f = { a: 1, b: }
+   │                      ^ expected an expression
+
+error[E0100]: expected `=>`, found string literal
+   ┌─ parse/expressions.ppl:17:5
+   │
+17 │   2 "two",
+   │     ^^^^^ expected `=>`

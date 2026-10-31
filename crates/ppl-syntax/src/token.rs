@@ -198,6 +198,9 @@ impl TokenKind {
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
+    /// A line break (or a multi-line comment) separates this token from the previous one.
+    /// Survives newline filtering, so the parser can explain line continuations.
+    pub newline_before: bool,
 }
 
 impl fmt::Display for Token {

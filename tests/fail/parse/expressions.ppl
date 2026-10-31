@@ -1,0 +1,19 @@
+// error: E0100
+// error: E0106
+// error: E0103
+// error: E0100
+// error: E0102
+// error: E0100
+// error: E0100
+const a = x === y
+const b = a ?? b || c
+const c = f(name: 1, 2)
+const d = [1, 2,
+const e = 1
+5 = x
+const f = { a: 1, b: }
+const g = match (x) {
+  1 => "one"
+  2 "two",
+  _ => "other",
+}

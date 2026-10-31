@@ -697,7 +697,8 @@ impl Parser {
                         | TokenKind::Punct(
                             Punct::RBrace | Punct::RParen | Punct::RBracket | Punct::Semi
                         )
-                ) {
+                ) && !super::starts_statement(self.peek())
+                {
                     self.bump();
                 }
                 mk(ExprKind::Error, start)
@@ -1100,7 +1101,9 @@ impl Parser {
                     return;
                 }
                 TokenKind::Punct(Punct::LBrace | Punct::LParen | Punct::LBracket) => depth += 1,
-                TokenKind::Punct(Punct::RBrace | Punct::RParen | Punct::RBracket) => depth -= 1,
+                TokenKind::Punct(Punct::RBrace | Punct::RParen | Punct::RBracket) => {
+                    depth = (depth - 1).max(0)
+                }
                 _ => {}
             }
             self.bump();

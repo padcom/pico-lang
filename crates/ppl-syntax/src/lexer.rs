@@ -100,7 +100,12 @@ impl<'a> Lexer<'a> {
             TokenKind::TemplateHead(_) | TokenKind::TemplateMiddle { .. } | TokenKind::Eof => false,
         };
         let span = self.span(start, self.pos);
-        self.tokens.push(Token { kind, span });
+        let newline_before = matches!(self.tokens.last(), Some(t) if t.kind == TokenKind::Newline);
+        self.tokens.push(Token {
+            kind,
+            span,
+            newline_before,
+        });
     }
 
     fn error(&mut self, code: ppl_diag::Code, msg: &str, start: usize, end: usize, label: &str) {

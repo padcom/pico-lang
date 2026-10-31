@@ -1,0 +1,23 @@
+// error: E0100
+// error: E0100
+// error: E0100
+class Animal {
+  public name: string
+  public speak(): string { "..." }
+  public 42
+  public describe(): string { name }
+}
+
+struct Point {
+  x: f32
+  y
+  z: f32
+}
+
+enum Shape {
+  Circle(r: f64),
+  Rect(w: f64 h: f64),
+  Empty,
+}
+
+function ok(): i32 { 1 }

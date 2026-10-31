@@ -387,7 +387,9 @@ impl Parser {
                     return;
                 }
                 TokenKind::Punct(Punct::LBrace | Punct::LParen | Punct::LBracket) => depth += 1,
-                TokenKind::Punct(Punct::RBrace | Punct::RParen | Punct::RBracket) => depth -= 1,
+                TokenKind::Punct(Punct::RBrace | Punct::RParen | Punct::RBracket) => {
+                    depth = (depth - 1).max(0)
+                }
                 _ => {}
             }
             self.bump();
@@ -655,31 +657,32 @@ impl Parser {
             if self.at(Punct::RBrace) || self.at_eof() {
                 break;
             }
-            // A variant is a name optionally followed by `(fields)`, then `,`, newline or `}`.
-            let is_variant = self.speculate(|p| {
-                let start = p.span();
-                let decorators = p.decorators();
-                let TokenKind::Ident(_) = p.peek() else {
-                    return None;
-                };
-                let name = p.ident()?;
-                let fields = if p.at(Punct::LParen) {
-                    Some(p.params()?)
+            // A variant is a name optionally followed by `(fields)`, then `,`, newline or `}`;
+            // anything else (a `{` body, a `:` return type, a modifier) starts the methods.
+            let is_variant = if self.looks_like_variant() {
+                let start = self.span();
+                let decorators = self.decorators();
+                let name = self.ident().unwrap_or_else(|| self.error_ident());
+                let fields = if self.at(Punct::LParen) {
+                    match self.params() {
+                        Some(f) => Some(f),
+                        None => {
+                            self.recover_in_braces();
+                            Some(Vec::new())
+                        }
+                    }
                 } else {
                     None
                 };
-                let ends = matches!(
-                    p.peek(),
-                    TokenKind::Newline
-                        | TokenKind::Punct(Punct::Comma | Punct::RBrace | Punct::Semi)
-                );
-                ends.then(|| Variant {
+                Some(Variant {
                     name,
                     fields,
                     decorators,
-                    span: start.to(p.prev_span()),
+                    span: start.to(self.prev_span()),
                 })
-            });
+            } else {
+                None
+            };
             match is_variant {
                 Some(v) => {
                     variants.push(v);
@@ -708,6 +711,58 @@ impl Parser {
             variants,
             members,
         })
+    }
+
+    /// Scans ahead (without consuming) to tell a variant from a method.
+    fn looks_like_variant(&self) -> bool {
+        let mut i = 0;
+        while self.peek_nth(i).is_punct(Punct::At) {
+            // Skip a decorator: `@` path [`(` … `)`].
+            i += 1;
+            while matches!(self.peek_nth(i), TokenKind::Ident(_) | TokenKind::Kw(_))
+                || self.peek_nth(i).is_punct(Punct::Dot)
+            {
+                i += 1;
+            }
+            if self.peek_nth(i).is_punct(Punct::LParen) {
+                i = self.skip_parens(i);
+            }
+            while matches!(self.peek_nth(i), TokenKind::Newline) {
+                i += 1;
+            }
+        }
+        if !matches!(self.peek_nth(i), TokenKind::Ident(_)) {
+            return false;
+        }
+        i += 1;
+        if self.peek_nth(i).is_punct(Punct::LParen) {
+            i = self.skip_parens(i);
+        }
+        matches!(
+            self.peek_nth(i),
+            TokenKind::Newline
+                | TokenKind::Eof
+                | TokenKind::Punct(Punct::Comma | Punct::RBrace | Punct::Semi)
+        )
+    }
+
+    /// Given the offset of a `(`, returns the offset just past its matching `)`.
+    fn skip_parens(&self, mut i: usize) -> usize {
+        let mut depth = 0;
+        loop {
+            match self.peek_nth(i) {
+                TokenKind::Eof => return i,
+                TokenKind::Punct(Punct::LParen) => depth += 1,
+                TokenKind::Punct(Punct::RParen) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return i + 1;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
     }
 
     /// `type Name<G> = T`

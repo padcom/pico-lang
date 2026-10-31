@@ -16,7 +16,9 @@ impl Parser {
                 break;
             }
             let before = self.pos;
+            let diags_before = self.diags.len();
             let mut stmt = self.stmt();
+            let had_errors = self.diags.len() > diags_before;
             let ended_with_brace =
                 self.pos > before && self.tokens[self.pos - 1].kind.is_punct(Punct::RBrace);
             if self.at(Punct::Semi) {
@@ -27,7 +29,7 @@ impl Parser {
             } else if matches!(self.peek(), TokenKind::Newline) {
                 self.bump();
             } else if !(done(self) || self.at_eof() || ended_with_brace) {
-                if !matches!(stmt.kind, StmtKind::Error) && self.last_error_pos != Some(self.pos) {
+                if !had_errors && self.last_error_pos != Some(self.pos) {
                     self.last_error_pos = Some(self.pos);
                     let d = Diagnostic::error(
                         codes::MISSING_SEPARATOR,
@@ -73,6 +75,20 @@ impl Parser {
         let start = self.span();
         let kind = match self.peek().clone() {
             TokenKind::Kw(Kw::Const | Kw::Let) => self.let_stmt(false),
+            TokenKind::Ident(w)
+                if w == "var" && matches!(self.peek_nth(1), TokenKind::Ident(_)) =>
+            {
+                let span = self.span();
+                self.report(
+                    Diagnostic::error(codes::UNEXPECTED_TOKEN, "ppl has no `var`")
+                        .primary(span, "not a keyword in ppl")
+                        .help("use `let` for a binding you reassign, or `const`"),
+                );
+                self.last_error_pos = Some(self.pos);
+                // Parse the rest as `let` so later code still gets checked.
+                self.tokens[self.pos].kind = TokenKind::Kw(Kw::Let);
+                self.let_stmt(false)
+            }
             TokenKind::Kw(Kw::Comptime)
                 if matches!(self.peek_nth(1), TokenKind::Kw(Kw::Const | Kw::Let)) =>
             {
@@ -192,7 +208,19 @@ impl Parser {
 
     fn paren_cond(&mut self) -> Expr {
         let open = self.span();
-        self.expect(Punct::LParen);
+        if !self.eat(Punct::LParen) {
+            let found = self.peek().describe();
+            self.report(
+                Diagnostic::error(
+                    codes::UNEXPECTED_TOKEN,
+                    format!("expected `(`, found {found}"),
+                )
+                .primary(open, "expected `(`")
+                .help("conditions are written in parentheses: `while (x > 0) { … }`"),
+            );
+            self.last_error_pos = Some(self.pos);
+            return self.expr();
+        }
         let cond = self.expr();
         self.expect_close(Punct::RParen, open);
         cond
@@ -210,7 +238,15 @@ impl Parser {
         self.skip_newlines();
         let body = self.block();
         self.eat_newlines_before(|k| k.is_kw(Kw::While));
-        self.expect_kw(Kw::While);
+        if !self.expect_kw(Kw::While) {
+            self.synchronize();
+            let span = self.span();
+            let cond = Expr {
+                kind: ExprKind::Error,
+                span,
+            };
+            return StmtKind::DoWhile { body, cond };
+        }
         let cond = self.paren_cond();
         StmtKind::DoWhile { body, cond }
     }
@@ -244,7 +280,22 @@ impl Parser {
                 };
             }
             if self.at_kw(Kw::In) {
-                self.error_expected("`of`");
+                let span = self.bump().span;
+                self.report(
+                    Diagnostic::error(codes::UNEXPECTED_TOKEN, "ppl has no `for-in` loop")
+                        .primary(span, "expected `of`")
+                        .help("iterate over keys with `for (const k of obj.keys())`"),
+                );
+                let iter = self.expr();
+                self.expect_close(Punct::RParen, open);
+                let body = Box::new(self.branch());
+                return StmtKind::ForOf {
+                    is_await,
+                    kind,
+                    pat,
+                    iter,
+                    body,
+                };
             }
             self.restore(snap);
         }
