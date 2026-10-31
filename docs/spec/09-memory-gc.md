@@ -63,8 +63,9 @@ unsafe {
 ## 9.6 `--no-gc` mode
 For embedded targets, compiling with `--no-gc` restricts the language to structs, enums, fixed
 arrays, primitives, arenas and `unsafe`. Class allocation, growable arrays, `string`
-concatenation and closures that capture by reference are compile errors. Exceptions need an
-allocation strategy (still open).
+concatenation and closures that capture by reference are compile errors.
+- **Strings**: string literals and `str` (a pointer + length view) are available. Build strings with
+  `StrBuf<N>` (a fixed-capacity inline buffer) or allocate them in an arena.
+- **Errors**: only lightweight `Throwable` structs/enums can be thrown (§7.1).
 
 ## Open questions
-- Can a string in `--no-gc` mode be a non-growable `str` slice?

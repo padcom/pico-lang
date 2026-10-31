@@ -259,6 +259,16 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 152 | Comptime limits | 10M evaluation steps by default, configurable with `@comptimeLimit(n)`. |
 | 153 | Comptime diagnostics | `decl.error/warn/note(msg, span?)`, attached to source spans. |
 
+## Round 23 (closing open questions, part 2)
+| # | Topic | Decision |
+|---|-------|----------|
+| 154 | no-gc strings | `str` slices (pointer + length) and `StrBuf<N>` fixed buffers, or arena allocation. In `--no-gc`, only lightweight `Throwable`s can be thrown. |
+| 155 | glibc version | Given as a triple suffix: `x86_64-unknown-linux-gnu.2.35`. The default is 2.31. |
+| 156 | Mobile | Android (`aarch64-linux-android`) and iOS (`aarch64-apple-ios`) come after v1. |
+| 157 | C++ | Out of scope; use `extern "C"` shims. |
+| 158 | Benchmarks | `bench()` in `std/test`, run by `ppl bench`. |
+| 159 | Worker call | Function workers support `await w.call(arg)`; file workers use `postMessage`. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|

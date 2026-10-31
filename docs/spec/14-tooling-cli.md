@@ -9,6 +9,8 @@ Everything ships in a single static `ppl` binary.
 | `ppl` (no args) | REPL |
 | `ppl build [--target t] [--release]` | ahead-of-time build to native or wasm |
 | `ppl test [filter]` | run `*.test.ppl` |
+| `ppl bench [filter]` | run `bench()` cases in `*.bench.ppl` / `*.test.ppl` |
+| `ppl symbolize file` | resolve release stack traces using the debug file |
 | `ppl fmt [--check]` | format sources |
 | `ppl lint` | lints (naming conventions etc.) |
 | `ppl init` | create `project.json` and `src/main.ppl` |
@@ -54,6 +56,12 @@ describe("add", () => {
 ```
 Tests run in parallel, one isolated worker per file. `--watch` and coverage are supported.
 
+### Benchmarks
+```ts
+import { bench } from "std/test"
+bench("sort 10k", () => data.slice().sort())    // warmup + adaptive iterations; mean/median/stddev
+```
+
 ## 14.4 Formatter
 A Prettier-like style with **a few options**, set in `project.json`:
 ```json
@@ -72,4 +80,3 @@ pretty-printing of ppl values (strings, arrays, maps, enums).
   runtime and the stdlib sources.
 
 ## Open questions
-- Benchmarks (`bench()` in std/test)?

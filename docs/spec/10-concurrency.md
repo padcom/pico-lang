@@ -65,6 +65,8 @@ const hashes = await parallelMap(files, (f: string) => sha256File(f), workers: 8
 const pool = new WorkerPool<Job, Result>("./job", size: navigator.hardwareConcurrency)
 ```
 An inline worker body is compiled as its own entry point. Capturing anything is a compile error.
+A worker built from a function supports **`await w.call(arg)`**, which returns the function's result
+(and rethrows its errors, checked). File-based workers use `postMessage`/`onmessage`.
 
 ## 10.5 Cancellation
 Cancellation uses Web-standard `AbortController`/`AbortSignal`. `fetch`, timers, fs, net and worker
@@ -77,4 +79,3 @@ const res = await fetch(url, signal: ac.signal)    // throws HttpError | AbortEr
 ```
 
 ## Open questions
-- `w.call()` for request/response over a worker: a built-in or a library pattern?

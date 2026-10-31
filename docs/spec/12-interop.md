@@ -93,4 +93,3 @@ heap, initialized lazily.
 implemented on top of it.
 
 ## Open questions
-- C++ interop: out of scope?

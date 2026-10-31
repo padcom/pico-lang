@@ -15,6 +15,8 @@ Targets are named by **LLVM triples**, with short aliases for convenience:
 | `aarch64-w64-windows-gnu` | `windows-arm64` | MinGW ABI |
 | `wasm32-unknown-unknown` | `wasm32-browser` | WasmGC + JS glue + `.d.ts` |
 | `wasm32-wasip2` | `wasm32-wasi` | WASI preview 2, ppl GC |
+| `aarch64-linux-android` | `android-arm64` | after v1 |
+| `aarch64-apple-ios` | `ios-arm64` | after v1 |
 | `riscv64…` / bare metal | later | `--no-gc` subset |
 
 ```
@@ -31,6 +33,9 @@ ppl build --target windows-x64          # same thing
 - Windows uses the **MinGW (GNU) ABI**. C libraries built for MSVC may not link and need MinGW
   builds.
 
+The glibc version is selected with a triple suffix, as in Zig: `x86_64-unknown-linux-gnu.2.35`.
+Without one, binaries link against glibc **2.31** stubs.
+
 ## 15.3 Minimum OS versions (modern only)
 | OS | Minimum |
 |----|---------|
@@ -46,5 +51,3 @@ At comptime: `target.os` (`"linux" | "macos" | "windows" | "wasi" | "browser"`),
 `fs.windows.ppl`, `fs.wasm.ppl`.
 
 ## Open questions
-- Is the glibc version a build parameter (`--glibc 2.31`)?
-- Android / iOS?
