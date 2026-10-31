@@ -62,7 +62,6 @@ concatenation and closures that capture by reference are compile errors. Excepti
 allocation strategy (still open).
 
 ## Open questions
-- Finalizers / `using` declarations (TS 5.2 `using x = …` with `Symbol.dispose`) for files and
-  sockets?
+- Finalizers? (Deterministic cleanup is decided: `using`, see §11.5.)
 - Weak references (`WeakRef`, `WeakMap`)?
 - Can a string in `--no-gc` mode be a non-growable `str` slice?
