@@ -38,7 +38,15 @@ const users = await res.json<User[]>()        // typed, generated like JSON.pars
 | `std/encoding` | base64, hex, utf-16, csv, toml |
 | `std/fmt` | `Formattable`, padding/number formatting helpers |
 
-## 13.3 Async-only I/O
+## 13.3 Target availability
+`std/fs`, `std/net` and `std/process` aren't available on `wasm32-browser`, and importing them there
+is a **compile error**. Use platform-specific files (`storage.wasm.ppl` / `storage.ppl`) to provide
+alternatives.
+
+A JS-compatible `Date` global is kept so ported code works, but new code should use `std/time`.
+`std/math` includes `Vec2`, `Vec3`, `Vec4`, `Mat4` and `Quat` as structs with operator overloads.
+
+## 13.4 Async-only I/O
 No I/O function has a synchronous variant. Scripts use top-level `await`:
 ```ts
 import { readText } from "std/fs"
@@ -47,7 +55,4 @@ for (const line of text.split("\n")) println(line)
 ```
 
 ## Open questions
-- Which targets lack which modules? (`std/fs` and `std/net` in wasm32-browser: unavailable, or
-  a virtual FS?)
-- Is `std/math`'s vector library in core, or a separate package?
-- Is a `Date` global kept for compatibility, or only `std/time`?
+- Full per-target availability matrix for the remaining modules.

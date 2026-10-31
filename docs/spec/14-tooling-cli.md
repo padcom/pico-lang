@@ -60,13 +60,17 @@ A Prettier-like style with **a few options**, set in `project.json`:
 { "fmt": { "indent": 2, "lineWidth": 100, "quotes": "double", "semicolons": false } }
 ```
 
-## 14.5 Builds
+## 14.5 Debugging
+Debug builds emit DWARF (CodeView on Windows). `ppl dap` is a Debug Adapter Protocol server
+(on top of lldb) that the VS Code extension uses for breakpoints, stepping, watches and
+pretty-printing of ppl values (strings, arrays, maps, enums).
+
+## 14.6 Builds
 - **Incremental**: per-module caching of parsed, type-checked and lowered IR, keyed by content
   hash. Monomorphized instances are cached per instantiation.
 - **Single binary**: the `ppl` executable bundles LLVM, lld, libclang (for `c:` imports), the
   runtime and the stdlib sources.
 
 ## Open questions
-- Debugger story (DWARF/PDB output plus a DAP adapter for VS Code)?
 - Is the `semicolons` formatter option worth it, or always none?
 - Benchmarks (`bench()` in std/test)?

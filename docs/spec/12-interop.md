@@ -77,11 +77,19 @@ export function render(state: AppState): string { … }
 `ppl build --target wasm32-browser` produces `app.wasm`, `app.js` (ESM glue) and `app.d.ts` for
 the exported API.
 
-## 12.4 WASI
+## 12.4 Exporting to C
+```ts
+@export("c")
+export function ppl_hash(data: ptr<u8>, len: usize): u64 { … }
+```
+`ppl build --lib shared|static` produces `.so`/`.dylib`/`.dll` or `.a`, plus a generated `.h`.
+Exported signatures may only use FFI-compatible types. A thread calling in from C gets its own
+heap, initialized lazily.
+
+## 12.5 WASI
 `wasm32-wasi` uses WASI preview 2 for fs, clocks, sockets and random. The `std/*` modules are
 implemented on top of it.
 
 ## Open questions
-- Exporting ppl APIs to C (`@export("c")` plus a generated `.h`) so ppl can build shared libraries?
 - C++ interop: out of scope?
 - How are ppl structs exposed to JS: copied plain objects or handle classes?

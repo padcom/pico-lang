@@ -7,6 +7,8 @@ Targets are named by **LLVM triples**, with short aliases for convenience:
 |--------|-------|-------|
 | `x86_64-unknown-linux-gnu` | `linux-x64` | dynamic glibc |
 | `aarch64-unknown-linux-gnu` | `linux-arm64` | dynamic glibc |
+| `x86_64-unknown-linux-musl` | `linux-x64-musl` | fully static, single file |
+| `aarch64-unknown-linux-musl` | `linux-arm64-musl` | fully static, single file |
 | `x86_64-apple-darwin` | `macos-x64` | |
 | `aarch64-apple-darwin` | `macos-arm64` | |
 | `x86_64-w64-windows-gnu` | `windows-x64` | MinGW ABI |
@@ -45,5 +47,4 @@ At comptime: `target.os` (`"linux" | "macos" | "windows" | "wasi" | "browser"`),
 
 ## Open questions
 - Is the glibc version a build parameter (`--glibc 2.31`)?
-- Is a musl static option (`linux-x64-musl`) wanted for single-file deploys?
 - Android / iOS?

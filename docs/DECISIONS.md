@@ -208,6 +208,20 @@ stated, the reasoning. Entries are grouped by topic, and the spec chapters hold 
 | 121 | Weak refs | `WeakRef`, `WeakMap`, `WeakSet` and `FinalizationRegistry` (JS-compatible, non-deterministic). |
 | 122 | Package versions | Semver-compatible versions unify; different majors can coexist (Cargo-style). |
 
+## Round 18 (open questions, part 3)
+| # | Topic | Decision |
+|---|-------|----------|
+| 123 | Transferables | `postMessage(msg, transfer: [buf])` moves `ArrayBuffer`-like byte buffers without copying; the sender's handle becomes detached. Messages are otherwise deep-copied. |
+| 124 | Inline workers | `new Worker((job: Job) => …)` from a **capture-free** function. |
+| 125 | Pools | `parallelMap` and worker pools in the stdlib. |
+| 126 | Cancellation | Web-standard `AbortController`/`AbortSignal`. |
+| 127 | Browser fs/net | Importing `std/fs` or `std/net` for `wasm32-browser` is a compile error; use platform-specific files. |
+| 128 | Date | A JS-compatible `Date` global is kept for porting; `std/time` is preferred. |
+| 129 | Vector math | `Vec2/3/4`, `Mat4`, `Quat` ship in `std/math`. |
+| 130 | musl | Extra `*-linux-musl` targets for fully static single-file binaries. |
+| 131 | C export | `@export("c")` builds ppl shared/static libraries with a generated `.h`. |
+| 132 | Debugging | DWARF (CodeView/PDB on Windows) plus a DAP debug adapter for VS Code. |
+
 ## Spec format
 | # | Topic | Decision |
 |---|-------|----------|

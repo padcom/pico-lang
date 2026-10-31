@@ -45,8 +45,36 @@ is **Sendable**, meaning it's built only from:
 Closures, `Worker` handles, file/socket handles, `ptr<T>` and arena references are **not**
 Sendable. Sending one is a compile error.
 
+### Transferables
+Large byte buffers can be **moved** instead of copied:
+```ts
+const buf = new ArrayBuffer(64 << 20)
+w.postMessage(Frame { pixels: buf }, transfer: [buf])
+buf.byteLength            // 0: buf is detached in the sender
+```
+Only `ArrayBuffer` and its typed-array views (`Uint8Array`, `Float32Array`, …) are transferable.
+They live off the GC heap (malloc'd), so moving one only hands over a pointer.
+
+## 10.4 Inline workers & pools
+```ts
+const w = new Worker((n: i64): i64 => fib(n))     // capture-free function: compile error if it captures
+const r = await w.call(40)
+
+import { parallelMap, WorkerPool } from "std/worker"
+const hashes = await parallelMap(files, (f: string) => sha256File(f), workers: 8)
+const pool = new WorkerPool<Job, Result>("./job", size: navigator.hardwareConcurrency)
+```
+An inline worker body is compiled as its own entry point. Capturing anything is a compile error.
+
+## 10.5 Cancellation
+Cancellation uses Web-standard `AbortController`/`AbortSignal`. `fetch`, timers, fs, net and worker
+calls accept `signal`. An aborted operation throws `AbortError`, which is checked like any other
+error.
+```ts
+const ac = new AbortController()
+setTimeout(() => ac.abort(), 5000)
+const res = await fetch(url, signal: ac.signal)    // throws HttpError | AbortError
+```
+
 ## Open questions
-- Transferables (moving large buffers without a copy), still not decided. Deep copy only for now.
-- Inline workers (`new Worker((msg) => …)` from a closure without captures)?
-- Worker pools / `parallelMap` in the stdlib?
-- `Promise` cancellation (`AbortSignal`)?
+- `w.call()` for request/response over a worker: a built-in or a library pattern?
