@@ -1,0 +1,53 @@
+// Cancellation (spec §10.5): an aborted timer rejects with `AbortError` (checked like any
+// other error), an already aborted signal rejects right away, and timers that aren't
+// aborted resolve. Listeners run once; `AbortSignal.timeout` aborts by itself.
+// expect: start
+// expect: onabort
+// expect: listener
+// expect: aborted after 20ms: This operation was aborted (cause: user cancelled)
+// expect: fast done
+// expect: pre-aborted: true
+// expect: timed out: The operation timed out
+// expect: throwIfAborted: AbortError
+// expect: end
+import { delay } from "std/timers"
+
+async function slow(signal: AbortSignal): Promise<string> throws AbortError {
+  await delay(1000, signal)
+  "slow done"
+}
+
+async function main(): Promise<void> {
+  const ac = new AbortController()
+  ac.signal.onabort = () => println("onabort")
+  ac.signal.addEventListener("abort", () => println("listener"))
+  setTimeout(() => ac.abort(new Error("user cancelled")), 20)
+  try {
+    println(await slow(ac.signal))
+  } catch (e: AbortError) {
+    println(`aborted after 20ms: ${e.message} (cause: ${e.cause?.message ?? "none"})`)
+  }
+  ac.abort()
+  try! await delay(5, new AbortController().signal)
+  println("fast done")
+  try {
+    await delay(5, AbortSignal.abort())
+  } catch (e: AbortError) {
+    println(`pre-aborted: ${ac.signal.aborted}`)
+  }
+  const t = AbortSignal.timeout(10)
+  try {
+    await delay(500, t)
+  } catch (e: AbortError) {
+    println(`timed out: ${e.cause?.message ?? ""}`)
+  }
+  try {
+    t.throwIfAborted()
+  } catch (e: AbortError) {
+    println(`throwIfAborted: AbortError`)
+  }
+}
+
+println("start")
+await main()
+println("end")

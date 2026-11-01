@@ -1,0 +1,28 @@
+// `std/timers`: promise-based timers (spec §10.5) that can be cancelled with a signal.
+//
+// `import { delay } from "std/timers"`, then `await delay(100, ac.signal)`.
+
+/// Settles after `ms` milliseconds; rejects with `AbortError` as soon as `signal` is aborted
+/// (right away if it already is), and the timer is cleared.
+export function delay(ms: int, signal: AbortSignal? = null): Promise<void, AbortError> {
+  const p = new Promise<void, AbortError>()
+  if (signal != null) {
+    const r = signal.reason
+    if (signal.aborted && r != null) {
+      p.__reject(r)
+      return p
+    }
+  }
+  const id = setTimeout(() => p.__resolve(__void()), ms)
+  if (signal != null) {
+    const s: AbortSignal = signal
+    s.addEventListener("abort", () => {
+      clearTimeout(id)
+      const r = s.reason
+      if (r != null) {
+        p.__reject(r)
+      }
+    })
+  }
+  p
+}

@@ -97,3 +97,11 @@ const ac = new AbortController()
 setTimeout(() => ac.abort(), 5000)
 const res = await fetch(url, { signal: ac.signal })    // throws HttpError | AbortError
 ```
+- `AbortController` (`signal`, `abort(reason?: Error)`), `AbortSignal` (`aborted`, `reason`,
+  `onabort`, `addEventListener("abort", f)`, `throwIfAborted()`, static `abort(reason?)` and
+  `timeout(ms)`) and `AbortError` are globals. The `reason` is always an `AbortError`; the
+  reason passed to `abort` becomes its `cause` (Web code may abort with any value; ppl keeps the
+  thrown type precise instead).
+- Timers: `import { delay } from "std/timers"`; `delay(ms, signal?)` is a
+  `Promise<void, AbortError>` that rejects (and clears its timer) when the signal aborts, at once
+  if it already has. The callback timers (`setTimeout`) take no signal, as on the Web.

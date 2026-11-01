@@ -22,14 +22,17 @@ source_filename = "test.ppl"
 @ppl.classinfo.__Loop = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Promise = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.AsyncIterator = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.AbortError = internal constant { ptr, [0 x ptr] } { ptr @ppl.classinfo.Error, [0 x ptr] zeroinitializer }
+@ppl.classinfo.AbortSignal = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.AbortController = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Arena = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl_gc_requested = external global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
-@ppl.cstr.8 = private unnamed_addr constant [8 x i8] c"test.ppl"
+@ppl.cstr.9 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.str = private global { i64, i64, i64, i64, [4 x i8] } { i64 4, i64 4, i64 0, i64 0, [4 x i8] c"done" }, align 8
 @ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.layout.9 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.gc_globals = private constant { i64, [2 x { ptr, ptr, ptr }] } { i64 2, [2 x { ptr, ptr, ptr }] [{ ptr, ptr, ptr } { ptr null, ptr @ppl.layout, ptr @ppl.global.__finalizationRegistries }, { ptr, ptr, ptr } { ptr null, ptr @ppl.layout.9, ptr @ppl.global.__loop }] }
+@ppl.layout.10 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.gc_globals = private constant { i64, [2 x { ptr, ptr, ptr }] } { i64 2, [2 x { ptr, ptr, ptr }] [{ ptr, ptr, ptr } { ptr null, ptr @ppl.layout, ptr @ppl.global.__finalizationRegistries }, { ptr, ptr, ptr } { ptr null, ptr @ppl.layout.10, ptr @ppl.global.__loop }] }
 
 define internal i64 @ppl.fib(i64 %0) {
 start:
@@ -92,7 +95,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb2
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.8, i64 8, i32 3, i32 25)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.9, i64 8, i32 3, i32 25)
   unreachable
 
 ok:                                               ; preds = %bb2
@@ -103,7 +106,7 @@ ok:                                               ; preds = %bb2
   br label %bb4
 
 panic1:                                           ; preds = %bb4
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.8, i64 8, i32 3, i32 38)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.9, i64 8, i32 3, i32 38)
   unreachable
 
 ok2:                                              ; preds = %bb4
@@ -114,7 +117,7 @@ ok2:                                              ; preds = %bb4
   br label %bb5
 
 panic3:                                           ; preds = %bb5
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.8, i64 8, i32 3, i32 21)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.9, i64 8, i32 3, i32 21)
   unreachable
 
 ok4:                                              ; preds = %bb5

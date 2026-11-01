@@ -24,6 +24,7 @@ const users = await res.json<User[]>()        // typed, generated like JSON.pars
 ## 13.2 Modules
 | Module | Contents (draft) |
 |--------|------------------|
+| `std/timers` | `delay(ms, signal?)`: a cancellable promise timer (§10.5) |
 | `std/fs` | `readText`, `readBytes`, `writeText`, `writeBytes`, `open` (`File implements AsyncDisposable`), `readDir` (async iterator), `stat`, `mkdir`, `remove`, `rename`, `watch` |
 | `std/path` | `join`, `resolve`, `dirname`, `basename`, `extname`, `relative`, `sep` |
 | `std/process` | `args`, `env`, `exit`, `cwd`, `spawn`/`Command` (async), `stdin`/`stdout`/`stderr` streams |

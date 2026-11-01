@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P5.4: Cancellation** (see [PLAN.md](PLAN.md#p54-cancellation)).
+**P5.5: Workers** (see [PLAN.md](PLAN.md#p55-workers)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,10 +23,10 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 215 decisions, no open questions |
+| Spec | ✅ 16 chapters, 216 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P5.3) |
+| Last green `scripts/test.sh` | 2026-11-01 (P5.4) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -190,7 +190,7 @@ Notes:
 - [x] P5.1 Event loop
 - [x] P5.2 async/await
 - [x] P5.3 Async generators and `await using`
-- [ ] P5.4 Cancellation
+- [x] P5.4 Cancellation
 - [ ] P5.5 Workers
 - [ ] P5.6 Transferables, inline workers, pools
 
@@ -312,3 +312,4 @@ Notes:
 | 2026-11-01 | P5.1 | Event loop in the core library (`event.ppl`: timers, intervals, microtasks, JS ordering; finalizers when idle), `__clock_ms`/`__loop_wait` builtins over `ppl_loop.c` (kqueue/epoll), exit hook `__runEventLoop` (dropped when unused). Decision 213. Test: run/async/timers. |
 | 2026-11-01 | P5.2 | async functions/methods desugared to generator steps over `Promise<T, E>` (core library: executor ctor, `then`, `resolve`/`reject`/`all`/`race`/`allSettled`), checked rethrow, top-level `await`, unhandled rejections (exit 1), E0345; omitted trailing `void` args, `void`-expected lambdas. Decision 214. Tests: run/async/{ordering (= Node), basics, unhandled_rejection}, fail/async/{unhandled, await_outside}. |
 | 2026-11-01 | P5.3 | `async function*` over a core `AsyncIterator<T, E>`, `for await`, `await using` + `AsyncDisposable`; async results held until the step finishes; panic guards re-armed after `yield`; `x != null` for any type. Decision 215. Tests: run/async/{generators (§5.7 example), await_using (= Node)}, run/errors/generator_finally_panic. |
+| 2026-11-01 | P5.4 | `AbortController`/`AbortSignal`/`AbortError` (core), `std/timers` `delay(ms, signal?)` rejecting with `AbortError`. Decision 216. Test: run/async/abort. |

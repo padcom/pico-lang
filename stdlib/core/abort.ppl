@@ -1,0 +1,88 @@
+// Cancellation (spec §10.5), Web-standard: an `AbortController` aborts its `signal`, and
+// operations given the signal stop and throw `AbortError` (its `cause` is the reason given
+// to `abort`, if any).
+
+/// What an aborted operation throws.
+class AbortError extends Error {
+  constructor(message: string) {
+    super(message)
+  }
+  constructor(message: string, cause: Error?) {
+    super(message, cause)
+  }
+}
+
+/// Tells operations that they should stop (`AbortController.signal`).
+class AbortSignal {
+  public aborted: bool = false
+  /// Why it was aborted: an `AbortError` (with the reason as its `cause`).
+  public reason: AbortError? = null
+  /// Called once when it's aborted (`addEventListener("abort", …)` adds more).
+  public onabort: (() => void)? = null
+  listeners: (() => void)[] = []
+
+  constructor() {}
+
+  /// Calls `f` when the signal is aborted (`type` must be `"abort"`); right away (as a
+  /// microtask) if it already is.
+  public addEventListener(type: string, f: () => void): void {
+    if (type != "abort") {
+      return
+    }
+    if (this.aborted) {
+      queueMicrotask(f)
+      return
+    }
+    this.listeners.push(f)
+  }
+
+  /// Throws the `AbortError` if it has been aborted.
+  public throwIfAborted(): void throws AbortError {
+    const r = this.reason
+    if (this.aborted && r != null) {
+      throw r
+    }
+  }
+
+  public __abort(reason: Error?): void {
+    if (this.aborted) {
+      return
+    }
+    this.aborted = true
+    this.reason = new AbortError("This operation was aborted", reason)
+    const f = this.onabort
+    if (f != null) {
+      f()
+    }
+    const ls = this.listeners
+    this.listeners = []
+    for (const l of ls) {
+      l()
+    }
+  }
+
+  /// A signal that is already aborted.
+  public static abort(reason: Error? = null): AbortSignal {
+    const s = new AbortSignal()
+    s.__abort(reason)
+    s
+  }
+
+  /// A signal that aborts after `ms` milliseconds.
+  public static timeout(ms: int): AbortSignal {
+    const s = new AbortSignal()
+    setTimeout(() => s.__abort(new Error("The operation timed out")), ms)
+    s
+  }
+}
+
+class AbortController {
+  public signal: AbortSignal = new AbortSignal()
+
+  constructor() {}
+
+  /// Aborts the signal (once; later calls do nothing).
+  public abort(reason: Error? = null): void {
+    this.signal.__abort(reason)
+  }
+}
