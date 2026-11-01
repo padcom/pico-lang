@@ -304,10 +304,16 @@ impl Cx<'_> {
                 Local(locals.len() as u32 - 1)
             });
             let params: Vec<Local> = (0..=sig.params.len() as u32).map(Local).collect();
-            let args = params[1..]
+            let mut args: Vec<Operand> = params[1..]
                 .iter()
                 .map(|l| Operand::Copy(Place::local(*l)))
                 .collect();
+            // Called as a value, every argument is given.
+            for d in &self.program.func(f).defaults {
+                if d.is_some() {
+                    args.push(Operand::Const(Const::Bool(true)));
+                }
+            }
             fns.push(mir::Function {
                 name: format!("{}<value>", self.program.func(f).name),
                 params,
@@ -559,6 +565,15 @@ impl Cx<'_> {
                 params.push(Local(p.0));
             }
         }
+        // A flag per defaulted parameter: whether the caller gave it.
+        let mut defaulted = Vec::new();
+        for (k, d) in f.defaults.iter().enumerate() {
+            if d.is_some() {
+                let flag = b.temp(Ty::Bool);
+                params.push(flag);
+                defaulted.push((k, flag));
+            }
+        }
         if let (Some(e), Some(info)) = (env, &f.closure) {
             // The captures, from the environment.
             for (i, c) in info.captures.iter().enumerate() {
@@ -568,6 +583,23 @@ impl Cx<'_> {
                     f.span,
                 );
             }
+        }
+        for (k, flag) in defaulted {
+            // `if (!given) param = default`
+            let fill = b.new_block();
+            let go_on = b.new_block();
+            b.terminate(Terminator::Branch {
+                cond: Operand::Copy(Place::local(flag)),
+                then: go_on,
+                else_: fill,
+            });
+            b.switch_to(fill);
+            let d = f.defaults[k].as_ref().expect("defaulted");
+            let v = b.expr(d);
+            let p = b.place(Var::Local(f.params[k]));
+            b.assign(p, Rvalue::Use(v), d.span);
+            b.terminate(Terminator::Goto(go_on));
+            b.switch_to(go_on);
         }
         let value = b.block(&f.body);
         let ret = if f.is_entry {
@@ -1116,6 +1148,23 @@ impl FnBuilder<'_, '_> {
                 self.type_name(v, &t, e.span)
             }
             ExprKind::Var(v) => Operand::Copy(self.place(*v)),
+            ExprKind::Tailcall(inner) => {
+                let ExprKind::Call { callee, args, .. } = &inner.kind else {
+                    return Operand::Const(Const::Void);
+                };
+                let id = match &callee.kind {
+                    ExprKind::Fn(id) => *id,
+                    _ => self.cx.types.overloads[&inner.id],
+                };
+                let ops = self.call_operands(inner, id, args);
+                let loc = self.loc(e.span);
+                self.diverge(Terminator::TailCall {
+                    callee: id,
+                    args: ops,
+                    loc,
+                });
+                Operand::Const(Const::Void)
+            }
             ExprKind::Fn(id) if matches!(ty, Ty::Fn(..)) => {
                 let a = self.cx.fn_value(*id);
                 self.rvalue_to_temp(Rvalue::Closure(a, Vec::new()), ty, e.span)
@@ -1149,7 +1198,10 @@ impl FnBuilder<'_, '_> {
                 };
                 self.rvalue_to_temp(Rvalue::Closure(fid, caps), ty, e.span)
             }
-            ExprKind::Fn(_) | ExprKind::Builtin(_) | ExprKind::Error => Operand::Const(Const::Void),
+            ExprKind::Fn(_) | ExprKind::Builtin(_) | ExprKind::Overloaded(_) | ExprKind::Error => {
+                Operand::Const(Const::Void)
+            }
+            ExprKind::NamedArg { value, .. } | ExprKind::Spread(value) => self.expr(value),
             ExprKind::Unary(op, inner) => {
                 if *op == ast::UnOp::Neg
                     && let ExprKind::Int(v, _) = inner.kind
@@ -1320,17 +1372,19 @@ impl FnBuilder<'_, '_> {
                 self.read_place(place, e.span)
             }
             ExprKind::CtorCall { args, .. } => {
-                let ctor = self.cx.types.ctor_calls[&e.id];
-                let ctor = self.method_target(e, ctor);
+                let hctor = self.cx.types.ctor_calls[&e.id];
+                let ctor = self.method_target(e, hctor);
                 let (this, _) = self.hir_fn.this.expect("inside a constructor");
                 let mut ops = vec![Operand::Copy(self.place(hir::Var::Local(this)))];
-                ops.extend(args.iter().map(|a| self.expr(a)));
+                let rest = self.call_operands(e, hctor, args);
+                ops.extend(rest);
                 self.call_fn_value(ctor, ops, Ty::Void, e.span)
             }
             ExprKind::SuperCall { method, args } => {
                 let (this, _) = self.hir_fn.this.expect("inside a method");
                 let mut ops = vec![Operand::Copy(self.place(hir::Var::Local(this)))];
-                ops.extend(args.iter().map(|a| self.expr(a)));
+                let rest = self.call_operands(e, *method, args);
+                ops.extend(rest);
                 self.call_fn_value(*method, ops, ty, e.span)
             }
             ExprKind::InstanceOf { expr, class } => {
@@ -1340,10 +1394,11 @@ impl FnBuilder<'_, '_> {
             ExprKind::New { args, .. } => {
                 let cty = ty.clone();
                 let obj = self.rvalue_to_temp(Rvalue::New(cty.clone()), cty, e.span);
-                let ctor = self.cx.types.ctor_calls[&e.id];
-                let ctor = self.method_target(e, ctor);
+                let hctor = self.cx.types.ctor_calls[&e.id];
+                let ctor = self.method_target(e, hctor);
                 let mut ops = vec![obj.clone()];
-                ops.extend(args.iter().map(|a| self.expr(a)));
+                let rest = self.call_operands(e, hctor, args);
+                ops.extend(rest);
                 self.call_fn_value(ctor, ops, Ty::Void, e.span);
                 obj
             }
@@ -1530,6 +1585,10 @@ impl FnBuilder<'_, '_> {
                 let ret_has_value = !self.hir_fn.is_entry
                     && has_value(&self.cx.types.sigs[self.fn_id.0 as usize].ret);
                 let term = match v {
+                    // After a diverging value (`tailcall`, `panic`), the return is dead.
+                    Some((Operand::Const(Const::Void), _)) if ret_has_value => {
+                        Terminator::Unreachable
+                    }
                     Some((v, _)) if ret_has_value => Terminator::Return(Some(v)),
                     _ => Terminator::Return(None),
                 };
@@ -2486,6 +2545,61 @@ impl FnBuilder<'_, '_> {
         Operand::Copy(res)
     }
 
+    /// A call's argument operands for HIR function `f` (in parameter order, then a flag per
+    /// defaulted parameter saying whether it was given).
+    fn call_operands(&mut self, e: &Expr, f: FnId, args: &[Expr]) -> Vec<Operand> {
+        fn value(a: &Expr) -> &Expr {
+            match &a.kind {
+                ExprKind::NamedArg { value, .. } | ExprKind::Spread(value) => value,
+                _ => a,
+            }
+        }
+        let Some(slots) = self.cx.types.arg_slots.get(&e.id).cloned() else {
+            return args.iter().map(|a| self.expr(value(a))).collect();
+        };
+        let sig = self.cx.types.sigs[f.0 as usize].clone();
+        let hf = self.cx.program.func(f);
+        let mut tuples: HashMap<usize, Place> = HashMap::new();
+        let mut ops = Vec::new();
+        let mut flags = Vec::new();
+        for (k, slot) in slots.iter().enumerate() {
+            let pt = sig.params[k].clone();
+            let op = match slot {
+                ppl_sema::typeck::Slot::Arg(i) => self.expr(value(&args[*i])),
+                ppl_sema::typeck::Slot::Default => Operand::Const(Const::Undef(pt.clone())),
+                ppl_sema::typeck::Slot::Rest(is) => {
+                    let elem = match &pt {
+                        Ty::Array(t) => (**t).clone(),
+                        _ => Ty::Error,
+                    };
+                    let vals: Vec<Operand> = is.iter().map(|i| self.expr(&args[*i])).collect();
+                    self.rvalue_to_temp(Rvalue::ArrayNew(elem, vals), pt.clone(), e.span)
+                }
+                ppl_sema::typeck::Slot::RestSpread(i) => self.expr(value(&args[*i])),
+                ppl_sema::typeck::Slot::TupleElem(i, j) => {
+                    let place = match tuples.get(i) {
+                        Some(p) => p.clone(),
+                        None => {
+                            let p = self.place_of(value(&args[*i]));
+                            tuples.insert(*i, p.clone());
+                            p
+                        }
+                    };
+                    let v = Operand::Copy(place.field(*j));
+                    let et = self.place_ty(&place.field(*j));
+                    self.convert(v, &et, &pt, e.span)
+                }
+            };
+            ops.push(op);
+            if hf.defaults.get(k).is_some_and(Option::is_some) {
+                let given = !matches!(slot, ppl_sema::typeck::Slot::Default);
+                flags.push(Operand::Const(Const::Bool(given)));
+            }
+        }
+        ops.extend(flags);
+        ops
+    }
+
     /// The function a method or constructor call runs: an instance when the type (or the
     /// method) is generic.
     fn method_target(&mut self, e: &Expr, m: FnId) -> FnId {
@@ -2690,10 +2804,11 @@ impl FnBuilder<'_, '_> {
                     && matches!(self.ty_of(object), Ty::Class(..)) =>
             {
                 // A class method takes the object reference itself.
-                let m = self.cx.types.methods[&e.id];
-                let m = self.method_target(e, m);
+                let hm = self.cx.types.methods[&e.id];
+                let m = self.method_target(e, hm);
                 let mut ops = vec![self.expr(object)];
-                ops.extend(args.iter().map(|a| self.expr(a)));
+                let rest = self.call_operands(e, hm, args);
+                ops.extend(rest);
                 match self.cx.types.virtual_calls.get(&e.id) {
                     Some(&slot) => {
                         let loc = self.loc(e.span);
@@ -2719,14 +2834,15 @@ impl FnBuilder<'_, '_> {
                 }
             }
             ExprKind::Member { object, .. } if self.cx.types.methods.contains_key(&e.id) => {
-                let m = self.cx.types.methods[&e.id];
-                let m = self.method_target(e, m);
+                let hm = self.cx.types.methods[&e.id];
+                let m = self.method_target(e, hm);
                 let recv_ty = self.ty_of(object).clone();
                 let recv = self.place_of(object);
                 let this =
                     self.rvalue_to_temp(Rvalue::Ref(recv), Ty::Ref(Box::new(recv_ty)), e.span);
                 let mut ops = vec![this];
-                ops.extend(args.iter().map(|a| self.expr(a)));
+                let rest = self.call_operands(e, hm, args);
+                ops.extend(rest);
                 let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
                 let next = self.new_block();
                 self.terminate(Terminator::Call {
@@ -2755,8 +2871,12 @@ impl FnBuilder<'_, '_> {
                 let t = self.cx.types.final_ty(object.id).clone();
                 self.stringify(v, &t, e.span)
             }
-            ExprKind::Fn(id) => {
-                let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
+            ExprKind::Fn(_) | ExprKind::Overloaded(_) => {
+                let id = &match &callee.kind {
+                    ExprKind::Fn(id) => *id,
+                    _ => self.cx.types.overloads[&e.id],
+                };
+                let args: Vec<Operand> = self.call_operands(e, *id, args);
                 let id = match self.cx.types.instances.get(&e.id).cloned() {
                     Some(targs) => self.cx.instance(*id, vec![(id.0, targs)]),
                     None => *id,

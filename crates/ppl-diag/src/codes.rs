@@ -87,6 +87,9 @@ codes! {
     CONFLICTING_DEFAULTS = 328: "conflicting default methods from two interfaces",
     CANT_INFER = 329: "type argument that can't be inferred",
     UNSATISFIED_BOUND = 330: "type argument that doesn't meet its bound",
+    BAD_TAILCALL = 331: "`tailcall` that can't be a guaranteed tail call",
+    AMBIGUOUS_OVERLOAD = 332: "call that fits several overloads equally well",
+    NO_OVERLOAD = 333: "call that fits no overload",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

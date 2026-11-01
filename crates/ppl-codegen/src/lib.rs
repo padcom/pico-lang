@@ -834,6 +834,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 Const::Char(c) => self.i32().const_int(*c as u64, false).into(),
                 Const::Str(s) => self.str_literal(s).into(),
                 Const::Null(t) => self.ty(t)?.const_zero(),
+                Const::Undef(t) => self.ty(t)?.const_zero(),
                 Const::Void => return None,
             }),
         }
@@ -2586,6 +2587,27 @@ impl<'ctx> Gen<'ctx, '_> {
             }
             Terminator::Unreachable => {
                 self.b.build_unreachable().unwrap();
+            }
+            Terminator::TailCall { callee, args, .. } => {
+                let vals: Vec<BasicMetadataValueEnum> = args
+                    .iter()
+                    .filter_map(|a| self.operand(fx, a))
+                    .map(Into::into)
+                    .collect();
+                let call = self
+                    .b
+                    .build_call(self.fns[callee.0 as usize], &vals, "")
+                    .unwrap();
+                // Guaranteed: LLVM refuses a `musttail` it can't honor.
+                call.set_tail_call_kind(
+                    inkwell::values::LLVMTailCallKind::LLVMTailCallKindMustTail,
+                );
+                match call.try_as_basic_value() {
+                    inkwell::values::ValueKind::Basic(v) => {
+                        self.b.build_return(Some(&v as &dyn BasicValue)).unwrap()
+                    }
+                    _ => self.b.build_return(None).unwrap(),
+                };
             }
         }
     }

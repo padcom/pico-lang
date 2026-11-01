@@ -335,6 +335,11 @@ pub struct Function {
     pub generics: Vec<TypeParam>,
     /// A closure (arrow or function expression): what it captures, and the function it's in.
     pub closure: Option<ClosureInfo>,
+    /// Each parameter's default (`p = 1`, and `null` for `p?: T`), evaluated in the callee
+    /// (it may use earlier parameters) when the caller leaves the parameter out.
+    pub defaults: Vec<Option<Expr>>,
+    /// The last parameter is a rest parameter (`...xs: T[]`).
+    pub rest: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -718,6 +723,18 @@ pub enum ExprKind {
     },
     /// A closure value (the function is lifted; see `Function::closure`).
     Closure(FnId),
+    /// `name: value` as a call argument.
+    NamedArg {
+        name: String,
+        name_span: Span,
+        value: Box<Expr>,
+    },
+    /// `...value` as a call argument (an array into a rest parameter, or a tuple's elements).
+    Spread(Box<Expr>),
+    /// A name that refers to several overloaded functions (resolved at the call).
+    Overloaded(Vec<FnId>),
+    /// `tailcall f(args)`: a call that must reuse the caller's stack frame.
+    Tailcall(Box<Expr>),
     Break(Option<Box<Expr>>),
     Continue,
     Return(Option<Box<Expr>>),
@@ -765,7 +782,10 @@ impl Expr {
             | ExprKind::Builtin(_)
             | ExprKind::Continue
             | ExprKind::Closure(_)
+            | ExprKind::Overloaded(_)
             | ExprKind::Error => {}
+            ExprKind::NamedArg { value, .. } => f(value),
+            ExprKind::Spread(e) | ExprKind::Tailcall(e) => f(e),
             ExprKind::Unary(_, e)
             | ExprKind::As(e, _)
             | ExprKind::NonNull(e)

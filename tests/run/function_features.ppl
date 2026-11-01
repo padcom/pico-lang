@@ -1,0 +1,54 @@
+// expect: Hello, Ann! | Hi, Bob | Hello, Cy?
+// expect: 0 0 100 50
+// expect: 6 0 15
+// expect: 7
+// expect: 12 | 7
+// expect: string 3 | array 2 | int 9
+// expect: 500000500000
+// expect: 1 9
+// expect: 10 ok
+function greet(name: string, greeting = "Hello", suffix?: string): string {
+  `${greeting}, ${name}${suffix ?? ""}`
+}
+println(`${greet("Ann", suffix: "!")} | ${greet("Bob", "Hi")} | ${greet(suffix: "?", name: "Cy")}`)
+
+function drawRect(x: i32, y: i32, w: i32, h: i32): string { `${x} ${y} ${w} ${h}` }
+println(drawRect(x: 0, y: 0, w: 100, h: 50))
+
+function sum(...xs: i64[]): i64 {
+  let t = 0
+  for (const x of xs) t += x
+  t
+}
+const numbers: i64[] = [4, 5, 6]
+println(`${sum(1, 2, 3)} ${sum()} ${sum(...numbers)}`)
+
+function move(x: i32, y: i32): i32 { x + y }
+const pos: [i32, i32] = [3, 4]
+println(move(...pos))
+
+// Defaults can use earlier parameters.
+function area(w: i64, h = w): i64 { w * h }
+function scaled(v: i64, by: i64 = 2, plus = by * 2 + 1): i64 { v * by + plus }
+println(`${area(2, 6)} | ${scaled(1)}`)
+
+// Overloads: the most specific applicable one wins.
+function len(s: string): string { `string ${s.length}` }
+function len<T>(a: T[]): string { `array ${a.length}` }
+function len(n: i64): string { `int ${n}` }
+println(`${len("abc")} | ${len([1, 2])} | ${len(9)}`)
+
+// A guaranteed tail call runs in constant stack space.
+function loopUntil(n: i64, acc: i64): i64 {
+  if (n == 0) return acc
+  return tailcall loopUntil(n - 1, acc + n)
+}
+println(loopUntil(1000000, 0))
+
+class Painter {
+  public paint(color = "red", times: i32 = 1): string { `${times} ${color.length}` }
+}
+const p = new Painter()
+println(`${p.paint(times: 4).length - 2} ${p.paint("crimson", 9).length + 6}`)
+function opt(a: i64, b?: i64): string { if (b == null) `${a}` else `${a + b}` }
+println(`${opt(10)} ${if (opt(1, 2) == "3") "ok" else "bad"}`)

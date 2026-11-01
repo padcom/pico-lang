@@ -86,7 +86,8 @@ struct Resolver {
     fns: Vec<Option<Function>>,
     globals: Vec<Binding>,
     spans: Vec<Span>,
-    top_fns: HashMap<String, FnId>,
+    /// Top-level functions by name (several for overloads).
+    top_fns: HashMap<String, Vec<FnId>>,
     top_globals: HashMap<String, GlobalId>,
     globals_declared: HashSet<GlobalId>,
     f: FnState,
@@ -116,6 +117,7 @@ struct Resolver {
 enum Found {
     Var(Var),
     Fn(FnId),
+    Overloads(Vec<FnId>),
     Builtin(Builtin),
     /// A field or method of `this` (implicit member).
     Member(String),
@@ -244,12 +246,14 @@ impl Resolver {
                         if !d.decorators.is_empty() {
                             self.not_implemented(d.decorators[0].span, "decorators");
                         }
-                        if self.check_duplicate(&mut first_seen, name) {
+                        // Functions may share a name (overloads); anything else may not.
+                        let overload = self.top_fns.contains_key(&name.name);
+                        if !overload && self.check_duplicate(&mut first_seen, name) {
                             continue;
                         }
                         let id = FnId(self.fns.len() as u32);
                         self.fns.push(None);
-                        self.top_fns.insert(name.name.clone(), id);
+                        self.top_fns.entry(name.name.clone()).or_default().push(id);
                         fn_decls.push((id, f, None));
                     }
                 }
@@ -345,6 +349,40 @@ impl Resolver {
             let func = self.function(f, false, this);
             self.fns[id.0 as usize] = Some(func);
         }
+        // Overloads must differ in their parameter types.
+        let sets: Vec<Vec<FnId>> = self
+            .top_fns
+            .values()
+            .filter(|v| v.len() > 1)
+            .cloned()
+            .collect();
+        for set in sets {
+            for (i, a) in set.iter().enumerate() {
+                for b in &set[..i] {
+                    let tys = |r: &Resolver, f: FnId| -> Vec<Option<Ty>> {
+                        let func = r.fns[f.0 as usize].as_ref().expect("resolved");
+                        func.params
+                            .iter()
+                            .map(|p| func.local(*p).ty.clone())
+                            .collect()
+                    };
+                    if tys(self, *a) == tys(self, *b) {
+                        let (fa, fb) = (
+                            self.fns[a.0 as usize].as_ref().expect("resolved"),
+                            self.fns[b.0 as usize].as_ref().expect("resolved"),
+                        );
+                        let d = Diagnostic::error(
+                            codes::DUPLICATE_DECL,
+                            format!("`{}` is declared twice", fa.name),
+                        )
+                        .primary(fa.name_span, "declared again here")
+                        .secondary(fb.name_span, "first declared here")
+                        .note("overloads must differ in their parameter types");
+                        self.diags.push(d);
+                    }
+                }
+            }
+        }
         let mut static_inits = Vec::new();
         for c in &classes {
             for (id, f, this, is_abstract) in &c.methods {
@@ -416,6 +454,8 @@ impl Resolver {
             owner: None,
             generics: Vec::new(),
             closure: None,
+            defaults: Vec::new(),
+            rest: false,
         });
 
         Program {
@@ -768,6 +808,8 @@ impl Resolver {
             self.enter_type_params(sid);
         }
         let generics = self.type_params(&f.generics, &f.where_clause, self.cur_fn.0);
+        let mut defaults: Vec<Option<Expr>> = Vec::new();
+        let mut rest = false;
         if let Some(sid) = this_struct {
             let ty = self.struct_ty(sid);
             let id = LocalId(self.f.locals.len() as u32);
@@ -786,11 +828,24 @@ impl Resolver {
                 self.not_implemented(p.pat.span, "destructured parameters");
                 continue;
             };
-            if p.rest || p.optional || p.default.is_some() || p.comptime || !p.mods.is_empty() {
-                self.not_implemented(p.span, "optional, default, rest and comptime parameters");
+            if p.comptime || !p.mods.is_empty() {
+                self.not_implemented(p.span, "comptime parameters and parameter modifiers");
+            }
+            // A default sees the parameters before it.
+            let default = match (&p.default, p.optional) {
+                (Some(d), _) => Some(self.lower_expr(d)),
+                (None, true) => Some(self.expr(ExprKind::Null, p.span)),
+                (None, false) => None,
+            };
+            if p.rest {
+                rest = true;
             }
             let ty = match &p.ty {
-                Some(t) => Some(self.resolve_type(t)),
+                Some(t) => {
+                    let t = self.resolve_type(t);
+                    Some(if p.optional { t.nullable() } else { t })
+                }
+                None if p.default.is_some() => None,
                 None => {
                     self.diags.push(
                         Diagnostic::error(
@@ -803,6 +858,7 @@ impl Resolver {
                     Some(Ty::Error)
                 }
             };
+            defaults.push(default);
             if self.f.scopes[0].names.contains_key(&pname.name) {
                 self.error(
                     codes::DUPLICATE_DECL,
@@ -814,6 +870,14 @@ impl Resolver {
             }
             let id = self.declare_local(pname, true, ty);
             params.push(id);
+        }
+        if rest && !f.params.last().is_some_and(|p| p.rest) {
+            self.error(
+                codes::INVALID_ASSIGN_TARGET,
+                f.span,
+                "a rest parameter must be the last one",
+                "move `...` to the last parameter",
+            );
         }
         let ret = f.ret.as_ref().map(|t| self.resolve_type(t));
         let body = match &f.body {
@@ -853,6 +917,8 @@ impl Resolver {
             owner,
             generics,
             closure: None,
+            defaults,
+            rest,
         }
     }
 
@@ -1861,6 +1927,8 @@ impl Resolver {
             owner: Some(sid),
             generics: Vec::new(),
             closure: None,
+            defaults: Vec::new(),
+            rest: false,
         }
     }
 
@@ -1960,6 +2028,8 @@ impl Resolver {
             owner: Some(sid),
             generics: Vec::new(),
             closure: None,
+            defaults: Vec::new(),
+            rest: false,
         }
     }
 
@@ -2137,8 +2207,11 @@ impl Resolver {
             }
             return Some(Found::Var(Var::Global(g)));
         }
-        if let Some(&f) = self.top_fns.get(name) {
-            return Some(Found::Fn(f));
+        if let Some(fs) = self.top_fns.get(name) {
+            return Some(match fs.as_slice() {
+                [f] => Found::Fn(*f),
+                many => Found::Overloads(many.to_vec()),
+            });
         }
         if let Some(b) = Builtin::from_name(name) {
             return Some(Found::Builtin(b));
@@ -2409,6 +2482,8 @@ impl Resolver {
                 parent,
                 captures: st.captures,
             }),
+            defaults: Vec::new(),
+            rest: false,
         });
         ExprKind::Closure(id)
     }
@@ -2432,7 +2507,7 @@ impl Resolver {
     fn resolve_var(&mut self, name: &str, span: Span) -> Option<Var> {
         match self.lookup(name, span)? {
             Found::Var(v) => Some(v),
-            Found::Fn(_) | Found::Builtin(_) | Found::Member(_) => {
+            Found::Fn(_) | Found::Overloads(_) | Found::Builtin(_) | Found::Member(_) => {
                 self.error(
                     codes::NOT_A_VALUE,
                     span,
@@ -3139,6 +3214,7 @@ impl Resolver {
             A::Ident(name) => match self.lookup(name, span) {
                 Some(Found::Var(v)) => ExprKind::Var(v),
                 Some(Found::Fn(f)) => ExprKind::Fn(f),
+                Some(Found::Overloads(fs)) => ExprKind::Overloaded(fs),
                 Some(Found::Builtin(b)) => ExprKind::Builtin(b),
                 Some(Found::Member(field)) => {
                     let (this, _) = self.f.this.expect("member lookup implies a method");
@@ -3152,6 +3228,7 @@ impl Resolver {
                 None => ExprKind::Error,
             },
             A::Function(decl) => self.closure(decl, span),
+            A::Tailcall(inner) => ExprKind::Tailcall(Box::new(self.lower_expr(inner))),
             A::This => match self.this_here() {
                 Some((this, _)) => ExprKind::Var(Var::Local(this)),
                 None => {
@@ -3293,13 +3370,7 @@ impl Resolver {
                     );
                     return self.error_expr(span);
                 };
-                let mut out = Vec::new();
-                for a in args {
-                    if a.spread || a.name.is_some() {
-                        self.not_implemented(a.value.span, "named and spread arguments");
-                    }
-                    out.push(self.lower_expr(&a.value));
-                }
+                let out = self.call_args(args);
                 if self.structs[class.0 as usize].is_abstract {
                     let name = self.structs[class.0 as usize].name.clone();
                     self.error(
@@ -3437,13 +3508,7 @@ impl Resolver {
             } => {
                 let type_args = type_args.iter().map(|t| self.resolve_type(t)).collect();
                 let callee = self.lower_expr(callee);
-                let mut out = Vec::new();
-                for a in args {
-                    if a.spread || a.name.is_some() {
-                        self.not_implemented(a.value.span, "named and spread arguments");
-                    }
-                    out.push(self.lower_expr(&a.value));
-                }
+                let out = self.call_args(args);
                 ExprKind::Call {
                     callee: Box::new(callee),
                     args: out,
@@ -3558,7 +3623,6 @@ impl Resolver {
                     A::Try { .. } | A::TryOpt(_) | A::TryBang(_) | A::Throw(_) => "exceptions",
                     A::Await(_) => "`await`",
                     A::Yield { .. } => "generators",
-                    A::Tailcall(_) => "`tailcall`",
                     A::Comptime(_) => "`comptime`",
                     A::Unsafe(_) => "`unsafe`",
                     A::Arena(_) => "arenas",
@@ -3573,6 +3637,30 @@ impl Resolver {
 }
 
 impl Resolver {
+    /// Call arguments, with `name: value` and `...value` kept as such.
+    fn call_args(&mut self, args: &[ast::Arg]) -> Vec<Expr> {
+        args.iter()
+            .map(|a| {
+                let v = self.lower_expr(&a.value);
+                let span = a.value.span;
+                if a.spread {
+                    return self.expr(ExprKind::Spread(Box::new(v)), span);
+                }
+                match &a.name {
+                    Some(n) => self.expr(
+                        ExprKind::NamedArg {
+                            name: n.name.clone(),
+                            name_span: n.span,
+                            value: Box::new(v),
+                        },
+                        n.span.to(span),
+                    ),
+                    None => v,
+                }
+            })
+            .collect()
+    }
+
     /// Whether `name` refers to a variable (which shadows a type of the same name).
     fn is_value_name(&self, name: &str) -> bool {
         self.f.scopes.iter().any(|s| s.names.contains_key(name))

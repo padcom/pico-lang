@@ -278,6 +278,8 @@ pub enum Const {
     Str(String),
     /// `null` of the given `T?` type.
     Null(Ty),
+    /// Any value of the type (an argument left out, whose default the callee computes).
+    Undef(Ty),
     Void,
 }
 
@@ -289,7 +291,7 @@ impl Const {
             Const::Bool(_) => Ty::Bool,
             Const::Char(_) => Ty::Char,
             Const::Str(_) => Ty::Str,
-            Const::Null(t) => t.clone(),
+            Const::Null(t) | Const::Undef(t) => t.clone(),
             Const::Void => Ty::Void,
         }
     }
@@ -446,6 +448,13 @@ pub enum Terminator {
         next: BlockId,
         loc: Loc,
     },
+    /// `return tailcall f(args)`: calls `callee` in place of the current call (same
+    /// signature) and returns what it returns.
+    TailCall {
+        callee: FnId,
+        args: Vec<Operand>,
+        loc: Loc,
+    },
     /// `panic(msg)` or a failed `assert`.
     Panic {
         msg: Operand,
@@ -484,6 +493,7 @@ impl fmt::Display for Const {
             Const::Char(c) => write!(f, "{c:?}"),
             Const::Str(s) => write!(f, "{s:?}"),
             Const::Null(t) => write!(f, "null<{t}>"),
+            Const::Undef(t) => write!(f, "undef<{t}>"),
             Const::Void => write!(f, "()"),
         }
     }
@@ -632,6 +642,10 @@ pub fn dump(p: &Program) -> String {
                     }
                 }
                 Terminator::Panic { msg, loc } => format!("panic {msg} @{}:{}", loc.line, loc.col),
+                Terminator::TailCall { callee, args, .. } => {
+                    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+                    format!("tailcall {}({})", p.func(*callee).name, args.join(", "))
+                }
                 Terminator::Unreachable => "unreachable".to_string(),
             };
             let _ = writeln!(out, "    {term}");

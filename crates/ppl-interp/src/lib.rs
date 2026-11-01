@@ -46,6 +46,12 @@ pub enum Value {
     Uninit,
 }
 
+/// How a function's code ends: returning, or handing over to a tail call.
+enum Flow {
+    Return(Value),
+    Tail(FnId, Vec<Value>),
+}
+
 /// A class instance's storage.
 #[derive(Debug)]
 pub struct Obj {
@@ -144,15 +150,26 @@ impl Interp<'_, '_> {
             return Err(self.panic(panics::STACK_OVERFLOW, loc));
         }
         self.depth += 1;
-        let f = self.p.func(id);
-        let mut frame = Frame {
-            f,
-            locals: (0..f.locals.len()).map(|_| cell(Value::Uninit)).collect(),
+        // A `tailcall` replaces the frame instead of nesting, so its depth doesn't grow.
+        let (mut id, mut args) = (id, args);
+        let r = loop {
+            let f = self.p.func(id);
+            let mut frame = Frame {
+                f,
+                locals: (0..f.locals.len()).map(|_| cell(Value::Uninit)).collect(),
+            };
+            for (p, a) in f.params.iter().zip(args) {
+                *frame.locals[p.0 as usize].borrow_mut() = a;
+            }
+            match self.exec(&mut frame) {
+                Ok(Flow::Return(v)) => break Ok(v),
+                Ok(Flow::Tail(next, a)) => {
+                    id = next;
+                    args = a;
+                }
+                Err(p) => break Err(p),
+            }
         };
-        for (p, a) in f.params.iter().zip(args) {
-            *frame.locals[p.0 as usize].borrow_mut() = a;
-        }
-        let r = self.exec(&mut frame);
         self.depth -= 1;
         r
     }
@@ -229,6 +246,7 @@ impl Interp<'_, '_> {
                 Const::Char(c) => Value::Char(*c),
                 Const::Str(s) => Value::Str(s.as_str().into()),
                 Const::Null(_) => Value::Null,
+                Const::Undef(_) => Value::Uninit,
                 Const::Void => Value::Void,
             },
         }
@@ -241,7 +259,7 @@ impl Interp<'_, '_> {
         }
     }
 
-    fn exec(&mut self, frame: &mut Frame) -> Result<Value, Panic> {
+    fn exec(&mut self, frame: &mut Frame) -> Result<Flow, Panic> {
         let mut bb = mir::BlockId(0);
         loop {
             let block = frame.f.block(bb);
@@ -258,7 +276,13 @@ impl Interp<'_, '_> {
                     }
                 }
                 Terminator::Return(v) => {
-                    return Ok(v.as_ref().map_or(Value::Void, |o| self.operand(frame, o)));
+                    return Ok(Flow::Return(
+                        v.as_ref().map_or(Value::Void, |o| self.operand(frame, o)),
+                    ));
+                }
+                Terminator::TailCall { callee, args, .. } => {
+                    let vals = args.iter().map(|a| self.operand(frame, a)).collect();
+                    return Ok(Flow::Tail(*callee, vals));
                 }
                 Terminator::Call {
                     callee,

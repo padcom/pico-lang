@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.16: Function features** (see [PLAN.md](PLAN.md#p316-function-features))
+**P3.17: Operators and equality protocols** (see [PLAN.md](PLAN.md#p317-operators-and-equality-protocols))
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.15) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.16) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -121,7 +121,7 @@ Notes:
 - [x] P3.13 Generics I: functions
 - [x] P3.14 Generics II: types and where
 - [x] P3.15 Closures
-- [ ] P3.16 Function features
+- [x] P3.16 Function features
 - [ ] P3.17 Operators and equality protocols
 - [ ] P3.18 Distinct types, aliases, immutability
 - [ ] P3.19 Exceptions I
@@ -246,3 +246,4 @@ Notes:
 | 2026-11-01 | P3.13 | Generic functions: Ty::Param(fn, index, name) + subst/has_params; HIR TypeParam/Bound (Comparable, Equatable, interfaces; `extends`, `where`, `&`), explicit type args on calls; typeck call_generic (3-pass inference + unify, E0329/E0330), operations on parameters via bounds (`compareTo`/`equals`, comparisons, interface methods → param_calls), Types::substituted; lowering worklist of instances (`f<i64>`), placeholder for generic bodies, param_call per concrete type (primitive compare → -1/0/1, struct/class/interface methods). MIR snapshot `generic_instances`. Decision 191. Fixtures: run/generics (max<T> over ints, floats, strings, chars), fail/types/generics. |
 | 2026-11-01 | P3.14 | Generic structs/classes: type args in Ty::Struct/Class/Iface (mechanical change), StructDef.generics with defaults, identity instantiation for `this`; resolver `Name<…>` in types/`new`/literals, generic methods, global annotations deferred until types are declared; typeck field types substituted by receiver args, call_inferring (shared by generic fns, methods of generic types, generic constructors via `new` with expected-type args), struct literal inference, unify through type args; lowering multi-owner substitutions (`Stack<i64>.push`, `Box<i64>.map<string>`), method_target; MIR New/Aggregate(Ty), projections substitute; codegen per-instantiation LLVM types. Decision 192. Fixtures: run/generic_types (Stack<T>, Pair<A, B>, defaults, generic method, Node<T> list), fail/names/generic_types, fail/types/generic_types. |
 | 2026-11-01 | P3.15 | Closures: Ty::Fn and `(x: T) => U` types; resolver lifts arrows/function expressions (ExprKind::Closure, Function.closure with captures), capture lookup through enclosing functions (by value for const, boxing captured lets/params), arrow `this` capture, per-iteration rebox for captured C-style `for (let …)` variables; typeck closure checking with contextual parameter types, named functions as values, calls through function values; MIR Rvalue::Closure/BoxNew, Callee::Indirect, env as first parameter, boxed locals via Ref/deref, function-value adapters; interpreter Value::Closure; codegen `{fnptr, env}` with heap environments and indirect calls. Entry function id is now reserved before top-level resolution. Decision 193. Fixtures: run/closures (§5.5 counter, loop-variable closures, makeAdder, shared lets, method arrows), fail/types/closures. |
+| 2026-11-01 | P3.16 | Named arguments, defaults (callee-evaluated with hidden flags; may use earlier params), optional `?` params, rest params and `...array`/`...tuple` spreads via typeck `Slot`s (`map_args`/`check_slots`) and lowering `call_operands`; overload sets for top-level functions with applicability + specificity resolution (E0332/E0333, same-signature duplicates still E0203); `tailcall` (E0331) as MIR Terminator::TailCall → LLVM musttail / interpreter frame reuse (1,000,000-deep recursion runs). Const::Undef for omitted arguments. Decision 194. Fixtures: run/function_features, fail/types/function_features. |

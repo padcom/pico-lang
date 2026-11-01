@@ -74,8 +74,27 @@ pub struct Types {
     /// Calls of methods and constructors of generic types (and `new` of a generic class):
     /// the type's arguments.
     pub recv_args: HashMap<ExprId, Vec<Ty>>,
+    /// How each call's arguments fill the callee's parameters.
+    pub arg_slots: HashMap<ExprId, Vec<Slot>>,
+    /// The overload each call of an overloaded name picked.
+    pub overloads: HashMap<ExprId, FnId>,
     /// Method calls on a value whose type is a type parameter: the method's name.
     pub param_calls: HashMap<ExprId, String>,
+}
+
+/// Where a parameter's value comes from at a call.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Slot {
+    /// Argument `i` (its value, if it's `name: value`).
+    Arg(usize),
+    /// Left out: the callee evaluates the default.
+    Default,
+    /// The rest parameter: these arguments, collected into an array.
+    Rest(Vec<usize>),
+    /// The rest parameter: argument `i` is `...array`.
+    RestSpread(usize),
+    /// Element `k` of argument `i`, which spreads a tuple (`...pair`).
+    TupleElem(usize, u32),
 }
 
 impl Types {
@@ -128,6 +147,8 @@ impl Types {
                 .map(|(k, ts)| (*k, ts.iter().map(s).collect()))
                 .collect(),
             param_calls: self.param_calls.clone(),
+            arg_slots: self.arg_slots.clone(),
+            overloads: self.overloads.clone(),
         }
     }
 }
@@ -177,10 +198,14 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             union_tests: HashMap::new(),
             instances: HashMap::new(),
             recv_args: HashMap::new(),
+            arg_slots: HashMap::new(),
+            overloads: HashMap::new(),
             param_calls: HashMap::new(),
         },
         narrow: Vec::new(),
         recv_args: Vec::new(),
+        tail_position: false,
+        tail_body: false,
         diags: Vec::new(),
         state: vec![FnState::Unchecked; program.fns.len()],
         global_known: vec![false; program.globals.len()],
@@ -269,6 +294,10 @@ struct Checker<'p> {
     stack: Vec<FnCtx>,
     /// The type arguments of the receiver whose field `field` looks up.
     recv_args: Vec<Ty>,
+    /// The expression being checked is the function's result (where `tailcall` may be).
+    tail_position: bool,
+    /// The next block checked is a function body (its tail is the result).
+    tail_body: bool,
     /// Flow-sensitive narrowing: scopes mapping variables to the type they're known to have
     /// (`T` for a `T?` binding after `x != null`).
     narrow: Vec<HashMap<Var, Ty>>,
@@ -534,7 +563,7 @@ impl<'p> Checker<'p> {
 
     /// Accepts `found` where `want` is expected, recording a widening if needed.
     fn coerce(&mut self, e: &Expr, found: Ty, want: &Expect) -> Ty {
-        if found == want.ty || found == Ty::Never || found.is_error() {
+        if found == want.ty || found == Ty::Never || found.is_error() || want.ty.is_error() {
             return want.ty.clone();
         }
         let into_union = match &want.ty {
@@ -789,10 +818,13 @@ impl<'p> Checker<'p> {
         let body_ty = match (&f.ret, f.is_entry) {
             (_, true) | (Some(Ty::Void), _) => {
                 // The value of the last expression is discarded.
+                self.check_defaults(f);
                 self.block(&f.body, None)
             }
             (Some(t), false) => {
                 let want = Expect::from(t.clone(), f.ret_span);
+                self.check_defaults(f);
+                self.tail_body = true;
                 let bt = self.block(&f.body, Some(&want));
                 if f.body.tail.is_none() && bt != Ty::Never && *t != Ty::Void && !t.is_error() {
                     self.diags.push(
@@ -810,7 +842,11 @@ impl<'p> Checker<'p> {
                 }
                 bt
             }
-            (None, false) => self.block(&f.body, None),
+            (None, false) => {
+                self.check_defaults(f);
+                self.tail_body = true;
+                self.block(&f.body, None)
+            }
         };
         if let Some((this, sid)) = f.this
             && f.name.ends_with(".constructor")
@@ -883,6 +919,26 @@ impl<'p> Checker<'p> {
                     .primary(fun.name_span, format!("has type `{}`", show(a)))
                     .secondary(bfun.name_span, format!("`{}` is `{}`", bfun.name, show(b))),
                 );
+            }
+        }
+    }
+
+    /// Parameter defaults, checked against the parameter types (an untyped parameter with a
+    /// default takes the default's type).
+    fn check_defaults(&mut self, f: &Function) {
+        let id = self.stack.last().expect("inside a function").id;
+        for (k, d) in f.defaults.iter().enumerate() {
+            let Some(d) = d else { continue };
+            let p = f.params[k];
+            match &f.local(p).ty {
+                Some(t) => {
+                    self.check(d, &Expect::from(t.clone(), Some(f.local(p).span)));
+                }
+                None => {
+                    let t = self.infer(d);
+                    self.types.locals[id.0 as usize][p.0 as usize] = t.clone();
+                    self.types.sigs[id.0 as usize].params[k] = t;
+                }
             }
         }
     }
@@ -973,6 +1029,8 @@ impl<'p> Checker<'p> {
     // ------------------------------------------------------------ blocks and statements
 
     fn block(&mut self, b: &Block, want: Option<&Expect>) -> Ty {
+        // Only the function body's own tail is in tail position.
+        let tail_body = std::mem::take(&mut self.tail_body);
         self.narrow.push(HashMap::new());
         let mut diverges = false;
         for s in &b.stmts {
@@ -987,10 +1045,13 @@ impl<'p> Checker<'p> {
             }
         }
         let t = match &b.tail {
-            Some(t) => match want {
-                Some(w) => self.check(t, w),
-                None => self.infer(t),
-            },
+            Some(t) => {
+                self.tail_position = tail_body && matches!(t.kind, ExprKind::Tailcall(_));
+                match want {
+                    Some(w) => self.check(t, w),
+                    None => self.infer(t),
+                }
+            }
             None if diverges => Ty::Never,
             None => Ty::Void,
         };
@@ -1210,6 +1271,28 @@ impl<'p> Checker<'p> {
                 Ty::Error
             }
             ExprKind::Closure(id) => self.closure(e, *id, want),
+            ExprKind::Overloaded(_) => {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::NOT_IMPLEMENTED,
+                        "overloaded functions as values aren't implemented yet",
+                    )
+                    .primary(e.span, "call it instead"),
+                );
+                Ty::Error
+            }
+            ExprKind::NamedArg { value, .. } | ExprKind::Spread(value) => {
+                self.infer(value);
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::INVALID_OPERANDS,
+                        "named and spread arguments only work in calls",
+                    )
+                    .primary(e.span, "not a call argument"),
+                );
+                Ty::Error
+            }
+            ExprKind::Tailcall(inner) => self.tailcall(e, inner, want),
             ExprKind::Unary(op, inner) => self.unary(e, *op, inner, want),
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, want),
             ExprKind::Assign { op, target, value } => {
@@ -1249,6 +1332,17 @@ impl<'p> Checker<'p> {
                 args,
                 type_args,
             } => {
+                if let ExprKind::Overloaded(cands) = &callee.kind {
+                    self.set(callee, Ty::Void);
+                    let Some(id) = self.pick_overload(e, cands, args) else {
+                        return Ty::Error;
+                    };
+                    self.types.overloads.insert(e.id, id);
+                    if !self.program.func(id).generics.is_empty() {
+                        return self.call_generic(e, id, args, type_args);
+                    }
+                    return self.call_fn(e, id, args);
+                }
                 if let ExprKind::Fn(id) = callee.kind
                     && !self.program.func(id).generics.is_empty()
                 {
@@ -2604,6 +2698,62 @@ impl<'p> Checker<'p> {
         Ty::Fn(sig.params.into(), Box::new(sig.ret))
     }
 
+    /// `tailcall f(args)`: only as the result of the function, calling a function with the
+    /// same parameter and return types (so the call can reuse the frame).
+    fn tailcall(&mut self, e: &Expr, inner: &Expr, want: Option<&Expect>) -> Ty {
+        let in_tail = std::mem::take(&mut self.tail_position);
+        let t = self.infer_with(inner, want);
+        let target = match &inner.kind {
+            ExprKind::Call { callee, .. } => match &callee.kind {
+                ExprKind::Fn(id) => Some(*id),
+                ExprKind::Overloaded(_) => self.types.overloads.get(&inner.id).copied(),
+                _ => None,
+            },
+            _ => None,
+        };
+        let me = self.stack.last().expect("inside a function").id;
+        let problem = match target {
+            _ if !in_tail => Some(
+                "`tailcall` must be the function's result (`return tailcall f(…)`)".to_string(),
+            ),
+            None => Some("`tailcall` needs a direct call of a named function".to_string()),
+            Some(id) => {
+                let (a, b) = (
+                    &self.types.sigs[id.0 as usize],
+                    &self.types.sigs[me.0 as usize],
+                );
+                let f = self.program.func(id);
+                let g = self.program.func(me);
+                if a.params != b.params || a.ret != b.ret {
+                    Some(format!(
+                        "`{}` must take and return the same types as this function",
+                        f.name
+                    ))
+                } else if !f.generics.is_empty()
+                    || f.rest
+                    || f.defaults.iter().any(Option::is_some)
+                    || g.rest
+                    || g.defaults.iter().any(Option::is_some)
+                    || f.this.is_some()
+                    || g.this.is_some()
+                    || f.closure.is_some()
+                    || g.closure.is_some()
+                {
+                    Some("`tailcall` works between plain functions without defaults or rest parameters".to_string())
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some(msg) = problem {
+            self.diags.push(
+                Diagnostic::error(codes::BAD_TAILCALL, msg)
+                    .primary(e.span, "can't be a guaranteed tail call"),
+            );
+        }
+        t
+    }
+
     /// `a ?? b`: `b` is used when `a` is null.
     fn nullish(&mut self, l: &Expr, r: &Expr, want: Option<&Expect>) -> Ty {
         let lt = match want {
@@ -3761,6 +3911,7 @@ impl<'p> Checker<'p> {
         };
         match (declared, value) {
             (Some((t, origin)), Some(v)) => {
+                self.tail_position = matches!(v.kind, ExprKind::Tailcall(_));
                 if t == Ty::Void {
                     self.infer(v);
                 } else {
@@ -3794,6 +3945,11 @@ impl<'p> Checker<'p> {
     /// argument) and returns its result type.
     fn call_fn(&mut self, e: &Expr, id: FnId, args: &[Expr]) -> Ty {
         let f = self.program.func(id);
+        // Parameters typed by their defaults need the callee checked first.
+        let untyped = f.params.iter().any(|p| f.local(*p).ty.is_none());
+        if untyped && f.ret.is_some() && self.state[id.0 as usize] == FnState::Unchecked {
+            self.check_fn(id);
+        }
         if f.ret.is_none() {
             match self.state[id.0 as usize] {
                 FnState::InProgress => {
@@ -3814,31 +3970,297 @@ impl<'p> Checker<'p> {
             }
         }
         let sig = self.types.sigs[id.0 as usize].clone();
-        if args.len() != sig.params.len() {
-            self.diags.push(
-                Diagnostic::error(
-                    codes::WRONG_ARG_COUNT,
-                    format!(
-                        "`{}` takes {} argument{}, but {} were given",
-                        f.name,
-                        sig.params.len(),
-                        if sig.params.len() == 1 { "" } else { "s" },
-                        args.len()
-                    ),
-                )
-                .primary(e.span, "wrong number of arguments")
-                .secondary(f.name_span, "declared here"),
-            );
-            for a in args {
-                self.infer(a);
-            }
-            return sig.ret;
-        }
-        for (a, (p, pid)) in args.iter().zip(sig.params.iter().zip(&f.params)) {
-            let origin = Some(f.local(*pid).span);
-            self.check(a, &Expect::from(p.clone(), origin));
+        if let Some(slots) = self.map_args(e, id, &sig.params, args, false) {
+            self.check_slots(id, &sig.params, args, &slots);
+            self.types.arg_slots.insert(e.id, slots);
         }
         sig.ret
+    }
+
+    /// The expression an argument passes (inside `name: value` and `...value`).
+    fn arg_value(a: &Expr) -> &Expr {
+        match &a.kind {
+            ExprKind::NamedArg { value, .. } | ExprKind::Spread(value) => value,
+            _ => a,
+        }
+    }
+
+    /// Matches a call's arguments to the parameters of `id` (positional, then named; rest
+    /// arguments; `...tuple` and `...array` spreads; defaults for the rest). With `quiet`,
+    /// only says whether it fits.
+    fn map_args(
+        &mut self,
+        e: &Expr,
+        id: FnId,
+        params: &[Ty],
+        args: &[Expr],
+        quiet: bool,
+    ) -> Option<Vec<Slot>> {
+        let f = self.program.func(id);
+        let mark = self.diags.len();
+        let n = params.len();
+        let fixed = if f.rest { n.saturating_sub(1) } else { n };
+        let mut slots: Vec<Option<Slot>> = vec![None; n];
+        let mut next = 0;
+        let mut rest_args = Vec::new();
+        let mut rest_spread = None;
+        let mut named_seen = false;
+        let names: Vec<&str> = f.params.iter().map(|p| f.local(*p).name.as_str()).collect();
+        let fail = |c: &mut Self, span: Span, msg: String, label: &str| {
+            c.diags.push(
+                Diagnostic::error(codes::WRONG_ARG_COUNT, msg).primary(span, label.to_string()),
+            );
+        };
+        for (i, a) in args.iter().enumerate() {
+            match &a.kind {
+                ExprKind::NamedArg {
+                    name, name_span, ..
+                } => {
+                    named_seen = true;
+                    match names.iter().position(|n| n == name) {
+                        Some(k) if slots[k].is_some() => fail(
+                            self,
+                            *name_span,
+                            format!("`{name}` is given twice"),
+                            "already given",
+                        ),
+                        Some(k) => slots[k] = Some(Slot::Arg(i)),
+                        None => fail(
+                            self,
+                            *name_span,
+                            format!("`{}` has no parameter `{name}`", f.name),
+                            "unknown parameter",
+                        ),
+                    }
+                }
+                _ if named_seen => {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::POSITIONAL_AFTER_NAMED,
+                            "positional argument after a named one",
+                        )
+                        .primary(a.span, "move it before the named arguments"),
+                    );
+                }
+                ExprKind::Spread(inner) => match self.infer(inner) {
+                    Ty::Tuple(ts) => {
+                        for k in 0..ts.len() {
+                            if next < fixed {
+                                slots[next] = Some(Slot::TupleElem(i, k as u32));
+                                next += 1;
+                            } else {
+                                fail(
+                                    self,
+                                    a.span,
+                                    format!(
+                                        "`{}` takes {fixed} positional argument{}",
+                                        f.name,
+                                        if fixed == 1 { "" } else { "s" }
+                                    ),
+                                    "the tuple has too many elements",
+                                );
+                                break;
+                            }
+                        }
+                    }
+                    Ty::Array(_) if f.rest && next >= fixed && rest_args.is_empty() => {
+                        rest_spread = Some(i)
+                    }
+                    Ty::Error => {}
+                    t => fail(
+                        self,
+                        a.span,
+                        format!("can't spread a `{t}` here"),
+                        "spread a tuple into parameters, or an array into a rest parameter",
+                    ),
+                },
+                _ if next < fixed => {
+                    slots[next] = Some(Slot::Arg(i));
+                    next += 1;
+                }
+                _ if f.rest => rest_args.push(i),
+                _ => fail(
+                    self,
+                    e.span,
+                    format!(
+                        "`{}` takes {n} argument{}, but {} were given",
+                        f.name,
+                        if n == 1 { "" } else { "s" },
+                        args.len()
+                    ),
+                    "extra argument",
+                ),
+            }
+        }
+        if f.rest && n > 0 {
+            slots[n - 1] = Some(match rest_spread {
+                Some(i) => Slot::RestSpread(i),
+                None => Slot::Rest(rest_args),
+            });
+        }
+        #[allow(clippy::needless_range_loop)]
+        for k in 0..n {
+            if slots[k].is_none() {
+                if f.defaults.get(k).is_some_and(Option::is_some) {
+                    slots[k] = Some(Slot::Default);
+                } else {
+                    let missing = names.get(k).copied().unwrap_or("?").to_string();
+                    fail(
+                        self,
+                        e.span,
+                        format!("missing argument `{missing}` for `{}`", f.name),
+                        "not enough arguments",
+                    );
+                }
+            }
+        }
+        if self.diags.len() > mark {
+            if quiet {
+                self.diags.truncate(mark);
+            }
+            for a in args {
+                if !quiet && !matches!(a.kind, ExprKind::Spread(_)) {
+                    self.infer(Self::arg_value(a));
+                }
+            }
+            return None;
+        }
+        Some(slots.into_iter().map(|s| s.expect("filled")).collect())
+    }
+
+    /// Checks the arguments that fill each parameter.
+    fn check_slots(&mut self, id: FnId, params: &[Ty], args: &[Expr], slots: &[Slot]) {
+        let f = self.program.func(id);
+        for (k, slot) in slots.iter().enumerate() {
+            let p = &params[k];
+            let origin = f.params.get(k).map(|pid| f.local(*pid).span);
+            match slot {
+                Slot::Arg(i) => {
+                    self.check(Self::arg_value(&args[*i]), &Expect::from(p.clone(), origin));
+                }
+                Slot::Rest(is) => {
+                    let elem = match p {
+                        Ty::Array(t) => (**t).clone(),
+                        _ => Ty::Error,
+                    };
+                    for i in is {
+                        self.check(&args[*i], &Expect::from(elem.clone(), origin));
+                    }
+                }
+                Slot::RestSpread(i) | Slot::TupleElem(i, _) => {
+                    let inner = Self::arg_value(&args[*i]);
+                    let t = self.types.expr(inner.id).clone();
+                    let elem = match (slot, &t) {
+                        (Slot::TupleElem(_, k), Ty::Tuple(ts)) => ts[*k as usize].clone(),
+                        _ => t,
+                    };
+                    if elem != *p && !elem.widens_to(p) && !elem.is_error() {
+                        self.mismatch(inner.span, &Expect::from(p.clone(), origin), &elem);
+                    }
+                }
+                Slot::Default => {}
+            }
+        }
+    }
+
+    /// Picks the overload a call means: the applicable candidates (by argument count, names
+    /// and types), then the most specific (each of its parameter types converts to the
+    /// other's). Several equally specific ones are an error.
+    fn pick_overload(&mut self, e: &Expr, cands: &[FnId], args: &[Expr]) -> Option<FnId> {
+        for c in cands {
+            if self.program.func(*c).ret.is_none() && self.state[c.0 as usize] == FnState::Unchecked
+            {
+                self.check_fn(*c);
+            }
+        }
+        // Argument types (literals are flexible: they fit any type that can hold them).
+        let tys: Vec<Option<Ty>> = args
+            .iter()
+            .map(|a| {
+                let v = Self::arg_value(a);
+                (!needs_context(v)).then(|| self.infer(v))
+            })
+            .collect();
+        let mut ok: Vec<(FnId, Vec<Ty>)> = Vec::new();
+        for c in cands {
+            let sig = self.types.sigs[c.0 as usize].clone();
+            let Some(slots) = self.map_args(e, *c, &sig.params, args, true) else {
+                continue;
+            };
+            let mut fits = true;
+            let mut used = Vec::new();
+            for (k, slot) in slots.iter().enumerate() {
+                let p = &sig.params[k];
+                if let Slot::Arg(i) = slot {
+                    used.push(p.clone());
+                    let fit = match &tys[*i] {
+                        Some(t) => {
+                            t == p
+                                || t.widens_to(p)
+                                || self.upcasts(t, p)
+                                || p.has_any_params()
+                                || t.is_error()
+                        }
+                        None => self.literal_fits(Self::arg_value(&args[*i]), p),
+                    };
+                    fits &= fit;
+                }
+            }
+            if fits {
+                ok.push((*c, used));
+            }
+        }
+        let more_specific = |a: &[Ty], b: &[Ty]| {
+            a.iter()
+                .zip(b)
+                .all(|(x, y)| x == y || x.widens_to(y) || y.has_any_params() && !x.has_any_params())
+        };
+        let best: Vec<&(FnId, Vec<Ty>)> = ok
+            .iter()
+            .filter(|(f, a)| ok.iter().all(|(g, b)| f == g || more_specific(a, b)))
+            .collect();
+        match (best.as_slice(), ok.len()) {
+            ([one], _) => Some(one.0),
+            (_, 0) => {
+                let name = self.program.func(cands[0]).name.clone();
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::NO_OVERLOAD,
+                        format!("no overload of `{name}` takes these arguments"),
+                    )
+                    .primary(e.span, "no matching overload"),
+                );
+                None
+            }
+            _ => {
+                let name = self.program.func(cands[0]).name.clone();
+                let mut d = Diagnostic::error(
+                    codes::AMBIGUOUS_OVERLOAD,
+                    format!("ambiguous call of `{name}`"),
+                )
+                .primary(e.span, "several overloads fit equally well");
+                for (f, _) in &ok {
+                    d = d.secondary(self.program.func(*f).name_span, "this one fits");
+                }
+                self.diags.push(d);
+                None
+            }
+        }
+    }
+
+    /// Whether an untyped literal (or `[]`, `null`, `{…}`) could be a `t`.
+    fn literal_fits(&self, e: &Expr, t: &Ty) -> bool {
+        match (&e.kind, t.erase()) {
+            (_, Ty::Error) => true,
+            (ExprKind::Int(v, _), Ty::Int(it)) => it.contains(*v as i128),
+            (ExprKind::Int(..) | ExprKind::Float(..), Ty::Float(_)) => true,
+            (ExprKind::Unary(UnOp::Neg, inner), _) => self.literal_fits(inner, t),
+            (ExprKind::Null, Ty::Nullable(_)) => true,
+            (ExprKind::Array(xs), Ty::Array(_)) if xs.is_empty() => true,
+            (ExprKind::Object { .. }, Ty::Struct(..) | Ty::Enum(..)) => true,
+            (_, Ty::Param(..)) => true,
+            _ => false,
+        }
     }
 
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr]) -> Ty {

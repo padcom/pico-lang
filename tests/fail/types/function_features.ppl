@@ -1,0 +1,28 @@
+// error: E0332
+// at: 21:13
+// error: E0302
+// at: 23:11
+// error: E0302
+// at: 24:11
+// error: E0302
+// at: 24:19
+// error: E0302
+// at: 25:11
+// error: E0302
+// at: 25:16
+// error: E0331
+// at: 26:46
+// error: E0331
+// at: 27:34
+// error: E0333
+// at: 28:14
+function f(a: i64, b: f64): string { "1" }
+function f(a: f64, b: i64): string { "2" }
+const amb = f(1, 2)
+function g(x: i32, y: i32): i32 { x + y }
+const m = g(1)
+const n = g(x: 1, z: 2)
+const o = g(1, x: 2)
+function h(n: i64): i64 { if (n == 0) 0 else tailcall h(n - 1) + 1 }
+function k(n: i64): i64 { return tailcall g(1, 2) }
+const none = f("a", "b")
