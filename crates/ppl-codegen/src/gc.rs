@@ -400,6 +400,39 @@ impl<'ctx> Gen<'ctx, '_> {
         }
     }
 
+    /// `ppl_worker_main(k)`, which the runtime calls in a new worker thread: runs worker
+    /// `k`'s entry function.
+    pub(crate) fn worker_main(&self) {
+        let i32t = self.i32();
+        let f = self.m.add_function(
+            "ppl_worker_main",
+            self.cx.void_type().fn_type(&[i32t.into()], false),
+            Some(Linkage::External),
+        );
+        let b = self.cx.create_builder();
+        let start = self.cx.append_basic_block(f, "start");
+        let done = self.cx.append_basic_block(f, "done");
+        b.position_at_end(start);
+        let k = f.get_nth_param(0).expect("k").into_int_value();
+        let cases: Vec<_> = self
+            .p
+            .worker_entries
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let bb = self.cx.append_basic_block(f, "worker");
+                b.position_at_end(bb);
+                b.build_call(self.fns[e.0 as usize], &[], "").unwrap();
+                b.build_unconditional_branch(done).unwrap();
+                (i32t.const_int(i as u64 + 1, false), bb)
+            })
+            .collect();
+        b.position_at_end(start);
+        b.build_switch(k, done, &cases).unwrap();
+        b.position_at_end(done);
+        b.build_return(None).unwrap();
+    }
+
     /// The functions a thread starts in: the program's entry, and each worker's.
     pub(crate) fn entry_fns(&self) -> Vec<FunctionValue<'ctx>> {
         let mut out = vec![self.fns[self.p.entry.0 as usize]];

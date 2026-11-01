@@ -8,7 +8,7 @@
 
 _Thread_local PplFrame *ppl_gc_top;
 _Thread_local int32_t ppl_gc_requested;
-static const PplGlobalRoots *globals;
+static _Thread_local const PplGlobalRoots *globals;
 
 /* ---------------------------------------------------------------- heap layout
  *
@@ -97,7 +97,7 @@ static _Thread_local uint8_t class_of_granule[MAX_SMALL / 16 + 1];
 static _Thread_local int classes_ready;
 
 static _Thread_local Block *all_blocks;
-static Block *spare; /* empty small blocks (linked through `next`) */
+static _Thread_local Block *spare; /* empty small blocks (linked through `next`) */
 static _Thread_local int nspare;
 
 /* Statistics (the `GcStats` fields). */
@@ -120,8 +120,7 @@ static _Thread_local int64_t young_bytes, old_bytes, step_bytes;
 static _Thread_local int64_t major_threshold = MIN_MAJOR;
 enum { IDLE, MARKING, SWEEPING };
 static _Thread_local int phase = IDLE;
-static uint8_t color = F_COLOR_A; /* of the running (or last) major cycle */
-static _Thread_local Block *sweep_cursor;
+static _Thread_local uint8_t color = F_COLOR_A; /* of the running (or last) major cycle */
 static _Thread_local int paused;
 static _Thread_local int stress_mode;
 static _Thread_local int trace_mode;
@@ -225,8 +224,12 @@ static Block *new_block(int cls) {
     return b;
 }
 
+/* The next block the incremental sweep visits (declared here: freeing a block moves it). */
+static _Thread_local Block *sweep_cursor;
+
 /* An empty small block goes back to the spare list (or the system). */
 static void retire_block(Block *b) {
+    if (sweep_cursor == b) sweep_cursor = b->next;
     unlink_block(b);
     if (nspare < SPARE_BLOCKS) {
         b->next = spare;
@@ -240,6 +243,8 @@ static void retire_block(Block *b) {
 }
 
 static void free_large(Block *b) {
+    /* (A young large object dying while the old generation is swept.) */
+    if (sweep_cursor == b) sweep_cursor = b->next;
     unlink_block(b);
     free(b->cards);
     for (size_t i = 0; i < b->bytes / BLOCK_SIZE; i++) {
@@ -1081,8 +1086,19 @@ static void finish_marking(void) {
     sweep_cursor = all_blocks;
 }
 
+/* For the message encoder: the heap object containing `p` (its data, size and layout). */
+void *ppl_gc_find_object(const void *p, int64_t *size, const PplLayout **layout) {
+    Obj *o = find_object(p);
+    if (!o) return NULL;
+    *size = o->size;
+    *layout = o->layout;
+    return o + 1;
+}
+
 void ppl_gc_safepoint(void) {
     ppl_gc_requested = 0;
+    /* (A terminated worker stops at its next safepoint.) */
+    ppl_worker_check();
     if (paused) return;
     int64_t start = now_ns();
     char what[64] = "";

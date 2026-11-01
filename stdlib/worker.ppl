@@ -1,0 +1,23 @@
+// `std/worker` (spec §10.2): the worker side of a worker thread.
+//
+// `import { self } from "std/worker"`, then `self.onmessage = (job: Job) => { … }` and
+// `self.postMessage(result)`.
+
+export class WorkerSelf {
+  constructor() {}
+
+  /// Sends a copy of `message` to the parent (nothing in the main thread).
+  public postMessage<T extends Sendable>(message: T): void {
+    __worker_post(0, message)
+  }
+
+  /// Stops listening: the worker ends once nothing else is pending.
+  public close(): void {
+    const l = __theLoop()
+    l.listening = false
+    l.channels.delete(0);
+  }
+}
+
+/// This worker (set `onmessage` on it to receive the parent's messages).
+export const self = new WorkerSelf()

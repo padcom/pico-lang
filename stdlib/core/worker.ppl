@@ -1,0 +1,71 @@
+// Workers (spec §10.2–10.3): threads with their own heap and module instances that share
+// nothing; messages are deep-copied. The runtime side is `runtime/src/ppl_worker.c`.
+
+/// A worker ended by a panic or an uncaught error (`Worker.onerror`).
+class WorkerPanicked extends Error {
+  constructor(message: string) {
+    super(message)
+  }
+}
+
+/// A worker thread running a module: `new Worker<In, Out>("./job")` (the compiler turns the
+/// path into the module's id). It receives `In`s and sends `Out`s.
+class Worker<In extends Sendable, Out extends Sendable> {
+  handle: int
+  public onmessage: ((message: Out) => void)? = null
+  public onerror: ((error: WorkerPanicked) => void)? = null
+
+  constructor(module: int) {
+    this.handle = __worker_op(1, module)
+    __theLoop().channels.set(this.handle, () => this.__deliver())
+  }
+
+  /// Sends a copy of `message` to the worker.
+  public postMessage(message: In): void {
+    __worker_post(this.handle, message)
+  }
+
+  /// Stops the worker (right away: at its next safepoint).
+  public terminate(): void {
+    __worker_op(4, this.handle)
+    __theLoop().channels.delete(this.handle)
+  }
+
+  __deliver(): void {
+    const kind = __worker_op(3, this.handle)
+    if (kind == 0) {
+      const m = __worker_take<Out>(this.handle)
+      const f = this.onmessage
+      if (f != null) {
+        f(m)
+      }
+    } else if (kind == 1) {
+      const text = __worker_error(this.handle)
+      __theLoop().channels.delete(this.handle)
+      const e = new WorkerPanicked(text)
+      const f = this.onerror
+      if (f != null) {
+        f(e)
+      } else {
+        __exit_uncaught(e)
+      }
+    } else {
+      // It ended by itself.
+      __worker_op(5, this.handle)
+      __theLoop().channels.delete(this.handle);
+    }
+  }
+}
+
+/// `self.onmessage = f` in a worker module: `f` gets the parent's messages, as `T`s.
+function __workerOnMessage<T extends Sendable>(f: (message: T) => void): void {
+  const l = __theLoop()
+  l.listening = true
+  l.channels.set(0, () => {
+    if (__worker_op(3, 0) == 0) {
+      f(__worker_take<T>(0))
+    } else {
+      __worker_op(5, 0);
+    }
+  })
+}

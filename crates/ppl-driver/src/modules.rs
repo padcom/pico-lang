@@ -216,6 +216,15 @@ impl Loader<'_> {
                 _ => {}
             }
         }
+        // Worker modules (`new Worker<…>("./job")`, spec §10.2) are loaded as roots of their
+        // own: found in the source text (the resolver matches the literal again).
+        let text = self.sm.file(f).text.clone();
+        for (spec, start, end) in worker_specs(&text) {
+            let span = Span::new(f, start, end);
+            if let Some(t) = self.module(f, &spec, span) {
+                self.modules.workers.push((f, spec, t));
+            }
+        }
         self.modules.exports.insert(f, exports);
         self.visiting.remove(&f);
         self.done.insert(f);
@@ -299,4 +308,56 @@ impl Loader<'_> {
         }
         Some(f)
     }
+}
+
+/// The string literals of `new Worker<…>("spec")` in a module's source, with the literal's
+/// byte range.
+fn worker_specs(text: &str) -> Vec<(String, u32, u32)> {
+    let b = text.as_bytes();
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(i) = text[from..].find("new Worker") {
+        let mut at = from + i + "new Worker".len();
+        from = at;
+        let skip_ws = |at: &mut usize| {
+            while *at < b.len() && (b[*at] as char).is_whitespace() {
+                *at += 1;
+            }
+        };
+        skip_ws(&mut at);
+        if at < b.len() && b[at] == b'<' {
+            // Type arguments (nested `<…>` too).
+            let mut depth = 0;
+            while at < b.len() {
+                match b[at] {
+                    b'<' => depth += 1,
+                    b'>' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            at += 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                at += 1;
+            }
+            skip_ws(&mut at);
+        }
+        if at >= b.len() || b[at] != b'(' {
+            continue;
+        }
+        at += 1;
+        skip_ws(&mut at);
+        if at >= b.len() || b[at] != b'"' {
+            continue;
+        }
+        let start = at;
+        let Some(len) = text[at + 1..].find('"') else {
+            continue;
+        };
+        let spec = text[at + 1..at + 1 + len].to_string();
+        out.push((spec, start as u32, (at + 2 + len) as u32));
+    }
+    out
 }

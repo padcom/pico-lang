@@ -115,6 +115,19 @@ void ppl_raw_arena_free(int64_t arena);
 int64_t ppl_clock_ms(void);
 void ppl_loop_wait(int64_t ms);
 
+/* Workers (spec §10.2): `ppl_worker_op` (1 spawn module `arg`, 2 the channel with a message
+ * or -1, 3 its next message's kind (0 data, 1 error, 2 exited), 4 terminate, 5 drop the next
+ * message, 6 live workers started here, 7 whether this thread is a worker); posting a value
+ * (deep-copied) to a worker or (`h` 0) the parent, taking the next one, and an error's text. */
+int64_t ppl_worker_op(int64_t op, int64_t arg);
+void ppl_worker_post(int64_t h, const void *slot, int64_t size, const PplLayout *layout);
+void ppl_worker_take(int64_t h, void *slot, int64_t size, const PplLayout *layout);
+PplStr *ppl_worker_error(int64_t h);
+/* Inside a worker: reports a panic / uncaught error to the parent and ends the thread (in
+ * the main thread it returns). At safepoints: a terminated worker ends. */
+void ppl_worker_failed(const char *msg, int64_t len);
+void ppl_worker_check(void);
+
 /* `std/gc`. */
 void ppl_gc_collect(void);
 void ppl_gc_collect_young(void);

@@ -1,0 +1,2 @@
+// A worker without `onmessage`: runs its code and ends.
+const x = 1 + 1

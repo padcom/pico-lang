@@ -47,6 +47,9 @@ pub struct Program {
     pub extensions: HashMap<(String, String), Vec<FnId>>,
     /// Functions that initialize classes' static fields; the entry function calls them first.
     pub static_inits: Vec<FnId>,
+    /// File-based workers' modules (spec §10.2), worker id `i + 1` for index `i`: their
+    /// top-level code runs in their own thread, not in the entry's.
+    pub workers: Vec<FileId>,
 }
 
 #[derive(Debug)]
@@ -488,6 +491,8 @@ pub enum Bound {
     /// `T extends object`: a class or an array, i.e. a reference to a heap object (the targets
     /// of `WeakRef`, the keys of `WeakMap`).
     Object,
+    /// `T extends Sendable`: can be sent to a worker (deep-copied; spec §10.3).
+    Sendable,
 }
 
 impl Function {
@@ -552,6 +557,11 @@ pub enum Builtin {
     /// `__loop_wait(ms)`: blocks for up to `ms` milliseconds waiting for events (none yet
     /// but timeouts).
     LoopWait,
+    /// Workers (spec §10.2): `__worker_op(op, arg): int` (see `ppl_worker_op`),
+    /// `__worker_post(handle, value)` (deep-copies a Sendable value), `__worker_error(handle)`.
+    WorkerOp,
+    WorkerPost,
+    WorkerError,
 }
 
 impl Builtin {
@@ -575,6 +585,9 @@ impl Builtin {
             Builtin::RawArenaFree => "__raw_arena_free",
             Builtin::ClockMs => "__clock_ms",
             Builtin::LoopWait => "__loop_wait",
+            Builtin::WorkerOp => "__worker_op",
+            Builtin::WorkerPost => "__worker_post",
+            Builtin::WorkerError => "__worker_error",
         }
     }
 
@@ -595,6 +608,9 @@ impl Builtin {
             "__raw_arena_free" => Builtin::RawArenaFree,
             "__clock_ms" => Builtin::ClockMs,
             "__loop_wait" => Builtin::LoopWait,
+            "__worker_op" => Builtin::WorkerOp,
+            "__worker_post" => Builtin::WorkerPost,
+            "__worker_error" => Builtin::WorkerError,
             _ => return None,
         })
     }
@@ -870,6 +886,12 @@ pub enum ExprKind {
     /// `__exit_uncaught(e)` (core library): ends the program as if `e` escaped the top level
     /// (an unhandled promise rejection).
     ExitUncaught(Box<Expr>),
+    /// `__worker_take<T>(handle)` (core library): the next message of a worker channel, as a
+    /// `T` (copied into this thread's heap).
+    WorkerTake {
+        ty: Ty,
+        handle: Box<Expr>,
+    },
     /// `ptr.of(place)`: a raw pointer (`ptr<T>`) to a place.
     PtrOf(Box<Expr>),
     /// `sizeof<T>()` (`align` false) / `alignof<T>()`: a `usize`.
@@ -1094,6 +1116,7 @@ impl Expr {
             | ExprKind::Loop(b)
             | ExprKind::Unsafe(b)
             | ExprKind::Arena { body: b, .. } => block(b, f),
+            ExprKind::WorkerTake { handle, .. } => f(handle),
             ExprKind::RawArenaAlloc { arena, count, .. } => {
                 f(arena);
                 f(count);

@@ -41,7 +41,7 @@ pub struct Loc {
     pub col: u32,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Program {
     /// The source file name, used in panic locations.
     pub file: String,
@@ -66,13 +66,13 @@ pub struct ClassMeta {
 }
 
 /// An enum's variants and their payload fields, in declaration order.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct EnumLayout {
     pub name: String,
     pub variants: Vec<VariantLayout>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VariantLayout {
     pub name: String,
     pub fields: Vec<(String, Ty)>,
@@ -88,7 +88,7 @@ pub enum FieldRef {
 }
 
 /// A struct's or class's fields, in declaration order.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StructLayout {
     pub name: String,
     pub fields: Vec<(String, Ty)>,
@@ -267,20 +267,20 @@ pub fn project(t: &Ty, p: &Proj, field: impl Fn(FieldRef) -> Ty) -> Ty {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct GlobalDecl {
     pub name: String,
     pub ty: Ty,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LocalDecl {
     pub ty: Ty,
     /// The source name; `None` for temporaries.
     pub name: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Function {
     pub name: String,
     pub params: Vec<Local>,
@@ -301,7 +301,7 @@ impl Function {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BasicBlock {
     pub stmts: Vec<Statement>,
     pub term: Terminator,
@@ -482,6 +482,8 @@ pub enum Rvalue {
     BitCast(Operand, Ty),
     /// `count` zeroed `T`s from an `Arena` (its handle): a `ptr<T>` to the first.
     RawArenaAlloc(Ty, Operand, Operand),
+    /// The next message of a worker channel (its handle), as a `T`.
+    WorkerTake(Ty, Operand),
     /// A template part with a format spec: `${x:08.2f}`.
     Format(Operand, ppl_sema::format::FormatSpec),
     /// `s.length`: a string's length in code points.
@@ -548,7 +550,7 @@ pub enum Rvalue {
     ExceptionPending,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Statement {
     pub place: Place,
     pub rvalue: Rvalue,
@@ -576,7 +578,7 @@ pub enum Callee {
     },
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Terminator {
     Goto(BlockId),
     Branch {
@@ -693,6 +695,7 @@ impl fmt::Display for Rvalue {
             Rvalue::SizeOf(t, true) => write!(f, "AlignOf({t})"),
             Rvalue::BitCast(a, t) => write!(f, "BitCast({a}, {t})"),
             Rvalue::RawArenaAlloc(t, a, n) => write!(f, "RawArenaAlloc<{t}>({a}, {n})"),
+            Rvalue::WorkerTake(t, h) => write!(f, "WorkerTake<{t}>({h})"),
             Rvalue::Format(a, spec) => write!(f, "Format({a}, {spec:?})"),
             Rvalue::StrCharAt(a, i) => write!(f, "StrCharAt({a}, {i})"),
             Rvalue::StrSlice(a, i, j) => write!(f, "StrSlice({a}, {i}, {j})"),
@@ -754,6 +757,7 @@ fn callee_name(p: &Program, c: Callee) -> String {
 pub fn live_functions(p: &Program) -> Vec<bool> {
     let mut live = vec![false; p.fns.len()];
     let mut work = vec![p.entry];
+    work.extend(p.worker_entries.iter().copied());
     work.extend(
         p.fns
             .iter()

@@ -937,6 +937,38 @@ impl<'p> Checker<'p> {
         self.program.holds_refs(t)
     }
 
+    /// Whether values of `t` can be sent to a worker (spec §10.3): primitives, strings and
+    /// what's built from Sendable parts (structs, enums, tuples, arrays, classes by their
+    /// fields, so `Map`/`Set` too); not functions, interfaces, pointers or type parameters
+    /// without the bound.
+    fn sendable(&self, t: &Ty, seen: &mut Vec<StructId>) -> bool {
+        match t {
+            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Void | Ty::Null => true,
+            Ty::Never | Ty::Error | Ty::Range(_) => true,
+            Ty::Array(e) | Ty::Fixed(e, _) | Ty::Nullable(e) => self.sendable(e, seen),
+            Ty::Tuple(ts) => ts.iter().all(|t| self.sendable(t, seen)),
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
+                if seen.contains(sid) {
+                    return true;
+                }
+                seen.push(*sid);
+                let def = self.program.struct_def(*sid);
+                let owner = Ty::type_owner(*sid);
+                def.fields
+                    .iter()
+                    .all(|f| f.weak || self.sendable(&f.ty.subst(owner, args), seen))
+            }
+            Ty::Enum(eid, _) | Ty::Union(eid, _) | Ty::Variant(eid, _, _) => self.program.enums
+                [eid.0 as usize]
+                .variants
+                .iter()
+                .all(|v| v.fields.iter().all(|f| self.sendable(&f.ty, seen))),
+            Ty::Lits(b, _) | Ty::Distinct(_, _, b) | Ty::Immutable(b) => self.sendable(b, seen),
+            Ty::Param(..) => self.bounds_of(t).contains(&Bound::Sendable),
+            Ty::Fn(..) | Ty::Iface(..) | Ty::Ref(_) => false,
+        }
+    }
+
     /// Whether `v` lives outside the innermost enclosing `arena` block of this function
     /// (globals always do; inside a lambda nothing is known).
     fn outside_arena(&self, v: Var) -> bool {
@@ -1571,6 +1603,10 @@ impl<'p> Checker<'p> {
                 let t = self.block(b, want);
                 self.unsafe_depth -= 1;
                 t
+            }
+            ExprKind::WorkerTake { ty, handle } => {
+                self.check(handle, &Expect::new(Ty::INT));
+                ty.clone()
             }
             ExprKind::ThrowUnchecked(inner) | ExprKind::ExitUncaught(inner) => {
                 if let Some(err) = self.program.error_class {
@@ -3219,7 +3255,11 @@ impl<'p> Checker<'p> {
             let t = self.types.locals[outer.0 as usize][c.outer.0 as usize].clone();
             self.types.locals[id.0 as usize][c.inner.0 as usize] = t;
         }
-        let expected = match want.map(|w| &w.ty) {
+        // (Also where a nullable function is expected: `w.onmessage = (m) => …`.)
+        let expected = match want.map(|w| match &w.ty {
+            Ty::Nullable(t) => &**t,
+            t => t,
+        }) {
             Some(Ty::Fn(ps, r, ts)) if ps.len() == f.params.len() => {
                 Some((ps.clone(), r.clone(), ts.clone()))
             }
@@ -5529,6 +5569,7 @@ impl<'p> Checker<'p> {
             Bound::Equatable => self.equatable(t),
             Bound::Hashable => self.hashable(t),
             Bound::Object => matches!(t.erase(), Ty::Class(..) | Ty::Array(_)),
+            Bound::Sendable => self.sendable(t, &mut Vec::new()),
             Bound::Error => match (t, self.program.error_class) {
                 (Ty::Never, _) => true,
                 (Ty::Class(s, ..), Some(err)) => self.program.is_subclass(*s, err),
@@ -5842,6 +5883,7 @@ impl<'p> Checker<'p> {
                         Bound::Error => "`Error`".to_string(),
                         Bound::Hashable => "`Hashable`".to_string(),
                         Bound::Object => "`object`".to_string(),
+                        Bound::Sendable => "`Sendable`".to_string(),
                         Bound::Iface(s) => format!("`{}`", self.program.struct_def(*s).name),
                     };
                     let (fails, must) = if *b == Bound::Object {
@@ -5982,6 +6024,27 @@ impl<'p> Checker<'p> {
                 (arity(&[1]), Ty::Void)
             }
             Builtin::ClockMs => (arity(&[0]), Ty::INT),
+            Builtin::WorkerOp => {
+                for a in args {
+                    self.check(a, &Expect::new(Ty::INT));
+                }
+                (arity(&[2]), Ty::INT)
+            }
+            Builtin::WorkerPost => {
+                if let Some(h) = args.first() {
+                    self.check(h, &Expect::new(Ty::INT));
+                }
+                if let Some(v) = args.get(1) {
+                    self.infer(v);
+                }
+                (arity(&[2]), Ty::Void)
+            }
+            Builtin::WorkerError => {
+                if let Some(h) = args.first() {
+                    self.check(h, &Expect::new(Ty::INT));
+                }
+                (arity(&[1]), Ty::Str)
+            }
             Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
                 (arity(&[0]), Ty::Void)
             }
@@ -6014,7 +6077,9 @@ impl<'p> Checker<'p> {
                 | Builtin::RefId
                 | Builtin::RawArenaNew
                 | Builtin::RawArenaFree
-                | Builtin::LoopWait => "1 argument",
+                | Builtin::LoopWait
+                | Builtin::WorkerError => "1 argument",
+                Builtin::WorkerOp | Builtin::WorkerPost => "2 arguments",
                 Builtin::ClockMs => "no arguments",
                 Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
                     "no arguments"

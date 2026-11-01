@@ -29,6 +29,11 @@ class __Loop {
   public seq: int = 0
   /// Rejected promises that nothing handled yet: their error while that's still so.
   public rejected: (() => Error?)[] = []
+  /// Worker channels (spec §10.2): what handles the next message from a worker (by its
+  /// handle), or from the parent (0, in a worker thread).
+  public channels: Map<int, () => void> = new Map<int, () => void>()
+  /// In a worker: `self.onmessage` is set, so the thread waits for messages.
+  public listening: bool = false
 
   constructor() {}
 
@@ -108,14 +113,35 @@ class __Loop {
       return true
     }
     this.checkRejections()
+    // A message from a worker (or the parent).
+    const h = __worker_op(2, 0)
+    if (h >= 0) {
+      const deliver = this.channels.get(h)
+      if (deliver != null) {
+        deliver()
+      } else {
+        __worker_op(5, h);
+      }
+      return true
+    }
+    const waiting = this.listening || __worker_op(6, 0) > 0
     const i = this.earliest()
     if (i < 0) {
+      if (waiting) {
+        // Until a message (or a worker ending) wakes this thread.
+        __loop_wait(-1)
+        return true
+      }
       return false
     }
     const t = this.timers[i]
     const now = __clock_ms()
     if (t.due > now) {
       __loop_wait(t.due - now)
+      // (Woken early by a message: that first.)
+      if (__clock_ms() < t.due) {
+        return true
+      }
     }
     if (t.period >= 0) {
       this.seq += 1

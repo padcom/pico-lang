@@ -1,0 +1,8 @@
+import { self } from "std/worker"
+import { Payload } from "./types"
+
+self.onmessage = (p: Payload) => {
+  p.ring.name = "changed"
+  p.ring.name = "a"
+  self.postMessage(p)
+}

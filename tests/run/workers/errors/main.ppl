@@ -1,0 +1,24 @@
+// A panic in a worker ends that worker only: the parent's `onerror` gets a
+// `WorkerPanicked` with the message (spec §10.2, §7.5). Uncaught errors end it the same way.
+// expect: asking for item 1
+// expect: got b
+// expect: asking for item 7
+// expect: worker died: index out of bounds
+// expect: second worker died: uncaught Error: no luck
+// expect: main is fine
+const w = new Worker<int, string>("./crash")
+w.onmessage = (s: string) => {
+  println(`got ${s}`)
+  println("asking for item 7")
+  w.postMessage(7)
+}
+w.onerror = (e: WorkerPanicked) => {
+  println(`worker died: ${e.message}`)
+  const w2 = new Worker<int, string>("./throws")
+  w2.onerror = (e: WorkerPanicked) => {
+    println(`second worker died: ${e.message}`)
+    println("main is fine")
+  }
+}
+println("asking for item 1")
+w.postMessage(1)

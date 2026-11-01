@@ -17,6 +17,7 @@ fn main() {
         .file(root.join("src/ppl_rt.c"))
         .file(root.join("src/ppl_gc.c"))
         .file(root.join("src/ppl_loop.c"))
+        .file(root.join("src/ppl_worker.c"))
         .include(root.join("include"))
         .std("c11")
         .opt_level(2)

@@ -1,0 +1,16 @@
+export struct Ping {
+  n: int
+  history: int[]
+}
+
+export class Pong {
+  constructor(public count: int, public ping: Ping) {}
+}
+
+export class Counter {
+  public value: int = 0
+  constructor() {}
+}
+
+/// One per thread (each has its own module instances).
+export const counter = new Counter()

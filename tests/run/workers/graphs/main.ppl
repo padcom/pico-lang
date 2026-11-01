@@ -1,0 +1,38 @@
+// Messages are deep copies (spec §10.3): shared objects stay shared and cycles survive;
+// a worker that finishes on its own (no `onmessage`) just ends.
+// expect: ring of 3: a -> b -> c -> a
+// expect: shared: true
+// expect: map: one=1 two=2
+// expect: changing the copy doesn't change ours: a
+// expect: done
+import { Node, Payload } from "./types"
+
+const a = new Node("a")
+const b = new Node("b")
+const c = new Node("c")
+a.next = b
+b.next = c
+c.next = a
+const m = new Map<string, int>()
+m.set("one", 1)
+m.set("two", 2)
+const w = new Worker<Payload, Payload>("./echo")
+w.onmessage = (p: Payload) => {
+  const r = p.ring
+  let names = r.name
+  let n = r.next
+  let k = 1
+  while (n != null && k < 4) {
+    names = `${names} -> ${n.name}`
+    n = n.next
+    k += 1
+  }
+  println(`ring of 3: ${names}`)
+  println(`shared: ${p.ring == p.again}`)
+  println(`map: one=${p.map.get("one") ?? 0} two=${p.map.get("two") ?? 0}`)
+  println(`changing the copy doesn't change ours: ${a.name}`)
+  w.terminate()
+  new Worker<int, int>("./quiet")
+  println("done")
+}
+w.postMessage(new Payload(a, a, m))

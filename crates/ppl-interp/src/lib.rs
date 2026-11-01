@@ -13,6 +13,8 @@ use ppl_sema::{FloatTy, IntTy, Ty};
 use std::cell::RefCell;
 use std::io::Write;
 use std::rc::Rc;
+use std::sync::Arc;
+mod workers;
 
 /// Call depth after which the interpreter reports a stack overflow.
 pub const MAX_DEPTH: usize = 20_000;
@@ -202,32 +204,29 @@ impl Panic {
     }
 }
 
-/// Runs the program's entry function, writing program output to `out`.
+/// Runs the program's entry function, writing program output to `out`. Workers run on
+/// threads of their own, each with its own interpreter (its own globals).
 pub fn run(program: &Program, out: &mut dyn Write) -> Result<(), Panic> {
-    let mut it = Interp {
-        p: program,
-        out,
-        globals: (0..program.globals.len())
-            .map(|_| cell(Value::Uninit))
-            .collect(),
-        depth: 0,
-        exception: None,
-        exception_tag: 0,
-        stack: Vec::new(),
-        frames: Vec::new(),
-        unwinding: Vec::new(),
-        started: std::time::Instant::now(),
-    };
+    let shared = Arc::new(workers::Shared::default());
+    let mut it = Interp::new(program, Some(out), shared.clone(), None);
     let r = it
         .call(program.entry, Vec::new(), Loc::default())
         .map(|_| ());
-    let _ = it.out.flush();
+    // The program ends: so do its workers.
+    shared.stop_all();
+    it.flush_output();
     r
 }
 
 struct Interp<'p, 'o> {
     p: &'p Program,
-    out: &'o mut dyn Write,
+    /// The main thread's output (workers' output reaches it through `shared`).
+    out: Option<&'o mut dyn Write>,
+    shared: Arc<workers::Shared>,
+    /// This thread as a worker, and the workers it started.
+    this_worker: Option<Arc<workers::IWorker>>,
+    children: Vec<i64>,
+    waker: Arc<workers::Waker>,
     globals: Vec<Cell>,
     depth: usize,
     /// The pending exception, and its tag (0: an `Error` object).
@@ -266,6 +265,9 @@ impl Interp<'_, '_> {
     }
 
     fn call(&mut self, id: FnId, args: Vec<Value>, loc: Loc) -> Result<Value, Panic> {
+        if self.terminated() {
+            return Err(workers::terminated_panic());
+        }
         if self.depth >= MAX_DEPTH {
             return Err(self.panic(panics::STACK_OVERFLOW, loc));
         }
@@ -516,11 +518,18 @@ impl Interp<'_, '_> {
     fn builtin(&mut self, b: Builtin, vals: &[Value], tys: &[Ty]) -> Value {
         let text: String = vals.iter().zip(tys).map(|(v, t)| display(v, t)).collect();
         let _ = match b {
-            Builtin::Println => writeln!(self.out, "{text}"),
-            Builtin::Print => write!(self.out, "{text}"),
+            Builtin::Println => {
+                self.emit(&format!("{text}\n"));
+                Ok(())
+            }
+            Builtin::Print => {
+                self.emit(&text);
+                Ok(())
+            }
             Builtin::GcDumpRoots => {
                 let text = self.dump_roots();
-                write!(self.out, "{text}")
+                self.emit(&text);
+                Ok::<(), std::io::Error>(())
             }
             // No collector here: nothing to do, and every statistic is zero.
             Builtin::GcStat => return Value::Int(0),
@@ -530,14 +539,18 @@ impl Interp<'_, '_> {
             | Builtin::ArenaExitRescue
             | Builtin::RawArenaFree => Ok(()),
             Builtin::RawArenaNew => return Value::Int(0),
+            Builtin::WorkerOp => return self.worker_op(vals),
+            Builtin::WorkerPost => {
+                self.worker_post(&vals[0], vals[1].clone(), &tys[1]);
+                Ok(())
+            }
+            Builtin::WorkerError => return self.worker_error(&vals[0]),
             Builtin::ClockMs => {
                 return Value::Int(self.started.elapsed().as_millis() as i128);
             }
             Builtin::LoopWait => {
-                if let Value::Int(ms) = vals[0]
-                    && ms > 0
-                {
-                    std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+                if let Value::Int(ms) = vals[0] {
+                    self.waker.wait(ms as i64);
                 }
                 Ok(())
             }
@@ -650,6 +663,10 @@ impl Interp<'_, '_> {
                     return Err(self.panic(panics::POINTER_OUT_OF_BOUNDS, loc));
                 }
                 Ok(Value::Ref(c, steps.into()))
+            }
+            Rvalue::WorkerTake(t, h) => {
+                let h = self.operand(frame, h);
+                Ok(self.worker_take(&h, t))
             }
             // `count` zeroed values in a fresh array; the pointer is its first element.
             Rvalue::RawArenaAlloc(t, _, n) => {

@@ -178,6 +178,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         }
     }
     g.register_gc_globals();
+    g.worker_main();
     g.m
 }
 
@@ -644,6 +645,11 @@ impl<'ctx> Gen<'ctx, '_> {
             }
             "ppl_raw_arena_new" => i64t.fn_type(&[i64t.into()], false),
             "ppl_clock_ms" => i64t.fn_type(&[], false),
+            "ppl_worker_op" => i64t.fn_type(&[i64t.into(), i64t.into()], false),
+            "ppl_worker_error" => ptr.fn_type(&[i64t.into()], false),
+            "ppl_worker_post" | "ppl_worker_take" => {
+                void.fn_type(&[i64t.into(), ptr.into(), i64t.into(), ptr.into()], false)
+            }
             "ppl_loop_wait" => void.fn_type(&[i64t.into()], false),
             "ppl_raw_arena_free" => void.fn_type(&[i64t.into()], false),
             "ppl_raw_arena_alloc" => ptr.fn_type(&[i64t.into(), i64t.into(), i64t.into()], false),
@@ -1037,6 +1043,26 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
                 let et = self.elem_ty(&elem);
                 Some(unsafe { self.b.build_gep(et, p, &[n], "ptr").unwrap() }.into())
+            }
+            Rvalue::WorkerTake(t, h) => {
+                let h = self.operand(fx, h)?;
+                let lt = self.ty(t)?;
+                let slot = self.entry_alloca(lt, "msg");
+                let (size, _) = self.size_align(t);
+                let layout = self.layout(t);
+                self.b
+                    .build_call(
+                        self.rt("ppl_worker_take"),
+                        &[
+                            h.into(),
+                            slot.into(),
+                            self.i64().const_int(size, false).into(),
+                            layout.into(),
+                        ],
+                        "",
+                    )
+                    .unwrap();
+                Some(self.b.build_load(lt, slot, "msg").unwrap())
             }
             Rvalue::RawArenaAlloc(t, h, n) => {
                 let (size, align) = self.size_align(t);
@@ -2862,16 +2888,46 @@ impl<'ctx> Gen<'ctx, '_> {
                             .build_call(self.rt("ppl_arena_exit_rescue"), &args, "")
                             .unwrap();
                     }
+                    Callee::Builtin(Builtin::WorkerPost) => {
+                        let h = self.operand(fx, &args[0]).expect("a handle");
+                        let t = self.operand_ty(fx, &args[1]);
+                        let (size, _) = self.size_align(&t);
+                        let slot = match (self.ty(&t), self.operand(fx, &args[1])) {
+                            (Some(lt), Some(v)) => {
+                                let s = self.entry_alloca(lt, "msg");
+                                self.b.build_store(s, v).unwrap();
+                                s
+                            }
+                            _ => self.ptr().const_null(),
+                        };
+                        let layout = self.layout(&t);
+                        self.b
+                            .build_call(
+                                self.rt("ppl_worker_post"),
+                                &[
+                                    h.into(),
+                                    slot.into(),
+                                    self.i64().const_int(size, false).into(),
+                                    layout.into(),
+                                ],
+                                "",
+                            )
+                            .unwrap();
+                    }
                     Callee::Builtin(
                         b @ (Builtin::RawArenaNew
                         | Builtin::RawArenaFree
                         | Builtin::ClockMs
-                        | Builtin::LoopWait),
+                        | Builtin::LoopWait
+                        | Builtin::WorkerOp
+                        | Builtin::WorkerError),
                     ) => {
                         let name = match b {
                             Builtin::RawArenaNew => "ppl_raw_arena_new",
                             Builtin::RawArenaFree => "ppl_raw_arena_free",
                             Builtin::ClockMs => "ppl_clock_ms",
+                            Builtin::WorkerOp => "ppl_worker_op",
+                            Builtin::WorkerError => "ppl_worker_error",
                             _ => "ppl_loop_wait",
                         };
                         let vals: Vec<BasicMetadataValueEnum> = args

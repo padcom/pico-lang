@@ -1,0 +1,25 @@
+// Workers (spec §10.2): a worker module in its own thread, with typed, deep-copied
+// messages both ways. The worker counts the pings it got (its module state is its own).
+// expect: sending 3 pings
+// expect: pong 1 for ping 0: [0]
+// expect: pong 2 for ping 1: [0, 1]
+// expect: pong 3 for ping 2: [0, 1, 2]
+// expect: main's counter is still 0
+import { Ping, Pong, counter } from "./types"
+
+const w = new Worker<Ping, Pong>("./pong")
+let got = 0
+w.onmessage = (p: Pong) => {
+  println(`pong ${p.count} for ping ${p.ping.n}: ${p.ping.history:?}`)
+  got += 1
+  if (got == 3) {
+    println(`main's counter is still ${counter.value}`)
+    w.terminate()
+  }
+}
+println("sending 3 pings")
+const history: int[] = []
+for (let i = 0; i < 3; i++) {
+  history.push(i)
+  w.postMessage(Ping { n: i, history: history.slice(0) })
+}

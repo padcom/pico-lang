@@ -1,0 +1,6 @@
+import { self } from "std/worker"
+
+const items = ["a", "b", "c"]
+self.onmessage = (i: int) => {
+  self.postMessage(items[i])
+}

@@ -657,7 +657,7 @@ static _Thread_local int32_t guard_arenas[PPL_MAX_GUARDS];
 static _Thread_local int nguards;
 static _Thread_local char *panic_msg;
 static _Thread_local int64_t panic_msg_len;
-static const char *panic_file;
+static _Thread_local const char *panic_file;
 static _Thread_local int64_t panic_file_len;
 static _Thread_local int32_t panic_line, panic_col;
 static _Thread_local void *panic_frames[PPL_MAX_FRAMES];
@@ -699,6 +699,8 @@ static const char *frame_name(void *addr) {
 }
 
 static _Noreturn void report_panic(void) {
+    /* In a worker: it ends, and its parent's `onerror` gets the message. */
+    ppl_worker_failed(panic_msg ? panic_msg : "", panic_msg_len);
     fflush(stdout);
     fputs("panic: ", stderr);
     fwrite(panic_msg, 1, (size_t)panic_msg_len, stderr);
@@ -762,6 +764,19 @@ _Noreturn void ppl_panic_str(const PplStr *msg, const char *file, int64_t file_l
 }
 
 _Noreturn void ppl_uncaught(const PplStr *cls, const PplStr *msg) {
+    {
+        /* In a worker: it ends, and its parent's `onerror` hears about it. */
+        size_t n = 9 + (size_t)cls->byte_len + 2 + (size_t)msg->byte_len;
+        char *text = malloc(n);
+        if (text) {
+            memcpy(text, "uncaught ", 9);
+            memcpy(text + 9, cls->data, (size_t)cls->byte_len);
+            memcpy(text + 9 + cls->byte_len, ": ", 2);
+            memcpy(text + 11 + cls->byte_len, msg->data, (size_t)msg->byte_len);
+            ppl_worker_failed(text, (int64_t)n);
+            free(text);
+        }
+    }
     fflush(stdout);
     fputs("uncaught ", stderr);
     fwrite(cls->data, 1, (size_t)cls->byte_len, stderr);

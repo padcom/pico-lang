@@ -25,6 +25,8 @@ source_filename = "test.ppl"
 @ppl.classinfo.AbortError = internal constant { ptr, [0 x ptr] } { ptr @ppl.classinfo.Error, [0 x ptr] zeroinitializer }
 @ppl.classinfo.AbortSignal = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.AbortController = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.WorkerPanicked = internal constant { ptr, [0 x ptr] } { ptr @ppl.classinfo.Error, [0 x ptr] zeroinitializer }
+@ppl.classinfo.Worker = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Arena = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl_gc_requested = external thread_local global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
@@ -175,6 +177,15 @@ declare { i32, i1 } @llvm.sadd.with.overflow.i32(i32, i32) #0
 declare void @ppl_panic(ptr, i64, ptr, i64, i32, i32) #1
 
 declare void @ppl_gc_set_globals(ptr)
+
+define void @ppl_worker_main(i32 %0) {
+start:
+  switch i32 %0, label %done [
+  ]
+
+done:                                             ; preds = %start
+  ret void
+}
 
 attributes #0 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #1 = { cold noreturn }

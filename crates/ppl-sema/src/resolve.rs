@@ -28,6 +28,8 @@ pub struct Modules {
     pub exports: HashMap<FileId, HashMap<String, String>>,
     /// How messages name each module (`./geometry`).
     pub names: HashMap<FileId, String>,
+    /// `new Worker("spec")` in a module: (that module, the spec, the worker module).
+    pub workers: Vec<(FileId, String, FileId)>,
 }
 
 /// `import { name as alias } from "…"` or `import * as alias from "…"`, in `module`.
@@ -161,6 +163,8 @@ pub fn resolve_modules(
     let mut r = Resolver {
         async_methods: HashSet::new(),
         awaits: 0,
+        worker_files: Vec::new(),
+        worker_ids: HashMap::new(),
         mods: ModCtx::default(),
         prelude_files: modules.prelude.clone(),
         file,
@@ -188,6 +192,16 @@ pub fn resolve_modules(
         outer_fns: Vec::new(),
     };
     r.mods.entry = modules.entry.map(|f| r.module_of(f));
+    for (from, spec, target) in &modules.workers {
+        let id = match r.worker_files.iter().position(|f| f == target) {
+            Some(i) => i + 1,
+            None => {
+                r.worker_files.push(*target);
+                r.worker_files.len()
+            }
+        };
+        r.worker_ids.insert((*from, spec.clone()), id as u32);
+    }
     for (f, ex) in &modules.exports {
         let m = r.module_of(*f);
         r.mods.exports.insert(m, ex.clone());
@@ -290,6 +304,9 @@ struct Resolver {
     top_globals: Names<GlobalId>,
     /// Async methods (by their declaration's span): desugared like async functions.
     async_methods: HashSet<Span>,
+    /// Worker modules by id - 1, and what `new Worker("spec")` in a module refers to.
+    worker_files: Vec<FileId>,
+    worker_ids: HashMap<(FileId, String), u32>,
     /// `await`s desugared so far (their temporaries get unique names).
     awaits: u32,
     globals_declared: HashSet<GlobalId>,
@@ -502,6 +519,7 @@ impl Resolver {
                     if *kind == ast::BindingKind::Let
                         && self.mods.cur != PRELUDE_MODULE
                         && self.mods.entry.is_some_and(|e| e != self.mods.cur)
+                        && !self.worker_files.contains(&stmt.span.file)
                     {
                         self.error(
                             codes::LIBRARY_LET,
@@ -752,6 +770,7 @@ impl Resolver {
                 })
                 .collect(),
             static_inits,
+            workers: std::mem::take(&mut self.worker_files),
         }
     }
 
@@ -1466,6 +1485,11 @@ impl Resolver {
                 if path.len() == 1 && path[0].name == "object" && args.is_empty() =>
             {
                 vec![Bound::Object]
+            }
+            ast::TypeKind::Path { path, args, .. }
+                if path.len() == 1 && path[0].name == "Sendable" && args.is_empty() =>
+            {
+                vec![Bound::Sendable]
             }
             _ => match self.resolve_type(t) {
                 Ty::Iface(sid, _, _) => vec![Bound::Iface(sid)],
@@ -4354,6 +4378,25 @@ impl Resolver {
             } if matches!(target.kind, A::Array(_)) => {
                 self.assign_destructured(target, value, span)
             }
+            // `self.onmessage = f` in a worker module (`self` from `std/worker`): registers `f`
+            // for the parent's messages, typed by `f`'s parameter.
+            A::Assign {
+                op: None,
+                target,
+                value,
+            } if matches!(&target.kind, A::Member { object, prop, .. }
+                if prop.name == "onmessage"
+                    && matches!(&object.kind, A::Ident(n) if n == "self"
+                        && !self.f.scopes.iter().any(|s| s.names.contains_key("self"))
+                        && self.top_globals.contains_key(&self.mods, "self"))) =>
+            {
+                let c = build::call(
+                    build::ident("__workerOnMessage", span),
+                    vec![(**value).clone()],
+                    span,
+                );
+                return self.lower_expr(&c);
+            }
             A::Assign { op, target, value } => {
                 let value = self.lower_expr(value);
                 let Some(target) = self.lower_target(target) else {
@@ -4431,6 +4474,31 @@ impl Resolver {
                         "not a class",
                     );
                     return self.error_expr(span);
+                };
+                // `new Worker<…>("./job")`: the worker module's id (spec §10.2).
+                let worker_arg;
+                let args = match args.first().map(|a| &a.value.kind) {
+                    Some(ast::ExprKind::Lit(ast::Lit::Str(spec)))
+                        if self.structs[class.0 as usize].name == "Worker" =>
+                    {
+                        let Some(&id) = self.worker_ids.get(&(span.file, spec.clone())) else {
+                            self.error(
+                                codes::UNKNOWN_MODULE,
+                                args[0].value.span,
+                                format!("cannot find worker module `{spec}`"),
+                                "write the module path as a literal right in `new Worker(…)`",
+                            );
+                            return self.error_expr(span);
+                        };
+                        let mut a = args.clone();
+                        a[0].value.kind = ast::ExprKind::Lit(ast::Lit::Int {
+                            value: u64::from(id),
+                            suffix: None,
+                        });
+                        worker_arg = a;
+                        &worker_arg[..]
+                    }
+                    _ => &args[..],
                 };
                 let out = self.call_args(args);
                 if self.structs[class.0 as usize].is_abstract {
@@ -4574,6 +4642,7 @@ impl Resolver {
                     "unsafe.cast" => (1, 1),
                     "__raw_arena_alloc" => (1, 2),
                     "__throw_unchecked" | "__exit_uncaught" => (0, 1),
+                    "__worker_take" => (1, 1),
                     _ => (1, 0),
                 };
                 if type_args.len() != want_types || args.len() != want_args {
@@ -4605,6 +4674,10 @@ impl Resolver {
                 let arg = args.first().map(|a| Box::new(self.lower_expr(&a.value)));
                 match which {
                     "ptr.of" => ExprKind::PtrOf(arg.expect("checked")),
+                    "__worker_take" => ExprKind::WorkerTake {
+                        ty: ty.expect("checked"),
+                        handle: arg.expect("checked"),
+                    },
                     "__throw_unchecked" => ExprKind::ThrowUnchecked(arg.expect("checked")),
                     "__exit_uncaught" => ExprKind::ExitUncaught(arg.expect("checked")),
                     "unsafe.cast" => ExprKind::BitCast(arg.expect("checked"), ty.expect("checked")),
@@ -4849,6 +4922,7 @@ impl Resolver {
             ast::ExprKind::Ident(n) if n == "__raw_arena_alloc" => Some("__raw_arena_alloc"),
             ast::ExprKind::Ident(n) if n == "__throw_unchecked" => Some("__throw_unchecked"),
             ast::ExprKind::Ident(n) if n == "__exit_uncaught" => Some("__exit_uncaught"),
+            ast::ExprKind::Ident(n) if n == "__worker_take" => Some("__worker_take"),
             _ => None,
         }
     }

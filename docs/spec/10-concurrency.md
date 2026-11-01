@@ -54,6 +54,15 @@ self.onmessage = (job: Job) => {
 - `Worker<In, Out>` is typed by the message types it receives and sends.
 - A panic in a worker ends that worker and is delivered to `onerror`.
 - `w.terminate()` stops a worker.
+- The module path is a string literal written in `new Worker<…>("…")` (the compiler builds the
+  worker module into the program). A worker thread runs the library modules' top-level code
+  (its own instances), then its module's, then its own event loop. `self.onmessage = (m: T) => …`
+  receives the parent's messages (the parameter type says what they are) and keeps the worker
+  alive; `self.postMessage(v)` sends to the parent and `self.close()` stops listening.
+- An uncaught error ends a worker like a panic (`WorkerPanicked`, message
+  `uncaught <Class>: <message>`); without an `onerror` it ends the program like an uncaught
+  error. The program keeps running while any worker it started is alive (so a listening worker
+  must be terminated, as in Node).
 
 ## 10.3 Messages
 Messages are **deep-copied** into the receiver's heap. The compiler checks that the message type
@@ -63,7 +72,9 @@ is **Sendable**, meaning it's built only from:
   cycles included).
 
 Closures, `Worker` handles, file/socket handles, `ptr<T>` and arena references are **not**
-Sendable. Sending one is a compile error.
+Sendable. Sending one is a compile error. The check is the built-in bound `T extends Sendable`
+(`Worker<In extends Sendable, Out extends Sendable>`, `self.postMessage<T extends Sendable>`);
+interface values aren't Sendable either, and weak references arrive cleared.
 
 ### Transferables
 Large byte buffers can be **moved** instead of copied:

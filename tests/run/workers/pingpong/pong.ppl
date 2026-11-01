@@ -1,0 +1,7 @@
+import { self } from "std/worker"
+import { Ping, Pong, counter } from "./types"
+
+self.onmessage = (p: Ping) => {
+  counter.value += 1
+  self.postMessage(new Pong(counter.value, p))
+}

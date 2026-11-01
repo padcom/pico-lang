@@ -33,6 +33,7 @@ pub fn lower(
         fn_values: Vec::new(),
         cur_mir: FnId(0),
         gen_frames: HashMap::new(),
+        skip_files: program.workers.iter().copied().collect(),
     };
     // Generic functions get a placeholder; their instances are lowered on demand.
     let mut fns: Vec<mir::Function> = (0..program.fns.len())
@@ -58,6 +59,23 @@ pub fn lower(
             }
         })
         .collect();
+    // Each worker's thread starts in a copy of the entry's code: the library modules' parts,
+    // then its own module's (spec §10.2).
+    let mut worker_fns = Vec::new();
+    for (k, w) in program.workers.iter().enumerate() {
+        cx.skip_files = program
+            .workers
+            .iter()
+            .copied()
+            .filter(|f| f != w)
+            .chain([file_id])
+            .collect();
+        cx.cur_mir = FnId(u32::MAX - k as u32);
+        let mut f = cx.function(program.entry);
+        f.name = format!("<worker {}>", k + 1);
+        worker_fns.push(f);
+    }
+    cx.skip_files.clear();
     // Monomorphization: each instance is the generic body seen through substituted types.
     let mut next = 0;
     while next < cx.instances.len() {
@@ -94,6 +112,10 @@ pub fn lower(
     }
     cx.types = std::borrow::Cow::Borrowed(types);
     cx.cur_subst = Vec::new();
+    let worker_entries: Vec<FnId> = (0..worker_fns.len())
+        .map(|i| FnId((fns.len() + i) as u32))
+        .collect();
+    fns.extend(worker_fns);
     // A generator's environment also holds its frame: start in state 0, locals unset.
     for f in &mut fns {
         for b in &mut f.blocks {
@@ -164,7 +186,7 @@ pub fn lower(
         file: file.name.clone(),
         fns,
         entry: program.entry,
-        worker_entries: Vec::new(),
+        worker_entries,
         globals,
         structs,
         enums,
@@ -195,6 +217,8 @@ fn drop_unused_exit_hook(p: &mut mir::Program) {
                 "setTimeout",
                 "setInterval",
                 "queueMicrotask",
+                "Worker",
+                "__workerOnMessage",
             ]
             .iter()
             .any(|n| f.name.starts_with(n))
@@ -250,7 +274,10 @@ fn erase_program(p: &mut mir::Program) {
                         *t = t.erase();
                         ops.iter_mut().for_each(erase_op);
                     }
-                    Rvalue::WrapSome(o, t) | Rvalue::Cast(o, t) | Rvalue::BitCast(o, t) => {
+                    Rvalue::WrapSome(o, t)
+                    | Rvalue::Cast(o, t)
+                    | Rvalue::BitCast(o, t)
+                    | Rvalue::WorkerTake(t, o) => {
                         *t = t.erase();
                         erase_op(o);
                     }
@@ -330,6 +357,9 @@ struct Cx<'a> {
     /// Generator step functions (by MIR id): the frame slots after the captures in their
     /// environment (the state, then every saved local).
     gen_frames: HashMap<FnId, Vec<Ty>>,
+    /// While lowering a thread's entry: the files whose top-level code it leaves out (the
+    /// main entry leaves out the worker modules; a worker the entry module and the others).
+    skip_files: HashSet<ppl_diag::FileId>,
 }
 
 impl Cx<'_> {
@@ -866,6 +896,24 @@ impl FnBuilder<'_, '_> {
 
     fn ty(&self, e: &Expr) -> Ty {
         self.cx.types.expr(e.id).clone()
+    }
+
+    /// Whether a top-level statement belongs to a module this thread's entry leaves out.
+    /// (Static initializers run in every thread.)
+    fn skipped(&self, s: &Stmt) -> bool {
+        let span = match s {
+            Stmt::Let { span, .. } => *span,
+            Stmt::Expr(e) => {
+                if let ExprKind::Call { callee, .. } = &e.kind
+                    && let ExprKind::Fn(id) = callee.kind
+                    && self.cx.program.static_inits.contains(&id)
+                {
+                    return false;
+                }
+                e.span
+            }
+        };
+        self.cx.skip_files.contains(&span.file)
     }
 
     /// A type written in the code, seen through the current instance's type arguments.
@@ -1736,7 +1784,11 @@ impl FnBuilder<'_, '_> {
     // ------------------------------------------------------------ blocks
 
     fn block(&mut self, b: &hir::Block) -> Operand {
+        let top = self.hir_fn.is_entry && std::ptr::eq(b, &self.hir_fn.body);
         for s in &b.stmts {
+            if top && self.skipped(s) {
+                continue;
+            }
             match s {
                 Stmt::Let {
                     var: Var::Local(l),
@@ -1766,6 +1818,9 @@ impl FnBuilder<'_, '_> {
             }
         }
         match &b.tail {
+            Some(t) if top && self.cx.skip_files.contains(&t.span.file) => {
+                Operand::Const(Const::Void)
+            }
             Some(t) => self.expr(t),
             None => Operand::Const(Const::Void),
         }
@@ -2500,6 +2555,11 @@ impl FnBuilder<'_, '_> {
                     self.switch_to(body);
                 }
                 Operand::Const(Const::Void)
+            }
+            ExprKind::WorkerTake { ty: t, handle } => {
+                let h = self.expr(handle);
+                let t = self.mono(t);
+                self.rvalue_to_temp(Rvalue::WorkerTake(t, h), ty, e.span)
             }
             ExprKind::ExitUncaught(inner) => {
                 let v = self.expr(inner);
@@ -4646,14 +4706,29 @@ impl FnBuilder<'_, '_> {
                 | Builtin::RawArenaNew
                 | Builtin::RawArenaFree
                 | Builtin::ClockMs
-                | Builtin::LoopWait),
+                | Builtin::LoopWait
+                | Builtin::WorkerOp
+                | Builtin::WorkerPost
+                | Builtin::WorkerError),
             ) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
                 let dest = matches!(
                     b,
-                    Builtin::GcStat | Builtin::RefId | Builtin::RawArenaNew | Builtin::ClockMs
+                    Builtin::GcStat
+                        | Builtin::RefId
+                        | Builtin::RawArenaNew
+                        | Builtin::ClockMs
+                        | Builtin::WorkerOp
+                        | Builtin::WorkerError
                 )
-                .then(|| Place::local(self.temp(Ty::INT)));
+                .then(|| {
+                    let t = if *b == Builtin::WorkerError {
+                        Ty::Str
+                    } else {
+                        Ty::INT
+                    };
+                    Place::local(self.temp(t))
+                });
                 let next = self.new_block();
                 self.terminate(Terminator::Call {
                     callee: Callee::Builtin(*b),

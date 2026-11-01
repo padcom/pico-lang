@@ -1,0 +1,8 @@
+export class Node {
+  public next: Node? = null
+  constructor(public name: string) {}
+}
+
+export class Payload {
+  constructor(public ring: Node, public again: Node, public map: Map<string, int>) {}
+}
