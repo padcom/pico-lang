@@ -1,0 +1,7 @@
+// error: E0201
+// at: 6:24
+// error: E0201
+// at: 6:28
+function f(t: [i32, i32]): i32 {
+  match (t) { [x, 0] | [0, y] => 1, _ => 2 }
+}

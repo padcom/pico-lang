@@ -353,6 +353,30 @@ impl<'p> Checker<'p> {
                     }
                 }
             }
+            // `x is Circle { .. }` on a `Shape?` says `x` isn't null; `x is null` the opposite.
+            ExprKind::Is { expr, pat } => {
+                let ExprKind::Var(v) = expr.kind else {
+                    return Facts::default();
+                };
+                let vt = self.types.expr(expr.id).clone();
+                let Ty::Nullable(inner) = &vt else {
+                    return Facts::default();
+                };
+                let fact = vec![(v, (**inner).clone())];
+                if pat.looks_inside(&vt) {
+                    Facts {
+                        when_true: fact,
+                        when_false: Vec::new(),
+                    }
+                } else if matches!(pat.kind, PatKind::Lit(LitPat::Null)) {
+                    Facts {
+                        when_true: Vec::new(),
+                        when_false: fact,
+                    }
+                } else {
+                    Facts::default()
+                }
+            }
             ExprKind::Binary(BinOp::And, l, r) => {
                 let (a, b) = (self.facts(l), self.facts(r));
                 Facts {
@@ -910,7 +934,16 @@ impl<'p> Checker<'p> {
                 variant,
                 args,
             } => self.variant(e, *enum_, *variant, args.as_deref()),
-            ExprKind::Match { scrutinee, arms } => self.match_expr(e, scrutinee, arms, want),
+            ExprKind::Match {
+                scrutinee,
+                arms,
+                switch,
+            } => self.match_expr(e, scrutinee, arms, *switch, want),
+            ExprKind::Is { expr, pat } => {
+                let t = self.infer(expr);
+                self.check_pattern(pat, &t);
+                Ty::Bool
+            }
             ExprKind::NonNull(inner) => match self.infer(inner) {
                 Ty::Nullable(t) => *t,
                 Ty::Null => {
@@ -1092,10 +1125,13 @@ impl<'p> Checker<'p> {
         e: &Expr,
         scrutinee: &Expr,
         arms: &[Arm],
+        switch: Option<bool>,
         want: Option<&Expect>,
     ) -> Ty {
         let st = self.infer(scrutinee);
         let want = want.filter(|w| w.ty != Ty::Void);
+        // A switch statement needn't cover every case (and has no value).
+        let statement = switch == Some(false) && want.is_none();
         let mut results: Vec<(&Expr, Ty)> = Vec::new();
         for arm in arms {
             self.check_pattern(&arm.pat, &st);
@@ -1113,11 +1149,11 @@ impl<'p> Checker<'p> {
             });
             results.push((&arm.body, t));
         }
-        if !st.is_error() {
+        if !st.is_error() && !statement {
             let rows: Vec<Pat> = arms
                 .iter()
                 .filter(|a| a.guard.is_none())
-                .map(|a| self.to_pat(&a.pat, &st))
+                .flat_map(|a| self.to_pat(&a.pat, &st))
                 .collect();
             let ex = exhaust::Checker {
                 program: self.program,
@@ -1140,6 +1176,9 @@ impl<'p> Checker<'p> {
             }
         }
         let _ = e;
+        if statement {
+            return Ty::Void;
+        }
         if let Some(w) = want {
             return w.ty.clone();
         }
@@ -1206,15 +1245,89 @@ impl<'p> Checker<'p> {
     /// Checks a pattern against the type of the value it matches, typing its bindings.
     fn check_pattern(&mut self, p: &Pattern, ty: &Ty) {
         self.types.exprs[p.id.0 as usize] = ty.clone();
-        // Patterns other than `null`, `_` and bindings look inside a `T?`.
-        let inner = match (ty, &p.kind) {
-            (Ty::Nullable(t), PatKind::Lit(l)) if !matches!(l, LitPat::Null) => (**t).clone(),
-            (Ty::Nullable(t), PatKind::Variant { .. } | PatKind::Struct { .. }) => (**t).clone(),
+        let inner = match ty {
+            Ty::Nullable(t) if p.looks_inside(ty) => (**t).clone(),
             _ => ty.clone(),
         };
         match &p.kind {
             PatKind::Wild => {}
-            PatKind::Bind(l) => self.set_var_ty(Var::Local(*l), ty.clone()),
+            PatKind::Bind(l) => self.bind_local(*l, ty, p.span),
+            PatKind::Or(alts) => {
+                for a in alts {
+                    self.check_pattern(a, ty);
+                }
+            }
+            PatKind::As(l, sub) => {
+                self.bind_local(*l, &inner, p.span);
+                self.check_pattern(sub, ty);
+            }
+            PatKind::Range(lo, hi) => {
+                for l in [lo, hi] {
+                    let ok = match (l, &inner) {
+                        (LitPat::Int(v), Ty::Int(it)) => {
+                            if !it.contains(*v) && *v != it.max() + 1 {
+                                self.lit_out_of_range(p.span, *v, *it);
+                            }
+                            true
+                        }
+                        (LitPat::Str(s), Ty::Char) => s.chars().count() == 1,
+                        (_, Ty::Error) => true,
+                        _ => false,
+                    };
+                    if !ok {
+                        self.pattern_mismatch(p.span, ty, "a range");
+                        break;
+                    }
+                }
+            }
+            PatKind::Slice {
+                prefix,
+                rest,
+                suffix,
+            } => self.slice_pattern(p, ty, &inner, prefix, *rest, suffix),
+            PatKind::Type {
+                ty: want,
+                bind,
+                fields,
+            } => {
+                // Until unions (P3.12), a type test either always holds or checks for null.
+                let ok = *want == inner || want.is_error() || inner.is_error();
+                if !ok {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::PATTERN_MISMATCH,
+                            format!("a `{ty}` is never a `{want}`"),
+                        )
+                        .primary(p.span, "this type test can't succeed"),
+                    );
+                }
+                let bt = if ok { want.clone() } else { Ty::Error };
+                if let Some(l) = bind {
+                    self.bind_local(*l, &bt, p.span);
+                }
+                if let Some(fps) = fields {
+                    match &bt {
+                        Ty::Struct(sid, _) => {
+                            let def = self.program.struct_def(*sid);
+                            let field_tys: Vec<(String, Ty)> = def
+                                .fields
+                                .iter()
+                                .map(|f| (f.name.clone(), f.ty.clone()))
+                                .collect();
+                            let what = format!("`{}`", def.name);
+                            self.field_patterns(p, fps, &field_tys, &what);
+                        }
+                        _ => {
+                            for f in fps {
+                                self.check_pattern(&f.pat, &Ty::Error);
+                            }
+                            if !bt.is_error() {
+                                self.pattern_mismatch(p.span, ty, "a field");
+                            }
+                        }
+                    }
+                }
+            }
             PatKind::Lit(l) => {
                 let ok = match (l, &inner) {
                     (LitPat::Int(v), Ty::Int(it)) => {
@@ -1330,6 +1443,93 @@ impl<'p> Checker<'p> {
         }
     }
 
+    /// `[a, b]`, `[first, ...rest]` on a tuple, fixed array or growable array.
+    fn slice_pattern(
+        &mut self,
+        p: &Pattern,
+        ty: &Ty,
+        inner: &Ty,
+        prefix: &[Pattern],
+        rest: Option<Option<LocalId>>,
+        suffix: &[Pattern],
+    ) {
+        let n = prefix.len() + suffix.len();
+        let subs: Vec<&Pattern> = prefix.iter().chain(suffix).collect();
+        let fail = |c: &mut Self| {
+            for sub in &subs {
+                c.check_pattern(sub, &Ty::Error);
+            }
+            if let Some(Some(l)) = rest {
+                c.bind_local(l, &Ty::Error, p.span);
+            }
+        };
+        match inner {
+            Ty::Array(t) => {
+                for sub in &subs {
+                    self.check_pattern(sub, t);
+                }
+                if let Some(Some(l)) = rest {
+                    self.bind_local(l, inner, p.span);
+                }
+            }
+            Ty::Tuple(ts) if rest.is_none() && ts.len() == n => {
+                for (sub, t) in subs.iter().zip(ts) {
+                    self.check_pattern(sub, t);
+                }
+            }
+            Ty::Fixed(t, len) if rest.is_none() && *len as usize == n => {
+                for sub in &subs {
+                    self.check_pattern(sub, t);
+                }
+            }
+            Ty::Tuple(_) | Ty::Fixed(..) => {
+                let len = match inner {
+                    Ty::Tuple(ts) => ts.len(),
+                    Ty::Fixed(_, n) => *n as usize,
+                    _ => unreachable!(),
+                };
+                let msg = if rest.is_some() {
+                    format!("`...rest` only works on growable arrays, not `{inner}`")
+                } else {
+                    format!("`{inner}` has {len} elements, but the pattern has {n}")
+                };
+                self.diags.push(
+                    Diagnostic::error(codes::WRONG_LENGTH, msg)
+                        .primary(p.span, "wrong number of elements"),
+                );
+                fail(self);
+            }
+            other => {
+                if !other.is_error() {
+                    self.pattern_mismatch(p.span, ty, "an array");
+                }
+                fail(self);
+            }
+        }
+    }
+
+    /// Types a pattern binding. In an or-pattern every alternative binds the same local, so
+    /// they must agree.
+    fn bind_local(&mut self, l: LocalId, t: &Ty, span: Span) {
+        let f = self.stack.last().unwrap().id;
+        let cur = &self.types.locals[f.0 as usize][l.0 as usize];
+        if !cur.is_error() && cur != t && !t.is_error() {
+            let prev = cur.clone();
+            self.diags.push(
+                Diagnostic::error(
+                    codes::MISMATCHED_TYPES,
+                    "a binding has different types in different alternatives",
+                )
+                .primary(
+                    span,
+                    format!("`{t}` here, `{prev}` in an earlier alternative"),
+                ),
+            );
+            return;
+        }
+        self.set_var_ty(Var::Local(l), t.clone());
+    }
+
     fn field_patterns(
         &mut self,
         p: &Pattern,
@@ -1377,74 +1577,148 @@ impl<'p> Checker<'p> {
         }
     }
 
-    /// A checked pattern, reduced for the exhaustiveness checker.
-    fn to_pat(&self, p: &Pattern, ty: &Ty) -> Pat {
-        let (inner, through_null) = match (ty, &p.kind) {
-            (Ty::Nullable(t), PatKind::Lit(l)) if !matches!(l, LitPat::Null) => {
-                ((**t).clone(), true)
-            }
-            (Ty::Nullable(t), PatKind::Variant { .. } | PatKind::Struct { .. }) => {
-                ((**t).clone(), true)
-            }
-            _ => (ty.clone(), false),
+    /// A checked pattern, reduced for the exhaustiveness checker: one entry per alternative
+    /// of an or-pattern (expanded through nested patterns, capped).
+    fn to_pat(&self, p: &Pattern, ty: &Ty) -> Vec<Pat> {
+        const CAP: usize = 256;
+        let inner = match ty {
+            Ty::Nullable(t) if p.looks_inside(ty) => (**t).clone(),
+            _ => ty.clone(),
         };
-        let pat = match &p.kind {
-            PatKind::Wild | PatKind::Bind(_) => return Pat::Wild,
+        let leaf = |c: Ctor| vec![Pat::Ctor(c, Vec::new())];
+        // All combinations of the sub-patterns' alternatives.
+        let product = |cols: Vec<Vec<Pat>>, c: Ctor| -> Vec<Pat> {
+            let mut acc: Vec<Vec<Pat>> = vec![Vec::new()];
+            for col in cols {
+                let mut next = Vec::new();
+                for prefix in &acc {
+                    for alt in &col {
+                        if next.len() >= CAP {
+                            break;
+                        }
+                        let mut v = prefix.clone();
+                        v.push(alt.clone());
+                        next.push(v);
+                    }
+                }
+                acc = next;
+            }
+            acc.into_iter()
+                .map(|args| Pat::Ctor(c.clone(), args))
+                .collect()
+        };
+        let struct_fields = |sid: StructId| -> Vec<Ty> {
+            self.program
+                .struct_def(sid)
+                .fields
+                .iter()
+                .map(|f| f.ty.clone())
+                .collect()
+        };
+        let pats = match &p.kind {
+            PatKind::Wild | PatKind::Bind(_) => return vec![Pat::Wild],
+            PatKind::Or(alts) => {
+                return alts
+                    .iter()
+                    .flat_map(|a| self.to_pat(a, ty))
+                    .take(CAP)
+                    .collect();
+            }
+            PatKind::As(_, sub) => return self.to_pat(sub, ty),
             PatKind::Lit(l) => match l {
-                LitPat::Null => Pat::Ctor(Ctor::Null, Vec::new()),
-                LitPat::Bool(b) => Pat::Ctor(Ctor::Bool(*b), Vec::new()),
-                LitPat::Int(v) if inner.is_int() => Pat::Ctor(Ctor::Int(*v), Vec::new()),
-                LitPat::Int(v) => Pat::Ctor(Ctor::Float((*v as f64).to_bits()), Vec::new()),
-                LitPat::Float(f) => Pat::Ctor(Ctor::Float(f.to_bits()), Vec::new()),
-                LitPat::Str(s) => Pat::Ctor(Ctor::Str(s.clone()), Vec::new()),
+                LitPat::Null => leaf(Ctor::Null),
+                LitPat::Bool(b) => leaf(Ctor::Bool(*b)),
+                LitPat::Int(v) if inner.is_int() => leaf(Ctor::Int(*v)),
+                LitPat::Int(v) => leaf(Ctor::Float((*v as f64).to_bits())),
+                LitPat::Float(f) => leaf(Ctor::Float(f.to_bits())),
+                LitPat::Str(s) => leaf(Ctor::Str(s.clone())),
             },
+            PatKind::Range(lo, hi) => leaf(Ctor::Range(format!("{lo:?}..{hi:?}"))),
             PatKind::Variant { args, .. } => {
                 let Some(&(eid, vi)) = self.types.variants.get(&p.id) else {
-                    return Pat::Wild;
+                    return vec![Pat::Wild];
                 };
-                let fields = &self.program.enum_def(eid).variants[vi as usize].fields;
-                let mut subs = vec![Pat::Wild; fields.len()];
+                let tys: Vec<Ty> = self.program.enum_def(eid).variants[vi as usize]
+                    .fields
+                    .iter()
+                    .map(|f| f.ty.clone())
+                    .collect();
+                let mut cols: Vec<Vec<Pat>> = vec![vec![Pat::Wild]; tys.len()];
                 match args {
                     VariantPatArgs::None => {}
                     VariantPatArgs::Positional(ps) => {
-                        for (i, (sub, f)) in ps.iter().zip(fields).enumerate() {
-                            subs[i] = self.to_pat(sub, &f.ty);
+                        for (i, (sub, t)) in ps.iter().zip(&tys).enumerate() {
+                            cols[i] = self.to_pat(sub, t);
                         }
                     }
-                    VariantPatArgs::Named(fps) => {
-                        self.named_subpats(p, fps, fields.iter().map(|f| &f.ty), &mut subs)
-                    }
+                    VariantPatArgs::Named(fps) => self.named_subpats(p, fps, &tys, &mut cols),
                 }
-                Pat::Ctor(Ctor::Variant(vi), subs)
+                product(cols, Ctor::Variant(vi))
             }
             PatKind::Struct { sid, fields: fps } => {
-                let fields = &self.program.struct_def(*sid).fields;
-                let mut subs = vec![Pat::Wild; fields.len()];
-                self.named_subpats(p, fps, fields.iter().map(|f| &f.ty), &mut subs);
-                Pat::Ctor(Ctor::Single, subs)
+                let tys = struct_fields(*sid);
+                let mut cols = vec![vec![Pat::Wild]; tys.len()];
+                self.named_subpats(p, fps, &tys, &mut cols);
+                product(cols, Ctor::Single)
+            }
+            PatKind::Type {
+                ty: Ty::Struct(sid, _),
+                fields: Some(fps),
+                ..
+            } => {
+                let tys = struct_fields(*sid);
+                let mut cols = vec![vec![Pat::Wild]; tys.len()];
+                self.named_subpats(p, fps, &tys, &mut cols);
+                product(cols, Ctor::Single)
+            }
+            PatKind::Type { .. } => vec![Pat::Wild],
+            PatKind::Slice {
+                prefix,
+                rest,
+                suffix,
+            } => {
+                let n = prefix.len() + suffix.len();
+                let elem_tys: Vec<Ty> = match &inner {
+                    Ty::Tuple(ts) if ts.len() == n && rest.is_none() => ts.clone(),
+                    Ty::Fixed(t, len) if *len as usize == n && rest.is_none() => {
+                        vec![(**t).clone(); n]
+                    }
+                    Ty::Array(t) => vec![(**t).clone(); prefix.len() + suffix.len()],
+                    _ => return vec![Pat::Wild],
+                };
+                let cols: Vec<Vec<Pat>> = prefix
+                    .iter()
+                    .chain(suffix)
+                    .zip(&elem_tys)
+                    .map(|(sub, t)| self.to_pat(sub, t))
+                    .collect();
+                let c = match &inner {
+                    Ty::Array(_) => Ctor::Slice {
+                        prefix: prefix.len(),
+                        suffix: suffix.len(),
+                        rest: rest.is_some(),
+                    },
+                    _ => Ctor::Single,
+                };
+                product(cols, c)
             }
         };
-        if through_null {
-            Pat::Ctor(Ctor::NonNull, vec![pat])
+        if p.looks_inside(ty) {
+            pats.into_iter()
+                .map(|x| Pat::Ctor(Ctor::NonNull, vec![x]))
+                .collect()
         } else {
-            pat
+            pats
         }
     }
 
-    fn named_subpats<'t>(
-        &self,
-        p: &Pattern,
-        fps: &[FieldPat],
-        tys: impl Iterator<Item = &'t Ty>,
-        subs: &mut [Pat],
-    ) {
-        let tys: Vec<&Ty> = tys.collect();
+    fn named_subpats(&self, p: &Pattern, fps: &[FieldPat], tys: &[Ty], cols: &mut [Vec<Pat>]) {
         let Some(idx) = self.types.pat_fields.get(&p.id) else {
             return;
         };
         for (fp, i) in fps.iter().zip(idx) {
             if let Some(t) = tys.get(*i as usize) {
-                subs[*i as usize] = self.to_pat(&fp.pat, t);
+                cols[*i as usize] = self.to_pat(&fp.pat, t);
             }
         }
     }

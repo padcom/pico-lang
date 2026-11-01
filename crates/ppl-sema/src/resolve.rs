@@ -31,6 +31,8 @@ pub fn resolve(module: &ast::Module, file: FileId) -> (Program, Vec<Diagnostic>)
         enums: Vec::new(),
         top_enums: HashMap::new(),
         variant_names: HashSet::new(),
+        stmt_switch: false,
+        cond_scope: false,
     };
     let program = r.program(module);
     (program, r.diags)
@@ -79,6 +81,10 @@ struct Resolver {
     /// Every variant name of every enum: an identifier pattern with one of these names is a
     /// variant pattern, not a binding.
     variant_names: HashSet<String>,
+    /// The `switch` being lowered is a statement (its value isn't used).
+    stmt_switch: bool,
+    /// Lowering an `if`/`while` condition, where `is` bindings stay in scope for the body.
+    cond_scope: bool,
 }
 
 enum Found {
@@ -1048,6 +1054,7 @@ impl Resolver {
     ) {
         match &s.kind {
             ast::StmtKind::Expr { expr, semi } => {
+                self.stmt_switch = matches!(expr.kind, ast::ExprKind::Switch { .. });
                 let e = self.lower_expr(expr);
                 match tail {
                     Some(t) if !semi => *t = Some(Box::new(e)),
@@ -1086,8 +1093,12 @@ impl Resolver {
             }
             ast::StmtKind::Using { .. } => self.not_implemented(s.span, "`using`"),
             ast::StmtKind::While { cond, body } => {
+                self.f.scopes.push(Scope::default());
+                self.cond_scope = true;
                 let cond = self.lower_expr(cond);
+                self.cond_scope = false;
                 let body = self.loop_body(body, LoopKind::While);
+                self.f.scopes.pop();
                 let e = self.expr(
                     ExprKind::While {
                         cond: Box::new(cond),
@@ -1270,6 +1281,8 @@ impl Resolver {
         if let Some(base) = opt_link_base(e) {
             return self.opt_chain(e, base);
         }
+        // Only parentheses and `&&` keep a condition's `is` bindings visible to the body.
+        let cond = std::mem::replace(&mut self.cond_scope, false);
         let kind = match &e.kind {
             A::Lit(l) => match l {
                 ast::Lit::Int { value, suffix } => ExprKind::Int(*value, *suffix),
@@ -1310,7 +1323,21 @@ impl Resolver {
                 }
             },
             A::Object { ty, fields } => self.object_literal(ty.as_deref(), fields, span),
-            A::Paren(inner) => return self.lower_expr(inner),
+            A::Paren(inner) => {
+                self.cond_scope = cond;
+                return self.lower_expr(inner);
+            }
+            A::Binary {
+                op: ast::BinOp::And,
+                lhs,
+                rhs,
+            } => {
+                self.cond_scope = cond;
+                let l = self.lower_expr(lhs);
+                self.cond_scope = cond;
+                let r = self.lower_expr(rhs);
+                ExprKind::Binary(ast::BinOp::And, Box::new(l), Box::new(r))
+            }
             A::Template { tag, quasis, exprs } => {
                 if tag.is_some() {
                     self.not_implemented(span, "tagged templates");
@@ -1403,6 +1430,54 @@ impl Resolver {
                 ExprKind::Match {
                     scrutinee: Box::new(scrutinee),
                     arms,
+                    switch: None,
+                }
+            }
+            A::Switch { scrutinee, cases } => {
+                let used = !std::mem::take(&mut self.stmt_switch);
+                let scrutinee = self.lower_expr(scrutinee);
+                let arms = cases
+                    .iter()
+                    .map(|c| {
+                        self.f.scopes.push(Scope::default());
+                        let mut bound = Binds::default();
+                        let pat = match &c.pat {
+                            Some(p) => self.lower_pattern(p, &mut bound),
+                            None => self.pattern(PatKind::Wild, c.span),
+                        };
+                        let guard = c.guard.as_ref().map(|g| self.lower_expr(g));
+                        let block = self.block(&c.body);
+                        let body = self.expr(ExprKind::Block(block), c.body.span);
+                        self.f.scopes.pop();
+                        Arm {
+                            pat,
+                            guard,
+                            body,
+                            span: c.span,
+                        }
+                    })
+                    .collect();
+                ExprKind::Match {
+                    scrutinee: Box::new(scrutinee),
+                    arms,
+                    switch: Some(used),
+                }
+            }
+            A::Is { expr, pat } => {
+                let expr = self.lower_expr(expr);
+                // In an `if`/`while` condition (through `&&`), the bindings are visible in
+                // the body; elsewhere they're only defined inside the test.
+                if !cond {
+                    self.f.scopes.push(Scope::default());
+                }
+                let mut bound = Binds::default();
+                let pat = self.lower_pattern(pat, &mut bound);
+                if !cond {
+                    self.f.scopes.pop();
+                }
+                ExprKind::Is {
+                    expr: Box::new(expr),
+                    pat,
                 }
             }
             A::Call {
@@ -1442,11 +1517,24 @@ impl Resolver {
                 ExprKind::As(Box::new(e), t)
             }
             A::Block(b) => ExprKind::Block(self.block(b)),
-            A::If { cond, then, else_ } => ExprKind::If {
-                cond: Box::new(self.lower_expr(cond)),
-                then: Box::new(self.lower_expr(then)),
-                else_: else_.as_ref().map(|e| Box::new(self.lower_expr(e))),
-            },
+            A::If {
+                cond: c,
+                then,
+                else_,
+            } => {
+                // `is` bindings in the condition are visible in `then`.
+                self.f.scopes.push(Scope::default());
+                self.cond_scope = true;
+                let c = self.lower_expr(c);
+                self.cond_scope = false;
+                let then = self.lower_expr(then);
+                self.f.scopes.pop();
+                ExprKind::If {
+                    cond: Box::new(c),
+                    then: Box::new(then),
+                    else_: else_.as_ref().map(|e| Box::new(self.lower_expr(e))),
+                }
+            }
             A::Loop(b) => {
                 self.f.loops.push(LoopKind::Loop);
                 let block = self.block(b);
@@ -1519,7 +1607,6 @@ impl Resolver {
                     A::This | A::Super => "classes",
                     A::Object { .. } => "object and struct literals",
                     A::New { .. } => "`new`",
-                    A::Is { .. } | A::Switch { .. } => "pattern matching",
                     A::Instanceof { .. } => "`instanceof`",
                     A::Function(_) => "closures",
                     A::Try { .. } | A::TryOpt(_) | A::TryBang(_) | A::Throw(_) => "exceptions",
@@ -1596,7 +1683,7 @@ impl Resolver {
 
     fn arm(&mut self, a: &ast::MatchArm) -> Arm {
         self.f.scopes.push(Scope::default());
-        let mut bound = HashMap::new();
+        let mut bound = Binds::default();
         let pat = self.lower_pattern(&a.pat, &mut bound);
         let guard = a.guard.as_ref().map(|g| self.lower_expr(g));
         let body = self.lower_expr(&a.body);
@@ -1639,9 +1726,82 @@ impl Resolver {
         }
     }
 
-    /// Lowers a pattern, declaring its bindings in the current scope. `bound` catches a name
-    /// bound twice.
-    fn lower_pattern(&mut self, p: &ast::Pattern, bound: &mut HashMap<String, Span>) -> Pattern {
+    /// Declares a pattern binding (or, in a later or-alternative, reuses the first one's).
+    fn bind_name(&mut self, n: &ast::Ident, b: &mut Binds) -> Option<LocalId> {
+        if let Some((prev, _)) = b.names.get(&n.name) {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::DUPLICATE_DECL,
+                    format!("`{}` is bound twice in this pattern", n.name),
+                )
+                .primary(n.span, "bound again here")
+                .secondary(*prev, "first bound here"),
+            );
+            return None;
+        }
+        let id = match b.reuse.as_ref().and_then(|r| r.get(&n.name)) {
+            Some(id) => *id,
+            None => {
+                if b.reuse.is_some() {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNKNOWN_NAME,
+                            format!("`{}` isn't bound in the first alternative", n.name),
+                        )
+                        .primary(n.span, "only bound here")
+                        .note("every alternative of an or-pattern must bind the same names"),
+                    );
+                }
+                self.declare_local(n, false, None)
+            }
+        };
+        b.names.insert(n.name.clone(), (n.span, id));
+        Some(id)
+    }
+
+    fn bind_pat(&mut self, n: &ast::Ident, b: &mut Binds) -> PatKind {
+        match self.bind_name(n, b) {
+            Some(id) => PatKind::Bind(id),
+            None => PatKind::Wild,
+        }
+    }
+
+    /// A type named in a pattern (`x is string`, `p is Point`), if `name` is one.
+    fn pattern_type(&self, name: &str) -> Option<Ty> {
+        if let Some(t) = Ty::from_name(name) {
+            return Some(t);
+        }
+        if let Some(id) = self.top_structs.get(name) {
+            return Some(self.struct_ty(*id));
+        }
+        self.top_enums.get(name).map(|id| self.enum_ty(*id))
+    }
+
+    fn field_patterns(&mut self, fields: &[ast::FieldPat], b: &mut Binds) -> Vec<FieldPat> {
+        fields
+            .iter()
+            .map(|f| {
+                if let Some(d) = &f.default {
+                    self.not_implemented(d.span, "defaults in patterns");
+                }
+                let pat = match &f.pat {
+                    Some(sub) => self.lower_pattern(sub, b),
+                    None => {
+                        let k = self.bind_pat(&f.name, b);
+                        self.pattern(k, f.name.span)
+                    }
+                };
+                FieldPat {
+                    name: f.name.name.clone(),
+                    name_span: f.name.span,
+                    pat,
+                }
+            })
+            .collect()
+    }
+
+    /// Lowers a pattern, declaring its bindings in the current scope.
+    fn lower_pattern(&mut self, p: &ast::Pattern, b: &mut Binds) -> Pattern {
         use ast::PatternKind as P;
         let span = p.span;
         let kind = match &p.kind {
@@ -1652,13 +1812,14 @@ impl Resolver {
                 name_span: n.span,
                 args: VariantPatArgs::None,
             },
-            P::Ident(n) => {
-                if self.check_duplicate(bound, n) {
-                    PatKind::Wild
-                } else {
-                    PatKind::Bind(self.declare_local(n, false, None))
+            P::Ident(n) if !self.is_value_name(&n.name) && self.pattern_type(&n.name).is_some() => {
+                PatKind::Type {
+                    ty: self.pattern_type(&n.name).expect("checked"),
+                    bind: None,
+                    fields: None,
                 }
             }
+            P::Ident(n) => self.bind_pat(n, b),
             P::Path(path) => match self.variant_path(path) {
                 Some((enum_, v)) => PatKind::Variant {
                     enum_,
@@ -1668,23 +1829,19 @@ impl Resolver {
                 },
                 None => PatKind::Wild,
             },
-            P::Lit(l) => match self.lit_pattern(l, false, span) {
+            P::Lit(_) | P::Neg(_) => match self.literal_pattern(p) {
                 Some(l) => PatKind::Lit(l),
                 None => PatKind::Wild,
             },
-            P::Neg(inner) => match &inner.kind {
-                P::Lit(l) => match self.lit_pattern(l, true, span) {
-                    Some(l) => PatKind::Lit(l),
-                    None => PatKind::Wild,
-                },
-                _ => {
-                    self.not_implemented(span, "this kind of pattern");
-                    PatKind::Wild
+            P::Range { start, end } => {
+                match (self.literal_pattern(start), self.literal_pattern(end)) {
+                    (Some(a), Some(z)) => PatKind::Range(a, z),
+                    _ => PatKind::Wild,
                 }
-            },
+            }
             P::TupleStruct { path, elems } => match self.variant_path(path) {
                 Some((enum_, v)) => {
-                    let elems = elems.iter().map(|e| self.lower_pattern(e, bound)).collect();
+                    let elems = elems.iter().map(|e| self.lower_pattern(e, b)).collect();
                     PatKind::Variant {
                         enum_,
                         name: v.name,
@@ -1699,30 +1856,7 @@ impl Resolver {
                 fields,
                 ..
             } => {
-                let fields: Vec<FieldPat> = fields
-                    .iter()
-                    .map(|f| {
-                        if let Some(d) = &f.default {
-                            self.not_implemented(d.span, "defaults in patterns");
-                        }
-                        let pat = match &f.pat {
-                            Some(sub) => self.lower_pattern(sub, bound),
-                            None => {
-                                let id = if self.check_duplicate(bound, &f.name) {
-                                    PatKind::Wild
-                                } else {
-                                    PatKind::Bind(self.declare_local(&f.name, false, None))
-                                };
-                                self.pattern(id, f.name.span)
-                            }
-                        };
-                        FieldPat {
-                            name: f.name.name.clone(),
-                            name_span: f.name.span,
-                            pat,
-                        }
-                    })
-                    .collect();
+                let fields = self.field_patterns(fields, b);
                 match path.as_slice() {
                     [n] if self.top_structs.contains_key(&n.name) => PatKind::Struct {
                         sid: self.top_structs[&n.name],
@@ -1739,12 +1873,112 @@ impl Resolver {
                     },
                 }
             }
+            P::Or(alts) => {
+                let mut out = Vec::new();
+                let mut first: Option<HashMap<String, (Span, LocalId)>> = None;
+                for alt in alts {
+                    let mut ab = Binds {
+                        names: HashMap::new(),
+                        reuse: first
+                            .as_ref()
+                            .map(|f| f.iter().map(|(k, (_, id))| (k.clone(), *id)).collect())
+                            .or_else(|| b.reuse.clone()),
+                    };
+                    out.push(self.lower_pattern(alt, &mut ab));
+                    match &first {
+                        None => first = Some(ab.names),
+                        Some(f) => {
+                            for (name, (sp, _)) in f {
+                                if !ab.names.contains_key(name) {
+                                    self.diags.push(
+                                        Diagnostic::error(
+                                            codes::UNKNOWN_NAME,
+                                            format!("`{name}` isn't bound in every alternative"),
+                                        )
+                                        .primary(alt.span, format!("doesn't bind `{name}`"))
+                                        .secondary(*sp, "bound here"),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                for (name, v) in first.unwrap_or_default() {
+                    b.names.entry(name).or_insert(v);
+                }
+                PatKind::Or(out)
+            }
+            P::Array(elems) => {
+                let mut prefix = Vec::new();
+                let mut suffix = Vec::new();
+                let mut rest = None;
+                for e in elems {
+                    match &e.kind {
+                        P::Rest(name) if rest.is_none() => {
+                            rest = Some(name.as_ref().and_then(|n| self.bind_name(n, b)));
+                        }
+                        P::Rest(_) => {
+                            self.error(
+                                codes::INVALID_ASSIGN_TARGET,
+                                e.span,
+                                "only one `...rest` per array pattern",
+                                "second rest pattern",
+                            );
+                        }
+                        _ => {
+                            let sub = self.lower_pattern(e, b);
+                            if rest.is_some() {
+                                suffix.push(sub);
+                            } else {
+                                prefix.push(sub);
+                            }
+                        }
+                    }
+                }
+                PatKind::Slice {
+                    prefix,
+                    rest,
+                    suffix,
+                }
+            }
+            P::As { name, pat } => {
+                let id = self.bind_name(name, b);
+                let inner = self.lower_pattern(pat, b);
+                match id {
+                    Some(id) => PatKind::As(id, Box::new(inner)),
+                    None => return inner,
+                }
+            }
+            P::Typed { name, ty, fields } => {
+                let ty = self.resolve_type(ty);
+                let bind = self.bind_name(name, b);
+                let fields = fields.as_ref().map(|f| self.field_patterns(f, b));
+                PatKind::Type { ty, bind, fields }
+            }
             _ => {
                 self.not_implemented(span, "this kind of pattern");
                 PatKind::Wild
             }
         };
         self.pattern(kind, span)
+    }
+
+    /// A literal pattern (`1`, `-1`, `"a"`, `true`, `null`).
+    fn literal_pattern(&mut self, p: &ast::Pattern) -> Option<LitPat> {
+        match &p.kind {
+            ast::PatternKind::Lit(l) => self.lit_pattern(l, false, p.span),
+            ast::PatternKind::Neg(inner) => match &inner.kind {
+                ast::PatternKind::Lit(l) => self.lit_pattern(l, true, p.span),
+                _ => {
+                    self.not_implemented(p.span, "this kind of pattern");
+                    None
+                }
+            },
+            _ => {
+                self.not_implemented(p.span, "range bounds other than literals");
+                None
+            }
+        }
     }
 
     fn lit_pattern(&mut self, l: &ast::Lit, neg: bool, span: Span) -> Option<LitPat> {
@@ -1959,6 +2193,13 @@ fn rewrite_opt_link(e: &ast::Expr, name: &str) -> ast::Expr {
         _ => unreachable!("not a chain"),
     };
     ast::Expr { kind, span: e.span }
+}
+
+/// The names a pattern binds so far; in a later or-alternative, the first one's locals.
+#[derive(Default)]
+struct Binds {
+    names: HashMap<String, (Span, LocalId)>,
+    reuse: Option<HashMap<String, LocalId>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

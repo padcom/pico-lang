@@ -578,7 +578,33 @@ impl FnBuilder<'_, '_> {
                     .collect();
                 self.rvalue_to_temp(Rvalue::Variant(*enum_, *variant, ops), ty, e.span)
             }
-            ExprKind::Match { scrutinee, arms } => self.match_expr(scrutinee, arms, ty, e.span),
+            ExprKind::Match {
+                scrutinee,
+                arms,
+                switch,
+            } => self.match_expr(scrutinee, arms, switch.is_some(), ty, e.span),
+            ExprKind::Is { expr, pat } => {
+                let place = self.place_of(expr);
+                let res = Place::local(self.temp(Ty::Bool));
+                let no = self.new_block();
+                let join = self.new_block();
+                self.match_pattern(pat, &place, no);
+                self.assign(
+                    res.clone(),
+                    Rvalue::Use(Operand::Const(Const::Bool(true))),
+                    e.span,
+                );
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(no);
+                self.assign(
+                    res.clone(),
+                    Rvalue::Use(Operand::Const(Const::Bool(false))),
+                    e.span,
+                );
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(join);
+                Operand::Copy(res)
+            }
             ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => {
                 Operand::Copy(self.place(*v).payload())
             }
@@ -1119,7 +1145,14 @@ impl FnBuilder<'_, '_> {
 
     /// `match`: the arms are tried in order; each tests its pattern against the scrutinee,
     /// binds, checks its guard, and jumps to the next arm on failure.
-    fn match_expr(&mut self, scrutinee: &Expr, arms: &[hir::Arm], ty: Ty, span: Span) -> Operand {
+    fn match_expr(
+        &mut self,
+        scrutinee: &Expr,
+        arms: &[hir::Arm],
+        switch: bool,
+        ty: Ty,
+        span: Span,
+    ) -> Operand {
         let mut place = self.place_of(scrutinee);
         if place.has_index() || !matches!(scrutinee.kind, ExprKind::Var(_)) {
             // A stable copy: arm bodies may change the array or variable it came from.
@@ -1132,8 +1165,7 @@ impl FnBuilder<'_, '_> {
         let join = self.new_block();
         for arm in arms {
             let next = self.new_block();
-            self.test_pattern(&arm.pat, &place, next);
-            self.bind_pattern(&arm.pat, &place);
+            self.match_pattern(&arm.pat, &place, next);
             if let Some(g) = &arm.guard {
                 let c = self.expr(g);
                 let body = self.new_block();
@@ -1153,9 +1185,13 @@ impl FnBuilder<'_, '_> {
             self.terminate(Terminator::Goto(join));
             self.switch_to(next);
         }
-        // Exhaustiveness was checked: no value gets here.
+        // Exhaustiveness was checked: no value gets here (except past a switch statement).
         let _ = span;
-        self.terminate(Terminator::Unreachable);
+        if switch {
+            self.terminate(Terminator::Goto(join));
+        } else {
+            self.terminate(Terminator::Unreachable);
+        }
         self.switch_to(join);
         match res {
             Some(p) => Operand::Copy(p),
@@ -1163,61 +1199,74 @@ impl FnBuilder<'_, '_> {
         }
     }
 
-    /// Branches to `fail` unless the value at `place` matches `p` (bindings aside).
-    fn test_pattern(&mut self, p: &hir::Pattern, place: &Place, fail: BlockId) {
+    /// Branches to `fail` unless the value at `place` matches `p`; binds as it goes (a later
+    /// failure leaves some bindings set, which is harmless: they're only read after a match).
+    fn match_pattern(&mut self, p: &hir::Pattern, place: &Place, fail: BlockId) {
         use hir::PatKind;
         let pty = self.place_ty(place);
-        let branch_unless = |b: &mut Self, ok: Operand| {
-            let pass = b.new_block();
-            b.terminate(Terminator::Branch {
-                cond: ok,
-                then: pass,
-                else_: fail,
-            });
-            b.switch_to(pass);
-        };
+        if p.looks_inside(&pty) {
+            let n = self.rvalue_to_temp(
+                Rvalue::IsNull(Operand::Copy(place.clone())),
+                Ty::Bool,
+                p.span,
+            );
+            let some = self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, n), Ty::Bool, p.span);
+            self.branch_unless(some, fail);
+            return self.match_pattern(p, &place.payload(), fail);
+        }
         match &p.kind {
-            PatKind::Wild | PatKind::Bind(_) => {}
+            PatKind::Wild => {}
+            PatKind::Bind(l) => self.bind(*l, place, p.span),
+            PatKind::As(l, sub) => {
+                self.bind(*l, place, p.span);
+                self.match_pattern(sub, place, fail);
+            }
+            PatKind::Type { bind, fields, .. } => {
+                if let Some(l) = bind {
+                    self.bind(*l, place, p.span);
+                }
+                if let Some(fps) = fields {
+                    let idx = self.cx.types.pat_fields[&p.id].clone();
+                    for (f, i) in fps.iter().zip(idx) {
+                        self.match_pattern(&f.pat, &place.field(i), fail);
+                    }
+                }
+            }
+            PatKind::Or(alts) => {
+                let matched = self.new_block();
+                for (k, alt) in alts.iter().enumerate() {
+                    let next = if k + 1 == alts.len() {
+                        fail
+                    } else {
+                        self.new_block()
+                    };
+                    self.match_pattern(alt, place, next);
+                    self.terminate(Terminator::Goto(matched));
+                    self.switch_to(next);
+                }
+                self.switch_to(matched);
+            }
             PatKind::Lit(hir::LitPat::Null) => {
                 let n = self.rvalue_to_temp(
                     Rvalue::IsNull(Operand::Copy(place.clone())),
                     Ty::Bool,
                     p.span,
                 );
-                branch_unless(self, n);
-            }
-            _ if matches!(pty, Ty::Nullable(_)) => {
-                let n = self.rvalue_to_temp(
-                    Rvalue::IsNull(Operand::Copy(place.clone())),
-                    Ty::Bool,
-                    p.span,
-                );
-                let some = self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, n), Ty::Bool, p.span);
-                branch_unless(self, some);
-                self.test_pattern(p, &place.payload(), fail);
+                self.branch_unless(n, fail);
             }
             PatKind::Lit(l) => {
-                let c = match (l, &pty) {
-                    (hir::LitPat::Int(v), Ty::Int(it)) => Const::Int(*v, *it),
-                    (hir::LitPat::Int(v), Ty::Float(ft)) => Const::Float(*v as f64, *ft),
-                    (hir::LitPat::Float(v), Ty::Float(ft)) => Const::Float(*v, *ft),
-                    (hir::LitPat::Str(s), Ty::Char) => {
-                        Const::Char(s.chars().next().unwrap_or('\0'))
-                    }
-                    (hir::LitPat::Str(s), _) => Const::Str(s.clone()),
-                    (hir::LitPat::Bool(b), _) => Const::Bool(*b),
-                    _ => unreachable!("type-checked literal pattern"),
-                };
-                let eq = self.rvalue_to_temp(
-                    Rvalue::Binary(
-                        mir::BinOp::Eq,
-                        Operand::Copy(place.clone()),
-                        Operand::Const(c),
-                    ),
-                    Ty::Bool,
-                    p.span,
-                );
-                branch_unless(self, eq);
+                let c = lit_const(l, &pty);
+                self.compare_or_fail(mir::BinOp::Eq, place, c, fail, p.span);
+            }
+            PatKind::Range(lo, hi) => {
+                let (lo, hi) = (lit_const(lo, &pty), lit_const(hi, &pty));
+                self.compare_or_fail(mir::BinOp::Ge, place, lo, fail, p.span);
+                // `0..256` on a `u8`: the end is past the type's range, so only `>=` matters.
+                let past_max =
+                    matches!((&hi, &pty), (Const::Int(v, _), Ty::Int(it)) if *v > it.max());
+                if !past_max {
+                    self.compare_or_fail(mir::BinOp::Lt, place, hi, fail, p.span);
+                }
             }
             PatKind::Variant { args, .. } => {
                 let (_, vi) = self.cx.types.variants[&p.id];
@@ -1235,65 +1284,164 @@ impl FnBuilder<'_, '_> {
                     Ty::Bool,
                     p.span,
                 );
-                branch_unless(self, eq);
-                for (sub, i) in self.variant_subpatterns(p, args) {
-                    let fp = place.variant_field(vi, i);
-                    self.test_pattern(sub, &fp, fail);
+                self.branch_unless(eq, fail);
+                let subs: Vec<(&hir::Pattern, u32)> = match args {
+                    hir::VariantPatArgs::None => Vec::new(),
+                    hir::VariantPatArgs::Positional(ps) => {
+                        ps.iter().enumerate().map(|(i, s)| (s, i as u32)).collect()
+                    }
+                    hir::VariantPatArgs::Named(fps) => {
+                        let idx = &self.cx.types.pat_fields[&p.id];
+                        fps.iter().zip(idx).map(|(f, i)| (&f.pat, *i)).collect()
+                    }
+                };
+                for (sub, i) in subs {
+                    self.match_pattern(sub, &place.variant_field(vi, i), fail);
                 }
             }
             PatKind::Struct { fields, .. } => {
                 let idx = self.cx.types.pat_fields[&p.id].clone();
                 for (f, i) in fields.iter().zip(idx) {
-                    self.test_pattern(&f.pat, &place.field(i), fail);
+                    self.match_pattern(&f.pat, &place.field(i), fail);
+                }
+            }
+            PatKind::Slice {
+                prefix,
+                rest,
+                suffix,
+            } => self.match_slice(place, &pty, prefix, *rest, suffix, fail, p.span),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn match_slice(
+        &mut self,
+        place: &Place,
+        pty: &Ty,
+        prefix: &[hir::Pattern],
+        rest: Option<Option<hir::LocalId>>,
+        suffix: &[hir::Pattern],
+        fail: BlockId,
+        span: Span,
+    ) {
+        let n = prefix.len() + suffix.len();
+        match pty {
+            Ty::Tuple(_) => {
+                for (i, sub) in prefix.iter().chain(suffix).enumerate() {
+                    self.match_pattern(sub, &place.field(i as u32), fail);
+                }
+            }
+            Ty::Fixed(..) => {
+                for (i, sub) in prefix.iter().chain(suffix).enumerate() {
+                    let idx = self.const_index(i as i128, span);
+                    self.match_pattern(sub, &place.index(idx), fail);
+                }
+            }
+            _ => {
+                // A growable array: check the length, then the elements.
+                let len = self.rvalue_to_temp(
+                    Rvalue::ArrayLen(Operand::Copy(place.clone())),
+                    Ty::INT,
+                    span,
+                );
+                let op = if rest.is_some() {
+                    mir::BinOp::Ge
+                } else {
+                    mir::BinOp::Eq
+                };
+                let ok = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        op,
+                        len.clone(),
+                        Operand::Const(Const::Int(n as i128, IntTy::I64)),
+                    ),
+                    Ty::Bool,
+                    span,
+                );
+                self.branch_unless(ok, fail);
+                for (i, sub) in prefix.iter().enumerate() {
+                    let idx = self.const_index(i as i128, span);
+                    self.match_pattern(sub, &place.index(idx), fail);
+                }
+                // Suffix element j sits at `len - suffix.len() + j`.
+                let base = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Sub,
+                        len.clone(),
+                        Operand::Const(Const::Int(suffix.len() as i128, IntTy::I64)),
+                    ),
+                    Ty::INT,
+                    span,
+                );
+                for (j, sub) in suffix.iter().enumerate() {
+                    let at = self.temp(Ty::INT);
+                    self.assign(
+                        Place::local(at),
+                        Rvalue::Binary(
+                            mir::BinOp::Add,
+                            base.clone(),
+                            Operand::Const(Const::Int(j as i128, IntTy::I64)),
+                        ),
+                        span,
+                    );
+                    self.match_pattern(sub, &place.index(at), fail);
+                }
+                if let Some(Some(l)) = rest {
+                    let start = Operand::Const(Const::Int(prefix.len() as i128, IntTy::I64));
+                    let dst = self.place(hir::Var::Local(l));
+                    self.assign(
+                        dst,
+                        Rvalue::ArraySlice(Operand::Copy(place.clone()), start, base),
+                        span,
+                    );
                 }
             }
         }
     }
 
-    /// The sub-patterns of a variant pattern with the field index each one matches.
-    fn variant_subpatterns<'p>(
-        &self,
-        p: &hir::Pattern,
-        args: &'p hir::VariantPatArgs,
-    ) -> Vec<(&'p hir::Pattern, u32)> {
-        match args {
-            hir::VariantPatArgs::None => Vec::new(),
-            hir::VariantPatArgs::Positional(ps) => {
-                ps.iter().enumerate().map(|(i, s)| (s, i as u32)).collect()
-            }
-            hir::VariantPatArgs::Named(fps) => {
-                let idx = &self.cx.types.pat_fields[&p.id];
-                fps.iter().zip(idx).map(|(f, i)| (&f.pat, *i)).collect()
-            }
+    /// A local holding a constant index (for `Proj::Index`).
+    fn const_index(&mut self, i: i128, span: Span) -> Local {
+        let l = self.temp(Ty::INT);
+        self.assign(
+            Place::local(l),
+            Rvalue::Use(Operand::Const(Const::Int(i, IntTy::I64))),
+            span,
+        );
+        l
+    }
+
+    fn bind(&mut self, l: hir::LocalId, place: &Place, span: Span) {
+        if has_value(&self.place_ty(place)) {
+            let dst = self.place(hir::Var::Local(l));
+            self.assign(dst, Rvalue::Use(Operand::Copy(place.clone())), span);
         }
     }
 
-    /// Copies the matched parts into the pattern's bindings.
-    fn bind_pattern(&mut self, p: &hir::Pattern, place: &Place) {
-        use hir::PatKind;
-        let pty = self.place_ty(place);
-        match &p.kind {
-            PatKind::Bind(l) => {
-                if has_value(&pty) {
-                    let dst = self.place(hir::Var::Local(*l));
-                    self.assign(dst, Rvalue::Use(Operand::Copy(place.clone())), p.span);
-                }
-            }
-            PatKind::Wild | PatKind::Lit(_) => {}
-            _ if matches!(pty, Ty::Nullable(_)) => self.bind_pattern(p, &place.payload()),
-            PatKind::Variant { args, .. } => {
-                let (_, vi) = self.cx.types.variants[&p.id];
-                for (sub, i) in self.variant_subpatterns(p, args) {
-                    self.bind_pattern(sub, &place.variant_field(vi, i));
-                }
-            }
-            PatKind::Struct { fields, .. } => {
-                let idx = self.cx.types.pat_fields[&p.id].clone();
-                for (f, i) in fields.iter().zip(idx) {
-                    self.bind_pattern(&f.pat, &place.field(i));
-                }
-            }
-        }
+    /// Continues in a fresh block if `ok`, otherwise jumps to `fail`.
+    fn branch_unless(&mut self, ok: Operand, fail: BlockId) {
+        let pass = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond: ok,
+            then: pass,
+            else_: fail,
+        });
+        self.switch_to(pass);
+    }
+
+    fn compare_or_fail(
+        &mut self,
+        op: mir::BinOp,
+        place: &Place,
+        c: Const,
+        fail: BlockId,
+        span: Span,
+    ) {
+        let ok = self.rvalue_to_temp(
+            Rvalue::Binary(op, Operand::Copy(place.clone()), Operand::Const(c)),
+            Ty::Bool,
+            span,
+        );
+        self.branch_unless(ok, fail);
     }
 
     /// `l ?? r`: `r` only when `l` is null.
@@ -1626,6 +1774,19 @@ impl FnBuilder<'_, '_> {
             }
             _ => Operand::Const(Const::Void),
         }
+    }
+}
+
+/// A literal pattern's value as a constant of the matched type.
+fn lit_const(l: &hir::LitPat, ty: &Ty) -> Const {
+    match (l, ty) {
+        (hir::LitPat::Int(v), Ty::Int(it)) => Const::Int(*v, *it),
+        (hir::LitPat::Int(v), Ty::Float(ft)) => Const::Float(*v as f64, *ft),
+        (hir::LitPat::Float(v), Ty::Float(ft)) => Const::Float(*v, *ft),
+        (hir::LitPat::Str(s), Ty::Char) => Const::Char(s.chars().next().unwrap_or('\0')),
+        (hir::LitPat::Str(s), _) => Const::Str(s.clone()),
+        (hir::LitPat::Bool(b), _) => Const::Bool(*b),
+        _ => unreachable!("type-checked literal pattern"),
     }
 }
 

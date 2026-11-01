@@ -38,6 +38,7 @@ typedef struct PplArray {
 PplArray *ppl_array_new(int64_t elem_size, int64_t len); /* `len` zeroed elements */
 void *ppl_array_push(PplArray *a, int64_t elem_size);    /* appends a slot, returns it */
 int32_t ppl_array_pop(PplArray *a);                      /* 1 if an element was removed */
+PplArray *ppl_array_slice(const PplArray *a, int64_t elem_size, int64_t start, int64_t end);
 
 /* Strings. */
 PplStr *ppl_str_new(const char *bytes, int64_t byte_len); /* counts code points */

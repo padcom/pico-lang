@@ -352,6 +352,19 @@ impl Interp<'_, '_> {
             Rvalue::ArrayNew(_, ops) => Ok(Value::Array(Rc::new(RefCell::new(
                 ops.iter().map(|o| self.operand(frame, o)).collect(),
             )))),
+            Rvalue::ArraySlice(a, b, c) => {
+                match (
+                    self.operand(frame, a),
+                    self.operand(frame, b),
+                    self.operand(frame, c),
+                ) {
+                    (Value::Array(a), Value::Int(b), Value::Int(c)) => {
+                        let part = a.borrow()[b as usize..c as usize].to_vec();
+                        Ok(Value::Array(Rc::new(RefCell::new(part))))
+                    }
+                    v => unreachable!("slice of {v:?}"),
+                }
+            }
             Rvalue::ArrayLen(o) => match self.operand(frame, o) {
                 Value::Array(a) => Ok(Value::Int(a.borrow().len() as i128)),
                 v => unreachable!("length of {v:?}"),

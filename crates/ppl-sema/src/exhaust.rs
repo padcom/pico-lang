@@ -21,6 +21,16 @@ pub enum Ctor {
     Int(i128),
     Float(u64),
     Str(String),
+    /// A range pattern (by its text; ranges of infinite types are never complete).
+    Range(String),
+    /// A growable array pattern: `prefix` and `suffix` elements around an optional rest.
+    /// As a constructor to try, `rest: false` means exactly `prefix` elements and
+    /// `rest: true` means at least that many.
+    Slice {
+        prefix: usize,
+        suffix: usize,
+        rest: bool,
+    },
 }
 
 /// A pattern reduced to constructors and wildcards.
@@ -52,6 +62,10 @@ impl Checker<'_> {
                 .collect(),
             (Ty::Tuple(ts), Ctor::Single) => ts.clone(),
             (Ty::Nullable(inner), Ctor::NonNull) => vec![(**inner).clone()],
+            (Ty::Fixed(e, n), Ctor::Single) => vec![(**e).clone(); *n as usize],
+            (Ty::Array(e), Ctor::Slice { prefix, suffix, .. }) => {
+                vec![(**e).clone(); prefix + suffix]
+            }
             _ => Vec::new(),
         }
     }
@@ -64,27 +78,83 @@ impl Checker<'_> {
                 .collect(),
             Ty::Bool => vec![Ctor::Bool(false), Ctor::Bool(true)],
             Ty::Nullable(_) => vec![Ctor::Null, Ctor::NonNull],
-            Ty::Struct(..) | Ty::Tuple(_) => vec![Ctor::Single],
+            Ty::Struct(..) | Ty::Tuple(_) | Ty::Fixed(..) => vec![Ctor::Single],
             _ => return None,
         })
+    }
+
+    /// The arguments a row head `rc(args)` has when matched as constructor `c` (with
+    /// `arity` arguments), or `None` if it doesn't match it.
+    fn head_args(rc: &Ctor, args: &[Pat], c: &Ctor, arity: usize) -> Option<Vec<Pat>> {
+        match (rc, c) {
+            (
+                Ctor::Slice {
+                    prefix,
+                    suffix,
+                    rest: false,
+                },
+                Ctor::Slice { rest: false, .. },
+            ) => (prefix + suffix == arity).then(|| args.to_vec()),
+            (Ctor::Slice { rest: false, .. }, Ctor::Slice { rest: true, .. }) => None,
+            (
+                Ctor::Slice {
+                    prefix,
+                    suffix,
+                    rest: true,
+                },
+                Ctor::Slice { .. },
+            ) => {
+                // `[a, ...rest, z]` as length `arity`: the middle is wildcards.
+                if prefix + suffix > arity {
+                    return None;
+                }
+                let mut out = args[..*prefix].to_vec();
+                out.extend(std::iter::repeat_n(Pat::Wild, arity - prefix - suffix));
+                out.extend_from_slice(&args[*prefix..]);
+                Some(out)
+            }
+            // A pattern that failed to type-check may have the wrong arity: treat it as `_`.
+            _ if rc == c && args.len() != arity => Some(vec![Pat::Wild; arity]),
+            _ => (rc == c).then(|| args.to_vec()),
+        }
     }
 
     /// Rows whose head matches `c`, with the head replaced by its arguments.
     fn specialize(&self, rows: &[Vec<Pat>], c: &Ctor, arity: usize) -> Vec<Vec<Pat>> {
         rows.iter()
-            .filter_map(|r| match &r[0] {
-                Pat::Wild => {
-                    let mut out = vec![Pat::Wild; arity];
-                    out.extend_from_slice(&r[1..]);
-                    Some(out)
-                }
-                Pat::Ctor(rc, args) if rc == c => {
-                    let mut out = args.clone();
-                    out.extend_from_slice(&r[1..]);
-                    Some(out)
-                }
-                Pat::Ctor(..) => None,
+            .filter_map(|r| {
+                let mut out = match &r[0] {
+                    Pat::Wild => vec![Pat::Wild; arity],
+                    Pat::Ctor(rc, args) => Self::head_args(rc, args, c, arity)?,
+                };
+                out.extend_from_slice(&r[1..]);
+                Some(out)
             })
+            .collect()
+    }
+
+    /// The constructors to try for a growable array column: every length up to the longest
+    /// pattern, and "longer than that".
+    fn slice_ctors(rows: &[Vec<Pat>]) -> Vec<Ctor> {
+        let longest = rows
+            .iter()
+            .filter_map(|r| match &r[0] {
+                Pat::Ctor(Ctor::Slice { prefix, suffix, .. }, _) => Some(prefix + suffix),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        (0..=longest)
+            .map(|n| Ctor::Slice {
+                prefix: n,
+                suffix: 0,
+                rest: false,
+            })
+            .chain(std::iter::once(Ctor::Slice {
+                prefix: longest + 1,
+                suffix: 0,
+                rest: true,
+            }))
             .collect()
     }
 
@@ -113,6 +183,18 @@ impl Checker<'_> {
                 q2.extend_from_slice(&q[1..]);
                 self.useful(&rows, &q2, &sub_tys(c))
                     .map(|w| rebuild(c.clone(), arity, w))
+            }
+            Pat::Wild if matches!(t, Ty::Array(_)) => {
+                for c in Self::slice_ctors(rows) {
+                    let arity = self.arg_tys(t, &c).len();
+                    let rows = self.specialize(rows, &c, arity);
+                    let mut q2 = vec![Pat::Wild; arity];
+                    q2.extend_from_slice(&q[1..]);
+                    if let Some(w) = self.useful(&rows, &q2, &sub_tys(&c)) {
+                        return Some(rebuild(c, arity, w));
+                    }
+                }
+                None
             }
             Pat::Wild => {
                 let used: Vec<&Ctor> = rows
@@ -196,6 +278,17 @@ impl Checker<'_> {
             (Pat::Ctor(Ctor::Bool(b), _), _) => b.to_string(),
             (Pat::Ctor(Ctor::Null, _), _) => "null".into(),
             (Pat::Ctor(Ctor::NonNull, args), Ty::Nullable(inner)) => self.show(inner, &args[0]),
+            (Pat::Ctor(Ctor::Slice { rest, .. }, args), Ty::Array(e)) => {
+                let mut parts: Vec<String> = args.iter().map(|a| self.show(e, a)).collect();
+                if *rest {
+                    parts.push("...".into());
+                }
+                format!("[{}]", parts.join(", "))
+            }
+            (Pat::Ctor(Ctor::Single, args), Ty::Fixed(e, _)) => {
+                let parts: Vec<String> = args.iter().map(|a| self.show(e, a)).collect();
+                format!("[{}]", parts.join(", "))
+            }
             (Pat::Ctor(Ctor::Single, args), Ty::Tuple(ts)) => {
                 let parts: Vec<String> =
                     args.iter().zip(ts).map(|(a, t)| self.show(t, a)).collect();

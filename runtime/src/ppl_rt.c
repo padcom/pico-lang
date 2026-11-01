@@ -43,6 +43,12 @@ void *ppl_array_push(PplArray *a, int64_t elem_size) {
     return a->data + (a->len++) * elem_size;
 }
 
+PplArray *ppl_array_slice(const PplArray *a, int64_t elem_size, int64_t start, int64_t end) {
+    PplArray *r = ppl_array_new(elem_size, end - start);
+    memcpy(r->data, a->data + start * elem_size, (size_t)((end - start) * elem_size));
+    return r;
+}
+
 int32_t ppl_array_pop(PplArray *a) {
     if (a->len == 0) return 0;
     a->len--;

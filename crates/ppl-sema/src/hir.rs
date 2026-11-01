@@ -304,6 +304,42 @@ pub enum PatKind {
         sid: StructId,
         fields: Vec<FieldPat>,
     },
+    /// `a | b`: every alternative binds the same names (to the same locals).
+    Or(Vec<Pattern>),
+    /// `300..400` (exclusive), over integers or chars.
+    Range(LitPat, LitPat),
+    /// `[a, b]`, `[first, ...rest]`, `[...init, last]`: tuples, fixed and growable arrays.
+    /// `rest` is `None` without `...`, `Some(None)` for an unnamed `...`.
+    Slice {
+        prefix: Vec<Pattern>,
+        rest: Option<Option<LocalId>>,
+        suffix: Vec<Pattern>,
+    },
+    /// `c as Rect { w, h }`: binds the whole value too.
+    As(LocalId, Box<Pattern>),
+    /// `s: string`, `p: Point { x }`, or a bare type name (`x is string`).
+    Type {
+        ty: Ty,
+        bind: Option<LocalId>,
+        fields: Option<Vec<FieldPat>>,
+    },
+}
+
+impl Pattern {
+    /// Whether matching a `T?` value tests that it isn't null and looks at the `T`: every
+    /// pattern except `_`, bindings, `null`, or-patterns (each alternative decides) and type
+    /// tests for the `T?` itself.
+    pub fn looks_inside(&self, scrutinee: &Ty) -> bool {
+        let Ty::Nullable(inner) = scrutinee else {
+            return false;
+        };
+        match &self.kind {
+            PatKind::Wild | PatKind::Bind(_) | PatKind::Lit(LitPat::Null) | PatKind::Or(_) => false,
+            PatKind::As(_, p) => p.looks_inside(scrutinee),
+            PatKind::Type { ty, .. } => ty != scrutinee && ty == &**inner,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -386,9 +422,17 @@ pub enum ExprKind {
         variant: u32,
         args: Option<Vec<VariantArg>>,
     },
+    /// `match`, or a `switch`: `switch` is `Some(used)`, and a switch must be exhaustive only
+    /// when its value is used.
     Match {
         scrutinee: Box<Expr>,
         arms: Vec<Arm>,
+        switch: Option<bool>,
+    },
+    /// `expr is pattern`
+    Is {
+        expr: Box<Expr>,
+        pat: Pattern,
     },
     /// `e!`: panics if `e` is null.
     NonNull(Box<Expr>),
@@ -498,7 +542,10 @@ impl Expr {
                     f(&a.value);
                 }
             }
-            ExprKind::Match { scrutinee, arms } => {
+            ExprKind::Is { expr, .. } => f(expr),
+            ExprKind::Match {
+                scrutinee, arms, ..
+            } => {
                 f(scrutinee);
                 for a in arms {
                     if let Some(g) = &a.guard {

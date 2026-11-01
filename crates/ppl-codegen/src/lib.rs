@@ -498,6 +498,9 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_array_new" => ptr.fn_type(&[i64t.into(), i64t.into()], false),
             "ppl_array_push" => ptr.fn_type(&[ptr.into(), i64t.into()], false),
             "ppl_array_pop" => i32t.fn_type(&[ptr.into()], false),
+            "ppl_array_slice" => {
+                ptr.fn_type(&[ptr.into(), i64t.into(), i64t.into(), i64t.into()], false)
+            }
             "ppl_ipow_s" | "ppl_ipow_u" => {
                 i64t.fn_type(&[i64t.into(), i64t.into(), i32t.into(), ptr.into()], false)
             }
@@ -899,6 +902,24 @@ impl<'ctx> Gen<'ctx, '_> {
                     }
                 }
                 Some(a.into())
+            }
+            Rvalue::ArraySlice(a, b, c) => {
+                let Ty::Array(elem) = self.operand_ty(fx, a) else {
+                    unreachable!("slice of non-array")
+                };
+                let arr = self.operand(fx, a)?;
+                let start = self.operand(fx, b)?;
+                let end = self.operand(fx, c)?;
+                let size = self.size_of(&elem);
+                Some(basic(
+                    self.b
+                        .build_call(
+                            self.rt("ppl_array_slice"),
+                            &[arr.into(), size.into(), start.into(), end.into()],
+                            "",
+                        )
+                        .unwrap(),
+                ))
             }
             Rvalue::ArrayLen(o) => {
                 let a = self.operand(fx, o)?.into_pointer_value();

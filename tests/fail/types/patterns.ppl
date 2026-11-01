@@ -1,0 +1,21 @@
+// error: E0317
+// at: 14:20
+// error: E0316
+// at: 15:25
+// error: E0316
+// at: 16:25
+// error: E0318
+// at: 17:25
+// error: E0318
+// at: 18:25
+// error: E0317
+// at: 19:20
+function f(xs: i32[], t: [i32, i32], n: i32, s: string): i32 {
+  const a = match (xs) { [] => 1, [x] => 2 }
+  const b = match (t) { [x, y, z] => 1 }
+  const c = match (t) { [x, ...r] => 1, _ => 2 }
+  const d = match (n) { x: string => 1, _ => 2 }
+  const g = match (s) { "a".."b" => 1, _ => 2 }
+  const h = match (xs) { [first, ..., last] => 1 }
+  0
+}

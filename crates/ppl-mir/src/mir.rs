@@ -348,6 +348,8 @@ pub enum Rvalue {
     Repeat(Operand, u64),
     /// A new growable array with element type and initial elements.
     ArrayNew(Ty, Vec<Operand>),
+    /// A new array with the elements `[start, end)` of another (`...rest` patterns).
+    ArraySlice(Operand, Operand, Operand),
     /// `xs.length`
     ArrayLen(Operand),
     /// `xs.push(v)` (void).
@@ -476,6 +478,7 @@ impl fmt::Display for Rvalue {
                 let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();
                 write!(f, "ArrayNew<{t}>[{}]", ops.join(", "))
             }
+            Rvalue::ArraySlice(a, b, c) => write!(f, "ArraySlice({a}, {b}, {c})"),
             Rvalue::ArrayLen(a) => write!(f, "ArrayLen({a})"),
             Rvalue::ArrayPush(a, v) => write!(f, "ArrayPush({a}, {v})"),
             Rvalue::ArrayPop(a) => write!(f, "ArrayPop({a})"),
