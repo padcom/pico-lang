@@ -1,0 +1,12 @@
+// error: E0329
+// at: 10:10
+// error: E0302
+// at: 11:10
+// error: E0329
+// at: 12:10
+struct Pair<A, B> { first: A; second: B }
+class Sorted<T extends Comparable<T>> { constructor(public x: T) {} }
+struct P { x: i32 }
+const a: Pair<i32> = Pair { first: 1, second: 2 }
+const b: Pair<i32, i32, i32> = Pair { first: 1, second: 2 }
+const c: Pair = Pair { first: 1, second: 2 }

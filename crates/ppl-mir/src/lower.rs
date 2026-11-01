@@ -32,7 +32,13 @@ pub fn lower(
     let mut fns: Vec<mir::Function> = (0..program.fns.len())
         .map(|i| {
             let id = FnId(i as u32);
-            if program.func(id).generics.is_empty() {
+            let f = program.func(id);
+            // Methods and constructors of generic types are generic too (in the type's
+            // parameters), but static initializers aren't.
+            let generic_owner = f.this.is_some()
+                && f.owner
+                    .is_some_and(|s| !program.struct_def(s).generics.is_empty());
+            if f.generics.is_empty() && !generic_owner {
                 cx.function(id)
             } else {
                 mir::Function {
@@ -51,11 +57,32 @@ pub fn lower(
     // Monomorphization: each instance is the generic body seen through substituted types.
     let mut next = 0;
     while next < cx.instances.len() {
-        let (id, args) = cx.instances[next].clone();
-        cx.types = std::borrow::Cow::Owned(types.substituted(id.0, &args));
+        let (id, subst) = cx.instances[next].clone();
+        let mut t = types.clone();
+        for (owner, args) in &subst {
+            t = t.substituted(*owner, args);
+        }
+        cx.types = std::borrow::Cow::Owned(t);
         let mut f = cx.function(id);
-        let shown: Vec<String> = args.iter().map(|t| t.to_string()).collect();
-        f.name = format!("{}<{}>", f.name, shown.join(", "));
+        // `max<i64>`, `Stack<string>.push`, `Box<i64>.map<string>`.
+        let hir = program.func(id);
+        let shown = |args: &[Ty]| {
+            let parts: Vec<String> = args.iter().map(|t| t.to_string()).collect();
+            format!("<{}>", parts.join(", "))
+        };
+        let own = subst
+            .iter()
+            .find(|(o, _)| *o == id.0)
+            .map(|(_, a)| shown(a));
+        let ty = subst.iter().find(|(o, _)| *o != id.0);
+        f.name = match (ty, hir.owner) {
+            (Some((_, a)), Some(sid)) => {
+                let tname = &program.struct_def(sid).name;
+                let method = hir.name.rsplit('.').next().unwrap_or(&hir.name);
+                format!("{tname}{}.{method}{}", shown(a), own.unwrap_or_default())
+            }
+            _ => format!("{}{}", hir.name, own.unwrap_or_default()),
+        };
         fns.push(f);
         next += 1;
     }
@@ -160,9 +187,12 @@ fn erase_program(p: &mut mir::Program) {
                         erase_op(o);
                     }
                     Rvalue::Use(o) => erase_op(o),
-                    Rvalue::Variant(_, _, ops) | Rvalue::Aggregate(_, ops) => {
+                    Rvalue::Variant(_, _, ops) => ops.iter_mut().for_each(erase_op),
+                    Rvalue::Aggregate(t, ops) => {
+                        *t = t.erase();
                         ops.iter_mut().for_each(erase_op)
                     }
+                    Rvalue::New(t) => *t = t.erase(),
                     _ => {}
                 }
             }
@@ -175,14 +205,18 @@ fn erase_program(p: &mut mir::Program) {
     }
 }
 
+/// Type arguments for owners of type parameters (`Ty::Param`'s first field).
+type Subst = Vec<(u32, Vec<Ty>)>;
+
 struct Cx<'a> {
     program: &'a hir::Program,
     /// The type checker's results; while lowering a generic instance, a copy with its type
     /// arguments substituted.
     types: std::borrow::Cow<'a, Types>,
-    /// Generic instances (function, type arguments); instance `i` is MIR function
-    /// `program.fns.len() + i`.
-    instances: Vec<(FnId, Vec<Ty>)>,
+    /// Generic instances: a function and the substitutions it's seen through (its own type
+    /// parameters, and its type's for methods of generic types); instance `i` is MIR
+    /// function `program.fns.len() + i`.
+    instances: Vec<(FnId, Subst)>,
     file: &'a SourceFile,
     diags: Vec<Diagnostic>,
     /// Spans already reported as not implemented (lowering has no such gaps right now).
@@ -193,17 +227,17 @@ struct Cx<'a> {
 }
 
 impl Cx<'_> {
-    /// The MIR function for generic `id` instantiated with `args`.
-    fn instance(&mut self, id: FnId, args: Vec<Ty>) -> FnId {
+    /// The MIR function for generic `id` seen through `subst`.
+    fn instance(&mut self, id: FnId, subst: Subst) -> FnId {
         let base = self.program.fns.len();
         match self
             .instances
             .iter()
-            .position(|(f, a)| *f == id && *a == args)
+            .position(|(f, a)| *f == id && *a == subst)
         {
             Some(i) => FnId((base + i) as u32),
             None => {
-                self.instances.push((id, args));
+                self.instances.push((id, subst));
                 FnId((base + self.instances.len() - 1) as u32)
             }
         }
@@ -796,7 +830,7 @@ impl FnBuilder<'_, '_> {
                 span,
             );
         }
-        if let (Ty::Class(imp, _) | Ty::Struct(imp, _), Ty::Iface(iface, _)) = (from, to) {
+        if let (Ty::Class(imp, _, _) | Ty::Struct(imp, _, _), Ty::Iface(iface, _, _)) = (from, to) {
             let it = self.cx.itable(*imp, *iface);
             return self.rvalue_to_temp(Rvalue::ToIface(v, it), to.clone(), span);
         }
@@ -1101,6 +1135,7 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::CtorCall { args, .. } => {
                 let ctor = self.cx.types.ctor_calls[&e.id];
+                let ctor = self.method_target(e, ctor);
                 let (this, _) = self.hir_fn.this.expect("inside a constructor");
                 let mut ops = vec![Operand::Copy(self.place(hir::Var::Local(this)))];
                 ops.extend(args.iter().map(|a| self.expr(a)));
@@ -1116,10 +1151,11 @@ impl FnBuilder<'_, '_> {
                 let v = self.expr(expr);
                 self.rvalue_to_temp(Rvalue::InstanceOf(v, *class), Ty::Bool, e.span)
             }
-            ExprKind::New { class, args } => {
-                let cty = self.cx.program.struct_ty(*class);
-                let obj = self.rvalue_to_temp(Rvalue::New(*class), cty, e.span);
+            ExprKind::New { args, .. } => {
+                let cty = ty.clone();
+                let obj = self.rvalue_to_temp(Rvalue::New(cty.clone()), cty, e.span);
                 let ctor = self.cx.types.ctor_calls[&e.id];
+                let ctor = self.method_target(e, ctor);
                 let mut ops = vec![obj.clone()];
                 ops.extend(args.iter().map(|a| self.expr(a)));
                 self.call_fn_value(ctor, ops, Ty::Void, e.span);
@@ -1162,7 +1198,8 @@ impl FnBuilder<'_, '_> {
                     .into_iter()
                     .map(|o| o.expect("every field initialized"))
                     .collect();
-                self.rvalue_to_temp(Rvalue::Aggregate(sid, ops), ty, e.span)
+                let _ = sid;
+                self.rvalue_to_temp(Rvalue::Aggregate(ty.clone(), ops), ty, e.span)
             }
             ExprKind::Index { object, index } if *self.ty_of(object) == Ty::Str => {
                 let s = self.expr(object);
@@ -1842,7 +1879,7 @@ impl FnBuilder<'_, '_> {
         if !self.cx.types.downcasts.contains(&p.id) {
             return place.clone();
         }
-        let Ty::Class(sid, _) = to else {
+        let Ty::Class(sid, _, _) = to else {
             return place.clone();
         };
         let ok = self.rvalue_to_temp(
@@ -2253,10 +2290,32 @@ impl FnBuilder<'_, '_> {
         Operand::Copy(res)
     }
 
+    /// The function a method or constructor call runs: an instance when the type (or the
+    /// method) is generic.
+    fn method_target(&mut self, e: &Expr, m: FnId) -> FnId {
+        let mut subst = Subst::new();
+        if let Some(args) = self.cx.types.recv_args.get(&e.id).cloned()
+            && let Some(sid) = self.cx.program.func(m).owner
+            && !args.is_empty()
+        {
+            subst.push((Ty::type_owner(sid), args));
+        }
+        if let Some(args) = self.cx.types.instances.get(&e.id).cloned()
+            && !args.is_empty()
+        {
+            subst.push((m.0, args));
+        }
+        if subst.is_empty() {
+            m
+        } else {
+            self.cx.instance(m, subst)
+        }
+    }
+
     /// The class an expression's (class-typed) value belongs to.
     fn class_of(&self, e: &Expr) -> ppl_sema::ty::StructId {
         match self.ty_of(e) {
-            Ty::Class(sid, _) | Ty::Struct(sid, _) => *sid,
+            Ty::Class(sid, _, _) | Ty::Struct(sid, _, _) => *sid,
             t => unreachable!("not a class: {t}"),
         }
     }
@@ -2322,7 +2381,7 @@ impl FnBuilder<'_, '_> {
             return Operand::Copy(res);
         }
         let sid = match &t {
-            Ty::Struct(s, _) | Ty::Class(s, _) | Ty::Iface(s, _) => *s,
+            Ty::Struct(s, _, _) | Ty::Class(s, _, _) | Ty::Iface(s, _, _) => *s,
             other => unreachable!("method `{name}` on {other}"),
         };
         let def = self.cx.program.struct_def(sid);
@@ -2404,7 +2463,7 @@ impl FnBuilder<'_, '_> {
                     .get(&e.id)
                     .copied()
                     .unwrap_or_else(|| {
-                        let Ty::Iface(sid, _) = self.ty_of(object) else {
+                        let Ty::Iface(sid, _, _) = self.ty_of(object) else {
                             unreachable!("interface call")
                         };
                         self.cx.program.struct_def(*sid).methods[slot as usize].1
@@ -2436,6 +2495,7 @@ impl FnBuilder<'_, '_> {
             {
                 // A class method takes the object reference itself.
                 let m = self.cx.types.methods[&e.id];
+                let m = self.method_target(e, m);
                 let mut ops = vec![self.expr(object)];
                 ops.extend(args.iter().map(|a| self.expr(a)));
                 match self.cx.types.virtual_calls.get(&e.id) {
@@ -2464,6 +2524,7 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Member { object, .. } if self.cx.types.methods.contains_key(&e.id) => {
                 let m = self.cx.types.methods[&e.id];
+                let m = self.method_target(e, m);
                 let recv_ty = self.ty_of(object).clone();
                 let recv = self.place_of(object);
                 let this =
@@ -2501,7 +2562,7 @@ impl FnBuilder<'_, '_> {
             ExprKind::Fn(id) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
                 let id = match self.cx.types.instances.get(&e.id).cloned() {
-                    Some(targs) => self.cx.instance(*id, targs),
+                    Some(targs) => self.cx.instance(*id, vec![(id.0, targs)]),
                     None => *id,
                 };
                 let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));

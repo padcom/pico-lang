@@ -135,8 +135,8 @@ impl Program {
 pub fn project(t: &Ty, p: &Proj, field: impl Fn(FieldRef) -> Ty) -> Ty {
     let t = &t.erase();
     match (t, p) {
-        (Ty::Struct(sid, _) | Ty::Class(sid, _), Proj::Field(i)) => {
-            field(FieldRef::Struct(*sid, *i as usize))
+        (Ty::Struct(sid, _, args) | Ty::Class(sid, _, args), Proj::Field(i)) => {
+            field(FieldRef::Struct(*sid, *i as usize)).subst(Ty::type_owner(*sid), args)
         }
         (Ty::Enum(eid, _), Proj::VariantField(v, i)) => {
             field(FieldRef::Variant(*eid, *v, *i as usize))
@@ -349,7 +349,7 @@ pub enum Rvalue {
     /// The string form of a primitive (as `println` shows it): templates and `toString()`.
     ToStr(Operand),
     /// A struct value from its fields (in declaration order).
-    Aggregate(StructId, Vec<Operand>),
+    Aggregate(Ty, Vec<Operand>),
     /// A reference to a place (a method receiver).
     Ref(Place),
     /// A template part with a format spec: `${x:08.2f}`.
@@ -387,7 +387,7 @@ pub enum Rvalue {
     /// The variant index of an enum value (`u32`).
     Tag(Operand),
     /// A new instance of a class, its fields not yet set (the constructor runs next).
-    New(StructId),
+    New(Ty),
     /// Whether a (possibly null) object reference is an instance of the class (or a subclass).
     InstanceOf(Operand, StructId),
     /// An interface value from an object (or a struct, boxed) and an itable index.
@@ -498,7 +498,11 @@ impl fmt::Display for Rvalue {
             Rvalue::Cast(a, t) => write!(f, "{a} as {t}"),
             Rvalue::StrLen(a) => write!(f, "StrLen({a})"),
             Rvalue::ToStr(a) => write!(f, "ToStr({a})"),
-            Rvalue::Aggregate(sid, ops) => {
+            Rvalue::Aggregate(t, ops) => {
+                let sid = match t {
+                    Ty::Struct(s, _, _) => *s,
+                    _ => StructId(u32::MAX),
+                };
                 let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();
                 write!(f, "struct#{}{{{}}}", sid.0, ops.join(", "))
             }
@@ -528,7 +532,7 @@ impl fmt::Display for Rvalue {
                 write!(f, "enum#{}::{v}({})", e.0, ops.join(", "))
             }
             Rvalue::Tag(a) => write!(f, "Tag({a})"),
-            Rvalue::New(c) => write!(f, "New(class#{})", c.0),
+            Rvalue::New(t) => write!(f, "New({t})"),
             Rvalue::InstanceOf(a, c) => write!(f, "InstanceOf({a}, class#{})", c.0),
             Rvalue::ToIface(a, i) => write!(f, "ToIface({a}, itable#{i})"),
             Rvalue::IfaceData(a) => write!(f, "IfaceData({a})"),

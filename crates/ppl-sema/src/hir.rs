@@ -109,6 +109,8 @@ pub struct StructDef {
     pub is_interface: bool,
     /// Interfaces this type implements directly (`implements`), or an interface extends.
     pub implements: Vec<StructId>,
+    /// Type parameters (`struct Pair<A, B>`); `Ty::Param(Ty::type_owner(id), i, _)` inside.
+    pub generics: Vec<TypeParam>,
     /// The constructors (classes always have at least one, possibly synthesized), with
     /// their parameter types; overloads have different numbers of parameters.
     pub ctors: Vec<(FnId, Vec<Ty>)>,
@@ -144,6 +146,7 @@ impl StructDef {
             is_class,
             is_interface: false,
             implements: Vec::new(),
+            generics: Vec::new(),
             ctors: Vec::new(),
             base: None,
             is_abstract: false,
@@ -192,6 +195,35 @@ impl StructDef {
     /// Whether code outside the class may use member `name`.
     pub fn is_public(&self, name: &str) -> bool {
         !self.private.contains(name) && !self.protected.contains(name)
+    }
+
+    /// The type as seen inside its own declaration: its parameters as the arguments.
+    pub fn self_ty(&self, id: StructId) -> Ty {
+        let owner = Ty::type_owner(id);
+        let args: std::sync::Arc<[Ty]> = self
+            .generics
+            .iter()
+            .enumerate()
+            .map(|(i, p)| Ty::Param(owner, i as u32, p.name.as_str().into()))
+            .collect();
+        self.ty_with(id, args)
+    }
+
+    /// The type with these type arguments.
+    pub fn ty_with(&self, id: StructId, args: std::sync::Arc<[Ty]>) -> Ty {
+        let name: std::sync::Arc<str> = self.name.as_str().into();
+        if self.is_class {
+            Ty::Class(id, name, args)
+        } else if self.is_interface {
+            Ty::Iface(id, name, args)
+        } else {
+            Ty::Struct(id, name, args)
+        }
+    }
+
+    /// A field's type for a value of type `of` (substituting the type arguments).
+    pub fn field_ty(&self, id: StructId, i: usize, of: &Ty) -> Ty {
+        self.fields[i].ty.subst(Ty::type_owner(id), of.type_args())
     }
 
     pub fn virtual_slot(&self, name: &str) -> Option<u32> {
@@ -260,14 +292,7 @@ impl Program {
     }
 
     pub fn struct_ty(&self, id: StructId) -> Ty {
-        let def = &self.structs[id.0 as usize];
-        if def.is_class {
-            Ty::Class(id, def.name.as_str().into())
-        } else if def.is_interface {
-            Ty::Iface(id, def.name.as_str().into())
-        } else {
-            Ty::Struct(id, def.name.as_str().into())
-        }
+        self.structs[id.0 as usize].self_ty(id)
     }
 
     pub fn expr_count(&self) -> usize {
@@ -312,6 +337,8 @@ pub struct TypeParam {
     pub name: String,
     pub span: Span,
     pub bounds: Vec<Bound>,
+    /// `T = i64`: used when a type is written without its arguments.
+    pub default: Option<Ty>,
 }
 
 /// What a type argument must provide.
@@ -559,6 +586,8 @@ pub enum ExprKind {
     New {
         class: StructId,
         args: Vec<Expr>,
+        /// `new Stack<i64>()`; empty to infer them.
+        type_args: Vec<Ty>,
     },
     /// `super(args)` / `this(args)` at the start of a constructor: runs a constructor of
     /// `class` (the base, or this class) on `this`.
@@ -580,6 +609,8 @@ pub enum ExprKind {
     Object {
         ty: Option<StructId>,
         fields: Vec<FieldInit>,
+        /// `Pair<i64, string> { … }`; empty to infer them.
+        type_args: Vec<Ty>,
     },
     Call {
         callee: Box<Expr>,

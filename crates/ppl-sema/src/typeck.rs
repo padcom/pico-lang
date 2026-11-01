@@ -71,6 +71,9 @@ pub struct Types {
     /// Calls of generic functions: the type arguments (may mention the caller's own type
     /// parameters; monomorphization substitutes them).
     pub instances: HashMap<ExprId, Vec<Ty>>,
+    /// Calls of methods and constructors of generic types (and `new` of a generic class):
+    /// the type's arguments.
+    pub recv_args: HashMap<ExprId, Vec<Ty>>,
     /// Method calls on a value whose type is a type parameter: the method's name.
     pub param_calls: HashMap<ExprId, String>,
 }
@@ -116,6 +119,11 @@ impl Types {
             union_tests: self.union_tests.clone(),
             instances: self
                 .instances
+                .iter()
+                .map(|(k, ts)| (*k, ts.iter().map(s).collect()))
+                .collect(),
+            recv_args: self
+                .recv_args
                 .iter()
                 .map(|(k, ts)| (*k, ts.iter().map(s).collect()))
                 .collect(),
@@ -168,9 +176,11 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             object_variants: HashMap::new(),
             union_tests: HashMap::new(),
             instances: HashMap::new(),
+            recv_args: HashMap::new(),
             param_calls: HashMap::new(),
         },
         narrow: Vec::new(),
+        recv_args: Vec::new(),
         diags: Vec::new(),
         state: vec![FnState::Unchecked; program.fns.len()],
         global_known: vec![false; program.globals.len()],
@@ -257,6 +267,8 @@ struct Checker<'p> {
     state: Vec<FnState>,
     global_known: Vec<bool>,
     stack: Vec<FnCtx>,
+    /// The type arguments of the receiver whose field `field` looks up.
+    recv_args: Vec<Ty>,
     /// Flow-sensitive narrowing: scopes mapping variables to the type they're known to have
     /// (`T` for a `T?` binding after `x != null`).
     narrow: Vec<HashMap<Var, Ty>>,
@@ -409,6 +421,9 @@ fn subst_complete(p: &Ty, owner: u32, subst: &[Option<Ty>]) -> bool {
             subst_complete(t, owner, subst)
         }
         Ty::Tuple(ts) => ts.iter().all(|t| subst_complete(t, owner, subst)),
+        Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) => {
+            a.iter().all(|t| subst_complete(t, owner, subst))
+        }
         _ => true,
     }
 }
@@ -491,13 +506,13 @@ impl<'p> Checker<'p> {
     /// possibly into a nullable).
     fn upcasts(&self, from: &Ty, to: &Ty) -> bool {
         match (from, to) {
-            (Ty::Class(a, _), Ty::Class(b, _)) => self.program.is_subclass(*a, *b),
+            (Ty::Class(a, _, _), Ty::Class(b, _, _)) => self.program.is_subclass(*a, *b),
             // To an interface the type implements (nominally).
-            (Ty::Class(a, _) | Ty::Struct(a, _), Ty::Iface(i, _)) => {
+            (Ty::Class(a, _, _) | Ty::Struct(a, _, _), Ty::Iface(i, _, _)) => {
                 self.program.implements(*a, *i)
             }
             // Interface inheritance: only along first parents, whose methods are a prefix.
-            (Ty::Iface(a, _), Ty::Iface(b, _)) => self.iface_prefix(*a, *b),
+            (Ty::Iface(a, _, _), Ty::Iface(b, _, _)) => self.iface_prefix(*a, *b),
             (Ty::Class(..) | Ty::Struct(..) | Ty::Iface(..), Ty::Nullable(t)) => {
                 self.upcasts(from, t)
             }
@@ -1202,7 +1217,11 @@ impl<'p> Checker<'p> {
                 }
                 Ty::Void
             }
-            ExprKind::Object { ty, fields } => self.object(e, *ty, fields, want),
+            ExprKind::Object {
+                ty,
+                fields,
+                type_args,
+            } => self.object(e, *ty, fields, type_args, want),
             ExprKind::IncDec { target, .. } => {
                 if let Target::Var(v) = target {
                     self.forget(*v);
@@ -1247,8 +1266,14 @@ impl<'p> Checker<'p> {
                     (Ty::Str | Ty::Array(_) | Ty::Fixed(..), "length") => Ty::INT,
                     (Ty::Range(it), "start" | "end") => Ty::Int(*it),
                     (Ty::Error, _) => Ty::Error,
-                    (Ty::Struct(sid, _), _) => self.field(e.id, *sid, name, *name_span),
-                    (Ty::Class(sid, _), _) => self.class_member(e.id, *sid, name, *name_span),
+                    (Ty::Struct(sid, _, args), _) => {
+                        self.recv_args = args.to_vec();
+                        self.field(e.id, *sid, name, *name_span)
+                    }
+                    (Ty::Class(sid, _, args), _) => {
+                        self.recv_args = args.to_vec();
+                        self.class_member(e.id, *sid, name, *name_span)
+                    }
                     (Ty::Variant(eid, v, _), _) => {
                         let var = &self.program.enum_def(*eid).variants[*v as usize];
                         match var.field(name) {
@@ -1508,7 +1533,79 @@ impl<'p> Checker<'p> {
                 variant,
                 args,
             } => self.variant(e, *enum_, *variant, args.as_deref()),
-            ExprKind::New { class, args } | ExprKind::CtorCall { class, args } => {
+            ExprKind::New {
+                class,
+                args,
+                type_args,
+                ..
+            } if !self.program.struct_def(*class).generics.is_empty() => {
+                // A generic class: its type arguments are given, expected, or inferred from
+                // the constructor's arguments.
+                let def = self.program.struct_def(*class);
+                let Some(ctor) = def.ctor_with(args.len()) else {
+                    for a in args {
+                        self.infer(a);
+                    }
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::WRONG_ARG_COUNT,
+                            format!(
+                                "`{}` has no constructor taking {} arguments",
+                                def.name,
+                                args.len()
+                            ),
+                        )
+                        .primary(e.span, "no matching constructor"),
+                    );
+                    return Ty::Error;
+                };
+                let explicit = match (type_args.is_empty(), want.map(|w| &w.ty)) {
+                    (false, _) => type_args.clone(),
+                    (true, Some(Ty::Class(s, _, a))) if s == class => a.to_vec(),
+                    _ => Vec::new(),
+                };
+                let generics = def.generics.clone();
+                self.types.ctor_calls.insert(e.id, ctor);
+                let (_, targs) = self.call_inferring(
+                    e,
+                    ctor,
+                    args,
+                    &explicit,
+                    Ty::type_owner(*class),
+                    &generics,
+                    None,
+                );
+                self.types.recv_args.insert(e.id, targs.clone());
+                self.program
+                    .struct_def(*class)
+                    .ty_with(*class, targs.into())
+            }
+            ExprKind::CtorCall { class, args }
+                if !self.program.struct_def(*class).generics.is_empty() =>
+            {
+                // Inside a generic class: the same type arguments as `this`.
+                let def = self.program.struct_def(*class);
+                let Some(ctor) = def.ctor_with(args.len()) else {
+                    for a in args {
+                        self.infer(a);
+                    }
+                    return Ty::Void;
+                };
+                let recv = def.self_ty(*class).type_args().to_vec();
+                self.types.ctor_calls.insert(e.id, ctor);
+                let (_, _) = self.call_inferring(
+                    e,
+                    ctor,
+                    args,
+                    &[],
+                    ctor.0,
+                    &[],
+                    Some((Ty::type_owner(*class), &recv)),
+                );
+                self.types.recv_args.insert(e.id, recv);
+                Ty::Void
+            }
+            ExprKind::New { class, args, .. } | ExprKind::CtorCall { class, args } => {
                 let def = self.program.struct_def(*class);
                 match def.ctor_with(args.len()) {
                     Some(ctor) => {
@@ -1903,7 +2000,7 @@ impl<'p> Checker<'p> {
                 _ => false,
             }),
             PatKind::Struct { sid, .. } => {
-                pick(&|m| matches!(m, Ty::Struct(s, _) | Ty::Class(s, _) if s == sid))
+                pick(&|m| matches!(m, Ty::Struct(s, _, _) | Ty::Class(s, _, _) if s == sid))
             }
             PatKind::Slice { .. } => {
                 pick(&|m| matches!(m, Ty::Array(_) | Ty::Tuple(_) | Ty::Fixed(..)))
@@ -1980,7 +2077,7 @@ impl<'p> Checker<'p> {
             } => {
                 // Until unions (P3.12), a type test holds, checks for null, or (for classes)
                 // checks the runtime class.
-                let downcast = matches!((want, &inner), (Ty::Class(a, _), Ty::Class(b, _))
+                let downcast = matches!((want, &inner), (Ty::Class(a, _, _), Ty::Class(b, _, _))
                     if a != b && self.program.is_subclass(*a, *b));
                 if downcast {
                     self.types.downcasts.insert(p.id);
@@ -2001,7 +2098,7 @@ impl<'p> Checker<'p> {
                 }
                 if let Some(fps) = fields {
                     match &bt {
-                        Ty::Struct(sid, _) | Ty::Class(sid, _) => {
+                        Ty::Struct(sid, _, _) | Ty::Class(sid, _, _) => {
                             let def = self.program.struct_def(*sid);
                             let field_tys: Vec<(String, Ty)> = def
                                 .fields
@@ -2130,7 +2227,7 @@ impl<'p> Checker<'p> {
             }
             PatKind::Struct { sid, fields } => {
                 let st = self.program.struct_ty(*sid);
-                if let (Ty::Class(a, _), Ty::Class(b, _)) = (&st, &inner)
+                if let (Ty::Class(a, _, _), Ty::Class(b, _, _)) = (&st, &inner)
                     && a != b
                     && self.program.is_subclass(*a, *b)
                 {
@@ -2146,7 +2243,12 @@ impl<'p> Checker<'p> {
                 let field_tys: Vec<(String, Ty)> = def
                     .fields
                     .iter()
-                    .map(|f| (f.name.clone(), f.ty.clone()))
+                    .map(|f| {
+                        (
+                            f.name.clone(),
+                            f.ty.subst(Ty::type_owner(*sid), inner.type_args()),
+                        )
+                    })
                     .collect();
                 let what = format!("`{}`", def.name);
                 self.field_patterns(p, fields, &field_tys, &what);
@@ -2331,7 +2433,7 @@ impl<'p> Checker<'p> {
                 .struct_def(sid)
                 .fields
                 .iter()
-                .map(|f| f.ty.clone())
+                .map(|f| f.ty.subst(Ty::type_owner(sid), inner.type_args()))
                 .collect()
         };
         let pats = match &p.kind {
@@ -2385,7 +2487,7 @@ impl<'p> Checker<'p> {
                 product(cols, Ctor::Single)
             }
             PatKind::Type {
-                ty: Ty::Struct(sid, _) | Ty::Class(sid, _),
+                ty: Ty::Struct(sid, _, _) | Ty::Class(sid, _, _),
                 fields: Some(fps),
                 ..
             } => {
@@ -2688,8 +2790,9 @@ impl<'p> Checker<'p> {
                 name_span,
             } => {
                 let ot = self.infer(object);
+                self.recv_args = ot.type_args().to_vec();
                 match ot {
-                    Ty::Struct(sid, _) => {
+                    Ty::Struct(sid, _, _) => {
                         let t = self.field(*id, sid, name, *name_span);
                         let span = self
                             .program
@@ -2698,7 +2801,7 @@ impl<'p> Checker<'p> {
                             .map(|(_, f)| f.span);
                         (t, span)
                     }
-                    Ty::Class(sid, _) => {
+                    Ty::Class(sid, _, _) => {
                         let def = self.program.struct_def(sid);
                         if def.field(name).is_none()
                             && let Some(f) = def.setter(name)
@@ -2842,10 +2945,11 @@ impl<'p> Checker<'p> {
 
     /// Looks up a struct field for `object.name` and records its index under `id`.
     fn field(&mut self, id: ExprId, sid: StructId, name: &str, span: Span) -> Ty {
+        let args = std::mem::take(&mut self.recv_args);
         let def = self.program.struct_def(sid);
         match def.field(name) {
             Some((i, f)) => {
-                let t = f.ty.clone();
+                let t = f.ty.subst(Ty::type_owner(sid), &args);
                 self.types.fields.insert(id, i as u32);
                 self.check_access(sid, name, span);
                 t
@@ -2875,6 +2979,7 @@ impl<'p> Checker<'p> {
         e: &Expr,
         ty: Option<StructId>,
         fields: &[FieldInit],
+        type_args: &[Ty],
         want: Option<&Expect>,
     ) -> Ty {
         if ty.is_none()
@@ -2885,7 +2990,7 @@ impl<'p> Checker<'p> {
         }
         let sid = match (ty, want.map(|w| &w.ty)) {
             (Some(s), _) => s,
-            (None, Some(Ty::Struct(s, _))) => *s,
+            (None, Some(Ty::Struct(s, _, _))) => *s,
             _ => {
                 for f in fields {
                     self.infer(&f.value);
@@ -2899,11 +3004,60 @@ impl<'p> Checker<'p> {
             }
         };
         let def = self.program.struct_def(sid);
+        // A generic struct's type arguments: given, expected, or inferred from the fields.
+        let owner = Ty::type_owner(sid);
+        let targs: Vec<Ty> = if def.generics.is_empty() {
+            Vec::new()
+        } else if !type_args.is_empty() {
+            type_args.to_vec()
+        } else if let Some(Ty::Struct(s, _, a)) = want.map(|w| &w.ty)
+            && *s == sid
+        {
+            a.to_vec()
+        } else {
+            let mut subst: Vec<Option<Ty>> = vec![None; def.generics.len()];
+            for late in [false, true] {
+                for f in fields {
+                    if needs_context(&f.value) != late {
+                        continue;
+                    }
+                    if let Some((_, fd)) = def.field(&f.name)
+                        && fd.ty.has_params(owner)
+                        && !subst_complete(&fd.ty, owner, &subst)
+                    {
+                        let t = self.infer(&f.value);
+                        self.unify(owner, &fd.ty, &t, &mut subst);
+                    }
+                }
+            }
+            subst
+                .into_iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    t.or_else(|| def.generics[i].default.clone())
+                        .unwrap_or_else(|| {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::CANT_INFER,
+                                    format!(
+                                        "can't infer the type argument `{}`",
+                                        def.generics[i].name
+                                    ),
+                                )
+                                .primary(e.span, "not determined by the fields")
+                                .help(format!("write `{}<…> {{ … }}`", def.name)),
+                            );
+                            Ty::Error
+                        })
+                })
+                .collect()
+        };
         let mut seen: Vec<Option<Span>> = vec![None; def.fields.len()];
         let mut order = Vec::new();
         for f in fields {
             match def.field(&f.name) {
                 Some((i, fd)) => {
+                    let fty = fd.ty.subst(owner, &targs);
                     if let Some(prev) = seen[i] {
                         self.diags.push(
                             Diagnostic::error(
@@ -2916,7 +3070,18 @@ impl<'p> Checker<'p> {
                     }
                     seen[i] = Some(f.name_span);
                     order.push(i as u32);
-                    self.check(&f.value, &Expect::from(fd.ty.clone(), Some(fd.span)));
+                    let found = self.types.expr(f.value.id).clone();
+                    if found.is_error() || !fty.has_any_params() && found == Ty::Error {
+                        self.check(&f.value, &Expect::from(fty, Some(fd.span)));
+                    } else if self.types.exprs[f.value.id.0 as usize] != Ty::Error
+                        && !def.generics.is_empty()
+                        && type_args.is_empty()
+                    {
+                        // Already inferred while finding the type arguments.
+                        self.coerce(&f.value, found, &Expect::from(fty, Some(fd.span)));
+                    } else {
+                        self.check(&f.value, &Expect::from(fty, Some(fd.span)));
+                    }
                 }
                 None => {
                     self.infer(&f.value);
@@ -2958,7 +3123,7 @@ impl<'p> Checker<'p> {
             );
         }
         self.types.objects.insert(e.id, (sid, order));
-        self.program.struct_ty(sid)
+        def.ty_with(sid, targs.into())
     }
 
     /// `{ kind: "click", x: 1, y: 2 }` for a discriminated union: the discriminant picks the
@@ -3046,12 +3211,12 @@ impl<'p> Checker<'p> {
     fn equatable(&self, t: &Ty) -> bool {
         match t {
             Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error => true,
-            Ty::Struct(sid, _) => self
+            Ty::Struct(sid, _, args) => self
                 .program
                 .struct_def(*sid)
                 .fields
                 .iter()
-                .all(|f| self.equatable(&f.ty)),
+                .all(|f| self.equatable(&f.ty.subst(Ty::type_owner(*sid), args))),
             Ty::Tuple(ts) => ts.iter().all(|t| self.equatable(t)),
             Ty::Nullable(t) => self.equatable(t),
             Ty::Lits(b, _) => self.equatable(b),
@@ -3657,7 +3822,7 @@ impl<'p> Checker<'p> {
                     );
                     return Ty::Error;
                 }
-                if let Ty::Iface(sid, _) = &t {
+                if let Ty::Iface(sid, _, _) = &t {
                     let def = self.program.struct_def(*sid);
                     if let Some(slot) = def.methods.iter().position(|(n, _)| n == name) {
                         let m = def.methods[slot].1;
@@ -3665,13 +3830,36 @@ impl<'p> Checker<'p> {
                         return self.call_fn(e, m, args);
                     }
                 }
-                if let Ty::Struct(sid, sname) | Ty::Class(sid, sname) | Ty::Iface(sid, sname) = &t {
+                if let Ty::Struct(sid, sname, _)
+                | Ty::Class(sid, sname, _)
+                | Ty::Iface(sid, sname, _) = &t
+                {
                     let def = self.program.struct_def(*sid);
                     if let Some(m) = def.method(name) {
                         self.check_access(*sid, name, *name_span);
                         self.types.methods.insert(e.id, m);
                         if let Some(slot) = def.virtual_slot(name) {
                             self.types.virtual_calls.insert(e.id, slot);
+                        }
+                        let own = self.program.func(m).generics.clone();
+                        if !def.generics.is_empty() || !own.is_empty() {
+                            // Seen through the receiver's type arguments, then inferring the
+                            // method's own.
+                            let recv = t.type_args().to_vec();
+                            // Explicit method type arguments (`b.map<string>(…)`) aren't parsed yet.
+                            let explicit: Vec<Ty> = Vec::new();
+                            let (ret, targs) = self.call_inferring(
+                                e,
+                                m,
+                                args,
+                                &explicit,
+                                m.0,
+                                &own,
+                                Some((Ty::type_owner(*sid), &recv)),
+                            );
+                            self.types.recv_args.insert(e.id, recv);
+                            self.types.instances.insert(e.id, targs);
+                            return ret;
                         }
                         return self.call_fn(e, m, args);
                     }
@@ -3783,6 +3971,12 @@ impl<'p> Checker<'p> {
     /// The bounds of a type parameter.
     fn bounds_of(&self, t: &Ty) -> &'p [Bound] {
         match t {
+            Ty::Param(owner, i, _) if owner & 0x8000_0000 != 0 => self
+                .program
+                .struct_def(StructId(owner & 0x7fff_ffff))
+                .generics
+                .get(*i as usize)
+                .map_or(&[][..], |p| &p.bounds[..]),
             Ty::Param(owner, i, _) => self
                 .program
                 .func(FnId(*owner))
@@ -3809,7 +4003,7 @@ impl<'p> Checker<'p> {
             }
             Bound::Equatable => self.equatable(t),
             Bound::Iface(i) => match t {
-                Ty::Struct(s, _) | Ty::Class(s, _) | Ty::Iface(s, _) => {
+                Ty::Struct(s, _, _) | Ty::Class(s, _, _) | Ty::Iface(s, _, _) => {
                     self.program.implements(*s, *i)
                 }
                 _ => false,
@@ -3841,6 +4035,14 @@ impl<'p> Checker<'p> {
                     self.unify(owner, p, a, subst);
                 }
             }
+            (
+                Ty::Struct(s1, _, ps) | Ty::Class(s1, _, ps) | Ty::Iface(s1, _, ps),
+                Ty::Struct(s2, _, xs) | Ty::Class(s2, _, xs) | Ty::Iface(s2, _, xs),
+            ) if s1 == s2 && ps.len() == xs.len() => {
+                for (p, a) in ps.iter().zip(xs.iter()) {
+                    self.unify(owner, p, a, subst);
+                }
+            }
             _ => {}
         }
     }
@@ -3850,12 +4052,39 @@ impl<'p> Checker<'p> {
     /// checked and the instance recorded.
     fn call_generic(&mut self, e: &Expr, id: FnId, args: &[Expr], explicit: &[Ty]) -> Ty {
         let f = self.program.func(id);
-        let n = f.generics.len();
+        let params = f.generics.clone();
+        let (ret, targs) = self.call_inferring(e, id, args, explicit, id.0, &params, None);
+        self.types.instances.insert(e.id, targs);
+        ret
+    }
+
+    /// Checks a call of function `id`, inferring the type parameters `params` of `owner`
+    /// (the function's own, or a generic class's for its constructor) after substituting
+    /// `pre` (the receiver's type arguments, for methods of generic types). Returns the result
+    /// type and the inferred arguments.
+    #[allow(clippy::too_many_arguments)]
+    fn call_inferring(
+        &mut self,
+        e: &Expr,
+        id: FnId,
+        args: &[Expr],
+        explicit: &[Ty],
+        owner: u32,
+        generics: &[TypeParam],
+        pre: Option<(u32, &[Ty])>,
+    ) -> (Ty, Vec<Ty>) {
+        let f = self.program.func(id);
+        let n = generics.len();
         if f.ret.is_none() && self.state[id.0 as usize] == FnState::Unchecked {
             self.check_fn(id);
         }
-        let sig = self.types.sigs[id.0 as usize].clone();
-        let owner = id.0;
+        let mut sig = self.types.sigs[id.0 as usize].clone();
+        if let Some((o, a)) = pre {
+            sig = FnSig {
+                params: sig.params.iter().map(|p| p.subst(o, a)).collect(),
+                ret: sig.ret.subst(o, a),
+            };
+        }
         let mut subst: Vec<Option<Ty>> = vec![None; n];
         if !explicit.is_empty() {
             if explicit.len() != n {
@@ -3894,7 +4123,7 @@ impl<'p> Checker<'p> {
             for a in args {
                 self.infer(a);
             }
-            return Ty::Error;
+            return (Ty::Error, vec![Ty::Error; n]);
         }
         let pairs: Vec<(&Expr, &Ty)> = args.iter().zip(&sig.params).collect();
         let mut done = vec![false; pairs.len()];
@@ -3934,8 +4163,11 @@ impl<'p> Checker<'p> {
         for (i, t) in subst.iter().enumerate() {
             match t {
                 Some(t) => args_ty.push(t.clone()),
+                None if generics[i].default.is_some() => {
+                    args_ty.push(generics[i].default.clone().expect("checked"))
+                }
                 None => {
-                    let name = &f.generics[i].name;
+                    let name = &generics[i].name;
                     self.diags.push(
                         Diagnostic::error(
                             codes::CANT_INFER,
@@ -3961,7 +4193,7 @@ impl<'p> Checker<'p> {
                 }
             }
         }
-        for (i, tp) in f.generics.iter().enumerate() {
+        for (i, tp) in generics.iter().enumerate() {
             for b in &tp.bounds {
                 if !self.satisfies(&args_ty[i], b) {
                     let what = match b {
@@ -3980,8 +4212,7 @@ impl<'p> Checker<'p> {
                 }
             }
         }
-        self.types.instances.insert(e.id, args_ty.clone());
-        sig.ret.subst(owner, &args_ty)
+        (sig.ret.subst(owner, &args_ty), args_ty)
     }
 
     /// A method call on a value of a type parameter: `a.compareTo(b)` and the methods of

@@ -53,12 +53,12 @@ impl Checker<'_> {
                 .iter()
                 .map(|f| f.ty.clone())
                 .collect(),
-            (Ty::Struct(id, _) | Ty::Class(id, _), Ctor::Single) => self
+            (Ty::Struct(id, _, a) | Ty::Class(id, _, a), Ctor::Single) => self
                 .program
                 .struct_def(*id)
                 .fields
                 .iter()
-                .map(|f| f.ty.clone())
+                .map(|f| f.ty.subst(Ty::type_owner(*id), a))
                 .collect(),
             (Ty::Tuple(ts), Ctor::Single) => ts.clone(),
             (Ty::Nullable(inner), Ctor::NonNull) => vec![(**inner).clone()],
@@ -312,7 +312,7 @@ impl Checker<'_> {
                     args.iter().zip(ts).map(|(a, t)| self.show(t, a)).collect();
                 format!("[{}]", parts.join(", "))
             }
-            (Pat::Ctor(Ctor::Single, args), Ty::Struct(id, name) | Ty::Class(id, name)) => {
+            (Pat::Ctor(Ctor::Single, args), Ty::Struct(id, name, _) | Ty::Class(id, name, _)) => {
                 let def = self.program.struct_def(*id);
                 let parts: Vec<String> = args
                     .iter()

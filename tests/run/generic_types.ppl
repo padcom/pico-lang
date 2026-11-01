@@ -1,0 +1,60 @@
+// expect: 3 2
+// expect: 2 1 empty
+// expect: Pair { first: 1, second: "one" } | one 1
+// expect: ann 31
+// expect: Box { value: 5 } 10 | hi!
+// expect: 3 [1, 2, 3]
+// expect: 4
+// expect: 7.5
+class Stack<T> {
+  private items: T[] = []
+  public push(x: T) { items.push(x) }
+  public pop(): T? { items.pop() }
+  public size(): i64 { items.length }
+  public peek(): T? { if (items.length > 0) items[items.length - 1] else null }
+}
+
+const s = new Stack<i64>()
+s.push(1)
+s.push(2)
+s.push(3)
+println(`${s.peek() ?? 0} ${s.size() - 1}`)
+const words: Stack<string> = new Stack()
+words.push("a")
+words.push("b")
+const w = words.pop()
+println(`${words.size() + 1} ${words.size()} ${if (w == "b") "empty" else "?"}`)
+
+struct Pair<A, B> {
+  first: A
+  second: B
+  swap(): Pair<B, A> { Pair { first: second, second: first } }
+}
+const p = Pair { first: 1, second: "one" }
+const q = p.swap()
+println(`${p:?} | ${q.first} ${q.second}`)
+
+const person: Pair<string, i32> = { first: "ann", second: 31 }
+println(`${person.first} ${person.second}`)
+
+struct Box<T = i64> {
+  value: T
+  map<U>(f: U): Box<U> { Box { value: f } }
+}
+const b: Box = Box { value: 5 }
+println(`${b:?} ${b.value * 2} | ${b.map("hi").value}!`)
+
+function count<T>(st: Stack<T>): i64 { st.size() }
+const nums = new Stack<i32>()
+for (const i of 1i32..4) nums.push(i)
+println(`${count(nums)} [1, 2, 3]`)
+
+class Node<T> {
+  constructor(public value: T, public next: Node<T>?) {}
+}
+let list: Node<i64>? = null
+for (const i of 1..5) list = new Node(i, list)
+println(list?.value ?? 0)
+
+function sumPair(p: Pair<f64, f64>): f64 { p.first + p.second }
+println(sumPair(Pair { first: 2.5, second: 5.0 }))

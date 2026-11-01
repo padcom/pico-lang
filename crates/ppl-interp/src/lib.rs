@@ -452,10 +452,15 @@ impl Interp<'_, '_> {
                 }
                 _ => Ok(Value::Bool(false)),
             },
-            Rvalue::New(sid) => Ok(Value::Object(Rc::new(Obj {
-                class: sid.0,
-                fields: RefCell::new(vec![Value::Uninit; self.p.layout(*sid).fields.len()]),
-            }))),
+            Rvalue::New(t) => {
+                let Ty::Class(sid, _, _) = t else {
+                    unreachable!("new of {t}")
+                };
+                Ok(Value::Object(Rc::new(Obj {
+                    class: sid.0,
+                    fields: RefCell::new(vec![Value::Uninit; self.p.layout(*sid).fields.len()]),
+                })))
+            }
             Rvalue::Tag(o) => match self.operand(frame, o) {
                 Value::Enum(v, _) => Ok(Value::Int(v as i128)),
                 v => unreachable!("tag of {v:?}"),
@@ -766,8 +771,9 @@ fn debug_value(p: &Program, v: &Value, t: &Ty) -> String {
         format!("[{}]", items.collect::<Vec<_>>().join(", "))
     };
     match (v, t) {
-        (Value::Struct(fields), Ty::Struct(sid, _)) => {
+        (Value::Struct(fields), Ty::Struct(sid, _, args)) => {
             let layout = p.layout(*sid);
+            let owner = Ty::type_owner(*sid);
             if fields.is_empty() {
                 return format!("{} {{}}", layout.name);
             }
@@ -775,7 +781,9 @@ fn debug_value(p: &Program, v: &Value, t: &Ty) -> String {
                 .fields
                 .iter()
                 .zip(fields)
-                .map(|((name, fty), fv)| format!("{name}: {}", debug_value(p, fv, fty)))
+                .map(|((name, fty), fv)| {
+                    format!("{name}: {}", debug_value(p, fv, &fty.subst(owner, args)))
+                })
                 .collect();
             format!("{} {{ {} }}", layout.name, parts.join(", "))
         }
@@ -804,7 +812,7 @@ fn debug_value(p: &Program, v: &Value, t: &Ty) -> String {
         }
         (Value::Null, _) => "null".into(),
         (v, Ty::Nullable(inner)) => debug_value(p, v, inner),
-        (Value::Object(_), Ty::Class(sid, _)) => format!("<{}>", p.layout(*sid).name),
+        (Value::Object(_), Ty::Class(sid, _, _)) => format!("<{}>", p.layout(*sid).name),
         (Value::Struct(parts), Ty::Range(_)) => match &parts[..] {
             [Value::Int(a), Value::Int(b), Value::Int(1)] => format!("{a}..{b}"),
             [Value::Int(a), Value::Int(b), Value::Int(s)] => format!("({a}..{b}).step({s})"),

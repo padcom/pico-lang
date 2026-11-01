@@ -135,13 +135,13 @@ pub enum Ty {
     Never,
     /// The type of the `null` literal.
     Null,
-    /// A user-defined struct (the name is kept for messages).
-    Struct(StructId, Arc<str>),
+    /// A user-defined struct (the name is kept for messages) and its type arguments.
+    Struct(StructId, Arc<str>, Arc<[Ty]>),
     /// A class instance: a reference to a heap object (shares the id space with structs).
-    Class(StructId, Arc<str>),
+    Class(StructId, Arc<str>, Arc<[Ty]>),
     /// An interface value: the object (or a boxed struct) and the implementation's method
     /// table (shares the id space with structs).
-    Iface(StructId, Arc<str>),
+    Iface(StructId, Arc<str>, Arc<[Ty]>),
     /// A user-defined enum (a tagged union).
     Enum(EnumId, Arc<str>),
     /// Internal: a reference to a value (method receivers). Not writable in source.
@@ -208,6 +208,12 @@ impl Ty {
         matches!(self.erase(), Ty::Int(_))
     }
 
+    /// The owner id of a struct's, class's or interface's own type parameters (distinct from
+    /// function ids).
+    pub fn type_owner(id: StructId) -> u32 {
+        0x8000_0000 | id.0
+    }
+
     /// Whether a type parameter of `owner` occurs in this type.
     pub fn has_params(&self, owner: u32) -> bool {
         match self {
@@ -216,7 +222,33 @@ impl Ty {
                 t.has_params(owner)
             }
             Ty::Tuple(ts) => ts.iter().any(|t| t.has_params(owner)),
+            Ty::Struct(_, _, args) | Ty::Class(_, _, args) | Ty::Iface(_, _, args) => {
+                args.iter().any(|t| t.has_params(owner))
+            }
             _ => false,
+        }
+    }
+
+    /// Whether any type parameter occurs in this type.
+    pub fn has_any_params(&self) -> bool {
+        match self {
+            Ty::Param(..) => true,
+            Ty::Array(t) | Ty::Fixed(t, _) | Ty::Nullable(t) | Ty::Ref(t) | Ty::Lits(t, _) => {
+                t.has_any_params()
+            }
+            Ty::Tuple(ts) => ts.iter().any(Ty::has_any_params),
+            Ty::Struct(_, _, args) | Ty::Class(_, _, args) | Ty::Iface(_, _, args) => {
+                args.iter().any(Ty::has_any_params)
+            }
+            _ => false,
+        }
+    }
+
+    /// The type arguments of a struct, class or interface type.
+    pub fn type_args(&self) -> &[Ty] {
+        match self {
+            Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) => a,
+            _ => &[],
         }
     }
 
@@ -233,6 +265,9 @@ impl Ty {
             // `T?` with `T = U?` stays `U?`.
             Ty::Nullable(t) => s(t).nullable(),
             Ty::Ref(t) => Ty::Ref(Box::new(s(t))),
+            Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(s).collect()),
+            Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(s).collect()),
+            Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(s).collect()),
             t => t.clone(),
         }
     }
@@ -246,6 +281,9 @@ impl Ty {
             Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| t.erase()).collect()),
             Ty::Nullable(t) => Ty::Nullable(Box::new(t.erase())),
             Ty::Ref(t) => Ty::Ref(Box::new(t.erase())),
+            Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(Ty::erase).collect()),
+            Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(Ty::erase).collect()),
+            Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(Ty::erase).collect()),
             Ty::Variant(e, _, n) => Ty::Enum(*e, n.clone()),
             // A union is stored as its anonymous enum.
             Ty::Union(e, _) => Ty::Enum(*e, self.to_string().into()),
@@ -315,8 +353,14 @@ impl fmt::Display for Ty {
             Ty::Void => f.write_str("void"),
             Ty::Never => f.write_str("never"),
             Ty::Null => f.write_str("null"),
-            Ty::Struct(_, name) | Ty::Enum(_, name) | Ty::Class(_, name) | Ty::Iface(_, name) => {
-                f.write_str(name)
+            Ty::Enum(_, name) => f.write_str(name),
+            Ty::Struct(_, name, args) | Ty::Class(_, name, args) | Ty::Iface(_, name, args) => {
+                f.write_str(name)?;
+                if !args.is_empty() {
+                    let parts: Vec<String> = args.iter().map(|t| t.to_string()).collect();
+                    write!(f, "<{}>", parts.join(", "))?;
+                }
+                Ok(())
             }
             Ty::Ref(t) => write!(f, "&{t}"),
             Ty::Array(t) if matches!(**t, Ty::Nullable(_)) => write!(f, "({t})[]"),

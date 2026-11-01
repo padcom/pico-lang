@@ -99,6 +99,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         debug_fns: HashMap::new(),
         eq_fns: HashMap::new(),
         class_infos: Vec::new(),
+        generic_structs: Default::default(),
         itables: Vec::new(),
     };
     // Struct types first (named, so they can refer to each other), then their bodies.
@@ -167,6 +168,8 @@ struct Gen<'ctx, 'p> {
     eq_fns: HashMap<u32, FunctionValue<'ctx>>,
     /// Per class: `{ ptr base_info, [n x ptr] vtable }`, which object headers point to.
     class_infos: Vec<Option<GlobalValue<'ctx>>>,
+    /// LLVM types of instantiated generic structs and classes.
+    generic_structs: std::cell::RefCell<HashMap<Ty, inkwell::types::StructType<'ctx>>>,
     /// Interface method tables, by itable index.
     itables: Vec<GlobalValue<'ctx>>,
 }
@@ -205,7 +208,8 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Char => self.cx.i32_type().into(),
             Ty::Str | Ty::Ref(_) | Ty::Array(_) | Ty::Class(..) => self.ptr().into(),
             Ty::Iface(..) => self.iface_ty().into(),
-            Ty::Struct(sid, _) => self.structs[sid.0 as usize].into(),
+            Ty::Struct(sid, _, args) if args.is_empty() => self.structs[sid.0 as usize].into(),
+            Ty::Struct(..) => self.struct_llty(t).into(),
             Ty::Enum(eid, _) => self.enums[eid.0 as usize].into(),
             Ty::Fixed(e, n) => self.elem_ty(e).array_type(*n as u32).into(),
             Ty::Tuple(ts) => {
@@ -246,14 +250,16 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Iface(..) => (16, 8),
             Ty::Nullable(inner) if inner.is_ref() => (8, 8),
             Ty::Nullable(inner) => struct_layout(&[(1, 1), self.size_align(inner)]),
-            Ty::Struct(sid, _) => {
+            Ty::Struct(sid, _, args) => {
+                let owner = Ty::type_owner(*sid);
                 let parts: Vec<(u64, u64)> = self
                     .p
                     .layout(*sid)
                     .fields
                     .iter()
-                    .filter(|(_, t)| self.ty(t).is_some())
-                    .map(|(_, t)| self.size_align(t))
+                    .map(|(_, t)| t.subst(owner, args))
+                    .filter(|t| self.ty(t).is_some())
+                    .map(|t| self.size_align(&t))
                     .collect();
                 struct_layout(&parts)
             }
@@ -320,6 +326,35 @@ impl<'ctx> Gen<'ctx, '_> {
         self.b
             .build_struct_gep(self.variant_struct(eid, v), payload, i, "")
             .unwrap()
+    }
+
+    /// The LLVM struct type of a struct or class type (a class's object, with its header):
+    /// one per instantiation of a generic type.
+    fn struct_llty(&self, t: &Ty) -> inkwell::types::StructType<'ctx> {
+        let (sid, args) = match t {
+            Ty::Struct(s, _, a) | Ty::Class(s, _, a) => (*s, a),
+            other => unreachable!("struct type of {other}"),
+        };
+        if args.is_empty() {
+            return self.structs[sid.0 as usize];
+        }
+        if let Some(st) = self.generic_structs.borrow().get(t) {
+            return *st;
+        }
+        let layout = self.p.layout(sid);
+        let st = self.cx.opaque_struct_type(&format!("ppl.{t}"));
+        self.generic_structs.borrow_mut().insert(t.clone(), st);
+        let owner = Ty::type_owner(sid);
+        let mut fields: Vec<BasicTypeEnum> = layout
+            .fields
+            .iter()
+            .filter_map(|(_, f)| self.ty(&f.subst(owner, args)))
+            .collect();
+        if layout.is_class {
+            fields.insert(0, self.ptr().into());
+        }
+        st.set_body(&fields, false);
+        st
     }
 
     /// The type of an element or tuple part (a placeholder byte for types without values).
@@ -713,7 +748,7 @@ impl<'ctx> Gen<'ctx, '_> {
         };
         for pr in &p.proj {
             ptr = match (pr, &ty) {
-                (Proj::Field(i), Ty::Class(sid, _)) => {
+                (Proj::Field(i), Ty::Class(..)) => {
                     // Through the object reference; field 0 is the header.
                     let obj = self
                         .b
@@ -721,7 +756,7 @@ impl<'ctx> Gen<'ctx, '_> {
                         .unwrap()
                         .into_pointer_value();
                     self.b
-                        .build_struct_gep(self.structs[sid.0 as usize], obj, i + 1, "")
+                        .build_struct_gep(self.struct_llty(&ty), obj, i + 1, "")
                         .unwrap()
                 }
                 (Proj::Field(i), _) => {
@@ -914,12 +949,16 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
                 Some(self.format(&t, v, spec))
             }
-            Rvalue::Aggregate(sid, ops) => {
-                let st = self.structs[sid.0 as usize];
+            Rvalue::Aggregate(t, ops) => {
+                let st = self.struct_llty(t);
+                let Ty::Struct(sid, _, args) = t else {
+                    unreachable!("aggregate of {t}")
+                };
                 let mut agg = st.get_undef();
                 let mut index = 0;
+                let owner = Ty::type_owner(*sid);
                 for (o, (_, fty)) in ops.iter().zip(&self.p.layout(*sid).fields) {
-                    if self.ty(fty).is_none() {
+                    if self.ty(&fty.subst(owner, args)).is_none() {
                         continue;
                     }
                     let v = self.operand(fx, o).expect("field value");
@@ -1070,8 +1109,11 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
                 Some(self.b.build_load(et, slot, "").unwrap())
             }
-            Rvalue::New(sid) => {
-                let size = self.structs[sid.0 as usize].size_of().expect("sized class");
+            Rvalue::New(t) => {
+                let Ty::Class(sid, _, _) = t else {
+                    unreachable!("new of {t}")
+                };
+                let size = self.struct_llty(t).size_of().expect("sized class");
                 let obj = basic(
                     self.b
                         .build_call(self.rt("ppl_alloc_zeroed"), &[size.into()], "obj")
@@ -1278,12 +1320,12 @@ impl<'ctx> Gen<'ctx, '_> {
         y: BasicValueEnum<'ctx>,
     ) -> IntValue<'ctx> {
         let parts: Vec<Ty> = match t {
-            Ty::Struct(sid, _) => self
+            Ty::Struct(sid, _, args) => self
                 .p
                 .layout(*sid)
                 .fields
                 .iter()
-                .map(|(_, t)| t.clone())
+                .map(|(_, t)| t.subst(Ty::type_owner(*sid), args))
                 .filter(|t| self.ty(t).is_some())
                 .collect(),
             Ty::Tuple(ts) => ts.clone(),
@@ -1515,7 +1557,7 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// The debug text of a value, via a generated `ppl.debug.<n>` helper.
     fn debug_value(&mut self, t: &Ty, v: BasicValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
-        if let Ty::Class(sid, _) = t {
+        if let Ty::Class(sid, _, _) = t {
             let _ = v;
             let name = format!("<{}>", self.p.layout(*sid).name);
             return self.str_literal(&name).into();
@@ -1541,7 +1583,7 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// The debug text of the value at `p` (of type `t`).
     fn debug_at(&mut self, t: &Ty, p: PointerValue<'ctx>) -> BasicValueEnum<'ctx> {
-        if let Ty::Class(sid, _) = t {
+        if let Ty::Class(sid, _, _) = t {
             let name = format!("<{}>", self.p.layout(*sid).name);
             return self.str_literal(&name).into();
         }
@@ -1603,7 +1645,7 @@ impl<'ctx> Gen<'ctx, '_> {
         }
         let fn_ty = self.ptr().fn_type(&[self.ptr().into()], false);
         let name = match t {
-            Ty::Struct(sid, _) => format!("ppl.debug.{}", self.p.layout(*sid).name),
+            Ty::Struct(sid, _, _) => format!("ppl.debug.{}", self.p.layout(*sid).name),
             _ => format!("ppl.debug.{}", self.debug_fns.len()),
         };
         let f = self.m.add_function(&name, fn_ty, Some(Linkage::Internal));
@@ -1621,9 +1663,16 @@ impl<'ctx> Gen<'ctx, '_> {
             return f;
         }
         let text = match t {
-            Ty::Struct(sid, _) => {
+            Ty::Struct(sid, _, args) => {
                 let layout_name = self.p.layout(*sid).name.clone();
-                let fields = self.p.layout(*sid).fields.clone();
+                let owner = Ty::type_owner(*sid);
+                let fields: Vec<(String, Ty)> = self
+                    .p
+                    .layout(*sid)
+                    .fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), t.subst(owner, args)))
+                    .collect();
                 let st = lt.into_struct_type();
                 let mut acc: BasicValueEnum = if fields.is_empty() {
                     self.str_literal(&format!("{layout_name} {{}}")).into()

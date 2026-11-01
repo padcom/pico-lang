@@ -1,0 +1,9 @@
+// error: E0330
+// at: 8:11
+// error: E0308
+// at: 9:44
+struct Pair<A, B> { first: A; second: B }
+class Sorted<T extends Comparable<T>> { constructor(public x: T) {} }
+struct P { x: i32 }
+const d = new Sorted(P { x: 1 })
+const e: Pair<i32, string> = Pair { first: "x", second: "y" }

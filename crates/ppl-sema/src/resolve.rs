@@ -147,6 +147,7 @@ impl Resolver {
         let mut enum_decls: Vec<(EnumId, &ast::EnumDecl)> = Vec::new();
         let mut class_decls: Vec<(StructId, &ast::ClassDecl)> = Vec::new();
         let mut iface_decls: Vec<(StructId, &ast::InterfaceDecl)> = Vec::new();
+        let mut pending_globals: Vec<(GlobalId, &ast::Type)> = Vec::new();
         let mut first_seen: HashMap<String, Span> = HashMap::new();
         // Type aliases first: any type annotation may use them.
         for stmt in &module.stmts {
@@ -266,12 +267,15 @@ impl Resolver {
                         if self.check_duplicate(&mut first_seen, name) {
                             continue;
                         }
-                        let ty = ann.map(|t| self.resolve_type(t));
                         let id = GlobalId(self.globals.len() as u32);
+                        // Annotations are resolved once every type is declared.
+                        if let Some(t) = ann {
+                            pending_globals.push((id, t));
+                        }
                         self.globals.push(Binding {
                             name: name.name.clone(),
                             mutable: *kind == ast::BindingKind::Let,
-                            ty,
+                            ty: None,
                             span: name.span,
                         });
                         self.top_globals.insert(name.name.clone(), id);
@@ -279,6 +283,22 @@ impl Resolver {
                 }
                 _ => {}
             }
+        }
+
+        // Generic types' parameters, so annotations like `Stack<i64>` can be checked.
+        let generic_decls: Vec<(StructId, &[ast::GenericParam])> = struct_decls
+            .iter()
+            .map(|(s, d)| (*s, &d.generics[..]))
+            .chain(class_decls.iter().map(|(s, d)| (*s, &d.generics[..])))
+            .collect();
+        for (sid, gs) in generic_decls {
+            let tps = self.type_params(gs, &[], Ty::type_owner(sid));
+            self.f.type_params.clear();
+            self.structs[sid.0 as usize].generics = tps;
+        }
+        for (g, t) in pending_globals {
+            let ty = self.resolve_type(t);
+            self.globals[g.0 as usize].ty = Some(ty);
         }
 
         // Pass 1b: interfaces first (implementers need their method lists), then struct
@@ -289,6 +309,7 @@ impl Resolver {
         }
         for (sid, sd) in &struct_decls {
             self.struct_members(*sid, sd, &mut fn_decls);
+            self.f.type_params.clear();
         }
         for (eid, ed) in &enum_decls {
             self.enum_variants(*eid, ed);
@@ -296,6 +317,7 @@ impl Resolver {
         let mut classes = Vec::new();
         for (sid, cd) in self.order_classes(&class_decls) {
             classes.push(self.class_members(sid, cd));
+            self.f.type_params.clear();
         }
         self.check_struct_cycles();
         self.check_conformance();
@@ -469,8 +491,11 @@ impl Resolver {
         sd: &'a ast::StructDecl,
         fn_decls: &mut Vec<(FnId, &'a ast::FnDecl, Option<StructId>)>,
     ) {
-        if let Some(g) = sd.generics.first() {
-            self.not_implemented(g.span, "generic structs");
+        let generics = self.type_params(&sd.generics, &[], Ty::type_owner(sid));
+        self.structs[sid.0 as usize].generics = generics;
+        if let (Some(g), Some(t)) = (sd.generics.first(), sd.implements.first()) {
+            let _ = g;
+            self.not_implemented(t.span, "generic types implementing interfaces");
         }
         self.resolve_implements(sid, &sd.implements);
         let mut seen: HashMap<String, Span> = HashMap::new();
@@ -727,14 +752,10 @@ impl Resolver {
             ..Default::default()
         };
         self.f.scopes.push(Scope::default());
-        if !f.generics.is_empty() && this_struct.is_some() {
-            self.not_implemented(f.generics[0].span, "generic methods");
+        if let Some(sid) = owner {
+            self.enter_type_params(sid);
         }
-        let generics = if this_struct.is_none() {
-            self.type_params(&f.generics, &f.where_clause)
-        } else {
-            Vec::new()
-        };
+        let generics = self.type_params(&f.generics, &f.where_clause, self.cur_fn.0);
         if let Some(sid) = this_struct {
             let ty = self.struct_ty(sid);
             let id = LocalId(self.f.locals.len() as u32);
@@ -823,21 +844,33 @@ impl Resolver {
 
     /// Declares a generic function's type parameters (as `Ty::Param` of the current
     /// function) and resolves their bounds, from `extends` and `where`.
+    /// Makes a generic type's parameters visible (inside its members' code).
+    fn enter_type_params(&mut self, sid: StructId) {
+        let owner = Ty::type_owner(sid);
+        let names: Vec<String> = self.structs[sid.0 as usize]
+            .generics
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
+        for (i, n) in names.into_iter().enumerate() {
+            let t = Ty::Param(owner, i as u32, n.as_str().into());
+            self.f.type_params.push((n, t));
+        }
+    }
+
     fn type_params(
         &mut self,
         params: &[ast::GenericParam],
         wheres: &[ast::WherePredicate],
+        owner: u32,
     ) -> Vec<TypeParam> {
-        let owner = self.cur_fn.0;
         let mut out: Vec<TypeParam> = Vec::new();
         for (i, g) in params.iter().enumerate() {
             let ast::GenericKind::Type { default, .. } = &g.kind else {
                 self.not_implemented(g.span, "`comptime` parameters");
                 continue;
             };
-            if let Some(d) = default {
-                self.not_implemented(d.span, "default type parameters");
-            }
+            let _ = default;
             self.f.type_params.push((
                 g.name.name.clone(),
                 Ty::Param(owner, i as u32, g.name.name.as_str().into()),
@@ -846,7 +879,19 @@ impl Resolver {
                 name: g.name.name.clone(),
                 span: g.name.span,
                 bounds: Vec::new(),
+                default: None,
             });
+        }
+        for (i, g) in params.iter().enumerate() {
+            if let ast::GenericKind::Type {
+                default: Some(d), ..
+            } = &g.kind
+            {
+                let t = self.resolve_type(d);
+                if let Some(tp) = out.get_mut(i) {
+                    tp.default = Some(t);
+                }
+            }
         }
         // Bounds may mention any of the parameters, so they're resolved afterwards.
         for (i, g) in params.iter().enumerate() {
@@ -893,7 +938,7 @@ impl Resolver {
                 vec![Bound::Equatable]
             }
             _ => match self.resolve_type(t) {
-                Ty::Iface(sid, _) => vec![Bound::Iface(sid)],
+                Ty::Iface(sid, _, _) => vec![Bound::Iface(sid)],
                 Ty::Error => Vec::new(),
                 other => {
                     self.error(
@@ -975,7 +1020,7 @@ impl Resolver {
     fn resolve_implements(&mut self, sid: StructId, types: &[ast::Type]) {
         for t in types {
             match self.resolve_type(t) {
-                Ty::Iface(i, _) => self.structs[sid.0 as usize].implements.push(i),
+                Ty::Iface(i, _, _) => self.structs[sid.0 as usize].implements.push(i),
                 Ty::Error => {}
                 other => self.error(
                     codes::UNKNOWN_TYPE,
@@ -1232,8 +1277,12 @@ impl Resolver {
     /// Pass 1b for a class: fields (and parameter properties), methods, accessors, statics,
     /// constructors and the vtable.
     fn class_members<'a>(&mut self, sid: StructId, cd: &'a ast::ClassDecl) -> ClassInfo<'a> {
-        if let Some(g) = cd.generics.first() {
-            self.not_implemented(g.span, "generic classes");
+        let generics = self.type_params(&cd.generics, &[], Ty::type_owner(sid));
+        self.structs[sid.0 as usize].generics = generics;
+        if let Some(g) = cd.generics.first()
+            && (cd.extends.is_some() || !cd.implements.is_empty())
+        {
+            self.not_implemented(g.span, "generic classes with `extends` or `implements`");
         }
         let base = self.structs[sid.0 as usize].base;
         if let Some(b) = base {
@@ -1623,6 +1672,7 @@ impl Resolver {
             owner: Some(sid),
             ..Default::default()
         };
+        self.enter_type_params(sid);
         self.f.scopes.push(Scope::default());
         let this_ty = self.struct_ty(sid);
         let this = LocalId(self.f.locals.len() as u32);
@@ -1896,14 +1946,7 @@ impl Resolver {
     }
 
     fn struct_ty(&self, id: StructId) -> Ty {
-        let def = &self.structs[id.0 as usize];
-        if def.is_class {
-            Ty::Class(id, def.name.as_str().into())
-        } else if def.is_interface {
-            Ty::Iface(id, def.name.as_str().into())
-        } else {
-            Ty::Struct(id, def.name.as_str().into())
-        }
+        self.structs[id.0 as usize].self_ty(id)
     }
 
     // ------------------------------------------------------------ scopes
@@ -2212,7 +2255,12 @@ impl Resolver {
                 match Ty::from_name(&path[0].name) {
                     Some(ty) => ty,
                     None if self.top_structs.contains_key(&path[0].name) => {
-                        self.struct_ty(self.top_structs[&path[0].name])
+                        let sid = self.top_structs[&path[0].name];
+                        if self.structs[sid.0 as usize].generics.is_empty() {
+                            self.struct_ty(sid)
+                        } else {
+                            self.generic_ty(sid, Vec::new(), t.span)
+                        }
                     }
                     None if self.top_enums.contains_key(&path[0].name) => {
                         self.enum_ty(self.top_enums[&path[0].name])
@@ -2235,6 +2283,13 @@ impl Resolver {
                 if path.len() == 1 && path[0].name == "Array" && args.len() == 1 =>
             {
                 Ty::Array(Box::new(self.resolve_type(&args[0])))
+            }
+            ast::TypeKind::Path { path, args }
+                if path.len() == 1 && self.top_structs.contains_key(&path[0].name) =>
+            {
+                let sid = self.top_structs[&path[0].name];
+                let args: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
+                self.generic_ty(sid, args, t.span)
             }
             ast::TypeKind::Array(elem) => Ty::Array(Box::new(self.resolve_type(elem))),
             ast::TypeKind::Fixed { elem, len } => {
@@ -2267,6 +2322,41 @@ impl Resolver {
                 Ty::Error
             }
         }
+    }
+
+    /// A struct, class or interface type with type arguments (defaults fill in missing ones).
+    fn generic_ty(&mut self, sid: StructId, mut args: Vec<Ty>, span: Span) -> Ty {
+        let def = &self.structs[sid.0 as usize];
+        let n = def.generics.len();
+        if args.len() > n {
+            let name = def.name.clone();
+            self.error(
+                codes::WRONG_ARG_COUNT,
+                span,
+                format!(
+                    "`{name}` takes {n} type argument{}",
+                    if n == 1 { "" } else { "s" }
+                ),
+                "too many type arguments",
+            );
+            return Ty::Error;
+        }
+        while args.len() < n {
+            match &self.structs[sid.0 as usize].generics[args.len()].default {
+                Some(d) => args.push(d.clone()),
+                None => {
+                    let name = self.structs[sid.0 as usize].name.clone();
+                    self.error(
+                        codes::CANT_INFER,
+                        span,
+                        format!("`{name}` needs its type arguments"),
+                        format!("write `{name}<…>`"),
+                    );
+                    return Ty::Error;
+                }
+            }
+        }
+        self.structs[sid.0 as usize].ty_with(sid, args.into())
     }
 
     /// The type an alias stands for (resolved once; a cycle is an error).
@@ -2918,9 +3008,7 @@ impl Resolver {
                 type_args,
                 args,
             } => {
-                if let Some(t) = type_args.first() {
-                    self.not_implemented(t.span, "generic classes");
-                }
+                let type_args: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(t)).collect();
                 let class = match &callee.kind {
                     ast::ExprKind::Ident(n) => self
                         .top_structs
@@ -2954,12 +3042,16 @@ impl Resolver {
                         "abstract classes can't be instantiated",
                     );
                 }
-                ExprKind::New { class, args: out }
+                ExprKind::New {
+                    class,
+                    args: out,
+                    type_args,
+                }
             }
             A::Instanceof { expr, ty } => {
                 let e2 = self.lower_expr(expr);
                 match self.resolve_type(ty) {
-                    Ty::Class(class, _) => ExprKind::InstanceOf {
+                    Ty::Class(class, _, _) => ExprKind::InstanceOf {
                         expr: Box::new(e2),
                         class,
                     },
@@ -3723,12 +3815,11 @@ impl Resolver {
         fields: &[ast::ObjField],
         span: Span,
     ) -> ExprKind {
+        let mut type_args = Vec::new();
         let sid = match ty.map(|t| &t.kind) {
             None => None,
             Some(ast::TypeKind::Path { path, args }) if path.len() == 1 => {
-                if !args.is_empty() {
-                    self.not_implemented(ty.unwrap().span, "generic structs");
-                }
+                type_args = args.iter().map(|a| self.resolve_type(a)).collect();
                 match self.top_structs.get(&path[0].name) {
                     Some(id) if self.structs[id.0 as usize].is_class => {
                         self.error(
@@ -3799,6 +3890,7 @@ impl Resolver {
         ExprKind::Object {
             ty: sid,
             fields: inits,
+            type_args,
         }
     }
 }
@@ -3937,7 +4029,7 @@ enum Inline {
 /// arrays and `T?`).
 fn inline_types(t: &Ty, out: &mut Vec<Inline>) {
     match t {
-        Ty::Struct(id, _) => out.push(Inline::Struct(*id)),
+        Ty::Struct(id, _, _) => out.push(Inline::Struct(*id)),
         Ty::Enum(id, _) => out.push(Inline::Enum(*id)),
         Ty::Fixed(e, _) | Ty::Nullable(e) => inline_types(e, out),
         Ty::Tuple(ts) => ts.iter().for_each(|t| inline_types(t, out)),
