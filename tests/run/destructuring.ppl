@@ -1,0 +1,82 @@
+// Destructuring and spread (spec §4.1, §5.3).
+// expect: 1 2
+// expect: first 1, second two
+// expect: localhost:8080
+// expect: db:5432
+// expect: 6 9 7
+// expect: [4, 5, 6, 4, 5] [4, 5]
+// expect: head 1, tail [2, 3]
+// expect: swapped 2 1
+// expect: 0 1 1 2 3 5 8
+// expect: a=1 b=2
+// expect: renamed 1 2
+// expect: 3
+struct Point {
+  x: int
+  y: int
+}
+struct Opts {
+  port: int?
+  host: string?
+}
+
+const point = Point { x: 1, y: 2 }
+const { x, y } = point
+println(`${x} ${y}`)
+const pair: [int, string] = [1, "two"]
+const [first, second] = pair
+println(`first ${first}, second ${second}`)
+// Defaults apply when the field is null.
+const opts = Opts { port: null, host: null }
+const { port = 8080, host = "localhost" } = opts
+println(`${host}:${port}`)
+
+function connect({ host, port = 5432 }: Opts): string {
+  `${host ?? "?"}:${port}`
+}
+println(connect(Opts { port: null, host: "db" }))
+
+function sum(...xs: i64[]): i64 {
+  xs.reduce((a, b) => a + b, 0)
+}
+const numbers = [4, 5]
+function move(x: i32, y: i32): i32 {
+  x + y
+}
+const pos: [i32, i32] = [3, 4]
+println(`${sum(1, 2, 3)} ${sum(...numbers)} ${move(...pos)}`)
+
+const both = [...numbers, 6, ...numbers]
+const copy = [...numbers]
+println(`${both:?} ${copy:?}`)
+
+const [head, ...tail] = [1, 2, 3]
+println(`head ${head}, tail ${tail:?}`)
+
+let a = 1
+let b = 2
+[a, b] = [b, a]
+println(`swapped ${a} ${b}`)
+
+// §5.7's generator, with destructuring assignment.
+function* fib(): Iterator<i64> {
+  let [a, b] = [0, 1]
+  loop {
+    yield a
+    [a, b] = [b, a + b]
+  }
+}
+println(fib().take(7).toArray().join(" "))
+
+const m = new Map<string, int>()
+m.set("a", 1).set("b", 2)
+let shown = ""
+for (const [k, v] of m) {
+  shown = shown + `${k}=${v} `
+}
+println(shown.trimEnd())
+
+const { x: px, y: py } = point
+println(`renamed ${px} ${py}`)
+const add = ({ x, y }: Point) => x + y
+println(add(point))

@@ -1121,10 +1121,10 @@ impl Resolver {
             self.f.this = Some((id, sid));
         }
         let mut params = Vec::new();
-        for p in &f.params {
+        let (f_params, destructured) = split_destructured(&f.params);
+        for p in &f_params {
             let ast::PatternKind::Ident(pname) = &p.pat.kind else {
-                self.not_implemented(p.pat.span, "destructured parameters");
-                continue;
+                unreachable!("destructured parameters were renamed");
             };
             if p.comptime || !p.mods.is_empty() {
                 self.not_implemented(p.span, "comptime parameters and parameter modifiers");
@@ -1221,7 +1221,8 @@ impl Resolver {
         } else {
             &f.body
         };
-        let body = match body_src {
+        let pre = self.destructured_params(&destructured);
+        let mut body = match body_src {
             Some(ast::FnBody::Block(b)) => self.block(b),
             Some(ast::FnBody::Expr(e)) => {
                 let tail = self.lower_expr(e);
@@ -1240,6 +1241,7 @@ impl Resolver {
                 }
             }
         };
+        body.stmts.splice(0..0, pre);
         let full_name = match this_struct {
             Some(sid) => format!("{}.{}", self.structs[sid.0 as usize].name, name.name),
             None => name.name.clone(),
@@ -2542,8 +2544,29 @@ impl Resolver {
                     span,
                 });
                 for (i, sub) in elems.iter().enumerate() {
-                    if let ast::PatternKind::Rest(_) = sub.kind {
-                        self.not_implemented(sub.span, "rest patterns (`...rest`)");
+                    if let ast::PatternKind::Rest(name) = &sub.kind {
+                        // `[first, ...rest]`: the rest of an array (it must come last).
+                        if i + 1 != elems.len() {
+                            self.error(
+                                codes::PATTERN_MISMATCH,
+                                sub.span,
+                                "`...rest` must be the last element",
+                                "move it to the end",
+                            );
+                            continue;
+                        }
+                        let Some(name) = name else { continue };
+                        let rest = self.method_call(
+                            tmp,
+                            "slice",
+                            vec![ExprKind::Int(i as u64, None)],
+                            sub.span,
+                        );
+                        let ident = ast::Pattern {
+                            kind: ast::PatternKind::Ident(name.clone()),
+                            span: sub.span,
+                        };
+                        self.destructure(&ident, rest, mutable, None, out, global);
                         continue;
                     }
                     let object = self.expr(ExprKind::Var(Var::Local(tmp)), sub.span);
@@ -2558,8 +2581,183 @@ impl Resolver {
                     self.destructure(sub, elem, mutable, None, out, global);
                 }
             }
+            // `{ x, y: py, port = 8080 }`: fields; a default replaces a null field.
+            ast::PatternKind::Struct { fields, rest, .. } => {
+                if rest.is_some() {
+                    self.not_implemented(span, "`...rest` in object patterns");
+                }
+                let tmp = self.hidden_local("<destructured>", span);
+                self.f.locals[tmp.0 as usize].ty = ty;
+                out.push(Stmt::Let {
+                    var: Var::Local(tmp),
+                    init: Some(source),
+                    span,
+                });
+                for f in fields {
+                    let object = self.expr(ExprKind::Var(Var::Local(tmp)), f.span);
+                    let mut value = self.expr(
+                        ExprKind::Member {
+                            object: Box::new(object),
+                            name: f.name.name.clone(),
+                            name_span: f.name.span,
+                        },
+                        f.span,
+                    );
+                    if let Some(d) = &f.default {
+                        let d = self.lower_expr(d);
+                        value = self.expr(
+                            ExprKind::Binary(ast::BinOp::Nullish, Box::new(value), Box::new(d)),
+                            f.span,
+                        );
+                    }
+                    let sub = f.pat.clone().unwrap_or(ast::Pattern {
+                        kind: ast::PatternKind::Ident(f.name.clone()),
+                        span: f.name.span,
+                    });
+                    self.destructure(&sub, value, mutable, None, out, global);
+                }
+            }
             _ => self.not_implemented(span, "this kind of destructuring pattern"),
         }
+    }
+
+    /// `local.name(args)`
+    fn method_call(&mut self, local: LocalId, name: &str, args: Vec<ExprKind>, span: Span) -> Expr {
+        let object = self.expr(ExprKind::Var(Var::Local(local)), span);
+        let callee = self.expr(
+            ExprKind::Member {
+                object: Box::new(object),
+                name: name.into(),
+                name_span: span,
+            },
+            span,
+        );
+        let args = args.into_iter().map(|a| self.expr(a, span)).collect();
+        self.expr(
+            ExprKind::Call {
+                callee: Box::new(callee),
+                args,
+                type_args: Vec::new(),
+            },
+            span,
+        )
+    }
+
+    /// `[...a, x, ...b]` → `a.concat([x]).concat(b)` (a lone spread copies: `a.slice(0)`).
+    fn array_spread(&mut self, elems: &[ast::ArrayElem], span: Span) -> ExprKind {
+        let mut parts: Vec<Expr> = Vec::new();
+        let mut plain: Vec<Expr> = Vec::new();
+        for el in elems {
+            match el {
+                ast::ArrayElem::Expr(x) => plain.push(self.lower_expr(x)),
+                ast::ArrayElem::Spread(x) => {
+                    if !plain.is_empty() {
+                        let lit = self.expr(ExprKind::Array(std::mem::take(&mut plain)), span);
+                        parts.push(lit);
+                    }
+                    parts.push(self.lower_expr(x));
+                }
+            }
+        }
+        if !plain.is_empty() {
+            parts.push(self.expr(ExprKind::Array(plain), span));
+        }
+        let mut it = parts.into_iter();
+        let first = it.next().expect("a spread");
+        let call = |r: &mut Resolver, object: Expr, name: &str, args: Vec<Expr>| {
+            let callee = r.expr(
+                ExprKind::Member {
+                    object: Box::new(object),
+                    name: name.into(),
+                    name_span: span,
+                },
+                span,
+            );
+            r.expr(
+                ExprKind::Call {
+                    callee: Box::new(callee),
+                    args,
+                    type_args: Vec::new(),
+                },
+                span,
+            )
+        };
+        let mut acc = match it.next() {
+            Some(second) => call(self, first, "concat", vec![second]),
+            None => {
+                let zero = self.expr(ExprKind::Int(0, None), span);
+                call(self, first, "slice", vec![zero])
+            }
+        };
+        for part in it {
+            acc = call(self, acc, "concat", vec![part]);
+        }
+        acc.kind
+    }
+
+    /// `[a, b] = value` → `{ const t = value; a = t[0]; b = t[1] }` (the value is read first, so
+    /// `[a, b] = [b, a]` swaps).
+    fn assign_destructured(
+        &mut self,
+        target: &ast::Expr,
+        value: &ast::Expr,
+        span: Span,
+    ) -> ExprKind {
+        let ast::ExprKind::Array(elems) = &target.kind else {
+            unreachable!("checked")
+        };
+        let v = self.lower_expr(value);
+        let tmp = self.hidden_local("<destructured>", span);
+        let mut stmts = vec![Stmt::Let {
+            var: Var::Local(tmp),
+            init: Some(v),
+            span,
+        }];
+        for (i, el) in elems.iter().enumerate() {
+            let ast::ArrayElem::Expr(x) = el else {
+                self.not_implemented(span, "`...rest` in destructuring assignments");
+                continue;
+            };
+            let Some(t) = self.lower_target(x) else {
+                continue;
+            };
+            let object = self.expr(ExprKind::Var(Var::Local(tmp)), x.span);
+            let index = self.expr(ExprKind::Int(i as u64, None), x.span);
+            let elem = self.expr(
+                ExprKind::Index {
+                    object: Box::new(object),
+                    index: Box::new(index),
+                },
+                x.span,
+            );
+            let assign = self.expr(
+                ExprKind::Assign {
+                    op: None,
+                    target: t,
+                    value: Box::new(elem),
+                },
+                x.span,
+            );
+            stmts.push(Stmt::Expr(assign));
+        }
+        ExprKind::Block(Block {
+            stmts,
+            tail: None,
+            span,
+        })
+    }
+
+    /// The statements that destructure renamed parameters at the start of the body.
+    fn destructured_params(&mut self, params: &[(ast::Ident, ast::Pattern)]) -> Vec<Stmt> {
+        let mut out = Vec::new();
+        for (name, pat) in params {
+            let Some(Found::Var(v)) = self.lookup(&name.name, name.span) else {
+                continue;
+            };
+            let source = self.expr(ExprKind::Var(v), pat.span);
+            self.destructure(pat, source, false, None, &mut out, false);
+        }
+        out
     }
 
     fn destructure_without_init(&mut self, pat: &ast::Pattern) {
@@ -2865,10 +3063,10 @@ impl Resolver {
             self.not_implemented(g.span, "generic closures");
         }
         let mut params = Vec::new();
-        for p in &f.params {
+        let (f_params, destructured) = split_destructured(&f.params);
+        for p in &f_params {
             let ast::PatternKind::Ident(pname) = &p.pat.kind else {
-                self.not_implemented(p.pat.span, "destructured parameters");
-                continue;
+                unreachable!("destructured parameters were renamed");
             };
             if p.rest || p.optional || p.default.is_some() || p.comptime {
                 self.not_implemented(p.span, "optional, default, rest and comptime parameters");
@@ -2880,7 +3078,8 @@ impl Resolver {
         let ret = f.ret.as_ref().map(|t| self.resolve_type(t));
         let saved_fn = self.cur_fn;
         self.cur_fn = id;
-        let body = match &f.body {
+        let pre = self.destructured_params(&destructured);
+        let mut body = match &f.body {
             Some(ast::FnBody::Block(b)) => self.block(b),
             Some(ast::FnBody::Expr(e)) => {
                 let tail = self.lower_expr(e);
@@ -2896,6 +3095,7 @@ impl Resolver {
                 span,
             },
         };
+        body.stmts.splice(0..0, pre);
         self.cur_fn = saved_fn;
         let st = std::mem::take(&mut self.f);
         self.f = self.outer_fns.pop().expect("pushed above");
@@ -3918,6 +4118,13 @@ impl Resolver {
                 Box::new(self.lower_expr(lhs)),
                 Box::new(self.lower_expr(rhs)),
             ),
+            A::Assign {
+                op: None,
+                target,
+                value,
+            } if matches!(target.kind, A::Array(_)) => {
+                self.assign_destructured(target, value, span)
+            }
             A::Assign { op, target, value } => {
                 let value = self.lower_expr(value);
                 let Some(target) = self.lower_target(target) else {
@@ -4219,14 +4426,14 @@ impl Resolver {
                 start: Box::new(self.lower_expr(start)),
                 end: Box::new(self.lower_expr(end)),
             },
+            A::Array(elems) if elems.iter().any(|e| matches!(e, ast::ArrayElem::Spread(_))) => {
+                self.array_spread(elems, span)
+            }
             A::Array(elems) => {
                 let mut out = Vec::new();
                 for el in elems {
-                    match el {
-                        ast::ArrayElem::Expr(x) => out.push(self.lower_expr(x)),
-                        ast::ArrayElem::Spread(x) => {
-                            self.not_implemented(x.span, "spread in array literals")
-                        }
+                    if let ast::ArrayElem::Expr(x) = el {
+                        out.push(self.lower_expr(x));
                     }
                 }
                 ExprKind::Array(out)
@@ -5069,8 +5276,44 @@ fn pattern_idents<'a>(p: &'a ast::Pattern, out: &mut Vec<&'a ast::Ident>) {
                 pattern_idents(e, out);
             }
         }
+        ast::PatternKind::Rest(Some(n)) => out.push(n),
+        ast::PatternKind::Struct { fields, .. } => {
+            for f in fields {
+                match &f.pat {
+                    Some(p) => pattern_idents(p, out),
+                    None => out.push(&f.name),
+                }
+            }
+        }
         _ => {}
     }
+}
+
+/// Parameters with destructuring patterns get hidden names (`<arg0>`), and the patterns to
+/// destructure them with.
+fn split_destructured(params: &[ast::Param]) -> (Vec<ast::Param>, Vec<(ast::Ident, ast::Pattern)>) {
+    let mut out = Vec::new();
+    let mut pats = Vec::new();
+    for (i, p) in params.iter().enumerate() {
+        match &p.pat.kind {
+            ast::PatternKind::Ident(_) => out.push(p.clone()),
+            _ => {
+                let name = ast::Ident {
+                    name: format!("<arg{i}>"),
+                    span: p.pat.span,
+                };
+                pats.push((name.clone(), p.pat.clone()));
+                out.push(ast::Param {
+                    pat: ast::Pattern {
+                        kind: ast::PatternKind::Ident(name),
+                        span: p.pat.span,
+                    },
+                    ..p.clone()
+                });
+            }
+        }
+    }
+    (out, pats)
 }
 
 fn strip_parens(e: &ast::Expr) -> &ast::Expr {

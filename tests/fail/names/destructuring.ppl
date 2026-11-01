@@ -1,0 +1,9 @@
+// error: E0318
+// at: 6:11
+// error: E0204
+// at: 9:2
+// Destructuring: `...rest` comes last, and the targets must be assignable.
+const [a, ...mid, b] = [1, 2, 3]
+const c = 1
+let d = 2
+[c, d] = [d, c]
