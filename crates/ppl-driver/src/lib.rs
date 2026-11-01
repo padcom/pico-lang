@@ -180,6 +180,13 @@ pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
     file.text.hash(&mut h);
     opts.release.hash(&mut h);
     env!("CARGO_PKG_VERSION").hash(&mut h);
+    // The compiler itself: a rebuilt compiler must not reuse old executables.
+    if let Ok(meta) = std::env::current_exe().and_then(std::fs::metadata) {
+        meta.len().hash(&mut h);
+        if let Ok(t) = meta.modified() {
+            t.hash(&mut h);
+        }
+    }
     let stem = Path::new(&file.name)
         .file_stem()
         .map_or("main".into(), |s| s.to_string_lossy().into_owned());

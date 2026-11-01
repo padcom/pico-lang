@@ -111,6 +111,11 @@ _Noreturn void ppl_panic_str(const PplStr *msg, const char *file, int64_t file_l
 int64_t ppl_ipow_s(int64_t base, int64_t exp, int32_t bits, int32_t *overflow);
 uint64_t ppl_ipow_u(uint64_t base, uint64_t exp, int32_t bits, int32_t *overflow);
 
+/* Hashing for derived `hashCode` (the interpreter computes the same values). */
+uint64_t ppl_hash_u64(uint64_t x);           /* splitmix64 */
+uint64_t ppl_hash_str(const PplStr *s);      /* FNV-1a over the UTF-8 bytes */
+uint64_t ppl_hash_combine(uint64_t a, uint64_t b);
+
 #define PPL_PANIC_EXIT_CODE 101
 
 #endif

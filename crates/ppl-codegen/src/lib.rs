@@ -611,6 +611,9 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_array_new" => ptr.fn_type(&[i64t.into(), i64t.into()], false),
             "ppl_alloc_zeroed" | "ppl_alloc" => ptr.fn_type(&[i64t.into()], false),
             "ppl_instance_of" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_hash_u64" => i64t.fn_type(&[i64t.into()], false),
+            "ppl_hash_str" => i64t.fn_type(&[ptr.into()], false),
+            "ppl_hash_combine" => i64t.fn_type(&[i64t.into(), i64t.into()], false),
             "ppl_array_push" => ptr.fn_type(&[ptr.into(), i64t.into()], false),
             "ppl_array_pop" => i32t.fn_type(&[ptr.into()], false),
             "ppl_array_slice" => {
@@ -1200,6 +1203,56 @@ impl<'ctx> Gen<'ctx, '_> {
                     self.b.build_store(cell, v).unwrap();
                 }
                 Some(cell.into())
+            }
+            Rvalue::Hash(o) => {
+                let t = self.operand_ty(fx, o).erase();
+                let v = self.operand(fx, o)?;
+                let i64t = self.i64();
+                let r = match &t {
+                    Ty::Str => self
+                        .b
+                        .build_call(self.rt("ppl_hash_str"), &[v.into()], "")
+                        .unwrap(),
+                    _ => {
+                        let bits = match &t {
+                            Ty::Int(it) => self
+                                .b
+                                .build_int_cast_sign_flag(v.into_int_value(), i64t, it.signed(), "")
+                                .unwrap(),
+                            Ty::Float(ft) => {
+                                let d = match ft {
+                                    FloatTy::F64 => v.into_float_value(),
+                                    FloatTy::F32 => self
+                                        .b
+                                        .build_float_ext(
+                                            v.into_float_value(),
+                                            self.cx.f64_type(),
+                                            "",
+                                        )
+                                        .unwrap(),
+                                };
+                                self.b.build_bit_cast(d, i64t, "").unwrap().into_int_value()
+                            }
+                            _ => self
+                                .b
+                                .build_int_z_extend(v.into_int_value(), i64t, "")
+                                .unwrap(),
+                        };
+                        self.b
+                            .build_call(self.rt("ppl_hash_u64"), &[bits.into()], "")
+                            .unwrap()
+                    }
+                };
+                Some(basic(r))
+            }
+            Rvalue::HashCombine(a, b) => {
+                let x = self.operand(fx, a)?;
+                let y = self.operand(fx, b)?;
+                Some(basic(
+                    self.b
+                        .build_call(self.rt("ppl_hash_combine"), &[x.into(), y.into()], "")
+                        .unwrap(),
+                ))
             }
             Rvalue::IfaceData(o) => {
                 let v = self.operand(fx, o)?;
@@ -2189,6 +2242,14 @@ impl<'ctx> Gen<'ctx, '_> {
                     self.b.build_not(eq, "").unwrap().into()
                 } else {
                     eq.into()
+                }
+            }
+            Ty::Bool if matches!(op, BitAnd | BitOr | BitXor) => {
+                let (a, b) = (x.into_int_value(), y.into_int_value());
+                match op {
+                    BitAnd => self.b.build_and(a, b, "").unwrap().into(),
+                    BitOr => self.b.build_or(a, b, "").unwrap().into(),
+                    _ => self.b.build_xor(a, b, "").unwrap().into(),
                 }
             }
             Ty::Bool | Ty::Char => {

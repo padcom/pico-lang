@@ -78,8 +78,22 @@ pub struct Types {
     pub arg_slots: HashMap<ExprId, Vec<Slot>>,
     /// The overload each call of an overloaded name picked.
     pub overloads: HashMap<ExprId, FnId>,
+    /// Operators and protocol uses that call a user method (`operator +`, `equals`,
+    /// `compareTo`, `[]`, `[]=`), by the operator/assignment expression.
+    pub op_calls: HashMap<ExprId, FnId>,
+    /// Uses of a derived protocol (field by field): comparisons and `equals`/`compareTo`/
+    /// `hashCode` calls on structs, enums, tuples and `@derive` classes.
+    pub derived: HashMap<ExprId, Derived>,
     /// Method calls on a value whose type is a type parameter: the method's name.
     pub param_calls: HashMap<ExprId, String>,
+}
+
+/// A protocol implemented field by field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Derived {
+    Equals,
+    Compare,
+    Hash,
 }
 
 /// Where a parameter's value comes from at a call.
@@ -149,6 +163,8 @@ impl Types {
             param_calls: self.param_calls.clone(),
             arg_slots: self.arg_slots.clone(),
             overloads: self.overloads.clone(),
+            op_calls: self.op_calls.clone(),
+            derived: self.derived.clone(),
         }
     }
 }
@@ -200,10 +216,13 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             recv_args: HashMap::new(),
             arg_slots: HashMap::new(),
             overloads: HashMap::new(),
+            op_calls: HashMap::new(),
+            derived: HashMap::new(),
             param_calls: HashMap::new(),
         },
         narrow: Vec::new(),
         recv_args: Vec::new(),
+        pre_inferred: None,
         tail_position: false,
         tail_body: false,
         diags: Vec::new(),
@@ -294,6 +313,8 @@ struct Checker<'p> {
     stack: Vec<FnCtx>,
     /// The type arguments of the receiver whose field `field` looks up.
     recv_args: Vec<Ty>,
+    /// A binary operator's left operand, already inferred while looking for a user operator.
+    pre_inferred: Option<ExprId>,
     /// The expression being checked is the function's result (where `tailcall` may be).
     tail_position: bool,
     /// The next block checked is a function body (its tail is the result).
@@ -673,6 +694,19 @@ impl<'p> Checker<'p> {
                 (vec![variant(vi)], no)
             }
             _ => none,
+        }
+    }
+
+    /// The type of a simple expression without checking it (variables and fields), to pick
+    /// a code path before checking.
+    fn peek_type(&self, e: &Expr) -> Option<Ty> {
+        match &e.kind {
+            ExprKind::Var(Var::Local(l)) => {
+                let f = self.stack.last()?.id;
+                Some(self.types.locals[f.0 as usize][l.0 as usize].clone())
+            }
+            ExprKind::Var(Var::Global(g)) => Some(self.types.globals[g.0 as usize].clone()),
+            _ => None,
         }
     }
 
@@ -1295,6 +1329,41 @@ impl<'p> Checker<'p> {
             ExprKind::Tailcall(inner) => self.tailcall(e, inner, want),
             ExprKind::Unary(op, inner) => self.unary(e, *op, inner, want),
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, want),
+            ExprKind::Assign {
+                op: None,
+                target: Target::Index { object, index },
+                value,
+            } if {
+                let ot = self.peek_type(object);
+                matches!(ot, Some(Ty::Struct(..) | Ty::Class(..)))
+            } =>
+            {
+                // `obj[i] = v` through `operator []=`.
+                let ot = self.infer(object);
+                match self.operator_for(&ot, "op[]=", Some(index)) {
+                    Some(m) => {
+                        self.types.op_calls.insert(e.id, m);
+                        let args = [index, value];
+                        let sig = self.types.sigs[m.0 as usize].clone();
+                        if sig.params.len() == 2 {
+                            self.check(args[0], &Expect::new(sig.params[0].clone()));
+                            self.check(args[1], &Expect::new(sig.params[1].clone()));
+                        }
+                    }
+                    None => {
+                        self.infer(index);
+                        self.infer(value);
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::INVALID_OPERANDS,
+                                format!("`{ot}` has no `[]=` operator"),
+                            )
+                            .primary(e.span, "can't assign to an element"),
+                        );
+                    }
+                }
+                Ty::Void
+            }
             ExprKind::Assign { op, target, value } => {
                 let (vt, origin) = self.target_ty(target);
                 match op {
@@ -1469,6 +1538,13 @@ impl<'p> Checker<'p> {
                     Ty::Error => {
                         self.infer(index);
                         Ty::Error
+                    }
+                    t @ (Ty::Struct(..) | Ty::Class(..))
+                        if self.operator_for(&t, "op[]", None).is_some() =>
+                    {
+                        let m = self.operator_for(&t, "op[]", Some(index)).expect("checked");
+                        self.types.op_calls.insert(e.id, m);
+                        self.call_fn(e, m, std::slice::from_ref(index))
                     }
                     _ => {
                         self.infer(index);
@@ -3608,6 +3684,19 @@ impl<'p> Checker<'p> {
             }
             _ => self.infer(inner),
         };
+        if matches!(t, Ty::Struct(..) | Ty::Class(..)) {
+            let sym = match op {
+                UnOp::Neg => "-",
+                UnOp::Not => "!",
+                UnOp::BitNot => "~",
+                _ => "+",
+            };
+            let name = format!("op{sym}u");
+            if let Some(m) = self.operator_for(&t, &name, None) {
+                self.types.op_calls.insert(e.id, m);
+                return self.call_fn(e, m, &[]);
+            }
+        }
         match op {
             UnOp::Neg => match &t {
                 Ty::Int(it) if it.signed() => t,
@@ -3647,6 +3736,11 @@ impl<'p> Checker<'p> {
 
     /// Types both operands of a binary operator and joins them to one type.
     fn operands(&mut self, l: &Expr, r: &Expr, hint: Option<&Expect>) -> (Ty, Ty) {
+        if self.pre_inferred.take() == Some(l.id) {
+            let lt = self.types.expr(l.id).clone();
+            let rt = self.infer_with(r, Some(&Expect::new(lt.clone())));
+            return (lt, rt);
+        }
         if untyped_lit(l) && !untyped_lit(r) {
             let rt = self.infer_with(r, hint);
             let lt = self.check_or_join(l, &rt);
@@ -3712,6 +3806,16 @@ impl<'p> Checker<'p> {
 
     fn binary(&mut self, e: &Expr, op: BinOp, l: &Expr, r: &Expr, want: Option<&Expect>) -> Ty {
         use BinOp::*;
+        // A user type on the left: its operators and protocols.
+        if !matches!(op, And | Or | Nullish | Shl | Shr | UShr) && !needs_context(l) {
+            let hint =
+                want.filter(|w| w.ty.is_numeric() && !matches!(op, Eq | Ne | Lt | Le | Gt | Ge));
+            let lt = self.infer_with(l, hint);
+            if let Some(t) = self.user_binary(e, op, l, &lt, r) {
+                return t;
+            }
+            self.pre_inferred = Some(l.id);
+        }
         match op {
             And | Or => {
                 self.check(l, &Expect::new(Ty::Bool));
@@ -3779,9 +3883,151 @@ impl<'p> Checker<'p> {
         }
     }
 
+    /// The user method implementing operator `name` on `t` whose parameter fits `arg`
+    /// (operators may be overloaded by the right operand's type).
+    fn operator_for(&mut self, t: &Ty, name: &str, arg: Option<&Expr>) -> Option<FnId> {
+        let (Ty::Struct(sid, _, _) | Ty::Class(sid, _, _)) = t else {
+            return None;
+        };
+        let cands = self.program.struct_def(*sid).methods_named(name);
+        match (cands.as_slice(), arg) {
+            ([], _) => None,
+            ([one], _) | ([one, ..], None) => Some(*one),
+            (many, Some(a)) => {
+                let at = if needs_context(a) {
+                    None
+                } else {
+                    Some(self.infer(a))
+                };
+                many.iter()
+                    .find(|f| {
+                        let p = &self.types.sigs[f.0 as usize].params;
+                        match (&at, p.first()) {
+                            (Some(at), Some(p)) => at == p || at.widens_to(p),
+                            (None, Some(p)) => self.literal_fits(a, p),
+                            _ => false,
+                        }
+                    })
+                    .copied()
+                    .or(Some(many[0]))
+            }
+        }
+    }
+
+    /// Whether values of `t` compare field by field (derived `compareTo`).
+    fn derives_ord(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Struct(..) | Ty::Enum(..) | Ty::Tuple(_) | Ty::Fixed(..) | Ty::Range(_) => true,
+            Ty::Class(sid, _, _) => self
+                .program
+                .struct_def(*sid)
+                .derives
+                .iter()
+                .any(|d| d == "Ord"),
+            Ty::Nullable(inner) => self.derives_ord(inner),
+            _ => false,
+        }
+    }
+
+    /// Operators on structs and classes: `operator` methods, `==` through `equals`, and
+    /// comparisons through `compareTo` (written or derived). `None`: not a user operator.
+    fn user_binary(&mut self, e: &Expr, op: BinOp, l: &Expr, lt: &Ty, r: &Expr) -> Option<Ty> {
+        use BinOp::*;
+        let user = matches!(lt, Ty::Struct(..) | Ty::Class(..));
+        match op {
+            Add | Sub | Mul | Div | Rem | Pow | BitAnd | BitOr | BitXor if user => {
+                let name = format!("op{}", op.as_str());
+                let Some(m) = self.operator_for(lt, &name, Some(r)) else {
+                    self.infer(r);
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::INVALID_OPERANDS,
+                            format!("`{lt}` has no `{}` operator", op.as_str()),
+                        )
+                        .primary(e.span, "not defined for this type")
+                        .help(format!(
+                            "declare `operator {}(o: …): …` in the type",
+                            op.as_str()
+                        )),
+                    );
+                    return Some(Ty::Error);
+                };
+                self.types.op_calls.insert(e.id, m);
+                Some(self.call_fn(e, m, std::slice::from_ref(r)))
+            }
+            Lt | Le | Gt | Ge if user || self.derives_ord(lt) => {
+                let user_cmp = match lt {
+                    Ty::Struct(sid, _, _) | Ty::Class(sid, _, _) => {
+                        self.program.struct_def(*sid).method("compareTo")
+                    }
+                    _ => None,
+                };
+                match user_cmp {
+                    Some(m) => {
+                        self.types.op_calls.insert(e.id, m);
+                        self.call_fn(e, m, std::slice::from_ref(r));
+                    }
+                    None if self.derives_ord(lt) => {
+                        self.check(r, &Expect::new(lt.clone()));
+                        self.types.derived.insert(e.id, Derived::Compare);
+                    }
+                    None => {
+                        self.infer(r);
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::INVALID_OPERANDS,
+                                format!("`{lt}` can't be ordered"),
+                            )
+                            .primary(e.span, "no `compareTo`")
+                            .help("implement `compareTo(o: …): i32`, or use `@derive(Ord)`"),
+                        );
+                    }
+                }
+                let _ = l;
+                Some(Ty::Bool)
+            }
+            Eq | Ne if user => {
+                let def_eq = match lt {
+                    Ty::Struct(sid, _, _) | Ty::Class(sid, _, _) => {
+                        self.program.struct_def(*sid).method("equals")
+                    }
+                    _ => None,
+                };
+                match def_eq {
+                    Some(m) => {
+                        self.types.op_calls.insert(e.id, m);
+                        self.call_fn(e, m, std::slice::from_ref(r));
+                    }
+                    // `@derive(Eq)` classes compare their fields.
+                    None if matches!(lt, Ty::Class(sid, _, _)
+                        if self.program.struct_def(*sid).derives.iter().any(|d| d == "Eq")) =>
+                    {
+                        self.check(r, &Expect::new(lt.clone()));
+                        self.types.derived.insert(e.id, Derived::Equals);
+                    }
+                    None => return None,
+                }
+                Some(Ty::Bool)
+            }
+            _ => None,
+        }
+    }
+
     /// `x op= value`
     fn compound(&mut self, e: &Expr, op: BinOp, vt: Ty, value: &Expr) {
         use BinOp::*;
+        // Derived from the type's binary operator.
+        if matches!(vt, Ty::Struct(..) | Ty::Class(..))
+            && !matches!(op, And | Or | Nullish)
+            && let Some(m) = self.operator_for(&vt, &format!("op{}", op.as_str()), Some(value))
+        {
+            self.types.op_calls.insert(e.id, m);
+            let r = self.call_fn(e, m, std::slice::from_ref(value));
+            if r != vt && !r.is_error() {
+                self.mismatch(e.span, &Expect::new(vt), &r);
+            }
+            return;
+        }
         match op {
             And | Or => {
                 if !matches!(vt, Ty::Bool | Ty::Error) {
@@ -4436,6 +4682,47 @@ impl<'p> Checker<'p> {
         args: &[Expr],
     ) -> Option<Ty> {
         let _ = name_span;
+        // Derived protocols (unless the type writes its own).
+        let own = match t {
+            Ty::Struct(sid, _, _) | Ty::Class(sid, _, _) => {
+                self.program.struct_def(*sid).method(name).is_some()
+            }
+            _ => false,
+        };
+        let derives = |c: &Self, what: &str| match t {
+            Ty::Struct(..) | Ty::Enum(..) | Ty::Tuple(_) | Ty::Fixed(..) => true,
+            Ty::Class(sid, _, _) => c.program.struct_def(*sid).derives.iter().any(|d| d == what),
+            _ => false,
+        };
+        let derived = match name {
+            "equals" if !own && derives(self, "Eq") => Some((Derived::Equals, Ty::Bool, 1)),
+            "compareTo" if !own && derives(self, "Ord") => {
+                Some((Derived::Compare, Ty::Int(IntTy::I32), 1))
+            }
+            "hashCode" if !own && derives(self, "Hash") => {
+                Some((Derived::Hash, Ty::Int(IntTy::U64), 0))
+            }
+            _ => None,
+        };
+        if let Some((d, ret, n)) = derived {
+            if args.len() != n {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::WRONG_ARG_COUNT,
+                        format!(
+                            "`{name}` takes {n} argument{}",
+                            if n == 1 { "" } else { "s" }
+                        ),
+                    )
+                    .primary(e.span, "wrong number of arguments"),
+                );
+            }
+            for a in args {
+                self.check(a, &Expect::new(t.clone()));
+            }
+            self.types.derived.insert(e.id, d);
+            return Some(ret);
+        }
         let (arity_ok, expected, ret) = match (t, name) {
             (Ty::Array(elem), "push") => {
                 let want = Expect::new((**elem).clone());
@@ -4503,6 +4790,8 @@ impl<'p> Checker<'p> {
         match bound {
             Bound::Comparable => {
                 matches!(t.erase(), Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str)
+                    || self.derives_ord(t)
+                    || matches!(t, Ty::Class(sid, _, _) if self.program.struct_def(*sid).method("compareTo").is_some())
             }
             Bound::Equatable => self.equatable(t),
             Bound::Iface(i) => match t {

@@ -1,10 +1,14 @@
 // error: E0304
-// at: 7:11
+// at: 11:11
 // error: E0304
-// at: 8:11
+// at: 12:11
+// error: E0309
+// at: 13:20
 // error: E0304
-// at: 9:11
-const a = !1
-const b = -true
-const c = 1.5 & 2.0
-const ok = 2 ** 10 + 7 % 3
+// at: 14:11
+struct V { x: i32; operator +(o: V): V { V { x: x + o.x } } }
+class C { constructor(public n: i32) {} }
+const a = V { x: 1 } - V { x: 2 }
+const b = new C(1) < new C(2)
+const h = new C(1).hashCode()
+const k = V { x: 1 }[0]

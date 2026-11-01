@@ -128,6 +128,8 @@ pub struct StructDef {
     pub protected: std::collections::HashSet<String>,
     /// Where each inherited member was declared (own members aren't listed).
     pub declared_in: HashMap<String, StructId>,
+    /// `@derive(Eq, Hash, Ord)` on a class: the derived protocols.
+    pub derives: Vec<String>,
     pub getters: Vec<(String, FnId)>,
     pub setters: Vec<(String, FnId)>,
     pub static_fields: Vec<(String, GlobalId)>,
@@ -157,6 +159,7 @@ impl StructDef {
             final_methods: Default::default(),
             protected: Default::default(),
             declared_in: HashMap::new(),
+            derives: Vec::new(),
             getters: Vec::new(),
             setters: Vec::new(),
             static_fields: Vec::new(),
@@ -171,6 +174,15 @@ impl StructDef {
 
     pub fn method(&self, name: &str) -> Option<FnId> {
         find(&self.methods, name)
+    }
+
+    /// Every method with this name (operators can be overloaded by operand type).
+    pub fn methods_named(&self, name: &str) -> Vec<FnId> {
+        self.methods
+            .iter()
+            .filter(|(n, _)| n == name)
+            .map(|(_, f)| *f)
+            .collect()
     }
 
     pub fn getter(&self, name: &str) -> Option<FnId> {

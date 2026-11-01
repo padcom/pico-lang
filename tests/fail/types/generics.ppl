@@ -12,7 +12,7 @@ function max<T extends Comparable<T>>(a: T, b: T): T { if (a.compareTo(b) >= 0) 
 function make<T>(): T[] { [] }
 function bad<T>(a: T, b: T): bool { a < b }
 function call<T>(a: T): i64 { a.size() }
-struct P { x: i32 }
-const a = max(P { x: 1 }, P { x: 2 })
+class P { constructor(public x: i32) {} }
+const a = max(new P(1), new P(2))
 const b = make()
 const c = max(1, "a")

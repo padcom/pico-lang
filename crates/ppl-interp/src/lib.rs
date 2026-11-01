@@ -482,6 +482,16 @@ impl Interp<'_, '_> {
                 };
                 Ok(Value::Ref(cell(v), Rc::from(Vec::new())))
             }
+            Rvalue::Hash(o) => {
+                let t = self.operand_ty(frame, o);
+                Ok(Value::Int(hash_value(&self.operand(frame, o), &t) as i128))
+            }
+            Rvalue::HashCombine(a, b) => match (self.operand(frame, a), self.operand(frame, b)) {
+                (Value::Int(x), Value::Int(y)) => {
+                    Ok(Value::Int(hash_combine(x as u64, y as u64) as i128))
+                }
+                v => unreachable!("hash of {v:?}"),
+            },
             Rvalue::IfaceData(o) => match self.operand(frame, o) {
                 Value::Iface(iv) => Ok(iv.0.clone()),
                 v => unreachable!("data of {v:?}"),
@@ -617,6 +627,9 @@ impl Interp<'_, '_> {
             (Value::Bool(a), Value::Bool(b), _) => Ok(Value::Bool(match op {
                 Eq => a == b,
                 Ne => a != b,
+                BitAnd => a & b,
+                BitOr => a | b,
+                BitXor => a ^ b,
                 _ => unreachable!("type-checked bool operator"),
             })),
             (a @ (Value::Struct(_) | Value::Enum(..) | Value::Object(_)), b, _) => Ok(match op {
@@ -727,6 +740,41 @@ fn write_path(v: &mut Value, path: &[Step], new: Value) {
             other => unreachable!("field {i} of {other:?}"),
         },
     }
+}
+
+/// The hash of a primitive or string. Must match `ppl_hash_*` in the C runtime.
+fn hash_value(v: &Value, t: &Ty) -> u64 {
+    match (v, t.erase()) {
+        (Value::Int(x), _) => splitmix64(*x as i64 as u64),
+        (Value::Float(x), Ty::Float(FloatTy::F32)) => splitmix64((*x as f32 as f64).to_bits()),
+        (Value::Float(x), _) => splitmix64(x.to_bits()),
+        (Value::Bool(b), _) => splitmix64(u64::from(*b)),
+        (Value::Char(c), _) => splitmix64(u64::from(*c as u32)),
+        (Value::Str(s), _) => {
+            // FNV-1a over the UTF-8 bytes.
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for b in s.bytes() {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+            h
+        }
+        _ => 0,
+    }
+}
+
+fn splitmix64(x: u64) -> u64 {
+    let mut z = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
+fn hash_combine(a: u64, b: u64) -> u64 {
+    a ^ b
+        .wrapping_add(0x9e37_79b9_7f4a_7c15)
+        .wrapping_add(a << 6)
+        .wrapping_add(a >> 2)
 }
 
 /// `a ** e` by squaring; `None` if the result doesn't fit in `it`.

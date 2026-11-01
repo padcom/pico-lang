@@ -35,6 +35,26 @@ int32_t ppl_instance_of(const void *obj, const void *info) {
     return 0;
 }
 
+uint64_t ppl_hash_u64(uint64_t x) {
+    uint64_t z = x + 0x9e3779b97f4a7c15ULL;
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+    return z ^ (z >> 31);
+}
+
+uint64_t ppl_hash_str(const PplStr *s) {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (int64_t i = 0; i < s->byte_len; i++) {
+        h ^= (uint8_t)s->data[i];
+        h *= 0x100000001b3ULL;
+    }
+    return h;
+}
+
+uint64_t ppl_hash_combine(uint64_t a, uint64_t b) {
+    return a ^ (b + 0x9e3779b97f4a7c15ULL + (a << 6) + (a >> 2));
+}
+
 /* ---------------------------------------------------------------- arrays */
 
 PplArray *ppl_array_new(int64_t elem_size, int64_t len) {

@@ -208,15 +208,14 @@ impl Resolver {
                         iface_decls.push((id, id_));
                     }
                     if let ast::DeclKind::Class(cd) = &d.kind {
-                        if let Some(dec) = d.decorators.first() {
-                            self.not_implemented(dec.span, "decorators");
-                        }
+                        let derives = self.derive_decorators(&d.decorators);
                         if self.check_duplicate(&mut first_seen, &cd.name) {
                             continue;
                         }
                         let id = StructId(self.structs.len() as u32);
-                        self.structs
-                            .push(StructDef::new(cd.name.name.clone(), cd.name.span, true));
+                        let mut def = StructDef::new(cd.name.name.clone(), cd.name.span, true);
+                        def.derives = derives;
+                        self.structs.push(def);
                         self.top_structs.insert(cd.name.name.clone(), id);
                         class_decls.push((id, cd));
                     }
@@ -602,8 +601,12 @@ impl Resolver {
                         .push((name.name.clone(), id));
                     fn_decls.push((id, f, Some(sid)));
                 }
-                ast::MemberKind::Operator { .. } => {
-                    self.not_implemented(m.span, "operator overloading")
+                ast::MemberKind::Operator { op, func } => {
+                    let (name, decl) = operator_method(op, func, m.span);
+                    let id = FnId(self.fns.len() as u32);
+                    self.fns.push(None);
+                    self.structs[sid.0 as usize].methods.push((name, id));
+                    fn_decls.push((id, decl, Some(sid)));
                 }
                 ast::MemberKind::Getter(_) | ast::MemberKind::Setter(_) => {
                     self.not_implemented(m.span, "getters and setters")
@@ -1598,8 +1601,12 @@ impl Resolver {
                     info.methods.push((id, f, Some(sid), is_abstract));
                 }
                 ast::MemberKind::StaticBlock(b) => info.static_blocks.push(b),
-                ast::MemberKind::Operator { .. } => {
-                    self.not_implemented(m.span, "operator overloading")
+                ast::MemberKind::Operator { op, func } => {
+                    let (name, decl) = operator_method(op, func, m.span);
+                    let id = FnId(self.fns.len() as u32);
+                    self.fns.push(None);
+                    self.structs[sid.0 as usize].methods.push((name, id));
+                    info.methods.push((id, decl, Some(sid), false));
                 }
             }
         }
@@ -3661,6 +3668,32 @@ impl Resolver {
             .collect()
     }
 
+    /// `@derive(Eq, Hash, Ord)` (the only decorator so far): the protocols it names.
+    fn derive_decorators(&mut self, decs: &[ast::Decorator]) -> Vec<String> {
+        let mut out = Vec::new();
+        for dec in decs {
+            let is_derive = dec.path.len() == 1 && dec.path[0].name == "derive";
+            if !is_derive {
+                self.not_implemented(dec.span, "decorators other than `@derive`");
+                continue;
+            }
+            for a in dec.args.iter().flatten() {
+                match &a.value.kind {
+                    ast::ExprKind::Ident(n) if matches!(n.as_str(), "Eq" | "Hash" | "Ord") => {
+                        out.push(n.clone())
+                    }
+                    _ => self.error(
+                        codes::UNKNOWN_NAME,
+                        a.value.span,
+                        "`@derive` takes `Eq`, `Hash` and `Ord`",
+                        "not a derivable protocol",
+                    ),
+                }
+            }
+        }
+        out
+    }
+
     /// Whether `name` refers to a variable (which shadows a type of the same name).
     fn is_value_name(&self, name: &str) -> bool {
         self.f.scopes.iter().any(|s| s.names.contains_key(name))
@@ -4321,6 +4354,23 @@ struct ClassInfo<'a> {
     field_inits: Vec<(&'a ast::Ident, Option<&'a ast::Expr>)>,
     static_inits: Vec<(GlobalId, &'a ast::Ident, Option<&'a ast::Expr>)>,
     static_blocks: Vec<&'a ast::Block>,
+}
+
+/// An `operator` member as a method: `op+`, `op-u` (unary), `op[]`, `op[]=`. The declaration
+/// gets that name (leaked: declarations live for the whole compilation).
+fn operator_method(op: &str, func: &ast::FnDecl, span: Span) -> (String, &'static ast::FnDecl) {
+    let unary = func.params.is_empty() && matches!(op, "-" | "!" | "~" | "+");
+    let name = if unary {
+        format!("op{op}u")
+    } else {
+        format!("op{op}")
+    };
+    let mut decl = func.clone();
+    decl.name = Some(ast::Ident {
+        name: name.clone(),
+        span,
+    });
+    (name, Box::leak(Box::new(decl)))
 }
 
 /// A literal type's base type and value.

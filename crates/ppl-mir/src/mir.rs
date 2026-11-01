@@ -402,6 +402,10 @@ pub enum Rvalue {
     /// A new heap cell of the type holding the value (`Const::Void`: uninitialized); the
     /// result is a reference to it (captured `let` variables).
     BoxNew(Ty, Operand),
+    /// The `u64` hash of a primitive or string (the same in every backend).
+    Hash(Operand),
+    /// Mixes a field's hash into an accumulated one.
+    HashCombine(Operand, Operand),
 }
 
 #[derive(Debug)]
@@ -560,6 +564,8 @@ impl fmt::Display for Rvalue {
                 write!(f, "Closure(fn#{}, [{}])", id.0, ops.join(", "))
             }
             Rvalue::BoxNew(t, a) => write!(f, "BoxNew<{t}>({a})"),
+            Rvalue::Hash(a) => write!(f, "Hash({a})"),
+            Rvalue::HashCombine(a, b) => write!(f, "HashCombine({a}, {b})"),
         }
     }
 }

@@ -1202,6 +1202,10 @@ impl FnBuilder<'_, '_> {
                 Operand::Const(Const::Void)
             }
             ExprKind::NamedArg { value, .. } | ExprKind::Spread(value) => self.expr(value),
+            ExprKind::Unary(_, inner) if self.cx.types.op_calls.contains_key(&e.id) => {
+                let m = self.cx.types.op_calls[&e.id];
+                self.user_call(e, m, inner, &[], ty)
+            }
             ExprKind::Unary(op, inner) => {
                 if *op == ast::UnOp::Neg
                     && let ExprKind::Int(v, _) = inner.kind
@@ -1219,6 +1223,34 @@ impl FnBuilder<'_, '_> {
                 self.rvalue_to_temp(Rvalue::Unary(op, v), ty, e.span)
             }
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, ty),
+            ExprKind::Assign {
+                op: None,
+                target: hir::Target::Index { object, index },
+                value,
+            } if self.cx.types.op_calls.contains_key(&e.id) => {
+                let m = self.cx.types.op_calls[&e.id];
+                self.user_call(e, m, object, &[index, value], Ty::Void);
+                Operand::Const(Const::Void)
+            }
+            ExprKind::Assign {
+                op: Some(_),
+                target,
+                value,
+            } if self.cx.types.op_calls.contains_key(&e.id) => {
+                // `v += w` with `operator +`: `v = v + w`.
+                let m = self.cx.types.op_calls[&e.id];
+                let mut checks = Vec::new();
+                let place = self.target_place(target, &mut checks);
+                self.emit_checks(&checks);
+                let t = self.place_ty(&place);
+                let recv = self.receiver(&place, &t, e.span);
+                let mut ops = vec![recv];
+                let rest = self.call_operands(e, m, std::slice::from_ref(&**value));
+                ops.extend(rest);
+                let v = self.call_fn_value(m, ops, t, e.span);
+                self.assign(place, Rvalue::Use(v), e.span);
+                Operand::Const(Const::Void)
+            }
             ExprKind::Assign {
                 op,
                 target: target @ hir::Target::Field { id, object, .. },
@@ -1446,6 +1478,10 @@ impl FnBuilder<'_, '_> {
                 let s = self.expr(object);
                 let i = self.expr(index);
                 self.rvalue_to_temp(Rvalue::StrCharAt(s, i), ty, e.span)
+            }
+            ExprKind::Index { object, index } if self.cx.types.op_calls.contains_key(&e.id) => {
+                let m = self.cx.types.op_calls[&e.id];
+                self.user_call(e, m, object, &[index], ty)
             }
             ExprKind::Index { .. } => {
                 let place = self.place_of(e);
@@ -1780,6 +1816,42 @@ impl FnBuilder<'_, '_> {
     }
 
     fn binary(&mut self, e: &Expr, op: ast::BinOp, l: &Expr, r: &Expr, ty: Ty) -> Operand {
+        use ast::BinOp as B;
+        if let Some(m) = self.cx.types.op_calls.get(&e.id).copied() {
+            // A user operator, or `equals` / `compareTo`.
+            let rt = self.cx.types.sigs[m.0 as usize].ret.clone();
+            let v = self.user_call(e, m, l, &[r], rt);
+            return match op {
+                B::Lt | B::Le | B::Gt | B::Ge => self.rvalue_to_temp(
+                    Rvalue::Binary(bin_op(op), v, Operand::Const(Const::Int(0, IntTy::I32))),
+                    Ty::Bool,
+                    e.span,
+                ),
+                B::Ne => self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, v), Ty::Bool, e.span),
+                _ => v,
+            };
+        }
+        if self.cx.types.derived.get(&e.id) == Some(&ppl_sema::typeck::Derived::Equals) {
+            let t = self.ty_of(l).clone();
+            let a = self.expr(l);
+            let b = self.expr(r);
+            let eq = self.eq_values(a, b, &t, e.span);
+            if op == B::Ne {
+                return self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, eq), Ty::Bool, e.span);
+            }
+            return eq;
+        }
+        if self.cx.types.derived.get(&e.id) == Some(&ppl_sema::typeck::Derived::Compare) {
+            let t = self.ty_of(l).clone();
+            let a = self.expr(l);
+            let b = self.expr(r);
+            let c = self.compare_values(a, b, &t, e.span);
+            return self.rvalue_to_temp(
+                Rvalue::Binary(bin_op(op), c, Operand::Const(Const::Int(0, IntTy::I32))),
+                Ty::Bool,
+                e.span,
+            );
+        }
         match op {
             ast::BinOp::And | ast::BinOp::Or => {
                 let res = Place::local(self.temp(Ty::Bool));
@@ -2695,7 +2767,15 @@ impl FnBuilder<'_, '_> {
             other => unreachable!("method `{name}` on {other}"),
         };
         let def = self.cx.program.struct_def(sid);
-        let m = def.method(name).expect("bound guarantees the method");
+        let Some(m) = def.method(name) else {
+            // A derived protocol on the concrete type.
+            let d = match name {
+                "compareTo" => ppl_sema::typeck::Derived::Compare,
+                "hashCode" => ppl_sema::typeck::Derived::Hash,
+                _ => ppl_sema::typeck::Derived::Equals,
+            };
+            return self.derived_call(d, object, args.first(), &t, e.span);
+        };
         let loc = self.loc(e.span);
         let (callee, recv) = match &t {
             Ty::Iface(..) => {
@@ -2734,6 +2814,436 @@ impl FnBuilder<'_, '_> {
         }
     }
 
+    /// The receiver argument for a method of the type of `place`'s value: a reference for a
+    /// struct, the object for a class.
+    fn receiver(&mut self, place: &Place, t: &Ty, span: Span) -> Operand {
+        match t {
+            Ty::Class(..) => Operand::Copy(place.clone()),
+            _ => self.rvalue_to_temp(
+                Rvalue::Ref(place.clone()),
+                Ty::Ref(Box::new(t.clone())),
+                span,
+            ),
+        }
+    }
+
+    /// Calls user method `m` on `object` with these arguments.
+    fn user_call(&mut self, e: &Expr, m: FnId, object: &Expr, args: &[&Expr], ty: Ty) -> Operand {
+        let t = self.ty_of(object).clone();
+        let place = self.place_of(object);
+        let recv = self.receiver(&place, &t, e.span);
+        let mut ops = vec![recv];
+        for a in args {
+            let v = self.expr(a);
+            ops.push(v);
+        }
+        let m = self.method_target(e, m);
+        self.call_fn_value(m, ops, ty, e.span)
+    }
+
+    /// `a.equals(b)`, `a.compareTo(b)`, `a.hashCode()` derived field by field.
+    fn derived_call(
+        &mut self,
+        d: ppl_sema::typeck::Derived,
+        object: &Expr,
+        arg: Option<&Expr>,
+        t: &Ty,
+        span: Span,
+    ) -> Operand {
+        use ppl_sema::typeck::Derived;
+        let a = self.expr(object);
+        match d {
+            Derived::Hash => self.hash_value(a, t, span),
+            Derived::Equals => {
+                let b = self.expr(arg.expect("an argument"));
+                self.eq_values(a, b, t, span)
+            }
+            Derived::Compare => {
+                let b = self.expr(arg.expect("an argument"));
+                self.compare_values(a, b, t, span)
+            }
+        }
+    }
+
+    /// `equals` derived field by field: `==`, except that `@derive(Eq)` classes compare their
+    /// fields instead of their identity.
+    fn eq_values(&mut self, a: Operand, b: Operand, t: &Ty, span: Span) -> Operand {
+        let Ty::Class(sid, _, args) = t else {
+            return self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Eq, a, b), Ty::Bool, span);
+        };
+        let def = self.cx.program.struct_def(*sid);
+        let owner = Ty::type_owner(*sid);
+        let fields: Vec<Ty> = def.fields.iter().map(|f| f.ty.subst(owner, args)).collect();
+        let pa = self.in_place(a, t, span);
+        let pb = self.in_place(b, t, span);
+        let mut acc = Operand::Const(Const::Bool(true));
+        for (i, ft) in fields.iter().enumerate() {
+            let x = Operand::Copy(pa.field(i as u32));
+            let y = Operand::Copy(pb.field(i as u32));
+            let eq = self.eq_values(x, y, ft, span);
+            acc = self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::BitAnd, acc, eq), Ty::Bool, span);
+        }
+        acc
+    }
+
+    /// Stores an operand in a fresh place (so its parts can be projected).
+    fn in_place(&mut self, v: Operand, t: &Ty, span: Span) -> Place {
+        if let Operand::Copy(p) = &v {
+            return p.clone();
+        }
+        let p = Place::local(self.temp(t.clone()));
+        self.assign(p.clone(), Rvalue::Use(v), span);
+        p
+    }
+
+    /// `compareTo` derived field by field: -1, 0 or 1 (`i32`).
+    fn compare_values(&mut self, a: Operand, b: Operand, t: &Ty, span: Span) -> Operand {
+        let res = Place::local(self.temp(Ty::Int(IntTy::I32)));
+        self.assign(
+            res.clone(),
+            Rvalue::Use(Operand::Const(Const::Int(0, IntTy::I32))),
+            span,
+        );
+        let done = self.new_block();
+        let pa = self.in_place(a, t, span);
+        let pb = self.in_place(b, t, span);
+        self.cmp_into(&res, &pa, &pb, t, done, span);
+        self.terminate(Terminator::Goto(done));
+        self.switch_to(done);
+        Operand::Copy(res)
+    }
+
+    /// Sets `res` and jumps to `done` if `a` and `b` differ in order; falls through if equal.
+    fn cmp_into(&mut self, res: &Place, a: &Place, b: &Place, t: &Ty, done: BlockId, span: Span) {
+        let set = |c: &mut Self, v: i128| {
+            c.assign(
+                res.clone(),
+                Rvalue::Use(Operand::Const(Const::Int(v, IntTy::I32))),
+                span,
+            );
+            c.terminate(Terminator::Goto(done));
+        };
+        let branch = |c: &mut Self, cond: Operand| -> BlockId {
+            let yes = c.new_block();
+            let no = c.new_block();
+            c.terminate(Terminator::Branch {
+                cond,
+                then: yes,
+                else_: no,
+            });
+            c.switch_to(yes);
+            no
+        };
+        let te = t.erase();
+        match &te {
+            Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str => {
+                let lt = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Lt,
+                        Operand::Copy(a.clone()),
+                        Operand::Copy(b.clone()),
+                    ),
+                    Ty::Bool,
+                    span,
+                );
+                let no = branch(self, lt);
+                set(self, -1);
+                self.switch_to(no);
+                let gt = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Gt,
+                        Operand::Copy(a.clone()),
+                        Operand::Copy(b.clone()),
+                    ),
+                    Ty::Bool,
+                    span,
+                );
+                let no = branch(self, gt);
+                set(self, 1);
+                self.switch_to(no);
+            }
+            Ty::Bool => {
+                // false < true
+                let ne = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Ne,
+                        Operand::Copy(a.clone()),
+                        Operand::Copy(b.clone()),
+                    ),
+                    Ty::Bool,
+                    span,
+                );
+                let same = branch(self, ne);
+                let a_false = branch(self, Operand::Copy(a.clone()));
+                set(self, 1);
+                self.switch_to(a_false);
+                set(self, -1);
+                self.switch_to(same);
+            }
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
+                let def = self.cx.program.struct_def(*sid);
+                if let Some(m) = def.method("compareTo") {
+                    let recv = self.receiver(a, &te, span);
+                    let c = self.call_fn_value(
+                        m,
+                        vec![recv, Operand::Copy(b.clone())],
+                        Ty::Int(IntTy::I32),
+                        span,
+                    );
+                    let ne = self.rvalue_to_temp(
+                        Rvalue::Binary(
+                            mir::BinOp::Ne,
+                            c.clone(),
+                            Operand::Const(Const::Int(0, IntTy::I32)),
+                        ),
+                        Ty::Bool,
+                        span,
+                    );
+                    let no = branch(self, ne);
+                    self.assign(res.clone(), Rvalue::Use(c), span);
+                    self.terminate(Terminator::Goto(done));
+                    self.switch_to(no);
+                    return;
+                }
+                let owner = Ty::type_owner(*sid);
+                let fields: Vec<Ty> = def.fields.iter().map(|f| f.ty.subst(owner, args)).collect();
+                for (i, ft) in fields.iter().enumerate() {
+                    self.cmp_into(res, &a.field(i as u32), &b.field(i as u32), ft, done, span);
+                }
+            }
+            Ty::Tuple(ts) => {
+                for (i, ft) in ts.iter().enumerate() {
+                    self.cmp_into(res, &a.field(i as u32), &b.field(i as u32), ft, done, span);
+                }
+            }
+            Ty::Range(it) => {
+                for i in 0..3 {
+                    self.cmp_into(res, &a.field(i), &b.field(i), &Ty::Int(*it), done, span);
+                }
+            }
+            Ty::Fixed(et, n) => {
+                for i in 0..*n {
+                    let k = self.const_index(i as i128, span);
+                    self.cmp_into(res, &a.index(k), &b.index(k), et, done, span);
+                }
+            }
+            Ty::Enum(eid, _) => {
+                let u32t = Ty::Int(IntTy::U32);
+                let ta = Place::local(self.temp(u32t.clone()));
+                let tb = Place::local(self.temp(u32t.clone()));
+                self.assign(ta.clone(), Rvalue::Tag(Operand::Copy(a.clone())), span);
+                self.assign(tb.clone(), Rvalue::Tag(Operand::Copy(b.clone())), span);
+                self.cmp_into(res, &ta, &tb, &u32t, done, span);
+                let variants: Vec<Vec<Ty>> = self
+                    .cx
+                    .program
+                    .enum_def(*eid)
+                    .variants
+                    .iter()
+                    .map(|v| v.fields.iter().map(|f| f.ty.clone()).collect())
+                    .collect();
+                let after = self.new_block();
+                for (vi, fields) in variants.iter().enumerate() {
+                    if fields.is_empty() {
+                        continue;
+                    }
+                    let is_v = self.rvalue_to_temp(
+                        Rvalue::Binary(
+                            mir::BinOp::Eq,
+                            Operand::Copy(ta.clone()),
+                            Operand::Const(Const::Int(vi as i128, IntTy::U32)),
+                        ),
+                        Ty::Bool,
+                        span,
+                    );
+                    let no = branch(self, is_v);
+                    for (i, ft) in fields.iter().enumerate() {
+                        let (fa, fb) = (
+                            a.variant_field(vi as u32, i as u32),
+                            b.variant_field(vi as u32, i as u32),
+                        );
+                        self.cmp_into(res, &fa, &fb, ft, done, span);
+                    }
+                    self.terminate(Terminator::Goto(after));
+                    self.switch_to(no);
+                }
+                self.terminate(Terminator::Goto(after));
+                self.switch_to(after);
+            }
+            Ty::Nullable(inner) => {
+                // null sorts first.
+                let na =
+                    self.rvalue_to_temp(Rvalue::IsNull(Operand::Copy(a.clone())), Ty::Bool, span);
+                let nb =
+                    self.rvalue_to_temp(Rvalue::IsNull(Operand::Copy(b.clone())), Ty::Bool, span);
+                let a_some = branch(self, na);
+                let both_null_no = branch(self, nb.clone());
+                // a null, b null: equal
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(both_null_no);
+                set(self, -1);
+                self.switch_to(a_some);
+                let both_some = branch(self, nb);
+                set(self, 1);
+                self.switch_to(both_some);
+                self.cmp_into(res, &a.payload(), &b.payload(), inner, done, span);
+            }
+            _ => {}
+        }
+    }
+
+    /// `hashCode` derived field by field.
+    fn hash_value(&mut self, v: Operand, t: &Ty, span: Span) -> Operand {
+        let u64t = Ty::Int(IntTy::U64);
+        let te = t.erase();
+        match &te {
+            Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Bool => {
+                self.rvalue_to_temp(Rvalue::Hash(v), u64t, span)
+            }
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
+                let def = self.cx.program.struct_def(*sid);
+                if let Some(m) = def.method("hashCode") {
+                    let p = self.in_place(v, &te, span);
+                    let recv = self.receiver(&p, &te, span);
+                    return self.call_fn_value(m, vec![recv], u64t, span);
+                }
+                let owner = Ty::type_owner(*sid);
+                let fields: Vec<Ty> = def.fields.iter().map(|f| f.ty.subst(owner, args)).collect();
+                let p = self.in_place(v, &te, span);
+                let parts: Vec<(Place, Ty)> = fields
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, ft)| (p.field(i as u32), ft))
+                    .collect();
+                self.hash_parts(parts, span)
+            }
+            Ty::Tuple(ts) => {
+                let p = self.in_place(v, &te, span);
+                let parts = ts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| (p.field(i as u32), t.clone()))
+                    .collect();
+                self.hash_parts(parts, span)
+            }
+            Ty::Fixed(et, n) => {
+                let p = self.in_place(v, &te, span);
+                let parts = (0..*n)
+                    .map(|i| {
+                        let k = self.const_index(i as i128, span);
+                        (p.index(k), (**et).clone())
+                    })
+                    .collect();
+                self.hash_parts(parts, span)
+            }
+            Ty::Enum(eid, _) => {
+                let p = self.in_place(v, &te, span);
+                let res = Place::local(self.temp(u64t.clone()));
+                let tag = self.rvalue_to_temp(
+                    Rvalue::Tag(Operand::Copy(p.clone())),
+                    Ty::Int(IntTy::U32),
+                    span,
+                );
+                let h = self.rvalue_to_temp(Rvalue::Hash(tag.clone()), u64t.clone(), span);
+                self.assign(res.clone(), Rvalue::Use(h), span);
+                let variants: Vec<Vec<Ty>> = self
+                    .cx
+                    .program
+                    .enum_def(*eid)
+                    .variants
+                    .iter()
+                    .map(|v| v.fields.iter().map(|f| f.ty.clone()).collect())
+                    .collect();
+                let after = self.new_block();
+                for (vi, fields) in variants.iter().enumerate() {
+                    if fields.is_empty() {
+                        continue;
+                    }
+                    let yes = self.new_block();
+                    let no = self.new_block();
+                    let is_v = self.rvalue_to_temp(
+                        Rvalue::Binary(
+                            mir::BinOp::Eq,
+                            tag.clone(),
+                            Operand::Const(Const::Int(vi as i128, IntTy::U32)),
+                        ),
+                        Ty::Bool,
+                        span,
+                    );
+                    self.terminate(Terminator::Branch {
+                        cond: is_v,
+                        then: yes,
+                        else_: no,
+                    });
+                    self.switch_to(yes);
+                    for (i, ft) in fields.iter().enumerate() {
+                        let fh = self.hash_value(
+                            Operand::Copy(p.variant_field(vi as u32, i as u32)),
+                            ft,
+                            span,
+                        );
+                        self.assign(
+                            res.clone(),
+                            Rvalue::HashCombine(Operand::Copy(res.clone()), fh),
+                            span,
+                        );
+                    }
+                    self.terminate(Terminator::Goto(after));
+                    self.switch_to(no);
+                }
+                self.terminate(Terminator::Goto(after));
+                self.switch_to(after);
+                Operand::Copy(res)
+            }
+            Ty::Nullable(inner) => {
+                let p = self.in_place(v, &te, span);
+                let res = Place::local(self.temp(u64t.clone()));
+                self.assign(
+                    res.clone(),
+                    Rvalue::Use(Operand::Const(Const::Int(0, IntTy::U64))),
+                    span,
+                );
+                let n =
+                    self.rvalue_to_temp(Rvalue::IsNull(Operand::Copy(p.clone())), Ty::Bool, span);
+                let (some, join) = (self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: n,
+                    then: join,
+                    else_: some,
+                });
+                self.switch_to(some);
+                let h = self.hash_value(Operand::Copy(p.payload()), inner, span);
+                self.assign(res.clone(), Rvalue::Use(h), span);
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(join);
+                Operand::Copy(res)
+            }
+            _ => Operand::Const(Const::Int(0, IntTy::U64)),
+        }
+    }
+
+    fn hash_parts(&mut self, parts: Vec<(Place, Ty)>, span: Span) -> Operand {
+        let u64t = Ty::Int(IntTy::U64);
+        let acc = Place::local(self.temp(u64t.clone()));
+        self.assign(
+            acc.clone(),
+            Rvalue::Use(Operand::Const(Const::Int(
+                0xcbf2_9ce4_8422_2325,
+                IntTy::U64,
+            ))),
+            span,
+        );
+        for (p, t) in parts {
+            let h = self.hash_value(Operand::Copy(p), &t, span);
+            self.assign(
+                acc.clone(),
+                Rvalue::HashCombine(Operand::Copy(acc.clone()), h),
+                span,
+            );
+        }
+        Operand::Copy(acc)
+    }
+
     /// Calls function `id` with already-evaluated arguments.
     fn call_fn_value(&mut self, id: FnId, args: Vec<Operand>, ty: Ty, span: Span) -> Operand {
         let loc = self.loc(span);
@@ -2759,6 +3269,11 @@ impl FnBuilder<'_, '_> {
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr], ty: Ty) -> Operand {
         let loc = self.loc(e.span);
         match &callee.kind {
+            ExprKind::Member { object, .. } if self.cx.types.derived.contains_key(&e.id) => {
+                let d = self.cx.types.derived[&e.id];
+                let t = self.ty_of(object).clone();
+                self.derived_call(d, object, args.first(), &t, e.span)
+            }
             ExprKind::Member { object, name, .. }
                 if self.cx.types.param_calls.contains_key(&e.id) =>
             {
