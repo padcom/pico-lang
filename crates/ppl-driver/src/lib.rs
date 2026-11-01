@@ -132,8 +132,9 @@ pub fn check_source_with(
     let mut mir = None;
     let mut comptime_output = String::new();
     // Decorators run first: they change the declarations the rest compiles.
+    let mut expansion = decorators::Expansion::default();
     if !diags.iter().any(Diagnostic::is_error) {
-        let mut ex = decorators::expand(
+        expansion = decorators::expand(
             &mut sm,
             &mut module.stmts,
             &mut modules,
@@ -141,8 +142,8 @@ pub fn check_source_with(
             dir,
             opts.release,
         );
-        diags.append(&mut ex.diags);
-        comptime_output = ex.log;
+        diags.append(&mut expansion.diags);
+        comptime_output = std::mem::take(&mut expansion.log);
     }
     if !diags.iter().any(Diagnostic::is_error) {
         let (program, mut d) = ppl_sema::resolve_modules(&module, file, &modules);
@@ -169,6 +170,7 @@ pub fn check_source_with(
         }
         hir = Some(program);
     }
+    expansion.annotate(&mut diags);
     // Report in source order, whichever pass found each problem.
     diags.sort_by_key(|d| d.main_span().map(|s| (s.file, s.start)));
     Checked {

@@ -95,7 +95,9 @@ class User { constructor(public id: i64, public name: string) {} }
 ```
 Code generation offers two APIs: **quasi-quote templates** (backtick code with `${}` splicing,
 parsed and type-checked when the decorator runs) and an **AST builder** (`ast.call(...)`,
-`ast.ident(...)`) for precise control.
+`ast.ident(...)`) for precise control. Both produce code text (decision 224), so builder
+pieces splice into templates (`${ast.string(fn.name)}`); errors in generated code are
+reported where it was generated, with a label at the decorator that generated it.
 
 Decorators are allowed on classes, structs, enums, functions, methods, fields and parameters.
 

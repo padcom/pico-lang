@@ -98,6 +98,7 @@ export class FunctionDecl {
     public paramTypes: string[],
     /// The return type as written (`"void"` if it isn't).
     public returnType: string,
+    public isAsync: bool,
   ) {}
 
   public get params(): FieldInfo[] {
@@ -133,5 +134,97 @@ export class FunctionDecl {
 
   public note(message: string): void {
     __meta_emit(this.id, "note", message, "")
+  }
+}
+
+/// The AST builder: code for generated declarations, built piece by piece (each piece is
+/// code text, so it splices into templates too: `${ast.string(fn.name)}`).
+export class ast {
+  /// A string literal: `ast.string("a\"b")` is `"a\"b"`.
+  public static string(s: string): string {
+    let out = "\""
+    for (const c of s) {
+      out += match (c) {
+        '"' => "\\\"",
+        '\\' => "\\\\",
+        '\n' => "\\n",
+        '\t' => "\\t",
+        '\r' => "\\r",
+        _ => `${c}`,
+      }
+    }
+    out + "\""
+  }
+
+  public static int(n: i64): string {
+    `${n}`
+  }
+
+  public static bool(b: bool): string {
+    if (b) "true" else "false"
+  }
+
+  /// A name, checked to be an identifier.
+  public static ident(name: string): string {
+    let ok = name.length > 0
+    let first = true
+    for (const c of name) {
+      const letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+      const digit = c >= '0' && c <= '9'
+      if (!(letter || (digit && !first))) ok = false
+      first = false
+    }
+    if (!ok) panic(`ast.ident: \`${name}\` isn't an identifier`)
+    name
+  }
+
+  /// `this.name`
+  public static field(name: string): string {
+    `this.${ast.ident(name)}`
+  }
+
+  /// `object.name`
+  public static member(object: string, name: string): string {
+    `${object}.${ast.ident(name)}`
+  }
+
+  /// `callee(a, b)`
+  public static call(callee: string, ...args: string[]): string {
+    `${callee}(${args.join(", ")})`
+  }
+
+  /// `(left op right)`
+  public static binary(left: string, op: string, right: string): string {
+    `(${left} ${op} ${right})`
+  }
+
+  /// `a + b + …` of strings, as one string expression (`""` for none).
+  public static concat(...parts: string[]): string {
+    if (parts.length == 0) "\"\"" else `(${parts.join(" + ")})`
+  }
+
+  /// `return value`
+  public static returns(value: string): string {
+    `return ${value}`
+  }
+
+  /// `const name = value`
+  public static constant(name: string, value: string): string {
+    `const ${ast.ident(name)} = ${value}`
+  }
+
+  /// `{ statements }`
+  public static block(...statements: string[]): string {
+    `{\n${statements.join("\n")}\n}`
+  }
+
+  /// A public method without parameters: `name() { statements }`.
+  public static method(name: string, ...statements: string[]): string {
+    `public ${ast.ident(name)}() {\n${statements.join("\n")}\n}`
+  }
+
+  /// A public method with parameters (`"x: i64"`, …) and a return type.
+  public static typedMethod(name: string, params: string[], returns: string, ...statements: string[]): string {
+    `public ${ast.ident(name)}(${params.join(", ")}): ${returns} {\n${statements.join("\n")}\n}`
   }
 }

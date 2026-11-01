@@ -1,0 +1,12 @@
+// error: E0308
+// at: 2:22
+// Generated code is type-checked where it's spliced in; the error points into the
+// generated member and back at the decorator.
+import { ClassDecl } from "std/meta"
+
+decorator function broken(c: ClassDecl) {
+  c.addMethod(`public size(): i64 { "big" }`)
+}
+
+@broken
+class Box { constructor(public w: i64) {} }

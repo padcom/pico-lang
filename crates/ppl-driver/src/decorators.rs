@@ -21,6 +21,20 @@ pub struct Expansion {
     pub diags: Vec<Diagnostic>,
     /// What the decorators printed (part of the compile-time log).
     pub log: String,
+    /// Each file of generated code: the decorator use it came from, and what it is.
+    pub origins: HashMap<FileId, (Span, String)>,
+}
+
+impl Expansion {
+    /// Points problems found in generated code at the decorator use that generated it.
+    pub fn annotate(&self, diags: &mut [Diagnostic]) {
+        for d in diags {
+            let Some((at, what)) = d.main_span().and_then(|s| self.origins.get(&s.file)) else {
+                continue;
+            };
+            *d = d.clone().secondary(*at, format!("in the {what}"));
+        }
+    }
 }
 
 /// A use of a decorator on a declaration.
@@ -138,7 +152,15 @@ pub fn expand(
                     return out;
                 }
             };
-        apply(sm, stmts, modules, &uses, &edits, &mut out.diags);
+        apply(
+            sm,
+            stmts,
+            modules,
+            &uses,
+            &edits,
+            &mut out.diags,
+            &mut out.origins,
+        );
     }
     // Decorators are gone from the program that runs.
     let user = |file: FileId, d: &ast::Decorator| matches!(&d.path[..], [n] if find_decorator(&decorators, modules, file, &n.name).is_some());
@@ -211,11 +233,12 @@ fn descriptor(sm: &SourceMap, d: &ast::Decl, id: usize, class: &str) -> String {
                 .unwrap_or_else(|| "void".into());
             let name = f.name.as_ref().map(|n| n.name.clone()).unwrap_or_default();
             format!(
-                "new {class}({id}, {}, {}, {}, {})",
+                "new {class}({id}, {}, {}, {}, {}, {})",
                 quote(&name),
                 str_list(&names),
                 str_list(&types),
-                quote(&ret)
+                quote(&ret),
+                f.flags.is_async
             )
         }
         DeclKind::Class(ast::ClassDecl { name, members, .. })
@@ -428,11 +451,13 @@ fn apply(
     uses: &[Use],
     edits: &[ppl_interp::comptime::MetaEdit],
     diags: &mut Vec<Diagnostic>,
+    origins: &mut HashMap<FileId, (Span, String)>,
 ) {
     // Generated code: a file of its own in the declaration's module.
-    let mut generated = |sm: &mut SourceMap, module: FileId, what: &str, code: String| {
+    let mut generated = |sm: &mut SourceMap, module: FileId, what: &str, code: String, at: Span| {
         let f = sm.add(format!("<{what}>"), code.clone());
         modules.file_modules.insert(f, module);
+        origins.insert(f, (at, what.to_string()));
         let (m, d) = ppl_syntax::parse_module(f, &code);
         (m, d)
     };
@@ -461,8 +486,13 @@ fn apply(
             }
             "static" => {
                 let code = format!("const {} = {}\n", e.a, e.b);
-                let (m, mut d) =
-                    generated(sm, module, &format!("static {} of @{dec_name}", e.a), code);
+                let (m, mut d) = generated(
+                    sm,
+                    module,
+                    &format!("static {} of @{dec_name}", e.a),
+                    code,
+                    u.span,
+                );
                 diags.append(&mut d);
                 statics.extend(m.stmts.into_iter().map(|s| (module, s)));
             }
@@ -476,8 +506,13 @@ fn apply(
                     _ => continue,
                 };
                 let code = format!("{kw} __Generated {{\n{}\n}}\n", e.a);
-                let (m, mut ds) =
-                    generated(sm, module, &format!("member added by @{dec_name}"), code);
+                let (m, mut ds) = generated(
+                    sm,
+                    module,
+                    &format!("member added by @{dec_name}"),
+                    code,
+                    u.span,
+                );
                 diags.append(&mut ds);
                 for st in m.stmts {
                     if let StmtKind::Decl(ast::Decl {
@@ -487,7 +522,15 @@ fn apply(
                         ..
                     }) = st.kind
                     {
-                        members.extend(ms);
+                        // A struct's members are all public: `public` (as the AST builder
+                        // writes it) says nothing there.
+                        members.extend(ms.into_iter().map(|mut m| {
+                            if kw == "struct" && m.mods.visibility == Some(ast::Visibility::Public)
+                            {
+                                m.mods.visibility = None;
+                            }
+                            m
+                        }));
                     }
                 }
             }
@@ -499,7 +542,13 @@ fn apply(
                     continue;
                 };
                 let code = format!("function __wrapped() {{\n{}\n}}\n", e.a);
-                let (m, mut ds) = generated(sm, module, &format!("body made by @{dec_name}"), code);
+                let (m, mut ds) = generated(
+                    sm,
+                    module,
+                    &format!("body made by @{dec_name}"),
+                    code,
+                    u.span,
+                );
                 diags.append(&mut ds);
                 let Some(body) = m.stmts.into_iter().find_map(|st| match st.kind {
                     StmtKind::Decl(ast::Decl {

@@ -1,0 +1,48 @@
+// expect: Point(x: 1.5, y: -2)
+// expect: User(id: 7, name: "ann")
+// expect: describe: User
+// expect: async: false
+// Decorators that generate code with templates and with the AST builder (spec §11.2).
+import { ClassDecl, FunctionDecl, ast } from "std/meta"
+
+/// `toString()` from a quasi-quote template: `Point(x: 1.5, y: -2)`.
+decorator function showable(c: ClassDecl) {
+  const parts = c.fields.map(f => {
+    const shown = if (f.typeName == "string") `\${ast.string(this.${f.name})}` else `\${this.${f.name}}`
+    `${f.name}: ${shown}`
+  })
+  c.addMethod(`public toString(): string { \`${c.name}(${parts.join(", ")})\` }`)
+}
+
+/// `describe()` from the AST builder.
+decorator function describable(c: ClassDecl) {
+  c.addMethod(ast.method("describe", ast.returns(ast.string(`describe: ${c.name}`))))
+}
+
+decorator function logged(fn: FunctionDecl) {
+  if (fn.isAsync) fn.warn("@logged on an async function logs only the start")
+  fn.wrapBody((args, call) => `
+    println(${ast.string(`async: ${fn.isAsync}`)})
+    ${call}
+  `)
+}
+
+@showable
+struct Point {
+  x: f64
+  y: f64
+}
+
+@showable
+@describable
+class User { constructor(public id: i64, public name: string) {} }
+
+@logged
+function twice(n: i64): i64 { n * 2 }
+
+const p: Point = { x: 1.5, y: -2.0 }
+println(p.toString())
+const u = new User(7, "ann")
+println(u.toString())
+println(u.describe())
+const _ = twice(2)
