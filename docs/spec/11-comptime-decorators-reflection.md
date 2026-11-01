@@ -98,5 +98,7 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
 }                                      // disposed in reverse order, also when an exception is thrown
 ```
 `Disposable` has `dispose(): void`, and `AsyncDisposable` has `disposeAsync(): Promise<void>`.
-`await using` (as in TS 5.2) awaits `disposeAsync()` at scope exit. Because all I/O is async, files and
+`await using` (as in TS 5.2) awaits `disposeAsync()` at scope exit, on every way out, after the
+function's result is computed (an async function's promise settles once disposal is done).
+It's allowed in async functions and at the entry's top level. Because all I/O is async, files and
 sockets are `AsyncDisposable`.

@@ -1,0 +1,17 @@
+// A panic after a generator resumed inside `try … finally` still runs the `finally` code
+// (the step re-arms its panic guards when it resumes).
+// expect: 1
+// expect: cleanup
+// panic: index out of bounds
+const xs: int[] = [1]
+function* g(): Iterator<int> {
+  try {
+    yield xs[0]
+    yield xs[5]
+  } finally {
+    println("cleanup")
+  }
+}
+for (const x of g()) {
+  println(x)
+}

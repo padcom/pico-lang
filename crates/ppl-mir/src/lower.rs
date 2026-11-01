@@ -617,6 +617,7 @@ impl Cx<'_> {
             loops: Vec::new(),
             handlers: Vec::new(),
             finallies: Vec::new(),
+            guards: Vec::new(),
             propagate: None,
             generator: None,
         };
@@ -790,6 +791,9 @@ struct FnBuilder<'c, 'a> {
     /// outside their `try` (`return`, `break` and `continue` run them on the way out).
     /// The expressions live in the HIR, which outlives the builder.
     finallies: Vec<(Fin, usize, usize)>,
+    /// The handlers of the panic guards around the code being lowered, outermost first: a
+    /// generator's `yield` leaves them (the step returns) and re-arms them on resuming.
+    guards: Vec<BlockId>,
     /// The block that passes an exception on to the caller (made when first needed).
     propagate: Option<BlockId>,
     /// A generator step function's state machine.
@@ -799,8 +803,9 @@ struct FnBuilder<'c, 'a> {
 /// Code that runs whenever control leaves a region (`return`, `break`, `continue`).
 #[derive(Clone, Copy)]
 enum Fin {
-    /// A `finally` block (its `try` is also a panic guard).
-    Finally(*const Expr),
+    /// A `finally` block (its `try` is also a panic guard) and the number of guards outside
+    /// it.
+    Finally(*const Expr, usize),
     /// An `arena` block: its named locals (`a..b`) and the temporaries from `c` on are
     /// cleared, then it's closed.
     Arena(usize, usize, usize, Span),
@@ -1218,6 +1223,7 @@ impl FnBuilder<'_, '_> {
     fn run_finallies(&mut self, min_loops: usize) {
         let saved_f = self.finallies.clone();
         let saved_h = self.handlers.clone();
+        let saved_g = self.guards.clone();
         for i in (0..saved_f.len()).rev() {
             let (fin, loops, handlers) = saved_f[i];
             if loops < min_loops {
@@ -1226,7 +1232,8 @@ impl FnBuilder<'_, '_> {
             self.finallies.truncate(i);
             self.handlers.truncate(handlers);
             match fin {
-                Fin::Finally(fin) => {
+                Fin::Finally(fin, outer_guards) => {
+                    self.guards.truncate(outer_guards);
                     self.unguard();
                     // SAFETY: the expression is part of the HIR, which outlives this builder.
                     let fin = unsafe { &*fin };
@@ -1237,6 +1244,7 @@ impl FnBuilder<'_, '_> {
         }
         self.finallies = saved_f;
         self.handlers = saved_h;
+        self.guards = saved_g;
     }
 
     /// Ends a generator's step: `null` from now on.
@@ -1393,7 +1401,7 @@ impl FnBuilder<'_, '_> {
         let done = self.new_block();
         if let Some(f) = finally {
             self.finallies.push((
-                Fin::Finally(f as *const Expr),
+                Fin::Finally(f as *const Expr, self.guards.len()),
                 self.loops.len(),
                 outer_handlers,
             ));
@@ -1404,12 +1412,15 @@ impl FnBuilder<'_, '_> {
             let saved_h = std::mem::take(&mut self.handlers);
             let saved_f = std::mem::take(&mut self.finallies);
             let saved_l = std::mem::take(&mut self.loops);
+            let saved_g = std::mem::take(&mut self.guards);
             self.switch_to(handler);
             self.expr(f);
             self.terminate(Terminator::Resume);
             self.handlers = saved_h;
             self.finallies = saved_f;
             self.loops = saved_l;
+            self.guards = saved_g;
+            self.guards.push(handler);
             self.switch_to(body);
         }
         self.handlers.push(dispatch);
@@ -1448,6 +1459,9 @@ impl FnBuilder<'_, '_> {
         if fin_exc.is_some() {
             self.handlers.pop();
             self.finallies.pop();
+        }
+        if finally.is_some() {
+            self.guards.pop();
         }
         self.switch_to(done);
         if let Some(f) = finally {
@@ -2465,6 +2479,10 @@ impl FnBuilder<'_, '_> {
                 let it = self.ty(inner);
                 let value = self.temp(it);
                 self.assign(Place::local(value), Rvalue::Use(v), e.span);
+                // Leaving the step: out of the panic guards around it.
+                for _ in 0..self.guards.len() {
+                    self.unguard();
+                }
                 let save = self.new_block();
                 let resume = self.new_block();
                 self.terminate(Terminator::Goto(save));
@@ -2474,6 +2492,12 @@ impl FnBuilder<'_, '_> {
                     .yields
                     .push((save, value, resume));
                 self.switch_to(resume);
+                // Back inside them, in this call's frame.
+                for handler in self.guards.clone() {
+                    let body = self.new_block();
+                    self.terminate(Terminator::Guard { body, handler });
+                    self.switch_to(body);
+                }
                 Operand::Const(Const::Void)
             }
             ExprKind::ExitUncaught(inner) => {

@@ -64,6 +64,14 @@ class Promise<T, E extends Error = never> {
     }
   }
 
+  /// An async function's result, kept until its body has finished (`finally` code, which
+  /// may await, runs first; a later `return` replaces it).
+  public __hold(v: T): void {
+    if (this.state == 0) {
+      this.values = [v]
+    }
+  }
+
   /// What `await` hands to the async function's driver.
   public __suspend(): (k: () => void) => void {
     (k: () => void) => this.__onSettle(k)
@@ -91,6 +99,9 @@ class Promise<T, E extends Error = never> {
     }
     if (s != null) {
       s(() => this.__run(step))
+    } else if (this.state == 0 && this.values.length > 0) {
+      this.state = 1
+      this.wake()
     }
   }
 
@@ -233,3 +244,123 @@ function __awaitTop<T, E extends Error>(p: Promise<T, E>): T throws E {
 
 /// A `void` value (an async function's result without `return`).
 function __void(): void {}
+
+/// An async iterator (spec §5.7): `next()` promises the next value, or `null` once done
+/// (so, like `Iterator`, a `T` that is itself nullable can't be told apart from the end).
+/// `async function* g(): AsyncIterator<T> throws E` makes one: its step function yields
+/// suspensions, both for `await` and, after storing the value, for `yield v`.
+class AsyncIterator<T, E extends Error = never> {
+  step: (() => ((k: () => void) => void)? throws E)? = null
+  /// `next()` promises not fulfilled yet, oldest first.
+  requests: Promise<T?, E>[] = []
+  /// The value a `yield` just stored.
+  values: T[] = []
+  /// Continues the step after a `yield` (when the next value is asked for).
+  parked: (() => void)? = null
+  started: bool = false
+  running: bool = false
+  finished: bool = false
+
+  constructor() {}
+
+  public __start(step: () => ((k: () => void) => void)? throws E): void {
+    this.step = step
+  }
+
+  public __put(v: T): void {
+    this.values.push(v)
+  }
+
+  public __pause(): (k: () => void) => void {
+    (k: () => void) => {
+      this.parked = k
+    }
+  }
+
+  public next(): Promise<T?, E> {
+    const p = new Promise<T?, E>()
+    if (this.finished) {
+      p.__resolve(null)
+      return p
+    }
+    this.requests.push(p)
+    if (!this.running) {
+      this.resume()
+    }
+    p
+  }
+
+  /// `for await` uses the iterator itself.
+  public asyncIterator(): AsyncIterator<T, E> {
+    this
+  }
+
+  resume(): void {
+    const k = this.parked
+    if (k != null) {
+      this.parked = null
+      this.running = true
+      k()
+      return
+    }
+    if (!this.started) {
+      this.started = true
+      this.running = true
+      this.pump()
+    }
+  }
+
+  /// Runs the step up to its next `yield` (a value) or `await` (resumes by itself).
+  pump(): void {
+    const step = this.step
+    if (step == null) {
+      return
+    }
+    let s: ((k: () => void) => void)? = null
+    try {
+      s = step()
+    } catch (e) {
+      this.finish(e)
+      return
+    }
+    if (s == null) {
+      this.finish(null)
+      return
+    }
+    if (this.values.length > 0) {
+      const v = this.values[0]
+      this.values = []
+      const head = this.requests[0]
+      this.requests = this.requests.slice(1)
+      this.running = false
+      s(() => this.pump())
+      head.__resolve(v)
+      if (this.requests.length > 0) {
+        this.resume()
+      }
+      return
+    }
+    s(() => this.pump())
+  }
+
+  finish(e: Error?): void {
+    this.finished = true
+    this.running = false
+    const rs = this.requests
+    this.requests = []
+    let first = true
+    for (const r of rs) {
+      if (first && e != null) {
+        r.__reject(e)
+      } else {
+        r.__resolve(null)
+      }
+      first = false
+    }
+  }
+}
+
+/// Released by `await using` (spec §11.5) at the end of its scope.
+interface AsyncDisposable {
+  disposeAsync(): Promise<void>
+}

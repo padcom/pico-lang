@@ -3295,6 +3295,7 @@ impl<'p> Checker<'p> {
                     if !ok
                         && let Some(f) = name
                             .strip_prefix("<async ")
+                            .or_else(|| name.strip_prefix("<async* "))
                             .and_then(|n| n.strip_suffix('>'))
                     {
                         // An async function's body (spec §7.4): what it throws travels with
@@ -4356,6 +4357,16 @@ impl<'p> Checker<'p> {
         if lt.widens_to(rt) {
             self.types.coercions.insert(l.id, rt.clone());
             return rt.clone();
+        }
+        // Anything compares with `null` (as a `T?`, which a plain `T` never is null as).
+        if matches!(op, BinOp::Eq | BinOp::Ne) && (*lt == Ty::Null || *rt == Ty::Null) {
+            let t = if *lt == Ty::Null { rt } else { lt }.clone().nullable();
+            for (x, xt) in [(l, lt), (r, rt)] {
+                if *xt != t {
+                    self.types.coercions.insert(x.id, t.clone());
+                }
+            }
+            return t;
         }
         // A union member compared with the union.
         if let Ty::Union(_, ms) = lt

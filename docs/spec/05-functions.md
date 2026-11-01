@@ -98,3 +98,8 @@ Async generators:
 async function* lines(path: string): AsyncIterator<string> throws IoError { … }
 for await (const line of lines("log.txt")) println(line)
 ```
+An async generator may `await` and `yield`; it runs lazily, up to the next `yield`, each time
+`next(): Promise<T?, E>` is called (`null`: done). Its type is `AsyncIterator<T, E>`, carrying
+what it throws like a promise; `for await` rethrows that (checked). `for await` works in async
+functions and at the entry's top level, over anything with an
+`asyncIterator(): AsyncIterator<T, E>` method (an `AsyncIterator` is its own).

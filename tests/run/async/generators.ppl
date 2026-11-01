@@ -1,0 +1,66 @@
+// Async generators and `for await` (spec §5.7): the §5.7 example with a simulated file.
+// Values are produced lazily, `await` works inside both, and an error thrown by the
+// generator reaches the loop (checked: `AsyncIterator<T, E>` carries `throws E`).
+// expect: open log.txt
+// expect: line 1: first
+// expect: line 2: second
+// expect: line 3: third
+// expect: lines done
+// expect: squares 0 1 4 9
+// expect: caught: bad.txt is unreadable
+// expect: early stop at 2
+class IoError extends Error {}
+
+function delay(ms: int): Promise<void> {
+  new Promise<void>((resolve: (v: void) => void, reject: (e: Error) => void) => {
+    setTimeout(() => resolve(), ms)
+  })
+}
+
+async function* lines(path: string): AsyncIterator<string> throws IoError {
+  if (path == "bad.txt") {
+    throw new IoError(`${path} is unreadable`)
+  }
+  println(`open ${path}`)
+  for (const l of ["first", "second", "third"]) {
+    await delay(2)
+    yield l
+  }
+}
+
+async function* squares(n: int): AsyncIterator<int> {
+  for (let i = 0; i < n; i++) {
+    yield i * i
+  }
+}
+
+let k = 0
+for await (const line of lines("log.txt")) {
+  k += 1
+  println(`line ${k}: ${line}`)
+}
+println("lines done")
+
+async function collect(): Promise<string> {
+  let out = "squares"
+  for await (const s of squares(4)) {
+    out = `${out} ${s}`
+  }
+  out
+}
+println(await collect())
+
+try {
+  for await (const line of lines("bad.txt")) {
+    println(line)
+  }
+} catch (e: IoError) {
+  println(`caught: ${e.message}`)
+}
+
+for await (const s of squares(10)) {
+  if (s == 4) {
+    println("early stop at 2")
+    break
+  }
+}

@@ -21,6 +21,7 @@ source_filename = "test.ppl"
 @ppl.classinfo.__Timer = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.__Loop = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Promise = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.AsyncIterator = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Arena = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl_gc_requested = external global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"

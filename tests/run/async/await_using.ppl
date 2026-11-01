@@ -1,0 +1,83 @@
+// `await using` (spec §11.5): at the end of the scope, on every way out (the end, `return`,
+// exceptions), each resource is disposed in reverse order; `disposeAsync()` is awaited.
+// The same program in JavaScript (Node, with `Symbol.asyncDispose`) prints exactly this.
+// expect: open a
+// expect: open b
+// expect: working
+// expect: micro
+// expect: work done
+// expect: dispose c
+// expect: closing b
+// expect: closed b
+// expect: closing a
+// expect: closed a
+// expect: result 7
+// expect: open a
+// expect: open b
+// expect: working
+// expect: dispose c
+// expect: closing b
+// expect: closed b
+// expect: closing a
+// expect: closed a
+// expect: caught boom
+// expect: open d
+// expect: in block
+// expect: closing d
+// expect: closed d
+// expect: after block
+// expect: end
+function delay(ms: int): Promise<void> {
+  new Promise<void>((resolve: (v: void) => void, reject: (e: Error) => void) => {
+    setTimeout(() => resolve(), ms)
+  })
+}
+
+class Res implements AsyncDisposable {
+  constructor(public name: string) {
+    println(`open ${name}`)
+  }
+  public async disposeAsync(): Promise<void> {
+    println(`closing ${this.name}`)
+    await delay(5)
+    println(`closed ${this.name}`)
+  }
+}
+
+class Plain implements Disposable {
+  constructor(public name: string) {}
+  public dispose(): void {
+    println(`dispose ${this.name}`)
+  }
+}
+
+async function work(fail: bool): Promise<int> throws Error {
+  await using a = new Res("a")
+  await using b = new Res("b")
+  using c = new Plain("c")
+  println("working")
+  await delay(1)
+  if (fail) {
+    throw new Error("boom")
+  }
+  println("work done")
+  return 7
+}
+
+async function main(): Promise<void> {
+  println(`result ${try! await work(false)}`)
+  try {
+    await work(true)
+  } catch (e) {
+    println(`caught ${e.message}`)
+  }
+  {
+    await using d = new Res("d")
+    println("in block")
+  }
+  println("after block")
+}
+
+queueMicrotask(() => println("micro"))
+await main()
+println("end")
