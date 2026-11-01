@@ -1,0 +1,139 @@
+// Lazy iteration (spec §5.7). An `Iterator<T>` produces values on demand from its step
+// function, which returns `null` once it's done; `function*` generators build one, and
+// `for-of` walks one (or anything with an `iterator()` method returning one).
+
+class Iterator<T> {
+  step: () => T?
+  done: bool = false
+
+  constructor(step: () => T?) {
+    this.step = step
+  }
+
+  /// The next value, or `null` at the end (and every time after).
+  public next(): T? {
+    if (this.done) {
+      return null
+    }
+    const f = this.step
+    const v = f()
+    if (v == null) {
+      this.done = true
+    }
+    v
+  }
+
+  public iterator(): Iterator<T> {
+    this
+  }
+
+  public map<U>(f: (x: T) => U): Iterator<U> {
+    const src = this
+    new Iterator<U>(() => {
+      const v = src.next()
+      if (v == null) null else f(v)
+    })
+  }
+
+  public filter(f: (x: T) => bool): Iterator<T> {
+    const src = this
+    new Iterator<T>(() => {
+      loop {
+        const v = src.next()
+        if (v == null) {
+          break null
+        }
+        if (f(v)) {
+          break v
+        }
+      }
+    })
+  }
+
+  public take(n: int): Iterator<T> {
+    const src = this
+    let left = n
+    new Iterator<T>(() => {
+      if (left <= 0) {
+        return null
+      }
+      left -= 1
+      src.next()
+    })
+  }
+
+  public skip(n: int): Iterator<T> {
+    const src = this
+    let left = n
+    new Iterator<T>(() => {
+      while (left > 0) {
+        left -= 1
+        src.next()
+      }
+      src.next()
+    })
+  }
+
+  public zip<U>(other: Iterator<U>): Iterator<[T, U]> {
+    const src = this
+    new Iterator<[T, U]>(() => {
+      const a = src.next()
+      if (a == null) {
+        return null
+      }
+      const b = other.next()
+      if (b == null) {
+        return null
+      }
+      [a, b]
+    })
+  }
+
+  public enumerate(): Iterator<[int, T]> {
+    const src = this
+    let i = 0
+    new Iterator<[int, T]>(() => {
+      const v = src.next()
+      if (v == null) {
+        return null
+      }
+      const pair: [int, T] = [i, v]
+      i += 1
+      pair
+    })
+  }
+
+  public toArray(): T[] {
+    const out: T[] = []
+    loop {
+      const v = this.next()
+      if (v == null) {
+        break
+      }
+      out.push(v)
+    }
+    out
+  }
+
+  public forEach(f: (x: T) => void): void {
+    loop {
+      const v = this.next()
+      if (v == null) {
+        break
+      }
+      f(v)
+    }
+  }
+}
+
+/// The elements of an array, lazily (`xs.iterator()`).
+function __Array_iterator<T>(xs: T[]): Iterator<T> {
+  let i = 0
+  new Iterator<T>(() => {
+    if (i >= xs.length) {
+      return null
+    }
+    i += 1
+    xs[i - 1]
+  })
+}

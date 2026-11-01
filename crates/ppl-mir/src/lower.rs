@@ -31,6 +31,8 @@ pub fn lower(
         instances: Vec::new(),
         cur_subst: Vec::new(),
         fn_values: Vec::new(),
+        cur_mir: FnId(0),
+        gen_frames: HashMap::new(),
     };
     // Generic functions get a placeholder; their instances are lowered on demand.
     let mut fns: Vec<mir::Function> = (0..program.fns.len())
@@ -39,6 +41,7 @@ pub fn lower(
             // Methods and constructors of generic types are generic too (in the type's
             // parameters), but static initializers aren't.
             if !in_generic_context(program, id) {
+                cx.cur_mir = id;
                 cx.function(id)
             } else {
                 mir::Function {
@@ -65,6 +68,7 @@ pub fn lower(
         }
         cx.types = std::borrow::Cow::Owned(t);
         cx.cur_subst = subst.clone();
+        cx.cur_mir = FnId((program.fns.len() + next) as u32);
         let mut f = cx.function(id);
         // `max<i64>`, `Stack<string>.push`, `Box<i64>.map<string>`.
         let hir = program.func(id);
@@ -90,6 +94,23 @@ pub fn lower(
     }
     cx.types = std::borrow::Cow::Borrowed(types);
     cx.cur_subst = Vec::new();
+    // A generator's environment also holds its frame: start in state 0, locals unset.
+    for f in &mut fns {
+        for b in &mut f.blocks {
+            for st in &mut b.stmts {
+                if let Rvalue::Closure(id, ops) = &mut st.rvalue
+                    && let Some(slots) = cx.gen_frames.get(id)
+                {
+                    ops.push(Operand::Const(Const::Int(0, IntTy::I64)));
+                    ops.extend(
+                        slots[1..]
+                            .iter()
+                            .map(|t| Operand::Const(Const::Undef(t.clone()))),
+                    );
+                }
+            }
+        }
+    }
     cx.build_fn_values(&mut fns);
     let itables = cx.build_itables(&mut fns);
     let globals = program
@@ -254,6 +275,11 @@ struct Cx<'a> {
     reported: HashSet<(u32, u32)>,
     /// The (implementing type, interface) pairs that need an itable, by itable index.
     itables: Vec<(StructId, StructId)>,
+    /// The MIR id of the function being lowered.
+    cur_mir: FnId,
+    /// Generator step functions (by MIR id): the frame slots after the captures in their
+    /// environment (the state, then every saved local).
+    gen_frames: HashMap<FnId, Vec<Ty>>,
 }
 
 impl Cx<'_> {
@@ -543,6 +569,7 @@ impl Cx<'_> {
             handlers: Vec::new(),
             finallies: Vec::new(),
             propagate: None,
+            generator: None,
         };
         for (i, (l, t)) in f.locals.iter().zip(local_tys.iter()).enumerate() {
             // A struct's `this` is passed by reference (a class's is already one).
@@ -626,7 +653,26 @@ impl Cx<'_> {
             b.terminate(Terminator::Goto(go_on));
             b.switch_to(go_on);
         }
+        // A generator: dispatch on the state first (filled in once the body is lowered).
+        let dispatch = match (f.generator, env, &f.closure) {
+            (true, Some(e), Some(info)) => {
+                b.generator = Some(GenState {
+                    env: e,
+                    captures: info.captures.len() as u32,
+                    yields: Vec::new(),
+                });
+                let d = b.new_block();
+                let start = b.new_block();
+                b.terminate(Terminator::Goto(d));
+                b.switch_to(start);
+                Some((d, start))
+            }
+            _ => None,
+        };
         let value = b.block(&f.body);
+        if let Some((d, start)) = dispatch {
+            b.finish_generator(d, start, &sig.ret, f.span);
+        }
         let ret = if f.is_entry {
             Ty::Void
         } else {
@@ -694,6 +740,18 @@ struct FnBuilder<'c, 'a> {
     finallies: Vec<(*const Expr, usize, usize)>,
     /// The block that passes an exception on to the caller (made when first needed).
     propagate: Option<BlockId>,
+    /// A generator step function's state machine.
+    generator: Option<GenState>,
+}
+
+/// A generator step function: its environment holds the captures, then the state (0: not
+/// started, `k`: after the `k`th yield, -1: done), then a slot per local.
+struct GenState {
+    env: Local,
+    captures: u32,
+    /// Per `yield`: the block that saves the frame and returns the value (filled in at the
+    /// end, when every local is known), the value, and where the next call resumes.
+    yields: Vec<(BlockId, Local, BlockId)>,
 }
 
 fn has_value(t: &Ty) -> bool {
@@ -937,6 +995,138 @@ impl FnBuilder<'_, '_> {
         }
         self.finallies = saved_f;
         self.handlers = saved_h;
+    }
+
+    /// Ends a generator's step: `null` from now on.
+    fn generator_done(&mut self, span: Span) {
+        let g = self.generator.as_ref().expect("a generator");
+        let state = Place::deref(g.env).field(g.captures);
+        self.assign(
+            state,
+            Rvalue::Use(Operand::Const(Const::Int(-1, IntTy::I64))),
+            span,
+        );
+        let ret = self.cx.types.sigs[self.hir_fn_id().0 as usize].ret.clone();
+        self.terminate(Terminator::Return(Some(Operand::Const(Const::Null(ret)))));
+    }
+
+    /// The HIR function being lowered.
+    fn hir_fn_id(&self) -> FnId {
+        self.fn_id
+    }
+
+    /// The frame slots of every local (except the environment) after the state.
+    fn frame_locals(&self) -> Vec<(Local, u32)> {
+        let g = self.generator.as_ref().expect("a generator");
+        let mut out = Vec::new();
+        let mut slot = g.captures + 1;
+        for (i, l) in self.locals.iter().enumerate() {
+            if i as u32 == g.env.0 || !has_value(&l.ty) {
+                continue;
+            }
+            out.push((Local(i as u32), slot));
+            slot += 1;
+        }
+        out
+    }
+
+    /// Fills in the dispatch, the saves at each `yield`, and the end of a generator.
+    fn finish_generator(&mut self, dispatch: BlockId, start: BlockId, ret: &Ty, span: Span) {
+        // Falling off the end finishes it.
+        if self.blocks[self.cur.0 as usize].1.is_none() {
+            self.generator_done(span);
+        }
+        let frame = self.frame_locals();
+        let (env, captures, yields) = {
+            let g = self.generator.as_ref().expect("a generator");
+            (g.env, g.captures, g.yields.clone())
+        };
+        let state_place = Place::deref(env).field(captures);
+        for (k, (save, value, _)) in yields.iter().enumerate() {
+            self.switch_to(*save);
+            for (l, slot) in &frame {
+                self.assign(
+                    Place::deref(env).field(*slot),
+                    Rvalue::Use(Operand::Copy(Place::local(*l))),
+                    span,
+                );
+            }
+            self.assign(
+                state_place.clone(),
+                Rvalue::Use(Operand::Const(Const::Int(k as i128 + 1, IntTy::I64))),
+                span,
+            );
+            let elem = self.locals[value.0 as usize].ty.clone();
+            let v = self.convert(Operand::Copy(Place::local(*value)), &elem, ret, span);
+            self.terminate(Terminator::Return(Some(v)));
+        }
+        // Dispatch: 0 starts, k resumes after yield k (restoring the frame), else done.
+        self.switch_to(dispatch);
+        let state = self.rvalue_to_temp(
+            Rvalue::Use(Operand::Copy(state_place.clone())),
+            Ty::Int(IntTy::I64),
+            span,
+        );
+        let targets: Vec<(i128, Option<BlockId>)> = std::iter::once((0, None))
+            .chain(
+                yields
+                    .iter()
+                    .enumerate()
+                    .map(|(k, (_, _, resume))| (k as i128 + 1, Some(*resume))),
+            )
+            .collect();
+        for (k, resume) in targets {
+            let is = self.rvalue_to_temp(
+                Rvalue::Binary(
+                    mir::BinOp::Eq,
+                    state.clone(),
+                    Operand::Const(Const::Int(k, IntTy::I64)),
+                ),
+                Ty::Bool,
+                span,
+            );
+            let yes = self.new_block();
+            let no = self.new_block();
+            self.terminate(Terminator::Branch {
+                cond: is,
+                then: yes,
+                else_: no,
+            });
+            self.switch_to(yes);
+            match resume {
+                None => self.terminate(Terminator::Goto(start)),
+                Some(r) => {
+                    for (l, slot) in &frame {
+                        self.assign(
+                            Place::local(*l),
+                            Rvalue::Use(Operand::Copy(Place::deref(env).field(*slot))),
+                            span,
+                        );
+                    }
+                    self.terminate(Terminator::Goto(r));
+                }
+            }
+            self.switch_to(no);
+        }
+        self.terminate(Terminator::Return(Some(Operand::Const(Const::Null(
+            ret.clone(),
+        )))));
+        // The environment's full type, for the closure that creates it.
+        let mut slots = vec![Ty::Int(IntTy::I64)];
+        slots.extend(
+            frame
+                .iter()
+                .map(|(l, _)| self.locals[l.0 as usize].ty.clone()),
+        );
+        if let Ty::Ref(t) = &self.locals[env.0 as usize].ty
+            && let Ty::Tuple(caps) = &**t
+        {
+            let mut all: Vec<Ty> = caps.to_vec();
+            all.extend(slots.iter().cloned());
+            self.locals[env.0 as usize].ty = Ty::Ref(Box::new(Ty::Tuple(all)));
+        }
+        let me = self.cx.cur_mir;
+        self.cx.gen_frames.insert(me, slots);
     }
 
     /// Leaves the innermost panic-guarded region.
@@ -1968,6 +2158,22 @@ impl FnBuilder<'_, '_> {
                     None => Operand::Const(Const::Void),
                 }
             }
+            ExprKind::Yield(inner) => {
+                let v = self.expr(inner);
+                let it = self.ty(inner);
+                let value = self.temp(it);
+                self.assign(Place::local(value), Rvalue::Use(v), e.span);
+                let save = self.new_block();
+                let resume = self.new_block();
+                self.terminate(Terminator::Goto(save));
+                self.generator
+                    .as_mut()
+                    .expect("resolver allows `yield` only in generators")
+                    .yields
+                    .push((save, value, resume));
+                self.switch_to(resume);
+                Operand::Const(Const::Void)
+            }
             ExprKind::Throw(inner) => {
                 let v = self.expr(inner);
                 let t = self.temp(Ty::Void);
@@ -2021,6 +2227,12 @@ impl FnBuilder<'_, '_> {
                     v => v,
                 };
                 self.run_finallies(0);
+                if self.generator.is_some() {
+                    self.generator_done(e.span);
+                    let dead = self.new_block();
+                    self.switch_to(dead);
+                    return Operand::Const(Const::Void);
+                }
                 let ret_has_value = !self.hir_fn.is_entry
                     && has_value(&self.cx.types.sigs[self.fn_id.0 as usize].ret);
                 let term = match v {
@@ -2051,6 +2263,103 @@ impl FnBuilder<'_, '_> {
     }
 
     /// `for (var of iter) body` over a range, an array, a fixed array or a string.
+    /// `for (x of it)` over an `Iterator<T>` (or a value's `iterator()`): call `next()` until
+    /// it gives `null`.
+    fn for_of_iterator(
+        &mut self,
+        var: hir::LocalId,
+        iter: &Expr,
+        body: &Expr,
+        it_ty: Ty,
+        span: Span,
+    ) {
+        let v = self.expr(iter);
+        let (it, it_ty) = match self.cx.types.iterables.get(&iter.id).copied() {
+            Some(m) => {
+                let m = self.method_of(m, &it_ty);
+                let iter_ty = self.iterator_ty_of(&it_ty);
+                let recv = match &it_ty {
+                    Ty::Class(..) => v,
+                    _ => {
+                        let tmp = Place::local(self.temp(it_ty.clone()));
+                        self.assign(tmp.clone(), Rvalue::Use(v), span);
+                        self.rvalue_to_temp(
+                            Rvalue::Ref(tmp),
+                            Ty::Ref(Box::new(it_ty.clone())),
+                            span,
+                        )
+                    }
+                };
+                (
+                    self.call_fn_value(m, vec![recv], iter_ty.clone(), span),
+                    iter_ty,
+                )
+            }
+            None => (v, it_ty),
+        };
+        let it_place = Place::local(self.temp(it_ty.clone()));
+        self.assign(it_place.clone(), Rvalue::Use(it), span);
+        let sid = self.cx.program.iterator_class.expect("prelude");
+        let next = self
+            .cx
+            .program
+            .struct_def(sid)
+            .method("next")
+            .expect("Iterator.next");
+        let next = self.method_of(next, &it_ty);
+        let elem = it_ty.type_args().first().cloned().unwrap_or(Ty::Void);
+        let opt = elem.clone().nullable();
+        let cond_bb = self.new_block();
+        let body_bb = self.new_block();
+        let exit = self.new_block();
+        self.terminate(Terminator::Goto(cond_bb));
+        self.switch_to(cond_bb);
+        let item = self.call_fn_value(next, vec![Operand::Copy(it_place)], opt.clone(), span);
+        let item_place = Place::local(self.temp(opt));
+        self.assign(item_place.clone(), Rvalue::Use(item), span);
+        let done = self.rvalue_to_temp(
+            Rvalue::IsNull(Operand::Copy(item_place.clone())),
+            Ty::Bool,
+            span,
+        );
+        self.terminate(Terminator::Branch {
+            cond: done,
+            then: exit,
+            else_: body_bb,
+        });
+        self.switch_to(body_bb);
+        if has_value(&self.var_ty(hir::Var::Local(var))) {
+            let var_place = self.place(hir::Var::Local(var));
+            self.assign(var_place, Rvalue::Unwrap(Operand::Copy(item_place)), span);
+        }
+        self.loops.push(LoopTarget {
+            brk: exit,
+            cont: cond_bb,
+            result: None,
+        });
+        self.expr(body);
+        self.loops.pop();
+        self.terminate(Terminator::Goto(cond_bb));
+        self.switch_to(exit);
+    }
+
+    /// The `Iterator<T>` type an iterable's `iterator()` returns.
+    fn iterator_ty_of(&self, t: &Ty) -> Ty {
+        let (sid, args) = match t {
+            Ty::Class(s, _, a) | Ty::Struct(s, _, a) => (*s, a.clone()),
+            _ => return Ty::Error,
+        };
+        let m = self
+            .cx
+            .program
+            .struct_def(sid)
+            .method("iterator")
+            .expect("checked");
+        self.cx.types.sigs[m.0 as usize]
+            .ret
+            .subst(Ty::type_owner(sid), &args)
+    }
+
     fn for_of(&mut self, var: hir::LocalId, iter: &Expr, body: &Expr, span: Span) {
         let it_ty = self.ty_of(iter).clone();
         // `for (i of a..b)`: a plain counting loop (step 1 can't overflow past `b`).
@@ -2066,6 +2375,12 @@ impl FnBuilder<'_, '_> {
         };
         if !has_value(&it_ty) {
             self.expr(iter);
+            return;
+        }
+        let iterator = self.cx.program.iterator_class;
+        let is_iterator = matches!(&it_ty, Ty::Class(s, ..) if Some(*s) == iterator);
+        if is_iterator || self.cx.types.iterables.contains_key(&iter.id) {
+            self.for_of_iterator(var, iter, body, it_ty, span);
             return;
         }
         // The iterated value (unused for a literal range).

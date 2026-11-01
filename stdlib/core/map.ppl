@@ -146,6 +146,11 @@ class Map<K extends Hashable<K>, V> {
     out
   }
 
+  /// `for (const [k, v] of map)`: the entries in insertion order.
+  public iterator(): Iterator<[K, V]> {
+    __Array_iterator(this.entries())
+  }
+
   public forEach<E extends Error>(f: (value: V, key: K) => void throws E): void throws E {
     for (const e of this.items) {
       if (e.live) {
@@ -183,6 +188,10 @@ class Set<T extends Hashable<T>> {
 
   public values(): T[] {
     this.map.keys()
+  }
+
+  public iterator(): Iterator<T> {
+    __Array_iterator(this.map.keys())
   }
 
   public forEach<E extends Error>(f: (value: T) => void throws E): void throws E {

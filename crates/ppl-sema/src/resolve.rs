@@ -63,6 +63,8 @@ enum LoopKind {
 /// Per-function state.
 #[derive(Default)]
 struct FnState {
+    /// A generator's step function (`yield` is allowed).
+    generator: bool,
     locals: Vec<Binding>,
     scopes: Vec<Scope>,
     loops: Vec<LoopKind>,
@@ -460,6 +462,7 @@ impl Resolver {
             rest: false,
             throws: Vec::new(),
             infer_throws: false,
+            generator: false,
         });
 
         Program {
@@ -475,6 +478,7 @@ impl Resolver {
             structs: std::mem::take(&mut self.structs),
             enums: std::mem::take(&mut self.enums),
             error_class: self.top_structs.get("Error").copied(),
+            iterator_class: self.top_structs.get("Iterator").copied(),
             extensions: self
                 .top_fns
                 .iter()
@@ -813,11 +817,9 @@ impl Resolver {
         owner: Option<StructId>,
     ) -> Function {
         let name = f.name.clone().expect("named function");
-        if f.flags.is_async || f.flags.generator || f.flags.is_unsafe || f.flags.decorator {
+        if f.flags.is_async || f.flags.is_unsafe || f.flags.decorator {
             let what = if f.flags.is_async {
                 "async functions"
-            } else if f.flags.generator {
-                "generators"
             } else if f.flags.is_unsafe {
                 "unsafe functions"
             } else {
@@ -915,7 +917,50 @@ impl Resolver {
             );
         }
         let ret = f.ret.as_ref().map(|t| self.resolve_type(t));
-        let body = match &f.body {
+        // `function* g(): Iterator<T> { body }` is `{ new Iterator(<step function>) }`, where
+        // the step function runs `body` up to the next `yield`.
+        let generated;
+        let body_src = if f.flags.generator {
+            let span = f.span;
+            let step = ast::FnDecl {
+                name: None,
+                flags: ast::FnFlags {
+                    arrow: true,
+                    generator: true,
+                    ..Default::default()
+                },
+                generics: Vec::new(),
+                params: Vec::new(),
+                ret: None,
+                throws: None,
+                where_clause: Vec::new(),
+                body: f.body.clone(),
+                span,
+            };
+            let new = ast::Expr {
+                kind: ast::ExprKind::New {
+                    callee: Box::new(ast::Expr {
+                        kind: ast::ExprKind::Ident("Iterator".into()),
+                        span,
+                    }),
+                    type_args: Vec::new(),
+                    args: vec![ast::Arg {
+                        name: None,
+                        spread: false,
+                        value: ast::Expr {
+                            kind: ast::ExprKind::Function(Box::new(step)),
+                            span,
+                        },
+                    }],
+                },
+                span,
+            };
+            generated = Some(ast::FnBody::Expr(Box::new(new)));
+            &generated
+        } else {
+            &f.body
+        };
+        let body = match body_src {
             Some(ast::FnBody::Block(b)) => self.block(b),
             Some(ast::FnBody::Expr(e)) => {
                 let tail = self.lower_expr(e);
@@ -956,6 +1001,7 @@ impl Resolver {
             rest,
             throws,
             infer_throws,
+            generator: false,
         }
     }
 
@@ -2014,6 +2060,7 @@ impl Resolver {
             rest: false,
             throws,
             infer_throws: false,
+            generator: false,
         }
     }
 
@@ -2117,6 +2164,7 @@ impl Resolver {
             rest: false,
             throws: Vec::new(),
             infer_throws: false,
+            generator: false,
         }
     }
 
@@ -2494,6 +2542,7 @@ impl Resolver {
         self.outer_fns.push(outer);
         self.f = FnState {
             is_closure: true,
+            generator: f.flags.generator,
             arrow: f.flags.arrow,
             owner: if f.flags.arrow { owner } else { None },
             ..Default::default()
@@ -2507,7 +2556,7 @@ impl Resolver {
             .collect();
         self.f.type_params = tps;
         self.f.scopes.push(Scope::default());
-        if f.flags.is_async || f.flags.generator {
+        if f.flags.is_async || (f.flags.generator && !f.flags.arrow) {
             self.not_implemented(span, "async and generator closures");
         }
         if let Some(g) = f.generics.first() {
@@ -2573,6 +2622,7 @@ impl Resolver {
             rest: false,
             throws: Vec::new(),
             infer_throws: true,
+            generator: f.flags.generator,
         });
         ExprKind::Closure(id)
     }
@@ -3326,6 +3376,23 @@ impl Resolver {
             A::Function(decl) => self.closure(decl, span),
             A::Tailcall(inner) => ExprKind::Tailcall(Box::new(self.lower_expr(inner))),
             A::Throw(inner) => ExprKind::Throw(Box::new(self.lower_expr(inner))),
+            A::Yield {
+                expr: Some(inner),
+                delegate: false,
+            } if self.f.generator => ExprKind::Yield(Box::new(self.lower_expr(inner))),
+            A::Yield { .. } if !self.f.generator => {
+                self.error(
+                    codes::UNKNOWN_NAME,
+                    span,
+                    "`yield` outside a generator",
+                    "only `function*` bodies can `yield`",
+                );
+                ExprKind::Error
+            }
+            A::Yield { .. } => {
+                self.not_implemented(span, "`yield*` and `yield` without a value");
+                ExprKind::Error
+            }
             A::TryOpt(inner) => ExprKind::TryOpt(Box::new(self.lower_expr(inner))),
             A::TryBang(inner) => ExprKind::TryBang(Box::new(self.lower_expr(inner))),
             A::Try {
@@ -3751,7 +3818,6 @@ impl Resolver {
                     A::Super => "`super` outside a method call",
                     A::Object { .. } => "object and struct literals",
                     A::Await(_) => "`await`",
-                    A::Yield { .. } => "generators",
                     A::Comptime(_) => "`comptime`",
                     A::Unsafe(_) => "`unsafe`",
                     A::Arena(_) => "arenas",

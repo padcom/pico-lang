@@ -38,6 +38,8 @@ pub struct Program {
     pub enums: Vec<EnumDef>,
     /// The prelude's `Error` class.
     pub error_class: Option<StructId>,
+    /// The prelude's `Iterator<T>` class.
+    pub iterator_class: Option<StructId>,
     /// Methods of built-in types written in ppl: top-level functions `__Array_map`,
     /// `__String_…` whose first parameter is the receiver, by (`Array`/`String`, method name).
     pub extensions: HashMap<(String, String), Vec<FnId>>,
@@ -367,6 +369,9 @@ pub struct Function {
     /// No `throws` clause, and the function may leave it out: the type checker infers what
     /// it throws (lambdas, non-exported top-level functions).
     pub infer_throws: bool,
+    /// The step function of a generator (`function*`): its locals and resume point live in
+    /// its environment, and `yield v` returns `v` from one call.
+    pub generator: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -776,6 +781,8 @@ pub enum ExprKind {
     Tailcall(Box<Expr>),
     /// `throw e`
     Throw(Box<Expr>),
+    /// `yield v` (in a generator's step function)
+    Yield(Box<Expr>),
     /// `try? e`: the value, or `null` if it throws.
     TryOpt(Box<Expr>),
     /// `try! e`: the value; an error becomes a panic.
@@ -839,6 +846,7 @@ impl Expr {
             ExprKind::Spread(e)
             | ExprKind::Tailcall(e)
             | ExprKind::Throw(e)
+            | ExprKind::Yield(e)
             | ExprKind::TryOpt(e)
             | ExprKind::TryBang(e) => f(e),
             ExprKind::Try {

@@ -9,6 +9,7 @@ source_filename = "test.ppl"
 @ppl.classinfo.__MapEntry = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Map = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Set = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.Iterator = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.cstr = private unnamed_addr constant [31 x i8] c"integer conversion out of range"
 @ppl.cstr.7 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.cstr.8 = private unnamed_addr constant [29 x i8] c"float conversion out of range"

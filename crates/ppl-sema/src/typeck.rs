@@ -91,6 +91,9 @@ pub struct Types {
     /// Method calls on built-in types that call a ppl extension function (`xs.map(f)` →
     /// `__Array_map(xs, f)`); the type arguments are in `instances`.
     pub extensions: HashMap<ExprId, FnId>,
+    /// `for-of` over a value with an `iterator()` method: the iterated expression and the
+    /// method.
+    pub iterables: HashMap<ExprId, FnId>,
 }
 
 /// A protocol implemented field by field.
@@ -188,6 +191,7 @@ impl Types {
             param_calls: self.param_calls.clone(),
             fn_throws: self.fn_throws.clone(),
             extensions: self.extensions.clone(),
+            iterables: self.iterables.clone(),
             arg_slots: self.arg_slots.clone(),
             overloads: self.overloads.clone(),
             op_calls: self.op_calls.clone(),
@@ -248,6 +252,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             param_calls: HashMap::new(),
             fn_throws: program.fns.iter().map(|f| f.throws.clone()).collect(),
             extensions: HashMap::new(),
+            iterables: HashMap::new(),
         },
         narrow: Vec::new(),
         recv_args: Vec::new(),
@@ -255,6 +260,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
         reuse: None,
         tail_position: false,
         tail_body: false,
+        ret_hints: HashMap::new(),
         diags: Vec::new(),
         state: vec![FnState::Unchecked; program.fns.len()],
         global_known: vec![false; program.globals.len()],
@@ -364,6 +370,8 @@ struct Checker<'p> {
     tail_position: bool,
     /// The next block checked is a function body (its tail is the result).
     tail_body: bool,
+    /// Lambdas' result types taken from the expected function type.
+    ret_hints: HashMap<FnId, Ty>,
     /// Flow-sensitive narrowing: scopes mapping variables to the type they're known to have
     /// (`T` for a `T?` binding after `x != null`).
     narrow: Vec<HashMap<Var, Ty>>,
@@ -911,7 +919,11 @@ impl<'p> Checker<'p> {
                 self.types.locals[id.0 as usize][i] = t.clone();
             }
         }
-        let ret = match &f.ret {
+        // A generator's step function returns through `yield`; `return` ends it.
+        let hint = self.ret_hints.get(&id).cloned();
+        let declared = f.ret.clone().or(hint);
+        let ret = match &declared {
+            _ if f.generator => Ret::Declared(Ty::Void, None),
             Some(t) => Ret::Declared(t.clone(), f.ret_span),
             None => Ret::Infer(Vec::new()),
         };
@@ -929,7 +941,8 @@ impl<'p> Checker<'p> {
             loops: Vec::new(),
             readonly_this,
         });
-        let body_ty = match (&f.ret, f.is_entry) {
+        let body_ty = match (&declared, f.is_entry) {
+            _ if f.generator => self.block(&f.body, None),
             (_, true) | (Some(Ty::Void), _) => {
                 // The value of the last expression is discarded.
                 self.check_defaults(f);
@@ -1136,6 +1149,15 @@ impl<'p> Checker<'p> {
             }
             if t.is_error() || acc.is_error() {
                 return Ty::Error;
+            }
+            // `T` and `null` join to `T?`.
+            if *t == Ty::Null && acc != Ty::Void {
+                acc = acc.nullable();
+                continue;
+            }
+            if acc == Ty::Null && *t != Ty::Void {
+                acc = t.clone().nullable();
+                continue;
             }
             let mut d = Diagnostic::error(codes::MISMATCHED_TYPES, msg.to_string());
             for (t, s) in &live {
@@ -1530,6 +1552,15 @@ impl<'p> Checker<'p> {
                 Some(w) => self.check(inner, w),
                 None => self.infer(inner),
             },
+            ExprKind::Yield(inner) => {
+                let id = self.stack.last().expect("inside a function").id;
+                let elem = match &self.types.sigs[id.0 as usize].ret {
+                    Ty::Nullable(t) => (**t).clone(),
+                    t => t.clone(),
+                };
+                self.check(inner, &Expect::new(elem));
+                Ty::Void
+            }
             ExprKind::Throw(inner) => {
                 let t = self.infer(inner);
                 let ok = match (&t, self.program.error_class) {
@@ -1940,6 +1971,12 @@ impl<'p> Checker<'p> {
                     Ty::Array(t) | Ty::Fixed(t, _) => (**t).clone(),
                     Ty::Str => Ty::Char,
                     Ty::Error => Ty::Error,
+                    Ty::Class(sid, _, args) if Some(*sid) == self.program.iterator_class => {
+                        args.first().cloned().unwrap_or(Ty::Error)
+                    }
+                    other if self.iterable_elem(iter, other).is_some() => {
+                        self.iterable_elem(iter, other).expect("checked")
+                    }
                     other => {
                         self.diags.push(
                             Diagnostic::error(
@@ -1947,7 +1984,7 @@ impl<'p> Checker<'p> {
                                 format!("`{other}` isn't iterable"),
                             )
                             .primary(iter.span, format!("has type `{other}`"))
-                            .note("`for-of` works over arrays, fixed arrays, ranges and strings"),
+                            .note("`for-of` works over arrays, fixed arrays, ranges, strings, iterators and types with an `iterator()` method"),
                         );
                         Ty::Error
                     }
@@ -3019,6 +3056,32 @@ impl<'p> Checker<'p> {
             };
             self.types.locals[id.0 as usize][p.0 as usize] = t.clone();
             self.types.sigs[id.0 as usize].params[i] = t;
+        }
+        if f.generator {
+            // `T?`: what each step yields, `null` at the end.
+            self.types.sigs[id.0 as usize].ret = match &expected {
+                Some((_, r, _)) => (**r).clone(),
+                None => {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MISMATCHED_TYPES,
+                            "a generator needs its `Iterator<T>` return type",
+                        )
+                        .primary(e.span, "declare `: Iterator<T>`"),
+                    );
+                    Ty::Error
+                }
+            };
+        }
+        // An untyped lambda's result type comes from the expected one, when that's known.
+        if f.ret.is_none()
+            && !f.generator
+            && let Some((_, r, _)) = &expected
+            && !r.to_string().contains("{error}")
+            && !matches!(**r, Ty::Void)
+        {
+            self.ret_hints.insert(id, (**r).clone());
+            self.types.sigs[id.0 as usize].ret = (**r).clone();
         }
         // Checked right here (it sees the enclosing function's current narrowings too).
         let saved = std::mem::take(&mut self.narrow);
@@ -4170,8 +4233,11 @@ impl<'p> Checker<'p> {
             Lt | Le | Gt | Ge | Eq | Ne => {
                 let (lt, rt) = self.operands(l, r, None);
                 let t = self.join(e.span, op, l, &lt, r, &rt);
+                // Anything nullable compares with `null`.
+                let with_null =
+                    matches!(l.kind, ExprKind::Null) || matches!(r.kind, ExprKind::Null);
                 let ok = match op {
-                    Eq | Ne => self.equatable(&t),
+                    Eq | Ne => with_null || self.equatable(&t),
                     _ => {
                         matches!(
                             t.erase(),
@@ -5092,6 +5158,32 @@ impl<'p> Checker<'p> {
             );
         }
         Some(ret)
+    }
+
+    /// The element type of a value with an `iterator(): Iterator<T>` method (recording the
+    /// method for lowering).
+    fn iterable_elem(&mut self, iter: &Expr, t: &Ty) -> Option<Ty> {
+        let (sid, args) = match t {
+            Ty::Class(s, _, a) | Ty::Struct(s, _, a) => (*s, a.clone()),
+            _ => return None,
+        };
+        let m = self.program.struct_def(sid).method("iterator")?;
+        if !self.program.func(m).params.is_empty() {
+            return None;
+        }
+        if self.program.func(m).ret.is_none() {
+            self.check_fn(m);
+        }
+        let ret = self.types.sigs[m.0 as usize]
+            .ret
+            .subst(Ty::type_owner(sid), &args);
+        match ret {
+            Ty::Class(i, _, a) if Some(i) == self.program.iterator_class => {
+                self.types.iterables.insert(iter.id, m);
+                a.first().cloned()
+            }
+            _ => None,
+        }
     }
 
     /// `xs.map(f)` on a built-in type: a call of the ppl extension `__Array_map(xs, f)` (the

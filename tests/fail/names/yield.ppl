@@ -1,0 +1,15 @@
+// error: E0201
+// at: 7:3
+// error: E0201
+// at: 12:5
+// `yield` only appears in generator bodies (not in plain functions or their lambdas).
+function plain(): int {
+  yield 1
+  0
+}
+function* outer(): Iterator<int> {
+  const inner = () => {
+    yield 2
+  }
+  yield 3
+}
