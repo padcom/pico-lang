@@ -47,6 +47,9 @@ pub struct Program {
     pub globals: Vec<GlobalDecl>,
     pub structs: Vec<StructLayout>,
     pub enums: Vec<EnumLayout>,
+    /// Interface method tables: for one implementing type and interface, the function for
+    /// each interface method slot. Every entry takes the interface value as its first argument.
+    pub itables: Vec<Vec<FnId>>,
 }
 
 /// A class's runtime metadata: its base class and its vtable (empty for structs).
@@ -386,6 +389,10 @@ pub enum Rvalue {
     New(StructId),
     /// Whether a (possibly null) object reference is an instance of the class (or a subclass).
     InstanceOf(Operand, StructId),
+    /// An interface value from an object (or a struct, boxed) and an itable index.
+    ToIface(Operand, u32),
+    /// The object reference (or the boxed struct's reference) inside an interface value.
+    IfaceData(Operand),
 }
 
 #[derive(Debug)]
@@ -402,6 +409,12 @@ pub enum Callee {
     /// A virtual method: the implementation in vtable `slot` of the receiver's runtime
     /// class (the first argument). `decl` is the statically known method (for its type).
     Virtual {
+        slot: u32,
+        decl: FnId,
+    },
+    /// An interface method: entry `slot` of the itable in the interface value (the first
+    /// argument). `decl` is the interface's method (for its type).
+    Iface {
         slot: u32,
         decl: FnId,
     },
@@ -516,6 +529,8 @@ impl fmt::Display for Rvalue {
             Rvalue::Tag(a) => write!(f, "Tag({a})"),
             Rvalue::New(c) => write!(f, "New(class#{})", c.0),
             Rvalue::InstanceOf(a, c) => write!(f, "InstanceOf({a}, class#{})", c.0),
+            Rvalue::ToIface(a, i) => write!(f, "ToIface({a}, itable#{i})"),
+            Rvalue::IfaceData(a) => write!(f, "IfaceData({a})"),
         }
     }
 }
@@ -525,6 +540,7 @@ fn callee_name(p: &Program, c: Callee) -> String {
         Callee::Fn(id) => p.func(id).name.clone(),
         Callee::Builtin(b) => format!("builtin {}", b.name()),
         Callee::Virtual { slot, decl } => format!("virtual[{slot}] {}", p.func(decl).name),
+        Callee::Iface { slot, decl } => format!("iface[{slot}] {}", p.func(decl).name),
     }
 }
 

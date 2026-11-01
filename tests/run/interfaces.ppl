@@ -1,0 +1,81 @@
+// expect: shape with area 12.57 | perimeter 12.57
+// expect: shape with area 6.00 | perimeter 10.00
+// expect: 2 shapes, total area 18.57
+// expect: C
+// expect: entity 7: ann
+// expect: $3.50
+// expect: loud woof | quiet ...
+// expect: sum 6
+interface Shape {
+  area(): f64
+  perimeter(): f64
+  describe(): string { `shape with area ${area():.2f}` }   // default method
+}
+
+class Circle implements Shape {
+  constructor(public r: f64) {}
+  public area(): f64 { 3.14159265 * r * r }
+  public perimeter(): f64 { 2 * 3.14159265 * r }
+}
+
+class Rect implements Shape {
+  constructor(public w: f64, public h: f64) {}
+  public area(): f64 { w * h }
+  public perimeter(): f64 { 2 * (w + h) }
+  public describe(): string { `shape with area ${area():.2f}` }
+}
+
+const shapes: Shape[] = [new Circle(2), new Rect(2, 3)]
+for (const s of shapes) println(`${s.describe()} | perimeter ${s.perimeter():.2f}`)
+let total = 0.0
+for (const s of shapes) total += s.area()
+println(`${shapes.length} shapes, total area ${total:.2f}`)
+
+interface A { hello(): string { "A" } }
+interface B { hello(): string { "B" } }
+class C implements A, B {
+  public hello(): string { "C" }   // required: conflicting defaults must be overridden
+}
+const a: A = new C()
+println(a.hello())
+
+interface Named { name(): string }
+interface Entity extends Named { id(): i64 }
+class User implements Entity {
+  constructor(private n: string, private i: i64) {}
+  public name(): string { n }
+  public id(): i64 { i }
+}
+const e: Entity = new User("ann", 7)
+const named: Named = e
+println(`entity ${e.id()}: ${named.name()}`)
+
+// Structs implement interfaces too (boxed when used as one).
+interface Formattable { format(): string }
+struct Money implements Formattable {
+  cents: i64
+  format(): string { `$${cents / 100}.${cents % 100}` }
+}
+const f: Formattable = Money { cents: 350 }
+println(f.format())
+
+// Interface calls reach overrides of virtual methods.
+interface Speaker { speak(): string }
+class Animal implements Speaker {
+  public virtual speak(): string { "..." }
+}
+class Dog extends Animal {
+  public override speak(): string { "loud woof" }
+}
+const sp: Speaker[] = [new Dog(), new Animal()]
+println(`${sp[0].speak()} | quiet ${sp[1].speak()}`)
+
+interface Counter { add(n: i32): i32 }
+struct Acc implements Counter {
+  total: i32
+  add(n: i32): i32 { total += n; total }
+}
+const c: Counter = Acc { total: 0 }
+c.add(1)
+c.add(2)
+println(`sum ${c.add(3)}`)

@@ -9,6 +9,7 @@ use crate::mir::{
 };
 use ppl_diag::{Diagnostic, SourceFile, Span, codes};
 use ppl_sema::hir::{self, Builtin, Expr, ExprKind, FnId, Stmt, Var};
+use ppl_sema::ty::StructId;
 use ppl_sema::{IntTy, Ty, Types};
 use ppl_syntax::ast;
 use std::collections::HashSet;
@@ -24,10 +25,12 @@ pub fn lower(
         file,
         diags: Vec::new(),
         reported: HashSet::new(),
+        itables: Vec::new(),
     };
-    let fns = (0..program.fns.len())
+    let mut fns: Vec<mir::Function> = (0..program.fns.len())
         .map(|i| cx.function(FnId(i as u32)))
         .collect();
+    let itables = cx.build_itables(&mut fns);
     let globals = program
         .globals
         .iter()
@@ -81,6 +84,7 @@ pub fn lower(
         globals,
         structs,
         enums,
+        itables,
     };
     (mir, cx.diags)
 }
@@ -93,9 +97,150 @@ struct Cx<'a> {
     /// Spans already reported as not implemented (lowering has no such gaps right now).
     #[allow(dead_code)]
     reported: HashSet<(u32, u32)>,
+    /// The (implementing type, interface) pairs that need an itable, by itable index.
+    itables: Vec<(StructId, StructId)>,
 }
 
 impl Cx<'_> {
+    /// The itable index for `imp` (a struct or class) used as interface `iface`.
+    fn itable(&mut self, imp: StructId, iface: StructId) -> u32 {
+        match self.itables.iter().position(|p| *p == (imp, iface)) {
+            Some(i) => i as u32,
+            None => {
+                self.itables.push((imp, iface));
+                self.itables.len() as u32 - 1
+            }
+        }
+    }
+
+    /// Builds every requested itable. An implementer's method gets an adapter function that
+    /// takes the interface value, unpacks the object and calls the method (virtually if it's
+    /// virtual); a method the type doesn't define uses the interface's default.
+    fn build_itables(&mut self, fns: &mut Vec<mir::Function>) -> Vec<Vec<FnId>> {
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < self.itables.len() {
+            let (imp, iface) = self.itables[i];
+            let idef = self.program.struct_def(iface);
+            let def = self.program.struct_def(imp);
+            let mut entries = Vec::new();
+            for (name, ifn) in &idef.methods {
+                let entry = match def.method(name) {
+                    Some(f) => {
+                        let slot = def.virtual_slot(name).filter(|_| def.is_class);
+                        let id = FnId(fns.len() as u32);
+                        let adapter = self.adapter(imp, iface, *ifn, f, slot, fns);
+                        fns.push(adapter);
+                        id
+                    }
+                    None => self.default_method(imp, name).unwrap_or(*ifn),
+                };
+                entries.push(entry);
+            }
+            out.push(entries);
+            i += 1;
+        }
+        out
+    }
+
+    /// The default implementation of `name` among the interfaces `imp` implements.
+    fn default_method(&self, imp: StructId, name: &str) -> Option<FnId> {
+        self.program
+            .structs
+            .iter()
+            .enumerate()
+            .filter(|(j, d)| d.is_interface && self.program.implements(imp, StructId(*j as u32)))
+            .filter_map(|(_, d)| d.method(name).filter(|f| !d.abstract_fns.contains(f)))
+            .next()
+    }
+
+    /// `fn(self: Iface, args…) { return method(IfaceData(self), args…) }`
+    fn adapter(
+        &mut self,
+        imp: StructId,
+        iface: StructId,
+        ifn: FnId,
+        method: FnId,
+        slot: Option<u32>,
+        fns: &[mir::Function],
+    ) -> mir::Function {
+        let sig = &self.types.sigs[ifn.0 as usize];
+        let def = self.program.struct_def(imp);
+        let data_ty = if def.is_class {
+            self.program.struct_ty(imp)
+        } else {
+            Ty::Ref(Box::new(self.program.struct_ty(imp)))
+        };
+        let mut locals = vec![LocalDecl {
+            ty: self.program.struct_ty(iface),
+            name: Some("self".into()),
+        }];
+        for t in &sig.params {
+            locals.push(LocalDecl {
+                ty: t.clone(),
+                name: None,
+            });
+        }
+        let data = Local(locals.len() as u32);
+        locals.push(LocalDecl {
+            ty: data_ty,
+            name: None,
+        });
+        let ret = sig.ret.clone();
+        let result = has_value(&ret).then(|| {
+            locals.push(LocalDecl {
+                ty: ret.clone(),
+                name: None,
+            });
+            Local(locals.len() as u32 - 1)
+        });
+        let params: Vec<Local> = (0..=sig.params.len() as u32).map(Local).collect();
+        let mut args = vec![Operand::Copy(Place::local(data))];
+        args.extend(params[1..].iter().map(|l| Operand::Copy(Place::local(*l))));
+        let callee = match slot {
+            Some(slot) => Callee::Virtual { slot, decl: method },
+            None => Callee::Fn(method),
+        };
+        let _ = fns;
+        let blocks = vec![
+            mir::BasicBlock {
+                stmts: vec![mir::Statement {
+                    place: Place::local(data),
+                    rvalue: Rvalue::IfaceData(Operand::Copy(Place::local(Local(0)))),
+                    loc: Loc::default(),
+                }],
+                term: Terminator::Call {
+                    callee,
+                    args,
+                    dest: result.map(Place::local),
+                    next: BlockId(1),
+                    loc: Loc::default(),
+                },
+            },
+            mir::BasicBlock {
+                stmts: Vec::new(),
+                term: Terminator::Return(result.map(|r| Operand::Copy(Place::local(r)))),
+            },
+        ];
+        mir::Function {
+            name: format!(
+                "{}.{}<{}>",
+                def.name,
+                self.program
+                    .func(method)
+                    .name
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or("?"),
+                self.program.struct_def(iface).name
+            ),
+            params,
+            ret,
+            locals,
+            blocks,
+        }
+    }
+
     #[allow(dead_code)]
     fn not_implemented(&mut self, span: Span, what: &str) {
         if !self.reported.insert((span.start, span.end)) {
@@ -126,7 +271,8 @@ impl Cx<'_> {
         for (i, (l, t)) in f.locals.iter().zip(local_tys).enumerate() {
             // A struct's `this` is passed by reference (a class's is already one).
             let is_this = f.this.is_some_and(|(this, sid)| {
-                this.0 as usize == i && !b.cx.program.struct_def(sid).is_class
+                let d = b.cx.program.struct_def(sid);
+                this.0 as usize == i && !d.is_class && !d.is_interface
             });
             let ty = if is_this {
                 Ty::Ref(Box::new(t.clone()))
@@ -283,7 +429,8 @@ impl FnBuilder<'_, '_> {
         match v {
             Var::Local(l)
                 if self.hir_fn.this.is_some_and(|(this, sid)| {
-                    this == l && !self.cx.program.struct_def(sid).is_class
+                    let d = self.cx.program.struct_def(sid);
+                    this == l && !d.is_class && !d.is_interface
                 }) =>
             {
                 Place::deref(Local(l.0))
@@ -506,7 +653,8 @@ impl FnBuilder<'_, '_> {
         if *from == Ty::Null {
             return Operand::Const(Const::Null(to.clone()));
         }
-        // Upcasts between object references (and their nullable forms) keep the pointer.
+        // Upcasts between object references (and their nullable forms) keep the pointer, and
+        // so do interface upcasts (the parent's methods are a prefix of the child's).
         let class_ref = |t: &Ty| match t {
             Ty::Class(..) => true,
             Ty::Nullable(i) => matches!(**i, Ty::Class(..)),
@@ -514,6 +662,13 @@ impl FnBuilder<'_, '_> {
         };
         if class_ref(from) && class_ref(to) {
             return v;
+        }
+        if matches!((from, to), (Ty::Iface(..), Ty::Iface(..))) {
+            return v;
+        }
+        if let (Ty::Class(imp, _) | Ty::Struct(imp, _), Ty::Iface(iface, _)) = (from, to) {
+            let it = self.cx.itable(*imp, *iface);
+            return self.rvalue_to_temp(Rvalue::ToIface(v, it), to.clone(), span);
         }
         match (from, to) {
             (Ty::Nullable(a), Ty::Nullable(b)) => {
@@ -1822,6 +1977,41 @@ impl FnBuilder<'_, '_> {
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr], ty: Ty) -> Operand {
         let loc = self.loc(e.span);
         match &callee.kind {
+            ExprKind::Member { object, .. } if self.cx.types.iface_calls.contains_key(&e.id) => {
+                let slot = self.cx.types.iface_calls[&e.id];
+                let decl = self
+                    .cx
+                    .types
+                    .methods
+                    .get(&e.id)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        let Ty::Iface(sid, _) = self.ty_of(object) else {
+                            unreachable!("interface call")
+                        };
+                        self.cx.program.struct_def(*sid).methods[slot as usize].1
+                    });
+                let mut ops = vec![self.expr(object)];
+                ops.extend(args.iter().map(|a| self.expr(a)));
+                let loc = self.loc(e.span);
+                let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+                let next = self.new_block();
+                self.terminate(Terminator::Call {
+                    callee: Callee::Iface { slot, decl },
+                    args: ops,
+                    dest: dest.clone(),
+                    next,
+                    loc,
+                });
+                self.switch_to(next);
+                if ty == Ty::Never {
+                    self.diverge(Terminator::Unreachable);
+                }
+                match dest {
+                    Some(p) => Operand::Copy(p),
+                    None => Operand::Const(Const::Void),
+                }
+            }
             ExprKind::Member { object, .. }
                 if self.cx.types.methods.contains_key(&e.id)
                     && matches!(self.ty_of(object), Ty::Class(..)) =>

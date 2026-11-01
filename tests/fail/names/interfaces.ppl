@@ -1,0 +1,21 @@
+// error: E0327
+// at: 14:7
+// error: E0328
+// at: 17:7
+// error: E0319
+// at: 18:7
+// error: E0327
+// at: 19:8
+// error: E0327
+// at: 19:8
+// error: E0206
+// at: 20:20
+interface Shape { area(): f64; perimeter(): f64 }
+class Half implements Shape { public area(): f64 { 1 } }
+interface A { hello(): string { "A" } }
+interface B { hello(): string { "B" } }
+class C implements A, B {}
+class D implements A { hello(): string { "D" } }
+struct S implements Shape { w: f64 }
+class E implements Blob {}
+class Blob {}

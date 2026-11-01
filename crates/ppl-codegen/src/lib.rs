@@ -99,6 +99,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         debug_fns: HashMap::new(),
         eq_fns: HashMap::new(),
         class_infos: Vec::new(),
+        itables: Vec::new(),
     };
     // Struct types first (named, so they can refer to each other), then their bodies.
     g.structs = program
@@ -166,6 +167,8 @@ struct Gen<'ctx, 'p> {
     eq_fns: HashMap<u32, FunctionValue<'ctx>>,
     /// Per class: `{ ptr base_info, [n x ptr] vtable }`, which object headers point to.
     class_infos: Vec<Option<GlobalValue<'ctx>>>,
+    /// Interface method tables, by itable index.
+    itables: Vec<GlobalValue<'ctx>>,
 }
 
 /// A variant's name, fields and whether it was declared with parentheses.
@@ -201,6 +204,7 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Bool => self.cx.bool_type().into(),
             Ty::Char => self.cx.i32_type().into(),
             Ty::Str | Ty::Ref(_) | Ty::Array(_) | Ty::Class(..) => self.ptr().into(),
+            Ty::Iface(..) => self.iface_ty().into(),
             Ty::Struct(sid, _) => self.structs[sid.0 as usize].into(),
             Ty::Enum(eid, _) => self.enums[eid.0 as usize].into(),
             Ty::Fixed(e, n) => self.elem_ty(e).array_type(*n as u32).into(),
@@ -237,6 +241,7 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Float(FloatTy::F64) => (8, 8),
             Ty::Bool => (1, 1),
             Ty::Str | Ty::Array(_) | Ty::Ref(_) | Ty::Class(..) => (8, 8),
+            Ty::Iface(..) => (16, 8),
             Ty::Nullable(inner) if inner.is_ref() => (8, 8),
             Ty::Nullable(inner) => struct_layout(&[(1, 1), self.size_align(inner)]),
             Ty::Struct(sid, _) => {
@@ -485,6 +490,26 @@ impl<'ctx> Gen<'ctx, '_> {
             g.set_initializer(&value);
         }
         self.class_infos = infos;
+        for (i, entries) in self.p.itables.iter().enumerate() {
+            let slots: Vec<PointerValue> = entries
+                .iter()
+                .map(|f| self.fns[f.0 as usize].as_global_value().as_pointer_value())
+                .collect();
+            let arr = ptr.const_array(&slots);
+            let g = self
+                .m
+                .add_global(arr.get_type(), None, &format!("ppl.itable.{i}"));
+            g.set_linkage(Linkage::Internal);
+            g.set_constant(true);
+            g.set_initializer(&arr);
+            self.itables.push(g);
+        }
+    }
+
+    /// An interface value's LLVM type: `{ ptr data, ptr itable }`.
+    fn iface_ty(&self) -> inkwell::types::StructType<'ctx> {
+        self.cx
+            .struct_type(&[self.ptr().into(), self.ptr().into()], false)
     }
 
     /// A runtime function, declared on first use.
@@ -545,7 +570,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 false,
             ),
             "ppl_array_new" => ptr.fn_type(&[i64t.into(), i64t.into()], false),
-            "ppl_alloc_zeroed" => ptr.fn_type(&[i64t.into()], false),
+            "ppl_alloc_zeroed" | "ppl_alloc" => ptr.fn_type(&[i64t.into()], false),
             "ppl_instance_of" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
             "ppl_array_push" => ptr.fn_type(&[ptr.into(), i64t.into()], false),
             "ppl_array_pop" => i32t.fn_type(&[ptr.into()], false),
@@ -1054,6 +1079,42 @@ impl<'ctx> Gen<'ctx, '_> {
                 let info = self.class_infos[sid.0 as usize].expect("class info");
                 self.b.build_store(obj, info.as_pointer_value()).unwrap();
                 Some(obj.into())
+            }
+            Rvalue::ToIface(o, it) => {
+                let t = self.operand_ty(fx, o);
+                let v = self.operand(fx, o)?;
+                let data = match t {
+                    Ty::Class(..) => v.into_pointer_value(),
+                    _ => {
+                        // Box the struct.
+                        let size = self.size_of(&t);
+                        let b = basic(
+                            self.b
+                                .build_call(self.rt("ppl_alloc"), &[size.into()], "box")
+                                .unwrap(),
+                        )
+                        .into_pointer_value();
+                        self.b.build_store(b, v).unwrap();
+                        b
+                    }
+                };
+                let fat = self.iface_ty().get_undef();
+                let fat = self.b.build_insert_value(fat, data, 0, "").unwrap();
+                let table = self.itables[*it as usize].as_pointer_value();
+                Some(
+                    self.b
+                        .build_insert_value(fat, table, 1, "")
+                        .unwrap()
+                        .as_basic_value_enum(),
+                )
+            }
+            Rvalue::IfaceData(o) => {
+                let v = self.operand(fx, o)?;
+                Some(
+                    self.b
+                        .build_extract_value(v.into_struct_value(), 0, "data")
+                        .unwrap(),
+                )
             }
             Rvalue::InstanceOf(o, sid) => {
                 let v = self.operand(fx, o)?;
@@ -2298,6 +2359,34 @@ impl<'ctx> Gen<'ctx, '_> {
                             .b
                             .build_call(self.fns[id.0 as usize], &vals, "")
                             .unwrap();
+                        if let (Some(d), inkwell::values::ValueKind::Basic(v)) =
+                            (dest, r.try_as_basic_value())
+                        {
+                            self.store(fx, d, v);
+                        }
+                    }
+                    Callee::Iface { slot, decl } => {
+                        let vals: Vec<BasicMetadataValueEnum> = args
+                            .iter()
+                            .filter_map(|a| self.operand(fx, a))
+                            .map(Into::into)
+                            .collect();
+                        let fat = vals[0].into_struct_value();
+                        let table = self
+                            .b
+                            .build_extract_value(fat, 1, "itable")
+                            .unwrap()
+                            .into_pointer_value();
+                        let idx = self.i64().const_int(u64::from(*slot), false);
+                        let slot_ptr =
+                            unsafe { self.b.build_gep(self.ptr(), table, &[idx], "slot").unwrap() };
+                        let fnptr = self
+                            .b
+                            .build_load(self.ptr(), slot_ptr, "method")
+                            .unwrap()
+                            .into_pointer_value();
+                        let fn_ty = self.fns[decl.0 as usize].get_type();
+                        let r = self.b.build_indirect_call(fn_ty, fnptr, &vals, "").unwrap();
                         if let (Some(d), inkwell::values::ValueKind::Basic(v)) =
                             (dest, r.try_as_basic_value())
                         {

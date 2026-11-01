@@ -83,6 +83,8 @@ codes! {
     ABSTRACT_NEW = 324: "`new` of an abstract class",
     OVERRIDE_SIGNATURE = 325: "override with a different signature",
     BAD_CTOR_CALL = 326: "`super(…)`/`this(…)` misplaced, missing or without a matching constructor",
+    MISSING_IMPL = 327: "type that doesn't implement an interface method",
+    CONFLICTING_DEFAULTS = 328: "conflicting default methods from two interfaces",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

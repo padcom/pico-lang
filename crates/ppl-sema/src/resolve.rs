@@ -131,6 +131,7 @@ impl Resolver {
         let mut struct_decls: Vec<(StructId, &ast::StructDecl)> = Vec::new();
         let mut enum_decls: Vec<(EnumId, &ast::EnumDecl)> = Vec::new();
         let mut class_decls: Vec<(StructId, &ast::ClassDecl)> = Vec::new();
+        let mut iface_decls: Vec<(StructId, &ast::InterfaceDecl)> = Vec::new();
         let mut first_seen: HashMap<String, Span> = HashMap::new();
         for stmt in &module.stmts {
             match &stmt.kind {
@@ -150,6 +151,20 @@ impl Resolver {
                         ));
                         self.top_structs.insert(sd.name.name.clone(), id);
                         struct_decls.push((id, sd));
+                    }
+                    if let ast::DeclKind::Interface(id_) = &d.kind {
+                        if let Some(dec) = d.decorators.first() {
+                            self.not_implemented(dec.span, "decorators");
+                        }
+                        if self.check_duplicate(&mut first_seen, &id_.name) {
+                            continue;
+                        }
+                        let id = StructId(self.structs.len() as u32);
+                        let mut def = StructDef::new(id_.name.name.clone(), id_.name.span, false);
+                        def.is_interface = true;
+                        self.structs.push(def);
+                        self.top_structs.insert(id_.name.name.clone(), id);
+                        iface_decls.push((id, id_));
                     }
                     if let ast::DeclKind::Class(cd) = &d.kind {
                         if let Some(dec) = d.decorators.first() {
@@ -235,7 +250,12 @@ impl Resolver {
             }
         }
 
-        // Pass 1b: struct fields and methods (all struct names are known now).
+        // Pass 1b: interfaces first (implementers need their method lists), then struct
+        // fields and methods (all type names are known now).
+        let mut iface_methods = Vec::new();
+        for (sid, id_) in self.order_interfaces(&iface_decls) {
+            self.interface_members(sid, id_, &mut iface_methods);
+        }
         for (sid, sd) in &struct_decls {
             self.struct_members(*sid, sd, &mut fn_decls);
         }
@@ -247,8 +267,17 @@ impl Resolver {
             classes.push(self.class_members(sid, cd));
         }
         self.check_struct_cycles();
+        self.check_conformance();
 
         // Pass 2: function and method bodies.
+        for (id, f, sid, is_abstract) in iface_methods {
+            let func = if is_abstract {
+                self.abstract_stub(f, sid)
+            } else {
+                self.function_in(f, false, Some(sid), Some(sid))
+            };
+            self.fns[id.0 as usize] = Some(func);
+        }
         for (id, f, this) in fn_decls {
             let func = self.function(f, false, this);
             self.fns[id.0 as usize] = Some(func);
@@ -408,9 +437,7 @@ impl Resolver {
         if let Some(g) = sd.generics.first() {
             self.not_implemented(g.span, "generic structs");
         }
-        if let Some(t) = sd.implements.first() {
-            self.not_implemented(t.span, "interfaces");
-        }
+        self.resolve_implements(sid, &sd.implements);
         let mut seen: HashMap<String, Span> = HashMap::new();
         for m in &sd.members {
             if let Some(dec) = m.decorators.first() {
@@ -610,6 +637,7 @@ impl Resolver {
                             | ast::DeclKind::Struct(_)
                             | ast::DeclKind::Enum(_)
                             | ast::DeclKind::Class(_)
+                            | ast::DeclKind::Interface(_)
                     ) => {}
                 _ => {
                     let last = i + 1 == stmts.len();
@@ -814,6 +842,217 @@ impl Resolver {
         out
     }
 
+    /// The interfaces in `types` (for `implements` / `extends`).
+    fn resolve_implements(&mut self, sid: StructId, types: &[ast::Type]) {
+        for t in types {
+            match self.resolve_type(t) {
+                Ty::Iface(i, _) => self.structs[sid.0 as usize].implements.push(i),
+                Ty::Error => {}
+                other => self.error(
+                    codes::UNKNOWN_TYPE,
+                    t.span,
+                    format!("`{other}` isn't an interface"),
+                    "only interfaces can be implemented",
+                ),
+            }
+        }
+    }
+
+    /// Interfaces ordered so every interface comes after the ones it extends.
+    fn order_interfaces<'a>(
+        &mut self,
+        decls: &[(StructId, &'a ast::InterfaceDecl)],
+    ) -> Vec<(StructId, &'a ast::InterfaceDecl)> {
+        for (sid, d) in decls {
+            self.resolve_implements(*sid, &d.extends);
+        }
+        let mut out = Vec::new();
+        let mut state: HashMap<StructId, u8> = HashMap::new();
+        fn visit<'a>(
+            r: &mut Resolver,
+            sid: StructId,
+            decls: &[(StructId, &'a ast::InterfaceDecl)],
+            state: &mut HashMap<StructId, u8>,
+            out: &mut Vec<(StructId, &'a ast::InterfaceDecl)>,
+        ) {
+            match state.get(&sid) {
+                Some(2) => return,
+                Some(1) => {
+                    let (name, span) = {
+                        let d = &r.structs[sid.0 as usize];
+                        (d.name.clone(), d.name_span)
+                    };
+                    r.error(
+                        codes::RECURSIVE_STRUCT,
+                        span,
+                        format!("interface `{name}` extends itself"),
+                        "inheritance cycle",
+                    );
+                    r.structs[sid.0 as usize].implements.clear();
+                    return;
+                }
+                _ => {}
+            }
+            state.insert(sid, 1);
+            let parents = r.structs[sid.0 as usize].implements.clone();
+            for p in parents {
+                visit(r, p, decls, state, out);
+            }
+            state.insert(sid, 2);
+            if let Some((_, d)) = decls.iter().find(|(s, _)| *s == sid) {
+                out.push((sid, *d));
+            }
+        }
+        for (sid, _) in decls {
+            visit(self, *sid, decls, &mut state, &mut out);
+        }
+        out
+    }
+
+    /// An interface's methods: the inherited ones first (so the first parent's method table
+    /// is a prefix), then its own; a body is a default implementation.
+    fn interface_members<'a>(
+        &mut self,
+        sid: StructId,
+        d: &'a ast::InterfaceDecl,
+        out: &mut Vec<(FnId, &'a ast::FnDecl, StructId, bool)>,
+    ) {
+        if let Some(g) = d.generics.first() {
+            self.not_implemented(g.span, "generic interfaces");
+        }
+        let mut methods: Vec<(String, FnId)> = Vec::new();
+        let mut abstract_fns = HashSet::new();
+        for p in self.structs[sid.0 as usize].implements.clone() {
+            let pd = &self.structs[p.0 as usize];
+            for (n, f) in pd.methods.clone() {
+                if !methods.iter().any(|(m, _)| *m == n) {
+                    if pd.abstract_fns.contains(&f) {
+                        abstract_fns.insert(f);
+                    }
+                    methods.push((n, f));
+                }
+            }
+        }
+        let mut seen: HashMap<String, Span> = HashMap::new();
+        for m in &d.members {
+            let ast::MemberKind::Method(f) = &m.kind else {
+                self.not_implemented(m.span, "interface members other than methods");
+                continue;
+            };
+            let Some(name) = &f.name else { continue };
+            if self.check_duplicate(&mut seen, name) {
+                continue;
+            }
+            let id = FnId(self.fns.len() as u32);
+            self.fns.push(None);
+            let is_abstract = f.body.is_none();
+            match methods.iter_mut().find(|(n, _)| *n == name.name) {
+                // Redeclaring an inherited method (to give it a default) keeps its slot.
+                Some(slot) => {
+                    abstract_fns.remove(&slot.1);
+                    slot.1 = id;
+                }
+                None => methods.push((name.name.clone(), id)),
+            }
+            if is_abstract {
+                abstract_fns.insert(id);
+            }
+            out.push((id, f, sid, is_abstract));
+        }
+        let def = &mut self.structs[sid.0 as usize];
+        def.methods = methods;
+        def.abstract_fns = abstract_fns;
+    }
+
+    /// Every interface a type implements, directly or through base classes and interface
+    /// inheritance.
+    fn all_interfaces(&self, sid: StructId, out: &mut Vec<StructId>) {
+        let d = &self.structs[sid.0 as usize];
+        for i in &d.implements {
+            if !out.contains(i) {
+                out.push(*i);
+                self.all_interfaces(*i, out);
+            }
+        }
+        if let Some(b) = d.base {
+            self.all_interfaces(b, out);
+        }
+    }
+
+    /// Each struct and class must provide every method of its interfaces (or inherit a default
+    /// for it, unless two interfaces' defaults conflict). Interface methods are public.
+    fn check_conformance(&mut self) {
+        for i in 0..self.structs.len() {
+            let sid = StructId(i as u32);
+            let d = &self.structs[i];
+            if d.is_interface || d.implements.is_empty() && d.base.is_none() {
+                continue;
+            }
+            let mut ifaces = Vec::new();
+            self.all_interfaces(sid, &mut ifaces);
+            let mut errors = Vec::new();
+            let mut checked: HashSet<String> = HashSet::new();
+            for iface in &ifaces {
+                let idef = &self.structs[iface.0 as usize];
+                for (name, f) in &idef.methods {
+                    if !checked.insert(name.clone()) {
+                        continue;
+                    }
+                    let d = &self.structs[i];
+                    if d.method(name).is_some() {
+                        if d.is_class && !d.is_public(name) {
+                            errors.push((
+                                codes::PRIVATE_MEMBER,
+                                format!(
+                                    "`{}.{name}` implements `{}.{name}`, so it must be `public`",
+                                    d.name, idef.name
+                                ),
+                            ));
+                        }
+                        continue;
+                    }
+                    // Defaults for this method from all the type's interfaces.
+                    let mut defaults: Vec<(String, FnId)> = Vec::new();
+                    for j in &ifaces {
+                        let jd = &self.structs[j.0 as usize];
+                        if let Some(g) = jd.method(name)
+                            && !jd.abstract_fns.contains(&g)
+                            && !defaults.iter().any(|(_, x)| *x == g)
+                        {
+                            defaults.push((jd.name.clone(), g));
+                        }
+                    }
+                    match defaults.len() {
+                        0 if d.is_class && d.is_abstract => {}
+                        0 => errors.push((
+                            codes::MISSING_IMPL,
+                            format!("`{}` doesn't implement `{}.{name}`", d.name, idef.name),
+                        )),
+                        1 => {
+                            let _ = f;
+                        }
+                        _ => {
+                            let from: Vec<String> =
+                                defaults.iter().map(|(n, _)| format!("`{n}`")).collect();
+                            errors.push((
+                                codes::CONFLICTING_DEFAULTS,
+                                format!(
+                                    "`{}` inherits conflicting defaults for `{name}` from {}; override it",
+                                    d.name,
+                                    from.join(" and ")
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+            let span = self.structs[i].name_span;
+            for (code, msg) in errors {
+                self.error(code, span, msg, "declared here");
+            }
+        }
+    }
+
     /// Copies what a subclass inherits: fields (assigned by the base constructor), methods,
     /// accessors, the vtable, and the visibility of each member.
     fn inherit(&mut self, sid: StructId, base: StructId) {
@@ -867,9 +1106,6 @@ impl Resolver {
         if let Some(g) = cd.generics.first() {
             self.not_implemented(g.span, "generic classes");
         }
-        if let Some(t) = cd.implements.first() {
-            self.not_implemented(t.span, "interfaces");
-        }
         let base = self.structs[sid.0 as usize].base;
         if let Some(b) = base {
             if self.structs[b.0 as usize].is_final {
@@ -889,6 +1125,7 @@ impl Resolver {
             d.is_abstract = cd.abstract_;
             d.is_final = cd.final_;
         }
+        self.resolve_implements(sid, &cd.implements);
         let mut info = ClassInfo {
             sid,
             decl: cd,
@@ -1530,6 +1767,8 @@ impl Resolver {
         let def = &self.structs[id.0 as usize];
         if def.is_class {
             Ty::Class(id, def.name.as_str().into())
+        } else if def.is_interface {
+            Ty::Iface(id, def.name.as_str().into())
         } else {
             Ty::Struct(id, def.name.as_str().into())
         }
@@ -2032,7 +2271,7 @@ impl Resolver {
                     ast::DeclKind::Struct(_) => "structs",
                     ast::DeclKind::Enum(_) => "enums",
                     ast::DeclKind::Class(_) => "classes",
-                    ast::DeclKind::Interface(_) => "interfaces",
+                    ast::DeclKind::Interface(_) => "local interfaces",
                     ast::DeclKind::TypeAlias { .. } => "type aliases",
                     ast::DeclKind::Import(_)
                     | ast::DeclKind::ExportList { .. }

@@ -1,0 +1,8 @@
+// error: E0308
+// at: 8:18
+interface Shape { area(): f64; perimeter(): f64 }
+class Blob {
+  public area(): f64 { 1 }
+  public perimeter(): f64 { 1 }
+}
+const s: Shape = new Blob()

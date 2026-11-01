@@ -92,6 +92,11 @@ pub struct StructDef {
     /// Methods by name; each is a function whose `this` is set.
     pub methods: Vec<(String, FnId)>,
     pub is_class: bool,
+    /// An interface: `methods` are its methods (inherited ones first), each a default
+    /// implementation or (in `abstract_fns`) a stub.
+    pub is_interface: bool,
+    /// Interfaces this type implements directly (`implements`), or an interface extends.
+    pub implements: Vec<StructId>,
     /// The constructors (classes always have at least one, possibly synthesized), with
     /// their parameter types; overloads have different numbers of parameters.
     pub ctors: Vec<(FnId, Vec<Ty>)>,
@@ -125,6 +130,8 @@ impl StructDef {
             fields: Vec::new(),
             methods: Vec::new(),
             is_class,
+            is_interface: false,
+            implements: Vec::new(),
             ctors: Vec::new(),
             base: None,
             is_abstract: false,
@@ -216,6 +223,17 @@ impl Program {
         Ty::Enum(id, self.enums[id.0 as usize].name.as_str().into())
     }
 
+    /// Whether type `sid` (a struct, class or interface) conforms to interface `iface`:
+    /// directly, through a base class, or through interface inheritance.
+    pub fn implements(&self, sid: StructId, iface: StructId) -> bool {
+        if sid == iface {
+            return true;
+        }
+        let d = &self.structs[sid.0 as usize];
+        d.implements.iter().any(|i| self.implements(*i, iface))
+            || d.base.is_some_and(|b| self.implements(b, iface))
+    }
+
     /// Whether class `sub` is `sup` or inherits from it.
     pub fn is_subclass(&self, mut sub: StructId, sup: StructId) -> bool {
         loop {
@@ -233,6 +251,8 @@ impl Program {
         let def = &self.structs[id.0 as usize];
         if def.is_class {
             Ty::Class(id, def.name.as_str().into())
+        } else if def.is_interface {
+            Ty::Iface(id, def.name.as_str().into())
         } else {
             Ty::Struct(id, def.name.as_str().into())
         }

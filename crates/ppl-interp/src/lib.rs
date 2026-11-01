@@ -32,6 +32,8 @@ pub enum Value {
     Enum(u32, Vec<Value>),
     /// A class instance: shared, so cloning copies the reference.
     Object(Rc<Obj>),
+    /// An interface value: the object (or a reference to a boxed struct) and its itable.
+    Iface(Rc<(Value, u32)>),
     /// A growable array: shared, so cloning copies the reference.
     Array(Rc<RefCell<Vec<Value>>>),
     /// A reference into a variable: the cell and the path inside it.
@@ -266,6 +268,13 @@ impl Interp<'_, '_> {
                     let vals: Vec<Value> = args.iter().map(|a| self.operand(frame, a)).collect();
                     let r = match callee {
                         Callee::Fn(id) => self.call(*id, vals, *loc)?,
+                        Callee::Iface { slot, .. } => {
+                            let Value::Iface(iv) = &vals[0] else {
+                                unreachable!("interface call on {:?}", vals[0])
+                            };
+                            let f = self.p.itables[iv.1 as usize][*slot as usize];
+                            self.call(f, vals, *loc)?
+                        }
                         Callee::Virtual { slot, .. } => {
                             let Value::Object(o) = &vals[0] else {
                                 unreachable!("virtual call on {:?}", vals[0])
@@ -417,6 +426,19 @@ impl Interp<'_, '_> {
                 *v,
                 ops.iter().map(|o| self.operand(frame, o)).collect(),
             )),
+            Rvalue::ToIface(o, it) => {
+                let v = self.operand(frame, o);
+                // A struct is boxed: the interface value refers to a copy of it.
+                let data = match v {
+                    Value::Object(_) => v,
+                    other => Value::Ref(cell(other), Rc::from(Vec::new())),
+                };
+                Ok(Value::Iface(Rc::new((data, *it))))
+            }
+            Rvalue::IfaceData(o) => match self.operand(frame, o) {
+                Value::Iface(iv) => Ok(iv.0.clone()),
+                v => unreachable!("data of {v:?}"),
+            },
             Rvalue::InstanceOf(o, target) => match self.operand(frame, o) {
                 Value::Object(obj) => {
                     let mut c = Some(ppl_sema::ty::StructId(obj.class));
@@ -715,6 +737,7 @@ pub fn display(v: &Value, t: &Ty) -> String {
             Value::Struct(_)
             | Value::Enum(..)
             | Value::Object(_)
+            | Value::Iface(_)
             | Value::Array(_)
             | Value::Ref(..)
             | Value::Void
@@ -910,6 +933,7 @@ pub fn format_spec(v: &Value, t: &Ty, spec: &FormatSpec) -> String {
         Value::Struct(_)
         | Value::Enum(..)
         | Value::Object(_)
+        | Value::Iface(_)
         | Value::Array(_)
         | Value::Ref(..)
         | Value::Void

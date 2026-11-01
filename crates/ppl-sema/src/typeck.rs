@@ -59,6 +59,8 @@ pub struct Types {
     pub virtual_calls: HashMap<ExprId, u32>,
     /// Type-test and class patterns that check the runtime class (downcasts).
     pub downcasts: HashSet<ExprId>,
+    /// Method calls on interface values, with the method's slot in the interface.
+    pub iface_calls: HashMap<ExprId, u32>,
 }
 
 impl Types {
@@ -100,6 +102,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             ctor_calls: HashMap::new(),
             virtual_calls: HashMap::new(),
             downcasts: HashSet::new(),
+            iface_calls: HashMap::new(),
         },
         narrow: Vec::new(),
         diags: Vec::new(),
@@ -399,10 +402,29 @@ impl<'p> Checker<'p> {
     fn upcasts(&self, from: &Ty, to: &Ty) -> bool {
         match (from, to) {
             (Ty::Class(a, _), Ty::Class(b, _)) => self.program.is_subclass(*a, *b),
-            (Ty::Class(..), Ty::Nullable(t)) => self.upcasts(from, t),
+            // To an interface the type implements (nominally).
+            (Ty::Class(a, _) | Ty::Struct(a, _), Ty::Iface(i, _)) => {
+                self.program.implements(*a, *i)
+            }
+            // Interface inheritance: only along first parents, whose methods are a prefix.
+            (Ty::Iface(a, _), Ty::Iface(b, _)) => self.iface_prefix(*a, *b),
+            (Ty::Class(..) | Ty::Struct(..) | Ty::Iface(..), Ty::Nullable(t)) => {
+                self.upcasts(from, t)
+            }
             (Ty::Nullable(a), Ty::Nullable(b)) => self.upcasts(a, b),
             _ => false,
         }
+    }
+
+    /// Whether interface `b` is `a` or reached from it through first parents.
+    fn iface_prefix(&self, a: StructId, b: StructId) -> bool {
+        a == b
+            || self
+                .program
+                .struct_def(a)
+                .implements
+                .first()
+                .is_some_and(|p| self.iface_prefix(*p, b))
     }
 
     /// Accepts `found` where `want` is expected, recording a widening if needed.
@@ -612,40 +634,59 @@ impl<'p> Checker<'p> {
         self.state[id.0 as usize] = FnState::Done;
     }
 
-    /// An override must take and return the same types as the method it overrides.
+    /// An override (or an interface method's implementation) must take and return the same
+    /// types as the method it overrides.
     fn check_overrides(&mut self) {
-        for def in &self.program.structs {
-            let Some(base) = def.base else { continue };
-            let bdef = self.program.struct_def(base);
-            for (slot, f) in def.vtable.iter().enumerate() {
-                let Some(bf) = bdef.vtable.get(slot) else {
-                    continue;
-                };
-                if f == bf {
-                    continue;
+        let mut pairs = Vec::new();
+        for (i, def) in self.program.structs.iter().enumerate() {
+            if let Some(base) = def.base {
+                let bdef = self.program.struct_def(base);
+                for (slot, f) in def.vtable.iter().enumerate() {
+                    if let Some(bf) = bdef.vtable.get(slot)
+                        && f != bf
+                    {
+                        pairs.push((*f, *bf));
+                    }
                 }
-                let (a, b) = (
-                    &self.types.sigs[f.0 as usize],
-                    &self.types.sigs[bf.0 as usize],
-                );
-                if a.params != b.params
-                    || (a.ret != b.ret && !a.ret.is_error() && !b.ret.is_error())
+            }
+            if def.is_interface {
+                continue;
+            }
+            for (j, idef) in self.program.structs.iter().enumerate() {
+                if !idef.is_interface
+                    || !self
+                        .program
+                        .implements(StructId(i as u32), StructId(j as u32))
                 {
-                    let fun = self.program.func(*f);
-                    let bfun = self.program.func(*bf);
-                    let show = |s: &FnSig| {
-                        let ps: Vec<String> = s.params.iter().map(|p| p.to_string()).collect();
-                        format!("({}): {}", ps.join(", "), s.ret)
-                    };
-                    self.diags.push(
-                        Diagnostic::error(
-                            codes::OVERRIDE_SIGNATURE,
-                            format!("`{}` doesn't match the method it overrides", fun.name),
-                        )
-                        .primary(fun.name_span, format!("has type `{}`", show(a)))
-                        .secondary(bfun.name_span, format!("`{}` is `{}`", bfun.name, show(b))),
-                    );
+                    continue;
                 }
+                for (name, ifn) in &idef.methods {
+                    if let Some(f) = def.method(name) {
+                        pairs.push((f, *ifn));
+                    }
+                }
+            }
+        }
+        for (f, bf) in pairs {
+            let (a, b) = (
+                &self.types.sigs[f.0 as usize],
+                &self.types.sigs[bf.0 as usize],
+            );
+            if a.params != b.params || (a.ret != b.ret && !a.ret.is_error() && !b.ret.is_error()) {
+                let fun = self.program.func(f);
+                let bfun = self.program.func(bf);
+                let show = |s: &FnSig| {
+                    let ps: Vec<String> = s.params.iter().map(|p| p.to_string()).collect();
+                    format!("({}): {}", ps.join(", "), s.ret)
+                };
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::OVERRIDE_SIGNATURE,
+                        format!("`{}` doesn't match the method it implements", fun.name),
+                    )
+                    .primary(fun.name_span, format!("has type `{}`", show(a)))
+                    .secondary(bfun.name_span, format!("`{}` is `{}`", bfun.name, show(b))),
+                );
             }
         }
     }
@@ -3066,7 +3107,15 @@ impl<'p> Checker<'p> {
                 if let Some(r) = self.builtin_method(e, &t, name, *name_span, args) {
                     return r;
                 }
-                if let Ty::Struct(sid, sname) | Ty::Class(sid, sname) = &t {
+                if let Ty::Iface(sid, _) = &t {
+                    let def = self.program.struct_def(*sid);
+                    if let Some(slot) = def.methods.iter().position(|(n, _)| n == name) {
+                        let m = def.methods[slot].1;
+                        self.types.iface_calls.insert(e.id, slot as u32);
+                        return self.call_fn(e, m, args);
+                    }
+                }
+                if let Ty::Struct(sid, sname) | Ty::Class(sid, sname) | Ty::Iface(sid, sname) = &t {
                     let def = self.program.struct_def(*sid);
                     if let Some(m) = def.method(name) {
                         self.check_access(*sid, name, *name_span);
