@@ -1,0 +1,47 @@
+// error: E0308
+// at: 28:17
+// error: E0304
+// at: 29:18
+// error: E0308
+// at: 30:18
+// error: E0335
+// at: 36:27
+// error: E0334
+// at: 36:27
+// error: E0335
+// at: 37:29
+// error: E0335
+// at: 40:15
+// error: E0335
+// at: 41:13
+// error: E0335
+// at: 42:9
+// error: E0335
+// at: 43:3
+// error: E0334
+// at: 47:3
+// error: E0319
+// at: 47:3
+type Meters = distinct f64
+type Feet = distinct f64
+const m: Meters = 3.0 as Meters
+const f: Feet = m
+const sum = m + (1.0 as Feet)
+const raw: f64 = m
+struct Pos { x: i32 }
+class Scene {
+  constructor(public nodes: string[], public pos: Pos, readonly title: string) {}
+  public readonly count(): i64 { nodes.length }
+  public grow() { nodes.push("x") }
+  public readonly bad() { title = "t" }
+  public readonly worse() { grow() }
+}
+function render(scene: immutable Scene) {
+  scene.nodes.push("x")
+  scene.pos.x = 1
+  scene.grow()
+  scene.nodes[0] = "y"
+  const c = scene.count()
+}
+const s = new Scene([], Pos { x: 0 }, "a")
+s.title = "b"

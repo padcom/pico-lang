@@ -1,0 +1,26 @@
+// expect: 3 ft is 0.9144000000000001 m
+// expect: 6.5
+// expect: true
+// expect: 4
+// expect: hello
+type Meters = distinct f64
+type Feet = distinct f64
+function toMeters(f: Feet): Meters { (f as f64 * 0.3048) as Meters }
+const f: Feet = 3.0 as Feet
+println(`${f} ft is ${toMeters(f)} m`)
+const m: Meters = 3.0
+const more = m + 3.5 as Meters
+println(more)
+println(more > m)
+
+type Count = i64
+const c: Count = 4
+println(c)
+
+class Scene {
+  constructor(public nodes: string[], readonly title: string) {}
+  public readonly count(): i64 { nodes.length }
+  public readonly name(): string { title }
+}
+function render(scene: immutable Scene): string { if (scene.count() == 1) scene.name() else "" }
+println(render(new Scene(["a"], "hello")))

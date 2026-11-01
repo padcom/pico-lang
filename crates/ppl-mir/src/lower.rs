@@ -1065,8 +1065,8 @@ impl FnBuilder<'_, '_> {
     fn expr_inner(&mut self, e: &Expr) -> Operand {
         let ty = self.ty(e);
         match &e.kind {
-            ExprKind::Int(v, _) => int_const(*v as i128, &ty),
-            ExprKind::Float(v, _) => match ty {
+            ExprKind::Int(v, _) => int_const(*v as i128, &ty.erase()),
+            ExprKind::Float(v, _) => match ty.erase() {
                 Ty::Float(ft) => Operand::Const(Const::Float(*v, ft)),
                 _ => Operand::Const(Const::Void),
             },

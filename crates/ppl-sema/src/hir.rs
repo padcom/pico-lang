@@ -93,6 +93,8 @@ pub struct FieldDef {
     /// Assigned before the constructor body runs (an initializer or a parameter property),
     /// or nullable (implicitly `null`).
     pub preassigned: bool,
+    /// `readonly`: assigned only by constructors.
+    pub readonly: bool,
 }
 
 /// A struct or a class (`is_class`). Classes share the id space so most member code is shared.
@@ -130,6 +132,8 @@ pub struct StructDef {
     pub declared_in: HashMap<String, StructId>,
     /// `@derive(Eq, Hash, Ord)` on a class: the derived protocols.
     pub derives: Vec<String>,
+    /// Methods marked `readonly` (callable through `immutable`; they can't mutate `this`).
+    pub readonly_methods: std::collections::HashSet<String>,
     pub getters: Vec<(String, FnId)>,
     pub setters: Vec<(String, FnId)>,
     pub static_fields: Vec<(String, GlobalId)>,
@@ -160,6 +164,7 @@ impl StructDef {
             protected: Default::default(),
             declared_in: HashMap::new(),
             derives: Vec::new(),
+            readonly_methods: Default::default(),
             getters: Vec::new(),
             setters: Vec::new(),
             static_fields: Vec::new(),

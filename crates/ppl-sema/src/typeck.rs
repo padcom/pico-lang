@@ -112,6 +112,26 @@ pub enum Slot {
 }
 
 impl Types {
+    /// Removes `immutable` from every recorded type.
+    fn strip_immutable(&mut self) {
+        let s = |t: &mut Ty| *t = t.strip_immutable();
+        self.exprs.iter_mut().for_each(s);
+        self.coercions.values_mut().for_each(s);
+        self.locals.iter_mut().flatten().for_each(s);
+        self.globals.iter_mut().for_each(s);
+        for sig in &mut self.sigs {
+            sig.params.iter_mut().for_each(s);
+            s(&mut sig.ret);
+        }
+        for ts in self
+            .instances
+            .values_mut()
+            .chain(self.recv_args.values_mut())
+        {
+            ts.iter_mut().for_each(s);
+        }
+    }
+
     /// These results with generic function `owner`'s type parameters replaced by `args`
     /// (what one monomorphized instance sees).
     pub fn substituted(&self, owner: u32, args: &[Ty]) -> Types {
@@ -258,7 +278,10 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
         c.check_fn(FnId(i as u32));
     }
     c.check_overrides();
-    (c.types, c.diags)
+    // `immutable` only matters to the checks above.
+    let mut types = c.types;
+    types.strip_immutable();
+    (types, c.diags)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -302,6 +325,8 @@ struct FnCtx {
     id: FnId,
     ret: Ret,
     loops: Vec<LoopCtx>,
+    /// A `readonly` method's `this` (immutable inside it).
+    readonly_this: Option<LocalId>,
 }
 
 struct Checker<'p> {
@@ -505,7 +530,10 @@ fn suffix_ty(s: NumSuffix) -> Ty {
 
 fn is_printable(t: &Ty) -> bool {
     match t {
-        Ty::Nullable(inner) | Ty::Lits(inner, _) => is_printable(inner),
+        Ty::Nullable(inner)
+        | Ty::Lits(inner, _)
+        | Ty::Distinct(_, _, inner)
+        | Ty::Immutable(inner) => is_printable(inner),
         Ty::Union(_, ms) => ms.iter().all(is_printable),
         _ => matches!(
             t,
@@ -844,10 +872,19 @@ impl<'p> Checker<'p> {
             Some(t) => Ret::Declared(t.clone(), f.ret_span),
             None => Ret::Infer(Vec::new()),
         };
+        let readonly_this = f.this.and_then(|(this, sid)| {
+            let short = f.name.rsplit('.').next().unwrap_or(&f.name);
+            self.program
+                .struct_def(sid)
+                .readonly_methods
+                .contains(short)
+                .then_some(this)
+        });
         self.stack.push(FnCtx {
             id,
             ret,
             loops: Vec::new(),
+            readonly_this,
         });
         let body_ty = match (&f.ret, f.is_entry) {
             (_, true) | (Some(Ty::Void), _) => {
@@ -1216,7 +1253,101 @@ impl<'p> Checker<'p> {
 
     fn infer_with(&mut self, e: &Expr, want: Option<&Expect>) -> Ty {
         let t = self.expr_kind(e, want);
+        // What's read through an `immutable` view is immutable too (deeply).
+        let t = match &e.kind {
+            ExprKind::Member { object, .. } | ExprKind::Index { object, .. }
+                if self.through_immutable(object) =>
+            {
+                self.immutable(t)
+            }
+            _ => t,
+        };
         self.set(e, t)
+    }
+
+    /// `immutable t`, or just `t` when it holds no references (a copy can't reach anything).
+    fn immutable(&self, t: Ty) -> Ty {
+        match t {
+            Ty::Immutable(_) | Ty::Error => t,
+            t if self.pure_value(&t) => t,
+            t => Ty::Immutable(Box::new(t)),
+        }
+    }
+
+    /// Whether values of `t` contain no references (copies are fully independent).
+    fn pure_value(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Null | Ty::Range(_) => {
+                true
+            }
+            Ty::Lits(b, _) | Ty::Distinct(_, _, b) | Ty::Nullable(b) | Ty::Fixed(b, _) => {
+                self.pure_value(b)
+            }
+            Ty::Tuple(ts) => ts.iter().all(|t| self.pure_value(t)),
+            Ty::Struct(sid, _, args) => self
+                .program
+                .struct_def(*sid)
+                .fields
+                .iter()
+                .all(|f| self.pure_value(&f.ty.subst(Ty::type_owner(*sid), args))),
+            Ty::Enum(eid, _) => self
+                .program
+                .enum_def(*eid)
+                .variants
+                .iter()
+                .all(|v| v.fields.iter().all(|f| self.pure_value(&f.ty))),
+            Ty::Union(_, ms) => ms.iter().all(|m| self.pure_value(m)),
+            _ => false,
+        }
+    }
+
+    /// Whether `e` reaches its value through an `immutable` view (or the `this` of a
+    /// `readonly` method), so it mustn't be mutated.
+    fn through_immutable(&self, e: &Expr) -> bool {
+        if matches!(self.types.expr(e.id), Ty::Immutable(_)) {
+            return true;
+        }
+        match &e.kind {
+            ExprKind::Var(Var::Local(l)) => self
+                .stack
+                .last()
+                .is_some_and(|c| c.readonly_this == Some(*l)),
+            ExprKind::Member { object, .. } | ExprKind::Index { object, .. } => {
+                self.through_immutable(object)
+            }
+            _ => false,
+        }
+    }
+
+    /// A `readonly` field can only be assigned by its type's constructors.
+    fn check_readonly_field(&mut self, ot: &Ty, name: &str, span: Span) {
+        let (Ty::Struct(sid, _, _) | Ty::Class(sid, _, _)) = ot else {
+            return;
+        };
+        let def = self.program.struct_def(*sid);
+        let Some((_, fd)) = def.field(name) else {
+            return;
+        };
+        if !fd.readonly {
+            return;
+        }
+        let f = self.func();
+        let in_ctor = f.name.ends_with(".constructor") && f.owner == Some(*sid);
+        if !in_ctor {
+            self.diags.push(
+                Diagnostic::error(codes::READONLY_FIELD, format!("`{name}` is `readonly`"))
+                    .primary(span, "assigned outside a constructor")
+                    .secondary(fd.span, "declared `readonly` here"),
+            );
+        }
+    }
+
+    fn immutable_mutation(&mut self, span: Span, what: &str) {
+        self.diags.push(
+            Diagnostic::error(codes::IMMUTABLE_MUTATION, format!("can't {what} through an `immutable` view"))
+                .primary(span, "the value is immutable here")
+                .note("`immutable T` is deep: nothing reachable through it can change, and only `readonly` methods can be called"),
+        );
     }
 
     fn expr_kind(&mut self, e: &Expr, want: Option<&Expect>) -> Ty {
@@ -1230,6 +1361,7 @@ impl<'p> Checker<'p> {
             ExprKind::Int(v, suffix) => self.int_lit(e, *v as i128, *suffix, want),
             ExprKind::Float(_, suffix) => match (suffix, want.map(|w| &w.ty)) {
                 (Some(s), _) => suffix_ty(*s),
+                (None, Some(d @ Ty::Distinct(_, _, b))) if matches!(**b, Ty::Float(_)) => d.clone(),
                 (None, Some(Ty::Float(f))) => Ty::Float(*f),
                 (None, Some(Ty::Nullable(inner))) if matches!(**inner, Ty::Float(_)) => {
                     (**inner).clone()
@@ -1435,7 +1567,7 @@ impl<'p> Checker<'p> {
                 name,
                 name_span,
             } => {
-                let ot = self.infer(object);
+                let ot = self.infer(object).strip_immutable();
                 match (&ot, name.as_str()) {
                     (Ty::Str | Ty::Array(_) | Ty::Fixed(..), "length") => Ty::INT,
                     (Ty::Range(it), "start" | "end") => Ty::Int(*it),
@@ -1524,7 +1656,7 @@ impl<'p> Checker<'p> {
                 }
             }
             ExprKind::Index { object, index } => {
-                let ot = self.infer(object);
+                let ot = self.infer(object).strip_immutable();
                 match ot {
                     Ty::Str => {
                         self.check(index, &Expect::new(Ty::INT));
@@ -1655,7 +1787,8 @@ impl<'p> Checker<'p> {
             }
             ExprKind::As(inner, to) => {
                 let from = self.infer(inner);
-                let ok = match (&from, to) {
+                // Distinct types convert like their base types.
+                let ok = match (&from.erase(), &to.erase()) {
                     (a, b) if a == b => true,
                     (Ty::Int(_) | Ty::Float(_), Ty::Int(_) | Ty::Float(_)) => true,
                     (Ty::Char, Ty::Int(_)) => true,
@@ -3072,6 +3205,11 @@ impl<'p> Checker<'p> {
                 name_span,
             } => {
                 let ot = self.infer(object);
+                if self.through_immutable(object) {
+                    self.immutable_mutation(*name_span, "assign a field");
+                }
+                let ot = ot.strip_immutable();
+                self.check_readonly_field(&ot, name, *name_span);
                 self.recv_args = ot.type_args().to_vec();
                 match ot {
                     Ty::Struct(sid, _, _) => {
@@ -3126,6 +3264,10 @@ impl<'p> Checker<'p> {
             }
             Target::Index { object, index } => {
                 let ot = self.infer(object);
+                if self.through_immutable(object) {
+                    self.immutable_mutation(object.span, "assign an element");
+                }
+                let ot = ot.strip_immutable();
                 match ot {
                     Ty::Array(t) | Ty::Fixed(t, _) => {
                         self.check(index, &Expect::new(Ty::INT));
@@ -3501,7 +3643,7 @@ impl<'p> Checker<'p> {
                 .all(|f| self.equatable(&f.ty.subst(Ty::type_owner(*sid), args))),
             Ty::Tuple(ts) => ts.iter().all(|t| self.equatable(t)),
             Ty::Nullable(t) => self.equatable(t),
-            Ty::Lits(b, _) => self.equatable(b),
+            Ty::Lits(b, _) | Ty::Distinct(_, _, b) | Ty::Immutable(b) => self.equatable(b),
             Ty::Union(_, ms) => ms.iter().all(|m| self.equatable(m)),
             Ty::Variant(..) => true,
             Ty::Param(..) => self
@@ -3610,9 +3752,11 @@ impl<'p> Checker<'p> {
             (Some(s), _) => suffix_ty(s),
             (None, Some(t @ (Ty::Int(_) | Ty::Float(_)))) => t.clone(),
             (None, Some(Ty::Nullable(inner))) if inner.is_numeric() => (**inner).clone(),
+            // A literal can be a value of a numeric distinct type.
+            (None, Some(d @ Ty::Distinct(_, _, b))) if b.is_numeric() => d.clone(),
             _ => Ty::INT,
         };
-        if let Ty::Int(it) = t
+        if let Ty::Int(it) = t.erase()
             && !it.contains(v)
         {
             self.lit_out_of_range(e.span, v, it);
@@ -4525,7 +4669,25 @@ impl<'p> Checker<'p> {
                 name_span,
             } => {
                 let t = self.infer(object);
+                let imm = self.through_immutable(object);
+                let t = t.strip_immutable();
                 self.set(callee, Ty::Void);
+                if imm {
+                    let readonly = match &t {
+                        Ty::Struct(sid, _, _) | Ty::Class(sid, _, _) => {
+                            let def = self.program.struct_def(*sid);
+                            def.method(name).is_none() || def.readonly_methods.contains(name)
+                        }
+                        Ty::Array(_) => !matches!(name.as_str(), "push" | "pop"),
+                        _ => true,
+                    };
+                    if !readonly {
+                        self.immutable_mutation(
+                            *name_span,
+                            &format!("call `{name}` (not `readonly`)"),
+                        );
+                    }
+                }
                 if let Some(r) = self.builtin_method(e, &t, name, *name_span, args) {
                     return r;
                 }

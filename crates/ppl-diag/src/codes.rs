@@ -90,6 +90,8 @@ codes! {
     BAD_TAILCALL = 331: "`tailcall` that can't be a guaranteed tail call",
     AMBIGUOUS_OVERLOAD = 332: "call that fits several overloads equally well",
     NO_OVERLOAD = 333: "call that fits no overload",
+    READONLY_FIELD = 334: "assignment to a `readonly` field outside a constructor",
+    IMMUTABLE_MUTATION = 335: "mutation through an `immutable` view or in a `readonly` method",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

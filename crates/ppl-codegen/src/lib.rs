@@ -231,7 +231,13 @@ impl<'ctx> Gen<'ctx, '_> {
                     .struct_type(&[self.cx.bool_type().into(), inner], false)
                     .into()
             }
-            Ty::Lits(..) | Ty::Union(..) | Ty::Variant(..) => return self.ty(&t.erase()),
+            Ty::Lits(..)
+            | Ty::Union(..)
+            | Ty::Variant(..)
+            | Ty::Distinct(..)
+            | Ty::Immutable(_) => {
+                return self.ty(&t.erase());
+            }
             // Monomorphization removed every type parameter.
             Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..) => return None,
         })
@@ -295,7 +301,11 @@ impl<'ctx> Gen<'ctx, '_> {
                     (8 + 8 * words, 8)
                 }
             }
-            Ty::Lits(..) | Ty::Union(..) | Ty::Variant(..) => self.size_align(&t.erase()),
+            Ty::Lits(..)
+            | Ty::Union(..)
+            | Ty::Variant(..)
+            | Ty::Distinct(..)
+            | Ty::Immutable(_) => self.size_align(&t.erase()),
             Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..) => (1, 1),
         }
     }

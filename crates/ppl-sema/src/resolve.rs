@@ -38,6 +38,7 @@ pub fn resolve(module: &ast::Module, file: FileId) -> (Program, Vec<Diagnostic>)
         resolving_aliases: Vec::new(),
         unions: Vec::new(),
         cur_fn: FnId(0),
+        distincts: 0,
         outer_fns: Vec::new(),
     };
     let program = r.program(module);
@@ -110,6 +111,8 @@ struct Resolver {
     unions: Vec<(Vec<Ty>, EnumId)>,
     /// The function being resolved (owner of its type parameters).
     cur_fn: FnId,
+    /// Distinct types created so far (each gets its own id).
+    distincts: u32,
     /// The states of the functions enclosing the closure being resolved, outermost first.
     outer_fns: Vec<FnState>,
 }
@@ -521,6 +524,7 @@ impl Resolver {
                     ty,
                     span: fname.span,
                     preassigned: false,
+                    readonly: false,
                 });
             }
             self.enums[eid.0 as usize].variants.push(VariantDef {
@@ -554,8 +558,12 @@ impl Resolver {
             if let Some(dec) = m.decorators.first() {
                 self.not_implemented(dec.span, "decorators");
             }
-            if !m.mods.is_empty() {
-                self.not_implemented(m.span, "member modifiers");
+            let mods_ok = ast::Modifiers {
+                readonly: false,
+                ..m.mods
+            };
+            if !mods_ok.is_empty() {
+                self.not_implemented(m.span, "member modifiers other than `readonly`");
             }
             match &m.kind {
                 ast::MemberKind::Field {
@@ -570,6 +578,7 @@ impl Resolver {
                     if *optional || init.is_some() {
                         self.not_implemented(m.span, "optional fields and field defaults");
                     }
+                    let readonly = m.mods.readonly;
                     let ty = match ty {
                         Some(t) => self.resolve_type(t),
                         None => {
@@ -587,6 +596,7 @@ impl Resolver {
                         ty,
                         span: name.span,
                         preassigned: false,
+                        readonly,
                     });
                 }
                 ast::MemberKind::Method(f) => {
@@ -599,6 +609,11 @@ impl Resolver {
                     self.structs[sid.0 as usize]
                         .methods
                         .push((name.name.clone(), id));
+                    if m.mods.readonly {
+                        self.structs[sid.0 as usize]
+                            .readonly_methods
+                            .insert(name.name.clone());
+                    }
                     fn_decls.push((id, f, Some(sid)));
                 }
                 ast::MemberKind::Operator { op, func } => {
@@ -1322,6 +1337,7 @@ impl Resolver {
                 ty: f.ty.clone(),
                 span: f.span,
                 preassigned: true,
+                readonly: false,
             })
             .collect();
         let methods = b.methods.clone();
@@ -1463,6 +1479,7 @@ impl Resolver {
                             ty,
                             span: pname.span,
                             preassigned: true,
+                            readonly: p.mods.readonly,
                         });
                     }
                     let def = &self.structs[sid.0 as usize];
@@ -1546,6 +1563,7 @@ impl Resolver {
                         ty,
                         span: name.span,
                         preassigned: init.is_some() || nullable,
+                        readonly: m.mods.readonly,
                     });
                     info.field_inits.push((name, init.as_ref()));
                 }
@@ -1587,6 +1605,11 @@ impl Resolver {
                         continue;
                     }
                     let is_abstract = m.mods.abstract_;
+                    if m.mods.readonly && is_method {
+                        self.structs[sid.0 as usize]
+                            .readonly_methods
+                            .insert(name.name.clone());
+                    }
                     let d = &mut self.structs[sid.0 as usize];
                     let list = match &m.kind {
                         ast::MemberKind::Getter(_) => &mut d.getters,
@@ -2649,6 +2672,7 @@ impl Resolver {
                 self.not_implemented(t.span, "object types outside discriminated unions");
                 Ty::Error
             }
+            ast::TypeKind::Immutable(inner) => Ty::Immutable(Box::new(self.resolve_type(inner))),
             ast::TypeKind::Error => Ty::Error,
             _ => {
                 self.not_implemented(t.span, "this kind of type");
@@ -2710,9 +2734,10 @@ impl Resolver {
         self.resolving_aliases.push(name.to_string());
         let t = match &ty.kind {
             ast::TypeKind::Union(members) => self.union_type(members, Some(name), ty.span),
-            ast::TypeKind::Distinct(_) => {
-                self.not_implemented(ty.span, "distinct types");
-                Ty::Error
+            ast::TypeKind::Distinct(base) => {
+                let b = self.resolve_type(base);
+                self.distincts += 1;
+                Ty::Distinct(self.distincts, name.into(), Box::new(b))
             }
             _ => self.resolve_type(&ty),
         };
@@ -2816,6 +2841,7 @@ impl Resolver {
                         ty: t.clone(),
                         span,
                         preassigned: false,
+                        readonly: false,
                     }],
                     has_parens: true,
                 })
@@ -2881,6 +2907,7 @@ impl Resolver {
                 ty: self.resolve_type(&tag.ty),
                 span: tag.name.span,
                 preassigned: false,
+                readonly: false,
             }];
             for f in o.iter().filter(|f| f.name.name != disc) {
                 let mut ty = self.resolve_type(&f.ty);
@@ -2892,6 +2919,7 @@ impl Resolver {
                     ty,
                     span: f.name.span,
                     preassigned: f.optional,
+                    readonly: false,
                 });
             }
             self.enums[id.0 as usize].variants.push(VariantDef {

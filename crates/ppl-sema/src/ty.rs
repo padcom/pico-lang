@@ -163,6 +163,11 @@ pub enum Ty {
     /// A discriminated object union narrowed to one variant (only in type checking: values
     /// are the enum's). The name is the enum's.
     Variant(EnumId, u32, Arc<str>),
+    /// `type Meters = distinct f64`: a nominal type with its base type's representation (the
+    /// id tells distinct types apart).
+    Distinct(u32, Arc<str>, Box<Ty>),
+    /// `immutable T`: a deep read-only view (only during type checking).
+    Immutable(Box<Ty>),
     /// A function value (a closure, or a named function used as a value): parameter types
     /// and the result type.
     Fn(Arc<[Ty]>, Box<Ty>),
@@ -215,6 +220,24 @@ impl Ty {
     /// function ids).
     pub fn type_owner(id: StructId) -> u32 {
         0x8000_0000 | id.0
+    }
+
+    /// Removes `immutable` everywhere (it only matters while type checking).
+    pub fn strip_immutable(&self) -> Ty {
+        let s = |t: &Ty| t.strip_immutable();
+        match self {
+            Ty::Immutable(t) => s(t),
+            Ty::Array(t) => Ty::Array(Box::new(s(t))),
+            Ty::Fixed(t, n) => Ty::Fixed(Box::new(s(t)), *n),
+            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(s).collect()),
+            Ty::Nullable(t) => Ty::Nullable(Box::new(s(t))),
+            Ty::Ref(t) => Ty::Ref(Box::new(s(t))),
+            Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(s).collect()),
+            Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(s).collect()),
+            Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(s).collect()),
+            Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(s).collect(), Box::new(s(r))),
+            t => t.clone(),
+        }
     }
 
     /// Whether a type parameter of `owner` occurs in this type.
@@ -270,6 +293,7 @@ impl Ty {
             // `T?` with `T = U?` stays `U?`.
             Ty::Nullable(t) => s(t).nullable(),
             Ty::Ref(t) => Ty::Ref(Box::new(s(t))),
+            Ty::Immutable(t) => Ty::Immutable(Box::new(s(t))),
             Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(s).collect()),
@@ -292,6 +316,7 @@ impl Ty {
             Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(Ty::erase).collect()),
             Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(Ty::erase).collect(), Box::new(r.erase())),
             Ty::Variant(e, _, n) => Ty::Enum(*e, n.clone()),
+            Ty::Distinct(_, _, b) | Ty::Immutable(b) => b.erase(),
             // A union is stored as its anonymous enum.
             Ty::Union(e, _) => Ty::Enum(*e, self.to_string().into()),
             t => t.clone(),
@@ -342,6 +367,9 @@ impl Ty {
             (Ty::Lits(a, xs), Ty::Lits(b, ys)) => a == b && xs.iter().all(|x| ys.contains(x)),
             (Ty::Lits(a, _), t) => a.widens_to(t),
             (Ty::Variant(e, _, _), Ty::Enum(f, _)) => e == f,
+            // A mutable value can be viewed as immutable.
+            (Ty::Immutable(a), Ty::Immutable(b)) => a.widens_to(b),
+            (t, Ty::Immutable(inner)) => t.widens_to(inner),
             (Ty::Nullable(a), Ty::Nullable(b)) => a.widens_to(b),
             (t, Ty::Nullable(inner)) => t.widens_to(inner),
             _ => false,
@@ -386,7 +414,10 @@ impl fmt::Display for Ty {
                 let parts: Vec<String> = ms.iter().map(|t| t.to_string()).collect();
                 f.write_str(&parts.join(" | "))
             }
-            Ty::Variant(_, _, name) | Ty::Param(_, _, name) => f.write_str(name),
+            Ty::Variant(_, _, name) | Ty::Param(_, _, name) | Ty::Distinct(_, name, _) => {
+                f.write_str(name)
+            }
+            Ty::Immutable(t) => write!(f, "immutable {t}"),
             Ty::Fn(ps, r) => {
                 let parts: Vec<String> = ps.iter().map(|t| t.to_string()).collect();
                 write!(f, "({}) => {r}", parts.join(", "))
