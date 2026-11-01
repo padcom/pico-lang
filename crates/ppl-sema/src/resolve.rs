@@ -37,6 +37,7 @@ pub fn resolve(module: &ast::Module, file: FileId) -> (Program, Vec<Diagnostic>)
         alias_cache: HashMap::new(),
         resolving_aliases: Vec::new(),
         unions: Vec::new(),
+        cur_fn: FnId(0),
     };
     let program = r.program(module);
     (program, r.diags)
@@ -69,6 +70,8 @@ struct FnState {
     /// Inside a class's code (including static methods and static initializers): the class,
     /// whose static members are in scope.
     owner: Option<StructId>,
+    /// A generic function's type parameters, by name.
+    type_params: Vec<(String, Ty)>,
 }
 
 struct Resolver {
@@ -98,6 +101,8 @@ struct Resolver {
     resolving_aliases: Vec<String>,
     /// Interned unions: the members and the anonymous enum that stores them.
     unions: Vec<(Vec<Ty>, EnumId)>,
+    /// The function being resolved (owner of its type parameters).
+    cur_fn: FnId,
 }
 
 enum Found {
@@ -305,12 +310,14 @@ impl Resolver {
             self.fns[id.0 as usize] = Some(func);
         }
         for (id, f, this) in fn_decls {
+            self.cur_fn = id;
             let func = self.function(f, false, this);
             self.fns[id.0 as usize] = Some(func);
         }
         let mut static_inits = Vec::new();
         for c in &classes {
             for (id, f, this, is_abstract) in &c.methods {
+                self.cur_fn = *id;
                 let func = if *is_abstract {
                     if f.body.is_some() {
                         self.error(
@@ -353,6 +360,7 @@ impl Resolver {
                 ExprKind::Call {
                     callee: Box::new(callee),
                     args: Vec::new(),
+                    type_args: Vec::new(),
                 },
                 module.span.shrink_to_lo(),
             );
@@ -373,6 +381,7 @@ impl Resolver {
             is_entry: true,
             this: None,
             owner: None,
+            generics: Vec::new(),
         }));
 
         Program {
@@ -709,9 +718,6 @@ impl Resolver {
             };
             self.not_implemented(name.span, what);
         }
-        if !f.generics.is_empty() {
-            self.not_implemented(f.generics[0].span, "generic functions");
-        }
         if let Some(t) = &f.throws {
             self.not_implemented(t.span, "`throws` clauses");
         }
@@ -721,6 +727,14 @@ impl Resolver {
             ..Default::default()
         };
         self.f.scopes.push(Scope::default());
+        if !f.generics.is_empty() && this_struct.is_some() {
+            self.not_implemented(f.generics[0].span, "generic methods");
+        }
+        let generics = if this_struct.is_none() {
+            self.type_params(&f.generics, &f.where_clause)
+        } else {
+            Vec::new()
+        };
         if let Some(sid) = this_struct {
             let ty = self.struct_ty(sid);
             let id = LocalId(self.f.locals.len() as u32);
@@ -803,6 +817,94 @@ impl Resolver {
             is_entry,
             this: self.f.this,
             owner,
+            generics,
+        }
+    }
+
+    /// Declares a generic function's type parameters (as `Ty::Param` of the current
+    /// function) and resolves their bounds, from `extends` and `where`.
+    fn type_params(
+        &mut self,
+        params: &[ast::GenericParam],
+        wheres: &[ast::WherePredicate],
+    ) -> Vec<TypeParam> {
+        let owner = self.cur_fn.0;
+        let mut out: Vec<TypeParam> = Vec::new();
+        for (i, g) in params.iter().enumerate() {
+            let ast::GenericKind::Type { default, .. } = &g.kind else {
+                self.not_implemented(g.span, "`comptime` parameters");
+                continue;
+            };
+            if let Some(d) = default {
+                self.not_implemented(d.span, "default type parameters");
+            }
+            self.f.type_params.push((
+                g.name.name.clone(),
+                Ty::Param(owner, i as u32, g.name.name.as_str().into()),
+            ));
+            out.push(TypeParam {
+                name: g.name.name.clone(),
+                span: g.name.span,
+                bounds: Vec::new(),
+            });
+        }
+        // Bounds may mention any of the parameters, so they're resolved afterwards.
+        for (i, g) in params.iter().enumerate() {
+            if let ast::GenericKind::Type { bound: Some(b), .. } = &g.kind {
+                let bs = self.bounds(b);
+                if let Some(tp) = out.get_mut(i) {
+                    tp.bounds.extend(bs);
+                }
+            }
+        }
+        for w in wheres {
+            let target = match &w.ty.kind {
+                ast::TypeKind::Path { path, args } if path.len() == 1 && args.is_empty() => {
+                    out.iter().position(|p| p.name == path[0].name)
+                }
+                _ => None,
+            };
+            match target {
+                Some(i) => {
+                    let bs = self.bounds(&w.bound);
+                    out[i].bounds.extend(bs);
+                }
+                None => self.error(
+                    codes::UNKNOWN_TYPE,
+                    w.ty.span,
+                    "a `where` clause constrains a type parameter of this function",
+                    "not a type parameter",
+                ),
+            }
+        }
+        out
+    }
+
+    /// `Comparable<T>`, `Equatable<T>`, an interface, or several joined with `&`.
+    fn bounds(&mut self, t: &ast::Type) -> Vec<Bound> {
+        match &t.kind {
+            ast::TypeKind::Intersection(parts) => {
+                parts.iter().flat_map(|p| self.bounds(p)).collect()
+            }
+            ast::TypeKind::Path { path, .. } if path.len() == 1 && path[0].name == "Comparable" => {
+                vec![Bound::Comparable]
+            }
+            ast::TypeKind::Path { path, .. } if path.len() == 1 && path[0].name == "Equatable" => {
+                vec![Bound::Equatable]
+            }
+            _ => match self.resolve_type(t) {
+                Ty::Iface(sid, _) => vec![Bound::Iface(sid)],
+                Ty::Error => Vec::new(),
+                other => {
+                    self.error(
+                        codes::UNKNOWN_TYPE,
+                        t.span,
+                        format!("`{other}` can't be a bound"),
+                        "bounds are interfaces",
+                    );
+                    Vec::new()
+                }
+            },
         }
     }
 
@@ -1691,6 +1793,7 @@ impl Resolver {
             is_entry: false,
             this: self.f.this,
             owner: Some(sid),
+            generics: Vec::new(),
         }
     }
 
@@ -1720,6 +1823,7 @@ impl Resolver {
             ExprKind::Call {
                 callee: Box::new(callee),
                 args: vec![msg],
+                type_args: Vec::new(),
             },
             span,
         );
@@ -1787,6 +1891,7 @@ impl Resolver {
             is_entry: false,
             this: None,
             owner: Some(sid),
+            generics: Vec::new(),
         }
     }
 
@@ -2090,6 +2195,19 @@ impl Resolver {
 
     pub(crate) fn resolve_type(&mut self, t: &ast::Type) -> Ty {
         match &t.kind {
+            ast::TypeKind::Path { path, args }
+                if path.len() == 1
+                    && args.is_empty()
+                    && self.f.type_params.iter().any(|(n, _)| *n == path[0].name) =>
+            {
+                let (_, ty) = self
+                    .f
+                    .type_params
+                    .iter()
+                    .find(|(n, _)| *n == path[0].name)
+                    .expect("checked");
+                ty.clone()
+            }
             ast::TypeKind::Path { path, args } if path.len() == 1 && args.is_empty() => {
                 match Ty::from_name(&path[0].name) {
                     Some(ty) => ty,
@@ -2958,9 +3076,7 @@ impl Resolver {
                 type_args,
                 args,
             } => {
-                if !type_args.is_empty() {
-                    self.not_implemented(type_args[0].span, "generic calls");
-                }
+                let type_args = type_args.iter().map(|t| self.resolve_type(t)).collect();
                 let callee = self.lower_expr(callee);
                 let mut out = Vec::new();
                 for a in args {
@@ -2972,6 +3088,7 @@ impl Resolver {
                 ExprKind::Call {
                     callee: Box::new(callee),
                     args: out,
+                    type_args,
                 }
             }
             A::NonNull(inner) => ExprKind::NonNull(Box::new(self.lower_expr(inner))),

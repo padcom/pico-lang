@@ -163,6 +163,9 @@ pub enum Ty {
     /// A discriminated object union narrowed to one variant (only in type checking: values
     /// are the enum's). The name is the enum's.
     Variant(EnumId, u32, Arc<str>),
+    /// Type parameter `index` of generic function `owner` (an `FnId`), by name for messages.
+    /// Monomorphization substitutes it before code generation.
+    Param(u32, u32, Arc<str>),
     /// `T?`
     Nullable(Box<Ty>),
     /// A type error was already reported; suppresses follow-up errors.
@@ -203,6 +206,35 @@ impl Ty {
 
     pub fn is_int(&self) -> bool {
         matches!(self.erase(), Ty::Int(_))
+    }
+
+    /// Whether a type parameter of `owner` occurs in this type.
+    pub fn has_params(&self, owner: u32) -> bool {
+        match self {
+            Ty::Param(o, _, _) => *o == owner,
+            Ty::Array(t) | Ty::Fixed(t, _) | Ty::Nullable(t) | Ty::Ref(t) | Ty::Lits(t, _) => {
+                t.has_params(owner)
+            }
+            Ty::Tuple(ts) => ts.iter().any(|t| t.has_params(owner)),
+            _ => false,
+        }
+    }
+
+    /// Replaces the type parameters of `owner` with `args`.
+    pub fn subst(&self, owner: u32, args: &[Ty]) -> Ty {
+        let s = |t: &Ty| t.subst(owner, args);
+        match self {
+            Ty::Param(o, i, _) if *o == owner => {
+                args.get(*i as usize).cloned().unwrap_or(Ty::Error)
+            }
+            Ty::Array(t) => Ty::Array(Box::new(s(t))),
+            Ty::Fixed(t, n) => Ty::Fixed(Box::new(s(t)), *n),
+            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(s).collect()),
+            // `T?` with `T = U?` stays `U?`.
+            Ty::Nullable(t) => s(t).nullable(),
+            Ty::Ref(t) => Ty::Ref(Box::new(s(t))),
+            t => t.clone(),
+        }
     }
 
     /// The runtime type: literal types become their base type (also inside other types).
@@ -303,7 +335,7 @@ impl fmt::Display for Ty {
                 let parts: Vec<String> = ms.iter().map(|t| t.to_string()).collect();
                 f.write_str(&parts.join(" | "))
             }
-            Ty::Variant(_, _, name) => f.write_str(name),
+            Ty::Variant(_, _, name) | Ty::Param(_, _, name) => f.write_str(name),
             Ty::Nullable(t) => write!(f, "{t}?"),
             Ty::Error => f.write_str("{error}"),
         }

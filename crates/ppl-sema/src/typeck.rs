@@ -23,7 +23,7 @@ pub struct FnSig {
 }
 
 /// The type checker's results.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Types {
     /// The type of every expression (indexed by `ExprId`).
     pub exprs: Vec<Ty>,
@@ -68,6 +68,60 @@ pub struct Types {
     pub object_variants: HashMap<ExprId, (EnumId, u32, Vec<u32>)>,
     /// Patterns that test which member a union value holds (by member index).
     pub union_tests: HashMap<ExprId, u32>,
+    /// Calls of generic functions: the type arguments (may mention the caller's own type
+    /// parameters; monomorphization substitutes them).
+    pub instances: HashMap<ExprId, Vec<Ty>>,
+    /// Method calls on a value whose type is a type parameter: the method's name.
+    pub param_calls: HashMap<ExprId, String>,
+}
+
+impl Types {
+    /// These results with generic function `owner`'s type parameters replaced by `args`
+    /// (what one monomorphized instance sees).
+    pub fn substituted(&self, owner: u32, args: &[Ty]) -> Types {
+        let s = |t: &Ty| t.subst(owner, args);
+        Types {
+            exprs: self.exprs.iter().map(s).collect(),
+            coercions: self.coercions.iter().map(|(k, t)| (*k, s(t))).collect(),
+            locals: self
+                .locals
+                .iter()
+                .map(|ls| ls.iter().map(s).collect())
+                .collect(),
+            globals: self.globals.clone(),
+            sigs: self
+                .sigs
+                .iter()
+                .map(|g| FnSig {
+                    params: g.params.iter().map(s).collect(),
+                    ret: s(&g.ret),
+                })
+                .collect(),
+            formats: self.formats.clone(),
+            fields: self.fields.clone(),
+            objects: self.objects.clone(),
+            methods: self.methods.clone(),
+            narrowed: self.narrowed.clone(),
+            variants: self.variants.clone(),
+            pat_fields: self.pat_fields.clone(),
+            variant_args: self.variant_args.clone(),
+            getters: self.getters.clone(),
+            setters: self.setters.clone(),
+            ctor_calls: self.ctor_calls.clone(),
+            virtual_calls: self.virtual_calls.clone(),
+            downcasts: self.downcasts.clone(),
+            iface_calls: self.iface_calls.clone(),
+            variant_fields: self.variant_fields.clone(),
+            object_variants: self.object_variants.clone(),
+            union_tests: self.union_tests.clone(),
+            instances: self
+                .instances
+                .iter()
+                .map(|(k, ts)| (*k, ts.iter().map(s).collect()))
+                .collect(),
+            param_calls: self.param_calls.clone(),
+        }
+    }
 }
 
 impl Types {
@@ -113,6 +167,8 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             variant_fields: HashMap::new(),
             object_variants: HashMap::new(),
             union_tests: HashMap::new(),
+            instances: HashMap::new(),
+            param_calls: HashMap::new(),
         },
         narrow: Vec::new(),
         diags: Vec::new(),
@@ -336,6 +392,26 @@ fn untyped_lit(e: &Expr) -> bool {
 }
 
 const NULL_HELP: &str = "the value may be null: check it first (`if (x != null) …`), give a default with `??`, or assert with `!`";
+
+/// Expressions whose type comes from what's expected (literals, `[]`, `null`, `{ … }`):
+/// generic inference looks at the other arguments first.
+fn needs_context(e: &Expr) -> bool {
+    untyped_lit(e)
+        || matches!(&e.kind, ExprKind::Null | ExprKind::Object { ty: None, .. })
+        || matches!(&e.kind, ExprKind::Array(xs) if xs.is_empty())
+}
+
+/// Whether every type parameter of `owner` in `p` already has a value.
+fn subst_complete(p: &Ty, owner: u32, subst: &[Option<Ty>]) -> bool {
+    match p {
+        Ty::Param(o, i, _) if *o == owner => subst[*i as usize].is_some(),
+        Ty::Array(t) | Ty::Fixed(t, _) | Ty::Nullable(t) | Ty::Ref(t) => {
+            subst_complete(t, owner, subst)
+        }
+        Ty::Tuple(ts) => ts.iter().all(|t| subst_complete(t, owner, subst)),
+        _ => true,
+    }
+}
 
 fn is_float_lit(e: &Expr) -> bool {
     match &e.kind {
@@ -1138,7 +1214,29 @@ impl<'p> Checker<'p> {
                 }
                 t
             }
-            ExprKind::Call { callee, args } => self.call(e, callee, args),
+            ExprKind::Call {
+                callee,
+                args,
+                type_args,
+            } => {
+                if let ExprKind::Fn(id) = callee.kind
+                    && !self.program.func(id).generics.is_empty()
+                {
+                    self.set(callee, Ty::Void);
+                    return self.call_generic(e, id, args, type_args);
+                }
+                if let Some(t) = type_args.first() {
+                    let _ = t;
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::WRONG_ARG_COUNT,
+                            "type arguments for a function that isn't generic",
+                        )
+                        .primary(callee.span, "takes no type arguments"),
+                    );
+                }
+                self.call(e, callee, args)
+            }
             ExprKind::Member {
                 object,
                 name,
@@ -2959,6 +3057,10 @@ impl<'p> Checker<'p> {
             Ty::Lits(b, _) => self.equatable(b),
             Ty::Union(_, ms) => ms.iter().all(|m| self.equatable(m)),
             Ty::Variant(..) => true,
+            Ty::Param(..) => self
+                .bounds_of(t)
+                .iter()
+                .any(|b| matches!(b, Bound::Comparable | Bound::Equatable)),
             // Classes without `equals` compare by identity.
             Ty::Class(..) => true,
             Ty::Enum(id, _) => self
@@ -3286,10 +3388,12 @@ impl<'p> Checker<'p> {
                 let t = self.join(e.span, op, l, &lt, r, &rt);
                 let ok = match op {
                     Eq | Ne => self.equatable(&t),
-                    _ => matches!(
-                        t,
-                        Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Error
-                    ),
+                    _ => {
+                        matches!(
+                            t.erase(),
+                            Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Error
+                        ) || self.bounds_of(&t).contains(&Bound::Comparable)
+                    }
                 };
                 if !ok {
                     self.invalid_operand(
@@ -3536,6 +3640,23 @@ impl<'p> Checker<'p> {
                 if let Some(r) = self.builtin_method(e, &t, name, *name_span, args) {
                     return r;
                 }
+                if let Ty::Param(..) = t {
+                    if let Some(r) = self.param_method(e, &t, name, *name_span, args) {
+                        return r;
+                    }
+                    for a in args {
+                        self.infer(a);
+                    }
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNKNOWN_MEMBER,
+                            format!("`{t}` has no method `{name}`"),
+                        )
+                        .primary(*name_span, "not provided by its bounds")
+                        .help(format!("add a bound: `{t} extends …`")),
+                    );
+                    return Ty::Error;
+                }
                 if let Ty::Iface(sid, _) = &t {
                     let def = self.program.struct_def(*sid);
                     if let Some(slot) = def.methods.iter().position(|(n, _)| n == name) {
@@ -3657,6 +3778,257 @@ impl<'p> Checker<'p> {
             );
         }
         Some(ret)
+    }
+
+    /// The bounds of a type parameter.
+    fn bounds_of(&self, t: &Ty) -> &'p [Bound] {
+        match t {
+            Ty::Param(owner, i, _) => self
+                .program
+                .func(FnId(*owner))
+                .generics
+                .get(*i as usize)
+                .map_or(&[][..], |p| &p.bounds[..]),
+            _ => &[],
+        }
+    }
+
+    /// Whether `t` meets `bound` (a type parameter meets the bounds it declares).
+    fn satisfies(&self, t: &Ty, bound: &Bound) -> bool {
+        if t.is_error() {
+            return true;
+        }
+        if let Ty::Param(..) = t {
+            let own = self.bounds_of(t);
+            return own.contains(bound)
+                || (*bound == Bound::Equatable && own.contains(&Bound::Comparable));
+        }
+        match bound {
+            Bound::Comparable => {
+                matches!(t.erase(), Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str)
+            }
+            Bound::Equatable => self.equatable(t),
+            Bound::Iface(i) => match t {
+                Ty::Struct(s, _) | Ty::Class(s, _) | Ty::Iface(s, _) => {
+                    self.program.implements(*s, *i)
+                }
+                _ => false,
+            },
+        }
+    }
+
+    /// Infers type parameters by matching a parameter type against an argument type.
+    fn unify(&self, owner: u32, p: &Ty, a: &Ty, subst: &mut [Option<Ty>]) {
+        match (p, a) {
+            (Ty::Param(o, i, _), _) if *o == owner => {
+                let slot = &mut subst[*i as usize];
+                match slot {
+                    None if !matches!(a, Ty::Never | Ty::Error | Ty::Null) => {
+                        *slot = Some(a.clone())
+                    }
+                    // A later argument may widen an earlier guess: `max(1i32, x)` with `x: i64`.
+                    Some(prev) if prev.widens_to(a) && prev != a => *slot = Some(a.clone()),
+                    _ => {}
+                }
+            }
+            (Ty::Array(p), Ty::Array(a)) | (Ty::Fixed(p, _), Ty::Fixed(a, _)) => {
+                self.unify(owner, p, a, subst)
+            }
+            (Ty::Nullable(p), Ty::Nullable(a)) => self.unify(owner, p, a, subst),
+            (Ty::Nullable(p), a) => self.unify(owner, p, a, subst),
+            (Ty::Tuple(ps), Ty::Tuple(xs)) if ps.len() == xs.len() => {
+                for (p, a) in ps.iter().zip(xs) {
+                    self.unify(owner, p, a, subst);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A call of a generic function: type arguments are given or inferred from the arguments
+    /// (typed ones first, then literals, which adapt to what's known), then the bounds are
+    /// checked and the instance recorded.
+    fn call_generic(&mut self, e: &Expr, id: FnId, args: &[Expr], explicit: &[Ty]) -> Ty {
+        let f = self.program.func(id);
+        let n = f.generics.len();
+        if f.ret.is_none() && self.state[id.0 as usize] == FnState::Unchecked {
+            self.check_fn(id);
+        }
+        let sig = self.types.sigs[id.0 as usize].clone();
+        let owner = id.0;
+        let mut subst: Vec<Option<Ty>> = vec![None; n];
+        if !explicit.is_empty() {
+            if explicit.len() != n {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::WRONG_ARG_COUNT,
+                        format!(
+                            "`{}` takes {n} type argument{}, but {} were given",
+                            f.name,
+                            if n == 1 { "" } else { "s" },
+                            explicit.len()
+                        ),
+                    )
+                    .primary(e.span, "wrong number of type arguments"),
+                );
+            }
+            for (i, t) in explicit.iter().enumerate().take(n) {
+                subst[i] = Some(t.clone());
+            }
+        }
+        if args.len() != sig.params.len() {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::WRONG_ARG_COUNT,
+                    format!(
+                        "`{}` takes {} argument{}, but {} were given",
+                        f.name,
+                        sig.params.len(),
+                        if sig.params.len() == 1 { "" } else { "s" },
+                        args.len()
+                    ),
+                )
+                .primary(e.span, "wrong number of arguments")
+                .secondary(f.name_span, "declared here"),
+            );
+            for a in args {
+                self.infer(a);
+            }
+            return Ty::Error;
+        }
+        let pairs: Vec<(&Expr, &Ty)> = args.iter().zip(&sig.params).collect();
+        let mut done = vec![false; pairs.len()];
+        let mut inferred = vec![false; pairs.len()];
+        // Typed arguments first, so literals can adapt: `max(x, 1)` with `x: i32`.
+        // Then literals (they can decide a type), then `[]`, `null` and object literals.
+        for pass in 0..3 {
+            for (k, (a, p)) in pairs.iter().enumerate() {
+                let skip = match pass {
+                    0 => needs_context(a),
+                    1 => needs_context(a) && !untyped_lit(a),
+                    _ => false,
+                };
+                if done[k] || skip {
+                    continue;
+                }
+                let known = p.subst(
+                    owner,
+                    &subst
+                        .iter()
+                        .map(|t| t.clone().unwrap_or(Ty::Error))
+                        .collect::<Vec<_>>(),
+                );
+                if !p.has_params(owner)
+                    || !known.has_params(owner) && subst_complete(p, owner, &subst)
+                {
+                    self.check(a, &Expect::new(known));
+                } else {
+                    let at = self.infer(a);
+                    self.unify(owner, p, &at, &mut subst);
+                    inferred[k] = true;
+                }
+                done[k] = true;
+            }
+        }
+        let mut args_ty: Vec<Ty> = Vec::new();
+        for (i, t) in subst.iter().enumerate() {
+            match t {
+                Some(t) => args_ty.push(t.clone()),
+                None => {
+                    let name = &f.generics[i].name;
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::CANT_INFER,
+                            format!("can't infer the type argument `{name}`"),
+                        )
+                        .primary(
+                            e.span,
+                            format!("`{name}` isn't determined by the arguments"),
+                        )
+                        .help(format!("pass it explicitly: `{}<…>(…)`", f.name)),
+                    );
+                    args_ty.push(Ty::Error);
+                }
+            }
+        }
+        // Arguments inferred into a parameter type: convert them to the final types.
+        for (k, (a, p)) in pairs.iter().enumerate() {
+            if inferred[k] {
+                let want = p.subst(owner, &args_ty);
+                let found = self.types.expr(a.id).clone();
+                if found != want && !found.is_error() && !want.is_error() {
+                    self.coerce(a, found, &Expect::new(want));
+                }
+            }
+        }
+        for (i, tp) in f.generics.iter().enumerate() {
+            for b in &tp.bounds {
+                if !self.satisfies(&args_ty[i], b) {
+                    let what = match b {
+                        Bound::Comparable => "`Comparable`".to_string(),
+                        Bound::Equatable => "`Equatable`".to_string(),
+                        Bound::Iface(s) => format!("`{}`", self.program.struct_def(*s).name),
+                    };
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNSATISFIED_BOUND,
+                            format!("`{}` doesn't implement {what}", args_ty[i]),
+                        )
+                        .primary(e.span, format!("`{}` = `{}` here", tp.name, args_ty[i]))
+                        .secondary(tp.span, format!("`{}` must implement {what}", tp.name)),
+                    );
+                }
+            }
+        }
+        self.types.instances.insert(e.id, args_ty.clone());
+        sig.ret.subst(owner, &args_ty)
+    }
+
+    /// A method call on a value of a type parameter: `a.compareTo(b)` and the methods of
+    /// interface bounds.
+    fn param_method(
+        &mut self,
+        e: &Expr,
+        t: &Ty,
+        name: &str,
+        name_span: Span,
+        args: &[Expr],
+    ) -> Option<Ty> {
+        let bounds = self.bounds_of(t);
+        let builtin = match name {
+            "compareTo" if bounds.contains(&Bound::Comparable) => Some(Ty::Int(IntTy::I32)),
+            "equals"
+                if bounds
+                    .iter()
+                    .any(|b| matches!(b, Bound::Comparable | Bound::Equatable)) =>
+            {
+                Some(Ty::Bool)
+            }
+            _ => None,
+        };
+        if let Some(ret) = builtin {
+            if args.len() != 1 {
+                self.diags.push(
+                    Diagnostic::error(codes::WRONG_ARG_COUNT, format!("`{name}` takes 1 argument"))
+                        .primary(e.span, "wrong number of arguments"),
+                );
+            }
+            for a in args {
+                self.check(a, &Expect::new(t.clone()));
+            }
+            self.types.param_calls.insert(e.id, name.to_string());
+            return Some(ret);
+        }
+        for b in bounds {
+            if let Bound::Iface(i) = b
+                && let Some(m) = self.program.struct_def(*i).method(name)
+            {
+                self.types.param_calls.insert(e.id, name.to_string());
+                return Some(self.call_fn(e, m, args));
+            }
+        }
+        let _ = name_span;
+        None
     }
 
     fn builtin(&mut self, e: &Expr, b: Builtin, args: &[Expr]) -> Ty {

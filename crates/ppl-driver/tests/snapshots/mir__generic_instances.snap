@@ -1,0 +1,97 @@
+---
+source: crates/ppl-driver/tests/mir.rs
+expression: "mir(r#\"\nfunction max<T extends Comparable<T>>(a: T, b: T): T { if (a.compareTo(b) >= 0) a else b }\nconst i = max(1, 2)\nconst s = max(\"a\", \"b\")\nconst again = max(3, 4)\n\"#)"
+---
+global @g0: i64 // i
+global @g1: string // s
+global @g2: i64 // again
+
+fn max() -> void {
+  bb0:
+    unreachable
+}
+
+fn <main>() -> void {
+    let _0: i64
+    let _1: string
+    let _2: i64
+  bb0:
+    _0 = call max<i64>(const 1_i64, const 2_i64) -> bb1
+  bb1:
+    @g0 = _0
+    _1 = call max<string>(const "a", const "b") -> bb2
+  bb2:
+    @g1 = _1
+    _2 = call max<i64>(const 3_i64, const 4_i64) -> bb3
+  bb3:
+    @g2 = _2
+    return
+}
+
+fn max<i64>(_0: i64, _1: i64) -> i64 {
+    let _2: i32
+    let _3: bool
+    let _4: bool
+    let _5: bool
+    let _6: i64
+  bb0:
+    _3 = Lt(_0, _1)
+    _4 = Gt(_0, _1)
+    branch _3 -> [true: bb1, false: bb2]
+  bb1:
+    _2 = const -1_i32
+    goto bb5
+  bb2:
+    branch _4 -> [true: bb3, false: bb4]
+  bb3:
+    _2 = const 1_i32
+    goto bb5
+  bb4:
+    _2 = const 0_i32
+    goto bb5
+  bb5:
+    _5 = Ge(_2, const 0_i32)
+    branch _5 -> [true: bb6, false: bb7]
+  bb6:
+    _6 = _0
+    goto bb8
+  bb7:
+    _6 = _1
+    goto bb8
+  bb8:
+    return _6
+}
+
+fn max<string>(_0: string, _1: string) -> string {
+    let _2: i32
+    let _3: bool
+    let _4: bool
+    let _5: bool
+    let _6: string
+  bb0:
+    _3 = Lt(_0, _1)
+    _4 = Gt(_0, _1)
+    branch _3 -> [true: bb1, false: bb2]
+  bb1:
+    _2 = const -1_i32
+    goto bb5
+  bb2:
+    branch _4 -> [true: bb3, false: bb4]
+  bb3:
+    _2 = const 1_i32
+    goto bb5
+  bb4:
+    _2 = const 0_i32
+    goto bb5
+  bb5:
+    _5 = Ge(_2, const 0_i32)
+    branch _5 -> [true: bb6, false: bb7]
+  bb6:
+    _6 = _0
+    goto bb8
+  bb7:
+    _6 = _1
+    goto bb8
+  bb8:
+    return _6
+}

@@ -303,6 +303,26 @@ pub struct Function {
     /// The struct or class whose code this is (methods, constructors, static members): it
     /// may use the type's private members.
     pub owner: Option<StructId>,
+    /// Type parameters (`function max<T extends …>`); `Ty::Param(this fn, i, _)` in the body.
+    pub generics: Vec<TypeParam>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeParam {
+    pub name: String,
+    pub span: Span,
+    pub bounds: Vec<Bound>,
+}
+
+/// What a type argument must provide.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Bound {
+    /// Implements this interface.
+    Iface(StructId),
+    /// The built-in `Comparable<T>`: `compareTo(o: T): i32` (numbers, chars, strings).
+    Comparable,
+    /// The built-in `Equatable<T>`: `==` / `equals(o: T): bool`.
+    Equatable,
 }
 
 impl Function {
@@ -564,6 +584,8 @@ pub enum ExprKind {
     Call {
         callee: Box<Expr>,
         args: Vec<Expr>,
+        /// Explicit type arguments: `max<i32>(a, b)`.
+        type_args: Vec<Ty>,
     },
     Member {
         object: Box<Expr>,
@@ -707,7 +729,7 @@ impl Expr {
             | ExprKind::CtorCall { args, .. }
             | ExprKind::SuperCall { args, .. } => args.iter().for_each(&mut *f),
             ExprKind::InstanceOf { expr, .. } => f(expr),
-            ExprKind::Call { callee, args } => {
+            ExprKind::Call { callee, args, .. } => {
                 f(callee);
                 args.iter().for_each(&mut *f);
             }

@@ -227,7 +227,8 @@ impl<'ctx> Gen<'ctx, '_> {
                     .into()
             }
             Ty::Lits(..) | Ty::Union(..) | Ty::Variant(..) => return self.ty(&t.erase()),
-            Ty::Void | Ty::Never | Ty::Error | Ty::Null => return None,
+            // Monomorphization removed every type parameter.
+            Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..) => return None,
         })
     }
 
@@ -288,7 +289,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
             }
             Ty::Lits(..) | Ty::Union(..) | Ty::Variant(..) => self.size_align(&t.erase()),
-            Ty::Void | Ty::Never | Ty::Error | Ty::Null => (1, 1),
+            Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..) => (1, 1),
         }
     }
 

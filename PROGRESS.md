@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.13: Generics I: functions** (see [PLAN.md](PLAN.md#p313-generics-i-functions))
+**P3.14: Generics II: types and where** (see [PLAN.md](PLAN.md#p314-generics-ii-types-and-where))
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.12) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.13) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -56,6 +56,9 @@ Notes:
   of lowering (`Cx::build_itables`), with MIR-only adapter functions appended to `fns`.
 - §3.5's `switch (cmd) { case "build" … case Run { file } … }` could now use a union
   (`string | Run`); `tests/run/patterns.ppl` still splits it. `unknown` doesn't exist yet.
+- Monomorphization: `Cx.types` is a `Cow<Types>`; an instance is lowered with
+  `Types::substituted(fn, args)` (a full copy — fine for now, quadratic-ish for big programs).
+  Instances are MIR functions `program.fns.len() + i` (before itable adapters).
 - Lowering erases `Ty::Lits/Union/Variant` (`Ty::erase`, `erase_program`) at the end; inside
   lowering, typeck types are unerased, MIR place types become erased only afterwards
   (`mir::project` erases defensively).
@@ -106,7 +109,7 @@ Notes:
 - [x] P3.10 Classes II: inheritance
 - [x] P3.11 Interfaces
 - [x] P3.12 Unions and literal types
-- [ ] P3.13 Generics I: functions
+- [x] P3.13 Generics I: functions
 - [ ] P3.14 Generics II: types and where
 - [ ] P3.15 Closures
 - [ ] P3.16 Function features
@@ -231,3 +234,4 @@ Notes:
 | 2026-11-01 | P3.10 | Inheritance: classes ordered base-first (cycle/unknown/final-base errors), `inherit` copies fields/methods/accessors/vtable/visibility; vtables with required `override` (E0321), final-by-default and `final` (E0322), abstract stubs + E0323/E0324; constructor overloads by arity, `super(…)`/`this(…)` as HIR CtorCall (first statement only, E0326), forwarding default constructors, `super.m()` (SuperCall), `instanceof` + narrowing, upcasts (typeck `upcasts`, no-op conversions), protected access, override signature check (E0325), downcasting type/class patterns (`downcasts`, InstanceOf test into a subclass-typed temp). MIR ClassMeta (base, vtable), Callee::Virtual, Rvalue::InstanceOf; interpreter dispatch by object class; codegen `ppl.classinfo.<C>` globals `{base, [n x ptr]}`, header store, indirect calls, runtime ppl_instance_of. Fixed: a diverging body in a value-returning function ends in `unreachable`. Decision 188. Fixtures: run/inheritance, fail/names/{inheritance,ctor_call}, fail/types/inheritance. |
 | 2026-11-01 | P3.11 | Interfaces: Ty::Iface (StructDef.is_interface, `implements` lists), resolver orders interfaces by `extends`, inherited-first method lists with defaults/abstract stubs, conformance (E0327 missing, E0328 conflicting defaults, public implementations); typeck nominal upcasts to interfaces (class/struct, first-parent interface chains), interface call slots, implementation signature checks (E0325). Lowering: ToIface (boxing structs), IfaceData, Callee::Iface, itables + adapters (virtual when needed). Interpreter Value::Iface; codegen `{ptr, ptr}` fat pointers and `ppl.itable.N` globals. Decision 189. Fixtures: run/interfaces, fail/types/interfaces (structural match without `implements`), fail/names/interfaces. |
 | 2026-11-01 | P3.12 | Ty::Lits/Union/Variant + LitVal; type aliases (lazy, cycle check); resolver union normalization (flatten, null → `T?`, literal merging), interned anonymous enums for unions (EnumOrigin::Union), discriminated object unions (EnumOrigin::Discriminated, discriminant = field 0), `typeof` (HIR TypeOf). Typeck: literals into literal types/union members (`lit_in`), union coercions and joins, discriminant member access and `e.kind == …` / `typeof x == …` narrowing (`tag_facts`), discriminated object literals, union patterns (`union_tests`), exhaustiveness for literal unions and union members. Lowering: Variant construction into unions, type names by tag, union stringification, narrowed reads into members, `erase_program`. Decision 190. Fixtures: run/unions (every §2.5/§2.6 example), fail/types/unions. |
+| 2026-11-01 | P3.13 | Generic functions: Ty::Param(fn, index, name) + subst/has_params; HIR TypeParam/Bound (Comparable, Equatable, interfaces; `extends`, `where`, `&`), explicit type args on calls; typeck call_generic (3-pass inference + unify, E0329/E0330), operations on parameters via bounds (`compareTo`/`equals`, comparisons, interface methods → param_calls), Types::substituted; lowering worklist of instances (`f<i64>`), placeholder for generic bodies, param_call per concrete type (primitive compare → -1/0/1, struct/class/interface methods). MIR snapshot `generic_instances`. Decision 191. Fixtures: run/generics (max<T> over ints, floats, strings, chars), fail/types/generics. |

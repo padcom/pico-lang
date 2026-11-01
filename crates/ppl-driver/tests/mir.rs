@@ -54,3 +54,14 @@ function never(): never { panic("boom") }
 assert(first(10) == 4, "first")
 "#));
 }
+
+#[test]
+fn generic_instances() {
+    // One MIR function per instantiation, named with its type arguments.
+    insta::assert_snapshot!(mir(r#"
+function max<T extends Comparable<T>>(a: T, b: T): T { if (a.compareTo(b) >= 0) a else b }
+const i = max(1, 2)
+const s = max("a", "b")
+const again = max(3, 4)
+"#));
+}

@@ -85,6 +85,8 @@ codes! {
     BAD_CTOR_CALL = 326: "`super(…)`/`this(…)` misplaced, missing or without a matching constructor",
     MISSING_IMPL = 327: "type that doesn't implement an interface method",
     CONFLICTING_DEFAULTS = 328: "conflicting default methods from two interfaces",
+    CANT_INFER = 329: "type argument that can't be inferred",
+    UNSATISFIED_BOUND = 330: "type argument that doesn't meet its bound",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

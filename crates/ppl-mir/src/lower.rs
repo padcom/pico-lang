@@ -21,15 +21,45 @@ pub fn lower(
 ) -> (mir::Program, Vec<Diagnostic>) {
     let mut cx = Cx {
         program,
-        types,
+        types: std::borrow::Cow::Borrowed(types),
         file,
         diags: Vec::new(),
         reported: HashSet::new(),
         itables: Vec::new(),
+        instances: Vec::new(),
     };
+    // Generic functions get a placeholder; their instances are lowered on demand.
     let mut fns: Vec<mir::Function> = (0..program.fns.len())
-        .map(|i| cx.function(FnId(i as u32)))
+        .map(|i| {
+            let id = FnId(i as u32);
+            if program.func(id).generics.is_empty() {
+                cx.function(id)
+            } else {
+                mir::Function {
+                    name: program.func(id).name.clone(),
+                    params: Vec::new(),
+                    ret: Ty::Void,
+                    locals: Vec::new(),
+                    blocks: vec![mir::BasicBlock {
+                        stmts: Vec::new(),
+                        term: Terminator::Unreachable,
+                    }],
+                }
+            }
+        })
         .collect();
+    // Monomorphization: each instance is the generic body seen through substituted types.
+    let mut next = 0;
+    while next < cx.instances.len() {
+        let (id, args) = cx.instances[next].clone();
+        cx.types = std::borrow::Cow::Owned(types.substituted(id.0, &args));
+        let mut f = cx.function(id);
+        let shown: Vec<String> = args.iter().map(|t| t.to_string()).collect();
+        f.name = format!("{}<{}>", f.name, shown.join(", "));
+        fns.push(f);
+        next += 1;
+    }
+    cx.types = std::borrow::Cow::Borrowed(types);
     let itables = cx.build_itables(&mut fns);
     let globals = program
         .globals
@@ -147,7 +177,12 @@ fn erase_program(p: &mut mir::Program) {
 
 struct Cx<'a> {
     program: &'a hir::Program,
-    types: &'a Types,
+    /// The type checker's results; while lowering a generic instance, a copy with its type
+    /// arguments substituted.
+    types: std::borrow::Cow<'a, Types>,
+    /// Generic instances (function, type arguments); instance `i` is MIR function
+    /// `program.fns.len() + i`.
+    instances: Vec<(FnId, Vec<Ty>)>,
     file: &'a SourceFile,
     diags: Vec<Diagnostic>,
     /// Spans already reported as not implemented (lowering has no such gaps right now).
@@ -158,6 +193,22 @@ struct Cx<'a> {
 }
 
 impl Cx<'_> {
+    /// The MIR function for generic `id` instantiated with `args`.
+    fn instance(&mut self, id: FnId, args: Vec<Ty>) -> FnId {
+        let base = self.program.fns.len();
+        match self
+            .instances
+            .iter()
+            .position(|(f, a)| *f == id && *a == args)
+        {
+            Some(i) => FnId((base + i) as u32),
+            None => {
+                self.instances.push((id, args));
+                FnId((base + self.instances.len() - 1) as u32)
+            }
+        }
+    }
+
     /// The itable index for `imp` (a struct or class) used as interface `iface`.
     fn itable(&mut self, imp: StructId, iface: StructId) -> u32 {
         match self.itables.iter().position(|p| *p == (imp, iface)) {
@@ -313,8 +364,8 @@ impl Cx<'_> {
 
     fn function(&mut self, id: FnId) -> mir::Function {
         let f = self.program.func(id);
-        let sig = &self.types.sigs[id.0 as usize];
-        let local_tys = &self.types.locals[id.0 as usize];
+        let sig = self.types.sigs[id.0 as usize].clone();
+        let local_tys = self.types.locals[id.0 as usize].clone();
         let mut b = FnBuilder {
             cx: self,
             hir_fn: f,
@@ -697,8 +748,11 @@ impl FnBuilder<'_, '_> {
     /// Lowers `e` and applies its recorded coercion.
     fn expr(&mut self, e: &Expr) -> Operand {
         let v = self.expr_inner(e);
-        match self.cx.types.coercions.get(&e.id) {
-            Some(to) => self.convert(v, &self.ty(e), to, e.span),
+        match self.cx.types.coercions.get(&e.id).cloned() {
+            Some(to) => {
+                let from = self.ty(e);
+                self.convert(v, &from, &to, e.span)
+            }
             None => v,
         }
     }
@@ -1020,7 +1074,7 @@ impl FnBuilder<'_, '_> {
                 self.assign(place, Rvalue::Use(new.clone()), e.span);
                 if *prefix { new } else { old }
             }
-            ExprKind::Call { callee, args } => self.call(e, callee, args, ty),
+            ExprKind::Call { callee, args, .. } => self.call(e, callee, args, ty),
             ExprKind::Member { object, .. } if *self.ty_of(object) == Ty::Str => {
                 let s = self.expr(object);
                 self.rvalue_to_temp(Rvalue::StrLen(s), ty, e.span)
@@ -2207,6 +2261,110 @@ impl FnBuilder<'_, '_> {
         }
     }
 
+    /// A method call on a type parameter's value, now that the instance's type is known:
+    /// `compareTo`/`equals` on primitives become comparisons; otherwise the concrete type's
+    /// method (through its vtable or itable when needed).
+    fn param_call(
+        &mut self,
+        e: &Expr,
+        object: &Expr,
+        name: &str,
+        args: &[Expr],
+        ty: Ty,
+    ) -> Operand {
+        let t = self.ty_of(object).clone();
+        let primitive = matches!(
+            t.erase(),
+            Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Bool
+        );
+        if primitive && (name == "compareTo" || name == "equals") {
+            let a = self.expr(object);
+            let b = self.expr(&args[0]);
+            if name == "equals" {
+                return self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Eq, a, b), Ty::Bool, e.span);
+            }
+            // -1, 0 or 1.
+            let res = Place::local(self.temp(Ty::Int(IntTy::I32)));
+            let lt = self.rvalue_to_temp(
+                Rvalue::Binary(mir::BinOp::Lt, a.clone(), b.clone()),
+                Ty::Bool,
+                e.span,
+            );
+            let gt = self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Gt, a, b), Ty::Bool, e.span);
+            let (neg, not_neg, pos, zero, join) = (
+                self.new_block(),
+                self.new_block(),
+                self.new_block(),
+                self.new_block(),
+                self.new_block(),
+            );
+            self.terminate(Terminator::Branch {
+                cond: lt,
+                then: neg,
+                else_: not_neg,
+            });
+            self.switch_to(not_neg);
+            self.terminate(Terminator::Branch {
+                cond: gt,
+                then: pos,
+                else_: zero,
+            });
+            for (bb, v) in [(neg, -1), (pos, 1), (zero, 0)] {
+                self.switch_to(bb);
+                self.assign(
+                    res.clone(),
+                    Rvalue::Use(Operand::Const(Const::Int(v, IntTy::I32))),
+                    e.span,
+                );
+                self.terminate(Terminator::Goto(join));
+            }
+            self.switch_to(join);
+            return Operand::Copy(res);
+        }
+        let sid = match &t {
+            Ty::Struct(s, _) | Ty::Class(s, _) | Ty::Iface(s, _) => *s,
+            other => unreachable!("method `{name}` on {other}"),
+        };
+        let def = self.cx.program.struct_def(sid);
+        let m = def.method(name).expect("bound guarantees the method");
+        let loc = self.loc(e.span);
+        let (callee, recv) = match &t {
+            Ty::Iface(..) => {
+                let slot = def.methods.iter().position(|(n, _)| n == name).unwrap_or(0) as u32;
+                (Callee::Iface { slot, decl: m }, self.expr(object))
+            }
+            Ty::Class(..) => {
+                let callee = match def.virtual_slot(name) {
+                    Some(slot) => Callee::Virtual { slot, decl: m },
+                    None => Callee::Fn(m),
+                };
+                (callee, self.expr(object))
+            }
+            _ => {
+                let place = self.place_of(object);
+                let r =
+                    self.rvalue_to_temp(Rvalue::Ref(place), Ty::Ref(Box::new(t.clone())), e.span);
+                (Callee::Fn(m), r)
+            }
+        };
+        let mut ops = vec![recv];
+        ops.extend(args.iter().map(|a| self.expr(a)));
+        let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+        let next = self.new_block();
+        self.terminate(Terminator::Call {
+            callee,
+            args: ops,
+            dest: dest.clone(),
+            next,
+            loc,
+        });
+        self.switch_to(next);
+        match dest {
+            Some(p) => Operand::Copy(p),
+            None => Operand::Const(Const::Void),
+        }
+    }
+
     /// Calls function `id` with already-evaluated arguments.
     fn call_fn_value(&mut self, id: FnId, args: Vec<Operand>, ty: Ty, span: Span) -> Operand {
         let loc = self.loc(span);
@@ -2232,6 +2390,11 @@ impl FnBuilder<'_, '_> {
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr], ty: Ty) -> Operand {
         let loc = self.loc(e.span);
         match &callee.kind {
+            ExprKind::Member { object, name, .. }
+                if self.cx.types.param_calls.contains_key(&e.id) =>
+            {
+                self.param_call(e, object, name, args, ty)
+            }
             ExprKind::Member { object, .. } if self.cx.types.iface_calls.contains_key(&e.id) => {
                 let slot = self.cx.types.iface_calls[&e.id];
                 let decl = self
@@ -2337,10 +2500,14 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Fn(id) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
+                let id = match self.cx.types.instances.get(&e.id).cloned() {
+                    Some(targs) => self.cx.instance(*id, targs),
+                    None => *id,
+                };
                 let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
                 let next = self.new_block();
                 self.terminate(Terminator::Call {
-                    callee: Callee::Fn(*id),
+                    callee: Callee::Fn(id),
                     args,
                     dest: dest.clone(),
                     next,
