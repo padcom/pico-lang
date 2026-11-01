@@ -26,6 +26,7 @@ typedef struct PplStr {
 /* Memory. v0 is backed by malloc and never frees; the GC (P4.x) keeps this API. Never
  * returns NULL: running out of memory aborts the program. */
 void *ppl_alloc(int64_t size);
+void *ppl_alloc_zeroed(int64_t size); /* class instances */
 
 /* A growable array (`T[]`): `len` elements of the element size the compiler passes, stored
  * contiguously at `data` (zeroed beyond `len` up to `cap`). */

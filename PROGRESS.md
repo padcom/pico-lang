@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.9: Classes I** (see [PLAN.md](PLAN.md#p39-classes-i))
+**P3.10: Classes II: inheritance** (see [PLAN.md](PLAN.md#p310-classes-ii-inheritance))
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -16,7 +16,6 @@ Notes:
   layout (inline values, field places) and make `Place` support fields.
 - Integer literals without context default to `int`; there are no inference variables, so
   `const g = if (c) 1 else 2` is `int` even if later returned as `i32` (by design, §1.3).
-- `tests/fail/types/nominal.ppl` waits for classes (P3.9).
 - Commit only through a `scripts/test.sh` exit-status check. When editing files with scripts,
   assert that anchors exist and slices are non-empty (an empty-slice replace once corrupted
   `ppl_rt.c`; it was restored from git).
@@ -27,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.8) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.9) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -56,6 +55,10 @@ Notes:
 - §3.5's `switch (cmd) { case "build" … case Run { file } … }` mixes strings and a struct,
   which needs unions (P3.12); `tests/run/patterns.ppl` splits it in two. Revisit then, and make
   type-test patterns real tests on unions/`unknown`.
+- Classes reuse `StructDef` (`is_class`), `Ty::Class(StructId)`; a class method's `this` is
+  the object reference (not `Ty::Ref`). Ctors are named `<Class>.constructor`; typeck runs
+  definite assignment on those. Constructor overloading/`this(...)`, `extends`, `virtual` etc.
+  report E0900 — that's P3.10.
 - `match` lowers to sequential arm tests (no decision tree yet); unreachable arms aren't warned
   about (the usefulness checker could do it: `exhaust::Checker::useful` per arm).
 
@@ -94,7 +97,7 @@ Notes:
 - [x] P3.6 Null and narrowing infrastructure
 - [x] P3.7 Enums and basic match
 - [x] P3.8 Advanced patterns and switch
-- [ ] P3.9 Classes I
+- [x] P3.9 Classes I
 - [ ] P3.10 Classes II: inheritance
 - [ ] P3.11 Interfaces
 - [ ] P3.12 Unions and literal types
@@ -219,3 +222,4 @@ Notes:
 | 2026-11-01 | P3.6 | `T?` as nullable pointer (refs) or `{i1, T}`; MIR Const::Null, Proj::Payload, WrapSome/IsNull/Unwrap; convert() handles T→T?, T?→U?, null; `??`, `??=`, `!` (panic), `?.` chains (resolver rewrites the outermost link onto a hidden local: HIR OptChain); `x == null` lowers to IsNull; if-without-else values; printing/debug of nulls; pop() returns T?. Typeck narrowing scopes with facts from conditions, `&&`/`\|\|`, early exits; assignments/loops forget. Null-safe ppl_str_eq; entry-block allocas for debug/pow temporaries. Decision 184. Fixtures: run/{nullable,null_unwrap_panic}, fail/types/nullable. |
 | 2026-11-01 | P3.7 | Ty::Enum, HIR EnumDef/VariantDef, patterns (Wild/Bind/Lit/Variant positional+named/Struct) and Arm with guard; resolver: `Enum.Variant` construction (named + positional args), variant-name identifier patterns, enum cycle check generalized; typeck: constructor arg mapping (E0311/E0312/E0103), pattern checking (E0318), Maranget usefulness with witnesses (`exhaust.rs`, E0317 lists missing cases), unify_exprs for arms; MIR Proj::VariantField, Rvalue::Variant/Tag, sequential match lowering; interpreter Value::Enum; codegen `{i32, [k x i64]}` enums with own size/align computation, generated ppl.eq.<Enum> and debug helpers. Decision 185. Fixtures: run/enums, fail/types/match, fail/names/enums. |
 | 2026-11-01 | P3.8 | HIR PatKind Or/Range/Slice/As/Type + `Pattern::looks_inside`; ExprKind::Is and Match.switch. Resolver: or-alternatives share locals (Binds with reuse), type names as type-test patterns, condition-scoped `is` bindings (`if`/`while`, through `&&`/parens), switch statements vs values. Typeck: bind_local (or-alternatives agree), slice/type/range checks, `is` facts for narrowing, switch statements skip exhaustiveness. Exhaustiveness: or-expansion (capped product), Ctor::Slice with length constructors (`[_, _, ...]` witnesses), fixed arrays. Lowering: single match_pattern (test + bind), or via shared success block, ranges, slices (Proj::Index with const locals, ArraySlice for rest). Runtime ppl_array_slice. Decision 186. Fixtures: run/patterns (every §3.5 example), fail/types/patterns, fail/names/or_patterns. |
+| 2026-11-01 | P3.9 | Classes: StructDef gains is_class/ctor/getters/setters/statics/private set, Function.owner; resolver class_members (fields with literal-typed inits, param properties, accessors, static fields as globals + static init functions called first in the entry, static methods), synthesized constructors with a prologue, `new`, `Class.static` access, private static checks; typeck visibility (E0319) for fields/methods/accessors, getters/setters (incl. compound assignment), identity `==`, definite assignment walk (E0320), static inits checked first; MIR Rvalue::New, class field projections through the reference; interpreter Value::Object (Rc<Obj>) and Step::ObjField; codegen `{ptr header, fields}` objects via ppl_alloc_zeroed. Fixed: assignment checks its value before ending the target's narrowing (`cur = cur.next`). Decision 187. Fixtures: run/classes, fail/types/classes, fail/names/classes; fail/types/nominal now runs. |

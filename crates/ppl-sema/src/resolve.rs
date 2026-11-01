@@ -62,6 +62,9 @@ struct FnState {
     in_entry: bool,
     /// Inside a method: the `this` local and its struct.
     this: Option<(LocalId, StructId)>,
+    /// Inside a class's code (including static methods and static initializers): the class,
+    /// whose static members are in scope.
+    owner: Option<StructId>,
 }
 
 struct Resolver {
@@ -127,6 +130,7 @@ impl Resolver {
         let mut fn_decls: Vec<(FnId, &ast::FnDecl, Option<StructId>)> = Vec::new();
         let mut struct_decls: Vec<(StructId, &ast::StructDecl)> = Vec::new();
         let mut enum_decls: Vec<(EnumId, &ast::EnumDecl)> = Vec::new();
+        let mut class_decls: Vec<(StructId, &ast::ClassDecl)> = Vec::new();
         let mut first_seen: HashMap<String, Span> = HashMap::new();
         for stmt in &module.stmts {
             match &stmt.kind {
@@ -139,14 +143,26 @@ impl Resolver {
                             continue;
                         }
                         let id = StructId(self.structs.len() as u32);
-                        self.structs.push(StructDef {
-                            name: sd.name.name.clone(),
-                            name_span: sd.name.span,
-                            fields: Vec::new(),
-                            methods: Vec::new(),
-                        });
+                        self.structs.push(StructDef::new(
+                            sd.name.name.clone(),
+                            sd.name.span,
+                            false,
+                        ));
                         self.top_structs.insert(sd.name.name.clone(), id);
                         struct_decls.push((id, sd));
+                    }
+                    if let ast::DeclKind::Class(cd) = &d.kind {
+                        if let Some(dec) = d.decorators.first() {
+                            self.not_implemented(dec.span, "decorators");
+                        }
+                        if self.check_duplicate(&mut first_seen, &cd.name) {
+                            continue;
+                        }
+                        let id = StructId(self.structs.len() as u32);
+                        self.structs
+                            .push(StructDef::new(cd.name.name.clone(), cd.name.span, true));
+                        self.top_structs.insert(cd.name.name.clone(), id);
+                        class_decls.push((id, cd));
                     }
                     if let ast::DeclKind::Enum(ed) = &d.kind {
                         if let Some(dec) = d.decorators.first() {
@@ -226,12 +242,30 @@ impl Resolver {
         for (eid, ed) in &enum_decls {
             self.enum_variants(*eid, ed);
         }
+        let mut classes = Vec::new();
+        for (sid, cd) in &class_decls {
+            classes.push(self.class_members(*sid, cd));
+        }
         self.check_struct_cycles();
 
         // Pass 2: function and method bodies.
         for (id, f, this) in fn_decls {
             let func = self.function(f, false, this);
             self.fns[id.0 as usize] = Some(func);
+        }
+        let mut static_inits = Vec::new();
+        for c in &classes {
+            for (id, f, this) in &c.methods {
+                let func = self.function_in(f, false, *this, Some(c.sid));
+                self.fns[id.0 as usize] = Some(func);
+            }
+            let ctor = self.constructor(c);
+            self.fns[c.ctor.0 as usize] = Some(ctor);
+            if let Some(id) = c.static_init {
+                let init = self.static_init(c);
+                self.fns[id.0 as usize] = Some(init);
+                static_inits.push(id);
+            }
         }
 
         // Pass 3: the entry body (top-level statements in order).
@@ -241,7 +275,22 @@ impl Resolver {
             ..Default::default()
         };
         self.f.scopes.push(Scope::default());
-        let block = self.top_level(&module.stmts, module.span);
+        let mut block = self.top_level(&module.stmts, module.span);
+        // Classes' static fields are initialized before any top-level code runs.
+        let mut first = Vec::new();
+        for id in &static_inits {
+            let callee = self.expr(ExprKind::Fn(*id), module.span.shrink_to_lo());
+            let call = self.expr(
+                ExprKind::Call {
+                    callee: Box::new(callee),
+                    args: Vec::new(),
+                },
+                module.span.shrink_to_lo(),
+            );
+            first.push(Stmt::Expr(call));
+        }
+        first.append(&mut block.stmts);
+        block.stmts = first;
         let locals = std::mem::take(&mut self.f.locals);
         self.fns.push(Some(Function {
             name: "<main>".into(),
@@ -254,6 +303,7 @@ impl Resolver {
             span: module.span,
             is_entry: true,
             this: None,
+            owner: None,
         }));
 
         Program {
@@ -268,6 +318,7 @@ impl Resolver {
             expr_spans: std::mem::take(&mut self.spans),
             structs: std::mem::take(&mut self.structs),
             enums: std::mem::take(&mut self.enums),
+            static_inits,
         }
     }
 
@@ -318,6 +369,7 @@ impl Resolver {
                     name: fname.name.clone(),
                     ty,
                     span: fname.span,
+                    preassigned: false,
                 });
             }
             self.enums[eid.0 as usize].variants.push(VariantDef {
@@ -382,6 +434,7 @@ impl Resolver {
                         name: name.name.clone(),
                         ty,
                         span: name.span,
+                        preassigned: false,
                     });
                 }
                 ast::MemberKind::Method(f) => {
@@ -542,6 +595,7 @@ impl Resolver {
                         ast::DeclKind::Function(_)
                             | ast::DeclKind::Struct(_)
                             | ast::DeclKind::Enum(_)
+                            | ast::DeclKind::Class(_)
                     ) => {}
                 _ => {
                     let last = i + 1 == stmts.len();
@@ -561,6 +615,17 @@ impl Resolver {
         f: &ast::FnDecl,
         is_entry: bool,
         this_struct: Option<StructId>,
+    ) -> Function {
+        let owner = this_struct;
+        self.function_in(f, is_entry, this_struct, owner)
+    }
+
+    fn function_in(
+        &mut self,
+        f: &ast::FnDecl,
+        is_entry: bool,
+        this_struct: Option<StructId>,
+        owner: Option<StructId>,
     ) -> Function {
         let name = f.name.clone().expect("named function");
         if f.flags.is_async || f.flags.generator || f.flags.is_unsafe || f.flags.decorator {
@@ -583,6 +648,7 @@ impl Resolver {
         }
         self.f = FnState {
             in_entry: is_entry,
+            owner,
             ..Default::default()
         };
         self.f.scopes.push(Scope::default());
@@ -667,11 +733,383 @@ impl Resolver {
             span: f.span,
             is_entry,
             this: self.f.this,
+            owner,
+        }
+    }
+
+    /// Pass 1b for a class: fields (and parameter properties), methods, accessors, statics.
+    fn class_members<'a>(&mut self, sid: StructId, cd: &'a ast::ClassDecl) -> ClassInfo<'a> {
+        if let Some(g) = cd.generics.first() {
+            self.not_implemented(g.span, "generic classes");
+        }
+        if let Some(t) = &cd.extends {
+            self.not_implemented(t.span, "inheritance");
+        }
+        if let Some(t) = cd.implements.first() {
+            self.not_implemented(t.span, "interfaces");
+        }
+        if cd.abstract_ || cd.final_ {
+            self.not_implemented(cd.name.span, "`abstract` and `final` classes");
+        }
+        let mut info = ClassInfo {
+            sid,
+            decl: cd,
+            ctor: FnId(0),
+            ctor_decl: None,
+            static_init: None,
+            methods: Vec::new(),
+            field_inits: Vec::new(),
+            static_inits: Vec::new(),
+            static_blocks: Vec::new(),
+        };
+        let mut seen: HashMap<String, Span> = HashMap::new();
+        let private =
+            |m: &ast::Modifiers| m.visibility.is_none_or(|v| v == ast::Visibility::Private);
+        for m in &cd.members {
+            if let Some(dec) = m.decorators.first() {
+                self.not_implemented(dec.span, "decorators");
+            }
+            if m.mods.virtual_ || m.mods.override_ || m.mods.abstract_ || m.mods.final_ {
+                self.not_implemented(
+                    m.span,
+                    "`virtual`, `override`, `abstract` and `final` members",
+                );
+            }
+            if m.mods.is_async {
+                self.not_implemented(m.span, "async methods");
+            }
+            match &m.kind {
+                ast::MemberKind::Constructor(f) => {
+                    if info.ctor_decl.is_some() {
+                        self.not_implemented(m.span, "constructor overloading");
+                        continue;
+                    }
+                    info.ctor_decl = Some(f);
+                    // Parameter properties declare fields.
+                    for p in &f.params {
+                        if p.mods.visibility.is_none() && !p.mods.readonly {
+                            continue;
+                        }
+                        let ast::PatternKind::Ident(pname) = &p.pat.kind else {
+                            continue;
+                        };
+                        if self.check_duplicate(&mut seen, pname) {
+                            continue;
+                        }
+                        let ty = match &p.ty {
+                            Some(t) => self.resolve_type(t),
+                            None => Ty::Error,
+                        };
+                        if private(&p.mods) {
+                            self.structs[sid.0 as usize]
+                                .private
+                                .insert(pname.name.clone());
+                        }
+                        self.structs[sid.0 as usize].fields.push(FieldDef {
+                            name: pname.name.clone(),
+                            ty,
+                            span: pname.span,
+                            preassigned: true,
+                        });
+                    }
+                }
+                ast::MemberKind::Field {
+                    name,
+                    ty,
+                    optional,
+                    init,
+                } => {
+                    if self.check_duplicate(&mut seen, name) {
+                        continue;
+                    }
+                    let mut t = match (ty, init) {
+                        (Some(t), _) => Some(self.resolve_type(t)),
+                        (None, Some(e)) => literal_type(e),
+                        (None, None) => None,
+                    };
+                    if *optional {
+                        t = t.map(Ty::nullable);
+                    }
+                    if m.mods.is_static {
+                        if init.is_none() && !matches!(t, Some(Ty::Nullable(_))) {
+                            self.error(
+                                codes::MISSING_PARAM_TYPE,
+                                name.span,
+                                format!("static field `{}` needs an initializer", name.name),
+                                "add `= value`",
+                            );
+                        }
+                        let g = GlobalId(self.globals.len() as u32);
+                        self.globals.push(Binding {
+                            name: format!("{}.{}", cd.name.name, name.name),
+                            mutable: !m.mods.readonly,
+                            ty: t,
+                            span: name.span,
+                        });
+                        // Initialized before any top-level code runs.
+                        self.globals_declared.insert(g);
+                        let def = &mut self.structs[sid.0 as usize];
+                        def.static_fields.push((name.name.clone(), g));
+                        if private(&m.mods) {
+                            def.private.insert(name.name.clone());
+                        }
+                        info.static_inits.push((g, name, init.as_ref()));
+                        continue;
+                    }
+                    let ty = match t {
+                        Some(t) => t,
+                        None => {
+                            self.error(
+                                codes::MISSING_PARAM_TYPE,
+                                name.span,
+                                format!("field `{}` needs a type", name.name),
+                                "add a type annotation, e.g. `: i32`",
+                            );
+                            Ty::Error
+                        }
+                    };
+                    let nullable = matches!(ty, Ty::Nullable(_));
+                    let def = &mut self.structs[sid.0 as usize];
+                    if private(&m.mods) {
+                        def.private.insert(name.name.clone());
+                    }
+                    def.fields.push(FieldDef {
+                        name: name.name.clone(),
+                        ty,
+                        span: name.span,
+                        preassigned: init.is_some() || nullable,
+                    });
+                    info.field_inits.push((name, init.as_ref()));
+                }
+                ast::MemberKind::Method(f)
+                | ast::MemberKind::Getter(f)
+                | ast::MemberKind::Setter(f) => {
+                    let Some(name) = &f.name else { continue };
+                    let accessor = !matches!(m.kind, ast::MemberKind::Method(_));
+                    // A getter and a setter may share a name.
+                    let key = match &m.kind {
+                        ast::MemberKind::Setter(_) => format!("set {}", name.name),
+                        _ => name.name.clone(),
+                    };
+                    let k = ast::Ident {
+                        name: key,
+                        span: name.span,
+                    };
+                    if self.check_duplicate(&mut seen, &k) {
+                        continue;
+                    }
+                    let id = FnId(self.fns.len() as u32);
+                    self.fns.push(None);
+                    let def = &mut self.structs[sid.0 as usize];
+                    if private(&m.mods) {
+                        def.private.insert(name.name.clone());
+                    }
+                    if m.mods.is_static {
+                        if accessor {
+                            self.not_implemented(m.span, "static accessors");
+                        }
+                        self.structs[sid.0 as usize]
+                            .static_methods
+                            .push((name.name.clone(), id));
+                        info.methods.push((id, f, None));
+                        continue;
+                    }
+                    match &m.kind {
+                        ast::MemberKind::Getter(_) => def.getters.push((name.name.clone(), id)),
+                        ast::MemberKind::Setter(_) => def.setters.push((name.name.clone(), id)),
+                        _ => def.methods.push((name.name.clone(), id)),
+                    }
+                    info.methods.push((id, f, Some(sid)));
+                }
+                ast::MemberKind::StaticBlock(b) => info.static_blocks.push(b),
+                ast::MemberKind::Operator { .. } => {
+                    self.not_implemented(m.span, "operator overloading")
+                }
+            }
+        }
+        let ctor = FnId(self.fns.len() as u32);
+        self.fns.push(None);
+        info.ctor = ctor;
+        self.structs[sid.0 as usize].ctor = Some(ctor);
+        if !info.static_inits.is_empty() || !info.static_blocks.is_empty() {
+            let id = FnId(self.fns.len() as u32);
+            self.fns.push(None);
+            info.static_init = Some(id);
+        }
+        info
+    }
+
+    /// A class's constructor: parameter properties are assigned first, then field
+    /// initializers (in declaration order), then the body runs.
+    fn constructor(&mut self, c: &ClassInfo) -> Function {
+        let sid = c.sid;
+        let class_name = self.structs[sid.0 as usize].name.clone();
+        let span = c.ctor_decl.map_or(c.decl.name.span, |f| f.span);
+        self.f = FnState {
+            owner: Some(sid),
+            ..Default::default()
+        };
+        self.f.scopes.push(Scope::default());
+        let this_ty = self.struct_ty(sid);
+        let this = LocalId(self.f.locals.len() as u32);
+        self.f.locals.push(Binding {
+            name: "this".into(),
+            mutable: false,
+            ty: Some(this_ty),
+            span,
+        });
+        self.f.this = Some((this, sid));
+        let mut params = Vec::new();
+        let mut prologue = Vec::new();
+        if let Some(f) = c.ctor_decl {
+            for p in &f.params {
+                let ast::PatternKind::Ident(pname) = &p.pat.kind else {
+                    self.not_implemented(p.pat.span, "destructured parameters");
+                    continue;
+                };
+                if p.rest || p.optional || p.default.is_some() || p.comptime {
+                    self.not_implemented(p.span, "optional, default, rest and comptime parameters");
+                }
+                let ty = match &p.ty {
+                    Some(t) => Some(self.resolve_type(t)),
+                    None => {
+                        self.error(
+                            codes::MISSING_PARAM_TYPE,
+                            pname.span,
+                            format!("parameter `{}` needs a type", pname.name),
+                            "add a type annotation, e.g. `: i32`",
+                        );
+                        Some(Ty::Error)
+                    }
+                };
+                let id = self.declare_local(pname, true, ty);
+                params.push(id);
+                if p.mods.visibility.is_some() || p.mods.readonly {
+                    let value = self.expr(ExprKind::Var(Var::Local(id)), pname.span);
+                    let assign = self.field_assign(this, &pname.name, pname.span, value);
+                    prologue.push(Stmt::Expr(assign));
+                }
+            }
+        }
+        for (name, init) in &c.field_inits {
+            let value = match init {
+                Some(e) => self.lower_expr(e),
+                None => {
+                    let nullable = self.structs[sid.0 as usize]
+                        .field(&name.name)
+                        .is_some_and(|(_, f)| matches!(f.ty, Ty::Nullable(_)));
+                    if !nullable {
+                        continue;
+                    }
+                    self.expr(ExprKind::Null, name.span)
+                }
+            };
+            let assign = self.field_assign(this, &name.name, name.span, value);
+            prologue.push(Stmt::Expr(assign));
+        }
+        let mut body = match c.ctor_decl.and_then(|f| f.body.as_ref()) {
+            Some(ast::FnBody::Block(b)) => self.block(b),
+            Some(ast::FnBody::Expr(e)) => {
+                let e = self.lower_expr(e);
+                Block {
+                    stmts: vec![Stmt::Expr(e)],
+                    tail: None,
+                    span,
+                }
+            }
+            None => Block {
+                stmts: Vec::new(),
+                tail: None,
+                span,
+            },
+        };
+        prologue.append(&mut body.stmts);
+        body.stmts = prologue;
+        Function {
+            name: format!("{class_name}.constructor"),
+            name_span: c.decl.name.span,
+            params,
+            ret: Some(Ty::Void),
+            ret_span: None,
+            locals: std::mem::take(&mut self.f.locals),
+            body,
+            span,
+            is_entry: false,
+            this: self.f.this,
+            owner: Some(sid),
+        }
+    }
+
+    /// `this.name = value`
+    fn field_assign(&mut self, this: LocalId, name: &str, span: Span, value: Expr) -> Expr {
+        let object = self.expr(ExprKind::Var(Var::Local(this)), span);
+        let id = self.expr(ExprKind::Error, span).id;
+        self.expr(
+            ExprKind::Assign {
+                op: None,
+                target: Target::Field {
+                    id,
+                    object: Box::new(object),
+                    name: name.to_string(),
+                    name_span: span,
+                },
+                value: Box::new(value),
+            },
+            span,
+        )
+    }
+
+    /// Static field initializers and `static { }` blocks, in declaration order.
+    fn static_init(&mut self, c: &ClassInfo) -> Function {
+        let sid = c.sid;
+        let class_name = self.structs[sid.0 as usize].name.clone();
+        self.f = FnState {
+            owner: Some(sid),
+            ..Default::default()
+        };
+        self.f.scopes.push(Scope::default());
+        let mut stmts = Vec::new();
+        for (g, name, init) in &c.static_inits {
+            let init = match init {
+                Some(e) => self.lower_expr(e),
+                None => self.expr(ExprKind::Null, name.span),
+            };
+            stmts.push(Stmt::Let {
+                var: Var::Global(*g),
+                init: Some(init),
+                span: name.span,
+            });
+        }
+        for b in &c.static_blocks {
+            let block = self.block(b);
+            stmts.push(Stmt::Expr(self.expr(ExprKind::Block(block), b.span)));
+        }
+        Function {
+            name: format!("{class_name}.<static>"),
+            name_span: c.decl.name.span,
+            params: Vec::new(),
+            ret: Some(Ty::Void),
+            ret_span: None,
+            locals: std::mem::take(&mut self.f.locals),
+            body: Block {
+                stmts,
+                tail: None,
+                span: c.decl.name.span,
+            },
+            span: c.decl.name.span,
+            is_entry: false,
+            this: None,
+            owner: Some(sid),
         }
     }
 
     fn struct_ty(&self, id: StructId) -> Ty {
-        Ty::Struct(id, self.structs[id.0 as usize].name.as_str().into())
+        let def = &self.structs[id.0 as usize];
+        if def.is_class {
+            Ty::Class(id, def.name.as_str().into())
+        } else {
+            Ty::Struct(id, def.name.as_str().into())
+        }
     }
 
     // ------------------------------------------------------------ scopes
@@ -809,8 +1247,22 @@ impl Resolver {
         // Inside a method, `name` means `this.name` unless a local shadows it.
         if let Some((_, sid)) = self.f.this {
             let def = &self.structs[sid.0 as usize];
-            if def.field(name).is_some() || def.method(name).is_some() {
+            if def.field(name).is_some()
+                || def.method(name).is_some()
+                || def.getter(name).is_some()
+                || def.setter(name).is_some()
+            {
                 return Some(Found::Member(name.to_string()));
+            }
+        }
+        // Inside a class, its static members by their plain names.
+        if let Some(sid) = self.f.owner {
+            let def = &self.structs[sid.0 as usize];
+            if let Some(g) = def.static_field(name) {
+                return Some(Found::Var(Var::Global(g)));
+            }
+            if let Some(f) = def.static_method(name) {
+                return Some(Found::Fn(f));
             }
         }
         if let Some(&g) = self.top_globals.get(name) {
@@ -908,8 +1360,7 @@ impl Resolver {
         }
         let (_, sid) = self.f.this?;
         let def = &self.structs[sid.0 as usize];
-        def.field(name)
-            .is_some()
+        (def.field(name).is_some() || def.setter(name).is_some())
             .then(|| Found::Member(name.to_string()))
     }
 
@@ -1414,6 +1865,46 @@ impl Resolver {
                     args: Some(args),
                 }
             }
+            A::Member { object, prop, .. } if self.names_class(object) => {
+                match self.static_member(object, prop) {
+                    Some(k) => k,
+                    None => ExprKind::Error,
+                }
+            }
+            A::New {
+                callee,
+                type_args,
+                args,
+            } => {
+                if let Some(t) = type_args.first() {
+                    self.not_implemented(t.span, "generic classes");
+                }
+                let class = match &callee.kind {
+                    ast::ExprKind::Ident(n) => self
+                        .top_structs
+                        .get(n)
+                        .copied()
+                        .filter(|id| self.structs[id.0 as usize].is_class),
+                    _ => None,
+                };
+                let Some(class) = class else {
+                    self.error(
+                        codes::UNKNOWN_TYPE,
+                        callee.span,
+                        "`new` needs a class",
+                        "not a class",
+                    );
+                    return self.error_expr(span);
+                };
+                let mut out = Vec::new();
+                for a in args {
+                    if a.spread || a.name.is_some() {
+                        self.not_implemented(a.value.span, "named and spread arguments");
+                    }
+                    out.push(self.lower_expr(&a.value));
+                }
+                ExprKind::New { class, args: out }
+            }
             A::Member { .. } if self.names_enum_member(e) => {
                 let Some((enum_, variant)) = self.variant_ref(e) else {
                     return self.error_expr(span);
@@ -1606,7 +2097,6 @@ impl Resolver {
                 let what = match other {
                     A::This | A::Super => "classes",
                     A::Object { .. } => "object and struct literals",
-                    A::New { .. } => "`new`",
                     A::Instanceof { .. } => "`instanceof`",
                     A::Function(_) => "closures",
                     A::Try { .. } | A::TryOpt(_) | A::TryBang(_) | A::Throw(_) => "exceptions",
@@ -1631,6 +2121,58 @@ impl Resolver {
     fn is_value_name(&self, name: &str) -> bool {
         self.f.scopes.iter().any(|s| s.names.contains_key(name))
             || self.top_globals.contains_key(name)
+    }
+
+    /// Whether `e` names a class (as in `Animal.count`), not shadowed by a variable.
+    fn names_class(&self, e: &ast::Expr) -> bool {
+        matches!(&e.kind, ast::ExprKind::Ident(n)
+            if !self.is_value_name(n)
+                && self.top_structs.get(n).is_some_and(|id| self.structs[id.0 as usize].is_class))
+    }
+
+    /// `Class.name`: a static field or static method (checking visibility).
+    fn static_member(&mut self, class: &ast::Expr, prop: &ast::Ident) -> Option<ExprKind> {
+        let ast::ExprKind::Ident(cname) = &class.kind else {
+            return None;
+        };
+        let sid = self.top_structs[cname];
+        let def = &self.structs[sid.0 as usize];
+        let found = match (def.static_field(&prop.name), def.static_method(&prop.name)) {
+            (Some(g), _) => ExprKind::Var(Var::Global(g)),
+            (_, Some(f)) => ExprKind::Fn(f),
+            _ => {
+                let what = if def.field(&prop.name).is_some() || def.method(&prop.name).is_some() {
+                    "is an instance member; use it on an object"
+                } else {
+                    "isn't declared"
+                };
+                self.error(
+                    codes::UNKNOWN_MEMBER,
+                    prop.span,
+                    format!("class `{cname}` has no static member `{}`", prop.name),
+                    format!("`{}` {what}", prop.name),
+                );
+                return None;
+            }
+        };
+        if !def.is_public(&prop.name) && self.f.owner != Some(sid) {
+            self.private_access(cname, &prop.name, prop.span, def.name_span);
+        }
+        Some(found)
+    }
+
+    fn private_access(&mut self, class: &str, member: &str, span: Span, decl: Span) {
+        self.diags.push(
+            Diagnostic::error(
+                codes::PRIVATE_MEMBER,
+                format!("`{member}` is private to `{class}`"),
+            )
+            .primary(span, "used outside the class")
+            .secondary(decl, format!("`{class}` is declared here"))
+            .help(format!(
+                "class members are private by default; declare it `public {member}` to use it here"
+            )),
+        );
     }
 
     /// Whether `e` is `Enum.name` (with `Enum` not shadowed by a variable).
@@ -2033,6 +2575,25 @@ impl Resolver {
                 object,
                 prop,
                 optional: false,
+            } if self.names_class(object) => match self.static_member(object, prop)? {
+                ExprKind::Var(v) => {
+                    self.check_mutable(v, t.span);
+                    Some(Target::Var(v))
+                }
+                _ => {
+                    self.error(
+                        codes::NOT_A_VALUE,
+                        t.span,
+                        format!("can't assign to the static method `{}`", prop.name),
+                        "not a field",
+                    );
+                    None
+                }
+            },
+            ast::ExprKind::Member {
+                object,
+                prop,
+                optional: false,
             } => {
                 let object = self.lower_expr(object);
                 let id = self.expr(ExprKind::Error, t.span).id;
@@ -2071,6 +2632,15 @@ impl Resolver {
                     self.not_implemented(ty.unwrap().span, "generic structs");
                 }
                 match self.top_structs.get(&path[0].name) {
+                    Some(id) if self.structs[id.0 as usize].is_class => {
+                        self.error(
+                            codes::UNKNOWN_OBJECT_TYPE,
+                            path[0].span,
+                            format!("`{}` is a class", path[0].name),
+                            format!("create it with `new {}(…)`", path[0].name),
+                        );
+                        return ExprKind::Error;
+                    }
                     Some(id) => Some(*id),
                     None => {
                         let what = if Ty::from_name(&path[0].name).is_some() {
@@ -2193,6 +2763,35 @@ fn rewrite_opt_link(e: &ast::Expr, name: &str) -> ast::Expr {
         _ => unreachable!("not a chain"),
     };
     ast::Expr { kind, span: e.span }
+}
+
+/// What pass 1b learns about a class, for building its functions in pass 2.
+struct ClassInfo<'a> {
+    sid: StructId,
+    decl: &'a ast::ClassDecl,
+    ctor: FnId,
+    ctor_decl: Option<&'a ast::FnDecl>,
+    static_init: Option<FnId>,
+    /// Methods, accessors and static methods (`None` as `this`).
+    methods: Vec<(FnId, &'a ast::FnDecl, Option<StructId>)>,
+    field_inits: Vec<(&'a ast::Ident, Option<&'a ast::Expr>)>,
+    static_inits: Vec<(GlobalId, &'a ast::Ident, Option<&'a ast::Expr>)>,
+    static_blocks: Vec<&'a ast::Block>,
+}
+
+/// The type of an unannotated field from its literal initializer.
+fn literal_type(e: &ast::Expr) -> Option<Ty> {
+    match &e.kind {
+        ast::ExprKind::Lit(ast::Lit::Int { suffix: None, .. }) => Some(Ty::INT),
+        ast::ExprKind::Lit(ast::Lit::Float { suffix: None, .. }) => Some(Ty::NUMBER),
+        ast::ExprKind::Lit(ast::Lit::Str(_)) => Some(Ty::Str),
+        ast::ExprKind::Lit(ast::Lit::Bool(_)) => Some(Ty::Bool),
+        ast::ExprKind::Unary {
+            op: ast::UnOp::Neg,
+            expr,
+        } => literal_type(expr),
+        _ => None,
+    }
 }
 
 /// The names a pattern binds so far; in a later or-alternative, the first one's locals.

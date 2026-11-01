@@ -1,0 +1,7 @@
+// error: E0319
+// at: 6:13
+// error: E0313
+// at: 7:11
+class A { static hidden: i64 = 1 }
+const h = A.hidden
+const p = A { }

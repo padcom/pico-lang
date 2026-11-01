@@ -34,6 +34,8 @@ pub struct Program {
     pub expr_spans: Vec<Span>,
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,
+    /// Functions that initialize classes' static fields; the entry function calls them first.
+    pub static_inits: Vec<FnId>,
 }
 
 #[derive(Debug)]
@@ -74,8 +76,12 @@ pub struct FieldDef {
     pub name: String,
     pub ty: Ty,
     pub span: Span,
+    /// Assigned before the constructor body runs (an initializer or a parameter property),
+    /// or nullable (implicitly `null`).
+    pub preassigned: bool,
 }
 
+/// A struct or a class (`is_class`). Classes share the id space so most member code is shared.
 #[derive(Debug)]
 pub struct StructDef {
     pub name: String,
@@ -83,19 +89,69 @@ pub struct StructDef {
     pub fields: Vec<FieldDef>,
     /// Methods by name; each is a function whose `this` is set.
     pub methods: Vec<(String, FnId)>,
+    pub is_class: bool,
+    /// The constructor (classes always have one, possibly synthesized).
+    pub ctor: Option<FnId>,
+    pub getters: Vec<(String, FnId)>,
+    pub setters: Vec<(String, FnId)>,
+    pub static_fields: Vec<(String, GlobalId)>,
+    pub static_methods: Vec<(String, FnId)>,
+    /// Class members that aren't `public`/`protected` (classes are private by default).
+    pub private: std::collections::HashSet<String>,
 }
 
 impl StructDef {
+    pub fn new(name: String, name_span: Span, is_class: bool) -> StructDef {
+        StructDef {
+            name,
+            name_span,
+            fields: Vec::new(),
+            methods: Vec::new(),
+            is_class,
+            ctor: None,
+            getters: Vec::new(),
+            setters: Vec::new(),
+            static_fields: Vec::new(),
+            static_methods: Vec::new(),
+            private: Default::default(),
+        }
+    }
+
     pub fn field(&self, name: &str) -> Option<(usize, &FieldDef)> {
         self.fields.iter().enumerate().find(|(_, f)| f.name == name)
     }
 
     pub fn method(&self, name: &str) -> Option<FnId> {
-        self.methods
+        find(&self.methods, name)
+    }
+
+    pub fn getter(&self, name: &str) -> Option<FnId> {
+        find(&self.getters, name)
+    }
+
+    pub fn setter(&self, name: &str) -> Option<FnId> {
+        find(&self.setters, name)
+    }
+
+    pub fn static_field(&self, name: &str) -> Option<GlobalId> {
+        self.static_fields
             .iter()
             .find(|(n, _)| n == name)
-            .map(|(_, f)| *f)
+            .map(|(_, g)| *g)
     }
+
+    pub fn static_method(&self, name: &str) -> Option<FnId> {
+        find(&self.static_methods, name)
+    }
+
+    /// Whether code outside the class may use member `name`.
+    pub fn is_public(&self, name: &str) -> bool {
+        !self.private.contains(name)
+    }
+}
+
+fn find(list: &[(String, FnId)], name: &str) -> Option<FnId> {
+    list.iter().find(|(n, _)| n == name).map(|(_, f)| *f)
 }
 
 impl Program {
@@ -120,7 +176,12 @@ impl Program {
     }
 
     pub fn struct_ty(&self, id: StructId) -> Ty {
-        Ty::Struct(id, self.structs[id.0 as usize].name.as_str().into())
+        let def = &self.structs[id.0 as usize];
+        if def.is_class {
+            Ty::Class(id, def.name.as_str().into())
+        } else {
+            Ty::Struct(id, def.name.as_str().into())
+        }
     }
 
     pub fn expr_count(&self) -> usize {
@@ -150,8 +211,12 @@ pub struct Function {
     pub body: Block,
     pub span: Span,
     pub is_entry: bool,
-    /// For methods: the `this` local and its struct. `this` is passed by reference.
+    /// For methods: the `this` local and its struct or class. A struct's `this` is passed by
+    /// reference, a class's is the object reference.
     pub this: Option<(LocalId, StructId)>,
+    /// The struct or class whose code this is (methods, constructors, static members): it
+    /// may use the type's private members.
+    pub owner: Option<StructId>,
 }
 
 impl Function {
@@ -380,6 +445,11 @@ pub enum ExprKind {
         inc: bool,
         prefix: bool,
     },
+    /// `new C(args)`
+    New {
+        class: StructId,
+        args: Vec<Expr>,
+    },
     /// `Point { x: 1, y }` (`ty` given) or `{ x: 1, y }` (struct taken from the expected type).
     Object {
         ty: Option<StructId>,
@@ -522,6 +592,7 @@ impl Expr {
             }
             ExprKind::IncDec { target: t, .. } => target(t, f),
             ExprKind::Object { fields, .. } => fields.iter().for_each(|x| f(&x.value)),
+            ExprKind::New { args, .. } => args.iter().for_each(&mut *f),
             ExprKind::Call { callee, args } => {
                 f(callee);
                 args.iter().for_each(&mut *f);

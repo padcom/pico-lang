@@ -30,6 +30,8 @@ pub enum Value {
     Struct(Vec<Value>),
     /// An enum value: the variant index and its payload fields.
     Enum(u32, Vec<Value>),
+    /// A class instance: shared, so cloning copies the reference.
+    Object(Rc<Obj>),
     /// A growable array: shared, so cloning copies the reference.
     Array(Rc<RefCell<Vec<Value>>>),
     /// A reference into a variable: the cell and the path inside it.
@@ -40,12 +42,28 @@ pub enum Value {
     Uninit,
 }
 
+/// A class instance's storage.
+#[derive(Debug)]
+pub struct Obj {
+    pub class: u32,
+    pub fields: RefCell<Vec<Value>>,
+}
+
+/// Objects are equal only to themselves (identity).
+impl PartialEq for Obj {
+    fn eq(&self, other: &Obj) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
 /// One resolved step of a path into a value: a part of an inline value, or an element of a
 /// growable array.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Step {
     Part(usize),
     Elem(usize),
+    /// A field of the object a class reference points to.
+    ObjField(usize),
 }
 
 /// Storage for one variable. Locals and globals live in cells so references can point at them.
@@ -164,6 +182,7 @@ impl Interp<'_, '_> {
                 continue;
             }
             let step = match pr {
+                Proj::Field(i) if matches!(ty, Ty::Class(..)) => Step::ObjField(*i as usize),
                 Proj::Field(i) | Proj::VariantField(_, i) => Step::Part(*i as usize),
                 Proj::Payload => unreachable!(),
                 Proj::Index(l) => {
@@ -390,6 +409,10 @@ impl Interp<'_, '_> {
                 *v,
                 ops.iter().map(|o| self.operand(frame, o)).collect(),
             )),
+            Rvalue::New(sid) => Ok(Value::Object(Rc::new(Obj {
+                class: sid.0,
+                fields: RefCell::new(vec![Value::Uninit; self.p.layout(*sid).fields.len()]),
+            }))),
             Rvalue::Tag(o) => match self.operand(frame, o) {
                 Value::Enum(v, _) => Ok(Value::Int(v as i128)),
                 v => unreachable!("tag of {v:?}"),
@@ -501,7 +524,7 @@ impl Interp<'_, '_> {
                 Ne => a != b,
                 _ => unreachable!("type-checked bool operator"),
             })),
-            (a @ (Value::Struct(_) | Value::Enum(..)), b, _) => Ok(match op {
+            (a @ (Value::Struct(_) | Value::Enum(..) | Value::Object(_)), b, _) => Ok(match op {
                 Eq => Value::Bool(values_eq(&a, &b)),
                 Ne => Value::Bool(!values_eq(&a, &b)),
                 _ => unreachable!("type-checked struct operator"),
@@ -580,6 +603,10 @@ fn read_path(v: &Value, path: &[Step]) -> Value {
             Value::Array(a) => read_path(&a.borrow()[*i], rest),
             other => unreachable!("element {i} of {other:?}"),
         },
+        Some((Step::ObjField(i), rest)) => match v {
+            Value::Object(o) => read_path(&o.fields.borrow()[*i], rest),
+            other => unreachable!("field {i} of {other:?}"),
+        },
     }
 }
 
@@ -596,6 +623,13 @@ fn write_path(v: &mut Value, path: &[Step], new: Value) {
                 write_path(&mut a.borrow_mut()[*i], rest, new);
             }
             other => unreachable!("element {i} of {other:?}"),
+        },
+        Some((Step::ObjField(i), rest)) => match v {
+            Value::Object(o) => {
+                let o = o.clone();
+                write_path(&mut o.fields.borrow_mut()[*i], rest, new);
+            }
+            other => unreachable!("field {i} of {other:?}"),
         },
     }
 }
@@ -659,6 +693,7 @@ pub fn display(v: &Value, t: &Ty) -> String {
         (
             Value::Struct(_)
             | Value::Enum(..)
+            | Value::Object(_)
             | Value::Array(_)
             | Value::Ref(..)
             | Value::Void
@@ -725,6 +760,7 @@ fn debug_value(p: &Program, v: &Value, t: &Ty) -> String {
         }
         (Value::Null, _) => "null".into(),
         (v, Ty::Nullable(inner)) => debug_value(p, v, inner),
+        (Value::Object(_), Ty::Class(sid, _)) => format!("<{}>", p.layout(*sid).name),
         (Value::Struct(parts), Ty::Range(_)) => match &parts[..] {
             [Value::Int(a), Value::Int(b), Value::Int(1)] => format!("{a}..{b}"),
             [Value::Int(a), Value::Int(b), Value::Int(s)] => format!("({a}..{b}).step({s})"),
@@ -852,6 +888,7 @@ pub fn format_spec(v: &Value, t: &Ty, spec: &FormatSpec) -> String {
         Value::Null => (false, "", "null".into(), false),
         Value::Struct(_)
         | Value::Enum(..)
+        | Value::Object(_)
         | Value::Array(_)
         | Value::Ref(..)
         | Value::Void

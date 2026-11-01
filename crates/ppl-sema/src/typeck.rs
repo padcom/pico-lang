@@ -49,6 +49,10 @@ pub struct Types {
     pub pat_fields: HashMap<ExprId, Vec<u32>>,
     /// Variant constructors: the field index of each argument, in source order.
     pub variant_args: HashMap<ExprId, Vec<u32>>,
+    /// `obj.name` that calls a getter.
+    pub getters: HashMap<ExprId, FnId>,
+    /// Assignment targets (by target id) that call a setter.
+    pub setters: HashMap<ExprId, FnId>,
 }
 
 impl Types {
@@ -85,6 +89,8 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             variants: HashMap::new(),
             pat_fields: HashMap::new(),
             variant_args: HashMap::new(),
+            getters: HashMap::new(),
+            setters: HashMap::new(),
         },
         narrow: Vec::new(),
         diags: Vec::new(),
@@ -110,7 +116,11 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             ret: f.ret.clone().unwrap_or(Ty::Error),
         })
         .collect();
-    // The entry body first (it gives globals their types), then everything else.
+    // Static initializers and the entry body first (they give globals their types), then
+    // everything else.
+    for id in &program.static_inits {
+        c.check_fn(*id);
+    }
     c.check_fn(program.entry);
     for i in 0..program.fns.len() {
         c.check_fn(FnId(i as u32));
@@ -171,6 +181,106 @@ struct Checker<'p> {
     /// Flow-sensitive narrowing: scopes mapping variables to the type they're known to have
     /// (`T` for a `T?` binding after `x != null`).
     narrow: Vec<HashMap<Var, Ty>>,
+}
+
+/// Definite assignment of `this.field` in a constructor: the set of fields assigned on every
+/// path, walking the body in order. `return`s (and the end) are where every field must be set.
+struct Assigned<'a> {
+    types: &'a Types,
+    this: LocalId,
+    all: &'a HashSet<u32>,
+    exits: &'a mut Vec<(Span, HashSet<u32>)>,
+}
+
+impl Assigned<'_> {
+    fn block(&mut self, b: &Block, mut s: HashSet<u32>) -> HashSet<u32> {
+        for st in &b.stmts {
+            s = match st {
+                Stmt::Let { init: Some(e), .. } | Stmt::Expr(e) => self.expr(e, s),
+                Stmt::Let { init: None, .. } => s,
+            };
+        }
+        match &b.tail {
+            Some(t) => self.expr(t, s),
+            None => s,
+        }
+    }
+
+    fn expr(&mut self, e: &Expr, s: HashSet<u32>) -> HashSet<u32> {
+        match &e.kind {
+            ExprKind::Assign {
+                target: Target::Field { id, object, .. },
+                value,
+                op,
+            } if matches!(object.kind, ExprKind::Var(Var::Local(l)) if l == self.this) => {
+                let mut s = self.expr(value, s);
+                if op.is_none()
+                    && let Some(i) = self.types.fields.get(id)
+                {
+                    s.insert(*i);
+                }
+                s
+            }
+            ExprKind::Block(b) => self.block(b, s),
+            ExprKind::If { cond, then, else_ } => {
+                let s = self.expr(cond, s);
+                let t = self.expr(then, s.clone());
+                let e = match else_ {
+                    Some(x) => self.expr(x, s),
+                    None => s,
+                };
+                t.intersection(&e).copied().collect()
+            }
+            // A loop body may not run at all.
+            ExprKind::While {
+                cond,
+                test_first: true,
+                ..
+            } => self.expr(cond, s),
+            ExprKind::While { body, cond, .. } => {
+                let s = self.expr(body, s);
+                self.expr(cond, s)
+            }
+            ExprKind::ForOf { iter, .. } => self.expr(iter, s),
+            ExprKind::Loop(b) => {
+                // `loop` runs its body at least once; only `break` leaves it.
+                let _ = self.block(b, s.clone());
+                s
+            }
+            ExprKind::Return(v) => {
+                let s = match v {
+                    Some(v) => self.expr(v, s),
+                    None => s,
+                };
+                if !s.is_superset(self.all) {
+                    self.exits.push((e.span, s));
+                }
+                self.all.clone()
+            }
+            ExprKind::Match {
+                scrutinee, arms, ..
+            } => {
+                let s = self.expr(scrutinee, s);
+                let mut out: Option<HashSet<u32>> = None;
+                for a in arms {
+                    let r = self.expr(&a.body, s.clone());
+                    out = Some(match out {
+                        None => r,
+                        Some(o) => o.intersection(&r).copied().collect(),
+                    });
+                }
+                out.unwrap_or(s)
+            }
+            _ => {
+                let mut s = Some(s);
+                e.for_each_child(&mut |c| {
+                    let cur = s.take().expect("state");
+                    s = Some(self.expr(c, cur));
+                });
+                s.expect("state")
+            }
+        }
+    }
 }
 
 /// What a condition tells about variables when it's true and when it's false.
@@ -445,6 +555,12 @@ impl<'p> Checker<'p> {
             }
             (None, false) => self.block(&f.body, None),
         };
+        if let Some((this, sid)) = f.this
+            && f.name.ends_with(".constructor")
+            && self.program.struct_def(sid).is_class
+        {
+            self.definite_assignment(f, this, sid);
+        }
         let ctx = self.stack.pop().unwrap();
         if let Ret::Infer(mut rets) = ctx.ret {
             rets.push((
@@ -455,6 +571,59 @@ impl<'p> Checker<'p> {
             self.types.sigs[id.0 as usize].ret = ret;
         }
         self.state[id.0 as usize] = FnState::Done;
+    }
+
+    /// Every field must be assigned on every path through a constructor (spec §6.1).
+    fn definite_assignment(&mut self, f: &Function, this: LocalId, sid: StructId) {
+        let def = self.program.struct_def(sid);
+        let all: HashSet<u32> = (0..def.fields.len() as u32).collect();
+        let pre: HashSet<u32> = def
+            .fields
+            .iter()
+            .enumerate()
+            .filter(|(_, fd)| fd.preassigned || fd.ty.is_error())
+            .map(|(i, _)| i as u32)
+            .collect();
+        let mut missing_at: Vec<(Span, HashSet<u32>)> = Vec::new();
+        let mut walk = Assigned {
+            types: &self.types,
+            this,
+            all: &all,
+            exits: &mut missing_at,
+        };
+        let end = walk.block(&f.body, pre);
+        if !end.is_superset(&all) {
+            missing_at.push((f.body.span.shrink_to_hi(), end));
+        }
+        for (span, have) in missing_at {
+            let mut names: Vec<&str> = def
+                .fields
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !have.contains(&(*i as u32)))
+                .map(|(_, fd)| fd.name.as_str())
+                .collect();
+            names.dedup();
+            if names.is_empty() {
+                continue;
+            }
+            let list: Vec<String> = names.iter().map(|n| format!("`{n}`")).collect();
+            let first = def.field(names[0]).map(|(_, fd)| fd.span);
+            let mut d = Diagnostic::error(
+                codes::UNASSIGNED_FIELD,
+                format!(
+                    "field{} {} not assigned by the constructor",
+                    if names.len() == 1 { "" } else { "s" },
+                    list.join(", ")
+                ),
+            )
+            .primary(span, "the constructor can finish here");
+            if let Some(fs) = first {
+                d = d.secondary(fs, "declared here");
+            }
+            d = d.help("assign every field in each constructor, or give it an initializer");
+            self.diags.push(d);
+        }
     }
 
     /// Joins several types: identical, or all widening to one of them. `never` disappears.
@@ -696,9 +865,6 @@ impl<'p> Checker<'p> {
             ExprKind::Unary(op, inner) => self.unary(e, *op, inner, want),
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, want),
             ExprKind::Assign { op, target, value } => {
-                if let Target::Var(v) = target {
-                    self.forget(*v);
-                }
                 let (vt, origin) = self.target_ty(target);
                 match op {
                     None => {
@@ -707,6 +873,10 @@ impl<'p> Checker<'p> {
                     Some(op) => {
                         self.compound(e, *op, vt, value);
                     }
+                }
+                // The value is checked first: `cur = cur.next` reads the narrowed `cur`.
+                if let Target::Var(v) = target {
+                    self.forget(*v);
                 }
                 Ty::Void
             }
@@ -734,6 +904,7 @@ impl<'p> Checker<'p> {
                     (Ty::Range(it), "start" | "end") => Ty::Int(*it),
                     (Ty::Error, _) => Ty::Error,
                     (Ty::Struct(sid, _), _) => self.field(e.id, *sid, name, *name_span),
+                    (Ty::Class(sid, _), _) => self.class_member(e.id, *sid, name, *name_span),
                     _ => {
                         let mut d = Diagnostic::error(
                             codes::UNKNOWN_MEMBER,
@@ -934,6 +1105,15 @@ impl<'p> Checker<'p> {
                 variant,
                 args,
             } => self.variant(e, *enum_, *variant, args.as_deref()),
+            ExprKind::New { class, args } => {
+                let ctor = self
+                    .program
+                    .struct_def(*class)
+                    .ctor
+                    .expect("classes have one");
+                self.call_fn(e, ctor, args);
+                self.program.struct_ty(*class)
+            }
             ExprKind::Match {
                 scrutinee,
                 arms,
@@ -1975,6 +2155,34 @@ impl<'p> Checker<'p> {
                             .map(|(_, f)| f.span);
                         (t, span)
                     }
+                    Ty::Class(sid, _) => {
+                        let def = self.program.struct_def(sid);
+                        if def.field(name).is_none()
+                            && let Some(f) = def.setter(name)
+                        {
+                            self.check_access(sid, name, *name_span);
+                            self.types.setters.insert(*id, f);
+                            let t = self.types.sigs[f.0 as usize]
+                                .params
+                                .first()
+                                .cloned()
+                                .unwrap_or(Ty::Error);
+                            return (t, None);
+                        }
+                        if def.field(name).is_none() && def.getter(name).is_some() {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::ASSIGN_TO_CONST,
+                                    format!("`{name}` has a getter but no setter"),
+                                )
+                                .primary(*name_span, "can't be assigned"),
+                            );
+                            return (Ty::Error, None);
+                        }
+                        let t = self.field(*id, sid, name, *name_span);
+                        let span = def.field(name).map(|(_, f)| f.span);
+                        (t, span)
+                    }
                     Ty::Error => (Ty::Error, None),
                     other => {
                         self.diags.push(
@@ -2025,13 +2233,51 @@ impl<'p> Checker<'p> {
         }
     }
 
+    /// A class member read (`obj.name`): a field or a getter.
+    fn class_member(&mut self, id: ExprId, sid: StructId, name: &str, span: Span) -> Ty {
+        let def = self.program.struct_def(sid);
+        if def.field(name).is_none()
+            && let Some(g) = def.getter(name)
+        {
+            self.check_access(sid, name, span);
+            self.types.getters.insert(id, g);
+            let f = self.program.func(g);
+            if f.ret.is_none() && self.state[g.0 as usize] == FnState::Unchecked {
+                self.check_fn(g);
+            }
+            return self.types.sigs[g.0 as usize].ret.clone();
+        }
+        self.field(id, sid, name, span)
+    }
+
+    /// Reports use of a private class member outside the class.
+    fn check_access(&mut self, sid: StructId, name: &str, span: Span) {
+        let def = self.program.struct_def(sid);
+        if !def.is_class || def.is_public(name) || self.func().owner == Some(sid) {
+            return;
+        }
+        self.diags.push(
+            Diagnostic::error(
+                codes::PRIVATE_MEMBER,
+                format!("`{name}` is private to `{}`", def.name),
+            )
+            .primary(span, "used outside the class")
+            .secondary(def.name_span, format!("`{}` is declared here", def.name))
+            .help(format!(
+                "class members are private by default; declare it `public {name}` to use it here"
+            )),
+        );
+    }
+
     /// Looks up a struct field for `object.name` and records its index under `id`.
     fn field(&mut self, id: ExprId, sid: StructId, name: &str, span: Span) -> Ty {
         let def = self.program.struct_def(sid);
         match def.field(name) {
             Some((i, f)) => {
+                let t = f.ty.clone();
                 self.types.fields.insert(id, i as u32);
-                f.ty.clone()
+                self.check_access(sid, name, span);
+                t
             }
             None => {
                 let mut d = Diagnostic::error(
@@ -2150,6 +2396,8 @@ impl<'p> Checker<'p> {
                 .all(|f| self.equatable(&f.ty)),
             Ty::Tuple(ts) => ts.iter().all(|t| self.equatable(t)),
             Ty::Nullable(t) => self.equatable(t),
+            // Classes without `equals` compare by identity.
+            Ty::Class(..) => true,
             Ty::Enum(id, _) => self
                 .program
                 .enum_def(*id)
@@ -2656,9 +2904,10 @@ impl<'p> Checker<'p> {
                 if let Some(r) = self.builtin_method(e, &t, name, *name_span, args) {
                     return r;
                 }
-                if let Ty::Struct(sid, sname) = &t {
+                if let Ty::Struct(sid, sname) | Ty::Class(sid, sname) = &t {
                     let def = self.program.struct_def(*sid);
                     if let Some(m) = def.method(name) {
+                        self.check_access(*sid, name, *name_span);
                         self.types.methods.insert(e.id, m);
                         return self.call_fn(e, m, args);
                     }

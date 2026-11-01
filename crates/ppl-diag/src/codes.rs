@@ -75,6 +75,8 @@ codes! {
     WRONG_LENGTH = 316: "array or tuple literal with the wrong number of elements",
     NON_EXHAUSTIVE = 317: "non-exhaustive `match`",
     PATTERN_MISMATCH = 318: "pattern that can't match the matched value's type",
+    PRIVATE_MEMBER = 319: "use of a private member outside its class",
+    UNASSIGNED_FIELD = 320: "field not definitely assigned by a constructor",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

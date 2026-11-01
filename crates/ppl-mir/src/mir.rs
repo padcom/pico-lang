@@ -71,11 +71,13 @@ pub enum FieldRef {
     Variant(EnumId, u32, usize),
 }
 
-/// A struct's fields, in declaration order.
+/// A struct's or class's fields, in declaration order.
 #[derive(Debug)]
 pub struct StructLayout {
     pub name: String,
     pub fields: Vec<(String, Ty)>,
+    /// A class: instances live on the heap behind a header.
+    pub is_class: bool,
 }
 
 impl Program {
@@ -121,7 +123,9 @@ impl Program {
 /// The type of `p` applied to a value of type `t`; `field` gives a struct's field types.
 pub fn project(t: &Ty, p: &Proj, field: impl Fn(FieldRef) -> Ty) -> Ty {
     match (t, p) {
-        (Ty::Struct(sid, _), Proj::Field(i)) => field(FieldRef::Struct(*sid, *i as usize)),
+        (Ty::Struct(sid, _) | Ty::Class(sid, _), Proj::Field(i)) => {
+            field(FieldRef::Struct(*sid, *i as usize))
+        }
         (Ty::Enum(eid, _), Proj::VariantField(v, i)) => {
             field(FieldRef::Variant(*eid, *v, *i as usize))
         }
@@ -370,6 +374,8 @@ pub enum Rvalue {
     Variant(EnumId, u32, Vec<Operand>),
     /// The variant index of an enum value (`u32`).
     Tag(Operand),
+    /// A new instance of a class, its fields not yet set (the constructor runs next).
+    New(StructId),
 }
 
 #[derive(Debug)]
@@ -492,6 +498,7 @@ impl fmt::Display for Rvalue {
                 write!(f, "enum#{}::{v}({})", e.0, ops.join(", "))
             }
             Rvalue::Tag(a) => write!(f, "Tag({a})"),
+            Rvalue::New(c) => write!(f, "New(class#{})", c.0),
         }
     }
 }

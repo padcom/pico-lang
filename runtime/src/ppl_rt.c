@@ -19,6 +19,12 @@ void *ppl_alloc(int64_t size) {
     return p;
 }
 
+void *ppl_alloc_zeroed(int64_t size) {
+    void *p = ppl_alloc(size);
+    memset(p, 0, (size_t)(size > 0 ? size : 1));
+    return p;
+}
+
 /* ---------------------------------------------------------------- arrays */
 
 PplArray *ppl_array_new(int64_t elem_size, int64_t len) {

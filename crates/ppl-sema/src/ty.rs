@@ -119,6 +119,8 @@ pub enum Ty {
     Null,
     /// A user-defined struct (the name is kept for messages).
     Struct(StructId, Arc<str>),
+    /// A class instance: a reference to a heap object (shares the id space with structs).
+    Class(StructId, Arc<str>),
     /// A user-defined enum (a tagged union).
     Enum(EnumId, Arc<str>),
     /// Internal: a reference to a value (method receivers). Not writable in source.
@@ -180,7 +182,7 @@ impl Ty {
     /// Reference types are pointers at runtime, so `T?` is a nullable pointer; other types
     /// get a presence flag.
     pub fn is_ref(&self) -> bool {
-        matches!(self, Ty::Str | Ty::Array(_))
+        matches!(self, Ty::Str | Ty::Array(_) | Ty::Class(..))
     }
 
     /// The element type of an indexable collection (`T[]`, `[T; N]`).
@@ -231,7 +233,7 @@ impl fmt::Display for Ty {
             Ty::Void => f.write_str("void"),
             Ty::Never => f.write_str("never"),
             Ty::Null => f.write_str("null"),
-            Ty::Struct(_, name) | Ty::Enum(_, name) => f.write_str(name),
+            Ty::Struct(_, name) | Ty::Enum(_, name) | Ty::Class(_, name) => f.write_str(name),
             Ty::Ref(t) => write!(f, "&{t}"),
             Ty::Array(t) if matches!(**t, Ty::Nullable(_)) => write!(f, "({t})[]"),
             Ty::Array(t) => write!(f, "{t}[]"),

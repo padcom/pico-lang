@@ -47,6 +47,7 @@ pub fn lower(
                 .iter()
                 .map(|f| (f.name.clone(), f.ty.clone()))
                 .collect(),
+            is_class: s.is_class,
         })
         .collect();
     let enums = program
@@ -119,8 +120,10 @@ impl Cx<'_> {
             loops: Vec::new(),
         };
         for (i, (l, t)) in f.locals.iter().zip(local_tys).enumerate() {
-            // `this` is passed by reference.
-            let is_this = f.this.is_some_and(|(this, _)| this.0 as usize == i);
+            // A struct's `this` is passed by reference (a class's is already one).
+            let is_this = f.this.is_some_and(|(this, sid)| {
+                this.0 as usize == i && !b.cx.program.struct_def(sid).is_class
+            });
             let ty = if is_this {
                 Ty::Ref(Box::new(t.clone()))
             } else {
@@ -272,7 +275,11 @@ impl FnBuilder<'_, '_> {
 
     fn place(&self, v: Var) -> Place {
         match v {
-            Var::Local(l) if self.hir_fn.this.is_some_and(|(this, _)| this == l) => {
+            Var::Local(l)
+                if self.hir_fn.this.is_some_and(|(this, sid)| {
+                    this == l && !self.cx.program.struct_def(sid).is_class
+                }) =>
+            {
                 Place::deref(Local(l.0))
             }
             Var::Local(l) => Place::local(Local(l.0)),
@@ -331,7 +338,10 @@ impl FnBuilder<'_, '_> {
         match &e.kind {
             ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => self.place(*v).payload(),
             ExprKind::Var(v) => self.place(*v),
-            ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Struct(..)) => {
+            ExprKind::Member { object, .. }
+                if matches!(self.ty_of(object), Ty::Struct(..) | Ty::Class(..))
+                    && self.cx.types.fields.contains_key(&e.id) =>
+            {
                 let i = self.cx.types.fields[&e.id];
                 self.place_deferred(object, checks).field(i)
             }
@@ -627,6 +637,37 @@ impl FnBuilder<'_, '_> {
                 self.rvalue_to_temp(Rvalue::Unary(op, v), ty, e.span)
             }
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, ty),
+            ExprKind::Assign {
+                op,
+                target: target @ hir::Target::Field { id, object, .. },
+                value,
+            } if self.cx.types.setters.contains_key(id) => {
+                // `obj.prop = v` / `obj.prop += v` through accessors.
+                let setter = self.cx.types.setters[id];
+                let recv = self.expr(object);
+                let v = match op {
+                    None => self.expr(value),
+                    Some(op) => {
+                        let Some(getter) =
+                            self.cx.program.struct_def(self.class_of(object)).getter(
+                                match target {
+                                    hir::Target::Field { name, .. } => name,
+                                    _ => unreachable!(),
+                                },
+                            )
+                        else {
+                            return Operand::Const(Const::Void);
+                        };
+                        let vt = self.ty(value);
+                        let cur =
+                            self.call_fn_value(getter, vec![recv.clone()], vt.clone(), e.span);
+                        let rhs = self.expr(value);
+                        self.rvalue_to_temp(Rvalue::Binary(bin_op(*op), cur, rhs), vt, e.span)
+                    }
+                };
+                self.call_fn_value(setter, vec![recv, v], Ty::Void, e.span);
+                Operand::Const(Const::Void)
+            }
             ExprKind::Assign { op, target, value } => {
                 let mut checks = Vec::new();
                 let place = self.target_place(target, &mut checks);
@@ -739,9 +780,28 @@ impl FnBuilder<'_, '_> {
                 self.expr(object);
                 Operand::Const(Const::Int(n as i128, IntTy::I64))
             }
+            ExprKind::Member { object, .. } if self.cx.types.getters.contains_key(&e.id) => {
+                let g = self.cx.types.getters[&e.id];
+                let recv = self.expr(object);
+                self.call_fn_value(g, vec![recv], ty, e.span)
+            }
             ExprKind::Member { .. } => {
                 let place = self.place_of(e);
                 self.read_place(place, e.span)
+            }
+            ExprKind::New { class, args } => {
+                let cty = self.cx.program.struct_ty(*class);
+                let obj = self.rvalue_to_temp(Rvalue::New(*class), cty, e.span);
+                let ctor = self
+                    .cx
+                    .program
+                    .struct_def(*class)
+                    .ctor
+                    .expect("constructor");
+                let mut ops = vec![obj.clone()];
+                ops.extend(args.iter().map(|a| self.expr(a)));
+                self.call_fn_value(ctor, ops, Ty::Void, e.span);
+                obj
             }
             ExprKind::Object { fields, .. } => {
                 let (sid, order) = self.cx.types.objects[&e.id].clone();
@@ -1667,9 +1727,49 @@ impl FnBuilder<'_, '_> {
         acc
     }
 
+    /// The class an expression's (class-typed) value belongs to.
+    fn class_of(&self, e: &Expr) -> ppl_sema::ty::StructId {
+        match self.ty_of(e) {
+            Ty::Class(sid, _) | Ty::Struct(sid, _) => *sid,
+            t => unreachable!("not a class: {t}"),
+        }
+    }
+
+    /// Calls function `id` with already-evaluated arguments.
+    fn call_fn_value(&mut self, id: FnId, args: Vec<Operand>, ty: Ty, span: Span) -> Operand {
+        let loc = self.loc(span);
+        let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+        let next = self.new_block();
+        self.terminate(Terminator::Call {
+            callee: Callee::Fn(id),
+            args,
+            dest: dest.clone(),
+            next,
+            loc,
+        });
+        self.switch_to(next);
+        if ty == Ty::Never {
+            self.diverge(Terminator::Unreachable);
+        }
+        match dest {
+            Some(p) => Operand::Copy(p),
+            None => Operand::Const(Const::Void),
+        }
+    }
+
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr], ty: Ty) -> Operand {
         let loc = self.loc(e.span);
         match &callee.kind {
+            ExprKind::Member { object, .. }
+                if self.cx.types.methods.contains_key(&e.id)
+                    && matches!(self.ty_of(object), Ty::Class(..)) =>
+            {
+                // A class method takes the object reference itself.
+                let m = self.cx.types.methods[&e.id];
+                let mut ops = vec![self.expr(object)];
+                ops.extend(args.iter().map(|a| self.expr(a)));
+                self.call_fn_value(m, ops, ty, e.span)
+            }
             ExprKind::Member { object, .. } if self.cx.types.methods.contains_key(&e.id) => {
                 let m = self.cx.types.methods[&e.id];
                 let recv_ty = self.ty_of(object).clone();

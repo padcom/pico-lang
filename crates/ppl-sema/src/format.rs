@@ -187,7 +187,13 @@ pub fn is_compound(ty: &Ty) -> bool {
     }
     matches!(
         ty,
-        Ty::Struct(..) | Ty::Enum(..) | Ty::Tuple(_) | Ty::Fixed(..) | Ty::Array(_) | Ty::Range(_)
+        Ty::Struct(..)
+            | Ty::Class(..)
+            | Ty::Enum(..)
+            | Ty::Tuple(_)
+            | Ty::Fixed(..)
+            | Ty::Array(_)
+            | Ty::Range(_)
     )
 }
 

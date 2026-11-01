@@ -111,7 +111,11 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         .map(|e| cx.opaque_struct_type(&format!("ppl.enum.{}", e.name)))
         .collect();
     for (i, s) in program.structs.iter().enumerate() {
-        let fields: Vec<BasicTypeEnum> = s.fields.iter().filter_map(|(_, t)| g.ty(t)).collect();
+        let mut fields: Vec<BasicTypeEnum> = s.fields.iter().filter_map(|(_, t)| g.ty(t)).collect();
+        if s.is_class {
+            // Objects start with a header word (the class's metadata, from P3.10 on).
+            fields.insert(0, g.ptr().into());
+        }
         g.structs[i].set_body(&fields, false);
     }
     // An enum is `{ i32 tag, [k x i64] payload }`, the payload big enough for every variant.
@@ -192,7 +196,7 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Float(FloatTy::F64) => self.cx.f64_type().into(),
             Ty::Bool => self.cx.bool_type().into(),
             Ty::Char => self.cx.i32_type().into(),
-            Ty::Str | Ty::Ref(_) | Ty::Array(_) => self.ptr().into(),
+            Ty::Str | Ty::Ref(_) | Ty::Array(_) | Ty::Class(..) => self.ptr().into(),
             Ty::Struct(sid, _) => self.structs[sid.0 as usize].into(),
             Ty::Enum(eid, _) => self.enums[eid.0 as usize].into(),
             Ty::Fixed(e, n) => self.elem_ty(e).array_type(*n as u32).into(),
@@ -228,7 +232,7 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Float(FloatTy::F32) | Ty::Char => (4, 4),
             Ty::Float(FloatTy::F64) => (8, 8),
             Ty::Bool => (1, 1),
-            Ty::Str | Ty::Array(_) | Ty::Ref(_) => (8, 8),
+            Ty::Str | Ty::Array(_) | Ty::Ref(_) | Ty::Class(..) => (8, 8),
             Ty::Nullable(inner) if inner.is_ref() => (8, 8),
             Ty::Nullable(inner) => struct_layout(&[(1, 1), self.size_align(inner)]),
             Ty::Struct(sid, _) => {
@@ -496,6 +500,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 false,
             ),
             "ppl_array_new" => ptr.fn_type(&[i64t.into(), i64t.into()], false),
+            "ppl_alloc_zeroed" => ptr.fn_type(&[i64t.into()], false),
             "ppl_array_push" => ptr.fn_type(&[ptr.into(), i64t.into()], false),
             "ppl_array_pop" => i32t.fn_type(&[ptr.into()], false),
             "ppl_array_slice" => {
@@ -634,6 +639,17 @@ impl<'ctx> Gen<'ctx, '_> {
         };
         for pr in &p.proj {
             ptr = match (pr, &ty) {
+                (Proj::Field(i), Ty::Class(sid, _)) => {
+                    // Through the object reference; field 0 is the header.
+                    let obj = self
+                        .b
+                        .build_load(self.ptr(), ptr, "")
+                        .unwrap()
+                        .into_pointer_value();
+                    self.b
+                        .build_struct_gep(self.structs[sid.0 as usize], obj, i + 1, "")
+                        .unwrap()
+                }
                 (Proj::Field(i), _) => {
                     let st = self.ty(&ty).expect("aggregate").into_struct_type();
                     self.b.build_struct_gep(st, ptr, *i, "").unwrap()
@@ -980,6 +996,14 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
                 Some(self.b.build_load(et, slot, "").unwrap())
             }
+            Rvalue::New(sid) => {
+                let size = self.structs[sid.0 as usize].size_of().expect("sized class");
+                Some(basic(
+                    self.b
+                        .build_call(self.rt("ppl_alloc_zeroed"), &[size.into()], "obj")
+                        .unwrap(),
+                ))
+            }
             Rvalue::Tag(o) => {
                 let v = self.operand(fx, o)?;
                 Some(
@@ -1131,6 +1155,21 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Range(it) => vec![Ty::Int(*it); 3],
             Ty::Fixed(e, n) => vec![(**e).clone(); *n as usize],
             Ty::Str => return self.str_binary(BinOp::Eq, x, y).into_int_value(),
+            // Identity.
+            Ty::Class(..) => {
+                let (a, b) = (
+                    self.b
+                        .build_ptr_to_int(x.into_pointer_value(), self.i64(), "")
+                        .unwrap(),
+                    self.b
+                        .build_ptr_to_int(y.into_pointer_value(), self.i64(), "")
+                        .unwrap(),
+                );
+                return self
+                    .b
+                    .build_int_compare(IntPredicate::EQ, a, b, "")
+                    .unwrap();
+            }
             Ty::Enum(eid, _) => {
                 let f = self.enum_eq_fn(*eid);
                 let et = self.enums[eid.0 as usize];
@@ -1341,6 +1380,11 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// The debug text of a value, via a generated `ppl.debug.<n>` helper.
     fn debug_value(&mut self, t: &Ty, v: BasicValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        if let Ty::Class(sid, _) = t {
+            let _ = v;
+            let name = format!("<{}>", self.p.layout(*sid).name);
+            return self.str_literal(&name).into();
+        }
         if let Ty::Nullable(_) = t {
             let tmp = self.entry_alloca(self.ty(t).expect("nullable"), "debug.arg");
             self.b.build_store(tmp, v).unwrap();
@@ -1362,6 +1406,10 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// The debug text of the value at `p` (of type `t`).
     fn debug_at(&mut self, t: &Ty, p: PointerValue<'ctx>) -> BasicValueEnum<'ctx> {
+        if let Ty::Class(sid, _) = t {
+            let name = format!("<{}>", self.p.layout(*sid).name);
+            return self.str_literal(&name).into();
+        }
         if let Ty::Nullable(inner) = t {
             // "null", or the payload's debug text.
             let lt = self.ty(t).expect("nullable");
@@ -1898,6 +1946,7 @@ impl<'ctx> Gen<'ctx, '_> {
             }
             Ty::Str => self.str_binary(op, x, y),
             Ty::Struct(..)
+            | Ty::Class(..)
             | Ty::Enum(..)
             | Ty::Tuple(_)
             | Ty::Fixed(..)

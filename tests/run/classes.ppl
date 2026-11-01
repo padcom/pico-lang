@@ -1,0 +1,91 @@
+// expect: Rex (3)
+// expect: Rex says ...
+// expect: 2 animals
+// expect: Rex (4)
+// expect: nick: Rexy
+// expect: true false
+// expect: 15
+// expect: 3
+// expect: 2 1
+// expect: list 3 2 1
+// expect: <Animal>
+// expect: 10 20 0
+class Animal {
+  static count: i32 = 0
+  static { Animal.count = 0 }
+
+  constructor(public name: string, protected age: i32) { count++ }
+
+  public get description(): string { `${name} (${age})` }
+  nick = ""
+  public set nickname(v: string) { nick = v }
+  public get nickname(): string { `nick: ${nick}` }
+
+  public speak(): string { "..." }
+  public describe(): string { `${name} says ${speak()}` }
+  public birthday() { age++ }
+  public static total(): i32 { Animal.count }
+}
+
+const rex = new Animal("Rex", 3)
+println(rex.description)
+println(rex.describe())
+const other = new Animal("Tom", 1)
+println(`${Animal.total()} animals`)
+
+// Objects are references: an alias sees the change.
+const same = rex
+same.birthday()
+println(rex.description)
+rex.nickname = "Rexy"
+println(rex.nickname)
+println(`${rex == same} ${rex == other}`)
+
+class Counter {
+  private value: i32 = 0
+  public add(n: i32): Counter { value += n; this }
+  public get(): i32 { value }
+}
+println(new Counter().add(5).add(10).get())
+
+// Definite assignment through both branches of an `if`.
+class Pick {
+  public n: i32
+  constructor(big: bool) {
+    if (big) { n = 3 } else { this.n = 1 }
+  }
+}
+println(new Pick(true).n)
+
+// Static state shared through the class.
+class Ids {
+  static next: i32 = 1
+  public id: i32
+  constructor() { id = next; next += 1 }
+}
+const a = new Ids()
+const b = new Ids()
+println(`${b.id} ${a.id}`)
+
+// A linked list of objects with nullable links.
+class Node {
+  constructor(public value: i32, public next: Node?) {}
+}
+let head: Node? = null
+for (const i of 1i32..4) head = new Node(i, head)
+let line = "list"
+let cur = head
+while (cur != null) {
+  line += ` ${cur.value}`
+  cur = cur.next
+}
+println(line)
+println(`${rex:?}`)
+
+struct Pair { a: i32; b: i32 }
+class Holder {
+  public p: Pair = Pair { a: 10, b: 20 }
+  public arr: i32[] = [0]
+}
+const h = new Holder()
+println(`${h.p.a} ${h.p.b} ${h.arr[0]}`)

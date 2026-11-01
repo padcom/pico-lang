@@ -1,0 +1,36 @@
+// error: E0320
+// at: 20:16
+// error: E0320
+// at: 30:4
+// error: E0319
+// at: 33:15
+// error: E0319
+// at: 34:15
+// error: E0204
+// at: 35:5
+// error: E0308
+// at: 36:20
+class Account {
+  balance: i64 = 0
+  public owner: string
+  secret(): i64 { balance }
+  static hidden: i64 = 1
+  public get total(): i64 { balance }
+  constructor(owner: string, early: bool) {
+    if (early) return
+    this.owner = owner
+  }
+}
+class Partial {
+  public a: i32
+  public b: i32
+  constructor(x: bool) {
+    a = 1
+    if (x) { b = 2 }
+  }
+}
+const acc = new Account("ann", false)
+const b = acc.balance
+const s = acc.secret()
+acc.total = 5
+const n: Account = new Partial(true)
