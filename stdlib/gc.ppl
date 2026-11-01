@@ -40,6 +40,9 @@ export class gc {
       totalPause: __gc_stat(7),
     }
   }
+  // Restarts the pause statistics (`lastPause`, `maxPause`, `totalPause`), e.g. after
+  // loading, to measure a frame loop.
+  public static resetStats() { __gc_stat(-1) }
   // Debugging: prints the GC roots that hold references (named locals per active function,
   // innermost first, then globals).
   public static dumpRoots() { __gc_dump_roots() }

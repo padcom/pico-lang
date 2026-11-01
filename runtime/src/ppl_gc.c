@@ -17,7 +17,21 @@ static const PplGlobalRoots *globals;
  * while the block is fresh, then from a free list rebuilt by sweeping. A large object gets
  * its own run of blocks. A table maps block numbers (address >> 16) to their `Block`, so
  * the collector can tell heap pointers (also into the middle of an object) from anything
- * else. Nothing ever moves. */
+ * else. Nothing ever moves.
+ *
+ * Generations without moving ("sticky" marks): objects are young until they survive a
+ * nursery collection, which marks from the roots and from the remembered set, never entering
+ * old objects, and sweeps only the objects allocated since (kept in a list). Survivors become
+ * old in place. The write barrier remembers old small objects that are written to, and the
+ * written 512-byte cards of old large objects (big arrays), so a nursery collection scans
+ * only those.
+ *
+ * The old generation is collected incrementally, a slice at a safepoint at a time. Marking
+ * colors reached objects with the cycle's color (two colors alternate, so marks never need
+ * clearing); the barrier shades what a store into an old object makes it point to (Dijkstra),
+ * objects promoted meanwhile join grey, large objects are scanned in chunks, and the short
+ * finishing pause runs a nursery collection, rescans the roots and drains the mark stack.
+ * Sweeping is incremental too: objects promoted while it runs get the color that survives. */
 
 #define BLOCK_SHIFT 16
 #define BLOCK_SIZE ((size_t)1 << BLOCK_SHIFT)
@@ -32,7 +46,16 @@ typedef struct Obj {
     uint8_t pad[3];
 } Obj;
 
-enum { F_ALLOC = 1, F_MARK = 2 };
+enum {
+    F_ALLOC = 1,
+    F_MARK = 2, /* reached by the running nursery collection */
+    F_OLD = 4,
+    F_REM = 8, /* in the remembered set */
+    /* An old object's color: the major cycle that last reached it. */
+    F_COLOR_A = 16,
+    F_COLOR_B = 32,
+    F_COLORS = F_COLOR_A | F_COLOR_B
+};
 
 typedef struct Block {
     struct Block *next, *prev; /* every block */
@@ -44,6 +67,7 @@ typedef struct Block {
     int64_t live; /* allocated cells */
     int cls;
     int in_avail;
+    uint8_t *cards; /* large objects: the written cards, once old */
 } Block;
 
 static const uint32_t class_sizes[] = {32,   48,   64,   80,   96,   112,  128,  160,  192,
@@ -65,11 +89,28 @@ static int nspare;
 /* Statistics (the `GcStats` fields). */
 static int64_t heap_bytes, used_bytes, allocated_bytes, ncollections, nyoung;
 static int64_t last_pause, max_pause, total_pause;
-/* A full collection is due when `used_bytes` reaches this. */
-#define MIN_THRESHOLD ((int64_t)8 << 20)
-static int64_t threshold = MIN_THRESHOLD;
+
+/* A nursery collection is due after this many bytes of allocation. */
+#define NURSERY ((int64_t)256 << 10)
+/* Old-generation marking starts when the old bytes reach this (at least the minimum, else
+ * twice what survived the last major collection). */
+#define MIN_MAJOR ((int64_t)8 << 20)
+/* While marking or sweeping, a step runs after this much allocation and works for at most
+ * STEP_NS. */
+#define STEP_BYTES ((int64_t)64 << 10)
+#define STEP_NS ((int64_t)250000)
+/* Large objects are marked this many bytes at a time, and remembered by cards. */
+#define CHUNK_BYTES ((int64_t)16 << 10)
+#define CARD_SHIFT 9
+static int64_t young_bytes, old_bytes, step_bytes;
+static int64_t major_threshold = MIN_MAJOR;
+enum { IDLE, MARKING, SWEEPING };
+static int phase = IDLE;
+static uint8_t color = F_COLOR_A; /* of the running (or last) major cycle */
+static Block *sweep_cursor;
 static int paused;
 static int stress_mode;
+static int trace_mode;
 
 static _Noreturn void out_of_memory(void) {
     fflush(stdout);
@@ -79,65 +120,31 @@ static _Noreturn void out_of_memory(void) {
 
 static size_t header_size(void) { return (sizeof(Block) + 15) & ~(size_t)15; }
 
-/* ---------------------------------------------------------------- the block table */
+/* ---------------------------------------------------------------- the block table
+ *
+ * A two-level radix table from block number to block: the high bits pick a leaf of 2^16
+ * entries (4 GiB of address space), created when first needed. */
 
-static struct {
-    uintptr_t *keys; /* 0: empty, 1: deleted */
-    Block **vals;
-    size_t cap, used;
-} table;
-
-static size_t slot_of(uintptr_t k, size_t cap) {
-    return (size_t)((k * 0x9E3779B97F4A7C15ull) >> 32) & (cap - 1);
-}
-
-static void table_put(uintptr_t k, Block *b);
-
-static void table_grow(void) {
-    uintptr_t *keys = table.keys;
-    Block **vals = table.vals;
-    size_t cap = table.cap;
-    table.cap = cap ? cap * 2 : 1024;
-    table.keys = calloc(table.cap, sizeof *table.keys);
-    table.vals = calloc(table.cap, sizeof *table.vals);
-    if (!table.keys || !table.vals) out_of_memory();
-    table.used = 0;
-    for (size_t i = 0; i < cap; i++) {
-        if (keys[i] > 1) table_put(keys[i], vals[i]);
-    }
-    free(keys);
-    free(vals);
-}
+#define LEAF_BITS 16
+#define ROOT_BITS 16 /* 48-bit addresses */
+static Block **block_table[(size_t)1 << ROOT_BITS];
 
 static void table_put(uintptr_t k, Block *b) {
-    if ((table.used + 1) * 2 > table.cap) table_grow();
-    size_t i = slot_of(k, table.cap);
-    while (table.keys[i] > 1) i = (i + 1) & (table.cap - 1);
-    if (table.keys[i] == 0) table.used++;
-    table.keys[i] = k;
-    table.vals[i] = b;
+    size_t hi = (size_t)(k >> LEAF_BITS) & (((size_t)1 << ROOT_BITS) - 1);
+    if (!block_table[hi]) {
+        block_table[hi] = calloc((size_t)1 << LEAF_BITS, sizeof(Block *));
+        if (!block_table[hi]) out_of_memory();
+    }
+    block_table[hi][k & (((uintptr_t)1 << LEAF_BITS) - 1)] = b;
 }
 
 static Block *table_get(uintptr_t k) {
-    if (!table.cap) return NULL;
-    size_t i = slot_of(k, table.cap);
-    while (table.keys[i] != 0) {
-        if (table.keys[i] == k) return table.vals[i];
-        i = (i + 1) & (table.cap - 1);
-    }
-    return NULL;
+    if (k >> (LEAF_BITS + ROOT_BITS)) return NULL;
+    Block **leaf = block_table[k >> LEAF_BITS];
+    return leaf ? leaf[k & (((uintptr_t)1 << LEAF_BITS) - 1)] : NULL;
 }
 
-static void table_del(uintptr_t k) {
-    size_t i = slot_of(k, table.cap);
-    while (table.keys[i] != 0) {
-        if (table.keys[i] == k) {
-            table.keys[i] = 1;
-            return;
-        }
-        i = (i + 1) & (table.cap - 1);
-    }
-}
+static void table_del(uintptr_t k) { table_put(k, NULL); }
 
 /* The object containing `p`, or NULL when `p` isn't inside a live heap object. */
 static Obj *find_object(const void *p) {
@@ -215,6 +222,7 @@ static void retire_block(Block *b) {
 
 static void free_large(Block *b) {
     unlink_block(b);
+    free(b->cards);
     for (size_t i = 0; i < b->bytes / BLOCK_SIZE; i++) {
         table_del(((uintptr_t)b >> BLOCK_SHIFT) + i);
     }
@@ -230,10 +238,11 @@ static void init_classes(void) {
     }
     classes_ready = 1;
     /* Debugging: PPL_GC_STRESS=1 collects at every safepoint after an allocation. */
+    const char *trace = getenv("PPL_GC_TRACE");
+    trace_mode = trace && *trace && *trace != '0';
     const char *stress = getenv("PPL_GC_STRESS");
     if (stress && *stress && *stress != '0') {
         stress_mode = 1;
-        threshold = 0;
     }
 }
 
@@ -241,15 +250,15 @@ static Obj *alloc_small(int c) {
     Block *b = classes[c].cur;
     for (;;) {
         if (b) {
+            Obj *o = NULL;
             if (b->free) {
-                Obj *o = b->free;
+                o = b->free;
                 memcpy(&b->free, (const void *)(o + 1), sizeof(Obj *));
-                b->live++;
-                return o;
-            }
-            if (b->bump + b->cell <= b->end) {
-                Obj *o = (Obj *)b->bump;
+            } else if (b->bump + b->cell <= b->end) {
+                o = (Obj *)b->bump;
                 b->bump += b->cell;
+            }
+            if (o) {
                 b->live++;
                 return o;
             }
@@ -285,6 +294,26 @@ static Obj *alloc_large(size_t payload) {
 
 /* ---------------------------------------------------------------- allocation */
 
+typedef struct {
+    Obj **items;
+    size_t len, cap;
+} Stack;
+
+static void push(Stack *st, Obj *o) {
+    if (st->len == st->cap) {
+        st->cap = st->cap ? st->cap * 2 : 4096;
+        st->items = realloc(st->items, st->cap * sizeof *st->items);
+        if (!st->items) out_of_memory();
+    }
+    st->items[st->len++] = o;
+}
+
+/* The objects allocated since the last nursery collection. */
+static Stack young_objects;
+
+/* The block an object is in (blocks are aligned; a large object's header is in its first). */
+static Block *block_of(const Obj *o) { return (Block *)((uintptr_t)o & ~(uintptr_t)(BLOCK_SIZE - 1)); }
+
 void *ppl_gc_alloc(int64_t size, const PplLayout *layout) {
     if (size < 0) size = 0;
     if (size > (int64_t)UINT32_MAX) out_of_memory();
@@ -304,9 +333,14 @@ void *ppl_gc_alloc(int64_t size, const PplLayout *layout) {
     o->size = (uint32_t)size;
     o->flags = F_ALLOC;
     memset(o + 1, 0, (size_t)size);
+    push(&young_objects, o);
     used_bytes += (int64_t)cell;
     allocated_bytes += (int64_t)cell;
-    if (used_bytes >= threshold && !paused) ppl_gc_requested = 1;
+    young_bytes += (int64_t)cell;
+    if (phase != IDLE) step_bytes += (int64_t)cell;
+    if (!paused && (young_bytes >= NURSERY || step_bytes >= STEP_BYTES || stress_mode)) {
+        ppl_gc_requested = 1;
+    }
     return o + 1;
 }
 
@@ -314,7 +348,6 @@ void *ppl_alloc(int64_t size) { return ppl_gc_alloc(size, NULL); }
 
 void *ppl_alloc_zeroed(int64_t size) { return ppl_gc_alloc(size, NULL); }
 
-void ppl_gc_write(void *slot) { (void)slot; }
 
 /* ---------------------------------------------------------------- roots */
 
@@ -365,103 +398,234 @@ void ppl_gc_dump_roots(void) {
 
 /* ---------------------------------------------------------------- marking */
 
-static Obj **mark_stack;
-static size_t mark_len, mark_cap;
+/* Nursery marking. */
+static Stack young_stack;
+/* Old small objects written to since the last nursery collection. */
+static Stack remembered;
 
-static void push(Obj *o) {
-    if (mark_len == mark_cap) {
-        mark_cap = mark_cap ? mark_cap * 2 : 4096;
-        mark_stack = realloc(mark_stack, mark_cap * sizeof *mark_stack);
-        if (!mark_stack) out_of_memory();
+/* The major marking's grey objects: an object and how far it has been scanned. */
+typedef struct {
+    Obj *o;
+    int64_t from;
+} Grey;
+static struct {
+    Grey *items;
+    size_t len, cap;
+} grey;
+
+static void push_grey(Obj *o, int64_t from) {
+    if (grey.len == grey.cap) {
+        grey.cap = grey.cap ? grey.cap * 2 : 4096;
+        grey.items = realloc(grey.items, grey.cap * sizeof *grey.items);
+        if (!grey.items) out_of_memory();
     }
-    mark_stack[mark_len++] = o;
+    grey.items[grey.len++] = (Grey){o, from};
 }
 
-static void mark_ptr(const void *p) {
+/* Written cards of old large objects. */
+typedef struct {
+    Block *b;
+    size_t card;
+} Card;
+static struct {
+    Card *items;
+    size_t len, cap;
+} dirty;
+
+static void push_card(Block *b, size_t card) {
+    if (dirty.len == dirty.cap) {
+        dirty.cap = dirty.cap ? dirty.cap * 2 : 1024;
+        dirty.items = realloc(dirty.items, dirty.cap * sizeof *dirty.items);
+        if (!dirty.items) out_of_memory();
+    }
+    dirty.items[dirty.len++] = (Card){b, card};
+}
+
+/* Nursery collections enter young objects only (old ones are reached through the
+ * remembered set). */
+static void visit_young(const void *p) {
     Obj *o = find_object(p);
-    if (!o || (o->flags & F_MARK)) return;
+    if (!o || (o->flags & (F_OLD | F_MARK))) return;
     o->flags |= F_MARK;
-    push(o);
+    push(&young_stack, o);
 }
 
-/* Marks what the reference words of `bytes` bytes of values at `base` point to. */
-static void scan(const char *base, const PplLayout *l, int64_t bytes) {
+static void color_grey(Obj *o) {
+    o->flags = (uint8_t)((o->flags & ~F_COLORS) | color);
+    push_grey(o, 0);
+}
+
+/* The major marking enters old objects only (young ones join when promoted). */
+static void visit_old(const void *p) {
+    Obj *o = find_object(p);
+    if (!o || !(o->flags & F_OLD) || (o->flags & F_COLORS) == color) return;
+    color_grey(o);
+}
+
+/* Visits what the reference words of the values in [from, to) at `base` point to (`base`
+ * holds a whole number of `l->size`-byte values). */
+static void scan_range(const char *base, const PplLayout *l, int64_t from, int64_t to,
+                       void (*visit)(const void *)) {
     if (!l) return;
-    for (int64_t at = 0; at + l->size <= bytes; at += l->size) {
+    for (int64_t at = from; at + l->size <= to; at += l->size) {
         for (int32_t i = 0; i < l->nrefs; i++) {
             void *p;
             memcpy(&p, base + at + (l->refs[i] & ~PPL_REF_HIDDEN), sizeof p);
-            if (p) mark_ptr(p);
+            if (p) visit(p);
         }
     }
 }
 
-static void scan_roots(void) {
+static void scan(const char *base, const PplLayout *l, int64_t bytes, void (*visit)(const void *)) {
+    scan_range(base, l, 0, bytes, visit);
+}
+
+static void scan_object(const Obj *o, void (*visit)(const void *)) {
+    scan((const char *)(o + 1), o->layout, o->size, visit);
+}
+
+static void scan_roots(void (*visit)(const void *)) {
     for (PplFrame *f = ppl_gc_top; f; f = f->prev) {
         for (int64_t i = 0; i < f->map->nroots; i++) {
             const PplRootDesc *r = &f->map->roots[i];
-            scan((const char *)f + r->offset, r->layout, r->layout->size);
+            scan((const char *)f + r->offset, r->layout, r->layout->size, visit);
         }
     }
     if (globals) {
         for (int64_t i = 0; i < globals->n; i++) {
             const PplGlobalRoot *r = &globals->roots[i];
-            scan(r->addr, r->layout, r->layout->size);
+            scan(r->addr, r->layout, r->layout->size, visit);
         }
     }
 }
 
-static void drain(void) {
-    while (mark_len > 0) {
-        Obj *o = mark_stack[--mark_len];
-        scan((const char *)(o + 1), o->layout, o->size);
+/* The write barrier, after a value laid out as `layout` was stored at `slot`: an old object
+ * written to is remembered (a large one by card), and while the old generation is marked,
+ * the old objects the value points to are shaded. */
+void ppl_gc_write(void *slot, const PplLayout *layout) {
+    if (old_bytes == 0 || !layout) return;
+    Obj *o = find_object(slot);
+    if (!o || !(o->flags & F_OLD)) return;
+    if (phase == MARKING) scan(slot, layout, layout->size, visit_old);
+    Block *b = block_of(o);
+    if (b->cell) {
+        if (!(o->flags & F_REM)) {
+            o->flags |= F_REM;
+            push(&remembered, o);
+        }
+        return;
     }
+    if (!b->cards) {
+        b->cards = calloc(((size_t)o->size >> CARD_SHIFT) + 1, 1);
+        if (!b->cards) out_of_memory();
+    }
+    size_t card = (size_t)((char *)slot - (char *)(o + 1)) >> CARD_SHIFT;
+    if (!b->cards[card]) {
+        b->cards[card] = 1;
+        push_card(b, card);
+    }
+}
+
+/* The values of a large object that overlap one card. */
+static void scan_card(Block *b, size_t card, void (*visit)(const void *)) {
+    Obj *o = (Obj *)b->cells;
+    const PplLayout *l = o->layout;
+    if (!l) return;
+    int64_t start = (int64_t)card << CARD_SHIFT;
+    int64_t end = start + ((int64_t)1 << CARD_SHIFT);
+    int64_t from = start / l->size * l->size;
+    int64_t to = (end + l->size - 1) / l->size * l->size;
+    scan_range((const char *)(o + 1), l, from, to < o->size ? to : o->size, visit);
 }
 
 /* ---------------------------------------------------------------- sweeping */
 
-/* Frees the unmarked objects and clears the marks; rebuilds the size classes' lists. */
-static void sweep(void) {
-    for (int c = 0; c < NCLASSES; c++) classes[c].avail = NULL;
-    Block *b = all_blocks;
-    while (b) {
-        Block *next = b->next;
+static void free_cell(Block *b, Obj *o) {
+    o->flags = 0;
+    memcpy((void *)(o + 1), &b->free, sizeof(Obj *));
+    b->free = o;
+    b->live--;
+    used_bytes -= (int64_t)b->cell;
+}
+
+static void make_available(Block *b) {
+    if (b->live == 0) {
+        /* Fresh again: bump allocation from the start. */
+        b->free = NULL;
+        b->bump = b->cells;
+    }
+    if (!b->in_avail && classes[b->cls].cur != b && (b->free || b->bump < b->end)) {
+        b->avail_next = classes[b->cls].avail;
+        classes[b->cls].avail = b;
+        b->in_avail = 1;
+    }
+}
+
+/* A survivor of a nursery collection becomes old, with the current cycle's color: during
+ * marking it joins grey (its children may be old objects not reached yet); during sweeping
+ * the color keeps it; otherwise the next cycle's color differs. */
+static void promote(Obj *o, int64_t bytes) {
+    o->flags = (uint8_t)((o->flags & ~(F_MARK | F_COLORS)) | F_OLD | color);
+    if (phase == MARKING) push_grey(o, 0);
+    old_bytes += bytes;
+}
+
+/* Frees the young objects that weren't reached and promotes the others. */
+static void sweep_young(void) {
+    for (size_t i = 0; i < young_objects.len; i++) {
+        Obj *o = young_objects.items[i];
+        Block *b = block_of(o);
         if (b->cell == 0) {
-            Obj *o = (Obj *)b->cells;
+            int64_t bytes = (int64_t)(b->end - b->cells);
             if (o->flags & F_MARK) {
-                o->flags &= (uint8_t)~F_MARK;
+                promote(o, bytes);
             } else {
-                used_bytes -= (int64_t)(b->end - b->cells);
+                used_bytes -= bytes;
                 free_large(b);
             }
-            b = next;
             continue;
         }
-        for (char *c = b->cells; c < b->bump; c += b->cell) {
-            Obj *o = (Obj *)c;
-            if (!(o->flags & F_ALLOC)) continue;
-            if (o->flags & F_MARK) {
-                o->flags &= (uint8_t)~F_MARK;
-                continue;
+        if (o->flags & F_MARK) {
+            promote(o, (int64_t)b->cell);
+        } else {
+            free_cell(b, o);
+            make_available(b);
+        }
+    }
+    young_objects.len = 0;
+}
+
+/* Frees one block's old objects that the finished marking didn't reach. */
+static void sweep_block(Block *b) {
+    if (b->cell == 0) {
+        Obj *o = (Obj *)b->cells;
+        if ((o->flags & F_OLD) && (o->flags & F_COLORS) != color) {
+            int64_t bytes = (int64_t)(b->end - b->cells);
+            if (b->cards) {
+                /* Forget its written cards. */
+                size_t k = 0;
+                for (size_t i = 0; i < dirty.len; i++) {
+                    if (dirty.items[i].b != b) dirty.items[k++] = dirty.items[i];
+                }
+                dirty.len = k;
             }
-            o->flags = 0;
-            memcpy((void *)(o + 1), &b->free, sizeof(Obj *));
-            b->free = o;
-            b->live--;
-            used_bytes -= (int64_t)b->cell;
+            used_bytes -= bytes;
+            old_bytes -= bytes;
+            free_large(b);
         }
-        b->in_avail = 0;
-        if (b->live == 0) {
-            /* Fresh again: bump allocation from the start. */
-            b->free = NULL;
-            b->bump = b->cells;
-            if (classes[b->cls].cur != b) retire_block(b);
-        } else if (classes[b->cls].cur != b && (b->free || b->bump < b->end)) {
-            b->avail_next = classes[b->cls].avail;
-            classes[b->cls].avail = b;
-            b->in_avail = 1;
+        return;
+    }
+    for (char *c = b->cells; c < b->bump; c += b->cell) {
+        Obj *o = (Obj *)c;
+        if ((o->flags & (F_ALLOC | F_OLD)) == (F_ALLOC | F_OLD) && (o->flags & F_COLORS) != color) {
+            free_cell(b, o);
+            old_bytes -= (int64_t)b->cell;
         }
-        b = next;
+    }
+    if (b->live == 0 && !b->in_avail && classes[b->cls].cur != b) {
+        retire_block(b);
+    } else {
+        make_available(b);
     }
 }
 
@@ -471,44 +635,158 @@ static int64_t now_ns(void) {
     return (int64_t)t.tv_sec * 1000000000 + t.tv_nsec;
 }
 
-static void record_pause(int64_t start) {
+/* Sweeps blocks until done (returns 1), the deadline passes or `limit` blocks are done
+ * (0: no deadline or limit). Blocks created meanwhile are linked before the cursor and hold
+ * only objects that survive. */
+static int sweep_some(int64_t deadline, int64_t limit) {
+    int64_t n = 0;
+    while (sweep_cursor) {
+        Block *b = sweep_cursor;
+        sweep_cursor = b->next;
+        sweep_block(b);
+        n++;
+        if (limit && n >= limit) break;
+        if (deadline && n % 16 == 0 && now_ns() >= deadline) break;
+    }
+    if (sweep_cursor) return 0;
+    phase = IDLE;
+    ncollections++;
+    major_threshold = old_bytes * 2 > MIN_MAJOR ? old_bytes * 2 : MIN_MAJOR;
+    return 1;
+}
+
+/* ---------------------------------------------------------------- collections */
+
+/* `PPL_GC_TRACE=1` prints every pause to stderr: what ran and how long it took. */
+static void record_pause(int64_t start, const char *what) {
     int64_t d = now_ns() - start;
+    if (trace_mode) {
+        fprintf(stderr, "gc: %-28s %8lld us  heap %lld KiB\n", what, (long long)(d / 1000),
+                (long long)(heap_bytes >> 10));
+    }
     last_pause = d;
     if (d > max_pause) max_pause = d;
     total_pause += d;
 }
 
-static void full_collection(void) {
-    int64_t start = now_ns();
-    scan_roots();
-    drain();
-    sweep();
-    ncollections++;
-    threshold = used_bytes * 2 > MIN_THRESHOLD ? used_bytes * 2 : MIN_THRESHOLD;
-    if (stress_mode) threshold = 0;
-    record_pause(start);
+static void young_collection(void) {
+    scan_roots(visit_young);
+    for (size_t i = 0; i < remembered.len; i++) {
+        Obj *o = remembered.items[i];
+        /* (Swept since it was remembered: freed, or reused by a new object.) */
+        if (!(o->flags & F_REM)) continue;
+        o->flags &= (uint8_t)~F_REM;
+        scan_object(o, visit_young);
+    }
+    remembered.len = 0;
+    for (size_t i = 0; i < dirty.len; i++) {
+        dirty.items[i].b->cards[dirty.items[i].card] = 0;
+        scan_card(dirty.items[i].b, dirty.items[i].card, visit_young);
+    }
+    dirty.len = 0;
+    while (young_stack.len > 0) scan_object(young_stack.items[--young_stack.len], visit_young);
+    sweep_young();
+    young_bytes = 0;
+    nyoung++;
+}
+
+static void start_marking(void) {
+    phase = MARKING;
+    step_bytes = 0;
+    color = color == F_COLOR_A ? F_COLOR_B : F_COLOR_A;
+    scan_roots(visit_old);
+}
+
+/* Scans grey objects (large ones a chunk at a time) until none are left (returns 1), the
+ * deadline passes, or about `limit` bytes are scanned (0: no deadline or limit). */
+static int mark_some(int64_t deadline, int64_t limit) {
+    int64_t work = 0, checked = 0;
+    while (grey.len > 0) {
+        Grey g = grey.items[--grey.len];
+        int64_t to = g.o->size;
+        if (to - g.from > CHUNK_BYTES && g.o->layout) {
+            int64_t step = CHUNK_BYTES / g.o->layout->size * g.o->layout->size;
+            if (step == 0) step = g.o->layout->size;
+            to = g.from + step;
+            push_grey(g.o, to);
+        }
+        scan_range((const char *)(g.o + 1), g.o->layout, g.from, to, visit_old);
+        work += to - g.from + (int64_t)sizeof(Obj);
+        if (limit && work >= limit) return grey.len == 0;
+        if (deadline && work - checked >= 4096) {
+            checked = work;
+            if (now_ns() >= deadline) return 0;
+        }
+    }
+    return 1;
+}
+
+/* The end of the marking: everything young that survives is promoted (and greyed), the
+ * roots are scanned again, the rest is marked, and sweeping begins. */
+static void finish_marking(void) {
+    young_collection();
+    scan_roots(visit_old);
+    mark_some(0, 0);
+    phase = SWEEPING;
+    sweep_cursor = all_blocks;
 }
 
 void ppl_gc_safepoint(void) {
     ppl_gc_requested = 0;
     if (paused) return;
-    if (used_bytes >= threshold) full_collection();
+    int64_t start = now_ns();
+    char what[64] = "";
+    if (phase != IDLE && (step_bytes >= STEP_BYTES || stress_mode)) {
+        step_bytes = 0;
+        /* (Stress mode does little per step, so a cycle spans many safepoints.) */
+        if (phase == MARKING) {
+            strcat(what, "mark ");
+            if (stress_mode ? mark_some(0, 256) : mark_some(start + STEP_NS, 0)) {
+                finish_marking();
+                strcat(what, "finish ");
+            }
+        } else {
+            strcat(what, "sweep ");
+            if (stress_mode) {
+                sweep_some(0, 1);
+            } else {
+                sweep_some(start + STEP_NS, 0);
+            }
+        }
+    }
+    if (young_bytes >= NURSERY || (stress_mode && young_objects.len)) {
+        young_collection();
+        strcat(what, "young ");
+    }
+    if (phase == IDLE && (old_bytes >= major_threshold || stress_mode)) {
+        start_marking();
+        strcat(what, "start ");
+    }
+    record_pause(start, what);
 }
 
 /* ---------------------------------------------------------------- std/gc */
 
 void ppl_gc_collect(void) {
-    ppl_gc_requested = 0;
-    full_collection();
+    int64_t start = now_ns();
+    if (phase == SWEEPING) sweep_some(0, 0);
+    if (phase == IDLE) start_marking();
+    finish_marking();
+    sweep_some(0, 0);
+    record_pause(start, "collect");
 }
 
-void ppl_gc_collect_young(void) { ppl_gc_collect(); }
+void ppl_gc_collect_young(void) {
+    int64_t start = now_ns();
+    young_collection();
+    record_pause(start, "collectYoung");
+}
 
 void ppl_gc_pause(void) { paused++; }
 
 void ppl_gc_resume(void) {
     if (paused > 0) paused--;
-    if (!paused && used_bytes >= threshold) ppl_gc_requested = 1;
+    if (!paused && (young_bytes >= NURSERY || step_bytes >= STEP_BYTES)) ppl_gc_requested = 1;
 }
 
 int64_t ppl_gc_stat(int64_t which) {
@@ -521,6 +799,9 @@ int64_t ppl_gc_stat(int64_t which) {
     case 5: return last_pause;
     case 6: return max_pause;
     case 7: return total_pause;
+    case -1: /* `gc.resetStats()` */
+        last_pause = max_pause = total_pause = 0;
+        return 0;
     default: return 0;
     }
 }

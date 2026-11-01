@@ -1,0 +1,78 @@
+// Generational collection (P4.3): long-lived (old) objects that keep receiving references to
+// new (young) ones must keep them alive: field stores, array elements, struct fields reached
+// through a method's `this`, captured variables and large arrays all go through the write
+// barrier. The golden harness also runs this with a collection at every safepoint.
+// expect: chains ok: true 12800
+// expect: labels: r1990 r1991 r1999
+// expect: big: 20000 19999 s19999
+// expect: counter: c1999
+// expect: young: true
+import { gc } from "std/gc"
+
+class Node {
+  constructor(public value: int, public label: string, public next: Node?) {}
+}
+
+struct Tag {
+  name: string
+  rename(n: string) { name = n }
+}
+
+class Holder {
+  public tag: Tag = Tag { name: "start" }
+  public items: string[] = []
+}
+
+// Old after the first nursery collection; written to for the whole run.
+let table: Node?[] = []
+for (let i = 0; i < 64; i++) {
+  table.push(null)
+}
+const holder = new Holder()
+let big: string[] = []
+let last = ""
+const remember = (s: string) => { last = s }
+
+for (let round = 0; round < 2000; round++) {
+  for (let k = 0; k < 64; k++) {
+    const garbage = `garbage ${round} ${k}`
+    if (round % 10 == k % 10) {
+      table[k] = new Node(round, `r${round}`, table[k])
+    }
+    if (garbage.length == 0) {
+      println("never")
+    }
+  }
+  holder.tag.rename(`r${round}`)
+  if (round % 100 == 0) {
+    holder.items = []
+  }
+  holder.items.push(`r${round}`)
+  for (let j = 0; j < 10; j++) {
+    big.push(`s${big.length}`)
+  }
+  remember(`c${round}`)
+  if (round % 500 == 0) {
+    gc.collectYoung()
+  }
+}
+
+let ok = true
+let count = 0
+for (let k = 0; k < 64; k++) {
+  let n = table[k]
+  while (n != null) {
+    if (n.label != `r${n.value}` || n.value % 10 != k % 10) {
+      ok = false
+    }
+    count++
+    n = n.next
+  }
+}
+println(`chains ok: ${ok} ${count}`)
+println(`labels: ${holder.items[90]} ${holder.items[91]} ${holder.tag.name}`)
+println(`big: ${big.length} ${big[19999].slice(1).length + 19994} ${big[19999]}`)
+println(`counter: ${last}`)
+gc.collect()
+const s = gc.stats()
+println(`young: ${s.youngCollections > 0 || s.allocatedBytes == 0}`)

@@ -685,7 +685,8 @@ impl<'ctx> Gen<'ctx, '_> {
             ),
             "ppl_array_new" => ptr.fn_type(&[i64t.into(), i64t.into(), ptr.into()], false),
             "ppl_gc_alloc" => ptr.fn_type(&[i64t.into(), ptr.into()], false),
-            "ppl_gc_write" | "ppl_gc_set_globals" => void.fn_type(&[ptr.into()], false),
+            "ppl_gc_write" => void.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_gc_set_globals" => void.fn_type(&[ptr.into()], false),
             "ppl_gc_safepoint"
             | "ppl_gc_collect"
             | "ppl_gc_collect_young"
@@ -940,8 +941,9 @@ impl<'ctx> Gen<'ctx, '_> {
     fn store(&self, fx: &FnCx<'ctx, '_>, p: &Place, v: BasicValueEnum<'ctx>) {
         if let Some(ptr) = self.place_ptr(fx, p) {
             self.b.build_store(ptr, v).unwrap();
-            if self.p.traced(&self.place_ty(fx, p)) && self.place_in_heap(fx, p) {
-                self.barrier(ptr);
+            let t = self.place_ty(fx, p);
+            if self.p.traced(&t) && self.place_in_heap(fx, p) {
+                self.barrier(ptr, &t);
             }
         }
     }
@@ -1211,7 +1213,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 if let Some(val) = val {
                     self.b.build_store(slot, val).unwrap();
                     if self.p.traced(&elem) {
-                        self.barrier(slot);
+                        self.barrier(slot, &elem);
                     }
                 }
                 None

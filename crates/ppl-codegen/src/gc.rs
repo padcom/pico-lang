@@ -283,10 +283,11 @@ impl<'ctx> Gen<'ctx, '_> {
         self.b.position_at_end(cont);
     }
 
-    /// The write barrier, after a value holding references was stored at `slot`.
-    pub(crate) fn barrier(&self, slot: PointerValue<'ctx>) {
+    /// The write barrier, after a `t` value (holding references) was stored at `slot`.
+    pub(crate) fn barrier(&self, slot: PointerValue<'ctx>, t: &Ty) {
+        let layout = self.layout(t);
         self.b
-            .build_call(self.rt("ppl_gc_write"), &[slot.into()], "")
+            .build_call(self.rt("ppl_gc_write"), &[slot.into(), layout.into()], "")
             .unwrap();
     }
 

@@ -74,9 +74,9 @@ void ppl_gc_set_globals(const PplGlobalRoots *g);
  * else collects, so the runtime's own functions never see a collection mid-call. */
 extern int32_t ppl_gc_requested;
 void ppl_gc_safepoint(void);
-/* Write barrier: called after a reference is stored into `slot`, which may be inside a
- * heap object. */
-void ppl_gc_write(void *slot);
+/* Write barrier: called after a value laid out as `layout` is stored into `slot`, which may
+ * be inside a heap object. */
+void ppl_gc_write(void *slot, const PplLayout *layout);
 
 /* Allocates `size` zeroed bytes described by `layout`. Never returns NULL: running out of
  * memory aborts the program. */
@@ -91,7 +91,7 @@ void ppl_gc_collect_young(void);
 void ppl_gc_pause(void);
 void ppl_gc_resume(void);
 void ppl_gc_dump_roots(void);
-int64_t ppl_gc_stat(int64_t which); /* the `GcStats` fields, in order */
+int64_t ppl_gc_stat(int64_t which); /* the `GcStats` fields, in order; -1 resets pauses */
 /* Whether `obj` (an object, possibly null) is an instance of the class whose metadata is
  * `info`. An object's first word points at its class's metadata, whose first word points at
  * the base class's (null at the root). */

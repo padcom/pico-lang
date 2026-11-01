@@ -37,7 +37,7 @@ println(live.length)
 println(checksum + (if (ok) 0 else 1))
 const s = gc.stats()
 println(`bounded: ${s.heapSize < 32 * 1024 * 1024}`)
-println(`collected: ${s.collections > 0 || s.allocatedBytes == 0}`)
+println(`collected: ${s.collections + s.youngCollections > 0 || s.allocatedBytes == 0}`)
 println(`recycled: ${s.allocatedBytes >= 4 * s.heapSize}`)
 live = []
 chain = null

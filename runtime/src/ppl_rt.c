@@ -53,6 +53,12 @@ static const struct {
     uint32_t refs[1];
 } array_header_layout = {sizeof(PplArray), 1, 0, {offsetof(PplArray, data)}};
 
+static const struct {
+    int64_t size;
+    int32_t nrefs, reserved;
+    uint32_t refs[1];
+} pointer_layout = {sizeof(void *), 1, 0, {0}};
+
 static char *array_storage(int64_t cap, int64_t elem_size, const PplLayout *elem) {
     return ppl_gc_alloc(cap * elem_size, elem);
 }
@@ -74,7 +80,7 @@ void *ppl_array_push(PplArray *a, int64_t elem_size) {
         memcpy(data, a->data, (size_t)(a->len * elem_size));
         a->data = data;
         a->cap = cap;
-        ppl_gc_write(&a->data);
+        ppl_gc_write(&a->data, (const PplLayout *)&pointer_layout);
     }
     return a->data + (a->len++) * elem_size;
 }

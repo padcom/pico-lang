@@ -1,0 +1,24 @@
+// `std/gc` control (spec §9.2): no automatic collections between `pause()` and `resume()`,
+// explicit nursery collections, and restarting the pause statistics. (The interpreter has
+// no collector; its statistics are all zero.)
+// expect: paused: true
+// expect: young: true
+// expect: reset: true
+// expect: x49999
+import { gc } from "std/gc"
+
+const before = gc.stats()
+gc.pause()
+let junk: string[] = []
+for (let i = 0; i < 50000; i++) {
+  junk = [`x${i}`]
+}
+const during = gc.stats()
+gc.resume()
+println(`paused: ${during.youngCollections == before.youngCollections && during.collections == before.collections}`)
+gc.collectYoung()
+const after = gc.stats()
+println(`young: ${after.youngCollections > during.youngCollections || after.allocatedBytes == 0}`)
+gc.resetStats()
+println(`reset: ${gc.stats().maxPause == 0}`)
+println(junk[0])

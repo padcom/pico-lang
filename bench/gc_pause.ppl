@@ -1,0 +1,43 @@
+// GC pause benchmark (P4.3): a game-like loop. A long-lived world of entities (tens of MB,
+// so the old generation is marked incrementally several times) is updated every frame:
+// entities are replaced (old objects receive young ones), and every frame allocates
+// short-lived particles and strings. Prints the pause statistics.
+//
+//   ppl build --release bench/gc_pause.ppl -o gc_pause && ./gc_pause
+import { gc } from "std/gc"
+
+class Vec { constructor(public x: f64, public y: f64) {} }
+class Entity {
+  constructor(public id: int, public pos: Vec, public name: string, public trail: Vec[]) {}
+}
+
+const WORLD = 200000
+const FRAMES = 600
+let world: Entity[] = []
+for (let i = 0; i < WORLD; i++) {
+  world.push(new Entity(i, new Vec(i as f64, 0.0), `e${i}`, [new Vec(0.0, 0.0)]))
+}
+// Loading is over: measure the frames.
+gc.resetStats()
+let seed = 12345
+let checksum = 0.0
+for (let frame = 0; frame < FRAMES; frame++) {
+  // Replace 2% of the world each frame.
+  for (let k = 0; k < 4000; k++) {
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    const i = seed % WORLD
+    const old = world[i]
+    world[i] = new Entity(old.id, new Vec(old.pos.x + 1.0, old.pos.y), `e${old.id}.${frame}`, [old.pos])
+  }
+  // Per-frame garbage: particles.
+  let particles: Vec[] = []
+  for (let p = 0; p < 2000; p++) {
+    particles.push(new Vec(p as f64, frame as f64))
+  }
+  checksum += particles[1999].y + world[frame].pos.x
+}
+const s = gc.stats()
+println(`checksum ${checksum}`)
+println(`heap ${s.heapSize / 1048576} MiB, allocated ${s.allocatedBytes / 1048576} MiB`)
+println(`collections: ${s.collections} major, ${s.youngCollections} young`)
+println(`frame pauses: max ${s.maxPause / 1000} us, total ${s.totalPause / 1000000} ms`)

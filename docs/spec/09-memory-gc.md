@@ -18,6 +18,7 @@
   gc.collectYoung()        // nursery only
   gc.pause(); …; gc.resume()  // no collections in a frame-critical section
   gc.stats()               // heap size, pause times
+  gc.resetStats()          // restart the pause statistics (e.g. after loading)
   ```
 - `gc.dumpRoots()` (debugging) prints the GC roots that hold references: per active function
   (innermost first) its named locals, then the globals. `GcStats` has `heapSize`, `usedBytes`,
