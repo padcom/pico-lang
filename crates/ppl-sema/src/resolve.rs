@@ -1148,6 +1148,9 @@ impl Resolver {
     fn lower_expr(&mut self, e: &ast::Expr) -> Expr {
         use ast::ExprKind as A;
         let span = e.span;
+        if let Some(base) = opt_link_base(e) {
+            return self.opt_chain(e, base);
+        }
         let kind = match &e.kind {
             A::Lit(l) => match l {
                 ast::Lit::Int { value, suffix } => ExprKind::Int(*value, *suffix),
@@ -1264,20 +1267,12 @@ impl Resolver {
                     args: out,
                 }
             }
-            A::Member {
-                object,
-                prop,
-                optional,
-            } => {
-                if *optional {
-                    self.not_implemented(span, "`?.`");
-                }
-                ExprKind::Member {
-                    object: Box::new(self.lower_expr(object)),
-                    name: prop.name.clone(),
-                    name_span: prop.span,
-                }
-            }
+            A::NonNull(inner) => ExprKind::NonNull(Box::new(self.lower_expr(inner))),
+            A::Member { object, prop, .. } => ExprKind::Member {
+                object: Box::new(self.lower_expr(object)),
+                name: prop.name.clone(),
+                name_span: prop.span,
+            },
             A::Index { object, index } => ExprKind::Index {
                 object: Box::new(self.lower_expr(object)),
                 index: Box::new(self.lower_expr(index)),
@@ -1365,7 +1360,6 @@ impl Resolver {
                     A::This | A::Super => "classes",
                     A::Object { .. } => "object and struct literals",
                     A::New { .. } => "`new`",
-                    A::NonNull(_) => "`!` (non-null assertion)",
                     A::Is { .. } | A::Match { .. } | A::Switch { .. } => "pattern matching",
                     A::Instanceof { .. } => "`instanceof`",
                     A::Function(_) => "closures",
@@ -1387,6 +1381,32 @@ impl Resolver {
 }
 
 impl Resolver {
+    /// `a?.b.c()` → `OptChain { tmp = a, rest: tmp.b.c() }`; the base is lowered recursively,
+    /// so `a?.b?.c` nests.
+    fn opt_chain(&mut self, e: &ast::Expr, base: &ast::Expr) -> Expr {
+        let base = self.lower_expr(base);
+        let name = format!("<opt{}>", self.f.locals.len());
+        let tmp = self.hidden_local(&name, base.span);
+        self.f.scopes.push(Scope::default());
+        self.f
+            .scopes
+            .last_mut()
+            .expect("scope")
+            .names
+            .insert(name.clone(), tmp);
+        let rest = rewrite_opt_link(e, &name);
+        let rest = self.lower_expr(&rest);
+        self.f.scopes.pop();
+        self.expr(
+            ExprKind::OptChain {
+                tmp,
+                base: Box::new(base),
+                rest: Box::new(rest),
+            },
+            e.span,
+        )
+    }
+
     /// An assignment target: a variable, an implicit member, or `object.field`.
     fn lower_target(&mut self, e: &ast::Expr) -> Option<Target> {
         let t = strip_parens(e);
@@ -1496,6 +1516,66 @@ impl Resolver {
             fields: inits,
         }
     }
+}
+
+/// The object of the outermost `?.` in the member/call/index chain `e`, if there is one.
+fn opt_link_base(e: &ast::Expr) -> Option<&ast::Expr> {
+    let mut cur = e;
+    loop {
+        cur = match &cur.kind {
+            ast::ExprKind::Member {
+                object,
+                optional: true,
+                ..
+            } => return Some(object),
+            ast::ExprKind::Member { object, .. } | ast::ExprKind::Index { object, .. } => object,
+            ast::ExprKind::Call { callee, .. } => callee,
+            _ => return None,
+        };
+    }
+}
+
+/// `e` with its outermost `?.` link turned into `.` on the variable `name`.
+fn rewrite_opt_link(e: &ast::Expr, name: &str) -> ast::Expr {
+    use ast::ExprKind as A;
+    let kind = match &e.kind {
+        A::Member {
+            object,
+            prop,
+            optional: true,
+        } => A::Member {
+            object: Box::new(ast::Expr {
+                kind: A::Ident(name.to_string()),
+                span: object.span,
+            }),
+            prop: prop.clone(),
+            optional: false,
+        },
+        A::Member {
+            object,
+            prop,
+            optional,
+        } => A::Member {
+            object: Box::new(rewrite_opt_link(object, name)),
+            prop: prop.clone(),
+            optional: *optional,
+        },
+        A::Index { object, index } => A::Index {
+            object: Box::new(rewrite_opt_link(object, name)),
+            index: index.clone(),
+        },
+        A::Call {
+            callee,
+            type_args,
+            args,
+        } => A::Call {
+            callee: Box::new(rewrite_opt_link(callee, name)),
+            type_args: type_args.clone(),
+            args: args.clone(),
+        },
+        _ => unreachable!("not a chain"),
+    };
+    ast::Expr { kind, span: e.span }
 }
 
 /// Structs stored inline in a value of type `t` (directly, or inside tuples and fixed arrays).

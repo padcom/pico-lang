@@ -182,6 +182,9 @@ pub fn parse(spec: &str) -> Result<FormatSpec, String> {
 /// Checks that `spec` makes sense for a value of type `ty`.
 /// Types shown only in the debug format: structs, tuples, arrays and ranges.
 pub fn is_compound(ty: &Ty) -> bool {
+    if let Ty::Nullable(inner) = ty {
+        return is_compound(inner);
+    }
     matches!(
         ty,
         Ty::Struct(..) | Ty::Tuple(_) | Ty::Fixed(..) | Ty::Array(_) | Ty::Range(_)

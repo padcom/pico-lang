@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.6: Null and narrowing infrastructure** (see [PLAN.md](PLAN.md#p36-null-and-narrowing-infrastructure))
+**P3.7: Enums and basic match** (see [PLAN.md](PLAN.md#p37-enums-and-basic-match))
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -27,7 +27,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.5) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.6) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -42,10 +42,12 @@ Notes:
 - LLVM can't emit WasmGC, so the browser target starts on linear memory (PLAN P8.6 and P8.7).
 - lld isn't installed (separate Homebrew `lld` formula); needed from P8.1.
 - The unwinding strategy (LLVM EH vs error-return lowering) is decided in P3.19.
-- **Decision 183 is provisional** (made during an unattended session): pop → `T?`, array-literal
-  inference, no `==` on `T[]`, range step rules, debug format of arrays. Ask the author to confirm.
-- `xs.pop()` has type `T?`, which isn't representable yet: as a statement it works, its value
-  needs P3.6 (the interpreter returns `Void`, codegen drops it). Wire it up in P3.6.
+- **Decisions 183+ are provisional** (made during an unattended session): pop → `T?`,
+  array-literal inference, no `==` on `T[]`, range step rules, debug format of arrays, null
+  representation and narrowing rules. Ask the author to confirm.
+- Narrowing is variables-only; `p.x != null` doesn't narrow `p.x` (fields can change through
+  aliases). `unify_all` (return/break joins) doesn't make `T` + `null` into `T?` yet; `if/else`
+  does. Closures (P3.15) must make captured-and-assigned variables non-narrowable.
 - A method called on an array element (`xs[0].bump()`) gets a raw pointer into the array's
   storage natively; if the method grows the same array, the pointer dangles. Revisit with the GC.
 - `==` on large fixed arrays is unrolled per element in codegen.
@@ -82,7 +84,7 @@ Notes:
 - [x] P3.3 Format specs
 - [x] P3.4 Structs
 - [x] P3.5 Arrays, fixed arrays, tuples, ranges
-- [ ] P3.6 Null and narrowing infrastructure
+- [x] P3.6 Null and narrowing infrastructure
 - [ ] P3.7 Enums and basic match
 - [ ] P3.8 Advanced patterns and switch
 - [ ] P3.9 Classes I
@@ -207,3 +209,4 @@ Notes:
 | 2026-10-31 | P3.3 | ppl_sema::format: spec parser + type check (E0310); Types.formats; MIR Rvalue::Format; interpreter format_spec and C ppl_fmt_{i64,u64,f64,str,char,bool} with a constant PplFmt global from codegen; shortest_digits shared by e/f/%. Fixtures: run/format_specs (all §1.4 examples except `point:?`, every tour example, 40 cases, identical natively), fail/types/format_specs. Decision 181 + spec §1.4 rules. Note: a runtime edit briefly corrupted ppl_rt.c (empty-slice replace); restored from git before anything was committed. |
 | 2026-10-31 | P3.4 | Structs end to end: Ty::Struct (Arc name), HIR StructDef/Target/Object, resolver (pass 1 structs, fields+methods, by-value cycle check E0210, methods with hidden `this`, implicit members, field targets), typeck (field indices, struct literals with E0311/E0312/E0313, method calls via shared call_fn, field-wise ==, `?` only), MIR places with projections + Deref base, Aggregate/Ref rvalues, StructLayouts; interpreter locals as Rc<RefCell> cells with Value::Ref; codegen named LLVM struct types, GEP places, insertvalue aggregates, struct_eq, generated ppl.debug.<Name> helpers. Decision 182 (asked): const fixes only the binding. Fixtures: run/structs (copy semantics, mutation via methods, nesting, ==, debug), fail/types/structs, fail/names/recursive_struct; `${point:?}` added to format_specs. |
 | 2026-11-01 | P3.5 | Ty::Array/Fixed/Tuple/Range; MIR `Proj::{Field, Index(local)}` with bounds checks emitted by lowering (after an assignment's value, so the value can't invalidate them); rvalues Tuple/Repeat/ArrayNew/ArrayLen/ArrayPush/ArrayPop/InBounds/AddOverflows; HIR ForOf (ranges, arrays, fixed arrays, strings) and let/for-of destructuring of array patterns (incl. top level); runtime PplArray (ppl_array_new/push/pop); interpreter paths through shared arrays (`Step::Part/Elem`); generalized `${v:?}` debug helpers. E0314–E0316. Decision 183 (provisional). Fixtures: run/{arrays,tuples_fixed,ranges,array_index_panic,range_step_panic}, fail/types/arrays. |
+| 2026-11-01 | P3.6 | `T?` as nullable pointer (refs) or `{i1, T}`; MIR Const::Null, Proj::Payload, WrapSome/IsNull/Unwrap; convert() handles T→T?, T?→U?, null; `??`, `??=`, `!` (panic), `?.` chains (resolver rewrites the outermost link onto a hidden local: HIR OptChain); `x == null` lowers to IsNull; if-without-else values; printing/debug of nulls; pop() returns T?. Typeck narrowing scopes with facts from conditions, `&&`/`\|\|`, early exits; assignments/loops forget. Null-safe ppl_str_eq; entry-block allocas for debug/pow temporaries. Decision 184. Fixtures: run/{nullable,null_unwrap_panic}, fail/types/nullable. |

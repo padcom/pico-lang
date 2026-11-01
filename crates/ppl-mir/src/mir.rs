@@ -22,6 +22,7 @@ pub mod panics {
     pub const STACK_OVERFLOW: &str = "stack overflow";
     pub const INDEX: &str = "index out of bounds";
     pub const RANGE_STEP: &str = "range step must be positive";
+    pub const NULL_UNWRAP: &str = "non-null assertion on a null value";
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -87,6 +88,7 @@ pub fn project(t: &Ty, p: &Proj, field: impl Fn(StructId, usize) -> Ty) -> Ty {
         (Ty::Tuple(ts), Proj::Field(i)) => ts[*i as usize].clone(),
         (Ty::Range(it), Proj::Field(_)) => Ty::Int(*it),
         (Ty::Array(e) | Ty::Fixed(e, _), Proj::Index(_)) => (**e).clone(),
+        (Ty::Nullable(t), Proj::Payload) => (**t).clone(),
         (other, p) => unreachable!("projection {p:?} of {other}"),
     }
 }
@@ -146,6 +148,8 @@ pub enum Proj {
     /// The element of a fixed or growable array at the index held in a local (`int`). Lowering
     /// emits the bounds check before the place is used.
     Index(Local),
+    /// The value inside a `T?` that is known not to be null.
+    Payload,
 }
 
 /// A memory location: a base and a path of projections.
@@ -183,6 +187,12 @@ impl Place {
         p
     }
 
+    pub fn payload(&self) -> Place {
+        let mut p = self.clone();
+        p.proj.push(Proj::Payload);
+        p
+    }
+
     pub fn index(&self, l: Local) -> Place {
         let mut p = self.clone();
         p.proj.push(Proj::Index(l));
@@ -202,6 +212,8 @@ pub enum Const {
     Bool(bool),
     Char(char),
     Str(String),
+    /// `null` of the given `T?` type.
+    Null(Ty),
     Void,
 }
 
@@ -213,6 +225,7 @@ impl Const {
             Const::Bool(_) => Ty::Bool,
             Const::Char(_) => Ty::Char,
             Const::Str(_) => Ty::Str,
+            Const::Null(t) => t.clone(),
             Const::Void => Ty::Void,
         }
     }
@@ -297,6 +310,12 @@ pub enum Rvalue {
     InBounds(Operand, Operand),
     /// Whether `a + b` overflows their integer type (range iteration).
     AddOverflows(Operand, Operand),
+    /// `T` → `T?` (the type is the `T?`).
+    WrapSome(Operand, Ty),
+    /// Whether a `T?` is null.
+    IsNull(Operand),
+    /// The `T` inside a `T?` that lowering checked isn't null.
+    Unwrap(Operand),
 }
 
 #[derive(Debug)]
@@ -349,6 +368,7 @@ impl fmt::Display for Place {
             match p {
                 Proj::Field(i) => write!(f, ".{i}")?,
                 Proj::Index(l) => write!(f, "[_{}]", l.0)?,
+                Proj::Payload => write!(f, ".some")?,
             }
         }
         Ok(())
@@ -363,6 +383,7 @@ impl fmt::Display for Const {
             Const::Bool(b) => write!(f, "{b}"),
             Const::Char(c) => write!(f, "{c:?}"),
             Const::Str(s) => write!(f, "{s:?}"),
+            Const::Null(t) => write!(f, "null<{t}>"),
             Const::Void => write!(f, "()"),
         }
     }
@@ -407,6 +428,9 @@ impl fmt::Display for Rvalue {
             Rvalue::ArrayPop(a) => write!(f, "ArrayPop({a})"),
             Rvalue::InBounds(i, n) => write!(f, "InBounds({i}, {n})"),
             Rvalue::AddOverflows(a, b) => write!(f, "AddOverflows({a}, {b})"),
+            Rvalue::WrapSome(a, t) => write!(f, "Some<{t}>({a})"),
+            Rvalue::IsNull(a) => write!(f, "IsNull({a})"),
+            Rvalue::Unwrap(a) => write!(f, "Unwrap({a})"),
         }
     }
 }

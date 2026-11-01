@@ -1,0 +1,6 @@
+// expect: 1
+// panic: non-null assertion on a null value
+let x: i32? = 1
+println(x!)
+x = null
+println(x!)

@@ -32,6 +32,8 @@ pub enum Value {
     Array(Rc<RefCell<Vec<Value>>>),
     /// A reference into a variable: the cell and the path inside it.
     Ref(Cell, Rc<[Step]>),
+    /// `null`. A non-null `T?` is just the `T` value.
+    Null,
     Void,
     Uninit,
 }
@@ -155,8 +157,13 @@ impl Interp<'_, '_> {
             },
         };
         for pr in &place.proj {
+            if *pr == Proj::Payload {
+                ty = mir::project(&ty, pr, |sid, i| self.p.layout(sid).fields[i].1.clone());
+                continue;
+            }
             let step = match pr {
                 Proj::Field(i) => Step::Part(*i as usize),
+                Proj::Payload => unreachable!(),
                 Proj::Index(l) => {
                     let Value::Int(i) = *frame.locals[l.0 as usize].borrow() else {
                         unreachable!("index local holds an int")
@@ -196,6 +203,7 @@ impl Interp<'_, '_> {
                 Const::Bool(b) => Value::Bool(*b),
                 Const::Char(c) => Value::Char(*c),
                 Const::Str(s) => Value::Str(s.as_str().into()),
+                Const::Null(_) => Value::Null,
                 Const::Void => Value::Void,
             },
         }
@@ -355,14 +363,15 @@ impl Interp<'_, '_> {
                 Ok(Value::Void)
             }
             Rvalue::ArrayPop(a) => match self.operand(frame, a) {
-                // `null` isn't representable yet (P3.6): an empty array gives `Void`.
-                Value::Array(a) => Ok(a.borrow_mut().pop().unwrap_or(Value::Void)),
+                Value::Array(a) => Ok(a.borrow_mut().pop().unwrap_or(Value::Null)),
                 v => unreachable!("pop from {v:?}"),
             },
             Rvalue::InBounds(i, n) => match (self.operand(frame, i), self.operand(frame, n)) {
                 (Value::Int(i), Value::Int(n)) => Ok(Value::Bool(0 <= i && i < n)),
                 v => unreachable!("bounds check of {v:?}"),
             },
+            Rvalue::WrapSome(o, _) | Rvalue::Unwrap(o) => Ok(self.operand(frame, o)),
+            Rvalue::IsNull(o) => Ok(Value::Bool(self.operand(frame, o) == Value::Null)),
             Rvalue::AddOverflows(a, b) => {
                 let Ty::Int(it) = self.operand_ty(frame, a) else {
                     unreachable!("integer addition")
@@ -386,6 +395,11 @@ impl Interp<'_, '_> {
     fn binary(&self, op: BinOp, x: Value, y: Value, t: &Ty, loc: Loc) -> Result<Value, Panic> {
         use BinOp::*;
         match (x, y, t) {
+            (a, b, Ty::Nullable(_)) => Ok(match op {
+                Eq => Value::Bool(values_eq(&a, &b)),
+                Ne => Value::Bool(!values_eq(&a, &b)),
+                _ => unreachable!("type-checked nullable operator"),
+            }),
             (Value::Int(a), Value::Int(b), Ty::Int(it)) => {
                 let it = *it;
                 let r = match op {
@@ -618,6 +632,7 @@ pub fn display(v: &Value, t: &Ty) -> String {
         (Value::Bool(b), _) => b.to_string(),
         (Value::Char(c), _) => c.to_string(),
         (Value::Str(s), _) => s.to_string(),
+        (Value::Null, _) => "null".into(),
         (Value::Struct(_) | Value::Array(_) | Value::Ref(..) | Value::Void | Value::Uninit, _) => {
             String::new()
         }
@@ -662,6 +677,8 @@ fn debug_value(p: &Program, v: &Value, t: &Ty) -> String {
         (Value::Array(a), Ty::Array(et)) => {
             list(&mut a.borrow().iter().map(|v| debug_value(p, v, et)))
         }
+        (Value::Null, _) => "null".into(),
+        (v, Ty::Nullable(inner)) => debug_value(p, v, inner),
         (Value::Struct(parts), Ty::Range(_)) => match &parts[..] {
             [Value::Int(a), Value::Int(b), Value::Int(1)] => format!("{a}..{b}"),
             [Value::Int(a), Value::Int(b), Value::Int(s)] => format!("({a}..{b}).step({s})"),
@@ -786,6 +803,7 @@ pub fn format_spec(v: &Value, t: &Ty, spec: &FormatSpec) -> String {
             (false, "", body, false)
         }
         Value::Bool(b) => (false, "", b.to_string(), false),
+        Value::Null => (false, "", "null".into(), false),
         Value::Struct(_) | Value::Array(_) | Value::Ref(..) | Value::Void | Value::Uninit => {
             (false, "", String::new(), false)
         }

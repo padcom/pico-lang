@@ -13,7 +13,7 @@ use crate::ty::{FloatTy, IntTy, Ty};
 use ppl_diag::{Diagnostic, Span, codes};
 use ppl_syntax::ast::{BinOp, UnOp};
 use ppl_syntax::token::NumSuffix;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FnSig {
@@ -40,6 +40,8 @@ pub struct Types {
     pub objects: HashMap<ExprId, (StructId, Vec<u32>)>,
     /// Method calls: the call expression and the method it calls.
     pub methods: HashMap<ExprId, FnId>,
+    /// Variable reads of a `T?` binding that narrowing typed as `T` (lowering unwraps them).
+    pub narrowed: HashSet<ExprId>,
 }
 
 impl Types {
@@ -72,7 +74,9 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             fields: HashMap::new(),
             objects: HashMap::new(),
             methods: HashMap::new(),
+            narrowed: HashSet::new(),
         },
+        narrow: Vec::new(),
         diags: Vec::new(),
         state: vec![FnState::Unchecked; program.fns.len()],
         global_known: vec![false; program.globals.len()],
@@ -154,6 +158,16 @@ struct Checker<'p> {
     state: Vec<FnState>,
     global_known: Vec<bool>,
     stack: Vec<FnCtx>,
+    /// Flow-sensitive narrowing: scopes mapping variables to the type they're known to have
+    /// (`T` for a `T?` binding after `x != null`).
+    narrow: Vec<HashMap<Var, Ty>>,
+}
+
+/// What a condition tells about variables when it's true and when it's false.
+#[derive(Default)]
+struct Facts {
+    when_true: Vec<(Var, Ty)>,
+    when_false: Vec<(Var, Ty)>,
 }
 
 /// An integer literal without a suffix (possibly negated) adapts to its context.
@@ -164,6 +178,8 @@ fn untyped_lit(e: &Expr) -> bool {
         _ => false,
     }
 }
+
+const NULL_HELP: &str = "the value may be null: check it first (`if (x != null) …`), give a default with `??`, or assert with `!`";
 
 fn is_float_lit(e: &Expr) -> bool {
     match &e.kind {
@@ -191,10 +207,13 @@ fn suffix_ty(s: NumSuffix) -> Ty {
 }
 
 fn is_printable(t: &Ty) -> bool {
-    matches!(
-        t,
-        Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error | Ty::Never
-    )
+    match t {
+        Ty::Nullable(inner) => is_printable(inner),
+        _ => matches!(
+            t,
+            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error | Ty::Never
+        ),
+    }
 }
 
 impl<'p> Checker<'p> {
@@ -228,9 +247,9 @@ impl<'p> Checker<'p> {
             ));
         }
         if let Ty::Nullable(inner) = found
-            && **inner == want.ty
+            && inner.widens_to(&want.ty)
         {
-            d = d.note("an `if` without `else` produces `null` when the condition is false");
+            d = d.help(NULL_HELP);
         }
         self.diags.push(d);
     }
@@ -255,6 +274,91 @@ impl<'p> Checker<'p> {
 
     fn infer(&mut self, e: &Expr) -> Ty {
         self.infer_with(e, None)
+    }
+
+    // ------------------------------------------------------------ narrowing
+
+    fn narrowed(&self, v: Var) -> Option<&Ty> {
+        self.narrow.iter().rev().find_map(|s| s.get(&v))
+    }
+
+    /// Runs `f` with `facts` known.
+    fn with_facts<T>(&mut self, facts: Vec<(Var, Ty)>, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.narrow.push(facts.into_iter().collect());
+        let r = f(self);
+        self.narrow.pop();
+        r
+    }
+
+    /// An assignment ends every narrowing of `v`.
+    fn forget(&mut self, v: Var) {
+        for s in &mut self.narrow {
+            s.remove(&v);
+        }
+    }
+
+    /// Before a loop: narrowings of variables the loop assigns don't hold on later iterations.
+    fn forget_assigned(&mut self, exprs: &[&Expr]) {
+        let mut vars = Vec::new();
+        for e in exprs {
+            e.assigned_vars(&mut vars);
+        }
+        for v in vars {
+            self.forget(v);
+        }
+    }
+
+    /// The facts of an already checked condition.
+    fn facts(&self, cond: &Expr) -> Facts {
+        match &cond.kind {
+            ExprKind::Unary(UnOp::Not, inner) => {
+                let f = self.facts(inner);
+                Facts {
+                    when_true: f.when_false,
+                    when_false: f.when_true,
+                }
+            }
+            ExprKind::Binary(op @ (BinOp::Eq | BinOp::Ne), l, r) => {
+                let var = match (&l.kind, &r.kind) {
+                    (ExprKind::Var(v), ExprKind::Null) => Some((*v, l)),
+                    (ExprKind::Null, ExprKind::Var(v)) => Some((*v, r)),
+                    _ => None,
+                };
+                let Some((v, ve)) = var else {
+                    return Facts::default();
+                };
+                let Ty::Nullable(inner) = self.types.expr(ve.id) else {
+                    return Facts::default();
+                };
+                let fact = vec![(v, (**inner).clone())];
+                if *op == BinOp::Ne {
+                    Facts {
+                        when_true: fact,
+                        when_false: Vec::new(),
+                    }
+                } else {
+                    Facts {
+                        when_true: Vec::new(),
+                        when_false: fact,
+                    }
+                }
+            }
+            ExprKind::Binary(BinOp::And, l, r) => {
+                let (a, b) = (self.facts(l), self.facts(r));
+                Facts {
+                    when_true: a.when_true.into_iter().chain(b.when_true).collect(),
+                    when_false: Vec::new(),
+                }
+            }
+            ExprKind::Binary(BinOp::Or, l, r) => {
+                let (a, b) = (self.facts(l), self.facts(r));
+                Facts {
+                    when_true: Vec::new(),
+                    when_false: a.when_false.into_iter().chain(b.when_false).collect(),
+                }
+            }
+            _ => Facts::default(),
+        }
     }
 
     // ------------------------------------------------------------ functions
@@ -351,6 +455,7 @@ impl<'p> Checker<'p> {
     // ------------------------------------------------------------ blocks and statements
 
     fn block(&mut self, b: &Block, want: Option<&Expect>) -> Ty {
+        self.narrow.push(HashMap::new());
         let mut diverges = false;
         for s in &b.stmts {
             match s {
@@ -359,17 +464,40 @@ impl<'p> Checker<'p> {
                     if self.infer(e) == Ty::Never {
                         diverges = true;
                     }
+                    self.early_exit_facts(e);
                 }
             }
         }
-        match &b.tail {
+        let t = match &b.tail {
             Some(t) => match want {
                 Some(w) => self.check(t, w),
                 None => self.infer(t),
             },
             None if diverges => Ty::Never,
             None => Ty::Void,
-        }
+        };
+        self.narrow.pop();
+        t
+    }
+
+    /// `if (x == null) return` narrows `x` for the rest of the block (and `if (c) … else
+    /// return` keeps what `c` says).
+    fn early_exit_facts(&mut self, e: &Expr) {
+        let ExprKind::If { cond, then, else_ } = &e.kind else {
+            return;
+        };
+        let then_exits = *self.types.expr(then.id) == Ty::Never;
+        let else_exits = else_
+            .as_ref()
+            .is_some_and(|x| *self.types.expr(x.id) == Ty::Never);
+        let facts = self.facts(cond);
+        let known = match (then_exits, else_exits) {
+            (true, false) => facts.when_false,
+            (false, true) => facts.when_true,
+            _ => return,
+        };
+        let scope = self.narrow.last_mut().expect("block scope");
+        scope.extend(known);
     }
 
     fn var_binding(&self, var: Var) -> &'p Binding {
@@ -514,7 +642,13 @@ impl<'p> Checker<'p> {
             }
             ExprKind::Bool(_) => Ty::Bool,
             ExprKind::Null => Ty::Null,
-            ExprKind::Var(v) => self.var_ty(*v, e.span),
+            ExprKind::Var(v) => {
+                if let Some(t) = self.narrowed(*v).cloned() {
+                    self.types.narrowed.insert(e.id);
+                    return t;
+                }
+                self.var_ty(*v, e.span)
+            }
             ExprKind::Fn(_) | ExprKind::Builtin(_) => {
                 self.diags.push(
                     Diagnostic::error(
@@ -528,6 +662,9 @@ impl<'p> Checker<'p> {
             ExprKind::Unary(op, inner) => self.unary(e, *op, inner, want),
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, want),
             ExprKind::Assign { op, target, value } => {
+                if let Target::Var(v) = target {
+                    self.forget(*v);
+                }
                 let (vt, origin) = self.target_ty(target);
                 match op {
                     None => {
@@ -541,6 +678,9 @@ impl<'p> Checker<'p> {
             }
             ExprKind::Object { ty, fields } => self.object(e, *ty, fields, want),
             ExprKind::IncDec { target, .. } => {
+                if let Target::Var(v) = target {
+                    self.forget(*v);
+                }
                 let (t, _) = self.target_ty(target);
                 if !t.is_int() && !t.is_error() {
                     self.invalid_operand(e.span, "`++`/`--`", &t, "an integer");
@@ -561,13 +701,17 @@ impl<'p> Checker<'p> {
                     (Ty::Error, _) => Ty::Error,
                     (Ty::Struct(sid, _), _) => self.field(e.id, *sid, name, *name_span),
                     _ => {
-                        self.diags.push(
-                            Diagnostic::error(
-                                codes::UNKNOWN_MEMBER,
-                                format!("`{ot}` has no member `{name}`"),
-                            )
-                            .primary(*name_span, "unknown member"),
-                        );
+                        let mut d = Diagnostic::error(
+                            codes::UNKNOWN_MEMBER,
+                            format!("`{ot}` has no member `{name}`"),
+                        )
+                        .primary(*name_span, "unknown member");
+                        if let Ty::Nullable(_) = ot {
+                            d = d.help(format!(
+                                "the value may be null: use `?.{name}`, or check it with `!= null` first"
+                            ));
+                        }
+                        self.diags.push(d);
                         Ty::Error
                     }
                 }
@@ -636,6 +780,7 @@ impl<'p> Checker<'p> {
             ExprKind::If { cond, then, else_ } => self.if_expr(cond, then, else_.as_deref(), want),
             ExprKind::Block(b) => self.block(b, want),
             ExprKind::Loop(b) => {
+                self.forget_assigned(&[e]);
                 let want = want.filter(|w| w.ty != Ty::Void).cloned();
                 self.ctx().loops.push(LoopCtx {
                     produces_value: true,
@@ -656,16 +801,20 @@ impl<'p> Checker<'p> {
             ExprKind::While {
                 cond, body, update, ..
             } => {
+                self.forget_assigned(&[e]);
                 self.check(cond, &Expect::new(Ty::Bool));
+                let facts = self.facts(cond);
                 self.ctx().loops.push(LoopCtx {
                     produces_value: false,
                     want: None,
                     breaks: Vec::new(),
                 });
-                self.infer(body);
-                if let Some(u) = update {
-                    self.infer(u);
-                }
+                self.with_facts(facts.when_true, |c| {
+                    c.infer(body);
+                    if let Some(u) = update {
+                        c.infer(u);
+                    }
+                });
                 self.ctx().loops.pop();
                 Ty::Void
             }
@@ -717,6 +866,7 @@ impl<'p> Checker<'p> {
             ExprKind::Repeat { value, count } => self.repeat_lit(e, value, *count, want),
             ExprKind::Range { start, end } => self.range(e, start, end, want),
             ExprKind::ForOf { var, iter, body } => {
+                self.forget_assigned(&[body]);
                 let it = self.infer(iter);
                 let elem = match &it {
                     Ty::Range(i) => Ty::Int(*i),
@@ -745,7 +895,78 @@ impl<'p> Checker<'p> {
                 self.ctx().loops.pop();
                 Ty::Void
             }
+            ExprKind::NonNull(inner) => match self.infer(inner) {
+                Ty::Nullable(t) => *t,
+                Ty::Null => {
+                    self.diags.push(
+                        Diagnostic::error(codes::INVALID_OPERANDS, "`null!` always panics")
+                            .primary(e.span, "this value is always null"),
+                    );
+                    Ty::Error
+                }
+                t => t,
+            },
+            ExprKind::OptChain { tmp, base, rest } => {
+                let bt = self.infer(base);
+                let (inner, nullable) = match bt {
+                    Ty::Nullable(t) => (*t, true),
+                    t => (t, false),
+                };
+                self.set_var_ty(Var::Local(*tmp), inner);
+                let rt = self.infer(rest);
+                match rt {
+                    Ty::Void | Ty::Never | Ty::Error => rt,
+                    t if nullable => t.nullable(),
+                    t => t,
+                }
+            }
             ExprKind::Error => Ty::Error,
+        }
+    }
+
+    /// `a ?? b`: `b` is used when `a` is null.
+    fn nullish(&mut self, l: &Expr, r: &Expr, want: Option<&Expect>) -> Ty {
+        let lt = match want {
+            Some(w) if !matches!(w.ty, Ty::Void | Ty::Nullable(_)) => {
+                self.infer_with(l, Some(&Expect::new(w.ty.clone().nullable())))
+            }
+            _ => self.infer(l),
+        };
+        match lt {
+            Ty::Nullable(inner) => {
+                // `a ?? b` with a nullable `b` stays nullable.
+                let rt = self.infer_with(r, Some(&Expect::new((*inner).clone())));
+                if rt == *inner || rt == Ty::Never || rt.is_error() {
+                    return *inner;
+                }
+                if rt.widens_to(&inner) {
+                    self.types.coercions.insert(r.id, (*inner).clone());
+                    return *inner;
+                }
+                let n = Ty::Nullable(inner);
+                if rt.widens_to(&n) {
+                    if rt != n {
+                        self.types.coercions.insert(r.id, n.clone());
+                    }
+                    return n;
+                }
+                let want = match &n {
+                    Ty::Nullable(t) => (**t).clone(),
+                    t => t.clone(),
+                };
+                self.mismatch(r.span, &Expect::new(want), &rt);
+                Ty::Error
+            }
+            Ty::Error => {
+                self.infer(r);
+                Ty::Error
+            }
+            Ty::Null => self.infer(r),
+            t => {
+                // Not nullable: `b` is never used, but it still has to fit.
+                self.check(r, &Expect::new(t.clone()));
+                t
+            }
         }
     }
 
@@ -1129,6 +1350,7 @@ impl<'p> Checker<'p> {
                 .iter()
                 .all(|f| self.equatable(&f.ty)),
             Ty::Tuple(ts) => ts.iter().all(|t| self.equatable(t)),
+            Ty::Nullable(t) => self.equatable(t),
             Ty::Fixed(t, _) => self.equatable(t),
             Ty::Range(_) => true,
             _ => false,
@@ -1206,6 +1428,10 @@ impl<'p> Checker<'p> {
             .primary(span, format!("has type `{t}`"))
             .note(format!("{op} needs {needs}")),
         );
+        if let Ty::Nullable(_) = t {
+            let d = self.diags.pop().expect("just pushed");
+            self.diags.push(d.help(NULL_HELP));
+        }
     }
 
     fn unary(&mut self, e: &Expr, op: UnOp, inner: &Expr, want: Option<&Expect>) -> Ty {
@@ -1331,18 +1557,12 @@ impl<'p> Checker<'p> {
         match op {
             And | Or => {
                 self.check(l, &Expect::new(Ty::Bool));
-                self.check(r, &Expect::new(Ty::Bool));
+                let f = self.facts(l);
+                let known = if op == And { f.when_true } else { f.when_false };
+                self.with_facts(known, |c| c.check(r, &Expect::new(Ty::Bool)));
                 Ty::Bool
             }
-            Nullish => {
-                self.infer(l);
-                self.infer(r);
-                self.diags.push(
-                    Diagnostic::error(codes::NOT_IMPLEMENTED, "`??` isn't implemented yet")
-                        .primary(e.span, "not supported by this compiler version"),
-                );
-                Ty::Error
-            }
+            Nullish => self.nullish(l, r, want),
             Shl | Shr | UShr => {
                 let hint = want.filter(|w| w.ty.is_int());
                 let lt = self.infer_with(l, hint);
@@ -1419,11 +1639,10 @@ impl<'p> Checker<'p> {
                 }
             }
             Nullish => {
-                self.infer(value);
-                self.diags.push(
-                    Diagnostic::error(codes::NOT_IMPLEMENTED, "`??=` isn't implemented yet")
-                        .primary(e.span, "not supported by this compiler version"),
-                );
+                if !matches!(vt, Ty::Nullable(_) | Ty::Error) {
+                    self.invalid_operand(e.span, "`??=`", &vt, "a nullable (`T?`) target");
+                }
+                self.check(value, &Expect::new(vt.clone()));
             }
             _ => {
                 self.check(value, &Expect::new(vt.clone()));
@@ -1447,16 +1666,18 @@ impl<'p> Checker<'p> {
         want: Option<&Expect>,
     ) -> Ty {
         self.check(cond, &Expect::new(Ty::Bool));
+        let facts = self.facts(cond);
+        let (ft, ff) = (facts.when_true, facts.when_false);
         match else_ {
             Some(els) => match want {
                 Some(w) if !matches!(w.ty, Ty::Void) => {
-                    self.check(then, w);
-                    self.check(els, w);
+                    self.with_facts(ft, |c| c.check(then, w));
+                    self.with_facts(ff, |c| c.check(els, w));
                     w.ty.clone()
                 }
                 _ => {
-                    let tt = self.infer(then);
-                    let et = self.infer(els);
+                    let tt = self.with_facts(ft, |c| c.infer(then));
+                    let et = self.with_facts(ff, |c| c.infer(els));
                     if want.is_some_and(|w| w.ty == Ty::Void) {
                         return Ty::Void;
                     }
@@ -1468,10 +1689,10 @@ impl<'p> Checker<'p> {
                     Some(Ty::Nullable(t)) => Some(Expect::new((**t).clone())),
                     _ => None,
                 };
-                let tt = match &inner {
-                    Some(w) => self.check(then, w),
-                    None => self.infer(then),
-                };
+                let tt = self.with_facts(ft, |c| match &inner {
+                    Some(w) => c.check(then, w),
+                    None => c.infer(then),
+                });
                 match tt {
                     Ty::Void | Ty::Never => Ty::Void,
                     t => t.nullable(),
@@ -1484,6 +1705,16 @@ impl<'p> Checker<'p> {
         match (tt, et) {
             (Ty::Never, t) | (t, Ty::Never) => t.clone(),
             (a, b) if a == b => a.clone(),
+            // `if (c) null else x`: `x`'s type made nullable.
+            (Ty::Null, t) | (t, Ty::Null) if !matches!(t, Ty::Void | Ty::Error) => {
+                let n = t.clone().nullable();
+                for (e, ty) in [(then, tt), (els, et)] {
+                    if *ty != n {
+                        self.types.coercions.insert(e.id, n.clone());
+                    }
+                }
+                n
+            }
             (a, b) if b.widens_to(a) => {
                 self.types.coercions.insert(els.id, a.clone());
                 a.clone()

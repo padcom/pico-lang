@@ -171,6 +171,12 @@ impl Ty {
         matches!(self, Ty::Error)
     }
 
+    /// Reference types are pointers at runtime, so `T?` is a nullable pointer; other types
+    /// get a presence flag.
+    pub fn is_ref(&self) -> bool {
+        matches!(self, Ty::Str | Ty::Array(_))
+    }
+
     /// The element type of an indexable collection (`T[]`, `[T; N]`).
     pub fn elem(&self) -> Option<&Ty> {
         match self {

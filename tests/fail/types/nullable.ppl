@@ -1,0 +1,39 @@
+// error: E0309
+// at: 20:15
+// error: E0308
+// at: 21:16
+// error: E0304
+// at: 22:11
+// error: E0304
+// at: 26:3
+// error: E0304
+// at: 29:1
+// error: E0304
+// at: 33:3
+// error: E0304
+// at: 36:1
+// error: E0308
+// at: 37:11
+// error: E0304
+// at: 38:11
+const s: string? = "maybe"
+const len = s.length
+const m: int = maybeInt()
+const k = maybeInt() + 1
+let x: int? = 1
+if (x != null) {
+  x = null
+  x + 1
+}
+if (x != null) {}
+x * 2
+let y: int? = 3
+while (y != null) {
+  y = null
+  y - 1
+}
+let plain = 1
+plain ??= 2
+const z = null
+const w = null!
+function maybeInt(): int? { null }

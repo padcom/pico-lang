@@ -84,6 +84,8 @@ PplStr *ppl_str_concat(const PplStr *a, const PplStr *b) {
 }
 
 int32_t ppl_str_eq(const PplStr *a, const PplStr *b) {
+    if (a == b) return 1;
+    if (!a || !b) return 0; /* `string?` equality: null equals only null */
     return a->byte_len == b->byte_len && memcmp(a->data, b->data, (size_t)a->byte_len) == 0;
 }
 

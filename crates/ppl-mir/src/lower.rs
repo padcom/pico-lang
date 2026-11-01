@@ -64,10 +64,13 @@ struct Cx<'a> {
     types: &'a Types,
     file: &'a SourceFile,
     diags: Vec<Diagnostic>,
+    /// Spans already reported as not implemented (lowering has no such gaps right now).
+    #[allow(dead_code)]
     reported: HashSet<(u32, u32)>,
 }
 
 impl Cx<'_> {
+    #[allow(dead_code)]
     fn not_implemented(&mut self, span: Span, what: &str) {
         if !self.reported.insert((span.start, span.end)) {
             return;
@@ -95,7 +98,6 @@ impl Cx<'_> {
             loops: Vec::new(),
         };
         for (i, (l, t)) in f.locals.iter().zip(local_tys).enumerate() {
-            b.check_representable(t, l.span);
             // `this` is passed by reference.
             let is_this = f.this.is_some_and(|(this, _)| this.0 as usize == i);
             let ty = if is_this {
@@ -211,12 +213,6 @@ impl FnBuilder<'_, '_> {
         self.cx.types.expr(e.id).clone()
     }
 
-    fn check_representable(&mut self, t: &Ty, span: Span) {
-        if matches!(t, Ty::Nullable(_) | Ty::Null) {
-            self.cx.not_implemented(span, "nullable values (`T?`)");
-        }
-    }
-
     fn temp(&mut self, ty: Ty) -> Local {
         self.locals.push(LocalDecl { ty, name: None });
         Local(self.locals.len() as u32 - 1)
@@ -305,6 +301,7 @@ impl FnBuilder<'_, '_> {
     /// after evaluating its value, which might change the array).
     fn place_deferred(&mut self, e: &Expr, checks: &mut Vec<Check>) -> Place {
         match &e.kind {
+            ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => self.place(*v).payload(),
             ExprKind::Var(v) => self.place(*v),
             ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Struct(..)) => {
                 let i = self.cx.types.fields[&e.id];
@@ -457,7 +454,43 @@ impl FnBuilder<'_, '_> {
         if from == to || *from == Ty::Never {
             return v;
         }
-        self.check_representable(to, span);
+        if *from == Ty::Null {
+            return Operand::Const(Const::Null(to.clone()));
+        }
+        match (from, to) {
+            (Ty::Nullable(a), Ty::Nullable(b)) => {
+                // Null stays null; a value converts.
+                let res = Place::local(self.temp(to.clone()));
+                let is_null = self.rvalue_to_temp(Rvalue::IsNull(v.clone()), Ty::Bool, span);
+                let null_bb = self.new_block();
+                let some_bb = self.new_block();
+                let join = self.new_block();
+                self.terminate(Terminator::Branch {
+                    cond: is_null,
+                    then: null_bb,
+                    else_: some_bb,
+                });
+                self.switch_to(null_bb);
+                self.assign(
+                    res.clone(),
+                    Rvalue::Use(Operand::Const(Const::Null(to.clone()))),
+                    span,
+                );
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(some_bb);
+                let inner = self.rvalue_to_temp(Rvalue::Unwrap(v), (**a).clone(), span);
+                let c = self.convert(inner, a, b, span);
+                self.assign(res.clone(), Rvalue::WrapSome(c, to.clone()), span);
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(join);
+                return Operand::Copy(res);
+            }
+            (_, Ty::Nullable(b)) => {
+                let c = self.convert(v, from, b, span);
+                return self.rvalue_to_temp(Rvalue::WrapSome(c, to.clone()), to.clone(), span);
+            }
+            _ => {}
+        }
         match (&v, to) {
             (Operand::Const(Const::Int(n, _)), Ty::Int(it)) => Operand::Const(Const::Int(*n, *it)),
             (Operand::Const(Const::Int(n, _)), Ty::Float(ft)) => {
@@ -480,9 +513,22 @@ impl FnBuilder<'_, '_> {
                 _ => Operand::Const(Const::Str(s.clone())),
             },
             ExprKind::Bool(b) => Operand::Const(Const::Bool(*b)),
-            ExprKind::Null => {
-                self.cx.not_implemented(e.span, "`null`");
-                Operand::Const(Const::Void)
+            // The coercion to the expected `T?` turns this into `Const::Null`.
+            ExprKind::Null => Operand::Const(Const::Void),
+            ExprKind::NonNull(inner) => {
+                let v = self.expr(inner);
+                if !matches!(self.ty_of(inner), Ty::Nullable(_)) {
+                    return v;
+                }
+                let is_null = self.rvalue_to_temp(Rvalue::IsNull(v.clone()), Ty::Bool, e.span);
+                let ok =
+                    self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, is_null), Ty::Bool, e.span);
+                self.panic_unless(ok, panics::NULL_UNWRAP, e.span);
+                self.rvalue_to_temp(Rvalue::Unwrap(v), ty, e.span)
+            }
+            ExprKind::OptChain { tmp, base, rest } => self.opt_chain(*tmp, base, rest, ty, e.span),
+            ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => {
+                Operand::Copy(self.place(*v).payload())
             }
             ExprKind::Var(v) => Operand::Copy(self.place(*v)),
             ExprKind::Fn(_) | ExprKind::Builtin(_) | ExprKind::Error => Operand::Const(Const::Void),
@@ -511,6 +557,28 @@ impl FnBuilder<'_, '_> {
                         let v = self.expr(value);
                         self.emit_checks(&checks);
                         self.assign(place, Rvalue::Use(v), e.span);
+                    }
+                    Some(ast::BinOp::Nullish) => {
+                        // `x ??= v`: assign only if `x` is null.
+                        self.emit_checks(&checks);
+                        let assign_bb = self.new_block();
+                        let join = self.new_block();
+                        let is_null = self.rvalue_to_temp(
+                            Rvalue::IsNull(Operand::Copy(place.clone())),
+                            Ty::Bool,
+                            e.span,
+                        );
+                        self.terminate(Terminator::Branch {
+                            cond: is_null,
+                            then: assign_bb,
+                            else_: join,
+                        });
+                        self.switch_to(assign_bb);
+                        let v = self.expr(value);
+                        self.emit_checks(&checks);
+                        self.assign(place.clone(), Rvalue::Use(v), e.span);
+                        self.terminate(Terminator::Goto(join));
+                        self.switch_to(join);
                     }
                     Some(op @ (ast::BinOp::And | ast::BinOp::Or)) => {
                         // `x &&= v`: assign only if `x` is true (`||=`: if false).
@@ -967,12 +1035,137 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(join);
                 Operand::Copy(res)
             }
-            ast::BinOp::Nullish => Operand::Const(Const::Void),
+            ast::BinOp::Nullish => self.nullish(l, r, ty, e.span),
+            ast::BinOp::Eq | ast::BinOp::Ne
+                if matches!(l.kind, ExprKind::Null) || matches!(r.kind, ExprKind::Null) =>
+            {
+                // `x == null` / `x != null`: a null check.
+                let other = if matches!(l.kind, ExprKind::Null) {
+                    r
+                } else {
+                    l
+                };
+                let v = self.expr(other);
+                if !matches!(self.ty_of(other), Ty::Nullable(_)) {
+                    // `null == null`
+                    return Operand::Const(Const::Bool(op == ast::BinOp::Eq));
+                }
+                let n = self.rvalue_to_temp(Rvalue::IsNull(v), Ty::Bool, e.span);
+                if op == ast::BinOp::Eq {
+                    n
+                } else {
+                    self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, n), Ty::Bool, e.span)
+                }
+            }
             _ => {
                 let lv = self.expr(l);
                 let rv = self.expr(r);
                 self.rvalue_to_temp(Rvalue::Binary(bin_op(op), lv, rv), ty, e.span)
             }
+        }
+    }
+
+    /// `l ?? r`: `r` only when `l` is null.
+    fn nullish(&mut self, l: &Expr, r: &Expr, ty: Ty, span: Span) -> Operand {
+        let lt = self.ty_of(l).clone();
+        let a = self.expr(l);
+        if !matches!(lt, Ty::Nullable(_)) {
+            if lt == Ty::Null {
+                return self.expr(r);
+            }
+            return a;
+        }
+        let res = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+        let is_null = self.rvalue_to_temp(Rvalue::IsNull(a.clone()), Ty::Bool, span);
+        let rhs_bb = self.new_block();
+        let some_bb = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond: is_null,
+            then: rhs_bb,
+            else_: some_bb,
+        });
+        self.switch_to(some_bb);
+        if let Some(res) = &res {
+            let val = if matches!(ty, Ty::Nullable(_)) {
+                Rvalue::Use(a)
+            } else {
+                Rvalue::Unwrap(a)
+            };
+            self.assign(res.clone(), val, span);
+        }
+        self.terminate(Terminator::Goto(join));
+        self.switch_to(rhs_bb);
+        let v = self.expr(r);
+        if let Some(res) = &res
+            && self.ty(r) != Ty::Never
+        {
+            self.assign(res.clone(), Rvalue::Use(v), span);
+        }
+        self.terminate(Terminator::Goto(join));
+        self.switch_to(join);
+        match res {
+            Some(p) => Operand::Copy(p),
+            None => Operand::Const(Const::Void),
+        }
+    }
+
+    /// `base?.rest`: null if `base` is, otherwise `rest` with `tmp` = the value.
+    fn opt_chain(
+        &mut self,
+        tmp: hir::LocalId,
+        base: &Expr,
+        rest: &Expr,
+        ty: Ty,
+        span: Span,
+    ) -> Operand {
+        let bt = self.ty_of(base).clone();
+        let b = self.expr(base);
+        let tmp_place = self.place(hir::Var::Local(tmp));
+        if !matches!(bt, Ty::Nullable(_)) {
+            if has_value(&bt) {
+                self.assign(tmp_place, Rvalue::Use(b), span);
+            }
+            return self.expr(rest);
+        }
+        let res = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+        let is_null = self.rvalue_to_temp(Rvalue::IsNull(b.clone()), Ty::Bool, span);
+        let null_bb = self.new_block();
+        let some_bb = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond: is_null,
+            then: null_bb,
+            else_: some_bb,
+        });
+        self.switch_to(some_bb);
+        self.assign(tmp_place, Rvalue::Unwrap(b), span);
+        let r = self.expr(rest);
+        let rt = self.ty_of(rest).clone();
+        if let Some(res) = &res
+            && rt != Ty::Never
+        {
+            let val = if rt == ty {
+                Rvalue::Use(r)
+            } else {
+                Rvalue::WrapSome(r, ty.clone())
+            };
+            self.assign(res.clone(), val, span);
+        }
+        self.terminate(Terminator::Goto(join));
+        self.switch_to(null_bb);
+        if let Some(res) = &res {
+            self.assign(
+                res.clone(),
+                Rvalue::Use(Operand::Const(Const::Null(ty.clone()))),
+                span,
+            );
+        }
+        self.terminate(Terminator::Goto(join));
+        self.switch_to(join);
+        match res {
+            Some(p) => Operand::Copy(p),
+            None => Operand::Const(Const::Void),
         }
     }
 
@@ -988,11 +1181,7 @@ impl FnBuilder<'_, '_> {
         let then_bb = self.new_block();
         let else_bb = self.new_block();
         let join = self.new_block();
-        // An `if` without `else` has type `T?`, but its value is only representable once it's
-        // stored somewhere, and locals are checked when declared.
-        let _ = span;
-        let result =
-            (else_.is_some() && has_value(&ty)).then(|| Place::local(self.temp(ty.clone())));
+        let result = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
         self.terminate(Terminator::Branch {
             cond: c,
             then: then_bb,
@@ -1000,12 +1189,30 @@ impl FnBuilder<'_, '_> {
         });
         for (bb, branch) in [(then_bb, Some(then)), (else_bb, else_)] {
             self.switch_to(bb);
-            if let Some(branch) = branch {
-                let v = self.expr(branch);
-                if let Some(r) = result.clone()
-                    && self.ty(branch) != Ty::Never
-                {
-                    self.assign(r, Rvalue::Use(v), branch.span);
+            match branch {
+                Some(branch) => {
+                    let v = self.expr(branch);
+                    let bt = self.ty_of(branch).clone();
+                    if let Some(r) = result.clone()
+                        && bt != Ty::Never
+                    {
+                        // Without `else`, the `then` value becomes `T?`.
+                        let v = if else_.is_none() {
+                            self.convert(v, &bt, &ty, branch.span)
+                        } else {
+                            v
+                        };
+                        self.assign(r, Rvalue::Use(v), branch.span);
+                    }
+                }
+                None => {
+                    if let Some(r) = result.clone() {
+                        self.assign(
+                            r,
+                            Rvalue::Use(Operand::Const(Const::Null(ty.clone()))),
+                            span,
+                        );
+                    }
                 }
             }
             self.terminate(Terminator::Goto(join));
@@ -1021,6 +1228,33 @@ impl FnBuilder<'_, '_> {
     fn stringify(&mut self, v: Operand, t: &Ty, span: Span) -> Operand {
         if *t == Ty::Str {
             return v;
+        }
+        if let Ty::Nullable(inner) = t {
+            // "null", or the value's string form.
+            let res = Place::local(self.temp(Ty::Str));
+            let is_null = self.rvalue_to_temp(Rvalue::IsNull(v.clone()), Ty::Bool, span);
+            let null_bb = self.new_block();
+            let some_bb = self.new_block();
+            let join = self.new_block();
+            self.terminate(Terminator::Branch {
+                cond: is_null,
+                then: null_bb,
+                else_: some_bb,
+            });
+            self.switch_to(null_bb);
+            self.assign(
+                res.clone(),
+                Rvalue::Use(Operand::Const(Const::Str("null".into()))),
+                span,
+            );
+            self.terminate(Terminator::Goto(join));
+            self.switch_to(some_bb);
+            let inner_v = self.rvalue_to_temp(Rvalue::Unwrap(v), (**inner).clone(), span);
+            let s = self.stringify(inner_v, inner, span);
+            self.assign(res.clone(), Rvalue::Use(s), span);
+            self.terminate(Terminator::Goto(join));
+            self.switch_to(join);
+            return Operand::Copy(res);
         }
         self.rvalue_to_temp(Rvalue::ToStr(v), Ty::Str, span)
     }
@@ -1114,7 +1348,17 @@ impl FnBuilder<'_, '_> {
                 }
             }
             ExprKind::Builtin(b @ (Builtin::Print | Builtin::Println)) => {
-                let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
+                let mut ops = Vec::new();
+                for a in args {
+                    let v = self.expr(a);
+                    let t = self.ty_of(a).clone();
+                    ops.push(if let Ty::Nullable(_) = t {
+                        self.stringify(v, &t, a.span)
+                    } else {
+                        v
+                    });
+                }
+                let args = ops;
                 let next = self.new_block();
                 self.terminate(Terminator::Call {
                     callee: Callee::Builtin(*b),

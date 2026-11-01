@@ -42,7 +42,7 @@ int32_t ppl_array_pop(PplArray *a);                      /* 1 if an element was 
 /* Strings. */
 PplStr *ppl_str_new(const char *bytes, int64_t byte_len); /* counts code points */
 PplStr *ppl_str_concat(const PplStr *a, const PplStr *b);
-int32_t ppl_str_eq(const PplStr *a, const PplStr *b);
+int32_t ppl_str_eq(const PplStr *a, const PplStr *b); /* null-safe (for `string?`) */
 int32_t ppl_str_cmp(const PplStr *a, const PplStr *b); /* <0, 0, >0 in code-point order */
 /* String forms of primitives (templates, `toString()`), as `println` shows them. */
 PplStr *ppl_str_from_i64(int64_t v);

@@ -1,0 +1,77 @@
+// expect: null 5
+// expect: 7 0
+// expect: hello null
+// expect: 5 -1
+// expect: true false true
+// expect: 3
+// expect: null
+// expect: len 5
+// expect: no name
+// expect: 42
+// expect: Point { x: 1, y: 2 } null
+// expect: 9
+// expect: 10
+// expect: 3 null
+// expect: big
+// expect: [1, null, 3]
+// expect: true false
+// expect: 6
+struct Point { x: i32; y: i32 }
+
+let a: int? = null
+const b: int? = 5
+println(`${a} ${b}`)
+a = 7
+println(`${a ?? 0} ${null ?? 0}`)
+const s: string? = "hello"
+const n: string? = null
+println(`${s} ${n}`)
+println(`${b ?? -1} ${a == null ? 0 : -1}`)
+println(`${a == 7} ${a == b} ${n == null}`)
+
+// Narrowing: `!= null`, early return, `&&`.
+function len(t: string?): int {
+  if (t == null) return -1
+  t.length
+}
+println(len("abc"))
+let maybe: string? = null
+println(maybe ?? "null")
+function describe(name: string?): string {
+  if (name != null && name.length > 0) `len ${name.length}` else "no name"
+}
+println(describe("hello"))
+println(describe(null))
+
+const forced: int? = 42
+println(forced!)
+
+const p: Point? = Point { x: 1, y: 2 }
+const q: Point? = null
+println(`${p:?} ${q:?}`)
+println((p?.y ?? 0) + 7)
+
+let counter: int? = null
+counter ??= 10
+counter ??= 20
+println(counter!)
+
+const xs: i32[] = [3]
+const top = xs.pop()
+const none = xs.pop()
+println(`${top} ${none}`)
+
+const bonus = if (len("abcd") > 3) "big"
+println(bonus ?? "small")
+const holes: (i32?)[] = [1, null, 3]
+println(`${holes:?}`)
+
+function first(v: Point?): bool { v?.x == 1 }
+println(`${first(p)} ${first(q)}`)
+
+let total = 0
+for (const h of holes) {
+  if (h == null) continue
+  total += h
+}
+println(total + 2)

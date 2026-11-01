@@ -54,6 +54,11 @@ builds that map: `env: { "LANG": "C", PATH: p }`.
 `T | null` is the only optional type, and `T?` is shorthand for it (`string?`). Narrowing works with `!= null`,
 `?.`, `??`, and `!` (a non-null assertion that panics when the value is null).
 
+Narrowing is flow-sensitive and applies to variables: after `if (x == null) return`, or inside
+`if (x != null && …)`, `x` has type `T`. Assigning the variable ends the narrowing, and so does a
+loop that assigns it. `a?.b.c()` is `null` as a whole when `a` is null. A null prints as `null`
+(decision 184).
+
 ## 2.5 Unions and literal types
 ```ts
 type Dir = "north" | "south" | "east" | "west"

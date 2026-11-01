@@ -160,7 +160,15 @@ impl<'ctx> Gen<'ctx, '_> {
                     .struct_type(&[t.into(), t.into(), t.into()], false)
                     .into()
             }
-            Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Nullable(_) => return None,
+            // A reference type's null is the null pointer; values get a presence flag.
+            Ty::Nullable(t) if t.is_ref() => self.ptr().into(),
+            Ty::Nullable(t) => {
+                let inner = self.elem_ty(t);
+                self.cx
+                    .struct_type(&[self.cx.bool_type().into(), inner], false)
+                    .into()
+            }
+            Ty::Void | Ty::Never | Ty::Error | Ty::Null => return None,
         })
     }
 
@@ -217,6 +225,23 @@ impl<'ctx> Gen<'ctx, '_> {
 
     fn size_of(&self, t: &Ty) -> IntValue<'ctx> {
         self.elem_ty(t).size_of().expect("sized type")
+    }
+
+    /// A stack slot in the current function's entry block (an `alloca` inside a loop would
+    /// grow the stack on every iteration).
+    fn entry_alloca(&self, t: BasicTypeEnum<'ctx>, name: &str) -> PointerValue<'ctx> {
+        let f = self
+            .b
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .expect("inside a function");
+        let entry = f.get_first_basic_block().expect("entry block");
+        let b = self.cx.create_builder();
+        match entry.get_first_instruction() {
+            Some(i) => b.position_before(&i),
+            None => b.position_at_end(entry),
+        }
+        b.build_alloca(t, name).unwrap()
     }
 
     fn int_ty(&self, bits: u32) -> IntType<'ctx> {
@@ -491,6 +516,11 @@ impl<'ctx> Gen<'ctx, '_> {
                         .into_pointer_value();
                     self.array_elem(a, elem, i)
                 }
+                (Proj::Payload, Ty::Nullable(inner)) if inner.is_ref() => ptr,
+                (Proj::Payload, Ty::Nullable(_)) => {
+                    let st = self.ty(&ty).expect("nullable").into_struct_type();
+                    self.b.build_struct_gep(st, ptr, 1, "").unwrap()
+                }
                 (pr, t) => unreachable!("projection {pr:?} of {t}"),
             };
             ty = mir::project(&ty, pr, |sid, i| self.p.layout(sid).fields[i].1.clone());
@@ -537,6 +567,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 Const::Bool(b) => self.cx.bool_type().const_int(u64::from(*b), false).into(),
                 Const::Char(c) => self.i32().const_int(*c as u64, false).into(),
                 Const::Str(s) => self.str_literal(s).into(),
+                Const::Null(t) => self.ty(t)?.const_zero(),
                 Const::Void => return None,
             }),
         }
@@ -755,12 +786,44 @@ impl<'ctx> Gen<'ctx, '_> {
                 None
             }
             Rvalue::ArrayPop(a) => {
-                // The `T?` result isn't representable until P3.6; only the removal happens.
-                let arr = self.operand(fx, a)?;
-                self.b
-                    .build_call(self.rt("ppl_array_pop"), &[arr.into()], "")
+                let Ty::Array(elem) = self.operand_ty(fx, a) else {
+                    unreachable!("pop from non-array")
+                };
+                let arr = self.operand(fx, a)?.into_pointer_value();
+                let popped = basic(
+                    self.b
+                        .build_call(self.rt("ppl_array_pop"), &[arr.into()], "")
+                        .unwrap(),
+                )
+                .into_int_value();
+                let popped = self
+                    .b
+                    .build_int_compare(IntPredicate::NE, popped, self.i32().const_zero(), "")
                     .unwrap();
-                None
+                // The removed element is at the new length (still inside the allocation, which
+                // always has room for at least 4 elements, so the load is safe when empty too).
+                let len = self.array_len(arr);
+                let p = self.array_elem(arr, &elem, len);
+                let v = self.b.build_load(self.elem_ty(&elem), p, "").unwrap();
+                Some(self.wrap_flagged(&elem, popped, v))
+            }
+            Rvalue::WrapSome(o, t) => {
+                let v = self.operand(fx, o)?;
+                let Ty::Nullable(inner) = t else {
+                    unreachable!("wrap into {t}")
+                };
+                let yes = self.cx.bool_type().const_int(1, false);
+                Some(self.wrap_flagged(inner, yes, v))
+            }
+            Rvalue::IsNull(o) => {
+                let t = self.operand_ty(fx, o);
+                let v = self.operand(fx, o)?;
+                Some(self.is_null(&t, v).into())
+            }
+            Rvalue::Unwrap(o) => {
+                let t = self.operand_ty(fx, o);
+                let v = self.operand(fx, o)?;
+                Some(self.payload(&t, v))
             }
             Rvalue::InBounds(i, n) => {
                 let i = self.operand(fx, i)?.into_int_value();
@@ -815,6 +878,58 @@ impl<'ctx> Gen<'ctx, '_> {
         }
     }
 
+    /// A `T?` from a presence flag and a value (null when `present` is false).
+    fn wrap_flagged(
+        &self,
+        inner: &Ty,
+        present: IntValue<'ctx>,
+        v: BasicValueEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        if inner.is_ref() {
+            let null = self.ptr().const_null();
+            return self.b.build_select(present, v, null.into(), "").unwrap();
+        }
+        let st = self
+            .ty(&Ty::Nullable(Box::new(inner.clone())))
+            .expect("nullable")
+            .into_struct_type();
+        let s = self
+            .b
+            .build_insert_value(st.get_undef(), present, 0, "")
+            .unwrap();
+        self.b
+            .build_insert_value(s, v, 1, "")
+            .unwrap()
+            .as_basic_value_enum()
+    }
+
+    fn is_null(&self, t: &Ty, v: BasicValueEnum<'ctx>) -> IntValue<'ctx> {
+        match t {
+            Ty::Nullable(inner) if inner.is_ref() => {
+                self.b.build_is_null(v.into_pointer_value(), "").unwrap()
+            }
+            Ty::Nullable(_) => {
+                let flag = self
+                    .b
+                    .build_extract_value(v.into_struct_value(), 0, "")
+                    .unwrap()
+                    .into_int_value();
+                self.b.build_not(flag, "").unwrap()
+            }
+            _ => self.cx.bool_type().const_zero(),
+        }
+    }
+
+    fn payload(&self, t: &Ty, v: BasicValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        match t {
+            Ty::Nullable(inner) if !inner.is_ref() => self
+                .b
+                .build_extract_value(v.into_struct_value(), 1, "")
+                .unwrap(),
+            _ => v,
+        }
+    }
+
     /// `==` on values of type `t`: field by field for structs, tuples, fixed arrays, ranges.
     fn value_eq(
         &mut self,
@@ -835,6 +950,20 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Range(it) => vec![Ty::Int(*it); 3],
             Ty::Fixed(e, n) => vec![(**e).clone(); *n as usize],
             Ty::Str => return self.str_binary(BinOp::Eq, x, y).into_int_value(),
+            // References: the runtime's comparisons are null-safe.
+            Ty::Nullable(inner) if inner.is_ref() => return self.value_eq(inner, x, y),
+            Ty::Nullable(inner) => {
+                // Same presence, and equal payloads if present (a null's payload is zero).
+                let (nx, ny) = (self.is_null(t, x), self.is_null(t, y));
+                let same = self
+                    .b
+                    .build_int_compare(IntPredicate::EQ, nx, ny, "")
+                    .unwrap();
+                let (px, py) = (self.payload(t, x), self.payload(t, y));
+                let peq = self.value_eq(inner, px, py);
+                let ok = self.b.build_or(nx, peq, "").unwrap();
+                return self.b.build_and(same, ok, "").unwrap();
+            }
             Ty::Float(_) => {
                 return self
                     .b
@@ -877,11 +1006,13 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// The debug text of a value, via a generated `ppl.debug.<n>` helper.
     fn debug_value(&mut self, t: &Ty, v: BasicValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        if let Ty::Nullable(_) = t {
+            let tmp = self.entry_alloca(self.ty(t).expect("nullable"), "debug.arg");
+            self.b.build_store(tmp, v).unwrap();
+            return self.debug_at(t, tmp);
+        }
         let f = self.debug_fn(t);
-        let tmp = self
-            .b
-            .build_alloca(self.ty(t).expect("debuggable type"), "debug.arg")
-            .unwrap();
+        let tmp = self.entry_alloca(self.ty(t).expect("debuggable type"), "debug.arg");
         self.b.build_store(tmp, v).unwrap();
         basic(self.b.build_call(f, &[tmp.into()], "").unwrap())
     }
@@ -896,6 +1027,41 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// The debug text of the value at `p` (of type `t`).
     fn debug_at(&mut self, t: &Ty, p: PointerValue<'ctx>) -> BasicValueEnum<'ctx> {
+        if let Ty::Nullable(inner) = t {
+            // "null", or the payload's debug text.
+            let lt = self.ty(t).expect("nullable");
+            let v = self.b.build_load(lt, p, "").unwrap();
+            let is_null = self.is_null(t, v);
+            let f = self
+                .b
+                .get_insert_block()
+                .and_then(|b| b.get_parent())
+                .expect("inside a function");
+            let null_bb = self.cx.append_basic_block(f, "null");
+            let some_bb = self.cx.append_basic_block(f, "some");
+            let join = self.cx.append_basic_block(f, "join");
+            self.b
+                .build_conditional_branch(is_null, null_bb, some_bb)
+                .unwrap();
+            self.b.position_at_end(null_bb);
+            let null_text: BasicValueEnum = self.str_literal("null").into();
+            self.b.build_unconditional_branch(join).unwrap();
+            self.b.position_at_end(some_bb);
+            let pp = if inner.is_ref() {
+                p
+            } else {
+                self.b
+                    .build_struct_gep(lt.into_struct_type(), p, 1, "")
+                    .unwrap()
+            };
+            let text = self.debug_at(inner, pp);
+            let some_end = self.b.get_insert_block().unwrap();
+            self.b.build_unconditional_branch(join).unwrap();
+            self.b.position_at_end(join);
+            let phi = self.b.build_phi(self.ptr(), "").unwrap();
+            phi.add_incoming(&[(&null_text, null_bb), (&text, some_end)]);
+            return phi.as_basic_value();
+        }
         if ppl_sema::format::is_compound(t) {
             let g = self.debug_fn(t);
             return basic(self.b.build_call(g, &[p.into()], "").unwrap());
@@ -1389,7 +1555,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
             }
             Ty::Str => self.str_binary(op, x, y),
-            Ty::Struct(..) | Ty::Tuple(_) | Ty::Fixed(..) | Ty::Range(_) => {
+            Ty::Struct(..) | Ty::Tuple(_) | Ty::Fixed(..) | Ty::Range(_) | Ty::Nullable(_) => {
                 let eq = self.value_eq(t, x, y);
                 if op == BinOp::Ne {
                     self.b.build_not(eq, "").unwrap().into()
@@ -1433,7 +1599,7 @@ impl<'ctx> Gen<'ctx, '_> {
             .b
             .build_int_cast_sign_flag(b, i64t, signed, "")
             .unwrap();
-        let flag = self.b.build_alloca(self.i32(), "pow.overflow").unwrap();
+        let flag = self.entry_alloca(self.i32().into(), "pow.overflow");
         let f = self.rt(if signed { "ppl_ipow_s" } else { "ppl_ipow_u" });
         let bits = self.i32().const_int(it.bits() as u64, false);
         let r = self

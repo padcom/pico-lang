@@ -269,6 +269,15 @@ pub enum ExprKind {
         iter: Box<Expr>,
         body: Box<Expr>,
     },
+    /// `e!`: panics if `e` is null.
+    NonNull(Box<Expr>),
+    /// `base?.rest`: `tmp` holds the non-null `base`, and `rest` (the chain after `?.`) uses it.
+    /// The result is null when `base` is.
+    OptChain {
+        tmp: LocalId,
+        base: Box<Expr>,
+        rest: Box<Expr>,
+    },
     /// `quasis.len() == parts.len() + 1`
     Template {
         quasis: Vec<String>,
@@ -293,4 +302,119 @@ pub enum ExprKind {
     Return(Option<Box<Expr>>),
     As(Box<Expr>, Ty),
     Error,
+}
+
+impl Expr {
+    /// Calls `f` on every expression directly inside this one (not recursively), including
+    /// those in statements, blocks and assignment targets.
+    pub fn for_each_child(&self, f: &mut dyn FnMut(&Expr)) {
+        fn block(b: &Block, f: &mut dyn FnMut(&Expr)) {
+            for s in &b.stmts {
+                match s {
+                    Stmt::Let { init, .. } => {
+                        if let Some(i) = init {
+                            f(i);
+                        }
+                    }
+                    Stmt::Expr(e) => f(e),
+                }
+            }
+            if let Some(t) = &b.tail {
+                f(t);
+            }
+        }
+        fn target(t: &Target, f: &mut dyn FnMut(&Expr)) {
+            match t {
+                Target::Var(_) => {}
+                Target::Field { object, .. } => f(object),
+                Target::Index { object, index } => {
+                    f(object);
+                    f(index);
+                }
+            }
+        }
+        match &self.kind {
+            ExprKind::Int(..)
+            | ExprKind::Float(..)
+            | ExprKind::Str(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::Var(_)
+            | ExprKind::Fn(_)
+            | ExprKind::Builtin(_)
+            | ExprKind::Continue
+            | ExprKind::Error => {}
+            ExprKind::Unary(_, e) | ExprKind::As(e, _) | ExprKind::NonNull(e) => f(e),
+            ExprKind::Binary(_, a, b) | ExprKind::Range { start: a, end: b } => {
+                f(a);
+                f(b);
+            }
+            ExprKind::Assign {
+                target: t, value, ..
+            } => {
+                target(t, f);
+                f(value);
+            }
+            ExprKind::IncDec { target: t, .. } => target(t, f),
+            ExprKind::Object { fields, .. } => fields.iter().for_each(|x| f(&x.value)),
+            ExprKind::Call { callee, args } => {
+                f(callee);
+                args.iter().for_each(&mut *f);
+            }
+            ExprKind::Member { object, .. } => f(object),
+            ExprKind::Index { object, index } => {
+                f(object);
+                f(index);
+            }
+            ExprKind::Array(elems) => elems.iter().for_each(f),
+            ExprKind::Repeat { value, .. } => f(value),
+            ExprKind::ForOf { iter, body, .. } => {
+                f(iter);
+                f(body);
+            }
+            ExprKind::OptChain { base, rest, .. } => {
+                f(base);
+                f(rest);
+            }
+            ExprKind::Template { parts, .. } => parts.iter().for_each(|p| f(&p.expr)),
+            ExprKind::If { cond, then, else_ } => {
+                f(cond);
+                f(then);
+                if let Some(e) = else_ {
+                    f(e);
+                }
+            }
+            ExprKind::Block(b) | ExprKind::Loop(b) => block(b, f),
+            ExprKind::While {
+                cond, body, update, ..
+            } => {
+                f(cond);
+                f(body);
+                if let Some(u) = update {
+                    f(u);
+                }
+            }
+            ExprKind::Break(v) | ExprKind::Return(v) => {
+                if let Some(v) = v {
+                    f(v);
+                }
+            }
+        }
+    }
+
+    /// Variables assigned anywhere inside this expression (`x = …`, `x += …`, `x++`).
+    pub fn assigned_vars(&self, out: &mut Vec<Var>) {
+        match &self.kind {
+            ExprKind::Assign {
+                target: Target::Var(v),
+                ..
+            }
+            | ExprKind::IncDec {
+                target: Target::Var(v),
+                ..
+            } => out.push(*v),
+            _ => {}
+        }
+        self.for_each_child(&mut |c| c.assigned_vars(out));
+    }
 }
