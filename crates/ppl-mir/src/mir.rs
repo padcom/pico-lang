@@ -411,8 +411,11 @@ pub enum Rvalue {
     Hash(Operand),
     /// Mixes a field's hash into an accumulated one.
     HashCombine(Operand, Operand),
-    /// Makes the error the pending exception (`throw`).
-    SetException(Operand),
+    /// Makes the error the pending exception (`throw`): an `Error` object (tag 0), or a boxed
+    /// lightweight throwable with its type's tag (`u32`).
+    SetException(Operand, Operand),
+    /// The pending exception's tag (0: an `Error` object).
+    ExceptionTag,
     /// The pending exception (of the given type), which stops being pending.
     TakeException(Ty),
     /// Whether an exception is pending (checked after calls of throwing functions).
@@ -594,7 +597,8 @@ impl fmt::Display for Rvalue {
             Rvalue::BoxNew(t, a) => write!(f, "BoxNew<{t}>({a})"),
             Rvalue::Hash(a) => write!(f, "Hash({a})"),
             Rvalue::HashCombine(a, b) => write!(f, "HashCombine({a}, {b})"),
-            Rvalue::SetException(a) => write!(f, "SetException({a})"),
+            Rvalue::SetException(a, t) => write!(f, "SetException({a}, {t})"),
+            Rvalue::ExceptionTag => write!(f, "ExceptionTag"),
             Rvalue::TakeException(t) => write!(f, "TakeException<{t}>"),
             Rvalue::ExceptionPending => write!(f, "ExceptionPending"),
         }

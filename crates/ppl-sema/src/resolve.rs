@@ -445,6 +445,7 @@ impl Resolver {
                             name_span: ed.name.span,
                             variants: Vec::new(),
                             origin: EnumOrigin::Declared,
+                            throwable: false,
                         });
                         self.top_enums.insert(&self.mods, ed.name.name.clone(), id);
                         for v in &ed.variants {
@@ -719,6 +720,11 @@ impl Resolver {
                 .find(|(n, _)| *n == "Iterator")
                 .map(|(_, v)| v)
                 .copied(),
+            throwable_iface: self
+                .top_structs
+                .prelude()
+                .find(|(n, _)| *n == "Throwable")
+                .map(|(_, v)| *v),
             extensions: self
                 .top_fns
                 .prelude()
@@ -736,8 +742,19 @@ impl Resolver {
         if let Some(g) = ed.generics.first() {
             self.not_implemented(g.span, "generic enums");
         }
-        if let Some(t) = ed.implements.first() {
-            self.not_implemented(t.span, "interfaces");
+        for t in &ed.implements {
+            let throwable = self
+                .top_structs
+                .prelude()
+                .find(|(n, _)| *n == "Throwable")
+                .map(|(_, v)| *v);
+            match self.resolve_type(t) {
+                Ty::Iface(i, _, _) if Some(i) == throwable => {
+                    self.enums[eid.0 as usize].throwable = true;
+                }
+                Ty::Error => {}
+                _ => self.not_implemented(t.span, "interfaces on enums (other than `Throwable`)"),
+            }
         }
         if let Some(m) = ed.members.first() {
             self.not_implemented(m.span, "enum methods");
@@ -1259,17 +1276,35 @@ impl Resolver {
         for m in members {
             match self.resolve_type(m) {
                 ty @ (Ty::Class(..) | Ty::Param(..)) => out.push(ty),
+                ty @ Ty::Struct(..) if self.is_throwable(&ty) => out.push(ty),
+                ty @ Ty::Enum(..) if self.is_throwable(&ty) => out.push(ty),
                 Ty::Never => {}
                 Ty::Error => {}
                 other => self.error(
                     codes::NOT_THROWABLE,
                     m.span,
                     format!("`{other}` can't be thrown"),
-                    "`throws` lists `Error` classes",
+                    "`throws` lists `Error` classes and `Throwable` types",
                 ),
             }
         }
         out
+    }
+
+    /// A struct implementing `Throwable`, or a throwable enum.
+    fn is_throwable(&self, t: &Ty) -> bool {
+        let iface = self
+            .top_structs
+            .prelude()
+            .find(|(n, _)| *n == "Throwable")
+            .map(|(_, v)| *v);
+        match t {
+            Ty::Struct(sid, _, _) => {
+                iface.is_some_and(|i| self.structs[sid.0 as usize].implements.contains(&i))
+            }
+            Ty::Enum(e, _) => self.enums[e.0 as usize].throwable,
+            _ => false,
+        }
     }
 
     /// Declares a generic function's type parameters (as `Ty::Param` of the current
@@ -3254,6 +3289,7 @@ impl Resolver {
                 })
                 .collect(),
             origin: EnumOrigin::Union(members.clone()),
+            throwable: false,
         });
         self.unions.push((members.clone(), id));
         Ty::Union(id, members.into())
@@ -3291,6 +3327,7 @@ impl Resolver {
             name_span: span,
             variants: Vec::new(),
             origin: EnumOrigin::Discriminated(disc.clone()),
+            throwable: false,
         });
         let mut seen: HashMap<String, Span> = HashMap::new();
         for o in objects {

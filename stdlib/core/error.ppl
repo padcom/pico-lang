@@ -8,3 +8,9 @@ class Error {
     this.cause = cause
   }
 }
+
+/// A lightweight error (spec §7.1): a struct or enum that can be thrown without being an
+/// `Error` (no stack trace). Enums can't have methods yet, so their message is their debug form.
+interface Throwable {
+  message(): string
+}

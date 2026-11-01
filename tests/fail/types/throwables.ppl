@@ -1,0 +1,25 @@
+// error: E0336
+// at: 15:5
+// error: E0336
+// at: 19:9
+// Lightweight throwables are checked like `Error`s, but `catch (e)` only catches `Error`s.
+enum ParseFail implements Throwable {
+  Eof,
+}
+function next(): int throws ParseFail {
+  throw ParseFail.Eof
+}
+class Reader {
+  // Not declared: unhandled.
+  public read(): int {
+    next()
+  }
+  // `catch (e)` is `catch (e: Error)`: the `ParseFail` still escapes.
+  public guarded(): int {
+    try next() catch (e) 0
+  }
+  // `catch (_)` catches anything.
+  public quiet(): int {
+    try next() catch (_) 0
+  }
+}

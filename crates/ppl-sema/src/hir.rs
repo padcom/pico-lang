@@ -40,6 +40,8 @@ pub struct Program {
     pub error_class: Option<StructId>,
     /// The prelude's `Iterator<T>` class.
     pub iterator_class: Option<StructId>,
+    /// The prelude's `Throwable` interface.
+    pub throwable_iface: Option<StructId>,
     /// Methods of built-in types written in ppl: top-level functions `__Array_map`,
     /// `__String_…` whose first parameter is the receiver, by (`Array`/`String`, method name).
     pub extensions: HashMap<(String, String), Vec<FnId>>,
@@ -64,6 +66,8 @@ pub struct EnumDef {
     pub variants: Vec<VariantDef>,
     /// What the enum stands for, if it wasn't declared with `enum`.
     pub origin: EnumOrigin,
+    /// `implements Throwable`: its values can be thrown.
+    pub throwable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -281,6 +285,40 @@ impl Program {
 
     pub fn struct_def(&self, id: StructId) -> &StructDef {
         &self.structs[id.0 as usize]
+    }
+
+    /// The lightweight throwable types (structs implementing `Throwable`, throwable enums), in
+    /// a fixed order: a thrown value's runtime tag is its index + 1 (0 is an `Error` object).
+    pub fn throwables(&self) -> Vec<Ty> {
+        let mut out = Vec::new();
+        if let Some(t) = self.throwable_iface {
+            for (i, s) in self.structs.iter().enumerate() {
+                if !s.is_class
+                    && !s.is_interface
+                    && s.generics.is_empty()
+                    && s.implements.contains(&t)
+                {
+                    out.push(
+                        self.struct_def(StructId(i as u32))
+                            .self_ty(StructId(i as u32)),
+                    );
+                }
+            }
+        }
+        for (i, e) in self.enums.iter().enumerate() {
+            if e.throwable {
+                out.push(self.enum_ty(EnumId(i as u32)));
+            }
+        }
+        out
+    }
+
+    /// A lightweight throwable type's runtime tag.
+    pub fn throw_tag(&self, t: &Ty) -> Option<u32> {
+        self.throwables()
+            .iter()
+            .position(|x| x == t)
+            .map(|i| i as u32 + 1)
     }
 
     pub fn enum_def(&self, id: EnumId) -> &EnumDef {

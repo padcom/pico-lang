@@ -57,7 +57,9 @@ pub fn callees(program: &Program, types: &Types, id: FnId) -> Vec<FnId> {
 fn normalize(p: &Program, mut ts: Vec<Ty>) -> Vec<Ty> {
     let key = |t: &Ty| match t {
         Ty::Class(s, ..) => (0, s.0),
-        Ty::Param(o, i, _) => (1 + *o, *i),
+        Ty::Struct(s, ..) => (1, s.0),
+        Ty::Enum(e, _) => (2, e.0),
+        Ty::Param(o, i, _) => (3 + *o, *i),
         _ => (u32::MAX, 0),
     };
     ts.sort_by_key(key);
@@ -76,42 +78,42 @@ fn normalize(p: &Program, mut ts: Vec<Ty>) -> Vec<Ty> {
     ts
 }
 
-/// The class a `catch` clause catches every instance of (`None`: everything);
-/// `Some(NOTHING)` when the pattern can fail on a value of its type.
-fn catches(p: &Program, pat: &Pattern) -> Option<StructId> {
+/// What a `catch` clause catches for certain.
+#[derive(Clone)]
+enum Catch {
+    /// Everything (`try?`, `try!`, `catch (_)`).
+    All,
+    /// Every `Error` (`catch (e)`, `catch (e: Error)`).
+    Errors,
+    /// This class and its subclasses.
+    Class(StructId),
+    /// Values of this lightweight throwable type.
+    Value(Ty),
+    /// Nothing for sure (the pattern can fail).
+    Nothing,
+}
+
+fn catches(p: &Program, pat: &Pattern) -> Catch {
     match &pat.kind {
-        PatKind::Wild | PatKind::Bind(_) => None,
+        PatKind::Wild => Catch::All,
+        PatKind::Bind(_) => Catch::Errors,
         PatKind::As(_, inner) => catches(p, inner),
-        PatKind::Type {
-            ty: Ty::Class(sid, ..),
-            fields,
-            ..
-        } => {
+        PatKind::Type { ty, fields, .. } => {
             let total = fields.as_ref().is_none_or(|fs| {
                 fs.iter()
                     .all(|f| matches!(f.pat.kind, PatKind::Wild | PatKind::Bind(_)))
             });
-            if !total {
-                Some(NOTHING)
-            } else if Some(*sid) == p.error_class {
-                None
-            } else {
-                Some(*sid)
+            match ty {
+                _ if !total => Catch::Nothing,
+                Ty::Class(sid, ..) if Some(*sid) == p.error_class => Catch::Errors,
+                Ty::Class(sid, ..) => Catch::Class(*sid),
+                t if p.throw_tag(t).is_some() => Catch::Value(t.clone()),
+                _ => Catch::Nothing,
             }
         }
-        _ => Some(NOTHING),
+        _ => Catch::Nothing,
     }
 }
-
-/// How a function is called: `__Array_map` (an extension) is `Array.map`.
-fn display_name(n: &str) -> String {
-    match n.strip_prefix("__").and_then(|r| r.split_once('_')) {
-        Some((ty, m)) => format!("{ty}.{m}"),
-        None => n.to_string(),
-    }
-}
-
-const NOTHING: StructId = StructId(u32::MAX);
 
 enum Mode<'m> {
     Report(&'m mut Vec<Diagnostic>),
@@ -125,8 +127,8 @@ struct Walk<'a, 'm> {
     fun: FnId,
     /// The top level may throw anything: an uncaught error ends the program.
     all: bool,
-    /// The enclosing `try`s' catch clauses (`None`: catches everything), innermost last.
-    handlers: Vec<Vec<Option<StructId>>>,
+    /// The enclosing `try`s' catch clauses, innermost last.
+    handlers: Vec<Vec<Catch>>,
     mode: Mode<'m>,
 }
 
@@ -164,7 +166,7 @@ impl<'a, 'm> Walk<'a, 'm> {
             ExprKind::Throw(inner) => {
                 self.expr(inner);
                 let t = self.types.exprs[inner.id.0 as usize].clone();
-                if let Ty::Class(..) = t {
+                if matches!(t, Ty::Class(..) | Ty::Struct(..) | Ty::Enum(..)) {
                     self.raise(&t, e.span, None);
                 }
             }
@@ -185,7 +187,7 @@ impl<'a, 'm> Walk<'a, 'm> {
                 }
             }
             ExprKind::TryOpt(inner) | ExprKind::TryBang(inner) => {
-                self.handlers.push(vec![None]);
+                self.handlers.push(vec![Catch::All]);
                 self.expr(inner);
                 self.handlers.pop();
             }
@@ -248,8 +250,10 @@ impl<'a, 'm> Walk<'a, 'm> {
     fn caught(&self, t: &Ty) -> bool {
         self.handlers.iter().any(|h| {
             h.iter().any(|c| match (c, t) {
-                (None, _) => true,
-                (Some(c), Ty::Class(s, ..)) => *c != NOTHING && self.p.is_subclass(*s, *c),
+                (Catch::All, _) => true,
+                (Catch::Errors, Ty::Class(..)) => true,
+                (Catch::Class(c), Ty::Class(s, ..)) => self.p.is_subclass(*s, *c),
+                (Catch::Value(v), t) => v == t,
                 _ => false,
             })
         })
@@ -297,5 +301,13 @@ impl<'a, 'm> Walk<'a, 'm> {
                     f.name
                 )),
         );
+    }
+}
+
+/// How a function is called: `__Array_map` (an extension) is `Array.map`.
+fn display_name(n: &str) -> String {
+    match n.strip_prefix("__").and_then(|r| r.split_once('_')) {
+        Some((ty, m)) => format!("{ty}.{m}"),
+        None => n.to_string(),
     }
 }

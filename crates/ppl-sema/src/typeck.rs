@@ -1565,13 +1565,13 @@ impl<'p> Checker<'p> {
                 let t = self.infer(inner);
                 let ok = match (&t, self.program.error_class) {
                     (Ty::Class(sid, ..), Some(err)) => self.program.is_subclass(*sid, err),
-                    _ => t.is_error(),
+                    _ => t.is_error() || self.program.throw_tag(&t).is_some(),
                 };
                 if !ok {
                     self.diags.push(
                         Diagnostic::error(codes::NOT_THROWABLE, format!("`{t}` can't be thrown"))
                             .primary(inner.span, "not an `Error`")
-                            .help("throw an instance of `Error` or one of its subclasses"),
+                            .help("throw an `Error` (or subclass) instance, or a value of a struct or enum that implements `Throwable`"),
                     );
                 }
                 Ty::Never
@@ -1594,7 +1594,15 @@ impl<'p> Checker<'p> {
                     None => Ty::Error,
                 };
                 for c in catches {
-                    self.check_pattern(&c.pat, &err);
+                    // `catch (e: ParseFail)` catches a lightweight throwable; other clauses
+                    // look at an `Error`.
+                    match &c.pat.kind {
+                        PatKind::Type { ty, .. } if self.program.throw_tag(ty).is_some() => {
+                            let ty = ty.clone();
+                            self.check_pattern(&c.pat, &ty)
+                        }
+                        _ => self.check_pattern(&c.pat, &err),
+                    }
                     let t = match want {
                         Some(w) => self.check(&c.body, w),
                         None => self.infer(&c.body),

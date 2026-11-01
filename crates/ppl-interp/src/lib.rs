@@ -125,6 +125,7 @@ pub fn run(program: &Program, out: &mut dyn Write) -> Result<(), Panic> {
             .collect(),
         depth: 0,
         exception: None,
+        exception_tag: 0,
         stack: Vec::new(),
         unwinding: Vec::new(),
     };
@@ -140,8 +141,9 @@ struct Interp<'p, 'o> {
     out: &'o mut dyn Write,
     globals: Vec<Cell>,
     depth: usize,
-    /// The pending exception.
+    /// The pending exception, and its tag (0: an `Error` object).
     exception: Option<Value>,
+    exception_tag: u32,
     /// The names of the active functions (for stack traces).
     stack: Vec<String>,
     /// Panics whose `finally` handlers are running, innermost last.
@@ -575,11 +577,17 @@ impl Interp<'_, '_> {
                 let t = self.operand_ty(frame, o);
                 Ok(Value::Int(hash_value(&self.operand(frame, o), &t) as i128))
             }
-            Rvalue::SetException(o) => {
+            Rvalue::SetException(o, t) => {
+                let tag = match self.operand(frame, t) {
+                    Value::Int(t) => t as u32,
+                    _ => 0,
+                };
                 self.exception = Some(self.operand(frame, o));
+                self.exception_tag = tag;
                 Ok(Value::Void)
             }
             Rvalue::TakeException(_) => Ok(self.exception.take().expect("a pending exception")),
+            Rvalue::ExceptionTag => Ok(Value::Int(self.exception_tag as i128)),
             Rvalue::ExceptionPending => Ok(Value::Bool(self.exception.is_some())),
             Rvalue::HashCombine(a, b) => match (self.operand(frame, a), self.operand(frame, b)) {
                 (Value::Int(x), Value::Int(y)) => {

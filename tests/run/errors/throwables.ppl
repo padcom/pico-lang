@@ -1,0 +1,86 @@
+// Lightweight throwables (spec §7.1): structs and enums that implement `Throwable` are thrown
+// as values, caught by type, and checked in `throws` like `Error` classes.
+// expect: eof
+// expect: unexpected 'x' at 3
+// expect: 42
+// expect: bad digit: q
+// expect: error: missing file
+// expect: try?: null
+// expect: finally ran
+// expect: 7
+// expect: uncaught later
+enum ParseFail implements Throwable {
+  Eof,
+  Unexpected(ch: char, at: int),
+}
+
+struct DigitError implements Throwable {
+  ch: string
+  message(): string {
+    `bad digit: ${this.ch}`
+  }
+}
+
+function next(input: string, at: int): char throws ParseFail {
+  if (at >= input.length) {
+    throw ParseFail.Eof
+  }
+  const c = input[at]
+  if (c == "x") {
+    throw ParseFail.Unexpected(c, at)
+  }
+  c
+}
+
+function report(input: string, at: int): string {
+  try {
+    `${next(input, at)}`
+  } catch (e: ParseFail) {
+    match (e) {
+      ParseFail.Eof => "eof",
+      ParseFail.Unexpected(ch, at) => `unexpected '${ch}' at ${at}`,
+    }
+  }
+}
+println(report("ab", 5))
+println(report("abcx", 3))
+
+function digit(s: string): int throws DigitError {
+  match (s) {
+    "4" => 4,
+    "2" => 2,
+    _ => throw DigitError { ch: s },
+  }
+}
+function number(a: string, b: string): int throws DigitError {
+  digit(a) * 10 + digit(b)
+}
+println(number("4", "2"))
+try {
+  number("4", "q")
+} catch (e: DigitError) {
+  println(e.message())
+}
+
+// Errors and throwables mix: each clause catches its own kind.
+class IoError extends Error {}
+function load(step: int): string throws IoError | ParseFail {
+  if (step == 0) {
+    throw new IoError("missing file")
+  }
+  throw ParseFail.Eof
+}
+println(try load(0) catch (e: ParseFail) "parse" catch (e) `error: ${e.message}`)
+const r = try? load(1)
+println(`try?: ${r}`)
+function cleanup(): int throws ParseFail {
+  try {
+    throw ParseFail.Eof
+  } finally {
+    println("finally ran")
+  }
+}
+println(try cleanup() catch (e: ParseFail) 7)
+println("uncaught later")
+throw ParseFail.Unexpected("z", 9)
+// exit: 1

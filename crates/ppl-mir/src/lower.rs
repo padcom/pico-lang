@@ -218,7 +218,7 @@ fn erase_program(p: &mut mir::Program) {
                         ops.iter_mut().for_each(erase_op)
                     }
                     Rvalue::New(t) | Rvalue::TakeException(t) => *t = t.erase(),
-                    Rvalue::SetException(o) => erase_op(o),
+                    Rvalue::SetException(o, _) => erase_op(o),
                     _ => {}
                 }
             }
@@ -915,11 +915,99 @@ impl FnBuilder<'_, '_> {
             self.terminate(Terminator::Unreachable);
             return;
         };
+        let _ = err;
+        let (raw, tag) = self.take_exception(span);
+        let (class, msg) = self.exception_text(&raw, &tag, span);
+        self.terminate(Terminator::Uncaught { class, msg });
+    }
+
+    /// Takes the pending exception: the `Error` object or the boxed throwable, and its tag.
+    fn take_exception(&mut self, span: Span) -> (Place, Place) {
+        let tag = Place::local(self.temp(Ty::Int(IntTy::U32)));
+        self.assign(tag.clone(), Rvalue::ExceptionTag, span);
+        let err = self.cx.program.error_class.expect("prelude");
         let err_ty = self.cx.program.struct_def(err).self_ty(err);
-        let exc = self.temp(err_ty.clone());
-        self.assign(Place::local(exc), Rvalue::TakeException(err_ty), span);
-        // The class name: test the subclasses of `Error`, deepest first.
+        let raw = Place::local(self.temp(err_ty.clone()));
+        self.assign(raw.clone(), Rvalue::TakeException(err_ty), span);
+        (raw, tag)
+    }
+
+    fn set_exception(&mut self, v: Operand, tag: Operand, span: Span) {
+        let t = self.temp(Ty::Void);
+        self.assign(Place::local(t), Rvalue::SetException(v, tag), span);
+    }
+
+    fn tag_is(&mut self, tag: &Place, k: u32, span: Span) -> Operand {
+        self.rvalue_to_temp(
+            Rvalue::Binary(
+                mir::BinOp::Eq,
+                Operand::Copy(tag.clone()),
+                Operand::Const(Const::Int(k as i128, IntTy::U32)),
+            ),
+            Ty::Bool,
+            span,
+        )
+    }
+
+    /// A taken exception's type name and message.
+    fn exception_text(&mut self, raw: &Place, tag: &Place, span: Span) -> (Operand, Operand) {
         let p = self.cx.program;
+        let err = p.error_class.expect("prelude");
+        let name = Place::local(self.temp(Ty::Str));
+        let msg = Place::local(self.temp(Ty::Str));
+        let done = self.new_block();
+        // Lightweight throwables, by tag.
+        for (i, t) in p.throwables().into_iter().enumerate() {
+            let is = self.tag_is(tag, i as u32 + 1, span);
+            let yes = self.new_block();
+            let no = self.new_block();
+            self.terminate(Terminator::Branch {
+                cond: is,
+                then: yes,
+                else_: no,
+            });
+            self.switch_to(yes);
+            let boxed = self.temp(Ty::Ref(Box::new(t.clone())));
+            self.assign(
+                Place::local(boxed),
+                Rvalue::Use(Operand::Copy(raw.clone())),
+                span,
+            );
+            let (tname, text) = match &t {
+                Ty::Struct(sid, n, _) => {
+                    let m = p
+                        .struct_def(*sid)
+                        .method("message")
+                        .expect("checked by conformance");
+                    let v = self.call_fn_value(
+                        m,
+                        vec![Operand::Copy(Place::local(boxed))],
+                        Ty::Str,
+                        span,
+                    );
+                    (n.to_string(), v)
+                }
+                Ty::Enum(_, n) => {
+                    let spec = ppl_sema::format::parse("?").expect("valid spec");
+                    let v = self.rvalue_to_temp(
+                        Rvalue::Format(Operand::Copy(Place::deref(boxed)), spec),
+                        Ty::Str,
+                        span,
+                    );
+                    (n.to_string(), v)
+                }
+                _ => (String::new(), Operand::Const(Const::Str(String::new()))),
+            };
+            self.assign(
+                name.clone(),
+                Rvalue::Use(Operand::Const(Const::Str(tname))),
+                span,
+            );
+            self.assign(msg.clone(), Rvalue::Use(text), span);
+            self.terminate(Terminator::Goto(done));
+            self.switch_to(no);
+        }
+        // An `Error`: its class (the subclasses of `Error`, deepest first) and `message`.
         let mut classes: Vec<(usize, StructId)> = (0..p.structs.len())
             .map(|i| StructId(i as u32))
             .filter(|s| {
@@ -937,11 +1025,11 @@ impl FnBuilder<'_, '_> {
             })
             .collect();
         classes.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.0.cmp(&b.1.0)));
-        let name = self.temp(Ty::Str);
-        let done = self.new_block();
+        let text = Operand::Copy(raw.field(0));
+        self.assign(msg.clone(), Rvalue::Use(text), span);
         for (_, s) in classes {
             let is = self.rvalue_to_temp(
-                Rvalue::InstanceOf(Operand::Copy(Place::local(exc)), s),
+                Rvalue::InstanceOf(Operand::Copy(raw.clone()), s),
                 Ty::Bool,
                 span,
             );
@@ -955,7 +1043,7 @@ impl FnBuilder<'_, '_> {
             self.switch_to(yes);
             let n = p.struct_def(s).name.clone();
             self.assign(
-                Place::local(name),
+                name.clone(),
                 Rvalue::Use(Operand::Const(Const::Str(n.as_str().into()))),
                 span,
             );
@@ -964,15 +1052,7 @@ impl FnBuilder<'_, '_> {
         }
         self.terminate(Terminator::Unreachable);
         self.switch_to(done);
-        let msg = self.rvalue_to_temp(
-            Rvalue::Use(Operand::Copy(Place::local(exc).field(0))),
-            Ty::Str,
-            span,
-        );
-        self.terminate(Terminator::Uncaught {
-            class: Operand::Copy(Place::local(name)),
-            msg,
-        });
+        (Operand::Copy(name), Operand::Copy(msg))
     }
 
     /// Runs the enclosing `finally` blocks (innermost first) whose `try` is inside the
@@ -1178,10 +1258,7 @@ impl FnBuilder<'_, '_> {
         self.terminate(Terminator::Goto(done));
         // An exception in the body: try the catch clauses in order.
         self.switch_to(dispatch);
-        let err = self.cx.program.error_class.expect("prelude");
-        let err_ty = self.cx.program.struct_def(err).self_ty(err);
-        let exc = Place::local(self.temp(err_ty.clone()));
-        self.assign(exc.clone(), Rvalue::TakeException(err_ty), span);
+        let (exc, tag) = self.take_exception(span);
         // Exceptions in the catch clauses (and the rethrow) still run `finally`.
         let fin_exc = finally.map(|_| self.new_block());
         if let Some(b) = fin_exc {
@@ -1189,7 +1266,7 @@ impl FnBuilder<'_, '_> {
         }
         for c in catches {
             let next = self.new_block();
-            self.match_pattern(&c.pat, &exc, next);
+            self.catch_pattern(&c.pat, &exc, &tag, next);
             let v = self.expr(&c.body);
             if let Some(r) = &result
                 && self.ty(&c.body) != Ty::Never
@@ -1200,12 +1277,7 @@ impl FnBuilder<'_, '_> {
             self.switch_to(next);
         }
         // No clause matched: rethrow.
-        let t = self.temp(Ty::Void);
-        self.assign(
-            Place::local(t),
-            Rvalue::SetException(Operand::Copy(exc)),
-            span,
-        );
+        self.set_exception(Operand::Copy(exc), Operand::Copy(tag), span);
         let target = self.raise_target();
         self.terminate(Terminator::Goto(target));
         if fin_exc.is_some() {
@@ -1222,16 +1294,9 @@ impl FnBuilder<'_, '_> {
             self.terminate(Terminator::Goto(after));
             self.switch_to(b);
             self.unguard();
-            let err_ty = self.cx.program.struct_def(err).self_ty(err);
-            let held = Place::local(self.temp(err_ty.clone()));
-            self.assign(held.clone(), Rvalue::TakeException(err_ty), span);
+            let (held, htag) = self.take_exception(span);
             self.expr(f);
-            let t = self.temp(Ty::Void);
-            self.assign(
-                Place::local(t),
-                Rvalue::SetException(Operand::Copy(held)),
-                span,
-            );
+            self.set_exception(Operand::Copy(held), Operand::Copy(htag), span);
             let target = self.raise_target();
             self.terminate(Terminator::Goto(target));
             self.switch_to(after);
@@ -1240,6 +1305,58 @@ impl FnBuilder<'_, '_> {
             Some(p) => Operand::Copy(p),
             None => Operand::Const(Const::Void),
         }
+    }
+
+    /// Matches a `catch` clause against the taken exception; continues at `fail` otherwise.
+    fn catch_pattern(&mut self, pat: &hir::Pattern, exc: &Place, tag: &Place, fail: BlockId) {
+        let span = pat.span;
+        let throwable = match &pat.kind {
+            hir::PatKind::Type { ty, bind, fields } => self
+                .cx
+                .program
+                .throw_tag(ty)
+                .map(|k| (k, ty.clone(), *bind, fields)),
+            _ => None,
+        };
+        if let Some((k, ty, bind, fields)) = throwable {
+            let is = self.tag_is(tag, k, span);
+            let yes = self.new_block();
+            self.terminate(Terminator::Branch {
+                cond: is,
+                then: yes,
+                else_: fail,
+            });
+            self.switch_to(yes);
+            let boxed = self.temp(Ty::Ref(Box::new(ty)));
+            self.assign(
+                Place::local(boxed),
+                Rvalue::Use(Operand::Copy(exc.clone())),
+                span,
+            );
+            let place = Place::deref(boxed);
+            if let Some(l) = bind {
+                self.bind(l, &place, span);
+            }
+            if let Some(fps) = fields {
+                let idx = self.cx.types.pat_fields[&pat.id].clone();
+                for (f, i) in fps.iter().zip(idx) {
+                    self.match_pattern(&f.pat, &place.field(i), fail);
+                }
+            }
+            return;
+        }
+        if !matches!(pat.kind, hir::PatKind::Wild) {
+            // Everything else looks at an `Error` object.
+            let is = self.tag_is(tag, 0, span);
+            let yes = self.new_block();
+            self.terminate(Terminator::Branch {
+                cond: is,
+                then: yes,
+                else_: fail,
+            });
+            self.switch_to(yes);
+        }
+        self.match_pattern(pat, exc, fail);
     }
 
     /// Ends the current block and continues in a fresh, unreachable one.
@@ -2129,17 +2246,10 @@ impl FnBuilder<'_, '_> {
                 }
                 self.terminate(Terminator::Goto(done));
                 self.switch_to(dispatch);
-                let err = self.cx.program.error_class.expect("prelude");
-                let err_ty = self.cx.program.struct_def(err).self_ty(err);
-                let exc = Place::local(self.temp(err_ty.clone()));
-                self.assign(exc.clone(), Rvalue::TakeException(err_ty), e.span);
+                let (exc, tag) = self.take_exception(e.span);
                 if bang {
                     // `try!`: the error becomes a panic with its message.
-                    let msg = self.rvalue_to_temp(
-                        Rvalue::Use(Operand::Copy(exc.field(0))),
-                        Ty::Str,
-                        e.span,
-                    );
+                    let (_, msg) = self.exception_text(&exc, &tag, e.span);
                     let loc = self.loc(e.span);
                     self.terminate(Terminator::Panic { msg, loc });
                 } else {
@@ -2176,8 +2286,23 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Throw(inner) => {
                 let v = self.expr(inner);
-                let t = self.temp(Ty::Void);
-                self.assign(Place::local(t), Rvalue::SetException(v), e.span);
+                let it = self.ty(inner);
+                match self.cx.program.throw_tag(&it) {
+                    // A lightweight throwable travels boxed, with its type's tag.
+                    Some(k) => {
+                        let boxed = self.rvalue_to_temp(
+                            Rvalue::BoxNew(it.clone(), v),
+                            Ty::Ref(Box::new(it)),
+                            e.span,
+                        );
+                        let tag = Operand::Const(Const::Int(k as i128, IntTy::U32));
+                        self.set_exception(boxed, tag, e.span);
+                    }
+                    None => {
+                        let tag = Operand::Const(Const::Int(0, IntTy::U32));
+                        self.set_exception(v, tag, e.span);
+                    }
+                }
                 let target = self.raise_target();
                 self.diverge(Terminator::Goto(target));
                 Operand::Const(Const::Void)

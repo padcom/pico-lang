@@ -496,6 +496,18 @@ impl<'ctx> Gen<'ctx, '_> {
         g.as_pointer_value()
     }
 
+    /// The global holding the pending exception's tag.
+    fn exception_tag_slot(&mut self) -> inkwell::values::PointerValue<'ctx> {
+        if let Some(g) = self.m.get_global("ppl.exception_tag") {
+            return g.as_pointer_value();
+        }
+        let t = self.i32();
+        let g = self.m.add_global(t, None, "ppl.exception_tag");
+        g.set_linkage(Linkage::Internal);
+        g.set_initializer(&t.const_zero());
+        g.as_pointer_value()
+    }
+
     fn i32(&self) -> IntType<'ctx> {
         self.cx.i32_type()
     }
@@ -1349,11 +1361,18 @@ impl<'ctx> Gen<'ctx, '_> {
                         .unwrap(),
                 )
             }
-            Rvalue::SetException(o) => {
+            Rvalue::SetException(o, t) => {
                 let v = self.operand(fx, o)?;
+                let tag = self.operand(fx, t)?;
                 let slot = self.exception_slot();
                 self.b.build_store(slot, v).unwrap();
+                let tslot = self.exception_tag_slot();
+                self.b.build_store(tslot, tag).unwrap();
                 None
+            }
+            Rvalue::ExceptionTag => {
+                let tslot = self.exception_tag_slot();
+                Some(self.b.build_load(self.i32(), tslot, "tag").unwrap())
             }
             Rvalue::TakeException(_) => {
                 let slot = self.exception_slot();
