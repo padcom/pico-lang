@@ -178,6 +178,8 @@ impl<'ctx> Gen<'ctx, '_> {
             None => {
                 let g = self.m.add_global(t, None, name);
                 g.set_linkage(Linkage::External);
+                // Per thread: every worker has its own heap and shadow stack.
+                g.set_thread_local(true);
                 g.as_pointer_value()
             }
         }
@@ -331,7 +333,10 @@ impl<'ctx> Gen<'ctx, '_> {
         let entry_ty = self
             .cx
             .struct_type(&[ptr.into(), ptr.into(), ptr.into()], false);
-        let mut entries = Vec::new();
+        // (name, layout, address); the addresses are thread-local, so the table is filled in
+        // by each thread's entry function, in its frame.
+        let mut entries: Vec<(PointerValue<'ctx>, PointerValue<'ctx>, PointerValue<'ctx>)> =
+            Vec::new();
         for (i, g) in self.p.globals.iter().enumerate() {
             if let Some(gv) = self.globals[i]
                 && self.p.traced(&g.ty)
@@ -342,45 +347,64 @@ impl<'ctx> Gen<'ctx, '_> {
                 } else {
                     self.cstr0(&g.name)
                 };
-                entries.push(entry_ty.const_named_struct(&[
-                    name.into(),
-                    self.layout(&g.ty).into(),
-                    gv.as_pointer_value().into(),
-                ]));
+                entries.push((name, self.layout(&g.ty), gv.as_pointer_value()));
             }
         }
         if let Some(e) = self.exception {
-            entries.push(entry_ty.const_named_struct(&[
-                ptr.const_null().into(),
-                self.layout(&Ty::Str).into(),
-                e.as_pointer_value().into(),
-            ]));
+            entries.push((
+                ptr.const_null(),
+                self.layout(&Ty::Str),
+                e.as_pointer_value(),
+            ));
         }
-        let table = self.cx.const_struct(
+        let table_ty = self.cx.struct_type(
             &[
-                i64t.const_int(entries.len() as u64, false).into(),
-                entry_ty.const_array(&entries).into(),
+                i64t.into(),
+                entry_ty.array_type(entries.len() as u32).into(),
             ],
             false,
         );
-        let g = self.m.add_global(table.get_type(), None, "ppl.gc_globals");
-        g.set_linkage(Linkage::Private);
-        g.set_constant(true);
-        g.set_initializer(&table);
-        let entry = self.fns[self.p.entry.0 as usize]
-            .get_first_basic_block()
-            .expect("entry block");
-        let b = self.cx.create_builder();
-        match entry.get_first_instruction() {
-            Some(i) => b.position_before(&i),
-            None => b.position_at_end(entry),
+        for f in self.entry_fns() {
+            let entry = f.get_first_basic_block().expect("entry block");
+            let b = self.cx.create_builder();
+            match entry.get_first_instruction() {
+                Some(i) => b.position_before(&i),
+                None => b.position_at_end(entry),
+            }
+            let table = b.build_alloca(table_ty, "gc.globals").unwrap();
+            let n = b.build_struct_gep(table_ty, table, 0, "").unwrap();
+            b.build_store(n, i64t.const_int(entries.len() as u64, false))
+                .unwrap();
+            for (k, (name, layout, addr)) in entries.iter().enumerate() {
+                let i32t = self.i32();
+                for (j, v) in [name, layout, addr].into_iter().enumerate() {
+                    let slot = unsafe {
+                        b.build_gep(
+                            table_ty,
+                            table,
+                            &[
+                                i32t.const_zero(),
+                                i32t.const_int(1, false),
+                                i32t.const_int(k as u64, false),
+                                i32t.const_int(j as u64, false),
+                            ],
+                            "",
+                        )
+                        .unwrap()
+                    };
+                    b.build_store(slot, *v).unwrap();
+                }
+            }
+            b.build_call(self.rt("ppl_gc_set_globals"), &[table.into()], "")
+                .unwrap();
         }
-        b.build_call(
-            self.rt("ppl_gc_set_globals"),
-            &[g.as_pointer_value().into()],
-            "",
-        )
-        .unwrap();
+    }
+
+    /// The functions a thread starts in: the program's entry, and each worker's.
+    pub(crate) fn entry_fns(&self) -> Vec<FunctionValue<'ctx>> {
+        let mut out = vec![self.fns[self.p.entry.0 as usize]];
+        out.extend(self.p.worker_entries.iter().map(|f| self.fns[f.0 as usize]));
+        out
     }
 }
 

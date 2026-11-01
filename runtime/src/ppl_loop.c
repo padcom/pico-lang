@@ -30,7 +30,7 @@ int64_t ppl_clock_ms(void) {
 }
 
 #if defined(__APPLE__) || defined(__linux__)
-static int poller = -1;
+static _Thread_local int poller = -1;
 
 static int get_poller(void) {
     if (poller < 0) {

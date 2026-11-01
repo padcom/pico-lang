@@ -204,7 +204,7 @@ uint32_t ppl_str_char_at(PplStr *s, int64_t i, const char *file, int64_t file_le
     }
     if (s->byte_len == s->char_len) return (unsigned char)s->data[i]; /* ASCII */
     int64_t c = 0, b = 0;
-    if (i >= s->cache_char) {
+    if (i >= s->cache_char && s->cache_char >= 0) {
         c = s->cache_char;
         b = s->cache_byte;
     }
@@ -212,8 +212,11 @@ uint32_t ppl_str_char_at(PplStr *s, int64_t i, const char *file, int64_t file_le
         b += utf8_len((unsigned char)s->data[b]);
         c++;
     }
-    s->cache_char = c;
-    s->cache_byte = b;
+    /* Literals (`cache_char` -1) are constants shared by every thread: no cache. */
+    if (s->cache_char >= 0) {
+        s->cache_char = c;
+        s->cache_byte = b;
+    }
     return utf8_decode((const unsigned char *)s->data + b);
 }
 
@@ -647,18 +650,18 @@ PplStr *ppl_fmt_bool(int32_t v, const PplFmt *f) {
  * a jmp_buf in the guarded function's frame. The report waits until no guard is left. */
 #define PPL_MAX_GUARDS 4096
 #define PPL_MAX_FRAMES 64
-static void *guards[PPL_MAX_GUARDS];
+static _Thread_local void *guards[PPL_MAX_GUARDS];
 /* The shadow-stack top when each guard was pushed, restored when a panic jumps to it. */
-static PplFrame *guard_frames[PPL_MAX_GUARDS];
-static int32_t guard_arenas[PPL_MAX_GUARDS];
-static int nguards;
-static char *panic_msg;
-static int64_t panic_msg_len;
+static _Thread_local PplFrame *guard_frames[PPL_MAX_GUARDS];
+static _Thread_local int32_t guard_arenas[PPL_MAX_GUARDS];
+static _Thread_local int nguards;
+static _Thread_local char *panic_msg;
+static _Thread_local int64_t panic_msg_len;
 static const char *panic_file;
-static int64_t panic_file_len;
-static int32_t panic_line, panic_col;
-static void *panic_frames[PPL_MAX_FRAMES];
-static int panic_nframes;
+static _Thread_local int64_t panic_file_len;
+static _Thread_local int32_t panic_line, panic_col;
+static _Thread_local void *panic_frames[PPL_MAX_FRAMES];
+static _Thread_local int panic_nframes;
 
 void ppl_guard_push(void *buf) {
     if (nguards == PPL_MAX_GUARDS) {

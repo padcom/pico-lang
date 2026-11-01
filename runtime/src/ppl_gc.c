@@ -6,8 +6,8 @@
 #include <string.h>
 #include <time.h>
 
-PplFrame *ppl_gc_top;
-int32_t ppl_gc_requested;
+_Thread_local PplFrame *ppl_gc_top;
+_Thread_local int32_t ppl_gc_requested;
 static const PplGlobalRoots *globals;
 
 /* ---------------------------------------------------------------- heap layout
@@ -89,20 +89,20 @@ static const uint32_t class_sizes[] = {32,   48,   64,   80,   96,   112,  128, 
                                        1280, 1536, 2048, 2560, 3072, 4096, 5120, 6144, 8192};
 #define NCLASSES ((int)(sizeof class_sizes / sizeof class_sizes[0]))
 
-static struct {
+static _Thread_local struct {
     Block *cur;   /* allocating from */
     Block *avail; /* other blocks with room */
 } classes[NCLASSES];
-static uint8_t class_of_granule[MAX_SMALL / 16 + 1];
-static int classes_ready;
+static _Thread_local uint8_t class_of_granule[MAX_SMALL / 16 + 1];
+static _Thread_local int classes_ready;
 
-static Block *all_blocks;
+static _Thread_local Block *all_blocks;
 static Block *spare; /* empty small blocks (linked through `next`) */
-static int nspare;
+static _Thread_local int nspare;
 
 /* Statistics (the `GcStats` fields). */
-static int64_t heap_bytes, used_bytes, allocated_bytes, ncollections, nyoung;
-static int64_t last_pause, max_pause, total_pause;
+static _Thread_local int64_t heap_bytes, used_bytes, allocated_bytes, ncollections, nyoung;
+static _Thread_local int64_t last_pause, max_pause, total_pause;
 
 /* A nursery collection is due after this many bytes of allocation. */
 #define NURSERY ((int64_t)256 << 10)
@@ -116,15 +116,15 @@ static int64_t last_pause, max_pause, total_pause;
 /* Large objects are marked this many bytes at a time, and remembered by cards. */
 #define CHUNK_BYTES ((int64_t)16 << 10)
 #define CARD_SHIFT 9
-static int64_t young_bytes, old_bytes, step_bytes;
-static int64_t major_threshold = MIN_MAJOR;
+static _Thread_local int64_t young_bytes, old_bytes, step_bytes;
+static _Thread_local int64_t major_threshold = MIN_MAJOR;
 enum { IDLE, MARKING, SWEEPING };
-static int phase = IDLE;
+static _Thread_local int phase = IDLE;
 static uint8_t color = F_COLOR_A; /* of the running (or last) major cycle */
-static Block *sweep_cursor;
-static int paused;
-static int stress_mode;
-static int trace_mode;
+static _Thread_local Block *sweep_cursor;
+static _Thread_local int paused;
+static _Thread_local int stress_mode;
+static _Thread_local int trace_mode;
 
 static _Noreturn void out_of_memory(void) {
     fflush(stdout);
@@ -141,10 +141,15 @@ static size_t header_size(void) { return (sizeof(Block) + 15) & ~(size_t)15; }
 
 #define LEAF_BITS 16
 #define ROOT_BITS 16 /* 48-bit addresses */
-static Block **block_table[(size_t)1 << ROOT_BITS];
+/* Per thread (each has its own heap): allocated on first use. */
+static _Thread_local Block ***block_table;
 
 static void table_put(uintptr_t k, Block *b) {
     size_t hi = (size_t)(k >> LEAF_BITS) & (((size_t)1 << ROOT_BITS) - 1);
+    if (!block_table) {
+        block_table = calloc((size_t)1 << ROOT_BITS, sizeof(Block **));
+        if (!block_table) out_of_memory();
+    }
     if (!block_table[hi]) {
         block_table[hi] = calloc((size_t)1 << LEAF_BITS, sizeof(Block *));
         if (!block_table[hi]) out_of_memory();
@@ -153,7 +158,7 @@ static void table_put(uintptr_t k, Block *b) {
 }
 
 static Block *table_get(uintptr_t k) {
-    if (k >> (LEAF_BITS + ROOT_BITS)) return NULL;
+    if (k >> (LEAF_BITS + ROOT_BITS) || !block_table) return NULL;
     Block **leaf = block_table[k >> LEAF_BITS];
     return leaf ? leaf[k & (((uintptr_t)1 << LEAF_BITS) - 1)] : NULL;
 }
@@ -314,8 +319,8 @@ static void *heap_object(size_t need, int64_t size, const PplLayout *layout);
 #define MAX_ARENAS 64
 #define ARENA_CHUNK BLOCK_SIZE
 /* Per open arena (level i + 1): its chunks, newest first (linked through `next`). */
-static Block *arena_chunks[MAX_ARENAS];
-static int arena_depth;
+static _Thread_local Block *arena_chunks[MAX_ARENAS];
+static _Thread_local int arena_depth;
 
 /* The level of the arena `p` points into, or 0. */
 static int arena_level_of(const void *p) {
@@ -390,7 +395,7 @@ void ppl_arena_release(int32_t level) {
     }
 }
 
-static int escaped;
+static _Thread_local int escaped;
 static void check_escape(const void *p) {
     if (arena_level_of(p) >= arena_depth) escaped = 1;
 }
@@ -429,7 +434,7 @@ typedef struct {
     const Obj *from;
     char *to;
 } Moved;
-static struct {
+static _Thread_local struct {
     Moved *items;
     size_t len, cap;
 } moved;
@@ -565,9 +570,9 @@ static void push(Stack *st, Obj *o) {
 }
 
 /* The objects allocated since the last nursery collection. */
-static Stack young_objects;
+static _Thread_local Stack young_objects;
 /* The objects with weak words. */
-static Stack weak_objects;
+static _Thread_local Stack weak_objects;
 
 /* The block an object is in (blocks are aligned; a large object's header is in its first). */
 static Block *block_of(const Obj *o) { return (Block *)((uintptr_t)o & ~(uintptr_t)(BLOCK_SIZE - 1)); }
@@ -687,16 +692,16 @@ void ppl_gc_dump_roots(void) {
 /* ---------------------------------------------------------------- marking */
 
 /* Nursery marking. */
-static Stack young_stack;
+static _Thread_local Stack young_stack;
 /* Old small objects written to since the last nursery collection. */
-static Stack remembered;
+static _Thread_local Stack remembered;
 
 /* The major marking's grey objects: an object and how far it has been scanned. */
 typedef struct {
     Obj *o;
     int64_t from;
 } Grey;
-static struct {
+static _Thread_local struct {
     Grey *items;
     size_t len, cap;
 } grey;
@@ -715,7 +720,7 @@ typedef struct {
     Block *b;
     size_t card;
 } Card;
-static struct {
+static _Thread_local struct {
     Card *items;
     size_t len, cap;
 } dirty;
@@ -791,7 +796,7 @@ static void scan_roots(void (*visit)(const void *)) {
 /* The write barrier, after a value laid out as `layout` was stored at `slot`: an old object
  * written to is remembered (a large one by card), and while the old generation is marked,
  * the old objects the value points to are shaded. */
-static int barrier_level;
+static _Thread_local int barrier_level;
 static void check_store(const void *p) {
     if (arena_level_of(p) > barrier_level) escaped = 1;
 }

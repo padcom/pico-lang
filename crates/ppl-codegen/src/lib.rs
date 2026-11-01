@@ -431,6 +431,7 @@ impl<'ctx> Gen<'ctx, '_> {
         let ptr = self.ptr();
         let g = self.m.add_global(ptr, None, "ppl.exception");
         g.set_linkage(Linkage::Internal);
+        g.set_thread_local(true);
         g.set_initializer(&ptr.const_null());
         self.exception = Some(g);
         g.as_pointer_value()
@@ -444,6 +445,7 @@ impl<'ctx> Gen<'ctx, '_> {
         let t = self.i32();
         let g = self.m.add_global(t, None, "ppl.exception_tag");
         g.set_linkage(Linkage::Internal);
+        g.set_thread_local(true);
         g.set_initializer(&t.const_zero());
         g.as_pointer_value()
     }
@@ -485,6 +487,8 @@ impl<'ctx> Gen<'ctx, '_> {
                     .m
                     .add_global(t, None, &format!("ppl.global.{}", gdecl.name));
                 g.set_linkage(Linkage::Internal);
+                // Module instances are per thread (spec §10.2).
+                g.set_thread_local(true);
                 g.set_initializer(&t.const_zero());
                 g
             });
@@ -721,13 +725,15 @@ impl<'ctx> Gen<'ctx, '_> {
         let fields: Vec<BasicValueEnum> = vec![
             i64t.const_int(s.len() as u64, false).into(),
             i64t.const_int(s.chars().count() as u64, false).into(),
-            i64t.const_zero().into(),
+            // No position cache (-1): literals are constants shared by every thread.
+            i64t.const_all_ones().into(),
             i64t.const_zero().into(),
             data.into(),
         ];
         let value = self.cx.const_struct(&fields, false);
         let g = self.m.add_global(value.get_type(), None, "ppl.str");
         g.set_linkage(Linkage::Private);
+        g.set_constant(true);
         g.set_initializer(&value);
         g.set_alignment(8);
         g.as_pointer_value()

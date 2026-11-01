@@ -164,6 +164,7 @@ pub fn lower(
         file: file.name.clone(),
         fns,
         entry: program.entry,
+        worker_entries: Vec::new(),
         globals,
         structs,
         enums,

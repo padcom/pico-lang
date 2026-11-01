@@ -47,6 +47,9 @@ pub struct Program {
     pub file: String,
     pub fns: Vec<Function>,
     pub entry: FnId,
+    /// Per file-based worker (spec §10.2), in order of their ids (from 1): the function its
+    /// thread starts in (the library modules' code, then the worker module's).
+    pub worker_entries: Vec<FnId>,
     pub globals: Vec<GlobalDecl>,
     pub structs: Vec<StructLayout>,
     pub enums: Vec<EnumLayout>,

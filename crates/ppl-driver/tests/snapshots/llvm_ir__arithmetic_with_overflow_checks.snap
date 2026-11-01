@@ -5,8 +5,8 @@ expression: "ir(r#\"\nfunction add(a: i32, b: i32): i32 { a + b }\nfunction half
 ; ModuleID = 'test.ppl'
 source_filename = "test.ppl"
 
-@ppl.global.__finalizationRegistries = internal global ptr null
-@ppl.global.__loop = internal global ptr null
+@ppl.global.__finalizationRegistries = internal thread_local global ptr null
+@ppl.global.__loop = internal thread_local global ptr null
 @ppl.classinfo.Error = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.__MapEntry = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Map = internal constant { ptr, [0 x ptr] } zeroinitializer
@@ -26,13 +26,12 @@ source_filename = "test.ppl"
 @ppl.classinfo.AbortSignal = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.AbortController = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Arena = internal constant { ptr, [0 x ptr] } zeroinitializer
-@ppl_gc_requested = external global i32
+@ppl_gc_requested = external thread_local global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
 @ppl.cstr.9 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.cstr.10 = private unnamed_addr constant [16 x i8] c"division by zero"
 @ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 @ppl.layout.11 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.gc_globals = private constant { i64, [2 x { ptr, ptr, ptr }] } { i64 2, [2 x { ptr, ptr, ptr }] [{ ptr, ptr, ptr } { ptr null, ptr @ppl.layout, ptr @ppl.global.__finalizationRegistries }, { ptr, ptr, ptr } { ptr null, ptr @ppl.layout.11, ptr @ppl.global.__loop }] }
 
 define internal i32 @ppl.add(i32 %0, i32 %1) {
 start:
@@ -131,10 +130,25 @@ gc.continue:                                      ; preds = %gc.collect, %start
 
 define void @ppl_entry() {
 start:
-  call void @ppl_gc_set_globals(ptr @ppl.gc_globals)
+  %gc.globals = alloca { i64, [2 x { ptr, ptr, ptr }] }, align 8
+  %0 = getelementptr inbounds nuw { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 0
+  store i64 2, ptr %0, align 4
+  %1 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 0
+  store ptr null, ptr %1, align 8
+  %2 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 1
+  store ptr @ppl.layout, ptr %2, align 8
+  %3 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 2
+  store ptr @ppl.global.__finalizationRegistries, ptr %3, align 8
+  %4 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 0
+  store ptr null, ptr %4, align 8
+  %5 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 1
+  store ptr @ppl.layout.11, ptr %5, align 8
+  %6 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 2
+  store ptr @ppl.global.__loop, ptr %6, align 8
+  call void @ppl_gc_set_globals(ptr %gc.globals)
   %gc.requested = load i32, ptr @ppl_gc_requested, align 4
-  %0 = icmp ne i32 %gc.requested, 0
-  br i1 %0, label %gc.collect, label %gc.continue
+  %7 = icmp ne i32 %gc.requested, 0
+  br i1 %7, label %gc.collect, label %gc.continue
 
 bb0:                                              ; preds = %gc.continue
   store ptr null, ptr @ppl.global.__finalizationRegistries, align 8

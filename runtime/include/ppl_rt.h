@@ -57,7 +57,7 @@ typedef struct PplFrame {
     struct PplFrame *prev;
     const PplFrameMap *map;
 } PplFrame;
-extern PplFrame *ppl_gc_top;
+extern _Thread_local PplFrame *ppl_gc_top;
 
 /* The program's globals that hold references (registered by the entry function). */
 typedef struct PplGlobalRoot {
@@ -74,7 +74,7 @@ void ppl_gc_set_globals(const PplGlobalRoots *g);
 /* Set when a collection (or an incremental step) is due; compiled code checks it at
  * safepoints (function entry, loop back edges) and then calls `ppl_gc_safepoint`. Nothing
  * else collects, so the runtime's own functions never see a collection mid-call. */
-extern int32_t ppl_gc_requested;
+extern _Thread_local int32_t ppl_gc_requested;
 void ppl_gc_safepoint(void);
 /* Write barrier: called after a value laid out as `layout` is stored into `slot`, which may
  * be inside a heap object. */
