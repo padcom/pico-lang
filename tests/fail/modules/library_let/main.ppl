@@ -1,0 +1,5 @@
+// error: E0338
+// at: 1:1
+// Library modules have no mutable module-level state (spec §4.2).
+import { next } from "./counter"
+println(next())

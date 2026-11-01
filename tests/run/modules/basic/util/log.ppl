@@ -1,0 +1,4 @@
+export function log(what: string): int {
+  println(`init: ${what}`)
+  0
+}

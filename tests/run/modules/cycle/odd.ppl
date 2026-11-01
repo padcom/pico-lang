@@ -1,0 +1,4 @@
+import { isEven } from "./even"
+export function isOdd(n: int): bool {
+  if (n == 0) false else isEven(n - 1)
+}

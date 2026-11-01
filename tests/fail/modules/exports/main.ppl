@@ -1,0 +1,9 @@
+// error: E0340
+// at: 6:19
+// error: E0340
+// at: 9:13
+// Only exported names can be imported.
+import { visible, hidden } from "./lib"
+import * as lib from "./lib"
+println(visible())
+println(lib.hidden())

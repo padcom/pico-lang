@@ -1,0 +1,7 @@
+// Modules may import each other: declarations can form cycles (spec §8.1).
+// expect: even 10: true
+// expect: odd 7: true
+import { isEven } from "./even"
+import { isOdd } from "./odd"
+println(`even 10: ${isEven(10)}`)
+println(`odd 7: ${isOdd(7)}`)

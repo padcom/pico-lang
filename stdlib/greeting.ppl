@@ -1,0 +1,4 @@
+// A tiny standard-library module (`import { greet } from "std/greeting"`).
+export function greet(who: string): string {
+  `${who} say hi`
+}

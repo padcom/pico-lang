@@ -1,0 +1,13 @@
+export enum Shape {
+  Circle(r: f64),
+  Rect(w: int, h: int),
+}
+function area(s: Shape): string {
+  match (s) {
+    Shape.Circle(r) => `${r * r * 3.14}`,
+    Shape.Rect(w, h) => `${w * h}`,
+  }
+}
+export function describe(s: Shape): string {
+  `area ${area(s)}`
+}

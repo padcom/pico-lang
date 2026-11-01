@@ -190,7 +190,8 @@ pub fn run(f: &Fixture) -> Outcome {
             return Outcome::Fail(format!("bad directives:\n  {}", problems.join("\n  ")));
         }
     };
-    let checked = ppl_driver::check_source(f.name.clone(), text);
+    let dir = f.path.parent().unwrap_or(Path::new("."));
+    let checked = ppl_driver::check_source_in(f.name.clone(), text, dir);
     match f.kind {
         Kind::Run => run_test(&directives, &checked),
         Kind::Fail => fail_test(&directives, &checked),

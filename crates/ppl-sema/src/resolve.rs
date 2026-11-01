@@ -15,25 +15,169 @@ use ppl_diag::{Code, Diagnostic, FileId, Span, codes};
 use ppl_syntax::ast;
 use std::collections::{HashMap, HashSet};
 
+/// How the files of a program form modules (spec §8.1). The statements of every file come
+/// in one `ast::Module`; each top-level declaration belongs to the module of its file.
+#[derive(Default)]
+pub struct Modules {
+    /// The core library's files: their declarations are visible in every module.
+    pub prelude: HashSet<FileId>,
+    /// The entry module (its top level may use `let`).
+    pub entry: Option<FileId>,
+    pub imports: Vec<Import>,
+    /// Per module: exported name → its local name.
+    pub exports: HashMap<FileId, HashMap<String, String>>,
+    /// How messages name each module (`./geometry`).
+    pub names: HashMap<FileId, String>,
+}
+
+/// `import { name as alias } from "…"` or `import * as alias from "…"`, in `module`.
+pub struct Import {
+    pub module: FileId,
+    pub target: FileId,
+    /// `None`: `* as alias`.
+    pub name: Option<Ident>,
+    pub alias: Ident,
+}
+
+pub use ppl_syntax::ast::Ident;
+
+const PRELUDE_MODULE: u32 = u32::MAX;
+
+/// The module being resolved and what each module sees from the others.
+#[derive(Default)]
+struct ModCtx {
+    cur: u32,
+    entry: Option<u32>,
+    /// Per module: local name → (module, exported name).
+    imports: HashMap<u32, HashMap<String, (u32, String)>>,
+    /// Per module: `* as` alias → module.
+    namespaces: HashMap<u32, HashMap<String, u32>>,
+    exports: HashMap<u32, HashMap<String, String>>,
+    names: HashMap<u32, String>,
+}
+
+impl ModCtx {
+    /// The key `name` refers to in the current module: its own declaration, an import (followed
+    /// through re-exports), or the core library's.
+    fn resolve(
+        &self,
+        name: &str,
+        exists: &dyn Fn(&(u32, String)) -> bool,
+    ) -> Option<(u32, String)> {
+        self.resolve_in(self.cur, name, exists, 0).or_else(|| {
+            let k = (PRELUDE_MODULE, name.to_string());
+            exists(&k).then_some(k)
+        })
+    }
+
+    fn resolve_in(
+        &self,
+        m: u32,
+        name: &str,
+        exists: &dyn Fn(&(u32, String)) -> bool,
+        depth: u32,
+    ) -> Option<(u32, String)> {
+        let k = (m, name.to_string());
+        if exists(&k) {
+            return Some(k);
+        }
+        if depth > 16 {
+            return None;
+        }
+        let (tm, exported) = self.imports.get(&m)?.get(name)?;
+        let local = self
+            .exports
+            .get(tm)
+            .and_then(|e| e.get(exported))
+            .cloned()
+            .unwrap_or_else(|| exported.clone());
+        self.resolve_in(*tm, &local, exists, depth + 1)
+    }
+}
+
+/// Top-level names, by module.
+struct Names<T> {
+    map: HashMap<(u32, String), T>,
+}
+
+impl<T> Default for Names<T> {
+    fn default() -> Self {
+        Names {
+            map: HashMap::new(),
+        }
+    }
+}
+
+impl<T> Names<T> {
+    fn get(&self, m: &ModCtx, name: &str) -> Option<&T> {
+        let k = m.resolve(name, &|k| self.map.contains_key(k))?;
+        self.map.get(&k)
+    }
+
+    fn contains_key(&self, m: &ModCtx, name: &str) -> bool {
+        self.get(m, name).is_some()
+    }
+
+    /// Declares `name` in the current module.
+    fn insert(&mut self, m: &ModCtx, name: String, v: T) {
+        self.map.insert((m.cur, name), v);
+    }
+
+    /// The current module's own declaration of `name`.
+    fn own_mut(&mut self, m: &ModCtx, name: &str) -> Option<&mut T> {
+        self.map.get_mut(&(m.cur, name.to_string()))
+    }
+
+    /// Names visible in the current module (for suggestions).
+    fn visible<'a>(&'a self, m: &'a ModCtx) -> impl Iterator<Item = &'a str> + 'a {
+        self.map
+            .keys()
+            .filter(move |(km, _)| *km == m.cur || *km == PRELUDE_MODULE)
+            .map(|(_, n)| n.as_str())
+    }
+
+    fn values(&self) -> impl Iterator<Item = &T> {
+        self.map.values()
+    }
+
+    /// The core library's names.
+    fn prelude(&self) -> impl Iterator<Item = (&String, &T)> {
+        self.map
+            .iter()
+            .filter(|((m, _), _)| *m == PRELUDE_MODULE)
+            .map(|((_, n), v)| (n, v))
+    }
+}
+
 pub fn resolve(module: &ast::Module, file: FileId) -> (Program, Vec<Diagnostic>) {
+    resolve_modules(module, file, &Modules::default())
+}
+
+pub fn resolve_modules(
+    module: &ast::Module,
+    file: FileId,
+    modules: &Modules,
+) -> (Program, Vec<Diagnostic>) {
     let mut r = Resolver {
+        mods: ModCtx::default(),
+        prelude_files: modules.prelude.clone(),
         file,
         diags: Vec::new(),
         fns: Vec::new(),
         globals: Vec::new(),
         spans: Vec::new(),
-        top_fns: HashMap::new(),
-        top_globals: HashMap::new(),
+        top_fns: Names::default(),
+        top_globals: Names::default(),
         globals_declared: HashSet::new(),
         f: FnState::default(),
         structs: Vec::new(),
-        top_structs: HashMap::new(),
+        top_structs: Names::default(),
         enums: Vec::new(),
-        top_enums: HashMap::new(),
+        top_enums: Names::default(),
         variant_names: HashSet::new(),
         stmt_switch: false,
         cond_scope: false,
-        aliases: HashMap::new(),
+        aliases: Names::default(),
         alias_cache: HashMap::new(),
         resolving_aliases: Vec::new(),
         unions: Vec::new(),
@@ -41,6 +185,49 @@ pub fn resolve(module: &ast::Module, file: FileId) -> (Program, Vec<Diagnostic>)
         distincts: 0,
         outer_fns: Vec::new(),
     };
+    r.mods.entry = modules.entry.map(|f| r.module_of(f));
+    for (f, ex) in &modules.exports {
+        let m = r.module_of(*f);
+        r.mods.exports.insert(m, ex.clone());
+    }
+    for (f, n) in &modules.names {
+        let m = r.module_of(*f);
+        r.mods.names.insert(m, n.clone());
+    }
+    for imp in &modules.imports {
+        let (m, t) = (r.module_of(imp.module), r.module_of(imp.target));
+        match &imp.name {
+            Some(name) => {
+                let exported = r
+                    .mods
+                    .exports
+                    .get(&t)
+                    .is_some_and(|e| e.contains_key(&name.name));
+                if !exported {
+                    let target = r.mods.names.get(&t).cloned().unwrap_or_default();
+                    r.error(
+                        codes::NOT_EXPORTED,
+                        name.span,
+                        format!("`{}` isn't exported by `{target}`", name.name),
+                        "not exported",
+                    );
+                    continue;
+                }
+                r.mods
+                    .imports
+                    .entry(m)
+                    .or_default()
+                    .insert(imp.alias.name.clone(), (t, name.name.clone()));
+            }
+            None => {
+                r.mods
+                    .namespaces
+                    .entry(m)
+                    .or_default()
+                    .insert(imp.alias.name.clone(), t);
+            }
+        }
+    }
     let program = r.program(module);
     (program, r.diags)
 }
@@ -84,20 +271,23 @@ struct FnState {
 }
 
 struct Resolver {
+    /// The module being resolved and the import tables.
+    mods: ModCtx,
+    prelude_files: HashSet<FileId>,
     file: FileId,
     diags: Vec<Diagnostic>,
     fns: Vec<Option<Function>>,
     globals: Vec<Binding>,
     spans: Vec<Span>,
     /// Top-level functions by name (several for overloads).
-    top_fns: HashMap<String, Vec<FnId>>,
-    top_globals: HashMap<String, GlobalId>,
+    top_fns: Names<Vec<FnId>>,
+    top_globals: Names<GlobalId>,
     globals_declared: HashSet<GlobalId>,
     f: FnState,
     structs: Vec<StructDef>,
-    top_structs: HashMap<String, StructId>,
+    top_structs: Names<StructId>,
     enums: Vec<EnumDef>,
-    top_enums: HashMap<String, EnumId>,
+    top_enums: Names<EnumId>,
     /// Every variant name of every enum: an identifier pattern with one of these names is a
     /// variant pattern, not a binding.
     variant_names: HashSet<String>,
@@ -106,8 +296,8 @@ struct Resolver {
     /// Lowering an `if`/`while` condition, where `is` bindings stay in scope for the body.
     cond_scope: bool,
     /// `type Name = T` declarations, resolved on first use.
-    aliases: HashMap<String, (ast::Type, Span)>,
-    alias_cache: HashMap<String, Ty>,
+    aliases: Names<(ast::Type, Span)>,
+    alias_cache: HashMap<(u32, String), Ty>,
     resolving_aliases: Vec<String>,
     /// Interned unions: the members and the anonymous enum that stores them.
     unions: Vec<(Vec<Ty>, EnumId)>,
@@ -129,6 +319,19 @@ enum Found {
 }
 
 impl Resolver {
+    fn module_of(&self, f: FileId) -> u32 {
+        if self.prelude_files.contains(&f) {
+            PRELUDE_MODULE
+        } else {
+            f.0
+        }
+    }
+
+    /// Resolves what follows in the module of `span`'s file.
+    fn enter_module(&mut self, span: Span) {
+        self.mods.cur = self.module_of(span.file);
+    }
+
     fn error(&mut self, code: Code, span: Span, msg: impl Into<String>, label: impl Into<String>) {
         self.diags
             .push(Diagnostic::error(code, msg).primary(span, label));
@@ -166,6 +369,7 @@ impl Resolver {
         let mut first_seen: HashMap<String, Span> = HashMap::new();
         // Type aliases first: any type annotation may use them.
         for stmt in &module.stmts {
+            self.enter_module(stmt.span);
             if let ast::StmtKind::Decl(d) = &stmt.kind
                 && let ast::DeclKind::TypeAlias { name, generics, ty } = &d.kind
             {
@@ -176,10 +380,11 @@ impl Resolver {
                     continue;
                 }
                 self.aliases
-                    .insert(name.name.clone(), (ty.clone(), name.span));
+                    .insert(&self.mods, name.name.clone(), (ty.clone(), name.span));
             }
         }
         for stmt in &module.stmts {
+            self.enter_module(stmt.span);
             match &stmt.kind {
                 ast::StmtKind::Decl(d) => {
                     if let ast::DeclKind::Struct(sd) = &d.kind {
@@ -195,7 +400,8 @@ impl Resolver {
                             sd.name.span,
                             false,
                         ));
-                        self.top_structs.insert(sd.name.name.clone(), id);
+                        self.top_structs
+                            .insert(&self.mods, sd.name.name.clone(), id);
                         struct_decls.push((id, sd));
                     }
                     if let ast::DeclKind::Interface(id_) = &d.kind {
@@ -209,7 +415,8 @@ impl Resolver {
                         let mut def = StructDef::new(id_.name.name.clone(), id_.name.span, false);
                         def.is_interface = true;
                         self.structs.push(def);
-                        self.top_structs.insert(id_.name.name.clone(), id);
+                        self.top_structs
+                            .insert(&self.mods, id_.name.name.clone(), id);
                         iface_decls.push((id, id_));
                     }
                     if let ast::DeclKind::Class(cd) = &d.kind {
@@ -221,7 +428,8 @@ impl Resolver {
                         let mut def = StructDef::new(cd.name.name.clone(), cd.name.span, true);
                         def.derives = derives;
                         self.structs.push(def);
-                        self.top_structs.insert(cd.name.name.clone(), id);
+                        self.top_structs
+                            .insert(&self.mods, cd.name.name.clone(), id);
                         class_decls.push((id, cd));
                     }
                     if let ast::DeclKind::Enum(ed) = &d.kind {
@@ -238,7 +446,7 @@ impl Resolver {
                             variants: Vec::new(),
                             origin: EnumOrigin::Declared,
                         });
-                        self.top_enums.insert(ed.name.name.clone(), id);
+                        self.top_enums.insert(&self.mods, ed.name.name.clone(), id);
                         for v in &ed.variants {
                             self.variant_names.insert(v.name.name.clone());
                         }
@@ -251,13 +459,16 @@ impl Resolver {
                             self.not_implemented(d.decorators[0].span, "decorators");
                         }
                         // Functions may share a name (overloads); anything else may not.
-                        let overload = self.top_fns.contains_key(&name.name);
+                        let overload = self.top_fns.own_mut(&self.mods, &name.name).is_some();
                         if !overload && self.check_duplicate(&mut first_seen, name) {
                             continue;
                         }
                         let id = FnId(self.fns.len() as u32);
                         self.fns.push(None);
-                        self.top_fns.entry(name.name.clone()).or_default().push(id);
+                        match self.top_fns.own_mut(&self.mods, &name.name) {
+                            Some(v) => v.push(id),
+                            None => self.top_fns.insert(&self.mods, name.name.clone(), vec![id]),
+                        }
                         fn_decls.push((id, f, None));
                     }
                 }
@@ -270,6 +481,18 @@ impl Resolver {
                 } => {
                     if *comptime {
                         continue;
+                    }
+                    // Only the entry module has mutable state (spec §4.2).
+                    if *kind == ast::BindingKind::Let
+                        && self.mods.cur != PRELUDE_MODULE
+                        && self.mods.entry.is_some_and(|e| e != self.mods.cur)
+                    {
+                        self.error(
+                            codes::LIBRARY_LET,
+                            stmt.span,
+                            "a library module can't have module-level `let`",
+                            "use `const`",
+                        );
                     }
                     // A destructuring pattern's annotation types the whole value, so its
                     // names get their types from the initializer.
@@ -295,7 +518,7 @@ impl Resolver {
                             span: name.span,
                             boxed: false,
                         });
-                        self.top_globals.insert(name.name.clone(), id);
+                        self.top_globals.insert(&self.mods, name.name.clone(), id);
                     }
                 }
                 _ => {}
@@ -309,11 +532,14 @@ impl Resolver {
             .chain(class_decls.iter().map(|(s, d)| (*s, &d.generics[..])))
             .collect();
         for (sid, gs) in generic_decls {
+            let span = self.structs[sid.0 as usize].name_span;
+            self.enter_module(span);
             let tps = self.type_params(gs, &[], Ty::type_owner(sid));
             self.f.type_params.clear();
             self.structs[sid.0 as usize].generics = tps;
         }
         for (g, t) in pending_globals {
+            self.enter_module(self.globals[g.0 as usize].span);
             let ty = self.resolve_type(t);
             self.globals[g.0 as usize].ty = Some(ty);
         }
@@ -322,17 +548,21 @@ impl Resolver {
         // fields and methods (all type names are known now).
         let mut iface_methods = Vec::new();
         for (sid, id_) in self.order_interfaces(&iface_decls) {
+            self.enter_module(id_.name.span);
             self.interface_members(sid, id_, &mut iface_methods);
         }
         for (sid, sd) in &struct_decls {
+            self.enter_module(sd.name.span);
             self.struct_members(*sid, sd, &mut fn_decls);
             self.f.type_params.clear();
         }
         for (eid, ed) in &enum_decls {
+            self.enter_module(ed.name.span);
             self.enum_variants(*eid, ed);
         }
         let mut classes = Vec::new();
         for (sid, cd) in self.order_classes(&class_decls) {
+            self.enter_module(cd.name.span);
             classes.push(self.class_members(sid, cd));
             self.f.type_params.clear();
         }
@@ -477,11 +707,21 @@ impl Resolver {
             expr_spans: std::mem::take(&mut self.spans),
             structs: std::mem::take(&mut self.structs),
             enums: std::mem::take(&mut self.enums),
-            error_class: self.top_structs.get("Error").copied(),
-            iterator_class: self.top_structs.get("Iterator").copied(),
+            error_class: self
+                .top_structs
+                .prelude()
+                .find(|(n, _)| *n == "Error")
+                .map(|(_, v)| v)
+                .copied(),
+            iterator_class: self
+                .top_structs
+                .prelude()
+                .find(|(n, _)| *n == "Iterator")
+                .map(|(_, v)| v)
+                .copied(),
             extensions: self
                 .top_fns
-                .iter()
+                .prelude()
                 .filter_map(|(n, ids)| {
                     let rest = n.strip_prefix("__")?;
                     let (ty, m) = rest.split_once('_')?;
@@ -718,8 +958,10 @@ impl Resolver {
     }
 
     /// Reports a duplicate top-level name. Returns true if `name` was already declared.
+    /// Whether `name` is already declared in the current module (reporting it).
     fn check_duplicate(&mut self, seen: &mut HashMap<String, Span>, name: &ast::Ident) -> bool {
-        if let Some(&prev) = seen.get(&name.name) {
+        let key = format!("{}#{}", self.mods.cur, name.name);
+        if let Some(&prev) = seen.get(&key) {
             self.diags.push(
                 Diagnostic::error(
                     codes::DUPLICATE_DECL,
@@ -730,7 +972,7 @@ impl Resolver {
             );
             return true;
         }
-        seen.insert(name.name.clone(), name.span);
+        seen.insert(key, name.span);
         false
     }
 
@@ -738,6 +980,7 @@ impl Resolver {
         let mut out = Vec::new();
         let mut tail = None;
         for (i, stmt) in stmts.iter().enumerate() {
+            self.enter_module(stmt.span);
             match &stmt.kind {
                 ast::StmtKind::Let {
                     kind,
@@ -759,7 +1002,7 @@ impl Resolver {
                         continue;
                     };
                     let init = init.as_ref().map(|e| self.lower_expr(e));
-                    match self.top_globals.get(&name.name).copied() {
+                    match self.top_globals.get(&self.mods, &name.name).copied() {
                         // Only the first declaration of a duplicated name became a global.
                         Some(g) if self.globals[g.0 as usize].span == name.span => {
                             self.globals_declared.insert(g);
@@ -816,6 +1059,7 @@ impl Resolver {
         this_struct: Option<StructId>,
         owner: Option<StructId>,
     ) -> Function {
+        self.enter_module(f.span);
         let name = f.name.clone().expect("named function");
         if f.flags.is_async || f.flags.is_unsafe || f.flags.decorator {
             let what = if f.flags.is_async {
@@ -1129,7 +1373,15 @@ impl Resolver {
             _ => match self.resolve_type(t) {
                 Ty::Iface(sid, _, _) => vec![Bound::Iface(sid)],
                 // `E extends Error`: what a function throws.
-                Ty::Class(sid, _, _) if Some(sid) == self.top_structs.get("Error").copied() => {
+                Ty::Class(sid, _, _)
+                    if Some(sid)
+                        == self
+                            .top_structs
+                            .prelude()
+                            .find(|(n, _)| *n == "Error")
+                            .map(|(_, v)| v)
+                            .copied() =>
+                {
                     vec![Bound::Error]
                 }
                 Ty::Error => Vec::new(),
@@ -1154,11 +1406,12 @@ impl Resolver {
     ) -> Vec<(StructId, &'a ast::ClassDecl)> {
         let mut base_of: HashMap<StructId, StructId> = HashMap::new();
         for (sid, cd) in decls {
+            self.enter_module(cd.name.span);
             let Some(t) = &cd.extends else { continue };
             let base = match &t.kind {
                 ast::TypeKind::Path { path, args } if path.len() == 1 && args.is_empty() => self
                     .top_structs
-                    .get(&path[0].name)
+                    .get(&self.mods, &path[0].name)
                     .copied()
                     .filter(|b| self.structs[b.0 as usize].is_class),
                 _ => None,
@@ -1870,6 +2123,7 @@ impl Resolver {
     /// (unless delegating with `this(…)`) parameter properties and field initializers in
     /// declaration order, then the rest of the body.
     fn constructor(&mut self, c: &ClassInfo, id: FnId, decl: Option<&ast::FnDecl>) -> Function {
+        self.enter_module(c.decl.name.span);
         let sid = c.sid;
         let class_name = self.structs[sid.0 as usize].name.clone();
         let base = self.structs[sid.0 as usize].base;
@@ -2119,6 +2373,7 @@ impl Resolver {
 
     /// Static field initializers and `static { }` blocks, in declaration order.
     fn static_init(&mut self, c: &ClassInfo) -> Function {
+        self.enter_module(c.decl.name.span);
         let sid = c.sid;
         let class_name = self.structs[sid.0 as usize].name.clone();
         self.f = FnState {
@@ -2222,7 +2477,7 @@ impl Resolver {
         match &pat.kind {
             ast::PatternKind::Ident(name) => {
                 if global {
-                    match self.top_globals.get(&name.name).copied() {
+                    match self.top_globals.get(&self.mods, &name.name).copied() {
                         Some(g) if self.globals[g.0 as usize].span == name.span => {
                             self.globals_declared.insert(g);
                             out.push(Stmt::Let {
@@ -2334,15 +2589,27 @@ impl Resolver {
                 return Some(Found::Fn(f));
             }
         }
-        if let Some(&g) = self.top_globals.get(name) {
+        if let Some(&g) = self.top_globals.get(&self.mods, name) {
             if self.f.in_entry && !self.globals_declared.contains(&g) {
                 let decl = self.globals[g.0 as usize].span;
+                if self.module_of(decl.file) != self.mods.cur {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::INIT_CYCLE,
+                            format!("`{name}` isn't initialized yet: the modules' initialization forms a cycle"),
+                        )
+                        .primary(span, "used while its module is still waiting for this one")
+                        .secondary(decl, "initialized here")
+                        .note("modules that import each other may share declarations, but their top-level initializers can't depend on each other"),
+                    );
+                    return None;
+                }
                 self.use_before_decl(name, span, decl);
                 return None;
             }
             return Some(Found::Var(Var::Global(g)));
         }
-        if let Some(fs) = self.top_fns.get(name) {
+        if let Some(fs) = self.top_fns.get(&self.mods, name) {
             return Some(match fs.as_slice() {
                 [f] => Found::Fn(*f),
                 many => Found::Overloads(many.to_vec()),
@@ -2389,8 +2656,8 @@ impl Resolver {
         for scope in &self.f.scopes {
             candidates.extend(scope.names.keys().map(String::as_str));
         }
-        candidates.extend(self.top_globals.keys().map(String::as_str));
-        candidates.extend(self.top_fns.keys().map(String::as_str));
+        candidates.extend(self.top_globals.visible(&self.mods));
+        candidates.extend(self.top_fns.visible(&self.mods));
         candidates.extend(["print", "println", "assert", "panic"]);
         let max = (name.len() / 3).max(1);
         candidates
@@ -2679,6 +2946,17 @@ impl Resolver {
     // ------------------------------------------------------------ types
 
     pub(crate) fn resolve_type(&mut self, t: &ast::Type) -> Ty {
+        if let ast::TypeKind::Path { path, args } = &t.kind
+            && let [ns, name] = path.as_slice()
+            && let Some(target) = self
+                .mods
+                .namespaces
+                .get(&self.mods.cur)
+                .and_then(|n| n.get(&ns.name))
+                .copied()
+        {
+            return self.namespace_type(target, name, args, t.span);
+        }
         match &t.kind {
             ast::TypeKind::Path { path, args }
                 if path.len() == 1
@@ -2696,18 +2974,24 @@ impl Resolver {
             ast::TypeKind::Path { path, args } if path.len() == 1 && args.is_empty() => {
                 match Ty::from_name(&path[0].name) {
                     Some(ty) => ty,
-                    None if self.top_structs.contains_key(&path[0].name) => {
-                        let sid = self.top_structs[&path[0].name];
+                    None if self.top_structs.contains_key(&self.mods, &path[0].name) => {
+                        let sid = *self
+                            .top_structs
+                            .get(&self.mods, &path[0].name)
+                            .expect("checked");
                         if self.structs[sid.0 as usize].generics.is_empty() {
                             self.struct_ty(sid)
                         } else {
                             self.generic_ty(sid, Vec::new(), t.span)
                         }
                     }
-                    None if self.top_enums.contains_key(&path[0].name) => {
-                        self.enum_ty(self.top_enums[&path[0].name])
-                    }
-                    None if self.aliases.contains_key(&path[0].name) => {
+                    None if self.top_enums.contains_key(&self.mods, &path[0].name) => self.enum_ty(
+                        *self
+                            .top_enums
+                            .get(&self.mods, &path[0].name)
+                            .expect("checked"),
+                    ),
+                    None if self.aliases.contains_key(&self.mods, &path[0].name) => {
                         self.alias(&path[0].name, t.span)
                     }
                     None => {
@@ -2727,9 +3011,12 @@ impl Resolver {
                 Ty::Array(Box::new(self.resolve_type(&args[0])))
             }
             ast::TypeKind::Path { path, args }
-                if path.len() == 1 && self.top_structs.contains_key(&path[0].name) =>
+                if path.len() == 1 && self.top_structs.contains_key(&self.mods, &path[0].name) =>
             {
-                let sid = self.top_structs[&path[0].name];
+                let sid = *self
+                    .top_structs
+                    .get(&self.mods, &path[0].name)
+                    .expect("checked");
                 let args: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
                 self.generic_ty(sid, args, t.span)
             }
@@ -2829,7 +3116,13 @@ impl Resolver {
 
     /// The type an alias stands for (resolved once; a cycle is an error).
     fn alias(&mut self, name: &str, span: Span) -> Ty {
-        if let Some(t) = self.alias_cache.get(name) {
+        let Some(key) = self
+            .mods
+            .resolve(name, &|k| self.aliases.map.contains_key(k))
+        else {
+            return Ty::Error;
+        };
+        if let Some(t) = self.alias_cache.get(&key) {
             return t.clone();
         }
         if self.resolving_aliases.iter().any(|n| n == name) {
@@ -2841,8 +3134,10 @@ impl Resolver {
             );
             return Ty::Error;
         }
-        let (ty, _) = self.aliases[name].clone();
+        let (ty, _) = self.aliases.map[&key].clone();
         self.resolving_aliases.push(name.to_string());
+        // An alias means what its own module's names mean.
+        let saved = std::mem::replace(&mut self.mods.cur, key.0);
         let t = match &ty.kind {
             ast::TypeKind::Union(members) => self.union_type(members, Some(name), ty.span),
             ast::TypeKind::Distinct(base) => {
@@ -2852,8 +3147,9 @@ impl Resolver {
             }
             _ => self.resolve_type(&ty),
         };
+        self.mods.cur = saved;
         self.resolving_aliases.pop();
-        self.alias_cache.insert(name.to_string(), t.clone());
+        self.alias_cache.insert(key, t.clone());
         t
     }
 
@@ -3337,11 +3633,107 @@ impl Resolver {
 
     // ------------------------------------------------------------ expressions
 
+    /// The module an identifier names through `import * as`, unless something closer shadows it.
+    fn namespace(&self, object: &ast::Expr) -> Option<u32> {
+        let ast::ExprKind::Ident(n) = &object.kind else {
+            return None;
+        };
+        if self.f.scopes.iter().any(|s| s.names.contains_key(n))
+            || self
+                .outer_fns
+                .iter()
+                .any(|o| o.scopes.iter().any(|s| s.names.contains_key(n)))
+        {
+            return None;
+        }
+        self.mods.namespaces.get(&self.mods.cur)?.get(n).copied()
+    }
+
+    /// The key an exported name of module `target` refers to (`None` with an error reported).
+    fn exported_key(
+        &mut self,
+        target: u32,
+        name: &Ident,
+        exists: &dyn Fn(&Resolver, &(u32, String)) -> bool,
+    ) -> Option<(u32, String)> {
+        let local = self
+            .mods
+            .exports
+            .get(&target)
+            .and_then(|e| e.get(&name.name))
+            .cloned();
+        let Some(local) = local else {
+            let m = self.mods.names.get(&target).cloned().unwrap_or_default();
+            self.error(
+                codes::NOT_EXPORTED,
+                name.span,
+                format!("`{}` isn't exported by `{m}`", name.name),
+                "not exported",
+            );
+            return None;
+        };
+        let found = self
+            .mods
+            .resolve_in(target, &local, &|k| exists(self, k), 0);
+        if found.is_none() {
+            self.error(
+                codes::UNKNOWN_NAME,
+                name.span,
+                format!("cannot find `{}`", name.name),
+                "not found",
+            );
+        }
+        found
+    }
+
+    /// `ns.name` as a value: an exported global or function of the module.
+    fn namespace_value(&mut self, target: u32, prop: &Ident) -> ExprKind {
+        let exists = |r: &Resolver, k: &(u32, String)| {
+            r.top_globals.map.contains_key(k) || r.top_fns.map.contains_key(k)
+        };
+        let Some(k) = self.exported_key(target, prop, &exists) else {
+            return ExprKind::Error;
+        };
+        if let Some(&g) = self.top_globals.map.get(&k) {
+            return ExprKind::Var(Var::Global(g));
+        }
+        match self.top_fns.map.get(&k).map(Vec::as_slice) {
+            Some([f]) => ExprKind::Fn(*f),
+            Some(fs) => ExprKind::Overloaded(fs.to_vec()),
+            None => ExprKind::Error,
+        }
+    }
+
+    /// `ns.Type` in a type annotation.
+    fn namespace_type(&mut self, target: u32, name: &Ident, args: &[ast::Type], span: Span) -> Ty {
+        let exists = |r: &Resolver, k: &(u32, String)| {
+            r.top_structs.map.contains_key(k) || r.top_enums.map.contains_key(k)
+        };
+        let Some(k) = self.exported_key(target, name, &exists) else {
+            return Ty::Error;
+        };
+        if let Some(&sid) = self.top_structs.map.get(&k) {
+            let args: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
+            return self.generic_ty(sid, args, span);
+        }
+        match self.top_enums.map.get(&k) {
+            Some(&e) => self.enum_ty(e),
+            None => Ty::Error,
+        }
+    }
+
     fn lower_expr(&mut self, e: &ast::Expr) -> Expr {
         use ast::ExprKind as A;
         let span = e.span;
         if let Some(base) = opt_link_base(e) {
             return self.opt_chain(e, base);
+        }
+        // `geo.dot` with `import * as geo from "./geometry"`.
+        if let A::Member { object, prop, .. } = &e.kind
+            && let Some(target) = self.namespace(object)
+        {
+            let kind = self.namespace_value(target, prop);
+            return self.expr(kind, span);
         }
         // Only parentheses and `&&` keep a condition's `is` bindings visible to the body.
         let cond = std::mem::replace(&mut self.cond_scope, false);
@@ -3553,7 +3945,7 @@ impl Resolver {
                 let class = match &callee.kind {
                     ast::ExprKind::Ident(n) => self
                         .top_structs
-                        .get(n)
+                        .get(&self.mods, n)
                         .copied()
                         .filter(|id| self.structs[id.0 as usize].is_class),
                     _ => None,
@@ -3885,14 +4277,14 @@ impl Resolver {
     /// Whether `name` refers to a variable (which shadows a type of the same name).
     fn is_value_name(&self, name: &str) -> bool {
         self.f.scopes.iter().any(|s| s.names.contains_key(name))
-            || self.top_globals.contains_key(name)
+            || self.top_globals.contains_key(&self.mods, name)
     }
 
     /// Whether `e` names a class (as in `Animal.count`), not shadowed by a variable.
     fn names_class(&self, e: &ast::Expr) -> bool {
         matches!(&e.kind, ast::ExprKind::Ident(n)
             if !self.is_value_name(n)
-                && self.top_structs.get(n).is_some_and(|id| self.structs[id.0 as usize].is_class))
+                && self.top_structs.get(&self.mods, n).is_some_and(|id| self.structs[id.0 as usize].is_class))
     }
 
     /// `Class.name`: a static field or static method (checking visibility).
@@ -3900,7 +4292,7 @@ impl Resolver {
         let ast::ExprKind::Ident(cname) = &class.kind else {
             return None;
         };
-        let sid = self.top_structs[cname];
+        let sid = *self.top_structs.get(&self.mods, cname).expect("checked");
         let def = &self.structs[sid.0 as usize];
         let found = match (def.static_field(&prop.name), def.static_method(&prop.name)) {
             (Some(g), _) => ExprKind::Var(Var::Global(g)),
@@ -3948,7 +4340,7 @@ impl Resolver {
                 optional: false,
                 ..
             } => matches!(&object.kind, ast::ExprKind::Ident(n)
-                if self.top_enums.contains_key(n) && !self.is_value_name(n)),
+                if self.top_enums.contains_key(&self.mods, n) && !self.is_value_name(n)),
             _ => false,
         }
     }
@@ -3969,7 +4361,7 @@ impl Resolver {
         if self.is_value_name(name) {
             return None;
         }
-        let eid = *self.top_enums.get(name)?;
+        let eid = *self.top_enums.get(&self.mods, name)?;
         match self.enums[eid.0 as usize].variant(&prop.name) {
             Some((i, _)) => Some((eid, i)),
             None => {
@@ -4013,7 +4405,7 @@ impl Resolver {
     fn variant_path(&mut self, path: &[ast::Ident]) -> Option<(Option<EnumId>, ast::Ident)> {
         match path {
             [v] => Some((None, v.clone())),
-            [e, v] => match self.top_enums.get(&e.name) {
+            [e, v] => match self.top_enums.get(&self.mods, &e.name) {
                 Some(id) => Some((Some(*id), v.clone())),
                 None => {
                     self.error(
@@ -4078,10 +4470,12 @@ impl Resolver {
         if let Some(t) = Ty::from_name(name) {
             return Some(t);
         }
-        if let Some(id) = self.top_structs.get(name) {
+        if let Some(id) = self.top_structs.get(&self.mods, name) {
             return Some(self.struct_ty(*id));
         }
-        self.top_enums.get(name).map(|id| self.enum_ty(*id))
+        self.top_enums
+            .get(&self.mods, name)
+            .map(|id| self.enum_ty(*id))
     }
 
     fn field_patterns(&mut self, fields: &[ast::FieldPat], b: &mut Binds) -> Vec<FieldPat> {
@@ -4165,8 +4559,8 @@ impl Resolver {
             } => {
                 let fields = self.field_patterns(fields, b);
                 match path.as_slice() {
-                    [n] if self.top_structs.contains_key(&n.name) => PatKind::Struct {
-                        sid: self.top_structs[&n.name],
+                    [n] if self.top_structs.contains_key(&self.mods, &n.name) => PatKind::Struct {
+                        sid: *self.top_structs.get(&self.mods, &n.name).expect("checked"),
                         fields,
                     },
                     _ => match self.variant_path(path) {
@@ -4395,7 +4789,7 @@ impl Resolver {
             None => None,
             Some(ast::TypeKind::Path { path, args }) if path.len() == 1 => {
                 type_args = args.iter().map(|a| self.resolve_type(a)).collect();
-                match self.top_structs.get(&path[0].name) {
+                match self.top_structs.get(&self.mods, &path[0].name) {
                     Some(id) if self.structs[id.0 as usize].is_class => {
                         self.error(
                             codes::UNKNOWN_OBJECT_TYPE,

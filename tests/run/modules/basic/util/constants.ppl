@@ -1,0 +1,3 @@
+import { log } from "./log"
+const counter = log("constants")
+export const TAU = 6.28

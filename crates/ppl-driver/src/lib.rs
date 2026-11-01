@@ -9,6 +9,9 @@ use ppl_diag::{Code, Diagnostic, SourceMap};
 use ppl_syntax::ast::Module;
 use std::path::{Path, PathBuf};
 
+mod modules;
+pub use modules::stdlib_dir;
+
 /// Compiler stages, in pipeline order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Stage {
@@ -69,26 +72,52 @@ impl Checked {
     }
 }
 
-/// Runs every implemented front-end stage on `text`.
+/// Runs every implemented front-end stage on `text`; imports are relative to the directory
+/// of the file `name` names.
 pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked {
+    let name = name.into();
+    let dir = Path::new(&name)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    check_source_in(name, text, &dir)
+}
+
+/// Like [`check_source`], with imports relative to `dir`.
+pub fn check_source_in(name: impl Into<String>, text: impl Into<String>, dir: &Path) -> Checked {
     let mut sm = SourceMap::new();
     let file = sm.add(name, text);
     let (mut module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
-    // The prelude's declarations (`Error`, …) come first.
+    // The prelude's declarations (`Error`, …) come first, then the imported modules
+    // (dependencies first), then the entry module.
     let mut stmts = Vec::new();
+    let mut prelude_files = std::collections::HashSet::new();
     for (name, text) in PRELUDE {
         let pf = sm.add(*name, *text);
+        prelude_files.insert(pf);
         let (prelude, mut d) = ppl_syntax::parse_module(pf, text);
         diags.append(&mut d);
         stmts.extend(prelude.stmts);
     }
-    stmts.append(&mut module.stmts);
+    let span = module.span;
+    let entry = std::mem::replace(
+        &mut module,
+        Module {
+            stmts: Vec::new(),
+            span,
+        },
+    );
+    let mut loaded = modules::load(&mut sm, file, entry, dir);
+    diags.append(&mut loaded.diags);
+    stmts.append(&mut loaded.stmts);
     module.stmts = stmts;
+    let mut modules = loaded.modules;
+    modules.prelude = prelude_files;
     let mut hir = None;
     let mut types = None;
     let mut mir = None;
     if !diags.iter().any(Diagnostic::is_error) {
-        let (program, mut d) = ppl_sema::resolve(&module, file);
+        let (program, mut d) = ppl_sema::resolve_modules(&module, file, &modules);
         diags.append(&mut d);
         if !diags.iter().any(Diagnostic::is_error) {
             let (t, mut d) = ppl_sema::check(&program);

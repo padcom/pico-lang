@@ -1,0 +1,2 @@
+import { A2 } from "./a"
+export const B = A2 * 2

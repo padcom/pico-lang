@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.24: Modules** (see [PLAN.md](PLAN.md#p324-modules)). P3.20b (lightweight `Throwable`) was split off and is still open.
+**P3.25: Destructuring and spread** (see [PLAN.md](PLAN.md#p325-destructuring-and-spread)). P3.20b (lightweight `Throwable`) is also still open.. P3.20b (lightweight `Throwable`) was split off and is still open.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.23) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.24) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,13 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Decisions 197–202 (P3.19–P3.24) are provisional** too: exceptions via error-return lowering,
+  throws inference/polymorphism, panic unwinding with setjmp guards, the core library in ppl
+  (`stdlib/core`), `Iterator<T>` as a class (no generic interfaces yet), and module resolution.
+- Modules: the resolver keys top-level names by module (`Names<T>`, `ModCtx` in resolve.rs); the
+  driver's `modules.rs` loads files and strips import/export declarations. MIR `Loc`s have no
+  file, so panics inside non-entry modules report `0:0` (and the entry's file name).
+- Generic interfaces are the main missing piece for a real `Iterable<T>`/`Iterator<T>`.
 - The core library lives in `stdlib/core/*.ppl` (`ppl_driver::PRELUDE`, `include_str!`). Built-in type methods are `__Array_x`/`__String_x` functions (`Program.extensions`, `Types.extensions`). `mir::live_functions` drops unreachable `library` functions in dumps and codegen. String building is O(n²) (concatenation); a string builder would help. `Map.keys()` etc. return arrays until P3.23 gives iterators.
 - LLVM can't emit WasmGC, so the browser target starts on linear memory (PLAN P8.6 and P8.7).
 - lld isn't installed (separate Homebrew `lld` formula); needed from P8.1.
@@ -138,7 +145,7 @@ Notes:
 - [x] P3.21 Panics and stack traces
 - [x] P3.22 Core collections and Array API
 - [x] P3.23 Iterators and generators
-- [ ] P3.24 Modules
+- [x] P3.24 Modules
 - [ ] P3.25 Destructuring and spread
 - [ ] P3.26 `using` and Disposable
 
@@ -263,3 +270,4 @@ Notes:
 | 2026-11-01 | P3.21 | Panic unwinding through `finally`: MIR `Guard`/`Unguard`/`Resume` terminators (try-with-finally), interpreter handler stacks, native `_setjmp` + runtime guard stack (`ppl_guard_push/pop`, `ppl_resume`), `optnone` for guarded functions. Stack traces: interpreter call-name stack; native `backtrace` + `dladdr` (addr-1), frame pointers everywhere, debug builds export `ppl.*` symbols. Decision 199. Tests: run/errors/panic_finally, driver panic_trace snapshots (native macOS and interpreter, identical). |
 | 2026-11-01 | P3.22 | Core library in ppl (`stdlib/core`: error, array, string, map/set) loaded as prelude files; extension methods on arrays/strings via `__Array_*`/`__String_*` functions (generic, throws-polymorphic); `Hashable<T>` bound and `hashCode()` on type parameters; type params in templates; getters/setters of generic class instances; `StrSlice` primitive (`ppl_str_slice`); live-function analysis (library code only when reached). Decision 200. Tests: run/stdlib/{collections,throwing_callbacks}, fail/types/stdlib_throws; IR/MIR snapshots shrank. |
 | 2026-11-01 | P3.23 | `Iterator<T>` core class (step closure) with lazy adapters; `function*`/`*method` desugared in the resolver to `new Iterator(step)`, the step closure lowered as a MIR state machine (frame in the closure environment, `Cx::gen_frames`, dispatch/save blocks filled after the body); `for-of` over iterators and `iterator()` methods (`Types.iterables`, `for_of_iterator`); `Map`/`Set`/array iterators; null comparisons always allowed; T+null joins; lambda result hints. Decision 201. Tests: run/iterators/generators (fib().take(10) etc.), fail/types/generators, fail/names/yield. |
+| 2026-11-01 | P3.24 | Modules: driver loader (`modules.rs`: relative/extensionless/`index.ppl`/`std/` resolution, DFS init order, export/import tables, `export const` unwrapping), resolver namespaces per module (`Names<T>`, `ModCtx`, `resolve_modules`), `* as` namespaces for values and types, re-exports, E0338 library `let`, E0339 init cycles, E0340 not exported, E0341 unknown module; harness resolves imports from each fixture's directory; `stdlib/greeting.ppl` as a first `std/` module. Decision 202. Fixtures: run/modules/{basic,cycle}, fail/modules/{init_cycle,library_let,exports,missing}. |

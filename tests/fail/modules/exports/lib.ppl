@@ -1,0 +1,2 @@
+export function visible(): int { 1 }
+function hidden(): int { 2 }

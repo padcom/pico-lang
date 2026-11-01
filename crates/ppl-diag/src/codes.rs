@@ -94,6 +94,10 @@ codes! {
     IMMUTABLE_MUTATION = 335: "mutation through an `immutable` view or in a `readonly` method",
     UNHANDLED_ERROR = 336: "a checked error is neither caught nor declared in `throws`",
     NOT_THROWABLE = 337: "`throw` of a value that isn't an `Error`",
+    LIBRARY_LET = 338: "module-level `let` in a library module",
+    INIT_CYCLE = 339: "a cycle in module initialization",
+    NOT_EXPORTED = 340: "import of a name the module doesn't export",
+    UNKNOWN_MODULE = 341: "import of a module that can't be found",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

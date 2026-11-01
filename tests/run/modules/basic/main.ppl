@@ -1,0 +1,31 @@
+// Modules (spec §8.1): named, renamed, namespace and re-exported imports; extensionless and
+// `index.ppl` resolution; library modules initialize first, in dependency order.
+// expect: init: geometry
+// expect: init: constants
+// expect: dot 11
+// expect: product 11
+// expect: geo.dot 11 origin (0, 0)
+// expect: area 12
+// expect: tau 6.28
+// expect: helpers say hi
+// expect: shared counter 2
+import { Vec2, dot } from "./geo"
+import { dot as dotProduct } from "./geo"
+import * as geo from "./geo"
+import { Shape, describe } from "./util/shapes"
+import { TAU } from "./util"
+import { greet } from "std/greeting"
+
+const a = Vec2 { x: 1, y: 2 }
+const b = Vec2 { x: 3, y: 4 }
+println(`dot ${dot(a, b)}`)
+println(`product ${dotProduct(a, b)}`)
+const o: geo.Vec2 = geo.ORIGIN
+println(`geo.dot ${geo.dot(a, b)} origin (${o.x}, ${o.y})`)
+println(describe(Shape.Rect(3, 4)))
+println(`tau ${TAU}`)
+println(greet("helpers"))
+// Two modules each have a private `counter` of their own; this one is the entry's.
+let counter = 1
+counter += 1
+println(`shared counter ${counter}`)

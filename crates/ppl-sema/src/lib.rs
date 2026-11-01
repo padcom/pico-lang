@@ -8,6 +8,6 @@ pub mod throws;
 pub mod ty;
 pub mod typeck;
 
-pub use resolve::resolve;
+pub use resolve::{Import, Modules, resolve, resolve_modules};
 pub use ty::{FloatTy, IntTy, LitVal, Ty};
 pub use typeck::{FnSig, Types, check};

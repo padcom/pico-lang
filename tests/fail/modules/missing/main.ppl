@@ -1,0 +1,8 @@
+// error: E0341
+// at: 6:25
+// error: E0341
+// at: 7:23
+// Imports name relative files (extensionless) or `std/…` modules.
+import { nothing } from "./missing"
+import { thing } from "some-package"
+println(1)
