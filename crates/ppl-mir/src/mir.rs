@@ -477,6 +477,8 @@ pub enum Rvalue {
     SizeOf(Ty, bool),
     /// `unsafe.cast<T>(x)`: the bits of a number as another number type of the same size.
     BitCast(Operand, Ty),
+    /// `count` zeroed `T`s from an `Arena` (its handle): a `ptr<T>` to the first.
+    RawArenaAlloc(Ty, Operand, Operand),
     /// A template part with a format spec: `${x:08.2f}`.
     Format(Operand, ppl_sema::format::FormatSpec),
     /// `s.length`: a string's length in code points.
@@ -687,6 +689,7 @@ impl fmt::Display for Rvalue {
             Rvalue::SizeOf(t, false) => write!(f, "SizeOf({t})"),
             Rvalue::SizeOf(t, true) => write!(f, "AlignOf({t})"),
             Rvalue::BitCast(a, t) => write!(f, "BitCast({a}, {t})"),
+            Rvalue::RawArenaAlloc(t, a, n) => write!(f, "RawArenaAlloc<{t}>({a}, {n})"),
             Rvalue::Format(a, spec) => write!(f, "Format({a}, {spec:?})"),
             Rvalue::StrCharAt(a, i) => write!(f, "StrCharAt({a}, {i})"),
             Rvalue::StrSlice(a, i, j) => write!(f, "StrSlice({a}, {i}, {j})"),

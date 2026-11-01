@@ -1,0 +1,20 @@
+// A reference that a callee stores into the caller's local (through a pointer) is caught
+// when the arena closes.
+// native-only: the interpreter has no arena memory to check
+// expect: before
+// panic: a reference into an arena outlives the arena
+unsafe function stash(p: ptr<string[]>, xs: string[]): void {
+  p.write(xs)
+}
+
+function run(): int {
+  let kept: string[] = []
+  println("before")
+  const n = arena {
+    const parts = "a,b".split(",")
+    unsafe { stash(ptr.of(kept), parts) }
+    parts.length
+  }
+  n + kept.length
+}
+println(run())

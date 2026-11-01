@@ -87,6 +87,29 @@ void *ppl_gc_alloc(int64_t size, const PplLayout *layout);
 void *ppl_alloc(int64_t size);
 void *ppl_alloc_zeroed(int64_t size);
 
+/* Like `ppl_gc_alloc`, but in the same region as `owner` (a scoped arena's, or the heap):
+ * storage that belongs to an existing object (a growing array's). */
+void *ppl_gc_alloc_near(const void *owner, int64_t size, const PplLayout *layout);
+
+/* Scoped arenas (`arena { … }`, spec §9.4): while one is open every allocation goes to it;
+ * `ppl_arena_exit` frees it all at once, after checking that no frame or global still
+ * points into it (and stores into older objects are checked by the write barrier). Escapes
+ * are panics at the given location. */
+void ppl_arena_enter(void);
+void ppl_arena_exit(const char *file, int64_t file_len, int32_t line, int32_t col);
+/* Closing while an exception leaves the arena: first moves what the pending exception (at
+ * `slot`, if not NULL) reaches inside the arena to the heap. */
+void ppl_arena_exit_rescue(void **slot, const char *file, int64_t file_len, int32_t line,
+                           int32_t col);
+/* The open arenas (panic guards restore it), and dropping the ones above a level. */
+int32_t ppl_arena_level(void);
+void ppl_arena_release(int32_t level);
+
+/* The `Arena` object (unsafe code): raw zeroed memory, untraced, freed explicitly. */
+int64_t ppl_raw_arena_new(int64_t capacity);
+void *ppl_raw_arena_alloc(int64_t arena, int64_t bytes, int64_t align);
+void ppl_raw_arena_free(int64_t arena);
+
 /* `std/gc`. */
 void ppl_gc_collect(void);
 void ppl_gc_collect_young(void);

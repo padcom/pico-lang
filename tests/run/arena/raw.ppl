@@ -1,0 +1,37 @@
+// The `Arena` object (spec §9.4): explicitly managed, zeroed memory for plain data in
+// unsafe code.
+// expect: zeroed: true
+// expect: sum 49995000
+// expect: last 9999 19998
+// expect: grown 3
+@pod struct Particle {
+  x: f32
+  y: f32
+  life: i32
+}
+
+unsafe {
+  const a = new Arena(capacity: 1 << 20)
+  const p: ptr<Particle> = a.alloc<Particle>(count: 10_000)
+  let zeroed = true
+  for (let i = 0; i < 10_000; i++) {
+    const q = p + i
+    if (q.read().life != 0) {
+      zeroed = false
+    }
+    q.write(Particle { x: i as f32, y: (2 * i) as f32, life: i as i32 })
+  }
+  println(`zeroed: ${zeroed}`)
+  let sum = 0
+  for (let i = 0; i < 10_000; i++) {
+    sum += (p + i).read().life as int
+  }
+  println(`sum ${sum}`)
+  const last = (p + 9_999).read()
+  println(`last ${last.x} ${last.y}`)
+  // More than the capacity: the arena grows.
+  const big: ptr<i64> = a.alloc<i64>(count: 200_000)
+  (big + 199_999).write(3)
+  println(`grown ${(big + 199_999).read()}`)
+  a.free()
+}

@@ -1,0 +1,22 @@
+// A reference that leaves an arena through a function the compiler can't see into is caught
+// when the arena closes (natively; the interpreter doesn't check).
+// native-only: the interpreter has no arena memory to check
+// expect: before
+// panic: a reference into an arena outlives the arena
+class Cache {
+  public last: string[]? = null
+  constructor() {}
+}
+
+let cache = new Cache()
+function remember(c: Cache, xs: string[]): void {
+  c.last = xs
+}
+
+println("before")
+arena {
+  const parts = "a,b".split(",")
+  remember(cache, parts)
+  parts.length
+}
+println("not reached")

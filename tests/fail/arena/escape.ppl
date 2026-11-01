@@ -1,0 +1,35 @@
+// error: E0344
+// at: 16:3
+// error: E0344
+// at: 20:3
+// error: E0344
+// at: 24:3
+// error: E0344
+// at: 28:3
+// error: E0344
+// at: 33:5
+class Node {
+  public next: Node? = null
+  constructor() {}
+}
+const leaked = arena {
+  "a,b".split(",")                          // the array escapes
+}
+let keep: string[] = []
+arena {
+  keep = "a,b".split(",")                   // stored in an outer variable
+}
+const holder = new Node()
+arena {
+  holder.next = new Node()                  // stored in an outer object
+}
+const list: Node[] = []
+arena {
+  list.push(new Node())                     // pushed onto an outer array
+}
+function f(): Node {
+  arena {
+    const n = new Node()
+    return n                                // returned
+  }
+}

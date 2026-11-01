@@ -17,6 +17,7 @@ source_filename = "test.ppl"
 @ppl.classinfo.WeakSet = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.__FinalizationCell = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.FinalizationRegistry = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.Arena = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl_gc_requested = external global i32
 @ppl.cstr = private unnamed_addr constant [31 x i8] c"integer conversion out of range"
 @ppl.cstr.7 = private unnamed_addr constant [8 x i8] c"test.ppl"

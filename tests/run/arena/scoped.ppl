@@ -1,0 +1,123 @@
+// Scoped arenas (spec §9.4): everything allocated inside `arena { }` is freed in one step at
+// the end; only values without references leave. Also closed on `return`, `break` and
+// exceptions, and nested arenas.
+// expect: total 60
+// expect: lengths 9
+// expect: loop 6
+// expect: early 3
+// expect: caught: bad input: b
+// expect: nested 10
+// expect: point 3 4
+// expect: outer still: 1,2,3,4,5
+// expect: heap ok
+// expect: arena memory: true
+import { gc } from "std/gc"
+
+const text = "10,20,30"
+const total = arena {
+  const parts = text.split(",")             // allocated in the arena
+  parts.map(p => parseInt(p)).sum()         // an int escapes, which is fine
+}
+println(`total ${total}`)
+
+const lengths = arena {
+  const parts = "abc,de,fghi".split(",")
+  parts.map(p => p.length).sum()
+}
+println(`lengths ${lengths}`)
+
+let count = 0
+for (let i = 0; i < 100; i++) {
+  arena {
+    const xs = [i, i + 1]
+    if (xs[0] == 3) {
+      break
+    }
+    count += xs.length
+  }
+}
+println(`loop ${count}`)
+
+function early(xs: string[]): int {
+  arena {
+    const copy = xs.slice(0)
+    if (copy.length > 2) {
+      return copy.length
+    }
+    0
+  }
+}
+println(`early ${early(["a", "b", "c"])}`)
+
+class BadInput extends Error {}
+function check(s: string): int throws BadInput {
+  arena {
+    const parts = s.split(" ")
+    if (parts.length > 1) {
+      throw new BadInput(`bad input: ${parts[1]}`)
+    }
+    parts.length
+  }
+}
+try {
+  check("a b")
+} catch (e) {
+  println(`caught: ${e.message}`)
+}
+
+const nested = arena {
+  const a = [1, 2, 3]
+  const inner = arena {
+    const b = [a[0], a[1], a[2], 2]
+    b.sum()
+  }
+  inner + a.length - 1
+}
+println(`nested ${nested}`)
+
+struct Point {
+  x: int
+  y: int
+}
+const p = arena {
+  const coords = "3 4".split(" ")
+  Point { x: parseInt(coords[0]), y: parseInt(coords[1]) }
+}
+println(`point ${p.x} ${p.y}`)
+
+// Outer arrays still grow on the heap while an arena is open.
+const outer: int[] = [1, 2, 3, 4]
+arena {
+  outer.push(5)
+}
+println(`outer still: ${outer.join(",")}`)
+
+// Lots of garbage in arenas, collections in between.
+let sum = 0
+for (let round = 0; round < 50; round++) {
+  sum += arena {
+    let s = 0
+    for (let k = 0; k < 200; k++) {
+      s += `item ${k}`.length
+    }
+    s
+  }
+  gc.collect()
+}
+println(if (sum == 50 * 1490) "heap ok" else `heap wrong ${sum}`)
+
+// With the collector paused, the heap doesn't grow: the strings are in arenas.
+gc.collect()
+gc.pause()
+const before = gc.stats().usedBytes
+for (let round = 0; round < 100; round++) {
+  arena {
+    let s = 0
+    for (let k = 0; k < 200; k++) {
+      s += `item ${k}`.length
+    }
+  }
+}
+const grown = gc.stats().usedBytes - before
+gc.resume()
+println(`arena memory: ${grown < 10000}`)

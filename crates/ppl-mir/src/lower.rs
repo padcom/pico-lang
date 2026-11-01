@@ -253,6 +253,11 @@ fn erase_program(p: &mut mir::Program) {
                         *t = t.erase();
                         ops.iter_mut().for_each(erase_op)
                     }
+                    Rvalue::RawArenaAlloc(t, a, b) => {
+                        *t = t.erase();
+                        erase_op(a);
+                        erase_op(b);
+                    }
                     Rvalue::New(t) | Rvalue::TakeException(t) | Rvalue::SizeOf(t, _) => {
                         *t = t.erase()
                     }
@@ -778,11 +783,21 @@ struct FnBuilder<'c, 'a> {
     /// The enclosing `finally` blocks, innermost last, with the loop and handler depths
     /// outside their `try` (`return`, `break` and `continue` run them on the way out).
     /// The expressions live in the HIR, which outlives the builder.
-    finallies: Vec<(*const Expr, usize, usize)>,
+    finallies: Vec<(Fin, usize, usize)>,
     /// The block that passes an exception on to the caller (made when first needed).
     propagate: Option<BlockId>,
     /// A generator step function's state machine.
     generator: Option<GenState>,
+}
+
+/// Code that runs whenever control leaves a region (`return`, `break`, `continue`).
+#[derive(Clone, Copy)]
+enum Fin {
+    /// A `finally` block (its `try` is also a panic guard).
+    Finally(*const Expr),
+    /// An `arena` block: its named locals (`a..b`) and the temporaries from `c` on are
+    /// cleared, then it's closed.
+    Arena(usize, usize, usize, Span),
 }
 
 /// A generator step function: its environment holds the captures, then the state (0: not
@@ -848,6 +863,83 @@ impl FnBuilder<'_, '_> {
             t = t.subst(*owner, args);
         }
         t
+    }
+
+    /// `arena { body }`: opens an arena, and closes it on every way out (the end, `return`,
+    /// `break`/`continue`, exceptions); panics close it in the runtime.
+    fn arena_block(
+        &mut self,
+        body: &hir::Block,
+        named: (usize, usize),
+        ty: Ty,
+        span: Span,
+    ) -> Operand {
+        let result = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+        self.builtin_call(Builtin::ArenaEnter, span);
+        let first = (named.0, named.1, self.locals.len());
+        let outer_handlers = self.handlers.len();
+        self.finallies.push((
+            Fin::Arena(first.0, first.1, first.2, span),
+            self.loops.len(),
+            outer_handlers,
+        ));
+        let on_exception = self.new_block();
+        self.handlers.push(on_exception);
+        let v = self.block(body);
+        if let Some(r) = &result {
+            self.assign(r.clone(), Rvalue::Use(v), span);
+        }
+        self.handlers.pop();
+        self.finallies.pop();
+        self.arena_exit(first, span);
+        let done = self.new_block();
+        self.terminate(Terminator::Goto(done));
+        // An exception leaves the block: close the arena (moving the exception out of it) and
+        // pass it on.
+        self.switch_to(on_exception);
+        self.clear_arena_locals(first, span);
+        self.builtin_call(Builtin::ArenaExitRescue, span);
+        let target = self.raise_target();
+        self.terminate(Terminator::Goto(target));
+        self.switch_to(done);
+        match result {
+            Some(r) => Operand::Copy(r),
+            None => Operand::Const(Const::Void),
+        }
+    }
+
+    /// Clears the locals an `arena` block declared (its named locals and its temporaries;
+    /// they'd point into freed memory, and the runtime checks no root still does) and closes
+    /// the arena.
+    fn arena_exit(&mut self, locals: (usize, usize, usize), span: Span) {
+        self.clear_arena_locals(locals, span);
+        self.builtin_call(Builtin::ArenaExit, span);
+    }
+
+    fn clear_arena_locals(&mut self, (a, b, temps): (usize, usize, usize), span: Span) {
+        for i in (a..b).chain(temps..self.locals.len()) {
+            let t = self.locals[i].ty.clone();
+            if self.cx.program.holds_refs(&t) {
+                self.assign(
+                    Place::local(Local(i as u32)),
+                    Rvalue::Use(Operand::Const(Const::Undef(t))),
+                    span,
+                );
+            }
+        }
+    }
+
+    fn builtin_call(&mut self, b: Builtin, span: Span) {
+        let loc = self.loc(span);
+        let next = self.new_block();
+        self.terminate(Terminator::Call {
+            callee: Callee::Builtin(b),
+            args: Vec::new(),
+            dest: None,
+            next,
+            loc,
+        });
+        self.switch_to(next);
     }
 
     /// `object` (a `ptr<T>`) in a local, to read or write through.
@@ -1127,10 +1219,15 @@ impl FnBuilder<'_, '_> {
             }
             self.finallies.truncate(i);
             self.handlers.truncate(handlers);
-            self.unguard();
-            // SAFETY: the expression is part of the HIR, which outlives this builder.
-            let fin = unsafe { &*fin };
-            self.expr(fin);
+            match fin {
+                Fin::Finally(fin) => {
+                    self.unguard();
+                    // SAFETY: the expression is part of the HIR, which outlives this builder.
+                    let fin = unsafe { &*fin };
+                    self.expr(fin);
+                }
+                Fin::Arena(a, b, c, span) => self.arena_exit((a, b, c), span),
+            }
         }
         self.finallies = saved_f;
         self.handlers = saved_h;
@@ -1289,8 +1386,11 @@ impl FnBuilder<'_, '_> {
         let dispatch = self.new_block();
         let done = self.new_block();
         if let Some(f) = finally {
-            self.finallies
-                .push((f as *const Expr, self.loops.len(), outer_handlers));
+            self.finallies.push((
+                Fin::Finally(f as *const Expr),
+                self.loops.len(),
+                outer_handlers,
+            ));
             // A panic in the body or a catch clause runs `finally` on its way out.
             let body = self.new_block();
             let handler = self.new_block();
@@ -1836,6 +1936,19 @@ impl FnBuilder<'_, '_> {
                 self.type_name(v, &t, e.span)
             }
             ExprKind::Unsafe(b) => self.block(b),
+            ExprKind::Arena { body, first, end } => {
+                self.arena_block(body, (*first as usize, *end as usize), ty, e.span)
+            }
+            ExprKind::RawArenaAlloc {
+                ty: t,
+                arena,
+                count,
+            } => {
+                let h = self.expr(arena);
+                let n = self.expr(count);
+                let t = self.mono(t);
+                self.rvalue_to_temp(Rvalue::RawArenaAlloc(t, h, n), ty, e.span)
+            }
             ExprKind::PtrOf(inner) => {
                 let place = self.place_of(inner);
                 self.rvalue_to_temp(Rvalue::Ref(place), ty, e.span)
@@ -4475,10 +4588,12 @@ impl FnBuilder<'_, '_> {
                 | Builtin::GcResume
                 | Builtin::GcDumpRoots
                 | Builtin::GcStat
-                | Builtin::RefId),
+                | Builtin::RefId
+                | Builtin::RawArenaNew
+                | Builtin::RawArenaFree),
             ) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
-                let dest = matches!(b, Builtin::GcStat | Builtin::RefId)
+                let dest = matches!(b, Builtin::GcStat | Builtin::RefId | Builtin::RawArenaNew)
                     .then(|| Place::local(self.temp(Ty::INT)));
                 let next = self.new_block();
                 self.terminate(Terminator::Call {

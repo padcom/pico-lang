@@ -169,6 +169,10 @@ const PRELUDE: &[(&str, &str)] = &[
         "<core>/weak.ppl",
         include_str!("../../../stdlib/core/weak.ppl"),
     ),
+    (
+        "<core>/arena.ppl",
+        include_str!("../../../stdlib/core/arena.ppl"),
+    ),
 ];
 
 /// The exit code of a program that panicked (spec §7.5).

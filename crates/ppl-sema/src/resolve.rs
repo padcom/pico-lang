@@ -4486,12 +4486,11 @@ impl Resolver {
                 args,
             } if self.intrinsic(callee).is_some() => {
                 let which = self.intrinsic(callee).expect("checked");
-                let (want_types, want_args) = if which == "ptr.of" {
-                    (0, 1)
-                } else if which == "unsafe.cast" {
-                    (1, 1)
-                } else {
-                    (1, 0)
+                let (want_types, want_args) = match which {
+                    "ptr.of" => (0, 1),
+                    "unsafe.cast" => (1, 1),
+                    "__raw_arena_alloc" => (1, 2),
+                    _ => (1, 0),
                 };
                 if type_args.len() != want_types || args.len() != want_args {
                     self.error(
@@ -4507,6 +4506,18 @@ impl Resolver {
                     return self.error_expr(span);
                 }
                 let ty = type_args.first().map(|t| self.resolve_type(t));
+                if which == "__raw_arena_alloc" {
+                    let arena = Box::new(self.lower_expr(&args[0].value));
+                    let count = Box::new(self.lower_expr(&args[1].value));
+                    return self.expr(
+                        ExprKind::RawArenaAlloc {
+                            ty: ty.expect("checked"),
+                            arena,
+                            count,
+                        },
+                        span,
+                    );
+                }
                 let arg = args.first().map(|a| Box::new(self.lower_expr(&a.value)));
                 match which {
                     "ptr.of" => ExprKind::PtrOf(arg.expect("checked")),
@@ -4548,6 +4559,15 @@ impl Resolver {
             }
             A::Block(b) => ExprKind::Block(self.block(b)),
             A::Unsafe(b) => ExprKind::Unsafe(self.block(b)),
+            A::Arena(b) => {
+                let first = self.f.locals.len() as u32;
+                let body = self.block(b);
+                ExprKind::Arena {
+                    body,
+                    first,
+                    end: self.f.locals.len() as u32,
+                }
+            }
             A::If {
                 cond: c,
                 then,
@@ -4639,7 +4659,6 @@ impl Resolver {
                     A::Object { .. } => "object and struct literals",
                     A::Await(_) => "`await`",
                     A::Comptime(_) => "`comptime`",
-                    A::Arena(_) => "arenas",
                     _ => "this expression",
                 };
                 self.not_implemented(span, what);
@@ -4722,6 +4741,7 @@ impl Resolver {
                     _ => None,
                 }
             }
+            ast::ExprKind::Ident(n) if n == "__raw_arena_alloc" => Some("__raw_arena_alloc"),
             _ => None,
         }
     }

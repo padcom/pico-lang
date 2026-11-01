@@ -170,3 +170,29 @@ function __String_padEnd(s: string, length: int): string {
 function __String_padEnd(s: string, length: int, fill: string): string {
   if (s.length >= length) s else s + __padding(length - s.length, fill)
 }
+
+/// The integer at the start of `s`, like JavaScript's `parseInt(s)` in base 10: leading
+/// whitespace, an optional sign, then digits up to the first non-digit. Panics without any
+/// digits (`int` has no `NaN`).
+function parseInt(s: string): int {
+  let i = 0
+  const n = s.length
+  while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) {
+    i += 1
+  }
+  let negative = false
+  if (i < n && (s[i] == '-' || s[i] == '+')) {
+    negative = s[i] == '-'
+    i += 1
+  }
+  const start = i
+  let value = 0
+  while (i < n && s[i] >= '0' && s[i] <= '9') {
+    value = value * 10 + ((s[i] as u32) as int - 48)
+    i += 1
+  }
+  if (i == start) {
+    panic(`parseInt: no digits in "${s}"`)
+  }
+  if (negative) -value else value
+}

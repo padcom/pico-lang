@@ -257,6 +257,8 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
         narrow: Vec::new(),
         unsafe_depth: 0,
         inherit_unsafe: false,
+        method_type_args: Vec::new(),
+        arenas: Vec::new(),
         recv_args: Vec::new(),
         pre_inferred: None,
         reuse: None,
@@ -381,6 +383,10 @@ struct Checker<'p> {
     unsafe_depth: u32,
     /// The next function checked is a closure (it inherits the unsafe context).
     inherit_unsafe: bool,
+    /// Explicit type arguments of the method call being checked (`b.map<string>(…)`).
+    method_type_args: Vec<Ty>,
+    /// The enclosing `arena { }` blocks: their function and own locals (`first..end`).
+    arenas: Vec<(FnId, u32, u32)>,
 }
 
 /// Definite assignment of `this.field` in a constructor: the set of fields assigned on every
@@ -924,6 +930,41 @@ impl<'p> Checker<'p> {
         };
         self.check_fn_body(id);
         self.unsafe_depth = saved;
+    }
+
+    /// Whether values of `t` may hold references (what the collector traces).
+    fn holds_refs(&self, t: &Ty) -> bool {
+        self.program.holds_refs(t)
+    }
+
+    /// Whether `v` lives outside the innermost enclosing `arena` block of this function
+    /// (globals always do; inside a lambda nothing is known).
+    fn outside_arena(&self, v: Var) -> bool {
+        let f = self.stack.last().expect("inside a function").id;
+        match v {
+            Var::Global(_) => true,
+            Var::Local(l) => self
+                .arenas
+                .iter()
+                .rev()
+                .find(|a| a.0 == f)
+                .is_some_and(|a| l.0 < a.1 || l.0 >= a.2),
+        }
+    }
+
+    fn arena_escape(&mut self, span: Span, what: &str) {
+        // (A function's result may be checked twice.)
+        if self.diags.iter().any(|d| {
+            d.code == Some(codes::ARENA_ESCAPE)
+                && d.labels.iter().any(|l| l.primary && l.span == span)
+        }) {
+            return;
+        }
+        self.diags.push(
+            Diagnostic::error(codes::ARENA_ESCAPE, "an arena reference escapes the block")
+                .primary(span, what.to_string())
+                .note("only values without references (numbers, plain structs, …) can leave an `arena` block"),
+        );
     }
 
     /// An unsafe operation (spec §9.5) outside `unsafe` code is an error.
@@ -1498,6 +1539,33 @@ impl<'p> Checker<'p> {
                 self.infer(inner);
                 Ty::Str
             }
+            ExprKind::Arena { body, first, end } => {
+                let f = self.stack.last().expect("inside a function").id;
+                self.arenas.push((f, *first, *end));
+                let t = self.block(body, want);
+                self.arenas.pop();
+                if self.holds_refs(&t) {
+                    let at = body.tail.as_ref().map_or(body.span, |t| t.span);
+                    self.arena_escape(at, &format!("the block's value (`{t}`) holds references"));
+                }
+                t
+            }
+            ExprKind::RawArenaAlloc { ty, arena, count } => {
+                self.require_unsafe(e.span, "arena allocation");
+                self.check(arena, &Expect::new(Ty::INT));
+                self.check(count, &Expect::new(Ty::INT));
+                // (Generic code is unchecked: `Arena.alloc<T>`.)
+                if self.holds_refs(ty) && !matches!(ty, Ty::Param(..)) {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::POD_REFERENCE,
+                            format!("`{ty}` holds references, which arena memory doesn't trace"),
+                        )
+                        .primary(e.span, "allocate plain data here"),
+                    );
+                }
+                Ty::Ref(Box::new(ty.clone()))
+            }
             ExprKind::Unsafe(b) => {
                 self.unsafe_depth += 1;
                 let t = self.block(b, want);
@@ -1742,6 +1810,19 @@ impl<'p> Checker<'p> {
             }
             ExprKind::Assign { op, target, value } => {
                 let (vt, origin) = self.target_ty(target);
+                if !self.arenas.is_empty() && self.holds_refs(&vt) {
+                    let root = match target {
+                        Target::Var(v) => Some(*v),
+                        Target::Field { object, .. } | Target::Index { object, .. } => {
+                            root_var(object)
+                        }
+                    };
+                    if let Some(v) = root
+                        && self.outside_arena(v)
+                    {
+                        self.arena_escape(e.span, "a reference is stored outside the block");
+                    }
+                }
                 match op {
                     None => {
                         self.check(value, &Expect::from(vt, origin));
@@ -1794,7 +1875,9 @@ impl<'p> Checker<'p> {
                     self.set(callee, Ty::Void);
                     return self.call_generic(e, id, args, type_args);
                 }
-                if let Some(t) = type_args.first() {
+                if !type_args.is_empty() && matches!(callee.kind, ExprKind::Member { .. }) {
+                    self.method_type_args = type_args.clone();
+                } else if let Some(t) = type_args.first() {
                     let _ = t;
                     self.diags.push(
                         Diagnostic::error(
@@ -2027,6 +2110,13 @@ impl<'p> Checker<'p> {
             ExprKind::Continue => Ty::Never,
             ExprKind::Return(value) => {
                 self.ret(e, value.as_deref());
+                let f = self.stack.last().expect("inside a function").id;
+                if let Some(v) = value
+                    && self.arenas.iter().any(|a| a.0 == f)
+                    && self.holds_refs(&self.types.expr(v.id).clone())
+                {
+                    self.arena_escape(e.span, "a reference is returned from inside the block");
+                }
                 Ty::Never
             }
             ExprKind::As(inner, to) => {
@@ -5007,6 +5097,7 @@ impl<'p> Checker<'p> {
                 name,
                 name_span,
             } => {
+                let explicit = std::mem::take(&mut self.method_type_args);
                 let t = self.infer(object);
                 let imm = self.through_immutable(object);
                 let t = t.strip_immutable();
@@ -5026,6 +5117,16 @@ impl<'p> Checker<'p> {
                             &format!("call `{name}` (not `readonly`)"),
                         );
                     }
+                }
+                if let (Ty::Array(elem), "push") = (&t, name.as_str())
+                    && !self.arenas.is_empty()
+                    && self.holds_refs(elem)
+                    && root_var(object).is_some_and(|v| self.outside_arena(v))
+                {
+                    self.arena_escape(
+                        e.span,
+                        "a reference is pushed onto an array outside the block",
+                    );
                 }
                 if let Some(r) = self.builtin_method(e, &t, name, *name_span, args) {
                     return r;
@@ -5074,8 +5175,6 @@ impl<'p> Checker<'p> {
                             // Seen through the receiver's type arguments, then inferring the
                             // method's own.
                             let recv = t.type_args().to_vec();
-                            // Explicit method type arguments (`b.map<string>(…)`) aren't parsed yet.
-                            let explicit: Vec<Ty> = Vec::new();
                             let (ret, targs) = self.call_inferring(
                                 e,
                                 m,
@@ -5088,6 +5187,15 @@ impl<'p> Checker<'p> {
                             self.types.recv_args.insert(e.id, recv);
                             self.types.instances.insert(e.id, targs);
                             return ret;
+                        }
+                        if !explicit.is_empty() {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::WRONG_ARG_COUNT,
+                                    "type arguments for a method that isn't generic",
+                                )
+                                .primary(*name_span, "takes no type arguments"),
+                            );
                         }
                         return self.call_fn(e, m, args);
                     }
@@ -5497,6 +5605,60 @@ impl<'p> Checker<'p> {
                 ret: sig.ret.subst(o, a),
             };
         }
+        // `name: value` arguments (each parameter given once; no rest or defaults): in
+        // parameter order, recording the slots so lowering evaluates them that way.
+        let reordered;
+        let mut args = args;
+        if args
+            .iter()
+            .any(|a| matches!(a.kind, ExprKind::NamedArg { .. }))
+            && !f.rest
+            && !args.iter().any(|a| matches!(a.kind, ExprKind::Spread(_)))
+        {
+            let names: Vec<&str> = f.params.iter().map(|p| f.local(*p).name.as_str()).collect();
+            let mut order: Vec<Option<usize>> = vec![None; names.len()];
+            let mut next = 0;
+            let mut ok = true;
+            for (i, a) in args.iter().enumerate() {
+                let at = match &a.kind {
+                    ExprKind::NamedArg {
+                        name, name_span, ..
+                    } => match names.iter().position(|n| n == name) {
+                        Some(k) => k,
+                        None => {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::WRONG_ARG_COUNT,
+                                    format!("`{}` has no parameter `{name}`", f.name),
+                                )
+                                .primary(*name_span, "unknown parameter"),
+                            );
+                            ok = false;
+                            continue;
+                        }
+                    },
+                    _ => {
+                        next += 1;
+                        next - 1
+                    }
+                };
+                match order.get_mut(at) {
+                    Some(slot @ None) => *slot = Some(i),
+                    _ => ok = false,
+                }
+            }
+            if ok && order.iter().all(Option::is_some) {
+                let order: Vec<usize> = order.into_iter().map(|o| o.expect("checked")).collect();
+                self.types
+                    .arg_slots
+                    .insert(e.id, order.iter().map(|i| Slot::Arg(*i)).collect());
+                reordered = order
+                    .iter()
+                    .map(|i| Self::arg_value(args[*i]))
+                    .collect::<Vec<&Expr>>();
+                args = &reordered;
+            }
+        }
         let mut subst: Vec<Option<Ty>> = vec![None; n];
         if !explicit.is_empty() {
             if explicit.len() != n {
@@ -5749,6 +5911,21 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[1]), Ty::INT)
             }
+            Builtin::RawArenaNew => {
+                if let Some(c) = args.first() {
+                    self.check(c, &Expect::new(Ty::INT));
+                }
+                (arity(&[1]), Ty::INT)
+            }
+            Builtin::RawArenaFree => {
+                if let Some(c) = args.first() {
+                    self.check(c, &Expect::new(Ty::INT));
+                }
+                (arity(&[1]), Ty::Void)
+            }
+            Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
+                (arity(&[0]), Ty::Void)
+            }
             Builtin::RefId => {
                 if let Some(x) = args.first() {
                     let t = self.infer(x);
@@ -5772,7 +5949,15 @@ impl<'p> Checker<'p> {
         };
         if !ok {
             let expected = match b {
-                Builtin::Print | Builtin::Panic | Builtin::GcStat | Builtin::RefId => "1 argument",
+                Builtin::Print
+                | Builtin::Panic
+                | Builtin::GcStat
+                | Builtin::RefId
+                | Builtin::RawArenaNew
+                | Builtin::RawArenaFree => "1 argument",
+                Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
+                    "no arguments"
+                }
                 Builtin::GcCollect
                 | Builtin::GcCollectYoung
                 | Builtin::GcPause
@@ -5794,5 +5979,15 @@ impl<'p> Checker<'p> {
             );
         }
         ret
+    }
+}
+
+/// The variable a place expression starts from (`a` in `a.b[i].c`).
+fn root_var(e: &Expr) -> Option<Var> {
+    match &e.kind {
+        ExprKind::Var(v) => Some(*v),
+        ExprKind::Member { object, .. } | ExprKind::Index { object, .. } => root_var(object),
+        ExprKind::NonNull(inner) => root_var(inner),
+        _ => None,
     }
 }

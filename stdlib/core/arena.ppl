@@ -1,0 +1,22 @@
+// `Arena` (spec §9.4): explicitly managed memory for unsafe code. `alloc` hands out zeroed,
+// untraced storage for plain data that stays valid until `free()`; pointers into it dangle
+// afterwards (undefined behavior). The scoped `arena { … }` block needs none of this.
+
+class Arena {
+  handle: int
+
+  constructor(capacity: int) {
+    this.handle = __raw_arena_new(capacity)
+  }
+
+  /// Room for `count` zeroed `T`s (plain data: no references), as a pointer to the first.
+  public alloc<T>(count: int): ptr<T> {
+    unsafe { __raw_arena_alloc<T>(this.handle, count) }
+  }
+
+  /// Frees everything allocated from this arena.
+  public free(): void {
+    __raw_arena_free(this.handle)
+    this.handle = 0
+  }
+}

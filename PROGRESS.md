@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P4.6: Arenas** (see [PLAN.md](PLAN.md#p46-arenas)).
+**P5.1: Event loop** (see [PLAN.md](PLAN.md#p51-event-loop)). Phase 4 is complete.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,10 +23,10 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 210 decisions, no open questions |
+| Spec | ✅ 16 chapters, 212 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P4.5) |
+| Last green `scripts/test.sh` | 2026-11-01 (P4.6) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -53,6 +53,12 @@ Notes:
 - **Unsafe (P4.5, decision 210)**: `ptr<T>` = `Ty::Ref`. An `unsafe function` used as a value
   (`const f = poke`) can then be called without `unsafe` (not checked yet). FFI (P? interop)
   will need `ptr<void>`, null pointers and casts between pointer types.
+- **Arenas (P4.6, decision 212)**: P5.1 must move finalizer callbacks onto the event loop
+  (`__runFinalizers`). Arena objects are scanned at every nursery collection (cost grows with
+  open arena size). Exceptions leaving an arena are deep-copied out; other escapes panic
+  natively only. Arenas inside generators and `async` code are untested.
+- `ppl run` builds natively; `ppl run --interp` uses the interpreter. `// native-only:` in a
+  run fixture skips the interpreter.
   Collection only at safepoints; layouts mirror codegen's `size_align` (wasm32's 4-byte
   pointers will need both updated in P8.5). The interpreter has no collector.
   `PPL_GC_STRESS=1` (also run by the golden harness) collects at every safepoint.
@@ -173,7 +179,7 @@ Notes:
 - [x] P4.3 Generational and incremental GC
 - [x] P4.4 Weak references and finalization
 - [x] P4.5 Unsafe and pointers
-- [ ] P4.6 Arenas
+- [x] P4.6 Arenas
 
 ### Phase 5: Async and concurrency
 - [ ] P5.1 Event loop
@@ -297,3 +303,4 @@ Notes:
 | 2026-11-01 | P4.3 | Generational + incremental GC: nursery of young objects (list-swept, promoted in place), remembered set + cards for large objects, write barrier with layouts (Dijkstra shading during marking), incremental marking with alternating colors and chunked large objects, finishing pause (nursery + root rescan + drain), lazy sweeping, radix block table; `collectYoung`, `pause`/`resume`, `resetStats`; `PPL_GC_STRESS` overlaps cycles with the mutator, `PPL_GC_TRACE`. Decision 208. Tests: run/gc/{generations,control}; bench/gc_pause.ppl: frame max pause 0.34–0.77 ms (see notes). |
 | 2026-11-01 | P4.4 | `WeakRef`, `WeakMap`, `WeakSet`, `FinalizationRegistry` in `stdlib/core/weak.ppl` over a core-only `@weak` field (`StructLayout.weak`, `PplLayout.nweak`; the collector clears dead targets after nursery marking and at the end of major marking), `T extends object` bound, `__ref_id` builtin; interpreter weak fields as `rc::Weak`; finalizers at exit through `__runFinalizers` (dropped when unused). Decision 209. Tests: run/gc/{weak,finalization}, fail/gc/weak_targets. |
 | 2026-11-01 | P4.5 | `unsafe { }`, `unsafe function`, `ptr<T>` (as `Ty::Ref`), `ptr.of`, `read`/`write`, pointer `+`/`-`/`==`, `sizeof`/`alignof` (`mir::Program::size_align`, moved from codegen), `unsafe.cast` bit casts, `@pod` structs; E0342 (needs `unsafe`), E0343 (non-plain `@pod` field). Decision 210. Tests: run/unsafe/pointers, fail/unsafe/{outside,pod}. |
+| 2026-11-01 | P4.6 | Scoped `arena { }` (runtime arena chunks in the block table, roots for the GC, barrier + exit escape checks, exception evacuation, guard restore; lowering via the `finally` exit list; static escape checks E0344), `Arena` class (raw chunks), explicit method type arguments and named arguments for generic calls, `parseInt`, `int[].sum()`, harness `// native-only:`. Decisions 211–212. Tests: run/arena/{scoped,raw,escape_panic,escape_frame}, fail/arena/escape. Phase 4 done. |

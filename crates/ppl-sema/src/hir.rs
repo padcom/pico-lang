@@ -289,6 +289,34 @@ impl Program {
         &self.globals[id.0 as usize]
     }
 
+    /// Whether values of `t` may hold references (what the collector traces; type parameters
+    /// may).
+    pub fn holds_refs(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Str
+            | Ty::Array(_)
+            | Ty::Class(..)
+            | Ty::Iface(..)
+            | Ty::Fn(..)
+            | Ty::Ref(_)
+            | Ty::Param(..) => true,
+            Ty::Nullable(t) | Ty::Fixed(t, _) => self.holds_refs(t),
+            Ty::Tuple(ts) => ts.iter().any(|t| self.holds_refs(t)),
+            Ty::Struct(sid, _, args) => self
+                .struct_def(*sid)
+                .fields
+                .iter()
+                .any(|f| self.holds_refs(&f.ty.subst(Ty::type_owner(*sid), args))),
+            Ty::Enum(eid, _) | Ty::Union(eid, _) | Ty::Variant(eid, _, _) => self.enums
+                [eid.0 as usize]
+                .variants
+                .iter()
+                .any(|v| v.fields.iter().any(|f| self.holds_refs(&f.ty))),
+            Ty::Lits(b, _) | Ty::Distinct(_, _, b) | Ty::Immutable(b) => self.holds_refs(b),
+            _ => false,
+        }
+    }
+
     pub fn struct_def(&self, id: StructId) -> &StructDef {
         &self.structs[id.0 as usize]
     }
@@ -509,6 +537,16 @@ pub enum Builtin {
     /// `__ref_id(x)`: an object's (or array's) identity as an int (its address natively), for
     /// `WeakMap`. Unique among live objects.
     RefId,
+    /// Opening and closing a scoped arena (lowering emits them around `arena { … }`).
+    ArenaEnter,
+    ArenaExit,
+    /// Closing an arena while an exception leaves it: what the pending exception reaches in
+    /// the arena is first copied to the heap.
+    ArenaExitRescue,
+    /// `__raw_arena_new(capacity)` / `__raw_arena_free(arena)`: the `Arena` object's memory
+    /// (an opaque int).
+    RawArenaNew,
+    RawArenaFree,
 }
 
 impl Builtin {
@@ -525,6 +563,11 @@ impl Builtin {
             Builtin::GcDumpRoots => "__gc_dump_roots",
             Builtin::GcStat => "__gc_stat",
             Builtin::RefId => "__ref_id",
+            Builtin::ArenaEnter => "<arena enter>",
+            Builtin::ArenaExit => "<arena exit>",
+            Builtin::ArenaExitRescue => "<arena exit, rescuing the exception>",
+            Builtin::RawArenaNew => "__raw_arena_new",
+            Builtin::RawArenaFree => "__raw_arena_free",
         }
     }
 
@@ -541,6 +584,8 @@ impl Builtin {
             "__gc_dump_roots" => Builtin::GcDumpRoots,
             "__gc_stat" => Builtin::GcStat,
             "__ref_id" => Builtin::RefId,
+            "__raw_arena_new" => Builtin::RawArenaNew,
+            "__raw_arena_free" => Builtin::RawArenaFree,
             _ => return None,
         })
     }
@@ -819,6 +864,20 @@ pub enum ExprKind {
     },
     /// `unsafe.cast<T>(x)`: `x`'s bits as a `T` of the same size (numbers).
     BitCast(Box<Expr>, Ty),
+    /// `arena { … }` (spec §9.4): allocations inside go to an arena freed at the end. The
+    /// locals `first..end` are the block's own.
+    Arena {
+        body: Block,
+        first: u32,
+        end: u32,
+    },
+    /// `__raw_arena_alloc<T>(arena, count)` (core library): `count` zeroed `T`s in an
+    /// `Arena`'s memory, as a `ptr<T>`.
+    RawArenaAlloc {
+        ty: Ty,
+        arena: Box<Expr>,
+        count: Box<Expr>,
+    },
     /// `e!`: panics if `e` is null.
     NonNull(Box<Expr>),
     /// `base?.rest`: `tmp` holds the non-null `base`, and `rest` (the chain after `?.`) uses it.
@@ -1014,7 +1073,14 @@ impl Expr {
                     f(e);
                 }
             }
-            ExprKind::Block(b) | ExprKind::Loop(b) | ExprKind::Unsafe(b) => block(b, f),
+            ExprKind::Block(b)
+            | ExprKind::Loop(b)
+            | ExprKind::Unsafe(b)
+            | ExprKind::Arena { body: b, .. } => block(b, f),
+            ExprKind::RawArenaAlloc { arena, count, .. } => {
+                f(arena);
+                f(count);
+            }
             ExprKind::While {
                 cond, body, update, ..
             } => {

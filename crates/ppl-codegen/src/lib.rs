@@ -624,6 +624,23 @@ impl<'ctx> Gen<'ctx, '_> {
             | "ppl_gc_resume"
             | "ppl_gc_dump_roots" => void.fn_type(&[], false),
             "ppl_gc_stat" => i64t.fn_type(&[i64t.into()], false),
+            "ppl_arena_enter" => void.fn_type(&[], false),
+            "ppl_arena_exit_rescue" => void.fn_type(
+                &[
+                    ptr.into(),
+                    ptr.into(),
+                    i64t.into(),
+                    i32t.into(),
+                    i32t.into(),
+                ],
+                false,
+            ),
+            "ppl_arena_exit" => {
+                void.fn_type(&[ptr.into(), i64t.into(), i32t.into(), i32t.into()], false)
+            }
+            "ppl_raw_arena_new" => i64t.fn_type(&[i64t.into()], false),
+            "ppl_raw_arena_free" => void.fn_type(&[i64t.into()], false),
+            "ppl_raw_arena_alloc" => ptr.fn_type(&[i64t.into(), i64t.into(), i64t.into()], false),
             "ppl_instance_of" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
             "ppl_hash_u64" => i64t.fn_type(&[i64t.into()], false),
             "ppl_hash_str" => i64t.fn_type(&[ptr.into()], false),
@@ -1012,6 +1029,25 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
                 let et = self.elem_ty(&elem);
                 Some(unsafe { self.b.build_gep(et, p, &[n], "ptr").unwrap() }.into())
+            }
+            Rvalue::RawArenaAlloc(t, h, n) => {
+                let (size, align) = self.size_align(t);
+                let h = self.operand(fx, h)?.into_int_value();
+                let n = self.operand(fx, n)?.into_int_value();
+                let i64t = self.i64();
+                let bytes = self
+                    .b
+                    .build_int_mul(n, i64t.const_int(size, false), "bytes")
+                    .unwrap();
+                let r = self
+                    .b
+                    .build_call(
+                        self.rt("ppl_raw_arena_alloc"),
+                        &[h.into(), bytes.into(), i64t.const_int(align, false).into()],
+                        "",
+                    )
+                    .unwrap();
+                Some(basic(r))
             }
             Rvalue::SizeOf(t, align) => {
                 let (size, alignment) = self.size_align(t);
@@ -2671,7 +2707,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 args,
                 dest,
                 next,
-                loc: _,
+                loc,
             } => {
                 let next = bb(next);
                 match callee {
@@ -2797,6 +2833,39 @@ impl<'ctx> Gen<'ctx, '_> {
                             self.b
                                 .build_call(self.rt("ppl_print_newline"), &[], "")
                                 .unwrap();
+                        }
+                    }
+                    Callee::Builtin(Builtin::ArenaEnter) => {
+                        self.b
+                            .build_call(self.rt("ppl_arena_enter"), &[], "")
+                            .unwrap();
+                    }
+                    Callee::Builtin(Builtin::ArenaExit) => {
+                        let args = self.loc_args(*loc);
+                        self.b
+                            .build_call(self.rt("ppl_arena_exit"), &args, "")
+                            .unwrap();
+                    }
+                    Callee::Builtin(Builtin::ArenaExitRescue) => {
+                        let slot = self.exception_slot();
+                        let mut args = vec![slot.into()];
+                        args.extend(self.loc_args(*loc));
+                        self.b
+                            .build_call(self.rt("ppl_arena_exit_rescue"), &args, "")
+                            .unwrap();
+                    }
+                    Callee::Builtin(b @ (Builtin::RawArenaNew | Builtin::RawArenaFree)) => {
+                        let h = self.operand(fx, &args[0]).expect("an int");
+                        let name = if *b == Builtin::RawArenaNew {
+                            "ppl_raw_arena_new"
+                        } else {
+                            "ppl_raw_arena_free"
+                        };
+                        let r = self.b.build_call(self.rt(name), &[h.into()], "").unwrap();
+                        if let (Some(d), inkwell::values::ValueKind::Basic(v)) =
+                            (dest, r.try_as_basic_value())
+                        {
+                            self.store(fx, d, v);
                         }
                     }
                     Callee::Builtin(Builtin::RefId) => {

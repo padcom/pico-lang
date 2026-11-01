@@ -87,6 +87,29 @@ impl PartialEq for WeakTarget {
     }
 }
 
+/// A zeroed value of plain data (what fresh arena memory holds natively).
+fn zero_value(p: &Program, t: &Ty) -> Value {
+    match t {
+        Ty::Int(_) => Value::Int(0),
+        Ty::Float(_) => Value::Float(0.0),
+        Ty::Bool => Value::Bool(false),
+        Ty::Char => Value::Char('\0'),
+        Ty::Fixed(e, n) => Value::Struct(vec![zero_value(p, e); *n as usize]),
+        Ty::Tuple(ts) => Value::Struct(ts.iter().map(|t| zero_value(p, t)).collect()),
+        Ty::Struct(sid, _, args) => {
+            let owner = Ty::type_owner(*sid);
+            Value::Struct(
+                p.layout(*sid)
+                    .fields
+                    .iter()
+                    .map(|(_, f)| zero_value(p, &f.subst(owner, args)))
+                    .collect(),
+            )
+        }
+        _ => Value::Null,
+    }
+}
+
 /// A value as a `@weak` field holds it.
 fn downgrade(v: Value) -> Value {
     match v {
@@ -498,6 +521,12 @@ impl Interp<'_, '_> {
             }
             // No collector here: nothing to do, and every statistic is zero.
             Builtin::GcStat => return Value::Int(0),
+            // Arenas only change where memory comes from.
+            Builtin::ArenaEnter
+            | Builtin::ArenaExit
+            | Builtin::ArenaExitRescue
+            | Builtin::RawArenaFree => Ok(()),
+            Builtin::RawArenaNew => return Value::Int(0),
             Builtin::RefId => {
                 return Value::Int(match &vals[0] {
                     Value::Object(o) => Rc::as_ptr(o) as usize as i128,
@@ -607,6 +636,17 @@ impl Interp<'_, '_> {
                     return Err(self.panic(panics::POINTER_OUT_OF_BOUNDS, loc));
                 }
                 Ok(Value::Ref(c, steps.into()))
+            }
+            // `count` zeroed values in a fresh array; the pointer is its first element.
+            Rvalue::RawArenaAlloc(t, _, n) => {
+                let Value::Int(n) = self.operand(frame, n) else {
+                    unreachable!("an int count")
+                };
+                let zero = zero_value(self.p, t);
+                let storage = vec![zero; usize::try_from(n).unwrap_or(0)];
+                let cell: Cell =
+                    Rc::new(RefCell::new(Value::Array(Rc::new(RefCell::new(storage)))));
+                Ok(Value::Ref(cell, Rc::from([Step::Elem(0)])))
             }
             Rvalue::SizeOf(t, align) => {
                 let (size, alignment) = self.p.size_align(t);

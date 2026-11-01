@@ -100,6 +100,7 @@ codes! {
     UNKNOWN_MODULE = 341: "import of a module that can't be found",
     UNSAFE_NEEDED = 342: "an unsafe operation outside `unsafe` code",
     POD_REFERENCE = 343: "a `@pod` struct with a field that isn't plain data",
+    ARENA_ESCAPE = 344: "a reference allocated in an arena outlives it",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

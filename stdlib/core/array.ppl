@@ -204,3 +204,12 @@ function __Array_sort<T, E extends Error>(xs: T[], compare: (a: T, b: T) => int 
   }
   xs
 }
+
+/// The sum of the elements (`0` for none).
+function __Array_sum(xs: int[]): int {
+  let total = 0
+  for (const x of xs) {
+    total += x
+  }
+  total
+}

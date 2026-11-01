@@ -74,6 +74,21 @@ const total = arena {
 }
 ```
 
+- Allocations inside are those made *while* the block runs, including in the functions it
+  calls; storage that belongs to an older object (a growing outer array) stays on the heap.
+- Static rules (E0344): the block's value must not hold references, and inside it (outside
+  lambdas) no reference may be assigned to a variable declared outside it or a global,
+  stored into a field or element of something rooted outside it, pushed onto such an array,
+  or `return`ed.
+- What the compiler can't see (a callee stashing a reference) is caught at run time: storing
+  an arena reference into an older object panics, and so does closing the arena while a
+  variable or global still points into it ("a reference into an arena outlives the arena").
+  The interpreter doesn't check at run time.
+- `return`, `break`, `continue`, exceptions and panics all close the arena. An exception
+  leaving the block is copied out of the arena first (with what it reaches).
+- Arena objects are roots for the collector while the arena is open, and are never
+  collected individually.
+
 **Arena object (unsafe).** Explicit lifetime control for advanced uses:
 ```ts
 unsafe {
@@ -83,6 +98,9 @@ unsafe {
   a.free()                                   // dangling pointers after this are UB
 }
 ```
+`new Arena(capacity)` reserves memory (it grows by more chunks when needed);
+`alloc<T>(count)` returns zeroed, untraced room for plain data (no references); `free()`
+releases it all.
 
 ## 9.5 Unsafe code
 Raw pointers `ptr<T>`, pointer arithmetic, `unsafe.cast<T>(x)`, `sizeof<T>()` and `alignof<T>()`

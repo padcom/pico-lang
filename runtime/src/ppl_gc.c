@@ -37,7 +37,14 @@ static const PplGlobalRoots *globals;
  * traced; once a nursery collection has marked, the weak words pointing to young objects it
  * didn't reach are cleared, and once a major marking has finished, those pointing to old
  * objects without the cycle's color. Both happen before the targets are swept, so a cleared
- * address is never reused while a weak word still holds it. */
+ * address is never reused while a weak word still holds it.
+ *
+ * Scoped arenas (spec §9.4) are chunks of 64 KiB-aligned memory in the block table (`cls`
+ * -1, `live` = the arena's level) that the collector never marks or sweeps: allocations
+ * bump through them while the arena is open, their objects are roots (they may point to heap
+ * objects), and closing the arena frees the chunks. References must not outlive it: the
+ * compiler rejects the visible escapes, the write barrier panics when one is stored into an
+ * older object, and closing panics when a frame or a global still holds one. */
 
 #define BLOCK_SHIFT 16
 #define BLOCK_SIZE ((size_t)1 << BLOCK_SHIFT)
@@ -60,7 +67,8 @@ enum {
     /* An old object's color: the major cycle that last reached it. */
     F_COLOR_A = 16,
     F_COLOR_B = 32,
-    F_COLORS = F_COLOR_A | F_COLOR_B
+    F_COLORS = F_COLOR_A | F_COLOR_B,
+    F_ARENA = 64 /* in a scoped arena */
 };
 
 typedef struct Block {
@@ -155,7 +163,7 @@ static void table_del(uintptr_t k) { table_put(k, NULL); }
 /* The object containing `p`, or NULL when `p` isn't inside a live heap object. */
 static Obj *find_object(const void *p) {
     Block *b = table_get((uintptr_t)p >> BLOCK_SHIFT);
-    if (!b) return NULL;
+    if (!b || b->cls < 0) return NULL;
     const char *c = p;
     if (c < b->cells) return NULL;
     Obj *o;
@@ -298,6 +306,248 @@ static Obj *alloc_large(size_t payload) {
     return (Obj *)b->cells;
 }
 
+/* ---------------------------------------------------------------- scoped arenas */
+
+static void scan(const char *base, const PplLayout *l, int64_t bytes, void (*visit)(const void *));
+static void *heap_object(size_t need, int64_t size, const PplLayout *layout);
+
+#define MAX_ARENAS 64
+#define ARENA_CHUNK BLOCK_SIZE
+/* Per open arena (level i + 1): its chunks, newest first (linked through `next`). */
+static Block *arena_chunks[MAX_ARENAS];
+static int arena_depth;
+
+/* The level of the arena `p` points into, or 0. */
+static int arena_level_of(const void *p) {
+    Block *b = table_get((uintptr_t)p >> BLOCK_SHIFT);
+    return b && b->cls < 0 ? (int)b->live : 0;
+}
+
+static Obj *arena_alloc(int level, size_t need) {
+    Block *b = arena_chunks[level - 1];
+    if (!b || b->bump + need > b->end) {
+        size_t bytes = (header_size() + need + ARENA_CHUNK - 1) & ~(size_t)(ARENA_CHUNK - 1);
+        b = aligned_alloc(BLOCK_SIZE, bytes);
+        if (!b) out_of_memory();
+        memset(b, 0, sizeof *b);
+        b->cls = -1;
+        b->live = level;
+        b->bytes = bytes;
+        b->cells = b->bump = (char *)b + header_size();
+        b->end = (char *)b + bytes;
+        b->next = arena_chunks[level - 1];
+        arena_chunks[level - 1] = b;
+        for (size_t i = 0; i < bytes / BLOCK_SIZE; i++) {
+            table_put(((uintptr_t)b >> BLOCK_SHIFT) + i, b);
+        }
+    }
+    Obj *o = (Obj *)b->bump;
+    b->bump += need;
+    return o;
+}
+
+/* Visits every object of the open arenas. */
+static void scan_arenas(void (*visit)(const void *)) {
+    for (int i = 0; i < arena_depth; i++) {
+        for (Block *b = arena_chunks[i]; b; b = b->next) {
+            for (char *c = b->cells; c < b->bump;) {
+                const Obj *o = (const Obj *)c;
+                scan((const char *)(o + 1), o->layout, o->size, visit);
+                c += sizeof(Obj) + (((size_t)o->size + 15) & ~(size_t)15);
+            }
+        }
+    }
+}
+
+void ppl_arena_enter(void) {
+    if (arena_depth == MAX_ARENAS) {
+        fflush(stdout);
+        fputs("fatal: too many nested arenas\n", stderr);
+        abort();
+    }
+    arena_chunks[arena_depth++] = NULL;
+}
+
+int32_t ppl_arena_level(void) { return arena_depth; }
+
+static void forget_weak_in_arenas(int level);
+
+void ppl_arena_release(int32_t level) {
+    if (level < 0) level = 0;
+    if (arena_depth <= level) return;
+    forget_weak_in_arenas(level + 1);
+    while (arena_depth > level) {
+        Block *b = arena_chunks[--arena_depth];
+        while (b) {
+            Block *next = b->next;
+            for (size_t i = 0; i < b->bytes / BLOCK_SIZE; i++) {
+                table_del(((uintptr_t)b >> BLOCK_SHIFT) + i);
+            }
+            free(b);
+            b = next;
+        }
+        arena_chunks[arena_depth] = NULL;
+    }
+}
+
+static int escaped;
+static void check_escape(const void *p) {
+    if (arena_level_of(p) >= arena_depth) escaped = 1;
+}
+
+static _Noreturn void arena_escape(const char *file, int64_t file_len, int32_t line,
+                                   int32_t col) {
+    static const char msg[] = "a reference into an arena outlives the arena";
+    ppl_panic(msg, (int64_t)sizeof msg - 1, file, file_len, line, col);
+}
+
+void ppl_arena_exit(const char *file, int64_t file_len, int32_t line, int32_t col) {
+    if (arena_depth == 0) return;
+    escaped = 0;
+    for (PplFrame *f = ppl_gc_top; f; f = f->prev) {
+        for (int64_t i = 0; i < f->map->nroots; i++) {
+            const PplRootDesc *r = &f->map->roots[i];
+            scan((const char *)f + r->offset, r->layout, r->layout->size, check_escape);
+        }
+    }
+    if (globals) {
+        for (int64_t i = 0; i < globals->n; i++) {
+            const PplGlobalRoot *r = &globals->roots[i];
+            scan(r->addr, r->layout, r->layout->size, check_escape);
+        }
+    }
+    if (escaped) {
+        ppl_arena_release(arena_depth - 1);
+        arena_escape(file, file_len, line, col);
+    }
+    ppl_arena_release(arena_depth - 1);
+}
+
+/* Moving objects out of the closing arena (`level`): copies on the heap, remembered so
+ * shared objects are copied once. */
+typedef struct {
+    const Obj *from;
+    char *to;
+} Moved;
+static struct {
+    Moved *items;
+    size_t len, cap;
+} moved;
+
+/* The object of an arena at `level` or above that contains `p`. */
+static Obj *arena_object_at(const void *p, int level) {
+    for (int i = level - 1; i < arena_depth; i++) {
+        for (Block *b = arena_chunks[i]; b; b = b->next) {
+            if ((const char *)p < b->cells || (const char *)p >= b->bump) continue;
+            for (char *c = b->cells; c < b->bump;) {
+                Obj *o = (Obj *)c;
+                char *next = c + sizeof(Obj) + (((size_t)o->size + 15) & ~(size_t)15);
+                if ((const char *)p >= (const char *)(o + 1) && (const char *)p < next) return o;
+                c = next;
+            }
+        }
+    }
+    return NULL;
+}
+
+static void *evacuate(void *p, int level) {
+    if (!p || arena_level_of(p) < level) return p;
+    Obj *o = arena_object_at(p, level);
+    if (!o) return p;
+    size_t offset = (size_t)((char *)p - (char *)(o + 1));
+    for (size_t i = 0; i < moved.len; i++) {
+        if (moved.items[i].from == o) return moved.items[i].to + offset;
+    }
+    size_t need = sizeof(Obj) + (((size_t)o->size + 15) & ~(size_t)15);
+    char *copy = heap_object(need, o->size, o->layout);
+    memcpy(copy, o + 1, o->size);
+    if (moved.len == moved.cap) {
+        moved.cap = moved.cap ? moved.cap * 2 : 16;
+        moved.items = realloc(moved.items, moved.cap * sizeof *moved.items);
+        if (!moved.items) out_of_memory();
+    }
+    moved.items[moved.len++] = (Moved){o, copy};
+    const PplLayout *l = o->layout;
+    if (l) {
+        for (int64_t at = 0; at + l->size <= (int64_t)o->size; at += l->size) {
+            for (int32_t i = 0; i < l->nrefs + l->nweak; i++) {
+                char *slot = copy + at + (l->refs[i] & ~PPL_REF_HIDDEN);
+                void *q;
+                memcpy(&q, slot, sizeof q);
+                /* Weak words into the arena would dangle: cleared. */
+                q = i < l->nrefs ? evacuate(q, level) : (arena_level_of(q) >= level ? NULL : q);
+                memcpy(slot, &q, sizeof q);
+            }
+        }
+    }
+    return copy + offset;
+}
+
+void ppl_arena_exit_rescue(void **slot, const char *file, int64_t file_len, int32_t line,
+                           int32_t col) {
+    if (arena_depth == 0) return;
+    if (slot) *slot = evacuate(*slot, arena_depth);
+    moved.len = 0;
+    ppl_arena_exit(file, file_len, line, col);
+}
+
+/* ---------------------------------------------------------------- raw arenas (`Arena`) */
+
+typedef struct RawChunk {
+    struct RawChunk *next;
+    size_t used, cap;
+    _Alignas(16) char data[];
+} RawChunk;
+
+typedef struct {
+    RawChunk *chunks;
+    size_t capacity;
+} RawArena;
+
+static RawChunk *raw_chunk(size_t cap) {
+    RawChunk *c = calloc(1, sizeof(RawChunk) + cap);
+    if (!c) out_of_memory();
+    c->cap = cap;
+    return c;
+}
+
+int64_t ppl_raw_arena_new(int64_t capacity) {
+    RawArena *a = calloc(1, sizeof *a);
+    if (!a) out_of_memory();
+    a->capacity = capacity > 0 ? (size_t)capacity : 4096;
+    a->chunks = raw_chunk(a->capacity);
+    return (int64_t)(intptr_t)a;
+}
+
+void *ppl_raw_arena_alloc(int64_t arena, int64_t bytes, int64_t align) {
+    RawArena *a = (RawArena *)(intptr_t)arena;
+    if (!a || bytes < 0) return NULL;
+    size_t al = align > 0 ? (size_t)align : 1;
+    RawChunk *c = a->chunks;
+    size_t at = c ? (c->used + al - 1) & ~(al - 1) : 0;
+    if (!c || at + (size_t)bytes > c->cap) {
+        /* A new chunk: the capacity again, or more for a big request. */
+        size_t cap = a->capacity > (size_t)bytes + al ? a->capacity : (size_t)bytes + al;
+        c = raw_chunk(cap);
+        c->next = a->chunks;
+        a->chunks = c;
+        at = 0;
+    }
+    c->used = at + (size_t)bytes;
+    return c->data + at;
+}
+
+void ppl_raw_arena_free(int64_t arena) {
+    RawArena *a = (RawArena *)(intptr_t)arena;
+    if (!a) return;
+    for (RawChunk *c = a->chunks; c;) {
+        RawChunk *next = c->next;
+        free(c);
+        c = next;
+    }
+    free(a);
+}
+
 /* ---------------------------------------------------------------- allocation */
 
 typedef struct {
@@ -322,11 +572,40 @@ static Stack weak_objects;
 /* The block an object is in (blocks are aligned; a large object's header is in its first). */
 static Block *block_of(const Obj *o) { return (Block *)((uintptr_t)o & ~(uintptr_t)(BLOCK_SIZE - 1)); }
 
+static void *arena_object(int level, size_t need, int64_t size, const PplLayout *layout);
+static void *heap_object(size_t need, int64_t size, const PplLayout *layout);
+
 void *ppl_gc_alloc(int64_t size, const PplLayout *layout) {
     if (size < 0) size = 0;
     if (size > (int64_t)UINT32_MAX) out_of_memory();
     if (!classes_ready) init_classes();
     size_t need = sizeof(Obj) + (((size_t)size + 15) & ~(size_t)15);
+    if (arena_depth > 0) return arena_object(arena_depth, need, size, layout);
+    return heap_object(need, size, layout);
+}
+
+void *ppl_gc_alloc_near(const void *owner, int64_t size, const PplLayout *layout) {
+    if (size < 0) size = 0;
+    if (size > (int64_t)UINT32_MAX) out_of_memory();
+    if (!classes_ready) init_classes();
+    size_t need = sizeof(Obj) + (((size_t)size + 15) & ~(size_t)15);
+    int level = arena_depth > 0 ? arena_level_of(owner) : 0;
+    if (level > 0) return arena_object(level, need, size, layout);
+    return heap_object(need, size, layout);
+}
+
+static void *arena_object(int level, size_t need, int64_t size, const PplLayout *layout) {
+    Obj *o = arena_alloc(level, need);
+    o->layout = layout;
+    o->size = (uint32_t)size;
+    o->flags = F_ALLOC | F_ARENA;
+    memset(o + 1, 0, (size_t)size);
+    if (layout && layout->nweak) push(&weak_objects, o);
+    allocated_bytes += (int64_t)need;
+    return o + 1;
+}
+
+static void *heap_object(size_t need, int64_t size, const PplLayout *layout) {
     size_t cell;
     Obj *o;
     if (need <= MAX_SMALL) {
@@ -506,13 +785,27 @@ static void scan_roots(void (*visit)(const void *)) {
             scan(r->addr, r->layout, r->layout->size, visit);
         }
     }
+    scan_arenas(visit);
 }
 
 /* The write barrier, after a value laid out as `layout` was stored at `slot`: an old object
  * written to is remembered (a large one by card), and while the old generation is marked,
  * the old objects the value points to are shaded. */
+static int barrier_level;
+static void check_store(const void *p) {
+    if (arena_level_of(p) > barrier_level) escaped = 1;
+}
+
 void ppl_gc_write(void *slot, const PplLayout *layout) {
-    if (old_bytes == 0 || !layout) return;
+    if (!layout) return;
+    if (arena_depth > 0) {
+        /* A reference into an arena stored where it outlives the arena. */
+        barrier_level = arena_level_of(slot);
+        escaped = 0;
+        scan(slot, layout, layout->size, check_store);
+        if (escaped) arena_escape("", 0, 0, 0);
+    }
+    if (old_bytes == 0) return;
     Obj *o = find_object(slot);
     if (!o || !(o->flags & F_OLD)) return;
     if (phase == MARKING) scan(slot, layout, layout->size, visit_old);
@@ -669,6 +962,7 @@ static int sweep_some(int64_t deadline, int64_t limit) {
 /* Whether an object is dead after the running nursery collection's marking (`major` 0) or a
  * finished major marking. */
 static int dead(const Obj *o, int major) {
+    if (o->flags & F_ARENA) return 0; /* until its arena closes */
     if (major) return (o->flags & F_OLD) && (o->flags & F_COLORS) != color;
     return !(o->flags & (F_OLD | F_MARK));
 }
@@ -689,6 +983,17 @@ static void clear_weak(int major) {
             Obj *t = find_object(p);
             if (t && dead(t, major)) memset(slot, 0, sizeof p);
         }
+    }
+    weak_objects.len = k;
+}
+
+/* Drops the weak objects in the arenas from `level` up (they're about to be freed). */
+static void forget_weak_in_arenas(int level) {
+    size_t k = 0;
+    for (size_t i = 0; i < weak_objects.len; i++) {
+        Obj *w = weak_objects.items[i];
+        if ((w->flags & F_ARENA) && arena_level_of(w) >= level) continue;
+        weak_objects.items[k++] = w;
     }
     weak_objects.len = k;
 }

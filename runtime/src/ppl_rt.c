@@ -59,8 +59,9 @@ static const struct {
     uint32_t refs[1];
 } pointer_layout = {sizeof(void *), 1, 0, {0}};
 
-static char *array_storage(int64_t cap, int64_t elem_size, const PplLayout *elem) {
-    return ppl_gc_alloc(cap * elem_size, elem);
+static char *array_storage(const PplArray *a, int64_t cap, int64_t elem_size,
+                           const PplLayout *elem) {
+    return ppl_gc_alloc_near(a, cap * elem_size, elem);
 }
 
 PplArray *ppl_array_new(int64_t elem_size, int64_t len, const PplLayout *elem) {
@@ -69,14 +70,14 @@ PplArray *ppl_array_new(int64_t elem_size, int64_t len, const PplLayout *elem) {
     a->len = len;
     a->cap = cap;
     a->elem = elem;
-    a->data = array_storage(cap, elem_size, elem);
+    a->data = array_storage(a, cap, elem_size, elem);
     return a;
 }
 
 void *ppl_array_push(PplArray *a, int64_t elem_size) {
     if (a->len == a->cap) {
         int64_t cap = a->cap * 2;
-        char *data = array_storage(cap, elem_size, a->elem);
+        char *data = array_storage(a, cap, elem_size, a->elem);
         memcpy(data, a->data, (size_t)(a->len * elem_size));
         a->data = data;
         a->cap = cap;
@@ -649,6 +650,7 @@ PplStr *ppl_fmt_bool(int32_t v, const PplFmt *f) {
 static void *guards[PPL_MAX_GUARDS];
 /* The shadow-stack top when each guard was pushed, restored when a panic jumps to it. */
 static PplFrame *guard_frames[PPL_MAX_GUARDS];
+static int32_t guard_arenas[PPL_MAX_GUARDS];
 static int nguards;
 static char *panic_msg;
 static int64_t panic_msg_len;
@@ -665,6 +667,7 @@ void ppl_guard_push(void *buf) {
         abort();
     }
     guard_frames[nguards] = ppl_gc_top;
+    guard_arenas[nguards] = ppl_arena_level();
     guards[nguards++] = buf;
 }
 
@@ -696,9 +699,13 @@ static _Noreturn void report_panic(void) {
     fflush(stdout);
     fputs("panic: ", stderr);
     fwrite(panic_msg, 1, (size_t)panic_msg_len, stderr);
-    fputs("\n  at ", stderr);
-    fwrite(panic_file, 1, (size_t)panic_file_len, stderr);
-    fprintf(stderr, ":%d:%d\n", panic_line, panic_col);
+    fputc('\n', stderr);
+    /* (The runtime's own checks, like the arena write barrier, know no source location.) */
+    if (panic_file_len > 0) {
+        fputs("  at ", stderr);
+        fwrite(panic_file, 1, (size_t)panic_file_len, stderr);
+        fprintf(stderr, ":%d:%d\n", panic_line, panic_col);
+    }
     if (panic_nframes > 0) {
         fputs("stack trace:\n", stderr);
         int k = 0;
@@ -721,6 +728,8 @@ static _Noreturn void unwind(void) {
     if (nguards > 0) {
         void *buf = guards[--nguards];
         ppl_gc_top = guard_frames[nguards];
+        /* (Arenas opened inside the guarded region are dropped unchecked.) */
+        ppl_arena_release(guard_arenas[nguards]);
         _longjmp(buf, 1);
     }
     report_panic();

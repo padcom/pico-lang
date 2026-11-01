@@ -11,6 +11,7 @@
 //! | `// panic: msg` | the program must panic with this message |
 //! | `// error: E0308` | an expected compile error, in order (`fail` only) |
 //! | `// at: 4:19` | position (line:col) of the preceding `error` |
+//! | `// native-only: why` | skip the interpreter (runtime checks only native code has) |
 //!
 //! A directory containing `main.ppl` is one multi-file fixture; its other files are modules.
 //!
@@ -45,6 +46,8 @@ pub struct Directives {
     pub exit: Option<i32>,
     pub panic: Option<String>,
     pub errors: Vec<ExpectedError>,
+    /// `// native-only: reason`: the interpreter run is skipped.
+    pub native_only: bool,
 }
 
 /// Parses the directives in a fixture. Lines that look like directives but are malformed are
@@ -61,7 +64,10 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
         let Some((name, value)) = rest.split_once(':') else {
             continue;
         };
-        if !matches!(name, "expect" | "exit" | "panic" | "error" | "at") {
+        if !matches!(
+            name,
+            "expect" | "exit" | "panic" | "error" | "at" | "native-only"
+        ) {
             continue;
         }
         // `// expect: text` keeps everything after one space; others are trimmed.
@@ -69,6 +75,7 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
         let value = value.trim();
         match name {
             "expect" => d.expect.push(raw.to_string()),
+            "native-only" => d.native_only = true,
             "exit" => match value.parse() {
                 Ok(code) if d.exit.is_none() => d.exit = Some(code),
                 Ok(_) => problems.push(format!("line {n}: more than one `exit` directive")),
@@ -215,16 +222,19 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
         ));
     }
     let mir = checked.mir.as_ref().expect("MIR after a clean check");
-    let mut out: Vec<u8> = Vec::new();
-    let result = ppl_driver::run_interp(mir, &mut out);
-    let err = result.err();
-    let uncaught = err.as_ref().is_some_and(|p| p.uncaught);
-    let interp = Run {
-        stdout: String::from_utf8_lossy(&out).into_owned(),
-        exit: uncaught.then_some(ppl_driver::UNCAUGHT_EXIT_CODE),
-        panic: err.filter(|p| !p.uncaught).map(|p| p.msg),
-    };
-    let mut problems: Vec<String> = compare_run(d, &interp, "interpreter").into_iter().collect();
+    let mut problems: Vec<String> = Vec::new();
+    if !d.native_only {
+        let mut out: Vec<u8> = Vec::new();
+        let result = ppl_driver::run_interp(mir, &mut out);
+        let err = result.err();
+        let uncaught = err.as_ref().is_some_and(|p| p.uncaught);
+        let interp = Run {
+            stdout: String::from_utf8_lossy(&out).into_owned(),
+            exit: uncaught.then_some(ppl_driver::UNCAUGHT_EXIT_CODE),
+            panic: err.filter(|p| !p.uncaught).map(|p| p.msg),
+        };
+        problems.extend(compare_run(d, &interp, "interpreter"));
+    }
     match run_native(checked, false) {
         Ok(native) => problems.extend(compare_run(d, &native, "native")),
         Err(e) => problems.push(format!("[native] {e}")),

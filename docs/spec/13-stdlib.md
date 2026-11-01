@@ -8,7 +8,9 @@ standard exists. Porting TS code should mostly mean adding types. All I/O is **a
 the built-in error classes, `fetch`, `Request`, `Response`, `Headers`, `URL`, `URLSearchParams`,
 `TextEncoder`, `TextDecoder`, `setTimeout`, `setInterval`, `clearTimeout`, `queueMicrotask`,
 `structuredClone`, `crypto` (`getRandomValues`, `randomUUID`, `subtle`), `performance.now()`,
-`AbortController`, `AbortSignal`, `Worker`.
+`AbortController`, `AbortSignal`, `Worker`, `WeakRef`, `WeakMap`, `WeakSet`,
+`FinalizationRegistry`, `Arena` (§9.4) and `parseInt(s): int` (base 10, JavaScript's parsing; a
+string without leading digits panics, since `int` has no `NaN`). Integer arrays have `sum()`.
 
 APIs that mirror a Web standard take that standard's **options object**, as a struct built from
 an object literal (`fetch(url, { method: "POST", headers })`, `postMessage(m, { transfer })`).
