@@ -547,6 +547,11 @@ pub enum Builtin {
     /// (an opaque int).
     RawArenaNew,
     RawArenaFree,
+    /// `__clock_ms()`: a monotonic clock in milliseconds (the event loop's timers).
+    ClockMs,
+    /// `__loop_wait(ms)`: blocks for up to `ms` milliseconds waiting for events (none yet
+    /// but timeouts).
+    LoopWait,
 }
 
 impl Builtin {
@@ -568,6 +573,8 @@ impl Builtin {
             Builtin::ArenaExitRescue => "<arena exit, rescuing the exception>",
             Builtin::RawArenaNew => "__raw_arena_new",
             Builtin::RawArenaFree => "__raw_arena_free",
+            Builtin::ClockMs => "__clock_ms",
+            Builtin::LoopWait => "__loop_wait",
         }
     }
 
@@ -586,6 +593,8 @@ impl Builtin {
             "__ref_id" => Builtin::RefId,
             "__raw_arena_new" => Builtin::RawArenaNew,
             "__raw_arena_free" => Builtin::RawArenaFree,
+            "__clock_ms" => Builtin::ClockMs,
+            "__loop_wait" => Builtin::LoopWait,
             _ => return None,
         })
     }

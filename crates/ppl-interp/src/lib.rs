@@ -216,6 +216,7 @@ pub fn run(program: &Program, out: &mut dyn Write) -> Result<(), Panic> {
         stack: Vec::new(),
         frames: Vec::new(),
         unwinding: Vec::new(),
+        started: std::time::Instant::now(),
     };
     let r = it
         .call(program.entry, Vec::new(), Loc::default())
@@ -238,6 +239,8 @@ struct Interp<'p, 'o> {
     unwinding: Vec<Panic>,
     /// The active functions' locals, innermost last (for `gc.dumpRoots()`).
     frames: Vec<(&'p mir::Function, Rc<Vec<Cell>>)>,
+    /// The start of `__clock_ms()`.
+    started: std::time::Instant,
 }
 
 struct Frame<'p> {
@@ -527,6 +530,17 @@ impl Interp<'_, '_> {
             | Builtin::ArenaExitRescue
             | Builtin::RawArenaFree => Ok(()),
             Builtin::RawArenaNew => return Value::Int(0),
+            Builtin::ClockMs => {
+                return Value::Int(self.started.elapsed().as_millis() as i128);
+            }
+            Builtin::LoopWait => {
+                if let Value::Int(ms) = vals[0]
+                    && ms > 0
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+                }
+                Ok(())
+            }
             Builtin::RefId => {
                 return Value::Int(match &vals[0] {
                     Value::Object(o) => Rc::as_ptr(o) as usize as i128,

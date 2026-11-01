@@ -169,8 +169,8 @@ class FinalizationRegistry<T> {
     removed
   }
 
-  /// Calls the callback for the targets that have been collected.
-  cleanup(): void {
+  /// Calls the callback for the targets that have been collected; whether there were any.
+  cleanup(): bool {
     const due: T[] = []
     const kept: __FinalizationCell<T>[] = []
     for (const c of this.cells) {
@@ -186,21 +186,26 @@ class FinalizationRegistry<T> {
       const f = this.callback
       f(h)
     }
+    due.length > 0
   }
 }
 
 /// The registries' `cleanup`s (created by the first registry).
-let __finalizationRegistries: (() => void)[]? = null
+let __finalizationRegistries: (() => bool)[]? = null
 
-/// Runs after the entry module's top-level code: collects, then runs the finalization
-/// callbacks that are due.
-function __runFinalizers(): void {
+/// When the event loop has nothing left (spec §9.3): collects, then runs the finalization
+/// callbacks that are due; whether any ran (they may have scheduled more work).
+function __runFinalizers(): bool {
   const all = __finalizationRegistries
   if (all == null) {
-    return
+    return false
   }
   __gc_collect()
+  let ran = false
   for (const f of all) {
-    f()
+    if (f()) {
+      ran = true
+    }
   }
+  ran
 }

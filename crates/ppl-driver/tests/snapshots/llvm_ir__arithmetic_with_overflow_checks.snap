@@ -6,6 +6,7 @@ expression: "ir(r#\"\nfunction add(a: i32, b: i32): i32 { a + b }\nfunction half
 source_filename = "test.ppl"
 
 @ppl.global.__finalizationRegistries = internal global ptr null
+@ppl.global.__loop = internal global ptr null
 @ppl.classinfo.Error = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.__MapEntry = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Map = internal constant { ptr, [0 x ptr] } zeroinitializer
@@ -17,13 +18,16 @@ source_filename = "test.ppl"
 @ppl.classinfo.WeakSet = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.__FinalizationCell = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.FinalizationRegistry = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.__Timer = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.__Loop = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Arena = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl_gc_requested = external global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
 @ppl.cstr.7 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.cstr.8 = private unnamed_addr constant [16 x i8] c"division by zero"
 @ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.gc_globals = private constant { i64, [1 x { ptr, ptr, ptr }] } { i64 1, [1 x { ptr, ptr, ptr }] [{ ptr, ptr, ptr } { ptr null, ptr @ppl.layout, ptr @ppl.global.__finalizationRegistries }] }
+@ppl.layout.9 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.gc_globals = private constant { i64, [2 x { ptr, ptr, ptr }] } { i64 2, [2 x { ptr, ptr, ptr }] [{ ptr, ptr, ptr } { ptr null, ptr @ppl.layout, ptr @ppl.global.__finalizationRegistries }, { ptr, ptr, ptr } { ptr null, ptr @ppl.layout.9, ptr @ppl.global.__loop }] }
 
 define internal i32 @ppl.add(i32 %0, i32 %1) {
 start:
@@ -129,6 +133,7 @@ start:
 
 bb0:                                              ; preds = %gc.continue
   store ptr null, ptr @ppl.global.__finalizationRegistries, align 8
+  store ptr null, ptr @ppl.global.__loop, align 8
   br label %bb1
 
 bb1:                                              ; preds = %bb0

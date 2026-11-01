@@ -170,6 +170,10 @@ const PRELUDE: &[(&str, &str)] = &[
         include_str!("../../../stdlib/core/weak.ppl"),
     ),
     (
+        "<core>/event.ppl",
+        include_str!("../../../stdlib/core/event.ppl"),
+    ),
+    (
         "<core>/arena.ppl",
         include_str!("../../../stdlib/core/arena.ppl"),
     ),

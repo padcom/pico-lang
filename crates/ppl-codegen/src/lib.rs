@@ -639,6 +639,8 @@ impl<'ctx> Gen<'ctx, '_> {
                 void.fn_type(&[ptr.into(), i64t.into(), i32t.into(), i32t.into()], false)
             }
             "ppl_raw_arena_new" => i64t.fn_type(&[i64t.into()], false),
+            "ppl_clock_ms" => i64t.fn_type(&[], false),
+            "ppl_loop_wait" => void.fn_type(&[i64t.into()], false),
             "ppl_raw_arena_free" => void.fn_type(&[i64t.into()], false),
             "ppl_raw_arena_alloc" => ptr.fn_type(&[i64t.into(), i64t.into(), i64t.into()], false),
             "ppl_instance_of" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
@@ -2854,14 +2856,24 @@ impl<'ctx> Gen<'ctx, '_> {
                             .build_call(self.rt("ppl_arena_exit_rescue"), &args, "")
                             .unwrap();
                     }
-                    Callee::Builtin(b @ (Builtin::RawArenaNew | Builtin::RawArenaFree)) => {
-                        let h = self.operand(fx, &args[0]).expect("an int");
-                        let name = if *b == Builtin::RawArenaNew {
-                            "ppl_raw_arena_new"
-                        } else {
-                            "ppl_raw_arena_free"
+                    Callee::Builtin(
+                        b @ (Builtin::RawArenaNew
+                        | Builtin::RawArenaFree
+                        | Builtin::ClockMs
+                        | Builtin::LoopWait),
+                    ) => {
+                        let name = match b {
+                            Builtin::RawArenaNew => "ppl_raw_arena_new",
+                            Builtin::RawArenaFree => "ppl_raw_arena_free",
+                            Builtin::ClockMs => "ppl_clock_ms",
+                            _ => "ppl_loop_wait",
                         };
-                        let r = self.b.build_call(self.rt(name), &[h.into()], "").unwrap();
+                        let vals: Vec<BasicMetadataValueEnum> = args
+                            .iter()
+                            .filter_map(|a| self.operand(fx, a))
+                            .map(Into::into)
+                            .collect();
+                        let r = self.b.build_call(self.rt(name), &vals, "").unwrap();
                         if let (Some(d), inkwell::values::ValueKind::Basic(v)) =
                             (dest, r.try_as_basic_value())
                         {

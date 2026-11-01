@@ -174,24 +174,30 @@ pub fn lower(
     (mir, cx.diags)
 }
 
-/// Without a live `FinalizationRegistry` there are no finalizers to run at exit: the entry's
-/// call of `__runFinalizers` becomes a jump (so it and what it uses aren't compiled).
+/// Without timers, microtasks or a `FinalizationRegistry` there's no loop to run at exit: the
+/// entry's call of `__runEventLoop` becomes a jump (so it and what it uses aren't compiled).
 fn drop_unused_exit_hook(p: &mut mir::Program) {
     let Some(hook) = p
         .fns
         .iter()
-        .position(|f| f.library && f.name == "__runFinalizers")
+        .position(|f| f.library && f.name == "__runEventLoop")
         .map(|i| FnId(i as u32))
     else {
         return;
     };
     // (Generic classes' functions are instantiated per type: any live one of the class's.)
     let live = mir::live_functions(p);
-    let used = p
-        .fns
-        .iter()
-        .zip(&live)
-        .any(|(f, l)| *l && f.library && f.name.starts_with("FinalizationRegistry"));
+    let used = p.fns.iter().zip(&live).any(|(f, l)| {
+        *l && f.library
+            && [
+                "FinalizationRegistry",
+                "setTimeout",
+                "setInterval",
+                "queueMicrotask",
+            ]
+            .iter()
+            .any(|n| f.name.starts_with(n))
+    });
     if used {
         return;
     }
@@ -4324,15 +4330,15 @@ impl FnBuilder<'_, '_> {
     }
 
     /// Calls function `id` with already-evaluated arguments.
-    /// The end of the entry module's code: the core library's `__runFinalizers` (the due
-    /// finalization callbacks, spec §9.3, until there is an event loop).
+    /// The end of the entry module's code: the core library's `__runEventLoop` (timers,
+    /// microtasks and promises, then the due finalization callbacks; spec §10.1, §9.3).
     fn exit_hooks(&mut self, span: Span) {
         let hook = self
             .cx
             .program
             .fns
             .iter()
-            .position(|f| f.name == "__runFinalizers" && f.span.file != self.cx.file_id);
+            .position(|f| f.name == "__runEventLoop" && f.span.file != self.cx.file_id);
         if let Some(i) = hook {
             self.call_fn_value(FnId(i as u32), Vec::new(), Ty::Void, span);
         }
@@ -4590,11 +4596,16 @@ impl FnBuilder<'_, '_> {
                 | Builtin::GcStat
                 | Builtin::RefId
                 | Builtin::RawArenaNew
-                | Builtin::RawArenaFree),
+                | Builtin::RawArenaFree
+                | Builtin::ClockMs
+                | Builtin::LoopWait),
             ) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
-                let dest = matches!(b, Builtin::GcStat | Builtin::RefId | Builtin::RawArenaNew)
-                    .then(|| Place::local(self.temp(Ty::INT)));
+                let dest = matches!(
+                    b,
+                    Builtin::GcStat | Builtin::RefId | Builtin::RawArenaNew | Builtin::ClockMs
+                )
+                .then(|| Place::local(self.temp(Ty::INT)));
                 let next = self.new_block();
                 self.terminate(Terminator::Call {
                     callee: Callee::Builtin(*b),

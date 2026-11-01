@@ -1,0 +1,43 @@
+// The event loop (spec §10.1): synchronous code first, then microtasks (in order, including
+// ones queued by microtasks), then timers by due time (ties in creation order), with the microtasks each one queues
+// right after it; intervals
+// repeat until cleared; the program ends when nothing is pending.
+// expect: sync 1
+// expect: sync 2
+// expect: micro 1
+// expect: micro 2
+// expect: micro from micro
+// expect: timeout 0 a
+// expect: micro from timeout
+// expect: timeout 0 b
+// expect: tick 1
+// expect: timeout 30
+// expect: tick 2
+// expect: tick 3
+// expect: cleared
+// expect: timeout 150
+let ticks = 0
+const never = setTimeout(() => println("cancelled timer ran"), 40)
+setTimeout(() => println("timeout 150"), 150)
+setTimeout(() => println("timeout 30"), 30)
+setTimeout(() => {
+  println("timeout 0 a")
+  queueMicrotask(() => println("micro from timeout"))
+})
+setTimeout(() => println("timeout 0 b"), 0)
+queueMicrotask(() => {
+  println("micro 1")
+  queueMicrotask(() => println("micro from micro"))
+})
+queueMicrotask(() => println("micro 2"))
+const iv: int = setInterval(() => {
+  ticks += 1
+  println(`tick ${ticks}`)
+  if (ticks == 3) {
+    clearInterval(iv)
+    println("cleared")
+  }
+}, 20)
+clearTimeout(never)
+println("sync 1")
+println("sync 2")

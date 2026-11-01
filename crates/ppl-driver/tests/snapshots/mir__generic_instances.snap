@@ -2,26 +2,28 @@
 source: crates/ppl-driver/tests/mir.rs
 expression: "mir(r#\"\nfunction max<T extends Comparable<T>>(a: T, b: T): T { if (a.compareTo(b) >= 0) a else b }\nconst i = max(1, 2)\nconst s = max(\"a\", \"b\")\nconst again = max(3, 4)\n\"#)"
 ---
-global @g0: () => void[]? // __finalizationRegistries
-global @g1: i64 // i
-global @g2: string // s
-global @g3: i64 // again
+global @g0: () => bool[]? // __finalizationRegistries
+global @g1: __Loop? // __loop
+global @g2: i64 // i
+global @g3: string // s
+global @g4: i64 // again
 
 fn <main>() -> void {
     let _0: i64
     let _1: string
     let _2: i64
   bb0:
-    @g0 = const null<() => void[]?>
+    @g0 = const null<() => bool[]?>
+    @g1 = const null<__Loop?>
     _0 = call max<i64>(const 1_i64, const 2_i64) -> bb1
   bb1:
-    @g1 = _0
+    @g2 = _0
     _1 = call max<string>(const "a", const "b") -> bb2
   bb2:
-    @g2 = _1
+    @g3 = _1
     _2 = call max<i64>(const 3_i64, const 4_i64) -> bb3
   bb3:
-    @g3 = _2
+    @g4 = _2
     goto bb4
   bb4:
     return

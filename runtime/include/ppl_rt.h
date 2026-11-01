@@ -110,6 +110,11 @@ int64_t ppl_raw_arena_new(int64_t capacity);
 void *ppl_raw_arena_alloc(int64_t arena, int64_t bytes, int64_t align);
 void ppl_raw_arena_free(int64_t arena);
 
+/* The event loop (spec §10.1): a monotonic clock in milliseconds, and waiting for up to `ms`
+ * milliseconds for events (kqueue on macOS, epoll on Linux; only timeouts so far). */
+int64_t ppl_clock_ms(void);
+void ppl_loop_wait(int64_t ms);
+
 /* `std/gc`. */
 void ppl_gc_collect(void);
 void ppl_gc_collect_young(void);

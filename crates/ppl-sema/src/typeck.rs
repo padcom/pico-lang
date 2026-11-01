@@ -5917,12 +5917,13 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[1]), Ty::INT)
             }
-            Builtin::RawArenaFree => {
+            Builtin::RawArenaFree | Builtin::LoopWait => {
                 if let Some(c) = args.first() {
                     self.check(c, &Expect::new(Ty::INT));
                 }
                 (arity(&[1]), Ty::Void)
             }
+            Builtin::ClockMs => (arity(&[0]), Ty::INT),
             Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
                 (arity(&[0]), Ty::Void)
             }
@@ -5954,7 +5955,9 @@ impl<'p> Checker<'p> {
                 | Builtin::GcStat
                 | Builtin::RefId
                 | Builtin::RawArenaNew
-                | Builtin::RawArenaFree => "1 argument",
+                | Builtin::RawArenaFree
+                | Builtin::LoopWait => "1 argument",
+                Builtin::ClockMs => "no arguments",
                 Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
                     "no arguments"
                 }

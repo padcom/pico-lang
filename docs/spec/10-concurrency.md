@@ -13,6 +13,13 @@ setTimeout(() => println("later"), 100)
 ```
 On native targets the loop uses epoll (Linux), kqueue (macOS) and IOCP (Windows). On wasm it uses
 the host's loop (browser) or WASI poll.
+- The loop starts once the entry module's top-level code has finished. Each turn runs all
+  microtasks (`queueMicrotask`, promise reactions; including ones they queue), then one timer:
+  the earliest due, ties in creation order, so the microtasks a timer queues run before the
+  next timer, as in browsers and Node. `setTimeout(f, ms = 0)` / `setInterval(f, ms)` return an
+  `int` id for `clearTimeout` / `clearInterval`; an interval is rescheduled `ms` after its
+  callback starts. When nothing is pending, the due finalization callbacks (§9.3) run, and the
+  loop continues if they scheduled more.
 
 ## 10.2 Workers (threads)
 Threads are **strictly isolated**: each worker has its own heap and its own module instances,

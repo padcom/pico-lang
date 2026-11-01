@@ -1,0 +1,157 @@
+// The event loop (spec §10.1), as in JavaScript: microtasks (`queueMicrotask`, promise
+// reactions) run before the next timer; timers run in order of due time, then of creation.
+// The loop runs after the entry module's top-level code and ends when nothing is pending.
+
+class __Timer {
+  public id: int
+  public due: int
+  /// Ties between timers due at the same time go to the older one.
+  public seq: int
+  public callback: () => void
+  /// `setInterval`'s period, or -1.
+  public period: int
+
+  constructor(id: int, due: int, seq: int, callback: () => void, period: int) {
+    this.id = id
+    this.due = due
+    this.seq = seq
+    this.callback = callback
+    this.period = period
+  }
+}
+
+class __Loop {
+  public timers: __Timer[] = []
+  public microtasks: (() => void)[] = []
+  /// The next microtask to run (the queue is compacted when it's drained).
+  public head: int = 0
+  public nextId: int = 1
+  public seq: int = 0
+
+  constructor() {}
+
+  public addTimer(f: () => void, ms: int, period: int): int {
+    const id = this.nextId
+    this.nextId += 1
+    this.seq += 1
+    const delay = if (ms > 0) ms else 0
+    this.timers.push(new __Timer(id, __clock_ms() + delay, this.seq, f, period))
+    id
+  }
+
+  public clear(id: int): void {
+    const kept: __Timer[] = []
+    for (const t of this.timers) {
+      if (t.id != id) {
+        kept.push(t)
+      }
+    }
+    this.timers = kept
+  }
+
+  /// Runs microtasks until none are left (including ones they queue).
+  public drain(): void {
+    while (this.head < this.microtasks.length) {
+      const f = this.microtasks[this.head]
+      this.head += 1
+      f()
+    }
+    this.microtasks = []
+    this.head = 0
+  }
+
+  /// The timer to run next (the earliest due, then the oldest), or -1.
+  public earliest(): int {
+    let best = -1
+    let i = 0
+    while (i < this.timers.length) {
+      const t = this.timers[i]
+      if (best < 0) {
+        best = i
+      } else {
+        const b = this.timers[best]
+        if (t.due < b.due || (t.due == b.due && t.seq < b.seq)) {
+          best = i
+        }
+      }
+      i += 1
+    }
+    best
+  }
+
+  /// One turn: microtasks, then the next timer (waiting for it). False when nothing is
+  /// pending.
+  public turn(): bool {
+    this.drain()
+    const i = this.earliest()
+    if (i < 0) {
+      return false
+    }
+    const t = this.timers[i]
+    const now = __clock_ms()
+    if (t.due > now) {
+      __loop_wait(t.due - now)
+    }
+    if (t.period >= 0) {
+      this.seq += 1
+      t.seq = this.seq
+      t.due = __clock_ms() + t.period
+    } else {
+      this.clear(t.id)
+    }
+    const f = t.callback
+    f()
+    true
+  }
+}
+
+/// Created by the first timer or microtask.
+let __loop: __Loop? = null
+
+function __theLoop(): __Loop {
+  const l = __loop
+  if (l != null) {
+    return l
+  }
+  const made = new __Loop()
+  __loop = made
+  made
+}
+
+/// Calls `f` after `ms` milliseconds (at the earliest); the id cancels it.
+function setTimeout(f: () => void, ms: int = 0): int {
+  __theLoop().addTimer(f, ms, -1)
+}
+
+/// Calls `f` every `ms` milliseconds until cleared.
+function setInterval(f: () => void, ms: int = 0): int {
+  const period = if (ms > 0) ms else 1
+  __theLoop().addTimer(f, period, period)
+}
+
+function clearTimeout(id: int): void {
+  __theLoop().clear(id)
+}
+
+function clearInterval(id: int): void {
+  __theLoop().clear(id)
+}
+
+/// Runs `f` once the current task (and the microtasks before it) has finished.
+function queueMicrotask(f: () => void): void {
+  __theLoop().microtasks.push(f)
+}
+
+/// Runs after the entry module's top-level code: the event loop until nothing is pending,
+/// then the due finalization callbacks (which may schedule more work).
+function __runEventLoop(): void {
+  loop {
+    const l = __loop
+    if (l != null) {
+      while (l.turn()) {}
+    }
+    if (!__runFinalizers()) {
+      break
+    }
+  }
+}

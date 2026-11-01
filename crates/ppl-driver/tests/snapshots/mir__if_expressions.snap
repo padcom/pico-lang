@@ -2,7 +2,8 @@
 source: crates/ppl-driver/tests/mir.rs
 expression: "mir(r#\"\nfunction grade(score: i32): i32 {\n  const g: i32 = if (score > 90) 1 else if (score > 75) 2 else 3\n  const small: i64 = if (score < 0) score else 0\n  g\n}\nfunction both(a: bool, b: bool): bool { a && !b || b }\n\"#)"
 ---
-global @g0: () => void[]? // __finalizationRegistries
+global @g0: () => bool[]? // __finalizationRegistries
+global @g1: __Loop? // __loop
 
 fn grade(_0: i32) -> i32 {
     let _1: i32 // g
@@ -75,7 +76,8 @@ fn both(_0: bool, _1: bool) -> bool {
 
 fn <main>() -> void {
   bb0:
-    @g0 = const null<() => void[]?>
+    @g0 = const null<() => bool[]?>
+    @g1 = const null<__Loop?>
     goto bb1
   bb1:
     return
