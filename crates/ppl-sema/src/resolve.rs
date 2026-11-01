@@ -38,6 +38,7 @@ pub fn resolve(module: &ast::Module, file: FileId) -> (Program, Vec<Diagnostic>)
         resolving_aliases: Vec::new(),
         unions: Vec::new(),
         cur_fn: FnId(0),
+        outer_fns: Vec::new(),
     };
     let program = r.program(module);
     (program, r.diags)
@@ -72,6 +73,11 @@ struct FnState {
     owner: Option<StructId>,
     /// A generic function's type parameters, by name.
     type_params: Vec<(String, Ty)>,
+    /// A closure: may see the enclosing functions' locals (`captures` records them).
+    is_closure: bool,
+    /// An arrow function (sees the enclosing method's `this`).
+    arrow: bool,
+    captures: Vec<Capture>,
 }
 
 struct Resolver {
@@ -103,6 +109,8 @@ struct Resolver {
     unions: Vec<(Vec<Ty>, EnumId)>,
     /// The function being resolved (owner of its type parameters).
     cur_fn: FnId,
+    /// The states of the functions enclosing the closure being resolved, outermost first.
+    outer_fns: Vec<FnState>,
 }
 
 enum Found {
@@ -277,6 +285,7 @@ impl Resolver {
                             mutable: *kind == ast::BindingKind::Let,
                             ty: None,
                             span: name.span,
+                            boxed: false,
                         });
                         self.top_globals.insert(name.name.clone(), id);
                     }
@@ -368,6 +377,8 @@ impl Resolver {
 
         // Pass 3: the entry body (top-level statements in order).
         let entry_id = FnId(self.fns.len() as u32);
+        self.fns.push(None);
+        self.cur_fn = entry_id;
         self.f = FnState {
             in_entry: true,
             ..Default::default()
@@ -391,7 +402,7 @@ impl Resolver {
         first.append(&mut block.stmts);
         block.stmts = first;
         let locals = std::mem::take(&mut self.f.locals);
-        self.fns.push(Some(Function {
+        self.fns[entry_id.0 as usize] = Some(Function {
             name: "<main>".into(),
             name_span: module.span.shrink_to_lo(),
             params: Vec::new(),
@@ -404,7 +415,8 @@ impl Resolver {
             this: None,
             owner: None,
             generics: Vec::new(),
-        }));
+            closure: None,
+        });
 
         Program {
             file: self.file,
@@ -764,6 +776,7 @@ impl Resolver {
                 mutable: false,
                 ty: Some(ty),
                 span: name.span,
+                boxed: false,
             });
             self.f.this = Some((id, sid));
         }
@@ -839,6 +852,7 @@ impl Resolver {
             this: self.f.this,
             owner,
             generics,
+            closure: None,
         }
     }
 
@@ -1433,6 +1447,7 @@ impl Resolver {
                             mutable: !m.mods.readonly,
                             ty: t,
                             span: name.span,
+                            boxed: false,
                         });
                         // Initialized before any top-level code runs.
                         self.globals_declared.insert(g);
@@ -1681,6 +1696,7 @@ impl Resolver {
             mutable: false,
             ty: Some(this_ty),
             span,
+            boxed: false,
         });
         self.f.this = Some((this, sid));
         let mut params = Vec::new();
@@ -1844,6 +1860,7 @@ impl Resolver {
             this: self.f.this,
             owner: Some(sid),
             generics: Vec::new(),
+            closure: None,
         }
     }
 
@@ -1942,6 +1959,7 @@ impl Resolver {
             this: None,
             owner: Some(sid),
             generics: Vec::new(),
+            closure: None,
         }
     }
 
@@ -1958,6 +1976,7 @@ impl Resolver {
             mutable,
             ty,
             span: name.span,
+            boxed: false,
         });
         let scope = self.f.scopes.last_mut().expect("a scope");
         scope.later.remove(&name.name);
@@ -2067,6 +2086,7 @@ impl Resolver {
             mutable: true,
             ty: None,
             span,
+            boxed: false,
         });
         id
     }
@@ -2080,6 +2100,13 @@ impl Resolver {
                 self.use_before_decl(name, span, decl);
                 return None;
             }
+        }
+        // A closure sees the locals of the functions around it (capturing them).
+        if let Some(id) = self.capture(name) {
+            return Some(Found::Var(Var::Local(id)));
+        }
+        if self.f.this.is_none() && self.f.arrow {
+            self.capture_this();
         }
         // Inside a method, `name` means `this.name` unless a local shadows it.
         if let Some((_, sid)) = self.f.this {
@@ -2183,6 +2210,207 @@ impl Resolver {
         let var = self.resolve_var(name, span)?;
         self.check_mutable(var, span);
         Some(Target::Var(var))
+    }
+
+    /// The function state `level` steps out (0 = the current one).
+    fn level(&mut self, level: usize) -> &mut FnState {
+        if level == 0 {
+            &mut self.f
+        } else {
+            let n = self.outer_fns.len();
+            &mut self.outer_fns[n - level]
+        }
+    }
+
+    /// Finds `name` among the locals of enclosing functions and captures it into every
+    /// closure in between: a `const` by value, a `let` by reference (boxing the variable).
+    fn capture(&mut self, name: &str) -> Option<LocalId> {
+        if !self.f.is_closure {
+            return None;
+        }
+        let depth = self.outer_fns.len();
+        let mut found = None;
+        for lvl in 1..=depth {
+            let st = self.level(lvl);
+            if let Some(id) = st
+                .scopes
+                .iter()
+                .rev()
+                .find_map(|sc| sc.names.get(name).copied())
+            {
+                found = Some((lvl, id));
+                break;
+            }
+            // Only closures see outward; a named function's state ends the search.
+            if !st.is_closure {
+                break;
+            }
+            if lvl == depth {
+                break;
+            }
+        }
+        let (lvl, mut id) = found?;
+        // Closures between the declaring function and here can only see outward if they are
+        // closures themselves (checked above for the levels searched).
+        for l in (0..lvl).rev() {
+            let outer_binding = self.level(l + 1).locals[id.0 as usize].clone();
+            let by_ref = outer_binding.mutable || outer_binding.boxed;
+            if by_ref {
+                self.level(l + 1).locals[id.0 as usize].boxed = true;
+            }
+            let st = self.level(l);
+            let inner = LocalId(st.locals.len() as u32);
+            st.locals.push(Binding {
+                name: name.to_string(),
+                mutable: outer_binding.mutable,
+                ty: outer_binding.ty.clone(),
+                span: outer_binding.span,
+                boxed: by_ref,
+            });
+            st.captures.push(Capture {
+                outer: id,
+                inner,
+                by_ref,
+            });
+            if let Some(top) = st.scopes.first_mut() {
+                top.names.insert(name.to_string(), inner);
+            }
+            id = inner;
+        }
+        Some(id)
+    }
+
+    /// `this` here: the method's, or (in an arrow) the enclosing method's, captured.
+    fn this_here(&mut self) -> Option<(LocalId, StructId)> {
+        self.capture_this();
+        self.f.this
+    }
+
+    /// An arrow function uses `this` (and implicit members) of the method around it.
+    fn capture_this(&mut self) {
+        if self.f.this.is_some() || !self.f.arrow {
+            return;
+        }
+        let depth = self.outer_fns.len();
+        let mut found = None;
+        for lvl in 1..=depth {
+            let st = self.level(lvl);
+            if let Some(t) = st.this {
+                found = Some((lvl, t));
+                break;
+            }
+            if !(st.is_closure && st.arrow) {
+                return;
+            }
+        }
+        let Some((lvl, (mut id, sid))) = found else {
+            return;
+        };
+        for l in (0..lvl).rev() {
+            let outer_binding = self.level(l + 1).locals[id.0 as usize].clone();
+            let st = self.level(l);
+            let inner = LocalId(st.locals.len() as u32);
+            st.locals.push(outer_binding);
+            st.captures.push(Capture {
+                outer: id,
+                inner,
+                by_ref: false,
+            });
+            st.this = Some((inner, sid));
+            st.owner = st.owner.or(Some(sid));
+            id = inner;
+        }
+    }
+
+    /// An arrow function or function expression: lifted into its own function that receives
+    /// the captured variables.
+    fn closure(&mut self, f: &ast::FnDecl, span: Span) -> ExprKind {
+        let id = FnId(self.fns.len() as u32);
+        self.fns.push(None);
+        let parent = self.cur_fn;
+        let outer = std::mem::take(&mut self.f);
+        let owner = outer.owner;
+        let in_entry = outer.in_entry;
+        self.outer_fns.push(outer);
+        self.f = FnState {
+            is_closure: true,
+            arrow: f.flags.arrow,
+            owner: if f.flags.arrow { owner } else { None },
+            ..Default::default()
+        };
+        let _ = in_entry;
+        // Type parameters of the functions around it stay visible.
+        let tps: Vec<(String, Ty)> = self
+            .outer_fns
+            .iter()
+            .flat_map(|o| o.type_params.clone())
+            .collect();
+        self.f.type_params = tps;
+        self.f.scopes.push(Scope::default());
+        if f.flags.is_async || f.flags.generator {
+            self.not_implemented(span, "async and generator closures");
+        }
+        if let Some(g) = f.generics.first() {
+            self.not_implemented(g.span, "generic closures");
+        }
+        let mut params = Vec::new();
+        for p in &f.params {
+            let ast::PatternKind::Ident(pname) = &p.pat.kind else {
+                self.not_implemented(p.pat.span, "destructured parameters");
+                continue;
+            };
+            if p.rest || p.optional || p.default.is_some() || p.comptime {
+                self.not_implemented(p.span, "optional, default, rest and comptime parameters");
+            }
+            // An arrow's parameter types may come from the expected function type.
+            let ty = p.ty.as_ref().map(|t| self.resolve_type(t));
+            params.push(self.declare_local(pname, true, ty));
+        }
+        let ret = f.ret.as_ref().map(|t| self.resolve_type(t));
+        let saved_fn = self.cur_fn;
+        self.cur_fn = id;
+        let body = match &f.body {
+            Some(ast::FnBody::Block(b)) => self.block(b),
+            Some(ast::FnBody::Expr(e)) => {
+                let tail = self.lower_expr(e);
+                Block {
+                    stmts: Vec::new(),
+                    tail: Some(Box::new(tail)),
+                    span: e.span,
+                }
+            }
+            None => Block {
+                stmts: Vec::new(),
+                tail: None,
+                span,
+            },
+        };
+        self.cur_fn = saved_fn;
+        let st = std::mem::take(&mut self.f);
+        self.f = self.outer_fns.pop().expect("pushed above");
+        let name = match &f.name {
+            Some(n) => n.name.clone(),
+            None => format!("<closure@{}>", id.0),
+        };
+        self.fns[id.0 as usize] = Some(Function {
+            name,
+            name_span: f.name.as_ref().map_or(span.shrink_to_lo(), |n| n.span),
+            params,
+            ret,
+            ret_span: f.ret.as_ref().map(|t| t.span),
+            locals: st.locals,
+            body,
+            span,
+            is_entry: false,
+            this: st.this,
+            owner: st.owner,
+            generics: Vec::new(),
+            closure: Some(ClosureInfo {
+                parent,
+                captures: st.captures,
+            }),
+        });
+        ExprKind::Closure(id)
     }
 
     /// Whether `name` resolves to an implicit member (without reporting anything).
@@ -2312,6 +2540,29 @@ impl Resolver {
                 }
             },
             ast::TypeKind::Union(members) => self.union_type(members, None, t.span),
+            ast::TypeKind::Function {
+                params,
+                ret,
+                throws,
+                extern_abi,
+            } => {
+                if let Some(th) = throws {
+                    self.not_implemented(th.span, "`throws` in function types");
+                }
+                if extern_abi.is_some() {
+                    self.not_implemented(t.span, "`extern` function types");
+                }
+                for p in params {
+                    if p.optional || p.rest {
+                        self.not_implemented(
+                            t.span,
+                            "optional and rest parameters in function types",
+                        );
+                    }
+                }
+                let ps: Vec<Ty> = params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                Ty::Fn(ps.into(), Box::new(self.resolve_type(ret)))
+            }
             ast::TypeKind::Object(_) => {
                 self.not_implemented(t.span, "object types outside discriminated unions");
                 Ty::Error
@@ -2680,6 +2931,7 @@ impl Resolver {
                         body: Box::new(body),
                         update: None,
                         test_first: true,
+                        rebox: Vec::new(),
                     },
                     s.span,
                 );
@@ -2697,6 +2949,7 @@ impl Resolver {
                         body: Box::new(body),
                         update: None,
                         test_first: false,
+                        rebox: Vec::new(),
                     },
                     s.span,
                 );
@@ -2773,14 +3026,27 @@ impl Resolver {
                 Some(c) => r.lower_expr(c),
                 None => r.expr(ExprKind::Bool(true), span),
             };
+            let first_local = r.f.locals.len();
+            let _ = first_local;
             let update = update.map(|u| Box::new(r.lower_expr(u)));
             let body = r.loop_body(body, LoopKind::While);
+            // `let` variables of the init that a closure captured get a box per iteration.
+            let rebox: Vec<LocalId> = stmts
+                .iter()
+                .filter_map(|st| match st {
+                    Stmt::Let {
+                        var: Var::Local(l), ..
+                    } if r.f.locals[l.0 as usize].boxed => Some(*l),
+                    _ => None,
+                })
+                .collect();
             let w = r.expr(
                 ExprKind::While {
                     cond: Box::new(cond),
                     body: Box::new(body),
                     update,
                     test_first: true,
+                    rebox,
                 },
                 span,
             );
@@ -2885,7 +3151,8 @@ impl Resolver {
                 }
                 None => ExprKind::Error,
             },
-            A::This => match self.f.this {
+            A::Function(decl) => self.closure(decl, span),
+            A::This => match self.this_here() {
                 Some((this, _)) => ExprKind::Var(Var::Local(this)),
                 None => {
                     self.error(
@@ -3288,7 +3555,6 @@ impl Resolver {
                 let what = match other {
                     A::Super => "`super` outside a method call",
                     A::Object { .. } => "object and struct literals",
-                    A::Function(_) => "closures",
                     A::Try { .. } | A::TryOpt(_) | A::TryBang(_) | A::Throw(_) => "exceptions",
                     A::Await(_) => "`await`",
                     A::Yield { .. } => "generators",

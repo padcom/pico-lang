@@ -34,6 +34,8 @@ pub enum Value {
     Object(Rc<Obj>),
     /// An interface value: the object (or a reference to a boxed struct) and its itable.
     Iface(Rc<(Value, u32)>),
+    /// A function value: the function and its environment (a reference to the captures).
+    Closure(Rc<(FnId, Value)>),
     /// A growable array: shared, so cloning copies the reference.
     Array(Rc<RefCell<Vec<Value>>>),
     /// A reference into a variable: the cell and the path inside it.
@@ -268,6 +270,15 @@ impl Interp<'_, '_> {
                     let vals: Vec<Value> = args.iter().map(|a| self.operand(frame, a)).collect();
                     let r = match callee {
                         Callee::Fn(id) => self.call(*id, vals, *loc)?,
+                        Callee::Indirect => {
+                            let Value::Closure(c) = &vals[0] else {
+                                unreachable!("call of {:?}", vals[0])
+                            };
+                            let (f, env) = (c.0, c.1.clone());
+                            let mut args = vec![env];
+                            args.extend(vals[1..].iter().cloned());
+                            self.call(f, args, *loc)?
+                        }
                         Callee::Iface { slot, .. } => {
                             let Value::Iface(iv) = &vals[0] else {
                                 unreachable!("interface call on {:?}", vals[0])
@@ -434,6 +445,18 @@ impl Interp<'_, '_> {
                     other => Value::Ref(cell(other), Rc::from(Vec::new())),
                 };
                 Ok(Value::Iface(Rc::new((data, *it))))
+            }
+            Rvalue::Closure(f, ops) => {
+                let caps: Vec<Value> = ops.iter().map(|o| self.operand(frame, o)).collect();
+                let env = Value::Ref(cell(Value::Struct(caps)), Rc::from(Vec::new()));
+                Ok(Value::Closure(Rc::new((*f, env))))
+            }
+            Rvalue::BoxNew(_, o) => {
+                let v = match o {
+                    Operand::Const(Const::Void) => Value::Uninit,
+                    o => self.operand(frame, o),
+                };
+                Ok(Value::Ref(cell(v), Rc::from(Vec::new())))
             }
             Rvalue::IfaceData(o) => match self.operand(frame, o) {
                 Value::Iface(iv) => Ok(iv.0.clone()),
@@ -743,6 +766,7 @@ pub fn display(v: &Value, t: &Ty) -> String {
             | Value::Enum(..)
             | Value::Object(_)
             | Value::Iface(_)
+            | Value::Closure(_)
             | Value::Array(_)
             | Value::Ref(..)
             | Value::Void
@@ -942,6 +966,7 @@ pub fn format_spec(v: &Value, t: &Ty, spec: &FormatSpec) -> String {
         | Value::Enum(..)
         | Value::Object(_)
         | Value::Iface(_)
+        | Value::Closure(_)
         | Value::Array(_)
         | Value::Ref(..)
         | Value::Void

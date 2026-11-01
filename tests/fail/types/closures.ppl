@@ -1,0 +1,14 @@
+// error: E0207
+// at: 9:12
+// error: E0308
+// at: 11:31
+// error: E0303
+// at: 12:11
+// error: E0302
+// at: 14:1
+const f = (x) => x
+const n = 5
+const g: (x: i64) => string = (x: i64) => x
+const h = n(1)
+const k: (a: i64) => i64 = (a: i64) => a
+k(1, 2)

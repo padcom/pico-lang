@@ -12,7 +12,7 @@ use ppl_sema::hir::{self, Builtin, Expr, ExprKind, FnId, Stmt, Var};
 use ppl_sema::ty::StructId;
 use ppl_sema::{IntTy, Ty, Types};
 use ppl_syntax::ast;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub fn lower(
     program: &hir::Program,
@@ -27,18 +27,16 @@ pub fn lower(
         reported: HashSet::new(),
         itables: Vec::new(),
         instances: Vec::new(),
+        cur_subst: Vec::new(),
+        fn_values: Vec::new(),
     };
     // Generic functions get a placeholder; their instances are lowered on demand.
     let mut fns: Vec<mir::Function> = (0..program.fns.len())
         .map(|i| {
             let id = FnId(i as u32);
-            let f = program.func(id);
             // Methods and constructors of generic types are generic too (in the type's
             // parameters), but static initializers aren't.
-            let generic_owner = f.this.is_some()
-                && f.owner
-                    .is_some_and(|s| !program.struct_def(s).generics.is_empty());
-            if f.generics.is_empty() && !generic_owner {
+            if !in_generic_context(program, id) {
                 cx.function(id)
             } else {
                 mir::Function {
@@ -63,6 +61,7 @@ pub fn lower(
             t = t.substituted(*owner, args);
         }
         cx.types = std::borrow::Cow::Owned(t);
+        cx.cur_subst = subst.clone();
         let mut f = cx.function(id);
         // `max<i64>`, `Stack<string>.push`, `Box<i64>.map<string>`.
         let hir = program.func(id);
@@ -87,6 +86,8 @@ pub fn lower(
         next += 1;
     }
     cx.types = std::borrow::Cow::Borrowed(types);
+    cx.cur_subst = Vec::new();
+    cx.build_fn_values(&mut fns);
     let itables = cx.build_itables(&mut fns);
     let globals = program
         .globals
@@ -205,6 +206,25 @@ fn erase_program(p: &mut mir::Program) {
     }
 }
 
+/// Whether a function only exists in instances: it's generic, a method or constructor of a
+/// generic type, or a closure inside such code.
+fn in_generic_context(program: &hir::Program, id: FnId) -> bool {
+    let f = program.func(id);
+    if !f.generics.is_empty() {
+        return true;
+    }
+    if f.this.is_some()
+        && f.owner
+            .is_some_and(|s| !program.struct_def(s).generics.is_empty())
+    {
+        return true;
+    }
+    match &f.closure {
+        Some(c) => in_generic_context(program, c.parent),
+        None => false,
+    }
+}
+
 /// Type arguments for owners of type parameters (`Ty::Param`'s first field).
 type Subst = Vec<(u32, Vec<Ty>)>;
 
@@ -217,6 +237,10 @@ struct Cx<'a> {
     /// parameters, and its type's for methods of generic types); instance `i` is MIR
     /// function `program.fns.len() + i`.
     instances: Vec<(FnId, Subst)>,
+    /// The substitutions of the instance being lowered (closures inside it share them).
+    cur_subst: Subst,
+    /// Named functions used as values: (function, the adapter that takes an environment).
+    fn_values: Vec<(FnId, FnId)>,
     file: &'a SourceFile,
     diags: Vec<Diagnostic>,
     /// Spans already reported as not implemented (lowering has no such gaps right now).
@@ -239,6 +263,86 @@ impl Cx<'_> {
             None => {
                 self.instances.push((id, subst));
                 FnId((base + self.instances.len() - 1) as u32)
+            }
+        }
+    }
+
+    /// The adapter that lets named function `id` be called as a function value (it takes
+    /// and ignores an environment). Ids are assigned after all instances.
+    fn fn_value(&mut self, id: FnId) -> FnId {
+        if let Some((_, a)) = self.fn_values.iter().find(|(f, _)| *f == id) {
+            return *a;
+        }
+        // Placeholder id (high range); fixed up in `build_fn_values`.
+        let a = FnId(u32::MAX - self.fn_values.len() as u32);
+        self.fn_values.push((id, a));
+        a
+    }
+
+    /// Appends the function-value adapters and patches references to them.
+    fn build_fn_values(&mut self, fns: &mut Vec<mir::Function>) {
+        let mut map = HashMap::new();
+        for (f, placeholder) in self.fn_values.clone() {
+            let real = FnId(fns.len() as u32);
+            map.insert(placeholder, real);
+            let sig = self.types.sigs[f.0 as usize].clone();
+            let mut locals = vec![LocalDecl {
+                ty: Ty::Ref(Box::new(Ty::Tuple(Vec::new()))),
+                name: Some("env".into()),
+            }];
+            for t in &sig.params {
+                locals.push(LocalDecl {
+                    ty: t.clone(),
+                    name: None,
+                });
+            }
+            let result = has_value(&sig.ret).then(|| {
+                locals.push(LocalDecl {
+                    ty: sig.ret.clone(),
+                    name: None,
+                });
+                Local(locals.len() as u32 - 1)
+            });
+            let params: Vec<Local> = (0..=sig.params.len() as u32).map(Local).collect();
+            let args = params[1..]
+                .iter()
+                .map(|l| Operand::Copy(Place::local(*l)))
+                .collect();
+            fns.push(mir::Function {
+                name: format!("{}<value>", self.program.func(f).name),
+                params,
+                ret: sig.ret.clone(),
+                locals,
+                blocks: vec![
+                    mir::BasicBlock {
+                        stmts: Vec::new(),
+                        term: Terminator::Call {
+                            callee: Callee::Fn(f),
+                            args,
+                            dest: result.map(Place::local),
+                            next: BlockId(1),
+                            loc: Loc::default(),
+                        },
+                    },
+                    mir::BasicBlock {
+                        stmts: Vec::new(),
+                        term: Terminator::Return(result.map(|r| Operand::Copy(Place::local(r)))),
+                    },
+                ],
+            });
+        }
+        if map.is_empty() {
+            return;
+        }
+        for f in fns.iter_mut() {
+            for b in &mut f.blocks {
+                for st in &mut b.stmts {
+                    if let Rvalue::Closure(id, _) = &mut st.rvalue
+                        && let Some(real) = map.get(id)
+                    {
+                        *id = *real;
+                    }
+                }
             }
         }
     }
@@ -409,13 +513,14 @@ impl Cx<'_> {
             cur: BlockId(0),
             loops: Vec::new(),
         };
-        for (i, (l, t)) in f.locals.iter().zip(local_tys).enumerate() {
+        for (i, (l, t)) in f.locals.iter().zip(local_tys.iter()).enumerate() {
             // A struct's `this` is passed by reference (a class's is already one).
             let is_this = f.this.is_some_and(|(this, sid)| {
                 let d = b.cx.program.struct_def(sid);
                 this.0 as usize == i && !d.is_class && !d.is_interface
             });
-            let ty = if is_this {
+            // A boxed variable's local holds a reference to its heap cell.
+            let ty = if is_this || l.boxed {
                 Ty::Ref(Box::new(t.clone()))
             } else {
                 t.clone()
@@ -424,6 +529,45 @@ impl Cx<'_> {
                 ty,
                 name: Some(l.name.clone()),
             });
+        }
+        // Parameters arrive by value; a boxed one moves into its cell first.
+        let mut params: Vec<Local> = Vec::new();
+        let mut env = None;
+        if let Some(info) = &f.closure {
+            let tys: Vec<Ty> = info
+                .captures
+                .iter()
+                .map(|c| b.locals[c.inner.0 as usize].ty.clone())
+                .collect();
+            let e = b.temp(Ty::Ref(Box::new(Ty::Tuple(tys))));
+            params.push(e);
+            env = Some(e);
+        } else if let Some((this, _)) = f.this {
+            params.push(Local(this.0));
+        }
+        for p in &f.params {
+            if f.local(*p).boxed {
+                let t = local_tys[p.0 as usize].clone();
+                let incoming = b.temp(t.clone());
+                params.push(incoming);
+                b.assign(
+                    Place::local(Local(p.0)),
+                    Rvalue::BoxNew(t, Operand::Copy(Place::local(incoming))),
+                    f.span,
+                );
+            } else {
+                params.push(Local(p.0));
+            }
+        }
+        if let (Some(e), Some(info)) = (env, &f.closure) {
+            // The captures, from the environment.
+            for (i, c) in info.captures.iter().enumerate() {
+                b.assign(
+                    Place::local(Local(c.inner.0)),
+                    Rvalue::Use(Operand::Copy(Place::deref(e).field(i as u32))),
+                    f.span,
+                );
+            }
         }
         let value = b.block(&f.body);
         let ret = if f.is_entry {
@@ -448,13 +592,8 @@ impl Cx<'_> {
             .collect();
         mir::Function {
             name: f.name.clone(),
-            // A method's `this` reference is its first parameter.
-            params: f
-                .this
-                .map(|(this, _)| Local(this.0))
-                .into_iter()
-                .chain(f.params.iter().map(|p| Local(p.0)))
-                .collect(),
+            // A method's `this` reference (or a closure's environment) comes first.
+            params,
             ret,
             locals: b.locals,
             blocks,
@@ -576,6 +715,7 @@ impl FnBuilder<'_, '_> {
             {
                 Place::deref(Local(l.0))
             }
+            Var::Local(l) if self.hir_fn.local(l).boxed => Place::deref(Local(l.0)),
             Var::Local(l) => Place::local(Local(l.0)),
             Var::Global(g) => Place::global(g),
         }
@@ -757,6 +897,19 @@ impl FnBuilder<'_, '_> {
     fn block(&mut self, b: &hir::Block) -> Operand {
         for s in &b.stmts {
             match s {
+                Stmt::Let {
+                    var: Var::Local(l),
+                    init,
+                    span,
+                } if self.hir_fn.local(*l).boxed => {
+                    // A captured `let`: a new cell for this binding.
+                    let t = self.var_ty(Var::Local(*l));
+                    let v = match init {
+                        Some(init) => self.expr(init),
+                        None => Operand::Const(Const::Void),
+                    };
+                    self.assign(Place::local(Local(l.0)), Rvalue::BoxNew(t, v), *span);
+                }
                 Stmt::Let { var, init, span } => {
                     if let Some(init) = init {
                         let v = self.expr(init);
@@ -963,6 +1116,39 @@ impl FnBuilder<'_, '_> {
                 self.type_name(v, &t, e.span)
             }
             ExprKind::Var(v) => Operand::Copy(self.place(*v)),
+            ExprKind::Fn(id) if matches!(ty, Ty::Fn(..)) => {
+                let a = self.cx.fn_value(*id);
+                self.rvalue_to_temp(Rvalue::Closure(a, Vec::new()), ty, e.span)
+            }
+            ExprKind::Closure(id) => {
+                let info = self
+                    .cx
+                    .program
+                    .func(*id)
+                    .closure
+                    .clone()
+                    .expect("a closure");
+                let caps: Vec<Operand> = info
+                    .captures
+                    .iter()
+                    .map(|c| {
+                        // By reference: the variable's cell; by value: its current value.
+                        let l = c.outer;
+                        if c.by_ref {
+                            Operand::Copy(Place::local(Local(l.0)))
+                        } else {
+                            Operand::Copy(self.place(Var::Local(l)))
+                        }
+                    })
+                    .collect();
+                let fid = if in_generic_context(self.cx.program, *id) {
+                    let subst = self.cx.cur_subst.clone();
+                    self.cx.instance(*id, subst)
+                } else {
+                    *id
+                };
+                self.rvalue_to_temp(Rvalue::Closure(fid, caps), ty, e.span)
+            }
             ExprKind::Fn(_) | ExprKind::Builtin(_) | ExprKind::Error => Operand::Const(Const::Void),
             ExprKind::Unary(op, inner) => {
                 if *op == ast::UnOp::Neg
@@ -1273,6 +1459,7 @@ impl FnBuilder<'_, '_> {
                 body,
                 update,
                 test_first,
+                rebox,
             } => {
                 let cond_bb = self.new_block();
                 let body_bb = self.new_block();
@@ -1302,6 +1489,15 @@ impl FnBuilder<'_, '_> {
                 self.terminate(Terminator::Goto(cont));
                 if let (Some(u), Some(ubb)) = (update, update_bb) {
                     self.switch_to(ubb);
+                    // Closures of this iteration keep its cell; the next one gets a copy.
+                    for l in rebox {
+                        let t = self.var_ty(Var::Local(*l));
+                        self.assign(
+                            Place::local(Local(l.0)),
+                            Rvalue::BoxNew(t, Operand::Copy(Place::deref(Local(l.0)))),
+                            e.span,
+                        );
+                    }
                     self.expr(u);
                     self.terminate(Terminator::Goto(cond_bb));
                 }
@@ -2570,6 +2766,28 @@ impl FnBuilder<'_, '_> {
                 self.terminate(Terminator::Call {
                     callee: Callee::Fn(id),
                     args,
+                    dest: dest.clone(),
+                    next,
+                    loc,
+                });
+                self.switch_to(next);
+                if ty == Ty::Never {
+                    self.diverge(Terminator::Unreachable);
+                }
+                match dest {
+                    Some(p) => Operand::Copy(p),
+                    None => Operand::Const(Const::Void),
+                }
+            }
+            _ if matches!(self.ty_of(callee), Ty::Fn(..)) => {
+                let f = self.expr(callee);
+                let mut ops = vec![f];
+                ops.extend(args.iter().map(|a| self.expr(a)));
+                let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+                let next = self.new_block();
+                self.terminate(Terminator::Call {
+                    callee: Callee::Indirect,
+                    args: ops,
                     dest: dest.clone(),
                     next,
                     loc,

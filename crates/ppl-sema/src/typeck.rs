@@ -1189,16 +1189,27 @@ impl<'p> Checker<'p> {
                 }
                 self.var_ty(*v, e.span)
             }
+            ExprKind::Fn(id) if self.program.func(*id).generics.is_empty() => {
+                // A named function used as a value.
+                if self.program.func(*id).ret.is_none()
+                    && self.state[id.0 as usize] == FnState::Unchecked
+                {
+                    self.check_fn(*id);
+                }
+                let sig = self.types.sigs[id.0 as usize].clone();
+                Ty::Fn(sig.params.into(), Box::new(sig.ret))
+            }
             ExprKind::Fn(_) | ExprKind::Builtin(_) => {
                 self.diags.push(
                     Diagnostic::error(
                         codes::NOT_IMPLEMENTED,
-                        "functions as values aren't implemented yet",
+                        "generic and built-in functions as values aren't implemented yet",
                     )
-                    .primary(e.span, "call it instead"),
+                    .primary(e.span, "call it instead, or wrap it in a closure"),
                 );
                 Ty::Error
             }
+            ExprKind::Closure(id) => self.closure(e, *id, want),
             ExprKind::Unary(op, inner) => self.unary(e, *op, inner, want),
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, want),
             ExprKind::Assign { op, target, value } => {
@@ -2546,6 +2557,51 @@ impl<'p> Checker<'p> {
                 cols[*i as usize] = self.to_pat(&fp.pat, t);
             }
         }
+    }
+
+    /// A closure: its captures take the enclosing function's types, untyped parameters the
+    /// expected function type's, then the body is checked.
+    fn closure(&mut self, e: &Expr, id: FnId, want: Option<&Expect>) -> Ty {
+        let f = self.program.func(id);
+        let info = f.closure.as_ref().expect("a closure");
+        let outer = self.stack.last().expect("inside a function").id;
+        for c in &info.captures {
+            let t = self.types.locals[outer.0 as usize][c.outer.0 as usize].clone();
+            self.types.locals[id.0 as usize][c.inner.0 as usize] = t;
+        }
+        let expected = match want.map(|w| &w.ty) {
+            Some(Ty::Fn(ps, r)) if ps.len() == f.params.len() => Some((ps.clone(), r.clone())),
+            _ => None,
+        };
+        for (i, p) in f.params.iter().enumerate() {
+            if f.local(*p).ty.is_some() {
+                continue;
+            }
+            let t = match &expected {
+                Some((ps, _)) => ps[i].clone(),
+                None => {
+                    let b = f.local(*p);
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MISSING_PARAM_TYPE,
+                            format!("parameter `{}` needs a type", b.name),
+                        )
+                        .primary(b.span, "add a type annotation, e.g. `: i32`")
+                        .note("an arrow's parameter types can come from where it's passed, but nothing says here"),
+                    );
+                    Ty::Error
+                }
+            };
+            self.types.locals[id.0 as usize][p.0 as usize] = t.clone();
+            self.types.sigs[id.0 as usize].params[i] = t;
+        }
+        // Checked right here (it sees the enclosing function's current narrowings too).
+        let saved = std::mem::take(&mut self.narrow);
+        self.check_fn(id);
+        self.narrow = saved;
+        let _ = e;
+        let sig = self.types.sigs[id.0 as usize].clone();
+        Ty::Fn(sig.params.into(), Box::new(sig.ret))
     }
 
     /// `a ?? b`: `b` is used when `a` is null.
@@ -3909,6 +3965,31 @@ impl<'p> Checker<'p> {
             }
             _ => {
                 let t = self.infer(callee);
+                if let Ty::Fn(ps, r) = &t {
+                    // A function value.
+                    if args.len() != ps.len() {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::WRONG_ARG_COUNT,
+                                format!(
+                                    "this function takes {} argument{}, but {} were given",
+                                    ps.len(),
+                                    if ps.len() == 1 { "" } else { "s" },
+                                    args.len()
+                                ),
+                            )
+                            .primary(e.span, "wrong number of arguments"),
+                        );
+                        for a in args {
+                            self.infer(a);
+                        }
+                        return (**r).clone();
+                    }
+                    for (a, p) in args.iter().zip(ps.iter()) {
+                        self.check(a, &Expect::new(p.clone()));
+                    }
+                    return (**r).clone();
+                }
                 for a in args {
                     self.infer(a);
                 }

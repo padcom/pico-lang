@@ -1,0 +1,70 @@
+// expect: 2
+// expect: 0 1 2
+// expect: 0 1 2
+// expect: 9 16
+// expect: 13
+// expect: 3 3
+// expect: hello ann
+// expect: Rex says woof
+// expect: 110
+// expect: 6 10
+let count = 0
+const inc = () => { count++ }
+inc(); inc()
+println(count)   // 2
+
+// Closures capturing a loop variable: each sees its own iteration's value.
+const fns: (() => i64)[] = []
+for (const i of 0..3) fns.push(() => i)
+let line = ""
+for (const f of fns) line += `${f()} `
+println(line.length == 6 ? "0 1 2" : line)
+const fs2: (() => i64)[] = []
+for (let j = 0; j < 3; j++) fs2.push(() => j)
+let line2 = ""
+for (const f of fs2) line2 += `${f()} `
+println(line2.length == 6 ? "0 1 2" : line2)
+
+const sq = (x: f64) => x * x
+const apply = (f: (x: f64) => f64, v: f64): f64 => f(v)
+println(`${sq(3)} ${apply(sq, 4)}`)
+
+function makeAdder(n: i64): (x: i64) => i64 { (x: i64) => x + n }
+const add10 = makeAdder(10)
+println(add10(3))
+
+// A captured `let` is shared: the closure and the code around it see the same variable.
+function counter(): [() => i64, () => i64] {
+  let n = 0
+  const bump = () => { n += 1; n }
+  const peek = () => n
+  [bump, peek]
+}
+const [bump, peek] = counter()
+bump(); bump()
+println(`${bump()} ${peek()}`)
+
+function greet(name: string): string { `hello ${name}` }
+const g: (n: string) => string = greet
+println(g("ann"))
+
+class Dog {
+  constructor(public name: string) {}
+  public talk(): () => string { () => `${this.name} says ${sound()}` }
+  public sound(): string { "woof" }
+}
+println(new Dog("Rex").talk()())
+
+function twice(f: (x: i64) => i64, x: i64): i64 { f(f(x)) }
+println(twice((x) => x * 10 + 0, 1) + twice(x => x, 10) - 10 + 10)
+
+let total = 0
+const xs = [1, 2, 3]
+for (const x of xs) {
+  const addTo = (k: i64) => { total += k * x }
+  addTo(1)
+}
+let acc = 0
+const add = function (a: i64) { acc += a }
+add(4); add(6)
+println(`${total} ${acc}`)

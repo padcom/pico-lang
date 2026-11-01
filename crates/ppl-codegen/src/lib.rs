@@ -207,7 +207,8 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Bool => self.cx.bool_type().into(),
             Ty::Char => self.cx.i32_type().into(),
             Ty::Str | Ty::Ref(_) | Ty::Array(_) | Ty::Class(..) => self.ptr().into(),
-            Ty::Iface(..) => self.iface_ty().into(),
+            // `{ fn, env }`, like an interface value.
+            Ty::Iface(..) | Ty::Fn(..) => self.iface_ty().into(),
             Ty::Struct(sid, _, args) if args.is_empty() => self.structs[sid.0 as usize].into(),
             Ty::Struct(..) => self.struct_llty(t).into(),
             Ty::Enum(eid, _) => self.enums[eid.0 as usize].into(),
@@ -247,7 +248,7 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Float(FloatTy::F64) => (8, 8),
             Ty::Bool => (1, 1),
             Ty::Str | Ty::Array(_) | Ty::Ref(_) | Ty::Class(..) => (8, 8),
-            Ty::Iface(..) => (16, 8),
+            Ty::Iface(..) | Ty::Fn(..) => (16, 8),
             Ty::Nullable(inner) if inner.is_ref() => (8, 8),
             Ty::Nullable(inner) => struct_layout(&[(1, 1), self.size_align(inner)]),
             Ty::Struct(sid, _, args) => {
@@ -1152,6 +1153,52 @@ impl<'ctx> Gen<'ctx, '_> {
                         .unwrap()
                         .as_basic_value_enum(),
                 )
+            }
+            Rvalue::Closure(f, ops) => {
+                // The environment: the captures in a heap tuple (none: a null pointer).
+                let env = if ops.is_empty() {
+                    self.ptr().const_null()
+                } else {
+                    let tys: Vec<Ty> = ops.iter().map(|o| self.operand_ty(fx, o)).collect();
+                    let tt = Ty::Tuple(tys);
+                    let st = self.ty(&tt).expect("tuple").into_struct_type();
+                    let size = self.size_of(&tt);
+                    let env = basic(
+                        self.b
+                            .build_call(self.rt("ppl_alloc"), &[size.into()], "env")
+                            .unwrap(),
+                    )
+                    .into_pointer_value();
+                    for (i, o) in ops.iter().enumerate() {
+                        if let Some(v) = self.operand(fx, o) {
+                            let p = self.b.build_struct_gep(st, env, i as u32, "").unwrap();
+                            self.b.build_store(p, v).unwrap();
+                        }
+                    }
+                    env
+                };
+                let fnptr = self.fns[f.0 as usize].as_global_value().as_pointer_value();
+                let v = self.iface_ty().get_undef();
+                let v = self.b.build_insert_value(v, fnptr, 0, "").unwrap();
+                Some(
+                    self.b
+                        .build_insert_value(v, env, 1, "")
+                        .unwrap()
+                        .as_basic_value_enum(),
+                )
+            }
+            Rvalue::BoxNew(t, o) => {
+                let size = self.size_of(t);
+                let cell = basic(
+                    self.b
+                        .build_call(self.rt("ppl_alloc_zeroed"), &[size.into()], "cell")
+                        .unwrap(),
+                )
+                .into_pointer_value();
+                if let Some(v) = self.operand(fx, o) {
+                    self.b.build_store(cell, v).unwrap();
+                }
+                Some(cell.into())
             }
             Rvalue::IfaceData(o) => {
                 let v = self.operand(fx, o)?;
@@ -2413,6 +2460,44 @@ impl<'ctx> Gen<'ctx, '_> {
                             .unwrap();
                         if let (Some(d), inkwell::values::ValueKind::Basic(v)) =
                             (dest, r.try_as_basic_value())
+                        {
+                            self.store(fx, d, v);
+                        }
+                    }
+                    Callee::Indirect => {
+                        let Ty::Fn(ps, r) = self.operand_ty(fx, &args[0]) else {
+                            unreachable!("indirect call of a non-function")
+                        };
+                        let vals: Vec<BasicMetadataValueEnum> = args
+                            .iter()
+                            .filter_map(|a| self.operand(fx, a))
+                            .map(Into::into)
+                            .collect();
+                        let closure = vals[0].into_struct_value();
+                        let fnptr = self
+                            .b
+                            .build_extract_value(closure, 0, "fn")
+                            .unwrap()
+                            .into_pointer_value();
+                        let env = self.b.build_extract_value(closure, 1, "env").unwrap();
+                        let mut call_args: Vec<BasicMetadataValueEnum> = vec![env.into()];
+                        call_args.extend(vals[1..].iter().copied());
+                        let mut ptys: Vec<BasicMetadataTypeEnum> = vec![self.ptr().into()];
+                        ptys.extend(
+                            ps.iter()
+                                .filter_map(|t| self.ty(t))
+                                .map(BasicMetadataTypeEnum::from),
+                        );
+                        let fn_ty = match self.ty(&r) {
+                            Some(t) => t.fn_type(&ptys, false),
+                            None => self.cx.void_type().fn_type(&ptys, false),
+                        };
+                        let res = self
+                            .b
+                            .build_indirect_call(fn_ty, fnptr, &call_args, "")
+                            .unwrap();
+                        if let (Some(d), inkwell::values::ValueKind::Basic(v)) =
+                            (dest, res.try_as_basic_value())
                         {
                             self.store(fx, d, v);
                         }

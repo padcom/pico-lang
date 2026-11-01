@@ -394,6 +394,12 @@ pub enum Rvalue {
     ToIface(Operand, u32),
     /// The object reference (or the boxed struct's reference) inside an interface value.
     IfaceData(Operand),
+    /// A function value: the (lifted) function and the captured values, in order (its
+    /// environment, which the function receives as its first parameter).
+    Closure(FnId, Vec<Operand>),
+    /// A new heap cell of the type holding the value (`Const::Void`: uninitialized); the
+    /// result is a reference to it (captured `let` variables).
+    BoxNew(Ty, Operand),
 }
 
 #[derive(Debug)]
@@ -413,6 +419,9 @@ pub enum Callee {
         slot: u32,
         decl: FnId,
     },
+    /// A function value (the first argument): its function, given its environment and the
+    /// rest of the arguments.
+    Indirect,
     /// An interface method: entry `slot` of the itable in the interface value (the first
     /// argument). `decl` is the interface's method (for its type).
     Iface {
@@ -536,6 +545,11 @@ impl fmt::Display for Rvalue {
             Rvalue::InstanceOf(a, c) => write!(f, "InstanceOf({a}, class#{})", c.0),
             Rvalue::ToIface(a, i) => write!(f, "ToIface({a}, itable#{i})"),
             Rvalue::IfaceData(a) => write!(f, "IfaceData({a})"),
+            Rvalue::Closure(id, ops) => {
+                let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();
+                write!(f, "Closure(fn#{}, [{}])", id.0, ops.join(", "))
+            }
+            Rvalue::BoxNew(t, a) => write!(f, "BoxNew<{t}>({a})"),
         }
     }
 }
@@ -546,6 +560,7 @@ fn callee_name(p: &Program, c: Callee) -> String {
         Callee::Builtin(b) => format!("builtin {}", b.name()),
         Callee::Virtual { slot, decl } => format!("virtual[{slot}] {}", p.func(decl).name),
         Callee::Iface { slot, decl } => format!("iface[{slot}] {}", p.func(decl).name),
+        Callee::Indirect => "indirect".to_string(),
     }
 }
 

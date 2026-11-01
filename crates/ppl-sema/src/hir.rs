@@ -308,6 +308,9 @@ pub struct Binding {
     /// The declared type, if any.
     pub ty: Option<Ty>,
     pub span: Span,
+    /// Lives in a heap cell (the local holds a reference to it): a `let` that a closure
+    /// captures, or a closure's reference to such a variable.
+    pub boxed: bool,
 }
 
 #[derive(Debug)]
@@ -330,6 +333,23 @@ pub struct Function {
     pub owner: Option<StructId>,
     /// Type parameters (`function max<T extends …>`); `Ty::Param(this fn, i, _)` in the body.
     pub generics: Vec<TypeParam>,
+    /// A closure (arrow or function expression): what it captures, and the function it's in.
+    pub closure: Option<ClosureInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClosureInfo {
+    pub parent: FnId,
+    pub captures: Vec<Capture>,
+}
+
+/// A variable of the enclosing function that a closure uses: copied (`const`) or shared
+/// through its box (`let`).
+#[derive(Debug, Clone)]
+pub struct Capture {
+    pub outer: LocalId,
+    pub inner: LocalId,
+    pub by_ref: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -692,7 +712,12 @@ pub enum ExprKind {
         body: Box<Expr>,
         update: Option<Box<Expr>>,
         test_first: bool,
+        /// `for (let i …)` variables that closures capture: each iteration gets a fresh box
+        /// (before the update), as in JavaScript.
+        rebox: Vec<LocalId>,
     },
+    /// A closure value (the function is lifted; see `Function::closure`).
+    Closure(FnId),
     Break(Option<Box<Expr>>),
     Continue,
     Return(Option<Box<Expr>>),
@@ -739,6 +764,7 @@ impl Expr {
             | ExprKind::Fn(_)
             | ExprKind::Builtin(_)
             | ExprKind::Continue
+            | ExprKind::Closure(_)
             | ExprKind::Error => {}
             ExprKind::Unary(_, e)
             | ExprKind::As(e, _)
