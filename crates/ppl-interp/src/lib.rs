@@ -654,7 +654,14 @@ impl Interp<'_, '_> {
             }
             Builtin::LoopWait => {
                 if let Value::Int(ms) = vals[0] {
-                    self.waker.wait(ms as i64);
+                    // A watcher waiting for changes is polled every few milliseconds.
+                    let ms = ms as i64;
+                    let ms = if self.io.watching() && !(0..=5).contains(&ms) {
+                        5
+                    } else {
+                        ms
+                    };
+                    self.waker.wait(ms);
                 }
                 Ok(())
             }

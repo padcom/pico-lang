@@ -224,3 +224,107 @@ export function open(path: string, read: bool = true, write: bool = false, appen
   if (createNew) flags += 32
   __job<File>(10, flags, 0, 0, path, "", path, (res: __IoResult) => new File(res.r, path))
 }
+
+/// A change `watch` saw: `kind` is `"create"`, `"modify"` (a file's size or modification time
+/// changed) or `"remove"`; `path` is the watched path joined with the changed entry's path
+/// (the watched path itself when watching a file). A rename is a remove and a create.
+export struct WatchEvent {
+  kind: string
+  path: string
+}
+
+/// Watches a file or a directory (with `recursive`, the whole tree below it): an async
+/// iterator of `WatchEvent`s, ended by `close()` (or `using`). Changes made while nobody
+/// waits for an event are compared as a whole when the next one is asked for, so a file
+/// created and changed in between is one `create`, and one created and removed is nothing.
+export class Watcher implements Disposable {
+  id: int
+  public readonly path: string
+  queued: WatchEvent[] = []
+  head: int = 0
+  /// `next()` promises not fulfilled yet, oldest first.
+  requests: Promise<WatchEvent?>[] = []
+  served: int = 0
+  waiting: bool = false
+  closed: bool = false
+
+  constructor(id: int, path: string) {
+    this.id = id
+    this.path = path
+  }
+
+  /// The next change (waiting for one), or `null` once the watcher is closed.
+  public next(): Promise<WatchEvent?> {
+    const p = new Promise<WatchEvent?>()
+    requests.push(p)
+    serve()
+    p
+  }
+
+  /// `for await` uses the watcher itself.
+  public asyncIterator(): Watcher {
+    this
+  }
+
+  /// Stops watching: waiting and later `next()` calls get `null`. Twice is fine.
+  public close(): void {
+    if (closed) {
+      return
+    }
+    closed = true
+    __io(106, id, 0, 0, "", "");
+    serve()
+  }
+
+  public dispose(): void {
+    close()
+  }
+
+  serve(): void {
+    while (served < requests.length && (head < queued.length || closed)) {
+      const p = requests[served]
+      served += 1
+      if (head < queued.length) {
+        const e = queued[head]
+        head += 1
+        p.__resolve(e)
+      } else {
+        p.__resolve(null)
+      }
+    }
+    if (served == requests.length) {
+      requests = []
+      served = 0
+    }
+    if (head == queued.length) {
+      queued = []
+      head = 0
+    }
+    if (served < requests.length && !waiting && !closed) {
+      waiting = true
+      __ioSubmit(16, id, 0, 0, "", "", (job: int) => {
+        this.waiting = false
+        if (__io(102, job, 0, 0, "", "") == 1) {
+          this.closed = true
+        } else {
+          for (const line of __io_text(job).split("\u{0}")) {
+            if (line.length >= 2) {
+              const k = line.slice(0, 1)
+              const rel = line.slice(2)
+              const kind = if (k == "c") "create" else if (k == "m") "modify" else "remove"
+              const root = this.path
+              const full = if (rel.length == 0) root else if (root.endsWith("/")) `${root}${rel}` else `${root}/${rel}`
+              this.queued.push({ kind, path: full })
+            }
+          }
+        }
+        this.serve()
+      })
+    }
+  }
+}
+
+/// Starts watching `path` (see `Watcher`); rejects if it can't be looked at.
+export function watch(path: string, recursive: bool = true): Promise<Watcher, IoError> {
+  __job<Watcher>(15, if (recursive) 1 else 0, 0, 0, path, "", path, (res: __IoResult) => new Watcher(res.r, path))
+}

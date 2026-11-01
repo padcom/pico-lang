@@ -250,6 +250,8 @@ static int remove_all(const char *path) {
     return rmdir(path);
 }
 
+static void watch_open(Job *j);
+
 static void run(Job *j) {
     j->r = 0;
     switch (j->op) {
@@ -431,8 +433,24 @@ static void run(Job *j) {
         j->r = (int64_t)p;
         return;
     }
+    case 15: /* watch: s = path, a = recursive; r = the watcher's id */
+        watch_open(j);
+        return;
     default: j->r = -K_OTHER; j->r2 = EINVAL; return;
     }
+}
+
+/* Hands a finished job to the thread that submitted it (and wakes its loop). */
+static void finish(Job *j) {
+    j->next = NULL;
+    Queue *q = j->owner;
+    pthread_mutex_lock(&q->lock);
+    if (q->tail) q->tail->next = j;
+    else q->head = j;
+    q->tail = j;
+    void *w = q->waker;
+    pthread_mutex_unlock(&q->lock);
+    ppl_loop_wake(w);
 }
 
 static void *worker_main(void *arg) {
@@ -444,16 +462,8 @@ static void *worker_main(void *arg) {
         work_head = j->next;
         if (!work_head) work_tail = NULL;
         pthread_mutex_unlock(&pool_lock);
-        j->next = NULL;
         run(j);
-        Queue *q = j->owner;
-        pthread_mutex_lock(&q->lock);
-        if (q->tail) q->tail->next = j;
-        else q->head = j;
-        q->tail = j;
-        void *w = q->waker;
-        pthread_mutex_unlock(&q->lock);
-        ppl_loop_wake(w);
+        finish(j);
     }
     return NULL;
 }
@@ -472,6 +482,352 @@ static void start_pool(void) {
         }
     }
     pthread_mutex_unlock(&pool_lock);
+}
+
+/* `watch` (spec §13.4): a watcher keeps a snapshot of the tree (path, kind, size, mtime,
+ * inode per entry, sorted by path). While a "next" job (op 16) waits on it, its thread
+ * compares a fresh scan with the snapshot and delivers the differences as events
+ * ("c|m|r <relative path>\0" each, in path order). kqueue (macOS) or inotify (Linux) only
+ * wake the thread up; a timeout catches whatever they miss. Between two `next` jobs changes
+ * aren't looked at, so they arrive as one difference (the interpreter does the same). */
+typedef struct Entry {
+    char *rel;
+    char kind;
+    int64_t size, mtime_ns;
+    uint64_t ino;
+} Entry;
+
+typedef struct Snap {
+    Entry *e;
+    size_t n, cap;
+} Snap;
+
+typedef struct Watcher {
+    int64_t id;
+    char *root;
+    int recursive;
+    Snap snap;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    Job *waiting; /* the "next" job, if one waits */
+    int closed;
+    int wake[2]; /* a pipe: written on close, to end the OS wait */
+    struct Watcher *next;
+} Watcher;
+
+static pthread_mutex_t watch_lock = PTHREAD_MUTEX_INITIALIZER;
+static Watcher *watchers;
+static int64_t next_watcher = 1;
+
+static void snap_free(Snap *s) {
+    for (size_t i = 0; i < s->n; i++) free(s->e[i].rel);
+    free(s->e);
+    s->e = NULL;
+    s->n = s->cap = 0;
+}
+
+static int64_t mtime_ns(const struct stat *st) {
+#if defined(__APPLE__)
+    return (int64_t)st->st_mtimespec.tv_sec * 1000000000 + st->st_mtimespec.tv_nsec;
+#else
+    return (int64_t)st->st_mtim.tv_sec * 1000000000 + st->st_mtim.tv_nsec;
+#endif
+}
+
+static void snap_add(Snap *s, const char *rel, const struct stat *st) {
+    if (s->n == s->cap) {
+        s->cap = s->cap ? s->cap * 2 : 32;
+        s->e = realloc(s->e, s->cap * sizeof *s->e);
+        if (!s->e) abort();
+    }
+    Entry *e = &s->e[s->n++];
+    e->rel = strdup(rel);
+    if (!e->rel) abort();
+    e->kind = kind_char(st->st_mode);
+    e->size = (int64_t)st->st_size;
+    e->mtime_ns = mtime_ns(st);
+    e->ino = (uint64_t)st->st_ino;
+}
+
+/* `root/rel` (or `root` for ""), malloc'd. */
+static char *join_rel(const char *root, const char *rel) {
+    size_t n = strlen(root) + strlen(rel) + 2;
+    char *m = malloc(n);
+    if (!m) abort();
+    if (*rel) snprintf(m, n, "%s/%s", root, rel);
+    else snprintf(m, n, "%s", root);
+    return m;
+}
+
+static void scan_dir(Snap *s, const char *root, const char *rel, int recursive) {
+    char *dir = join_rel(root, rel);
+    DIR *d = opendir(dir);
+    free(dir);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d))) {
+        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
+        char *child = join_rel(rel, de->d_name);
+        if (!*rel) {
+            free(child);
+            child = strdup(de->d_name);
+            if (!child) abort();
+        }
+        char *full = join_rel(root, child);
+        struct stat st;
+        if (lstat(full, &st) == 0) {
+            snap_add(s, child, &st);
+            if (recursive && S_ISDIR(st.st_mode)) scan_dir(s, root, child, recursive);
+        }
+        free(full);
+        free(child);
+    }
+    closedir(d);
+}
+
+static int entry_cmp(const void *a, const void *b) {
+    return strcmp(((const Entry *)a)->rel, ((const Entry *)b)->rel);
+}
+
+/* The tree at `root`: its entries, or the file itself (as ""). -1 (errno set) if it can't
+ * be looked at. */
+static int scan(const char *root, int recursive, Snap *out) {
+    struct stat st;
+    if (stat(root, &st) < 0) return -1;
+    if (S_ISDIR(st.st_mode)) scan_dir(out, root, "", recursive);
+    else snap_add(out, "", &st);
+    if (out->n > 1) qsort(out->e, out->n, sizeof *out->e, entry_cmp);
+    return 0;
+}
+
+static void event(Job *j, char k, const char *rel) {
+    char head[2] = {k, ' '};
+    text_add(j, head, 2);
+    text_add(j, rel, strlen(rel) + 1);
+}
+
+/* The differences from `a` to `b`, as events in `j`'s text; how many. */
+static size_t diff(const Snap *a, const Snap *b, Job *j) {
+    size_t i = 0, k = 0, n = 0;
+    while (i < a->n || k < b->n) {
+        int c = i == a->n ? 1 : k == b->n ? -1 : strcmp(a->e[i].rel, b->e[k].rel);
+        if (c < 0) {
+            event(j, 'r', a->e[i++].rel);
+            n++;
+        } else if (c > 0) {
+            event(j, 'c', b->e[k++].rel);
+            n++;
+        } else {
+            const Entry *x = &a->e[i++], *y = &b->e[k++];
+            if (x->kind != y->kind || x->ino != y->ino) {
+                event(j, 'r', x->rel);
+                event(j, 'c', y->rel);
+                n += 2;
+            } else if (x->kind != 'd' && (x->size != y->size || x->mtime_ns != y->mtime_ns)) {
+                event(j, 'm', y->rel);
+                n++;
+            }
+        }
+    }
+    return n;
+}
+
+static Watcher *find_watcher(int64_t id) {
+    for (Watcher *w = watchers; w; w = w->next)
+        if (w->id == id) return w;
+    return NULL;
+}
+
+/* Scans; if anything changed, hands the events to the waiting job. Whether it did. */
+static int deliver(Watcher *w) {
+    Snap now = {0};
+    scan(w->root, w->recursive, &now);
+    Job tmp = {0};
+    if (diff(&w->snap, &now, &tmp) == 0) {
+        snap_free(&now);
+        return 0;
+    }
+    snap_free(&w->snap);
+    w->snap = now;
+    pthread_mutex_lock(&w->lock);
+    Job *j = w->waiting;
+    w->waiting = NULL;
+    pthread_mutex_unlock(&w->lock);
+    if (j) {
+        j->r = 0;
+        j->text = tmp.text;
+        j->text_len = tmp.text_len;
+        finish(j);
+    } else {
+        free(tmp.text);
+    }
+    return 1;
+}
+
+#if defined(__APPLE__)
+#include <sys/event.h>
+#include <sys/time.h>
+
+/* Waits up to `ms` for a change to the root or a snapshot entry (files only for small
+ * trees: one descriptor each), or for the wake pipe. */
+static void wait_os(Watcher *w, int ms) {
+    int kq = kqueue();
+    if (kq < 0) {
+        usleep((useconds_t)ms * 1000);
+        return;
+    }
+    size_t cap = w->snap.n + 2, n = 0;
+    struct kevent *ch = calloc(cap, sizeof *ch);
+    int *fds = calloc(cap, sizeof *fds);
+    if (!ch || !fds) abort();
+    EV_SET(&ch[n++], w->wake[0], EVFILT_READ, EV_ADD, 0, 0, NULL);
+    size_t nfds = 0;
+    int files = w->snap.n <= 256;
+    for (size_t i = 0; i <= w->snap.n; i++) {
+        const char *rel = i == 0 ? "" : w->snap.e[i - 1].rel;
+        if (i > 0 && !files && w->snap.e[i - 1].kind != 'd') continue;
+        if (i > 0 && !*rel) continue; /* (a watched file is the root) */
+        char *full = join_rel(w->root, rel);
+        int fd = open(full, O_EVTONLY);
+        free(full);
+        if (fd < 0) continue;
+        fds[nfds++] = fd;
+        EV_SET(&ch[n++], fd, EVFILT_VNODE, EV_ADD | EV_CLEAR,
+               NOTE_WRITE | NOTE_EXTEND | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB, 0, NULL);
+    }
+    struct timespec ts = {ms / 1000, (long)(ms % 1000) * 1000000};
+    struct kevent ev[8];
+    int got = kevent(kq, ch, (int)n, ev, 8, &ts);
+    for (size_t i = 0; i < nfds; i++) close(fds[i]);
+    free(fds);
+    free(ch);
+    close(kq);
+    if (got > 0) usleep(20000); /* let a burst of changes finish */
+}
+#elif defined(__linux__)
+#include <poll.h>
+#include <sys/inotify.h>
+
+/* Waits up to `ms` for a change to the root or a directory in the snapshot, or for the
+ * wake pipe. */
+static void wait_os(Watcher *w, int ms) {
+    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (fd < 0) {
+        usleep((useconds_t)ms * 1000);
+        return;
+    }
+    uint32_t mask = IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO |
+                    IN_ATTRIB | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF;
+    inotify_add_watch(fd, w->root, mask);
+    for (size_t i = 0; i < w->snap.n; i++) {
+        if (w->snap.e[i].kind != 'd') continue;
+        char *full = join_rel(w->root, w->snap.e[i].rel);
+        inotify_add_watch(fd, full, mask);
+        free(full);
+    }
+    struct pollfd p[2] = {{fd, POLLIN, 0}, {w->wake[0], POLLIN, 0}};
+    int got = poll(p, 2, ms);
+    close(fd);
+    if (got > 0) usleep(20000); /* let a burst of changes finish */
+}
+#endif
+
+static void *watch_main(void *arg) {
+    Watcher *w = arg;
+    for (;;) {
+        pthread_mutex_lock(&w->lock);
+        while (!w->closed && !w->waiting) pthread_cond_wait(&w->cond, &w->lock);
+        int closed = w->closed;
+        pthread_mutex_unlock(&w->lock);
+        if (closed) break;
+        if (deliver(w)) continue;
+        wait_os(w, 250);
+    }
+    /* Closed (and no longer listed): nobody else uses it now. */
+    snap_free(&w->snap);
+    close(w->wake[0]);
+    close(w->wake[1]);
+    pthread_mutex_destroy(&w->lock);
+    pthread_cond_destroy(&w->cond);
+    free(w->root);
+    free(w);
+    return NULL;
+}
+
+static void watch_open(Job *j) {
+    Snap s = {0};
+    if (scan(j->s, (int)j->a, &s) < 0) {
+        fail(j);
+        return;
+    }
+    Watcher *w = calloc(1, sizeof *w);
+    if (!w) abort();
+    w->root = strdup(j->s);
+    if (!w->root) abort();
+    w->recursive = (int)j->a;
+    w->snap = s;
+    pthread_mutex_init(&w->lock, NULL);
+    pthread_cond_init(&w->cond, NULL);
+    if (pipe(w->wake) < 0) abort();
+    pthread_mutex_lock(&watch_lock);
+    w->id = next_watcher++;
+    w->next = watchers;
+    watchers = w;
+    pthread_mutex_unlock(&watch_lock);
+    pthread_t t;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&t, &attr, watch_main, w) != 0) abort();
+    pthread_attr_destroy(&attr);
+    j->r = w->id;
+}
+
+/* A "next" job (op 16, a = watcher): waits on the watcher; ends at once (r = 1) if it's
+ * closed. */
+static void watch_next(Job *j) {
+    pthread_mutex_lock(&watch_lock);
+    Watcher *w = find_watcher(j->a);
+    int ok = 0;
+    if (w) {
+        pthread_mutex_lock(&w->lock);
+        if (!w->closed && !w->waiting) {
+            w->waiting = j;
+            pthread_cond_signal(&w->cond);
+            ok = 1;
+        }
+        pthread_mutex_unlock(&w->lock);
+    }
+    pthread_mutex_unlock(&watch_lock);
+    if (!ok) {
+        j->r = 1;
+        finish(j);
+    }
+}
+
+/* Closes watcher `id`: a waiting job ends (r = 1) and the thread stops. */
+static void watch_close(int64_t id) {
+    pthread_mutex_lock(&watch_lock);
+    Watcher **p = &watchers;
+    while (*p && (*p)->id != id) p = &(*p)->next;
+    Watcher *w = *p;
+    if (w) *p = w->next;
+    Job *j = NULL;
+    if (w) {
+        pthread_mutex_lock(&w->lock);
+        w->closed = 1;
+        j = w->waiting;
+        w->waiting = NULL;
+        pthread_cond_signal(&w->cond);
+        char c = 1;
+        if (write(w->wake[1], &c, 1) < 0) { /* the thread still ends at its timeout */ }
+        pthread_mutex_unlock(&w->lock);
+    }
+    pthread_mutex_unlock(&watch_lock);
+    if (j) {
+        j->r = 1;
+        finish(j);
+    }
 }
 
 static char *cstr(const PplStr *s, size_t *len) {
@@ -513,6 +869,10 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         }
         j->owner = q;
         q->pending++;
+        if (op == 16) {
+            watch_next(j);
+            return j->id;
+        }
         start_pool();
         pthread_mutex_lock(&pool_lock);
         if (work_tail) work_tail->next = j;
@@ -538,6 +898,9 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         return j->id;
     }
     case 101: return q->pending;
+    case 106: /* close watcher a */
+        watch_close(a);
+        return 0;
     case 105: { /* the working directory, as a polled job's text */
         Job *j = calloc(1, sizeof *j);
         if (!j) abort();

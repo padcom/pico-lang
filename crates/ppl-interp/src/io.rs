@@ -26,6 +26,154 @@ pub(crate) struct IoState {
     taken: Vec<Job>,
     files: HashMap<i64, fs::File>,
     next_fd: i64,
+    watchers: HashMap<i64, Watcher>,
+    next_watcher: i64,
+}
+
+/// A `watch` (op 15): the tree's last snapshot and the "next" job (op 16) waiting on it.
+/// The tree is scanned again when a job arrives and at each poll while one waits, and the
+/// differences become its events (as in `ppl_io.c`).
+struct Watcher {
+    root: String,
+    recursive: bool,
+    snap: Vec<Entry>,
+    waiting: Option<i64>,
+}
+
+/// A snapshot entry: relative path, kind, size, modification time (ns), inode.
+#[derive(PartialEq)]
+struct Entry {
+    rel: String,
+    kind: char,
+    size: u64,
+    mtime: u128,
+    ino: u64,
+}
+
+fn entry(rel: String, m: &fs::Metadata) -> Entry {
+    #[cfg(unix)]
+    let ino = std::os::unix::fs::MetadataExt::ino(m);
+    #[cfg(not(unix))]
+    let ino = 0;
+    Entry {
+        rel,
+        kind: kind_char(m.file_type()),
+        size: m.len(),
+        mtime: m
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos()),
+        ino,
+    }
+}
+
+fn scan_dir(out: &mut Vec<Entry>, root: &str, rel: &str, recursive: bool) {
+    let dir = if rel.is_empty() {
+        root.to_string()
+    } else {
+        format!("{root}/{rel}")
+    };
+    let Ok(rd) = fs::read_dir(&dir) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let child = if rel.is_empty() {
+            name
+        } else {
+            format!("{rel}/{name}")
+        };
+        if let Ok(m) = fs::symlink_metadata(format!("{root}/{child}")) {
+            let is_dir = m.is_dir();
+            out.push(entry(child.clone(), &m));
+            if recursive && is_dir {
+                scan_dir(out, root, &child, recursive);
+            }
+        }
+    }
+}
+
+/// The tree at `root` (its entries, or the file itself as ""), sorted by path.
+fn scan(root: &str, recursive: bool) -> std::io::Result<Vec<Entry>> {
+    let m = fs::metadata(root)?;
+    let mut out = Vec::new();
+    if m.is_dir() {
+        scan_dir(&mut out, root, "", recursive);
+    } else {
+        out.push(entry(String::new(), &m));
+    }
+    out.sort_by(|a, b| a.rel.cmp(&b.rel));
+    Ok(out)
+}
+
+/// The events from `a` to `b` ("c|m|r <path>\0" each).
+fn diff(a: &[Entry], b: &[Entry]) -> String {
+    let mut text = String::new();
+    let mut ev = |k: char, rel: &str| {
+        text.push(k);
+        text.push(' ');
+        text.push_str(rel);
+        text.push('\0');
+    };
+    let (mut i, mut k) = (0, 0);
+    while i < a.len() || k < b.len() {
+        let c = if i == a.len() {
+            std::cmp::Ordering::Greater
+        } else if k == b.len() {
+            std::cmp::Ordering::Less
+        } else {
+            a[i].rel.cmp(&b[k].rel)
+        };
+        match c {
+            std::cmp::Ordering::Less => {
+                ev('r', &a[i].rel);
+                i += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                ev('c', &b[k].rel);
+                k += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                let (x, y) = (&a[i], &b[k]);
+                if x.kind != y.kind || x.ino != y.ino {
+                    ev('r', &x.rel);
+                    ev('c', &y.rel);
+                } else if x.kind != 'd' && (x.size != y.size || x.mtime != y.mtime) {
+                    ev('m', &y.rel);
+                }
+                i += 1;
+                k += 1;
+            }
+        }
+    }
+    text
+}
+
+impl IoState {
+    /// Whether a "next" job waits on a watcher (the loop then polls instead of sleeping).
+    pub(crate) fn watching(&self) -> bool {
+        self.watchers.values().any(|w| w.waiting.is_some())
+    }
+
+    /// Scans watcher `id` if a job waits on it; finishes the job if anything changed.
+    fn deliver(&mut self, id: i64) {
+        let Some(w) = self.watchers.get_mut(&id) else {
+            return;
+        };
+        let Some(job) = w.waiting else { return };
+        let now = scan(&w.root, w.recursive).unwrap_or_default();
+        let text = diff(&w.snap, &now);
+        if text.is_empty() {
+            return;
+        }
+        w.snap = now;
+        w.waiting = None;
+        self.done.push_back(Job {
+            id: job,
+            r: 0,
+            r2: 0,
+            text,
+        });
+    }
 }
 
 struct Job {
@@ -79,6 +227,25 @@ impl Interp<'_, '_> {
             _ => String::new(),
         };
         let (op, a, b, c) = (n(0), n(1), n(2), n(3));
+        if op == 16 {
+            // A watcher's next events: now if there are any, else at a later poll.
+            let st = &mut self.io;
+            st.next_id += 1;
+            let id = st.next_id;
+            match st.watchers.get_mut(&a) {
+                Some(w) if w.waiting.is_none() => {
+                    w.waiting = Some(id);
+                    st.deliver(a);
+                }
+                _ => st.done.push_back(Job {
+                    id,
+                    r: 1,
+                    r2: 0,
+                    text: String::new(),
+                }),
+            }
+            return Value::Int(i128::from(id));
+        }
         if op < 100 {
             // (The second string is a path only for `rename`.)
             let path = self.at(&s(4));
@@ -93,6 +260,20 @@ impl Interp<'_, '_> {
         let cwd = self.shared.cwd.clone();
         let st = &mut self.io;
         Value::Int(i128::from(match op {
+            100 if st.done.is_empty() && st.watching() => {
+                let ids: Vec<i64> = st.watchers.keys().copied().collect();
+                for id in ids {
+                    st.deliver(id);
+                }
+                match st.done.pop_front() {
+                    Some(j) => {
+                        let id = j.id;
+                        st.taken.push(j);
+                        id
+                    }
+                    None => -1,
+                }
+            }
             100 => match st.done.pop_front() {
                 Some(j) => {
                     let id = j.id;
@@ -122,6 +303,19 @@ impl Interp<'_, '_> {
             103 => st.taken.iter().find(|j| j.id == a).map_or(0, |j| j.r2),
             104 => {
                 st.taken.retain(|j| j.id != a);
+                0
+            }
+            106 => {
+                if let Some(w) = st.watchers.remove(&a)
+                    && let Some(job) = w.waiting
+                {
+                    st.done.push_back(Job {
+                        id: job,
+                        r: 1,
+                        r2: 0,
+                        text: String::new(),
+                    });
+                }
                 0
             }
             _ => -1,
@@ -312,6 +506,24 @@ impl Interp<'_, '_> {
                     Err(e) => err(e),
                 }
             }
+            15 => match scan(s, a != 0) {
+                Ok(snap) => {
+                    let st = &mut self.io;
+                    st.next_watcher += 1;
+                    let id = st.next_watcher;
+                    st.watchers.insert(
+                        id,
+                        Watcher {
+                            root: s.to_string(),
+                            recursive: a != 0,
+                            snap,
+                            waiting: None,
+                        },
+                    );
+                    (id, 0, String::new())
+                }
+                Err(e) => err(e),
+            },
             _ => (-K_OTHER, 22, String::new()),
         }
     }

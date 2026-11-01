@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P7.1b: fs.watch** (see [PLAN.md](PLAN.md#p71b-fswatch)). P7.1 was split: P7.1a (fs + path) is done.
+**P7.2: std/process** (see [PLAN.md](PLAN.md#p72-stdprocess)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 229 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P6.6) |
+| Last green `scripts/test.sh` | 2026-11-02 (P7.1b) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,7 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
-- **std/fs (P7.1a, decision 229)**: `stdlib/fs.ppl`, `stdlib/path.ppl`, `runtime/src/ppl_io.c` (4 pool threads, per-thread completion queues waking the loop), `crates/ppl-interp/src/io.rs` (same ops with std::fs, run at submit, delivered on the next loop turn; `Shared.cwd` is a virtual working directory), loop polling in `stdlib/core/event.ppl` (`__ioSubmit`). The golden harness gives every run a fresh temp working directory. POSIX only: Windows `ppl_io` is a stub (P8.3). Not yet: `watch` (P7.1b), symlink creation/readlink, permissions/chmod, copy, streaming `readText` for big files, `TextEncoder`/`TextDecoder` (so `File` has no text methods), async closures (tests use helper functions).
+- **std/fs (P7.1a, decision 229)**: `stdlib/fs.ppl`, `stdlib/path.ppl`, `runtime/src/ppl_io.c` (4 pool threads, per-thread completion queues waking the loop), `crates/ppl-interp/src/io.rs` (same ops with std::fs, run at submit, delivered on the next loop turn; `Shared.cwd` is a virtual working directory), loop polling in `stdlib/core/event.ppl` (`__ioSubmit`). The golden harness gives every run a fresh temp working directory. POSIX only: Windows `ppl_io` is a stub (P8.3). `watch` (P7.1b, decision 230): watchers in `ppl_io.c` (one thread each, snapshot diffs, kqueue/inotify wake-ups; the inotify code is untested until a Linux host runs it) and `io.rs` (polled from op 100; `__loop_wait` is capped at 5 ms while a watcher waits); not yet: Windows, a watcher that's never closed keeps its thread (it ends with the process), big trees rescan fully each time (kqueue opens one descriptor per entry up to 256 entries, then directories only). Not yet: symlink creation/readlink, permissions/chmod, copy, streaming `readText` for big files, `TextEncoder`/`TextDecoder` (so `File` has no text methods), async closures (tests use helper functions).
 - **JSON (P6.8, decision 228)**: `stdlib/core/json.ppl`, `Synth::JsonRead/JsonWrite` (`json_read`, `json_write` in `ppl-mir/src/lower.rs`), `typeck::json_ok`. Not yet: `Map<string, V>`, enums, pretty printing (`stringify(v, indent)`), cycle detection in `stringify`, class field initializers as defaults (a missing field with an initializer is an error unless nullable), `res.json<T>()` (P7.x http). The reader indexes `text[i]` (code points with a cached index) and builds strings by concatenation: fine for configs, slow for megabytes.
 - **Runtime reflection (P6.7, decision 227)**: `stdlib/core/reflect.ppl` + `stdlib/reflect.ppl`; resolver `reflect_call`; lowering `Synth::Info/Get/Set/FieldShow` (`info_body`, `describe`, `access_body` in `ppl-mir/src/lower.rs`). Not yet: `unknown` (so no untyped `get`), field/method decorators (not implemented in §11.2 either), method signatures in `MethodInfo` (name only), caching of `TypeInfo` objects (each `typeOf` call builds new ones), subclass dispatch for generic classes. Panics from accessors point at the class declaration. JSON (P6.8) is compile-time generated and shouldn't need this metadata.
 - **Class string form (decision 226, done before P6.7)**: `Cx::show_fn` in `ppl-mir/src/lower.rs` requests a per-class-type "show function" (`Synth::Show`, placeholder ids from `SYNTH_BASE`, built in the instance loop and appended after the worker entries); `FnBuilder::show_body` builds it, `show_value(…, quote)` formats fields. Not yet: `${obj:?}` and arrays/structs holding objects still show `<Name>` (the backends' debug formatters don't call show functions), so `${[p]:?}` is `[<P>]`; `Map`/`Set` show their internal fields; generic classes don't dispatch to subclasses (static class only); a panic caught inside a `toString` leaves its object marked as being shown (it then shows as `Name (…)`).
@@ -221,7 +221,7 @@ Notes:
 
 ### Phase 7: Standard library
 - [x] P7.1a std/fs and std/path (all but `watch`)
-- [ ] P7.1b fs.watch
+- [x] P7.1b fs.watch
 - [ ] P7.2 std/process
 - [ ] P7.3 std/net
 - [ ] P7.4 Web Streams and encoding
@@ -342,3 +342,4 @@ Notes:
 | 2026-11-01 | P6.7 | Runtime reflection: `std/reflect` (`reflect.typeOf(v)` runtime class / `typeOf<T>()`, `TypeInfo<T>`, `Field<T>` with typed `get<V>`/`set<V>`/`show`, methods, interfaces, base, decorators as name + argument source); metadata synthesized on demand in MIR; class metadata only for used classes (binary smaller without reflection). Decision 227. |
 | 2026-11-01 | P6.8 | JSON: `JSON.parse<T>` / `JSON.stringify` generated per type in MIR over a ppl reader/writer, precise errors (`field 'port': expected u16, got "x"`, `missing field`, `invalid JSON at L:C`), `@json.name`, optional struct fields (`p?: T`), `__parse_f64` builtin. Decision 228. |
 | 2026-11-02 | P7.1a | `std/fs` (readText/readBytes/writeText/writeBytes/stat/exists/mkdir/remove/rename/readDir/open + `File` read/write/seek/close, `IoError` with portable kinds) on a runtime I/O thread pool polled by the event loop; `std/path` (POSIX, as Node's `path.posix`); golden runs in fresh temp directories. P7.1 split (watch → P7.1b). Decision 229. |
+| 2026-11-02 | P7.1b | `fs.watch(path, recursive = true)` → `Watcher` (async iterator of `WatchEvent { kind, path }`, `close`/`using`): snapshot diffs while a `next()` waits, kqueue/inotify wake-ups natively, polling in the interpreter. Decision 230 (provisional: API shape). Test: run/fs/watch. |

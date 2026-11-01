@@ -113,7 +113,20 @@ open(path, read = true, write = false, append = false, create = false, truncate 
 ```
 A `File` (`AsyncDisposable`) has `read(n): Promise<Uint8Array?>` (`null` at the end), `write(data):
 Promise<int>`, `seek(position): Promise<int>` (from the start), `close()` (twice is fine) and
-`path`. Using it after `close` panics. `watch` is planned (P7.1b).
+`path`. Using it after `close` panics.
+
+```text
+watch(path, recursive = true): Promise<Watcher, IoError>
+```
+A `Watcher` (`Disposable`, an async iterator: `next(): Promise<WatchEvent?>`, `for await`) reports
+`WatchEvent`s (`kind`: `"create"`, `"modify"` or `"remove"`; `path`: the watched path joined with
+the entry's path, or the watched path itself when watching a file). Events are differences between
+snapshots of the tree (kind, size, modification time, inode per entry), compared when an event is
+asked for and again while one waits, in path order. So changes made while nobody waits arrive
+together as one difference (a file created and written is one `create`; created and removed,
+nothing), a rename is a `remove` and a `create`, and directories are never `modify`d.
+`close()` (twice is fine) makes waiting and later `next()` calls return `null`. The OS
+notifications (kqueue, inotify) only wake the watcher up; it also looks every 250 ms.
 
 ### `std/path`
 POSIX paths with Node's `path.posix` semantics: `sep`, `isAbsolute`, `normalize` (`a//b/../c/` →

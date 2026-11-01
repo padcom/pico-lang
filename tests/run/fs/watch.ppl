@@ -1,0 +1,75 @@
+// expect: create w/a.txt
+// expect: modify w/a.txt
+// expect: create w/sub
+// expect: create w/sub/b.txt
+// expect: remove w/a.txt
+// expect: create w/c.txt
+// expect: remove w/sub
+// expect: remove w/sub/b.txt
+// expect: create w/d.txt
+// expect: closed: true
+// expect: nothing: true
+// expect: top: create top/t.txt
+// expect: NotFound
+// `watch` reports creates, modifications and removals in the temp directory: changes made
+// between two `next()` calls arrive together (in path order), and `for await` waits for
+// changes made later.
+import { mkdir, remove, rename, watch, WatchEvent, writeText } from "std/fs"
+
+function show(e: WatchEvent?): void {
+  println(`${e!.kind} ${e!.path}`)
+}
+
+await mkdir("w")
+const w = await watch("w")
+await writeText("w/a.txt", "one")
+show(await w.next())
+await writeText("w/a.txt", "two", append: true)
+show(await w.next())
+await mkdir("w/sub")
+await writeText("w/sub/b.txt", "b")
+show(await w.next())
+show(await w.next())
+await rename("w/a.txt", "w/c.txt")
+show(await w.next())
+show(await w.next())
+await remove("w/sub", recursive: true)
+show(await w.next())
+show(await w.next())
+
+// Later changes, while `for await` waits.
+async function later(): Promise<void> throws IoError {
+  await new Promise<void>((resolve: (v: void) => void, reject: (e: Error) => void) => {
+    setTimeout(() => resolve(), 30)
+  })
+  await writeText("w/d.txt", "d")
+}
+later()
+for await (const e of w) {
+  show(e)
+  break
+}
+
+// Closing ends waiting and later `next()` calls.
+const pending = w.next()
+w.close()
+println(`closed: ${await pending == null}`)
+w.close()
+println(`nothing: ${await w.next() == null}`)
+
+// Not recursive, and `using`.
+await mkdir("top/deep", recursive: true)
+{
+  using t = await watch("top", recursive: false)
+  await writeText("top/deep/x.txt", "x")
+  await writeText("top/t.txt", "t")
+  const e = await t.next()
+  println(`top: ${e!.kind} ${e!.path}`)
+}
+
+try {
+  const m = await watch("missing")
+  m.close()
+} catch (e: IoError) {
+  println(e.kind)
+}
