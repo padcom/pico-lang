@@ -1,0 +1,46 @@
+// Allocation stress (P4.2): far more garbage than the heap ever holds. Native runs must stay
+// in bounded memory; the interpreter has no collector and reports zeros, which the checks
+// accept.
+// expect: 200
+// expect: 778000
+// expect: bounded: true
+// expect: collected: true
+// expect: recycled: true
+// expect: after collect: true
+import { gc } from "std/gc"
+
+class Particle {
+  constructor(public x: f64, public y: f64, public name: string, public next: Particle?) {}
+}
+
+let live: Particle[] = []
+let checksum = 0
+let chain: Particle? = null
+for (let i = 0; i < 200000; i++) {
+  // A short-lived chain of garbage, rebuilt every 50 steps.
+  chain = if (i % 50 == 0) null else chain
+  const p = new Particle(i as f64, 0.5, `p${i % 1000}`, chain)
+  chain = p
+  if (i % 1000 == 0) {
+    live.push(p)
+  }
+  checksum += p.name.length
+}
+// Everything kept is still intact.
+let ok = true
+for (let k = 0; k < live.length; k++) {
+  if (live[k].x != (k * 1000) as f64 || live[k].name != `p0`) {
+    ok = false
+  }
+}
+println(live.length)
+println(checksum + (if (ok) 0 else 1))
+const s = gc.stats()
+println(`bounded: ${s.heapSize < 32 * 1024 * 1024}`)
+println(`collected: ${s.collections > 0 || s.allocatedBytes == 0}`)
+println(`recycled: ${s.allocatedBytes >= 4 * s.heapSize}`)
+live = []
+chain = null
+gc.collect()
+const t = gc.stats()
+println(`after collect: ${t.usedBytes < 1024 * 1024}`)

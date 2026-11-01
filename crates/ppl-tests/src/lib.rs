@@ -14,6 +14,9 @@
 //!
 //! A directory containing `main.ppl` is one multi-file fixture; its other files are modules.
 //!
+//! Run fixtures execute three times: interpreted, native, and native with `PPL_GC_STRESS=1`
+//! (a collection at every safepoint after an allocation, which shakes out missing GC roots).
+//!
 //! The harness runs every stage that exists. Checks that need a missing stage are reported
 //! as *pending* rather than passing silently.
 
@@ -222,9 +225,14 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
         panic: err.filter(|p| !p.uncaught).map(|p| p.msg),
     };
     let mut problems: Vec<String> = compare_run(d, &interp, "interpreter").into_iter().collect();
-    match run_native(checked) {
+    match run_native(checked, false) {
         Ok(native) => problems.extend(compare_run(d, &native, "native")),
         Err(e) => problems.push(format!("[native] {e}")),
+    }
+    // Again with a collection at every safepoint, which finds missing GC roots.
+    match run_native(checked, true) {
+        Ok(native) => problems.extend(compare_run(d, &native, "native, PPL_GC_STRESS=1")),
+        Err(e) => problems.push(format!("[native, PPL_GC_STRESS=1] {e}")),
     }
     if problems.is_empty() {
         Outcome::Pass
@@ -233,10 +241,15 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
     }
 }
 
-/// Builds the program (cached) and runs the executable.
-fn run_native(checked: &ppl_driver::Checked) -> Result<Run, String> {
+/// Builds the program (cached) and runs the executable, optionally collecting garbage at
+/// every safepoint.
+fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, String> {
     let exe = ppl_driver::build_cached(checked, ppl_driver::BuildOptions::default())?;
-    let out = std::process::Command::new(&exe)
+    let mut cmd = std::process::Command::new(&exe);
+    if gc_stress {
+        cmd.env("PPL_GC_STRESS", "1");
+    }
+    let out = cmd
         .output()
         .map_err(|e| format!("cannot run {}: {e}", exe.display()))?;
     let stderr = String::from_utf8_lossy(&out.stderr);

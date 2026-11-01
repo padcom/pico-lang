@@ -50,7 +50,8 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 
 **Golden tests:**
 - `tests/run/**/*.ppl` hold `// expect:` lines (stdout), plus optional `// exit: N` and `// panic: msg`.
-  Each test runs **twice**: through the interpreter and as a native binary. Both outputs must match.
+  Each test runs through the interpreter and as a native binary (also with `PPL_GC_STRESS=1`,
+  from P4.2). All outputs must match.
 - `tests/fail/**/*.ppl` hold `// error: E0xxx` and `// at: line:col`. Compilation must fail with exactly
   those errors.
 - Diagnostics rendering is checked with `insta` snapshots.
