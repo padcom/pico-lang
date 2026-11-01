@@ -34,11 +34,13 @@ pub struct Local(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlockId(pub u32);
 
-/// A source position, for panic messages.
+/// A source position, for panic messages (line and column in the entry file, 0 elsewhere),
+/// and the span of the code, for compile-time diagnostics (constant folding).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Loc {
     pub line: u32,
     pub col: u32,
+    pub span: Option<ppl_diag::Span>,
 }
 
 #[derive(Clone, Debug)]
@@ -550,6 +552,104 @@ pub enum Rvalue {
     TakeException(Ty),
     /// Whether an exception is pending (checked after calls of throwing functions).
     ExceptionPending,
+}
+
+impl Rvalue {
+    /// Calls `f` on every operand, in order.
+    pub fn for_each_operand(&mut self, f: &mut impl FnMut(&mut Operand)) {
+        use Rvalue::*;
+        match self {
+            Use(a)
+            | Unary(_, a)
+            | Cast(a, _)
+            | ToStr(a)
+            | BitCast(a, _)
+            | WorkerTake(_, a)
+            | Format(a, _)
+            | StrLen(a)
+            | Repeat(a, _)
+            | ArrayLen(a)
+            | ArrayPop(a)
+            | WrapSome(a, _)
+            | IsNull(a)
+            | Unwrap(a)
+            | Tag(a)
+            | InstanceOf(a, _)
+            | ToIface(a, _)
+            | IfaceData(a)
+            | BoxNew(_, a)
+            | Hash(a) => f(a),
+            Binary(_, a, b)
+            | PtrOffset(a, b, _)
+            | RawArenaAlloc(_, a, b)
+            | StrCharAt(a, b)
+            | ArrayPush(a, b)
+            | InBounds(a, b)
+            | AddOverflows(a, b)
+            | HashCombine(a, b)
+            | SetException(a, b) => {
+                f(a);
+                f(b);
+            }
+            StrSlice(a, b, c) | ArraySlice(a, b, c) => {
+                f(a);
+                f(b);
+                f(c);
+            }
+            Aggregate(_, ops)
+            | Tuple(_, ops)
+            | ArrayNew(_, ops)
+            | Variant(_, _, ops)
+            | Closure(_, ops) => ops.iter_mut().for_each(f),
+            Ref(_) | SizeOf(..) | New(_) | ExceptionTag | TakeException(_) | ExceptionPending => {}
+        }
+    }
+
+    /// The place a `Ref` takes the address of.
+    pub fn referenced(&self) -> Option<&Place> {
+        match self {
+            Rvalue::Ref(p) => Some(p),
+            _ => None,
+        }
+    }
+}
+
+impl Terminator {
+    /// Calls `f` on every operand, in order.
+    pub fn for_each_operand(&mut self, f: &mut impl FnMut(&mut Operand)) {
+        match self {
+            Terminator::Branch { cond, .. } => f(cond),
+            Terminator::Return(Some(o)) | Terminator::Panic { msg: o, .. } => f(o),
+            Terminator::Call { args, .. } | Terminator::TailCall { args, .. } => {
+                args.iter_mut().for_each(f)
+            }
+            Terminator::Uncaught { class, msg } => {
+                f(class);
+                f(msg);
+            }
+            Terminator::Goto(_)
+            | Terminator::Return(None)
+            | Terminator::Guard { .. }
+            | Terminator::Unguard(_)
+            | Terminator::Resume
+            | Terminator::Unreachable => {}
+        }
+    }
+}
+
+impl Place {
+    /// Every local the place mentions: its base and its index locals.
+    pub fn locals(&self) -> impl Iterator<Item = Local> + '_ {
+        let base = match self.base {
+            Base::Local(l) | Base::Deref(l) => Some(l),
+            Base::Global(_) => None,
+        };
+        base.into_iter()
+            .chain(self.proj.iter().filter_map(|p| match p {
+                Proj::Index(l) => Some(*l),
+                _ => None,
+            }))
+    }
 }
 
 #[derive(Clone, Debug)]

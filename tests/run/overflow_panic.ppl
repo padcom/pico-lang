@@ -1,5 +1,6 @@
 // expect: 255
 // panic: integer overflow
-const x = 255u8
-println(x)
-println(x + 1u8)
+// A parameter, so the overflow happens at run time (a constant one is E0347).
+function inc(x: u8): u8 { x + 1u8 }
+println(inc(254u8))
+println(inc(255u8))

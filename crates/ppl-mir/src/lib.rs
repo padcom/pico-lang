@@ -1,5 +1,7 @@
 //! Mid-level IR, lowering and monomorphization for ppl.
 
+pub mod eval;
+pub mod fold;
 pub mod lower;
 pub mod mir;
 

@@ -4,12 +4,13 @@
 //! and out-of-range conversions; floats follow IEEE-754 (computed at `f32` precision for
 //! `f32`); printing uses [`format_float`] for numbers.
 
+use ppl_mir::eval::{self, Prim, Scalar, from_bits, to_bits};
 use ppl_mir::mir::{
-    self, Base, BinOp, Callee, Const, Loc, Operand, Place, Program, Proj, Rvalue, Terminator, UnOp,
+    self, Base, BinOp, Callee, Const, Loc, Operand, Place, Program, Proj, Rvalue, Terminator,
     panics,
 };
 use ppl_sema::hir::{Builtin, FnId};
-use ppl_sema::{FloatTy, IntTy, Ty};
+use ppl_sema::{FloatTy, Ty};
 use std::cell::RefCell;
 use std::io::Write;
 use std::rc::Rc;
@@ -609,15 +610,12 @@ impl Interp<'_, '_> {
             Rvalue::Unary(op, o) => {
                 let t = self.operand_ty(frame, o);
                 let v = self.operand(frame, o);
-                match (op, v, &t) {
-                    (UnOp::Not, Value::Bool(b), _) => Ok(Value::Bool(!b)),
-                    (UnOp::Neg, Value::Float(x), Ty::Float(ft)) => Ok(Value::Float(round(-x, *ft))),
-                    (UnOp::Neg, Value::Int(x), Ty::Int(it)) => self.int(-x, *it, loc),
-                    (UnOp::BitNot, Value::Int(x), Ty::Int(it)) => {
-                        Ok(Value::Int(from_bits(!to_bits(x, *it), *it)))
-                    }
-                    _ => unreachable!("type-checked unary operator"),
-                }
+                let (Some(x), Some(p)) = (scalar(&v), Prim::of(&t)) else {
+                    unreachable!("type-checked unary operator")
+                };
+                eval::unary(*op, x, p)
+                    .map(from_scalar)
+                    .map_err(|m| self.panic(m, loc))
             }
             Rvalue::Binary(op, a, b) => {
                 let t = self.operand_ty(frame, a);
@@ -881,14 +879,6 @@ impl Interp<'_, '_> {
         }
     }
 
-    fn int(&self, v: i128, it: IntTy, loc: Loc) -> Result<Value, Panic> {
-        if it.contains(v) {
-            Ok(Value::Int(v))
-        } else {
-            Err(self.panic(panics::OVERFLOW, loc))
-        }
-    }
-
     fn binary(&self, op: BinOp, x: Value, y: Value, t: &Ty, loc: Loc) -> Result<Value, Panic> {
         use BinOp::*;
         match (x, y, t) {
@@ -897,87 +887,14 @@ impl Interp<'_, '_> {
                 Ne => Value::Bool(!values_eq(&a, &b)),
                 _ => unreachable!("type-checked nullable operator"),
             }),
-            (Value::Int(a), Value::Int(b), Ty::Int(it)) => {
-                let it = *it;
-                let r = match op {
-                    Add => a + b,
-                    Sub => a - b,
-                    Mul => a
-                        .checked_mul(b)
-                        .ok_or_else(|| self.panic(panics::OVERFLOW, loc))?,
-                    Div | Rem => {
-                        if b == 0 {
-                            return Err(self.panic(panics::DIV_ZERO, loc));
-                        }
-                        if op == Div { a / b } else { a % b }
-                    }
-                    Pow => {
-                        if b < 0 {
-                            return Err(self.panic(panics::NEG_EXPONENT, loc));
-                        }
-                        int_pow(a, b, it).ok_or_else(|| self.panic(panics::OVERFLOW, loc))?
-                    }
-                    Shl | Shr | UShr => {
-                        if b < 0 || b >= it.bits() as i128 {
-                            return Err(self.panic(panics::SHIFT, loc));
-                        }
-                        let bits = to_bits(a, it);
-                        let r = match op {
-                            Shl => bits << b,
-                            UShr => bits >> b,
-                            // Arithmetic shift: shift the signed value.
-                            _ => {
-                                return Ok(Value::Int(if it.signed() {
-                                    a >> b
-                                } else {
-                                    (bits >> b) as i128
-                                }));
-                            }
-                        };
-                        return Ok(Value::Int(from_bits(r, it)));
-                    }
-                    BitAnd => {
-                        return Ok(Value::Int(from_bits(to_bits(a, it) & to_bits(b, it), it)));
-                    }
-                    BitOr => return Ok(Value::Int(from_bits(to_bits(a, it) | to_bits(b, it), it))),
-                    BitXor => {
-                        return Ok(Value::Int(from_bits(to_bits(a, it) ^ to_bits(b, it), it)));
-                    }
-                    Eq => return Ok(Value::Bool(a == b)),
-                    Ne => return Ok(Value::Bool(a != b)),
-                    Lt => return Ok(Value::Bool(a < b)),
-                    Le => return Ok(Value::Bool(a <= b)),
-                    Gt => return Ok(Value::Bool(a > b)),
-                    Ge => return Ok(Value::Bool(a >= b)),
+            (x @ (Value::Int(_) | Value::Float(_) | Value::Bool(_) | Value::Char(_)), y, t) => {
+                let (Some(x), Some(y), Some(p)) = (scalar(&x), scalar(&y), Prim::of(t)) else {
+                    unreachable!("binary {op:?} on {x:?}, {y:?} ({t})")
                 };
-                self.int(r, it, loc)
+                eval::binary(op, x, y, p)
+                    .map(from_scalar)
+                    .map_err(|m| self.panic(m, loc))
             }
-            (Value::Float(a), Value::Float(b), Ty::Float(ft)) => Ok(match op {
-                Add => Value::Float(round(a + b, *ft)),
-                Sub => Value::Float(round(a - b, *ft)),
-                Mul => Value::Float(round(a * b, *ft)),
-                Div => Value::Float(round(a / b, *ft)),
-                Rem => Value::Float(round(a % b, *ft)),
-                Pow => Value::Float(match ft {
-                    FloatTy::F32 => (a as f32).powf(b as f32) as f64,
-                    FloatTy::F64 => a.powf(b),
-                }),
-                Eq => Value::Bool(a == b),
-                Ne => Value::Bool(a != b),
-                Lt => Value::Bool(a < b),
-                Le => Value::Bool(a <= b),
-                Gt => Value::Bool(a > b),
-                Ge => Value::Bool(a >= b),
-                _ => unreachable!("type-checked float operator"),
-            }),
-            (Value::Bool(a), Value::Bool(b), _) => Ok(Value::Bool(match op {
-                Eq => a == b,
-                Ne => a != b,
-                BitAnd => a & b,
-                BitOr => a | b,
-                BitXor => a ^ b,
-                _ => unreachable!("type-checked bool operator"),
-            })),
             (
                 a @ (Value::Struct(_) | Value::Enum(..) | Value::Object(_) | Value::Ref(..)),
                 b,
@@ -998,55 +915,39 @@ impl Interp<'_, '_> {
                 Ge => Value::Bool(a >= b),
                 _ => unreachable!("type-checked string operator"),
             }),
-            (Value::Char(a), Value::Char(b), _) => Ok(Value::Bool(match op {
-                Eq => a == b,
-                Ne => a != b,
-                Lt => a < b,
-                Le => a <= b,
-                Gt => a > b,
-                Ge => a >= b,
-                _ => unreachable!("type-checked char operator"),
-            })),
             (x, y, t) => unreachable!("binary {op:?} on {x:?}, {y:?} ({t})"),
         }
     }
 
     fn cast(&self, v: Value, from: &Ty, to: &Ty, loc: Loc) -> Result<Value, Panic> {
-        match (v, to) {
-            (Value::Int(x), Ty::Int(it)) => {
-                if it.contains(x) {
-                    Ok(Value::Int(x))
-                } else {
-                    Err(self.panic(panics::INT_CAST, loc))
-                }
-            }
-            (Value::Int(x), Ty::Float(ft)) => Ok(Value::Float(round(x as f64, *ft))),
-            (Value::Float(x), Ty::Int(it)) => {
-                let t = x.trunc();
-                // Both bounds are exact powers of two (`max as f64` would round up).
-                let (lo, hi_excl) = (it.min() as f64, (it.max() + 1) as f64);
-                if x.is_nan() || t < lo || t >= hi_excl {
-                    return Err(self.panic(panics::FLOAT_CAST, loc));
-                }
-                Ok(Value::Int(t as i128))
-            }
-            (Value::Float(x), Ty::Float(ft)) => Ok(Value::Float(round(x, *ft))),
-            (Value::Char(c), Ty::Int(it)) => {
-                let x = c as u32 as i128;
-                if it.contains(x) {
-                    Ok(Value::Int(x))
-                } else {
-                    Err(self.panic(panics::INT_CAST, loc))
-                }
-            }
-            (Value::Int(x), Ty::Char) => u32::try_from(x)
-                .ok()
-                .and_then(char::from_u32)
-                .map(Value::Char)
-                .ok_or_else(|| self.panic(panics::CHAR_CAST, loc)),
-            (v, _) if from == to => Ok(v),
-            (v, t) => unreachable!("cast {v:?} from {from} to {t}"),
+        if let (Some(x), Some(p)) = (scalar(&v), Prim::of(to))
+            && let Some(r) = eval::cast(x, p)
+        {
+            return r.map(from_scalar).map_err(|m| self.panic(m, loc));
         }
+        if from == to {
+            return Ok(v);
+        }
+        unreachable!("cast {v:?} from {from} to {to}")
+    }
+}
+
+fn scalar(v: &Value) -> Option<Scalar> {
+    Some(match v {
+        Value::Int(x) => Scalar::Int(*x),
+        Value::Float(x) => Scalar::Float(*x),
+        Value::Bool(b) => Scalar::Bool(*b),
+        Value::Char(c) => Scalar::Char(*c),
+        _ => return None,
+    })
+}
+
+fn from_scalar(s: Scalar) -> Value {
+    match s {
+        Scalar::Int(x) => Value::Int(x),
+        Scalar::Float(x) => Value::Float(x),
+        Scalar::Bool(b) => Value::Bool(b),
+        Scalar::Char(c) => Value::Char(c),
     }
 }
 
@@ -1135,52 +1036,6 @@ fn hash_combine(a: u64, b: u64) -> u64 {
         .wrapping_add(0x9e37_79b9_7f4a_7c15)
         .wrapping_add(a << 6)
         .wrapping_add(a >> 2)
-}
-
-/// `a ** e` by squaring; `None` if the result doesn't fit in `it`.
-fn int_pow(a: i128, mut e: i128, it: IntTy) -> Option<i128> {
-    let (mut base, mut acc) = (a, 1i128);
-    while e > 0 {
-        if e & 1 == 1 {
-            acc = acc.checked_mul(base).filter(|v| it.contains(*v))?;
-        }
-        e >>= 1;
-        if e > 0 {
-            // |base| ≥ 2 and base² out of range means the result is out of range too.
-            base = base
-                .checked_mul(base)
-                .filter(|v| it.contains(*v) || base.abs() < 2)?;
-        }
-    }
-    Some(acc)
-}
-
-fn round(x: f64, ft: FloatTy) -> f64 {
-    match ft {
-        FloatTy::F32 => x as f32 as f64,
-        FloatTy::F64 => x,
-    }
-}
-
-/// Two's-complement bit pattern of `v` in `it`'s width.
-fn to_bits(v: i128, it: IntTy) -> u128 {
-    let mask = if it.bits() == 128 {
-        u128::MAX
-    } else {
-        (1u128 << it.bits()) - 1
-    };
-    (v as u128) & mask
-}
-
-fn from_bits(bits: u128, it: IntTy) -> i128 {
-    let w = it.bits();
-    let mask = (1u128 << w) - 1;
-    let b = bits & mask;
-    if it.signed() && b >> (w - 1) == 1 {
-        (b as i128) - (1i128 << w)
-    } else {
-        b as i128
-    }
 }
 
 /// How `print`/`println` and templates show a value.
@@ -1600,22 +1455,5 @@ mod tests {
             format_float(-167581363823776.125, false),
             "-167581363823776.12"
         );
-    }
-
-    #[test]
-    fn integer_power() {
-        assert_eq!(int_pow(2, 62, IntTy::I64), Some(1 << 62));
-        assert_eq!(int_pow(2, 63, IntTy::I64), None);
-        assert_eq!(int_pow(-2, 63, IntTy::I64), Some(i64::MIN as i128));
-        assert_eq!(int_pow(-1, 1_000_000_000_001, IntTy::I8), Some(-1));
-        assert_eq!(int_pow(3, 0, IntTy::U8), Some(1));
-        assert_eq!(int_pow(10, 3, IntTy::U8), None);
-    }
-
-    #[test]
-    fn bit_patterns() {
-        assert_eq!(to_bits(-1, IntTy::I8), 0xFF);
-        assert_eq!(from_bits(0xFF, IntTy::I8), -1);
-        assert_eq!(from_bits(0x80, IntTy::U8), 128);
     }
 }

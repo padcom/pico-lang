@@ -210,6 +210,7 @@ pub fn lower(
     };
     erase_program(&mut mir);
     drop_unused_exit_hook(&mut mir);
+    cx.diags.extend(crate::fold::fold_program(&mut mir));
     (mir, cx.diags)
 }
 
@@ -903,12 +904,16 @@ fn bin_op(op: ast::BinOp) -> mir::BinOp {
 impl FnBuilder<'_, '_> {
     fn loc(&self, span: Span) -> Loc {
         if span.file != self.cx.file_id {
-            return Loc::default();
+            return Loc {
+                span: Some(span),
+                ..Loc::default()
+            };
         }
         let (line, col) = self.cx.file.line_col(span.start);
         Loc {
             line: line as u32,
             col: col as u32,
+            span: Some(span),
         }
     }
 

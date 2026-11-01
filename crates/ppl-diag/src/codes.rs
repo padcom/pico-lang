@@ -103,6 +103,7 @@ codes! {
     ARENA_ESCAPE = 344: "a reference allocated in an arena outlives it",
     AWAIT_OUTSIDE_ASYNC = 345: "`await` outside an async function",
     WORKER_CAPTURES = 346: "an inline worker's function captures variables",
+    CONST_PANIC = 347: "a constant expression that always panics (overflow, division by zero, …)",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

@@ -4,6 +4,10 @@
 Two mechanisms work together:
 1. **Automatic constant folding.** Pure expressions over constants are evaluated at compile time
    without any annotation (`const KB = 1 << 10`).
+   Constants flow through `const` bindings and through anything assigned only that constant.
+   An operation on constants that would panic at run time (overflow, division by zero, a shift
+   out of range, an out-of-range `as`) is a compile error (E0347), even in code that never runs
+   (decision 219).
 2. **Explicit `comptime`.** Forces evaluation at compile time and enables code generation:
 ```ts
 comptime const CRC_TABLE: [u32; 256] = buildCrcTable()   // runs in the compiler

@@ -65,3 +65,17 @@ const s = max("a", "b")
 const again = max(3, 4)
 "#));
 }
+
+#[test]
+fn constant_folding() {
+    insta::assert_snapshot!(mir(r#"
+const KB = 1 << 10
+const MB = KB * 1024
+const ratio = 1.5 * 2.0
+const big = KB > 1000 && !false
+function scaled(x: i64): i64 { x * (2 + 3) - -KB }
+function narrow(): u8 { (KB / 8) as u8 }
+println(MB + scaled(1) + narrow() as i64)
+println(`${ratio} ${big}`)
+"#));
+}

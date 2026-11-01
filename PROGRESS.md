@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P6.1: Constant folding** (see [PLAN.md](PLAN.md#p61-constant-folding)). Phase 5 is complete.
+**P6.2: `comptime` evaluation** (see [PLAN.md](PLAN.md#p62-comptime-evaluation)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,10 +23,10 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 218 decisions, no open questions |
+| Spec | ✅ 16 chapters, 219 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P5.6) |
+| Last green `scripts/test.sh` | 2026-11-01 (P6.1) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Constant folding (P6.1, decision 219)**: runs at the end of `ppl_mir::lower`. Not folded: strings (`"a" + "b"`), `ToStr` of constants, aggregates, `InBounds`/`AddOverflows`; no interprocedural folding. A comptime interpreter (P6.2) can reuse `ppl_mir::eval`.
 - **GC (P4.x)**: `runtime/src/ppl_gc.c` and `crates/ppl-codegen/src/gc.rs` (decisions 206–209).
   Generational (non-moving nursery + incremental old generation, Dijkstra barrier, cards for
   large objects, lazy sweeping). **Pause benchmark** `bench/gc_pause.ppl` (release build, macOS
@@ -202,7 +203,7 @@ Notes:
 - [x] P5.6 Transferables, inline workers, pools
 
 ### Phase 6: Comptime and metaprogramming
-- [ ] P6.1 Constant folding
+- [x] P6.1 Constant folding
 - [ ] P6.2 `comptime` evaluation
 - [ ] P6.3 Types as comptime values
 - [ ] P6.4 Decorators and std/meta
@@ -322,3 +323,4 @@ Notes:
 | 2026-11-01 | P5.4 | `AbortController`/`AbortSignal`/`AbortError` (core), `std/timers` `delay(ms, signal?)` rejecting with `AbortError`. Decision 216. Test: run/async/abort. |
 | 2026-11-01 | P5.5 | Workers: thread-local runtime/program state, worker modules as extra roots with their own entry functions, `ppl_worker.c` (threads, queues, wakers, generic deep copy), `Worker`/`WorkerPanicked`/`std/worker`, `Sendable` bound, interpreter threads. Decision 217. Tests: run/workers/{pingpong, errors, graphs}, fail/workers/not_sendable. |
 | 2026-11-01 | P5.6 | `ArrayBuffer` + typed arrays (off-heap, copied or transferred/detached in messages), inline workers (`new Worker(f)`, `call`, unref when idle), `parallelMap`, `WorkerPool`, `navigator.hardwareConcurrency`; static getters, generic-call defaults. Decision 218. Tests: run/workers/{transfer, parallel (hashing), pool}, fail/workers/inline_captures. Phase 5 done. |
+| 2026-11-01 | P6.1 | MIR constant folding (`ppl-mir/src/fold.rs`): int/float/bool/char `Binary`/`Unary`/`Cast`, propagation through single-assignment locals and constant globals, constant branches → gotos, unreachable blocks emptied, dead constant temps dropped. Arithmetic moved to `ppl_mir::eval` (interpreter uses it too). Folded panics are E0347 (decision 219); MIR `Loc` now carries a span. Tests: mir snapshot `constant_folding`, fail/consts/const_panics; four run panic fixtures now use parameters. |

@@ -1,0 +1,28 @@
+// error: E0347
+// at: 19:11
+// error: E0347
+// at: 20:33
+// error: E0347
+// at: 21:52
+// error: E0347
+// at: 22:35
+// error: E0347
+// at: 23:11
+// error: E0347
+// at: 24:13
+// error: E0347
+// at: 26:21
+// error: E0347
+// at: 27:3
+// Overflow, division by zero, bad shifts and conversions found by constant folding are
+// compile errors, also through constants and in code that never runs (decision 219).
+const d = 255u8 + 1u8
+const big: i64 = 300; const n = big as u8
+const edge: f64 = 9223372036854775807.0; const e = edge as i64
+const amount: u32 = 64; const s = 1 << amount
+const q = 1 / 0
+const neg = -(-128i8 - 0i8)
+function f(): i32 {
+  if (false) return 1 << 40
+  0 - 2147483647 - 2
+}

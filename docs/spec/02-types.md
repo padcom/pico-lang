@@ -32,7 +32,9 @@ There is no `any` and no `undefined`.
 const a: i32 = 10
 const b: i64 = a          // ok: widening
 const c: i16 = a as i16   // explicit narrowing (panics if out of range)
-const d = 255u8 + 1u8     // panic: overflow
+const d = 255u8 + 1u8     // compile error E0347: constant overflow (decision 219)
+function inc(x: u8): u8 { x + 1u8 }
+inc(255u8)                // panic: overflow
 ```
 
 ## 2.3 Nominal typing

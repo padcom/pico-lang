@@ -40,14 +40,14 @@ fn first(_0: i64) -> i64 {
   bb5:
     goto bb1
   bb6:
-    goto bb5
+    unreachable
 }
 
 fn never() -> never {
   bb0:
     panic const "boom" @10:27
   bb1:
-    return
+    unreachable
 }
 
 fn Uint8Array.<static>() -> void {

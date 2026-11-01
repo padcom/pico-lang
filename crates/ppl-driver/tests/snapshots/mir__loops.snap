@@ -47,7 +47,7 @@ fn sum(_0: i64) -> i64 {
     _1 = Add(_1, _2)
     goto bb3
   bb8:
-    goto bb7
+    unreachable
   bb9:
     _8 = Gt(_1, const 100_i64)
     branch _8 -> [true: bb10, false: bb11]
@@ -115,11 +115,10 @@ fn <main>() -> void {
     @g0 = const null<() => bool[]?>
     @g1 = const null<__Loop?>
     @g2 = const null<FinalizationRegistry<i64>?>
-    _1 = const 3_i64
     _2 = const 0_i64
     goto bb6
   bb6:
-    _3 = Lt(_2, _1)
+    _3 = Lt(_2, const 3_i64)
     branch _3 -> [true: bb7, false: bb9]
   bb7:
     _0 = _2

@@ -1,3 +1,3 @@
 // panic: shift amount out of range
-const amount: u32 = 64
-println(1 << amount)
+function shift(amount: u32): i64 { 1 << amount }
+println(shift(64))

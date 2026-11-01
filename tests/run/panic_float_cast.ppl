@@ -1,7 +1,6 @@
 // expect: 9223372036854774784
 // panic: float conversion out of range
 // 2^63 rounds from i64::MAX as f64; converting it back must panic, not wrap.
-const below: f64 = 9223372036854774784.0
-println(below as i64)
-const edge: f64 = 9223372036854775807.0
-println(edge as i64)
+function toInt(x: f64): i64 { x as i64 }
+println(toInt(9223372036854774784.0))
+println(toInt(9223372036854775807.0))
