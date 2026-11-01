@@ -4,8 +4,8 @@
 //! by it. `for` loops become [`ExprKind::While`] (with an `update` step that `continue` runs),
 //! and `for-of` stays [`ExprKind::ForOf`] (its lowering depends on the iterated type).
 
-pub use crate::ty::StructId;
 use crate::ty::Ty;
+pub use crate::ty::{EnumId, StructId};
 use ppl_diag::{FileId, Span};
 use ppl_syntax::ast::{BinOp, UnOp};
 use ppl_syntax::token::NumSuffix;
@@ -33,6 +33,40 @@ pub struct Program {
     /// Span of every expression, indexed by `ExprId`.
     pub expr_spans: Vec<Span>,
     pub structs: Vec<StructDef>,
+    pub enums: Vec<EnumDef>,
+}
+
+#[derive(Debug)]
+pub struct VariantDef {
+    pub name: String,
+    pub span: Span,
+    /// Payload fields; empty for a unit variant like `Empty`.
+    pub fields: Vec<FieldDef>,
+    /// `Circle(r: f64)` (even with no fields, `Unit()`) as opposed to `Empty`.
+    pub has_parens: bool,
+}
+
+#[derive(Debug)]
+pub struct EnumDef {
+    pub name: String,
+    pub name_span: Span,
+    pub variants: Vec<VariantDef>,
+}
+
+impl EnumDef {
+    pub fn variant(&self, name: &str) -> Option<(u32, &VariantDef)> {
+        self.variants
+            .iter()
+            .enumerate()
+            .find(|(_, v)| v.name == name)
+            .map(|(i, v)| (i as u32, v))
+    }
+}
+
+impl VariantDef {
+    pub fn field(&self, name: &str) -> Option<(usize, &FieldDef)> {
+        self.fields.iter().enumerate().find(|(_, f)| f.name == name)
+    }
 }
 
 #[derive(Debug)]
@@ -75,6 +109,14 @@ impl Program {
 
     pub fn struct_def(&self, id: StructId) -> &StructDef {
         &self.structs[id.0 as usize]
+    }
+
+    pub fn enum_def(&self, id: EnumId) -> &EnumDef {
+        &self.enums[id.0 as usize]
+    }
+
+    pub fn enum_ty(&self, id: EnumId) -> Ty {
+        Ty::Enum(id, self.enums[id.0 as usize].name.as_str().into())
     }
 
     pub fn struct_ty(&self, id: StructId) -> Ty {
@@ -203,6 +245,75 @@ pub struct FieldInit {
     pub value: Expr,
 }
 
+/// An argument of a variant constructor: `Circle(r: 1)` or `Rect(2, 3)`.
+#[derive(Debug)]
+pub struct VariantArg {
+    pub name: Option<(String, Span)>,
+    pub value: Expr,
+}
+
+#[derive(Debug)]
+pub struct Pattern {
+    /// Keys the type checker's results (shares the expression id space).
+    pub id: ExprId,
+    pub kind: PatKind,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub enum LitPat {
+    /// The value, already negated for `-1`.
+    Int(i128),
+    Float(f64),
+    Str(String),
+    Bool(bool),
+    Null,
+}
+
+#[derive(Debug)]
+pub enum VariantPatArgs {
+    /// `Empty` (also matches a payload variant, ignoring its fields).
+    None,
+    Positional(Vec<Pattern>),
+    /// `Circle { r }`, `Circle { r: 0 }`: unnamed fields are wildcards.
+    Named(Vec<FieldPat>),
+}
+
+#[derive(Debug)]
+pub struct FieldPat {
+    pub name: String,
+    pub name_span: Span,
+    pub pat: Pattern,
+}
+
+#[derive(Debug)]
+pub enum PatKind {
+    Wild,
+    Bind(LocalId),
+    Lit(LitPat),
+    /// An enum variant. `enum_` is `None` when unqualified (`Circle(r)`): the scrutinee's type
+    /// says which enum.
+    Variant {
+        enum_: Option<EnumId>,
+        name: String,
+        name_span: Span,
+        args: VariantPatArgs,
+    },
+    /// `Point { x: 0, y }`: unnamed fields are wildcards.
+    Struct {
+        sid: StructId,
+        fields: Vec<FieldPat>,
+    },
+}
+
+#[derive(Debug)]
+pub struct Arm {
+    pub pat: Pattern,
+    pub guard: Option<Expr>,
+    pub body: Expr,
+    pub span: Span,
+}
+
 #[derive(Debug)]
 pub struct TemplatePart {
     pub expr: Expr,
@@ -268,6 +379,16 @@ pub enum ExprKind {
         var: LocalId,
         iter: Box<Expr>,
         body: Box<Expr>,
+    },
+    /// `Shape.Circle(r: 1)`, `Color.Red` (`args` is `None` without parentheses).
+    Variant {
+        enum_: EnumId,
+        variant: u32,
+        args: Option<Vec<VariantArg>>,
+    },
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<Arm>,
     },
     /// `e!`: panics if `e` is null.
     NonNull(Box<Expr>),
@@ -371,6 +492,20 @@ impl Expr {
             ExprKind::ForOf { iter, body, .. } => {
                 f(iter);
                 f(body);
+            }
+            ExprKind::Variant { args, .. } => {
+                for a in args.iter().flatten() {
+                    f(&a.value);
+                }
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                f(scrutinee);
+                for a in arms {
+                    if let Some(g) = &a.guard {
+                        f(g);
+                    }
+                    f(&a.body);
+                }
             }
             ExprKind::OptChain { base, rest, .. } => {
                 f(base);

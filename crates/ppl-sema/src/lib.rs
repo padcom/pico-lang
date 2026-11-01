@@ -1,5 +1,6 @@
 //! Name resolution, type checking and typed HIR for ppl.
 
+pub mod exhaust;
 pub mod format;
 pub mod hir;
 pub mod resolve;

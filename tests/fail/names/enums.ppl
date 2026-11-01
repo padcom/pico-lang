@@ -1,0 +1,10 @@
+// error: E0309
+// at: 8:17
+// error: E0206
+// at: 9:23
+// error: E0210
+// at: 10:6
+enum Shape { Circle(r: f64), Empty }
+const u = Shape.Triangle
+const v = match (1) { Nope.X => 1, _ => 2 }
+enum List { Cons(head: i32, tail: List), Nil }

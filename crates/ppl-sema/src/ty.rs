@@ -7,6 +7,10 @@ use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StructId(pub u32);
 
+/// Identifies an `enum` declaration in the program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct EnumId(pub u32);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IntTy {
     I8,
@@ -115,6 +119,8 @@ pub enum Ty {
     Null,
     /// A user-defined struct (the name is kept for messages).
     Struct(StructId, Arc<str>),
+    /// A user-defined enum (a tagged union).
+    Enum(EnumId, Arc<str>),
     /// Internal: a reference to a value (method receivers). Not writable in source.
     Ref(Box<Ty>),
     /// `T[]` / `Array<T>`: a growable, heap-allocated array (a reference type).
@@ -225,7 +231,7 @@ impl fmt::Display for Ty {
             Ty::Void => f.write_str("void"),
             Ty::Never => f.write_str("never"),
             Ty::Null => f.write_str("null"),
-            Ty::Struct(_, name) => f.write_str(name),
+            Ty::Struct(_, name) | Ty::Enum(_, name) => f.write_str(name),
             Ty::Ref(t) => write!(f, "&{t}"),
             Ty::Array(t) if matches!(**t, Ty::Nullable(_)) => write!(f, "({t})[]"),
             Ty::Array(t) => write!(f, "{t}[]"),

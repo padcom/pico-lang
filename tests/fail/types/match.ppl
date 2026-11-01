@@ -1,0 +1,42 @@
+// error: E0317
+// at: 29:20
+// error: E0317
+// at: 30:20
+// error: E0317
+// at: 31:20
+// error: E0317
+// at: 32:20
+// error: E0317
+// at: 33:20
+// error: E0317
+// at: 34:20
+// error: E0316
+// at: 35:25
+// error: E0318
+// at: 36:25
+// error: E0312
+// at: 37:29
+// error: E0311
+// at: 38:13
+// error: E0302
+// at: 39:13
+// error: E0302
+// at: 40:13
+enum Shape { Circle(r: f64), Rect(w: f64, h: f64), Empty }
+enum Color { Red, Green, Blue }
+struct P { x: i32; y: bool }
+function f(s: Shape, c: Color, n: i32, b: bool, p: P, o: Color?): i32 {
+  const a = match (s) { Circle(r) => 1, Rect(w, h) if w > h => 2 }
+  const d = match (c) { Red => 1 }
+  const e = match (n) { 0 => 1, 1 => 2 }
+  const g = match (b) { true => 1 }
+  const h = match (p) { P { y: true } => 1 }
+  const i = match (o) { Red => 1, Green => 2, Blue => 3 }
+  const j = match (s) { Circle(r, q) => 1, Square => 2, _ => 3 }
+  const k = match (n) { "x" => 1, _ => 2 }
+  const l = Shape.Circle(1, r: 2)
+  const m = Shape.Rect(w: 1)
+  const q = Shape.Circle
+  const t = Color.Red()
+  0
+}

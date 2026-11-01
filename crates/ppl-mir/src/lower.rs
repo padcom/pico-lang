@@ -49,12 +49,33 @@ pub fn lower(
                 .collect(),
         })
         .collect();
+    let enums = program
+        .enums
+        .iter()
+        .map(|e| mir::EnumLayout {
+            name: e.name.clone(),
+            variants: e
+                .variants
+                .iter()
+                .map(|v| mir::VariantLayout {
+                    name: v.name.clone(),
+                    fields: v
+                        .fields
+                        .iter()
+                        .map(|f| (f.name.clone(), f.ty.clone()))
+                        .collect(),
+                    has_parens: v.has_parens,
+                })
+                .collect(),
+        })
+        .collect();
     let mir = mir::Program {
         file: file.name.clone(),
         fns,
         entry: program.entry,
         globals,
         structs,
+        enums,
     };
     (mir, cx.diags)
 }
@@ -281,8 +302,15 @@ impl FnBuilder<'_, '_> {
             },
         };
         for pr in &p.proj {
-            t = mir::project(&t, pr, |sid, i| {
-                self.cx.program.struct_def(sid).fields[i].ty.clone()
+            t = mir::project(&t, pr, |f| match f {
+                mir::FieldRef::Struct(sid, i) => {
+                    self.cx.program.struct_def(sid).fields[i].ty.clone()
+                }
+                mir::FieldRef::Variant(eid, v, i) => {
+                    self.cx.program.enum_def(eid).variants[v as usize].fields[i]
+                        .ty
+                        .clone()
+                }
             });
         }
         t
@@ -527,6 +555,30 @@ impl FnBuilder<'_, '_> {
                 self.rvalue_to_temp(Rvalue::Unwrap(v), ty, e.span)
             }
             ExprKind::OptChain { tmp, base, rest } => self.opt_chain(*tmp, base, rest, ty, e.span),
+            ExprKind::Variant {
+                enum_,
+                variant,
+                args,
+            } => {
+                let n = self.cx.program.enum_def(*enum_).variants[*variant as usize]
+                    .fields
+                    .len();
+                let mut ops: Vec<Option<Operand>> = vec![None; n];
+                if let Some(args) = args {
+                    let order = self.cx.types.variant_args[&e.id].clone();
+                    // Evaluate in source order, store in declaration order.
+                    for (a, slot) in args.iter().zip(order) {
+                        let v = self.expr(&a.value);
+                        ops[slot as usize] = Some(v);
+                    }
+                }
+                let ops = ops
+                    .into_iter()
+                    .map(|o| o.expect("every field given"))
+                    .collect();
+                self.rvalue_to_temp(Rvalue::Variant(*enum_, *variant, ops), ty, e.span)
+            }
+            ExprKind::Match { scrutinee, arms } => self.match_expr(scrutinee, arms, ty, e.span),
             ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => {
                 Operand::Copy(self.place(*v).payload())
             }
@@ -1061,6 +1113,185 @@ impl FnBuilder<'_, '_> {
                 let lv = self.expr(l);
                 let rv = self.expr(r);
                 self.rvalue_to_temp(Rvalue::Binary(bin_op(op), lv, rv), ty, e.span)
+            }
+        }
+    }
+
+    /// `match`: the arms are tried in order; each tests its pattern against the scrutinee,
+    /// binds, checks its guard, and jumps to the next arm on failure.
+    fn match_expr(&mut self, scrutinee: &Expr, arms: &[hir::Arm], ty: Ty, span: Span) -> Operand {
+        let mut place = self.place_of(scrutinee);
+        if place.has_index() || !matches!(scrutinee.kind, ExprKind::Var(_)) {
+            // A stable copy: arm bodies may change the array or variable it came from.
+            let st = self.place_ty(&place);
+            let t = Place::local(self.temp(st));
+            self.assign(t.clone(), Rvalue::Use(Operand::Copy(place)), scrutinee.span);
+            place = t;
+        }
+        let res = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+        let join = self.new_block();
+        for arm in arms {
+            let next = self.new_block();
+            self.test_pattern(&arm.pat, &place, next);
+            self.bind_pattern(&arm.pat, &place);
+            if let Some(g) = &arm.guard {
+                let c = self.expr(g);
+                let body = self.new_block();
+                self.terminate(Terminator::Branch {
+                    cond: c,
+                    then: body,
+                    else_: next,
+                });
+                self.switch_to(body);
+            }
+            let v = self.expr(&arm.body);
+            if let Some(r) = &res
+                && self.ty(&arm.body) != Ty::Never
+            {
+                self.assign(r.clone(), Rvalue::Use(v), arm.body.span);
+            }
+            self.terminate(Terminator::Goto(join));
+            self.switch_to(next);
+        }
+        // Exhaustiveness was checked: no value gets here.
+        let _ = span;
+        self.terminate(Terminator::Unreachable);
+        self.switch_to(join);
+        match res {
+            Some(p) => Operand::Copy(p),
+            None => Operand::Const(Const::Void),
+        }
+    }
+
+    /// Branches to `fail` unless the value at `place` matches `p` (bindings aside).
+    fn test_pattern(&mut self, p: &hir::Pattern, place: &Place, fail: BlockId) {
+        use hir::PatKind;
+        let pty = self.place_ty(place);
+        let branch_unless = |b: &mut Self, ok: Operand| {
+            let pass = b.new_block();
+            b.terminate(Terminator::Branch {
+                cond: ok,
+                then: pass,
+                else_: fail,
+            });
+            b.switch_to(pass);
+        };
+        match &p.kind {
+            PatKind::Wild | PatKind::Bind(_) => {}
+            PatKind::Lit(hir::LitPat::Null) => {
+                let n = self.rvalue_to_temp(
+                    Rvalue::IsNull(Operand::Copy(place.clone())),
+                    Ty::Bool,
+                    p.span,
+                );
+                branch_unless(self, n);
+            }
+            _ if matches!(pty, Ty::Nullable(_)) => {
+                let n = self.rvalue_to_temp(
+                    Rvalue::IsNull(Operand::Copy(place.clone())),
+                    Ty::Bool,
+                    p.span,
+                );
+                let some = self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, n), Ty::Bool, p.span);
+                branch_unless(self, some);
+                self.test_pattern(p, &place.payload(), fail);
+            }
+            PatKind::Lit(l) => {
+                let c = match (l, &pty) {
+                    (hir::LitPat::Int(v), Ty::Int(it)) => Const::Int(*v, *it),
+                    (hir::LitPat::Int(v), Ty::Float(ft)) => Const::Float(*v as f64, *ft),
+                    (hir::LitPat::Float(v), Ty::Float(ft)) => Const::Float(*v, *ft),
+                    (hir::LitPat::Str(s), Ty::Char) => {
+                        Const::Char(s.chars().next().unwrap_or('\0'))
+                    }
+                    (hir::LitPat::Str(s), _) => Const::Str(s.clone()),
+                    (hir::LitPat::Bool(b), _) => Const::Bool(*b),
+                    _ => unreachable!("type-checked literal pattern"),
+                };
+                let eq = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Eq,
+                        Operand::Copy(place.clone()),
+                        Operand::Const(c),
+                    ),
+                    Ty::Bool,
+                    p.span,
+                );
+                branch_unless(self, eq);
+            }
+            PatKind::Variant { args, .. } => {
+                let (_, vi) = self.cx.types.variants[&p.id];
+                let tag = self.rvalue_to_temp(
+                    Rvalue::Tag(Operand::Copy(place.clone())),
+                    Ty::Int(IntTy::U32),
+                    p.span,
+                );
+                let eq = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Eq,
+                        tag,
+                        Operand::Const(Const::Int(vi as i128, IntTy::U32)),
+                    ),
+                    Ty::Bool,
+                    p.span,
+                );
+                branch_unless(self, eq);
+                for (sub, i) in self.variant_subpatterns(p, args) {
+                    let fp = place.variant_field(vi, i);
+                    self.test_pattern(sub, &fp, fail);
+                }
+            }
+            PatKind::Struct { fields, .. } => {
+                let idx = self.cx.types.pat_fields[&p.id].clone();
+                for (f, i) in fields.iter().zip(idx) {
+                    self.test_pattern(&f.pat, &place.field(i), fail);
+                }
+            }
+        }
+    }
+
+    /// The sub-patterns of a variant pattern with the field index each one matches.
+    fn variant_subpatterns<'p>(
+        &self,
+        p: &hir::Pattern,
+        args: &'p hir::VariantPatArgs,
+    ) -> Vec<(&'p hir::Pattern, u32)> {
+        match args {
+            hir::VariantPatArgs::None => Vec::new(),
+            hir::VariantPatArgs::Positional(ps) => {
+                ps.iter().enumerate().map(|(i, s)| (s, i as u32)).collect()
+            }
+            hir::VariantPatArgs::Named(fps) => {
+                let idx = &self.cx.types.pat_fields[&p.id];
+                fps.iter().zip(idx).map(|(f, i)| (&f.pat, *i)).collect()
+            }
+        }
+    }
+
+    /// Copies the matched parts into the pattern's bindings.
+    fn bind_pattern(&mut self, p: &hir::Pattern, place: &Place) {
+        use hir::PatKind;
+        let pty = self.place_ty(place);
+        match &p.kind {
+            PatKind::Bind(l) => {
+                if has_value(&pty) {
+                    let dst = self.place(hir::Var::Local(*l));
+                    self.assign(dst, Rvalue::Use(Operand::Copy(place.clone())), p.span);
+                }
+            }
+            PatKind::Wild | PatKind::Lit(_) => {}
+            _ if matches!(pty, Ty::Nullable(_)) => self.bind_pattern(p, &place.payload()),
+            PatKind::Variant { args, .. } => {
+                let (_, vi) = self.cx.types.variants[&p.id];
+                for (sub, i) in self.variant_subpatterns(p, args) {
+                    self.bind_pattern(sub, &place.variant_field(vi, i));
+                }
+            }
+            PatKind::Struct { fields, .. } => {
+                let idx = self.cx.types.pat_fields[&p.id].clone();
+                for (f, i) in fields.iter().zip(idx) {
+                    self.bind_pattern(&f.pat, &place.field(i));
+                }
             }
         }
     }

@@ -8,8 +8,9 @@
 //! unknown checks that function first. Reaching a function that is already being checked
 //! means it's recursive, and recursive functions must declare their return type.
 
+use crate::exhaust::{self, Ctor, Pat};
 use crate::hir::*;
-use crate::ty::{FloatTy, IntTy, Ty};
+use crate::ty::{EnumId, FloatTy, IntTy, Ty};
 use ppl_diag::{Diagnostic, Span, codes};
 use ppl_syntax::ast::{BinOp, UnOp};
 use ppl_syntax::token::NumSuffix;
@@ -42,6 +43,12 @@ pub struct Types {
     pub methods: HashMap<ExprId, FnId>,
     /// Variable reads of a `T?` binding that narrowing typed as `T` (lowering unwraps them).
     pub narrowed: HashSet<ExprId>,
+    /// Variant patterns: the enum and variant index.
+    pub variants: HashMap<ExprId, (EnumId, u32)>,
+    /// Named field patterns (`Circle { r }`, `Point { x, y }`): each field's index, in order.
+    pub pat_fields: HashMap<ExprId, Vec<u32>>,
+    /// Variant constructors: the field index of each argument, in source order.
+    pub variant_args: HashMap<ExprId, Vec<u32>>,
 }
 
 impl Types {
@@ -75,6 +82,9 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             objects: HashMap::new(),
             methods: HashMap::new(),
             narrowed: HashSet::new(),
+            variants: HashMap::new(),
+            pat_fields: HashMap::new(),
+            variant_args: HashMap::new(),
         },
         narrow: Vec::new(),
         diags: Vec::new(),
@@ -895,6 +905,12 @@ impl<'p> Checker<'p> {
                 self.ctx().loops.pop();
                 Ty::Void
             }
+            ExprKind::Variant {
+                enum_,
+                variant,
+                args,
+            } => self.variant(e, *enum_, *variant, args.as_deref()),
+            ExprKind::Match { scrutinee, arms } => self.match_expr(e, scrutinee, arms, want),
             ExprKind::NonNull(inner) => match self.infer(inner) {
                 Ty::Nullable(t) => *t,
                 Ty::Null => {
@@ -921,6 +937,515 @@ impl<'p> Checker<'p> {
                 }
             }
             ExprKind::Error => Ty::Error,
+        }
+    }
+
+    /// `Shape.Circle(r: 1)`, `Shape.Rect(2, 3)`, `Color.Red`.
+    fn variant(&mut self, e: &Expr, eid: EnumId, vi: u32, args: Option<&[VariantArg]>) -> Ty {
+        let def = self.program.enum_def(eid);
+        let v = &def.variants[vi as usize];
+        let ty = self.program.enum_ty(eid);
+        let Some(args) = args else {
+            if !v.fields.is_empty() || v.has_parens {
+                let fields: Vec<String> = v
+                    .fields
+                    .iter()
+                    .map(|f| format!("{}: {}", f.name, f.ty))
+                    .collect();
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::WRONG_ARG_COUNT,
+                        format!("`{}.{}` needs its fields", def.name, v.name),
+                    )
+                    .primary(e.span, "no arguments given")
+                    .secondary(
+                        v.span,
+                        format!("declared as `{}({})`", v.name, fields.join(", ")),
+                    ),
+                );
+            }
+            return ty;
+        };
+        if !v.has_parens {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::WRONG_ARG_COUNT,
+                    format!("`{}.{}` has no fields", def.name, v.name),
+                )
+                .primary(e.span, "called with parentheses")
+                .help(format!("write `{}.{}`", def.name, v.name)),
+            );
+            for a in args {
+                self.infer(&a.value);
+            }
+            return ty;
+        }
+        let mut seen: Vec<Option<Span>> = vec![None; v.fields.len()];
+        let mut order = Vec::new();
+        let mut next_positional = 0;
+        let mut named_seen = false;
+        for a in args {
+            let idx = match &a.name {
+                None => {
+                    if named_seen {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::POSITIONAL_AFTER_NAMED,
+                                "positional argument after a named one",
+                            )
+                            .primary(a.value.span, "move it before the named arguments"),
+                        );
+                    }
+                    let i = next_positional;
+                    next_positional += 1;
+                    if i >= v.fields.len() {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::WRONG_ARG_COUNT,
+                                format!(
+                                    "`{}.{}` takes {} argument{}",
+                                    def.name,
+                                    v.name,
+                                    v.fields.len(),
+                                    if v.fields.len() == 1 { "" } else { "s" }
+                                ),
+                            )
+                            .primary(a.value.span, "extra argument"),
+                        );
+                        None
+                    } else {
+                        Some(i)
+                    }
+                }
+                Some((name, span)) => {
+                    named_seen = true;
+                    match v.field(name) {
+                        Some((i, _)) => Some(i),
+                        None => {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::UNKNOWN_MEMBER,
+                                    format!("`{}.{}` has no field `{name}`", def.name, v.name),
+                                )
+                                .primary(*span, "unknown field")
+                                .secondary(v.span, "variant declared here"),
+                            );
+                            None
+                        }
+                    }
+                }
+            };
+            match idx {
+                Some(i) => {
+                    let span = a.name.as_ref().map_or(a.value.span, |(_, s)| *s);
+                    if let Some(prev) = seen[i] {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::DUPLICATE_FIELD,
+                                format!("field `{}` is given twice", v.fields[i].name),
+                            )
+                            .primary(span, "given again here")
+                            .secondary(prev, "first given here"),
+                        );
+                    }
+                    seen[i] = Some(span);
+                    order.push(i as u32);
+                    let f = &v.fields[i];
+                    self.check(&a.value, &Expect::from(f.ty.clone(), Some(f.span)));
+                }
+                None => {
+                    order.push(u32::MAX);
+                    self.infer(&a.value);
+                }
+            }
+        }
+        let missing: Vec<String> = v
+            .fields
+            .iter()
+            .zip(&seen)
+            .filter(|(_, s)| s.is_none())
+            .map(|(f, _)| format!("`{}`", f.name))
+            .collect();
+        if !missing.is_empty() {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::MISSING_FIELDS,
+                    format!(
+                        "missing field{} {}",
+                        if missing.len() == 1 { "" } else { "s" },
+                        missing.join(", ")
+                    ),
+                )
+                .primary(
+                    e.span,
+                    format!("`{}.{}` needs every field", def.name, v.name),
+                )
+                .secondary(v.span, "variant declared here"),
+            );
+        }
+        self.types.variant_args.insert(e.id, order);
+        ty
+    }
+
+    fn match_expr(
+        &mut self,
+        e: &Expr,
+        scrutinee: &Expr,
+        arms: &[Arm],
+        want: Option<&Expect>,
+    ) -> Ty {
+        let st = self.infer(scrutinee);
+        let want = want.filter(|w| w.ty != Ty::Void);
+        let mut results: Vec<(&Expr, Ty)> = Vec::new();
+        for arm in arms {
+            self.check_pattern(&arm.pat, &st);
+            if let Some(g) = &arm.guard {
+                self.check(g, &Expect::new(Ty::Bool));
+            }
+            let facts = arm
+                .guard
+                .as_ref()
+                .map(|g| self.facts(g).when_true)
+                .unwrap_or_default();
+            let t = self.with_facts(facts, |c| match want {
+                Some(w) => c.check(&arm.body, w),
+                None => c.infer(&arm.body),
+            });
+            results.push((&arm.body, t));
+        }
+        if !st.is_error() {
+            let rows: Vec<Pat> = arms
+                .iter()
+                .filter(|a| a.guard.is_none())
+                .map(|a| self.to_pat(&a.pat, &st))
+                .collect();
+            let ex = exhaust::Checker {
+                program: self.program,
+            };
+            let missing = ex.missing(&st, &rows, 8);
+            if !missing.is_empty() {
+                let list: Vec<String> = missing.iter().map(|m| format!("`{m}`")).collect();
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::NON_EXHAUSTIVE,
+                        format!("non-exhaustive match: missing {}", list.join(", ")),
+                    )
+                    .primary(
+                        scrutinee.span,
+                        format!("`{st}` isn't covered by every case"),
+                    )
+                    .help("add arms for the missing cases, or a wildcard arm `_ => …`")
+                    .note("arms with an `if` guard don't count, since the guard can be false"),
+                );
+            }
+        }
+        let _ = e;
+        if let Some(w) = want {
+            return w.ty.clone();
+        }
+        self.unify_exprs(&results, "`match` arms have different types")
+    }
+
+    /// Joins the types of several expressions (match arms), recording widenings, and turning
+    /// `T` + `null` into `T?`.
+    fn unify_exprs(&mut self, items: &[(&Expr, Ty)], msg: &str) -> Ty {
+        let live: Vec<&(&Expr, Ty)> = items.iter().filter(|(_, t)| *t != Ty::Never).collect();
+        let Some(first) = live.first() else {
+            return Ty::Never;
+        };
+        if live.iter().any(|(_, t)| t.is_error()) {
+            return Ty::Error;
+        }
+        let mut acc = first.1.clone();
+        for (_, t) in &live[1..] {
+            if t.widens_to(&acc) {
+                continue;
+            }
+            if acc.widens_to(t) {
+                acc = t.clone();
+                continue;
+            }
+            if *t == Ty::Null && acc != Ty::Void {
+                acc = acc.nullable();
+                continue;
+            }
+            if acc == Ty::Null && *t != Ty::Void {
+                acc = t.clone().nullable();
+                continue;
+            }
+            let mut d = Diagnostic::error(codes::MISMATCHED_TYPES, msg.to_string());
+            for (x, t) in &live {
+                d = d.secondary(x.span, format!("`{t}`"));
+            }
+            d.labels[0].primary = true;
+            self.diags.push(d);
+            return Ty::Error;
+        }
+        for (x, t) in &live {
+            if *t != acc {
+                self.types.coercions.insert(x.id, acc.clone());
+            }
+        }
+        acc
+    }
+
+    fn pattern_mismatch(&mut self, span: Span, ty: &Ty, what: &str) {
+        if ty.is_error() {
+            return;
+        }
+        self.diags.push(
+            Diagnostic::error(
+                codes::PATTERN_MISMATCH,
+                format!("this pattern can't match a `{ty}`"),
+            )
+            .primary(span, format!("{what} pattern"))
+            .note(format!("the matched value has type `{ty}`")),
+        );
+    }
+
+    /// Checks a pattern against the type of the value it matches, typing its bindings.
+    fn check_pattern(&mut self, p: &Pattern, ty: &Ty) {
+        self.types.exprs[p.id.0 as usize] = ty.clone();
+        // Patterns other than `null`, `_` and bindings look inside a `T?`.
+        let inner = match (ty, &p.kind) {
+            (Ty::Nullable(t), PatKind::Lit(l)) if !matches!(l, LitPat::Null) => (**t).clone(),
+            (Ty::Nullable(t), PatKind::Variant { .. } | PatKind::Struct { .. }) => (**t).clone(),
+            _ => ty.clone(),
+        };
+        match &p.kind {
+            PatKind::Wild => {}
+            PatKind::Bind(l) => self.set_var_ty(Var::Local(*l), ty.clone()),
+            PatKind::Lit(l) => {
+                let ok = match (l, &inner) {
+                    (LitPat::Int(v), Ty::Int(it)) => {
+                        if !it.contains(*v) {
+                            self.lit_out_of_range(p.span, *v, *it);
+                        }
+                        true
+                    }
+                    (LitPat::Int(_) | LitPat::Float(_), Ty::Float(_)) => true,
+                    (LitPat::Str(_), Ty::Str) => true,
+                    (LitPat::Str(s), Ty::Char) => s.chars().count() == 1,
+                    (LitPat::Bool(_), Ty::Bool) => true,
+                    (LitPat::Null, Ty::Nullable(_)) => true,
+                    (_, Ty::Error) => true,
+                    _ => false,
+                };
+                if !ok {
+                    self.pattern_mismatch(p.span, ty, "a literal");
+                }
+            }
+            PatKind::Variant {
+                enum_,
+                name,
+                name_span,
+                args,
+            } => {
+                let eid = match &inner {
+                    Ty::Enum(id, _) => *id,
+                    Ty::Error => return self.wild_subpatterns(args),
+                    _ => {
+                        self.pattern_mismatch(p.span, ty, "a variant");
+                        return self.wild_subpatterns(args);
+                    }
+                };
+                if let Some(named) = enum_
+                    && *named != eid
+                {
+                    self.pattern_mismatch(
+                        p.span,
+                        ty,
+                        &format!("a `{}`", self.program.enum_def(*named).name),
+                    );
+                    return self.wild_subpatterns(args);
+                }
+                let def = self.program.enum_def(eid);
+                let Some((vi, v)) = def.variant(name) else {
+                    let names: Vec<&str> = def.variants.iter().map(|v| v.name.as_str()).collect();
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNKNOWN_MEMBER,
+                            format!("enum `{}` has no variant `{name}`", def.name),
+                        )
+                        .primary(*name_span, "unknown variant")
+                        .note(format!("its variants are: {}", names.join(", "))),
+                    );
+                    return self.wild_subpatterns(args);
+                };
+                self.types.variants.insert(p.id, (eid, vi));
+                let field_tys: Vec<(String, Ty)> = v
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.ty.clone()))
+                    .collect();
+                match args {
+                    VariantPatArgs::None => {}
+                    VariantPatArgs::Positional(ps) => {
+                        if ps.len() != field_tys.len() {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::WRONG_LENGTH,
+                                    format!(
+                                        "`{name}` has {} field{}, but the pattern has {}",
+                                        field_tys.len(),
+                                        if field_tys.len() == 1 { "" } else { "s" },
+                                        ps.len()
+                                    ),
+                                )
+                                .primary(p.span, "wrong number of fields")
+                                .help("use `_` for fields you don't need"),
+                            );
+                        }
+                        for (i, sub) in ps.iter().enumerate() {
+                            match field_tys.get(i) {
+                                Some((_, t)) => self.check_pattern(sub, t),
+                                None => self.check_pattern(sub, &Ty::Error),
+                            }
+                        }
+                    }
+                    VariantPatArgs::Named(fps) => {
+                        let what = format!("`{name}`");
+                        self.field_patterns(p, fps, &field_tys, &what);
+                    }
+                }
+            }
+            PatKind::Struct { sid, fields } => {
+                let st = self.program.struct_ty(*sid);
+                if inner != st && !inner.is_error() {
+                    self.pattern_mismatch(p.span, ty, &format!("a `{st}`"));
+                    for f in fields {
+                        self.check_pattern(&f.pat, &Ty::Error);
+                    }
+                    return;
+                }
+                let def = self.program.struct_def(*sid);
+                let field_tys: Vec<(String, Ty)> = def
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.ty.clone()))
+                    .collect();
+                let what = format!("`{}`", def.name);
+                self.field_patterns(p, fields, &field_tys, &what);
+            }
+        }
+    }
+
+    fn field_patterns(
+        &mut self,
+        p: &Pattern,
+        fps: &[FieldPat],
+        fields: &[(String, Ty)],
+        what: &str,
+    ) {
+        let mut idx = Vec::new();
+        for fp in fps {
+            match fields.iter().position(|(n, _)| *n == fp.name) {
+                Some(i) => {
+                    idx.push(i as u32);
+                    self.check_pattern(&fp.pat, &fields[i].1);
+                }
+                None => {
+                    idx.push(u32::MAX);
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNKNOWN_MEMBER,
+                            format!("{what} has no field `{}`", fp.name),
+                        )
+                        .primary(fp.name_span, "unknown field"),
+                    );
+                    self.check_pattern(&fp.pat, &Ty::Error);
+                }
+            }
+        }
+        self.types.pat_fields.insert(p.id, idx);
+    }
+
+    /// Types the bindings of sub-patterns of a pattern that failed to check.
+    fn wild_subpatterns(&mut self, args: &VariantPatArgs) {
+        match args {
+            VariantPatArgs::None => {}
+            VariantPatArgs::Positional(ps) => {
+                for sub in ps {
+                    self.check_pattern(sub, &Ty::Error);
+                }
+            }
+            VariantPatArgs::Named(fps) => {
+                for f in fps {
+                    self.check_pattern(&f.pat, &Ty::Error);
+                }
+            }
+        }
+    }
+
+    /// A checked pattern, reduced for the exhaustiveness checker.
+    fn to_pat(&self, p: &Pattern, ty: &Ty) -> Pat {
+        let (inner, through_null) = match (ty, &p.kind) {
+            (Ty::Nullable(t), PatKind::Lit(l)) if !matches!(l, LitPat::Null) => {
+                ((**t).clone(), true)
+            }
+            (Ty::Nullable(t), PatKind::Variant { .. } | PatKind::Struct { .. }) => {
+                ((**t).clone(), true)
+            }
+            _ => (ty.clone(), false),
+        };
+        let pat = match &p.kind {
+            PatKind::Wild | PatKind::Bind(_) => return Pat::Wild,
+            PatKind::Lit(l) => match l {
+                LitPat::Null => Pat::Ctor(Ctor::Null, Vec::new()),
+                LitPat::Bool(b) => Pat::Ctor(Ctor::Bool(*b), Vec::new()),
+                LitPat::Int(v) if inner.is_int() => Pat::Ctor(Ctor::Int(*v), Vec::new()),
+                LitPat::Int(v) => Pat::Ctor(Ctor::Float((*v as f64).to_bits()), Vec::new()),
+                LitPat::Float(f) => Pat::Ctor(Ctor::Float(f.to_bits()), Vec::new()),
+                LitPat::Str(s) => Pat::Ctor(Ctor::Str(s.clone()), Vec::new()),
+            },
+            PatKind::Variant { args, .. } => {
+                let Some(&(eid, vi)) = self.types.variants.get(&p.id) else {
+                    return Pat::Wild;
+                };
+                let fields = &self.program.enum_def(eid).variants[vi as usize].fields;
+                let mut subs = vec![Pat::Wild; fields.len()];
+                match args {
+                    VariantPatArgs::None => {}
+                    VariantPatArgs::Positional(ps) => {
+                        for (i, (sub, f)) in ps.iter().zip(fields).enumerate() {
+                            subs[i] = self.to_pat(sub, &f.ty);
+                        }
+                    }
+                    VariantPatArgs::Named(fps) => {
+                        self.named_subpats(p, fps, fields.iter().map(|f| &f.ty), &mut subs)
+                    }
+                }
+                Pat::Ctor(Ctor::Variant(vi), subs)
+            }
+            PatKind::Struct { sid, fields: fps } => {
+                let fields = &self.program.struct_def(*sid).fields;
+                let mut subs = vec![Pat::Wild; fields.len()];
+                self.named_subpats(p, fps, fields.iter().map(|f| &f.ty), &mut subs);
+                Pat::Ctor(Ctor::Single, subs)
+            }
+        };
+        if through_null {
+            Pat::Ctor(Ctor::NonNull, vec![pat])
+        } else {
+            pat
+        }
+    }
+
+    fn named_subpats<'t>(
+        &self,
+        p: &Pattern,
+        fps: &[FieldPat],
+        tys: impl Iterator<Item = &'t Ty>,
+        subs: &mut [Pat],
+    ) {
+        let tys: Vec<&Ty> = tys.collect();
+        let Some(idx) = self.types.pat_fields.get(&p.id) else {
+            return;
+        };
+        for (fp, i) in fps.iter().zip(idx) {
+            if let Some(t) = tys.get(*i as usize) {
+                subs[*i as usize] = self.to_pat(&fp.pat, t);
+            }
         }
     }
 
@@ -1351,6 +1876,12 @@ impl<'p> Checker<'p> {
                 .all(|f| self.equatable(&f.ty)),
             Ty::Tuple(ts) => ts.iter().all(|t| self.equatable(t)),
             Ty::Nullable(t) => self.equatable(t),
+            Ty::Enum(id, _) => self
+                .program
+                .enum_def(*id)
+                .variants
+                .iter()
+                .all(|v| v.fields.iter().all(|f| self.equatable(&f.ty))),
             Ty::Fixed(t, _) => self.equatable(t),
             Ty::Range(_) => true,
             _ => false,

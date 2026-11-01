@@ -73,6 +73,8 @@ codes! {
     TUPLE_INDEX = 314: "tuple index that isn't a constant in range",
     UNKNOWN_ELEMENT_TYPE = 315: "array literal without a known element type",
     WRONG_LENGTH = 316: "array or tuple literal with the wrong number of elements",
+    NON_EXHAUSTIVE = 317: "non-exhaustive `match`",
+    PATTERN_MISMATCH = 318: "pattern that can't match the matched value's type",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

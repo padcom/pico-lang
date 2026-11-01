@@ -28,6 +28,9 @@ pub fn resolve(module: &ast::Module, file: FileId) -> (Program, Vec<Diagnostic>)
         f: FnState::default(),
         structs: Vec::new(),
         top_structs: HashMap::new(),
+        enums: Vec::new(),
+        top_enums: HashMap::new(),
+        variant_names: HashSet::new(),
     };
     let program = r.program(module);
     (program, r.diags)
@@ -71,6 +74,11 @@ struct Resolver {
     f: FnState,
     structs: Vec<StructDef>,
     top_structs: HashMap<String, StructId>,
+    enums: Vec<EnumDef>,
+    top_enums: HashMap<String, EnumId>,
+    /// Every variant name of every enum: an identifier pattern with one of these names is a
+    /// variant pattern, not a binding.
+    variant_names: HashSet<String>,
 }
 
 enum Found {
@@ -112,6 +120,7 @@ impl Resolver {
         // Pass 1: top-level functions and bindings.
         let mut fn_decls: Vec<(FnId, &ast::FnDecl, Option<StructId>)> = Vec::new();
         let mut struct_decls: Vec<(StructId, &ast::StructDecl)> = Vec::new();
+        let mut enum_decls: Vec<(EnumId, &ast::EnumDecl)> = Vec::new();
         let mut first_seen: HashMap<String, Span> = HashMap::new();
         for stmt in &module.stmts {
             match &stmt.kind {
@@ -132,6 +141,25 @@ impl Resolver {
                         });
                         self.top_structs.insert(sd.name.name.clone(), id);
                         struct_decls.push((id, sd));
+                    }
+                    if let ast::DeclKind::Enum(ed) = &d.kind {
+                        if let Some(dec) = d.decorators.first() {
+                            self.not_implemented(dec.span, "decorators");
+                        }
+                        if self.check_duplicate(&mut first_seen, &ed.name) {
+                            continue;
+                        }
+                        let id = EnumId(self.enums.len() as u32);
+                        self.enums.push(EnumDef {
+                            name: ed.name.name.clone(),
+                            name_span: ed.name.span,
+                            variants: Vec::new(),
+                        });
+                        self.top_enums.insert(ed.name.name.clone(), id);
+                        for v in &ed.variants {
+                            self.variant_names.insert(v.name.name.clone());
+                        }
+                        enum_decls.push((id, ed));
                     }
                     if let ast::DeclKind::Function(f) = &d.kind
                         && let Some(name) = &f.name
@@ -189,6 +217,9 @@ impl Resolver {
         for (sid, sd) in &struct_decls {
             self.struct_members(*sid, sd, &mut fn_decls);
         }
+        for (eid, ed) in &enum_decls {
+            self.enum_variants(*eid, ed);
+        }
         self.check_struct_cycles();
 
         // Pass 2: function and method bodies.
@@ -230,7 +261,70 @@ impl Resolver {
             globals: std::mem::take(&mut self.globals),
             expr_spans: std::mem::take(&mut self.spans),
             structs: std::mem::take(&mut self.structs),
+            enums: std::mem::take(&mut self.enums),
         }
+    }
+
+    fn enum_variants(&mut self, eid: EnumId, ed: &ast::EnumDecl) {
+        if let Some(g) = ed.generics.first() {
+            self.not_implemented(g.span, "generic enums");
+        }
+        if let Some(t) = ed.implements.first() {
+            self.not_implemented(t.span, "interfaces");
+        }
+        if let Some(m) = ed.members.first() {
+            self.not_implemented(m.span, "enum methods");
+        }
+        let mut seen: HashMap<String, Span> = HashMap::new();
+        for v in &ed.variants {
+            if let Some(dec) = v.decorators.first() {
+                self.not_implemented(dec.span, "decorators");
+            }
+            if self.check_duplicate(&mut seen, &v.name) {
+                continue;
+            }
+            let mut fields = Vec::new();
+            let mut field_seen: HashMap<String, Span> = HashMap::new();
+            for p in v.fields.iter().flatten() {
+                let ast::PatternKind::Ident(fname) = &p.pat.kind else {
+                    self.not_implemented(p.pat.span, "destructured variant fields");
+                    continue;
+                };
+                if p.rest || p.optional || p.default.is_some() || p.comptime {
+                    self.not_implemented(p.span, "optional, default and rest variant fields");
+                }
+                if self.check_duplicate(&mut field_seen, fname) {
+                    continue;
+                }
+                let ty = match &p.ty {
+                    Some(t) => self.resolve_type(t),
+                    None => {
+                        self.error(
+                            codes::MISSING_PARAM_TYPE,
+                            fname.span,
+                            format!("variant field `{}` needs a type", fname.name),
+                            "add a type annotation, e.g. `r: f64`",
+                        );
+                        Ty::Error
+                    }
+                };
+                fields.push(FieldDef {
+                    name: fname.name.clone(),
+                    ty,
+                    span: fname.span,
+                });
+            }
+            self.enums[eid.0 as usize].variants.push(VariantDef {
+                name: v.name.name.clone(),
+                span: v.name.span,
+                fields,
+                has_parens: v.fields.is_some(),
+            });
+        }
+    }
+
+    fn enum_ty(&self, id: EnumId) -> Ty {
+        Ty::Enum(id, self.enums[id.0 as usize].name.as_str().into())
     }
 
     fn struct_members<'a>(
@@ -309,49 +403,69 @@ impl Resolver {
         }
     }
 
-    /// A struct that contains itself by value (directly or through other structs) has no size.
+    /// A struct or enum that contains itself by value (directly or through other inline
+    /// types) has no size.
     fn check_struct_cycles(&mut self) {
-        fn visit(r: &Resolver, id: StructId, path: &mut Vec<StructId>) -> Option<Vec<StructId>> {
-            if let Some(pos) = path.iter().position(|p| *p == id) {
+        fn parts(r: &Resolver, n: Inline) -> Vec<Inline> {
+            let mut out = Vec::new();
+            match n {
+                Inline::Struct(id) => {
+                    for f in &r.structs[id.0 as usize].fields {
+                        inline_types(&f.ty, &mut out);
+                    }
+                }
+                Inline::Enum(id) => {
+                    for v in &r.enums[id.0 as usize].variants {
+                        for f in &v.fields {
+                            inline_types(&f.ty, &mut out);
+                        }
+                    }
+                }
+            }
+            out
+        }
+        fn visit(r: &Resolver, n: Inline, path: &mut Vec<Inline>) -> Option<Vec<Inline>> {
+            if let Some(pos) = path.iter().position(|p| *p == n) {
                 return Some(path[pos..].to_vec());
             }
-            path.push(id);
-            for f in &r.structs[id.0 as usize].fields {
-                let mut inline = Vec::new();
-                inline_structs(&f.ty, &mut inline);
-                for inner in inline {
-                    if let Some(c) = visit(r, inner, path) {
-                        return Some(c);
-                    }
+            path.push(n);
+            for inner in parts(r, n) {
+                if let Some(c) = visit(r, inner, path) {
+                    return Some(c);
                 }
             }
             path.pop();
             None
         }
-        let mut reported: HashSet<StructId> = HashSet::new();
-        for i in 0..self.structs.len() {
-            let id = StructId(i as u32);
-            if reported.contains(&id) {
+        let name = |r: &Resolver, n: Inline| match n {
+            Inline::Struct(id) => r.structs[id.0 as usize].name.clone(),
+            Inline::Enum(id) => r.enums[id.0 as usize].name.clone(),
+        };
+        let nodes: Vec<Inline> = (0..self.structs.len())
+            .map(|i| Inline::Struct(StructId(i as u32)))
+            .chain((0..self.enums.len()).map(|i| Inline::Enum(EnumId(i as u32))))
+            .collect();
+        let mut reported: HashSet<Inline> = HashSet::new();
+        for n in nodes {
+            if reported.contains(&n) {
                 continue;
             }
-            if let Some(cycle) = visit(self, id, &mut Vec::new())
-                && cycle[0] == id
+            if let Some(cycle) = visit(self, n, &mut Vec::new())
+                && cycle[0] == n
             {
                 reported.extend(cycle.iter().copied());
-                let names: Vec<&str> = cycle
-                    .iter()
-                    .map(|c| self.structs[c.0 as usize].name.as_str())
-                    .collect();
+                let names: Vec<String> = cycle.iter().map(|c| name(self, *c)).collect();
+                let (kind, span) = match n {
+                    Inline::Struct(id) => ("struct", self.structs[id.0 as usize].name_span),
+                    Inline::Enum(id) => ("enum", self.enums[id.0 as usize].name_span),
+                };
                 let d = Diagnostic::error(
                     codes::RECURSIVE_STRUCT,
-                    format!("struct `{}` contains itself", names[0]),
+                    format!("{kind} `{}` contains itself", names[0]),
                 )
-                .primary(
-                    self.structs[i].name_span,
-                    "this struct would have infinite size",
-                )
+                .primary(span, format!("this {kind} would have infinite size"))
                 .note(format!("{} → {}", names.join(" → "), names[0]))
-                .help("structs are stored inline; use a class for recursive data");
+                .help("structs and enums are stored inline; use a class or an array for recursive data");
                 self.diags.push(d);
             }
         }
@@ -419,7 +533,9 @@ impl Resolver {
                 ast::StmtKind::Decl(d)
                     if matches!(
                         d.kind,
-                        ast::DeclKind::Function(_) | ast::DeclKind::Struct(_)
+                        ast::DeclKind::Function(_)
+                            | ast::DeclKind::Struct(_)
+                            | ast::DeclKind::Enum(_)
                     ) => {}
                 _ => {
                     let last = i + 1 == stmts.len();
@@ -834,6 +950,9 @@ impl Resolver {
                     None if self.top_structs.contains_key(&path[0].name) => {
                         self.struct_ty(self.top_structs[&path[0].name])
                     }
+                    None if self.top_enums.contains_key(&path[0].name) => {
+                        self.enum_ty(self.top_enums[&path[0].name])
+                    }
                     None => {
                         self.error(
                             codes::UNKNOWN_TYPE,
@@ -1246,6 +1365,46 @@ impl Resolver {
                 then: Box::new(self.lower_expr(then)),
                 else_: Some(Box::new(self.lower_expr(else_))),
             },
+            A::Call { callee, args, .. } if self.names_enum_member(callee) => {
+                let Some((enum_, variant)) = self.variant_ref(callee) else {
+                    return self.error_expr(span);
+                };
+                let args = args
+                    .iter()
+                    .map(|a| {
+                        if a.spread {
+                            self.not_implemented(a.value.span, "spread arguments");
+                        }
+                        VariantArg {
+                            name: a.name.as_ref().map(|n| (n.name.clone(), n.span)),
+                            value: self.lower_expr(&a.value),
+                        }
+                    })
+                    .collect();
+                ExprKind::Variant {
+                    enum_,
+                    variant,
+                    args: Some(args),
+                }
+            }
+            A::Member { .. } if self.names_enum_member(e) => {
+                let Some((enum_, variant)) = self.variant_ref(e) else {
+                    return self.error_expr(span);
+                };
+                ExprKind::Variant {
+                    enum_,
+                    variant,
+                    args: None,
+                }
+            }
+            A::Match { scrutinee, arms } => {
+                let scrutinee = self.lower_expr(scrutinee);
+                let arms = arms.iter().map(|a| self.arm(a)).collect();
+                ExprKind::Match {
+                    scrutinee: Box::new(scrutinee),
+                    arms,
+                }
+            }
             A::Call {
                 callee,
                 type_args,
@@ -1360,7 +1519,7 @@ impl Resolver {
                     A::This | A::Super => "classes",
                     A::Object { .. } => "object and struct literals",
                     A::New { .. } => "`new`",
-                    A::Is { .. } | A::Match { .. } | A::Switch { .. } => "pattern matching",
+                    A::Is { .. } | A::Switch { .. } => "pattern matching",
                     A::Instanceof { .. } => "`instanceof`",
                     A::Function(_) => "closures",
                     A::Try { .. } | A::TryOpt(_) | A::TryBang(_) | A::Throw(_) => "exceptions",
@@ -1381,6 +1540,230 @@ impl Resolver {
 }
 
 impl Resolver {
+    /// Whether `name` refers to a variable (which shadows a type of the same name).
+    fn is_value_name(&self, name: &str) -> bool {
+        self.f.scopes.iter().any(|s| s.names.contains_key(name))
+            || self.top_globals.contains_key(name)
+    }
+
+    /// Whether `e` is `Enum.name` (with `Enum` not shadowed by a variable).
+    fn names_enum_member(&self, e: &ast::Expr) -> bool {
+        match &e.kind {
+            ast::ExprKind::Member {
+                object,
+                optional: false,
+                ..
+            } => matches!(&object.kind, ast::ExprKind::Ident(n)
+                if self.top_enums.contains_key(n) && !self.is_value_name(n)),
+            _ => false,
+        }
+    }
+
+    /// `Shape.Circle` as an expression: the enum and variant. Reports an unknown variant.
+    fn variant_ref(&mut self, e: &ast::Expr) -> Option<(EnumId, u32)> {
+        let ast::ExprKind::Member {
+            object,
+            prop,
+            optional: false,
+        } = &e.kind
+        else {
+            return None;
+        };
+        let ast::ExprKind::Ident(name) = &object.kind else {
+            return None;
+        };
+        if self.is_value_name(name) {
+            return None;
+        }
+        let eid = *self.top_enums.get(name)?;
+        match self.enums[eid.0 as usize].variant(&prop.name) {
+            Some((i, _)) => Some((eid, i)),
+            None => {
+                let def = &self.enums[eid.0 as usize];
+                let names: Vec<&str> = def.variants.iter().map(|v| v.name.as_str()).collect();
+                let d = Diagnostic::error(
+                    codes::UNKNOWN_MEMBER,
+                    format!("enum `{name}` has no variant `{}`", prop.name),
+                )
+                .primary(prop.span, "unknown variant")
+                .secondary(def.name_span, format!("`{name}` is declared here"))
+                .note(format!("its variants are: {}", names.join(", ")));
+                self.diags.push(d);
+                None
+            }
+        }
+    }
+
+    fn arm(&mut self, a: &ast::MatchArm) -> Arm {
+        self.f.scopes.push(Scope::default());
+        let mut bound = HashMap::new();
+        let pat = self.lower_pattern(&a.pat, &mut bound);
+        let guard = a.guard.as_ref().map(|g| self.lower_expr(g));
+        let body = self.lower_expr(&a.body);
+        self.f.scopes.pop();
+        Arm {
+            pat,
+            guard,
+            body,
+            span: a.span,
+        }
+    }
+
+    fn pattern(&mut self, kind: PatKind, span: Span) -> Pattern {
+        let id = ExprId(self.spans.len() as u32);
+        self.spans.push(span);
+        Pattern { id, kind, span }
+    }
+
+    /// `Shape.Circle` or `Circle` in a pattern: the enum (if named) and the variant name.
+    fn variant_path(&mut self, path: &[ast::Ident]) -> Option<(Option<EnumId>, ast::Ident)> {
+        match path {
+            [v] => Some((None, v.clone())),
+            [e, v] => match self.top_enums.get(&e.name) {
+                Some(id) => Some((Some(*id), v.clone())),
+                None => {
+                    self.error(
+                        codes::UNKNOWN_TYPE,
+                        e.span,
+                        format!("cannot find enum `{}`", e.name),
+                        "unknown enum",
+                    );
+                    None
+                }
+            },
+            _ => {
+                let span = path[0].span.to(path[path.len() - 1].span);
+                self.not_implemented(span, "module paths in patterns");
+                None
+            }
+        }
+    }
+
+    /// Lowers a pattern, declaring its bindings in the current scope. `bound` catches a name
+    /// bound twice.
+    fn lower_pattern(&mut self, p: &ast::Pattern, bound: &mut HashMap<String, Span>) -> Pattern {
+        use ast::PatternKind as P;
+        let span = p.span;
+        let kind = match &p.kind {
+            P::Wildcard => PatKind::Wild,
+            P::Ident(n) if self.variant_names.contains(&n.name) => PatKind::Variant {
+                enum_: None,
+                name: n.name.clone(),
+                name_span: n.span,
+                args: VariantPatArgs::None,
+            },
+            P::Ident(n) => {
+                if self.check_duplicate(bound, n) {
+                    PatKind::Wild
+                } else {
+                    PatKind::Bind(self.declare_local(n, false, None))
+                }
+            }
+            P::Path(path) => match self.variant_path(path) {
+                Some((enum_, v)) => PatKind::Variant {
+                    enum_,
+                    name: v.name,
+                    name_span: v.span,
+                    args: VariantPatArgs::None,
+                },
+                None => PatKind::Wild,
+            },
+            P::Lit(l) => match self.lit_pattern(l, false, span) {
+                Some(l) => PatKind::Lit(l),
+                None => PatKind::Wild,
+            },
+            P::Neg(inner) => match &inner.kind {
+                P::Lit(l) => match self.lit_pattern(l, true, span) {
+                    Some(l) => PatKind::Lit(l),
+                    None => PatKind::Wild,
+                },
+                _ => {
+                    self.not_implemented(span, "this kind of pattern");
+                    PatKind::Wild
+                }
+            },
+            P::TupleStruct { path, elems } => match self.variant_path(path) {
+                Some((enum_, v)) => {
+                    let elems = elems.iter().map(|e| self.lower_pattern(e, bound)).collect();
+                    PatKind::Variant {
+                        enum_,
+                        name: v.name,
+                        name_span: v.span,
+                        args: VariantPatArgs::Positional(elems),
+                    }
+                }
+                None => PatKind::Wild,
+            },
+            P::Struct {
+                path: Some(path),
+                fields,
+                ..
+            } => {
+                let fields: Vec<FieldPat> = fields
+                    .iter()
+                    .map(|f| {
+                        if let Some(d) = &f.default {
+                            self.not_implemented(d.span, "defaults in patterns");
+                        }
+                        let pat = match &f.pat {
+                            Some(sub) => self.lower_pattern(sub, bound),
+                            None => {
+                                let id = if self.check_duplicate(bound, &f.name) {
+                                    PatKind::Wild
+                                } else {
+                                    PatKind::Bind(self.declare_local(&f.name, false, None))
+                                };
+                                self.pattern(id, f.name.span)
+                            }
+                        };
+                        FieldPat {
+                            name: f.name.name.clone(),
+                            name_span: f.name.span,
+                            pat,
+                        }
+                    })
+                    .collect();
+                match path.as_slice() {
+                    [n] if self.top_structs.contains_key(&n.name) => PatKind::Struct {
+                        sid: self.top_structs[&n.name],
+                        fields,
+                    },
+                    _ => match self.variant_path(path) {
+                        Some((enum_, v)) => PatKind::Variant {
+                            enum_,
+                            name: v.name,
+                            name_span: v.span,
+                            args: VariantPatArgs::Named(fields),
+                        },
+                        None => PatKind::Wild,
+                    },
+                }
+            }
+            _ => {
+                self.not_implemented(span, "this kind of pattern");
+                PatKind::Wild
+            }
+        };
+        self.pattern(kind, span)
+    }
+
+    fn lit_pattern(&mut self, l: &ast::Lit, neg: bool, span: Span) -> Option<LitPat> {
+        let lit = match l {
+            ast::Lit::Int { value, .. } if neg => LitPat::Int(-(*value as i128)),
+            ast::Lit::Int { value, .. } => LitPat::Int(*value as i128),
+            ast::Lit::Float { value, .. } if neg => LitPat::Float(-value),
+            ast::Lit::Float { value, .. } => LitPat::Float(*value),
+            ast::Lit::Str(s) if !neg => LitPat::Str(s.clone()),
+            ast::Lit::Bool(b) if !neg => LitPat::Bool(*b),
+            ast::Lit::Null if !neg => LitPat::Null,
+            _ => {
+                self.not_implemented(span, "this kind of literal pattern");
+                return None;
+            }
+        };
+        Some(lit)
+    }
+
     /// `a?.b.c()` → `OptChain { tmp = a, rest: tmp.b.c() }`; the base is lowered recursively,
     /// so `a?.b?.c` nests.
     fn opt_chain(&mut self, e: &ast::Expr, base: &ast::Expr) -> Expr {
@@ -1578,12 +1961,20 @@ fn rewrite_opt_link(e: &ast::Expr, name: &str) -> ast::Expr {
     ast::Expr { kind, span: e.span }
 }
 
-/// Structs stored inline in a value of type `t` (directly, or inside tuples and fixed arrays).
-fn inline_structs(t: &Ty, out: &mut Vec<StructId>) {
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Inline {
+    Struct(StructId),
+    Enum(EnumId),
+}
+
+/// Structs and enums stored inline in a value of type `t` (directly, or inside tuples, fixed
+/// arrays and `T?`).
+fn inline_types(t: &Ty, out: &mut Vec<Inline>) {
     match t {
-        Ty::Struct(id, _) => out.push(*id),
-        Ty::Fixed(e, _) => inline_structs(e, out),
-        Ty::Tuple(ts) => ts.iter().for_each(|t| inline_structs(t, out)),
+        Ty::Struct(id, _) => out.push(Inline::Struct(*id)),
+        Ty::Enum(id, _) => out.push(Inline::Enum(*id)),
+        Ty::Fixed(e, _) | Ty::Nullable(e) => inline_types(e, out),
+        Ty::Tuple(ts) => ts.iter().for_each(|t| inline_types(t, out)),
         _ => {}
     }
 }

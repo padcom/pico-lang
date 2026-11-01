@@ -1,0 +1,100 @@
+// expect: Color.Red Shape.Circle(r: 1)
+// expect: Shape.Rect(w: 2, h: 3) Shape.Empty
+// expect: 3.14159 6 0
+// expect: red green blue
+// expect: true false true
+// expect: big circle
+// expect: zero one many
+// expect: on the y axis at 5
+// expect: on the x axis at 3
+// expect: (1, 2)
+// expect: yes no
+// expect: 15
+// expect: Token.Num(value: 42) Token.Word(text: "hi") Token.End
+// expect: some 2 none
+enum Color { Red, Green, Blue }
+
+enum Shape {
+  Circle(r: f64),
+  Rect(w: f64, h: f64),
+  Empty,
+}
+
+struct Point { x: i32; y: i32 }
+
+const c = Color.Red
+const s = Shape.Circle(r: 1)
+println(`${c:?} ${s:?}`)
+const r = Shape.Rect(2, 3)
+println(`${r:?} ${Shape.Empty:?}`)
+
+function area(sh: Shape): f64 {
+  match (sh) {
+    Shape.Circle(r) => 3.14159 * r * r,
+    Rect { w, h }   => w * h,
+    Empty           => 0,
+  }
+}
+println(`${area(s)} ${area(r)} ${area(Shape.Empty)}`)
+
+function name(c: Color): string {
+  match (c) {
+    Red => "red",
+    Color.Green => "green",
+    Blue => "blue",
+  }
+}
+println(`${name(Color.Red)} ${name(Color.Green)} ${name(Color.Blue)}`)
+println(`${c == Color.Red} ${s == Shape.Circle(r: 2)} ${r == Shape.Rect(w: 2, h: 3)}`)
+
+const desc = match (Shape.Circle(r: 20)) {
+  Circle { r } if r > 10 => "big circle",
+  Circle { r }           => `circle ${r}`,
+  _                      => "other",
+}
+println(desc)
+
+function count(n: i32): string {
+  match (n) {
+    0 => "zero",
+    1 => "one",
+    _ => "many",
+  }
+}
+println(`${count(0)} ${count(1)} ${count(7)}`)
+
+function locate(p: Point): string {
+  match (p) {
+    Point { x: 0, y }   => `on the y axis at ${y}`,
+    Point { x, y: 0 }   => `on the x axis at ${x}`,
+    Point { x, y }      => `(${x}, ${y})`,
+  }
+}
+println(locate(Point { x: 0, y: 5 }))
+println(locate(Point { x: 3, y: 0 }))
+println(locate(Point { x: 1, y: 2 }))
+
+function yn(b: bool): string { match (b) { true => "yes", false => "no" } }
+println(`${yn(true)} ${yn(false)}`)
+
+// Payloads hold strings and nested enums; values are copied.
+enum Token { Num(value: i64), Word(text: string), End }
+const toks: Token[] = [Token.Num(value: 10), Token.Word("abcde"), Token.End]
+let total = 0
+for (const t of toks) {
+  total += match (t) {
+    Num(value) => value,
+    Word(text) => text.length,
+    End => 0,
+  }
+}
+println(total)
+println(`${Token.Num(42):?} ${Token.Word("hi"):?} ${Token.End:?}`)
+
+function opt(x: i32?): string {
+  match (x) {
+    null => "none",
+    n => `some ${n ?? 0}`,
+  }
+}
+println(`${opt(2)} ${opt(null)}`)

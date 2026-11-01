@@ -28,6 +28,8 @@ pub enum Value {
     /// A struct, tuple, fixed array or range (start, end, step) value: its parts in order.
     /// Cloning copies it deeply.
     Struct(Vec<Value>),
+    /// An enum value: the variant index and its payload fields.
+    Enum(u32, Vec<Value>),
     /// A growable array: shared, so cloning copies the reference.
     Array(Rc<RefCell<Vec<Value>>>),
     /// A reference into a variable: the cell and the path inside it.
@@ -158,11 +160,11 @@ impl Interp<'_, '_> {
         };
         for pr in &place.proj {
             if *pr == Proj::Payload {
-                ty = mir::project(&ty, pr, |sid, i| self.p.layout(sid).fields[i].1.clone());
+                ty = mir::project(&ty, pr, |f| self.p.field_ty(f));
                 continue;
             }
             let step = match pr {
-                Proj::Field(i) => Step::Part(*i as usize),
+                Proj::Field(i) | Proj::VariantField(_, i) => Step::Part(*i as usize),
                 Proj::Payload => unreachable!(),
                 Proj::Index(l) => {
                     let Value::Int(i) = *frame.locals[l.0 as usize].borrow() else {
@@ -176,7 +178,7 @@ impl Interp<'_, '_> {
                 }
             };
             path.push(step);
-            ty = mir::project(&ty, pr, |sid, i| self.p.layout(sid).fields[i].1.clone());
+            ty = mir::project(&ty, pr, |f| self.p.field_ty(f));
         }
         (cell, path)
     }
@@ -371,6 +373,14 @@ impl Interp<'_, '_> {
                 v => unreachable!("bounds check of {v:?}"),
             },
             Rvalue::WrapSome(o, _) | Rvalue::Unwrap(o) => Ok(self.operand(frame, o)),
+            Rvalue::Variant(_, v, ops) => Ok(Value::Enum(
+                *v,
+                ops.iter().map(|o| self.operand(frame, o)).collect(),
+            )),
+            Rvalue::Tag(o) => match self.operand(frame, o) {
+                Value::Enum(v, _) => Ok(Value::Int(v as i128)),
+                v => unreachable!("tag of {v:?}"),
+            },
             Rvalue::IsNull(o) => Ok(Value::Bool(self.operand(frame, o) == Value::Null)),
             Rvalue::AddOverflows(a, b) => {
                 let Ty::Int(it) = self.operand_ty(frame, a) else {
@@ -478,7 +488,7 @@ impl Interp<'_, '_> {
                 Ne => a != b,
                 _ => unreachable!("type-checked bool operator"),
             })),
-            (a @ Value::Struct(_), b @ Value::Struct(_), _) => Ok(match op {
+            (a @ (Value::Struct(_) | Value::Enum(..)), b, _) => Ok(match op {
                 Eq => Value::Bool(values_eq(&a, &b)),
                 Ne => Value::Bool(!values_eq(&a, &b)),
                 _ => unreachable!("type-checked struct operator"),
@@ -550,7 +560,7 @@ fn read_path(v: &Value, path: &[Step]) -> Value {
     match path.split_first() {
         None => v.clone(),
         Some((Step::Part(i), rest)) => match v {
-            Value::Struct(parts) => read_path(&parts[*i], rest),
+            Value::Struct(parts) | Value::Enum(_, parts) => read_path(&parts[*i], rest),
             other => unreachable!("part {i} of {other:?}"),
         },
         Some((Step::Elem(i), rest)) => match v {
@@ -564,7 +574,7 @@ fn write_path(v: &mut Value, path: &[Step], new: Value) {
     match path.split_first() {
         None => *v = new,
         Some((Step::Part(i), rest)) => match v {
-            Value::Struct(parts) => write_path(&mut parts[*i], rest, new),
+            Value::Struct(parts) | Value::Enum(_, parts) => write_path(&mut parts[*i], rest, new),
             other => unreachable!("part {i} of {other:?}"),
         },
         Some((Step::Elem(i), rest)) => match v {
@@ -633,9 +643,15 @@ pub fn display(v: &Value, t: &Ty) -> String {
         (Value::Char(c), _) => c.to_string(),
         (Value::Str(s), _) => s.to_string(),
         (Value::Null, _) => "null".into(),
-        (Value::Struct(_) | Value::Array(_) | Value::Ref(..) | Value::Void | Value::Uninit, _) => {
-            String::new()
-        }
+        (
+            Value::Struct(_)
+            | Value::Enum(..)
+            | Value::Array(_)
+            | Value::Ref(..)
+            | Value::Void
+            | Value::Uninit,
+            _,
+        ) => String::new(),
     }
 }
 
@@ -643,6 +659,9 @@ pub fn display(v: &Value, t: &Ty) -> String {
 fn values_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Struct(x), Value::Struct(y)) => x.iter().zip(y).all(|(p, q)| values_eq(p, q)),
+        (Value::Enum(t, x), Value::Enum(u, y)) => {
+            t == u && x.iter().zip(y).all(|(p, q)| values_eq(p, q))
+        }
         (Value::Float(x), Value::Float(y)) => x == y,
         _ => a == b,
     }
@@ -667,6 +686,20 @@ fn debug_value(p: &Program, v: &Value, t: &Ty) -> String {
                 .map(|((name, fty), fv)| format!("{name}: {}", debug_value(p, fv, fty)))
                 .collect();
             format!("{} {{ {} }}", layout.name, parts.join(", "))
+        }
+        (Value::Enum(vi, fields), Ty::Enum(eid, _)) => {
+            let layout = p.enum_layout(*eid);
+            let v = &layout.variants[*vi as usize];
+            if v.fields.is_empty() && !v.has_parens {
+                return format!("{}.{}", layout.name, v.name);
+            }
+            let parts: Vec<String> = v
+                .fields
+                .iter()
+                .zip(fields)
+                .map(|((name, fty), fv)| format!("{name}: {}", debug_value(p, fv, fty)))
+                .collect();
+            format!("{}.{}({})", layout.name, v.name, parts.join(", "))
         }
         (Value::Struct(parts), Ty::Tuple(ts)) => {
             list(&mut parts.iter().zip(ts).map(|(v, t)| debug_value(p, v, t)))
@@ -804,9 +837,12 @@ pub fn format_spec(v: &Value, t: &Ty, spec: &FormatSpec) -> String {
         }
         Value::Bool(b) => (false, "", b.to_string(), false),
         Value::Null => (false, "", "null".into(), false),
-        Value::Struct(_) | Value::Array(_) | Value::Ref(..) | Value::Void | Value::Uninit => {
-            (false, "", String::new(), false)
-        }
+        Value::Struct(_)
+        | Value::Enum(..)
+        | Value::Array(_)
+        | Value::Ref(..)
+        | Value::Void
+        | Value::Uninit => (false, "", String::new(), false),
     };
     pad(neg, prefix, &body, numeric, spec)
 }

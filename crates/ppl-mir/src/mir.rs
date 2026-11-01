@@ -6,7 +6,7 @@
 //! exceptions can later lower to `invoke`.
 
 use ppl_sema::hir::{Builtin, FnId, GlobalId};
-use ppl_sema::ty::StructId;
+use ppl_sema::ty::{EnumId, StructId};
 use ppl_sema::{FloatTy, IntTy, Ty};
 use std::fmt::{self, Write};
 
@@ -46,6 +46,29 @@ pub struct Program {
     pub entry: FnId,
     pub globals: Vec<GlobalDecl>,
     pub structs: Vec<StructLayout>,
+    pub enums: Vec<EnumLayout>,
+}
+
+/// An enum's variants and their payload fields, in declaration order.
+#[derive(Debug)]
+pub struct EnumLayout {
+    pub name: String,
+    pub variants: Vec<VariantLayout>,
+}
+
+#[derive(Debug)]
+pub struct VariantLayout {
+    pub name: String,
+    pub fields: Vec<(String, Ty)>,
+    /// Declared with parentheses (`Unit()`), which the debug format shows.
+    pub has_parens: bool,
+}
+
+/// Which field a projection names, for looking up its type.
+#[derive(Clone, Copy, Debug)]
+pub enum FieldRef {
+    Struct(StructId, usize),
+    Variant(EnumId, u32, usize),
 }
 
 /// A struct's fields, in declaration order.
@@ -64,6 +87,20 @@ impl Program {
         &self.structs[id.0 as usize]
     }
 
+    pub fn enum_layout(&self, id: EnumId) -> &EnumLayout {
+        &self.enums[id.0 as usize]
+    }
+
+    /// The type of a struct or variant field.
+    pub fn field_ty(&self, f: FieldRef) -> Ty {
+        match f {
+            FieldRef::Struct(sid, i) => self.layout(sid).fields[i].1.clone(),
+            FieldRef::Variant(eid, v, i) => self.enum_layout(eid).variants[v as usize].fields[i]
+                .1
+                .clone(),
+        }
+    }
+
     /// The type of `place` inside `f`.
     pub fn place_ty(&self, f: &Function, place: &Place) -> Ty {
         let mut t = match place.base {
@@ -75,16 +112,19 @@ impl Program {
             },
         };
         for p in &place.proj {
-            t = project(&t, p, |sid, i| self.layout(sid).fields[i].1.clone());
+            t = project(&t, p, |f| self.field_ty(f));
         }
         t
     }
 }
 
 /// The type of `p` applied to a value of type `t`; `field` gives a struct's field types.
-pub fn project(t: &Ty, p: &Proj, field: impl Fn(StructId, usize) -> Ty) -> Ty {
+pub fn project(t: &Ty, p: &Proj, field: impl Fn(FieldRef) -> Ty) -> Ty {
     match (t, p) {
-        (Ty::Struct(sid, _), Proj::Field(i)) => field(*sid, *i as usize),
+        (Ty::Struct(sid, _), Proj::Field(i)) => field(FieldRef::Struct(*sid, *i as usize)),
+        (Ty::Enum(eid, _), Proj::VariantField(v, i)) => {
+            field(FieldRef::Variant(*eid, *v, *i as usize))
+        }
         (Ty::Tuple(ts), Proj::Field(i)) => ts[*i as usize].clone(),
         (Ty::Range(it), Proj::Field(_)) => Ty::Int(*it),
         (Ty::Array(e) | Ty::Fixed(e, _), Proj::Index(_)) => (**e).clone(),
@@ -150,6 +190,8 @@ pub enum Proj {
     Index(Local),
     /// The value inside a `T?` that is known not to be null.
     Payload,
+    /// Field `.1` of variant `.0` of an enum value known to be that variant.
+    VariantField(u32, u32),
 }
 
 /// A memory location: a base and a path of projections.
@@ -190,6 +232,12 @@ impl Place {
     pub fn payload(&self) -> Place {
         let mut p = self.clone();
         p.proj.push(Proj::Payload);
+        p
+    }
+
+    pub fn variant_field(&self, v: u32, i: u32) -> Place {
+        let mut p = self.clone();
+        p.proj.push(Proj::VariantField(v, i));
         p
     }
 
@@ -316,6 +364,10 @@ pub enum Rvalue {
     IsNull(Operand),
     /// The `T` inside a `T?` that lowering checked isn't null.
     Unwrap(Operand),
+    /// An enum value: variant index and payload fields in declaration order.
+    Variant(EnumId, u32, Vec<Operand>),
+    /// The variant index of an enum value (`u32`).
+    Tag(Operand),
 }
 
 #[derive(Debug)]
@@ -369,6 +421,7 @@ impl fmt::Display for Place {
                 Proj::Field(i) => write!(f, ".{i}")?,
                 Proj::Index(l) => write!(f, "[_{}]", l.0)?,
                 Proj::Payload => write!(f, ".some")?,
+                Proj::VariantField(v, i) => write!(f, ".v{v}.{i}")?,
             }
         }
         Ok(())
@@ -431,6 +484,11 @@ impl fmt::Display for Rvalue {
             Rvalue::WrapSome(a, t) => write!(f, "Some<{t}>({a})"),
             Rvalue::IsNull(a) => write!(f, "IsNull({a})"),
             Rvalue::Unwrap(a) => write!(f, "Unwrap({a})"),
+            Rvalue::Variant(e, v, ops) => {
+                let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();
+                write!(f, "enum#{}::{v}({})", e.0, ops.join(", "))
+            }
+            Rvalue::Tag(a) => write!(f, "Tag({a})"),
         }
     }
 }

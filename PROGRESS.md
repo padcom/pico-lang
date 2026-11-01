@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.7: Enums and basic match** (see [PLAN.md](PLAN.md#p37-enums-and-basic-match))
+**P3.8: Advanced patterns and switch** (see [PLAN.md](PLAN.md#p38-advanced-patterns-and-switch))
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -27,7 +27,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.6) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.7) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -51,6 +51,10 @@ Notes:
 - A method called on an array element (`xs[0].bump()`) gets a raw pointer into the array's
   storage natively; if the method grows the same array, the pointer dangles. Revisit with the GC.
 - `==` on large fixed arrays is unrolled per element in codegen.
+- Enum methods (`enum Token { … name(): string { … } }`) report E0900; `this` is struct-only
+  (`Function.this: (LocalId, StructId)`). Generalize when doing interfaces (P3.11).
+- `match` lowers to sequential arm tests (no decision tree yet); unreachable arms aren't warned
+  about (the usefulness checker could do it: `exhaust::Checker::useful` per arm).
 
 ## Checklist
 
@@ -85,7 +89,7 @@ Notes:
 - [x] P3.4 Structs
 - [x] P3.5 Arrays, fixed arrays, tuples, ranges
 - [x] P3.6 Null and narrowing infrastructure
-- [ ] P3.7 Enums and basic match
+- [x] P3.7 Enums and basic match
 - [ ] P3.8 Advanced patterns and switch
 - [ ] P3.9 Classes I
 - [ ] P3.10 Classes II: inheritance
@@ -210,3 +214,4 @@ Notes:
 | 2026-10-31 | P3.4 | Structs end to end: Ty::Struct (Arc name), HIR StructDef/Target/Object, resolver (pass 1 structs, fields+methods, by-value cycle check E0210, methods with hidden `this`, implicit members, field targets), typeck (field indices, struct literals with E0311/E0312/E0313, method calls via shared call_fn, field-wise ==, `?` only), MIR places with projections + Deref base, Aggregate/Ref rvalues, StructLayouts; interpreter locals as Rc<RefCell> cells with Value::Ref; codegen named LLVM struct types, GEP places, insertvalue aggregates, struct_eq, generated ppl.debug.<Name> helpers. Decision 182 (asked): const fixes only the binding. Fixtures: run/structs (copy semantics, mutation via methods, nesting, ==, debug), fail/types/structs, fail/names/recursive_struct; `${point:?}` added to format_specs. |
 | 2026-11-01 | P3.5 | Ty::Array/Fixed/Tuple/Range; MIR `Proj::{Field, Index(local)}` with bounds checks emitted by lowering (after an assignment's value, so the value can't invalidate them); rvalues Tuple/Repeat/ArrayNew/ArrayLen/ArrayPush/ArrayPop/InBounds/AddOverflows; HIR ForOf (ranges, arrays, fixed arrays, strings) and let/for-of destructuring of array patterns (incl. top level); runtime PplArray (ppl_array_new/push/pop); interpreter paths through shared arrays (`Step::Part/Elem`); generalized `${v:?}` debug helpers. E0314–E0316. Decision 183 (provisional). Fixtures: run/{arrays,tuples_fixed,ranges,array_index_panic,range_step_panic}, fail/types/arrays. |
 | 2026-11-01 | P3.6 | `T?` as nullable pointer (refs) or `{i1, T}`; MIR Const::Null, Proj::Payload, WrapSome/IsNull/Unwrap; convert() handles T→T?, T?→U?, null; `??`, `??=`, `!` (panic), `?.` chains (resolver rewrites the outermost link onto a hidden local: HIR OptChain); `x == null` lowers to IsNull; if-without-else values; printing/debug of nulls; pop() returns T?. Typeck narrowing scopes with facts from conditions, `&&`/`\|\|`, early exits; assignments/loops forget. Null-safe ppl_str_eq; entry-block allocas for debug/pow temporaries. Decision 184. Fixtures: run/{nullable,null_unwrap_panic}, fail/types/nullable. |
+| 2026-11-01 | P3.7 | Ty::Enum, HIR EnumDef/VariantDef, patterns (Wild/Bind/Lit/Variant positional+named/Struct) and Arm with guard; resolver: `Enum.Variant` construction (named + positional args), variant-name identifier patterns, enum cycle check generalized; typeck: constructor arg mapping (E0311/E0312/E0103), pattern checking (E0318), Maranget usefulness with witnesses (`exhaust.rs`, E0317 lists missing cases), unify_exprs for arms; MIR Proj::VariantField, Rvalue::Variant/Tag, sequential match lowering; interpreter Value::Enum; codegen `{i32, [k x i64]}` enums with own size/align computation, generated ppl.eq.<Enum> and debug helpers. Decision 185. Fixtures: run/enums, fail/types/match, fail/names/enums. |

@@ -557,7 +557,7 @@ match (u) {                                         // u: unknown
 
 A non-exhaustive match is a compile error that lists what's missing:
 ```ts
-match (shape) {                   // error[E0004]: non-exhaustive match, missing `Empty`
+match (shape) {                   // error[E0317]: non-exhaustive match: missing `Empty`
   Circle { r } => r,
   Rect { w, h } => w * h,
 }
