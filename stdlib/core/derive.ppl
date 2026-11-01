@@ -1,0 +1,27 @@
+// `@derive(Eq, Hash, Ord)` (spec §2.8): a decorator written in ppl (decision 225).
+
+/// `equals`, `hashCode` and `compareTo` for a class, field by field in declaration order
+/// (only the class's own fields). Structs, enums and tuples have them already.
+decorator function derive(c: __ClassDecl, ...protocols: string[]) {
+  for (const p of protocols) {
+    if (p != "Eq" && p != "Hash" && p != "Ord") {
+      c.error(`\`@derive\` takes \`Eq\`, \`Hash\` and \`Ord\`, not \`${p}\``)
+    }
+  }
+  if (c.kind != "class") return
+  const t = c.selfType
+  if (protocols.includes("Eq")) {
+    const parts = c.fieldNames.map(f => `this.${f} == o.${f}`)
+    const body = if (parts.length == 0) "true" else parts.join(" && ")
+    c.addMethod(`public equals(o: ${t}): bool { ${body} }`)
+  }
+  if (protocols.includes("Hash")) {
+    let h = "0u64"
+    for (const f of c.fieldNames) h = `__hashMix(${h}, __hashOf(this.${f}))`
+    c.addMethod(`public hashCode(): u64 { ${h} }`)
+  }
+  if (protocols.includes("Ord")) {
+    const steps = c.fieldNames.map(f => `  { const d = __compareOf(this.${f}, o.${f}); if (d != 0) return d }`)
+    c.addMethod(`public compareTo(o: ${t}): i32 {\n${steps.join("\n")}\n  0\n}`)
+  }
+}

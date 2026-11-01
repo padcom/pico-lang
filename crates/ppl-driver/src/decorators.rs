@@ -47,6 +47,8 @@ struct Use {
     span: Span,
     /// The source text of the decorator's arguments.
     args: Vec<String>,
+    /// For each argument that is a bare name, the name.
+    bare: Vec<Option<String>>,
 }
 
 /// Runs the decorators of `stmts` (the whole program, prelude first) and applies what they
@@ -106,7 +108,7 @@ pub fn expand(
                     continue;
                 }
             };
-            let takes = &decorators[&target];
+            let takes = decorators[&target].trim_start_matches("__");
             if (takes == "FunctionDecl" || takes == "ClassDecl") && takes != what {
                 let kind = if what == "FunctionDecl" {
                     "functions"
@@ -128,7 +130,17 @@ pub fn expand(
                 .flatten()
                 .map(|a| text(sm, a.value.span))
                 .collect();
+            let bare = dec
+                .args
+                .iter()
+                .flatten()
+                .map(|a| match &a.value.kind {
+                    ast::ExprKind::Ident(n) => Some(n.clone()),
+                    _ => None,
+                })
+                .collect();
             uses.push(Use {
+                bare,
                 id: uses.len(),
                 stmt: i,
                 decorator: target,
@@ -190,14 +202,23 @@ fn find_decorator(
     if decorators.contains_key(&(file, name.to_string())) {
         return Some((file, name.to_string()));
     }
-    let imp = modules
+    let imported = modules
         .imports
         .iter()
-        .find(|i| i.module == file && i.alias.name == name && i.name.is_some())?;
-    let exported = &imp.name.as_ref()?.name;
-    let local = modules.exports.get(&imp.target)?.get(exported)?;
-    let key = (imp.target, local.clone());
-    decorators.contains_key(&key).then_some(key)
+        .find(|i| i.module == file && i.alias.name == name && i.name.is_some())
+        .and_then(|imp| {
+            let exported = &imp.name.as_ref()?.name;
+            let local = modules.exports.get(&imp.target)?.get(exported)?;
+            Some((imp.target, local.clone()))
+        });
+    if let Some(key) = imported {
+        return decorators.contains_key(&key).then_some(key);
+    }
+    // The core library's decorators (`@derive`) are seen everywhere.
+    decorators
+        .keys()
+        .find(|(f, n)| n == name && modules.prelude.contains(f))
+        .cloned()
 }
 
 fn text(sm: &SourceMap, s: Span) -> String {
@@ -274,13 +295,20 @@ fn descriptor(sm: &SourceMap, d: &ast::Decl, id: usize, class: &str) -> String {
                     _ => {}
                 }
             }
+            let generics = match &d.kind {
+                DeclKind::Class(c) => &c.generics,
+                DeclKind::Struct(s) => &s.generics,
+                _ => unreachable!("checked"),
+            };
+            let params: Vec<String> = generics.iter().map(|g| g.name.name.clone()).collect();
             format!(
-                "new {class}({id}, {}, {}, {}, {}, {})",
+                "new {class}({id}, {}, {}, {}, {}, {}, {})",
                 quote(&name.name),
                 quote(kind),
                 str_list(&fields),
                 str_list(&types),
-                str_list(&methods)
+                str_list(&methods),
+                str_list(&params)
             )
         }
         _ => unreachable!("checked"),
@@ -338,30 +366,61 @@ fn run_decorators(
         .map(|(f, _)| *f);
     let decorated: HashSet<usize> = uses.iter().map(|u| u.stmt).collect();
     // What the decorator functions refer to, transitively (by name: an over-approximation).
+    // (Per module: a name used there means its own declaration, or what it imports by
+    // that name.)
+    let module_of = |f: FileId| modules.file_modules.get(&f).copied().unwrap_or(f);
+    let declared = |m: FileId, n: &str| {
+        stmts
+            .iter()
+            .any(|st| module_of(st.span.file) == m && declares(st).iter().any(|d| d == n))
+            || modules.prelude.contains(&m)
+                && stmts.iter().any(|st| {
+                    modules.prelude.contains(&st.span.file) && declares(st).iter().any(|d| d == n)
+                })
+    };
     let mut keep: HashSet<usize> = HashSet::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut work: Vec<String> = Vec::new();
+    let mut seen: HashSet<(FileId, String)> = HashSet::new();
+    let mut work: Vec<(FileId, String)> = Vec::new();
+    let library = |f: FileId| modules.prelude.contains(&f) || Some(f) == meta_file;
     for (i, st) in stmts.iter().enumerate() {
         if let StmtKind::Decl(d) = &st.kind
             && matches!(&d.kind, DeclKind::Function(f) if f.flags.decorator)
+            && !library(st.span.file)
         {
             keep.insert(i);
-            work.extend(idents(sm, st.span));
+            let m = module_of(st.span.file);
+            work.extend(idents(sm, st.span).into_iter().map(|n| (m, n)));
         }
     }
-    while let Some(n) = work.pop() {
-        if !seen.insert(n.clone()) {
+    while let Some((m, n)) = work.pop() {
+        if !seen.insert((m, n.clone())) {
             continue;
         }
+        // Imported: look in the module it comes from, under its name there.
+        let (m, n) = match modules
+            .imports
+            .iter()
+            .find(|i| i.module == m && i.alias.name == n && i.name.is_some())
+        {
+            Some(imp) => {
+                let exported = &imp.name.as_ref().expect("checked").name;
+                let local = modules
+                    .exports
+                    .get(&imp.target)
+                    .and_then(|e| e.get(exported))
+                    .cloned()
+                    .unwrap_or_else(|| exported.clone());
+                (imp.target, local)
+            }
+            None => (m, n),
+        };
         for (i, st) in stmts.iter().enumerate() {
-            let library =
-                modules.prelude.contains(&st.span.file) || Some(st.span.file) == meta_file;
-            if library || decorated.contains(&i) || keep.contains(&i) {
+            if library(st.span.file) || decorated.contains(&i) || keep.contains(&i) {
                 continue;
             }
-            if declares(st).contains(&n) {
+            if module_of(st.span.file) == m && declares(st).contains(&n) {
                 keep.insert(i);
-                work.extend(idents(sm, st.span));
+                work.extend(idents(sm, st.span).into_iter().map(|n| (m, n)));
             }
         }
     }
@@ -392,7 +451,14 @@ fn run_decorators(
         };
         let class = &decorators[&u.decorator];
         let mut args = vec![descriptor(sm, d, u.id, class)];
-        args.extend(u.args.iter().cloned());
+        // A bare name the decorator's module doesn't declare is passed as a string
+        // (`@derive(Eq)`).
+        for (a, bare) in u.args.iter().zip(&u.bare) {
+            match bare {
+                Some(n) if !declared(u.decorator.0, n) => args.push(quote(n)),
+                _ => args.push(a.clone()),
+            }
+        }
         let code = by_module.entry(u.decorator.0).or_default();
         code.push_str(&format!(
             "comptime {{ {}({}); }}\n",

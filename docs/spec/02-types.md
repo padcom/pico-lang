@@ -140,7 +140,9 @@ struct Vec3 {
 
 Structs, enums and tuples get all three automatically (field by field, in declaration order).
 Classes opt in with `@derive(Eq, Hash, Ord)`, or implement the methods by hand. A class without
-`equals` compares by identity.
+`equals` compares by identity. `@derive` is an ordinary decorator of the core library
+(§11.2) that writes those methods from the class's own fields, so generic code (`Map` keys,
+`sort`) and `==`/`<` use them like hand-written ones.
 
 The built-in bound `T extends object` (as in TypeScript) admits class types and arrays, i.e.
 references to heap objects: the targets of `WeakRef` and the keys of `WeakMap` (§9.3).

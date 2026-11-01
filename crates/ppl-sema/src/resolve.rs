@@ -100,7 +100,12 @@ impl ModCtx {
             .and_then(|e| e.get(exported))
             .cloned()
             .unwrap_or_else(|| exported.clone());
-        self.resolve_in(*tm, &local, exists, depth + 1)
+        // (A module may export a core library name: `std/meta` exports `__ClassDecl` as
+        // `ClassDecl`.)
+        self.resolve_in(*tm, &local, exists, depth + 1).or_else(|| {
+            let k = (PRELUDE_MODULE, local);
+            exists(&k).then_some(k)
+        })
     }
 }
 
@@ -490,13 +495,12 @@ impl Resolver {
                         iface_decls.push((id, id_));
                     }
                     if let ast::DeclKind::Class(cd) = &d.kind {
-                        let derives = self.derive_decorators(&d.decorators);
+                        self.unknown_decorators(&d.decorators);
                         if self.check_duplicate(&mut first_seen, &cd.name) {
                             continue;
                         }
                         let id = StructId(self.structs.len() as u32);
-                        let mut def = StructDef::new(cd.name.name.clone(), cd.name.span, true);
-                        def.derives = derives;
+                        let def = StructDef::new(cd.name.name.clone(), cd.name.span, true);
                         self.structs.push(def);
                         self.top_structs
                             .insert(&self.mods, cd.name.name.clone(), id);
@@ -5326,30 +5330,15 @@ impl Resolver {
             .collect()
     }
 
-    /// `@derive(Eq, Hash, Ord)` (the only decorator so far): the protocols it names.
-    fn derive_decorators(&mut self, decs: &[ast::Decorator]) -> Vec<String> {
-        let mut out = Vec::new();
+    /// Decorators on a class that no `decorator function` handled (those are expanded and
+    /// removed before resolution).
+    fn unknown_decorators(&mut self, decs: &[ast::Decorator]) {
         for dec in decs {
-            let is_derive = dec.path.len() == 1 && dec.path[0].name == "derive";
-            if !is_derive {
-                self.not_implemented(dec.span, "decorators other than `@derive`");
-                continue;
-            }
-            for a in dec.args.iter().flatten() {
-                match &a.value.kind {
-                    ast::ExprKind::Ident(n) if matches!(n.as_str(), "Eq" | "Hash" | "Ord") => {
-                        out.push(n.clone())
-                    }
-                    _ => self.error(
-                        codes::UNKNOWN_NAME,
-                        a.value.span,
-                        "`@derive` takes `Eq`, `Hash` and `Ord`",
-                        "not a derivable protocol",
-                    ),
-                }
-            }
+            self.not_implemented(
+                dec.span,
+                "this decorator (no `decorator function` by that name)",
+            );
         }
-        out
     }
 
     /// Whether `name` refers to a variable (which shadows a type of the same name).

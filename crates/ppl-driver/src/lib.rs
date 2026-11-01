@@ -211,6 +211,14 @@ const PRELUDE: &[(&str, &str)] = &[
         include_str!("../../../stdlib/core/comptime.ppl"),
     ),
     (
+        "<core>/meta.ppl",
+        include_str!("../../../stdlib/core/meta.ppl"),
+    ),
+    (
+        "<core>/derive.ppl",
+        include_str!("../../../stdlib/core/derive.ppl"),
+    ),
+    (
         "<core>/weak.ppl",
         include_str!("../../../stdlib/core/weak.ppl"),
     ),

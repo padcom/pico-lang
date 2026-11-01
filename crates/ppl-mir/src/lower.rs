@@ -3117,7 +3117,29 @@ impl FnBuilder<'_, '_> {
             let n = self.expr(r);
             return self.rvalue_to_temp(Rvalue::PtrOffset(p, n, op == B::Sub), ty, e.span);
         }
-        if let Some(m) = self.cx.types.op_calls.get(&e.id).copied() {
+        // In generic code (`a == b` with `a: K`), an instance whose type is a class writing
+        // `equals` / `compareTo` uses them, as the concrete code would.
+        let generic_class_op = match (self.ty_of(l), op) {
+            (Ty::Class(sid, _, args), B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge)
+                if args.is_empty() && !self.cx.types.op_calls.contains_key(&e.id) =>
+            {
+                let name = if matches!(op, B::Eq | B::Ne) {
+                    "equals"
+                } else {
+                    "compareTo"
+                };
+                self.cx.program.struct_def(*sid).method(name)
+            }
+            _ => None,
+        };
+        if let Some(m) = self
+            .cx
+            .types
+            .op_calls
+            .get(&e.id)
+            .copied()
+            .or(generic_class_op)
+        {
             // A user operator, or `equals` / `compareTo`.
             let rt = self.cx.types.sigs[m.0 as usize].ret.clone();
             let v = self.user_call(e, m, l, &[r], rt);
@@ -4198,8 +4220,7 @@ impl FnBuilder<'_, '_> {
         }
     }
 
-    /// `equals` derived field by field: `==`, except that `@derive(Eq)` classes compare their
-    /// fields instead of their identity.
+    /// `equals` derived field by field: `==` (class-typed parts compare their fields).
     fn eq_values(&mut self, a: Operand, b: Operand, t: &Ty, span: Span) -> Operand {
         let Ty::Class(sid, _, args) = t else {
             return self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Eq, a, b), Ty::Bool, span);

@@ -1,0 +1,233 @@
+// What decorators see of the declarations they decorate (spec §11.2), exported by
+// `std/meta` without the `__` prefix (`ClassDecl`, `FunctionDecl`, `Args`, `ast`). They live
+// in the core library so the core's own decorators (`@derive`) can use them.
+
+/// The `${}`-spliceable arguments of a wrapped function's call.
+class __Args {
+  constructor(public names: string[]) {}
+
+  /// The arguments as an argument list: `a, b`.
+  public list(): string {
+    this.names.join(", ")
+  }
+
+  /// Code computing a `u64` hash of the arguments (they must be `Hashable`).
+  public hashKey(): string {
+    if (this.names.length == 0) return "0u64"
+    let key = `__hashOf(${this.names[0]})`
+    for (const i of 1..this.names.length) key = `__hashMix(${key}, __hashOf(${this.names[i]}))`
+    key
+  }
+}
+
+/// A decorated class or struct.
+class __ClassDecl {
+  constructor(
+    public id: int,
+    public name: string,
+    /// `"class"` or `"struct"`.
+    public kind: string,
+    public fieldNames: string[],
+    public fieldTypes: string[],
+    public methodNames: string[],
+    /// The type parameters' names (`["T"]` for `Box<T>`).
+    public typeParams: string[],
+  ) {}
+
+  /// The type as written inside its own declaration: `Box<T>`.
+  public get selfType(): string {
+    if (this.typeParams.length == 0) this.name else `${this.name}<${this.typeParams.join(", ")}>`
+  }
+
+  public get fields(): FieldInfo[] {
+    const out: FieldInfo[] = []
+    for (const i of 0..this.fieldNames.length) {
+      out.push({ name: this.fieldNames[i], typeName: this.fieldTypes[i] })
+    }
+    out
+  }
+
+  public hasField(name: string): bool {
+    this.fieldNames.includes(name)
+  }
+
+  public hasMethod(name: string): bool {
+    this.methodNames.includes(name)
+  }
+
+  /// Adds a member written as code: `toString(): string { … }` or `count: int = 0`.
+  public addMember(code: string): void {
+    __meta_emit(this.id, "member", code, "")
+  }
+
+  /// Adds a method written as code.
+  public addMethod(code: string): void {
+    this.addMember(code)
+  }
+
+  /// Adds a field written as code.
+  public addField(code: string): void {
+    this.addMember(code)
+  }
+
+  /// Hidden, once-initialized state only generated code can use; returns the name to splice
+  /// into templates.
+  public addStatic(name: string, init: string): string {
+    const n = `__${this.name}_${name}_${this.id}`
+    __meta_emit(this.id, "static", n, init)
+    n
+  }
+
+  /// A compile error at the decorated declaration.
+  public error(message: string): void {
+    __meta_emit(this.id, "error", message, "")
+  }
+
+  public warn(message: string): void {
+    __meta_emit(this.id, "warn", message, "")
+  }
+
+  public note(message: string): void {
+    __meta_emit(this.id, "note", message, "")
+  }
+}
+
+/// A decorated function.
+class __FunctionDecl {
+  constructor(
+    public id: int,
+    public name: string,
+    public paramNames: string[],
+    public paramTypes: string[],
+    /// The return type as written (`"void"` if it isn't).
+    public returnType: string,
+    public isAsync: bool,
+  ) {}
+
+  public get params(): FieldInfo[] {
+    const out: FieldInfo[] = []
+    for (const i of 0..this.paramNames.length) {
+      out.push({ name: this.paramNames[i], typeName: this.paramTypes[i] })
+    }
+    out
+  }
+
+  /// Replaces the body with the code `f` returns: `f` gets the arguments and the code that
+  /// calls the original body with them (`call`).
+  public wrapBody(f: (args: __Args, call: string) => string): void {
+    const call = `__orig(${this.paramNames.join(", ")})`
+    __meta_emit(this.id, "wrap", f(new __Args(this.paramNames), call), "")
+  }
+
+  /// Hidden, once-initialized state only generated code can use; returns the name to splice
+  /// into templates.
+  public addStatic(name: string, init: string): string {
+    const n = `__${this.name}_${name}_${this.id}`
+    __meta_emit(this.id, "static", n, init)
+    n
+  }
+
+  public error(message: string): void {
+    __meta_emit(this.id, "error", message, "")
+  }
+
+  public warn(message: string): void {
+    __meta_emit(this.id, "warn", message, "")
+  }
+
+  public note(message: string): void {
+    __meta_emit(this.id, "note", message, "")
+  }
+}
+
+/// The AST builder: code for generated declarations, built piece by piece (each piece is
+/// code text, so it splices into templates too: `${ast.string(fn.name)}`).
+class __ast {
+  /// A string literal: `ast.string("a\"b")` is `"a\"b"`.
+  public static string(s: string): string {
+    let out = "\""
+    for (const c of s) {
+      out += match (c) {
+        '"' => "\\\"",
+        '\\' => "\\\\",
+        '\n' => "\\n",
+        '\t' => "\\t",
+        '\r' => "\\r",
+        _ => `${c}`,
+      }
+    }
+    out + "\""
+  }
+
+  public static int(n: i64): string {
+    `${n}`
+  }
+
+  public static bool(b: bool): string {
+    if (b) "true" else "false"
+  }
+
+  /// A name, checked to be an identifier.
+  public static ident(name: string): string {
+    let ok = name.length > 0
+    let first = true
+    for (const c of name) {
+      const letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+      const digit = c >= '0' && c <= '9'
+      if (!(letter || (digit && !first))) ok = false
+      first = false
+    }
+    if (!ok) panic(`ast.ident: \`${name}\` isn't an identifier`)
+    name
+  }
+
+  /// `this.name`
+  public static field(name: string): string {
+    `this.${__ast.ident(name)}`
+  }
+
+  /// `object.name`
+  public static member(object: string, name: string): string {
+    `${object}.${__ast.ident(name)}`
+  }
+
+  /// `callee(a, b)`
+  public static call(callee: string, ...args: string[]): string {
+    `${callee}(${args.join(", ")})`
+  }
+
+  /// `(left op right)`
+  public static binary(left: string, op: string, right: string): string {
+    `(${left} ${op} ${right})`
+  }
+
+  /// `a + b + …` of strings, as one string expression (`""` for none).
+  public static concat(...parts: string[]): string {
+    if (parts.length == 0) "\"\"" else `(${parts.join(" + ")})`
+  }
+
+  /// `return value`
+  public static returns(value: string): string {
+    `return ${value}`
+  }
+
+  /// `const name = value`
+  public static constant(name: string, value: string): string {
+    `const ${__ast.ident(name)} = ${value}`
+  }
+
+  /// `{ statements }`
+  public static block(...statements: string[]): string {
+    `{\n${statements.join("\n")}\n}`
+  }
+
+  /// A public method without parameters: `name() { statements }`.
+  public static method(name: string, ...statements: string[]): string {
+    `public ${__ast.ident(name)}() {\n${statements.join("\n")}\n}`
+  }
+
+  /// A public method with parameters (`"x: i64"`, …) and a return type.
+  public static typedMethod(name: string, params: string[], returns: string, ...statements: string[]): string {
+    `public ${__ast.ident(name)}(${params.join(", ")}): ${returns} {\n${statements.join("\n")}\n}`
+  }
+}

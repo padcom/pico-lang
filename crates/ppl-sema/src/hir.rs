@@ -149,8 +149,6 @@ pub struct StructDef {
     pub protected: std::collections::HashSet<String>,
     /// Where each inherited member was declared (own members aren't listed).
     pub declared_in: HashMap<String, StructId>,
-    /// `@derive(Eq, Hash, Ord)` on a class: the derived protocols.
-    pub derives: Vec<String>,
     /// `@pod struct`: plain data with a C layout (spec §9.1).
     pub pod: bool,
     /// Methods marked `readonly` (callable through `immutable`; they can't mutate `this`).
@@ -187,7 +185,6 @@ impl StructDef {
             final_methods: Default::default(),
             protected: Default::default(),
             declared_in: HashMap::new(),
-            derives: Vec::new(),
             readonly_methods: Default::default(),
             getters: Vec::new(),
             setters: Vec::new(),

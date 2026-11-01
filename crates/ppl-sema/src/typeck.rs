@@ -4183,10 +4183,7 @@ impl<'p> Checker<'p> {
         match t {
             Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error => true,
             Ty::Struct(..) | Ty::Enum(..) | Ty::Tuple(_) | Ty::Fixed(..) => self.equatable(t),
-            Ty::Class(sid, _, _) => {
-                let d = self.program.struct_def(*sid);
-                d.method("hashCode").is_some() || d.derives.iter().any(|x| x == "Hash")
-            }
+            Ty::Class(sid, _, _) => self.program.struct_def(*sid).method("hashCode").is_some(),
             Ty::Lits(b, _) | Ty::Distinct(_, _, b) | Ty::Immutable(b) => self.hashable(b),
             Ty::Param(..) => self.bounds_of(t).contains(&Bound::Hashable),
             _ => false,
@@ -4647,12 +4644,6 @@ impl<'p> Checker<'p> {
     fn derives_ord(&self, t: &Ty) -> bool {
         match t {
             Ty::Struct(..) | Ty::Enum(..) | Ty::Tuple(_) | Ty::Fixed(..) | Ty::Range(_) => true,
-            Ty::Class(sid, _, _) => self
-                .program
-                .struct_def(*sid)
-                .derives
-                .iter()
-                .any(|d| d == "Ord"),
             Ty::Nullable(inner) => self.derives_ord(inner),
             _ => false,
         }
@@ -4722,20 +4713,9 @@ impl<'p> Checker<'p> {
                     }
                     _ => None,
                 };
-                match def_eq {
-                    Some(m) => {
-                        self.types.op_calls.insert(e.id, m);
-                        self.call_fn(e, m, std::slice::from_ref(r));
-                    }
-                    // `@derive(Eq)` classes compare their fields.
-                    None if matches!(lt, Ty::Class(sid, _, _)
-                        if self.program.struct_def(*sid).derives.iter().any(|d| d == "Eq")) =>
-                    {
-                        self.check(r, &Expect::new(lt.clone()));
-                        self.types.derived.insert(e.id, Derived::Equals);
-                    }
-                    None => return None,
-                }
+                let m = def_eq?;
+                self.types.op_calls.insert(e.id, m);
+                self.call_fn(e, m, std::slice::from_ref(r));
                 Some(Ty::Bool)
             }
             _ => None,
@@ -5463,19 +5443,15 @@ impl<'p> Checker<'p> {
             }
             _ => false,
         };
-        let derives = |c: &Self, what: &str| match t {
-            Ty::Struct(..) | Ty::Enum(..) | Ty::Tuple(_) | Ty::Fixed(..) => true,
-            Ty::Class(sid, _, _) => c.program.struct_def(*sid).derives.iter().any(|d| d == what),
-            _ => false,
-        };
+        // (Classes write theirs, or get them from `@derive`.)
+        let derives = matches!(
+            t,
+            Ty::Struct(..) | Ty::Enum(..) | Ty::Tuple(_) | Ty::Fixed(..)
+        );
         let derived = match name {
-            "equals" if !own && derives(self, "Eq") => Some((Derived::Equals, Ty::Bool, 1)),
-            "compareTo" if !own && derives(self, "Ord") => {
-                Some((Derived::Compare, Ty::Int(IntTy::I32), 1))
-            }
-            "hashCode" if !own && derives(self, "Hash") => {
-                Some((Derived::Hash, Ty::Int(IntTy::U64), 0))
-            }
+            "equals" if !own && derives => Some((Derived::Equals, Ty::Bool, 1)),
+            "compareTo" if !own && derives => Some((Derived::Compare, Ty::Int(IntTy::I32), 1)),
+            "hashCode" if !own && derives => Some((Derived::Hash, Ty::Int(IntTy::U64), 0)),
             _ => None,
         };
         if let Some((d, ret, n)) = derived {

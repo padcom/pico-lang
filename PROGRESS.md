@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P6.6: `@derive` in ppl** (see [PLAN.md](PLAN.md#p66-derive-in-ppl)).
+**P6.7: Runtime reflection** (see [PLAN.md](PLAN.md#p67-runtime-reflection)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 220 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P6.5) |
+| Last green `scripts/test.sh` | 2026-11-01 (P6.6) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -39,7 +39,7 @@ Notes:
 
 ## Known issues / notes for the next session
 - **Comptime (P6.2a, decision 220)**: `Rvalue::Comptime(thunk, limit)` is replaced in `ppl_interp::comptime::run` (called from `check_source_with`, then folding runs again). A local `comptime const` used by later comptime code reruns its thunk (`Found::Thunk`; the thunk is type-checked once, `checked_thunks`). Comptime parameters (P6.2b, decision 221): `TypeParam.comptime`/`value_param`/`is_len`, `ExprKind::ConstParam`/`RepeatN`, `Ty::FixedN`; constants are `Ty::Lits` type arguments. Comptime parameters on generic *types* (`struct Vec<comptime N>`) aren't supported yet. Type reflection (P6.3, decision 222): `ExprKind::TypeInfo`/`TypeValue`, lowered to constants in `Lower::type_info`; `comptime T: type` value parameters are dropped from the runtime parameters via `arg_slots` (so they don't combine with named arguments or defaults yet). Decorators on bindings other than `@comptimeLimit` are E0900, and only top-level bindings carry decorators (`Modules.binding_decorators`, keyed by statement span). The package root for `comptime.readFile` is the entry file's directory until packages exist (P9?). A 10M-step loop takes ~1.3 s in a debug build.
-- **Decorators (P6.4, decision 223)**: `ppl-driver/src/decorators.rs` (`expand`, called by `check_source_with` before resolution), `stdlib/meta.ppl`, `Builtin::MetaEmit`. Templates are code strings and `ast` (P6.5, decision 224) is a class of static methods returning code text. Not yet: decorators on methods, fields, parameters and enums (E0900); decorator arguments that use the using module's names (they're evaluated in the decorator's module); re-exported decorators (`export { memoize } from …`). Generated code with mistakes is reported in files like `<body made by @memoize>`. Native code calling a comptime-only builtin (`__meta_emit` outside comptime) hits `unreachable!` in codegen (the interpreter panics properly).
+- **Decorators (P6.4, decision 223)**: `ppl-driver/src/decorators.rs` (`expand`, called by `check_source_with` before resolution), `stdlib/meta.ppl`, `Builtin::MetaEmit`. `@derive` is `stdlib/core/derive.ppl` (P6.6, decision 225); the meta classes are core (`__ClassDecl`, …) re-exported by `std/meta`, so every program's prelude has them (they show in LLVM IR snapshots as class infos). Templates are code strings and `ast` (P6.5, decision 224) is a class of static methods returning code text. Not yet: decorators on methods, fields, parameters and enums (E0900); decorator arguments that use the using module's names (they're evaluated in the decorator's module); re-exported decorators (`export { memoize } from …`). Generated code with mistakes is reported in files like `<body made by @memoize>`. Native code calling a comptime-only builtin (`__meta_emit` outside comptime) hits `unreachable!` in codegen (the interpreter panics properly).
 - **Constant folding (P6.1, decision 219)**: runs at the end of `ppl_mir::lower`. Not folded: strings (`"a" + "b"`), `ToStr` of constants, aggregates, `InBounds`/`AddOverflows`; no interprocedural folding. A comptime interpreter (P6.2) can reuse `ppl_mir::eval`.
 - **GC (P4.x)**: `runtime/src/ppl_gc.c` and `crates/ppl-codegen/src/gc.rs` (decisions 206–209).
   Generational (non-moving nursery + incremental old generation, Dijkstra barrier, cards for
@@ -211,7 +211,7 @@ Notes:
 - [x] P6.3 Types as comptime values
 - [x] P6.4 Decorators and std/meta
 - [x] P6.5 Quasi-quote templates and the AST builder
-- [ ] P6.6 `@derive` in ppl
+- [x] P6.6 `@derive` in ppl
 - [ ] P6.7 Runtime reflection
 - [ ] P6.8 JSON
 
@@ -332,3 +332,4 @@ Notes:
 | 2026-11-01 | P6.3 | Types as comptime values: `<comptime T: type>` and `comptime T: type` parameters (type arguments written as values), `T.name`/`kind`/`fields`/`methods` (`FieldInfo`, `MethodInfo` in core) as per-instance constants, private members only in the declaring file; `vec<comptime T: type, comptime N: i32>`. Decision 222. Tests: run/comptime/types, fail/comptime/types. |
 | 2026-11-01 | P6.4 | Decorators: `decorator function`s run in a separate comptime program before resolution (`ppl-driver/src/decorators.rs`), `std/meta` (`ClassDecl`, `FunctionDecl`, `Args`) recording requests through `__meta_emit`; added members, hidden statics, wrapped bodies, `error`/`warn`/`note` (E0354). Generated code in files mapped to modules (`Modules::file_modules`). CLI prints warnings on success. Spec/TOUR memoize example fixed. Decision 223. Tests: run/decorators/{basic (memoize, mustHaveId, traced across modules), members}, fail/decorators/{reported, wrong_kind}. |
 | 2026-11-01 | P6.5 | Quasi-quote templates (code text parsed where spliced, type-checked with the program; errors labeled at the generating decorator via `Expansion::annotate`) and the `ast` builder in `std/meta` (static methods returning code text). `FunctionDecl.isAsync`; generated struct members drop `public`. Decision 224. Tests: run/decorators/to_string (`toString()` from a template, `describe()` from the builder, `@logged`), fail/decorators/bad_template. |
+| 2026-11-01 | P6.6 | `@derive(Eq, Hash, Ord)` as a core-library decorator (`stdlib/core/derive.ppl`); built-in derive and `StructDef.derives` removed. Meta classes moved to the core library (`stdlib/core/meta.ppl`, re-exported by `std/meta`), core decorators visible everywhere, bare-name decorator arguments passed as strings, prelude fallback for re-exported names. Generic `==`/`<` on class instances now call their `equals`/`compareTo`. Decision 225. Tests: run/decorators/derive (Map keys, sort, `==`/`<`), fail/decorators/derive_unknown; P3.17's operators.ppl unchanged; three LLVM IR snapshots gained the new core class infos. |

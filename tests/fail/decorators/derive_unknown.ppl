@@ -1,0 +1,5 @@
+// error: E0354
+// at: 4:1
+// `@derive` takes `Eq`, `Hash` and `Ord` only.
+@derive(Eq, Show)
+class A { constructor(public x: i64) {} }
