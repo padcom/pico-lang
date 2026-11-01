@@ -1,0 +1,100 @@
+// `using` (spec §11.5): `dispose()` at the end of the scope, in reverse order, on every way
+// out, exceptions and panics included.
+// expect: open a
+// expect: open b
+// expect: work with a, b
+// expect: close b
+// expect: close a
+// expect: open c
+// expect: close c
+// expect: caught: failed while using c
+// expect: open d
+// expect: close d
+// expect: returned 42
+// expect: open loop0
+// expect: close loop0
+// expect: open loop1
+// expect: close loop1
+// expect: open e
+// expect: struct closed e
+// expect: nothing to close
+// expect: open f
+// expect: value 7
+// expect: close f
+// expect: open g
+// expect: close g
+// panic: boom
+class Resource implements Disposable {
+  public name: string
+  constructor(name: string) {
+    this.name = name
+    println(`open ${name}`)
+  }
+  public dispose(): void {
+    println(`close ${this.name}`)
+  }
+}
+
+function two(): void {
+  using a = new Resource("a")
+  using b = new Resource("b")
+  println(`work with ${a.name}, ${b.name}`)
+}
+two()
+
+class Failure extends Error {}
+function failing(): void throws Failure {
+  using c = new Resource("c")
+  throw new Failure(`failed while using ${c.name}`)
+}
+try {
+  failing()
+} catch (e: Failure) {
+  println(`caught: ${e.message}`)
+}
+
+function early(): int {
+  using d = new Resource("d")
+  return 42
+}
+println(`returned ${early()}`)
+
+for (const i of 0..3) {
+  using r = new Resource(`loop${i}`)
+  if (i == 1) {
+    break
+  }
+}
+
+struct Handle implements Disposable {
+  name: string
+  dispose(): void {
+    println(`struct closed ${this.name}`)
+  }
+}
+function scoped(): void {
+  println("open e")
+  using h = Handle { name: "e" }
+}
+scoped()
+
+function maybe(): void {
+  const none: Resource? = null
+  using r = none
+  println("nothing to close")
+}
+maybe()
+
+function value(): int {
+  using f = new Resource("f")
+  const v = 7
+  println(`value ${v}`)
+  v
+}
+value()
+
+function crash(): void {
+  using g = new Resource("g")
+  panic("boom")
+}
+crash()

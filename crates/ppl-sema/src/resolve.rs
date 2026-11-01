@@ -3614,6 +3614,70 @@ impl Resolver {
         let mut out = Vec::new();
         let mut tail = None;
         for (i, s) in stmts.iter().enumerate() {
+            if let ast::StmtKind::Using {
+                is_await: false,
+                name,
+                init,
+            } = &s.kind
+            {
+                // `using x = init; rest` → `const x = init; try { rest } finally { x?.dispose() }`:
+                // disposed on every way out, the latest first.
+                let binding = ast::Stmt {
+                    kind: ast::StmtKind::Let {
+                        kind: ast::BindingKind::Const,
+                        pat: ast::Pattern {
+                            kind: ast::PatternKind::Ident(name.clone()),
+                            span: name.span,
+                        },
+                        ty: None,
+                        init: Some(init.clone()),
+                        comptime: false,
+                    },
+                    span: s.span,
+                };
+                self.lower_stmt(&binding, &mut out, None);
+                let rest = self.block_stmts(&stmts[i + 1..], span);
+                let dispose = ast::Expr {
+                    kind: ast::ExprKind::Call {
+                        callee: Box::new(ast::Expr {
+                            kind: ast::ExprKind::Member {
+                                object: Box::new(ast::Expr {
+                                    kind: ast::ExprKind::Ident(name.name.clone()),
+                                    span: name.span,
+                                }),
+                                prop: ast::Ident {
+                                    name: "dispose".into(),
+                                    span: name.span,
+                                },
+                                optional: true,
+                            },
+                            span: name.span,
+                        }),
+                        type_args: Vec::new(),
+                        args: Vec::new(),
+                    },
+                    span: name.span,
+                };
+                let dispose = self.lower_expr(&dispose);
+                let fin = self.expr(
+                    ExprKind::Block(Block {
+                        stmts: vec![Stmt::Expr(dispose)],
+                        tail: None,
+                        span: name.span,
+                    }),
+                    name.span,
+                );
+                let body = self.expr(ExprKind::Block(rest), span);
+                tail = Some(Box::new(self.expr(
+                    ExprKind::Try {
+                        body: Box::new(body),
+                        catches: Vec::new(),
+                        finally: Some(Box::new(fin)),
+                    },
+                    s.span,
+                )));
+                break;
+            }
             let last = i + 1 == stmts.len();
             self.lower_stmt(s, &mut out, if last { Some(&mut tail) } else { None });
         }
@@ -3671,7 +3735,12 @@ impl Resolver {
                     span: s.span,
                 });
             }
-            ast::StmtKind::Using { .. } => self.not_implemented(s.span, "`using`"),
+            ast::StmtKind::Using { is_await: true, .. } => {
+                self.not_implemented(s.span, "`await using`")
+            }
+            ast::StmtKind::Using { .. } => {
+                self.not_implemented(s.span, "`using` at the top level of a module")
+            }
             ast::StmtKind::While { cond, body } => {
                 self.f.scopes.push(Scope::default());
                 self.cond_scope = true;

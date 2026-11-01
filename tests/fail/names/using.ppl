@@ -1,0 +1,11 @@
+// error: E0204
+// at: 10:3
+// A `using` binding is constant.
+class Res {
+  constructor() {}
+  public dispose(): void {}
+}
+function f(): void {
+  using r = new Res()
+  r = new Res()
+}

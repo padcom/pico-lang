@@ -14,3 +14,8 @@ class Error {
 interface Throwable {
   message(): string
 }
+
+/// Cleaned up by `using` at the end of its scope (spec §11.5).
+interface Disposable {
+  dispose(): void
+}

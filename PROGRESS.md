@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.26: `using` and Disposable** (see [PLAN.md](PLAN.md#p326-using-and-disposable))
+**P4.1: Shadow stack and type maps** (see [PLAN.md](PLAN.md#p41-shadow-stack-and-type-maps)). Phase 3 is complete.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.25) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.26) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,7 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
-- **Decisions 197–202 (P3.19–P3.24) are provisional** too: exceptions via error-return lowering,
+- **Decisions 197–205 (P3.19–P3.26) are provisional** too: exceptions via error-return lowering,
   throws inference/polymorphism, panic unwinding with setjmp guards, the core library in ppl
   (`stdlib/core`), `Iterator<T>` as a class (no generic interfaces yet), and module resolution.
 - Modules: the resolver keys top-level names by module (`Names<T>`, `ModCtx` in resolve.rs); the
@@ -147,7 +147,7 @@ Notes:
 - [x] P3.23 Iterators and generators
 - [x] P3.24 Modules
 - [x] P3.25 Destructuring and spread
-- [ ] P3.26 `using` and Disposable
+- [x] P3.26 `using` and Disposable
 
 ### Phase 4: Memory management
 - [ ] P4.1 Shadow stack and type maps
@@ -273,3 +273,4 @@ Notes:
 | 2026-11-01 | P3.24 | Modules: driver loader (`modules.rs`: relative/extensionless/`index.ppl`/`std/` resolution, DFS init order, export/import tables, `export const` unwrapping), resolver namespaces per module (`Names<T>`, `ModCtx`, `resolve_modules`), `* as` namespaces for values and types, re-exports, E0338 library `let`, E0339 init cycles, E0340 not exported, E0341 unknown module; harness resolves imports from each fixture's directory; `stdlib/greeting.ppl` as a first `std/` module. Decision 202. Fixtures: run/modules/{basic,cycle}, fail/modules/{init_cycle,library_let,exports,missing}. |
 | 2026-11-01 | P3.20b | Lightweight throwables: prelude `Throwable` interface, throwable enums (`EnumDef.throwable`), `Program::throwables`/`throw_tag`, boxed values with a tag slot (`SetException(v, tag)`, `ExceptionTag`; interp field, native `ppl.exception_tag` global), catch dispatch by tag (`catch_pattern`), shared `exception_text` for uncaught/`try!`, throws analysis `Catch` kinds. Decision 203. Tests: run/errors/throwables, fail/types/{throwables,throw_value}. |
 | 2026-11-01 | P3.25 | Destructuring desugared in the resolver: object patterns with defaults, array `...rest` (slice), destructured parameters (`split_destructured`, `destructured_params`), destructuring assignment (`assign_destructured`), array spread via `concat`/`slice`. Decision 204 (object `...rest` still missing). Tests: run/destructuring (§4.1, §5.3, §5.7 examples), fail/{names,types}/destructuring. |
+| 2026-11-01 | P3.26 | `using` desugared in `block_stmts` to `const` + `try { rest } finally { x?.dispose() }` (reverse order, exceptions, early exits, panics); prelude `Disposable`. Decision 205. Tests: run/using, fail/{types,names}/using. **Phase 3 complete.** |

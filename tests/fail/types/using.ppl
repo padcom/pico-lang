@@ -1,0 +1,9 @@
+// error: E0309
+// at: 8:9
+// `using` needs something with a `dispose()` method.
+class Plain {
+  constructor() {}
+}
+function f(): void {
+  using p = new Plain()
+}
