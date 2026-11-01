@@ -1,0 +1,24 @@
+/// The platform the program is compiled for (spec §15.4), fixed at compile time.
+struct Target {
+  /// `"linux"`, `"macos"`, `"windows"`, `"wasi"` or `"browser"`.
+  os: string
+  /// `"aarch64"`, `"x86_64"` or `"wasm32"`.
+  arch: string
+  /// The LLVM target triple, e.g. `"aarch64-apple-darwin"`.
+  triple: string
+}
+
+/// How the program is being built (spec §11.1).
+struct BuildInfo {
+  /// `"debug"` or `"release"`.
+  mode: string
+  /// Flags given to the build (none yet).
+  flags: string[]
+}
+
+/// `target` and `build` (outside of a program's own declarations by those names) mean
+/// `comptime __target()` and `comptime __build()`.
+function __target(): Target {
+  return { os: __comptime_info(0), arch: __comptime_info(1), triple: __comptime_info(2) }
+}
+function __build(): BuildInfo { return { mode: __comptime_info(3), flags: [] } }

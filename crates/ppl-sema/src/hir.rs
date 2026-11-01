@@ -569,6 +569,11 @@ pub enum Builtin {
     WorkerError,
     /// `__buf_op(op, a, b, c): int`: `ArrayBuffer`s' off-heap memory (see `ppl_buf_op`).
     BufOp,
+    /// `__comptime_info(k)`: a fact about the build (comptime only): the target's os, arch
+    /// and triple, then the build mode.
+    ComptimeInfo,
+    /// `comptime.readFile(path)`: a file under the package root (comptime only).
+    ComptimeReadFile,
 }
 
 impl Builtin {
@@ -596,6 +601,8 @@ impl Builtin {
             Builtin::WorkerPost => "__worker_post",
             Builtin::WorkerError => "__worker_error",
             Builtin::BufOp => "__buf_op",
+            Builtin::ComptimeInfo => "__comptime_info",
+            Builtin::ComptimeReadFile => "__comptime_read_file",
         }
     }
 
@@ -620,6 +627,8 @@ impl Builtin {
             "__worker_post" => Builtin::WorkerPost,
             "__worker_error" => Builtin::WorkerError,
             "__buf_op" => Builtin::BufOp,
+            "__comptime_info" => Builtin::ComptimeInfo,
+            "__comptime_read_file" => Builtin::ComptimeReadFile,
             _ => return None,
         })
     }
@@ -957,6 +966,12 @@ pub enum ExprKind {
     },
     /// A closure value (the function is lifted; see `Function::closure`).
     Closure(FnId),
+    /// `comptime e` (spec §11.1): the value of calling the capture-free closure `f` inside
+    /// the compiler, at most `limit` evaluation steps (`@comptimeLimit`; default 10 million).
+    Comptime {
+        f: FnId,
+        limit: Option<u64>,
+    },
     /// `name: value` as a call argument.
     NamedArg {
         name: String,
@@ -1030,6 +1045,7 @@ impl Expr {
             | ExprKind::Builtin(_)
             | ExprKind::Continue
             | ExprKind::Closure(_)
+            | ExprKind::Comptime { .. }
             | ExprKind::Overloaded(_)
             | ExprKind::SizeOf { .. }
             | ExprKind::Error => {}

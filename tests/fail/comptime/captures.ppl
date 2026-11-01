@@ -1,0 +1,8 @@
+// error: E0352
+// at: 7:27
+// error: E0351
+// at: 8:11
+// Comptime code runs before the program: it can't see the variables around it, and
+// `comptime.readFile` exists only there.
+function h(n: int): int { comptime n + 1 }
+const G = comptime.readFile("x")

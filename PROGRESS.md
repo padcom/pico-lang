@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P6.2: `comptime` evaluation** (see [PLAN.md](PLAN.md#p62-comptime-evaluation)).
+**P6.2b: `comptime` parameters** (see [PLAN.md](PLAN.md#p62b-comptime-parameters)). P6.2 was split: P6.2a (evaluation) is done.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,10 +23,10 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 219 decisions, no open questions |
+| Spec | ✅ 16 chapters, 220 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P6.1) |
+| Last green `scripts/test.sh` | 2026-11-01 (P6.2a) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Comptime (P6.2a, decision 220)**: `Rvalue::Comptime(thunk, limit)` is replaced in `ppl_interp::comptime::run` (called from `check_source_with`, then folding runs again). A local `comptime const` can't be used by later comptime code in the same function (it's a local: E0352) — P6.2b. Decorators on bindings other than `@comptimeLimit` are E0900, and only top-level bindings carry decorators (`Modules.binding_decorators`, keyed by statement span). The package root for `comptime.readFile` is the entry file's directory until packages exist (P9?). A 10M-step loop takes ~1.3 s in a debug build.
 - **Constant folding (P6.1, decision 219)**: runs at the end of `ppl_mir::lower`. Not folded: strings (`"a" + "b"`), `ToStr` of constants, aggregates, `InBounds`/`AddOverflows`; no interprocedural folding. A comptime interpreter (P6.2) can reuse `ppl_mir::eval`.
 - **GC (P4.x)**: `runtime/src/ppl_gc.c` and `crates/ppl-codegen/src/gc.rs` (decisions 206–209).
   Generational (non-moving nursery + incremental old generation, Dijkstra barrier, cards for
@@ -204,7 +205,8 @@ Notes:
 
 ### Phase 6: Comptime and metaprogramming
 - [x] P6.1 Constant folding
-- [ ] P6.2 `comptime` evaluation
+- [x] P6.2a `comptime` evaluation
+- [ ] P6.2b `comptime` parameters
 - [ ] P6.3 Types as comptime values
 - [ ] P6.4 Decorators and std/meta
 - [ ] P6.5 Quasi-quote templates and the AST builder
@@ -324,3 +326,4 @@ Notes:
 | 2026-11-01 | P5.5 | Workers: thread-local runtime/program state, worker modules as extra roots with their own entry functions, `ppl_worker.c` (threads, queues, wakers, generic deep copy), `Worker`/`WorkerPanicked`/`std/worker`, `Sendable` bound, interpreter threads. Decision 217. Tests: run/workers/{pingpong, errors, graphs}, fail/workers/not_sendable. |
 | 2026-11-01 | P5.6 | `ArrayBuffer` + typed arrays (off-heap, copied or transferred/detached in messages), inline workers (`new Worker(f)`, `call`, unref when idle), `parallelMap`, `WorkerPool`, `navigator.hardwareConcurrency`; static getters, generic-call defaults. Decision 218. Tests: run/workers/{transfer, parallel (hashing), pool}, fail/workers/inline_captures. Phase 5 done. |
 | 2026-11-01 | P6.1 | MIR constant folding (`ppl-mir/src/fold.rs`): int/float/bool/char `Binary`/`Unary`/`Cast`, propagation through single-assignment locals and constant globals, constant branches → gotos, unreachable blocks emptied, dead constant temps dropped. Arithmetic moved to `ppl_mir::eval` (interpreter uses it too). Folded panics are E0347 (decision 219); MIR `Loc` now carries a span. Tests: mir snapshot `constant_folding`, fail/consts/const_panics; four run panic fixtures now use parameters. |
+| 2026-11-01 | P6.2a | `comptime` expressions/blocks/consts/`if`, run in `ppl-interp` (`ppl_interp::comptime`: comptime mode with step limit, forbidden builtins, unset-global check; values written back as MIR), `@comptimeLimit`, `comptime.readFile`, `target`/`build` (`stdlib/core/comptime.ppl`), compile-time log. Shared operand walkers (`Rvalue::operands`, `Terminator::operands`). E0348–E0352. Decision 220. Split P6.2 → P6.2a/P6.2b (comptime parameters). Tests: run/comptime/{crc_table, values, target, shadowing}, fail/comptime/{step_limit, failures, captures}, driver test of the compile-time log. Fixed TOUR's CRC example precedence (`(c & 1) != 0`). |

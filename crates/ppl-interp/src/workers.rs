@@ -340,6 +340,8 @@ impl<'p, 'o> Interp<'p, 'o> {
             frames: Vec::new(),
             unwinding: Vec::new(),
             started: std::time::Instant::now(),
+            comptime: None,
+            uninit_global: std::cell::Cell::new(None),
         }
     }
 

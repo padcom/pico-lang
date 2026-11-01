@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+ppl-diag.workspace = true
 ppl-mir.workspace = true
 ppl-sema.workspace = true
 

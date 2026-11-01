@@ -2112,6 +2112,15 @@ impl FnBuilder<'_, '_> {
                 };
                 self.rvalue_to_temp(Rvalue::Closure(fid, caps), ty, e.span)
             }
+            ExprKind::Comptime { f, limit } => {
+                let fid = if in_generic_context(self.cx.program, *f) {
+                    let subst = self.cx.cur_subst.clone();
+                    self.cx.instance(*f, subst)
+                } else {
+                    *f
+                };
+                self.rvalue_to_temp(Rvalue::Comptime(fid, *limit), ty, e.span)
+            }
             ExprKind::Fn(_) | ExprKind::Builtin(_) | ExprKind::Overloaded(_) | ExprKind::Error => {
                 Operand::Const(Const::Void)
             }
@@ -4743,7 +4752,9 @@ impl FnBuilder<'_, '_> {
                 | Builtin::WorkerOp
                 | Builtin::WorkerPost
                 | Builtin::WorkerError
-                | Builtin::BufOp),
+                | Builtin::BufOp
+                | Builtin::ComptimeInfo
+                | Builtin::ComptimeReadFile),
             ) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
                 let dest = matches!(
@@ -4755,9 +4766,14 @@ impl FnBuilder<'_, '_> {
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
                         | Builtin::BufOp
+                        | Builtin::ComptimeInfo
+                        | Builtin::ComptimeReadFile
                 )
                 .then(|| {
-                    let t = if *b == Builtin::WorkerError {
+                    let t = if matches!(
+                        b,
+                        Builtin::WorkerError | Builtin::ComptimeInfo | Builtin::ComptimeReadFile
+                    ) {
                         Ty::Str
                     } else {
                         Ty::INT

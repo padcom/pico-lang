@@ -1282,7 +1282,7 @@ function buildCrcTable(): [u32; 256] {
   const t: [u32; 256] = [0; 256]
   for (const i of 0..256) {
     let c = i as u32
-    for (const _ of 0..8) c = if (c & 1 != 0) 0xEDB88320 ^ (c >>> 1) else c >>> 1
+    for (const _ of 0..8) c = if ((c & 1) != 0) 0xEDB88320 ^ (c >>> 1) else c >>> 1
     t[i] = c
   }
   t

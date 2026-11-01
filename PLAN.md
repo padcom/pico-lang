@@ -475,12 +475,20 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 - **Do**: fold pure constant expressions in MIR, with overflow during folding reported as a compile error.
 - **Done when**: the MIR dump shows `const KB = 1 << 10` folded.
 
-### P6.2 `comptime` evaluation
+### P6.2a `comptime` evaluation
 - **Spec**: 11 §11.1
-- **Do**: `comptime const`, `comptime { }`, `comptime if`, and `comptime` params run via `ppl-interp`;
+- **Do**: `comptime const`, `comptime { }`, `comptime if` run via `ppl-interp`;
   `target`/`build` info, `comptime.readFile`, and the 10M step limit with `@comptimeLimit`.
 - **Done when**: the CRC table example works, and a fail test covers an infinite loop hitting the
   step limit.
+
+### P6.2b `comptime` parameters
+- **Spec**: 11 §11.1
+- **Do**: `function f(comptime n: i32)` and `function vec<comptime N: i32>()`: each distinct
+  constant argument instantiates the function (like monomorphization), with the parameter a
+  constant inside; non-constant arguments are an error. Also: local `comptime const`s usable
+  from later comptime code in the same function.
+- **Done when**: `zeros<4>()` from TOUR works and a non-constant argument fails.
 
 ### P6.3 Types as comptime values
 - **Do**: `comptime T: type` and type reflection at comptime (fields, methods).

@@ -60,6 +60,8 @@ pub struct Checked {
     /// The MIR, if type checking succeeded.
     pub mir: Option<ppl_mir::Program>,
     pub diags: Vec<Diagnostic>,
+    /// What `comptime` code printed (the compile-time log).
+    pub comptime_output: String,
 }
 
 impl Checked {
@@ -85,6 +87,17 @@ pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked
 
 /// Like [`check_source`], with imports relative to `dir`.
 pub fn check_source_in(name: impl Into<String>, text: impl Into<String>, dir: &Path) -> Checked {
+    check_source_with(name, text, dir, BuildOptions::default())
+}
+
+/// Like [`check_source_in`], for a build with these options (comptime code sees the mode).
+/// `dir` is also the package root for `comptime.readFile`.
+pub fn check_source_with(
+    name: impl Into<String>,
+    text: impl Into<String>,
+    dir: &Path,
+    opts: BuildOptions,
+) -> Checked {
     let mut sm = SourceMap::new();
     let file = sm.add(name, text);
     let (mut module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
@@ -116,6 +129,7 @@ pub fn check_source_in(name: impl Into<String>, text: impl Into<String>, dir: &P
     let mut hir = None;
     let mut types = None;
     let mut mir = None;
+    let mut comptime_output = String::new();
     if !diags.iter().any(Diagnostic::is_error) {
         let (program, mut d) = ppl_sema::resolve_modules(&module, file, &modules);
         diags.append(&mut d);
@@ -123,8 +137,18 @@ pub fn check_source_in(name: impl Into<String>, text: impl Into<String>, dir: &P
             let (t, mut d) = ppl_sema::check(&program);
             diags.append(&mut d);
             if !diags.iter().any(Diagnostic::is_error) {
-                let (m, mut d) = ppl_mir::lower(&program, &t, sm.file(file), file);
+                let (mut m, mut d) = ppl_mir::lower(&program, &t, sm.file(file), file);
                 diags.append(&mut d);
+                if !diags.iter().any(Diagnostic::is_error) {
+                    let cfg = ppl_interp::comptime::Config::host(dir.to_path_buf(), opts.release);
+                    let (mut d, out) = ppl_interp::comptime::run(&mut m, &cfg);
+                    diags.append(&mut d);
+                    comptime_output = out;
+                    // The comptime values fold further.
+                    if !diags.iter().any(Diagnostic::is_error) {
+                        diags.append(&mut ppl_mir::fold::fold_program(&mut m));
+                    }
+                }
                 mir = Some(m);
             }
             types = Some(t);
@@ -140,6 +164,7 @@ pub fn check_source_in(name: impl Into<String>, text: impl Into<String>, dir: &P
         types,
         mir,
         diags,
+        comptime_output,
     }
 }
 
@@ -164,6 +189,10 @@ const PRELUDE: &[(&str, &str)] = &[
     (
         "<core>/iterator.ppl",
         include_str!("../../../stdlib/core/iterator.ppl"),
+    ),
+    (
+        "<core>/comptime.ppl",
+        include_str!("../../../stdlib/core/comptime.ppl"),
     ),
     (
         "<core>/weak.ppl",
@@ -279,7 +308,11 @@ pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
     let file = checked.sm.file(ppl_diag::FileId(0));
     let mut h = std::collections::hash_map::DefaultHasher::new();
     file.name.hash(&mut h);
-    file.text.hash(&mut h);
+    // The whole program as compiled: imported modules and comptime values included.
+    match &checked.mir {
+        Some(m) => ppl_mir::dump(m).hash(&mut h),
+        None => file.text.hash(&mut h),
+    }
     opts.release.hash(&mut h);
     env!("CARGO_PKG_VERSION").hash(&mut h);
     // The compiler itself: a rebuilt compiler must not reuse old executables.
@@ -309,8 +342,19 @@ pub fn build_cached(checked: &Checked, opts: BuildOptions) -> Result<PathBuf, St
 
 /// Reads `path` and runs [`check_source`] on it, naming the file by its path.
 pub fn check_file(path: &Path) -> std::io::Result<Checked> {
+    check_file_with(path, BuildOptions::default())
+}
+
+/// [`check_file`] for a build with these options.
+pub fn check_file_with(path: &Path, opts: BuildOptions) -> std::io::Result<Checked> {
     let text = std::fs::read_to_string(path)?;
-    Ok(check_source(path.display().to_string(), text))
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    Ok(check_source_with(
+        path.display().to_string(),
+        text,
+        &dir,
+        opts,
+    ))
 }
 
 #[cfg(test)]
@@ -334,5 +378,16 @@ mod tests {
         assert!(c.has_errors());
         assert!(c.render_diagnostics().contains("t.ppl:1:7"));
         assert!(!check_source("ok.ppl", "const a = 1\n").has_errors());
+    }
+
+    #[test]
+    fn comptime_output_is_the_compile_time_log() {
+        let src = "comptime {\n  println(`mode ${build.mode}`)\n}\nprintln(\"run\")\n";
+        let debug = check_source("t.ppl", src);
+        assert!(!debug.has_errors(), "{}", debug.render_diagnostics());
+        assert_eq!(debug.comptime_output, "mode debug\n");
+        let release =
+            check_source_with("t.ppl", src, Path::new(""), BuildOptions { release: true });
+        assert_eq!(release.comptime_output, "mode release\n");
     }
 }

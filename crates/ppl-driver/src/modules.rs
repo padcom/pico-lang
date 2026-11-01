@@ -63,7 +63,14 @@ pub fn load(sm: &mut SourceMap, entry: FileId, module: ast::Module, dir: &Path) 
                     DeclKind::Import(_)
                     | DeclKind::ExportList { .. }
                     | DeclKind::ExportAll { .. } => {}
-                    DeclKind::Binding(inner) => stmts.push(*inner),
+                    DeclKind::Binding(inner) => {
+                        if !d.decorators.is_empty() {
+                            l.modules
+                                .binding_decorators
+                                .insert(inner.span, d.decorators);
+                        }
+                        stmts.push(*inner)
+                    }
                     kind => stmts.push(ast::Stmt {
                         kind: StmtKind::Decl(ast::Decl { kind, ..d }),
                         span: st.span,

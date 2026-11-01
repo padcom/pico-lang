@@ -1,0 +1,23 @@
+// expect: 0 1996959894 755167117
+// expect: 907060870
+// expect: 1095738169
+// The CRC-32 table is computed by the compiler (spec §11.1): the program only reads it.
+function buildCrcTable(): [u32; 256] {
+  let t: [u32; 256] = [0; 256]
+  for (const i of 0..256) {
+    let c = i as u32
+    for (const _ of 0..8) c = if ((c & 1) != 0) 0xEDB88320 ^ (c >>> 1) else c >>> 1
+    t[i] = c
+  }
+  t
+}
+comptime const CRC_TABLE: [u32; 256] = buildCrcTable()
+
+function crc32(s: string): u32 {
+  let c: u32 = 0xFFFFFFFF
+  for (const ch of s) c = CRC_TABLE[((c ^ (ch as u32)) & 0xFF) as int] ^ (c >>> 8)
+  c ^ 0xFFFFFFFF
+}
+println(`${CRC_TABLE[0]} ${CRC_TABLE[1]} ${CRC_TABLE[255]}`)
+println(crc32("hello"))
+println(crc32("The quick brown fox jumps over the lazy dog"))

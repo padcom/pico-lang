@@ -15,6 +15,7 @@ use std::cell::RefCell;
 use std::io::Write;
 use std::rc::Rc;
 use std::sync::Arc;
+pub mod comptime;
 mod workers;
 
 /// Call depth after which the interpreter reports a stack overflow.
@@ -241,6 +242,10 @@ struct Interp<'p, 'o> {
     frames: Vec<(&'p mir::Function, Rc<Vec<Cell>>)>,
     /// The start of `__clock_ms()`.
     started: std::time::Instant,
+    /// Evaluating `comptime` code inside the compiler.
+    comptime: Option<comptime::State>,
+    /// A global read before it was set (comptime only: it's only set when the program runs).
+    uninit_global: std::cell::Cell<Option<u32>>,
 }
 
 struct Frame<'p> {
@@ -416,9 +421,38 @@ impl Interp<'_, '_> {
     ) -> Result<Flow, Panic> {
         loop {
             let block = frame.f.block(*bb);
+            if let Some(c) = &mut self.comptime {
+                c.steps += block.stmts.len() as u64 + 1;
+                if c.steps > c.limit {
+                    let loc = block.stmts.first().map_or(Loc::default(), |s| s.loc);
+                    return Err(self.panic(comptime::LIMIT_PANIC, loc));
+                }
+            }
             for s in &block.stmts {
+                if self.comptime.is_some() {
+                    s.rvalue.operands(&mut |o| self.note_uninit(o));
+                    if !s.place.proj.is_empty() {
+                        self.note_uninit_place(&s.place);
+                    }
+                    self.check_uninit(s.loc)?;
+                }
                 let v = self.rvalue(frame, &s.rvalue, s.loc)?;
                 self.write(frame, &s.place, v);
+            }
+            if self.comptime.is_some() {
+                block.term.operands(&mut |o| self.note_uninit(o));
+                if let Terminator::Call { dest: Some(d), .. } = &block.term
+                    && !d.proj.is_empty()
+                {
+                    self.note_uninit_place(d);
+                }
+                let loc = match &block.term {
+                    Terminator::Call { loc, .. }
+                    | Terminator::TailCall { loc, .. }
+                    | Terminator::Panic { loc, .. } => *loc,
+                    _ => block.stmts.last().map_or(Loc::default(), |s| s.loc),
+                };
+                self.check_uninit(loc)?;
             }
             match &block.term {
                 Terminator::Goto(t) => *bb = *t,
@@ -474,7 +508,7 @@ impl Interp<'_, '_> {
                         Callee::Builtin(b) => {
                             let tys: Vec<Ty> =
                                 args.iter().map(|a| self.operand_ty(frame, a)).collect();
-                            self.builtin(*b, &vals, &tys)
+                            self.builtin(*b, &vals, &tys, *loc)?
                         }
                     };
                     if let Some(d) = dest {
@@ -516,7 +550,49 @@ impl Interp<'_, '_> {
         }
     }
 
-    fn builtin(&mut self, b: Builtin, vals: &[Value], tys: &[Ty]) -> Value {
+    /// Notes a read of a global that isn't set (comptime: only the running program sets it).
+    fn note_uninit(&self, o: &Operand) {
+        if let Operand::Copy(p) = o {
+            self.note_uninit_place(p);
+        }
+    }
+
+    fn note_uninit_place(&self, p: &Place) {
+        if let Base::Global(g) = p.base
+            && matches!(*self.globals[g.0 as usize].borrow(), Value::Uninit)
+        {
+            self.uninit_global.set(Some(g.0));
+        }
+    }
+
+    /// A comptime read of a global that only the running program sets.
+    fn check_uninit(&self, loc: Loc) -> Result<(), Panic> {
+        match self.uninit_global.take() {
+            Some(g) => Err(self.panic(
+                &format!(
+                    "comptime code reads `{}`, which is only set when the program runs",
+                    self.p.globals[g as usize].name
+                ),
+                loc,
+            )),
+            None => Ok(()),
+        }
+    }
+
+    fn builtin(
+        &mut self,
+        b: Builtin,
+        vals: &[Value],
+        tys: &[Ty],
+        loc: Loc,
+    ) -> Result<Value, Panic> {
+        if let Some(r) = self.comptime_builtin(b, vals, loc) {
+            return r;
+        }
+        Ok(self.runtime_builtin(b, vals, tys))
+    }
+
+    fn runtime_builtin(&mut self, b: Builtin, vals: &[Value], tys: &[Ty]) -> Value {
         let text: String = vals.iter().zip(tys).map(|(v, t)| display(v, t)).collect();
         let _ = match b {
             Builtin::Println => {
@@ -567,6 +643,9 @@ impl Interp<'_, '_> {
                 Ok(())
             }
             Builtin::Assert | Builtin::Panic => unreachable!("lowered to control flow"),
+            Builtin::ComptimeInfo | Builtin::ComptimeReadFile => {
+                unreachable!("handled by comptime_builtin")
+            }
         };
         Value::Void
     }
@@ -806,6 +885,11 @@ impl Interp<'_, '_> {
                 let caps: Vec<Value> = ops.iter().map(|o| self.operand(frame, o)).collect();
                 let env = Value::Ref(cell(Value::Struct(caps)), Rc::from(Vec::new()));
                 Ok(Value::Closure(Rc::new((*f, env))))
+            }
+            // Comptime code inside comptime code: just run it.
+            Rvalue::Comptime(f, _) => {
+                let env = Value::Ref(cell(Value::Struct(Vec::new())), Rc::from(Vec::new()));
+                self.call(*f, vec![env], loc)
             }
             Rvalue::BoxNew(_, o) => {
                 let v = match o {

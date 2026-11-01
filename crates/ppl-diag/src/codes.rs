@@ -104,6 +104,11 @@ codes! {
     AWAIT_OUTSIDE_ASYNC = 345: "`await` outside an async function",
     WORKER_CAPTURES = 346: "an inline worker's function captures variables",
     CONST_PANIC = 347: "a constant expression that always panics (overflow, division by zero, …)",
+    COMPTIME_FAILED = 348: "comptime evaluation panicked or threw",
+    COMPTIME_LIMIT = 349: "comptime evaluation exceeded its step limit",
+    COMPTIME_VALUE = 350: "a comptime value that can't be part of the program (an object or a function)",
+    COMPTIME_ONLY = 351: "a comptime-only operation outside comptime code",
+    COMPTIME_CAPTURE = 352: "comptime code that uses a runtime variable",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

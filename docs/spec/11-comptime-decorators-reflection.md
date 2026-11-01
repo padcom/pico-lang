@@ -21,8 +21,22 @@ comptime {
 const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl
 ```
 - Comptime code is ordinary ppl, run by an interpreter inside the compiler. It can't do I/O,
-  except reading files under the package root (`comptime.readFile`).
-- `target` (os, arch, features) and `build` (mode, flags) are available at comptime.
+  except reading files under the package root (`comptime.readFile`, only inside `comptime`
+  code; relative paths that stay inside the root). The clock, the event loop and workers aren't
+  available either.
+- Comptime code can't use the variables of the code around it (it runs before they exist), nor
+  globals that only the running program sets; it can use `comptime const`s declared before it,
+  constants, and any function.
+- A comptime value becomes part of the program, so it must be data: numbers, strings, `char`,
+  `bool`, structs, tuples, fixed and growable arrays, enums and nullables of those. Objects and
+  functions aren't allowed (a growable array becomes a fresh array each time its expression
+  runs).
+- `comptime if (c) a else b` evaluates only the condition at compile time and keeps only the
+  chosen branch, which may be any runtime value (a function, as above).
+- `comptime const x = e` is `const x = comptime e`. Output of comptime code is the compile-time
+  log, which the compiler prints.
+- `target` (`os`, `arch`, `triple`) and `build` (`mode`, `flags`) are compile-time constants,
+  usable anywhere (unless the program declares its own names `target`/`build`).
 - Types are values at comptime (`comptime T: type`).
 - **Limit**: 10 million evaluation steps per top-level comptime evaluation, after which a compile
   error shows the comptime backtrace. Override it with `@comptimeLimit(50_000_000)` on the

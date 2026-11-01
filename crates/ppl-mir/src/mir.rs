@@ -552,13 +552,17 @@ pub enum Rvalue {
     TakeException(Ty),
     /// Whether an exception is pending (checked after calls of throwing functions).
     ExceptionPending,
+    /// `comptime e`: the result of the closure (called with an empty environment) evaluated
+    /// inside the compiler, with an optional step limit. The driver replaces it with the
+    /// value before any backend runs.
+    Comptime(FnId, Option<u64>),
 }
 
-impl Rvalue {
-    /// Calls `f` on every operand, in order.
-    pub fn for_each_operand(&mut self, f: &mut impl FnMut(&mut Operand)) {
+/// The operands of an rvalue, by reference or mutably (`iter` or `iter_mut`).
+macro_rules! rvalue_operands {
+    ($self:ident, $f:ident, $iter:ident) => {{
         use Rvalue::*;
-        match self {
+        match $self {
             Use(a)
             | Unary(_, a)
             | Cast(a, _)
@@ -578,7 +582,7 @@ impl Rvalue {
             | ToIface(a, _)
             | IfaceData(a)
             | BoxNew(_, a)
-            | Hash(a) => f(a),
+            | Hash(a) => $f(a),
             Binary(_, a, b)
             | PtrOffset(a, b, _)
             | RawArenaAlloc(_, a, b)
@@ -588,21 +592,34 @@ impl Rvalue {
             | AddOverflows(a, b)
             | HashCombine(a, b)
             | SetException(a, b) => {
-                f(a);
-                f(b);
+                $f(a);
+                $f(b);
             }
             StrSlice(a, b, c) | ArraySlice(a, b, c) => {
-                f(a);
-                f(b);
-                f(c);
+                $f(a);
+                $f(b);
+                $f(c);
             }
             Aggregate(_, ops)
             | Tuple(_, ops)
             | ArrayNew(_, ops)
             | Variant(_, _, ops)
-            | Closure(_, ops) => ops.iter_mut().for_each(f),
-            Ref(_) | SizeOf(..) | New(_) | ExceptionTag | TakeException(_) | ExceptionPending => {}
+            | Closure(_, ops) => ops.$iter().for_each($f),
+            Ref(_) | SizeOf(..) | New(_) | ExceptionTag | TakeException(_) | ExceptionPending
+            | Comptime(..) => {}
         }
+    }};
+}
+
+impl Rvalue {
+    /// Calls `f` on every operand, in order.
+    pub fn for_each_operand(&mut self, f: &mut impl FnMut(&mut Operand)) {
+        rvalue_operands!(self, f, iter_mut)
+    }
+
+    /// Calls `f` on every operand, in order.
+    pub fn operands(&self, f: &mut impl FnMut(&Operand)) {
+        rvalue_operands!(self, f, iter)
     }
 
     /// The place a `Ref` takes the address of.
@@ -622,6 +639,27 @@ impl Terminator {
             Terminator::Return(Some(o)) | Terminator::Panic { msg: o, .. } => f(o),
             Terminator::Call { args, .. } | Terminator::TailCall { args, .. } => {
                 args.iter_mut().for_each(f)
+            }
+            Terminator::Uncaught { class, msg } => {
+                f(class);
+                f(msg);
+            }
+            Terminator::Goto(_)
+            | Terminator::Return(None)
+            | Terminator::Guard { .. }
+            | Terminator::Unguard(_)
+            | Terminator::Resume
+            | Terminator::Unreachable => {}
+        }
+    }
+
+    /// Calls `f` on every operand, in order.
+    pub fn operands(&self, f: &mut impl FnMut(&Operand)) {
+        match self {
+            Terminator::Branch { cond, .. } => f(cond),
+            Terminator::Return(Some(o)) | Terminator::Panic { msg: o, .. } => f(o),
+            Terminator::Call { args, .. } | Terminator::TailCall { args, .. } => {
+                args.iter().for_each(f)
             }
             Terminator::Uncaught { class, msg } => {
                 f(class);
@@ -833,6 +871,7 @@ impl fmt::Display for Rvalue {
                 write!(f, "Closure(fn#{}, [{}])", id.0, ops.join(", "))
             }
             Rvalue::BoxNew(t, a) => write!(f, "BoxNew<{t}>({a})"),
+            Rvalue::Comptime(id, _) => write!(f, "Comptime(fn#{})", id.0),
             Rvalue::Hash(a) => write!(f, "Hash({a})"),
             Rvalue::HashCombine(a, b) => write!(f, "HashCombine({a}, {b})"),
             Rvalue::SetException(a, t) => write!(f, "SetException({a}, {t})"),
@@ -882,7 +921,7 @@ pub fn live_functions(p: &Program) -> Vec<bool> {
         live[i] = true;
         for b in &p.fns[i].blocks {
             for st in &b.stmts {
-                if let Rvalue::Closure(g, _) = &st.rvalue {
+                if let Rvalue::Closure(g, _) | Rvalue::Comptime(g, _) = &st.rvalue {
                     work.push(*g);
                 }
             }

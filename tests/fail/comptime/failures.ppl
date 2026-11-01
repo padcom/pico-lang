@@ -1,0 +1,24 @@
+// error: E0349
+// at: 18:45
+// error: E0348
+// at: 19:20
+// error: E0350
+// at: 20:20
+// error: E0348
+// at: 21:20
+// error: E0348
+// at: 22:20
+// error: E0348
+// at: 23:20
+// error: E0348
+// at: 24:20
+class Box { v: int = 0 }
+const names = ["a", "b"]
+function count(n: int): int { let s = 0; for (const i of 0..n) s += i; s }
+@comptimeLimit(1000) comptime const SMALL = count(10_000)
+comptime const C = panic("nope")
+comptime const D = new Box()
+comptime const E = names.length
+comptime const F = comptime.readFile("../outside.txt")
+comptime const G = __clock_ms()
+comptime const H = (() => { throw new Error("bad") })()

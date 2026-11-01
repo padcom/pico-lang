@@ -77,9 +77,9 @@ fn main() -> ExitCode {
     }
 }
 
-fn load(path: &Path) -> Option<ppl_driver::Checked> {
+fn load(path: &Path, opts: ppl_driver::BuildOptions) -> Option<ppl_driver::Checked> {
     // `ppl_driver::check_file` names the file by its path, which then appears in diagnostics.
-    match ppl_driver::check_file(path) {
+    match ppl_driver::check_file_with(path, opts) {
         Ok(c) => Some(c),
         Err(e) => {
             eprintln!("error: cannot read {}: {e}", path.display());
@@ -88,10 +88,15 @@ fn load(path: &Path) -> Option<ppl_driver::Checked> {
     }
 }
 
-fn checked_or_report(path: &Path) -> Result<ppl_driver::Checked, ExitCode> {
-    let Some(checked) = load(path) else {
+fn checked_or_report(
+    path: &Path,
+    opts: ppl_driver::BuildOptions,
+) -> Result<ppl_driver::Checked, ExitCode> {
+    let Some(checked) = load(path, opts) else {
         return Err(ExitCode::from(2));
     };
+    // The compile-time log.
+    eprint!("{}", checked.comptime_output);
     if checked.has_errors() {
         eprint!("{}", checked.render_diagnostics());
         return Err(ExitCode::FAILURE);
@@ -100,7 +105,7 @@ fn checked_or_report(path: &Path) -> Result<ppl_driver::Checked, ExitCode> {
 }
 
 fn run(path: &Path, interp: bool, opts: ppl_driver::BuildOptions, args: &[String]) -> ExitCode {
-    let checked = match checked_or_report(path) {
+    let checked = match checked_or_report(path, opts) {
         Ok(c) => c,
         Err(code) => return code,
     };
@@ -141,7 +146,7 @@ fn build(
     opts: ppl_driver::BuildOptions,
     emit: Option<&str>,
 ) -> ExitCode {
-    let checked = match checked_or_report(path) {
+    let checked = match checked_or_report(path, opts) {
         Ok(c) => c,
         Err(code) => return code,
     };

@@ -30,6 +30,9 @@ pub struct Modules {
     pub names: HashMap<FileId, String>,
     /// `new Worker("spec")` in a module: (that module, the spec, the worker module).
     pub workers: Vec<(FileId, String, FileId)>,
+    /// Decorators of top-level bindings (`@comptimeLimit(n) comptime const …`), by the span
+    /// of the binding statement.
+    pub binding_decorators: HashMap<Span, Vec<ast::Decorator>>,
 }
 
 /// `import { name as alias } from "…"` or `import * as alias from "…"`, in `module`.
@@ -191,6 +194,9 @@ pub fn resolve_modules(
         cur_fn: FnId(0),
         distincts: 0,
         outer_fns: Vec::new(),
+        binding_decorators: modules.binding_decorators.clone(),
+        comptime_limit: None,
+        comptime_depth: 0,
     };
     r.mods.entry = modules.entry.map(|f| r.module_of(f));
     for (from, spec, target) in &modules.workers {
@@ -292,6 +298,12 @@ struct FnState {
 }
 
 struct Resolver {
+    /// See [`Modules::binding_decorators`].
+    binding_decorators: HashMap<Span, Vec<ast::Decorator>>,
+    /// The `@comptimeLimit` of the binding whose `comptime` initializer is being lowered.
+    comptime_limit: Option<u64>,
+    /// How many `comptime` expressions the code being lowered is inside.
+    comptime_depth: u32,
     /// The module being resolved and the import tables.
     mods: ModCtx,
     prelude_files: HashSet<FileId>,
@@ -508,16 +520,7 @@ impl Resolver {
                         fn_decls.push((id, f, None));
                     }
                 }
-                ast::StmtKind::Let {
-                    kind,
-                    pat,
-                    ty,
-                    comptime,
-                    ..
-                } => {
-                    if *comptime {
-                        continue;
-                    }
+                ast::StmtKind::Let { kind, pat, ty, .. } => {
                     // Only the entry module has mutable state (spec §4.2).
                     if *kind == ast::BindingKind::Let
                         && self.mods.cur != PRELUDE_MODULE
@@ -1071,6 +1074,8 @@ impl Resolver {
         let mut tail = None;
         for (i, stmt) in stmts.iter().enumerate() {
             self.enter_module(stmt.span);
+            let rewritten = self.comptime_binding(stmt);
+            let stmt = rewritten.as_ref().unwrap_or(stmt);
             match &stmt.kind {
                 ast::StmtKind::Let {
                     kind,
@@ -3149,6 +3154,145 @@ impl Resolver {
 
     /// An arrow function or function expression: lifted into its own function that receives
     /// the captured variables.
+    /// `comptime e` (spec §11.1): `e` becomes a closure of no parameters that the compiler
+    /// runs; it can't use the variables of the code around it (E0352). `comptime if` makes
+    /// only the condition comptime (folding then drops the other branch).
+    fn comptime(&mut self, inner: &ast::Expr, span: Span) -> Expr {
+        if let ast::ExprKind::If { cond, then, else_ } = &inner.kind {
+            let cond = ast::Expr {
+                kind: ast::ExprKind::Comptime(cond.clone()),
+                span: cond.span,
+            };
+            let e = ast::Expr {
+                kind: ast::ExprKind::If {
+                    cond: Box::new(cond),
+                    then: then.clone(),
+                    else_: else_.clone(),
+                },
+                span,
+            };
+            return self.lower_expr(&e);
+        }
+        let limit = self.comptime_limit.take();
+        let body = match &inner.kind {
+            ast::ExprKind::Block(b) => ast::FnBody::Block(b.clone()),
+            _ => ast::FnBody::Expr(Box::new(inner.clone())),
+        };
+        let decl = ast::FnDecl {
+            name: Some(ast::Ident {
+                name: "<comptime>".into(),
+                span: span.shrink_to_lo(),
+            }),
+            flags: ast::FnFlags {
+                arrow: true,
+                ..Default::default()
+            },
+            generics: Vec::new(),
+            params: Vec::new(),
+            ret: None,
+            throws: None,
+            where_clause: Vec::new(),
+            body: Some(body),
+            span,
+        };
+        self.comptime_depth += 1;
+        let k = self.closure(&decl, span);
+        self.comptime_depth -= 1;
+        let ExprKind::Closure(id) = k else {
+            unreachable!("a closure")
+        };
+        let func = self.fns[id.0 as usize].as_ref().expect("just lowered");
+        let names: Vec<String> = func
+            .closure
+            .as_ref()
+            .expect("a closure")
+            .captures
+            .iter()
+            .map(|c| func.locals[c.inner.0 as usize].name.clone())
+            .collect();
+        if !names.is_empty() {
+            let list: Vec<String> = names.iter().map(|n| format!("`{n}`")).collect();
+            self.diags.push(
+                Diagnostic::error(
+                    codes::COMPTIME_CAPTURE,
+                    format!(
+                        "comptime code uses {} of the code around it",
+                        list.join(", ")
+                    ),
+                )
+                .primary(span, "evaluated by the compiler, before those exist")
+                .help("use only globals, `comptime const`s and functions inside `comptime`"),
+            );
+        }
+        self.expr(ExprKind::Comptime { f: id, limit }, span)
+    }
+
+    /// `comptime const x = e` as `const x = comptime e` (`None` for other statements); sets
+    /// `comptime_limit` for that `comptime`.
+    fn comptime_binding(&mut self, s: &ast::Stmt) -> Option<ast::Stmt> {
+        let ast::StmtKind::Let {
+            kind,
+            pat,
+            ty,
+            init: Some(e),
+            comptime: true,
+        } = &s.kind
+        else {
+            return None;
+        };
+        self.comptime_limit = self.decorated_limit(s.span);
+        let wrapped = ast::Expr {
+            kind: ast::ExprKind::Comptime(Box::new(e.clone())),
+            span: e.span,
+        };
+        Some(ast::Stmt {
+            kind: ast::StmtKind::Let {
+                kind: *kind,
+                pat: pat.clone(),
+                ty: ty.clone(),
+                init: Some(wrapped),
+                comptime: false,
+            },
+            span: s.span,
+        })
+    }
+
+    /// The `@comptimeLimit(n)` on a top-level binding, if any (other decorators on bindings
+    /// aren't implemented).
+    fn decorated_limit(&mut self, stmt: Span) -> Option<u64> {
+        let decorators = self.binding_decorators.get(&stmt)?.clone();
+        let mut limit = None;
+        for d in &decorators {
+            let is_limit = d.path.len() == 1 && d.path[0].name == "comptimeLimit";
+            if !is_limit {
+                self.not_implemented(d.span, "decorators on bindings");
+                continue;
+            }
+            match d.args.as_deref() {
+                Some(
+                    [
+                        ast::Arg {
+                            name: None,
+                            spread: false,
+                            value:
+                                ast::Expr {
+                                    kind: ast::ExprKind::Lit(ast::Lit::Int { value, .. }),
+                                    ..
+                                },
+                        },
+                    ],
+                ) if *value > 0 => limit = Some(*value),
+                _ => self.error(
+                    codes::MISMATCHED_TYPES,
+                    d.span,
+                    "`@comptimeLimit` takes a positive integer literal",
+                    "e.g. `@comptimeLimit(50_000_000)`",
+                ),
+            }
+        }
+        limit
+    }
+
     fn closure(&mut self, f: &ast::FnDecl, span: Span) -> ExprKind {
         let id = FnId(self.fns.len() as u32);
         self.fns.push(None);
@@ -3877,8 +4021,10 @@ impl Resolver {
                 init,
                 comptime,
             } => {
-                if *comptime {
-                    self.not_implemented(s.span, "`comptime` bindings");
+                if *comptime && let Some(st) = self.comptime_binding(s) {
+                    self.lower_stmt(&st, out, tail);
+                    self.comptime_limit = None;
+                    return;
                 }
                 let ty = ty.as_ref().map(|t| self.resolve_type(t));
                 let ast::PatternKind::Ident(name) = &pat.kind else {
@@ -4223,6 +4369,26 @@ impl Resolver {
                     ExprKind::Error
                 }
             },
+            // `target` and `build` (unless the program has its own): facts about the build,
+            // constants wherever they're used (spec §11.1, §15.4).
+            A::Ident(name)
+                if (name == "target" || name == "build")
+                    && !self.is_value_name(name)
+                    && !self.top_fns.contains_key(&self.mods, name)
+                    && self.peek_member(name).is_none() =>
+            {
+                let f = if name == "target" {
+                    "__target"
+                } else {
+                    "__build"
+                };
+                let call = build::call(build::ident(f, span), Vec::new(), span);
+                let e = ast::Expr {
+                    kind: A::Comptime(Box::new(call)),
+                    span,
+                };
+                return self.lower_expr(&e);
+            }
             A::Ident(name) => match self.lookup(name, span) {
                 Some(Found::Var(v)) => ExprKind::Var(v),
                 Some(Found::Fn(f)) => ExprKind::Fn(f),
@@ -4664,6 +4830,7 @@ impl Resolver {
                 let (want_types, want_args) = match which {
                     "ptr.of" => (0, 1),
                     "unsafe.cast" => (1, 1),
+                    "comptime.readFile" => (0, 1),
                     "__raw_arena_alloc" => (1, 2),
                     "__throw_unchecked" | "__exit_uncaught" => (0, 1),
                     "__worker_take" => (1, 1),
@@ -4683,6 +4850,26 @@ impl Resolver {
                     return self.error_expr(span);
                 }
                 let ty = type_args.first().map(|t| self.resolve_type(t));
+                if which == "comptime.readFile" {
+                    if self.comptime_depth == 0 {
+                        self.error(
+                            codes::COMPTIME_ONLY,
+                            span,
+                            "`comptime.readFile` outside comptime code",
+                            "only available inside `comptime`",
+                        );
+                    }
+                    let callee = self.expr(ExprKind::Builtin(Builtin::ComptimeReadFile), span);
+                    let arg = self.lower_expr(&args[0].value);
+                    return self.expr(
+                        ExprKind::Call {
+                            callee: Box::new(callee),
+                            args: vec![arg],
+                            type_args: Vec::new(),
+                        },
+                        span,
+                    );
+                }
                 if which == "__raw_arena_alloc" {
                     let arena = Box::new(self.lower_expr(&args[0].value));
                     let count = Box::new(self.lower_expr(&args[1].value));
@@ -4860,12 +5047,12 @@ impl Resolver {
                     None => ExprKind::Error,
                 }
             }
+            A::Comptime(inner) => return self.comptime(inner, span),
             A::Error => ExprKind::Error,
             other => {
                 let what = match other {
                     A::Super => "`super` outside a method call",
                     A::Object { .. } => "object and struct literals",
-                    A::Comptime(_) => "`comptime`",
                     _ => "this expression",
                 };
                 self.not_implemented(span, what);
@@ -4945,6 +5132,9 @@ impl Resolver {
                         Some("ptr.of")
                     }
                     (ast::ExprKind::Ident(o), "cast") if o == "unsafe" => Some("unsafe.cast"),
+                    (ast::ExprKind::Ident(o), "readFile") if o == "comptime" => {
+                        Some("comptime.readFile")
+                    }
                     _ => None,
                 }
             }

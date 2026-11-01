@@ -1,0 +1,7 @@
+// error: E0349
+// at: 7:26
+// An endless loop at comptime stops after 10 million steps (spec §11.1), with a backtrace.
+function spin(): int {
+  loop {}
+}
+comptime const FOREVER = spin()

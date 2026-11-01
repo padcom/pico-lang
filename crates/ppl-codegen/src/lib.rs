@@ -1490,6 +1490,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 self.b.build_store(slot, ptr.const_null()).unwrap();
                 Some(v)
             }
+            Rvalue::Comptime(..) => unreachable!("comptime code runs before code generation"),
             Rvalue::ExceptionPending => {
                 let slot = self.exception_slot();
                 let ptr = self.ptr();

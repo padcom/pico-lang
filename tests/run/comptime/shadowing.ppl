@@ -1,0 +1,5 @@
+// expect: 6
+// A program's own `target` and `build` hide the built-in ones.
+const target = 5
+function build(x: int): int { x + target }
+println(build(1))

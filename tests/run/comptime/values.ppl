@@ -1,0 +1,41 @@
+// expect: 42 43
+// expect: b 2
+// expect: Shape.Circle(r: 1.5) [7, null] 12 yes
+// expect: 45
+// expect: 1
+// expect: 3
+// expect: small
+// Comptime values of every kind that can become part of the program; a `comptime const`
+// can use an earlier one; `comptime { }` blocks and nested `comptime` work too.
+struct P { x: i32; name: string }
+enum Shape { Circle(r: f64), Square(side: f64), Empty }
+function squares(n: int): int[] {
+  const out: int[] = []
+  for (const i of 0..n) out.push(i * i)
+  out
+}
+function pick<T>(a: T, b: T): T { comptime if (squares(2).length == 2) a else b }
+function local(): int {
+  comptime const K = squares(4).length * 10
+  K + comptime {
+    let s = 0
+    for (const v of squares(3)) s += v
+    s
+  }
+}
+comptime const N = 6 * 7
+comptime const M = N + 1
+comptime const PS: P[] = [{ x: 1, name: "a" }, { x: 2, name: "b" }]
+comptime const SH = Shape.Circle(1.5)
+comptime const T2: [int, string?] = [7, null]
+comptime const NESTED = comptime 3 * comptime 4
+comptime const MAYBE: string? = "yes"
+println(`${N} ${M}`)
+println(`${PS[1].name} ${PS.length}`)
+println(`${SH:?} ${T2:?} ${NESTED} ${MAYBE ?? "no"}`)
+println(local())
+println(pick(1, 2))
+// A comptime array is a fresh array in the program, which can grow.
+PS.push({ x: 3, name: "c" })
+println(PS.length)
+println(comptime if (M > 100) "big" else "small")

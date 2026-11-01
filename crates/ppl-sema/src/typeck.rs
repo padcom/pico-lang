@@ -1718,6 +1718,22 @@ impl<'p> Checker<'p> {
                 Ty::Error
             }
             ExprKind::Closure(id) => self.closure(e, *id, want),
+            ExprKind::Comptime { f, .. } => {
+                // Checked as a lambda of no parameters returning what's wanted; what it
+                // throws is inferred (`{error}` in the throws list) and fails the build.
+                let want = want.map(|w| {
+                    Expect::from(
+                        Ty::Fn(
+                            std::sync::Arc::from([]),
+                            Box::new(w.ty.clone()),
+                            std::sync::Arc::from([Ty::Error]),
+                        ),
+                        w.origin,
+                    )
+                });
+                self.closure(e, *f, want.as_ref());
+                self.types.sigs[f.0 as usize].ret.clone()
+            }
             ExprKind::Overloaded(_) => {
                 self.diags.push(
                     Diagnostic::error(
@@ -6055,6 +6071,18 @@ impl<'p> Checker<'p> {
                 (arity(&[1]), Ty::Void)
             }
             Builtin::ClockMs => (arity(&[0]), Ty::INT),
+            Builtin::ComptimeInfo => {
+                if let Some(k) = args.first() {
+                    self.check(k, &Expect::new(Ty::INT));
+                }
+                (arity(&[1]), Ty::Str)
+            }
+            Builtin::ComptimeReadFile => {
+                if let Some(p) = args.first() {
+                    self.check(p, &Expect::new(Ty::Str));
+                }
+                (arity(&[1]), Ty::Str)
+            }
             Builtin::WorkerOp => {
                 for a in args {
                     self.check(a, &Expect::new(Ty::INT));
@@ -6118,7 +6146,9 @@ impl<'p> Checker<'p> {
                 | Builtin::RawArenaNew
                 | Builtin::RawArenaFree
                 | Builtin::LoopWait
-                | Builtin::WorkerError => "1 argument",
+                | Builtin::WorkerError
+                | Builtin::ComptimeInfo
+                | Builtin::ComptimeReadFile => "1 argument",
                 Builtin::WorkerOp => "2 arguments",
                 Builtin::WorkerPost => "2 or 3 arguments",
                 Builtin::BufOp => "4 arguments",
