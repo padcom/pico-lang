@@ -77,7 +77,7 @@ pub fn lower(
                 .collect(),
         })
         .collect();
-    let mir = mir::Program {
+    let mut mir = mir::Program {
         file: file.name.clone(),
         fns,
         entry: program.entry,
@@ -86,7 +86,63 @@ pub fn lower(
         enums,
         itables,
     };
+    erase_program(&mut mir);
     (mir, cx.diags)
+}
+
+/// Replaces types the backends don't know (literal types, unions, narrowed variants) with
+/// their runtime representation everywhere in the program.
+fn erase_program(p: &mut mir::Program) {
+    for g in &mut p.globals {
+        g.ty = g.ty.erase();
+    }
+    for s in &mut p.structs {
+        for (_, t) in &mut s.fields {
+            *t = t.erase();
+        }
+    }
+    for e in &mut p.enums {
+        for v in &mut e.variants {
+            for (_, t) in &mut v.fields {
+                *t = t.erase();
+            }
+        }
+    }
+    let erase_op = |o: &mut Operand| {
+        if let Operand::Const(Const::Null(t)) = o {
+            *t = t.erase();
+        }
+    };
+    for f in &mut p.fns {
+        f.ret = f.ret.erase();
+        for l in &mut f.locals {
+            l.ty = l.ty.erase();
+        }
+        for b in &mut f.blocks {
+            for st in &mut b.stmts {
+                match &mut st.rvalue {
+                    Rvalue::Tuple(t, ops) | Rvalue::ArrayNew(t, ops) => {
+                        *t = t.erase();
+                        ops.iter_mut().for_each(erase_op);
+                    }
+                    Rvalue::WrapSome(o, t) | Rvalue::Cast(o, t) => {
+                        *t = t.erase();
+                        erase_op(o);
+                    }
+                    Rvalue::Use(o) => erase_op(o),
+                    Rvalue::Variant(_, _, ops) | Rvalue::Aggregate(_, ops) => {
+                        ops.iter_mut().for_each(erase_op)
+                    }
+                    _ => {}
+                }
+            }
+            match &mut b.term {
+                Terminator::Return(Some(o)) => erase_op(o),
+                Terminator::Call { args, .. } => args.iter_mut().for_each(erase_op),
+                _ => {}
+            }
+        }
+    }
 }
 
 struct Cx<'a> {
@@ -489,11 +545,8 @@ impl FnBuilder<'_, '_> {
     /// after evaluating its value, which might change the array).
     fn place_deferred(&mut self, e: &Expr, checks: &mut Vec<Check>) -> Place {
         match &e.kind {
-            ExprKind::Var(v)
-                if self.cx.types.narrowed.contains(&e.id)
-                    && matches!(self.var_ty(*v), Ty::Nullable(_)) =>
-            {
-                self.place(*v).payload()
+            ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => {
+                self.narrowed_place(*v, &self.ty(e))
             }
             ExprKind::Var(v) => self.place(*v),
             ExprKind::Member { object, .. }
@@ -502,6 +555,10 @@ impl FnBuilder<'_, '_> {
             {
                 let i = self.cx.types.fields[&e.id];
                 self.place_deferred(object, checks).field(i)
+            }
+            ExprKind::Member { object, .. } if self.cx.types.variant_fields.contains_key(&e.id) => {
+                let (v, i) = self.cx.types.variant_fields[&e.id];
+                self.place_deferred(object, checks).variant_field(v, i)
             }
             ExprKind::Member { object, name, .. } if matches!(self.ty_of(object), Ty::Range(_)) => {
                 let i = if name == "start" { 0 } else { 1 };
@@ -666,6 +723,25 @@ impl FnBuilder<'_, '_> {
         if matches!((from, to), (Ty::Iface(..), Ty::Iface(..))) {
             return v;
         }
+        // Literal types are their base type at runtime; a narrowed variant is its enum.
+        if from.erase() == to.erase() {
+            return v;
+        }
+        if let Ty::Union(eid, ms) = to {
+            let i = ms
+                .iter()
+                .position(|m| m == from)
+                .or_else(|| ms.iter().position(|m| from.widens_to(m)))
+                .or_else(|| ms.iter().position(|m| m.erase() == from.erase()))
+                .unwrap_or(0);
+            let member = ms[i].clone();
+            let inner = self.convert(v, from, &member, span);
+            return self.rvalue_to_temp(
+                Rvalue::Variant(*eid, i as u32, vec![inner]),
+                to.clone(),
+                span,
+            );
+        }
         if let (Ty::Class(imp, _) | Ty::Struct(imp, _), Ty::Iface(iface, _)) = (from, to) {
             let it = self.cx.itable(*imp, *iface);
             return self.rvalue_to_temp(Rvalue::ToIface(v, it), to.clone(), span);
@@ -790,11 +866,13 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(join);
                 Operand::Copy(res)
             }
-            ExprKind::Var(v)
-                if self.cx.types.narrowed.contains(&e.id)
-                    && matches!(self.var_ty(*v), Ty::Nullable(_)) =>
-            {
-                Operand::Copy(self.place(*v).payload())
+            ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => {
+                Operand::Copy(self.narrowed_place(*v, &ty))
+            }
+            ExprKind::TypeOf(inner) => {
+                let t = self.ty_of(inner).clone();
+                let v = self.expr(inner);
+                self.type_name(v, &t, e.span)
             }
             ExprKind::Var(v) => Operand::Copy(self.place(*v)),
             ExprKind::Fn(_) | ExprKind::Builtin(_) | ExprKind::Error => Operand::Const(Const::Void),
@@ -992,6 +1070,31 @@ impl FnBuilder<'_, '_> {
                 ops.extend(args.iter().map(|a| self.expr(a)));
                 self.call_fn_value(ctor, ops, Ty::Void, e.span);
                 obj
+            }
+            ExprKind::Object { fields, .. }
+                if self.cx.types.object_variants.contains_key(&e.id) =>
+            {
+                let (eid, vi, order) = self.cx.types.object_variants[&e.id].clone();
+                let n = self.cx.program.enum_def(eid).variants[vi as usize]
+                    .fields
+                    .len();
+                let mut ops: Vec<Option<Operand>> = vec![None; n];
+                for (f, slot) in fields.iter().zip(&order) {
+                    let v = self.expr(&f.value);
+                    ops[*slot as usize] = Some(v);
+                }
+                // Optional fields left out are null.
+                let tys: Vec<Ty> = self.cx.program.enum_def(eid).variants[vi as usize]
+                    .fields
+                    .iter()
+                    .map(|f| f.ty.clone())
+                    .collect();
+                let ops = ops
+                    .into_iter()
+                    .zip(tys)
+                    .map(|(o, t)| o.unwrap_or(Operand::Const(Const::Null(t))))
+                    .collect();
+                self.rvalue_to_temp(Rvalue::Variant(eid, vi, ops), ty, e.span)
             }
             ExprKind::Object { fields, .. } => {
                 let (sid, order) = self.cx.types.objects[&e.id].clone();
@@ -1452,6 +1555,29 @@ impl FnBuilder<'_, '_> {
     /// Branches to `fail` unless the value at `place` matches `p`; binds as it goes (a later
     /// failure leaves some bindings set, which is harmless: they're only read after a match).
     fn match_pattern(&mut self, p: &hir::Pattern, place: &Place, fail: BlockId) {
+        if let Some(&i) = self.cx.types.union_tests.get(&p.id) {
+            // Which member the union holds, then the pattern on that member.
+            let tag = self.rvalue_to_temp(
+                Rvalue::Tag(Operand::Copy(place.clone())),
+                Ty::Int(IntTy::U32),
+                p.span,
+            );
+            let eq = self.rvalue_to_temp(
+                Rvalue::Binary(
+                    mir::BinOp::Eq,
+                    tag,
+                    Operand::Const(Const::Int(i as i128, IntTy::U32)),
+                ),
+                Ty::Bool,
+                p.span,
+            );
+            self.branch_unless(eq, fail);
+            return self.match_pattern_inner(p, &place.variant_field(i, 0), fail);
+        }
+        self.match_pattern_inner(p, place, fail)
+    }
+
+    fn match_pattern_inner(&mut self, p: &hir::Pattern, place: &Place, fail: BlockId) {
         use hir::PatKind;
         let pty = self.place_ty(place);
         if p.looks_inside(&pty) {
@@ -1462,7 +1588,7 @@ impl FnBuilder<'_, '_> {
             );
             let some = self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, n), Ty::Bool, p.span);
             self.branch_unless(some, fail);
-            return self.match_pattern(p, &place.payload(), fail);
+            return self.match_pattern_inner(p, &place.payload(), fail);
         }
         match &p.kind {
             PatKind::Wild => {}
@@ -1885,6 +2011,45 @@ impl FnBuilder<'_, '_> {
         if *t == Ty::Str {
             return v;
         }
+        if let Ty::Union(_, ms) = t {
+            // The string form of the member it holds.
+            let res = Place::local(self.temp(Ty::Str));
+            let tag = self.rvalue_to_temp(Rvalue::Tag(v.clone()), Ty::Int(IntTy::U32), span);
+            let join = self.new_block();
+            let Operand::Copy(vp) = v else {
+                return Operand::Const(Const::Str(String::new()));
+            };
+            for (i, m) in ms.iter().enumerate() {
+                let yes = self.new_block();
+                let no = self.new_block();
+                let eq = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Eq,
+                        tag.clone(),
+                        Operand::Const(Const::Int(i as i128, IntTy::U32)),
+                    ),
+                    Ty::Bool,
+                    span,
+                );
+                self.terminate(Terminator::Branch {
+                    cond: eq,
+                    then: yes,
+                    else_: no,
+                });
+                self.switch_to(yes);
+                let part = Operand::Copy(vp.variant_field(i as u32, 0));
+                let s = self.stringify(part, &m.erase(), span);
+                self.assign(res.clone(), Rvalue::Use(s), span);
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(no);
+            }
+            self.terminate(Terminator::Goto(join));
+            self.switch_to(join);
+            return Operand::Copy(res);
+        }
+        if let Ty::Lits(b, _) = t {
+            return self.stringify(v, b, span);
+        }
         if let Ty::Nullable(inner) = t {
             // "null", or the value's string form.
             let res = Place::local(self.temp(Ty::Str));
@@ -1942,6 +2107,96 @@ impl FnBuilder<'_, '_> {
             acc = self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Add, acc, p), Ty::Str, span);
         }
         acc
+    }
+
+    /// Where a narrowed variable's value is: inside the `T?`, or inside the union member.
+    fn narrowed_place(&self, v: Var, narrowed: &Ty) -> Place {
+        let mut p = self.place(v);
+        let mut declared = self.var_ty(v);
+        if let Ty::Nullable(inner) = declared {
+            p = p.payload();
+            declared = *inner;
+        }
+        if let Ty::Union(_, ms) = &declared
+            && let Some(i) = ms.iter().position(|m| m == narrowed)
+        {
+            p = p.variant_field(i as u32, 0);
+        }
+        p
+    }
+
+    /// `typeof v`: the type's name; for a union, the name of the member it holds.
+    fn type_name(&mut self, v: Operand, t: &Ty, span: Span) -> Operand {
+        let Ty::Union(_, ms) = t else {
+            let name = match t {
+                Ty::Nullable(_) => {
+                    // "null", or the inner type's name.
+                    let res = Place::local(self.temp(Ty::Str));
+                    let is_null = self.rvalue_to_temp(Rvalue::IsNull(v), Ty::Bool, span);
+                    let (a, b, join) = (self.new_block(), self.new_block(), self.new_block());
+                    self.terminate(Terminator::Branch {
+                        cond: is_null,
+                        then: a,
+                        else_: b,
+                    });
+                    let inner = match t {
+                        Ty::Nullable(i) => i.erase().to_string(),
+                        _ => unreachable!(),
+                    };
+                    for (bb, s) in [(a, "null".to_string()), (b, inner)] {
+                        self.switch_to(bb);
+                        self.assign(
+                            res.clone(),
+                            Rvalue::Use(Operand::Const(Const::Str(s))),
+                            span,
+                        );
+                        self.terminate(Terminator::Goto(join));
+                    }
+                    self.switch_to(join);
+                    return Operand::Copy(res);
+                }
+                t => t.erase().to_string(),
+            };
+            return Operand::Const(Const::Str(name));
+        };
+        let names: Vec<String> = ms.iter().map(|m| m.erase().to_string()).collect();
+        self.by_tag(v, &names, span)
+    }
+
+    /// One string per union member, picked by the value's tag.
+    fn by_tag(&mut self, v: Operand, texts: &[String], span: Span) -> Operand {
+        let res = Place::local(self.temp(Ty::Str));
+        let tag = self.rvalue_to_temp(Rvalue::Tag(v), Ty::Int(IntTy::U32), span);
+        let join = self.new_block();
+        for (i, text) in texts.iter().enumerate() {
+            let yes = self.new_block();
+            let no = self.new_block();
+            let eq = self.rvalue_to_temp(
+                Rvalue::Binary(
+                    mir::BinOp::Eq,
+                    tag.clone(),
+                    Operand::Const(Const::Int(i as i128, IntTy::U32)),
+                ),
+                Ty::Bool,
+                span,
+            );
+            self.terminate(Terminator::Branch {
+                cond: eq,
+                then: yes,
+                else_: no,
+            });
+            self.switch_to(yes);
+            self.assign(
+                res.clone(),
+                Rvalue::Use(Operand::Const(Const::Str(text.clone()))),
+                span,
+            );
+            self.terminate(Terminator::Goto(join));
+            self.switch_to(no);
+        }
+        self.terminate(Terminator::Goto(join));
+        self.switch_to(join);
+        Operand::Copy(res)
     }
 
     /// The class an expression's (class-typed) value belongs to.

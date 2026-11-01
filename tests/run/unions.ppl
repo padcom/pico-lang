@@ -1,0 +1,69 @@
+// expect: 42 | hello
+// expect: north is cold | east is mild
+// expect: click at 1,2 | key 13
+// expect: string 3 | i64 7
+// expect: true false
+// expect: hi | 5 | null
+// expect: auto 10
+// expect: click 3 1
+// expect: N S E W
+type Dir = "north" | "south" | "east" | "west"
+type Id = i64 | string
+
+// §2.5: typeof narrowing on a union.
+function show(id: Id): string {
+  if (typeof id == "string") id else id.toString()
+}
+println(`${show(42)} | ${show("hello")}`)
+
+function climate(d: Dir): string {
+  match (d) {
+    "north" | "south" => `${d} is cold`,
+    "east" | "west"   => `${d} is mild`,
+  }
+}
+println(`${climate("north")} | ${climate("east")}`)
+
+// §2.6: a discriminated object union, narrowed by its discriminant.
+type Event = { kind: "click", x: i32, y: i32 } | { kind: "key", code: u32 }
+function handle(e: Event): string {
+  if (e.kind == "click") `click at ${e.x},${e.y}` else `key ${e.code}`
+}
+const click: Event = { kind: "click", x: 1, y: 2 }
+const key: Event = { kind: "key", code: 13 }
+println(`${handle(click)} | ${handle(key)}`)
+
+// Matching on union members with type tests.
+function describe(v: i64 | string): string {
+  match (v) {
+    s: string => `string ${s.length}`,
+    n: i64    => `i64 ${n}`,
+  }
+}
+println(`${describe("abc")} | ${describe(7)}`)
+
+const a: Id = 5
+const b: Id = "5"
+println(`${a == 5} ${a == b}`)
+
+const items: (string | i64)[] = ["hi", 5]
+const maybe: Id? = null
+println(`${items[0]} | ${items[1]} | ${maybe}`)
+
+type Size = "auto" | i64
+function pad(s: Size): i64 {
+  match (s) { "auto" => 10, n: i64 => n }
+}
+println(`auto ${pad("auto")}`)
+
+let n = 0
+const evs: Event[] = [click, key, { kind: "click", x: 5, y: 5 }]
+for (const ev of evs) if (ev.kind == "click") n += 1
+let codes = 0
+for (const ev of evs) if (ev.kind == "key") codes += 1
+println(`click ${n + 1} ${codes}`)
+
+const dirs: Dir[] = ["north", "south", "east", "west"]
+let initials = ""
+for (const d of dirs) initials += match (d) { "north" => "N ", "south" => "S ", "east" => "E ", "west" => "W" }
+println(initials)

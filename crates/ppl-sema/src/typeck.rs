@@ -10,7 +10,7 @@
 
 use crate::exhaust::{self, Ctor, Pat};
 use crate::hir::*;
-use crate::ty::{EnumId, FloatTy, IntTy, Ty};
+use crate::ty::{EnumId, FloatTy, IntTy, LitVal, Ty};
 use ppl_diag::{Diagnostic, Span, codes};
 use ppl_syntax::ast::{BinOp, UnOp};
 use ppl_syntax::token::NumSuffix;
@@ -61,6 +61,13 @@ pub struct Types {
     pub downcasts: HashSet<ExprId>,
     /// Method calls on interface values, with the method's slot in the interface.
     pub iface_calls: HashMap<ExprId, u32>,
+    /// Member reads on discriminated unions: the variant and field they read.
+    pub variant_fields: HashMap<ExprId, (u32, u32)>,
+    /// Object literals that build a discriminated union's variant: enum, variant, and the
+    /// field index of each initializer.
+    pub object_variants: HashMap<ExprId, (EnumId, u32, Vec<u32>)>,
+    /// Patterns that test which member a union value holds (by member index).
+    pub union_tests: HashMap<ExprId, u32>,
 }
 
 impl Types {
@@ -103,6 +110,9 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             virtual_calls: HashMap::new(),
             downcasts: HashSet::new(),
             iface_calls: HashMap::new(),
+            variant_fields: HashMap::new(),
+            object_variants: HashMap::new(),
+            union_tests: HashMap::new(),
         },
         narrow: Vec::new(),
         diags: Vec::new(),
@@ -306,6 +316,9 @@ impl Assigned<'_> {
     }
 }
 
+/// Variables and the types they're known to have.
+type Known = Vec<(Var, Ty)>;
+
 /// What a condition tells about variables when it's true and when it's false.
 #[derive(Default)]
 struct Facts {
@@ -351,7 +364,8 @@ fn suffix_ty(s: NumSuffix) -> Ty {
 
 fn is_printable(t: &Ty) -> bool {
     match t {
-        Ty::Nullable(inner) => is_printable(inner),
+        Ty::Nullable(inner) | Ty::Lits(inner, _) => is_printable(inner),
+        Ty::Union(_, ms) => ms.iter().all(is_printable),
         _ => matches!(
             t,
             Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error | Ty::Never
@@ -432,7 +446,15 @@ impl<'p> Checker<'p> {
         if found == want.ty || found == Ty::Never || found.is_error() {
             return want.ty.clone();
         }
-        if found.widens_to(&want.ty) || self.upcasts(&found, &want.ty) {
+        let into_union = match &want.ty {
+            Ty::Union(_, ms) => self.union_member(&found, ms).is_some(),
+            Ty::Nullable(inner) => match &**inner {
+                Ty::Union(_, ms) => self.union_member(&found, ms).is_some(),
+                _ => false,
+            },
+            _ => false,
+        };
+        if found.widens_to(&want.ty) || self.upcasts(&found, &want.ty) || into_union {
             self.types.coercions.insert(e.id, want.ty.clone());
             return want.ty.clone();
         }
@@ -481,6 +503,59 @@ impl<'p> Checker<'p> {
         }
     }
 
+    /// What `typeof v == lit` / `v.kind == lit` says about `v`: when true, and when false
+    /// (only if a single other case remains).
+    fn tag_facts(&self, probe: &Expr, lit: &str) -> (Known, Known) {
+        let none = (Vec::new(), Vec::new());
+        match &probe.kind {
+            ExprKind::TypeOf(inner) => {
+                let ExprKind::Var(v) = inner.kind else {
+                    return none;
+                };
+                let Ty::Union(_, ms) = self.types.expr(inner.id) else {
+                    return none;
+                };
+                let Some(i) = ms.iter().position(|m| m.erase().to_string() == lit) else {
+                    return none;
+                };
+                let rest: Vec<&Ty> = ms
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .map(|(_, t)| t)
+                    .collect();
+                let no = match rest.as_slice() {
+                    [one] => vec![(v, (*one).clone())],
+                    _ => Vec::new(),
+                };
+                (vec![(v, ms[i].clone())], no)
+            }
+            ExprKind::Member { object, name, .. } => {
+                let ExprKind::Var(v) = object.kind else {
+                    return none;
+                };
+                let Ty::Enum(eid, ename) = self.types.expr(object.id) else {
+                    return none;
+                };
+                let def = self.program.enum_def(*eid);
+                if !matches!(&def.origin, crate::hir::EnumOrigin::Discriminated(d) if d == name) {
+                    return none;
+                }
+                let Some((vi, _)) = def.variant(lit) else {
+                    return none;
+                };
+                let variant = |i: u32| (v, Ty::Variant(*eid, i, ename.clone()));
+                let no = if def.variants.len() == 2 {
+                    vec![variant(1 - vi)]
+                } else {
+                    Vec::new()
+                };
+                (vec![variant(vi)], no)
+            }
+            _ => none,
+        }
+    }
+
     /// The facts of an already checked condition.
     fn facts(&self, cond: &Expr) -> Facts {
         match &cond.kind {
@@ -491,7 +566,12 @@ impl<'p> Checker<'p> {
                     when_false: f.when_true,
                 }
             }
-            ExprKind::Binary(op @ (BinOp::Eq | BinOp::Ne), l, r) => {
+            ExprKind::Binary(op @ (BinOp::Eq | BinOp::Ne), l, r)
+                if matches!(
+                    (&l.kind, &r.kind),
+                    (ExprKind::Var(_), ExprKind::Null) | (ExprKind::Null, ExprKind::Var(_))
+                ) =>
+            {
                 let var = match (&l.kind, &r.kind) {
                     (ExprKind::Var(v), ExprKind::Null) => Some((*v, l)),
                     (ExprKind::Null, ExprKind::Var(v)) => Some((*v, r)),
@@ -513,6 +593,31 @@ impl<'p> Checker<'p> {
                     Facts {
                         when_true: Vec::new(),
                         when_false: fact,
+                    }
+                }
+            }
+            // `typeof x == "string"` on a union; `e.kind == "click"` on a discriminated union.
+            ExprKind::Binary(op @ (BinOp::Eq | BinOp::Ne), l, r)
+                if matches!(
+                    (&l.kind, &r.kind),
+                    (_, ExprKind::Str(_)) | (ExprKind::Str(_), _)
+                ) =>
+            {
+                let (probe, lit) = match (&l.kind, &r.kind) {
+                    (_, ExprKind::Str(s)) => (l, s),
+                    (ExprKind::Str(s), _) => (r, s),
+                    _ => unreachable!(),
+                };
+                let (yes, no) = self.tag_facts(probe, lit);
+                if *op == BinOp::Eq {
+                    Facts {
+                        when_true: yes,
+                        when_false: no,
+                    }
+                } else {
+                    Facts {
+                        when_true: no,
+                        when_false: yes,
                     }
                 }
             }
@@ -930,6 +1035,12 @@ impl<'p> Checker<'p> {
 
     fn expr_kind(&mut self, e: &Expr, want: Option<&Expect>) -> Ty {
         match &e.kind {
+            ExprKind::Int(v, None)
+                if want.is_some_and(|w| matches!(w.ty, Ty::Lits(..) | Ty::Union(..))) =>
+            {
+                let w = want.expect("checked");
+                self.lit_in(e, &LitVal::Int(*v as i128), &w.ty)
+            }
             ExprKind::Int(v, suffix) => self.int_lit(e, *v as i128, *suffix, want),
             ExprKind::Float(_, suffix) => match (suffix, want.map(|w| &w.ty)) {
                 (Some(s), _) => suffix_ty(*s),
@@ -939,6 +1050,22 @@ impl<'p> Checker<'p> {
                 }
                 _ => Ty::NUMBER,
             },
+            ExprKind::Str(s)
+                if want.is_some_and(|w| matches!(w.ty, Ty::Lits(..) | Ty::Union(..))) =>
+            {
+                let w = want.expect("checked");
+                self.lit_in(e, &LitVal::Str(s.as_str().into()), &w.ty)
+            }
+            ExprKind::Bool(b)
+                if want.is_some_and(|w| matches!(w.ty, Ty::Lits(..) | Ty::Union(..))) =>
+            {
+                let w = want.expect("checked");
+                self.lit_in(e, &LitVal::Bool(*b), &w.ty)
+            }
+            ExprKind::TypeOf(inner) => {
+                self.infer(inner);
+                Ty::Str
+            }
             ExprKind::Str(s) => {
                 let wants_char = matches!(want.map(|w| &w.ty), Some(Ty::Char));
                 if wants_char {
@@ -1024,6 +1151,65 @@ impl<'p> Checker<'p> {
                     (Ty::Error, _) => Ty::Error,
                     (Ty::Struct(sid, _), _) => self.field(e.id, *sid, name, *name_span),
                     (Ty::Class(sid, _), _) => self.class_member(e.id, *sid, name, *name_span),
+                    (Ty::Variant(eid, v, _), _) => {
+                        let var = &self.program.enum_def(*eid).variants[*v as usize];
+                        match var.field(name) {
+                            Some((i, f)) => {
+                                self.types.variant_fields.insert(e.id, (*v, i as u32));
+                                f.ty.clone()
+                            }
+                            None => {
+                                self.diags.push(
+                                    Diagnostic::error(
+                                        codes::UNKNOWN_MEMBER,
+                                        format!("`{ot}` with `{}` has no field `{name}`", var.name),
+                                    )
+                                    .primary(*name_span, "unknown field"),
+                                );
+                                Ty::Error
+                            }
+                        }
+                    }
+                    (Ty::Enum(eid, _), _)
+                        if matches!(&self.program.enum_def(*eid).origin,
+                            crate::hir::EnumOrigin::Discriminated(d) if d == name) =>
+                    {
+                        // The discriminant is field 0 of every variant.
+                        let def = self.program.enum_def(*eid);
+                        let ty = def
+                            .variants
+                            .first()
+                            .map_or(Ty::Error, |v| v.fields[0].ty.clone());
+                        let all: Vec<LitVal> = def
+                            .variants
+                            .iter()
+                            .filter_map(|v| match &v.fields[0].ty {
+                                Ty::Lits(_, ls) => ls.first().cloned(),
+                                _ => None,
+                            })
+                            .collect();
+                        self.types.variant_fields.insert(e.id, (0, 0));
+                        match ty {
+                            Ty::Lits(b, _) => Ty::Lits(b, all.into()),
+                            t => t,
+                        }
+                    }
+                    (Ty::Enum(eid, _), _)
+                        if matches!(
+                            self.program.enum_def(*eid).origin,
+                            crate::hir::EnumOrigin::Discriminated(_)
+                        ) =>
+                    {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::UNKNOWN_MEMBER,
+                                format!("`{ot}` has no member `{name}` in every case"),
+                            )
+                            .primary(*name_span, "check the discriminant first")
+                            .help("narrow it, e.g. `if (e.kind == \"click\") e.x`"),
+                        );
+                        Ty::Error
+                    }
                     _ => {
                         let mut d = Diagnostic::error(
                             codes::UNKNOWN_MEMBER,
@@ -1582,8 +1768,72 @@ impl<'p> Checker<'p> {
         );
     }
 
+    /// For a pattern on a union: the member it looks at (type tests, literals, variants,
+    /// struct and array patterns), or `None` for `_`, bindings and the like.
+    fn union_member_for(&mut self, p: &Pattern, ms: &[Ty]) -> Option<Option<usize>> {
+        let pick = |pred: &dyn Fn(&Ty) -> bool| ms.iter().position(pred);
+        Some(match &p.kind {
+            PatKind::Wild | PatKind::Bind(_) | PatKind::Or(_) | PatKind::As(..) => return None,
+            PatKind::Type { ty, .. } => pick(&|m| m == ty),
+            PatKind::Lit(l) => {
+                let lit = match l {
+                    LitPat::Str(s) => Some(LitVal::Str(s.as_str().into())),
+                    LitPat::Int(v) => Some(LitVal::Int(*v)),
+                    LitPat::Bool(b) => Some(LitVal::Bool(*b)),
+                    _ => None,
+                };
+                let in_lits =
+                    |m: &Ty| matches!((m, &lit), (Ty::Lits(_, ls), Some(l)) if ls.contains(l));
+                pick(&in_lits).or_else(|| {
+                    pick(&|m: &Ty| {
+                        matches!(
+                            (l, m.erase()),
+                            (LitPat::Str(_), Ty::Str | Ty::Char)
+                                | (LitPat::Int(_), Ty::Int(_) | Ty::Float(_))
+                                | (LitPat::Float(_), Ty::Float(_))
+                                | (LitPat::Bool(_), Ty::Bool)
+                        ) && !matches!(m, Ty::Lits(..))
+                    })
+                })
+            }
+            PatKind::Range(..) => pick(&|m| matches!(m, Ty::Int(_) | Ty::Char)),
+            PatKind::Variant { enum_, name, .. } => pick(&|m| match m {
+                Ty::Enum(e, _) => match enum_ {
+                    Some(x) => x == e,
+                    None => self.program.enum_def(*e).variant(name).is_some(),
+                },
+                _ => false,
+            }),
+            PatKind::Struct { sid, .. } => {
+                pick(&|m| matches!(m, Ty::Struct(s, _) | Ty::Class(s, _) if s == sid))
+            }
+            PatKind::Slice { .. } => {
+                pick(&|m| matches!(m, Ty::Array(_) | Ty::Tuple(_) | Ty::Fixed(..)))
+            }
+        })
+    }
+
     /// Checks a pattern against the type of the value it matches, typing its bindings.
     fn check_pattern(&mut self, p: &Pattern, ty: &Ty) {
+        let union = match ty {
+            Ty::Union(_, ms) => Some(ms.clone()),
+            _ => None,
+        };
+        if let Some(ms) = union
+            && let Some(member) = self.union_member_for(p, &ms)
+        {
+            match member {
+                Some(i) => {
+                    self.types.union_tests.insert(p.id, i as u32);
+                    let m = ms[i].clone();
+                    return self.check_pattern(p, &m);
+                }
+                None => {
+                    self.pattern_mismatch(p.span, ty, "this");
+                    return;
+                }
+            }
+        }
         self.types.exprs[p.id.0 as usize] = ty.clone();
         let inner = match ty {
             Ty::Nullable(t) if p.looks_inside(ty) => (**t).clone(),
@@ -1675,6 +1925,18 @@ impl<'p> Checker<'p> {
                 }
             }
             PatKind::Lit(l) => {
+                if let Ty::Lits(_, ls) = &inner {
+                    let lit = match l {
+                        LitPat::Str(s) => Some(LitVal::Str(s.as_str().into())),
+                        LitPat::Int(v) => Some(LitVal::Int(*v)),
+                        LitPat::Bool(b) => Some(LitVal::Bool(*b)),
+                        _ => None,
+                    };
+                    if !lit.is_some_and(|x| ls.contains(&x)) {
+                        self.pattern_mismatch(p.span, ty, "a literal");
+                    }
+                    return;
+                }
                 let ok = match (l, &inner) {
                     (LitPat::Int(v), Ty::Int(it)) => {
                         if !it.contains(*v) {
@@ -1932,6 +2194,14 @@ impl<'p> Checker<'p> {
     /// of an or-pattern (expanded through nested patterns, capped).
     fn to_pat(&self, p: &Pattern, ty: &Ty) -> Vec<Pat> {
         const CAP: usize = 256;
+        if let (Some(i), Ty::Union(_, ms)) = (self.types.union_tests.get(&p.id), ty) {
+            let m = &ms[*i as usize];
+            return self
+                .to_pat(p, m)
+                .into_iter()
+                .map(|x| Pat::Ctor(Ctor::Variant(*i), vec![x]))
+                .collect();
+        }
         let inner = match ty {
             Ty::Nullable(t) if p.looks_inside(ty) => (**t).clone(),
             _ => ty.clone(),
@@ -2509,6 +2779,12 @@ impl<'p> Checker<'p> {
         fields: &[FieldInit],
         want: Option<&Expect>,
     ) -> Ty {
+        if ty.is_none()
+            && let Some(Ty::Enum(eid, ename)) = want.map(|w| &w.ty)
+            && let crate::hir::EnumOrigin::Discriminated(disc) = &self.program.enum_def(*eid).origin
+        {
+            return self.discriminated_object(e, *eid, ename, disc, fields);
+        }
         let sid = match (ty, want.map(|w| &w.ty)) {
             (Some(s), _) => s,
             (None, Some(Ty::Struct(s, _))) => *s,
@@ -2587,6 +2863,87 @@ impl<'p> Checker<'p> {
         self.program.struct_ty(sid)
     }
 
+    /// `{ kind: "click", x: 1, y: 2 }` for a discriminated union: the discriminant picks the
+    /// variant, whose fields must all be given.
+    fn discriminated_object(
+        &mut self,
+        e: &Expr,
+        eid: EnumId,
+        ename: &std::sync::Arc<str>,
+        disc: &str,
+        fields: &[FieldInit],
+    ) -> Ty {
+        let def = self.program.enum_def(eid);
+        let tag = fields.iter().find(|f| f.name == disc);
+        let vi = match tag.map(|f| &f.value.kind) {
+            Some(ExprKind::Str(s)) => def.variant(s).map(|(i, _)| i),
+            _ => None,
+        };
+        let Some(vi) = vi else {
+            for f in fields {
+                self.infer(&f.value);
+            }
+            let names: Vec<String> = def
+                .variants
+                .iter()
+                .map(|v| format!("{:?}", v.name))
+                .collect();
+            self.diags.push(
+                Diagnostic::error(
+                    codes::UNKNOWN_OBJECT_TYPE,
+                    format!("this object doesn't say which `{ename}` it is"),
+                )
+                .primary(e.span, format!("needs `{disc}: …` with a literal"))
+                .note(format!("`{disc}` is one of {}", names.join(", "))),
+            );
+            return Ty::Error;
+        };
+        let var = &def.variants[vi as usize];
+        let mut seen = vec![false; var.fields.len()];
+        let mut order = Vec::new();
+        for f in fields {
+            match var.field(&f.name) {
+                Some((i, fd)) => {
+                    seen[i] = true;
+                    order.push(i as u32);
+                    self.check(&f.value, &Expect::from(fd.ty.clone(), Some(fd.span)));
+                }
+                None => {
+                    order.push(u32::MAX);
+                    self.infer(&f.value);
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNKNOWN_MEMBER,
+                            format!(
+                                "`{ename}` with `{disc}: {:?}` has no field `{}`",
+                                var.name, f.name
+                            ),
+                        )
+                        .primary(f.name_span, "unknown field"),
+                    );
+                }
+            }
+        }
+        let missing: Vec<String> = var
+            .fields
+            .iter()
+            .zip(&seen)
+            .filter(|(fd, s)| !**s && !fd.preassigned)
+            .map(|(fd, _)| format!("`{}`", fd.name))
+            .collect();
+        if !missing.is_empty() {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::MISSING_FIELDS,
+                    format!("missing {}", missing.join(", ")),
+                )
+                .primary(e.span, "every field is needed"),
+            );
+        }
+        self.types.object_variants.insert(e.id, (eid, vi, order));
+        Ty::Enum(eid, ename.clone())
+    }
+
     /// Whether `==` is defined: primitives, strings, and structs whose fields all are.
     fn equatable(&self, t: &Ty) -> bool {
         match t {
@@ -2599,6 +2956,9 @@ impl<'p> Checker<'p> {
                 .all(|f| self.equatable(&f.ty)),
             Ty::Tuple(ts) => ts.iter().all(|t| self.equatable(t)),
             Ty::Nullable(t) => self.equatable(t),
+            Ty::Lits(b, _) => self.equatable(b),
+            Ty::Union(_, ms) => ms.iter().all(|m| self.equatable(m)),
+            Ty::Variant(..) => true,
             // Classes without `equals` compare by identity.
             Ty::Class(..) => true,
             Ty::Enum(id, _) => self
@@ -2632,6 +2992,62 @@ impl<'p> Checker<'p> {
                 .note(why),
             ),
         }
+    }
+
+    /// A literal where a literal type or a union is expected: the literal type (or union
+    /// member) it belongs to.
+    fn lit_in(&mut self, e: &Expr, lit: &LitVal, want: &Ty) -> Ty {
+        let base = match lit {
+            LitVal::Str(_) => Ty::Str,
+            LitVal::Int(_) => Ty::INT,
+            LitVal::Bool(_) => Ty::Bool,
+        };
+        let fits = |t: &Ty| match (t, lit) {
+            (Ty::Lits(_, ls), l) => ls.contains(l),
+            (Ty::Str, LitVal::Str(_)) | (Ty::Bool, LitVal::Bool(_)) => true,
+            (Ty::Char, LitVal::Str(s)) => s.chars().count() == 1,
+            (Ty::Int(it), LitVal::Int(v)) => it.contains(*v),
+            (Ty::Float(_), LitVal::Int(_)) => true,
+            _ => false,
+        };
+        let pick = match want {
+            Ty::Lits(..) => fits(want).then(|| want.clone()),
+            Ty::Union(_, ms) => ms
+                .iter()
+                .find(|m| matches!(m, Ty::Lits(..)) && fits(m))
+                .or_else(|| ms.iter().find(|m| fits(m)))
+                .cloned(),
+            _ => None,
+        };
+        match pick {
+            Some(Ty::Char) => Ty::Char,
+            Some(Ty::Float(f)) => Ty::Float(f),
+            Some(Ty::Int(it)) => Ty::Int(it),
+            Some(t) => t,
+            None => {
+                let shown = match lit {
+                    LitVal::Str(s) => format!("{s:?}"),
+                    LitVal::Int(v) => v.to_string(),
+                    LitVal::Bool(b) => b.to_string(),
+                };
+                self.diags.push(
+                    Diagnostic::error(codes::MISMATCHED_TYPES, "mismatched types")
+                        .primary(e.span, format!("`{shown}` isn't a `{want}`")),
+                );
+                let _ = base;
+                Ty::Error
+            }
+        }
+    }
+
+    /// The member of a union that a `from` value converts into: the same type, else the first
+    /// it widens or upcasts to.
+    fn union_member(&self, from: &Ty, members: &[Ty]) -> Option<usize> {
+        members.iter().position(|m| m == from).or_else(|| {
+            members
+                .iter()
+                .position(|m| from.widens_to(m) || self.upcasts(from, m))
+        })
     }
 
     fn int_lit(
@@ -2790,6 +3206,19 @@ impl<'p> Checker<'p> {
             return lt.clone();
         }
         if lt.widens_to(rt) {
+            self.types.coercions.insert(l.id, rt.clone());
+            return rt.clone();
+        }
+        // A union member compared with the union.
+        if let Ty::Union(_, ms) = lt
+            && self.union_member(rt, ms).is_some()
+        {
+            self.types.coercions.insert(r.id, lt.clone());
+            return lt.clone();
+        }
+        if let Ty::Union(_, ms) = rt
+            && self.union_member(lt, ms).is_some()
+        {
             self.types.coercions.insert(l.id, rt.clone());
             return rt.clone();
         }

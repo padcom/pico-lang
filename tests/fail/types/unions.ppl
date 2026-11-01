@@ -1,0 +1,28 @@
+// error: E0308
+// at: 19:16
+// error: E0308
+// at: 20:16
+// error: E0317
+// at: 22:20
+// error: E0317
+// at: 23:20
+// error: E0309
+// at: 24:16
+// error: E0313
+// at: 25:20
+// error: E0304
+// at: 26:13
+type Dir = "north" | "south"
+type Id = i64 | string
+type Event = { kind: "click", x: i32 } | { kind: "key", code: u32 }
+const s: string = "north"
+const d: Dir = s
+const e: Dir = "up"
+function f(x: Dir, id: Id, ev: Event): i64 {
+  const a = match (x) { "north" => 1 }
+  const b = match (id) { n: i64 => n }
+  const c = ev.x
+  const g: Event = { kind: "drag", x: 1 }
+  const h = id + 1
+  0
+}

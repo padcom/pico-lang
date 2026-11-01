@@ -226,6 +226,7 @@ impl<'ctx> Gen<'ctx, '_> {
                     .struct_type(&[self.cx.bool_type().into(), inner], false)
                     .into()
             }
+            Ty::Lits(..) | Ty::Union(..) | Ty::Variant(..) => return self.ty(&t.erase()),
             Ty::Void | Ty::Never | Ty::Error | Ty::Null => return None,
         })
     }
@@ -286,6 +287,7 @@ impl<'ctx> Gen<'ctx, '_> {
                     (8 + 8 * words, 8)
                 }
             }
+            Ty::Lits(..) | Ty::Union(..) | Ty::Variant(..) => self.size_align(&t.erase()),
             Ty::Void | Ty::Never | Ty::Error | Ty::Null => (1, 1),
         }
     }

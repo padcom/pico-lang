@@ -62,6 +62,7 @@ impl Checker<'_> {
                 .collect(),
             (Ty::Tuple(ts), Ctor::Single) => ts.clone(),
             (Ty::Nullable(inner), Ctor::NonNull) => vec![(**inner).clone()],
+            (Ty::Union(_, ms), Ctor::Variant(i)) => vec![ms[*i as usize].clone()],
             (Ty::Fixed(e, n), Ctor::Single) => vec![(**e).clone(); *n as usize],
             (Ty::Array(e), Ctor::Slice { prefix, suffix, .. }) => {
                 vec![(**e).clone(); prefix + suffix]
@@ -77,6 +78,15 @@ impl Checker<'_> {
                 .map(|i| Ctor::Variant(i as u32))
                 .collect(),
             Ty::Bool => vec![Ctor::Bool(false), Ctor::Bool(true)],
+            Ty::Union(_, ms) => (0..ms.len()).map(|i| Ctor::Variant(i as u32)).collect(),
+            Ty::Lits(_, ls) => ls
+                .iter()
+                .map(|l| match l {
+                    crate::ty::LitVal::Str(s) => Ctor::Str(s.to_string()),
+                    crate::ty::LitVal::Int(v) => Ctor::Int(*v),
+                    crate::ty::LitVal::Bool(b) => Ctor::Bool(*b),
+                })
+                .collect(),
             Ty::Nullable(_) => vec![Ctor::Null, Ctor::NonNull],
             Ty::Struct(..) | Ty::Class(..) | Ty::Tuple(_) | Ty::Fixed(..) => vec![Ctor::Single],
             _ => return None,
@@ -274,6 +284,14 @@ impl Checker<'_> {
                     .map(|(a, f)| self.show(&f.ty, a))
                     .collect();
                 format!("{}({})", def.name, parts.join(", "))
+            }
+            (Pat::Ctor(Ctor::Variant(i), args), Ty::Union(_, ms)) => {
+                let m = &ms[*i as usize];
+                match &args[..] {
+                    [Pat::Wild] => format!("_: {m}"),
+                    [a] => self.show(m, a),
+                    _ => "_".into(),
+                }
             }
             (Pat::Ctor(Ctor::Bool(b), _), _) => b.to_string(),
             (Pat::Ctor(Ctor::Null, _), _) => "null".into(),

@@ -133,6 +133,7 @@ impl Program {
 
 /// The type of `p` applied to a value of type `t`; `field` gives a struct's field types.
 pub fn project(t: &Ty, p: &Proj, field: impl Fn(FieldRef) -> Ty) -> Ty {
+    let t = &t.erase();
     match (t, p) {
         (Ty::Struct(sid, _) | Ty::Class(sid, _), Proj::Field(i)) => {
             field(FieldRef::Struct(*sid, *i as usize))

@@ -10,7 +10,7 @@
 //! Constructs that parse but aren't implemented yet report `E0900`.
 
 use crate::hir::*;
-use crate::ty::Ty;
+use crate::ty::{LitVal, Ty};
 use ppl_diag::{Code, Diagnostic, FileId, Span, codes};
 use ppl_syntax::ast;
 use std::collections::{HashMap, HashSet};
@@ -33,6 +33,10 @@ pub fn resolve(module: &ast::Module, file: FileId) -> (Program, Vec<Diagnostic>)
         variant_names: HashSet::new(),
         stmt_switch: false,
         cond_scope: false,
+        aliases: HashMap::new(),
+        alias_cache: HashMap::new(),
+        resolving_aliases: Vec::new(),
+        unions: Vec::new(),
     };
     let program = r.program(module);
     (program, r.diags)
@@ -88,6 +92,12 @@ struct Resolver {
     stmt_switch: bool,
     /// Lowering an `if`/`while` condition, where `is` bindings stay in scope for the body.
     cond_scope: bool,
+    /// `type Name = T` declarations, resolved on first use.
+    aliases: HashMap<String, (ast::Type, Span)>,
+    alias_cache: HashMap<String, Ty>,
+    resolving_aliases: Vec<String>,
+    /// Interned unions: the members and the anonymous enum that stores them.
+    unions: Vec<(Vec<Ty>, EnumId)>,
 }
 
 enum Found {
@@ -133,6 +143,21 @@ impl Resolver {
         let mut class_decls: Vec<(StructId, &ast::ClassDecl)> = Vec::new();
         let mut iface_decls: Vec<(StructId, &ast::InterfaceDecl)> = Vec::new();
         let mut first_seen: HashMap<String, Span> = HashMap::new();
+        // Type aliases first: any type annotation may use them.
+        for stmt in &module.stmts {
+            if let ast::StmtKind::Decl(d) = &stmt.kind
+                && let ast::DeclKind::TypeAlias { name, generics, ty } = &d.kind
+            {
+                if let Some(g) = generics.first() {
+                    self.not_implemented(g.span, "generic type aliases");
+                }
+                if self.check_duplicate(&mut first_seen, name) {
+                    continue;
+                }
+                self.aliases
+                    .insert(name.name.clone(), (ty.clone(), name.span));
+            }
+        }
         for stmt in &module.stmts {
             match &stmt.kind {
                 ast::StmtKind::Decl(d) => {
@@ -191,6 +216,7 @@ impl Resolver {
                             name: ed.name.name.clone(),
                             name_span: ed.name.span,
                             variants: Vec::new(),
+                            origin: EnumOrigin::Declared,
                         });
                         self.top_enums.insert(ed.name.name.clone(), id);
                         for v in &ed.variants {
@@ -638,6 +664,7 @@ impl Resolver {
                             | ast::DeclKind::Enum(_)
                             | ast::DeclKind::Class(_)
                             | ast::DeclKind::Interface(_)
+                            | ast::DeclKind::TypeAlias { .. }
                     ) => {}
                 _ => {
                     let last = i + 1 == stmts.len();
@@ -2072,6 +2099,9 @@ impl Resolver {
                     None if self.top_enums.contains_key(&path[0].name) => {
                         self.enum_ty(self.top_enums[&path[0].name])
                     }
+                    None if self.aliases.contains_key(&path[0].name) => {
+                        self.alias(&path[0].name, t.span)
+                    }
                     None => {
                         self.error(
                             codes::UNKNOWN_TYPE,
@@ -2101,12 +2131,236 @@ impl Resolver {
             }
             ast::TypeKind::Nullable(inner) => self.resolve_type(inner).nullable(),
             ast::TypeKind::Lit(ast::Lit::Null) => Ty::Null,
+            ast::TypeKind::Lit(l) => match lit_val(l) {
+                Some((base, v)) => Ty::Lits(Box::new(base), vec![v].into()),
+                None => {
+                    self.not_implemented(t.span, "this kind of literal type");
+                    Ty::Error
+                }
+            },
+            ast::TypeKind::Union(members) => self.union_type(members, None, t.span),
+            ast::TypeKind::Object(_) => {
+                self.not_implemented(t.span, "object types outside discriminated unions");
+                Ty::Error
+            }
             ast::TypeKind::Error => Ty::Error,
             _ => {
                 self.not_implemented(t.span, "this kind of type");
                 Ty::Error
             }
         }
+    }
+
+    /// The type an alias stands for (resolved once; a cycle is an error).
+    fn alias(&mut self, name: &str, span: Span) -> Ty {
+        if let Some(t) = self.alias_cache.get(name) {
+            return t.clone();
+        }
+        if self.resolving_aliases.iter().any(|n| n == name) {
+            self.error(
+                codes::RECURSIVE_STRUCT,
+                span,
+                format!("type alias `{name}` refers to itself"),
+                "aliases can't be recursive",
+            );
+            return Ty::Error;
+        }
+        let (ty, _) = self.aliases[name].clone();
+        self.resolving_aliases.push(name.to_string());
+        let t = match &ty.kind {
+            ast::TypeKind::Union(members) => self.union_type(members, Some(name), ty.span),
+            ast::TypeKind::Distinct(_) => {
+                self.not_implemented(ty.span, "distinct types");
+                Ty::Error
+            }
+            _ => self.resolve_type(&ty),
+        };
+        self.resolving_aliases.pop();
+        self.alias_cache.insert(name.to_string(), t.clone());
+        t
+    }
+
+    /// `A | B | …`: `T | null` is `T?`; literals of one base type stay that type; object
+    /// types with a common literal field become a discriminated enum; anything else is a
+    /// tagged union.
+    fn union_type(&mut self, members: &[ast::Type], name: Option<&str>, span: Span) -> Ty {
+        let objects: Vec<&Vec<ast::ObjectTypeField>> = members
+            .iter()
+            .filter_map(|m| match &m.kind {
+                ast::TypeKind::Object(fs) => Some(fs),
+                _ => None,
+            })
+            .collect();
+        if !objects.is_empty() {
+            if objects.len() != members.len() {
+                self.not_implemented(span, "unions mixing object types with other types");
+                return Ty::Error;
+            }
+            return self.discriminated(&objects, name, span);
+        }
+        let mut flat: Vec<Ty> = Vec::new();
+        let mut nullable = false;
+        for m in members {
+            let t = self.resolve_type(m);
+            let parts: Vec<Ty> = match t {
+                Ty::Union(_, ms) => ms.to_vec(),
+                Ty::Nullable(inner) => {
+                    nullable = true;
+                    vec![*inner]
+                }
+                Ty::Null => {
+                    nullable = true;
+                    Vec::new()
+                }
+                Ty::Error => return Ty::Error,
+                t => vec![t],
+            };
+            for p in parts {
+                // Literals of one base type merge into one literal type.
+                if let Ty::Lits(b, ls) = &p
+                    && let Some(Ty::Lits(_, prev)) = flat
+                        .iter_mut()
+                        .find(|x| matches!(x, Ty::Lits(b2, _) if b2 == b))
+                {
+                    let mut all = prev.to_vec();
+                    for l in ls.iter() {
+                        if !all.contains(l) {
+                            all.push(l.clone());
+                        }
+                    }
+                    *prev = all.into();
+                    continue;
+                }
+                if !flat.contains(&p) {
+                    flat.push(p);
+                }
+            }
+        }
+        // A literal type next to its own base type adds nothing: `"a" | string` is `string`.
+        let bases: Vec<Ty> = flat
+            .iter()
+            .filter(|t| !matches!(t, Ty::Lits(..)))
+            .cloned()
+            .collect();
+        flat.retain(|t| !matches!(t, Ty::Lits(b, _) if bases.contains(b)));
+        let t = match flat.len() {
+            0 => Ty::Null,
+            1 => flat.pop().expect("one member"),
+            _ => self.intern_union(flat, name),
+        };
+        if nullable { t.nullable() } else { t }
+    }
+
+    fn intern_union(&mut self, members: Vec<Ty>, name: Option<&str>) -> Ty {
+        if let Some((_, id)) = self.unions.iter().find(|(m, _)| *m == members) {
+            return Ty::Union(*id, members.into());
+        }
+        let id = EnumId(self.enums.len() as u32);
+        let display = members
+            .iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let span = Span::new(self.file, 0, 0);
+        self.enums.push(EnumDef {
+            name: name.map_or(display, str::to_string),
+            name_span: span,
+            variants: members
+                .iter()
+                .map(|t| VariantDef {
+                    name: t.to_string(),
+                    span,
+                    fields: vec![FieldDef {
+                        name: "value".into(),
+                        ty: t.clone(),
+                        span,
+                        preassigned: false,
+                    }],
+                    has_parens: true,
+                })
+                .collect(),
+            origin: EnumOrigin::Union(members.clone()),
+        });
+        self.unions.push((members.clone(), id));
+        Ty::Union(id, members.into())
+    }
+
+    /// `{ kind: "click", x: i32 } | { kind: "key", code: u32 }`: an anonymous enum with a
+    /// variant per object type, named by the discriminant (a field with a literal type in
+    /// every member); the discriminant is each variant's field 0.
+    fn discriminated(
+        &mut self,
+        objects: &[&Vec<ast::ObjectTypeField>],
+        name: Option<&str>,
+        span: Span,
+    ) -> Ty {
+        let disc = objects[0].iter().find(|f| {
+            objects.iter().all(|o| {
+                o.iter().any(|g| {
+                    g.name.name == f.name.name && matches!(g.ty.kind, ast::TypeKind::Lit(_))
+                })
+            })
+        });
+        let Some(disc) = disc.map(|f| f.name.name.clone()) else {
+            self.error(
+                codes::UNKNOWN_TYPE,
+                span,
+                "a union of object types needs a discriminant",
+                "no field has a literal type in every member",
+            );
+            return Ty::Error;
+        };
+        let id = EnumId(self.enums.len() as u32);
+        let ename = name.map_or_else(|| "<object union>".to_string(), str::to_string);
+        self.enums.push(EnumDef {
+            name: ename.clone(),
+            name_span: span,
+            variants: Vec::new(),
+            origin: EnumOrigin::Discriminated(disc.clone()),
+        });
+        let mut seen: HashMap<String, Span> = HashMap::new();
+        for o in objects {
+            let tag = o.iter().find(|f| f.name.name == disc).expect("checked");
+            let ast::TypeKind::Lit(l) = &tag.ty.kind else {
+                unreachable!("checked")
+            };
+            let vname = match l {
+                ast::Lit::Str(s) => s.clone(),
+                other => format!("{other:?}"),
+            };
+            let vid = ast::Ident {
+                name: vname.clone(),
+                span: tag.ty.span,
+            };
+            if self.check_duplicate(&mut seen, &vid) {
+                continue;
+            }
+            let mut fields = vec![FieldDef {
+                name: disc.clone(),
+                ty: self.resolve_type(&tag.ty),
+                span: tag.name.span,
+                preassigned: false,
+            }];
+            for f in o.iter().filter(|f| f.name.name != disc) {
+                let mut ty = self.resolve_type(&f.ty);
+                if f.optional {
+                    ty = ty.nullable();
+                }
+                fields.push(FieldDef {
+                    name: f.name.name.clone(),
+                    ty,
+                    span: f.name.span,
+                    preassigned: f.optional,
+                });
+            }
+            self.enums[id.0 as usize].variants.push(VariantDef {
+                name: vname,
+                span: tag.ty.span,
+                fields,
+                has_parens: true,
+            });
+        }
+        Ty::Enum(id, ename.into())
     }
 
     /// The length of a fixed array: an integer literal (until `comptime` arrives).
@@ -2478,10 +2732,7 @@ impl Resolver {
                         prefix: matches!(op, ast::UnOp::PreInc | ast::UnOp::PreDec),
                     }
                 }
-                ast::UnOp::Typeof => {
-                    self.not_implemented(span, "`typeof`");
-                    ExprKind::Error
-                }
+                ast::UnOp::Typeof => ExprKind::TypeOf(Box::new(self.lower_expr(expr))),
                 _ => ExprKind::Unary(*op, Box::new(self.lower_expr(expr))),
             },
             A::Binary { op, lhs, rhs } => ExprKind::Binary(
@@ -3507,6 +3758,19 @@ struct ClassInfo<'a> {
     field_inits: Vec<(&'a ast::Ident, Option<&'a ast::Expr>)>,
     static_inits: Vec<(GlobalId, &'a ast::Ident, Option<&'a ast::Expr>)>,
     static_blocks: Vec<&'a ast::Block>,
+}
+
+/// A literal type's base type and value.
+fn lit_val(l: &ast::Lit) -> Option<(Ty, LitVal)> {
+    Some(match l {
+        ast::Lit::Str(s) => (Ty::Str, LitVal::Str(s.as_str().into())),
+        ast::Lit::Int {
+            value,
+            suffix: None,
+        } => (Ty::INT, LitVal::Int(*value as i128)),
+        ast::Lit::Bool(b) => (Ty::Bool, LitVal::Bool(*b)),
+        _ => return None,
+    })
 }
 
 /// `super(args)` / `this(args)` as a statement: (is super, args, span).

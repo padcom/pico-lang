@@ -106,6 +106,24 @@ impl FloatTy {
     }
 }
 
+/// The value of a literal type (`"north"`, `42`, `true`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum LitVal {
+    Str(Arc<str>),
+    Int(i128),
+    Bool(bool),
+}
+
+impl fmt::Display for LitVal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LitVal::Str(s) => write!(f, "{s:?}"),
+            LitVal::Int(v) => write!(f, "{v}"),
+            LitVal::Bool(b) => write!(f, "{b}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     Int(IntTy),
@@ -136,6 +154,15 @@ pub enum Ty {
     Tuple(Vec<Ty>),
     /// `a..b` (with an optional `.step(n)`): start, end and step of an integer type.
     Range(IntTy),
+    /// A literal type or a union of literals of one base type (`"north" | "south"`): values
+    /// of the base type, restricted to these.
+    Lits(Box<Ty>, Arc<[LitVal]>),
+    /// A tagged union of distinct types (`i64 | string`), stored as an anonymous enum whose
+    /// variant `i` holds member `i`.
+    Union(EnumId, Arc<[Ty]>),
+    /// A discriminated object union narrowed to one variant (only in type checking: values
+    /// are the enum's). The name is the enum's.
+    Variant(EnumId, u32, Arc<str>),
     /// `T?`
     Nullable(Box<Ty>),
     /// A type error was already reported; suppresses follow-up errors.
@@ -171,11 +198,27 @@ impl Ty {
     }
 
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Ty::Int(_) | Ty::Float(_))
+        matches!(self.erase(), Ty::Int(_) | Ty::Float(_))
     }
 
     pub fn is_int(&self) -> bool {
-        matches!(self, Ty::Int(_))
+        matches!(self.erase(), Ty::Int(_))
+    }
+
+    /// The runtime type: literal types become their base type (also inside other types).
+    pub fn erase(&self) -> Ty {
+        match self {
+            Ty::Lits(b, _) => (**b).clone(),
+            Ty::Array(t) => Ty::Array(Box::new(t.erase())),
+            Ty::Fixed(t, n) => Ty::Fixed(Box::new(t.erase()), *n),
+            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| t.erase()).collect()),
+            Ty::Nullable(t) => Ty::Nullable(Box::new(t.erase())),
+            Ty::Ref(t) => Ty::Ref(Box::new(t.erase())),
+            Ty::Variant(e, _, n) => Ty::Enum(*e, n.clone()),
+            // A union is stored as its anonymous enum.
+            Ty::Union(e, _) => Ty::Enum(*e, self.to_string().into()),
+            t => t.clone(),
+        }
     }
 
     pub fn is_error(&self) -> bool {
@@ -218,6 +261,10 @@ impl Ty {
             }
             (Ty::Float(FloatTy::F32), Ty::Float(FloatTy::F64)) => true,
             (Ty::Null, Ty::Nullable(_)) => true,
+            // A literal type is a subset of another with the same base, and of its base.
+            (Ty::Lits(a, xs), Ty::Lits(b, ys)) => a == b && xs.iter().all(|x| ys.contains(x)),
+            (Ty::Lits(a, _), t) => a.widens_to(t),
+            (Ty::Variant(e, _, _), Ty::Enum(f, _)) => e == f,
             (Ty::Nullable(a), Ty::Nullable(b)) => a.widens_to(b),
             (t, Ty::Nullable(inner)) => t.widens_to(inner),
             _ => false,
@@ -248,6 +295,15 @@ impl fmt::Display for Ty {
                 write!(f, "[{}]", parts.join(", "))
             }
             Ty::Range(it) => write!(f, "Range<{}>", it.name()),
+            Ty::Lits(_, ls) => {
+                let parts: Vec<String> = ls.iter().map(|l| l.to_string()).collect();
+                f.write_str(&parts.join(" | "))
+            }
+            Ty::Union(_, ms) => {
+                let parts: Vec<String> = ms.iter().map(|t| t.to_string()).collect();
+                f.write_str(&parts.join(" | "))
+            }
+            Ty::Variant(_, _, name) => f.write_str(name),
             Ty::Nullable(t) => write!(f, "{t}?"),
             Ty::Error => f.write_str("{error}"),
         }

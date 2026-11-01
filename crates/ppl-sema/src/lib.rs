@@ -8,5 +8,5 @@ pub mod ty;
 pub mod typeck;
 
 pub use resolve::resolve;
-pub use ty::{FloatTy, IntTy, Ty};
+pub use ty::{FloatTy, IntTy, LitVal, Ty};
 pub use typeck::{FnSig, Types, check};

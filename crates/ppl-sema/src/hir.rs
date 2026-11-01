@@ -55,6 +55,18 @@ pub struct EnumDef {
     pub name: String,
     pub name_span: Span,
     pub variants: Vec<VariantDef>,
+    /// What the enum stands for, if it wasn't declared with `enum`.
+    pub origin: EnumOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumOrigin {
+    Declared,
+    /// A union of these types: variant `i` holds member `i` in its one field.
+    Union(Vec<Ty>),
+    /// A discriminated object union: each variant is an object type whose field 0 is the
+    /// discriminant (named here), set to the variant's name.
+    Discriminated(String),
 }
 
 impl EnumDef {
@@ -598,6 +610,8 @@ pub enum ExprKind {
         expr: Box<Expr>,
         pat: Pattern,
     },
+    /// `typeof e`: the name of `e`'s runtime type.
+    TypeOf(Box<Expr>),
     /// `e!`: panics if `e` is null.
     NonNull(Box<Expr>),
     /// `base?.rest`: `tmp` holds the non-null `base`, and `rest` (the chain after `?.`) uses it.
@@ -673,7 +687,10 @@ impl Expr {
             | ExprKind::Builtin(_)
             | ExprKind::Continue
             | ExprKind::Error => {}
-            ExprKind::Unary(_, e) | ExprKind::As(e, _) | ExprKind::NonNull(e) => f(e),
+            ExprKind::Unary(_, e)
+            | ExprKind::As(e, _)
+            | ExprKind::NonNull(e)
+            | ExprKind::TypeOf(e) => f(e),
             ExprKind::Binary(_, a, b) | ExprKind::Range { start: a, end: b } => {
                 f(a);
                 f(b);
