@@ -243,7 +243,7 @@ fn erase_program(p: &mut mir::Program) {
                         *t = t.erase();
                         ops.iter_mut().for_each(erase_op);
                     }
-                    Rvalue::WrapSome(o, t) | Rvalue::Cast(o, t) => {
+                    Rvalue::WrapSome(o, t) | Rvalue::Cast(o, t) | Rvalue::BitCast(o, t) => {
                         *t = t.erase();
                         erase_op(o);
                     }
@@ -253,7 +253,9 @@ fn erase_program(p: &mut mir::Program) {
                         *t = t.erase();
                         ops.iter_mut().for_each(erase_op)
                     }
-                    Rvalue::New(t) | Rvalue::TakeException(t) => *t = t.erase(),
+                    Rvalue::New(t) | Rvalue::TakeException(t) | Rvalue::SizeOf(t, _) => {
+                        *t = t.erase()
+                    }
                     Rvalue::SetException(o, _) => erase_op(o),
                     _ => {}
                 }
@@ -837,6 +839,24 @@ impl FnBuilder<'_, '_> {
 
     fn ty(&self, e: &Expr) -> Ty {
         self.cx.types.expr(e.id).clone()
+    }
+
+    /// A type written in the code, seen through the current instance's type arguments.
+    fn mono(&self, t: &Ty) -> Ty {
+        let mut t = t.clone();
+        for (owner, args) in &self.cx.cur_subst {
+            t = t.subst(*owner, args);
+        }
+        t
+    }
+
+    /// `object` (a `ptr<T>`) in a local, to read or write through.
+    fn ptr_local(&mut self, object: &Expr) -> Local {
+        let t = self.ty_of(object).clone();
+        let v = self.expr(object);
+        let l = self.temp(t);
+        self.assign(Place::local(l), Rvalue::Use(v), object.span);
+        l
     }
 
     fn temp(&mut self, ty: Ty) -> Local {
@@ -1815,6 +1835,20 @@ impl FnBuilder<'_, '_> {
                 let v = self.expr(inner);
                 self.type_name(v, &t, e.span)
             }
+            ExprKind::Unsafe(b) => self.block(b),
+            ExprKind::PtrOf(inner) => {
+                let place = self.place_of(inner);
+                self.rvalue_to_temp(Rvalue::Ref(place), ty, e.span)
+            }
+            ExprKind::SizeOf { ty: t, align } => {
+                let t = self.mono(t);
+                self.rvalue_to_temp(Rvalue::SizeOf(t, *align), ty, e.span)
+            }
+            ExprKind::BitCast(inner, to) => {
+                let v = self.expr(inner);
+                let to = self.mono(to);
+                self.rvalue_to_temp(Rvalue::BitCast(v, to), ty, e.span)
+            }
             ExprKind::Var(v) => Operand::Copy(self.place(*v)),
             ExprKind::Tailcall(inner) => {
                 let ExprKind::Call { callee, args, .. } = &inner.kind else {
@@ -2711,6 +2745,11 @@ impl FnBuilder<'_, '_> {
 
     fn binary(&mut self, e: &Expr, op: ast::BinOp, l: &Expr, r: &Expr, ty: Ty) -> Operand {
         use ast::BinOp as B;
+        if matches!(self.ty_of(l), Ty::Ref(_)) && matches!(op, B::Add | B::Sub) {
+            let p = self.expr(l);
+            let n = self.expr(r);
+            return self.rvalue_to_temp(Rvalue::PtrOffset(p, n, op == B::Sub), ty, e.span);
+        }
         if let Some(m) = self.cx.types.op_calls.get(&e.id).copied() {
             // A user operator, or `equals` / `compareTo`.
             let rt = self.cx.types.sigs[m.0 as usize].ret.clone();
@@ -4328,6 +4367,22 @@ impl FnBuilder<'_, '_> {
                     Some(p) => Operand::Copy(p),
                     None => Operand::Const(Const::Void),
                 }
+            }
+            ExprKind::Member { object, name, .. }
+                if matches!(self.ty_of(object), Ty::Ref(_))
+                    && (name == "read" || name == "write") =>
+            {
+                let p = self.ptr_local(object);
+                let target = Place {
+                    base: mir::Base::Deref(p),
+                    proj: Vec::new(),
+                };
+                if name == "read" {
+                    return self.rvalue_to_temp(Rvalue::Use(Operand::Copy(target)), ty, e.span);
+                }
+                let v = self.expr(&args[0]);
+                self.assign(target, Rvalue::Use(v), e.span);
+                Operand::Const(Const::Void)
             }
             ExprKind::Member { object, name, .. }
                 if matches!(self.ty_of(object), Ty::Array(_) | Ty::Range(_))

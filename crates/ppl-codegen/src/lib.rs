@@ -214,15 +214,7 @@ struct Gen<'ctx, 'p> {
 type VariantInfo = (String, Vec<(String, Ty)>, bool);
 
 /// Size and alignment of a C-layout struct with these parts.
-fn struct_layout(parts: &[(u64, u64)]) -> (u64, u64) {
-    let mut offset: u64 = 0;
-    let mut align: u64 = 1;
-    for (s, a) in parts {
-        offset = offset.next_multiple_of(*a) + s;
-        align = align.max(*a);
-    }
-    (offset.next_multiple_of(align), align)
-}
+use ppl_mir::mir::struct_layout;
 
 /// Per-function state.
 struct FnCx<'ctx, 'p> {
@@ -283,69 +275,7 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// Size and alignment in bytes, as LLVM lays the type out on 64-bit targets.
     fn size_align(&self, t: &Ty) -> (u64, u64) {
-        match t {
-            Ty::Int(it) => {
-                let b = u64::from(it.bits() / 8);
-                (b, b)
-            }
-            Ty::Float(FloatTy::F32) | Ty::Char => (4, 4),
-            Ty::Float(FloatTy::F64) => (8, 8),
-            Ty::Bool => (1, 1),
-            Ty::Str | Ty::Array(_) | Ty::Ref(_) | Ty::Class(..) => (8, 8),
-            Ty::Iface(..) | Ty::Fn(..) => (16, 8),
-            Ty::Nullable(inner) if inner.is_ref() => (8, 8),
-            Ty::Nullable(inner) => struct_layout(&[(1, 1), self.size_align(inner)]),
-            Ty::Struct(sid, _, args) => {
-                let owner = Ty::type_owner(*sid);
-                let parts: Vec<(u64, u64)> = self
-                    .p
-                    .layout(*sid)
-                    .fields
-                    .iter()
-                    .map(|(_, t)| t.subst(owner, args))
-                    .filter(|t| self.ty(t).is_some())
-                    .map(|t| self.size_align(&t))
-                    .collect();
-                struct_layout(&parts)
-            }
-            Ty::Tuple(ts) => {
-                let parts: Vec<(u64, u64)> = ts.iter().map(|t| self.size_align(t)).collect();
-                struct_layout(&parts)
-            }
-            Ty::Range(it) => {
-                let b = u64::from(it.bits() / 8);
-                (3 * b, b)
-            }
-            Ty::Fixed(e, n) => {
-                let (s, a) = self.size_align(e);
-                (s * n, a)
-            }
-            Ty::Enum(eid, _) => {
-                let words = self
-                    .p
-                    .enum_layout(*eid)
-                    .variants
-                    .iter()
-                    .map(|v| {
-                        let parts: Vec<(u64, u64)> =
-                            v.fields.iter().map(|(_, t)| self.size_align(t)).collect();
-                        struct_layout(&parts).0.div_ceil(8)
-                    })
-                    .max()
-                    .unwrap_or(0);
-                if words == 0 {
-                    (4, 4)
-                } else {
-                    (8 + 8 * words, 8)
-                }
-            }
-            Ty::Lits(..)
-            | Ty::Union(..)
-            | Ty::Variant(..)
-            | Ty::Distinct(..)
-            | Ty::Immutable(_) => self.size_align(&t.erase()),
-            Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..) => (1, 1),
-        }
+        self.p.size_align(t)
     }
 
     /// The payload layout of one variant.
@@ -1065,6 +995,34 @@ impl<'ctx> Gen<'ctx, '_> {
                 let v = self.operand(fx, o)?;
                 Some(self.cast(fx, v, &from, to, loc))
             }
+            Rvalue::PtrOffset(p, n, sub) => {
+                let Ty::Ref(elem) = self.operand_ty(fx, p) else {
+                    unreachable!("a pointer")
+                };
+                let nt = self.operand_ty(fx, n);
+                let p = self.operand(fx, p)?.into_pointer_value();
+                let n = self.operand(fx, n)?.into_int_value();
+                let signed = matches!(nt.erase(), Ty::Int(it) if it.signed());
+                let mut n = self
+                    .b
+                    .build_int_cast_sign_flag(n, self.i64(), signed, "")
+                    .unwrap();
+                if *sub {
+                    n = self.b.build_int_neg(n, "").unwrap();
+                }
+                let et = self.elem_ty(&elem);
+                Some(unsafe { self.b.build_gep(et, p, &[n], "ptr").unwrap() }.into())
+            }
+            Rvalue::SizeOf(t, align) => {
+                let (size, alignment) = self.size_align(t);
+                let v = if *align { alignment } else { size };
+                Some(self.i64().const_int(v, false).into())
+            }
+            Rvalue::BitCast(o, to) => {
+                let v = self.operand(fx, o)?;
+                let t = self.ty(to).expect("a number type");
+                Some(self.b.build_bit_cast(v, t, "bits").unwrap())
+            }
             Rvalue::ToStr(o) => {
                 let t = self.operand_ty(fx, o);
                 let v = self.operand(fx, o)?;
@@ -1638,8 +1596,8 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Range(it) => vec![Ty::Int(*it); 3],
             Ty::Fixed(e, n) => vec![(**e).clone(); *n as usize],
             Ty::Str => return self.str_binary(BinOp::Eq, x, y).into_int_value(),
-            // Identity.
-            Ty::Class(..) => {
+            // Identity (pointers: the address).
+            Ty::Class(..) | Ty::Ref(_) => {
                 let (a, b) = (
                     self.b
                         .build_ptr_to_int(x.into_pointer_value(), self.i64(), "")
@@ -2437,6 +2395,7 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Str => self.str_binary(op, x, y),
             Ty::Struct(..)
             | Ty::Class(..)
+            | Ty::Ref(_)
             | Ty::Enum(..)
             | Ty::Tuple(_)
             | Ty::Fixed(..)

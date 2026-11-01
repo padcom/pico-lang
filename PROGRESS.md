@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P4.5: Unsafe and pointers** (see [PLAN.md](PLAN.md#p45-unsafe-and-pointers)).
+**P4.6: Arenas** (see [PLAN.md](PLAN.md#p46-arenas)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,10 +23,10 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 209 decisions, no open questions |
+| Spec | ✅ 16 chapters, 210 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P4.4) |
+| Last green `scripts/test.sh` | 2026-11-01 (P4.5) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -50,6 +50,9 @@ Notes:
   split of that list would help programs with very many weak refs). No ephemerons in `WeakMap`.
   Finalizers run at the end of the entry's code (`__runFinalizers`), to move onto the event
   loop in P5.1.
+- **Unsafe (P4.5, decision 210)**: `ptr<T>` = `Ty::Ref`. An `unsafe function` used as a value
+  (`const f = poke`) can then be called without `unsafe` (not checked yet). FFI (P? interop)
+  will need `ptr<void>`, null pointers and casts between pointer types.
   Collection only at safepoints; layouts mirror codegen's `size_align` (wasm32's 4-byte
   pointers will need both updated in P8.5). The interpreter has no collector.
   `PPL_GC_STRESS=1` (also run by the golden harness) collects at every safepoint.
@@ -169,7 +172,7 @@ Notes:
 - [x] P4.2 Mark-sweep GC
 - [x] P4.3 Generational and incremental GC
 - [x] P4.4 Weak references and finalization
-- [ ] P4.5 Unsafe and pointers
+- [x] P4.5 Unsafe and pointers
 - [ ] P4.6 Arenas
 
 ### Phase 5: Async and concurrency
@@ -293,3 +296,4 @@ Notes:
 | 2026-11-01 | P4.2 | Mark-sweep heap in `ppl_gc.c`: 64 KiB blocks, 27 size classes (bump then free lists), large-object block runs, block hash table for pointer validation (interior pointers), mark stack, sweep with spare-block reuse, threshold 2× survivors (≥ 8 MiB), pause/time stats, `pause`/`resume`; `PPL_GC_STRESS=1` and a third harness run per fixture. Decision 207. Test: run/gc/stress (200k iterations: 38 MB allocated in an 8 MB heap, 5 collections, max pause 0.46 ms). |
 | 2026-11-01 | P4.3 | Generational + incremental GC: nursery of young objects (list-swept, promoted in place), remembered set + cards for large objects, write barrier with layouts (Dijkstra shading during marking), incremental marking with alternating colors and chunked large objects, finishing pause (nursery + root rescan + drain), lazy sweeping, radix block table; `collectYoung`, `pause`/`resume`, `resetStats`; `PPL_GC_STRESS` overlaps cycles with the mutator, `PPL_GC_TRACE`. Decision 208. Tests: run/gc/{generations,control}; bench/gc_pause.ppl: frame max pause 0.34–0.77 ms (see notes). |
 | 2026-11-01 | P4.4 | `WeakRef`, `WeakMap`, `WeakSet`, `FinalizationRegistry` in `stdlib/core/weak.ppl` over a core-only `@weak` field (`StructLayout.weak`, `PplLayout.nweak`; the collector clears dead targets after nursery marking and at the end of major marking), `T extends object` bound, `__ref_id` builtin; interpreter weak fields as `rc::Weak`; finalizers at exit through `__runFinalizers` (dropped when unused). Decision 209. Tests: run/gc/{weak,finalization}, fail/gc/weak_targets. |
+| 2026-11-01 | P4.5 | `unsafe { }`, `unsafe function`, `ptr<T>` (as `Ty::Ref`), `ptr.of`, `read`/`write`, pointer `+`/`-`/`==`, `sizeof`/`alignof` (`mir::Program::size_align`, moved from codegen), `unsafe.cast` bit casts, `@pod` structs; E0342 (needs `unsafe`), E0343 (non-plain `@pod` field). Decision 210. Tests: run/unsafe/pointers, fail/unsafe/{outside,pod}. |

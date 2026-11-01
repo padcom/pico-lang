@@ -1,0 +1,28 @@
+// error: E0342
+// at: 19:11
+// error: E0342
+// at: 20:11
+// error: E0342
+// at: 21:11
+// error: E0342
+// at: 22:32
+// error: E0342
+// at: 25:1
+// error: E0342
+// at: 26:12
+// error: E0305
+// at: 27:20
+// error: E0308
+// at: 28:27
+unsafe function poke(p: ptr<u8>, v: u8) { p.write(v) }
+let x = 1
+const p = ptr.of(x)
+const q = sizeof<int>()
+const r = unsafe.cast<u32>(1.0f32)
+function f(a: ptr<int>): int { a.read() }
+const b: u8[] = [1]
+const pb = unsafe { ptr.of(b[0]) }
+poke(pb, 1)
+const pc = pb + 1
+const s = unsafe { unsafe.cast<u8>(1.0) }
+const t = unsafe { ptr.of(1 + 2) }

@@ -388,18 +388,23 @@ impl Resolver {
             match &stmt.kind {
                 ast::StmtKind::Decl(d) => {
                     if let ast::DeclKind::Struct(sd) = &d.kind {
-                        if let Some(dec) = d.decorators.first() {
+                        let is_pod = |dec: &ast::Decorator| {
+                            dec.path.len() == 1 && dec.path[0].name == "pod" && dec.args.is_none()
+                        };
+                        if let Some(dec) = d.decorators.iter().find(|d| !is_pod(d)) {
                             self.not_implemented(dec.span, "decorators");
+                        }
+                        let pod = d.decorators.iter().any(is_pod);
+                        if pod && let Some(g) = sd.generics.first() {
+                            self.not_implemented(g.name.span, "generic `@pod` structs");
                         }
                         if self.check_duplicate(&mut first_seen, &sd.name) {
                             continue;
                         }
                         let id = StructId(self.structs.len() as u32);
-                        self.structs.push(StructDef::new(
-                            sd.name.name.clone(),
-                            sd.name.span,
-                            false,
-                        ));
+                        let mut def = StructDef::new(sd.name.name.clone(), sd.name.span, false);
+                        def.pod = pod && sd.generics.is_empty();
+                        self.structs.push(def);
                         self.top_structs
                             .insert(&self.mods, sd.name.name.clone(), id);
                         struct_decls.push((id, sd));
@@ -568,6 +573,7 @@ impl Resolver {
             self.f.type_params.clear();
         }
         self.check_struct_cycles();
+        self.check_pod();
         self.check_conformance();
 
         // Pass 2: function and method bodies.
@@ -685,6 +691,7 @@ impl Resolver {
             body: block,
             span: module.span,
             is_entry: true,
+            is_unsafe: false,
             this: None,
             owner: None,
             generics: Vec::new(),
@@ -910,6 +917,37 @@ impl Resolver {
 
     /// A struct or enum that contains itself by value (directly or through other inline
     /// types) has no size.
+    /// `@pod` structs hold only plain data: numbers, `bool`, `char`, `ptr<T>`, fixed arrays of
+    /// plain data and other `@pod` structs (spec §9.1).
+    fn check_pod(&mut self) {
+        fn plain(r: &Resolver, t: &Ty) -> bool {
+            match t.erase() {
+                Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Ref(_) | Ty::Error => true,
+                Ty::Fixed(e, _) => plain(r, &e),
+                Ty::Struct(sid, _, _) => r.structs[sid.0 as usize].pod,
+                _ => false,
+            }
+        }
+        let mut bad = Vec::new();
+        for s in self.structs.iter().filter(|s| s.pod) {
+            for f in &s.fields {
+                if !plain(self, &f.ty) {
+                    bad.push((s.name.clone(), f.name.clone(), f.ty.clone(), f.span));
+                }
+            }
+        }
+        for (sname, fname, ty, span) in bad {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::POD_REFERENCE,
+                    format!("field `{fname}` of `@pod struct {sname}` isn't plain data"),
+                )
+                .primary(span, format!("`{ty}`"))
+                .note("`@pod` structs hold numbers, `bool`, `char`, `ptr<T>`, fixed arrays and other `@pod` structs"),
+            );
+        }
+    }
+
     fn check_struct_cycles(&mut self) {
         fn parts(r: &Resolver, n: Inline) -> Vec<Inline> {
             let mut out = Vec::new();
@@ -1080,11 +1118,9 @@ impl Resolver {
     ) -> Function {
         self.enter_module(f.span);
         let name = f.name.clone().expect("named function");
-        if f.flags.is_async || f.flags.is_unsafe || f.flags.decorator {
+        if f.flags.is_async || f.flags.decorator {
             let what = if f.flags.is_async {
                 "async functions"
-            } else if f.flags.is_unsafe {
-                "unsafe functions"
             } else {
                 "decorator functions"
             };
@@ -1258,6 +1294,7 @@ impl Resolver {
             body,
             span: f.span,
             is_entry,
+            is_unsafe: f.flags.is_unsafe,
             this: self.f.this,
             owner,
             generics,
@@ -2368,6 +2405,7 @@ impl Resolver {
             body,
             span,
             is_entry: false,
+            is_unsafe: false,
             this: self.f.this,
             owner: Some(sid),
             generics: Vec::new(),
@@ -2473,6 +2511,7 @@ impl Resolver {
             },
             span: c.decl.name.span,
             is_entry: false,
+            is_unsafe: false,
             this: None,
             owner: Some(sid),
             generics: Vec::new(),
@@ -3138,6 +3177,7 @@ impl Resolver {
             body,
             span,
             is_entry: false,
+            is_unsafe: false,
             this: st.this,
             owner: st.owner,
             generics: Vec::new(),
@@ -3269,6 +3309,15 @@ impl Resolver {
                 if path.len() == 1 && path[0].name == "Array" && args.len() == 1 =>
             {
                 Ty::Array(Box::new(self.resolve_type(&args[0])))
+            }
+            // A raw pointer (spec §9.5); represented like the internal references.
+            ast::TypeKind::Path { path, args }
+                if path.len() == 1
+                    && path[0].name == "ptr"
+                    && args.len() == 1
+                    && !self.top_structs.contains_key(&self.mods, "ptr") =>
+            {
+                Ty::Ref(Box::new(self.resolve_type(&args[0])))
             }
             ast::TypeKind::Path { path, args }
                 if path.len() == 1 && self.top_structs.contains_key(&self.mods, &path[0].name) =>
@@ -4435,6 +4484,43 @@ impl Resolver {
                 callee,
                 type_args,
                 args,
+            } if self.intrinsic(callee).is_some() => {
+                let which = self.intrinsic(callee).expect("checked");
+                let (want_types, want_args) = if which == "ptr.of" {
+                    (0, 1)
+                } else if which == "unsafe.cast" {
+                    (1, 1)
+                } else {
+                    (1, 0)
+                };
+                if type_args.len() != want_types || args.len() != want_args {
+                    self.error(
+                        codes::WRONG_ARG_COUNT,
+                        span,
+                        format!(
+                            "`{which}` takes {want_types} type argument{} and {want_args} argument{}",
+                            if want_types == 1 { "" } else { "s" },
+                            if want_args == 1 { "" } else { "s" }
+                        ),
+                        "wrong number of arguments",
+                    );
+                    return self.error_expr(span);
+                }
+                let ty = type_args.first().map(|t| self.resolve_type(t));
+                let arg = args.first().map(|a| Box::new(self.lower_expr(&a.value)));
+                match which {
+                    "ptr.of" => ExprKind::PtrOf(arg.expect("checked")),
+                    "unsafe.cast" => ExprKind::BitCast(arg.expect("checked"), ty.expect("checked")),
+                    _ => ExprKind::SizeOf {
+                        ty: ty.expect("checked"),
+                        align: which == "alignof",
+                    },
+                }
+            }
+            A::Call {
+                callee,
+                type_args,
+                args,
             } => {
                 let type_args = type_args.iter().map(|t| self.resolve_type(t)).collect();
                 let callee = self.lower_expr(callee);
@@ -4461,6 +4547,7 @@ impl Resolver {
                 ExprKind::As(Box::new(e), t)
             }
             A::Block(b) => ExprKind::Block(self.block(b)),
+            A::Unsafe(b) => ExprKind::Unsafe(self.block(b)),
             A::If {
                 cond: c,
                 then,
@@ -4552,7 +4639,6 @@ impl Resolver {
                     A::Object { .. } => "object and struct literals",
                     A::Await(_) => "`await`",
                     A::Comptime(_) => "`comptime`",
-                    A::Unsafe(_) => "`unsafe`",
                     A::Arena(_) => "arenas",
                     _ => "this expression",
                 };
@@ -4616,6 +4702,30 @@ impl Resolver {
     }
 
     /// Whether `name` refers to a variable (which shadows a type of the same name).
+    /// The unsafe intrinsic (spec §9.5) a call's callee names, unless user names shadow it:
+    /// `ptr.of`, `unsafe.cast`, `sizeof` or `alignof`.
+    fn intrinsic(&self, callee: &ast::Expr) -> Option<&'static str> {
+        let free = |r: &Resolver, n: &str| {
+            !r.is_value_name(n)
+                && !r.top_fns.contains_key(&r.mods, n)
+                && !r.top_structs.contains_key(&r.mods, n)
+        };
+        match &callee.kind {
+            ast::ExprKind::Ident(n) if n == "sizeof" && free(self, "sizeof") => Some("sizeof"),
+            ast::ExprKind::Ident(n) if n == "alignof" && free(self, "alignof") => Some("alignof"),
+            ast::ExprKind::Member { object, prop, .. } => {
+                match (&object.kind, prop.name.as_str()) {
+                    (ast::ExprKind::Ident(o), "of") if o == "ptr" && free(self, "ptr") => {
+                        Some("ptr.of")
+                    }
+                    (ast::ExprKind::Ident(o), "cast") if o == "unsafe" => Some("unsafe.cast"),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn is_value_name(&self, name: &str) -> bool {
         self.f.scopes.iter().any(|s| s.names.contains_key(name))
             || self.top_globals.contains_key(&self.mods, name)

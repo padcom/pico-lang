@@ -1,0 +1,72 @@
+// Unsafe code (spec §9.5): raw pointers to variables, fields and elements, pointer
+// arithmetic, reads and writes through pointers, `sizeof`/`alignof`, bit casts and
+// `unsafe function`s.
+// expect: 255 2 3
+// expect: x = 42
+// expect: p.y = 7.5
+// expect: sum 6
+// expect: 8 8
+// expect: 12 4
+// expect: 28 4
+// expect: 1065353216
+// expect: 1
+// expect: same: true false
+// expect: 16 8
+@pod struct Vec3 {
+  x: f32
+  y: f32
+  z: f32
+}
+
+@pod struct Vertex {
+  pos: Vec3
+  uv: [f32; 2]
+  color: u32
+  pad: [u8; 4]
+}
+
+struct P {
+  x: int
+  y: f64
+}
+
+unsafe function poke(p: ptr<u8>, v: u8) {
+  p.write(v)
+}
+
+unsafe function sum(p: ptr<int>, n: int): int {
+  let total = 0
+  for (let i = 0; i < n; i++) {
+    total += (p + i).read()
+  }
+  total
+}
+
+function size<T>(): usize {
+  unsafe { sizeof<T>() }
+}
+
+const buffer: u8[] = [1, 2, 3, 4, 5]
+let x = 1
+let pt = P { x: 0, y: 0.0 }
+const nums: [int; 3] = [1, 2, 3]
+unsafe {
+  const p = ptr.of(buffer[0])
+  poke(p, 0xFF as u8)
+  const q = p + 4
+  println(`${p.read()} ${(q - 3).read()} ${(p + 2).read()}`)
+  const px = ptr.of(x)
+  px.write(42)
+  println(`x = ${x}`)
+  const py = ptr.of(pt.y)
+  py.write(7.5)
+  println(`p.y = ${pt.y}`)
+  println(`sum ${sum(ptr.of(nums[0]), 3)}`)
+  println(`${sizeof<int>()} ${alignof<f64>()}`)
+  println(`${sizeof<Vec3>()} ${alignof<Vec3>()}`)
+  println(`${sizeof<Vertex>()} ${alignof<Vertex>()}`)
+  println(unsafe.cast<u32>(1.0f32))
+  println(unsafe.cast<f64>(unsafe.cast<i64>(1.0)))
+  println(`same: ${p + 1 == ptr.of(buffer[1])} ${p == q}`)
+}
+println(`${size<P>()} ${size<f64>() as int + 0 * 1}`)

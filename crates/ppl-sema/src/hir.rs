@@ -146,6 +146,8 @@ pub struct StructDef {
     pub declared_in: HashMap<String, StructId>,
     /// `@derive(Eq, Hash, Ord)` on a class: the derived protocols.
     pub derives: Vec<String>,
+    /// `@pod struct`: plain data with a C layout (spec §9.1).
+    pub pod: bool,
     /// Methods marked `readonly` (callable through `immutable`; they can't mutate `this`).
     pub readonly_methods: std::collections::HashSet<String>,
     pub getters: Vec<(String, FnId)>,
@@ -164,6 +166,7 @@ impl StructDef {
             fields: Vec::new(),
             methods: Vec::new(),
             is_class,
+            pod: false,
             is_interface: false,
             implements: Vec::new(),
             generics: Vec::new(),
@@ -390,6 +393,8 @@ pub struct Function {
     pub body: Block,
     pub span: Span,
     pub is_entry: bool,
+    /// `unsafe function`: its body may use unsafe operations, and calls of it need `unsafe`.
+    pub is_unsafe: bool,
     /// For methods: the `this` local and its struct or class. A struct's `this` is passed by
     /// reference, a class's is the object reference.
     pub this: Option<(LocalId, StructId)>,
@@ -803,6 +808,17 @@ pub enum ExprKind {
     },
     /// `typeof e`: the name of `e`'s runtime type.
     TypeOf(Box<Expr>),
+    /// `unsafe { … }` (spec §9.5): unsafe operations are allowed inside.
+    Unsafe(Block),
+    /// `ptr.of(place)`: a raw pointer (`ptr<T>`) to a place.
+    PtrOf(Box<Expr>),
+    /// `sizeof<T>()` (`align` false) / `alignof<T>()`: a `usize`.
+    SizeOf {
+        ty: Ty,
+        align: bool,
+    },
+    /// `unsafe.cast<T>(x)`: `x`'s bits as a `T` of the same size (numbers).
+    BitCast(Box<Expr>, Ty),
     /// `e!`: panics if `e` is null.
     NonNull(Box<Expr>),
     /// `base?.rest`: `tmp` holds the non-null `base`, and `rest` (the chain after `?.`) uses it.
@@ -910,6 +926,7 @@ impl Expr {
             | ExprKind::Continue
             | ExprKind::Closure(_)
             | ExprKind::Overloaded(_)
+            | ExprKind::SizeOf { .. }
             | ExprKind::Error => {}
             ExprKind::NamedArg { value, .. } => f(value),
             ExprKind::Spread(e)
@@ -934,7 +951,9 @@ impl Expr {
             ExprKind::Unary(_, e)
             | ExprKind::As(e, _)
             | ExprKind::NonNull(e)
-            | ExprKind::TypeOf(e) => f(e),
+            | ExprKind::TypeOf(e)
+            | ExprKind::PtrOf(e)
+            | ExprKind::BitCast(e, _) => f(e),
             ExprKind::Binary(_, a, b) | ExprKind::Range { start: a, end: b } => {
                 f(a);
                 f(b);
@@ -995,7 +1014,7 @@ impl Expr {
                     f(e);
                 }
             }
-            ExprKind::Block(b) | ExprKind::Loop(b) => block(b, f),
+            ExprKind::Block(b) | ExprKind::Loop(b) | ExprKind::Unsafe(b) => block(b, f),
             ExprKind::While {
                 cond, body, update, ..
             } => {

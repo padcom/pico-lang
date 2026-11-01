@@ -255,6 +255,8 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             iterables: HashMap::new(),
         },
         narrow: Vec::new(),
+        unsafe_depth: 0,
+        inherit_unsafe: false,
         recv_args: Vec::new(),
         pre_inferred: None,
         reuse: None,
@@ -375,6 +377,10 @@ struct Checker<'p> {
     /// Flow-sensitive narrowing: scopes mapping variables to the type they're known to have
     /// (`T` for a `T?` binding after `x != null`).
     narrow: Vec<HashMap<Var, Ty>>,
+    /// Inside `unsafe { }` blocks or an `unsafe function` (spec §9.5) when non-zero.
+    unsafe_depth: u32,
+    /// The next function checked is a closure (it inherits the unsafe context).
+    inherit_unsafe: bool,
 }
 
 /// Definite assignment of `this.field` in a constructor: the set of fields assigned on every
@@ -907,6 +913,31 @@ impl<'p> Checker<'p> {
     // ------------------------------------------------------------ functions
 
     fn check_fn(&mut self, id: FnId) {
+        let saved = self.unsafe_depth;
+        let inherit = std::mem::take(&mut self.inherit_unsafe);
+        self.unsafe_depth = if self.program.func(id).is_unsafe {
+            1
+        } else if inherit {
+            saved
+        } else {
+            0
+        };
+        self.check_fn_body(id);
+        self.unsafe_depth = saved;
+    }
+
+    /// An unsafe operation (spec §9.5) outside `unsafe` code is an error.
+    fn require_unsafe(&mut self, span: Span, what: &str) {
+        if self.unsafe_depth == 0 {
+            self.diags.push(
+                Diagnostic::error(codes::UNSAFE_NEEDED, format!("{what} needs `unsafe`"))
+                    .primary(span, "outside an `unsafe` block or function")
+                    .help("wrap it in `unsafe { … }`, or declare the function `unsafe`"),
+            );
+        }
+    }
+
+    fn check_fn_body(&mut self, id: FnId) {
         match self.state[id.0 as usize] {
             FnState::Done => return,
             FnState::InProgress => return,
@@ -1466,6 +1497,60 @@ impl<'p> Checker<'p> {
             ExprKind::TypeOf(inner) => {
                 self.infer(inner);
                 Ty::Str
+            }
+            ExprKind::Unsafe(b) => {
+                self.unsafe_depth += 1;
+                let t = self.block(b, want);
+                self.unsafe_depth -= 1;
+                t
+            }
+            ExprKind::PtrOf(inner) => {
+                self.require_unsafe(e.span, "`ptr.of`");
+                let t = self.infer(inner);
+                let place = matches!(
+                    inner.kind,
+                    ExprKind::Var(_) | ExprKind::Member { .. } | ExprKind::Index { .. }
+                );
+                if !place && !t.is_error() {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MISMATCHED_TYPES,
+                            "`ptr.of` needs a variable, a field or an element",
+                        )
+                        .primary(inner.span, "not a place in memory"),
+                    );
+                    return Ty::Error;
+                }
+                if t.is_error() {
+                    return Ty::Error;
+                }
+                Ty::Ref(Box::new(t.erase()))
+            }
+            ExprKind::SizeOf { align, .. } => {
+                self.require_unsafe(e.span, if *align { "`alignof`" } else { "`sizeof`" });
+                Ty::Int(IntTy::Usize)
+            }
+            ExprKind::BitCast(inner, to) => {
+                self.require_unsafe(e.span, "`unsafe.cast`");
+                let from = self.infer(inner);
+                let bits = |t: &Ty| match t.erase() {
+                    Ty::Int(it) => Some(it.bits()),
+                    Ty::Float(FloatTy::F32) => Some(32),
+                    Ty::Float(FloatTy::F64) => Some(64),
+                    _ => None,
+                };
+                match (bits(&from), bits(to)) {
+                    (Some(a), Some(b)) if a == b => {}
+                    _ if from.is_error() || to.is_error() => {}
+                    _ => self.diags.push(
+                        Diagnostic::error(
+                            codes::INVALID_CAST,
+                            format!("`unsafe.cast` from `{from}` to `{to}`"),
+                        )
+                        .primary(e.span, "not two number types of the same size"),
+                    ),
+                }
+                to.clone()
             }
             ExprKind::Str(s) => {
                 let wants_char = matches!(want.map(|w| &w.ty), Some(Ty::Char));
@@ -3093,6 +3178,7 @@ impl<'p> Checker<'p> {
         }
         // Checked right here (it sees the enclosing function's current narrowings too).
         let saved = std::mem::take(&mut self.narrow);
+        self.inherit_unsafe = true;
         self.check_fn(id);
         self.narrow = saved;
         let sig = self.types.sigs[id.0 as usize].clone();
@@ -3871,6 +3957,8 @@ impl<'p> Checker<'p> {
     fn equatable(&self, t: &Ty) -> bool {
         match t {
             Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error => true,
+            // Pointers compare by address.
+            Ty::Ref(_) => true,
             Ty::Struct(sid, _, args) => self
                 .program
                 .struct_def(*sid)
@@ -4193,6 +4281,15 @@ impl<'p> Checker<'p> {
             let lt = self.infer_with(l, hint);
             if let Some(t) = self.user_binary(e, op, l, &lt, r) {
                 return t;
+            }
+            // Pointer arithmetic: `p + n` / `p - n` moves by `n` elements.
+            if matches!(lt, Ty::Ref(_)) && matches!(op, Add | Sub) {
+                self.require_unsafe(e.span, "pointer arithmetic");
+                let rt = self.infer_with(r, Some(&Expect::new(Ty::INT)));
+                if !rt.is_int() && !rt.is_error() {
+                    self.invalid_operand(r.span, "a pointer offset", &rt, "an integer");
+                }
+                return lt;
             }
             self.pre_inferred = Some(l.id);
         }
@@ -4896,6 +4993,9 @@ impl<'p> Checker<'p> {
         match &callee.kind {
             ExprKind::Fn(id) => {
                 self.set(callee, Ty::Void);
+                if self.program.func(*id).is_unsafe {
+                    self.require_unsafe(e.span, "calling an `unsafe function`");
+                }
                 self.call_fn(e, *id, args)
             }
             ExprKind::Builtin(b) => {
@@ -5128,6 +5228,21 @@ impl<'p> Checker<'p> {
             return Some(ret);
         }
         let (arity_ok, expected, ret) = match (t, name) {
+            (Ty::Ref(elem), "read") => {
+                self.require_unsafe(e.span, "reading through a pointer");
+                for a in args {
+                    self.infer(a);
+                }
+                (args.is_empty(), "no arguments", (**elem).clone())
+            }
+            (Ty::Ref(elem), "write") => {
+                self.require_unsafe(e.span, "writing through a pointer");
+                let want = Expect::new((**elem).clone());
+                for a in args {
+                    self.check(a, &want);
+                }
+                (args.len() == 1, "1 argument", Ty::Void)
+            }
             (Ty::Array(elem), "push") => {
                 let want = Expect::new((**elem).clone());
                 for a in args {

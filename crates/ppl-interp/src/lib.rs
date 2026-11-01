@@ -583,6 +583,53 @@ impl Interp<'_, '_> {
                 let (c, path) = self.locate(frame, place);
                 Ok(Value::Ref(c, path.into()))
             }
+            // A pointer is a place: moving it moves the last index (array elements, or the
+            // elements of a fixed array).
+            Rvalue::PtrOffset(p, n, sub) => {
+                let Value::Ref(c, path) = self.operand(frame, p) else {
+                    unreachable!("a pointer")
+                };
+                let Value::Int(n) = self.operand(frame, n) else {
+                    unreachable!("an integer offset")
+                };
+                let n = if *sub { -n } else { n };
+                if n == 0 {
+                    return Ok(Value::Ref(c, path));
+                }
+                let mut steps = path.to_vec();
+                let moved = match steps.last_mut() {
+                    Some(Step::Elem(i) | Step::Part(i)) => {
+                        usize::try_from(*i as i128 + n).ok().map(|j| *i = j)
+                    }
+                    _ => None,
+                };
+                if moved.is_none() {
+                    return Err(self.panic(panics::POINTER_OUT_OF_BOUNDS, loc));
+                }
+                Ok(Value::Ref(c, steps.into()))
+            }
+            Rvalue::SizeOf(t, align) => {
+                let (size, alignment) = self.p.size_align(t);
+                Ok(Value::Int(i128::from(if *align {
+                    alignment
+                } else {
+                    size
+                })))
+            }
+            Rvalue::BitCast(o, to) => {
+                let from = self.operand_ty(frame, o);
+                let bits: u128 = match (self.operand(frame, o), &from) {
+                    (Value::Int(x), Ty::Int(it)) => to_bits(x, *it),
+                    (Value::Float(x), Ty::Float(FloatTy::F32)) => u128::from((x as f32).to_bits()),
+                    (Value::Float(x), _) => u128::from(x.to_bits()),
+                    (v, t) => unreachable!("bit cast of {v:?}: {t}"),
+                };
+                Ok(match to {
+                    Ty::Int(it) => Value::Int(from_bits(bits, *it)),
+                    Ty::Float(FloatTy::F32) => Value::Float(f64::from(f32::from_bits(bits as u32))),
+                    _ => Value::Float(f64::from_bits(bits as u64)),
+                })
+            }
             Rvalue::Format(o, spec)
                 if ppl_sema::format::is_compound(&self.operand_ty(frame, o)) =>
             {
@@ -859,7 +906,11 @@ impl Interp<'_, '_> {
                 BitXor => a ^ b,
                 _ => unreachable!("type-checked bool operator"),
             })),
-            (a @ (Value::Struct(_) | Value::Enum(..) | Value::Object(_)), b, _) => Ok(match op {
+            (
+                a @ (Value::Struct(_) | Value::Enum(..) | Value::Object(_) | Value::Ref(..)),
+                b,
+                _,
+            ) => Ok(match op {
                 Eq => Value::Bool(values_eq(&a, &b)),
                 Ne => Value::Bool(!values_eq(&a, &b)),
                 _ => unreachable!("type-checked struct operator"),
@@ -1094,6 +1145,8 @@ fn values_eq(a: &Value, b: &Value) -> bool {
             t == u && x.iter().zip(y).all(|(p, q)| values_eq(p, q))
         }
         (Value::Float(x), Value::Float(y)) => x == y,
+        // Pointers: the same place.
+        (Value::Ref(c, p), Value::Ref(d, q)) => Rc::ptr_eq(c, d) && p == q,
         _ => a == b,
     }
 }

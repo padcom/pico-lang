@@ -98,6 +98,8 @@ codes! {
     INIT_CYCLE = 339: "a cycle in module initialization",
     NOT_EXPORTED = 340: "import of a name the module doesn't export",
     UNKNOWN_MODULE = 341: "import of a module that can't be found",
+    UNSAFE_NEEDED = 342: "an unsafe operation outside `unsafe` code",
+    POD_REFERENCE = 343: "a `@pod` struct with a field that isn't plain data",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

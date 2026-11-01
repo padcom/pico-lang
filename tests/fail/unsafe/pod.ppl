@@ -1,0 +1,17 @@
+// error: E0343
+// at: 10:19
+// error: E0343
+// at: 14:3
+// error: E0343
+// at: 15:3
+// error: E0900
+// at: 17:15
+struct Plain { x: i32 }
+@pod struct Bad { name: string }
+@pod struct Inner { v: f32 }
+@pod struct Mixed {
+  ok: [Inner; 2]
+  p: Plain
+  xs: i32[]
+}
+@pod struct G<T> { v: T }

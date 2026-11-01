@@ -144,7 +144,8 @@ pub enum Ty {
     Iface(StructId, Arc<str>, Arc<[Ty]>),
     /// A user-defined enum (a tagged union).
     Enum(EnumId, Arc<str>),
-    /// Internal: a reference to a value (method receivers). Not writable in source.
+    /// A reference to a value: method receivers internally, and `ptr<T>` in source (spec
+    /// §9.5; raw pointers, traced like interior references).
     Ref(Box<Ty>),
     /// `T[]` / `Array<T>`: a growable, heap-allocated array (a reference type).
     Array(Box<Ty>),
@@ -419,7 +420,7 @@ impl fmt::Display for Ty {
                 }
                 Ok(())
             }
-            Ty::Ref(t) => write!(f, "&{t}"),
+            Ty::Ref(t) => write!(f, "ptr<{t}>"),
             Ty::Array(t) if matches!(**t, Ty::Nullable(_)) => write!(f, "({t})[]"),
             Ty::Array(t) => write!(f, "{t}[]"),
             Ty::Fixed(t, n) => write!(f, "[{t}; {n}]"),

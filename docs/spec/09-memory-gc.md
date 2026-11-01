@@ -93,6 +93,21 @@ unsafe {
   (p + 4).write(0xFF as u8)
 }
 ```
+- `ptr.of(place)` points at a variable, a field or an element; `p.read()` and `p.write(v)`
+  access the value; `p + n` / `p - n` move by `n` elements (`n` any integer); pointers compare
+  with `==` by address. `sizeof<T>()` / `alignof<T>()` are `usize`s (the native layout, also
+  in the interpreter). `unsafe.cast<T>(x)` reinterprets the bits of a number as another number
+  type of the same size.
+- An `unsafe function` may use all of this in its body; calling one needs `unsafe` too. A
+  lambda inside `unsafe` code is unsafe code. Outside it, each operation is an error (E0342);
+  `ptr<T>` values may still be stored and passed around.
+- Pointers aren't owners: a pointer into an array's storage doesn't keep it alive (pointers are
+  traced conservatively, but that's no promise), and growing the array leaves it dangling.
+  Pointer arithmetic outside the pointed-to array, and using a dangling pointer, are undefined
+  behavior (the interpreter panics where it can tell).
+- `@pod struct`s (§9.1) may contain numbers, `bool`, `char`, `ptr<T>`, fixed arrays of those
+  and other `@pod` structs (E0343 otherwise); they're laid out like C structs (fields in order,
+  natural alignment). Generic `@pod` structs aren't supported yet.
 
 ## 9.6 `--no-gc` mode
 For embedded targets, compiling with `--no-gc` restricts the language to structs, enums, fixed

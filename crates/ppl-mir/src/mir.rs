@@ -15,6 +15,9 @@ pub mod panics {
     pub const OVERFLOW: &str = "integer overflow";
     pub const DIV_ZERO: &str = "division by zero";
     pub const SHIFT: &str = "shift amount out of range";
+    /// Interpreter only (natively undefined behavior): pointer arithmetic that leaves the
+    /// array a pointer points into.
+    pub const POINTER_OUT_OF_BOUNDS: &str = "pointer arithmetic outside an array";
     pub const NEG_EXPONENT: &str = "negative exponent";
     pub const INT_CAST: &str = "integer conversion out of range";
     pub const FLOAT_CAST: &str = "float conversion out of range";
@@ -94,7 +97,91 @@ pub struct StructLayout {
     pub meta: ClassMeta,
 }
 
+/// The size and alignment of a C struct with these parts (LLVM's layout too).
+pub fn struct_layout(parts: &[(u64, u64)]) -> (u64, u64) {
+    let mut offset: u64 = 0;
+    let mut align: u64 = 1;
+    for (s, a) in parts {
+        offset = offset.next_multiple_of(*a) + s;
+        align = align.max(*a);
+    }
+    (offset.next_multiple_of(align), align)
+}
+
+/// Whether values of `t` take space (`void`, `never` and friends don't).
+fn has_storage(t: &Ty) -> bool {
+    !matches!(
+        t.erase(),
+        Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..)
+    )
+}
+
 impl Program {
+    /// Size and alignment in bytes, as LLVM lays the type out on 64-bit targets.
+    pub fn size_align(&self, t: &Ty) -> (u64, u64) {
+        match t {
+            Ty::Int(it) => {
+                let b = u64::from(it.bits() / 8);
+                (b, b)
+            }
+            Ty::Float(FloatTy::F32) | Ty::Char => (4, 4),
+            Ty::Float(FloatTy::F64) => (8, 8),
+            Ty::Bool => (1, 1),
+            Ty::Str | Ty::Array(_) | Ty::Ref(_) | Ty::Class(..) => (8, 8),
+            Ty::Iface(..) | Ty::Fn(..) => (16, 8),
+            Ty::Nullable(inner) if inner.is_ref() => (8, 8),
+            Ty::Nullable(inner) => struct_layout(&[(1, 1), self.size_align(inner)]),
+            Ty::Struct(sid, _, args) => {
+                let owner = Ty::type_owner(*sid);
+                let parts: Vec<(u64, u64)> = self
+                    .layout(*sid)
+                    .fields
+                    .iter()
+                    .map(|(_, t)| t.subst(owner, args))
+                    .filter(has_storage)
+                    .map(|t| self.size_align(&t))
+                    .collect();
+                struct_layout(&parts)
+            }
+            Ty::Tuple(ts) => {
+                let parts: Vec<(u64, u64)> = ts.iter().map(|t| self.size_align(t)).collect();
+                struct_layout(&parts)
+            }
+            Ty::Range(it) => {
+                let b = u64::from(it.bits() / 8);
+                (3 * b, b)
+            }
+            Ty::Fixed(e, n) => {
+                let (s, a) = self.size_align(e);
+                (s * n, a)
+            }
+            Ty::Enum(eid, _) => {
+                let words = self
+                    .enum_layout(*eid)
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        let parts: Vec<(u64, u64)> =
+                            v.fields.iter().map(|(_, t)| self.size_align(t)).collect();
+                        struct_layout(&parts).0.div_ceil(8)
+                    })
+                    .max()
+                    .unwrap_or(0);
+                if words == 0 {
+                    (4, 4)
+                } else {
+                    (8 + 8 * words, 8)
+                }
+            }
+            Ty::Lits(..)
+            | Ty::Union(..)
+            | Ty::Variant(..)
+            | Ty::Distinct(..)
+            | Ty::Immutable(_) => self.size_align(&t.erase()),
+            Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..) => (1, 1),
+        }
+    }
+
     pub fn func(&self, id: FnId) -> &Function {
         &self.fns[id.0 as usize]
     }
@@ -382,8 +469,14 @@ pub enum Rvalue {
     ToStr(Operand),
     /// A struct value from its fields (in declaration order).
     Aggregate(Ty, Vec<Operand>),
-    /// A reference to a place (a method receiver).
+    /// A reference to a place (a method receiver, or `ptr.of(place)`).
     Ref(Place),
+    /// `p + n` / `p - n` (`sub`) on a `ptr<T>`: `n` (an integer) elements of `T` further.
+    PtrOffset(Operand, Operand, bool),
+    /// `sizeof<T>()` / `alignof<T>()` (`align`), a `usize`; see [`Program::size_align`].
+    SizeOf(Ty, bool),
+    /// `unsafe.cast<T>(x)`: the bits of a number as another number type of the same size.
+    BitCast(Operand, Ty),
     /// A template part with a format spec: `${x:08.2f}`.
     Format(Operand, ppl_sema::format::FormatSpec),
     /// `s.length`: a string's length in code points.
@@ -588,6 +681,12 @@ impl fmt::Display for Rvalue {
                 write!(f, "struct#{}{{{}}}", sid.0, ops.join(", "))
             }
             Rvalue::Ref(p) => write!(f, "&{p}"),
+            Rvalue::PtrOffset(p, n, sub) => {
+                write!(f, "PtrOffset({p}, {}{n})", if *sub { "-" } else { "" })
+            }
+            Rvalue::SizeOf(t, false) => write!(f, "SizeOf({t})"),
+            Rvalue::SizeOf(t, true) => write!(f, "AlignOf({t})"),
+            Rvalue::BitCast(a, t) => write!(f, "BitCast({a}, {t})"),
             Rvalue::Format(a, spec) => write!(f, "Format({a}, {spec:?})"),
             Rvalue::StrCharAt(a, i) => write!(f, "StrCharAt({a}, {i})"),
             Rvalue::StrSlice(a, i, j) => write!(f, "StrSlice({a}, {i}, {j})"),
