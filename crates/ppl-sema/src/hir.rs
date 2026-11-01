@@ -471,6 +471,27 @@ pub struct Capture {
     pub by_ref: bool,
 }
 
+/// What `T.member` asks about a type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypeMember {
+    Name,
+    Kind,
+    Fields,
+    Methods,
+}
+
+impl TypeMember {
+    pub fn from_name(n: &str) -> Option<TypeMember> {
+        Some(match n {
+            "name" => TypeMember::Name,
+            "kind" => TypeMember::Kind,
+            "fields" => TypeMember::Fields,
+            "methods" => TypeMember::Methods,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TypeParam {
     pub name: String,
@@ -881,6 +902,16 @@ pub enum ExprKind {
     /// A `comptime` parameter used as a value (`Ty::Param` of the generic function; each
     /// instance sees its constant).
     ConstParam(Ty),
+    /// `T.name`, `T.kind`, `T.fields`, `T.methods`: facts about a type (a type parameter's
+    /// are known in each instance). `elem` is the element type of `fields`/`methods`
+    /// (`FieldInfo`/`MethodInfo`), `string` otherwise.
+    TypeInfo {
+        ty: Ty,
+        member: TypeMember,
+        elem: Ty,
+    },
+    /// A type written where a value goes: only a `comptime T: type` argument.
+    TypeValue(Ty),
     /// `start..end`
     Range {
         start: Box<Expr>,
@@ -1063,6 +1094,8 @@ impl Expr {
             | ExprKind::Closure(_)
             | ExprKind::Comptime { .. }
             | ExprKind::ConstParam(_)
+            | ExprKind::TypeInfo { .. }
+            | ExprKind::TypeValue(_)
             | ExprKind::Overloaded(_)
             | ExprKind::SizeOf { .. }
             | ExprKind::Error => {}

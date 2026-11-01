@@ -939,6 +939,97 @@ impl FnBuilder<'_, '_> {
         self.cx.skip_files.contains(&span.file)
     }
 
+    /// `T.name`, `T.kind`, `T.fields`, `T.methods` of a concrete type: constants (an array
+    /// of `FieldInfo`/`MethodInfo` structs for the lists).
+    fn type_info(&mut self, t: &Ty, member: hir::TypeMember, elem: &Ty, span: Span) -> Operand {
+        use hir::TypeMember as M;
+        let s = |v: String| Operand::Const(Const::Str(v));
+        let def = match t {
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) | Ty::Iface(sid, _, args) => {
+                Some((self.cx.program.struct_def(*sid), *sid, args.clone()))
+            }
+            _ => None,
+        };
+        // Private members only in the declaring module (spec §11.3).
+        let visible = |n: &str, d: &hir::StructDef| {
+            !n.starts_with("__") && (!d.private.contains(n) || d.name_span.file == span.file)
+        };
+        match member {
+            M::Name => s(t.to_string()),
+            M::Kind => s(match t {
+                Ty::Struct(..) => "struct",
+                Ty::Class(..) => "class",
+                Ty::Iface(..) => "interface",
+                Ty::Enum(..) | Ty::Union(..) => "enum",
+                Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Void => "primitive",
+                Ty::Array(_) => "array",
+                Ty::Fixed(..) => "fixed array",
+                Ty::Tuple(_) => "tuple",
+                Ty::Nullable(_) => "nullable",
+                Ty::Fn(..) => "function",
+                _ => "other",
+            }
+            .to_string()),
+            M::Fields => {
+                let fields: Vec<(String, String)> = match &def {
+                    Some((d, sid, args)) => d
+                        .fields
+                        .iter()
+                        .filter(|f| visible(&f.name, d))
+                        .map(|f| {
+                            (
+                                f.name.clone(),
+                                f.ty.subst(Ty::type_owner(*sid), args).to_string(),
+                            )
+                        })
+                        .collect(),
+                    None => Vec::new(),
+                };
+                let vals = fields
+                    .into_iter()
+                    .map(|(n, ty)| {
+                        self.rvalue_to_temp(
+                            Rvalue::Aggregate(elem.clone(), vec![s(n), s(ty)]),
+                            elem.clone(),
+                            span,
+                        )
+                    })
+                    .collect();
+                self.rvalue_to_temp(
+                    Rvalue::ArrayNew(elem.clone(), vals),
+                    Ty::Array(Box::new(elem.clone())),
+                    span,
+                )
+            }
+            M::Methods => {
+                let names: Vec<String> = match &def {
+                    Some((d, _, _)) => d
+                        .methods
+                        .iter()
+                        .filter(|(n, _)| visible(n, d))
+                        .map(|(n, _)| n.clone())
+                        .collect(),
+                    None => Vec::new(),
+                };
+                let vals = names
+                    .into_iter()
+                    .map(|n| {
+                        self.rvalue_to_temp(
+                            Rvalue::Aggregate(elem.clone(), vec![s(n)]),
+                            elem.clone(),
+                            span,
+                        )
+                    })
+                    .collect();
+                self.rvalue_to_temp(
+                    Rvalue::ArrayNew(elem.clone(), vals),
+                    Ty::Array(Box::new(elem.clone())),
+                    span,
+                )
+            }
+        }
+    }
+
     /// A type written in the code, seen through the current instance's type arguments.
     fn mono(&self, t: &Ty) -> Ty {
         let mut t = t.clone();
@@ -2443,6 +2534,11 @@ impl FnBuilder<'_, '_> {
                 };
                 self.rvalue_to_temp(Rvalue::Repeat(v, n), ty, e.span)
             }
+            ExprKind::TypeInfo { ty, member, elem } => {
+                let t = self.mono(ty);
+                self.type_info(&t, *member, elem, e.span)
+            }
+            ExprKind::TypeValue(_) => Operand::Const(Const::Void),
             // A `comptime` parameter: this instance's constant.
             ExprKind::ConstParam(t) => match self.mono(t) {
                 Ty::Lits(_, vs) => match vs.first() {

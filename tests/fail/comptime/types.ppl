@@ -1,0 +1,9 @@
+// error: E0353
+// at: 8:16
+// error: E0208
+// at: 9:11
+// A `comptime T: type` parameter takes a type, and a type isn't a value elsewhere.
+struct Point { x: f64 }
+function name(comptime T: type): string { T.name }
+const a = name(3)
+const p = Point

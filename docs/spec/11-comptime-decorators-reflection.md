@@ -43,7 +43,11 @@ const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl
   log, which the compiler prints.
 - `target` (`os`, `arch`, `triple`) and `build` (`mode`, `flags`) are compile-time constants,
   usable anywhere (unless the program declares its own names `target`/`build`).
-- Types are values at comptime (`comptime T: type`).
+- Types are values at comptime (`comptime T: type`, as a generic or a value parameter:
+  `schema(Point)`). A type answers `T.name`, `T.kind` (`"struct"`, `"class"`, `"enum"`,
+  `"primitive"`, …), `T.fields` (`FieldInfo { name, typeName }`) and `T.methods`
+  (`MethodInfo { name }`); private members are listed only inside the declaring module
+  (decision 222).
 - **Limit**: 10 million evaluation steps per top-level comptime evaluation, after which a compile
   error shows the comptime backtrace. Override it with `@comptimeLimit(50_000_000)` on the
   declaration.

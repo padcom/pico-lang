@@ -2255,6 +2255,17 @@ impl<'p> Checker<'p> {
                 Ty::FixedN(Box::new(t), Box::new(count.clone()))
             }
             ExprKind::ConstParam(t) => self.const_param_ty(t),
+            ExprKind::TypeInfo { member, elem, .. } => match member {
+                TypeMember::Name | TypeMember::Kind => Ty::Str,
+                TypeMember::Fields | TypeMember::Methods => Ty::Array(Box::new(elem.clone())),
+            },
+            ExprKind::TypeValue(t) => {
+                self.diags.push(
+                    Diagnostic::error(codes::NOT_A_VALUE, format!("`{t}` is a type, not a value"))
+                        .primary(e.span, "type used as a value"),
+                );
+                Ty::Error
+            }
             ExprKind::Range { start, end } => self.range(e, start, end, want),
             ExprKind::ForOf { var, iter, body } => {
                 self.forget_assigned(&[body]);
@@ -5845,6 +5856,55 @@ impl<'p> Checker<'p> {
                 ret: sig.ret.subst(o, a),
             };
         }
+        // `comptime T: type` arguments are types, not runtime arguments: set them aside
+        // (the slots skip them).
+        let type_params: Vec<(usize, usize)> = generics
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| g.comptime.is_none())
+            .filter_map(|(i, g)| g.value_param.map(|k| (i, k)))
+            .collect();
+        let skipped: HashSet<usize> = type_params.iter().map(|(_, k)| *k).collect();
+        let mut type_values: Vec<(usize, Ty)> = Vec::new();
+        let kept: Vec<&Expr>;
+        let args = if type_params.is_empty() {
+            args
+        } else {
+            for (i, k) in &type_params {
+                let Some(a) = args.get(*k) else { continue };
+                self.set(a, Ty::Void);
+                let t = match &a.kind {
+                    ExprKind::TypeValue(t) => t.clone(),
+                    _ => {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::COMPTIME_ARG,
+                                format!(
+                                    "the `comptime` parameter `{}` takes a type",
+                                    generics[*i].name
+                                ),
+                            )
+                            .primary(a.span, "not a type"),
+                        );
+                        Ty::Error
+                    }
+                };
+                type_values.push((*i, t));
+            }
+            self.types.arg_slots.entry(e.id).or_insert_with(|| {
+                (0..args.len())
+                    .filter(|j| !skipped.contains(j))
+                    .map(Slot::Arg)
+                    .collect()
+            });
+            kept = args
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| !skipped.contains(j))
+                .map(|(_, a)| *a)
+                .collect();
+            &kept[..]
+        };
         // `name: value` arguments (each parameter given once; no rest or defaults): in
         // parameter order, recording the slots so lowering evaluates them that way.
         let reordered;
@@ -5900,6 +5960,9 @@ impl<'p> Checker<'p> {
             }
         }
         let mut subst: Vec<Option<Ty>> = vec![None; n];
+        for (i, t) in type_values {
+            subst[i] = Some(t);
+        }
         // The hidden parameters of `comptime` value parameters come last; they aren't
         // written as type arguments.
         let n_shown = generics.iter().filter(|g| g.value_param.is_none()).count();
@@ -6031,6 +6094,11 @@ impl<'p> Checker<'p> {
         // `comptime` value parameters: the argument's constant decides the instance.
         for (i, g) in generics.iter().enumerate() {
             let Some(k) = g.value_param else { continue };
+            if g.comptime.is_none() {
+                continue;
+            }
+            // (Its position among the runtime arguments.)
+            let k = k - skipped.iter().filter(|s| **s < k).count();
             let Some((a, _)) = pairs.get(k) else { continue };
             let a = Self::arg_value(a);
             subst[i] = Some(match const_of(a) {

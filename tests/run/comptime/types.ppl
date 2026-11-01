@@ -1,0 +1,41 @@
+// expect: x, y
+// expect: id, name, secret
+// expect: > Point (struct) { x: f64, y: f64 }
+// expect: User (class) { id: i64, name: string, secret: string }
+// expect: i32 (primitive) {  }
+// expect: 3 a
+// expect: norm
+// expect: greet
+// expect: Point
+// Types as comptime values: `comptime T: type` and reflection over their members (spec §11.1).
+struct Point {
+  x: f64
+  y: f64
+  norm(): f64 { this.x * this.x + this.y * this.y }
+}
+class User {
+  constructor(public id: i64, public name: string, private secret: string) {}
+  greet(): string { `hi ${this.name}` }
+}
+
+function describe<comptime T: type>(): string {
+  T.fields.map(f => f.name).join(", ")
+}
+function schema(comptime T: type, prefix: string): string {
+  const parts = T.fields.map(f => `${f.name}: ${f.typeName}`)
+  `${prefix}${T.name} (${T.kind}) { ${parts.join(", ")} }`
+}
+function vec<comptime T: type, comptime N: i32>(fill: T): [T; N] { [fill; N] }
+function methodsOf<T>(): string { T.methods.map(m => m.name).join(" ") }
+
+comptime const POINT_FIELDS = describe<Point>()
+println(POINT_FIELDS)
+println(describe<User>())
+println(schema(Point, "> "))
+println(schema(User, ""))
+println(schema(i32, ""))
+const v = vec<string, 3>("a")
+println(`${v.length} ${v[2]}`)
+println(methodsOf<Point>())
+println(methodsOf<User>())
+println(Point.name)

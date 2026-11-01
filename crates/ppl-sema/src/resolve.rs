@@ -368,6 +368,8 @@ enum Found {
     Member(String),
     /// A `comptime` parameter (`Ty::Param`).
     Const(Ty),
+    /// A type, used as a value.
+    Type(Ty),
     /// Inside comptime code: a local `comptime const` of the function around it, by the
     /// thunk that computes it.
     Thunk(FnId),
@@ -1217,10 +1219,27 @@ impl Resolver {
         }
         let mut params = Vec::new();
         let (f_params, destructured) = split_destructured(&f.params);
-        for p in &f_params {
+        for (src_i, p) in f_params.iter().enumerate() {
             let ast::PatternKind::Ident(pname) = &p.pat.kind else {
                 unreachable!("destructured parameters were renamed");
             };
+            // `comptime T: type`: only a hidden type parameter, decided by the type written
+            // as the argument (`describe(Point)`); no runtime parameter.
+            if p.comptime && p.ty.as_ref().is_some_and(is_type_kind) {
+                let gi = generics.len();
+                let param = Ty::Param(self.cur_fn.0, gi as u32, pname.name.as_str().into());
+                self.f.type_params.push((pname.name.clone(), param));
+                generics.push(TypeParam {
+                    name: pname.name.clone(),
+                    span: pname.span,
+                    bounds: Vec::new(),
+                    default: None,
+                    comptime: None,
+                    value_param: Some(src_i),
+                    is_len: false,
+                });
+                continue;
+            }
             if !p.mods.is_empty() {
                 self.not_implemented(p.span, "parameter modifiers");
             }
@@ -1236,7 +1255,7 @@ impl Resolver {
                     bounds: Vec::new(),
                     default: None,
                     comptime: None,
-                    value_param: Some(params.len()),
+                    value_param: Some(src_i),
                     is_len: false,
                 });
                 ast::Ident {
@@ -1465,6 +1484,11 @@ impl Resolver {
                     None
                 }
                 // `comptime N: i32`: a constant, used as a value or an array length.
+                // `comptime T: type` is an ordinary type parameter.
+                ast::GenericKind::Comptime { ty } if is_type_kind(ty) => {
+                    self.f.type_params.push((g.name.name.clone(), param));
+                    None
+                }
                 ast::GenericKind::Comptime { ty } => {
                     self.f.const_params.push((g.name.name.clone(), param));
                     Some(self.resolve_type(ty))
@@ -3031,6 +3055,15 @@ impl Resolver {
         if let Some(b) = Builtin::from_name(name) {
             return Some(Found::Builtin(b));
         }
+        // A type where a value goes: a `comptime T: type` argument (anything else is an
+        // error in type checking).
+        let named = ast::Expr {
+            kind: ast::ExprKind::Ident(name.into()),
+            span,
+        };
+        if let Some(t) = self.type_named(&named, "") {
+            return Some(Found::Type(t));
+        }
         if Ty::from_name(name).is_some() {
             self.error(
                 codes::NOT_A_VALUE,
@@ -3480,6 +3513,7 @@ impl Resolver {
             | Found::Builtin(_)
             | Found::Member(_)
             | Found::Const(_)
+            | Found::Type(_)
             | Found::Thunk(_) => {
                 self.error(
                     codes::NOT_A_VALUE,
@@ -4566,6 +4600,7 @@ impl Resolver {
             }
             A::Ident(name) => match self.lookup(name, span) {
                 Some(Found::Const(t)) => ExprKind::ConstParam(t),
+                Some(Found::Type(t)) => ExprKind::TypeValue(t),
                 Some(Found::Thunk(f)) => ExprKind::Comptime { f, limit: None },
                 Some(Found::Var(v)) => ExprKind::Var(v),
                 Some(Found::Fn(f)) => ExprKind::Fn(f),
@@ -4796,6 +4831,20 @@ impl Resolver {
                     variant,
                     args: Some(args),
                 }
+            }
+            // `T.fields`, `Point.name`: facts about a type.
+            A::Member { object, prop, .. }
+                if TypeMember::from_name(&prop.name).is_some()
+                    && self.type_named(object, &prop.name).is_some() =>
+            {
+                let ty = self.type_named(object, &prop.name).expect("checked");
+                let member = TypeMember::from_name(&prop.name).expect("checked");
+                let elem = match member {
+                    TypeMember::Fields => self.prelude_struct_ty("FieldInfo"),
+                    TypeMember::Methods => self.prelude_struct_ty("MethodInfo"),
+                    TypeMember::Name | TypeMember::Kind => Ty::Str,
+                };
+                ExprKind::TypeInfo { ty, member, elem }
             }
             A::Member { object, prop, .. } if self.names_class(object) => {
                 match self.static_member(object, prop) {
@@ -5330,6 +5379,45 @@ impl Resolver {
     fn is_value_name(&self, name: &str) -> bool {
         self.f.scopes.iter().any(|s| s.names.contains_key(name))
             || self.top_globals.contains_key(&self.mods, name)
+    }
+
+    /// The type `e` names (a type parameter, a primitive, a struct, class or enum), unless a
+    /// variable hides it or the type has a static member `member`.
+    fn type_named(&mut self, e: &ast::Expr, member: &str) -> Option<Ty> {
+        let ast::ExprKind::Ident(n) = &e.kind else {
+            return None;
+        };
+        if self.is_value_name(n) {
+            return None;
+        }
+        if let Some((_, t)) = self.f.type_params.iter().rev().find(|(p, _)| p == n) {
+            return Some(t.clone());
+        }
+        if let Some(t) = Ty::from_name(n) {
+            return Some(t);
+        }
+        if let Some(&sid) = self.top_structs.get(&self.mods, n) {
+            let def = &self.structs[sid.0 as usize];
+            if def.static_field(member).is_some()
+                || def.static_method(member).is_some()
+                || !def.generics.is_empty()
+            {
+                return None;
+            }
+            return Some(self.struct_ty(sid));
+        }
+        if let Some(&id) = self.top_enums.get(&self.mods, n) {
+            return Some(self.enum_ty(id));
+        }
+        None
+    }
+
+    /// A struct of the core library (`FieldInfo`) as a type.
+    fn prelude_struct_ty(&self, name: &str) -> Ty {
+        match self.top_structs.prelude().find(|(n, _)| *n == name) {
+            Some((_, sid)) => self.struct_ty(*sid),
+            None => Ty::Error,
+        }
     }
 
     /// Whether `e` names a class (as in `Animal.count`), not shadowed by a variable.
@@ -6027,6 +6115,11 @@ fn operator_method(op: &str, func: &ast::FnDecl, span: Span) -> (String, &'stati
 }
 
 /// A literal type's base type and value.
+/// `type` as the type of a `comptime` parameter.
+fn is_type_kind(t: &ast::Type) -> bool {
+    matches!(&t.kind, ast::TypeKind::Path { path, args } if path.len() == 1 && path[0].name == "type" && args.is_empty())
+}
+
 fn lit_val(l: &ast::Lit) -> Option<(Ty, LitVal)> {
     Some(match l {
         ast::Lit::Str(s) => (Ty::Str, LitVal::Str(s.as_str().into())),
