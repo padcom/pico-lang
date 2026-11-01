@@ -38,6 +38,9 @@ pub struct Program {
     pub enums: Vec<EnumDef>,
     /// The prelude's `Error` class.
     pub error_class: Option<StructId>,
+    /// Methods of built-in types written in ppl: top-level functions `__Array_map`,
+    /// `__String_…` whose first parameter is the receiver, by (`Array`/`String`, method name).
+    pub extensions: HashMap<(String, String), Vec<FnId>>,
     /// Functions that initialize classes' static fields; the entry function calls them first.
     pub static_inits: Vec<FnId>,
 }
@@ -401,6 +404,8 @@ pub enum Bound {
     Equatable,
     /// `E extends Error`: an error class, or `never` (throws nothing).
     Error,
+    /// The built-in `Hashable<T>`: `hashCode(): u64` plus `==` (keys of `Map`, `Set`).
+    Hashable,
 }
 
 impl Function {

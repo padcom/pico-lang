@@ -1,0 +1,206 @@
+// Array methods (spec §13.1). `xs.name(args)` on a `T[]` calls `__Array_name(xs, args)`.
+// Callbacks take the element only; what they throw, the method throws (§7.2).
+
+function __Array_map<T, U, E extends Error>(xs: T[], f: (x: T) => U throws E): U[] throws E {
+  const out: U[] = []
+  for (const x of xs) {
+    out.push(f(x))
+  }
+  out
+}
+
+function __Array_filter<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): T[] throws E {
+  const out: T[] = []
+  for (const x of xs) {
+    if (f(x)) {
+      out.push(x)
+    }
+  }
+  out
+}
+
+function __Array_reduce<T, A, E extends Error>(
+  xs: T[],
+  f: (acc: A, x: T) => A throws E,
+  initial: A,
+): A throws E {
+  let acc = initial
+  for (const x of xs) {
+    acc = f(acc, x)
+  }
+  acc
+}
+
+function __Array_forEach<T, E extends Error>(xs: T[], f: (x: T) => void throws E): void throws E {
+  for (const x of xs) {
+    f(x)
+  }
+}
+
+function __Array_find<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): T? throws E {
+  for (const x of xs) {
+    if (f(x)) {
+      return x
+    }
+  }
+  null
+}
+
+function __Array_findIndex<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): int throws E {
+  let i = 0
+  for (const x of xs) {
+    if (f(x)) {
+      return i
+    }
+    i += 1
+  }
+  -1
+}
+
+function __Array_some<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): bool throws E {
+  for (const x of xs) {
+    if (f(x)) {
+      return true
+    }
+  }
+  false
+}
+
+function __Array_every<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): bool throws E {
+  for (const x of xs) {
+    if (!f(x)) {
+      return false
+    }
+  }
+  true
+}
+
+function __Array_indexOf<T extends Equatable<T>>(xs: T[], value: T): int {
+  let i = 0
+  for (const x of xs) {
+    if (x == value) {
+      return i
+    }
+    i += 1
+  }
+  -1
+}
+
+function __Array_includes<T extends Equatable<T>>(xs: T[], value: T): bool {
+  __Array_indexOf(xs, value) >= 0
+}
+
+function __Array_join<T>(xs: T[]): string {
+  __Array_join(xs, ",")
+}
+
+function __Array_join<T>(xs: T[], separator: string): string {
+  let out = ""
+  let first = true
+  for (const x of xs) {
+    if (!first) {
+      out = out + separator
+    }
+    out = out + `${x}`
+    first = false
+  }
+  out
+}
+
+/// `start` and `end` as in `slice`: negative counts from the end, both clamped.
+function __clampIndex(i: int, n: int): int {
+  if (i < 0) {
+    if (n + i < 0) 0 else n + i
+  } else if (i > n) {
+    n
+  } else {
+    i
+  }
+}
+
+function __Array_slice<T>(xs: T[], start: int): T[] {
+  __Array_slice(xs, start, xs.length)
+}
+
+function __Array_slice<T>(xs: T[], start: int, end: int): T[] {
+  const out: T[] = []
+  let i = __clampIndex(start, xs.length)
+  const stop = __clampIndex(end, xs.length)
+  while (i < stop) {
+    out.push(xs[i])
+    i += 1
+  }
+  out
+}
+
+function __Array_concat<T>(xs: T[], other: T[]): T[] {
+  const out: T[] = []
+  for (const x of xs) {
+    out.push(x)
+  }
+  for (const x of other) {
+    out.push(x)
+  }
+  out
+}
+
+/// Reverses in place and returns the array.
+function __Array_reverse<T>(xs: T[]): T[] {
+  let i = 0
+  let j = xs.length - 1
+  while (i < j) {
+    const t = xs[i]
+    xs[i] = xs[j]
+    xs[j] = t
+    i += 1
+    j -= 1
+  }
+  xs
+}
+
+/// Sorts in place (stable merge sort) by `<` and returns the array.
+function __Array_sort<T extends Comparable<T>>(xs: T[]): T[] {
+  __Array_sort(xs, (a: T, b: T) => if (a < b) -1 else if (b < a) 1 else 0)
+}
+
+/// Sorts in place (stable merge sort) by `compare` (negative: `a` first) and returns the array.
+function __Array_sort<T, E extends Error>(xs: T[], compare: (a: T, b: T) => int throws E): T[] throws E {
+  const n = xs.length
+  if (n < 2) {
+    return xs
+  }
+  let src = __Array_slice(xs, 0)
+  let dst = __Array_slice(xs, 0)
+  let width = 1
+  while (width < n) {
+    let lo = 0
+    while (lo < n) {
+      const mid = if (lo + width < n) lo + width else n
+      const hi = if (lo + 2 * width < n) lo + 2 * width else n
+      let i = lo
+      let j = mid
+      let k = lo
+      while (k < hi) {
+        if (i < mid && (j >= hi || compare(src[j], src[i]) >= 0)) {
+          dst[k] = src[i]
+          i += 1
+        } else {
+          dst[k] = src[j]
+          j += 1
+        }
+        k += 1
+      }
+      lo = hi
+    }
+    const t = src
+    src = dst
+    dst = t
+    width = width * 2
+  }
+  let k = 0
+  while (k < n) {
+    xs[k] = src[k]
+    k += 1
+  }
+  xs
+}

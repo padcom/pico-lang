@@ -1,0 +1,193 @@
+// `Map<K, V>` and `Set<T>` (spec §13.1): hash tables over `hashCode()` and `==`, iterated in
+// insertion order like JavaScript's.
+
+class __MapEntry<K, V> {
+  public key: K
+  public value: V
+  public live: bool = true
+  constructor(key: K, value: V) {
+    this.key = key
+    this.value = value
+  }
+}
+
+class Map<K extends Hashable<K>, V> {
+  /// In insertion order; deleted entries stay (not `live`) until the next rehash.
+  items: __MapEntry<K, V>[] = []
+  /// Per bucket: indices into `items`.
+  buckets: int[][] = []
+  count: int = 0
+
+  constructor() {}
+
+  bucket(key: K): int {
+    (key.hashCode() % (this.buckets.length as u64)) as int
+  }
+
+  /// The index of `key`'s entry, or -1.
+  find(key: K): int {
+    if (this.buckets.length == 0) {
+      return -1
+    }
+    for (const i of this.buckets[this.bucket(key)]) {
+      const e = this.items[i]
+      if (e.live && e.key == key) {
+        return i
+      }
+    }
+    -1
+  }
+
+  /// Rebuilds the buckets (`n` of them), dropping deleted entries.
+  rehash(n: int): void {
+    const kept: __MapEntry<K, V>[] = []
+    for (const e of this.items) {
+      if (e.live) {
+        kept.push(e)
+      }
+    }
+    this.items = kept
+    const buckets: int[][] = []
+    let k = 0
+    while (k < n) {
+      buckets.push([])
+      k += 1
+    }
+    this.buckets = buckets
+    let i = 0
+    for (const e of kept) {
+      this.buckets[this.bucket(e.key)].push(i)
+      i += 1
+    }
+  }
+
+  public get size(): int {
+    this.count
+  }
+
+  public has(key: K): bool {
+    this.find(key) >= 0
+  }
+
+  public get(key: K): V? {
+    const i = this.find(key)
+    if (i < 0) {
+      return null
+    }
+    this.items[i].value
+  }
+
+  public set(key: K, value: V): Map<K, V> {
+    const i = this.find(key)
+    if (i >= 0) {
+      this.items[i].value = value
+      return this
+    }
+    if (this.items.length >= this.buckets.length) {
+      this.rehash(if (this.buckets.length < 8) 8 else this.buckets.length * 2)
+    }
+    this.items.push(new __MapEntry(key, value))
+    this.buckets[this.bucket(key)].push(this.items.length - 1)
+    this.count += 1
+    this
+  }
+
+  public delete(key: K): bool {
+    const i = this.find(key)
+    if (i < 0) {
+      return false
+    }
+    this.items[i].live = false
+    const b = this.bucket(key)
+    const rest: int[] = []
+    for (const j of this.buckets[b]) {
+      if (j != i) {
+        rest.push(j)
+      }
+    }
+    this.buckets[b] = rest
+    this.count -= 1
+    true
+  }
+
+  public clear(): void {
+    this.items = []
+    this.buckets = []
+    this.count = 0
+  }
+
+  public keys(): K[] {
+    const out: K[] = []
+    for (const e of this.items) {
+      if (e.live) {
+        out.push(e.key)
+      }
+    }
+    out
+  }
+
+  public values(): V[] {
+    const out: V[] = []
+    for (const e of this.items) {
+      if (e.live) {
+        out.push(e.value)
+      }
+    }
+    out
+  }
+
+  public entries(): [K, V][] {
+    const out: [K, V][] = []
+    for (const e of this.items) {
+      if (e.live) {
+        out.push([e.key, e.value])
+      }
+    }
+    out
+  }
+
+  public forEach<E extends Error>(f: (value: V, key: K) => void throws E): void throws E {
+    for (const e of this.items) {
+      if (e.live) {
+        f(e.value, e.key)
+      }
+    }
+  }
+}
+
+class Set<T extends Hashable<T>> {
+  map: Map<T, bool> = new Map()
+
+  constructor() {}
+
+  public get size(): int {
+    this.map.size
+  }
+
+  public has(value: T): bool {
+    this.map.has(value)
+  }
+
+  public add(value: T): Set<T> {
+    this.map.set(value, true)
+    this
+  }
+
+  public delete(value: T): bool {
+    this.map.delete(value)
+  }
+
+  public clear(): void {
+    this.map.clear()
+  }
+
+  public values(): T[] {
+    this.map.keys()
+  }
+
+  public forEach<E extends Error>(f: (value: T) => void throws E): void throws E {
+    for (const v of this.map.keys()) {
+      f(v)
+    }
+  }
+}

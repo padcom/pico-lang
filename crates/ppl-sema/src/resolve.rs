@@ -475,6 +475,15 @@ impl Resolver {
             structs: std::mem::take(&mut self.structs),
             enums: std::mem::take(&mut self.enums),
             error_class: self.top_structs.get("Error").copied(),
+            extensions: self
+                .top_fns
+                .iter()
+                .filter_map(|(n, ids)| {
+                    let rest = n.strip_prefix("__")?;
+                    let (ty, m) = rest.split_once('_')?;
+                    Some(((ty.to_string(), m.to_string()), ids.clone()))
+                })
+                .collect(),
             static_inits,
         }
     }
@@ -1067,6 +1076,9 @@ impl Resolver {
             }
             ast::TypeKind::Path { path, .. } if path.len() == 1 && path[0].name == "Equatable" => {
                 vec![Bound::Equatable]
+            }
+            ast::TypeKind::Path { path, .. } if path.len() == 1 && path[0].name == "Hashable" => {
+                vec![Bound::Hashable]
             }
             _ => match self.resolve_type(t) {
                 Ty::Iface(sid, _, _) => vec![Bound::Iface(sid)],

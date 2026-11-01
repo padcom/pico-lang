@@ -169,6 +169,8 @@ pub struct Function {
     pub ret: Ty,
     pub locals: Vec<LocalDecl>,
     pub blocks: Vec<BasicBlock>,
+    /// The core library's code (or a generated adapter): kept only when something reaches it.
+    pub library: bool,
 }
 
 impl Function {
@@ -360,6 +362,9 @@ pub enum Rvalue {
     StrLen(Operand),
     /// `s[i]`: the `char` at code-point index `i` (panics when out of bounds).
     StrCharAt(Operand, Operand),
+    /// `s.slice(start, end)`: code points `start..end`, where negative indices count from the
+    /// end and both are clamped to the string (JavaScript's `slice`).
+    StrSlice(Operand, Operand, Operand),
     /// A tuple, fixed array or range value (the type) from its parts in order.
     Tuple(Ty, Vec<Operand>),
     /// `[value; n]`
@@ -554,6 +559,7 @@ impl fmt::Display for Rvalue {
             Rvalue::Ref(p) => write!(f, "&{p}"),
             Rvalue::Format(a, spec) => write!(f, "Format({a}, {spec:?})"),
             Rvalue::StrCharAt(a, i) => write!(f, "StrCharAt({a}, {i})"),
+            Rvalue::StrSlice(a, i, j) => write!(f, "StrSlice({a}, {i}, {j})"),
             Rvalue::Tuple(t, ops) => {
                 let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();
                 write!(f, "{t}({})", ops.join(", "))
@@ -606,7 +612,52 @@ fn callee_name(p: &Program, c: Callee) -> String {
 }
 
 /// The textual MIR dump (`ppl build --emit mir`).
+/// The functions the program can reach from its entry (calls, closures and function values,
+/// vtables, itables). The prelude's unused code isn't, so backends and dumps skip it.
+pub fn live_functions(p: &Program) -> Vec<bool> {
+    let mut live = vec![false; p.fns.len()];
+    let mut work = vec![p.entry];
+    work.extend(
+        p.fns
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !f.library)
+            .map(|(i, _)| FnId(i as u32)),
+    );
+    for s in &p.structs {
+        work.extend(s.meta.vtable.iter().copied());
+    }
+    for t in &p.itables {
+        work.extend(t.iter().copied());
+    }
+    while let Some(f) = work.pop() {
+        let i = f.0 as usize;
+        if i >= live.len() || live[i] {
+            continue;
+        }
+        live[i] = true;
+        for b in &p.fns[i].blocks {
+            for st in &b.stmts {
+                if let Rvalue::Closure(g, _) = &st.rvalue {
+                    work.push(*g);
+                }
+            }
+            match &b.term {
+                Terminator::Call {
+                    callee:
+                        Callee::Fn(g) | Callee::Virtual { decl: g, .. } | Callee::Iface { decl: g, .. },
+                    ..
+                } => work.push(*g),
+                Terminator::TailCall { callee, .. } => work.push(*callee),
+                _ => {}
+            }
+        }
+    }
+    live
+}
+
 pub fn dump(p: &Program) -> String {
+    let live = live_functions(p);
     let mut out = String::new();
     for (i, g) in p.globals.iter().enumerate() {
         let _ = writeln!(out, "global @g{i}: {} // {}", g.ty, g.name);
@@ -614,10 +665,15 @@ pub fn dump(p: &Program) -> String {
     if !p.globals.is_empty() {
         out.push('\n');
     }
+    let mut first = true;
     for (fi, func) in p.fns.iter().enumerate() {
-        if fi > 0 {
+        if !live[fi] {
+            continue;
+        }
+        if !first {
             out.push('\n');
         }
+        first = false;
         let params: Vec<String> = func
             .params
             .iter()

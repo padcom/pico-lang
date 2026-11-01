@@ -88,6 +88,9 @@ pub struct Types {
     pub param_calls: HashMap<ExprId, String>,
     /// What each function may throw: its `throws` clause, or what was inferred for it.
     pub fn_throws: Vec<Vec<Ty>>,
+    /// Method calls on built-in types that call a ppl extension function (`xs.map(f)` →
+    /// `__Array_map(xs, f)`); the type arguments are in `instances`.
+    pub extensions: HashMap<ExprId, FnId>,
 }
 
 /// A protocol implemented field by field.
@@ -184,6 +187,7 @@ impl Types {
                 .collect(),
             param_calls: self.param_calls.clone(),
             fn_throws: self.fn_throws.clone(),
+            extensions: self.extensions.clone(),
             arg_slots: self.arg_slots.clone(),
             overloads: self.overloads.clone(),
             op_calls: self.op_calls.clone(),
@@ -243,10 +247,12 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             derived: HashMap::new(),
             param_calls: HashMap::new(),
             fn_throws: program.fns.iter().map(|f| f.throws.clone()).collect(),
+            extensions: HashMap::new(),
         },
         narrow: Vec::new(),
         recv_args: Vec::new(),
         pre_inferred: None,
+        reuse: None,
         tail_position: false,
         tail_body: false,
         diags: Vec::new(),
@@ -352,6 +358,8 @@ struct Checker<'p> {
     recv_args: Vec<Ty>,
     /// A binary operator's left operand, already inferred while looking for a user operator.
     pre_inferred: Option<ExprId>,
+    /// An expression already inferred that's checked again (an extension call's receiver).
+    reuse: Option<ExprId>,
     /// The expression being checked is the function's result (where `tailcall` may be).
     tail_position: bool,
     /// The next block checked is a function body (its tail is the result).
@@ -555,7 +563,15 @@ fn is_printable(t: &Ty) -> bool {
         Ty::Union(_, ms) => ms.iter().all(is_printable),
         _ => matches!(
             t,
-            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error | Ty::Never
+            Ty::Int(_)
+                | Ty::Float(_)
+                | Ty::Bool
+                | Ty::Char
+                | Ty::Str
+                | Ty::Error
+                | Ty::Never
+                // An instance shows its value (compound ones in the debug format).
+                | Ty::Param(..)
         ),
     }
 }
@@ -1293,6 +1309,10 @@ impl<'p> Checker<'p> {
     // ------------------------------------------------------------ expressions
 
     fn infer_with(&mut self, e: &Expr, want: Option<&Expect>) -> Ty {
+        if self.reuse == Some(e.id) {
+            self.reuse = None;
+            return self.types.exprs[e.id.0 as usize].clone();
+        }
         let t = self.expr_kind(e, want);
         // What's read through an `immutable` view is immutable too (deeply).
         let t = match &e.kind {
@@ -1983,7 +2003,7 @@ impl<'p> Checker<'p> {
                 let (_, targs) = self.call_inferring(
                     e,
                     ctor,
-                    args,
+                    &args.iter().collect::<Vec<_>>(),
                     &explicit,
                     Ty::type_owner(*class),
                     &generics,
@@ -2010,7 +2030,7 @@ impl<'p> Checker<'p> {
                 let (_, _) = self.call_inferring(
                     e,
                     ctor,
-                    args,
+                    &args.iter().collect::<Vec<_>>(),
                     &[],
                     ctor.0,
                     &[],
@@ -3762,6 +3782,21 @@ impl<'p> Checker<'p> {
     }
 
     /// Whether `==` is defined: primitives, strings, and structs whose fields all are.
+    /// Whether values of `t` have a `hashCode` (built in, derived or written).
+    fn hashable(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error => true,
+            Ty::Struct(..) | Ty::Enum(..) | Ty::Tuple(_) | Ty::Fixed(..) => self.equatable(t),
+            Ty::Class(sid, _, _) => {
+                let d = self.program.struct_def(*sid);
+                d.method("hashCode").is_some() || d.derives.iter().any(|x| x == "Hash")
+            }
+            Ty::Lits(b, _) | Ty::Distinct(_, _, b) | Ty::Immutable(b) => self.hashable(b),
+            Ty::Param(..) => self.bounds_of(t).contains(&Bound::Hashable),
+            _ => false,
+        }
+    }
+
     fn equatable(&self, t: &Ty) -> bool {
         match t {
             Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error => true,
@@ -3779,7 +3814,7 @@ impl<'p> Checker<'p> {
             Ty::Param(..) => self
                 .bounds_of(t)
                 .iter()
-                .any(|b| matches!(b, Bound::Comparable | Bound::Equatable)),
+                .any(|b| matches!(b, Bound::Comparable | Bound::Equatable | Bound::Hashable)),
             // Classes without `equals` compare by identity.
             Ty::Class(..) => true,
             Ty::Enum(id, _) => self
@@ -4821,6 +4856,9 @@ impl<'p> Checker<'p> {
                 if let Some(r) = self.builtin_method(e, &t, name, *name_span, args) {
                     return r;
                 }
+                if let Some(r) = self.extension_call(e, object, &t, name, args) {
+                    return r;
+                }
                 if let Ty::Param(..) = t {
                     if let Some(r) = self.param_method(e, &t, name, *name_span, args) {
                         return r;
@@ -4867,7 +4905,7 @@ impl<'p> Checker<'p> {
                             let (ret, targs) = self.call_inferring(
                                 e,
                                 m,
-                                args,
+                                &args.iter().collect::<Vec<_>>(),
                                 &explicit,
                                 m.0,
                                 &own,
@@ -5029,6 +5067,12 @@ impl<'p> Checker<'p> {
                 }
                 (args.is_empty(), "no arguments", (**elem).clone().nullable())
             }
+            (Ty::Str, "slice") => {
+                for a in args {
+                    self.check(a, &Expect::new(Ty::INT));
+                }
+                (matches!(args.len(), 1 | 2), "1 or 2 arguments", Ty::Str)
+            }
             (Ty::Range(it), "step") => {
                 let want = Expect::new(Ty::Int(*it));
                 for a in args {
@@ -5047,6 +5091,42 @@ impl<'p> Checker<'p> {
                 .primary(e.span, "wrong number of arguments"),
             );
         }
+        Some(ret)
+    }
+
+    /// `xs.map(f)` on a built-in type: a call of the ppl extension `__Array_map(xs, f)` (the
+    /// overload whose parameter count fits).
+    fn extension_call(
+        &mut self,
+        e: &Expr,
+        object: &Expr,
+        t: &Ty,
+        name: &str,
+        args: &[Expr],
+    ) -> Option<Ty> {
+        let kind = match t {
+            Ty::Array(_) => "Array",
+            Ty::Str => "String",
+            _ => return None,
+        };
+        let ids = self
+            .program
+            .extensions
+            .get(&(kind.to_string(), name.to_string()))?;
+        let id = *ids
+            .iter()
+            .find(|f| self.program.func(**f).params.len() == args.len() + 1)
+            .or(ids.first())?;
+        let mut all: Vec<&Expr> = vec![object];
+        all.extend(args.iter());
+        let generics = self.program.func(id).generics.clone();
+        self.reuse = Some(object.id);
+        let (ret, targs) = self.call_inferring(e, id, &all, &[], id.0, &generics, None);
+        self.reuse = None;
+        if !generics.is_empty() {
+            self.types.instances.insert(e.id, targs);
+        }
+        self.types.extensions.insert(e.id, id);
         Some(ret)
     }
 
@@ -5077,7 +5157,8 @@ impl<'p> Checker<'p> {
         if let Ty::Param(..) = t {
             let own = self.bounds_of(t);
             return own.contains(bound)
-                || (*bound == Bound::Equatable && own.contains(&Bound::Comparable));
+                || (*bound == Bound::Equatable
+                    && (own.contains(&Bound::Comparable) || own.contains(&Bound::Hashable)));
         }
         match bound {
             Bound::Comparable => {
@@ -5086,6 +5167,7 @@ impl<'p> Checker<'p> {
                     || matches!(t, Ty::Class(sid, _, _) if self.program.struct_def(*sid).method("compareTo").is_some())
             }
             Bound::Equatable => self.equatable(t),
+            Bound::Hashable => self.hashable(t),
             Bound::Error => match (t, self.program.error_class) {
                 (Ty::Never, _) => true,
                 (Ty::Class(s, ..), Some(err)) => self.program.is_subclass(*s, err),
@@ -5166,7 +5248,8 @@ impl<'p> Checker<'p> {
     fn call_generic(&mut self, e: &Expr, id: FnId, args: &[Expr], explicit: &[Ty]) -> Ty {
         let f = self.program.func(id);
         let params = f.generics.clone();
-        let (ret, targs) = self.call_inferring(e, id, args, explicit, id.0, &params, None);
+        let args: Vec<&Expr> = args.iter().collect();
+        let (ret, targs) = self.call_inferring(e, id, &args, explicit, id.0, &params, None);
         self.types.instances.insert(e.id, targs);
         ret
     }
@@ -5180,7 +5263,7 @@ impl<'p> Checker<'p> {
         &mut self,
         e: &Expr,
         id: FnId,
-        args: &[Expr],
+        args: &[&Expr],
         explicit: &[Ty],
         owner: u32,
         generics: &[TypeParam],
@@ -5238,7 +5321,7 @@ impl<'p> Checker<'p> {
             }
             return (Ty::Error, vec![Ty::Error; n]);
         }
-        let pairs: Vec<(&Expr, &Ty)> = args.iter().zip(&sig.params).collect();
+        let pairs: Vec<(&Expr, &Ty)> = args.iter().copied().zip(&sig.params).collect();
         let mut done = vec![false; pairs.len()];
         let mut inferred = vec![false; pairs.len()];
         // Typed arguments first, so literals can adapt: `max(x, 1)` with `x: i32`.
@@ -5321,6 +5404,7 @@ impl<'p> Checker<'p> {
                         Bound::Comparable => "`Comparable`".to_string(),
                         Bound::Equatable => "`Equatable`".to_string(),
                         Bound::Error => "`Error`".to_string(),
+                        Bound::Hashable => "`Hashable`".to_string(),
                         Bound::Iface(s) => format!("`{}`", self.program.struct_def(*s).name),
                     };
                     self.diags.push(
@@ -5349,21 +5433,28 @@ impl<'p> Checker<'p> {
     ) -> Option<Ty> {
         let bounds = self.bounds_of(t);
         let builtin = match name {
-            "compareTo" if bounds.contains(&Bound::Comparable) => Some(Ty::Int(IntTy::I32)),
+            "compareTo" if bounds.contains(&Bound::Comparable) => Some((Ty::Int(IntTy::I32), 1)),
+            "hashCode" if bounds.contains(&Bound::Hashable) => Some((Ty::Int(IntTy::U64), 0)),
             "equals"
-                if bounds
-                    .iter()
-                    .any(|b| matches!(b, Bound::Comparable | Bound::Equatable)) =>
+                if bounds.iter().any(|b| {
+                    matches!(b, Bound::Comparable | Bound::Equatable | Bound::Hashable)
+                }) =>
             {
-                Some(Ty::Bool)
+                Some((Ty::Bool, 1))
             }
             _ => None,
         };
-        if let Some(ret) = builtin {
-            if args.len() != 1 {
+        if let Some((ret, n)) = builtin {
+            if args.len() != n {
                 self.diags.push(
-                    Diagnostic::error(codes::WRONG_ARG_COUNT, format!("`{name}` takes 1 argument"))
-                        .primary(e.span, "wrong number of arguments"),
+                    Diagnostic::error(
+                        codes::WRONG_ARG_COUNT,
+                        format!(
+                            "`{name}` takes {n} argument{}",
+                            if n == 1 { "" } else { "s" }
+                        ),
+                    )
+                    .primary(e.span, "wrong number of arguments"),
                 );
             }
             for a in args {

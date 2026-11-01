@@ -6,26 +6,6 @@ global @g0: i64 // i
 global @g1: string // s
 global @g2: i64 // again
 
-fn max() -> void {
-  bb0:
-    unreachable
-}
-
-fn Error.constructor(_0: Error, _1: string) -> void {
-  bb0:
-    _0.1 = const null<Error?>
-    _0.0 = _1
-    return
-}
-
-fn Error.constructor(_0: Error, _1: string, _2: Error?) -> void {
-  bb0:
-    call Error.constructor(_0, _1) -> bb1
-  bb1:
-    _0.1 = _2
-    return
-}
-
 fn <main>() -> void {
     let _0: i64
     let _1: string

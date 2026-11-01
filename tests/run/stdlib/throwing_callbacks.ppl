@@ -1,0 +1,33 @@
+// Array methods throw what their callbacks throw (spec §7.2 throws polymorphism).
+// expect: [1, 2, 3]
+// expect: bad: x
+// expect: [3, 1, 2]
+// expect: ["2"]
+class ParseError extends Error {}
+
+function parseInt(s: string): int throws ParseError {
+  match (s) {
+    "1" => 1,
+    "2" => 2,
+    "3" => 3,
+    _ => throw new ParseError(`bad: ${s}`),
+  }
+}
+
+function parseAll(lines: string[]): int[] throws ParseError {
+  lines.map(l => parseInt(l))
+}
+
+println(`${parseAll(["1", "2", "3"]):?}`)
+try {
+  parseAll(["1", "x"])
+} catch (e: ParseError) {
+  println(e.message)
+}
+// A callback that can't throw: no `try` needed.
+function lengths(lines: string[]): int[] {
+  lines.map(l => l.length)
+}
+println(`${lengths(["abc", "a", "ab"]):?}`)
+const big: string[] = try ["1", "2"].filter(l => parseInt(l) > 1) catch (e) []
+println(`${big:?}`)

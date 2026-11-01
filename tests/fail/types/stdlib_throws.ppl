@@ -1,0 +1,13 @@
+// error: E0336
+// at: 11:5
+// The core library's methods are checked like user code.
+class ParseError extends Error {}
+function parseInt(s: string): int throws ParseError {
+  throw new ParseError(s)
+}
+class Parser {
+  // `map` throws what the callback throws: `ParseError` must be declared or caught.
+  public parse(lines: string[]): int[] {
+    lines.map(l => parseInt(l))
+  }
+}

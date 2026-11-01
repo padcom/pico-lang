@@ -103,6 +103,14 @@ fn catches(p: &Program, pat: &Pattern) -> Option<StructId> {
     }
 }
 
+/// How a function is called: `__Array_map` (an extension) is `Array.map`.
+fn display_name(n: &str) -> String {
+    match n.strip_prefix("__").and_then(|r| r.split_once('_')) {
+        Some((ty, m)) => format!("{ty}.{m}"),
+        None => n.to_string(),
+    }
+}
+
 const NOTHING: StructId = StructId(u32::MAX);
 
 enum Mode<'m> {
@@ -219,6 +227,7 @@ impl<'a, 'm> Walk<'a, 'm> {
             .or_else(|| t.ctor_calls.get(&e.id))
             .or_else(|| t.op_calls.get(&e.id))
             .or_else(|| t.getters.get(&e.id))
+            .or_else(|| t.extensions.get(&e.id))
         {
             return Some(*id);
         }
@@ -271,7 +280,10 @@ impl<'a, 'm> Walk<'a, 'm> {
         }
         let name = t.to_string();
         let label = match via {
-            Some(g) => format!("`{}` can throw `{name}`", self.p.func(g).name),
+            Some(g) => format!(
+                "`{}` can throw `{name}`",
+                display_name(&self.p.func(g).name)
+            ),
             None => match t {
                 Ty::Class(..) if via.is_none() => format!("`{name}` is thrown here"),
                 _ => format!("can throw `{name}`"),

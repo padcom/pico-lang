@@ -43,6 +43,7 @@ pub fn lower(
             } else {
                 mir::Function {
                     name: program.func(id).name.clone(),
+                    library: true,
                     params: Vec::new(),
                     ret: Ty::Void,
                     locals: Vec::new(),
@@ -335,6 +336,7 @@ impl Cx<'_> {
             }
             fns.push(mir::Function {
                 name: format!("{}<value>", self.program.func(f).name),
+                library: true,
                 params,
                 ret: sig.ret.clone(),
                 locals,
@@ -493,6 +495,7 @@ impl Cx<'_> {
             },
         ];
         mir::Function {
+            library: true,
             name: format!(
                 "{}.{}<{}>",
                 def.name,
@@ -650,6 +653,7 @@ impl Cx<'_> {
             .collect();
         mir::Function {
             name: f.name.clone(),
+            library: f.span.file != b.cx.file_id,
             // A method's `this` reference (or a closure's environment) comes first.
             params,
             ret,
@@ -1576,6 +1580,8 @@ impl FnBuilder<'_, '_> {
             } if self.cx.types.setters.contains_key(id) => {
                 // `obj.prop = v` / `obj.prop += v` through accessors.
                 let setter = self.cx.types.setters[id];
+                let rt = self.ty_of(object).clone();
+                let setter = self.method_of(setter, &rt);
                 let recv = self.expr(object);
                 let v = match op {
                     None => self.expr(value),
@@ -1591,6 +1597,7 @@ impl FnBuilder<'_, '_> {
                             return Operand::Const(Const::Void);
                         };
                         let vt = self.ty(value);
+                        let getter = self.method_of(getter, &rt);
                         let cur =
                             self.call_fn_value(getter, vec![recv.clone()], vt.clone(), e.span);
                         let rhs = self.expr(value);
@@ -1714,6 +1721,8 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Member { object, .. } if self.cx.types.getters.contains_key(&e.id) => {
                 let g = self.cx.types.getters[&e.id];
+                let rt = self.ty_of(object).clone();
+                let g = self.method_of(g, &rt);
                 let recv = self.expr(object);
                 self.call_fn_value(g, vec![recv], ty, e.span)
             }
@@ -2177,6 +2186,15 @@ impl FnBuilder<'_, '_> {
         ty: Ty,
     ) -> Operand {
         match name {
+            "slice" => {
+                let s = self.expr(object);
+                let a = self.expr(&args[0]);
+                let b = match args.get(1) {
+                    Some(x) => self.expr(x),
+                    None => Operand::Const(Const::Int(i64::MAX as i128, IntTy::I64)),
+                };
+                self.rvalue_to_temp(Rvalue::StrSlice(s, a, b), Ty::Str, e.span)
+            }
             "push" => {
                 let a = self.expr(object);
                 for x in args {
@@ -2889,6 +2907,15 @@ impl FnBuilder<'_, '_> {
             self.switch_to(join);
             return Operand::Copy(res);
         }
+        let plain = matches!(
+            t.erase(),
+            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str
+        );
+        if !plain {
+            // A type parameter's instance without a string form: the debug format.
+            let spec = ppl_sema::format::parse("?").expect("valid spec");
+            return self.rvalue_to_temp(Rvalue::Format(v, spec), Ty::Str, span);
+        }
         self.rvalue_to_temp(Rvalue::ToStr(v), Ty::Str, span)
     }
 
@@ -3068,6 +3095,17 @@ impl FnBuilder<'_, '_> {
 
     /// The function a method or constructor call runs: an instance when the type (or the
     /// method) is generic.
+    /// Method `m` of a value of type `recv` (an instance for a generic type).
+    fn method_of(&mut self, m: FnId, recv: &Ty) -> FnId {
+        let args = recv.type_args();
+        match self.cx.program.func(m).owner {
+            Some(sid) if !args.is_empty() => self
+                .cx
+                .instance(m, vec![(Ty::type_owner(sid), args.to_vec())]),
+            _ => m,
+        }
+    }
+
     fn method_target(&mut self, e: &Expr, m: FnId) -> FnId {
         let mut subst = Subst::new();
         if let Some(args) = self.cx.types.recv_args.get(&e.id).cloned()
@@ -3112,6 +3150,19 @@ impl FnBuilder<'_, '_> {
             t.erase(),
             Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Bool
         );
+        if primitive && name == "hashCode" {
+            let a = self.expr(object);
+            return self.rvalue_to_temp(Rvalue::Hash(a), Ty::Int(IntTy::U64), e.span);
+        }
+        if !primitive && !matches!(t, Ty::Struct(..) | Ty::Class(..) | Ty::Iface(..)) {
+            // Enums, tuples, fixed arrays: the derived protocol.
+            let d = match name {
+                "compareTo" => ppl_sema::typeck::Derived::Compare,
+                "hashCode" => ppl_sema::typeck::Derived::Hash,
+                _ => ppl_sema::typeck::Derived::Equals,
+            };
+            return self.derived_call(d, object, args.first(), &t, e.span);
+        }
         if primitive && (name == "compareTo" || name == "equals") {
             let a = self.expr(object);
             let b = self.expr(&args[0]);
@@ -3662,6 +3713,18 @@ impl FnBuilder<'_, '_> {
 
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr], ty: Ty) -> Operand {
         let loc = self.loc(e.span);
+        if let (Some(id), ExprKind::Member { object, .. }) =
+            (self.cx.types.extensions.get(&e.id).copied(), &callee.kind)
+        {
+            // A ppl extension of a built-in type: the receiver is the first argument.
+            let mut ops = vec![self.expr(object)];
+            ops.extend(args.iter().map(|a| self.expr(a)));
+            let id = match self.cx.types.instances.get(&e.id).cloned() {
+                Some(targs) => self.cx.instance(id, vec![(id.0, targs)]),
+                None => id,
+            };
+            return self.call_fn_value(id, ops, ty, e.span);
+        }
         match &callee.kind {
             ExprKind::Member { object, .. } if self.cx.types.derived.contains_key(&e.id) => {
                 let d = self.cx.types.derived[&e.id];
@@ -3771,7 +3834,8 @@ impl FnBuilder<'_, '_> {
                 }
             }
             ExprKind::Member { object, name, .. }
-                if matches!(self.ty_of(object), Ty::Array(_) | Ty::Range(_)) =>
+                if matches!(self.ty_of(object), Ty::Array(_) | Ty::Range(_))
+                    || (matches!(self.ty_of(object), Ty::Str) && name == "slice") =>
             {
                 self.builtin_method(e, object, name, args, ty)
             }

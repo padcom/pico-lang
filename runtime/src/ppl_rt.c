@@ -216,6 +216,37 @@ uint32_t ppl_str_char_at(PplStr *s, int64_t i, const char *file, int64_t file_le
     return utf8_decode((const unsigned char *)s->data + b);
 }
 
+PplStr *ppl_str_slice(const PplStr *s, int64_t a, int64_t b) {
+    int64_t n = s->char_len;
+    a = a < 0 ? (n + a < 0 ? 0 : n + a) : (a > n ? n : a);
+    b = b < 0 ? (n + b < 0 ? 0 : n + b) : (b > n ? n : b);
+    if (b <= a) {
+        PplStr *e = str_alloc(0);
+        e->char_len = 0;
+        return e;
+    }
+    int64_t from = 0, to;
+    if (s->byte_len == n) {
+        from = a;
+        to = b;
+    } else {
+        int64_t c = 0;
+        while (c < a) {
+            from += utf8_len((unsigned char)s->data[from]);
+            c++;
+        }
+        to = from;
+        while (c < b) {
+            to += utf8_len((unsigned char)s->data[to]);
+            c++;
+        }
+    }
+    PplStr *r = str_alloc(to - from);
+    memcpy(r->data, s->data + from, (size_t)(to - from));
+    r->char_len = b - a;
+    return r;
+}
+
 /* ---------------------------------------------------------------- printing */
 
 void ppl_print_i64(int64_t v) { printf("%" PRId64, v); }

@@ -83,6 +83,9 @@ PplStr *ppl_fmt_bool(int32_t v, const PplFmt *f);
 uint32_t ppl_str_char_at(PplStr *s, int64_t i, const char *file, int64_t file_len, int32_t line,
                          int32_t col);
 
+/* `s.slice(a, b)` in code points; negative indices count from the end, both are clamped. */
+PplStr *ppl_str_slice(const PplStr *s, int64_t a, int64_t b);
+
 /* Printing to stdout (buffered; flushed at exit and before a panic). */
 void ppl_print_i64(int64_t v);
 void ppl_print_u64(uint64_t v);

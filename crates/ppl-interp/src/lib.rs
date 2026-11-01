@@ -482,6 +482,26 @@ impl Interp<'_, '_> {
                     .ok_or_else(|| self.panic(panics::INDEX, loc)),
                 v => unreachable!("indexing {v:?}"),
             },
+            Rvalue::StrSlice(o, a, b) => {
+                match (
+                    self.operand(frame, o),
+                    self.operand(frame, a),
+                    self.operand(frame, b),
+                ) {
+                    (Value::Str(s), Value::Int(a), Value::Int(b)) => {
+                        let n = s.chars().count() as i128;
+                        let norm = |i: i128| if i < 0 { (n + i).max(0) } else { i.min(n) };
+                        let (a, b) = (norm(a), norm(b));
+                        let out: String = if b > a {
+                            s.chars().skip(a as usize).take((b - a) as usize).collect()
+                        } else {
+                            String::new()
+                        };
+                        Ok(Value::Str(out.into()))
+                    }
+                    v => unreachable!("slice of {v:?}"),
+                }
+            }
             Rvalue::Tuple(_, ops) => Ok(Value::Struct(
                 ops.iter().map(|o| self.operand(frame, o)).collect(),
             )),

@@ -75,9 +75,13 @@ pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked
     let file = sm.add(name, text);
     let (mut module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
     // The prelude's declarations (`Error`, …) come first.
-    let prelude_file = sm.add("<prelude>", PRELUDE);
-    let (prelude, _) = ppl_syntax::parse_module(prelude_file, PRELUDE);
-    let mut stmts = prelude.stmts;
+    let mut stmts = Vec::new();
+    for (name, text) in PRELUDE {
+        let pf = sm.add(*name, *text);
+        let (prelude, mut d) = ppl_syntax::parse_module(pf, text);
+        diags.append(&mut d);
+        stmts.extend(prelude.stmts);
+    }
     stmts.append(&mut module.stmts);
     module.stmts = stmts;
     let mut hir = None;
@@ -110,18 +114,25 @@ pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked
     }
 }
 
-/// Declarations every program sees.
-const PRELUDE: &str = r#"
-class Error {
-  public message: string
-  public cause: Error? = null
-  constructor(message: string) { this.message = message }
-  constructor(message: string, cause: Error?) {
-    this(message)
-    this.cause = cause
-  }
-}
-"#;
+/// Declarations every program sees: the core library, written in ppl (`stdlib/core`).
+const PRELUDE: &[(&str, &str)] = &[
+    (
+        "<core>/error.ppl",
+        include_str!("../../../stdlib/core/error.ppl"),
+    ),
+    (
+        "<core>/array.ppl",
+        include_str!("../../../stdlib/core/array.ppl"),
+    ),
+    (
+        "<core>/string.ppl",
+        include_str!("../../../stdlib/core/string.ppl"),
+    ),
+    (
+        "<core>/map.ppl",
+        include_str!("../../../stdlib/core/map.ppl"),
+    ),
+];
 
 /// The exit code of a program that panicked (spec §7.5).
 pub const PANIC_EXIT_CODE: i32 = 101;

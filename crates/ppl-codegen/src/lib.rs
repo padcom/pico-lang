@@ -159,8 +159,18 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
     }
     g.declare();
     g.class_infos();
-    for i in 0..program.fns.len() {
-        g.function(i);
+    let live = ppl_mir::mir::live_functions(program);
+    for (i, l) in live.iter().enumerate() {
+        if *l {
+            g.function(i);
+        }
+    }
+    // Unreachable functions (the core library's unused code) are dropped.
+    for (i, l) in live.iter().enumerate() {
+        if !*l {
+            // SAFETY: nothing references an unreachable function.
+            unsafe { g.fns[i].delete() };
+        }
     }
     g.m
 }
@@ -627,6 +637,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 false,
             ),
             "ppl_str_concat" => ptr.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_str_slice" => ptr.fn_type(&[ptr.into(), i64t.into(), i64t.into()], false),
             "ppl_uncaught" => void.fn_type(&[ptr.into(), ptr.into()], false),
             "ppl_fmt_i64" | "ppl_fmt_u64" => ptr.fn_type(&[i64t.into(), ptr.into()], false),
             "ppl_fmt_f64" => {
@@ -1431,6 +1442,20 @@ impl<'ctx> Gen<'ctx, '_> {
                 let r = basic(self.b.build_call(f, &[x.into(), y.into()], "").unwrap())
                     .into_struct_value();
                 Some(self.b.build_extract_value(r, 1, "").unwrap())
+            }
+            Rvalue::StrSlice(o, a, b) => {
+                let s = self.operand(fx, o)?;
+                let a = self.operand(fx, a)?;
+                let b = self.operand(fx, b)?;
+                Some(basic(
+                    self.b
+                        .build_call(
+                            self.rt("ppl_str_slice"),
+                            &[s.into(), a.into(), b.into()],
+                            "",
+                        )
+                        .unwrap(),
+                ))
             }
             Rvalue::StrLen(o) => {
                 let s = self.operand(fx, o)?.into_pointer_value();

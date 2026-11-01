@@ -1,0 +1,10 @@
+// The root of thrown errors (spec §7.1).
+class Error {
+  public message: string
+  public cause: Error? = null
+  constructor(message: string) { this.message = message }
+  constructor(message: string, cause: Error?) {
+    this(message)
+    this.cause = cause
+  }
+}

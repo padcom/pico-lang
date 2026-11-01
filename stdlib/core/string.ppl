@@ -1,0 +1,172 @@
+// String methods (spec §13.1). `s.name(args)` calls `__String_name(s, args)`. Indices count
+// code points, like `s[i]` and `s.length`; `s.slice(start, end)` is built in.
+
+function __String_indexOf(s: string, search: string): int {
+  const n = s.length
+  const m = search.length
+  let i = 0
+  while (i + m <= n) {
+    if (__matchesAt(s, search, i)) {
+      return i
+    }
+    i += 1
+  }
+  -1
+}
+
+function __matchesAt(s: string, search: string, at: int): bool {
+  let k = 0
+  while (k < search.length) {
+    if (s[at + k] != search[k]) {
+      return false
+    }
+    k += 1
+  }
+  true
+}
+
+function __String_includes(s: string, search: string): bool {
+  __String_indexOf(s, search) >= 0
+}
+
+function __String_startsWith(s: string, prefix: string): bool {
+  prefix.length <= s.length && __matchesAt(s, prefix, 0)
+}
+
+function __String_endsWith(s: string, suffix: string): bool {
+  suffix.length <= s.length && __matchesAt(s, suffix, s.length - suffix.length)
+}
+
+function __isSpace(c: char): bool {
+  const n = c as u32
+  n == 32 || (n >= 9 && n <= 13)
+}
+
+function __String_trimStart(s: string): string {
+  let i = 0
+  while (i < s.length && __isSpace(s[i])) {
+    i += 1
+  }
+  s.slice(i)
+}
+
+function __String_trimEnd(s: string): string {
+  let j = s.length
+  while (j > 0 && __isSpace(s[j - 1])) {
+    j -= 1
+  }
+  s.slice(0, j)
+}
+
+function __String_trim(s: string): string {
+  __String_trimEnd(__String_trimStart(s))
+}
+
+/// ASCII letters only.
+function __String_toUpperCase(s: string): string {
+  let out = ""
+  for (const c of s) {
+    const n = c as u32
+    out = out + (if (n >= 97 && n <= 122) `${(n - 32) as char}` else `${c}`)
+  }
+  out
+}
+
+/// ASCII letters only.
+function __String_toLowerCase(s: string): string {
+  let out = ""
+  for (const c of s) {
+    const n = c as u32
+    out = out + (if (n >= 65 && n <= 90) `${(n + 32) as char}` else `${c}`)
+  }
+  out
+}
+
+/// The parts between occurrences of `separator`; an empty separator splits into characters.
+function __String_split(s: string, separator: string): string[] {
+  const out: string[] = []
+  if (separator.length == 0) {
+    for (const c of s) {
+      out.push(`${c}`)
+    }
+    return out
+  }
+  let start = 0
+  let i = 0
+  while (i + separator.length <= s.length) {
+    if (__matchesAt(s, separator, i)) {
+      out.push(s.slice(start, i))
+      i += separator.length
+      start = i
+    } else {
+      i += 1
+    }
+  }
+  out.push(s.slice(start))
+  out
+}
+
+/// Replaces the first occurrence.
+function __String_replace(s: string, search: string, replacement: string): string {
+  const i = __String_indexOf(s, search)
+  if (i < 0) {
+    return s
+  }
+  s.slice(0, i) + replacement + s.slice(i + search.length)
+}
+
+function __String_replaceAll(s: string, search: string, replacement: string): string {
+  if (search.length == 0) {
+    return s
+  }
+  let out = ""
+  let start = 0
+  let i = 0
+  while (i + search.length <= s.length) {
+    if (__matchesAt(s, search, i)) {
+      out = out + s.slice(start, i) + replacement
+      i += search.length
+      start = i
+    } else {
+      i += 1
+    }
+  }
+  out + s.slice(start)
+}
+
+function __String_repeat(s: string, count: int): string {
+  let out = ""
+  let k = 0
+  while (k < count) {
+    out = out + s
+    k += 1
+  }
+  out
+}
+
+function __padding(length: int, fill: string): string {
+  let pad = ""
+  if (fill.length == 0) {
+    return pad
+  }
+  while (pad.length < length) {
+    pad = pad + fill
+  }
+  pad.slice(0, length)
+}
+
+function __String_padStart(s: string, length: int): string {
+  __String_padStart(s, length, " ")
+}
+
+function __String_padStart(s: string, length: int, fill: string): string {
+  if (s.length >= length) s else __padding(length - s.length, fill) + s
+}
+
+function __String_padEnd(s: string, length: int): string {
+  __String_padEnd(s, length, " ")
+}
+
+function __String_padEnd(s: string, length: int, fill: string): string {
+  if (s.length >= length) s else s + __padding(length - s.length, fill)
+}
