@@ -470,6 +470,16 @@ pub enum Terminator {
         msg: Operand,
         loc: Loc,
     },
+    /// Enters a region protected against panics: a panic inside it (also in callees) jumps
+    /// to `handler`, which runs the region's `finally` code and then `Resume`s.
+    Guard {
+        body: BlockId,
+        handler: BlockId,
+    },
+    /// Leaves the innermost guarded region.
+    Unguard(BlockId),
+    /// Continues the panic that entered this handler.
+    Resume,
     /// An exception escaped the top level: prints `uncaught <class>: <message>` and exits
     /// with code 1.
     Uncaught {
@@ -668,6 +678,11 @@ pub fn dump(p: &Program) -> String {
                     format!("tailcall {}({})", p.func(*callee).name, args.join(", "))
                 }
                 Terminator::Uncaught { class, msg } => format!("uncaught {class}: {msg}"),
+                Terminator::Guard { body, handler } => {
+                    format!("guard -> bb{} (panic: bb{})", body.0, handler.0)
+                }
+                Terminator::Unguard(b) => format!("unguard -> bb{}", b.0),
+                Terminator::Resume => "resume".to_string(),
                 Terminator::Unreachable => "unreachable".to_string(),
             };
             let _ = writeln!(out, "    {term}");

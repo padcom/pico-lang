@@ -67,6 +67,21 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
         .ok_or("cannot create a target machine for the host")?;
     let cx = Context::create();
     let m = generate(&cx, program);
+    // Frame pointers let a panic walk the stack; debug builds also export ppl's functions, so
+    // the trace can name every frame (`dladdr`).
+    let mut f = m.get_first_function();
+    while let Some(func) = f {
+        if func.count_basic_blocks() > 0 {
+            func.add_attribute(
+                inkwell::attributes::AttributeLoc::Function,
+                cx.create_string_attribute("frame-pointer", "all"),
+            );
+        }
+        if !opts.optimize && func.get_name().to_bytes().starts_with(b"ppl.") {
+            func.set_linkage(Linkage::External);
+        }
+        f = func.get_next_function();
+    }
     m.set_triple(&triple);
     m.set_data_layout(&tm.get_target_data().get_data_layout());
     m.verify()
@@ -649,9 +664,28 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_ipow_s" | "ppl_ipow_u" => {
                 i64t.fn_type(&[i64t.into(), i64t.into(), i32t.into(), ptr.into()], false)
             }
+            "ppl_guard_push" => void.fn_type(&[ptr.into()], false),
+            "ppl_guard_pop" | "ppl_resume" => void.fn_type(&[], false),
+            "_setjmp" => i32t.fn_type(&[ptr.into()], false),
             _ => unreachable!("unknown runtime function {name}"),
         };
         let f = self.m.add_function(name, fn_ty, Some(Linkage::External));
+        let attr = |n: &str| {
+            self.cx
+                .create_enum_attribute(inkwell::attributes::Attribute::get_named_enum_kind_id(n), 0)
+        };
+        if name == "_setjmp" {
+            f.add_attribute(
+                inkwell::attributes::AttributeLoc::Function,
+                attr("returns_twice"),
+            );
+        }
+        if name == "ppl_resume" {
+            f.add_attribute(
+                inkwell::attributes::AttributeLoc::Function,
+                attr("noreturn"),
+            );
+        }
         if name.starts_with("ppl_panic") {
             let noreturn = self.cx.create_enum_attribute(
                 inkwell::attributes::Attribute::get_named_enum_kind_id("noreturn"),
@@ -718,6 +752,21 @@ impl<'ctx> Gen<'ctx, '_> {
             .collect();
         let entry = self.cx.prepend_basic_block(blocks[0], "start");
         self.b.position_at_end(entry);
+        // After a `longjmp` to a panic guard, values the optimizer kept in registers would be
+        // stale: functions with guards aren't optimized.
+        if func
+            .blocks
+            .iter()
+            .any(|b| matches!(b.term, Terminator::Guard { .. }))
+        {
+            for n in ["optnone", "noinline"] {
+                let a = self.cx.create_enum_attribute(
+                    inkwell::attributes::Attribute::get_named_enum_kind_id(n),
+                    0,
+                );
+                llfn.add_attribute(inkwell::attributes::AttributeLoc::Function, a);
+            }
+        }
         let locals: Vec<Option<PointerValue>> = func
             .locals
             .iter()
@@ -2687,6 +2736,43 @@ impl<'ctx> Gen<'ctx, '_> {
                     Callee::Builtin(_) => unreachable!("lowered to control flow"),
                 }
                 self.b.build_unconditional_branch(next).unwrap();
+            }
+            Terminator::Guard { body, handler } => {
+                // A jmp_buf (large enough for every supported target) in this frame.
+                let buf_ty = self.i64().array_type(64);
+                let buf = self.entry_alloca(buf_ty.into(), "guard");
+                self.b
+                    .build_call(self.rt("ppl_guard_push"), &[buf.into()], "")
+                    .unwrap();
+                let r = basic(
+                    self.b
+                        .build_call(self.rt("_setjmp"), &[buf.into()], "")
+                        .unwrap(),
+                )
+                .into_int_value();
+                let normal = self
+                    .b
+                    .build_int_compare(IntPredicate::EQ, r, self.i32().const_zero(), "")
+                    .unwrap();
+                self.b
+                    .build_conditional_branch(
+                        normal,
+                        fx.blocks[body.0 as usize],
+                        fx.blocks[handler.0 as usize],
+                    )
+                    .unwrap();
+            }
+            Terminator::Unguard(next) => {
+                self.b
+                    .build_call(self.rt("ppl_guard_pop"), &[], "")
+                    .unwrap();
+                self.b
+                    .build_unconditional_branch(fx.blocks[next.0 as usize])
+                    .unwrap();
+            }
+            Terminator::Resume => {
+                self.b.build_call(self.rt("ppl_resume"), &[], "").unwrap();
+                self.b.build_unreachable().unwrap();
             }
             Terminator::Uncaught { class, msg } => {
                 let c = self.operand(fx, class).expect("class name");

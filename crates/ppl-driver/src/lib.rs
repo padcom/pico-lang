@@ -178,6 +178,14 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     if cfg!(target_os = "linux") {
         cmd.arg("-lm");
     }
+    if !opts.release {
+        // Panic traces name frames through the dynamic symbol table.
+        if cfg!(target_os = "macos") {
+            cmd.arg("-Wl,-export_dynamic");
+        } else if cfg!(target_os = "linux") {
+            cmd.arg("-rdynamic");
+        }
+    }
     cmd.arg("-o").arg(exe);
     let out = cmd
         .output()

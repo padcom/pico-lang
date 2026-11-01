@@ -91,6 +91,8 @@ pub struct Panic {
     pub loc: Loc,
     /// An uncaught exception rather than a panic (`msg` is `<class>: <message>`).
     pub uncaught: bool,
+    /// The functions active when it happened, innermost first.
+    pub trace: Vec<String>,
 }
 
 impl Panic {
@@ -99,10 +101,17 @@ impl Panic {
         if self.uncaught {
             return format!("uncaught {}\n", self.msg);
         }
-        format!(
+        let mut s = format!(
             "panic: {}\n  at {}:{}:{}\n",
             self.msg, self.file, self.loc.line, self.loc.col
-        )
+        );
+        if !self.trace.is_empty() {
+            s.push_str("stack trace:\n");
+            for (i, f) in self.trace.iter().enumerate() {
+                s.push_str(&format!("  {i}: {f}\n"));
+            }
+        }
+        s
     }
 }
 
@@ -116,6 +125,8 @@ pub fn run(program: &Program, out: &mut dyn Write) -> Result<(), Panic> {
             .collect(),
         depth: 0,
         exception: None,
+        stack: Vec::new(),
+        unwinding: Vec::new(),
     };
     let r = it
         .call(program.entry, Vec::new(), Loc::default())
@@ -131,6 +142,10 @@ struct Interp<'p, 'o> {
     depth: usize,
     /// The pending exception.
     exception: Option<Value>,
+    /// The names of the active functions (for stack traces).
+    stack: Vec<String>,
+    /// Panics whose `finally` handlers are running, innermost last.
+    unwinding: Vec<Panic>,
 }
 
 struct Frame<'p> {
@@ -151,6 +166,7 @@ impl Interp<'_, '_> {
             file: self.p.file.clone(),
             loc,
             uncaught: false,
+            trace: self.stack.iter().rev().cloned().collect(),
         }
     }
 
@@ -161,8 +177,10 @@ impl Interp<'_, '_> {
         self.depth += 1;
         // A `tailcall` replaces the frame instead of nesting, so its depth doesn't grow.
         let (mut id, mut args) = (id, args);
+        self.stack.push(String::new());
         let r = loop {
             let f = self.p.func(id);
+            *self.stack.last_mut().expect("pushed") = f.name.clone();
             let mut frame = Frame {
                 f,
                 locals: (0..f.locals.len()).map(|_| cell(Value::Uninit)).collect(),
@@ -179,6 +197,7 @@ impl Interp<'_, '_> {
                 Err(p) => break Err(p),
             }
         };
+        self.stack.pop();
         self.depth -= 1;
         r
     }
@@ -268,18 +287,37 @@ impl Interp<'_, '_> {
         }
     }
 
+    /// Runs a frame; a panic inside a guarded region continues at the region's handler.
     fn exec(&mut self, frame: &mut Frame) -> Result<Flow, Panic> {
         let mut bb = mir::BlockId(0);
+        let mut guards: Vec<mir::BlockId> = Vec::new();
         loop {
-            let block = frame.f.block(bb);
+            match self.run_blocks(frame, &mut bb, &mut guards) {
+                Err(p) if !guards.is_empty() => {
+                    self.unwinding.push(p);
+                    bb = guards.pop().expect("checked");
+                }
+                r => return r,
+            }
+        }
+    }
+
+    fn run_blocks(
+        &mut self,
+        frame: &mut Frame,
+        bb: &mut mir::BlockId,
+        guards: &mut Vec<mir::BlockId>,
+    ) -> Result<Flow, Panic> {
+        loop {
+            let block = frame.f.block(*bb);
             for s in &block.stmts {
                 let v = self.rvalue(frame, &s.rvalue, s.loc)?;
                 self.write(frame, &s.place, v);
             }
             match &block.term {
-                Terminator::Goto(t) => bb = *t,
+                Terminator::Goto(t) => *bb = *t,
                 Terminator::Branch { cond, then, else_ } => {
-                    bb = match self.operand(frame, cond) {
+                    *bb = match self.operand(frame, cond) {
                         Value::Bool(true) => *then,
                         _ => *else_,
                     }
@@ -337,7 +375,7 @@ impl Interp<'_, '_> {
                     if let Some(d) = dest {
                         self.write(frame, d, r);
                     }
-                    bb = *next;
+                    *bb = *next;
                 }
                 Terminator::Panic { msg, loc } => {
                     let m = match self.operand(frame, msg) {
@@ -345,6 +383,17 @@ impl Interp<'_, '_> {
                         _ => "panic".into(),
                     };
                     return Err(self.panic(&m, *loc));
+                }
+                Terminator::Guard { body, handler } => {
+                    guards.push(*handler);
+                    *bb = *body;
+                }
+                Terminator::Unguard(next) => {
+                    guards.pop();
+                    *bb = *next;
+                }
+                Terminator::Resume => {
+                    return Err(self.unwinding.pop().expect("a panic being unwound"));
                 }
                 Terminator::Uncaught { class, msg } => {
                     let text = |v: Value| match v {

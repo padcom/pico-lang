@@ -100,6 +100,11 @@ int ppl_format_f64(double v, char *buf);
 int ppl_format_f32(float v, char *buf);
 
 /* Prints "panic: <msg>\n  at <file>:<line>:<col>\n" to stderr and exits with code 101. */
+/* `try … finally` regions guard against panics: push a jmp_buf (then `_setjmp` it), pop it
+ * when leaving the region; a guard's handler `ppl_resume`s the panic after `finally`. */
+void ppl_guard_push(void *buf);
+void ppl_guard_pop(void);
+_Noreturn void ppl_resume(void);
 _Noreturn void ppl_panic(const char *msg, int64_t msg_len, const char *file, int64_t file_len,
                          int32_t line, int32_t col);
 

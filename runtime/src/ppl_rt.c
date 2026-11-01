@@ -1,7 +1,13 @@
 /* The ppl runtime, v0: printing, number formatting, panics and `main`. */
+#define _GNU_SOURCE
 #include "ppl_rt.h"
 
 #include <inttypes.h>
+#include <setjmp.h>
+#if defined(__APPLE__) || defined(__linux__)
+#include <dlfcn.h>
+#include <execinfo.h>
+#endif
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -605,16 +611,102 @@ PplStr *ppl_fmt_bool(int32_t v, const PplFmt *f) {
 
 /* ---------------------------------------------------------------- panics */
 
-_Noreturn void ppl_panic(const char *msg, int64_t msg_len, const char *file, int64_t file_len,
-                         int32_t line, int32_t col) {
+/* Panics unwind through the regions guarded by `try … finally` (innermost last): each guard is
+ * a jmp_buf in the guarded function's frame. The report waits until no guard is left. */
+#define PPL_MAX_GUARDS 4096
+#define PPL_MAX_FRAMES 64
+static void *guards[PPL_MAX_GUARDS];
+static int nguards;
+static char *panic_msg;
+static int64_t panic_msg_len;
+static const char *panic_file;
+static int64_t panic_file_len;
+static int32_t panic_line, panic_col;
+static void *panic_frames[PPL_MAX_FRAMES];
+static int panic_nframes;
+
+void ppl_guard_push(void *buf) {
+    if (nguards == PPL_MAX_GUARDS) {
+        fflush(stdout);
+        fputs("fatal: too many nested `finally` regions\n", stderr);
+        abort();
+    }
+    guards[nguards++] = buf;
+}
+
+void ppl_guard_pop(void) {
+    if (nguards > 0) nguards--;
+}
+
+/* A frame's function name: ppl functions are `ppl.<name>` (exported in debug builds), the
+ * top level is `ppl_entry`; anything else (the runtime, libc) is NULL. */
+static const char *frame_name(void *addr) {
+#if defined(__APPLE__) || defined(__linux__)
+    Dl_info info;
+    /* A return address can point just past its function (after a call to a noreturn
+     * function), so look up the byte before it. */
+    if (dladdr((char *)addr - 1, &info) && info.dli_sname) {
+        const char *n = info.dli_sname;
+        if (n[0] == '_' && strncmp(n + 1, "ppl", 3) == 0) n++;
+        if (strncmp(n, "ppl.", 4) == 0) return n + 4;
+        if (strcmp(n, "ppl_entry") == 0) return "<main>";
+        return NULL;
+    }
+#else
+    (void)addr;
+#endif
+    return "";
+}
+
+static _Noreturn void report_panic(void) {
     fflush(stdout);
     fputs("panic: ", stderr);
-    fwrite(msg, 1, (size_t)msg_len, stderr);
+    fwrite(panic_msg, 1, (size_t)panic_msg_len, stderr);
     fputs("\n  at ", stderr);
-    fwrite(file, 1, (size_t)file_len, stderr);
-    fprintf(stderr, ":%d:%d\n", line, col);
+    fwrite(panic_file, 1, (size_t)panic_file_len, stderr);
+    fprintf(stderr, ":%d:%d\n", panic_line, panic_col);
+    if (panic_nframes > 0) {
+        fputs("stack trace:\n", stderr);
+        int k = 0;
+        for (int i = 0; i < panic_nframes; i++) {
+            const char *n = frame_name(panic_frames[i]);
+            if (!n) continue;
+            if (*n) {
+                fprintf(stderr, "  %d: %s\n", k++, n);
+            } else {
+                /* No symbol (release builds): the raw address, for `ppl symbolize`. */
+                fprintf(stderr, "  %d: %p\n", k++, panic_frames[i]);
+            }
+        }
+    }
     fflush(stderr);
     exit(PPL_PANIC_EXIT_CODE);
+}
+
+static _Noreturn void unwind(void) {
+    if (nguards > 0) {
+        void *buf = guards[--nguards];
+        _longjmp(buf, 1);
+    }
+    report_panic();
+}
+
+_Noreturn void ppl_resume(void) { unwind(); }
+
+_Noreturn void ppl_panic(const char *msg, int64_t msg_len, const char *file, int64_t file_len,
+                         int32_t line, int32_t col) {
+    free(panic_msg);
+    panic_msg = malloc((size_t)msg_len + 1);
+    if (panic_msg) memcpy(panic_msg, msg, (size_t)msg_len);
+    panic_msg_len = panic_msg ? msg_len : 0;
+    panic_file = file;
+    panic_file_len = file_len;
+    panic_line = line;
+    panic_col = col;
+#if defined(__APPLE__) || defined(__linux__)
+    panic_nframes = backtrace(panic_frames, PPL_MAX_FRAMES);
+#endif
+    unwind();
 }
 
 _Noreturn void ppl_panic_str(const PplStr *msg, const char *file, int64_t file_len, int32_t line,

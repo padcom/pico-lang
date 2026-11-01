@@ -1,0 +1,15 @@
+---
+source: crates/ppl-driver/tests/panic_trace.rs
+expression: report
+---
+start
+outer finally
+method finally
+---
+panic: index out of bounds
+  at trace.ppl:3:3
+stack trace:
+  0: inner
+  1: outer
+  2: Box.run
+  3: <main>

@@ -926,12 +926,20 @@ impl FnBuilder<'_, '_> {
             }
             self.finallies.truncate(i);
             self.handlers.truncate(handlers);
+            self.unguard();
             // SAFETY: the expression is part of the HIR, which outlives this builder.
             let fin = unsafe { &*fin };
             self.expr(fin);
         }
         self.finallies = saved_f;
         self.handlers = saved_h;
+    }
+
+    /// Leaves the innermost panic-guarded region.
+    fn unguard(&mut self) {
+        let next = self.new_block();
+        self.terminate(Terminator::Unguard(next));
+        self.switch_to(next);
     }
 
     /// `try body catch (…) … finally { … }`
@@ -950,6 +958,20 @@ impl FnBuilder<'_, '_> {
         if let Some(f) = finally {
             self.finallies
                 .push((f as *const Expr, self.loops.len(), outer_handlers));
+            // A panic in the body or a catch clause runs `finally` on its way out.
+            let body = self.new_block();
+            let handler = self.new_block();
+            self.terminate(Terminator::Guard { body, handler });
+            let saved_h = std::mem::take(&mut self.handlers);
+            let saved_f = std::mem::take(&mut self.finallies);
+            let saved_l = std::mem::take(&mut self.loops);
+            self.switch_to(handler);
+            self.expr(f);
+            self.terminate(Terminator::Resume);
+            self.handlers = saved_h;
+            self.finallies = saved_f;
+            self.loops = saved_l;
+            self.switch_to(body);
         }
         self.handlers.push(dispatch);
         let v = self.expr(body);
@@ -998,12 +1020,14 @@ impl FnBuilder<'_, '_> {
         }
         self.switch_to(done);
         if let Some(f) = finally {
+            self.unguard();
             self.expr(f);
         }
         if let (Some(b), Some(f)) = (fin_exc, finally) {
             let after = self.new_block();
             self.terminate(Terminator::Goto(after));
             self.switch_to(b);
+            self.unguard();
             let err_ty = self.cx.program.struct_def(err).self_ty(err);
             let held = Place::local(self.temp(err_ty.clone()));
             self.assign(held.clone(), Rvalue::TakeException(err_ty), span);

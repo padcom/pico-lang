@@ -107,3 +107,13 @@ A panic means a bug. Overflow, out-of-bounds indexing, division by zero, `x!` on
 - can't be caught by `catch`;
 - terminate the process when they happen on the main thread, printing the message and the stack trace;
 - in a worker, surface to the parent as a `WorkerPanicked` event/error (§10).
+
+The report on the main thread (decision 199):
+```
+panic: index out of bounds
+  at src/main.ppl:3:3
+stack trace:
+  0: inner
+  1: outer
+  2: <main>
+```

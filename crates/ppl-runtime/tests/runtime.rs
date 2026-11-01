@@ -61,9 +61,11 @@ void ppl_entry(void) {
         String::from_utf8(out.stdout).unwrap(),
         "-42\n18446744073709551615\ntrue\nzażółć🙂\n0.30000000000000004\n0.1\n"
     );
-    assert_eq!(
-        String::from_utf8(out.stderr).unwrap(),
-        "panic: integer overflow\n  at src/main.ppl:3:9\n"
+    // The report, then the stack trace (whose frames depend on how the test was linked).
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        err.starts_with("panic: integer overflow\n  at src/main.ppl:3:9\n"),
+        "{err}"
     );
 }
 

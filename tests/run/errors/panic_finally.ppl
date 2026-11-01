@@ -1,0 +1,40 @@
+// A panic unwinds through `finally` blocks (innermost first), but `catch` never sees it.
+// expect: start
+// expect: caught nothing
+// expect: inner finally
+// expect: loop finally 2
+// expect: outer finally
+// panic: integer overflow
+function boom(n: i32): i32 {
+  n * 2147483647
+}
+function work(): i32 {
+  try {
+    try {
+      boom(1)
+      println("caught nothing")
+      boom(2)
+    } catch (e) {
+      println("never")
+      0
+    } finally {
+      println("inner finally")
+    }
+  } finally {
+    for (const i of 0..3) {
+      try {
+        if (i == 2) {
+          continue
+        }
+      } finally {
+        if (i == 2) {
+          println("loop finally 2")
+        }
+      }
+    }
+    println("outer finally")
+  }
+}
+println("start")
+work()
+println("not reached")
