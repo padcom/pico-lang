@@ -530,6 +530,11 @@ pub enum Rvalue {
     New(Ty),
     /// Whether a (possibly null) object reference is an instance of the class (or a subclass).
     InstanceOf(Operand, StructId),
+    /// Starts showing an object in its default string form: `false` if it's already being
+    /// shown further up (a cycle), otherwise it's marked (a `bool`).
+    ShowEnter(Operand),
+    /// Ends showing an object (after a `ShowEnter` that returned `true`).
+    ShowLeave(Operand),
     /// An interface value from an object (or a struct, boxed) and an itable index.
     ToIface(Operand, u32),
     /// The object reference (or the boxed struct's reference) inside an interface value.
@@ -580,6 +585,8 @@ macro_rules! rvalue_operands {
             | Unwrap(a)
             | Tag(a)
             | InstanceOf(a, _)
+            | ShowEnter(a)
+            | ShowLeave(a)
             | ToIface(a, _)
             | IfaceData(a)
             | BoxNew(_, a)
@@ -857,6 +864,8 @@ impl fmt::Display for Rvalue {
             Rvalue::AddOverflows(a, b) => write!(f, "AddOverflows({a}, {b})"),
             Rvalue::WrapSome(a, t) => write!(f, "Some<{t}>({a})"),
             Rvalue::IsNull(a) => write!(f, "IsNull({a})"),
+            Rvalue::ShowEnter(a) => write!(f, "ShowEnter({a})"),
+            Rvalue::ShowLeave(a) => write!(f, "ShowLeave({a})"),
             Rvalue::Unwrap(a) => write!(f, "Unwrap({a})"),
             Rvalue::Variant(e, v, ops) => {
                 let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();

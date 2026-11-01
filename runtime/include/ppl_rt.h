@@ -141,6 +141,11 @@ int64_t ppl_gc_stat(int64_t which); /* the `GcStats` fields, in order; -1 resets
  * `info`. An object's first word points at its class's metadata, whose first word points at
  * the base class's (null at the root). */
 int32_t ppl_instance_of(const void *obj, const void *info);
+/* The objects being shown in their default string form, per thread (`ShowEnter`/`ShowLeave`
+ * in MIR): `ppl_show_enter` returns 0 if `obj` is already being shown (a cycle), otherwise it
+ * marks it and returns 1; `ppl_show_leave` unmarks it. */
+int32_t ppl_show_enter(const void *obj);
+void ppl_show_leave(const void *obj);
 
 /* A growable array (`T[]`): `len` elements of the element size the compiler passes, stored
  * contiguously at `data` (zeroed beyond `len` up to `cap`). */

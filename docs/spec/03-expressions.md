@@ -57,6 +57,11 @@ loosest, then `&&`; among the bitwise operators `|` is loosest, then `^`, then `
 operators bind tighter than `**`, so `-2 ** 2` is `(-2) ** 2`, and `as` sits between them
 (`x as i32 + 1` is `(x as i32) + 1`).
 
+`+` with a string on either side concatenates the other side's string form (any value that can
+go in a template: numbers, `bool`, `char`, nullables, unions of those, class instances (§6.1)),
+so `"n = " + 1` is `"n = 1"` and `1 + 2 + "x"` is `"3x"`. `s += v` does the same. Arrays, structs
+and other compound values need an explicit form (`${v:?}`).
+
 `++`/`--` and compound assignment work as in TS. Overflow from `++` panics like any other
 integer overflow.
 

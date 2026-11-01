@@ -25,6 +25,31 @@ int32_t ppl_instance_of(const void *obj, const void *info) {
     return 0;
 }
 
+static _Thread_local const void **showing;
+static _Thread_local int64_t showing_len, showing_cap;
+
+int32_t ppl_show_enter(const void *obj) {
+    for (int64_t i = 0; i < showing_len; i++)
+        if (showing[i] == obj) return 0;
+    if (showing_len == showing_cap) {
+        showing_cap = showing_cap ? showing_cap * 2 : 16;
+        showing = realloc(showing, (size_t)showing_cap * sizeof *showing);
+        if (!showing) abort();
+    }
+    showing[showing_len++] = obj;
+    return 1;
+}
+
+void ppl_show_leave(const void *obj) {
+    for (int64_t i = showing_len - 1; i >= 0; i--) {
+        if (showing[i] == obj) {
+            memmove(&showing[i], &showing[i + 1], (size_t)(showing_len - i - 1) * sizeof *showing);
+            showing_len--;
+            return;
+        }
+    }
+}
+
 uint64_t ppl_hash_u64(uint64_t x) {
     uint64_t z = x + 0x9e3779b97f4a7c15ULL;
     z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;

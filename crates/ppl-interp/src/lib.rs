@@ -234,6 +234,8 @@ struct Interp<'p, 'o> {
     /// The pending exception, and its tag (0: an `Error` object).
     exception: Option<Value>,
     exception_tag: u32,
+    /// The objects being shown in their default string form (to stop at cycles).
+    showing: Vec<*const Obj>,
     /// The names of the active functions (for stack traces).
     stack: Vec<String>,
     /// Panics whose `finally` handlers are running, innermost last.
@@ -951,6 +953,27 @@ impl Interp<'_, '_> {
                 v => unreachable!("tag of {v:?}"),
             },
             Rvalue::IsNull(o) => Ok(Value::Bool(self.operand(frame, o) == Value::Null)),
+            Rvalue::ShowEnter(o) => match self.operand(frame, o) {
+                Value::Object(obj) => {
+                    let id = Rc::as_ptr(&obj);
+                    if self.showing.contains(&id) {
+                        return Ok(Value::Bool(false));
+                    }
+                    self.showing.push(id);
+                    Ok(Value::Bool(true))
+                }
+                v => unreachable!("showing {v:?}"),
+            },
+            Rvalue::ShowLeave(o) => match self.operand(frame, o) {
+                Value::Object(obj) => {
+                    let id = Rc::as_ptr(&obj);
+                    if let Some(i) = self.showing.iter().rposition(|p| *p == id) {
+                        self.showing.remove(i);
+                    }
+                    Ok(Value::Void)
+                }
+                v => unreachable!("showing {v:?}"),
+            },
             Rvalue::AddOverflows(a, b) => {
                 let Ty::Int(it) = self.operand_ty(frame, a) else {
                     unreachable!("integer addition")

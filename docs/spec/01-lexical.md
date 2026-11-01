@@ -120,7 +120,9 @@ Rules:
 - `?` shows strings and `char`s quoted, with `\\`, the quote, `\n`, `\r`, `\t`, `\0` and
   `\u{…}` escapes.
 
-A type can customize how it formats by implementing a `Formattable` interface (draft name).
+A class instance shows its string form (§6.1: `toString()` or `Name (field = value, …)`); its
+debug form `${obj:?}` is still `<Name>`. A type can customize how it formats by implementing a
+`Formattable` interface (draft name).
 
 ## 1.5 Comments
 `// line`, `/* block */` (not nested, as in JS), `/** doc comment */`.

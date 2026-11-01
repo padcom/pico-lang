@@ -675,6 +675,8 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_raw_arena_free" => void.fn_type(&[i64t.into()], false),
             "ppl_raw_arena_alloc" => ptr.fn_type(&[i64t.into(), i64t.into(), i64t.into()], false),
             "ppl_instance_of" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_show_enter" => i32t.fn_type(&[ptr.into()], false),
+            "ppl_show_leave" => void.fn_type(&[ptr.into()], false),
             "ppl_hash_u64" => i64t.fn_type(&[i64t.into()], false),
             "ppl_hash_str" => i64t.fn_type(&[ptr.into()], false),
             "ppl_hash_combine" => i64t.fn_type(&[i64t.into(), i64t.into()], false),
@@ -1522,6 +1524,28 @@ impl<'ctx> Gen<'ctx, '_> {
                         .unwrap()
                         .into(),
                 )
+            }
+            Rvalue::ShowEnter(o) => {
+                let v = self.operand(fx, o)?;
+                let r = basic(
+                    self.b
+                        .build_call(self.rt("ppl_show_enter"), &[v.into()], "")
+                        .unwrap(),
+                )
+                .into_int_value();
+                Some(
+                    self.b
+                        .build_int_compare(IntPredicate::NE, r, self.i32().const_zero(), "")
+                        .unwrap()
+                        .into(),
+                )
+            }
+            Rvalue::ShowLeave(o) => {
+                let v = self.operand(fx, o)?;
+                self.b
+                    .build_call(self.rt("ppl_show_leave"), &[v.into()], "")
+                    .unwrap();
+                None
             }
             Rvalue::Tag(o) => {
                 let v = self.operand(fx, o)?;

@@ -621,6 +621,8 @@ fn is_printable(t: &Ty) -> bool {
                 | Ty::Never
                 // An instance shows its value (compound ones in the debug format).
                 | Ty::Param(..)
+                // Its `toString()`, or `Name (field = value, …)` (spec §6.1).
+                | Ty::Class(..)
         ),
     }
 }
@@ -4564,6 +4566,16 @@ impl<'p> Checker<'p> {
             Add | Sub | Mul | Div | Rem | Pow | BitAnd | BitOr | BitXor => {
                 let hint = want.filter(|w| w.ty.is_numeric());
                 let (lt, rt) = self.operands(l, r, hint);
+                // `"n = " + n` / `n + " items"`: the other side's string form (spec §3.2).
+                let is_str = |t: &Ty| t.erase() == Ty::Str;
+                if op == Add && (is_str(&lt) || is_str(&rt)) {
+                    for (x, xt) in [(l, &lt), (r, &rt)] {
+                        if !is_printable(xt) {
+                            self.invalid_operand(x.span, "`+`", xt, "a value with a string form");
+                        }
+                    }
+                    return Ty::Str;
+                }
                 let t = self.join(e.span, op, l, &lt, r, &rt);
                 let ok = match op {
                     Add => t.is_numeric() || t == Ty::Str,
@@ -4758,6 +4770,13 @@ impl<'p> Checker<'p> {
                     self.invalid_operand(e.span, "`??=`", &vt, "a nullable (`T?`) target");
                 }
                 self.check(value, &Expect::new(vt.clone()));
+            }
+            Add if vt.erase() == Ty::Str => {
+                // `s += v`: the value's string form.
+                let t = self.infer_with(value, Some(&Expect::new(vt.clone())));
+                if !is_printable(&t) {
+                    self.invalid_operand(value.span, "`+=`", &t, "a value with a string form");
+                }
             }
             _ => {
                 self.check(value, &Expect::new(vt.clone()));
@@ -5337,6 +5356,10 @@ impl<'p> Checker<'p> {
                             );
                         }
                         return self.call_fn(e, m, args);
+                    }
+                    if name == "toString" && matches!(t, Ty::Class(..)) && args.is_empty() {
+                        // The default string form.
+                        return Ty::Str;
                     }
                     let what = if def.field(name).is_some() {
                         "is a field, not a method"

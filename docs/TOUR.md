@@ -834,6 +834,8 @@ println(d.description)            // getter
 d.nickname = "Rexy"               // setter
 println(Animal.count)
 println(d instanceof Dog)         // true
+println(d)                        // Dog (id = 1, name = "Rex", age = 3): no toString, so the fields
+println("a dog: " + d)            // `+` with a string converts the other side
 d.helper()                        // error: helper is private
 ```
 

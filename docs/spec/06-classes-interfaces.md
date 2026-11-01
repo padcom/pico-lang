@@ -33,6 +33,21 @@ class Dog extends Animal {
   `this(...)`. `super(...)` calls the base constructor. Constructor parameter properties
   (`public name: string`) declare and assign a field.
 - Every field must be definitely assigned by the end of each constructor.
+- **String form**: a class instance converts to a string silently in templates (`${p}`),
+  `print`/`println`, `p.toString()` and `+` with a string (§3.3). It uses the class's
+  `toString(): string` (no parameters, no `throws`; any visibility; inherited ones count). Without
+  one, it's `Name (field = value, …)`: every field, inherited ones first, in declaration order.
+  Strings and `char`s show quoted, compound values use the debug format, nested objects use
+  their own string form, functions show as `<function>`. The **runtime** class decides, so a
+  `Base` holding a `Derived` shows `Derived (…)` or `Derived`'s `toString`. An object that's
+  already being shown further up (a cycle) shows as `Name (…)`:
+  ```ts
+  class Node { public next: Node? = null; constructor(public value: int) {} }
+  const a = new Node(1)
+  a.next = a
+  println(a)              // Node (next = Node (…), value = 1)
+  ```
+  Structs don't get this (they have the debug format `${s:?}`).
 
 ## 6.2 Interfaces
 ```ts

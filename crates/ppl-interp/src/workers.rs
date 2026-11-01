@@ -336,6 +336,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             depth: 0,
             exception: None,
             exception_tag: 0,
+            showing: Vec::new(),
             stack: Vec::new(),
             frames: Vec::new(),
             unwinding: Vec::new(),

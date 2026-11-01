@@ -1,0 +1,118 @@
+// expect: Point (x = 1, y = 2)
+// expect: at Point (x = 3, y = 4)
+// expect: Named#5
+// expect: Point (x = 0, y = 0)
+// expect: Bag (name = "bag", initial = "b", items = [1, 2], pt = Point (x = 1, y = 1), inner = Named#2, missing = null, f = <function>, ratio = 0.5)
+// expect: Empty ()
+// expect: Node (next = Node (next = null, prev = Node (…), value = 2), prev = null, value = 1)
+// expect: Derived (id = 7, extra = "x")
+// expect: Custom#8
+// expect: W
+// expect: Box (value = "hi")
+// expect: Box (value = Derived (id = 1, extra = "y"))
+// expect: (Point (x = 5, y = 6), false)
+// expect: Point (x = 9, y = 9)
+// expect: null Box (value = null)
+// expect: Odd (n = 3)
+// expect: p = Point (x = 1, y = 2)
+// expect: 1 item, 2.5 true c null
+// expect: n1Named#3
+// expect: 4
+// A class's string form (spec §6.1): its `toString(): string`, or `Name (field = value, …)`.
+class Point {
+  constructor(public x: int, public y: int) {}
+}
+class Named {
+  constructor(public n: int) {}
+  toString(): string { `Named#${n}` }
+}
+println(new Point(1, 2))
+println(`at ${new Point(3, 4)}`)
+println(`${new Named(5)}`)
+println(new Point(0, 0).toString())
+
+// Fields: strings and chars quoted, compound values in the debug format, nested objects by
+// their own string form, functions as `<function>`.
+class Bag {
+  name = "bag"
+  initial = 'b'
+  items: int[] = [1, 2]
+  pt: Point = new Point(1, 1)
+  inner: Named = new Named(2)
+  missing: Point? = null
+  f: (x: int) => int = (x: int) => x
+  ratio = 0.5
+}
+println(new Bag())
+class Empty {}
+println(new Empty())
+
+// Cycles stop at an object that's already being shown.
+class Node {
+  public next: Node? = null
+  public prev: Node? = null
+  constructor(public value: int) {}
+}
+const a = new Node(1)
+const b = new Node(2)
+a.next = b
+b.prev = a
+println(a)
+
+// The runtime class decides: subclasses show their own fields or `toString`.
+class Base {
+  constructor(protected id: int) {}
+}
+class Derived extends Base {
+  constructor(id: int, public extra: string) { super(id) }
+}
+class Custom extends Base {
+  constructor(id: int) { super(id) }
+  toString(): string { `Custom#${id}` }
+}
+const d: Base = new Derived(7, "x")
+const c: Base = new Custom(8)
+println(d)
+println(c)
+class V {
+  public virtual toString(): string { "V" }
+}
+class W extends V {
+  public override toString(): string { "W" }
+}
+const v: V = new W()
+println(v)
+
+// Generic classes, unions and nullables.
+class Box<T> {
+  constructor(public value: T) {}
+}
+class Pair<A, B> {
+  constructor(public a: A, public b: B) {}
+  toString(): string { `(${a}, ${b})` }
+}
+println(new Box<string>("hi"))
+println(new Box<Base>(new Derived(1, "y")))
+println(new Pair<Point, bool>(new Point(5, 6), false))
+type Shape = int | Point
+const s: Shape = new Point(9, 9)
+println(s)
+const none: Point? = null
+println(`${none} ${new Box<Point?>(null)}`)
+
+// A `toString` with parameters isn't the string form.
+class Odd {
+  constructor(public n: int) {}
+  toString(sep: string): string { `odd${sep}` }
+}
+println(new Odd(3))
+
+// `+` with a string on one side converts the other side.
+println("p = " + new Point(1, 2))
+println(1 + " item, " + 2.5 + " " + true + " " + 'c' + " " + none)
+let t = "n"
+t += 1
+t += new Named(3)
+println(t)
+const i: i32 = 3
+println(i + 1)
