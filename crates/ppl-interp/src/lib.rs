@@ -628,6 +628,12 @@ impl Interp<'_, '_> {
             Builtin::ClockMs => {
                 return Value::Int(self.started.elapsed().as_millis() as i128);
             }
+            Builtin::ParseF64 => {
+                return Value::Float(match &vals[0] {
+                    Value::Str(s) => s.parse::<f64>().unwrap_or(f64::NAN),
+                    _ => f64::NAN,
+                });
+            }
             Builtin::LoopWait => {
                 if let Value::Int(ms) = vals[0] {
                     self.waker.wait(ms as i64);

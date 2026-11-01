@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P6.8: JSON** (see [PLAN.md](PLAN.md#p68-json)).
+**P7.1: std/fs and std/path** (see [PLAN.md](PLAN.md#p71-stdfs-and-stdpath)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,7 +23,7 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 227 decisions, no open questions |
+| Spec | ✅ 16 chapters, 228 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
 | Last green `scripts/test.sh` | 2026-11-01 (P6.6) |
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **JSON (P6.8, decision 228)**: `stdlib/core/json.ppl`, `Synth::JsonRead/JsonWrite` (`json_read`, `json_write` in `ppl-mir/src/lower.rs`), `typeck::json_ok`. Not yet: `Map<string, V>`, enums, pretty printing (`stringify(v, indent)`), cycle detection in `stringify`, class field initializers as defaults (a missing field with an initializer is an error unless nullable), `res.json<T>()` (P7.x http). The reader indexes `text[i]` (code points with a cached index) and builds strings by concatenation: fine for configs, slow for megabytes.
 - **Runtime reflection (P6.7, decision 227)**: `stdlib/core/reflect.ppl` + `stdlib/reflect.ppl`; resolver `reflect_call`; lowering `Synth::Info/Get/Set/FieldShow` (`info_body`, `describe`, `access_body` in `ppl-mir/src/lower.rs`). Not yet: `unknown` (so no untyped `get`), field/method decorators (not implemented in §11.2 either), method signatures in `MethodInfo` (name only), caching of `TypeInfo` objects (each `typeOf` call builds new ones), subclass dispatch for generic classes. Panics from accessors point at the class declaration. JSON (P6.8) is compile-time generated and shouldn't need this metadata.
 - **Class string form (decision 226, done before P6.7)**: `Cx::show_fn` in `ppl-mir/src/lower.rs` requests a per-class-type "show function" (`Synth::Show`, placeholder ids from `SYNTH_BASE`, built in the instance loop and appended after the worker entries); `FnBuilder::show_body` builds it, `show_value(…, quote)` formats fields. Not yet: `${obj:?}` and arrays/structs holding objects still show `<Name>` (the backends' debug formatters don't call show functions), so `${[p]:?}` is `[<P>]`; `Map`/`Set` show their internal fields; generic classes don't dispatch to subclasses (static class only); a panic caught inside a `toString` leaves its object marked as being shown (it then shows as `Name (…)`).
 - **Comptime (P6.2a, decision 220)**: `Rvalue::Comptime(thunk, limit)` is replaced in `ppl_interp::comptime::run` (called from `check_source_with`, then folding runs again). A local `comptime const` used by later comptime code reruns its thunk (`Found::Thunk`; the thunk is type-checked once, `checked_thunks`). Comptime parameters (P6.2b, decision 221): `TypeParam.comptime`/`value_param`/`is_len`, `ExprKind::ConstParam`/`RepeatN`, `Ty::FixedN`; constants are `Ty::Lits` type arguments. Comptime parameters on generic *types* (`struct Vec<comptime N>`) aren't supported yet. Type reflection (P6.3, decision 222): `ExprKind::TypeInfo`/`TypeValue`, lowered to constants in `Lower::type_info`; `comptime T: type` value parameters are dropped from the runtime parameters via `arg_slots` (so they don't combine with named arguments or defaults yet). Decorators on bindings other than `@comptimeLimit` are E0900, and only top-level bindings carry decorators (`Modules.binding_decorators`, keyed by statement span). The package root for `comptime.readFile` is the entry file's directory until packages exist (P9?). A 10M-step loop takes ~1.3 s in a debug build.
@@ -215,7 +216,7 @@ Notes:
 - [x] P6.5 Quasi-quote templates and the AST builder
 - [x] P6.6 `@derive` in ppl
 - [x] P6.7 Runtime reflection
-- [ ] P6.8 JSON
+- [x] P6.8 JSON
 
 ### Phase 7: Standard library
 - [ ] P7.1 std/fs and std/path
@@ -337,3 +338,4 @@ Notes:
 | 2026-11-01 | P6.6 | `@derive(Eq, Hash, Ord)` as a core-library decorator (`stdlib/core/derive.ppl`); built-in derive and `StructDef.derives` removed. Meta classes moved to the core library (`stdlib/core/meta.ppl`, re-exported by `std/meta`), core decorators visible everywhere, bare-name decorator arguments passed as strings, prelude fallback for re-exported names. Generic `==`/`<` on class instances now call their `equals`/`compareTo`. Decision 225. Tests: run/decorators/derive (Map keys, sort, `==`/`<`), fail/decorators/derive_unknown; P3.17's operators.ppl unchanged; three LLVM IR snapshots gained the new core class infos. |
 | 2026-11-01 | Class strings | Classes convert to strings silently (templates, `print`, `toString()`, `string + v`): `toString(): string` or `Name (field = value, …)`, runtime class, cycle guard; `+`/`+=` convert any printable value next to a string (decision 226, spec §1.4/§3.3/§6.1). |
 | 2026-11-01 | P6.7 | Runtime reflection: `std/reflect` (`reflect.typeOf(v)` runtime class / `typeOf<T>()`, `TypeInfo<T>`, `Field<T>` with typed `get<V>`/`set<V>`/`show`, methods, interfaces, base, decorators as name + argument source); metadata synthesized on demand in MIR; class metadata only for used classes (binary smaller without reflection). Decision 227. |
+| 2026-11-01 | P6.8 | JSON: `JSON.parse<T>` / `JSON.stringify` generated per type in MIR over a ppl reader/writer, precise errors (`field 'port': expected u16, got "x"`, `missing field`, `invalid JSON at L:C`), `@json.name`, optional struct fields (`p?: T`), `__parse_f64` builtin. Decision 228. |

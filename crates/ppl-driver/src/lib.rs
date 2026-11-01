@@ -215,6 +215,10 @@ const PRELUDE: &[(&str, &str)] = &[
         include_str!("../../../stdlib/core/meta.ppl"),
     ),
     (
+        "<core>/json.ppl",
+        include_str!("../../../stdlib/core/json.ppl"),
+    ),
+    (
         "<core>/reflect.ppl",
         include_str!("../../../stdlib/core/reflect.ppl"),
     ),

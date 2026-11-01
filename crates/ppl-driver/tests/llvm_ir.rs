@@ -39,7 +39,7 @@ function toInt(x: f64): u8 { x as u8 }
 "#));
 }
 
-/// Reflection costs nothing where it isn't used (spec §11.3): no metadata, no classes.
+/// Reflection and JSON cost nothing where they aren't used (spec §11.3, §11.4).
 #[test]
 fn no_reflection_metadata_without_reflect() {
     let src = r#"

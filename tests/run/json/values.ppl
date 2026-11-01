@@ -1,0 +1,66 @@
+// expect: c
+// expect: {"name":"root","children":[{"name":"a","children":[],"weight":1.5},{"name":"b","children":[{"name":"c","children":[],"weight":null}],"weight":null}],"weight":null}
+// expect: -9223372036854775808
+// expect: 9223372036854775807
+// expect: 18446744073709551615
+// expect: -128
+// expect: 0.1
+// expect: -0.0025
+// expect: 1
+// expect: 0.30000000000000004
+// expect: null
+// expect: é😀 "q" \ / 	.
+// expect: "tab\there \u0001 é \"q\""
+// expect: x
+// expect: true
+// expect: 2
+// expect: [[1,2],[],[3]]
+// expect: 3
+// expect: null
+// expect: expected i64, got 9223372036854775808
+// expect: expected i64, got -9223372036854775809
+// expect: expected i64, got 01
+// expect: expected i64, got the end of the text
+// expect: expected i64, got an array
+// expect: expected i64, got tru
+// expect: expected i64, got "7"
+// JSON for numbers, strings, arrays, nullables and classes (including recursive ones).
+class Tree {
+  constructor(public name: string, public children: Tree[], public weight: f64?) {}
+}
+const t = JSON.parse<Tree>('{"name":"root","children":[{"name":"a","children":[],"weight":1.5},{"name":"b","children":[{"name":"c","children":[]}]}]}')
+println(t.children[1].children[0].name)
+println(JSON.stringify(t))
+
+println(JSON.parse<i64>("-9223372036854775808"))
+println(JSON.parse<i64>(" 9223372036854775807 "))
+println(JSON.parse<u64>("18446744073709551615"))
+println(JSON.parse<i8>("-128"))
+println(JSON.parse<f32>("0.1"))
+println(JSON.parse<f64>("-2.5e-3"))
+println(JSON.parse<f64>("1"))
+println(JSON.stringify(0.1 + 0.2))
+println(JSON.stringify(-0.0 / 0.0))
+println(JSON.parse<string>('"\\u00e9\\ud83d\\ude00 \\"q\\" \\\\ \\/ \\t."'))
+println(JSON.stringify("tab\there \u{1} é \"q\""))
+println(JSON.parse<char>('"x"'))
+println(JSON.parse<bool[]?>("null") == null)
+println(JSON.parse<bool[]?>("[true, false]")!.length)
+println(JSON.stringify([[1, 2], [], [3]]))
+println(JSON.parse<i32[][]>("[[1,2],[],[3]]")[2][0])
+println(JSON.stringify<string?>(null))
+
+function bad(text: string) {
+  try {
+    println(JSON.parse<i64>(text))
+  } catch (e: JsonError) {
+    println(e.message)
+  }
+}
+bad("9223372036854775808")
+bad("-9223372036854775809")
+bad("01")
+bad("")
+bad("[")
+bad("tru")
+bad('"7"')

@@ -25,6 +25,17 @@ int32_t ppl_instance_of(const void *obj, const void *info) {
     return 0;
 }
 
+double ppl_parse_f64(const PplStr *s) {
+    char buf[128];
+    int64_t n = s->byte_len;
+    if (n <= 0 || n >= (int64_t)sizeof buf) return NAN;
+    memcpy(buf, s->data, (size_t)n);
+    buf[n] = 0;
+    char *end;
+    double v = strtod(buf, &end);
+    return *end ? NAN : v;
+}
+
 static _Thread_local const void **showing;
 static _Thread_local int64_t showing_len, showing_cap;
 

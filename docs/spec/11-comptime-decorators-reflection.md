@@ -154,6 +154,22 @@ struct Config { port: u16; host: string; tags: string[]; debug?: bool }
 const c = JSON.parse<Config>(text)     // throws JsonError("field 'port': expected u16, got \"x\"")
 ```
 Field renaming and other options are set with decorators (`@json.name("user_id")`).
+- **Types**: integers (range-checked: `70000` isn't a `u16`, `1.5` isn't an `i64`), floats,
+  `bool`, `string`, `char` (a one-character string), arrays, `T?` (`null`), structs and classes
+  (objects; recursive types work). Anything else (enums, tuples, functions, maps, interfaces,
+  type parameters left generic) is a compile-time error at the call.
+- **Objects**: keys match field names, or `@json.name`. Unknown keys are skipped; a missing
+  field is an error unless it's nullable (then `null`). Classes are built without running a
+  constructor.
+- **Errors**: `JsonError.message` is `field '<path>': <problem>` with paths like
+  `servers[2].host` (`element '[0]': …` at the top level of an array, no prefix for the value
+  itself). Problems: `expected u16, got "x"` (strings and numbers as written, otherwise `an
+  object`, `an array`, `the end of the text`) and `missing field 'host'`. Text that isn't
+  JSON gives `invalid JSON at <line>:<column>: <what>` (`expected ',' or '}'`, `unterminated
+  string`, `unexpected text after the value`).
+- **`stringify`** writes compact JSON: keys in field order, `null` for null values (and for
+  `NaN`/infinities), numbers as `println` shows them. Object graphs with cycles don't
+  terminate (as in JS, where they throw).
 
 ## 11.5 Deterministic cleanup: `using`
 ```ts

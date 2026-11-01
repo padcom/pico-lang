@@ -603,6 +603,40 @@ fn suffix_ty(s: NumSuffix) -> Ty {
     }
 }
 
+/// Whether values of `t` can be read from and written as JSON (spec §11.4; `Err`: the first
+/// type that can't). `seen` holds the structs and classes being checked (recursive types).
+pub fn json_ok(p: &Program, t: &Ty, seen: &mut Vec<Ty>) -> Result<(), Ty> {
+    match t {
+        Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error => Ok(()),
+        Ty::Nullable(e) | Ty::Array(e) => json_ok(p, e, seen),
+        Ty::Struct(..) | Ty::Class(..) if seen.contains(t) => Ok(()),
+        Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
+            seen.push(t.clone());
+            let owner = Ty::type_owner(*sid);
+            for f in &p.struct_def(*sid).fields {
+                json_ok(p, &f.ty.subst(owner, args), seen)?;
+            }
+            Ok(())
+        }
+        other => Err(other.clone()),
+    }
+}
+
+/// The error for `JSON.parse<t>`/`JSON.stringify` when `bad` (in `t`) has no JSON form.
+pub fn json_error(t: &Ty, bad: &Ty, span: Span) -> Diagnostic {
+    let what = if bad == t {
+        format!("`{bad}`")
+    } else {
+        format!("`{t}` (it holds a `{bad}`)")
+    };
+    Diagnostic::error(
+        codes::INVALID_OPERANDS,
+        format!("{what} can't be converted to or from JSON"),
+    )
+    .primary(span, "no JSON form")
+    .note("JSON supports numbers, `bool`, `char`, `string`, arrays, nullable values, structs and classes")
+}
+
 fn is_printable(t: &Ty) -> bool {
     match t {
         Ty::Nullable(inner)
@@ -4073,7 +4107,8 @@ impl<'p> Checker<'p> {
             .fields
             .iter()
             .zip(&seen)
-            .filter(|(_, s)| s.is_none())
+            // An optional struct field (`p?: T`) is `null` if left out.
+            .filter(|(f, s)| s.is_none() && !(f.preassigned && !def.is_class))
             .map(|(f, _)| f.name.as_str())
             .collect();
         if !missing.is_empty() {
@@ -5824,6 +5859,18 @@ impl<'p> Checker<'p> {
         let params = f.generics.clone();
         let args: Vec<&Expr> = args.iter().collect();
         let (ret, targs) = self.call_inferring(e, id, &args, explicit, id.0, &params, None);
+        // `JSON.parse<T>` / `JSON.stringify(v)`: `T` needs a JSON form (generic code is
+        // checked per instance when it's lowered).
+        if matches!(f.name.as_str(), "parse" | "stringify")
+            && let Some(owner) = f.owner
+            && self.program.struct_def(owner).name == "JSON"
+            && self.program.structs.iter().position(|d| d.name == "JSON") == Some(owner.0 as usize)
+            && let Some(t) = targs.first()
+            && !t.has_any_params()
+            && let Err(bad) = json_ok(self.program, t, &mut Vec::new())
+        {
+            self.diags.push(json_error(t, &bad, e.span));
+        }
         self.types.instances.insert(e.id, targs);
         ret
     }
@@ -6294,6 +6341,12 @@ impl<'p> Checker<'p> {
                 (arity(&[1]), Ty::Void)
             }
             Builtin::ClockMs => (arity(&[0]), Ty::INT),
+            Builtin::ParseF64 => {
+                if let Some(s) = args.first() {
+                    self.check(s, &Expect::new(Ty::Str));
+                }
+                (arity(&[1]), Ty::Float(FloatTy::F64))
+            }
             Builtin::ComptimeInfo => {
                 if let Some(k) = args.first() {
                     self.check(k, &Expect::new(Ty::INT));
@@ -6370,6 +6423,7 @@ impl<'p> Checker<'p> {
         if !ok {
             let expected = match b {
                 Builtin::Print
+                | Builtin::ParseF64
                 | Builtin::Panic
                 | Builtin::GcStat
                 | Builtin::RefId

@@ -145,6 +145,9 @@ int32_t ppl_instance_of(const void *obj, const void *info);
  * in MIR): `ppl_show_enter` returns 0 if `obj` is already being shown (a cycle), otherwise it
  * marks it and returns 1; `ppl_show_leave` unmarks it. */
 int32_t ppl_show_enter(const void *obj);
+/* `__parse_f64`: the nearest double to a decimal number's text (NaN if it isn't one, or if
+ * it's over 127 bytes). */
+double ppl_parse_f64(const PplStr *s);
 void ppl_show_leave(const void *obj);
 
 /* A growable array (`T[]`): `len` elements of the element size the compiler passes, stored

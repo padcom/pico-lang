@@ -448,6 +448,8 @@ struct Cx<'a> {
 
 /// The core library's reflection functions, which calls replace with synthesized ones.
 const REFLECT_FNS: &[&str] = &[
+    "__jsonRead",
+    "__jsonWrite",
     "__reflectType",
     "__reflectTypeOf",
     "__reflectGet",
@@ -478,6 +480,33 @@ enum Synth {
     Set(Ty, Ty),
     /// `(obj: T, id: int) -> string`: a reflected field's string form.
     FieldShow(Ty),
+    /// `(r: __JsonReader) -> T`: reads a `T` from JSON (spec §11.4).
+    JsonRead(Ty),
+    /// `(w: __JsonWriter, v: T)`: writes `v` as JSON.
+    JsonWrite(Ty),
+}
+
+/// `s` as a JSON string literal (as `__jsonQuote` writes it).
+fn json_quote(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 32 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// A struct or class field's JSON key.
+fn json_key(f: &hir::FieldDef) -> String {
+    f.json_name.clone().unwrap_or_else(|| f.name.clone())
 }
 
 /// What a field accessor does.
@@ -602,6 +631,7 @@ impl Cx<'_> {
         let about = match what {
             Synth::Show(t) | Synth::Get(t, _) | Synth::Set(t, _) | Synth::FieldShow(t) => t,
             Synth::Info { of, .. } => of,
+            Synth::JsonRead(t) | Synth::JsonWrite(t) => t,
         };
         let span = match about {
             Ty::Struct(sid, _, _) | Ty::Class(sid, _, _) => self.program.struct_def(*sid).name_span,
@@ -658,6 +688,18 @@ impl Cx<'_> {
                     ("get", v.clone())
                 };
                 (format!("{t}.<{n} {v}>"), params, ret, None)
+            }
+            Synth::JsonRead(t) => {
+                let r = b.temp(b.cx.program.struct_ty(b.cx.core_struct("__JsonReader")));
+                let v = b.json_read(r, t, span);
+                (format!("{t}.<from json>"), vec![r], t.clone(), Some(v))
+            }
+            Synth::JsonWrite(t) => {
+                let w = b.temp(b.cx.program.struct_ty(b.cx.core_struct("__JsonWriter")));
+                let v = b.temp(t.clone());
+                b.json_write(w, v, t, span);
+                b.terminate(Terminator::Return(None));
+                (format!("{t}.<to json>"), vec![w, v], Ty::Void, None)
             }
             Synth::FieldShow(t) => {
                 let obj = b.temp(t.clone());
@@ -2780,17 +2822,26 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Object { fields, .. } => {
                 let (sid, order) = self.cx.types.objects[&e.id].clone();
-                let mut ops: Vec<Option<Operand>> = vec![None; order.len()];
+                let nfields = self.cx.program.struct_def(sid).fields.len();
+                let mut ops: Vec<Option<Operand>> = vec![None; nfields.max(order.len())];
                 // Evaluate in source order, store in declaration order.
                 for (f, slot) in fields.iter().zip(&order) {
                     let v = self.expr(&f.value);
                     ops[*slot as usize] = Some(v);
                 }
+                // Optional fields left out are `null`.
+                let owner = Ty::type_owner(sid);
+                let targs = ty.type_args().to_vec();
                 let ops = ops
                     .into_iter()
-                    .map(|o| o.expect("every field initialized"))
+                    .enumerate()
+                    .map(|(i, o)| {
+                        o.unwrap_or_else(|| {
+                            let ft = &self.cx.program.struct_def(sid).fields[i].ty;
+                            Operand::Const(Const::Null(ft.subst(owner, &targs)))
+                        })
+                    })
                     .collect();
-                let _ = sid;
                 self.rvalue_to_temp(Rvalue::Aggregate(ty.clone(), ops), ty, e.span)
             }
             ExprKind::Index { object, index } if *self.ty_of(object) == Ty::Str => {
@@ -4538,6 +4589,416 @@ impl FnBuilder<'_, '_> {
         self.terminate(Terminator::Unreachable);
     }
 
+    /// Calls method `name` of core class `class` (not virtual, doesn't throw).
+    fn core_call(
+        &mut self,
+        class: &str,
+        name: &str,
+        args: Vec<Operand>,
+        ret: Ty,
+        span: Span,
+    ) -> Operand {
+        let sid = self.cx.core_struct(class);
+        let m = self
+            .cx
+            .program
+            .struct_def(sid)
+            .method(name)
+            .unwrap_or_else(|| panic!("core method `{class}.{name}`"));
+        let dest = has_value(&ret).then(|| Place::local(self.temp(ret.clone())));
+        let next = self.new_block();
+        let loc = self.loc(span);
+        self.terminate(Terminator::Call {
+            callee: Callee::Fn(m),
+            args,
+            dest: dest.clone(),
+            next,
+            loc,
+        });
+        self.switch_to(next);
+        match dest {
+            Some(p) => Operand::Copy(p),
+            None => Operand::Const(Const::Void),
+        }
+    }
+
+    /// The body of `Synth::JsonRead(t)`: reads a `t` with reader `r` (see `__JsonReader`;
+    /// nested values are read by their own functions).
+    fn json_read(&mut self, r: Local, t: &Ty, span: Span) -> Operand {
+        let rd = || Operand::Copy(Place::local(r));
+        let s = |v: String| Operand::Const(Const::Str(v));
+        let tn = s(t.to_string());
+        const R: &str = "__JsonReader";
+        match t {
+            Ty::Int(it @ (IntTy::U64 | IntTy::Usize)) => {
+                let v = self.core_call(R, "readU64", vec![rd(), tn], Ty::Int(IntTy::U64), span);
+                if *it == IntTy::U64 {
+                    v
+                } else {
+                    self.rvalue_to_temp(Rvalue::Cast(v, t.clone()), t.clone(), span)
+                }
+            }
+            Ty::Int(it) => {
+                let neg = s(it.min().unsigned_abs().to_string());
+                let pos = s(it.max().to_string());
+                let v = self.core_call(R, "readInt", vec![rd(), tn, neg, pos], Ty::INT, span);
+                if *it == IntTy::I64 {
+                    v
+                } else {
+                    self.rvalue_to_temp(Rvalue::Cast(v, t.clone()), t.clone(), span)
+                }
+            }
+            Ty::Float(ft) => {
+                let f64t = Ty::Float(ppl_sema::ty::FloatTy::F64);
+                let v = self.core_call(R, "readF64", vec![rd(), tn], f64t.clone(), span);
+                if *t == f64t {
+                    v
+                } else {
+                    let _ = ft;
+                    self.rvalue_to_temp(Rvalue::Cast(v, t.clone()), t.clone(), span)
+                }
+            }
+            Ty::Bool => self.core_call(R, "readBool", vec![rd(), tn], Ty::Bool, span),
+            Ty::Str => self.core_call(R, "readString", vec![rd(), tn], Ty::Str, span),
+            Ty::Char => self.core_call(R, "readChar", vec![rd(), tn], Ty::Char, span),
+            Ty::Nullable(inner) => {
+                let res = Place::local(self.temp(t.clone()));
+                let is_null = self.core_call(R, "isNull", vec![rd()], Ty::Bool, span);
+                let (null_bb, some_bb, done) =
+                    (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: is_null,
+                    then: null_bb,
+                    else_: some_bb,
+                });
+                self.switch_to(null_bb);
+                self.assign(
+                    res.clone(),
+                    Rvalue::Use(Operand::Const(Const::Null(t.clone()))),
+                    span,
+                );
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(some_bb);
+                let f = self.cx.synth(Synth::JsonRead((**inner).clone()));
+                let v = Place::local(self.temp((**inner).clone()));
+                self.call_into(f, vec![rd()], v.clone(), span);
+                self.assign(
+                    res.clone(),
+                    Rvalue::WrapSome(Operand::Copy(v), t.clone()),
+                    span,
+                );
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(done);
+                Operand::Copy(res)
+            }
+            Ty::Array(e) => {
+                let arr = self.rvalue_to_temp(
+                    Rvalue::ArrayNew((**e).clone(), Vec::new()),
+                    t.clone(),
+                    span,
+                );
+                self.core_call(R, "beginArray", vec![rd(), tn], Ty::Bool, span);
+                let i = self.temp(Ty::INT);
+                self.assign(
+                    Place::local(i),
+                    Rvalue::Use(Operand::Const(Const::Int(0, IntTy::I64))),
+                    span,
+                );
+                let (head, body, done) = (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(head);
+                let more = self.core_call(R, "more", vec![rd()], Ty::Bool, span);
+                self.terminate(Terminator::Branch {
+                    cond: more,
+                    then: body,
+                    else_: done,
+                });
+                self.switch_to(body);
+                self.core_call(
+                    R,
+                    "pushIndex",
+                    vec![rd(), Operand::Copy(Place::local(i))],
+                    Ty::Void,
+                    span,
+                );
+                let f = self.cx.synth(Synth::JsonRead((**e).clone()));
+                let v = Place::local(self.temp((**e).clone()));
+                self.call_into(f, vec![rd()], v.clone(), span);
+                self.core_call(R, "pop", vec![rd()], Ty::Void, span);
+                let unit = self.temp(Ty::Void);
+                self.assign(
+                    Place::local(unit),
+                    Rvalue::ArrayPush(arr.clone(), Operand::Copy(v)),
+                    span,
+                );
+                self.assign(
+                    Place::local(i),
+                    Rvalue::Binary(
+                        mir::BinOp::Add,
+                        Operand::Copy(Place::local(i)),
+                        Operand::Const(Const::Int(1, IntTy::I64)),
+                    ),
+                    span,
+                );
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(done);
+                arr
+            }
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
+                let program = self.cx.program;
+                let def = program.struct_def(*sid);
+                let owner = Ty::type_owner(*sid);
+                let fields: Vec<(String, String, Ty)> = def
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), json_key(f), f.ty.subst(owner, args)))
+                    .collect();
+                // A value and a "seen" flag per field.
+                let mut slots = Vec::new();
+                for (_, _, fty) in &fields {
+                    let v = self.temp(fty.clone());
+                    let init = match fty {
+                        Ty::Nullable(_) => Const::Null(fty.clone()),
+                        _ => Const::Undef(fty.clone()),
+                    };
+                    self.assign(Place::local(v), Rvalue::Use(Operand::Const(init)), span);
+                    let seen = self.temp(Ty::Bool);
+                    self.assign(
+                        Place::local(seen),
+                        Rvalue::Use(Operand::Const(Const::Bool(false))),
+                        span,
+                    );
+                    slots.push((v, seen));
+                }
+                self.core_call(R, "beginObject", vec![rd(), tn], Ty::Bool, span);
+                let (head, body, done) = (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(head);
+                let key_ty = Ty::Str.nullable();
+                let key = self.core_call(R, "nextKey", vec![rd()], key_ty, span);
+                let end = self.rvalue_to_temp(Rvalue::IsNull(key.clone()), Ty::Bool, span);
+                self.terminate(Terminator::Branch {
+                    cond: end,
+                    then: done,
+                    else_: body,
+                });
+                self.switch_to(body);
+                let k = self.rvalue_to_temp(Rvalue::Unwrap(key), Ty::Str, span);
+                for ((_, jkey, fty), (v, seen)) in fields.iter().zip(&slots) {
+                    let eq = self.rvalue_to_temp(
+                        Rvalue::Binary(mir::BinOp::Eq, k.clone(), s(jkey.clone())),
+                        Ty::Bool,
+                        span,
+                    );
+                    let (yes, no) = (self.new_block(), self.new_block());
+                    self.terminate(Terminator::Branch {
+                        cond: eq,
+                        then: yes,
+                        else_: no,
+                    });
+                    self.switch_to(yes);
+                    self.core_call(R, "pushField", vec![rd(), s(jkey.clone())], Ty::Void, span);
+                    let f = self.cx.synth(Synth::JsonRead(fty.clone()));
+                    self.call_into(f, vec![rd()], Place::local(*v), span);
+                    self.core_call(R, "pop", vec![rd()], Ty::Void, span);
+                    self.assign(
+                        Place::local(*seen),
+                        Rvalue::Use(Operand::Const(Const::Bool(true))),
+                        span,
+                    );
+                    self.terminate(Terminator::Goto(head));
+                    self.switch_to(no);
+                }
+                // An unknown key.
+                self.core_call(R, "skipValue", vec![rd()], Ty::Void, span);
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(done);
+                // Missing fields (a nullable one is `null`).
+                for ((_, jkey, fty), (_, seen)) in fields.iter().zip(&slots) {
+                    if matches!(fty, Ty::Nullable(_)) {
+                        continue;
+                    }
+                    let (miss, fine) = (self.new_block(), self.new_block());
+                    self.terminate(Terminator::Branch {
+                        cond: Operand::Copy(Place::local(*seen)),
+                        then: fine,
+                        else_: miss,
+                    });
+                    self.switch_to(miss);
+                    self.core_call(R, "missing", vec![rd(), s(jkey.clone())], Ty::Void, span);
+                    self.terminate(Terminator::Goto(fine));
+                    self.switch_to(fine);
+                }
+                let vals: Vec<Operand> = slots
+                    .iter()
+                    .map(|(v, _)| Operand::Copy(Place::local(*v)))
+                    .collect();
+                if def.is_class {
+                    let obj = self.temp(t.clone());
+                    self.assign(Place::local(obj), Rvalue::New(t.clone()), span);
+                    for (i, v) in vals.into_iter().enumerate() {
+                        self.assign(Place::local(obj).field(i as u32), Rvalue::Use(v), span);
+                    }
+                    Operand::Copy(Place::local(obj))
+                } else {
+                    self.rvalue_to_temp(Rvalue::Aggregate(t.clone(), vals), t.clone(), span)
+                }
+            }
+            _ => {
+                self.terminate(Terminator::Unreachable);
+                let next = self.new_block();
+                self.switch_to(next);
+                Operand::Const(Const::Undef(t.clone()))
+            }
+        }
+    }
+
+    /// The body of `Synth::JsonWrite(t)`: writes value `v` with writer `w`.
+    fn json_write(&mut self, w: Local, v: Local, t: &Ty, span: Span) {
+        let wr = || Operand::Copy(Place::local(w));
+        let val = || Operand::Copy(Place::local(v));
+        let raw = |b: &mut Self, text: Operand| {
+            b.core_call("__JsonWriter", "raw", vec![wr(), text], Ty::Void, span);
+        };
+        let lit = |text: &str| Operand::Const(Const::Str(text.to_string()));
+        match t {
+            Ty::Int(_) | Ty::Bool => {
+                let text = self.rvalue_to_temp(Rvalue::ToStr(val()), Ty::Str, span);
+                raw(self, text);
+            }
+            Ty::Float(_) => {
+                let f64t = Ty::Float(ppl_sema::ty::FloatTy::F64);
+                let x = if *t == f64t {
+                    val()
+                } else {
+                    self.rvalue_to_temp(Rvalue::Cast(val(), f64t.clone()), f64t, span)
+                };
+                self.core_call("__JsonWriter", "num", vec![wr(), x], Ty::Void, span);
+            }
+            Ty::Str | Ty::Char => {
+                let text = self.stringify(val(), t, span);
+                self.core_call("__JsonWriter", "str", vec![wr(), text], Ty::Void, span);
+            }
+            Ty::Nullable(inner) => {
+                let is_null = self.rvalue_to_temp(Rvalue::IsNull(val()), Ty::Bool, span);
+                let (null_bb, some_bb, done) =
+                    (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: is_null,
+                    then: null_bb,
+                    else_: some_bb,
+                });
+                self.switch_to(null_bb);
+                raw(self, lit("null"));
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(some_bb);
+                let x = self.rvalue_to_temp(Rvalue::Unwrap(val()), (**inner).clone(), span);
+                let f = self.cx.synth(Synth::JsonWrite((**inner).clone()));
+                self.json_call(f, wr(), x, span);
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(done);
+            }
+            Ty::Array(e) => {
+                raw(self, lit("["));
+                let n = self.rvalue_to_temp(Rvalue::ArrayLen(val()), Ty::INT, span);
+                let i = self.temp(Ty::INT);
+                self.assign(
+                    Place::local(i),
+                    Rvalue::Use(Operand::Const(Const::Int(0, IntTy::I64))),
+                    span,
+                );
+                let (head, body, done) = (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(head);
+                let more = self.rvalue_to_temp(
+                    Rvalue::Binary(mir::BinOp::Lt, Operand::Copy(Place::local(i)), n),
+                    Ty::Bool,
+                    span,
+                );
+                self.terminate(Terminator::Branch {
+                    cond: more,
+                    then: body,
+                    else_: done,
+                });
+                self.switch_to(body);
+                let first = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Eq,
+                        Operand::Copy(Place::local(i)),
+                        Operand::Const(Const::Int(0, IntTy::I64)),
+                    ),
+                    Ty::Bool,
+                    span,
+                );
+                let (comma, go) = (self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: first,
+                    then: go,
+                    else_: comma,
+                });
+                self.switch_to(comma);
+                raw(self, lit(","));
+                self.terminate(Terminator::Goto(go));
+                self.switch_to(go);
+                let x = self.rvalue_to_temp(
+                    Rvalue::Use(Operand::Copy(Place::local(v).index(i))),
+                    (**e).clone(),
+                    span,
+                );
+                let f = self.cx.synth(Synth::JsonWrite((**e).clone()));
+                self.json_call(f, wr(), x, span);
+                self.assign(
+                    Place::local(i),
+                    Rvalue::Binary(
+                        mir::BinOp::Add,
+                        Operand::Copy(Place::local(i)),
+                        Operand::Const(Const::Int(1, IntTy::I64)),
+                    ),
+                    span,
+                );
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(done);
+                raw(self, lit("]"));
+            }
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
+                let def = self.cx.program.struct_def(*sid);
+                let owner = Ty::type_owner(*sid);
+                let fields: Vec<(String, Ty)> = def
+                    .fields
+                    .iter()
+                    .map(|f| (json_key(f), f.ty.subst(owner, args)))
+                    .collect();
+                for (i, (key, fty)) in fields.iter().enumerate() {
+                    let sep = if i == 0 { "{" } else { "," };
+                    raw(self, lit(&format!("{sep}{}:", json_quote(key))));
+                    let x = self.rvalue_to_temp(
+                        Rvalue::Use(Operand::Copy(Place::local(v).field(i as u32))),
+                        fty.clone(),
+                        span,
+                    );
+                    let f = self.cx.synth(Synth::JsonWrite(fty.clone()));
+                    self.json_call(f, wr(), x, span);
+                }
+                raw(self, lit(if fields.is_empty() { "{}" } else { "}" }));
+            }
+            _ => {}
+        }
+    }
+
+    /// Calls JSON writer function `f` for value `x`.
+    fn json_call(&mut self, f: FnId, w: Operand, x: Operand, span: Span) {
+        let next = self.new_block();
+        let loc = self.loc(span);
+        self.terminate(Terminator::Call {
+            callee: Callee::Fn(f),
+            args: vec![w, x],
+            dest: None,
+            next,
+            loc,
+        });
+        self.switch_to(next);
+    }
+
     /// The body of class type `t`'s show function, `this` its parameter. A class without
     /// `toString` first passes an instance of a (non-generic) subclass on to the subclass's
     /// show function; then it's `Name (field = value, …)`, or `Name (…)` for an object that's
@@ -5622,7 +6083,24 @@ impl FnBuilder<'_, '_> {
                     .iter()
                     .map(|t| self.mono(t))
                     .collect();
+                if name.starts_with("__json")
+                    && let Err(bad) =
+                        ppl_sema::typeck::json_ok(self.cx.program, &targs[0], &mut Vec::new())
+                {
+                    let what = if bad == targs[0] {
+                        format!("`{bad}`")
+                    } else {
+                        format!("`{}` (it holds a `{bad}`)", targs[0])
+                    };
+                    let _ = what;
+                    self.cx
+                        .diags
+                        .push(ppl_sema::typeck::json_error(&targs[0], &bad, e.span));
+                    return Operand::Const(Const::Undef(ty));
+                }
                 let what = match name.as_str() {
+                    "__jsonRead" => Synth::JsonRead(targs[0].clone()),
+                    "__jsonWrite" => Synth::JsonWrite(targs[0].clone()),
                     "__reflectType" | "__reflectTypeOf" => Synth::Info {
                         seen: targs[0].clone(),
                         of: targs[0].clone(),
@@ -5749,6 +6227,7 @@ impl FnBuilder<'_, '_> {
                 | Builtin::RawArenaNew
                 | Builtin::RawArenaFree
                 | Builtin::ClockMs
+                | Builtin::ParseF64
                 | Builtin::LoopWait
                 | Builtin::WorkerOp
                 | Builtin::WorkerPost
@@ -5765,6 +6244,7 @@ impl FnBuilder<'_, '_> {
                         | Builtin::RefId
                         | Builtin::RawArenaNew
                         | Builtin::ClockMs
+                        | Builtin::ParseF64
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
                         | Builtin::BufOp
@@ -5777,6 +6257,8 @@ impl FnBuilder<'_, '_> {
                         Builtin::WorkerError | Builtin::ComptimeInfo | Builtin::ComptimeReadFile
                     ) {
                         Ty::Str
+                    } else if *b == Builtin::ParseF64 {
+                        Ty::Float(ppl_sema::ty::FloatTy::F64)
                     } else {
                         Ty::INT
                     };

@@ -114,6 +114,8 @@ pub struct FieldDef {
     /// `@weak` (core library only, spec §9.3): a `C?` or `T[]?` field that doesn't keep its
     /// target alive; the collector sets it to `null` when the target is collected.
     pub weak: bool,
+    /// `@json.name("key")`: the field's key in JSON (spec §11.4).
+    pub json_name: Option<String>,
 }
 
 /// A struct or a class (`is_class`). Classes share the id space so most member code is shared.
@@ -589,6 +591,9 @@ pub enum Builtin {
     RawArenaFree,
     /// `__clock_ms()`: a monotonic clock in milliseconds (the event loop's timers).
     ClockMs,
+    /// `__parse_f64(text)`: the nearest `f64` to a decimal number's text (JSON numbers;
+    /// `NaN` if it isn't one).
+    ParseF64,
     /// `__loop_wait(ms)`: blocks for up to `ms` milliseconds waiting for events (none yet
     /// but timeouts).
     LoopWait,
@@ -628,6 +633,7 @@ impl Builtin {
             Builtin::RawArenaNew => "__raw_arena_new",
             Builtin::RawArenaFree => "__raw_arena_free",
             Builtin::ClockMs => "__clock_ms",
+            Builtin::ParseF64 => "__parse_f64",
             Builtin::LoopWait => "__loop_wait",
             Builtin::WorkerOp => "__worker_op",
             Builtin::WorkerPost => "__worker_post",
@@ -655,6 +661,7 @@ impl Builtin {
             "__raw_arena_new" => Builtin::RawArenaNew,
             "__raw_arena_free" => Builtin::RawArenaFree,
             "__clock_ms" => Builtin::ClockMs,
+            "__parse_f64" => Builtin::ParseF64,
             "__loop_wait" => Builtin::LoopWait,
             "__worker_op" => Builtin::WorkerOp,
             "__worker_post" => Builtin::WorkerPost,

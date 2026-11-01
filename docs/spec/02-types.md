@@ -110,7 +110,9 @@ struct Vec3 {
 - `const` only stops the binding from being reassigned: `const p = Point { … }` still allows
   `p.x = 5` and mutating method calls, as with TS objects. Use `immutable T` (§2.11) for a deep
   read-only view.
-- A struct literal must give every field exactly once. `${p:?}` shows `Point { x: 1, y: 2 }`;
+- A struct literal must give every field exactly once, except optional fields: `label?: string`
+  is a `string?` field that a literal may leave out (it's then `null`). `${p:?}` shows
+  `Point { x: 1, y: 2 }`;
   structs have no other string form until they implement `Formattable`.
 - Structs can implement interfaces but cannot be inherited from.
 

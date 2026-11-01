@@ -1,0 +1,13 @@
+// expect: Point { x: 1, label: null }
+// expect: Point { x: 2, label: "two" }
+// expect: none
+// An optional struct field (`name?: T`) is a `T?` that a struct literal may leave out.
+struct Point {
+  x: int
+  label?: string
+}
+const a: Point = { x: 1 }
+const b: Point = { x: 2, label: "two" }
+println(`${a:?}`)
+println(`${b:?}`)
+println(a.label ?? "none")

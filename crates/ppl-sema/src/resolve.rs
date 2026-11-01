@@ -886,6 +886,7 @@ impl Resolver {
                     preassigned: false,
                     readonly: false,
                     weak: false,
+                    json_name: None,
                 });
             }
             self.enums[eid.0 as usize].variants.push(VariantDef {
@@ -916,9 +917,7 @@ impl Resolver {
         self.resolve_implements(sid, &sd.implements);
         let mut seen: HashMap<String, Span> = HashMap::new();
         for m in &sd.members {
-            if let Some(dec) = m.decorators.first() {
-                self.not_implemented(dec.span, "decorators");
-            }
+            let json_name = self.json_name(&m.decorators);
             let mods_ok = ast::Modifiers {
                 readonly: false,
                 ..m.mods
@@ -936,8 +935,8 @@ impl Resolver {
                     if self.check_duplicate(&mut seen, name) {
                         continue;
                     }
-                    if *optional || init.is_some() {
-                        self.not_implemented(m.span, "optional fields and field defaults");
+                    if init.is_some() {
+                        self.not_implemented(m.span, "field defaults");
                     }
                     let readonly = m.mods.readonly;
                     let ty = match ty {
@@ -952,13 +951,16 @@ impl Resolver {
                             Ty::Error
                         }
                     };
+                    // `name?: T` is a `T?` that a literal may leave out (`null`).
+                    let ty = if *optional { ty.nullable() } else { ty };
                     self.structs[sid.0 as usize].fields.push(FieldDef {
                         name: name.name.clone(),
                         ty,
                         span: name.span,
-                        preassigned: false,
+                        preassigned: *optional,
                         readonly,
                         weak: false,
+                        json_name,
                     });
                 }
                 ast::MemberKind::Method(f) => {
@@ -1918,6 +1920,7 @@ impl Resolver {
                 preassigned: true,
                 readonly: false,
                 weak: false,
+                json_name: None,
             })
             .collect();
         let methods = b.methods.clone();
@@ -2035,9 +2038,16 @@ impl Resolver {
                 && m.decorators[0].args.is_none()
                 && m.decorators[0].path.len() == 1
                 && m.decorators[0].path[0].name == "weak";
-            if let Some(dec) = m.decorators.first().filter(|_| !weak) {
-                self.not_implemented(dec.span, "decorators");
-            }
+            let json_name = if weak {
+                None
+            } else if matches!(m.kind, ast::MemberKind::Field { .. }) {
+                self.json_name(&m.decorators)
+            } else {
+                if let Some(dec) = m.decorators.first() {
+                    self.not_implemented(dec.span, "decorators");
+                }
+                None
+            };
             if m.mods.is_async {
                 match &m.kind {
                     ast::MemberKind::Method(f) => {
@@ -2073,6 +2083,7 @@ impl Resolver {
                             preassigned: true,
                             readonly: p.mods.readonly,
                             weak: false,
+                            json_name: None,
                         });
                     }
                     let def = &self.structs[sid.0 as usize];
@@ -2166,6 +2177,7 @@ impl Resolver {
                         preassigned: init.is_some() || nullable,
                         readonly: m.mods.readonly,
                         weak,
+                        json_name: json_name.clone(),
                     });
                     info.field_inits.push((name, init.as_ref()));
                 }
@@ -3906,6 +3918,7 @@ impl Resolver {
                         preassigned: false,
                         readonly: false,
                         weak: false,
+                        json_name: None,
                     }],
                     has_parens: true,
                 })
@@ -3975,6 +3988,7 @@ impl Resolver {
                 preassigned: false,
                 readonly: false,
                 weak: false,
+                json_name: None,
             }];
             for f in o.iter().filter(|f| f.name.name != disc) {
                 let mut ty = self.resolve_type(&f.ty);
@@ -3988,6 +4002,7 @@ impl Resolver {
                     preassigned: f.optional,
                     readonly: false,
                     weak: false,
+                    json_name: None,
                 });
             }
             self.enums[id.0 as usize].variants.push(VariantDef {
@@ -5425,6 +5440,38 @@ impl Resolver {
             ast::ExprKind::Ident(n) if n == "__worker_take" => Some("__worker_take"),
             _ => None,
         }
+    }
+
+    /// A field's `@json.name("key")` (spec §11.4); other decorators on fields aren't
+    /// implemented.
+    fn json_name(&mut self, decs: &[ast::Decorator]) -> Option<String> {
+        let mut out = None;
+        for dec in decs {
+            let is_json =
+                dec.path.len() == 2 && dec.path[0].name == "json" && dec.path[1].name == "name";
+            if !is_json {
+                self.not_implemented(dec.span, "decorators");
+                continue;
+            }
+            match dec.args.as_deref() {
+                Some([a]) if a.name.is_none() && !a.spread => match &a.value.kind {
+                    ast::ExprKind::Lit(ast::Lit::Str(k)) => out = Some(k.clone()),
+                    _ => self.error(
+                        codes::MISMATCHED_TYPES,
+                        a.value.span,
+                        "`@json.name` takes a string literal",
+                        "not a string literal",
+                    ),
+                },
+                _ => self.error(
+                    codes::WRONG_ARG_COUNT,
+                    dec.span,
+                    "`@json.name` takes one argument: the key",
+                    "e.g. `@json.name(\"user_id\")`",
+                ),
+            }
+        }
+        out
     }
 
     /// Whether `callee` is `reflect.typeOf`, `reflect` being the core library's `__reflect`

@@ -1,0 +1,46 @@
+// expect: Config { port: 8080, host: "localhost", tags: ["a", "b\n"], debug: null, userId: 7 }
+// expect: {"port":8080,"host":"localhost","tags":["a","b\n"],"debug":null,"user_id":7}
+// expect: Config { port: 1, host: "h", tags: [], debug: true, userId: 1 }
+// expect: {"port":1,"host":"h","tags":[],"debug":true,"user_id":1}
+// expect: JsonError: field 'port': expected u16, got "x"
+// expect: JsonError: field 'port': expected u16, got 70000
+// expect: JsonError: field 'port': expected u16, got -1
+// expect: JsonError: field 'tags[1]': expected string, got 2
+// expect: JsonError: missing field 'host'
+// expect: JsonError: field 'user_id': expected i64, got 1.5
+// expect: JsonError: invalid JSON at 1:25: expected ',' or '}'
+// expect: JsonError: invalid JSON at 2:3: unexpected text after the value
+// expect: JsonError: expected Config, got an array
+// expect: JsonError: invalid JSON at 1:23: unterminated string
+// `JSON.parse<T>` and `JSON.stringify` (spec §11.4): the Config example.
+struct Config {
+  port: u16
+  host: string
+  tags: string[]
+  debug?: bool
+  @json.name("user_id") userId: i64
+}
+
+function tryParse(text: string) {
+  try {
+    const c = JSON.parse<Config>(text)
+    println(`${c:?}`)
+    println(JSON.stringify(c))
+  } catch (e: JsonError) {
+    println(`JsonError: ${e.message}`)
+  }
+}
+
+tryParse('{"port": 8080, "host": "localhost", "tags": ["a", "b\\n"], "user_id": 7}')
+tryParse('{"user_id": 1, "debug": true, "host": "h", "tags": [], "port": 1, "extra": {"a": [1, null]}}')
+// Errors name the place and what was wrong.
+tryParse('{"port": "x", "host": "h", "tags": [], "user_id": 1}')
+tryParse('{"port": 70000, "host": "h", "tags": [], "user_id": 1}')
+tryParse('{"port": -1, "host": "h", "tags": [], "user_id": 1}')
+tryParse('{"port": 1, "host": "h", "tags": ["a", 2], "user_id": 1}')
+tryParse('{"port": 1, "tags": [], "user_id": 1}')
+tryParse('{"port": 1, "host": "h", "tags": [], "user_id": 1.5}')
+tryParse('{"port": 1, "host": "h" "tags": []}')
+tryParse('{"port": 1, "host": "h", "tags": [], "user_id": 1}\n  x')
+tryParse('[1]')
+tryParse('{"port": 1, "host": "h')
