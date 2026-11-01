@@ -119,8 +119,10 @@ void ppl_loop_wait(int64_t ms);
  * or -1, 3 its next message's kind (0 data, 1 error, 2 exited), 4 terminate, 5 drop the next
  * message, 6 live workers started here, 7 whether this thread is a worker); posting a value
  * (deep-copied) to a worker or (`h` 0) the parent, taking the next one, and an error's text. */
+struct PplArray;
 int64_t ppl_worker_op(int64_t op, int64_t arg);
-void ppl_worker_post(int64_t h, const void *slot, int64_t size, const PplLayout *layout);
+void ppl_worker_post(int64_t h, const void *slot, int64_t size, const PplLayout *layout,
+                     const struct PplArray *transfer);
 void ppl_worker_take(int64_t h, void *slot, int64_t size, const PplLayout *layout);
 PplStr *ppl_worker_error(int64_t h);
 /* Inside a worker: reports a panic / uncaught error to the parent and ends the thread (in

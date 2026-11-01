@@ -34,6 +34,7 @@ pub fn lower(
         cur_mir: FnId(0),
         gen_frames: HashMap::new(),
         skip_files: program.workers.iter().copied().collect(),
+        inline_entry: false,
     };
     // Generic functions get a placeholder; their instances are lowered on demand.
     let mut fns: Vec<mir::Function> = (0..program.fns.len())
@@ -75,6 +76,17 @@ pub fn lower(
         f.name = format!("<worker {}>", k + 1);
         worker_fns.push(f);
     }
+    // Inline workers (`new Worker(f)`) start in the library modules' code, then wait for the
+    // function to serve.
+    if program.uses_inline_workers {
+        cx.skip_files = program.workers.iter().copied().chain([file_id]).collect();
+        cx.inline_entry = true;
+        cx.cur_mir = FnId(u32::MAX - program.workers.len() as u32);
+        let mut f = cx.function(program.entry);
+        f.name = "<inline worker>".into();
+        cx.inline_entry = false;
+        worker_fns.push(f);
+    }
     cx.skip_files.clear();
     // Monomorphization: each instance is the generic body seen through substituted types.
     let mut next = 0;
@@ -112,9 +124,12 @@ pub fn lower(
     }
     cx.types = std::borrow::Cow::Borrowed(types);
     cx.cur_subst = Vec::new();
-    let worker_entries: Vec<FnId> = (0..worker_fns.len())
+    let mut worker_entries: Vec<FnId> = (0..worker_fns.len())
         .map(|i| FnId((fns.len() + i) as u32))
         .collect();
+    let inline_worker_entry = program
+        .uses_inline_workers
+        .then(|| worker_entries.pop().expect("pushed"));
     fns.extend(worker_fns);
     // A generator's environment also holds its frame: start in state 0, locals unset.
     for f in &mut fns {
@@ -187,6 +202,7 @@ pub fn lower(
         fns,
         entry: program.entry,
         worker_entries,
+        inline_worker_entry,
         globals,
         structs,
         enums,
@@ -360,6 +376,8 @@ struct Cx<'a> {
     /// While lowering a thread's entry: the files whose top-level code it leaves out (the
     /// main entry leaves out the worker modules; a worker the entry module and the others).
     skip_files: HashSet<ppl_diag::FileId>,
+    /// Lowering the inline workers' entry: `__inlineWorkerMain()` runs before the loop.
+    inline_entry: bool,
 }
 
 impl Cx<'_> {
@@ -4435,6 +4453,16 @@ impl FnBuilder<'_, '_> {
     /// The end of the entry module's code: the core library's `__runEventLoop` (timers,
     /// microtasks and promises, then the due finalization callbacks; spec §10.1, §9.3).
     fn exit_hooks(&mut self, span: Span) {
+        if self.cx.inline_entry
+            && let Some(i) = self
+                .cx
+                .program
+                .fns
+                .iter()
+                .position(|f| f.name == "__inlineWorkerMain" && f.span.file != self.cx.file_id)
+        {
+            self.call_fn_value(FnId(i as u32), Vec::new(), Ty::Void, span);
+        }
         let hook = self
             .cx
             .program
@@ -4709,7 +4737,8 @@ impl FnBuilder<'_, '_> {
                 | Builtin::LoopWait
                 | Builtin::WorkerOp
                 | Builtin::WorkerPost
-                | Builtin::WorkerError),
+                | Builtin::WorkerError
+                | Builtin::BufOp),
             ) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
                 let dest = matches!(
@@ -4720,6 +4749,7 @@ impl FnBuilder<'_, '_> {
                         | Builtin::ClockMs
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
+                        | Builtin::BufOp
                 )
                 .then(|| {
                     let t = if *b == Builtin::WorkerError {

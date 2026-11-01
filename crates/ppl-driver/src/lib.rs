@@ -186,6 +186,10 @@ const PRELUDE: &[(&str, &str)] = &[
         include_str!("../../../stdlib/core/worker.ppl"),
     ),
     (
+        "<core>/buffer.ppl",
+        include_str!("../../../stdlib/core/buffer.ppl"),
+    ),
+    (
         "<core>/arena.ppl",
         include_str!("../../../stdlib/core/arena.ppl"),
     ),

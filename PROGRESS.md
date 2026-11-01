@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P5.6: Transferables, inline workers, pools** (see [PLAN.md](PLAN.md#p56-transferables-inline-workers-pools)).
+**P6.1: Constant folding** (see [PLAN.md](PLAN.md#p61-constant-folding)). Phase 5 is complete.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,10 +23,10 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 217 decisions, no open questions |
+| Spec | ✅ 16 chapters, 218 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P5.5) |
+| Last green `scripts/test.sh` | 2026-11-01 (P5.6) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -56,7 +56,9 @@ Notes:
 - **Workers (P5.5, decision 217)**: check threading changes with ThreadSanitizer:
   `ppl build --emit llvm-ir x.ppl > x.ll` then
   `/opt/homebrew/opt/llvm@23/bin/clang -g -O1 -fsanitize=thread -Iruntime/include x.ll runtime/src/*.c`.
-  Every mutable C static must be `_Thread_local` (except the worker table). Thread-local
+  Every mutable C static must be `_Thread_local` (except the worker table). Expected TSan
+  report: `ppl_worker_op` terminate writing a worker's `ppl_gc_requested` (intentional).
+  Received `ArrayBuffer` copies leak their memory (not registered for finalization). Thread-local
   access costs ~12% of GC time on `bench/gc_pause.ppl` (max pause unchanged).
 - **Event loop (P5.1, decision 213)**: `stdlib/core/event.ppl` + `runtime/src/ppl_loop.c`.
   Timer tests use gaps of ≥ 10 ms (they run real time, also under `PPL_GC_STRESS`).
@@ -197,7 +199,7 @@ Notes:
 - [x] P5.3 Async generators and `await using`
 - [x] P5.4 Cancellation
 - [x] P5.5 Workers
-- [ ] P5.6 Transferables, inline workers, pools
+- [x] P5.6 Transferables, inline workers, pools
 
 ### Phase 6: Comptime and metaprogramming
 - [ ] P6.1 Constant folding
@@ -319,3 +321,4 @@ Notes:
 | 2026-11-01 | P5.3 | `async function*` over a core `AsyncIterator<T, E>`, `for await`, `await using` + `AsyncDisposable`; async results held until the step finishes; panic guards re-armed after `yield`; `x != null` for any type. Decision 215. Tests: run/async/{generators (§5.7 example), await_using (= Node)}, run/errors/generator_finally_panic. |
 | 2026-11-01 | P5.4 | `AbortController`/`AbortSignal`/`AbortError` (core), `std/timers` `delay(ms, signal?)` rejecting with `AbortError`. Decision 216. Test: run/async/abort. |
 | 2026-11-01 | P5.5 | Workers: thread-local runtime/program state, worker modules as extra roots with their own entry functions, `ppl_worker.c` (threads, queues, wakers, generic deep copy), `Worker`/`WorkerPanicked`/`std/worker`, `Sendable` bound, interpreter threads. Decision 217. Tests: run/workers/{pingpong, errors, graphs}, fail/workers/not_sendable. |
+| 2026-11-01 | P5.6 | `ArrayBuffer` + typed arrays (off-heap, copied or transferred/detached in messages), inline workers (`new Worker(f)`, `call`, unref when idle), `parallelMap`, `WorkerPool`, `navigator.hardwareConcurrency`; static getters, generic-call defaults. Decision 218. Tests: run/workers/{transfer, parallel (hashing), pool}, fail/workers/inline_captures. Phase 5 done. |

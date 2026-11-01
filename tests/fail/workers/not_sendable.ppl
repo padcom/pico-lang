@@ -8,8 +8,8 @@
 // at: 15:1
 class Holder { constructor(public f: () => void) {} }
 interface Shape { area(): f64 }
-const a = new Worker<() => void, int>(1)
-const b = new Worker<Holder, int>(1)
-const c = new Worker<int, ptr<int>>(1)
+const a = new Worker<() => void, int>(1, 0)
+const b = new Worker<Holder, int>(1, 0)
+const c = new Worker<int, ptr<int>>(1, 0)
 import { self } from "std/worker"
 self.postMessage(() => 1)

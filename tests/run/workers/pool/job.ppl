@@ -1,0 +1,10 @@
+import { self } from "std/worker"
+import { Job, Result } from "./types"
+
+// Each worker has its own instance of this module (so its own `token`).
+const token: int[] = [0]
+const me = __ref_id(token)
+
+self.onmessage = (j: Job) => {
+  self.postMessage(Result { square: j.n * j.n, worker: me })
+}

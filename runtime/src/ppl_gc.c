@@ -637,7 +637,7 @@ static void *heap_object(size_t need, int64_t size, const PplLayout *layout) {
     young_bytes += (int64_t)cell;
     if (phase != IDLE) step_bytes += (int64_t)cell;
     if (!paused && (young_bytes >= NURSERY || step_bytes >= STEP_BYTES || stress_mode)) {
-        ppl_gc_requested = 1;
+        __atomic_store_n(&ppl_gc_requested, 1, __ATOMIC_RELAXED);
     }
     return o + 1;
 }
@@ -1096,7 +1096,7 @@ void *ppl_gc_find_object(const void *p, int64_t *size, const PplLayout **layout)
 }
 
 void ppl_gc_safepoint(void) {
-    ppl_gc_requested = 0;
+    __atomic_store_n(&ppl_gc_requested, 0, __ATOMIC_RELAXED);
     /* (A terminated worker stops at its next safepoint.) */
     ppl_worker_check();
     if (paused) return;
@@ -1152,7 +1152,7 @@ void ppl_gc_pause(void) { paused++; }
 
 void ppl_gc_resume(void) {
     if (paused > 0) paused--;
-    if (!paused && (young_bytes >= NURSERY || step_bytes >= STEP_BYTES)) ppl_gc_requested = 1;
+    if (!paused && (young_bytes >= NURSERY || step_bytes >= STEP_BYTES)) __atomic_store_n(&ppl_gc_requested, 1, __ATOMIC_RELAXED);
 }
 
 int64_t ppl_gc_stat(int64_t which) {

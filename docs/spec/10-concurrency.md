@@ -85,6 +85,14 @@ buf.byteLength            // 0: buf is detached in the sender
 ```
 Only `ArrayBuffer` and its typed-array views (`Uint8Array`, `Float32Array`, …) are transferable.
 They live off the GC heap (malloc'd), so moving one only hands over a pointer.
+- `postMessage(message, options?: TransferOptions)`; `{ transfer: [buf] }` lists the buffers to
+  move. A transferred buffer is detached in the sender (`byteLength` 0, `detached`, its views'
+  `length` 0); any other buffer in a message is copied (its bytes too).
+- Views: `Uint8Array`, `Int32Array`, `Uint32Array`, `Float32Array`, `Float64Array`, with
+  `new View(length)`, `new View(buffer, byteOffset)`, `new View(buffer, byteOffset, length)`,
+  `get`/`set`/`[]`, `length`, `byteLength`, `buffer`, `byteOffset`, `BYTES_PER_ELEMENT`.
+  `ArrayBuffer` has `byteLength`, `detached` and `slice(begin, end)`; its memory is freed by a
+  finalizer once it's collected (not yet for buffers received from another thread).
 
 ## 10.4 Inline workers & pools
 ```ts
@@ -98,6 +106,15 @@ const pool = new WorkerPool<Job, Result>("./job", size: navigator.hardwareConcur
 An inline worker body is compiled as its own entry point. Capturing anything is a compile error.
 A worker built from a function supports **`await w.call(arg)`**, which returns the function's result
 (and rethrows its errors, checked). File-based workers use `postMessage`/`onmessage`.
+- `Worker<In, Out, E = never>`: an inline worker's `call` returns a `Promise<Out, E>`. Its thread
+  runs the library modules' code (not the entry module's), so using the entry module's variables
+  counts as capturing (E0346; a lambda given to `parallelMap` likewise). An inline worker keeps
+  the program running only while calls are pending.
+- `parallelMap(items, f, workers: n)` (from `std/worker`) returns `Promise<U[], E>` with the
+  results in order; its workers end when it settles. `new WorkerPool<In, Out>("./job", size: n)`
+  has `run(job): Promise<Out>` (to the least busy worker; each job must be answered by exactly
+  one message), `size` and `terminate()`. `navigator.hardwareConcurrency` is the number of
+  processors.
 
 ## 10.5 Cancellation
 Cancellation uses Web-standard `AbortController`/`AbortSignal`. `fetch`, timers, fs, net and worker

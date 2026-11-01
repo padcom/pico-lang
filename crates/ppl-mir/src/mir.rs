@@ -50,6 +50,8 @@ pub struct Program {
     /// Per file-based worker (spec §10.2), in order of their ids (from 1): the function its
     /// thread starts in (the library modules' code, then the worker module's).
     pub worker_entries: Vec<FnId>,
+    /// Where inline workers' threads start (if the program has any).
+    pub inline_worker_entry: Option<FnId>,
     pub globals: Vec<GlobalDecl>,
     pub structs: Vec<StructLayout>,
     pub enums: Vec<EnumLayout>,
@@ -758,6 +760,7 @@ pub fn live_functions(p: &Program) -> Vec<bool> {
     let mut live = vec![false; p.fns.len()];
     let mut work = vec![p.entry];
     work.extend(p.worker_entries.iter().copied());
+    work.extend(p.inline_worker_entry);
     work.extend(
         p.fns
             .iter()

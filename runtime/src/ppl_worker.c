@@ -6,7 +6,8 @@
  *
  * The ppl side (`Worker`, `std/worker`, the event loop) calls `ppl_worker_op` and the
  * post/take functions; a thread blocked in the event loop is woken when a message comes. */
-#define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
+#define _DARWIN_C_SOURCE
 #include "ppl_rt.h"
 
 #include <pthread.h>
@@ -15,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* Generated: runs worker `k`'s entry (library modules' code, the worker module's, the loop).
  * (The weak default is for programs linked without generated code, like the runtime's
@@ -50,7 +52,8 @@ typedef struct Thread {
     _Atomic(int32_t *) requested; /* the worker's `ppl_gc_requested` (to interrupt it) */
     _Atomic int started;
     /* Seen by the parent only: */
-    int live; /* not exited or terminated (as far as the parent knows) */
+    int live;  /* not exited or terminated (as far as the parent knows) */
+    int unref; /* doesn't keep the parent's loop running (an idle inline worker) */
 } Thread;
 
 /* Handles are indices + 1 into this table (shared by all threads). */
@@ -210,8 +213,25 @@ static void encode_values(Enc *e, const char *src, int64_t bytes, const PplLayou
     }
 }
 
-/* The message: [n objects][value][objects: layout, size, bytes]… */
-static char *encode(const void *slot, int64_t size, const PplLayout *layout, size_t *len) {
+/* `ArrayBuffer`s (spec §10.3) are objects `{ class, handle, byteLength }` whose bytes live
+ * off the heap at `handle`. Generated code defines this as their class metadata. */
+__attribute__((weak)) const void *const ppl_arraybuffer_class = NULL;
+
+int64_t ppl_buf_op(int64_t op, int64_t a, int64_t b, int64_t c);
+
+static int transferred(const PplArray *transfer, int64_t h) {
+    if (!transfer) return 0;
+    const int64_t *hs = (const int64_t *)transfer->data;
+    for (int64_t i = 0; i < transfer->len; i++) {
+        if (hs[i] == h) return 1;
+    }
+    return 0;
+}
+
+/* The message: [n objects][value][objects: layout, size, bytes]… An `ArrayBuffer` not in
+ * `transfer` gets a copy of its bytes; a transferred one keeps its handle (moved). */
+static char *encode(const void *slot, int64_t size, const PplLayout *layout, size_t *len,
+                    const PplArray *transfer) {
     Enc e = {0};
     uint64_t n = 0;
     put(&e, &n, sizeof n);
@@ -221,7 +241,19 @@ static char *encode(const void *slot, int64_t size, const PplLayout *layout, siz
         int64_t sz = e.objs[k].size;
         put(&e, &l, sizeof l);
         put(&e, &sz, sizeof sz);
+        size_t at = e.len;
         encode_values(&e, e.objs[k].data, sz, l);
+        const void *cls;
+        memcpy(&cls, e.objs[k].data, sizeof cls);
+        if (ppl_arraybuffer_class && cls == ppl_arraybuffer_class && sz >= 24) {
+            int64_t h, bytes;
+            memcpy(&h, e.buf + at + 8, sizeof h);
+            memcpy(&bytes, e.buf + at + 16, sizeof bytes);
+            if (h && !transferred(transfer, h)) {
+                int64_t copy = ppl_buf_op(3, h, 0, bytes);
+                memcpy(e.buf + at + 8, &copy, sizeof copy);
+            }
+        }
     }
     n = e.nobjs;
     memcpy(e.buf, &n, sizeof n);
@@ -401,7 +433,7 @@ int64_t ppl_worker_op(int64_t op, int64_t arg) {
         t->live = 0;
         atomic_store(&t->terminate, 1);
         int32_t *req = atomic_load(&t->requested);
-        if (req) *req = 1;
+        if (req) __atomic_store_n(req, 1, __ATOMIC_RELAXED);
         if (atomic_load(&t->started)) ppl_loop_wake(t->waker);
         return 1;
     }
@@ -422,18 +454,33 @@ int64_t ppl_worker_op(int64_t op, int64_t arg) {
         int64_t n = 0;
         for (size_t i = 0; i < nchildren; i++) {
             Thread *t = thread_of(children[i]);
-            if (t && t->live) n++;
+            if (t && t->live && !t->unref) n++;
         }
         return n;
     }
     case 7: /* whether this thread is a worker */
         return self_thread != NULL;
+    case 8: { /* spawn an inline worker (it waits for its setup message) */
+        int64_t h = ppl_worker_op(1, 0);
+        return h;
+    }
+    case 9:  /* worker `arg` doesn't keep this thread's loop running */
+    case 10: { /* it does again */
+        Thread *t = thread_of(arg);
+        if (t) t->unref = op == 9;
+        return 0;
+    }
+    case 11: { /* the number of processors */
+        long n = sysconf(_SC_NPROCESSORS_ONLN);
+        return n > 0 ? n : 1;
+    }
     default:
         return 0;
     }
 }
 
-void ppl_worker_post(int64_t h, const void *slot, int64_t size, const PplLayout *layout) {
+void ppl_worker_post(int64_t h, const void *slot, int64_t size, const PplLayout *layout,
+                     const struct PplArray *transfer) {
     Chan *c;
     void *waker;
     if (h == 0) {
@@ -449,7 +496,7 @@ void ppl_worker_post(int64_t h, const void *slot, int64_t size, const PplLayout 
         waker = atomic_load(&t->started) ? t->waker : NULL;
     }
     size_t len;
-    char *buf = encode(slot, size, layout, &len);
+    char *buf = encode(slot, size, layout, &len, transfer);
     chan_push(c, MSG_DATA, buf, len);
     if (waker) ppl_loop_wake(waker);
 }
@@ -477,4 +524,38 @@ PplStr *ppl_worker_error(int64_t h) {
     free(m->data);
     free(m);
     return s;
+}
+
+/* ---------------------------------------------------------------- ArrayBuffer memory */
+
+/* 1 allocate `a` zeroed bytes (a handle), 2 free `a`, 3 a copy of `c` bytes of `a` from
+ * offset `b`, 11–18 read a little-endian unsigned integer of 1–8 bytes at `a + b`, 21–28
+ * write `c` as one. (Bounds are checked by the ppl side.) */
+int64_t ppl_buf_op(int64_t op, int64_t a, int64_t b, int64_t c) {
+    char *p = (char *)(intptr_t)a;
+    if (op == 1) {
+        void *m = calloc(a > 0 ? (size_t)a : 1, 1);
+        if (!m) abort();
+        return (int64_t)(intptr_t)m;
+    }
+    if (op == 2) {
+        free(p);
+        return 0;
+    }
+    if (op == 3) {
+        char *m = malloc(c > 0 ? (size_t)c : 1);
+        if (!m) abort();
+        if (c > 0) memcpy(m, p + b, (size_t)c);
+        return (int64_t)(intptr_t)m;
+    }
+    if (op >= 11 && op <= 18) {
+        uint64_t x = 0;
+        for (int k = (int)(op - 10) - 1; k >= 0; k--) x = (x << 8) | (unsigned char)p[b + k];
+        return (int64_t)x;
+    }
+    if (op >= 21 && op <= 28) {
+        for (int k = 0; k < op - 20; k++) p[b + k] = (char)((uint64_t)c >> (8 * k));
+        return 0;
+    }
+    return 0;
 }

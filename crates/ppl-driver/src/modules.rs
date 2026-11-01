@@ -317,7 +317,17 @@ fn worker_specs(text: &str) -> Vec<(String, u32, u32)> {
     let mut out = Vec::new();
     let mut from = 0;
     while let Some(i) = text[from..].find("new Worker") {
-        let mut at = from + i + "new Worker".len();
+        let start_of = from + i;
+        let mut at = start_of + "new Worker".len();
+        // (Not in a `//` comment.)
+        let line_start = text[..start_of].rfind('\n').map_or(0, |n| n + 1);
+        if text[line_start..start_of].contains("//") {
+            from = at;
+            continue;
+        }
+        if text[at..].starts_with("Pool") {
+            at += "Pool".len();
+        }
         from = at;
         let skip_ws = |at: &mut usize| {
             while *at < b.len() && (b[*at] as char).is_whitespace() {

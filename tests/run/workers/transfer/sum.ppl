@@ -1,0 +1,14 @@
+import { self } from "std/worker"
+import { Frame, Report } from "./types"
+
+self.onmessage = (f: Frame) => {
+  const px = new Uint8Array(f.pixels, 0)
+  let sum = 0
+  for (let i = 0; i < px.length; i++) {
+    sum += px[i]
+  }
+  const k = new Uint8Array(f.kept, 0)
+  const saw = k[0]
+  k.set(0, 99)
+  self.postMessage(Report { size: px.length, sum: sum, copySaw: saw, floats: [f.floats[0], f.floats[1], f.floats[2]] })
+}

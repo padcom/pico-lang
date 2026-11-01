@@ -1,0 +1,8 @@
+export struct Job {
+  n: int
+}
+
+export struct Result {
+  square: int
+  worker: int
+}

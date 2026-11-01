@@ -3876,6 +3876,13 @@ impl<'p> Checker<'p> {
         let sid = match (ty, want.map(|w| &w.ty)) {
             (Some(s), _) => s,
             (None, Some(Ty::Struct(s, _, _))) => *s,
+            // (`{ … }` where a `S?` is expected builds an `S`.)
+            (None, Some(Ty::Nullable(inner))) if matches!(**inner, Ty::Struct(..)) => {
+                let Ty::Struct(s, _, _) = &**inner else {
+                    unreachable!("checked")
+                };
+                *s
+            }
             _ => {
                 for f in fields {
                     self.infer(&f.value);
@@ -5778,6 +5785,30 @@ impl<'p> Checker<'p> {
                 subst[i] = Some(t.clone());
             }
         }
+        // Trailing parameters with defaults may be left out (positional arguments only):
+        // the callee evaluates them.
+        // (Also when all are given: the callee takes a "given" flag per defaulted one.)
+        if args.len() <= sig.params.len()
+            && f.defaults.iter().any(Option::is_some)
+            && !self.types.arg_slots.contains_key(&e.id)
+            && !args
+                .iter()
+                .any(|a| matches!(a.kind, ExprKind::NamedArg { .. } | ExprKind::Spread(_)))
+            && (args.len()..sig.params.len())
+                .all(|k| f.defaults.get(k).is_some_and(Option::is_some))
+        {
+            let slots = (0..sig.params.len())
+                .map(|k| {
+                    if k < args.len() {
+                        Slot::Arg(k)
+                    } else {
+                        Slot::Default
+                    }
+                })
+                .collect();
+            self.types.arg_slots.insert(e.id, slots);
+            sig.params.truncate(args.len());
+        }
         if args.len() != sig.params.len() {
             self.diags.push(
                 Diagnostic::error(
@@ -6037,7 +6068,16 @@ impl<'p> Checker<'p> {
                 if let Some(v) = args.get(1) {
                     self.infer(v);
                 }
-                (arity(&[2]), Ty::Void)
+                if let Some(t) = args.get(2) {
+                    self.check(t, &Expect::new(Ty::Array(Box::new(Ty::INT))));
+                }
+                (arity(&[2, 3]), Ty::Void)
+            }
+            Builtin::BufOp => {
+                for a in args {
+                    self.check(a, &Expect::new(Ty::INT));
+                }
+                (arity(&[4]), Ty::INT)
             }
             Builtin::WorkerError => {
                 if let Some(h) = args.first() {
@@ -6079,7 +6119,9 @@ impl<'p> Checker<'p> {
                 | Builtin::RawArenaFree
                 | Builtin::LoopWait
                 | Builtin::WorkerError => "1 argument",
-                Builtin::WorkerOp | Builtin::WorkerPost => "2 arguments",
+                Builtin::WorkerOp => "2 arguments",
+                Builtin::WorkerPost => "2 or 3 arguments",
+                Builtin::BufOp => "4 arguments",
                 Builtin::ClockMs => "no arguments",
                 Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
                     "no arguments"

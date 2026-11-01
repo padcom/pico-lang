@@ -165,6 +165,7 @@ pub fn resolve_modules(
         awaits: 0,
         worker_files: Vec::new(),
         worker_ids: HashMap::new(),
+        uses_inline_workers: false,
         mods: ModCtx::default(),
         prelude_files: modules.prelude.clone(),
         file,
@@ -304,6 +305,8 @@ struct Resolver {
     top_globals: Names<GlobalId>,
     /// Async methods (by their declaration's span): desugared like async functions.
     async_methods: HashSet<Span>,
+    /// `new Worker(f)` appears (the program needs the inline workers' entry function).
+    uses_inline_workers: bool,
     /// Worker modules by id - 1, and what `new Worker("spec")` in a module refers to.
     worker_files: Vec<FileId>,
     worker_ids: HashMap<(FileId, String), u32>,
@@ -771,6 +774,7 @@ impl Resolver {
                 .collect(),
             static_inits,
             workers: std::mem::take(&mut self.worker_files),
+            uses_inline_workers: self.uses_inline_workers,
         }
     }
 
@@ -2087,12 +2091,16 @@ impl Resolver {
                     }
                     set_vis(self, &name.name, &m.mods);
                     if m.mods.is_static {
-                        if !is_method {
-                            self.not_implemented(m.span, "static accessors");
+                        let d = &mut self.structs[sid.0 as usize];
+                        match &m.kind {
+                            ast::MemberKind::Getter(_) => {
+                                d.static_getters.push((name.name.clone(), id));
+                            }
+                            ast::MemberKind::Setter(_) => {
+                                self.not_implemented(m.span, "static setters");
+                            }
+                            _ => d.static_methods.push((name.name.clone(), id)),
                         }
-                        self.structs[sid.0 as usize]
-                            .static_methods
-                            .push((name.name.clone(), id));
                         info.methods.push((id, f, None, false));
                         continue;
                     }
@@ -4475,11 +4483,13 @@ impl Resolver {
                     );
                     return self.error_expr(span);
                 };
-                // `new Worker<…>("./job")`: the worker module's id (spec §10.2).
+                // `new Worker<…>("./job")`: the worker module's id (spec §10.2), as
+                // `new Worker(id, 0)`; `new WorkerPool("./job", size)` likewise.
                 let worker_arg;
+                let class_name = self.structs[class.0 as usize].name.clone();
                 let args = match args.first().map(|a| &a.value.kind) {
                     Some(ast::ExprKind::Lit(ast::Lit::Str(spec)))
-                        if self.structs[class.0 as usize].name == "Worker" =>
+                        if class_name == "Worker" || class_name == "WorkerPool" =>
                     {
                         let Some(&id) = self.worker_ids.get(&(span.file, spec.clone())) else {
                             self.error(
@@ -4495,12 +4505,26 @@ impl Resolver {
                             value: u64::from(id),
                             suffix: None,
                         });
+                        if class_name == "Worker" {
+                            let mut kind = a[0].clone();
+                            kind.value.kind = ast::ExprKind::Lit(ast::Lit::Int {
+                                value: 0,
+                                suffix: None,
+                            });
+                            a.push(kind);
+                        }
                         worker_arg = a;
                         &worker_arg[..]
                     }
                     _ => &args[..],
                 };
                 let out = self.call_args(args);
+                // `new Worker(f)`: an inline worker (spec §10.4), whose function must not
+                // capture anything (it runs in another thread).
+                if class_name == "Worker" && out.len() == 1 {
+                    self.uses_inline_workers = true;
+                    self.check_capture_free(&out[0]);
+                }
                 if self.structs[class.0 as usize].is_abstract {
                     let name = self.structs[class.0 as usize].name.clone();
                     self.error(
@@ -4693,8 +4717,13 @@ impl Resolver {
                 args,
             } => {
                 let type_args = type_args.iter().map(|t| self.resolve_type(t)).collect();
+                let is_parallel_map = matches!(&callee.kind, A::Ident(n) if n == "parallelMap");
                 let callee = self.lower_expr(callee);
                 let out = self.call_args(args);
+                // `parallelMap(items, f, …)` runs `f` in inline workers: no captures.
+                if is_parallel_map && let Some(f) = out.get(1) {
+                    self.check_capture_free(f);
+                }
                 ExprKind::Call {
                     callee: Box::new(callee),
                     args: out,
@@ -4946,9 +4975,28 @@ impl Resolver {
         };
         let sid = *self.top_structs.get(&self.mods, cname).expect("checked");
         let def = &self.structs[sid.0 as usize];
-        let found = match (def.static_field(&prop.name), def.static_method(&prop.name)) {
+        let getter = def
+            .static_getters
+            .iter()
+            .find(|(n, _)| *n == prop.name)
+            .map(|(_, f)| *f);
+        let (field, method) = (def.static_field(&prop.name), def.static_method(&prop.name));
+        let found = match (field, method) {
             (Some(g), _) => ExprKind::Var(Var::Global(g)),
             (_, Some(f)) => ExprKind::Fn(f),
+            _ if getter.is_some() => {
+                if !self.structs[sid.0 as usize].is_public(&prop.name) && self.f.owner != Some(sid)
+                {
+                    let decl = self.structs[sid.0 as usize].name_span;
+                    self.private_access(cname, &prop.name, prop.span, decl);
+                }
+                let callee = self.expr(ExprKind::Fn(getter.expect("checked")), prop.span);
+                return Some(ExprKind::Call {
+                    callee: Box::new(callee),
+                    args: Vec::new(),
+                    type_args: Vec::new(),
+                });
+            }
             _ => {
                 let what = if def.field(&prop.name).is_some() || def.method(&prop.name).is_some() {
                     "is an instance member; use it on an object"
@@ -6137,6 +6185,62 @@ impl Resolver {
         );
         let b = build::block(vec![build::const_(&it, source), build::stmt(lp)], span);
         self.lower_expr(&b)
+    }
+
+    /// An inline worker's function (spec §10.4) must not capture anything: E0346 when a
+    /// lambda written there does.
+    fn check_capture_free(&mut self, f: &Expr) {
+        // The entry module's variables aren't initialized in a worker either.
+        fn entry_globals(e: &Expr, r: &Resolver, out: &mut Vec<String>) {
+            let g = match &e.kind {
+                ExprKind::Var(Var::Global(g)) => Some(*g),
+                ExprKind::Assign {
+                    target: Target::Var(Var::Global(g)),
+                    ..
+                } => Some(*g),
+                _ => None,
+            };
+            if let Some(g) = g {
+                let b = &r.globals[g.0 as usize];
+                if b.span.file == r.file && !out.contains(&b.name) {
+                    out.push(b.name.clone());
+                }
+            }
+            e.for_each_child(&mut |c| entry_globals(c, r, out));
+        }
+        if let ExprKind::Closure(id) = &f.kind
+            && let Some(Some(func)) = self.fns.get(id.0 as usize)
+            && let Some(c) = func.closure.as_ref()
+        {
+            let mut names: Vec<String> = c
+                .captures
+                .iter()
+                .map(|k| func.locals[k.inner.0 as usize].name.clone())
+                .collect();
+            for st in &func.body.stmts {
+                match st {
+                    Stmt::Let { init: Some(e), .. } | Stmt::Expr(e) => {
+                        entry_globals(e, self, &mut names)
+                    }
+                    Stmt::Let { .. } => {}
+                }
+            }
+            if let Some(t) = &func.body.tail {
+                entry_globals(t, self, &mut names);
+            }
+            if names.is_empty() {
+                return;
+            }
+            self.error(
+                codes::WORKER_CAPTURES,
+                f.span,
+                format!(
+                    "an inline worker's function can't capture anything (it captures `{}`)",
+                    names.join("`, `")
+                ),
+                "runs in its own thread, with its own heap",
+            );
+        }
     }
 
     /// `await x`: inside an async function's step `{ const a = x; yield a.__suspend();

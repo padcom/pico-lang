@@ -102,6 +102,7 @@ codes! {
     POD_REFERENCE = 343: "a `@pod` struct with a field that isn't plain data",
     ARENA_ESCAPE = 344: "a reference allocated in an arena outlives it",
     AWAIT_OUTSIDE_ASYNC = 345: "`await` outside an async function",
+    WORKER_CAPTURES = 346: "an inline worker's function captures variables",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

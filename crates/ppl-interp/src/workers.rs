@@ -21,6 +21,8 @@ pub enum Sv {
     Obj(usize),
     Arr(usize),
     Closure(FnId, Box<Sv>),
+    /// A reference into a cell (a closure's captures): the cell (by index) and the path.
+    Ref(usize, Vec<Step>),
     Null,
     Void,
     Uninit,
@@ -32,16 +34,21 @@ pub struct Graph {
     pub root: Option<Sv>,
     objs: Vec<(u32, Vec<Sv>)>,
     arrs: Vec<Vec<Sv>>,
+    cells: Vec<Sv>,
 }
 
-#[derive(Default)]
-struct Encoder {
+struct Encoder<'a> {
     g: Graph,
+    /// `ArrayBuffer`s (by class): their bytes are copied, or moved when transferred.
+    buffer_class: Option<u32>,
+    buffers: &'a Mutex<Buffers>,
+    transfer: Vec<i64>,
     objs: HashMap<*const Obj, usize>,
     arrs: HashMap<*const RefCell<Vec<Value>>, usize>,
+    cells: HashMap<*const RefCell<Value>, usize>,
 }
 
-impl Encoder {
+impl Encoder<'_> {
     fn value(&mut self, v: &Value) -> Sv {
         match v {
             Value::Int(x) => Sv::Int(*x),
@@ -59,7 +66,17 @@ impl Encoder {
                 let i = self.g.objs.len();
                 self.objs.insert(key, i);
                 self.g.objs.push((o.class, Vec::new()));
-                let fields: Vec<Sv> = o.fields.borrow().iter().map(|f| self.value(f)).collect();
+                let mut fields: Vec<Sv> = o.fields.borrow().iter().map(|f| self.value(f)).collect();
+                // An `ArrayBuffer` not transferred: the copy gets its own bytes.
+                if Some(o.class) == self.buffer_class
+                    && let Some(Sv::Int(h)) = fields.first()
+                    && *h != 0
+                    && !self.transfer.contains(&(*h as i64))
+                {
+                    let mut bufs = self.buffers.lock().expect("buffers");
+                    let copy = bufs.mem.get(&(*h as i64)).cloned().unwrap_or_default();
+                    fields[0] = Sv::Int(i128::from(bufs.add(copy)));
+                }
                 self.g.objs[i].1 = fields;
                 Sv::Obj(i)
             }
@@ -77,16 +94,44 @@ impl Encoder {
             }
             // (A capture-free function and what its environment holds: inline workers.)
             Value::Closure(c) => Sv::Closure(c.0, Box::new(self.value(&c.1))),
+            Value::Ref(c, path) => {
+                let key = Rc::as_ptr(c);
+                let i = match self.cells.get(&key) {
+                    Some(&i) => i,
+                    None => {
+                        let i = self.g.cells.len();
+                        self.cells.insert(key, i);
+                        self.g.cells.push(Sv::Uninit);
+                        let v = self.value(&c.borrow());
+                        self.g.cells[i] = v;
+                        i
+                    }
+                };
+                Sv::Ref(i, path.to_vec())
+            }
             Value::Void => Sv::Void,
             Value::Uninit => Sv::Uninit,
             // Not Sendable (the type checker keeps them out); weak references aren't sent.
-            Value::Null | Value::Iface(_) | Value::Ref(..) | Value::Weak(_) => Sv::Null,
+            Value::Null | Value::Iface(_) | Value::Weak(_) => Sv::Null,
         }
     }
 }
 
-pub fn encode(v: &Value) -> Graph {
-    let mut e = Encoder::default();
+pub fn encode(
+    v: &Value,
+    buffer_class: Option<u32>,
+    buffers: &Mutex<Buffers>,
+    transfer: Vec<i64>,
+) -> Graph {
+    let mut e = Encoder {
+        g: Graph::default(),
+        buffer_class,
+        buffers,
+        transfer,
+        objs: HashMap::new(),
+        arrs: HashMap::new(),
+        cells: HashMap::new(),
+    };
     let root = e.value(v);
     e.g.root = Some(root);
     e.g
@@ -109,7 +154,10 @@ pub fn decode(g: &Graph) -> Value {
         .iter()
         .map(|_| Rc::new(RefCell::new(Vec::new())))
         .collect();
-    fn val(v: &Sv, objs: &[Rc<Obj>], arrs: &[Rc<RefCell<Vec<Value>>>]) -> Value {
+    let cells: Vec<Cell> = g.cells.iter().map(|_| cell(Value::Uninit)).collect();
+    fn val(v: &Sv, objs: &[Rc<Obj>], arrs: &[Rc<RefCell<Vec<Value>>>], cells: &[Cell]) -> Value {
+        let val =
+            |v: &Sv, objs: &[Rc<Obj>], arrs: &[Rc<RefCell<Vec<Value>>>]| val(v, objs, arrs, cells);
         match v {
             Sv::Int(x) => Value::Int(*x),
             Sv::Float(x) => Value::Float(*x),
@@ -121,19 +169,26 @@ pub fn decode(g: &Graph) -> Value {
             Sv::Obj(i) => Value::Object(objs[*i].clone()),
             Sv::Arr(i) => Value::Array(arrs[*i].clone()),
             Sv::Closure(f, env) => Value::Closure(Rc::new((*f, val(env, objs, arrs)))),
+            Sv::Ref(i, path) => Value::Ref(cells[*i].clone(), path.clone().into()),
             Sv::Null => Value::Null,
             Sv::Void => Value::Void,
             Sv::Uninit => Value::Uninit,
         }
     }
     for (o, (_, fields)) in objs.iter().zip(&g.objs) {
-        *o.fields.borrow_mut() = fields.iter().map(|f| val(f, &objs, &arrs)).collect();
+        *o.fields.borrow_mut() = fields
+            .iter()
+            .map(|f| val(f, &objs, &arrs, &cells))
+            .collect();
     }
     for (a, elems) in arrs.iter().zip(&g.arrs) {
-        *a.borrow_mut() = elems.iter().map(|e| val(e, &objs, &arrs)).collect();
+        *a.borrow_mut() = elems.iter().map(|e| val(e, &objs, &arrs, &cells)).collect();
+    }
+    for (c, v) in cells.iter().zip(&g.cells) {
+        *c.borrow_mut() = val(v, &objs, &arrs, &cells);
     }
     match &g.root {
-        Some(r) => val(r, &objs, &arrs),
+        Some(r) => val(r, &objs, &arrs, &cells),
         None => Value::Uninit,
     }
 }
@@ -201,13 +256,31 @@ pub struct IWorker {
     pub terminate: AtomicBool,
     /// Not exited or terminated (as far as the parent knows).
     pub live: AtomicBool,
+    /// Doesn't keep the parent's loop running (an idle inline worker).
+    pub unref: AtomicBool,
     pub waker: Arc<Waker>,
     pub parent_waker: Arc<Waker>,
 }
 
-/// Everything a run's threads share: their output (in order) and the workers.
+/// `ArrayBuffer` memory (spec §10.3), shared by every thread so a transfer moves a handle.
+#[derive(Default)]
+pub struct Buffers {
+    pub mem: HashMap<i64, Vec<u8>>,
+    next: i64,
+}
+
+impl Buffers {
+    pub fn add(&mut self, bytes: Vec<u8>) -> i64 {
+        self.next += 1;
+        self.mem.insert(self.next, bytes);
+        self.next
+    }
+}
+
+/// Everything a run's threads share: their output (in order), the workers and the buffers.
 #[derive(Default)]
 pub struct Shared {
+    pub buffers: Mutex<Buffers>,
     pub out: Mutex<Vec<u8>>,
     pub workers: Mutex<Vec<Arc<IWorker>>>,
     /// The program, for worker threads (copied when the first one starts).
@@ -320,6 +393,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             to_parent: Mutex::new(VecDeque::new()),
             terminate: AtomicBool::new(false),
             live: AtomicBool::new(true),
+            unref: AtomicBool::new(false),
             waker: Arc::new(Waker::default()),
             parent_waker: self.waker.clone(),
         });
@@ -343,9 +417,15 @@ impl<'p, 'o> Interp<'p, 'o> {
             .spawn(move || {
                 let program: &Program = &program;
                 let mut it = Interp::new(program, None, shared, Some(w.clone()));
-                let r = match &w.entry {
+                // (An interpreter bug in a worker reaches the parent as a failure.)
+                let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &w.entry {
                     Entry::Module(f) => it.call(*f, Vec::new(), Loc::default()),
-                };
+                }))
+                .unwrap_or_else(|_| {
+                    let mut p = terminated_panic();
+                    p.msg = "internal interpreter error in a worker".into();
+                    Err(p)
+                });
                 let msg = match r {
                     Err(p) if p.msg.starts_with('\u{0}') => None,
                     Err(p) if p.uncaught => Some(IMsg::Error(format!("uncaught {}", p.msg))),
@@ -415,19 +495,47 @@ impl<'p, 'o> Interp<'p, 'o> {
                 .children
                 .iter()
                 .filter(|h| {
-                    self.shared
-                        .worker(**h)
-                        .is_some_and(|w| w.live.load(Ordering::SeqCst))
+                    self.shared.worker(**h).is_some_and(|w| {
+                        w.live.load(Ordering::SeqCst) && !w.unref.load(Ordering::SeqCst)
+                    })
                 })
                 .count() as i64,
             7 => i64::from(self.this_worker.is_some()),
+            8 => match self.p.inline_worker_entry {
+                Some(f) => self.spawn(Entry::Module(f)),
+                None => -1,
+            },
+            9 | 10 => {
+                if let Some(w) = self.shared.worker(arg) {
+                    w.unref.store(op == 9, Ordering::SeqCst);
+                }
+                0
+            }
+            11 => std::thread::available_parallelism().map_or(1, |n| n.get() as i64),
             _ => 0,
         }))
     }
 
-    pub(crate) fn worker_post(&mut self, h: &Value, v: Value, _t: &Ty) {
+    pub(crate) fn worker_post(&mut self, h: &Value, v: Value, transfer: Option<&Value>) {
         let Value::Int(h) = *h else { return };
-        let msg = IMsg::Data(encode(&v));
+        let transfer: Vec<i64> = match transfer {
+            Some(Value::Array(a)) => a
+                .borrow()
+                .iter()
+                .filter_map(|x| match x {
+                    Value::Int(i) => Some(*i as i64),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let buffer_class = self
+            .p
+            .structs
+            .iter()
+            .position(|s| s.is_class && s.name == "ArrayBuffer")
+            .map(|i| i as u32);
+        let msg = IMsg::Data(encode(&v, buffer_class, &self.shared.buffers, transfer));
         if h == 0 {
             if let Some(w) = &self.this_worker {
                 w.to_parent.lock().expect("queue").push_back(msg);
@@ -463,5 +571,55 @@ impl<'p, 'o> Interp<'p, 'o> {
             w.live.store(false, Ordering::SeqCst);
         }
         Value::Str(text.as_str().into())
+    }
+}
+
+impl Interp<'_, '_> {
+    /// `__buf_op` (see `ppl_buf_op` in the runtime): 1 alloc, 2 free, 3 copy a range,
+    /// 11–18 read a little-endian unsigned integer of 1–8 bytes, 21–28 write one.
+    pub(crate) fn buf_op(&mut self, vals: &[Value]) -> Value {
+        let n = |i: usize| match vals[i] {
+            Value::Int(x) => x as i64,
+            _ => 0,
+        };
+        let (op, a, b, c) = (n(0), n(1), n(2), n(3));
+        let mut bufs = self.shared.buffers.lock().expect("buffers");
+        Value::Int(i128::from(match op {
+            1 => bufs.add(vec![0; a.max(0) as usize]),
+            2 => {
+                bufs.mem.remove(&a);
+                0
+            }
+            3 => {
+                let src = bufs.mem.get(&a).cloned().unwrap_or_default();
+                let (from, len) = (b.max(0) as usize, c.max(0) as usize);
+                let part = src
+                    .get(from..from + len)
+                    .map(<[u8]>::to_vec)
+                    .unwrap_or_default();
+                bufs.add(part)
+            }
+            11..=18 => {
+                let w = (op - 10) as usize;
+                let mem = bufs.mem.get(&a).map(Vec::as_slice).unwrap_or(&[]);
+                let mut x: u64 = 0;
+                for k in (0..w).rev() {
+                    x = (x << 8) | u64::from(mem.get(b as usize + k).copied().unwrap_or(0));
+                }
+                x as i64
+            }
+            21..=28 => {
+                let w = (op - 20) as usize;
+                if let Some(mem) = bufs.mem.get_mut(&a) {
+                    for k in 0..w {
+                        if let Some(byte) = mem.get_mut(b as usize + k) {
+                            *byte = ((c as u64) >> (8 * k)) as u8;
+                        }
+                    }
+                }
+                0
+            }
+            _ => 0,
+        }))
     }
 }

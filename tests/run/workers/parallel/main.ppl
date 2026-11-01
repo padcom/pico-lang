@@ -1,0 +1,56 @@
+// Inline workers and `parallelMap` (spec §10.4): capture-free functions run in other
+// threads; `await w.call(x)` returns the result and rethrows the function's errors
+// (checked). Hashing chunks in parallel gives the same results as doing it here.
+// expect: fib 25 = 75025
+// expect: doubled 42
+// expect: caught negative: -1
+// expect: 16 hashes, same as sequential: true
+// expect: first 571670d
+// expect: processors > 0: true
+import { parallelMap } from "std/worker"
+
+class Bad extends Error {}
+
+function fib(n: int): int {
+  if (n < 2) n else fib(n - 1) + fib(n - 2)
+}
+
+function double(n: int): int throws Bad {
+  if (n < 0) {
+    throw new Bad(`negative: ${n}`)
+  }
+  n * 2
+}
+
+/// 32-bit FNV-1a over the text, repeated (some work per item).
+function hash(text: string): string {
+  let h: u64 = 0x811c9dc5
+  for (let round = 0; round < 200; round++) {
+    for (const c of text) {
+      h = ((h ^ (c as u64)) * 16777619) % 4294967296
+    }
+  }
+  `${h:x}`
+}
+
+const w = new Worker((n: int): int => fib(n))
+println(`fib 25 = ${await w.call(25)}`)
+w.terminate()
+
+const d = new Worker((n: int): int throws Bad => double(n))
+println(`doubled ${await d.call(21)}`)
+try {
+  await d.call(-1)
+} catch (e: Bad) {
+  println(`caught ${e.message}`)
+}
+
+const chunks: string[] = []
+for (let i = 0; i < 16; i++) {
+  chunks.push(`chunk ${i}: ${"abcdefgh".repeat(i + 1)}`)
+}
+const hashes = await parallelMap(chunks, (c: string): string => hash(c), workers: 4)
+const sequential = chunks.map((c: string) => hash(c))
+println(`${hashes.length} hashes, same as sequential: ${hashes.join(",") == sequential.join(",")}`)
+println(`first ${hashes[0]}`)
+println(`processors > 0: ${navigator.hardwareConcurrency > 0}`)

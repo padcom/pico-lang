@@ -1,0 +1,12 @@
+export struct Frame {
+  pixels: ArrayBuffer
+  kept: ArrayBuffer
+  floats: Float64Array
+}
+
+export struct Report {
+  size: int
+  sum: int
+  copySaw: int
+  floats: f64[]
+}

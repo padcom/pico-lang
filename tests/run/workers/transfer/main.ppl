@@ -1,0 +1,33 @@
+// Transferables (spec §10.3): an `ArrayBuffer` lives off the GC heap. Sent normally, the
+// worker gets a copy of the bytes; in `transfer`, it's moved: detached here (length 0)
+// and the worker writes into the very memory. Typed arrays view buffers.
+// expect: before: 4096 bytes, first 7
+// expect: after transfer: 0 bytes, view length 0, detached true
+// expect: worker summed 4096 bytes: 28672
+// expect: copy kept ours: 7 (worker saw 7, wrote 99 into its copy)
+// expect: floats: 1.5 -2.25 3
+import { Frame, Report } from "./types"
+
+const buf = new ArrayBuffer(4096)
+const bytes = new Uint8Array(buf, 0)
+for (let i = 0; i < bytes.length; i++) {
+  bytes.set(i, 7)
+}
+println(`before: ${buf.byteLength} bytes, first ${bytes[0]}`)
+
+const kept = new ArrayBuffer(16)
+new Uint8Array(kept, 0).set(0, 7)
+const floats = new Float64Array(3)
+floats.set(0, 1.5)
+floats.set(1, -2.25)
+floats.set(2, 3.0)
+
+const w = new Worker<Frame, Report>("./sum")
+w.onmessage = (r: Report) => {
+  println(`worker summed ${r.size} bytes: ${r.sum}`)
+  println(`copy kept ours: ${new Uint8Array(kept, 0)[0]} (worker saw ${r.copySaw}, wrote 99 into its copy)`)
+  println(`floats: ${r.floats[0]} ${r.floats[1]} ${r.floats[2]}`)
+  w.terminate()
+}
+w.postMessage(Frame { pixels: buf, kept: kept, floats: floats }, { transfer: [buf] })
+println(`after transfer: ${buf.byteLength} bytes, view length ${bytes.length}, detached ${buf.detached}`)

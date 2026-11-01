@@ -536,6 +536,20 @@ impl<'ctx> Gen<'ctx, '_> {
                 .const_struct(&[base.into(), ptr.const_array(&slots).into()], false);
             g.set_initializer(&value);
         }
+        // The runtime copies `ArrayBuffer`s' off-heap bytes in messages (spec §10.3): it
+        // knows them by their class metadata.
+        if let Some(i) = self
+            .p
+            .structs
+            .iter()
+            .position(|s| s.is_class && s.name == "ArrayBuffer")
+            && let Some(info) = infos[i]
+        {
+            let g = self.m.add_global(ptr, None, "ppl_arraybuffer_class");
+            g.set_linkage(Linkage::External);
+            g.set_constant(true);
+            g.set_initializer(&info.as_pointer_value());
+        }
         self.class_infos = infos;
         for (i, entries) in self.p.itables.iter().enumerate() {
             let slots: Vec<PointerValue> = entries
@@ -647,9 +661,14 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_clock_ms" => i64t.fn_type(&[], false),
             "ppl_worker_op" => i64t.fn_type(&[i64t.into(), i64t.into()], false),
             "ppl_worker_error" => ptr.fn_type(&[i64t.into()], false),
-            "ppl_worker_post" | "ppl_worker_take" => {
+            "ppl_worker_take" => {
                 void.fn_type(&[i64t.into(), ptr.into(), i64t.into(), ptr.into()], false)
             }
+            "ppl_worker_post" => void.fn_type(
+                &[i64t.into(), ptr.into(), i64t.into(), ptr.into(), ptr.into()],
+                false,
+            ),
+            "ppl_buf_op" => i64t.fn_type(&[i64t.into(); 4], false),
             "ppl_loop_wait" => void.fn_type(&[i64t.into()], false),
             "ppl_raw_arena_free" => void.fn_type(&[i64t.into()], false),
             "ppl_raw_arena_alloc" => ptr.fn_type(&[i64t.into(), i64t.into(), i64t.into()], false),
@@ -2901,6 +2920,13 @@ impl<'ctx> Gen<'ctx, '_> {
                             _ => self.ptr().const_null(),
                         };
                         let layout = self.layout(&t);
+                        // The buffers to move rather than copy (an `int[]` of handles).
+                        let transfer = match args.get(2) {
+                            Some(a) => self
+                                .operand(fx, a)
+                                .map_or(self.ptr().const_null(), |v| v.into_pointer_value()),
+                            None => self.ptr().const_null(),
+                        };
                         self.b
                             .build_call(
                                 self.rt("ppl_worker_post"),
@@ -2909,6 +2935,7 @@ impl<'ctx> Gen<'ctx, '_> {
                                     slot.into(),
                                     self.i64().const_int(size, false).into(),
                                     layout.into(),
+                                    transfer.into(),
                                 ],
                                 "",
                             )
@@ -2920,9 +2947,11 @@ impl<'ctx> Gen<'ctx, '_> {
                         | Builtin::ClockMs
                         | Builtin::LoopWait
                         | Builtin::WorkerOp
-                        | Builtin::WorkerError),
+                        | Builtin::WorkerError
+                        | Builtin::BufOp),
                     ) => {
                         let name = match b {
+                            Builtin::BufOp => "ppl_buf_op",
                             Builtin::RawArenaNew => "ppl_raw_arena_new",
                             Builtin::RawArenaFree => "ppl_raw_arena_free",
                             Builtin::ClockMs => "ppl_clock_ms",

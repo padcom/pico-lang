@@ -427,6 +427,14 @@ impl<'ctx> Gen<'ctx, '_> {
                 (i32t.const_int(i as u64 + 1, false), bb)
             })
             .collect();
+        let mut cases = cases;
+        if let Some(e) = self.p.inline_worker_entry {
+            let bb = self.cx.append_basic_block(f, "inline");
+            b.position_at_end(bb);
+            b.build_call(self.fns[e.0 as usize], &[], "").unwrap();
+            b.build_unconditional_branch(done).unwrap();
+            cases.push((i32t.const_zero(), bb));
+        }
         b.position_at_end(start);
         b.build_switch(k, done, &cases).unwrap();
         b.position_at_end(done);
@@ -437,6 +445,7 @@ impl<'ctx> Gen<'ctx, '_> {
     pub(crate) fn entry_fns(&self) -> Vec<FunctionValue<'ctx>> {
         let mut out = vec![self.fns[self.p.entry.0 as usize]];
         out.extend(self.p.worker_entries.iter().map(|f| self.fns[f.0 as usize]));
+        out.extend(self.p.inline_worker_entry.map(|f| self.fns[f.0 as usize]));
         out
     }
 }

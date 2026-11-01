@@ -1,0 +1,364 @@
+// Binary data (spec §10.3): `ArrayBuffer` holds bytes off the GC heap (malloc'd), so
+// moving one to a worker (`postMessage(m, { transfer: [buf] })`) only hands over the
+// pointer and detaches it here. Without a transfer, a message gets a copy of the bytes.
+
+/// Raw bytes, off the GC heap. (A received copy's memory isn't freed yet.)
+class ArrayBuffer {
+  /// The memory (0: detached). The runtime knows this layout: `{ class, handle, byteLength }`.
+  public __handle: int
+  public byteLength: int
+
+  constructor(byteLength: int) {
+    const n = if (byteLength < 0) 0 else byteLength
+    this.__handle = __buf_op(1, n, 0, 0)
+    this.byteLength = n
+    __bufferRegistry().registerWithToken(this, this.__handle, this)
+  }
+
+  /// Whether it was transferred away (its length is then 0).
+  public get detached(): bool {
+    this.__handle == 0
+  }
+
+  /// A copy of bytes `begin..end`.
+  public slice(begin: int, end: int): ArrayBuffer {
+    const a = if (begin < 0) 0 else if (begin > this.byteLength) this.byteLength else begin
+    const b = if (end < a) a else if (end > this.byteLength) this.byteLength else end
+    const out = new ArrayBuffer(b - a)
+    for (let i = a; i < b; i++) {
+      __buf_op(21, out.__handle, i - a, __buf_op(11, this.__handle, i, 0))
+    }
+    out
+  }
+
+  /// After a transfer: the bytes belong to the receiver now.
+  public __detach(): void {
+    __bufferRegistry().unregister(this)
+    this.__handle = 0
+    this.byteLength = 0
+  }
+}
+
+/// Frees buffers' memory once they're collected.
+let __buffers: FinalizationRegistry<int>? = null
+
+function __bufferRegistry(): FinalizationRegistry<int> {
+  const r = __buffers
+  if (r != null) {
+    return r
+  }
+  const made = new FinalizationRegistry<int>((h: int) => {
+    __buf_op(2, h, 0, 0);
+  })
+  __buffers = made
+  made
+}
+
+/// `postMessage(message, { transfer: [buffer] })`: the buffers to move instead of copy.
+struct TransferOptions {
+  transfer: ArrayBuffer[]
+}
+
+/// Moves `options`' buffers: their handles (for the runtime), and they're detached here.
+function __transfer(options: TransferOptions?): int[] {
+  const hs: int[] = []
+  if (options != null) {
+    for (const b of options.transfer) {
+      hs.push(b.__handle)
+    }
+  }
+  hs
+}
+
+function __detachAll(options: TransferOptions?): void {
+  if (options != null) {
+    for (const b of options.transfer) {
+      b.__detach()
+    }
+  }
+}
+
+/// A view of an `ArrayBuffer` as 1-byte elements (`int`), as on the Web.
+class Uint8Array {
+  public static BYTES_PER_ELEMENT: int = 1
+  public buffer: ArrayBuffer
+  public byteOffset: int
+  count: int
+
+  /// `length` zeroed elements in a new buffer.
+  constructor(length: int) {
+    this.buffer = new ArrayBuffer(length * 1)
+    this.byteOffset = 0
+    this.count = length
+  }
+
+  /// A view of `buffer` from `byteOffset` to its end.
+  constructor(buffer: ArrayBuffer, byteOffset: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = (buffer.byteLength - byteOffset) / 1
+  }
+
+  constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = length
+  }
+
+  /// 0 once the buffer is detached (transferred).
+  public get length(): int {
+    if (this.buffer.detached) 0 else this.count
+  }
+
+  public get byteLength(): int {
+    this.length * 1
+  }
+
+  check(i: int): void {
+    if (i < 0 || i >= this.length) {
+      panic("index out of bounds")
+    }
+  }
+
+  public get(i: int): int {
+    this.check(i)
+    __buf_op(11, this.buffer.__handle, this.byteOffset + i, 0)
+  }
+
+  public set(i: int, value: int): void {
+    this.check(i)
+    __buf_op(21, this.buffer.__handle, this.byteOffset + i, value);
+  }
+
+  operator [](i: int): int {
+    this.get(i)
+  }
+}
+
+/// A view of an `ArrayBuffer` as 4-byte elements (`int`), as on the Web.
+class Int32Array {
+  public static BYTES_PER_ELEMENT: int = 4
+  public buffer: ArrayBuffer
+  public byteOffset: int
+  count: int
+
+  /// `length` zeroed elements in a new buffer.
+  constructor(length: int) {
+    this.buffer = new ArrayBuffer(length * 4)
+    this.byteOffset = 0
+    this.count = length
+  }
+
+  /// A view of `buffer` from `byteOffset` to its end.
+  constructor(buffer: ArrayBuffer, byteOffset: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = (buffer.byteLength - byteOffset) / 4
+  }
+
+  constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = length
+  }
+
+  /// 0 once the buffer is detached (transferred).
+  public get length(): int {
+    if (this.buffer.detached) 0 else this.count
+  }
+
+  public get byteLength(): int {
+    this.length * 4
+  }
+
+  check(i: int): void {
+    if (i < 0 || i >= this.length) {
+      panic("index out of bounds")
+    }
+  }
+
+  public get(i: int): int {
+    this.check(i)
+    unsafe { unsafe.cast<i32>(__buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0) as u32) as int }
+  }
+
+  public set(i: int, value: int): void {
+    this.check(i)
+    __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, value);
+  }
+
+  operator [](i: int): int {
+    this.get(i)
+  }
+}
+
+/// A view of an `ArrayBuffer` as 4-byte elements (`int`), as on the Web.
+class Uint32Array {
+  public static BYTES_PER_ELEMENT: int = 4
+  public buffer: ArrayBuffer
+  public byteOffset: int
+  count: int
+
+  /// `length` zeroed elements in a new buffer.
+  constructor(length: int) {
+    this.buffer = new ArrayBuffer(length * 4)
+    this.byteOffset = 0
+    this.count = length
+  }
+
+  /// A view of `buffer` from `byteOffset` to its end.
+  constructor(buffer: ArrayBuffer, byteOffset: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = (buffer.byteLength - byteOffset) / 4
+  }
+
+  constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = length
+  }
+
+  /// 0 once the buffer is detached (transferred).
+  public get length(): int {
+    if (this.buffer.detached) 0 else this.count
+  }
+
+  public get byteLength(): int {
+    this.length * 4
+  }
+
+  check(i: int): void {
+    if (i < 0 || i >= this.length) {
+      panic("index out of bounds")
+    }
+  }
+
+  public get(i: int): int {
+    this.check(i)
+    __buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0)
+  }
+
+  public set(i: int, value: int): void {
+    this.check(i)
+    __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, value);
+  }
+
+  operator [](i: int): int {
+    this.get(i)
+  }
+}
+
+/// A view of an `ArrayBuffer` as 4-byte elements (`f32`), as on the Web.
+class Float32Array {
+  public static BYTES_PER_ELEMENT: int = 4
+  public buffer: ArrayBuffer
+  public byteOffset: int
+  count: int
+
+  /// `length` zeroed elements in a new buffer.
+  constructor(length: int) {
+    this.buffer = new ArrayBuffer(length * 4)
+    this.byteOffset = 0
+    this.count = length
+  }
+
+  /// A view of `buffer` from `byteOffset` to its end.
+  constructor(buffer: ArrayBuffer, byteOffset: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = (buffer.byteLength - byteOffset) / 4
+  }
+
+  constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = length
+  }
+
+  /// 0 once the buffer is detached (transferred).
+  public get length(): int {
+    if (this.buffer.detached) 0 else this.count
+  }
+
+  public get byteLength(): int {
+    this.length * 4
+  }
+
+  check(i: int): void {
+    if (i < 0 || i >= this.length) {
+      panic("index out of bounds")
+    }
+  }
+
+  public get(i: int): f32 {
+    this.check(i)
+    unsafe { unsafe.cast<f32>(__buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0) as u32) }
+  }
+
+  public set(i: int, value: f32): void {
+    this.check(i)
+    __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, unsafe { unsafe.cast<u32>(value) as int });
+  }
+
+  operator [](i: int): f32 {
+    this.get(i)
+  }
+}
+
+/// A view of an `ArrayBuffer` as 8-byte elements (`f64`), as on the Web.
+class Float64Array {
+  public static BYTES_PER_ELEMENT: int = 8
+  public buffer: ArrayBuffer
+  public byteOffset: int
+  count: int
+
+  /// `length` zeroed elements in a new buffer.
+  constructor(length: int) {
+    this.buffer = new ArrayBuffer(length * 8)
+    this.byteOffset = 0
+    this.count = length
+  }
+
+  /// A view of `buffer` from `byteOffset` to its end.
+  constructor(buffer: ArrayBuffer, byteOffset: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = (buffer.byteLength - byteOffset) / 8
+  }
+
+  constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    this.count = length
+  }
+
+  /// 0 once the buffer is detached (transferred).
+  public get length(): int {
+    if (this.buffer.detached) 0 else this.count
+  }
+
+  public get byteLength(): int {
+    this.length * 8
+  }
+
+  check(i: int): void {
+    if (i < 0 || i >= this.length) {
+      panic("index out of bounds")
+    }
+  }
+
+  public get(i: int): f64 {
+    this.check(i)
+    unsafe { unsafe.cast<f64>(__buf_op(18, this.buffer.__handle, this.byteOffset + i * 8, 0)) }
+  }
+
+  public set(i: int, value: f64): void {
+    this.check(i)
+    __buf_op(28, this.buffer.__handle, this.byteOffset + i * 8, unsafe { unsafe.cast<i64>(value) });
+  }
+
+  operator [](i: int): f64 {
+    this.get(i)
+  }
+}

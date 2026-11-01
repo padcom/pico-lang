@@ -1,0 +1,16 @@
+// error: E0346
+// at: 11:22
+// error: E0346
+// at: 12:31
+// error: E0346
+// at: 15:24
+import { parallelMap } from "std/worker"
+
+const factor = 3
+let offset = 1
+const w = new Worker((n: int): int => n * factor)
+const p = parallelMap([1, 2], (n: int): int => n + offset, workers: 2)
+function local(): void {
+  const k = 2
+  const v = new Worker((n: int): int => n * k)
+}

@@ -4,28 +4,75 @@ expression: "mir(r#\"\nfunction max<T extends Comparable<T>>(a: T, b: T): T { if
 ---
 global @g0: () => bool[]? // __finalizationRegistries
 global @g1: __Loop? // __loop
-global @g2: i64 // i
-global @g3: string // s
-global @g4: i64 // again
+global @g2: FinalizationRegistry<i64>? // __buffers
+global @g3: i64 // i
+global @g4: string // s
+global @g5: i64 // again
+global @g6: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g7: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g8: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g9: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g10: i64 // Float64Array.BYTES_PER_ELEMENT
+
+fn Uint8Array.<static>() -> void {
+  bb0:
+    @g6 = const 1_i64
+    return
+}
+
+fn Int32Array.<static>() -> void {
+  bb0:
+    @g7 = const 4_i64
+    return
+}
+
+fn Uint32Array.<static>() -> void {
+  bb0:
+    @g8 = const 4_i64
+    return
+}
+
+fn Float32Array.<static>() -> void {
+  bb0:
+    @g9 = const 4_i64
+    return
+}
+
+fn Float64Array.<static>() -> void {
+  bb0:
+    @g10 = const 8_i64
+    return
+}
 
 fn <main>() -> void {
     let _0: i64
     let _1: string
     let _2: i64
   bb0:
+    call Uint8Array.<static>() -> bb1
+  bb1:
+    call Int32Array.<static>() -> bb2
+  bb2:
+    call Uint32Array.<static>() -> bb3
+  bb3:
+    call Float32Array.<static>() -> bb4
+  bb4:
+    call Float64Array.<static>() -> bb5
+  bb5:
     @g0 = const null<() => bool[]?>
     @g1 = const null<__Loop?>
-    _0 = call max<i64>(const 1_i64, const 2_i64) -> bb1
-  bb1:
-    @g2 = _0
-    _1 = call max<string>(const "a", const "b") -> bb2
-  bb2:
-    @g3 = _1
-    _2 = call max<i64>(const 3_i64, const 4_i64) -> bb3
-  bb3:
-    @g4 = _2
-    goto bb4
-  bb4:
+    @g2 = const null<FinalizationRegistry<i64>?>
+    _0 = call max<i64>(const 1_i64, const 2_i64) -> bb6
+  bb6:
+    @g3 = _0
+    _1 = call max<string>(const "a", const "b") -> bb7
+  bb7:
+    @g4 = _1
+    _2 = call max<i64>(const 3_i64, const 4_i64) -> bb8
+  bb8:
+    @g5 = _2
+    goto bb9
+  bb9:
     return
 }
 

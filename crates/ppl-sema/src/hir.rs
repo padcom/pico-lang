@@ -50,6 +50,8 @@ pub struct Program {
     /// File-based workers' modules (spec §10.2), worker id `i + 1` for index `i`: their
     /// top-level code runs in their own thread, not in the entry's.
     pub workers: Vec<FileId>,
+    /// `new Worker(f)` appears somewhere: inline workers need an entry function.
+    pub uses_inline_workers: bool,
 }
 
 #[derive(Debug)]
@@ -157,6 +159,8 @@ pub struct StructDef {
     pub setters: Vec<(String, FnId)>,
     pub static_fields: Vec<(String, GlobalId)>,
     pub static_methods: Vec<(String, FnId)>,
+    /// `static get x()`: read as `Class.x`.
+    pub static_getters: Vec<(String, FnId)>,
     /// Class members that aren't `public`/`protected` (classes are private by default).
     pub private: std::collections::HashSet<String>,
 }
@@ -189,6 +193,7 @@ impl StructDef {
             setters: Vec::new(),
             static_fields: Vec::new(),
             static_methods: Vec::new(),
+            static_getters: Vec::new(),
             private: Default::default(),
         }
     }
@@ -562,6 +567,8 @@ pub enum Builtin {
     WorkerOp,
     WorkerPost,
     WorkerError,
+    /// `__buf_op(op, a, b, c): int`: `ArrayBuffer`s' off-heap memory (see `ppl_buf_op`).
+    BufOp,
 }
 
 impl Builtin {
@@ -588,6 +595,7 @@ impl Builtin {
             Builtin::WorkerOp => "__worker_op",
             Builtin::WorkerPost => "__worker_post",
             Builtin::WorkerError => "__worker_error",
+            Builtin::BufOp => "__buf_op",
         }
     }
 
@@ -611,6 +619,7 @@ impl Builtin {
             "__worker_op" => Builtin::WorkerOp,
             "__worker_post" => Builtin::WorkerPost,
             "__worker_error" => Builtin::WorkerError,
+            "__buf_op" => Builtin::BufOp,
             _ => return None,
         })
     }

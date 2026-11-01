@@ -541,10 +541,11 @@ impl Interp<'_, '_> {
             Builtin::RawArenaNew => return Value::Int(0),
             Builtin::WorkerOp => return self.worker_op(vals),
             Builtin::WorkerPost => {
-                self.worker_post(&vals[0], vals[1].clone(), &tys[1]);
+                self.worker_post(&vals[0], vals[1].clone(), vals.get(2));
                 Ok(())
             }
             Builtin::WorkerError => return self.worker_error(&vals[0]),
+            Builtin::BufOp => return self.buf_op(vals),
             Builtin::ClockMs => {
                 return Value::Int(self.started.elapsed().as_millis() as i128);
             }

@@ -1,0 +1,18 @@
+// `WorkerPool` (spec §10.4): several workers running one module; `run(job)` goes to the
+// least busy one and promises its answer.
+// expect: 6 jobs on 3 workers
+// expect: squares: 1 4 9 16 25 36
+// expect: answered by 3 different workers
+import { WorkerPool } from "std/worker"
+import { Job, Result } from "./types"
+
+const pool = new WorkerPool<Job, Result>("./job", size: 3)
+println(`6 jobs on ${pool.size} workers`)
+const results = await Promise.all([1, 2, 3, 4, 5, 6].map((n: int) => pool.run(Job { n: n })))
+println(`squares: ${results.map((r: Result) => r.square).join(" ")}`)
+const workers = new Set<int>()
+for (const r of results) {
+  workers.add(r.worker)
+}
+println(`answered by ${workers.size} different workers`)
+pool.terminate()

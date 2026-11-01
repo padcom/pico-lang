@@ -7,6 +7,12 @@ source_filename = "test.ppl"
 
 @ppl.global.__finalizationRegistries = internal thread_local global ptr null
 @ppl.global.__loop = internal thread_local global ptr null
+@ppl.global.__buffers = internal thread_local global ptr null
+@ppl.global.Uint8Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
+@ppl.global.Int32Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
+@ppl.global.Uint32Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
+@ppl.global.Float32Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
+@ppl.global.Float64Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @ppl.classinfo.Error = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.__MapEntry = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Map = internal constant { ptr, [0 x ptr] } zeroinitializer
@@ -27,13 +33,22 @@ source_filename = "test.ppl"
 @ppl.classinfo.AbortController = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.WorkerPanicked = internal constant { ptr, [0 x ptr] } { ptr @ppl.classinfo.Error, [0 x ptr] zeroinitializer }
 @ppl.classinfo.Worker = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.navigator = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.ArrayBuffer = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.Uint8Array = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.Int32Array = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.Uint32Array = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.Float32Array = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.Float64Array = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Arena = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl_arraybuffer_class = constant ptr @ppl.classinfo.ArrayBuffer
 @ppl_gc_requested = external thread_local global i32
 @ppl.cstr = private unnamed_addr constant [31 x i8] c"integer conversion out of range"
-@ppl.cstr.9 = private unnamed_addr constant [8 x i8] c"test.ppl"
-@ppl.cstr.10 = private unnamed_addr constant [29 x i8] c"float conversion out of range"
+@ppl.cstr.20 = private unnamed_addr constant [8 x i8] c"test.ppl"
+@ppl.cstr.21 = private unnamed_addr constant [29 x i8] c"float conversion out of range"
 @ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.layout.11 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.22 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.23 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 
 define internal i16 @ppl.narrow(i64 %0) {
 start:
@@ -60,7 +75,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb0
-  call void @ppl_panic(ptr @ppl.cstr, i64 31, ptr @ppl.cstr.9, i64 8, i32 2, i32 32)
+  call void @ppl_panic(ptr @ppl.cstr, i64 31, ptr @ppl.cstr.20, i64 8, i32 2, i32 32)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -120,7 +135,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb0
-  call void @ppl_panic(ptr @ppl.cstr.10, i64 29, ptr @ppl.cstr.9, i64 8, i32 4, i32 30)
+  call void @ppl_panic(ptr @ppl.cstr.21, i64 29, ptr @ppl.cstr.20, i64 8, i32 4, i32 30)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -130,34 +145,151 @@ ok:                                               ; preds = %bb0
   ret i8 %9
 }
 
-define void @ppl_entry() {
+define internal void @"ppl.Uint8Array.<static>"() {
 start:
-  %gc.globals = alloca { i64, [2 x { ptr, ptr, ptr }] }, align 8
-  %0 = getelementptr inbounds nuw { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 0
-  store i64 2, ptr %0, align 4
-  %1 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 0
-  store ptr null, ptr %1, align 8
-  %2 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 1
-  store ptr @ppl.layout, ptr %2, align 8
-  %3 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 2
-  store ptr @ppl.global.__finalizationRegistries, ptr %3, align 8
-  %4 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 0
-  store ptr null, ptr %4, align 8
-  %5 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 1
-  store ptr @ppl.layout.11, ptr %5, align 8
-  %6 = getelementptr { i64, [2 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 2
-  store ptr @ppl.global.__loop, ptr %6, align 8
-  call void @ppl_gc_set_globals(ptr %gc.globals)
   %gc.requested = load i32, ptr @ppl_gc_requested, align 4
-  %7 = icmp ne i32 %gc.requested, 0
-  br i1 %7, label %gc.collect, label %gc.continue
+  %0 = icmp ne i32 %gc.requested, 0
+  br i1 %0, label %gc.collect, label %gc.continue
 
 bb0:                                              ; preds = %gc.continue
-  store ptr null, ptr @ppl.global.__finalizationRegistries, align 8
-  store ptr null, ptr @ppl.global.__loop, align 8
+  store i64 1, ptr @ppl.global.Uint8Array.BYTES_PER_ELEMENT, align 4
+  ret void
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
+}
+
+define internal void @"ppl.Int32Array.<static>"() {
+start:
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %0 = icmp ne i32 %gc.requested, 0
+  br i1 %0, label %gc.collect, label %gc.continue
+
+bb0:                                              ; preds = %gc.continue
+  store i64 4, ptr @ppl.global.Int32Array.BYTES_PER_ELEMENT, align 4
+  ret void
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
+}
+
+define internal void @"ppl.Uint32Array.<static>"() {
+start:
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %0 = icmp ne i32 %gc.requested, 0
+  br i1 %0, label %gc.collect, label %gc.continue
+
+bb0:                                              ; preds = %gc.continue
+  store i64 4, ptr @ppl.global.Uint32Array.BYTES_PER_ELEMENT, align 4
+  ret void
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
+}
+
+define internal void @"ppl.Float32Array.<static>"() {
+start:
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %0 = icmp ne i32 %gc.requested, 0
+  br i1 %0, label %gc.collect, label %gc.continue
+
+bb0:                                              ; preds = %gc.continue
+  store i64 4, ptr @ppl.global.Float32Array.BYTES_PER_ELEMENT, align 4
+  ret void
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
+}
+
+define internal void @"ppl.Float64Array.<static>"() {
+start:
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %0 = icmp ne i32 %gc.requested, 0
+  br i1 %0, label %gc.collect, label %gc.continue
+
+bb0:                                              ; preds = %gc.continue
+  store i64 8, ptr @ppl.global.Float64Array.BYTES_PER_ELEMENT, align 4
+  ret void
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
+}
+
+define void @ppl_entry() {
+start:
+  %gc.globals = alloca { i64, [3 x { ptr, ptr, ptr }] }, align 8
+  %0 = getelementptr inbounds nuw { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 0
+  store i64 3, ptr %0, align 4
+  %1 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 0
+  store ptr null, ptr %1, align 8
+  %2 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 1
+  store ptr @ppl.layout, ptr %2, align 8
+  %3 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 2
+  store ptr @ppl.global.__finalizationRegistries, ptr %3, align 8
+  %4 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 0
+  store ptr null, ptr %4, align 8
+  %5 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 1
+  store ptr @ppl.layout.22, ptr %5, align 8
+  %6 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 2
+  store ptr @ppl.global.__loop, ptr %6, align 8
+  %7 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 0
+  store ptr null, ptr %7, align 8
+  %8 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 1
+  store ptr @ppl.layout.23, ptr %8, align 8
+  %9 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 2
+  store ptr @ppl.global.__buffers, ptr %9, align 8
+  call void @ppl_gc_set_globals(ptr %gc.globals)
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %10 = icmp ne i32 %gc.requested, 0
+  br i1 %10, label %gc.collect, label %gc.continue
+
+bb0:                                              ; preds = %gc.continue
+  call void @"ppl.Uint8Array.<static>"()
   br label %bb1
 
 bb1:                                              ; preds = %bb0
+  call void @"ppl.Int32Array.<static>"()
+  br label %bb2
+
+bb2:                                              ; preds = %bb1
+  call void @"ppl.Uint32Array.<static>"()
+  br label %bb3
+
+bb3:                                              ; preds = %bb2
+  call void @"ppl.Float32Array.<static>"()
+  br label %bb4
+
+bb4:                                              ; preds = %bb3
+  call void @"ppl.Float64Array.<static>"()
+  br label %bb5
+
+bb5:                                              ; preds = %bb4
+  store ptr null, ptr @ppl.global.__finalizationRegistries, align 8
+  store ptr null, ptr @ppl.global.__loop, align 8
+  store ptr null, ptr @ppl.global.__buffers, align 8
+  br label %bb6
+
+bb6:                                              ; preds = %bb5
   ret void
 
 gc.collect:                                       ; preds = %start
