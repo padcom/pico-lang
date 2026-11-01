@@ -1,0 +1,99 @@
+// expect: Rex says Woof | Tom says Meow | Generic says ...
+// expect: 3 animals
+// expect: Rex (3) is a dog
+// expect: true true false false
+// expect: woof woof
+// expect: dog Rex, cat Tom, animal Generic
+// expect: area 12 | area 3 | 2 shapes
+// expect: base(1) then derived
+// expect: Point(0, 0) Point(3, 4)
+// expect: loud: WOOF
+// expect: 7
+class Animal {
+  public static count: i32 = 0
+  constructor(public name: string, protected age: i32) { count++ }
+  constructor(name: string) { this(name, 0) }
+
+  public virtual speak(): string { "..." }
+  public describe(): string { `${name} says ${speak()}` }
+  public get label(): string { `${name} (${age})` }
+}
+
+class Dog extends Animal {
+  constructor(name: string) { super(name, 3) }
+  public override speak(): string { "Woof" }
+  public fetch(): string { "woof woof" }
+}
+
+class Cat extends Animal {
+  public override speak(): string { "Meow" }
+}
+
+const animals: Animal[] = [new Dog("Rex"), new Cat("Tom", 2), new Animal("Generic")]
+let line = ""
+for (const a of animals) line += `${a.describe()} | `
+println(line.length > 3 ? `${animals[0].describe()} | ${animals[1].describe()} | ${animals[2].describe()}` : "")
+println(`${Animal.count} animals`)
+
+const pet: Animal = animals[0]
+if (pet instanceof Dog) println(`${pet.label} is a dog`)
+println(`${animals[0] instanceof Animal} ${animals[0] instanceof Dog} ${animals[1] instanceof Dog} ${animals[2] instanceof Cat}`)
+if (pet instanceof Dog) println(pet.fetch())
+
+function kind(a: Animal): string {
+  match (a) {
+    d: Dog => `dog ${d.name}`,
+    c: Cat => `cat ${c.name}`,
+    x      => `animal ${x.name}`,
+  }
+}
+println(`${kind(animals[0])}, ${kind(animals[1])}, ${kind(animals[2])}`)
+
+abstract class Shape {
+  public static made: i32 = 0
+  constructor() { made++ }
+  public abstract area(): f64
+  public describe(): string { `area ${area()}` }
+}
+class Rect extends Shape {
+  constructor(public w: f64, public h: f64) { super() }
+  public override area(): f64 { w * h }
+}
+class Tri extends Shape {
+  constructor(public b: f64, public h: f64) {}
+  public override area(): f64 { b * h / 2 }
+}
+const shapes: Shape[] = [new Rect(3, 4), new Tri(2, 3)]
+println(`${shapes[0].describe()} | ${shapes[1].describe()} | ${Shape.made} shapes`)
+
+class Base {
+  public log: string = ""
+  constructor(n: i32) { log = `base(${n})` }
+}
+class Derived extends Base {
+  constructor() {
+    super(1)
+    log += " then derived"
+  }
+}
+println(new Derived().log)
+
+class Point {
+  constructor(public x: i32, public y: i32) {}
+  constructor() { this(0, 0) }
+  public virtual show(): string { `Point(${x}, ${y})` }
+}
+println(`${new Point().show()} ${new Point(3, 4).show()}`)
+
+class Loud extends Dog {
+  public override speak(): string { `loud: ${super.speak().length > 0 ? "WOOF" : ""}` }
+}
+println(new Loud("Max").speak())
+
+// Upcasts into nullable bases, and `protected` access from a subclass.
+class Aged extends Animal {
+  constructor() { super("x", 7) }
+  public years(): i32 { age }
+}
+const maybe: Animal? = new Aged()
+println(match (maybe) { a: Aged => a.years(), _ => 0 })

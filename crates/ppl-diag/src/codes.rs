@@ -77,6 +77,12 @@ codes! {
     PATTERN_MISMATCH = 318: "pattern that can't match the matched value's type",
     PRIVATE_MEMBER = 319: "use of a private member outside its class",
     UNASSIGNED_FIELD = 320: "field not definitely assigned by a constructor",
+    MISSING_OVERRIDE = 321: "method overrides a virtual method without `override`",
+    BAD_OVERRIDE = 322: "override of a method that can't be overridden",
+    ABSTRACT_NOT_IMPLEMENTED = 323: "concrete class that leaves an abstract method unimplemented",
+    ABSTRACT_NEW = 324: "`new` of an abstract class",
+    OVERRIDE_SIGNATURE = 325: "override with a different signature",
+    BAD_CTOR_CALL = 326: "`super(…)`/`this(…)` misplaced, missing or without a matching constructor",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

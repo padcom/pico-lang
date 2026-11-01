@@ -27,6 +27,10 @@ typedef struct PplStr {
  * returns NULL: running out of memory aborts the program. */
 void *ppl_alloc(int64_t size);
 void *ppl_alloc_zeroed(int64_t size); /* class instances */
+/* Whether `obj` (an object, possibly null) is an instance of the class whose metadata is
+ * `info`. An object's first word points at its class's metadata, whose first word points at
+ * the base class's (null at the root). */
+int32_t ppl_instance_of(const void *obj, const void *info);
 
 /* A growable array (`T[]`): `len` elements of the element size the compiler passes, stored
  * contiguously at `data` (zeroed beyond `len` up to `cap`). */

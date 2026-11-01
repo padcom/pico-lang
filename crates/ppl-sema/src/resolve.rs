@@ -243,8 +243,8 @@ impl Resolver {
             self.enum_variants(*eid, ed);
         }
         let mut classes = Vec::new();
-        for (sid, cd) in &class_decls {
-            classes.push(self.class_members(*sid, cd));
+        for (sid, cd) in self.order_classes(&class_decls) {
+            classes.push(self.class_members(sid, cd));
         }
         self.check_struct_cycles();
 
@@ -255,12 +255,26 @@ impl Resolver {
         }
         let mut static_inits = Vec::new();
         for c in &classes {
-            for (id, f, this) in &c.methods {
-                let func = self.function_in(f, false, *this, Some(c.sid));
+            for (id, f, this, is_abstract) in &c.methods {
+                let func = if *is_abstract {
+                    if f.body.is_some() {
+                        self.error(
+                            codes::ABSTRACT_NOT_IMPLEMENTED,
+                            f.span,
+                            "an abstract method has no body",
+                            "remove the body, or the `abstract`",
+                        );
+                    }
+                    self.abstract_stub(f, c.sid)
+                } else {
+                    self.function_in(f, false, *this, Some(c.sid))
+                };
                 self.fns[id.0 as usize] = Some(func);
             }
-            let ctor = self.constructor(c);
-            self.fns[c.ctor.0 as usize] = Some(ctor);
+            for (id, decl) in &c.ctors {
+                let ctor = self.constructor(c, *id, *decl);
+                self.fns[id.0 as usize] = Some(ctor);
+            }
             if let Some(id) = c.static_init {
                 let init = self.static_init(c);
                 self.fns[id.0 as usize] = Some(init);
@@ -737,25 +751,148 @@ impl Resolver {
         }
     }
 
-    /// Pass 1b for a class: fields (and parameter properties), methods, accessors, statics.
+    /// Classes ordered so every base comes before its subclasses; reports unknown bases,
+    /// `final` bases and inheritance cycles.
+    fn order_classes<'a>(
+        &mut self,
+        decls: &[(StructId, &'a ast::ClassDecl)],
+    ) -> Vec<(StructId, &'a ast::ClassDecl)> {
+        let mut base_of: HashMap<StructId, StructId> = HashMap::new();
+        for (sid, cd) in decls {
+            let Some(t) = &cd.extends else { continue };
+            let base = match &t.kind {
+                ast::TypeKind::Path { path, args } if path.len() == 1 && args.is_empty() => self
+                    .top_structs
+                    .get(&path[0].name)
+                    .copied()
+                    .filter(|b| self.structs[b.0 as usize].is_class),
+                _ => None,
+            };
+            match base {
+                Some(b) => {
+                    base_of.insert(*sid, b);
+                }
+                None => self.error(
+                    codes::UNKNOWN_TYPE,
+                    t.span,
+                    "a class can only extend another class",
+                    "not a class",
+                ),
+            }
+        }
+        let mut out = Vec::new();
+        let mut done: HashSet<StructId> = HashSet::new();
+        for (sid, _) in decls {
+            let mut chain = vec![*sid];
+            let mut cur = *sid;
+            while let Some(b) = base_of.get(&cur) {
+                if chain.contains(b) {
+                    let name = self.structs[sid.0 as usize].name.clone();
+                    let span = self.structs[sid.0 as usize].name_span;
+                    self.error(
+                        codes::RECURSIVE_STRUCT,
+                        span,
+                        format!("class `{name}` inherits from itself"),
+                        "inheritance cycle",
+                    );
+                    base_of.remove(&cur);
+                    break;
+                }
+                chain.push(*b);
+                cur = *b;
+            }
+            for c in chain.into_iter().rev() {
+                if done.insert(c) {
+                    let decl = decls.iter().find(|(s, _)| *s == c).expect("declared").1;
+                    out.push((c, decl));
+                }
+            }
+        }
+        for (sid, b) in base_of {
+            self.structs[sid.0 as usize].base = Some(b);
+        }
+        out
+    }
+
+    /// Copies what a subclass inherits: fields (assigned by the base constructor), methods,
+    /// accessors, the vtable, and the visibility of each member.
+    fn inherit(&mut self, sid: StructId, base: StructId) {
+        let b = &self.structs[base.0 as usize];
+        let fields: Vec<FieldDef> = b
+            .fields
+            .iter()
+            .map(|f| FieldDef {
+                name: f.name.clone(),
+                ty: f.ty.clone(),
+                span: f.span,
+                preassigned: true,
+            })
+            .collect();
+        let methods = b.methods.clone();
+        let getters = b.getters.clone();
+        let setters = b.setters.clone();
+        let vtable = b.vtable.clone();
+        let slots = b.virtual_slots.clone();
+        let private = b.private.clone();
+        let protected = b.protected.clone();
+        let abstract_fns = b.abstract_fns.clone();
+        let final_methods = b.final_methods.clone();
+        let mut declared_in = b.declared_in.clone();
+        let names = fields
+            .iter()
+            .map(|f| f.name.clone())
+            .chain(methods.iter().map(|(n, _)| n.clone()))
+            .chain(getters.iter().map(|(n, _)| n.clone()))
+            .chain(setters.iter().map(|(n, _)| n.clone()));
+        for n in names {
+            declared_in.entry(n).or_insert(base);
+        }
+        let d = &mut self.structs[sid.0 as usize];
+        d.fields = fields;
+        d.methods = methods;
+        d.getters = getters;
+        d.setters = setters;
+        d.vtable = vtable;
+        d.virtual_slots = slots;
+        d.private = private;
+        d.protected = protected;
+        d.abstract_fns = abstract_fns;
+        d.final_methods = final_methods;
+        d.declared_in = declared_in;
+    }
+
+    /// Pass 1b for a class: fields (and parameter properties), methods, accessors, statics,
+    /// constructors and the vtable.
     fn class_members<'a>(&mut self, sid: StructId, cd: &'a ast::ClassDecl) -> ClassInfo<'a> {
         if let Some(g) = cd.generics.first() {
             self.not_implemented(g.span, "generic classes");
         }
-        if let Some(t) = &cd.extends {
-            self.not_implemented(t.span, "inheritance");
-        }
         if let Some(t) = cd.implements.first() {
             self.not_implemented(t.span, "interfaces");
         }
-        if cd.abstract_ || cd.final_ {
-            self.not_implemented(cd.name.span, "`abstract` and `final` classes");
+        let base = self.structs[sid.0 as usize].base;
+        if let Some(b) = base {
+            if self.structs[b.0 as usize].is_final {
+                let bname = self.structs[b.0 as usize].name.clone();
+                let span = cd.extends.as_ref().map_or(cd.name.span, |t| t.span);
+                self.error(
+                    codes::BAD_OVERRIDE,
+                    span,
+                    format!("`{bname}` is `final` and can't be extended"),
+                    "extends a final class",
+                );
+            }
+            self.inherit(sid, b);
+        }
+        {
+            let d = &mut self.structs[sid.0 as usize];
+            d.is_abstract = cd.abstract_;
+            d.is_final = cd.final_;
         }
         let mut info = ClassInfo {
             sid,
             decl: cd,
-            ctor: FnId(0),
-            ctor_decl: None,
+            ctors: Vec::new(),
             static_init: None,
             methods: Vec::new(),
             field_inits: Vec::new(),
@@ -763,48 +900,66 @@ impl Resolver {
             static_blocks: Vec::new(),
         };
         let mut seen: HashMap<String, Span> = HashMap::new();
-        let private =
-            |m: &ast::Modifiers| m.visibility.is_none_or(|v| v == ast::Visibility::Private);
+        let inherited_fields: HashSet<String> = self.structs[sid.0 as usize]
+            .fields
+            .iter()
+            .map(|f| f.name.clone())
+            .collect();
+        let class_name = cd.name.name.clone();
+        let set_vis = |r: &mut Resolver, name: &str, m: &ast::Modifiers| {
+            let d = &mut r.structs[sid.0 as usize];
+            d.private.remove(name);
+            d.protected.remove(name);
+            d.declared_in.remove(name);
+            match m.visibility {
+                Some(ast::Visibility::Public) => {}
+                Some(ast::Visibility::Protected) => {
+                    d.protected.insert(name.to_string());
+                }
+                _ => {
+                    d.private.insert(name.to_string());
+                }
+            }
+        };
+        let field_clash = |r: &mut Resolver, name: &ast::Ident| {
+            if inherited_fields.contains(&name.name) {
+                r.error(
+                    codes::DUPLICATE_DECL,
+                    name.span,
+                    format!("`{}` is already a field of a base class", name.name),
+                    "declared again here",
+                );
+                return true;
+            }
+            false
+        };
         for m in &cd.members {
             if let Some(dec) = m.decorators.first() {
                 self.not_implemented(dec.span, "decorators");
-            }
-            if m.mods.virtual_ || m.mods.override_ || m.mods.abstract_ || m.mods.final_ {
-                self.not_implemented(
-                    m.span,
-                    "`virtual`, `override`, `abstract` and `final` members",
-                );
             }
             if m.mods.is_async {
                 self.not_implemented(m.span, "async methods");
             }
             match &m.kind {
                 ast::MemberKind::Constructor(f) => {
-                    if info.ctor_decl.is_some() {
-                        self.not_implemented(m.span, "constructor overloading");
-                        continue;
-                    }
-                    info.ctor_decl = Some(f);
                     // Parameter properties declare fields.
+                    let mut tys = Vec::new();
                     for p in &f.params {
+                        let ty = match &p.ty {
+                            Some(t) => self.resolve_type(t),
+                            None => Ty::Error,
+                        };
+                        tys.push(ty.clone());
                         if p.mods.visibility.is_none() && !p.mods.readonly {
                             continue;
                         }
                         let ast::PatternKind::Ident(pname) = &p.pat.kind else {
                             continue;
                         };
-                        if self.check_duplicate(&mut seen, pname) {
+                        if field_clash(self, pname) || self.check_duplicate(&mut seen, pname) {
                             continue;
                         }
-                        let ty = match &p.ty {
-                            Some(t) => self.resolve_type(t),
-                            None => Ty::Error,
-                        };
-                        if private(&p.mods) {
-                            self.structs[sid.0 as usize]
-                                .private
-                                .insert(pname.name.clone());
-                        }
+                        set_vis(self, &pname.name, &p.mods);
                         self.structs[sid.0 as usize].fields.push(FieldDef {
                             name: pname.name.clone(),
                             ty,
@@ -812,6 +967,24 @@ impl Resolver {
                             preassigned: true,
                         });
                     }
+                    let def = &self.structs[sid.0 as usize];
+                    if def.ctors.iter().any(|(_, ps)| ps.len() == tys.len()) {
+                        self.error(
+                            codes::DUPLICATE_DECL,
+                            m.span,
+                            format!(
+                                "`{class_name}` already has a constructor with {} parameter{}",
+                                tys.len(),
+                                if tys.len() == 1 { "" } else { "s" }
+                            ),
+                            "overloaded constructors need different numbers of parameters",
+                        );
+                        continue;
+                    }
+                    let id = FnId(self.fns.len() as u32);
+                    self.fns.push(None);
+                    self.structs[sid.0 as usize].ctors.push((id, tys));
+                    info.ctors.push((id, Some(f)));
                 }
                 ast::MemberKind::Field {
                     name,
@@ -819,7 +992,7 @@ impl Resolver {
                     optional,
                     init,
                 } => {
-                    if self.check_duplicate(&mut seen, name) {
+                    if field_clash(self, name) || self.check_duplicate(&mut seen, name) {
                         continue;
                     }
                     let mut t = match (ty, init) {
@@ -848,11 +1021,10 @@ impl Resolver {
                         });
                         // Initialized before any top-level code runs.
                         self.globals_declared.insert(g);
-                        let def = &mut self.structs[sid.0 as usize];
-                        def.static_fields.push((name.name.clone(), g));
-                        if private(&m.mods) {
-                            def.private.insert(name.name.clone());
-                        }
+                        self.structs[sid.0 as usize]
+                            .static_fields
+                            .push((name.name.clone(), g));
+                        set_vis(self, &name.name, &m.mods);
                         info.static_inits.push((g, name, init.as_ref()));
                         continue;
                     }
@@ -869,11 +1041,8 @@ impl Resolver {
                         }
                     };
                     let nullable = matches!(ty, Ty::Nullable(_));
-                    let def = &mut self.structs[sid.0 as usize];
-                    if private(&m.mods) {
-                        def.private.insert(name.name.clone());
-                    }
-                    def.fields.push(FieldDef {
+                    set_vis(self, &name.name, &m.mods);
+                    self.structs[sid.0 as usize].fields.push(FieldDef {
                         name: name.name.clone(),
                         ty,
                         span: name.span,
@@ -885,7 +1054,7 @@ impl Resolver {
                 | ast::MemberKind::Getter(f)
                 | ast::MemberKind::Setter(f) => {
                     let Some(name) = &f.name else { continue };
-                    let accessor = !matches!(m.kind, ast::MemberKind::Method(_));
+                    let is_method = matches!(m.kind, ast::MemberKind::Method(_));
                     // A getter and a setter may share a name.
                     let key = match &m.kind {
                         ast::MemberKind::Setter(_) => format!("set {}", name.name),
@@ -898,28 +1067,39 @@ impl Resolver {
                     if self.check_duplicate(&mut seen, &k) {
                         continue;
                     }
+                    if !is_method && (m.mods.virtual_ || m.mods.override_ || m.mods.abstract_) {
+                        self.not_implemented(m.span, "virtual accessors");
+                    }
                     let id = FnId(self.fns.len() as u32);
                     self.fns.push(None);
-                    let def = &mut self.structs[sid.0 as usize];
-                    if private(&m.mods) {
-                        def.private.insert(name.name.clone());
+                    if is_method && !m.mods.is_static {
+                        // Before `set_vis`, which forgets where an inherited name came from.
+                        self.method_slot(sid, name, &m.mods, id, m.span);
                     }
+                    set_vis(self, &name.name, &m.mods);
                     if m.mods.is_static {
-                        if accessor {
+                        if !is_method {
                             self.not_implemented(m.span, "static accessors");
                         }
                         self.structs[sid.0 as usize]
                             .static_methods
                             .push((name.name.clone(), id));
-                        info.methods.push((id, f, None));
+                        info.methods.push((id, f, None, false));
                         continue;
                     }
-                    match &m.kind {
-                        ast::MemberKind::Getter(_) => def.getters.push((name.name.clone(), id)),
-                        ast::MemberKind::Setter(_) => def.setters.push((name.name.clone(), id)),
-                        _ => def.methods.push((name.name.clone(), id)),
+                    let is_abstract = m.mods.abstract_;
+                    let d = &mut self.structs[sid.0 as usize];
+                    let list = match &m.kind {
+                        ast::MemberKind::Getter(_) => &mut d.getters,
+                        ast::MemberKind::Setter(_) => &mut d.setters,
+                        _ => &mut d.methods,
+                    };
+                    list.retain(|(n, _)| *n != name.name);
+                    list.push((name.name.clone(), id));
+                    if is_abstract {
+                        d.abstract_fns.insert(id);
                     }
-                    info.methods.push((id, f, Some(sid)));
+                    info.methods.push((id, f, Some(sid), is_abstract));
                 }
                 ast::MemberKind::StaticBlock(b) => info.static_blocks.push(b),
                 ast::MemberKind::Operator { .. } => {
@@ -927,10 +1107,41 @@ impl Resolver {
                 }
             }
         }
-        let ctor = FnId(self.fns.len() as u32);
-        self.fns.push(None);
-        info.ctor = ctor;
-        self.structs[sid.0 as usize].ctor = Some(ctor);
+        if info.ctors.is_empty() {
+            // Without a constructor, a class gets one that takes no arguments, or (in a
+            // subclass) one forwarding to each base constructor.
+            let shapes: Vec<Vec<Ty>> = match base {
+                Some(b) => self.structs[b.0 as usize]
+                    .ctors
+                    .iter()
+                    .map(|(_, ps)| ps.clone())
+                    .collect(),
+                None => vec![Vec::new()],
+            };
+            for params in shapes {
+                let id = FnId(self.fns.len() as u32);
+                self.fns.push(None);
+                self.structs[sid.0 as usize].ctors.push((id, params));
+                info.ctors.push((id, None));
+            }
+        }
+        let d = &self.structs[sid.0 as usize];
+        if !d.is_abstract {
+            let missing: Vec<String> = d
+                .methods
+                .iter()
+                .filter(|(_, f)| d.abstract_fns.contains(f))
+                .map(|(n, _)| format!("`{n}`"))
+                .collect();
+            if !missing.is_empty() {
+                self.error(
+                    codes::ABSTRACT_NOT_IMPLEMENTED,
+                    cd.name.span,
+                    format!("`{class_name}` doesn't implement {}", missing.join(", ")),
+                    "make the class `abstract`, or override the abstract methods",
+                );
+            }
+        }
         if !info.static_inits.is_empty() || !info.static_blocks.is_empty() {
             let id = FnId(self.fns.len() as u32);
             self.fns.push(None);
@@ -939,12 +1150,109 @@ impl Resolver {
         info
     }
 
-    /// A class's constructor: parameter properties are assigned first, then field
-    /// initializers (in declaration order), then the body runs.
-    fn constructor(&mut self, c: &ClassInfo) -> Function {
+    /// Puts method `name` (function `id`) into the class's vtable, enforcing that methods are
+    /// final by default and that overrides say `override` (spec §6.1).
+    fn method_slot(
+        &mut self,
+        sid: StructId,
+        name: &ast::Ident,
+        mods: &ast::Modifiers,
+        id: FnId,
+        span: Span,
+    ) {
+        let d = &self.structs[sid.0 as usize];
+        let inherited = d.declared_in.get(&name.name).copied();
+        let slot = d.virtual_slot(&name.name);
+        let class_name = d.name.clone();
+        let wants_slot = mods.virtual_ || mods.abstract_;
+        if mods.abstract_ && !d.is_abstract {
+            self.error(
+                codes::ABSTRACT_NOT_IMPLEMENTED,
+                span,
+                format!(
+                    "abstract method `{}` in a class that isn't abstract",
+                    name.name
+                ),
+                format!("declare `abstract class {class_name}`"),
+            );
+        }
+        match (inherited, slot) {
+            (Some(b), Some(slot)) => {
+                let bname = self.structs[b.0 as usize].name.clone();
+                if !mods.override_ {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MISSING_OVERRIDE,
+                            format!(
+                                "`{}` overrides `{bname}.{}` without `override`",
+                                name.name, name.name
+                            ),
+                        )
+                        .primary(name.span, "add `override`")
+                        .help(format!("write `override {}(…)`", name.name)),
+                    );
+                }
+                if self.structs[sid.0 as usize]
+                    .final_methods
+                    .contains(&name.name)
+                {
+                    self.error(
+                        codes::BAD_OVERRIDE,
+                        name.span,
+                        format!("`{bname}.{}` is `final`", name.name),
+                        "can't be overridden",
+                    );
+                }
+                let d = &mut self.structs[sid.0 as usize];
+                d.vtable[slot as usize] = id;
+            }
+            (Some(b), None) => {
+                let bname = self.structs[b.0 as usize].name.clone();
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::BAD_OVERRIDE,
+                        format!("`{bname}.{}` can't be overridden", name.name),
+                    )
+                    .primary(name.span, "redefines a method of a base class")
+                    .note("methods are final by default")
+                    .help(format!(
+                        "declare `{bname}.{}` as `virtual` to allow overriding it",
+                        name.name
+                    )),
+                );
+            }
+            (None, _) => {
+                if mods.override_ {
+                    self.error(
+                        codes::BAD_OVERRIDE,
+                        name.span,
+                        format!("`{}` has nothing to override", name.name),
+                        "no base class method with this name",
+                    );
+                }
+                if wants_slot || mods.override_ {
+                    let d = &mut self.structs[sid.0 as usize];
+                    let slot = d.vtable.len() as u32;
+                    d.vtable.push(id);
+                    d.virtual_slots.push((name.name.clone(), slot));
+                }
+            }
+        }
+        if mods.final_ {
+            self.structs[sid.0 as usize]
+                .final_methods
+                .insert(name.name.clone());
+        }
+    }
+
+    /// A class's constructor. In order: `super(…)` (explicit or implied) or `this(…)`, then
+    /// (unless delegating with `this(…)`) parameter properties and field initializers in
+    /// declaration order, then the rest of the body.
+    fn constructor(&mut self, c: &ClassInfo, id: FnId, decl: Option<&ast::FnDecl>) -> Function {
         let sid = c.sid;
         let class_name = self.structs[sid.0 as usize].name.clone();
-        let span = c.ctor_decl.map_or(c.decl.name.span, |f| f.span);
+        let base = self.structs[sid.0 as usize].base;
+        let span = decl.map_or(c.decl.name.span, |f| f.span);
         self.f = FnState {
             owner: Some(sid),
             ..Default::default()
@@ -960,55 +1268,136 @@ impl Resolver {
         });
         self.f.this = Some((this, sid));
         let mut params = Vec::new();
-        let mut prologue = Vec::new();
-        if let Some(f) = c.ctor_decl {
-            for p in &f.params {
-                let ast::PatternKind::Ident(pname) = &p.pat.kind else {
-                    self.not_implemented(p.pat.span, "destructured parameters");
-                    continue;
-                };
-                if p.rest || p.optional || p.default.is_some() || p.comptime {
-                    self.not_implemented(p.span, "optional, default, rest and comptime parameters");
-                }
-                let ty = match &p.ty {
-                    Some(t) => Some(self.resolve_type(t)),
-                    None => {
-                        self.error(
-                            codes::MISSING_PARAM_TYPE,
-                            pname.span,
-                            format!("parameter `{}` needs a type", pname.name),
-                            "add a type annotation, e.g. `: i32`",
+        let mut props = Vec::new();
+        match decl {
+            Some(f) => {
+                for p in &f.params {
+                    let ast::PatternKind::Ident(pname) = &p.pat.kind else {
+                        self.not_implemented(p.pat.span, "destructured parameters");
+                        continue;
+                    };
+                    if p.rest || p.optional || p.default.is_some() || p.comptime {
+                        self.not_implemented(
+                            p.span,
+                            "optional, default, rest and comptime parameters",
                         );
-                        Some(Ty::Error)
                     }
-                };
-                let id = self.declare_local(pname, true, ty);
-                params.push(id);
-                if p.mods.visibility.is_some() || p.mods.readonly {
-                    let value = self.expr(ExprKind::Var(Var::Local(id)), pname.span);
-                    let assign = self.field_assign(this, &pname.name, pname.span, value);
-                    prologue.push(Stmt::Expr(assign));
+                    let ty = match &p.ty {
+                        Some(t) => Some(self.resolve_type(t)),
+                        None => {
+                            self.error(
+                                codes::MISSING_PARAM_TYPE,
+                                pname.span,
+                                format!("parameter `{}` needs a type", pname.name),
+                                "add a type annotation, e.g. `: i32`",
+                            );
+                            Some(Ty::Error)
+                        }
+                    };
+                    let pid = self.declare_local(pname, true, ty);
+                    params.push(pid);
+                    if p.mods.visibility.is_some() || p.mods.readonly {
+                        props.push((pid, pname));
+                    }
+                }
+            }
+            None => {
+                // The default constructor forwards its parameters to the base's.
+                let tys = self.structs[sid.0 as usize]
+                    .ctors
+                    .iter()
+                    .find(|(f, _)| *f == id)
+                    .map(|(_, t)| t.clone())
+                    .unwrap_or_default();
+                for (i, t) in tys.into_iter().enumerate() {
+                    let pid = self.hidden_local(&format!("<arg{i}>"), span);
+                    self.f.locals[pid.0 as usize].ty = Some(t);
+                    params.push(pid);
                 }
             }
         }
-        for (name, init) in &c.field_inits {
-            let value = match init {
-                Some(e) => self.lower_expr(e),
-                None => {
-                    let nullable = self.structs[sid.0 as usize]
-                        .field(&name.name)
-                        .is_some_and(|(_, f)| matches!(f.ty, Ty::Nullable(_)));
-                    if !nullable {
-                        continue;
-                    }
-                    self.expr(ExprKind::Null, name.span)
-                }
+        // Split off a leading `super(…)` / `this(…)`.
+        let (lead, rest): (Option<&ast::Stmt>, &[ast::Stmt]) =
+            match decl.and_then(|f| f.body.as_ref()) {
+                Some(ast::FnBody::Block(b)) => match b.stmts.first() {
+                    Some(s) if ctor_call_kind(s).is_some() => (Some(s), &b.stmts[1..]),
+                    _ => (None, &b.stmts[..]),
+                },
+                _ => (None, &[]),
             };
-            let assign = self.field_assign(this, &name.name, name.span, value);
-            prologue.push(Stmt::Expr(assign));
+        let mut stmts = Vec::new();
+        let mut delegates = false;
+        match lead {
+            Some(s) => {
+                let (is_super, args, cspan) = ctor_call_kind(s).expect("checked");
+                let target = if is_super { base } else { Some(sid) };
+                match target {
+                    Some(class) => {
+                        delegates = !is_super;
+                        let args = args.iter().map(|a| self.lower_expr(&a.value)).collect();
+                        let call = self.expr(ExprKind::CtorCall { class, args }, cspan);
+                        stmts.push(Stmt::Expr(call));
+                    }
+                    None => self.error(
+                        codes::BAD_CTOR_CALL,
+                        cspan,
+                        format!("`{class_name}` has no base class"),
+                        "`super(…)` without `extends`",
+                    ),
+                }
+            }
+            None => {
+                if let Some(b) = base {
+                    // Implied `super(…)`: the default constructor forwards its arguments.
+                    let args: Vec<Expr> = if decl.is_none() {
+                        params
+                            .iter()
+                            .map(|p| self.expr(ExprKind::Var(Var::Local(*p)), span))
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let n = args.len();
+                    if self.structs[b.0 as usize].ctor_with(n).is_none() {
+                        let bname = self.structs[b.0 as usize].name.clone();
+                        self.error(
+                            codes::BAD_CTOR_CALL,
+                            span,
+                            "this constructor must call `super(…)` first",
+                            format!("`{bname}` has no constructor without arguments"),
+                        );
+                    } else {
+                        let call = self.expr(ExprKind::CtorCall { class: b, args }, span);
+                        stmts.push(Stmt::Expr(call));
+                    }
+                }
+            }
         }
-        let mut body = match c.ctor_decl.and_then(|f| f.body.as_ref()) {
-            Some(ast::FnBody::Block(b)) => self.block(b),
+        if !delegates {
+            for (pid, pname) in props {
+                let value = self.expr(ExprKind::Var(Var::Local(pid)), pname.span);
+                let assign = self.field_assign(this, &pname.name, pname.span, value);
+                stmts.push(Stmt::Expr(assign));
+            }
+            for (name, init) in &c.field_inits {
+                let value = match init {
+                    Some(e) => self.lower_expr(e),
+                    None => {
+                        let nullable = self.structs[sid.0 as usize]
+                            .field(&name.name)
+                            .is_some_and(|(_, f)| matches!(f.ty, Ty::Nullable(_)));
+                        if !nullable {
+                            continue;
+                        }
+                        self.expr(ExprKind::Null, name.span)
+                    }
+                };
+                let assign = self.field_assign(this, &name.name, name.span, value);
+                stmts.push(Stmt::Expr(assign));
+            }
+        }
+        let body = match decl.and_then(|f| f.body.as_ref()) {
+            Some(ast::FnBody::Block(b)) => self.with_scope(rest, |r| r.block_stmts(rest, b.span)),
             Some(ast::FnBody::Expr(e)) => {
                 let e = self.lower_expr(e);
                 Block {
@@ -1023,8 +1412,9 @@ impl Resolver {
                 span,
             },
         };
-        prologue.append(&mut body.stmts);
-        body.stmts = prologue;
+        let mut body = body;
+        stmts.append(&mut body.stmts);
+        body.stmts = stmts;
         Function {
             name: format!("{class_name}.constructor"),
             name_span: c.decl.name.span,
@@ -1038,6 +1428,39 @@ impl Resolver {
             this: self.f.this,
             owner: Some(sid),
         }
+    }
+
+    /// The function for an abstract method: it panics (it can only be reached through a
+    /// broken vtable, since abstract classes can't be instantiated).
+    fn abstract_stub(&mut self, f: &ast::FnDecl, sid: StructId) -> Function {
+        let name = f.name.clone().expect("named method");
+        let span = name.span;
+        let mut func = self.function_in(
+            &ast::FnDecl {
+                body: Some(ast::FnBody::Block(ast::Block {
+                    stmts: Vec::new(),
+                    span,
+                })),
+                ..f.clone()
+            },
+            false,
+            Some(sid),
+            Some(sid),
+        );
+        let msg = self.expr(
+            ExprKind::Str(format!("abstract method `{}` called", name.name)),
+            span,
+        );
+        let callee = self.expr(ExprKind::Builtin(Builtin::Panic), span);
+        let call = self.expr(
+            ExprKind::Call {
+                callee: Box::new(callee),
+                args: vec![msg],
+            },
+            span,
+        );
+        func.body.tail = Some(Box::new(call));
+        func
     }
 
     /// `this.name = value`
@@ -1843,6 +2266,17 @@ impl Resolver {
                 then: Box::new(self.lower_expr(then)),
                 else_: Some(Box::new(self.lower_expr(else_))),
             },
+            A::Call { callee, .. }
+                if matches!(callee.kind, ast::ExprKind::Super | ast::ExprKind::This) =>
+            {
+                self.error(
+                    codes::BAD_CTOR_CALL,
+                    span,
+                    "`super(…)` and `this(…)` must be the first statement of a constructor",
+                    "not at the start of a constructor",
+                );
+                ExprKind::Error
+            }
             A::Call { callee, args, .. } if self.names_enum_member(callee) => {
                 let Some((enum_, variant)) = self.variant_ref(callee) else {
                     return self.error_expr(span);
@@ -1903,7 +2337,65 @@ impl Resolver {
                     }
                     out.push(self.lower_expr(&a.value));
                 }
+                if self.structs[class.0 as usize].is_abstract {
+                    let name = self.structs[class.0 as usize].name.clone();
+                    self.error(
+                        codes::ABSTRACT_NEW,
+                        callee.span,
+                        format!("`{name}` is abstract"),
+                        "abstract classes can't be instantiated",
+                    );
+                }
                 ExprKind::New { class, args: out }
+            }
+            A::Instanceof { expr, ty } => {
+                let e2 = self.lower_expr(expr);
+                match self.resolve_type(ty) {
+                    Ty::Class(class, _) => ExprKind::InstanceOf {
+                        expr: Box::new(e2),
+                        class,
+                    },
+                    Ty::Error => ExprKind::Error,
+                    other => {
+                        self.error(
+                            codes::UNKNOWN_TYPE,
+                            ty.span,
+                            format!("`instanceof` needs a class, not `{other}`"),
+                            "not a class",
+                        );
+                        ExprKind::Error
+                    }
+                }
+            }
+            A::Call { callee, args, .. } if matches!(&callee.kind, ast::ExprKind::Member { object, .. } if matches!(object.kind, ast::ExprKind::Super)) =>
+            {
+                let ast::ExprKind::Member { prop, .. } = &callee.kind else {
+                    unreachable!()
+                };
+                let base = self
+                    .f
+                    .this
+                    .and_then(|(_, sid)| self.structs[sid.0 as usize].base);
+                let method = base.and_then(|b| self.structs[b.0 as usize].method(&prop.name));
+                match method {
+                    Some(m)
+                        if !self.structs[base.unwrap().0 as usize]
+                            .abstract_fns
+                            .contains(&m) =>
+                    {
+                        let args = args.iter().map(|a| self.lower_expr(&a.value)).collect();
+                        ExprKind::SuperCall { method: m, args }
+                    }
+                    _ => {
+                        self.error(
+                            codes::UNKNOWN_MEMBER,
+                            prop.span,
+                            format!("no base class method `{}` to call", prop.name),
+                            "not found in the base class",
+                        );
+                        ExprKind::Error
+                    }
+                }
             }
             A::Member { .. } if self.names_enum_member(e) => {
                 let Some((enum_, variant)) = self.variant_ref(e) else {
@@ -2095,9 +2587,8 @@ impl Resolver {
             A::Error => ExprKind::Error,
             other => {
                 let what = match other {
-                    A::This | A::Super => "classes",
+                    A::Super => "`super` outside a method call",
                     A::Object { .. } => "object and struct literals",
-                    A::Instanceof { .. } => "`instanceof`",
                     A::Function(_) => "closures",
                     A::Try { .. } | A::TryOpt(_) | A::TryBang(_) | A::Throw(_) => "exceptions",
                     A::Await(_) => "`await`",
@@ -2769,14 +3260,29 @@ fn rewrite_opt_link(e: &ast::Expr, name: &str) -> ast::Expr {
 struct ClassInfo<'a> {
     sid: StructId,
     decl: &'a ast::ClassDecl,
-    ctor: FnId,
-    ctor_decl: Option<&'a ast::FnDecl>,
+    /// Constructors (`None`: the synthesized default one).
+    ctors: Vec<(FnId, Option<&'a ast::FnDecl>)>,
     static_init: Option<FnId>,
-    /// Methods, accessors and static methods (`None` as `this`).
-    methods: Vec<(FnId, &'a ast::FnDecl, Option<StructId>)>,
+    /// Methods, accessors and static methods (`None` as `this`), and whether abstract.
+    methods: Vec<(FnId, &'a ast::FnDecl, Option<StructId>, bool)>,
     field_inits: Vec<(&'a ast::Ident, Option<&'a ast::Expr>)>,
     static_inits: Vec<(GlobalId, &'a ast::Ident, Option<&'a ast::Expr>)>,
     static_blocks: Vec<&'a ast::Block>,
+}
+
+/// `super(args)` / `this(args)` as a statement: (is super, args, span).
+fn ctor_call_kind(s: &ast::Stmt) -> Option<(bool, &[ast::Arg], Span)> {
+    let ast::StmtKind::Expr { expr, .. } = &s.kind else {
+        return None;
+    };
+    let ast::ExprKind::Call { callee, args, .. } = &expr.kind else {
+        return None;
+    };
+    match callee.kind {
+        ast::ExprKind::Super => Some((true, args, expr.span)),
+        ast::ExprKind::This => Some((false, args, expr.span)),
+        _ => None,
+    }
 }
 
 /// The type of an unannotated field from its literal initializer.

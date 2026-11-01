@@ -98,6 +98,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         enums: Vec::new(),
         debug_fns: HashMap::new(),
         eq_fns: HashMap::new(),
+        class_infos: Vec::new(),
     };
     // Struct types first (named, so they can refer to each other), then their bodies.
     g.structs = program
@@ -139,6 +140,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         }
     }
     g.declare();
+    g.class_infos();
     for i in 0..program.fns.len() {
         g.function(i);
     }
@@ -162,6 +164,8 @@ struct Gen<'ctx, 'p> {
     enums: Vec<inkwell::types::StructType<'ctx>>,
     /// Generated `==` helpers for enums, by `EnumId`.
     eq_fns: HashMap<u32, FunctionValue<'ctx>>,
+    /// Per class: `{ ptr base_info, [n x ptr] vtable }`, which object headers point to.
+    class_infos: Vec<Option<GlobalValue<'ctx>>>,
 }
 
 /// A variant's name, fields and whether it was declared with parentheses.
@@ -442,6 +446,47 @@ impl<'ctx> Gen<'ctx, '_> {
         }
     }
 
+    /// The class metadata globals (after functions are declared, for the vtables).
+    fn class_infos(&mut self) {
+        let ptr = self.ptr();
+        let mut infos = Vec::new();
+        for s in &self.p.structs {
+            infos.push(s.is_class.then(|| {
+                let ty = self.cx.struct_type(
+                    &[
+                        ptr.into(),
+                        ptr.array_type(s.meta.vtable.len() as u32).into(),
+                    ],
+                    false,
+                );
+                let g = self
+                    .m
+                    .add_global(ty, None, &format!("ppl.classinfo.{}", s.name));
+                g.set_linkage(Linkage::Internal);
+                g.set_constant(true);
+                g
+            }));
+        }
+        for (i, s) in self.p.structs.iter().enumerate() {
+            let Some(g) = infos[i] else { continue };
+            let base = match s.meta.base.and_then(|b| infos[b.0 as usize]) {
+                Some(b) => b.as_pointer_value(),
+                None => ptr.const_null(),
+            };
+            let slots: Vec<PointerValue> = s
+                .meta
+                .vtable
+                .iter()
+                .map(|f| self.fns[f.0 as usize].as_global_value().as_pointer_value())
+                .collect();
+            let value = self
+                .cx
+                .const_struct(&[base.into(), ptr.const_array(&slots).into()], false);
+            g.set_initializer(&value);
+        }
+        self.class_infos = infos;
+    }
+
     /// A runtime function, declared on first use.
     fn rt(&self, name: &str) -> FunctionValue<'ctx> {
         if let Some(f) = self.m.get_function(name) {
@@ -501,6 +546,7 @@ impl<'ctx> Gen<'ctx, '_> {
             ),
             "ppl_array_new" => ptr.fn_type(&[i64t.into(), i64t.into()], false),
             "ppl_alloc_zeroed" => ptr.fn_type(&[i64t.into()], false),
+            "ppl_instance_of" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
             "ppl_array_push" => ptr.fn_type(&[ptr.into(), i64t.into()], false),
             "ppl_array_pop" => i32t.fn_type(&[ptr.into()], false),
             "ppl_array_slice" => {
@@ -998,11 +1044,36 @@ impl<'ctx> Gen<'ctx, '_> {
             }
             Rvalue::New(sid) => {
                 let size = self.structs[sid.0 as usize].size_of().expect("sized class");
-                Some(basic(
+                let obj = basic(
                     self.b
                         .build_call(self.rt("ppl_alloc_zeroed"), &[size.into()], "obj")
                         .unwrap(),
-                ))
+                )
+                .into_pointer_value();
+                // The header points at the class's metadata.
+                let info = self.class_infos[sid.0 as usize].expect("class info");
+                self.b.build_store(obj, info.as_pointer_value()).unwrap();
+                Some(obj.into())
+            }
+            Rvalue::InstanceOf(o, sid) => {
+                let v = self.operand(fx, o)?;
+                let info = self.class_infos[sid.0 as usize].expect("class info");
+                let r = basic(
+                    self.b
+                        .build_call(
+                            self.rt("ppl_instance_of"),
+                            &[v.into(), info.as_pointer_value().into()],
+                            "",
+                        )
+                        .unwrap(),
+                )
+                .into_int_value();
+                Some(
+                    self.b
+                        .build_int_compare(IntPredicate::NE, r, self.i32().const_zero(), "")
+                        .unwrap()
+                        .into(),
+                )
             }
             Rvalue::Tag(o) => {
                 let v = self.operand(fx, o)?;
@@ -2227,6 +2298,35 @@ impl<'ctx> Gen<'ctx, '_> {
                             .b
                             .build_call(self.fns[id.0 as usize], &vals, "")
                             .unwrap();
+                        if let (Some(d), inkwell::values::ValueKind::Basic(v)) =
+                            (dest, r.try_as_basic_value())
+                        {
+                            self.store(fx, d, v);
+                        }
+                    }
+                    Callee::Virtual { slot, decl } => {
+                        let vals: Vec<BasicMetadataValueEnum> = args
+                            .iter()
+                            .filter_map(|a| self.operand(fx, a))
+                            .map(Into::into)
+                            .collect();
+                        // header → class info → vtable[slot] (info word 0 is the base).
+                        let obj = vals[0].into_pointer_value();
+                        let info = self
+                            .b
+                            .build_load(self.ptr(), obj, "info")
+                            .unwrap()
+                            .into_pointer_value();
+                        let idx = self.i64().const_int(1 + u64::from(*slot), false);
+                        let slot_ptr =
+                            unsafe { self.b.build_gep(self.ptr(), info, &[idx], "slot").unwrap() };
+                        let fnptr = self
+                            .b
+                            .build_load(self.ptr(), slot_ptr, "method")
+                            .unwrap()
+                            .into_pointer_value();
+                        let fn_ty = self.fns[decl.0 as usize].get_type();
+                        let r = self.b.build_indirect_call(fn_ty, fnptr, &vals, "").unwrap();
                         if let (Some(d), inkwell::values::ValueKind::Basic(v)) =
                             (dest, r.try_as_basic_value())
                         {

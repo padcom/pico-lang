@@ -1,0 +1,6 @@
+// error: E0326
+// at: 5:32
+class A { constructor() {} }
+class B extends A {
+  constructor() { const x = 1; super() }
+}

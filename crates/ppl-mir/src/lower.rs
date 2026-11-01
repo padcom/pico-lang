@@ -48,6 +48,10 @@ pub fn lower(
                 .map(|f| (f.name.clone(), f.ty.clone()))
                 .collect(),
             is_class: s.is_class,
+            meta: mir::ClassMeta {
+                base: s.base,
+                vtable: s.vtable.clone(),
+            },
         })
         .collect();
     let enums = program
@@ -142,6 +146,8 @@ impl Cx<'_> {
         };
         let term = match ret {
             Ty::Void | Ty::Never | Ty::Error => Terminator::Return(None),
+            // No value where one is needed: the body diverged, so the end can't be reached.
+            _ if value == Operand::Const(Const::Void) => Terminator::Unreachable,
             _ => Terminator::Return(Some(value)),
         };
         b.terminate(term);
@@ -336,7 +342,12 @@ impl FnBuilder<'_, '_> {
     /// after evaluating its value, which might change the array).
     fn place_deferred(&mut self, e: &Expr, checks: &mut Vec<Check>) -> Place {
         match &e.kind {
-            ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => self.place(*v).payload(),
+            ExprKind::Var(v)
+                if self.cx.types.narrowed.contains(&e.id)
+                    && matches!(self.var_ty(*v), Ty::Nullable(_)) =>
+            {
+                self.place(*v).payload()
+            }
             ExprKind::Var(v) => self.place(*v),
             ExprKind::Member { object, .. }
                 if matches!(self.ty_of(object), Ty::Struct(..) | Ty::Class(..))
@@ -495,6 +506,15 @@ impl FnBuilder<'_, '_> {
         if *from == Ty::Null {
             return Operand::Const(Const::Null(to.clone()));
         }
+        // Upcasts between object references (and their nullable forms) keep the pointer.
+        let class_ref = |t: &Ty| match t {
+            Ty::Class(..) => true,
+            Ty::Nullable(i) => matches!(**i, Ty::Class(..)),
+            _ => false,
+        };
+        if class_ref(from) && class_ref(to) {
+            return v;
+        }
         match (from, to) {
             (Ty::Nullable(a), Ty::Nullable(b)) => {
                 // Null stays null; a value converts.
@@ -615,7 +635,10 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(join);
                 Operand::Copy(res)
             }
-            ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => {
+            ExprKind::Var(v)
+                if self.cx.types.narrowed.contains(&e.id)
+                    && matches!(self.var_ty(*v), Ty::Nullable(_)) =>
+            {
                 Operand::Copy(self.place(*v).payload())
             }
             ExprKind::Var(v) => Operand::Copy(self.place(*v)),
@@ -789,15 +812,27 @@ impl FnBuilder<'_, '_> {
                 let place = self.place_of(e);
                 self.read_place(place, e.span)
             }
+            ExprKind::CtorCall { args, .. } => {
+                let ctor = self.cx.types.ctor_calls[&e.id];
+                let (this, _) = self.hir_fn.this.expect("inside a constructor");
+                let mut ops = vec![Operand::Copy(self.place(hir::Var::Local(this)))];
+                ops.extend(args.iter().map(|a| self.expr(a)));
+                self.call_fn_value(ctor, ops, Ty::Void, e.span)
+            }
+            ExprKind::SuperCall { method, args } => {
+                let (this, _) = self.hir_fn.this.expect("inside a method");
+                let mut ops = vec![Operand::Copy(self.place(hir::Var::Local(this)))];
+                ops.extend(args.iter().map(|a| self.expr(a)));
+                self.call_fn_value(*method, ops, ty, e.span)
+            }
+            ExprKind::InstanceOf { expr, class } => {
+                let v = self.expr(expr);
+                self.rvalue_to_temp(Rvalue::InstanceOf(v, *class), Ty::Bool, e.span)
+            }
             ExprKind::New { class, args } => {
                 let cty = self.cx.program.struct_ty(*class);
                 let obj = self.rvalue_to_temp(Rvalue::New(*class), cty, e.span);
-                let ctor = self
-                    .cx
-                    .program
-                    .struct_def(*class)
-                    .ctor
-                    .expect("constructor");
+                let ctor = self.cx.types.ctor_calls[&e.id];
                 let mut ops = vec![obj.clone()];
                 ops.extend(args.iter().map(|a| self.expr(a)));
                 self.call_fn_value(ctor, ops, Ty::Void, e.span);
@@ -1281,7 +1316,12 @@ impl FnBuilder<'_, '_> {
                 self.bind(*l, place, p.span);
                 self.match_pattern(sub, place, fail);
             }
-            PatKind::Type { bind, fields, .. } => {
+            PatKind::Type {
+                ty: want,
+                bind,
+                fields,
+            } => {
+                let place = &self.downcast(p, want, place, fail);
                 if let Some(l) = bind {
                     self.bind(*l, place, p.span);
                 }
@@ -1359,7 +1399,9 @@ impl FnBuilder<'_, '_> {
                     self.match_pattern(sub, &place.variant_field(vi, i), fail);
                 }
             }
-            PatKind::Struct { fields, .. } => {
+            PatKind::Struct { sid, fields } => {
+                let st = self.cx.program.struct_ty(*sid);
+                let place = &self.downcast(p, &st, place, fail);
                 let idx = self.cx.types.pat_fields[&p.id].clone();
                 for (f, i) in fields.iter().zip(idx) {
                     self.match_pattern(&f.pat, &place.field(i), fail);
@@ -1457,6 +1499,26 @@ impl FnBuilder<'_, '_> {
                 }
             }
         }
+    }
+
+    /// For a downcast pattern: checks the runtime class (failing otherwise) and returns the
+    /// object in a temporary of the subclass type. Other patterns keep their place.
+    fn downcast(&mut self, p: &hir::Pattern, to: &Ty, place: &Place, fail: BlockId) -> Place {
+        if !self.cx.types.downcasts.contains(&p.id) {
+            return place.clone();
+        }
+        let Ty::Class(sid, _) = to else {
+            return place.clone();
+        };
+        let ok = self.rvalue_to_temp(
+            Rvalue::InstanceOf(Operand::Copy(place.clone()), *sid),
+            Ty::Bool,
+            p.span,
+        );
+        self.branch_unless(ok, fail);
+        let t = Place::local(self.temp(to.clone()));
+        self.assign(t.clone(), Rvalue::Use(Operand::Copy(place.clone())), p.span);
+        t
     }
 
     /// A local holding a constant index (for `Proj::Index`).
@@ -1768,7 +1830,29 @@ impl FnBuilder<'_, '_> {
                 let m = self.cx.types.methods[&e.id];
                 let mut ops = vec![self.expr(object)];
                 ops.extend(args.iter().map(|a| self.expr(a)));
-                self.call_fn_value(m, ops, ty, e.span)
+                match self.cx.types.virtual_calls.get(&e.id) {
+                    Some(&slot) => {
+                        let loc = self.loc(e.span);
+                        let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+                        let next = self.new_block();
+                        self.terminate(Terminator::Call {
+                            callee: Callee::Virtual { slot, decl: m },
+                            args: ops,
+                            dest: dest.clone(),
+                            next,
+                            loc,
+                        });
+                        self.switch_to(next);
+                        if ty == Ty::Never {
+                            self.diverge(Terminator::Unreachable);
+                        }
+                        match dest {
+                            Some(p) => Operand::Copy(p),
+                            None => Operand::Const(Const::Void),
+                        }
+                    }
+                    None => self.call_fn_value(m, ops, ty, e.span),
+                }
             }
             ExprKind::Member { object, .. } if self.cx.types.methods.contains_key(&e.id) => {
                 let m = self.cx.types.methods[&e.id];

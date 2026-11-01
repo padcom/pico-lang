@@ -266,6 +266,14 @@ impl Interp<'_, '_> {
                     let vals: Vec<Value> = args.iter().map(|a| self.operand(frame, a)).collect();
                     let r = match callee {
                         Callee::Fn(id) => self.call(*id, vals, *loc)?,
+                        Callee::Virtual { slot, .. } => {
+                            let Value::Object(o) = &vals[0] else {
+                                unreachable!("virtual call on {:?}", vals[0])
+                            };
+                            let class = ppl_sema::ty::StructId(o.class);
+                            let f = self.p.layout(class).meta.vtable[*slot as usize];
+                            self.call(f, vals, *loc)?
+                        }
                         Callee::Builtin(b) => {
                             let tys: Vec<Ty> =
                                 args.iter().map(|a| self.operand_ty(frame, a)).collect();
@@ -409,6 +417,19 @@ impl Interp<'_, '_> {
                 *v,
                 ops.iter().map(|o| self.operand(frame, o)).collect(),
             )),
+            Rvalue::InstanceOf(o, target) => match self.operand(frame, o) {
+                Value::Object(obj) => {
+                    let mut c = Some(ppl_sema::ty::StructId(obj.class));
+                    while let Some(k) = c {
+                        if k == *target {
+                            return Ok(Value::Bool(true));
+                        }
+                        c = self.p.layout(k).meta.base;
+                    }
+                    Ok(Value::Bool(false))
+                }
+                _ => Ok(Value::Bool(false)),
+            },
             Rvalue::New(sid) => Ok(Value::Object(Rc::new(Obj {
                 class: sid.0,
                 fields: RefCell::new(vec![Value::Uninit; self.p.layout(*sid).fields.len()]),

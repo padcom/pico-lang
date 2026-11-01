@@ -53,7 +53,7 @@ impl Checker<'_> {
                 .iter()
                 .map(|f| f.ty.clone())
                 .collect(),
-            (Ty::Struct(id, _), Ctor::Single) => self
+            (Ty::Struct(id, _) | Ty::Class(id, _), Ctor::Single) => self
                 .program
                 .struct_def(*id)
                 .fields
@@ -78,7 +78,7 @@ impl Checker<'_> {
                 .collect(),
             Ty::Bool => vec![Ctor::Bool(false), Ctor::Bool(true)],
             Ty::Nullable(_) => vec![Ctor::Null, Ctor::NonNull],
-            Ty::Struct(..) | Ty::Tuple(_) | Ty::Fixed(..) => vec![Ctor::Single],
+            Ty::Struct(..) | Ty::Class(..) | Ty::Tuple(_) | Ty::Fixed(..) => vec![Ctor::Single],
             _ => return None,
         })
     }
@@ -294,7 +294,7 @@ impl Checker<'_> {
                     args.iter().zip(ts).map(|(a, t)| self.show(t, a)).collect();
                 format!("[{}]", parts.join(", "))
             }
-            (Pat::Ctor(Ctor::Single, args), Ty::Struct(id, name)) => {
+            (Pat::Ctor(Ctor::Single, args), Ty::Struct(id, name) | Ty::Class(id, name)) => {
                 let def = self.program.struct_def(*id);
                 let parts: Vec<String> = args
                     .iter()

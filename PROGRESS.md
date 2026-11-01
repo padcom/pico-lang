@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.10: Classes II: inheritance** (see [PLAN.md](PLAN.md#p310-classes-ii-inheritance))
+**P3.11: Interfaces** (see [PLAN.md](PLAN.md#p311-interfaces))
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.9) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.10) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -57,8 +57,9 @@ Notes:
   type-test patterns real tests on unions/`unknown`.
 - Classes reuse `StructDef` (`is_class`), `Ty::Class(StructId)`; a class method's `this` is
   the object reference (not `Ty::Ref`). Ctors are named `<Class>.constructor`; typeck runs
-  definite assignment on those. Constructor overloading/`this(...)`, `extends`, `virtual` etc.
-  report E0900 — that's P3.10.
+  definite assignment on those. Subclasses copy the base's fields first (same indices), so
+  base methods work on subclass objects; `declared_in` tracks where inherited members come
+  from (visibility). Virtual dispatch: `Callee::Virtual { slot, decl }`.
 - `match` lowers to sequential arm tests (no decision tree yet); unreachable arms aren't warned
   about (the usefulness checker could do it: `exhaust::Checker::useful` per arm).
 
@@ -98,7 +99,7 @@ Notes:
 - [x] P3.7 Enums and basic match
 - [x] P3.8 Advanced patterns and switch
 - [x] P3.9 Classes I
-- [ ] P3.10 Classes II: inheritance
+- [x] P3.10 Classes II: inheritance
 - [ ] P3.11 Interfaces
 - [ ] P3.12 Unions and literal types
 - [ ] P3.13 Generics I: functions
@@ -223,3 +224,4 @@ Notes:
 | 2026-11-01 | P3.7 | Ty::Enum, HIR EnumDef/VariantDef, patterns (Wild/Bind/Lit/Variant positional+named/Struct) and Arm with guard; resolver: `Enum.Variant` construction (named + positional args), variant-name identifier patterns, enum cycle check generalized; typeck: constructor arg mapping (E0311/E0312/E0103), pattern checking (E0318), Maranget usefulness with witnesses (`exhaust.rs`, E0317 lists missing cases), unify_exprs for arms; MIR Proj::VariantField, Rvalue::Variant/Tag, sequential match lowering; interpreter Value::Enum; codegen `{i32, [k x i64]}` enums with own size/align computation, generated ppl.eq.<Enum> and debug helpers. Decision 185. Fixtures: run/enums, fail/types/match, fail/names/enums. |
 | 2026-11-01 | P3.8 | HIR PatKind Or/Range/Slice/As/Type + `Pattern::looks_inside`; ExprKind::Is and Match.switch. Resolver: or-alternatives share locals (Binds with reuse), type names as type-test patterns, condition-scoped `is` bindings (`if`/`while`, through `&&`/parens), switch statements vs values. Typeck: bind_local (or-alternatives agree), slice/type/range checks, `is` facts for narrowing, switch statements skip exhaustiveness. Exhaustiveness: or-expansion (capped product), Ctor::Slice with length constructors (`[_, _, ...]` witnesses), fixed arrays. Lowering: single match_pattern (test + bind), or via shared success block, ranges, slices (Proj::Index with const locals, ArraySlice for rest). Runtime ppl_array_slice. Decision 186. Fixtures: run/patterns (every §3.5 example), fail/types/patterns, fail/names/or_patterns. |
 | 2026-11-01 | P3.9 | Classes: StructDef gains is_class/ctor/getters/setters/statics/private set, Function.owner; resolver class_members (fields with literal-typed inits, param properties, accessors, static fields as globals + static init functions called first in the entry, static methods), synthesized constructors with a prologue, `new`, `Class.static` access, private static checks; typeck visibility (E0319) for fields/methods/accessors, getters/setters (incl. compound assignment), identity `==`, definite assignment walk (E0320), static inits checked first; MIR Rvalue::New, class field projections through the reference; interpreter Value::Object (Rc<Obj>) and Step::ObjField; codegen `{ptr header, fields}` objects via ppl_alloc_zeroed. Fixed: assignment checks its value before ending the target's narrowing (`cur = cur.next`). Decision 187. Fixtures: run/classes, fail/types/classes, fail/names/classes; fail/types/nominal now runs. |
+| 2026-11-01 | P3.10 | Inheritance: classes ordered base-first (cycle/unknown/final-base errors), `inherit` copies fields/methods/accessors/vtable/visibility; vtables with required `override` (E0321), final-by-default and `final` (E0322), abstract stubs + E0323/E0324; constructor overloads by arity, `super(…)`/`this(…)` as HIR CtorCall (first statement only, E0326), forwarding default constructors, `super.m()` (SuperCall), `instanceof` + narrowing, upcasts (typeck `upcasts`, no-op conversions), protected access, override signature check (E0325), downcasting type/class patterns (`downcasts`, InstanceOf test into a subclass-typed temp). MIR ClassMeta (base, vtable), Callee::Virtual, Rvalue::InstanceOf; interpreter dispatch by object class; codegen `ppl.classinfo.<C>` globals `{base, [n x ptr]}`, header store, indirect calls, runtime ppl_instance_of. Fixed: a diverging body in a value-returning function ends in `unreachable`. Decision 188. Fixtures: run/inheritance, fail/names/{inheritance,ctor_call}, fail/types/inheritance. |

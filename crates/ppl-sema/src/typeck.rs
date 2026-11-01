@@ -53,6 +53,12 @@ pub struct Types {
     pub getters: HashMap<ExprId, FnId>,
     /// Assignment targets (by target id) that call a setter.
     pub setters: HashMap<ExprId, FnId>,
+    /// The constructor each `new` / `super(…)` / `this(…)` calls.
+    pub ctor_calls: HashMap<ExprId, FnId>,
+    /// Method calls that dispatch through the vtable, with their slot.
+    pub virtual_calls: HashMap<ExprId, u32>,
+    /// Type-test and class patterns that check the runtime class (downcasts).
+    pub downcasts: HashSet<ExprId>,
 }
 
 impl Types {
@@ -91,6 +97,9 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             variant_args: HashMap::new(),
             getters: HashMap::new(),
             setters: HashMap::new(),
+            ctor_calls: HashMap::new(),
+            virtual_calls: HashMap::new(),
+            downcasts: HashSet::new(),
         },
         narrow: Vec::new(),
         diags: Vec::new(),
@@ -125,6 +134,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
     for i in 0..program.fns.len() {
         c.check_fn(FnId(i as u32));
     }
+    c.check_overrides();
     (c.types, c.diags)
 }
 
@@ -188,6 +198,7 @@ struct Checker<'p> {
 struct Assigned<'a> {
     types: &'a Types,
     this: LocalId,
+    own: Option<StructId>,
     all: &'a HashSet<u32>,
     exits: &'a mut Vec<(Span, HashSet<u32>)>,
 }
@@ -222,6 +233,15 @@ impl Assigned<'_> {
                 s
             }
             ExprKind::Block(b) => self.block(b, s),
+            // `this(…)` runs a constructor of the same class, which assigns everything.
+            ExprKind::CtorCall { class, args } if Some(*class) == self.own => {
+                let mut s = s;
+                for a in args {
+                    s = self.expr(a, s);
+                }
+                let _ = s;
+                self.all.clone()
+            }
             ExprKind::If { cond, then, else_ } => {
                 let s = self.expr(cond, s);
                 let t = self.expr(then, s.clone());
@@ -374,12 +394,23 @@ impl<'p> Checker<'p> {
         self.diags.push(d);
     }
 
+    /// Whether a `from` reference converts to `to` as an upcast (a subclass to a base class,
+    /// possibly into a nullable).
+    fn upcasts(&self, from: &Ty, to: &Ty) -> bool {
+        match (from, to) {
+            (Ty::Class(a, _), Ty::Class(b, _)) => self.program.is_subclass(*a, *b),
+            (Ty::Class(..), Ty::Nullable(t)) => self.upcasts(from, t),
+            (Ty::Nullable(a), Ty::Nullable(b)) => self.upcasts(a, b),
+            _ => false,
+        }
+    }
+
     /// Accepts `found` where `want` is expected, recording a widening if needed.
     fn coerce(&mut self, e: &Expr, found: Ty, want: &Expect) -> Ty {
         if found == want.ty || found == Ty::Never || found.is_error() {
             return want.ty.clone();
         }
-        if found.widens_to(&want.ty) {
+        if found.widens_to(&want.ty) || self.upcasts(&found, &want.ty) {
             self.types.coercions.insert(e.id, want.ty.clone());
             return want.ty.clone();
         }
@@ -463,6 +494,14 @@ impl<'p> Checker<'p> {
                     }
                 }
             }
+            // `x instanceof Dog` narrows `x` to `Dog`.
+            ExprKind::InstanceOf { expr, class } => match expr.kind {
+                ExprKind::Var(v) => Facts {
+                    when_true: vec![(v, self.program.struct_ty(*class))],
+                    when_false: Vec::new(),
+                },
+                _ => Facts::default(),
+            },
             // `x is Circle { .. }` on a `Shape?` says `x` isn't null; `x is null` the opposite.
             ExprKind::Is { expr, pat } => {
                 let ExprKind::Var(v) = expr.kind else {
@@ -573,6 +612,44 @@ impl<'p> Checker<'p> {
         self.state[id.0 as usize] = FnState::Done;
     }
 
+    /// An override must take and return the same types as the method it overrides.
+    fn check_overrides(&mut self) {
+        for def in &self.program.structs {
+            let Some(base) = def.base else { continue };
+            let bdef = self.program.struct_def(base);
+            for (slot, f) in def.vtable.iter().enumerate() {
+                let Some(bf) = bdef.vtable.get(slot) else {
+                    continue;
+                };
+                if f == bf {
+                    continue;
+                }
+                let (a, b) = (
+                    &self.types.sigs[f.0 as usize],
+                    &self.types.sigs[bf.0 as usize],
+                );
+                if a.params != b.params
+                    || (a.ret != b.ret && !a.ret.is_error() && !b.ret.is_error())
+                {
+                    let fun = self.program.func(*f);
+                    let bfun = self.program.func(*bf);
+                    let show = |s: &FnSig| {
+                        let ps: Vec<String> = s.params.iter().map(|p| p.to_string()).collect();
+                        format!("({}): {}", ps.join(", "), s.ret)
+                    };
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::OVERRIDE_SIGNATURE,
+                            format!("`{}` doesn't match the method it overrides", fun.name),
+                        )
+                        .primary(fun.name_span, format!("has type `{}`", show(a)))
+                        .secondary(bfun.name_span, format!("`{}` is `{}`", bfun.name, show(b))),
+                    );
+                }
+            }
+        }
+    }
+
     /// Every field must be assigned on every path through a constructor (spec §6.1).
     fn definite_assignment(&mut self, f: &Function, this: LocalId, sid: StructId) {
         let def = self.program.struct_def(sid);
@@ -588,6 +665,7 @@ impl<'p> Checker<'p> {
         let mut walk = Assigned {
             types: &self.types,
             this,
+            own: Some(sid),
             all: &all,
             exits: &mut missing_at,
         };
@@ -1105,14 +1183,55 @@ impl<'p> Checker<'p> {
                 variant,
                 args,
             } => self.variant(e, *enum_, *variant, args.as_deref()),
-            ExprKind::New { class, args } => {
-                let ctor = self
-                    .program
-                    .struct_def(*class)
-                    .ctor
-                    .expect("classes have one");
-                self.call_fn(e, ctor, args);
-                self.program.struct_ty(*class)
+            ExprKind::New { class, args } | ExprKind::CtorCall { class, args } => {
+                let def = self.program.struct_def(*class);
+                match def.ctor_with(args.len()) {
+                    Some(ctor) => {
+                        self.types.ctor_calls.insert(e.id, ctor);
+                        self.call_fn(e, ctor, args);
+                    }
+                    None => {
+                        let arities: Vec<String> =
+                            def.ctors.iter().map(|(_, p)| p.len().to_string()).collect();
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::WRONG_ARG_COUNT,
+                                format!(
+                                    "`{}` has no constructor taking {} argument{}",
+                                    def.name,
+                                    args.len(),
+                                    if args.len() == 1 { "" } else { "s" }
+                                ),
+                            )
+                            .primary(e.span, "no matching constructor")
+                            .note(format!(
+                                "its constructors take {} arguments",
+                                arities.join(" or ")
+                            )),
+                        );
+                        for a in args {
+                            self.infer(a);
+                        }
+                    }
+                }
+                match e.kind {
+                    ExprKind::New { .. } => self.program.struct_ty(*class),
+                    _ => Ty::Void,
+                }
+            }
+            ExprKind::SuperCall { method, args } => self.call_fn(e, *method, args),
+            ExprKind::InstanceOf { expr, class } => {
+                let t = self.infer(expr);
+                let ok = match &t {
+                    Ty::Class(..) | Ty::Error => true,
+                    Ty::Nullable(inner) => matches!(**inner, Ty::Class(..)),
+                    _ => false,
+                };
+                if !ok {
+                    self.invalid_operand(expr.span, "`instanceof`", &t, "a class instance");
+                }
+                let _ = class;
+                Ty::Bool
             }
             ExprKind::Match {
                 scrutinee,
@@ -1470,8 +1589,14 @@ impl<'p> Checker<'p> {
                 bind,
                 fields,
             } => {
-                // Until unions (P3.12), a type test either always holds or checks for null.
-                let ok = *want == inner || want.is_error() || inner.is_error();
+                // Until unions (P3.12), a type test holds, checks for null, or (for classes)
+                // checks the runtime class.
+                let downcast = matches!((want, &inner), (Ty::Class(a, _), Ty::Class(b, _))
+                    if a != b && self.program.is_subclass(*a, *b));
+                if downcast {
+                    self.types.downcasts.insert(p.id);
+                }
+                let ok = *want == inner || downcast || want.is_error() || inner.is_error();
                 if !ok {
                     self.diags.push(
                         Diagnostic::error(
@@ -1487,7 +1612,7 @@ impl<'p> Checker<'p> {
                 }
                 if let Some(fps) = fields {
                     match &bt {
-                        Ty::Struct(sid, _) => {
+                        Ty::Struct(sid, _) | Ty::Class(sid, _) => {
                             let def = self.program.struct_def(*sid);
                             let field_tys: Vec<(String, Ty)> = def
                                 .fields
@@ -1604,7 +1729,12 @@ impl<'p> Checker<'p> {
             }
             PatKind::Struct { sid, fields } => {
                 let st = self.program.struct_ty(*sid);
-                if inner != st && !inner.is_error() {
+                if let (Ty::Class(a, _), Ty::Class(b, _)) = (&st, &inner)
+                    && a != b
+                    && self.program.is_subclass(*a, *b)
+                {
+                    self.types.downcasts.insert(p.id);
+                } else if inner != st && !inner.is_error() {
                     self.pattern_mismatch(p.span, ty, &format!("a `{st}`"));
                     for f in fields {
                         self.check_pattern(&f.pat, &Ty::Error);
@@ -1796,6 +1926,10 @@ impl<'p> Checker<'p> {
                 .collect()
         };
         let pats = match &p.kind {
+            // A runtime class check never covers the base type on its own.
+            _ if self.types.downcasts.contains(&p.id) => {
+                leaf(Ctor::Range(format!("downcast#{}", p.id.0)))
+            }
             PatKind::Wild | PatKind::Bind(_) => return vec![Pat::Wild],
             PatKind::Or(alts) => {
                 return alts
@@ -1842,7 +1976,7 @@ impl<'p> Checker<'p> {
                 product(cols, Ctor::Single)
             }
             PatKind::Type {
-                ty: Ty::Struct(sid, _),
+                ty: Ty::Struct(sid, _) | Ty::Class(sid, _),
                 fields: Some(fps),
                 ..
             } => {
@@ -2253,9 +2387,37 @@ impl<'p> Checker<'p> {
     /// Reports use of a private class member outside the class.
     fn check_access(&mut self, sid: StructId, name: &str, span: Span) {
         let def = self.program.struct_def(sid);
-        if !def.is_class || def.is_public(name) || self.func().owner == Some(sid) {
+        if !def.is_class || def.is_public(name) {
             return;
         }
+        // Private: only the declaring class. Protected: it and its subclasses.
+        let declared = def.declared_in.get(name).copied().unwrap_or(sid);
+        let owner = self.func().owner;
+        let allowed = match owner {
+            Some(o) if def.protected.contains(name) => self.program.is_subclass(o, declared),
+            Some(o) => o == declared,
+            None => false,
+        };
+        if allowed {
+            return;
+        }
+        let what = if def.protected.contains(name) {
+            "protected"
+        } else {
+            "private"
+        };
+        let dname = self.program.struct_def(declared).name.clone();
+        if what == "protected" {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::PRIVATE_MEMBER,
+                    format!("`{name}` is protected in `{dname}`"),
+                )
+                .primary(span, "used outside the class and its subclasses"),
+            );
+            return;
+        }
+        let def = self.program.struct_def(declared);
         self.diags.push(
             Diagnostic::error(
                 codes::PRIVATE_MEMBER,
@@ -2909,6 +3071,9 @@ impl<'p> Checker<'p> {
                     if let Some(m) = def.method(name) {
                         self.check_access(*sid, name, *name_span);
                         self.types.methods.insert(e.id, m);
+                        if let Some(slot) = def.virtual_slot(name) {
+                            self.types.virtual_calls.insert(e.id, slot);
+                        }
                         return self.call_fn(e, m, args);
                     }
                     let what = if def.field(name).is_some() {

@@ -1,0 +1,31 @@
+// error: E0321
+// at: 20:10
+// error: E0322
+// at: 21:19
+// error: E0322
+// at: 22:19
+// error: E0323
+// at: 25:7
+// error: E0322
+// at: 27:17
+// error: E0324
+// at: 31:15
+class A {
+  public virtual speak(): string { "a" }
+  public plain(): string { "p" }
+  public virtual count(): i32 { 1 }
+  public virtual final_one(): i32 { 1 }
+}
+class B extends A {
+  public speak(): string { "b" }
+  public override plain(): string { "q" }
+  public override nothing(): i32 { 0 }
+}
+abstract class S { public abstract area(): f64 }
+class R extends S {}
+final class F {}
+class G extends F {}
+class H extends A {
+  public override count(): string { "x" }
+}
+const s = new S()

@@ -10,6 +10,8 @@ use ppl_diag::{FileId, Span};
 use ppl_syntax::ast::{BinOp, UnOp};
 use ppl_syntax::token::NumSuffix;
 
+use std::collections::HashMap;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ExprId(pub u32);
 
@@ -90,8 +92,23 @@ pub struct StructDef {
     /// Methods by name; each is a function whose `this` is set.
     pub methods: Vec<(String, FnId)>,
     pub is_class: bool,
-    /// The constructor (classes always have one, possibly synthesized).
-    pub ctor: Option<FnId>,
+    /// The constructors (classes always have at least one, possibly synthesized), with
+    /// their parameter types; overloads have different numbers of parameters.
+    pub ctors: Vec<(FnId, Vec<Ty>)>,
+    /// The class this one `extends`.
+    pub base: Option<StructId>,
+    pub is_abstract: bool,
+    pub is_final: bool,
+    /// Virtual method slots: the implementation in each slot, and slot numbers by name.
+    pub vtable: Vec<FnId>,
+    pub virtual_slots: Vec<(String, u32)>,
+    /// Abstract methods (stubs that panic) and methods that can't be overridden further.
+    pub abstract_fns: std::collections::HashSet<FnId>,
+    pub final_methods: std::collections::HashSet<String>,
+    /// `protected` members (accessible in subclasses).
+    pub protected: std::collections::HashSet<String>,
+    /// Where each inherited member was declared (own members aren't listed).
+    pub declared_in: HashMap<String, StructId>,
     pub getters: Vec<(String, FnId)>,
     pub setters: Vec<(String, FnId)>,
     pub static_fields: Vec<(String, GlobalId)>,
@@ -108,7 +125,16 @@ impl StructDef {
             fields: Vec::new(),
             methods: Vec::new(),
             is_class,
-            ctor: None,
+            ctors: Vec::new(),
+            base: None,
+            is_abstract: false,
+            is_final: false,
+            vtable: Vec::new(),
+            virtual_slots: Vec::new(),
+            abstract_fns: Default::default(),
+            final_methods: Default::default(),
+            protected: Default::default(),
+            declared_in: HashMap::new(),
             getters: Vec::new(),
             setters: Vec::new(),
             static_fields: Vec::new(),
@@ -146,7 +172,22 @@ impl StructDef {
 
     /// Whether code outside the class may use member `name`.
     pub fn is_public(&self, name: &str) -> bool {
-        !self.private.contains(name)
+        !self.private.contains(name) && !self.protected.contains(name)
+    }
+
+    pub fn virtual_slot(&self, name: &str) -> Option<u32> {
+        self.virtual_slots
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, s)| *s)
+    }
+
+    /// The constructor taking `n` arguments.
+    pub fn ctor_with(&self, n: usize) -> Option<FnId> {
+        self.ctors
+            .iter()
+            .find(|(_, ps)| ps.len() == n)
+            .map(|(f, _)| *f)
     }
 }
 
@@ -173,6 +214,19 @@ impl Program {
 
     pub fn enum_ty(&self, id: EnumId) -> Ty {
         Ty::Enum(id, self.enums[id.0 as usize].name.as_str().into())
+    }
+
+    /// Whether class `sub` is `sup` or inherits from it.
+    pub fn is_subclass(&self, mut sub: StructId, sup: StructId) -> bool {
+        loop {
+            if sub == sup {
+                return true;
+            }
+            match self.structs[sub.0 as usize].base {
+                Some(b) => sub = b,
+                None => return false,
+            }
+        }
     }
 
     pub fn struct_ty(&self, id: StructId) -> Ty {
@@ -401,7 +455,11 @@ impl Pattern {
         match &self.kind {
             PatKind::Wild | PatKind::Bind(_) | PatKind::Lit(LitPat::Null) | PatKind::Or(_) => false,
             PatKind::As(_, p) => p.looks_inside(scrutinee),
-            PatKind::Type { ty, .. } => ty != scrutinee && ty == &**inner,
+            // A test for a non-nullable type never matches null.
+            PatKind::Type { ty, .. } => {
+                let _ = inner;
+                !matches!(ty, Ty::Nullable(_))
+            }
             _ => true,
         }
     }
@@ -449,6 +507,22 @@ pub enum ExprKind {
     New {
         class: StructId,
         args: Vec<Expr>,
+    },
+    /// `super(args)` / `this(args)` at the start of a constructor: runs a constructor of
+    /// `class` (the base, or this class) on `this`.
+    CtorCall {
+        class: StructId,
+        args: Vec<Expr>,
+    },
+    /// `super.method(args)`: a static call of the base class's implementation on `this`.
+    SuperCall {
+        method: FnId,
+        args: Vec<Expr>,
+    },
+    /// `expr instanceof C`
+    InstanceOf {
+        expr: Box<Expr>,
+        class: StructId,
     },
     /// `Point { x: 1, y }` (`ty` given) or `{ x: 1, y }` (struct taken from the expected type).
     Object {
@@ -592,7 +666,10 @@ impl Expr {
             }
             ExprKind::IncDec { target: t, .. } => target(t, f),
             ExprKind::Object { fields, .. } => fields.iter().for_each(|x| f(&x.value)),
-            ExprKind::New { args, .. } => args.iter().for_each(&mut *f),
+            ExprKind::New { args, .. }
+            | ExprKind::CtorCall { args, .. }
+            | ExprKind::SuperCall { args, .. } => args.iter().for_each(&mut *f),
+            ExprKind::InstanceOf { expr, .. } => f(expr),
             ExprKind::Call { callee, args } => {
                 f(callee);
                 args.iter().for_each(&mut *f);

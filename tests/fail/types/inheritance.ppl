@@ -1,0 +1,14 @@
+// error: E0325
+// at: 10:19
+// error: E0308
+// at: 14:14
+class A {
+  public virtual count(): i32 { 1 }
+  public describe(): string { "" }
+}
+class H extends A {
+  public override count(): string { "x" }
+  constructor() { super() }
+}
+const a: A = new H()
+const h: H = new A()

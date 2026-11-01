@@ -49,6 +49,13 @@ pub struct Program {
     pub enums: Vec<EnumLayout>,
 }
 
+/// A class's runtime metadata: its base class and its vtable (empty for structs).
+#[derive(Debug, Default, Clone)]
+pub struct ClassMeta {
+    pub base: Option<StructId>,
+    pub vtable: Vec<FnId>,
+}
+
 /// An enum's variants and their payload fields, in declaration order.
 #[derive(Debug)]
 pub struct EnumLayout {
@@ -78,6 +85,7 @@ pub struct StructLayout {
     pub fields: Vec<(String, Ty)>,
     /// A class: instances live on the heap behind a header.
     pub is_class: bool,
+    pub meta: ClassMeta,
 }
 
 impl Program {
@@ -376,6 +384,8 @@ pub enum Rvalue {
     Tag(Operand),
     /// A new instance of a class, its fields not yet set (the constructor runs next).
     New(StructId),
+    /// Whether a (possibly null) object reference is an instance of the class (or a subclass).
+    InstanceOf(Operand, StructId),
 }
 
 #[derive(Debug)]
@@ -389,6 +399,12 @@ pub struct Statement {
 pub enum Callee {
     Fn(FnId),
     Builtin(Builtin),
+    /// A virtual method: the implementation in vtable `slot` of the receiver's runtime
+    /// class (the first argument). `decl` is the statically known method (for its type).
+    Virtual {
+        slot: u32,
+        decl: FnId,
+    },
 }
 
 #[derive(Debug)]
@@ -499,6 +515,7 @@ impl fmt::Display for Rvalue {
             }
             Rvalue::Tag(a) => write!(f, "Tag({a})"),
             Rvalue::New(c) => write!(f, "New(class#{})", c.0),
+            Rvalue::InstanceOf(a, c) => write!(f, "InstanceOf({a}, class#{})", c.0),
         }
     }
 }
@@ -507,6 +524,7 @@ fn callee_name(p: &Program, c: Callee) -> String {
     match c {
         Callee::Fn(id) => p.func(id).name.clone(),
         Callee::Builtin(b) => format!("builtin {}", b.name()),
+        Callee::Virtual { slot, decl } => format!("virtual[{slot}] {}", p.func(decl).name),
     }
 }
 

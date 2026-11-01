@@ -25,6 +25,16 @@ void *ppl_alloc_zeroed(int64_t size) {
     return p;
 }
 
+int32_t ppl_instance_of(const void *obj, const void *info) {
+    if (!obj) return 0;
+    const void *c = *(const void *const *)obj;
+    while (c) {
+        if (c == info) return 1;
+        c = *(const void *const *)c;
+    }
+    return 0;
+}
+
 /* ---------------------------------------------------------------- arrays */
 
 PplArray *ppl_array_new(int64_t elem_size, int64_t len) {
