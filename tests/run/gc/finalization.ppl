@@ -1,0 +1,32 @@
+// `FinalizationRegistry` (spec §9.3): the callback runs with the held value some time after
+// the target has been collected. Until there is an event loop, the due callbacks run when
+// the top-level code ends; live targets and unregistered ones get no callback.
+// expect: registered
+// expect: unregistered: true false
+// expect: end of program
+// expect: finalized: temp 1
+// expect: finalized: temp 2
+class Thing {
+  public name: string
+  constructor(name: string) {
+    this.name = name
+  }
+}
+
+const registry = new FinalizationRegistry<string>((held: string) => {
+  println(`finalized: ${held}`)
+})
+
+function register(name: string): void {
+  registry.register(new Thing(name), name)
+}
+
+const kept = new Thing("kept")
+registry.register(kept, "kept")
+register("temp 1")
+register("temp 2")
+const token = new Thing("token")
+registry.registerWithToken(new Thing("cancelled"), "cancelled", token)
+println("registered")
+println(`unregistered: ${registry.unregister(token)} ${registry.unregister(token)}`)
+println("end of program")

@@ -1,0 +1,9 @@
+// error: E0330
+// at: 7:11
+// error: E0330
+// at: 8:11
+// error: E0308
+// at: 9:20
+const a = new WeakRef<int>(1)
+const b = new WeakMap<string, int>()
+const c = __ref_id(5)

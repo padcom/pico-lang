@@ -5,16 +5,24 @@ expression: "ir(r#\"\nfunction narrow(x: i64): i16 { x as i16 }\nfunction widen(
 ; ModuleID = 'test.ppl'
 source_filename = "test.ppl"
 
+@ppl.global.__finalizationRegistries = internal global ptr null
 @ppl.classinfo.Error = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.__MapEntry = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Map = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Set = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Iterator = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.WeakRef = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.__WeakEntry = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.WeakMap = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.WeakSet = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.__FinalizationCell = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.FinalizationRegistry = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl_gc_requested = external global i32
 @ppl.cstr = private unnamed_addr constant [31 x i8] c"integer conversion out of range"
 @ppl.cstr.7 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.cstr.8 = private unnamed_addr constant [29 x i8] c"float conversion out of range"
-@ppl.gc_globals = private constant { i64, [0 x { ptr, ptr, ptr }] } zeroinitializer
+@ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.gc_globals = private constant { i64, [1 x { ptr, ptr, ptr }] } { i64 1, [1 x { ptr, ptr, ptr }] [{ ptr, ptr, ptr } { ptr null, ptr @ppl.layout, ptr @ppl.global.__finalizationRegistries }] }
 
 define internal i16 @ppl.narrow(i64 %0) {
 start:
@@ -119,6 +127,10 @@ start:
   br i1 %0, label %gc.collect, label %gc.continue
 
 bb0:                                              ; preds = %gc.continue
+  store ptr null, ptr @ppl.global.__finalizationRegistries, align 8
+  br label %bb1
+
+bb1:                                              ; preds = %bb0
   ret void
 
 gc.collect:                                       ; preds = %start

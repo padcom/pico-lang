@@ -1,0 +1,206 @@
+// Weak references and finalization (spec §9.3), as in JavaScript. A `@weak` field (core
+// library only) doesn't keep its target alive: once nothing else refers to the target, the
+// collector sets the field to `null`. The interpreter has no collector: there a target is gone
+// when its last reference is (so a cycle is never cleared).
+
+/// A reference that doesn't keep its target alive.
+class WeakRef<T extends object> {
+  @weak target: T?
+
+  constructor(target: T) {
+    this.target = target
+  }
+
+  /// The target, or `null` once it has been collected.
+  public deref(): T? {
+    this.target
+  }
+}
+
+class __WeakEntry<K extends object, V> {
+  @weak public key: K?
+  public value: V
+
+  constructor(key: K, value: V) {
+    this.key = key
+    this.value = value
+  }
+}
+
+/// A map whose keys are held weakly: an entry goes away with its key. Values are held
+/// strongly, so a value that refers to its own key keeps the entry (no ephemerons yet).
+class WeakMap<K extends object, V> {
+  /// By the key's identity. An entry whose key was collected has `key == null` and is
+  /// dropped by `prune` (a new object at the same address replaces it).
+  entries: Map<int, __WeakEntry<K, V>> = new Map<int, __WeakEntry<K, V>>()
+  /// The entry count at which `set` drops the dead entries.
+  pruneAt: int = 16
+
+  constructor() {}
+
+  live(key: K): __WeakEntry<K, V>? {
+    const e = this.entries.get(__ref_id(key))
+    if (e == null || e.key == null) {
+      return null
+    }
+    e
+  }
+
+  prune(): void {
+    for (const id of this.entries.keys()) {
+      const e = this.entries.get(id)
+      if (e != null && e.key == null) {
+        this.entries.delete(id)
+      }
+    }
+    this.pruneAt = if (this.entries.size * 2 > 16) this.entries.size * 2 else 16
+  }
+
+  public has(key: K): bool {
+    this.live(key) != null
+  }
+
+  public get(key: K): V? {
+    const e = this.live(key)
+    if (e == null) {
+      return null
+    }
+    e.value
+  }
+
+  public set(key: K, value: V): WeakMap<K, V> {
+    const e = this.live(key)
+    if (e != null) {
+      e.value = value
+      return this
+    }
+    if (this.entries.size >= this.pruneAt) {
+      this.prune()
+    }
+    this.entries.set(__ref_id(key), new __WeakEntry<K, V>(key, value))
+    this
+  }
+
+  public delete(key: K): bool {
+    if (this.live(key) == null) {
+      return false
+    }
+    this.entries.delete(__ref_id(key))
+  }
+}
+
+/// A set whose members are held weakly.
+class WeakSet<T extends object> {
+  members: WeakMap<T, bool> = new WeakMap<T, bool>()
+
+  constructor() {}
+
+  public has(value: T): bool {
+    this.members.has(value)
+  }
+
+  public add(value: T): WeakSet<T> {
+    this.members.set(value, true)
+    this
+  }
+
+  public delete(value: T): bool {
+    this.members.delete(value)
+  }
+}
+
+class __FinalizationCell<T> {
+  /// Whether the target is still alive.
+  public alive: () => bool
+  public held: T
+  /// Whether the unregister token is the object with this identity.
+  public token: (id: int) => bool
+
+  constructor(alive: () => bool, held: T, token: (id: int) => bool) {
+    this.alive = alive
+    this.held = held
+    this.token = token
+  }
+}
+
+/// Calls `callback(held)` some time after a registered target has been collected. Until there
+/// is an event loop (spec §10), the callbacks run when the program's top-level code ends.
+class FinalizationRegistry<T> {
+  callback: (held: T) => void
+  cells: __FinalizationCell<T>[] = []
+
+  constructor(callback: (held: T) => void) {
+    this.callback = callback
+    const all = __finalizationRegistries ?? []
+    all.push(() => this.cleanup())
+    __finalizationRegistries = all
+  }
+
+  /// Calls the callback with `held` once `target` has been collected.
+  public register<U extends object>(target: U, held: T): void {
+    const w = new WeakRef<U>(target)
+    this.cells.push(new __FinalizationCell<T>(() => w.deref() != null, held, (id: int) => false))
+  }
+
+  /// `register`, and `unregister(token)` cancels it.
+  public registerWithToken<U extends object, K extends object>(target: U, held: T, token: K): void {
+    const w = new WeakRef<U>(target)
+    const t = new WeakRef<K>(token)
+    this.cells.push(
+      new __FinalizationCell<T>(() => w.deref() != null, held, (id: int) => {
+        const k = t.deref()
+        k != null && __ref_id(k) == id
+      }),
+    )
+  }
+
+  /// Cancels the registrations made with `token`; whether there were any.
+  public unregister<K extends object>(token: K): bool {
+    const id = __ref_id(token)
+    const kept: __FinalizationCell<T>[] = []
+    for (const c of this.cells) {
+      const isToken = c.token
+      if (!isToken(id)) {
+        kept.push(c)
+      }
+    }
+    const removed = kept.length < this.cells.length
+    this.cells = kept
+    removed
+  }
+
+  /// Calls the callback for the targets that have been collected.
+  cleanup(): void {
+    const due: T[] = []
+    const kept: __FinalizationCell<T>[] = []
+    for (const c of this.cells) {
+      const alive = c.alive
+      if (alive()) {
+        kept.push(c)
+      } else {
+        due.push(c.held)
+      }
+    }
+    this.cells = kept
+    for (const h of due) {
+      const f = this.callback
+      f(h)
+    }
+  }
+}
+
+/// The registries' `cleanup`s (created by the first registry).
+let __finalizationRegistries: (() => void)[]? = null
+
+/// Runs after the entry module's top-level code: collects, then runs the finalization
+/// callbacks that are due.
+function __runFinalizers(): void {
+  const all = __finalizationRegistries
+  if (all == null) {
+    return
+  }
+  __gc_collect()
+  for (const f of all) {
+    f()
+  }
+}

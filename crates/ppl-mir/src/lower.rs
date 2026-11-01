@@ -132,6 +132,7 @@ pub fn lower(
                 .iter()
                 .map(|f| (f.name.clone(), f.ty.clone()))
                 .collect(),
+            weak: s.fields.iter().map(|f| f.weak).collect(),
             is_class: s.is_class,
             meta: mir::ClassMeta {
                 base: s.base,
@@ -169,7 +170,42 @@ pub fn lower(
         itables,
     };
     erase_program(&mut mir);
+    drop_unused_exit_hook(&mut mir);
     (mir, cx.diags)
+}
+
+/// Without a live `FinalizationRegistry` there are no finalizers to run at exit: the entry's
+/// call of `__runFinalizers` becomes a jump (so it and what it uses aren't compiled).
+fn drop_unused_exit_hook(p: &mut mir::Program) {
+    let Some(hook) = p
+        .fns
+        .iter()
+        .position(|f| f.library && f.name == "__runFinalizers")
+        .map(|i| FnId(i as u32))
+    else {
+        return;
+    };
+    // (Generic classes' functions are instantiated per type: any live one of the class's.)
+    let live = mir::live_functions(p);
+    let used = p
+        .fns
+        .iter()
+        .zip(&live)
+        .any(|(f, l)| *l && f.library && f.name.starts_with("FinalizationRegistry"));
+    if used {
+        return;
+    }
+    for b in &mut p.fns[p.entry.0 as usize].blocks {
+        if let Terminator::Call {
+            callee: Callee::Fn(f),
+            next,
+            ..
+        } = &b.term
+            && *f == hook
+        {
+            b.term = Terminator::Goto(*next);
+        }
+    }
 }
 
 /// Replaces types the backends don't know (literal types, unions, narrowed variants) with
@@ -678,6 +714,9 @@ impl Cx<'_> {
         } else {
             sig.ret.clone()
         };
+        if f.is_entry {
+            b.exit_hooks(f.span);
+        }
         let term = match ret {
             Ty::Void | Ty::Never | Ty::Error => Terminator::Return(None),
             // No value where one is needed: the body diverged, so the end can't be reached.
@@ -2357,6 +2396,9 @@ impl FnBuilder<'_, '_> {
                     let dead = self.new_block();
                     self.switch_to(dead);
                     return Operand::Const(Const::Void);
+                }
+                if self.hir_fn.is_entry {
+                    self.exit_hooks(e.span);
                 }
                 let ret_has_value = !self.hir_fn.is_entry
                     && has_value(&self.cx.types.sigs[self.fn_id.0 as usize].ret);
@@ -4130,6 +4172,20 @@ impl FnBuilder<'_, '_> {
     }
 
     /// Calls function `id` with already-evaluated arguments.
+    /// The end of the entry module's code: the core library's `__runFinalizers` (the due
+    /// finalization callbacks, spec §9.3, until there is an event loop).
+    fn exit_hooks(&mut self, span: Span) {
+        let hook = self
+            .cx
+            .program
+            .fns
+            .iter()
+            .position(|f| f.name == "__runFinalizers" && f.span.file != self.cx.file_id);
+        if let Some(i) = hook {
+            self.call_fn_value(FnId(i as u32), Vec::new(), Ty::Void, span);
+        }
+    }
+
     fn call_fn_value(&mut self, id: FnId, args: Vec<Operand>, ty: Ty, span: Span) -> Operand {
         let loc = self.loc(span);
         let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
@@ -4363,10 +4419,12 @@ impl FnBuilder<'_, '_> {
                 | Builtin::GcPause
                 | Builtin::GcResume
                 | Builtin::GcDumpRoots
-                | Builtin::GcStat),
+                | Builtin::GcStat
+                | Builtin::RefId),
             ) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
-                let dest = (*b == Builtin::GcStat).then(|| Place::local(self.temp(Ty::INT)));
+                let dest = matches!(b, Builtin::GcStat | Builtin::RefId)
+                    .then(|| Place::local(self.temp(Ty::INT)));
                 let next = self.new_block();
                 self.terminate(Terminator::Call {
                     callee: Callee::Builtin(*b),

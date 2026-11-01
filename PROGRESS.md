@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P4.4: Weak references and finalization** (see [PLAN.md](PLAN.md#p44-weak-references-and-finalization)).
+**P4.5: Unsafe and pointers** (see [PLAN.md](PLAN.md#p45-unsafe-and-pointers)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,10 +23,10 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 208 decisions, no open questions |
+| Spec | ✅ 16 chapters, 209 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P4.3) |
+| Last green `scripts/test.sh` | 2026-11-01 (P4.4) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,15 +38,18 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
-- **GC (P4.x)**: `runtime/src/ppl_gc.c` and `crates/ppl-codegen/src/gc.rs` (decisions 206–208).
+- **GC (P4.x)**: `runtime/src/ppl_gc.c` and `crates/ppl-codegen/src/gc.rs` (decisions 206–209).
   Generational (non-moving nursery + incremental old generation, Dijkstra barrier, cards for
   large objects, lazy sweeping). **Pause benchmark** `bench/gc_pause.ppl` (release build, macOS
   arm64, 200k-entity world updated 4000×/frame for 600 frames, 1.36 GB allocated, ~141 MiB heap):
   frame-loop **max pause 0.34–0.77 ms** over 5 runs, typical nursery pause ~0.2–0.4 ms, GC time
   ~2.5 ms/frame. The setup phase alone has one ~0.7–1 ms nursery pause (scanning a freshly grown
-  1.6 MB array). `PPL_GC_TRACE=1` prints each pause. P4.4 (weak refs) hooks into marking/sweeping:
-  clear weak slots whose target's color is stale at the end of marking (and young ones in nursery
-  sweeps).
+  1.6 MB array). `PPL_GC_TRACE=1` prints each pause.
+  Weak refs (P4.4): `@weak` fields (core library only) → `PplLayout.nweak`; every nursery
+  collection walks the whole list of objects with weak words (fine for now; a generational
+  split of that list would help programs with very many weak refs). No ephemerons in `WeakMap`.
+  Finalizers run at the end of the entry's code (`__runFinalizers`), to move onto the event
+  loop in P5.1.
   Collection only at safepoints; layouts mirror codegen's `size_align` (wasm32's 4-byte
   pointers will need both updated in P8.5). The interpreter has no collector.
   `PPL_GC_STRESS=1` (also run by the golden harness) collects at every safepoint.
@@ -165,7 +168,7 @@ Notes:
 - [x] P4.1 Shadow stack and type maps
 - [x] P4.2 Mark-sweep GC
 - [x] P4.3 Generational and incremental GC
-- [ ] P4.4 Weak references and finalization
+- [x] P4.4 Weak references and finalization
 - [ ] P4.5 Unsafe and pointers
 - [ ] P4.6 Arenas
 
@@ -289,3 +292,4 @@ Notes:
 | 2026-11-01 | P4.1 | GC roots: `PplLayout` type maps (codegen `gc.rs`: reference offsets mirroring `size_align`, enum payloads conservative), shadow-stack frames (traced locals in one zeroed frame struct, pushed at entry, popped at return/tailcall, restored by panic guards), global-roots table, safepoints at entry and loop headers (`ppl_gc_requested`), write-barrier calls on heap stores, `ppl_gc_alloc(size, layout)` everywhere (still malloc), `PplArray.elem`; `__gc_*` builtins, `std/gc` (`gc`, `GcStats`); interpreter frame stack and `dumpRoots`. Decision 206. Test: run/gc/roots. |
 | 2026-11-01 | P4.2 | Mark-sweep heap in `ppl_gc.c`: 64 KiB blocks, 27 size classes (bump then free lists), large-object block runs, block hash table for pointer validation (interior pointers), mark stack, sweep with spare-block reuse, threshold 2× survivors (≥ 8 MiB), pause/time stats, `pause`/`resume`; `PPL_GC_STRESS=1` and a third harness run per fixture. Decision 207. Test: run/gc/stress (200k iterations: 38 MB allocated in an 8 MB heap, 5 collections, max pause 0.46 ms). |
 | 2026-11-01 | P4.3 | Generational + incremental GC: nursery of young objects (list-swept, promoted in place), remembered set + cards for large objects, write barrier with layouts (Dijkstra shading during marking), incremental marking with alternating colors and chunked large objects, finishing pause (nursery + root rescan + drain), lazy sweeping, radix block table; `collectYoung`, `pause`/`resume`, `resetStats`; `PPL_GC_STRESS` overlaps cycles with the mutator, `PPL_GC_TRACE`. Decision 208. Tests: run/gc/{generations,control}; bench/gc_pause.ppl: frame max pause 0.34–0.77 ms (see notes). |
+| 2026-11-01 | P4.4 | `WeakRef`, `WeakMap`, `WeakSet`, `FinalizationRegistry` in `stdlib/core/weak.ppl` over a core-only `@weak` field (`StructLayout.weak`, `PplLayout.nweak`; the collector clears dead targets after nursery marking and at the end of major marking), `T extends object` bound, `__ref_id` builtin; interpreter weak fields as `rc::Weak`; finalizers at exit through `__runFinalizers` (dropped when unused). Decision 209. Tests: run/gc/{weak,finalization}, fail/gc/weak_targets. |

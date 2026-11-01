@@ -5268,6 +5268,7 @@ impl<'p> Checker<'p> {
             }
             Bound::Equatable => self.equatable(t),
             Bound::Hashable => self.hashable(t),
+            Bound::Object => matches!(t.erase(), Ty::Class(..) | Ty::Array(_)),
             Bound::Error => match (t, self.program.error_class) {
                 (Ty::Never, _) => true,
                 (Ty::Class(s, ..), Some(err)) => self.program.is_subclass(*s, err),
@@ -5505,15 +5506,27 @@ impl<'p> Checker<'p> {
                         Bound::Equatable => "`Equatable`".to_string(),
                         Bound::Error => "`Error`".to_string(),
                         Bound::Hashable => "`Hashable`".to_string(),
+                        Bound::Object => "`object`".to_string(),
                         Bound::Iface(s) => format!("`{}`", self.program.struct_def(*s).name),
+                    };
+                    let (fails, must) = if *b == Bound::Object {
+                        (
+                            "isn't a class or an array".to_string(),
+                            "be a class or an array (`object`)".to_string(),
+                        )
+                    } else {
+                        (
+                            format!("doesn't implement {what}"),
+                            format!("implement {what}"),
+                        )
                     };
                     self.diags.push(
                         Diagnostic::error(
                             codes::UNSATISFIED_BOUND,
-                            format!("`{}` doesn't implement {what}", args_ty[i]),
+                            format!("`{}` {fails}", args_ty[i]),
                         )
                         .primary(e.span, format!("`{}` = `{}` here", tp.name, args_ty[i]))
-                        .secondary(tp.span, format!("`{}` must implement {what}", tp.name)),
+                        .secondary(tp.span, format!("`{}` must {must}", tp.name)),
                     );
                 }
             }
@@ -5621,6 +5634,21 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[1]), Ty::INT)
             }
+            Builtin::RefId => {
+                if let Some(x) = args.first() {
+                    let t = self.infer(x);
+                    if !self.satisfies(&t, &Bound::Object) {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::MISMATCHED_TYPES,
+                                format!("`{t}` isn't an object"),
+                            )
+                            .primary(x.span, "expected a class instance or an array"),
+                        );
+                    }
+                }
+                (arity(&[1]), Ty::INT)
+            }
             Builtin::GcCollect
             | Builtin::GcCollectYoung
             | Builtin::GcPause
@@ -5629,7 +5657,7 @@ impl<'p> Checker<'p> {
         };
         if !ok {
             let expected = match b {
-                Builtin::Print | Builtin::Panic | Builtin::GcStat => "1 argument",
+                Builtin::Print | Builtin::Panic | Builtin::GcStat | Builtin::RefId => "1 argument",
                 Builtin::GcCollect
                 | Builtin::GcCollectYoung
                 | Builtin::GcPause

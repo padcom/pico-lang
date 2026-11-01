@@ -106,6 +106,9 @@ pub struct FieldDef {
     pub preassigned: bool,
     /// `readonly`: assigned only by constructors.
     pub readonly: bool,
+    /// `@weak` (core library only, spec §9.3): a `C?` or `T[]?` field that doesn't keep its
+    /// target alive; the collector sets it to `null` when the target is collected.
+    pub weak: bool,
 }
 
 /// A struct or a class (`is_class`). Classes share the id space so most member code is shared.
@@ -449,6 +452,9 @@ pub enum Bound {
     Error,
     /// The built-in `Hashable<T>`: `hashCode(): u64` plus `==` (keys of `Map`, `Set`).
     Hashable,
+    /// `T extends object`: a class or an array, i.e. a reference to a heap object (the targets
+    /// of `WeakRef`, the keys of `WeakMap`).
+    Object,
 }
 
 impl Function {
@@ -495,6 +501,9 @@ pub enum Builtin {
     GcDumpRoots,
     /// `__gc_stat(i)`: statistic `i` (the `GcStats` fields in order).
     GcStat,
+    /// `__ref_id(x)`: an object's (or array's) identity as an int (its address natively), for
+    /// `WeakMap`. Unique among live objects.
+    RefId,
 }
 
 impl Builtin {
@@ -510,6 +519,7 @@ impl Builtin {
             Builtin::GcResume => "__gc_resume",
             Builtin::GcDumpRoots => "__gc_dump_roots",
             Builtin::GcStat => "__gc_stat",
+            Builtin::RefId => "__ref_id",
         }
     }
 
@@ -525,6 +535,7 @@ impl Builtin {
             "__gc_resume" => Builtin::GcResume,
             "__gc_dump_roots" => Builtin::GcDumpRoots,
             "__gc_stat" => Builtin::GcStat,
+            "__ref_id" => Builtin::RefId,
             _ => return None,
         })
     }

@@ -139,6 +139,9 @@ struct Vec3 {
 Structs, enums and tuples get all three automatically (field by field, in declaration order).
 Classes opt in with `@derive(Eq, Hash, Ord)`, or implement the methods by hand. A class without
 `equals` compares by identity.
+
+The built-in bound `T extends object` (as in TypeScript) admits class types and arrays, i.e.
+references to heap objects: the targets of `WeakRef` and the keys of `WeakMap` (§9.3).
 ```ts
 @derive(Eq, Hash)
 class UserId { constructor(public value: i64) {} }

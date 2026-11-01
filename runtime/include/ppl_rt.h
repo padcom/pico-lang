@@ -28,12 +28,14 @@ typedef struct PplStr {
  * Where the references are in a value: `refs` holds the byte offsets of the words that may
  * hold GC references inside one element of `size` bytes. A heap object of n bytes holds
  * n / size elements (more than one for array storage). Offsets with PPL_REF_HIDDEN set are
- * traced but ignored by `gc.dumpRoots()` (enum payload words, closure environments). A NULL
+ * traced but ignored by `gc.dumpRoots()` (enum payload words, closure environments). After
+ * them come `nweak` offsets of weak pointers (`@weak` fields, spec §9.3): not traced, and set
+ * to NULL when what they point to is collected (only object layouts have them). A NULL
  * layout means no references. */
 typedef struct PplLayout {
     int64_t size;
     int32_t nrefs;
-    int32_t reserved;
+    int32_t nweak;
     uint32_t refs[];
 } PplLayout;
 #define PPL_REF_HIDDEN 0x80000000u

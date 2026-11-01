@@ -34,6 +34,32 @@
 These are JS-compatible: `WeakRef<T>`, `WeakMap<K, V>`, `WeakSet<T>` and `FinalizationRegistry<T>`.
 Finalization callbacks are **non-deterministic**. They run on the owning thread's event loop at
 some point after collection. Use `using` (§11.5) for deterministic cleanup.
+```ts
+const cache = new WeakMap<Texture, Image>()
+const ref = new WeakRef<Texture>(tex)
+ref.deref()?.bind()                   // `null` once the texture was collected
+
+const registry = new FinalizationRegistry<string>((name: string) => log(`freed ${name}`))
+registry.register(tex, tex.name)
+registry.registerWithToken(tex, tex.name, owner)
+registry.unregister(owner)
+```
+- They are core-library globals. Targets and keys are `object`s (classes or arrays, §2):
+  `WeakRef<T extends object>` (`deref(): T?`), `WeakMap<K extends object, V>` (`has`, `get`
+  (`V?`), `set`, `delete`), `WeakSet<T extends object>` (`has`, `add`, `delete`).
+  `FinalizationRegistry<T>(callback)` has `register(target, held)`,
+  `registerWithToken(target, held, token)` (ppl has no method overloading yet) and
+  `unregister(token): bool`.
+- A weak reference is cleared when a collection finds its target unreachable (a nursery
+  collection for young targets, the end of a major marking for old ones); `gc.collect()`
+  clears every one whose target is unreachable.
+- `WeakMap` holds its values strongly: a value that refers to its own key keeps the entry
+  alive (no ephemerons).
+- Until there is an event loop (§10), the due finalization callbacks run once the entry
+  module's top-level code has finished (after a full collection); a program without a
+  `FinalizationRegistry` does no work at exit.
+- The interpreter has no collector: a target dies with its last reference, and objects in a
+  reference cycle are never cleared there.
 
 ## 9.4 Arenas
 Two forms are available.

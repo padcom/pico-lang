@@ -86,6 +86,9 @@ pub enum FieldRef {
 pub struct StructLayout {
     pub name: String,
     pub fields: Vec<(String, Ty)>,
+    /// Per field: `@weak` (spec §9.3; a `C?` or `T[]?` field of a class that the collector
+    /// clears when its target dies).
+    pub weak: Vec<bool>,
     /// A class: instances live on the heap behind a header.
     pub is_class: bool,
     pub meta: ClassMeta,

@@ -798,6 +798,7 @@ impl Resolver {
                     span: fname.span,
                     preassigned: false,
                     readonly: false,
+                    weak: false,
                 });
             }
             self.enums[eid.0 as usize].variants.push(VariantDef {
@@ -870,6 +871,7 @@ impl Resolver {
                         span: name.span,
                         preassigned: false,
                         readonly,
+                        weak: false,
                     });
                 }
                 ast::MemberKind::Method(f) => {
@@ -1407,6 +1409,11 @@ impl Resolver {
             ast::TypeKind::Path { path, .. } if path.len() == 1 && path[0].name == "Hashable" => {
                 vec![Bound::Hashable]
             }
+            ast::TypeKind::Path { path, args, .. }
+                if path.len() == 1 && path[0].name == "object" && args.is_empty() =>
+            {
+                vec![Bound::Object]
+            }
             _ => match self.resolve_type(t) {
                 Ty::Iface(sid, _, _) => vec![Bound::Iface(sid)],
                 // `E extends Error`: what a function throws.
@@ -1723,6 +1730,7 @@ impl Resolver {
                 span: f.span,
                 preassigned: true,
                 readonly: false,
+                weak: false,
             })
             .collect();
         let methods = b.methods.clone();
@@ -1833,7 +1841,14 @@ impl Resolver {
             false
         };
         for m in &cd.members {
-            if let Some(dec) = m.decorators.first() {
+            // `@weak` fields: the core library's weak references (spec §9.3).
+            let weak = self.mods.cur == PRELUDE_MODULE
+                && matches!(m.kind, ast::MemberKind::Field { .. })
+                && m.decorators.len() == 1
+                && m.decorators[0].args.is_none()
+                && m.decorators[0].path.len() == 1
+                && m.decorators[0].path[0].name == "weak";
+            if let Some(dec) = m.decorators.first().filter(|_| !weak) {
                 self.not_implemented(dec.span, "decorators");
             }
             if m.mods.is_async {
@@ -1865,6 +1880,7 @@ impl Resolver {
                             span: pname.span,
                             preassigned: true,
                             readonly: p.mods.readonly,
+                            weak: false,
                         });
                     }
                     let def = &self.structs[sid.0 as usize];
@@ -1942,6 +1958,14 @@ impl Resolver {
                         }
                     };
                     let nullable = matches!(ty, Ty::Nullable(_));
+                    if weak && !nullable {
+                        self.error(
+                            codes::MISMATCHED_TYPES,
+                            name.span,
+                            "a `@weak` field must be nullable",
+                            "the collector sets it to `null`",
+                        );
+                    }
                     set_vis(self, &name.name, &m.mods);
                     self.structs[sid.0 as usize].fields.push(FieldDef {
                         name: name.name.clone(),
@@ -1949,6 +1973,7 @@ impl Resolver {
                         span: name.span,
                         preassigned: init.is_some() || nullable,
                         readonly: m.mods.readonly,
+                        weak,
                     });
                     info.field_inits.push((name, init.as_ref()));
                 }
@@ -3484,6 +3509,7 @@ impl Resolver {
                         span,
                         preassigned: false,
                         readonly: false,
+                        weak: false,
                     }],
                     has_parens: true,
                 })
@@ -3552,6 +3578,7 @@ impl Resolver {
                 span: tag.name.span,
                 preassigned: false,
                 readonly: false,
+                weak: false,
             }];
             for f in o.iter().filter(|f| f.name.name != disc) {
                 let mut ty = self.resolve_type(&f.ty);
@@ -3564,6 +3591,7 @@ impl Resolver {
                     span: f.name.span,
                     preassigned: f.optional,
                     readonly: false,
+                    weak: false,
                 });
             }
             self.enums[id.0 as usize].variants.push(VariantDef {

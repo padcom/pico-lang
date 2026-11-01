@@ -31,7 +31,13 @@ static const PplGlobalRoots *globals;
  * clearing); the barrier shades what a store into an old object makes it point to (Dijkstra),
  * objects promoted meanwhile join grey, large objects are scanned in chunks, and the short
  * finishing pause runs a nursery collection, rescans the roots and drains the mark stack.
- * Sweeping is incremental too: objects promoted while it runs get the color that survives. */
+ * Sweeping is incremental too: objects promoted while it runs get the color that survives.
+ *
+ * Weak references: objects whose layout has weak words are kept in a list. Weak words aren't
+ * traced; once a nursery collection has marked, the weak words pointing to young objects it
+ * didn't reach are cleared, and once a major marking has finished, those pointing to old
+ * objects without the cycle's color. Both happen before the targets are swept, so a cleared
+ * address is never reused while a weak word still holds it. */
 
 #define BLOCK_SHIFT 16
 #define BLOCK_SIZE ((size_t)1 << BLOCK_SHIFT)
@@ -310,6 +316,8 @@ static void push(Stack *st, Obj *o) {
 
 /* The objects allocated since the last nursery collection. */
 static Stack young_objects;
+/* The objects with weak words. */
+static Stack weak_objects;
 
 /* The block an object is in (blocks are aligned; a large object's header is in its first). */
 static Block *block_of(const Obj *o) { return (Block *)((uintptr_t)o & ~(uintptr_t)(BLOCK_SIZE - 1)); }
@@ -334,6 +342,7 @@ void *ppl_gc_alloc(int64_t size, const PplLayout *layout) {
     o->flags = F_ALLOC;
     memset(o + 1, 0, (size_t)size);
     push(&young_objects, o);
+    if (layout && layout->nweak) push(&weak_objects, o);
     used_bytes += (int64_t)cell;
     allocated_bytes += (int64_t)cell;
     young_bytes += (int64_t)cell;
@@ -655,6 +664,35 @@ static int sweep_some(int64_t deadline, int64_t limit) {
     return 1;
 }
 
+/* ---------------------------------------------------------------- weak references */
+
+/* Whether an object is dead after the running nursery collection's marking (`major` 0) or a
+ * finished major marking. */
+static int dead(const Obj *o, int major) {
+    if (major) return (o->flags & F_OLD) && (o->flags & F_COLORS) != color;
+    return !(o->flags & (F_OLD | F_MARK));
+}
+
+/* Clears the weak words whose targets are dead, and forgets the dead weak objects. */
+static void clear_weak(int major) {
+    size_t k = 0;
+    for (size_t i = 0; i < weak_objects.len; i++) {
+        Obj *w = weak_objects.items[i];
+        if (dead(w, major)) continue;
+        weak_objects.items[k++] = w;
+        const PplLayout *l = w->layout;
+        for (int32_t j = 0; j < l->nweak; j++) {
+            char *slot = (char *)(w + 1) + l->refs[l->nrefs + j];
+            void *p;
+            memcpy(&p, slot, sizeof p);
+            if (!p) continue;
+            Obj *t = find_object(p);
+            if (t && dead(t, major)) memset(slot, 0, sizeof p);
+        }
+    }
+    weak_objects.len = k;
+}
+
 /* ---------------------------------------------------------------- collections */
 
 /* `PPL_GC_TRACE=1` prints every pause to stderr: what ran and how long it took. */
@@ -685,6 +723,7 @@ static void young_collection(void) {
     }
     dirty.len = 0;
     while (young_stack.len > 0) scan_object(young_stack.items[--young_stack.len], visit_young);
+    clear_weak(0);
     sweep_young();
     young_bytes = 0;
     nyoung++;
@@ -727,6 +766,7 @@ static void finish_marking(void) {
     young_collection();
     scan_roots(visit_old);
     mark_some(0, 0);
+    clear_weak(1);
     phase = SWEEPING;
     sweep_cursor = all_blocks;
 }

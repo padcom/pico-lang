@@ -2,6 +2,8 @@
 source: crates/ppl-driver/tests/mir.rs
 expression: "mir(r#\"\nfunction first(limit: i64): i64 {\n  let i = 0\n  const found = loop {\n    i++\n    if (i * i > limit) break i\n  }\n  found\n}\nfunction never(): never { panic(\"boom\") }\nassert(first(10) == 4, \"first\")\n\"#)"
 ---
+global @g0: () => void[]? // __finalizationRegistries
+
 fn first(_0: i64) -> i64 {
     let _1: i64 // i
     let _2: i64 // found
@@ -45,12 +47,15 @@ fn <main>() -> void {
     let _0: i64
     let _1: bool
   bb0:
+    @g0 = const null<() => void[]?>
     _0 = call first(const 10_i64) -> bb1
   bb1:
     _1 = Eq(_0, const 4_i64)
     branch _1 -> [true: bb2, false: bb3]
   bb2:
-    return
+    goto bb4
   bb3:
     panic const "first" @11:1
+  bb4:
+    return
 }

@@ -1,0 +1,76 @@
+// Weak references (spec §9.3): `WeakRef`, `WeakMap` and `WeakSet` don't keep their targets
+// alive, so after `gc.collect()` the ones nothing else refers to are gone. (Natively the
+// collector clears them; in the interpreter a target dies with its last reference.)
+// expect: kept: kept
+// expect: temp: gone
+// expect: array: 3
+// expect: young: gone
+// expect: map: 1 true false
+// expect: map after: 1 one
+// expect: set: true false
+// expect: churn: 100
+// expect: deleted: true false
+import { gc } from "std/gc"
+
+class Thing {
+  public name: string
+  constructor(name: string) {
+    this.name = name
+  }
+}
+
+function make(name: string): WeakRef<Thing> {
+  new WeakRef<Thing>(new Thing(name))
+}
+
+const kept = new Thing("kept")
+const strong = new WeakRef<Thing>(kept)
+const temp = make("temp")
+const nums = [1, 2, 3]
+const arr = new WeakRef<int[]>(nums)
+gc.collect()
+println(`kept: ${strong.deref()?.name ?? "gone"}`)
+println(`temp: ${temp.deref()?.name ?? "gone"}`)
+println(`array: ${arr.deref()?.length ?? 0}`)
+
+// A nursery collection clears a reference to a young object too.
+const young = make("young")
+gc.collectYoung()
+gc.collect()
+println(`young: ${young.deref()?.name ?? "gone"}`)
+
+// Keys held weakly.
+const map = new WeakMap<Thing, int>()
+function addTemp(m: WeakMap<Thing, int>): void {
+  m.set(new Thing("t"), 2)
+}
+map.set(kept, 1)
+addTemp(map)
+const other = new Thing("other")
+println(`map: ${map.get(kept) ?? 0} ${map.has(kept)} ${map.has(other)}`)
+gc.collect()
+map.set(kept, 1)
+println(`map after: ${map.get(kept) ?? 0} ${if (strong.deref()?.name == "kept") "one" else "none"}`)
+
+const ws = new WeakSet<Thing>()
+ws.add(kept)
+println(`set: ${ws.has(kept)} ${ws.has(other)}`)
+
+// Many dead keys: the map prunes them as it grows.
+const live: Thing[] = []
+for (let i = 0; i < 1000; i++) {
+  const t = new Thing(`n${i}`)
+  if (i % 10 == 0) {
+    live.push(t)
+  }
+  map.set(t, i)
+}
+gc.collect()
+let found = 0
+for (const t of live) {
+  if (map.has(t)) {
+    found += 1
+  }
+}
+println(`churn: ${found}`)
+println(`deleted: ${map.delete(kept)} ${map.has(kept)}`)

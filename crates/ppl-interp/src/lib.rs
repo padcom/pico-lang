@@ -40,6 +40,9 @@ pub enum Value {
     Array(Rc<RefCell<Vec<Value>>>),
     /// A reference into a variable: the cell and the path inside it.
     Ref(Cell, Rc<[Step]>),
+    /// The content of a `@weak` field (spec §9.3): reading it gives the target, or `null` once
+    /// nothing else holds it.
+    Weak(WeakTarget),
     /// `null`. A non-null `T?` is just the `T` value.
     Null,
     Void,
@@ -66,6 +69,42 @@ impl PartialEq for Obj {
     }
 }
 
+/// A weak reference to an object or an array. There's no collector: a target is gone when its
+/// last strong reference is (so a cycle is never cleared).
+#[derive(Clone, Debug)]
+pub enum WeakTarget {
+    Obj(std::rc::Weak<Obj>),
+    Array(std::rc::Weak<RefCell<Vec<Value>>>),
+}
+
+impl PartialEq for WeakTarget {
+    fn eq(&self, other: &WeakTarget) -> bool {
+        match (self, other) {
+            (WeakTarget::Obj(a), WeakTarget::Obj(b)) => a.ptr_eq(b),
+            (WeakTarget::Array(a), WeakTarget::Array(b)) => a.ptr_eq(b),
+            _ => false,
+        }
+    }
+}
+
+/// A value as a `@weak` field holds it.
+fn downgrade(v: Value) -> Value {
+    match v {
+        Value::Object(o) => Value::Weak(WeakTarget::Obj(Rc::downgrade(&o))),
+        Value::Array(a) => Value::Weak(WeakTarget::Array(Rc::downgrade(&a))),
+        v => v,
+    }
+}
+
+/// A `@weak` field's value as code sees it.
+fn upgrade(v: &Value) -> Value {
+    match v {
+        Value::Weak(WeakTarget::Obj(o)) => o.upgrade().map_or(Value::Null, Value::Object),
+        Value::Weak(WeakTarget::Array(a)) => a.upgrade().map_or(Value::Null, Value::Array),
+        v => v.clone(),
+    }
+}
+
 /// One resolved step of a path into a value: a part of an inline value, or an element of a
 /// growable array.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -74,6 +113,8 @@ pub enum Step {
     Elem(usize),
     /// A field of the object a class reference points to.
     ObjField(usize),
+    /// A `@weak` field of an object.
+    WeakField(usize),
 }
 
 /// Storage for one variable. Locals and globals live in cells so references can point at them.
@@ -262,7 +303,12 @@ impl Interp<'_, '_> {
                 continue;
             }
             let step = match pr {
-                Proj::Field(i) if matches!(ty, Ty::Class(..)) => Step::ObjField(*i as usize),
+                Proj::Field(i) if matches!(ty, Ty::Class(..)) => match ty {
+                    Ty::Class(sid, ..) if self.p.layout(sid).weak[*i as usize] => {
+                        Step::WeakField(*i as usize)
+                    }
+                    _ => Step::ObjField(*i as usize),
+                },
                 Proj::Field(i) | Proj::VariantField(_, i) => Step::Part(*i as usize),
                 Proj::Payload => unreachable!(),
                 Proj::Index(l) => {
@@ -452,6 +498,13 @@ impl Interp<'_, '_> {
             }
             // No collector here: nothing to do, and every statistic is zero.
             Builtin::GcStat => return Value::Int(0),
+            Builtin::RefId => {
+                return Value::Int(match &vals[0] {
+                    Value::Object(o) => Rc::as_ptr(o) as usize as i128,
+                    Value::Array(a) => Rc::as_ptr(a) as usize as i128,
+                    v => unreachable!("identity of {v:?}"),
+                });
+            }
             Builtin::GcCollect | Builtin::GcCollectYoung | Builtin::GcPause | Builtin::GcResume => {
                 Ok(())
             }
@@ -486,7 +539,7 @@ impl Interp<'_, '_> {
             .globals
             .iter()
             .zip(&self.globals)
-            .filter(|(g, v)| visible_ref(self.p, &v.borrow(), &g.ty))
+            .filter(|(g, v)| !g.name.starts_with("__") && visible_ref(self.p, &v.borrow(), &g.ty))
             .map(|(g, _)| g.name.as_str())
             .collect();
         line(&mut out, "globals", names);
@@ -889,6 +942,10 @@ fn read_path(v: &Value, path: &[Step]) -> Value {
             Value::Object(o) => read_path(&o.fields.borrow()[*i], rest),
             other => unreachable!("field {i} of {other:?}"),
         },
+        Some((Step::WeakField(i), rest)) => match v {
+            Value::Object(o) => read_path(&upgrade(&o.fields.borrow()[*i]), rest),
+            other => unreachable!("field {i} of {other:?}"),
+        },
     }
 }
 
@@ -911,6 +968,12 @@ fn write_path(v: &mut Value, path: &[Step], new: Value) {
                 let o = o.clone();
                 write_path(&mut o.fields.borrow_mut()[*i], rest, new);
             }
+            other => unreachable!("field {i} of {other:?}"),
+        },
+        Some((Step::WeakField(i), rest)) => match v {
+            Value::Object(o) if rest.is_empty() => o.fields.borrow_mut()[*i] = downgrade(new),
+            // Inside the target (shared, so writing through a strong copy is the same).
+            Value::Object(o) => write_path(&mut upgrade(&o.fields.borrow()[*i]), rest, new),
             other => unreachable!("field {i} of {other:?}"),
         },
     }
@@ -1015,6 +1078,7 @@ pub fn display(v: &Value, t: &Ty) -> String {
             | Value::Closure(_)
             | Value::Array(_)
             | Value::Ref(..)
+            | Value::Weak(_)
             | Value::Void
             | Value::Uninit,
             _,
@@ -1215,6 +1279,7 @@ pub fn format_spec(v: &Value, t: &Ty, spec: &FormatSpec) -> String {
         | Value::Closure(_)
         | Value::Array(_)
         | Value::Ref(..)
+        | Value::Weak(_)
         | Value::Void
         | Value::Uninit => (false, "", String::new(), false),
     };

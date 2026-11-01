@@ -77,21 +77,27 @@ impl<'ctx> Gen<'ctx, '_> {
         }
     }
 
-    /// A `PplLayout` constant, or null without references.
+    /// A `PplLayout` constant, or null without references (strong or weak).
     fn layout_global(&self, size: u64, refs: &[u32]) -> PointerValue<'ctx> {
-        if refs.is_empty() {
+        self.layout_global_weak(size, refs, &[])
+    }
+
+    /// A `PplLayout` constant with `weak` words after the strong ones (`nweak`).
+    fn layout_global_weak(&self, size: u64, refs: &[u32], weak: &[u32]) -> PointerValue<'ctx> {
+        if refs.is_empty() && weak.is_empty() {
             return self.ptr().const_null();
         }
         let (i32t, i64t) = (self.i32(), self.i64());
         let words: Vec<IntValue> = refs
             .iter()
+            .chain(weak)
             .map(|r| i32t.const_int(u64::from(*r), false))
             .collect();
         let value = self.cx.const_struct(
             &[
                 i64t.const_int(size, false).into(),
                 i32t.const_int(refs.len() as u64, false).into(),
-                i32t.const_zero().into(),
+                i32t.const_int(weak.len() as u64, false).into(),
                 i32t.const_array(&words).into(),
             ],
             false,
@@ -129,21 +135,28 @@ impl<'ctx> Gen<'ctx, '_> {
             unreachable!("object layout of {class}")
         };
         let owner = Ty::type_owner(*sid);
-        let mut parts = vec![Ty::Ref(Box::new(Ty::Void))];
+        let def = self.p.layout(*sid);
+        let mut parts = vec![(Ty::Ref(Box::new(Ty::Void)), false)];
         parts.extend(
-            self.p
-                .layout(*sid)
-                .fields
+            def.fields
                 .iter()
-                .map(|(_, f)| f.subst(owner, args))
-                .filter(|f| self.ty(f).is_some()),
+                .zip(&def.weak)
+                .map(|((_, f), w)| (f.subst(owner, args), *w))
+                .filter(|(f, _)| self.ty(f).is_some()),
         );
-        let mut refs = Vec::new();
-        let sizes: Vec<(u64, u64)> = parts.iter().map(|t| self.size_align(t)).collect();
-        for (t, at) in parts.iter().zip(Self::part_offsets(&sizes)).skip(1) {
-            self.ref_words(t, at, &mut refs);
+        let (mut refs, mut weak) = (Vec::new(), Vec::new());
+        let sizes: Vec<(u64, u64)> = parts.iter().map(|(t, _)| self.size_align(t)).collect();
+        for ((t, w), at) in parts.iter().zip(Self::part_offsets(&sizes)).skip(1) {
+            // A weak `C?` / `T[]?` is one pointer, cleared by the collector (spec §9.3);
+            // weak fields of other types hold strongly.
+            match t {
+                Ty::Nullable(inner) if *w && matches!(**inner, Ty::Class(..) | Ty::Array(_)) => {
+                    weak.push(at as u32)
+                }
+                _ => self.ref_words(t, at, &mut refs),
+            }
         }
-        let l = self.layout_global(struct_layout(&sizes).0, &refs);
+        let l = self.layout_global_weak(struct_layout(&sizes).0, &refs, &weak);
         self.layouts.borrow_mut().insert(key, l);
         l
     }
@@ -323,8 +336,14 @@ impl<'ctx> Gen<'ctx, '_> {
             if let Some(gv) = self.globals[i]
                 && self.p.traced(&g.ty)
             {
+                // The core library's internal globals (`__x`) aren't shown by dumps.
+                let name = if g.name.starts_with("__") {
+                    ptr.const_null()
+                } else {
+                    self.cstr0(&g.name)
+                };
                 entries.push(entry_ty.const_named_struct(&[
-                    self.cstr0(&g.name).into(),
+                    name.into(),
                     self.layout(&g.ty).into(),
                     gv.as_pointer_value().into(),
                 ]));

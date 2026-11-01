@@ -2840,6 +2840,16 @@ impl<'ctx> Gen<'ctx, '_> {
                                 .unwrap();
                         }
                     }
+                    Callee::Builtin(Builtin::RefId) => {
+                        let x = self.operand(fx, &args[0]).expect("a reference");
+                        let r = self
+                            .b
+                            .build_ptr_to_int(x.into_pointer_value(), self.i64(), "id")
+                            .unwrap();
+                        if let Some(d) = dest {
+                            self.store(fx, d, r.into());
+                        }
+                    }
                     Callee::Builtin(Builtin::GcStat) => {
                         let i = self.operand(fx, &args[0]).expect("int");
                         let r = basic(

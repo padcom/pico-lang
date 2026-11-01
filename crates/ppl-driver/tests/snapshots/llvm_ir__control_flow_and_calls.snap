@@ -5,16 +5,24 @@ expression: "ir(r#\"\nfunction fib(n: i64): i64 {\n  if (n < 2) n else fib(n - 1
 ; ModuleID = 'test.ppl'
 source_filename = "test.ppl"
 
+@ppl.global.__finalizationRegistries = internal global ptr null
 @ppl.classinfo.Error = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.__MapEntry = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Map = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Set = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Iterator = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.WeakRef = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.__WeakEntry = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.WeakMap = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.WeakSet = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.__FinalizationCell = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl.classinfo.FinalizationRegistry = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl_gc_requested = external global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
 @ppl.cstr.7 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.str = private global { i64, i64, i64, i64, [4 x i8] } { i64 4, i64 4, i64 0, i64 0, [4 x i8] c"done" }, align 8
-@ppl.gc_globals = private constant { i64, [0 x { ptr, ptr, ptr }] } zeroinitializer
+@ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.gc_globals = private constant { i64, [1 x { ptr, ptr, ptr }] } { i64 1, [1 x { ptr, ptr, ptr }] [{ ptr, ptr, ptr } { ptr null, ptr @ppl.layout, ptr @ppl.global.__finalizationRegistries }] }
 
 define internal i64 @ppl.fib(i64 %0) {
 start:
@@ -118,6 +126,7 @@ start:
   br i1 %0, label %gc.collect, label %gc.continue
 
 bb0:                                              ; preds = %gc.continue
+  store ptr null, ptr @ppl.global.__finalizationRegistries, align 8
   %1 = call i64 @ppl.fib(i64 10)
   store i64 %1, ptr %t0, align 4
   br label %bb1
@@ -134,6 +143,9 @@ bb2:                                              ; preds = %bb1
   br label %bb3
 
 bb3:                                              ; preds = %bb2
+  br label %bb4
+
+bb4:                                              ; preds = %bb3
   ret void
 
 gc.collect:                                       ; preds = %start
