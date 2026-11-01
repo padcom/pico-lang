@@ -336,6 +336,15 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
   `try?`/`try!`, and struct/enum `Throwable` (no stack trace).
 - **Done when**: `lines.map(l => parseInt(l))` throws exactly `ParseError` at the call site (both
   run and fail tests).
+- **Split**: lightweight `Throwable` structs/enums moved to P3.20b.
+
+### P3.20b Lightweight throwables
+- **Spec**: 07 §7.1 (lightweight throwables)
+- **Do**: structs/enums that `implement Throwable` (`message(): string`) can be thrown, caught by
+  type and declared in `throws`, with no allocation or stack trace. The pending-exception slot
+  then holds either an `Error` object or a throwable value (needs a tagged slot or a value area).
+- **Done when**: `enum ParseFail implements Throwable { … }` round-trips through `throw`/`catch`
+  in run tests, and fail tests cover an unhandled one.
 
 ### P3.21 Panics and stack traces
 - **Spec**: 07 §7.5

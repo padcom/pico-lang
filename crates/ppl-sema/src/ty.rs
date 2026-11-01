@@ -169,8 +169,9 @@ pub enum Ty {
     /// `immutable T`: a deep read-only view (only during type checking).
     Immutable(Box<Ty>),
     /// A function value (a closure, or a named function used as a value): parameter types
-    /// and the result type.
-    Fn(Arc<[Ty]>, Box<Ty>),
+    /// the result type and the errors it may throw (classes, or type parameters
+    /// `E extends Error`; `never` members are dropped).
+    Fn(Arc<[Ty]>, Box<Ty>, Arc<[Ty]>),
     /// Type parameter `index` of generic function `owner` (an `FnId`), by name for messages.
     /// Monomorphization substitutes it before code generation.
     Param(u32, u32, Arc<str>),
@@ -235,7 +236,11 @@ impl Ty {
             Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(s).collect()),
-            Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(s).collect(), Box::new(s(r))),
+            Ty::Fn(ps, r, ts) => Ty::Fn(
+                ps.iter().map(s).collect(),
+                Box::new(s(r)),
+                ts.iter().map(s).filter(|t| *t != Ty::Never).collect(),
+            ),
             t => t.clone(),
         }
     }
@@ -251,7 +256,9 @@ impl Ty {
             Ty::Struct(_, _, args) | Ty::Class(_, _, args) | Ty::Iface(_, _, args) => {
                 args.iter().any(|t| t.has_params(owner))
             }
-            Ty::Fn(ps, r) => ps.iter().any(|t| t.has_params(owner)) || r.has_params(owner),
+            Ty::Fn(ps, r, ts) => {
+                ps.iter().chain(ts.iter()).any(|t| t.has_params(owner)) || r.has_params(owner)
+            }
             _ => false,
         }
     }
@@ -267,7 +274,9 @@ impl Ty {
             Ty::Struct(_, _, args) | Ty::Class(_, _, args) | Ty::Iface(_, _, args) => {
                 args.iter().any(Ty::has_any_params)
             }
-            Ty::Fn(ps, r) => ps.iter().any(Ty::has_any_params) || r.has_any_params(),
+            Ty::Fn(ps, r, ts) => {
+                ps.iter().chain(ts.iter()).any(Ty::has_any_params) || r.has_any_params()
+            }
             _ => false,
         }
     }
@@ -297,7 +306,11 @@ impl Ty {
             Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(s).collect()),
-            Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(s).collect(), Box::new(s(r))),
+            Ty::Fn(ps, r, ts) => Ty::Fn(
+                ps.iter().map(s).collect(),
+                Box::new(s(r)),
+                ts.iter().map(s).filter(|t| *t != Ty::Never).collect(),
+            ),
             t => t.clone(),
         }
     }
@@ -314,7 +327,12 @@ impl Ty {
             Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(Ty::erase).collect()),
             Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(Ty::erase).collect()),
             Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(Ty::erase).collect()),
-            Ty::Fn(ps, r) => Ty::Fn(ps.iter().map(Ty::erase).collect(), Box::new(r.erase())),
+            // What a function throws doesn't change how it's called.
+            Ty::Fn(ps, r, _) => Ty::Fn(
+                ps.iter().map(Ty::erase).collect(),
+                Box::new(r.erase()),
+                Arc::from([]),
+            ),
             Ty::Variant(e, _, n) => Ty::Enum(*e, n.clone()),
             Ty::Distinct(_, _, b) | Ty::Immutable(b) => b.erase(),
             // A union is stored as its anonymous enum.
@@ -372,6 +390,10 @@ impl Ty {
             (t, Ty::Immutable(inner)) => t.widens_to(inner),
             (Ty::Nullable(a), Ty::Nullable(b)) => a.widens_to(b),
             (t, Ty::Nullable(inner)) => t.widens_to(inner),
+            // A function that throws less fits where one that throws more is expected.
+            (Ty::Fn(p1, r1, t1), Ty::Fn(p2, r2, t2)) => {
+                p1 == p2 && r1 == r2 && t1.iter().all(|t| t2.contains(t))
+            }
             _ => false,
         }
     }
@@ -418,9 +440,14 @@ impl fmt::Display for Ty {
                 f.write_str(name)
             }
             Ty::Immutable(t) => write!(f, "immutable {t}"),
-            Ty::Fn(ps, r) => {
+            Ty::Fn(ps, r, ts) => {
                 let parts: Vec<String> = ps.iter().map(|t| t.to_string()).collect();
-                write!(f, "({}) => {r}", parts.join(", "))
+                write!(f, "({}) => {r}", parts.join(", "))?;
+                if !ts.is_empty() {
+                    let ts: Vec<String> = ts.iter().map(|t| t.to_string()).collect();
+                    write!(f, " throws {}", ts.join(" | "))?;
+                }
+                Ok(())
             }
             Ty::Nullable(t) => write!(f, "{t}?"),
             Ty::Error => f.write_str("{error}"),

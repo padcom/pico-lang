@@ -1,0 +1,83 @@
+// Throws inference, throws polymorphism, `try?` and `try!` (spec §7.2–7.3).
+// expect: [1, 22, 333]
+// expect: bad number: x
+// expect: [1, 1, 3]
+// expect: port 8080, missing null
+// expect: 42
+// expect: inferred: deep 3
+// expect: value: bad number: y
+// expect: 7
+
+class ParseError extends Error {
+  constructor(text: string) { super(`bad number: ${text}`) }
+}
+
+function parseInt(s: string): int throws ParseError {
+  match (s) {
+    "1" => 1,
+    "22" => 22,
+    "333" => 333,
+    "42" => 42,
+    "8080" => 8080,
+    _ => throw new ParseError(s),
+  }
+}
+
+// Generic over what the callback throws.
+function map<T, U, E extends Error>(xs: T[], f: (x: T) => U throws E): U[] throws E {
+  const out: U[] = []
+  for (const x of xs) {
+    out.push(f(x))
+  }
+  out
+}
+
+// `map(lines, l => parseInt(l))` throws `ParseError`; with `l.length` it can't throw.
+function numbers(lines: string[]): int[] throws ParseError {
+  map(lines, l => parseInt(l))
+}
+println(`${numbers(["1", "22", "333"]):?}`)
+try {
+  numbers(["1", "x"])
+} catch (e: ParseError) {
+  println(e.message)
+}
+function lengths(lines: string[]): int[] {
+  map(lines, l => l.length)
+}
+println(`${lengths(["a", "b", "ccc"]):?}`)
+
+// `try?`: any error becomes null.
+const port = try? parseInt("8080")
+const missing = try? parseInt("nope")
+println(`port ${port ?? 0}, missing ${missing}`)
+
+// `try!`: the value, or a panic.
+println(try! parseInt("42"))
+
+// Top-level functions infer what they throw, recursively too.
+function depth(n: int): int {
+  if (n == 0) {
+    parseInt("bad")
+  }
+  if (n < 0) {
+    return 0
+  }
+  depth(n - 1) + 1
+}
+function safeDepth(): string {
+  try {
+    `${depth(-1)}`
+    depth(3)
+    "unreachable"
+  } catch (e: ParseError) {
+    "deep 3"
+  }
+}
+println(`inferred: ${safeDepth()}`)
+
+// Function values carry what they throw.
+const f: (s: string) => int throws ParseError = s => parseInt(s)
+println(try `value: ${f("y")}` catch (e) `value: ${e.message}`)
+const g = () => 7
+println(g())

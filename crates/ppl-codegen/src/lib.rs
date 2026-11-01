@@ -2577,7 +2577,7 @@ impl<'ctx> Gen<'ctx, '_> {
                         }
                     }
                     Callee::Indirect => {
-                        let Ty::Fn(ps, r) = self.operand_ty(fx, &args[0]) else {
+                        let Ty::Fn(ps, r, _) = self.operand_ty(fx, &args[0]) else {
                             unreachable!("indirect call of a non-function")
                         };
                         let vals: Vec<BasicMetadataValueEnum> = args

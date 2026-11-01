@@ -459,6 +459,7 @@ impl Resolver {
             defaults: Vec::new(),
             rest: false,
             throws: Vec::new(),
+            infer_throws: false,
         });
 
         Program {
@@ -815,10 +816,6 @@ impl Resolver {
             };
             self.not_implemented(name.span, what);
         }
-        let throws = match &f.throws {
-            Some(t) => self.throws_clause(t),
-            None => Vec::new(),
-        };
         self.f = FnState {
             in_entry: is_entry,
             owner,
@@ -829,6 +826,14 @@ impl Resolver {
             self.enter_type_params(sid);
         }
         let generics = self.type_params(&f.generics, &f.where_clause, self.cur_fn.0);
+        // `throws E` may name the function's type parameters.
+        let throws = match &f.throws {
+            Some(t) => self.throws_clause(t),
+            None => Vec::new(),
+        };
+        // Top-level functions without a `throws` clause infer it (until modules make some of
+        // them exported, which must declare it).
+        let infer_throws = f.throws.is_none() && owner.is_none() && !is_entry;
         let mut defaults: Vec<Option<Expr>> = Vec::new();
         let mut rest = false;
         if let Some(sid) = this_struct {
@@ -941,6 +946,7 @@ impl Resolver {
             defaults,
             rest,
             throws,
+            infer_throws,
         }
     }
 
@@ -953,7 +959,8 @@ impl Resolver {
         let mut out = Vec::new();
         for m in members {
             match self.resolve_type(m) {
-                ty @ Ty::Class(..) => out.push(ty),
+                ty @ (Ty::Class(..) | Ty::Param(..)) => out.push(ty),
+                Ty::Never => {}
                 Ty::Error => {}
                 other => self.error(
                     codes::NOT_THROWABLE,
@@ -1063,6 +1070,10 @@ impl Resolver {
             }
             _ => match self.resolve_type(t) {
                 Ty::Iface(sid, _, _) => vec![Bound::Iface(sid)],
+                // `E extends Error`: what a function throws.
+                Ty::Class(sid, _, _) if Some(sid) == self.top_structs.get("Error").copied() => {
+                    vec![Bound::Error]
+                }
                 Ty::Error => Vec::new(),
                 other => {
                     self.error(
@@ -1990,6 +2001,7 @@ impl Resolver {
             defaults: Vec::new(),
             rest: false,
             throws,
+            infer_throws: false,
         }
     }
 
@@ -2092,6 +2104,7 @@ impl Resolver {
             defaults: Vec::new(),
             rest: false,
             throws: Vec::new(),
+            infer_throws: false,
         }
     }
 
@@ -2547,6 +2560,7 @@ impl Resolver {
             defaults: Vec::new(),
             rest: false,
             throws: Vec::new(),
+            infer_throws: true,
         });
         ExprKind::Closure(id)
     }
@@ -2684,9 +2698,6 @@ impl Resolver {
                 throws,
                 extern_abi,
             } => {
-                if let Some(th) = throws {
-                    self.not_implemented(th.span, "`throws` in function types");
-                }
                 if extern_abi.is_some() {
                     self.not_implemented(t.span, "`extern` function types");
                 }
@@ -2699,7 +2710,12 @@ impl Resolver {
                     }
                 }
                 let ps: Vec<Ty> = params.iter().map(|p| self.resolve_type(&p.ty)).collect();
-                Ty::Fn(ps.into(), Box::new(self.resolve_type(ret)))
+                let ret = self.resolve_type(ret);
+                let ts = match throws {
+                    Some(th) => self.throws_clause(th),
+                    None => Vec::new(),
+                };
+                Ty::Fn(ps.into(), Box::new(ret), ts.into())
             }
             ast::TypeKind::Object(_) => {
                 self.not_implemented(t.span, "object types outside discriminated unions");
@@ -3298,6 +3314,8 @@ impl Resolver {
             A::Function(decl) => self.closure(decl, span),
             A::Tailcall(inner) => ExprKind::Tailcall(Box::new(self.lower_expr(inner))),
             A::Throw(inner) => ExprKind::Throw(Box::new(self.lower_expr(inner))),
+            A::TryOpt(inner) => ExprKind::TryOpt(Box::new(self.lower_expr(inner))),
+            A::TryBang(inner) => ExprKind::TryBang(Box::new(self.lower_expr(inner))),
             A::Try {
                 body,
                 catches,
@@ -3720,7 +3738,6 @@ impl Resolver {
                 let what = match other {
                     A::Super => "`super` outside a method call",
                     A::Object { .. } => "object and struct literals",
-                    A::TryOpt(_) | A::TryBang(_) => "`try?` and `try!`",
                     A::Await(_) => "`await`",
                     A::Yield { .. } => "generators",
                     A::Comptime(_) => "`comptime`",

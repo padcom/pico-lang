@@ -86,6 +86,8 @@ pub struct Types {
     pub derived: HashMap<ExprId, Derived>,
     /// Method calls on a value whose type is a type parameter: the method's name.
     pub param_calls: HashMap<ExprId, String>,
+    /// What each function may throw: its `throws` clause, or what was inferred for it.
+    pub fn_throws: Vec<Vec<Ty>>,
 }
 
 /// A protocol implemented field by field.
@@ -181,6 +183,7 @@ impl Types {
                 .map(|(k, ts)| (*k, ts.iter().map(s).collect()))
                 .collect(),
             param_calls: self.param_calls.clone(),
+            fn_throws: self.fn_throws.clone(),
             arg_slots: self.arg_slots.clone(),
             overloads: self.overloads.clone(),
             op_calls: self.op_calls.clone(),
@@ -239,6 +242,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             op_calls: HashMap::new(),
             derived: HashMap::new(),
             param_calls: HashMap::new(),
+            fn_throws: program.fns.iter().map(|f| f.throws.clone()).collect(),
         },
         narrow: Vec::new(),
         recv_args: Vec::new(),
@@ -278,8 +282,12 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
         c.check_fn(FnId(i as u32));
     }
     c.check_overrides();
-    if !c.diags.iter().any(|d| d.is_error()) {
-        let more = crate::throws::check(program, &c.types);
+    if !c
+        .diags
+        .iter()
+        .any(|d| d.is_error() && d.code != Some(codes::UNHANDLED_ERROR))
+    {
+        let more = crate::throws::check(program, &mut c.types);
         c.diags.extend(more);
     }
     // `immutable` only matters to the checks above.
@@ -500,6 +508,12 @@ fn subst_complete(p: &Ty, owner: u32, subst: &[Option<Ty>]) -> bool {
             subst_complete(t, owner, subst)
         }
         Ty::Tuple(ts) => ts.iter().all(|t| subst_complete(t, owner, subst)),
+        Ty::Fn(ps, r, ts) => {
+            ps.iter()
+                .chain(ts.iter())
+                .all(|t| subst_complete(t, owner, subst))
+                && subst_complete(r, owner, subst)
+        }
         Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) => {
             a.iter().all(|t| subst_complete(t, owner, subst))
         }
@@ -588,6 +602,15 @@ impl<'p> Checker<'p> {
     /// possibly into a nullable).
     fn upcasts(&self, from: &Ty, to: &Ty) -> bool {
         match (from, to) {
+            // A function throwing less (or subclasses) fits where one throwing more is expected.
+            (Ty::Fn(p1, r1, t1), Ty::Fn(p2, r2, t2)) if p1 == p2 && r1 == r2 => {
+                t1.iter().all(|t| {
+                    t2.iter().any(|d| match (t, d) {
+                        (Ty::Class(a, ..), Ty::Class(b, ..)) => self.program.is_subclass(*a, *b),
+                        (t, d) => t == d,
+                    })
+                })
+            }
             (Ty::Class(a, _, _), Ty::Class(b, _, _)) => self.program.is_subclass(*a, *b),
             // To an interface the type implements (nominally).
             (Ty::Class(a, _, _) | Ty::Struct(a, _, _), Ty::Iface(i, _, _)) => {
@@ -939,6 +962,14 @@ impl<'p> Checker<'p> {
             self.types.sigs[id.0 as usize].ret = ret;
         }
         self.state[id.0 as usize] = FnState::Done;
+        if f.infer_throws {
+            // What it throws: what its body lets escape (callees with inferred clauses first).
+            for c in crate::throws::callees(self.program, &self.types, id) {
+                self.check_fn(c);
+            }
+            self.types.fn_throws[id.0 as usize] =
+                crate::throws::uncaught(self.program, &self.types, id);
+        }
     }
 
     /// An override (or an interface method's implementation) must take and return the same
@@ -1428,13 +1459,15 @@ impl<'p> Checker<'p> {
             }
             ExprKind::Fn(id) if self.program.func(*id).generics.is_empty() => {
                 // A named function used as a value.
-                if self.program.func(*id).ret.is_none()
+                let g = self.program.func(*id);
+                if (g.ret.is_none() || g.infer_throws)
                     && self.state[id.0 as usize] == FnState::Unchecked
                 {
                     self.check_fn(*id);
                 }
                 let sig = self.types.sigs[id.0 as usize].clone();
-                Ty::Fn(sig.params.into(), Box::new(sig.ret))
+                let ts = self.types.fn_throws[id.0 as usize].clone();
+                Ty::Fn(sig.params.into(), Box::new(sig.ret), ts.into())
             }
             ExprKind::Fn(_) | ExprKind::Builtin(_) => {
                 self.diags.push(
@@ -1469,6 +1502,14 @@ impl<'p> Checker<'p> {
                 Ty::Error
             }
             ExprKind::Tailcall(inner) => self.tailcall(e, inner, want),
+            ExprKind::TryOpt(inner) => match self.infer(inner) {
+                t @ (Ty::Void | Ty::Never | Ty::Error | Ty::Nullable(_)) => t,
+                t => t.nullable(),
+            },
+            ExprKind::TryBang(inner) => match want {
+                Some(w) => self.check(inner, w),
+                None => self.infer(inner),
+            },
             ExprKind::Throw(inner) => {
                 let t = self.infer(inner);
                 let ok = match (&t, self.program.error_class) {
@@ -2932,7 +2973,9 @@ impl<'p> Checker<'p> {
             self.types.locals[id.0 as usize][c.inner.0 as usize] = t;
         }
         let expected = match want.map(|w| &w.ty) {
-            Some(Ty::Fn(ps, r)) if ps.len() == f.params.len() => Some((ps.clone(), r.clone())),
+            Some(Ty::Fn(ps, r, ts)) if ps.len() == f.params.len() => {
+                Some((ps.clone(), r.clone(), ts.clone()))
+            }
             _ => None,
         };
         for (i, p) in f.params.iter().enumerate() {
@@ -2940,7 +2983,7 @@ impl<'p> Checker<'p> {
                 continue;
             }
             let t = match &expected {
-                Some((ps, _)) => ps[i].clone(),
+                Some((ps, _, _)) => ps[i].clone(),
                 None => {
                     let b = f.local(*p);
                     self.diags.push(
@@ -2961,9 +3004,37 @@ impl<'p> Checker<'p> {
         let saved = std::mem::take(&mut self.narrow);
         self.check_fn(id);
         self.narrow = saved;
-        let _ = e;
         let sig = self.types.sigs[id.0 as usize].clone();
-        Ty::Fn(sig.params.into(), Box::new(sig.ret))
+        let inferred = self.types.fn_throws[id.0 as usize].clone();
+        let throws: std::sync::Arc<[Ty]> = match &expected {
+            // Generic over what it throws (or not known yet): what it throws decides.
+            Some((_, _, et)) if et.iter().any(|t| matches!(t, Ty::Param(..) | Ty::Error)) => {
+                inferred.into()
+            }
+            Some((_, _, et)) => {
+                for t in &inferred {
+                    let ok = et.iter().any(|d| match (d, t) {
+                        (Ty::Class(d, ..), Ty::Class(c, ..)) => self.program.is_subclass(*c, *d),
+                        (d, t) => d == t,
+                    });
+                    if !ok {
+                        let want = want.map(|w| w.ty.to_string()).unwrap_or_default();
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::UNHANDLED_ERROR,
+                                format!("unhandled error `{t}`"),
+                            )
+                            .primary(e.span, format!("this lambda can throw `{t}`"))
+                            .note(format!("it's used as `{want}`, which doesn't throw `{t}`"))
+                            .help("catch the error inside the lambda"),
+                        );
+                    }
+                }
+                et.clone()
+            }
+            None => inferred.into(),
+        };
+        Ty::Fn(sig.params.into(), Box::new(sig.ret), throws)
     }
 
     /// `tailcall f(args)`: only as the result of the function, calling a function with the
@@ -4854,7 +4925,7 @@ impl<'p> Checker<'p> {
             }
             _ => {
                 let t = self.infer(callee);
-                if let Ty::Fn(ps, r) = &t {
+                if let Ty::Fn(ps, r, _) = &t {
                     // A function value.
                     if args.len() != ps.len() {
                         self.diags.push(
@@ -5015,6 +5086,11 @@ impl<'p> Checker<'p> {
                     || matches!(t, Ty::Class(sid, _, _) if self.program.struct_def(*sid).method("compareTo").is_some())
             }
             Bound::Equatable => self.equatable(t),
+            Bound::Error => match (t, self.program.error_class) {
+                (Ty::Never, _) => true,
+                (Ty::Class(s, ..), Some(err)) => self.program.is_subclass(*s, err),
+                _ => false,
+            },
             Bound::Iface(i) => match t {
                 Ty::Struct(s, _, _) | Ty::Class(s, _, _) | Ty::Iface(s, _, _) => {
                     self.program.implements(*s, *i)
@@ -5043,6 +5119,30 @@ impl<'p> Checker<'p> {
             }
             (Ty::Nullable(p), Ty::Nullable(a)) => self.unify(owner, p, a, subst),
             (Ty::Nullable(p), a) => self.unify(owner, p, a, subst),
+            (Ty::Fn(ps, pr, pt), Ty::Fn(xs, xr, xt)) if ps.len() == xs.len() => {
+                for (p, a) in ps.iter().zip(xs.iter()) {
+                    self.unify(owner, p, a, subst);
+                }
+                self.unify(owner, pr, xr, subst);
+                // `throws E`: E is what the argument throws beyond the other listed errors
+                // (`never` for nothing, `Error` when it's several classes).
+                for p in pt.iter() {
+                    if let Ty::Param(o, i, _) = p
+                        && *o == owner
+                        && subst[*i as usize].is_none()
+                    {
+                        let rest: Vec<&Ty> = xt.iter().filter(|t| !pt.contains(t)).collect();
+                        subst[*i as usize] = Some(match rest.as_slice() {
+                            [] => Ty::Never,
+                            [t] => (*t).clone(),
+                            _ => match self.program.error_class {
+                                Some(err) => self.program.struct_def(err).self_ty(err),
+                                None => Ty::Error,
+                            },
+                        });
+                    }
+                }
+            }
             (Ty::Tuple(ps), Ty::Tuple(xs)) if ps.len() == xs.len() => {
                 for (p, a) in ps.iter().zip(xs) {
                     self.unify(owner, p, a, subst);
@@ -5145,9 +5245,11 @@ impl<'p> Checker<'p> {
         // Then literals (they can decide a type), then `[]`, `null` and object literals.
         for pass in 0..3 {
             for (k, (a, p)) in pairs.iter().enumerate() {
+                // Lambdas last: their parameter types come from what's known by then.
+                let lambda = matches!(a.kind, ExprKind::Closure(_));
                 let skip = match pass {
-                    0 => needs_context(a),
-                    1 => needs_context(a) && !untyped_lit(a),
+                    0 => needs_context(a) || lambda,
+                    1 => needs_context(a) && !untyped_lit(a) || lambda,
                     _ => false,
                 };
                 if done[k] || skip {
@@ -5165,7 +5267,11 @@ impl<'p> Checker<'p> {
                 {
                     self.check(a, &Expect::new(known));
                 } else {
-                    let at = self.infer(a);
+                    let at = if lambda {
+                        self.infer_with(a, Some(&Expect::new(known)))
+                    } else {
+                        self.infer(a)
+                    };
                     self.unify(owner, p, &at, &mut subst);
                     inferred[k] = true;
                 }
@@ -5179,6 +5285,8 @@ impl<'p> Checker<'p> {
                 None if generics[i].default.is_some() => {
                     args_ty.push(generics[i].default.clone().expect("checked"))
                 }
+                // An error parameter nothing determines: nothing is thrown.
+                None if generics[i].bounds.contains(&Bound::Error) => args_ty.push(Ty::Never),
                 None => {
                     let name = &generics[i].name;
                     self.diags.push(
@@ -5212,6 +5320,7 @@ impl<'p> Checker<'p> {
                     let what = match b {
                         Bound::Comparable => "`Comparable`".to_string(),
                         Bound::Equatable => "`Equatable`".to_string(),
+                        Bound::Error => "`Error`".to_string(),
                         Bound::Iface(s) => format!("`{}`", self.program.struct_def(*s).name),
                     };
                     self.diags.push(

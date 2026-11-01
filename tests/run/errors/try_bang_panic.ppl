@@ -1,0 +1,12 @@
+// `try!` turns an error into a panic carrying the error's message.
+// expect: before
+// panic: bad input: q
+class BadInput extends Error {
+  constructor(s: string) { super(`bad input: ${s}`) }
+}
+function check(s: string): int throws BadInput {
+  throw new BadInput(s)
+}
+println("before")
+const n = try! check("q")
+println(n)

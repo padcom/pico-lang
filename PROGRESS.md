@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.20: Exceptions II** (see [PLAN.md](PLAN.md#p320-exceptions-ii))
+**P3.21: Panics and stack traces** (see [PLAN.md](PLAN.md#p321-panics-and-stack-traces)). P3.20b (lightweight `Throwable`) was split off and is still open.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.19) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.20) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -132,7 +132,8 @@ Notes:
 - [x] P3.17 Operators and equality protocols
 - [x] P3.18 Distinct types, aliases, immutability
 - [x] P3.19 Exceptions I
-- [ ] P3.20 Exceptions II
+- [x] P3.20 Exceptions II
+- [ ] P3.20b Lightweight throwables (split from P3.20)
 - [ ] P3.21 Panics and stack traces
 - [ ] P3.22 Core collections and Array API
 - [ ] P3.23 Iterators and generators
@@ -257,3 +258,4 @@ Notes:
 | 2026-11-01 | P3.17 | Operators: `operator` members as methods `op+`/`op-u`/`op[]`/`op[]=` (resolver), typeck user_binary/unary/index/index-assign/compound dispatch (op_calls), `==` → user `equals`, comparisons → user or derived `compareTo` (derived), derived `equals`/`compareTo`/`hashCode` method calls; `@derive(Eq, Hash, Ord)` on classes; lowering user_call/receiver, compare_values/cmp_into (structs, tuples, fixed, ranges, enums, nullables, classes), eq_values (derived class equality), hash_value/hash_parts; MIR Rvalue::Hash/HashCombine with matching interpreter and C runtime (ppl_hash_u64/str/combine); bool `&`/`\|`/`^`. Fixed: run cache keyed on the compiler binary. Decision 195. Fixtures: run/operators (Vec2 arithmetic, sorting structs and classes by compareTo, derive), fail/types/operators; bound fixtures now use classes. |
 | 2026-11-01 | P3.18 | Ty::Distinct (from `type X = distinct T`, erased to the base; `as` conversions; literals adopt numeric distinct types), Ty::Immutable (typeck-only, stripped from Types before lowering): deep views with pure-value normalization, `through_immutable` checks for field/element assignment and non-readonly method calls (incl. push/pop), `readonly` methods (immutable `this`), `readonly` fields (E0334) incl. parameter properties; struct members accept `readonly`. Lowering erases literal types. Decision 196. Fixtures: run/distinct, fail/types/immutability (mutation through `immutable`, `Meters`/`Feet` mixing). Type aliases were done in P3.12. |
 | 2026-11-01 | P3.19 | Error-return exceptions: prelude `Error` class, `throw`, `try`/`catch`/`finally` as expression (and statement), typed/pattern catch clauses, `throws` on functions, methods and constructors; checked-throws pass (E0336) with catch narrowing; non-`Error` throws E0337; top-level uncaught → `uncaught Class: msg`, exit 1 (interp `Panic.uncaught`, runtime `ppl_uncaught`). `finally` runs on return/break/continue. Decision 197. Fixtures: run/errors/exceptions, fail/types/{exceptions,throw}, fail/names/throws_clause. IR/MIR snapshots now include the prelude. |
+| 2026-11-01 | P3.20 | Throws inference (lambdas, top-level fns; `Types.fn_throws`, fixpoint in `throws::check`), `Ty::Fn` carries throws (resolved `throws` in fn types, display, subclass-aware upcast), `E extends Error` (`Bound::Error`) bound from callbacks in `unify`, lambdas deferred to the last inference pass, `try?`/`try!`, checks after every indirect call. Lightweight throwables split into P3.20b. Decision 198. Fixtures: run/errors/{exceptions_inference,try_bang_panic}, fail/types/exceptions (rewritten: methods declare, top-level infers; map/parseInt precision). |

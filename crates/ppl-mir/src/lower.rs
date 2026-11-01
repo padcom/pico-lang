@@ -268,7 +268,7 @@ impl Cx<'_> {
         } else {
             return false;
         };
-        !self.program.func(h).throws.is_empty()
+        !self.types.fn_throws[h.0 as usize].is_empty()
     }
 
     fn instance(&mut self, id: FnId, subst: Subst) -> FnId {
@@ -770,6 +770,11 @@ impl FnBuilder<'_, '_> {
                     Callee::Fn(id) | Callee::Virtual { decl: id, .. } | Callee::Iface { decl: id, .. },
                 ..
             } => self.cx.throws(*id),
+            // A function value may throw whatever its type says, or (generic) anything.
+            Terminator::Call {
+                callee: Callee::Indirect,
+                ..
+            } => true,
             _ => false,
         };
         let Terminator::Call {
@@ -1883,6 +1888,52 @@ impl FnBuilder<'_, '_> {
                 }
                 self.switch_to(exit);
                 Operand::Const(Const::Void)
+            }
+            ExprKind::TryOpt(inner) | ExprKind::TryBang(inner) => {
+                let bang = matches!(e.kind, ExprKind::TryBang(_));
+                let result = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+                let dispatch = self.new_block();
+                let done = self.new_block();
+                self.handlers.push(dispatch);
+                let v = self.expr(inner);
+                let it = self.ty(inner);
+                self.handlers.pop();
+                if let Some(r) = &result
+                    && it != Ty::Never
+                {
+                    let v = self.convert(v, &it, &ty, e.span);
+                    self.assign(r.clone(), Rvalue::Use(v), e.span);
+                }
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(dispatch);
+                let err = self.cx.program.error_class.expect("prelude");
+                let err_ty = self.cx.program.struct_def(err).self_ty(err);
+                let exc = Place::local(self.temp(err_ty.clone()));
+                self.assign(exc.clone(), Rvalue::TakeException(err_ty), e.span);
+                if bang {
+                    // `try!`: the error becomes a panic with its message.
+                    let msg = self.rvalue_to_temp(
+                        Rvalue::Use(Operand::Copy(exc.field(0))),
+                        Ty::Str,
+                        e.span,
+                    );
+                    let loc = self.loc(e.span);
+                    self.terminate(Terminator::Panic { msg, loc });
+                } else {
+                    if let Some(r) = &result {
+                        self.assign(
+                            r.clone(),
+                            Rvalue::Use(Operand::Const(Const::Null(ty.clone()))),
+                            e.span,
+                        );
+                    }
+                    self.terminate(Terminator::Goto(done));
+                }
+                self.switch_to(done);
+                match result {
+                    Some(p) => Operand::Copy(p),
+                    None => Operand::Const(Const::Void),
+                }
             }
             ExprKind::Throw(inner) => {
                 let v = self.expr(inner);

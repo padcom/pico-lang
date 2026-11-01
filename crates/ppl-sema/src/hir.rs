@@ -361,6 +361,9 @@ pub struct Function {
     pub rest: bool,
     /// The `throws` clause: the error classes the function may throw.
     pub throws: Vec<Ty>,
+    /// No `throws` clause, and the function may leave it out: the type checker infers what
+    /// it throws (lambdas, non-exported top-level functions).
+    pub infer_throws: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -396,6 +399,8 @@ pub enum Bound {
     Comparable,
     /// The built-in `Equatable<T>`: `==` / `equals(o: T): bool`.
     Equatable,
+    /// `E extends Error`: an error class, or `never` (throws nothing).
+    Error,
 }
 
 impl Function {
@@ -766,6 +771,10 @@ pub enum ExprKind {
     Tailcall(Box<Expr>),
     /// `throw e`
     Throw(Box<Expr>),
+    /// `try? e`: the value, or `null` if it throws.
+    TryOpt(Box<Expr>),
+    /// `try! e`: the value; an error becomes a panic.
+    TryBang(Box<Expr>),
     /// `try body catch (…) … finally { … }`
     Try {
         body: Box<Expr>,
@@ -822,7 +831,11 @@ impl Expr {
             | ExprKind::Overloaded(_)
             | ExprKind::Error => {}
             ExprKind::NamedArg { value, .. } => f(value),
-            ExprKind::Spread(e) | ExprKind::Tailcall(e) | ExprKind::Throw(e) => f(e),
+            ExprKind::Spread(e)
+            | ExprKind::Tailcall(e)
+            | ExprKind::Throw(e)
+            | ExprKind::TryOpt(e)
+            | ExprKind::TryBang(e) => f(e),
             ExprKind::Try {
                 body,
                 catches,
