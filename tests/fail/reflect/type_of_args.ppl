@@ -1,0 +1,4 @@
+// error: E0302
+// at: 4:9
+import { reflect } from "std/reflect"
+println(reflect.typeOf())

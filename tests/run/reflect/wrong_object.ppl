@@ -1,0 +1,10 @@
+// A subclass's field needs an object of that subclass.
+// expect: 5
+// panic: reflection: the object isn't a `B` (field `extra`)
+import { reflect } from "std/reflect"
+class A { constructor(public n: int) {} }
+class B extends A { constructor(public extra: int) { super(0) } }
+const a: A = new B(5)
+const f = reflect.typeOf(a).field("extra")!
+println(f.get<int>(a))
+println(f.get<int>(new A(1)))

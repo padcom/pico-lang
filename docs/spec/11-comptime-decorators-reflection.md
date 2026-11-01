@@ -121,11 +121,29 @@ exactly those types that can reach a reflection call. Types that are never refle
 ```ts
 import { reflect } from "std/reflect"
 const t = reflect.typeOf(user)
-for (const f of t.fields) println(`${f.name}: ${f.type.name} = ${f.get(user):?}`)
+for (const f of t.fields) println(`${f.name}: ${f.type.name} = ${f.show(user)}`)
+const age = t.field("age")!.get<int>(user)
+t.field("age")!.set<int>(user, age + 1)
 ```
-- `reflect.typeOf<T>()` / `reflect.typeOf(value)`: name, fields, methods, interfaces, base class
-  and decorators.
-- Private members are visible to reflection only in the declaring module.
+- `reflect.typeOf<T>()` / `reflect.typeOf(value)` give a `TypeInfo<T>`: `name` and `kind` (as
+  `T.name`/`T.kind`), `fields: Field<T>[]` (instance fields, inherited ones first), `methods:
+  MethodInfo[]`, `interfaces: Type[]` (those declared with `implements`), `base: TypeInfo<T>?`,
+  `decorators: DecoratorInfo[]`, and `field(name): Field<T>?`. For a class value,
+  `typeOf(value)` describes its **runtime class** (a `User` variable holding an `Admin`
+  describes `Admin`; generic classes describe the static type).
+- A `Field<T>` has `name`, `type: Type` (`name`, `kind`), `decorators`, `isReadonly`, and
+  typed accessors: `get<V>(obj: T): V`, `set<V>(obj: T, value: V)` and `show(obj: T): string`
+  (the value as a class's default string form shows it, §6.1). There's no `unknown`-typed
+  access: `get`/`set` panic if `V` isn't the field's type, if the object isn't of the class
+  the field belongs to (a subclass's field on a base-class object), for a `readonly` field
+  (`set`), and on a struct (`set`; structs are passed by value).
+- `DecoratorInfo` has `name` (`json.name`) and `args`: each argument's source text
+  (`@table("users")` → `["\"users\""]`). Only decorators on classes and structs are kept for
+  now (others aren't implemented, §11.2).
+- Private members are visible to reflection only in the declaring module (the module that
+  calls `reflect.typeOf`).
+- Metadata is built where `typeOf` runs (a new `TypeInfo` per call), only for the types that
+  reach it; a program that doesn't reflect compiles exactly as without `std/reflect`.
 
 ## 11.4 JSON
 `JSON.parse<T>(text): T throws JsonError` and `JSON.stringify(value)` are generated at **compile

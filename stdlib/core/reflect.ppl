@@ -1,0 +1,83 @@
+// Runtime reflection (spec §11.3), exported by `std/reflect`. The compiler builds the
+// metadata where `reflect.typeOf` is used, for the types that can reach it; programs that don't
+// reflect pay nothing.
+
+/// `reflect.typeOf(value)` (the value's runtime class) and `reflect.typeOf<T>()`; the compiler
+/// rewrites both calls (`__reflectTypeOf`, `__reflectType`).
+class __reflect {}
+
+/// A type, as the type of a field or an implemented interface shows it.
+class __Type {
+  constructor(public name: string, public kind: string) {}
+  public toString(): string { name }
+}
+
+/// A decorator on a declaration: its name and each argument's source text
+/// (`@json.name("id")` → `json.name`, `["\"id\""]`).
+class __DecoratorInfo {
+  constructor(public name: string, public args: string[]) {}
+  public toString(): string {
+    if (args.length == 0) `@${name}` else `@${name}(${args.join(", ")})`
+  }
+}
+
+/// A type described at runtime. `T` is the type it was asked about: for a class value, the
+/// description is of the value's runtime class (`T` or a subclass).
+class __TypeInfo<T> {
+  constructor(
+    /// As messages show it: `Point`, `Box<i64>`, `i64[]`.
+    public name: string,
+    /// `"struct"`, `"class"`, `"interface"`, `"enum"`, `"primitive"`, `"array"`, … (as `T.kind`).
+    public kind: string,
+    /// Instance fields, inherited ones first (private ones only in the declaring module).
+    public fields: __Field<T>[],
+    /// Instance methods.
+    public methods: MethodInfo[],
+    /// The interfaces it declares with `implements`.
+    public interfaces: __Type[],
+    /// The base class.
+    public base: __TypeInfo<T>?,
+    public decorators: __DecoratorInfo[],
+  ) {}
+
+  /// The field called `name`.
+  public field(name: string): __Field<T>? { fields.find((f: __Field<T>) => f.name == name) }
+
+  public toString(): string { name }
+}
+
+/// A field of a `T` (or of the runtime class described). `get` and `set` name the field's type
+/// and panic if it's another one (or if the object isn't of the class the field belongs to).
+class __Field<T> {
+  constructor(
+    public name: string,
+    public type: __Type,
+    public decorators: __DecoratorInfo[],
+    public isReadonly: bool,
+    private id: int,
+  ) {}
+
+  /// The field's value in `obj`.
+  public get<V>(obj: T): V { __reflectGet<T, V>(obj, id) }
+
+  /// Sets the field in `obj` (a class instance; a struct is passed by value). Panics for a
+  /// `readonly` field (`isReadonly`).
+  public set<V>(obj: T, value: V): void { __reflectSet<T, V>(obj, id, value) }
+
+  /// The field's value in `obj` as a string, as a class's default string form shows it.
+  public show(obj: T): string { __reflectShow<T>(obj, id) }
+
+  public toString(): string { `${name}: ${type.name}` }
+}
+
+function __reflectType<T>(): __TypeInfo<T> { panic("reflection metadata wasn't generated") }
+function __reflectTypeOf<T>(value: T): __TypeInfo<T> {
+  panic("reflection metadata wasn't generated")
+}
+function __reflectGet<T, V>(obj: T, id: int): V { panic("reflection accessor wasn't generated") }
+function __reflectSet<T, V>(obj: T, id: int, value: V): void {
+  panic("reflection accessor wasn't generated")
+}
+function __reflectShow<T>(obj: T, id: int): string {
+  panic("reflection accessor wasn't generated")
+}

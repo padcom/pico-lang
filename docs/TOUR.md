@@ -1365,13 +1365,14 @@ import { reflect } from "std/reflect"
 
 const t = reflect.typeOf(user)
 println(t.name)                           // User
-for (const f of t.fields) println(`${f.name}: ${f.type.name} = ${f.get(user):?}`)
+for (const f of t.fields) println(`${f.name}: ${f.type.name} = ${f.show(user)}`)
+const age = t.field("age")!.get<int>(user)   // typed: panics if `age` isn't an `int`
 for (const m of t.methods) println(m.name)
 println(t.interfaces.map(i => i.name))
 println(t.decorators.map(d => d.name))   // ["derive", "mustHaveId"]
 
 const u = reflect.typeOf<User>()
-u.field("name")!.set(user, "Ann")
+u.field("name")!.set<string>(user, "Ann")
 ```
 Metadata is emitted only for types that can reach a reflection call.
 

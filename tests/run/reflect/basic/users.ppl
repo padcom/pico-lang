@@ -1,0 +1,24 @@
+import { reflect, Field } from "std/reflect"
+import { ClassDecl } from "std/meta"
+
+export interface Named { label(): string }
+
+export decorator function table(c: ClassDecl, name: string) {}
+
+@table("users")
+export class User implements Named {
+  public readonly id: int
+  constructor(id: int, public name: string, public age: int, private secret: string) {
+    this.id = id
+  }
+  public label(): string { name }
+}
+
+export class Admin extends User {
+  constructor(name: string, public level: i32) { super(1, name, 40, "s3cr3t") }
+}
+
+// The declaring module sees private fields.
+export function fieldNamesHere(u: User): string {
+  reflect.typeOf(u).fields.map((f: Field<User>) => f.name).join(", ")
+}

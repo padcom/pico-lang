@@ -33,6 +33,9 @@ pub struct Modules {
     /// Decorators of top-level bindings (`@comptimeLimit(n) comptime const …`), by the span
     /// of the binding statement.
     pub binding_decorators: HashMap<Span, Vec<ast::Decorator>>,
+    /// The decorators that were on structs and classes before they ran (for reflection), by
+    /// the type's name span: each one's name and its arguments' source text.
+    pub type_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
     /// Code generated into a module (by decorators) lives in a file of its own, part of the
     /// module of the file it maps to.
     pub file_modules: HashMap<FileId, FileId>,
@@ -205,6 +208,7 @@ pub fn resolve_modules(
         distincts: 0,
         outer_fns: Vec::new(),
         binding_decorators: modules.binding_decorators.clone(),
+        type_decorators: modules.type_decorators.clone(),
         comptime_limit: None,
         comptime_depth: 0,
         len_params: HashSet::new(),
@@ -316,6 +320,8 @@ struct FnState {
 struct Resolver {
     /// See [`Modules::binding_decorators`].
     binding_decorators: HashMap<Span, Vec<ast::Decorator>>,
+    /// See [`Modules::type_decorators`].
+    type_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
     /// The `@comptimeLimit` of the binding whose `comptime` initializer is being lowered.
     comptime_limit: Option<u64>,
     /// How many `comptime` expressions the code being lowered is inside.
@@ -474,6 +480,13 @@ impl Resolver {
                         let id = StructId(self.structs.len() as u32);
                         let mut def = StructDef::new(sd.name.name.clone(), sd.name.span, false);
                         def.pod = pod && sd.generics.is_empty();
+                        def.decorators = self
+                            .type_decorators
+                            .remove(&sd.name.span)
+                            .unwrap_or_default();
+                        if pod {
+                            def.decorators.push(("pod".into(), Vec::new()));
+                        }
                         self.structs.push(def);
                         self.top_structs
                             .insert(&self.mods, sd.name.name.clone(), id);
@@ -500,7 +513,11 @@ impl Resolver {
                             continue;
                         }
                         let id = StructId(self.structs.len() as u32);
-                        let def = StructDef::new(cd.name.name.clone(), cd.name.span, true);
+                        let mut def = StructDef::new(cd.name.name.clone(), cd.name.span, true);
+                        def.decorators = self
+                            .type_decorators
+                            .remove(&cd.name.span)
+                            .unwrap_or_default();
                         self.structs.push(def);
                         self.top_structs
                             .insert(&self.mods, cd.name.name.clone(), id);
@@ -5136,6 +5153,43 @@ impl Resolver {
                     },
                 }
             }
+            // `reflect.typeOf(v)` / `reflect.typeOf<T>()` (`std/reflect`): the core library's
+            // `__reflectTypeOf` / `__reflectType`, kept at this call so its module decides
+            // which private fields show (spec §11.3).
+            A::Call {
+                callee,
+                type_args,
+                args,
+            } if self.reflect_call(callee) => {
+                let (name, want_types, want_args) = if args.is_empty() {
+                    ("__reflectType", 1, 0)
+                } else {
+                    ("__reflectTypeOf", type_args.len().min(1), 1)
+                };
+                if type_args.len() != want_types || args.len() != want_args {
+                    self.error(
+                        codes::WRONG_ARG_COUNT,
+                        span,
+                        "`reflect.typeOf` takes a value or a type argument: `reflect.typeOf(v)`, `reflect.typeOf<T>()`",
+                        "wrong number of arguments",
+                    );
+                    return self.error_expr(span);
+                }
+                let f = self
+                    .top_fns
+                    .prelude()
+                    .find(|(n, _)| *n == name)
+                    .map(|(_, ids)| ids[0])
+                    .expect("in the core library");
+                let type_args = type_args.iter().map(|t| self.resolve_type(t)).collect();
+                let callee = self.expr(ExprKind::Fn(f), callee.span);
+                let args = self.call_args(args);
+                ExprKind::Call {
+                    callee: Box::new(callee),
+                    args,
+                    type_args,
+                }
+            }
             A::Call {
                 callee,
                 type_args,
@@ -5371,6 +5425,24 @@ impl Resolver {
             ast::ExprKind::Ident(n) if n == "__worker_take" => Some("__worker_take"),
             _ => None,
         }
+    }
+
+    /// Whether `callee` is `reflect.typeOf`, `reflect` being the core library's `__reflect`
+    /// (as `std/reflect` exports it).
+    fn reflect_call(&self, callee: &ast::Expr) -> bool {
+        let ast::ExprKind::Member { object, prop, .. } = &callee.kind else {
+            return false;
+        };
+        let ast::ExprKind::Ident(n) = &object.kind else {
+            return false;
+        };
+        prop.name == "typeOf"
+            && !self.is_value_name(n)
+            && self.top_structs.get(&self.mods, n).is_some_and(|id| {
+                self.top_structs
+                    .prelude()
+                    .any(|(pn, pid)| pn == "__reflect" && pid == id)
+            })
     }
 
     fn is_value_name(&self, name: &str) -> bool {

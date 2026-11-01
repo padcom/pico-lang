@@ -177,17 +177,51 @@ pub fn expand(
     // Decorators are gone from the program that runs.
     let user = |file: FileId, d: &ast::Decorator| matches!(&d.path[..], [n] if find_decorator(&decorators, modules, file, &n.name).is_some());
     let mut kept = Vec::with_capacity(stmts.len());
+    let mut type_decorators = Vec::new();
     for mut st in std::mem::take(stmts) {
         if let StmtKind::Decl(d) = &mut st.kind {
             if matches!(&d.kind, DeclKind::Function(f) if f.flags.decorator) {
                 continue;
             }
             let file = st.span.file;
+            // Reflection still sees them (spec §11.3).
+            let name_span = match &d.kind {
+                DeclKind::Class(c) => Some(c.name.span),
+                DeclKind::Struct(s) => Some(s.name.span),
+                _ => None,
+            };
+            if let Some(ns) = name_span {
+                let text = |sp: Span| {
+                    sm.file(sp.file).text[sp.start as usize..sp.end as usize].to_string()
+                };
+                let seen: Vec<(String, Vec<String>)> = d
+                    .decorators
+                    .iter()
+                    .filter(|dec| user(file, dec))
+                    .map(|dec| {
+                        let name: Vec<&str> = dec.path.iter().map(|p| p.name.as_str()).collect();
+                        let args = dec
+                            .args
+                            .iter()
+                            .flatten()
+                            .map(|a| match &a.name {
+                                Some(n) => format!("{}: {}", n.name, text(a.value.span)),
+                                None => text(a.value.span),
+                            })
+                            .collect();
+                        (name.join("."), args)
+                    })
+                    .collect();
+                if !seen.is_empty() {
+                    type_decorators.push((ns, seen));
+                }
+            }
             d.decorators.retain(|dec| !user(file, dec));
         }
         kept.push(st);
     }
     *stmts = kept;
+    modules.type_decorators.extend(type_decorators);
     out
 }
 

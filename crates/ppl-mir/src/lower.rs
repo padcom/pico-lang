@@ -35,7 +35,7 @@ pub fn lower(
         gen_frames: HashMap::new(),
         skip_files: program.workers.iter().copied().collect(),
         inline_entry: false,
-        shows: Vec::new(),
+        synths: Vec::new(),
     };
     // Generic functions get a placeholder; their instances are lowered on demand.
     let mut fns: Vec<mir::Function> = (0..program.fns.len())
@@ -92,13 +92,13 @@ pub fn lower(
     // Monomorphization: each instance is the generic body seen through substituted types.
     // Show functions may need more instances and the other way round.
     let mut next = 0;
-    let mut show_fns: Vec<mir::Function> = Vec::new();
-    while next < cx.instances.len() || show_fns.len() < cx.shows.len() {
+    let mut synth_fns: Vec<mir::Function> = Vec::new();
+    while next < cx.instances.len() || synth_fns.len() < cx.synths.len() {
         if next == cx.instances.len() {
             cx.types = std::borrow::Cow::Borrowed(types);
             cx.cur_subst = Vec::new();
-            let (t, id) = cx.shows[show_fns.len()].clone();
-            show_fns.push(cx.show_function(&t, id));
+            let (what, id) = cx.synths[synth_fns.len()].clone();
+            synth_fns.push(cx.synth_function(&what, id));
             continue;
         }
         let (id, subst) = cx.instances[next].clone();
@@ -141,20 +141,20 @@ pub fn lower(
         .uses_inline_workers
         .then(|| worker_entries.pop().expect("pushed"));
     fns.extend(worker_fns);
-    // The show functions come last; calls of them get their real ids.
-    if !show_fns.is_empty() {
+    // The synthesized functions come last; calls of them get their real ids.
+    if !synth_fns.is_empty() {
         let first = fns.len() as u32;
-        fns.extend(show_fns);
+        fns.extend(synth_fns);
         for f in &mut fns {
             for b in &mut f.blocks {
                 if let Terminator::Call {
                     callee: Callee::Fn(id),
                     ..
                 } = &mut b.term
-                    && id.0 >= SHOW_BASE
-                    && id.0 < SHOW_BASE + cx.shows.len() as u32
+                    && id.0 >= SYNTH_BASE
+                    && id.0 < SYNTH_BASE + cx.synths.len() as u32
                 {
-                    *id = FnId(first + id.0 - SHOW_BASE);
+                    *id = FnId(first + id.0 - SYNTH_BASE);
                 }
             }
         }
@@ -441,13 +441,102 @@ struct Cx<'a> {
     skip_files: HashSet<ppl_diag::FileId>,
     /// Lowering the inline workers' entry: `__inlineWorkerMain()` runs before the loop.
     inline_entry: bool,
-    /// The requested show functions (a class's string form, see `show_fn`) and their
-    /// placeholder ids (`SHOW_BASE + i`), fixed up once every function exists.
-    shows: Vec<(Ty, FnId)>,
+    /// The requested synthesized functions (see `Synth`) and their placeholder ids
+    /// (`SYNTH_BASE + i`), fixed up once every function exists.
+    synths: Vec<(Synth, FnId)>,
 }
 
-/// The first placeholder id of a show function.
-const SHOW_BASE: u32 = 0x4000_0000;
+/// The core library's reflection functions, which calls replace with synthesized ones.
+const REFLECT_FNS: &[&str] = &[
+    "__reflectType",
+    "__reflectTypeOf",
+    "__reflectGet",
+    "__reflectSet",
+    "__reflectShow",
+];
+
+/// The first placeholder id of a synthesized function.
+const SYNTH_BASE: u32 = 0x4000_0000;
+
+/// A function the compiler writes itself (no HIR), made on demand.
+#[derive(Clone, PartialEq, Debug)]
+enum Synth {
+    /// A class instance's string form (`show_body`): `(this) -> string`.
+    Show(Ty),
+    /// Reflection metadata (spec §11.3): a `__TypeInfo<seen>` describing type `of`. `file` is
+    /// the module asking (it sees its own private fields). `dynamic`: takes the `seen` value
+    /// and describes its runtime class; otherwise takes nothing.
+    Info {
+        seen: Ty,
+        of: Ty,
+        file: ppl_diag::FileId,
+        dynamic: bool,
+    },
+    /// `(obj: T, id: int) -> V`: reads reflected field `id` (see `field_id`).
+    Get(Ty, Ty),
+    /// `(obj: T, id: int, value: V)`: writes reflected field `id`.
+    Set(Ty, Ty),
+    /// `(obj: T, id: int) -> string`: a reflected field's string form.
+    FieldShow(Ty),
+}
+
+/// What a field accessor does.
+enum Access {
+    Get(Ty),
+    Set(Ty),
+    Show,
+}
+
+impl Access {
+    fn new(set: bool, v: &Ty) -> Access {
+        if set {
+            Access::Set(v.clone())
+        } else {
+            Access::Get(v.clone())
+        }
+    }
+}
+
+/// The id reflection gives field `i` of struct or class `sid`: the class declaring it (for a
+/// non-generic class, a base class for inherited fields) and the index, as `(class << 20) | i`.
+fn field_id(p: &hir::Program, mut sid: StructId, i: usize) -> i64 {
+    while p.struct_def(sid).generics.is_empty()
+        && let Some(b) = p.struct_def(sid).base
+        && p.struct_def(b).generics.is_empty()
+        && p.struct_def(b).fields.len() > i
+    {
+        sid = b;
+    }
+    ((sid.0 as i64) << 20) | i as i64
+}
+
+/// The non-generic classes deriving from `sid`, directly or not.
+fn subclasses(p: &hir::Program, sid: StructId) -> Vec<StructId> {
+    (0..p.structs.len())
+        .map(|i| StructId(i as u32))
+        .filter(|s| {
+            let d = p.struct_def(*s);
+            *s != sid && d.is_class && d.generics.is_empty() && p.is_subclass(*s, sid)
+        })
+        .collect()
+}
+
+/// `T.kind` (and `TypeInfo.kind`) for type `t`.
+fn kind_name(t: &Ty) -> &'static str {
+    match t {
+        Ty::Struct(..) => "struct",
+        Ty::Class(..) => "class",
+        Ty::Iface(..) => "interface",
+        Ty::Enum(..) | Ty::Union(..) => "enum",
+        Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Void => "primitive",
+        Ty::Array(_) => "array",
+        Ty::Fixed(..) => "fixed array",
+        Ty::Tuple(_) => "tuple",
+        Ty::Nullable(_) => "nullable",
+        Ty::Fn(..) => "function",
+        _ => "other",
+    }
+}
 
 impl Cx<'_> {
     /// The MIR function for generic `id` seen through `subst`.
@@ -468,12 +557,28 @@ impl Cx<'_> {
     /// The function giving the string form of a class instance of type `t` (spec §6.1):
     /// its runtime class's `toString(): string`, or the default `Name (field = value, …)`.
     fn show_fn(&mut self, t: &Ty) -> FnId {
-        if let Some((_, f)) = self.shows.iter().find(|(x, _)| x == t) {
+        self.synth(Synth::Show(t.clone()))
+    }
+
+    /// The id of synthesized function `what`, requesting it the first time.
+    fn synth(&mut self, what: Synth) -> FnId {
+        if let Some((_, f)) = self.synths.iter().find(|(x, _)| *x == what) {
             return *f;
         }
-        let f = FnId(SHOW_BASE + self.shows.len() as u32);
-        self.shows.push((t.clone(), f));
+        let f = FnId(SYNTH_BASE + self.synths.len() as u32);
+        self.synths.push((what, f));
         f
+    }
+
+    /// A core-library class (by its name there, like `__TypeInfo`).
+    fn core_struct(&self, name: &str) -> StructId {
+        let i = self
+            .program
+            .structs
+            .iter()
+            .position(|d| d.name == name)
+            .unwrap_or_else(|| panic!("core class `{name}`"));
+        StructId(i as u32)
     }
 
     /// A class's own or inherited `toString(): string` (no parameters, doesn't throw).
@@ -489,15 +594,19 @@ impl Cx<'_> {
         .then_some(m)
     }
 
-    /// Builds show function `id` for class type `t` (see `FnBuilder::show_body`).
-    fn show_function(&mut self, t: &Ty, id: FnId) -> mir::Function {
-        let Ty::Class(sid, _, _) = t else {
-            unreachable!("show function for {t}")
-        };
-        let name = format!("{t}.<show>");
-        let span = self.program.struct_def(*sid).name_span;
+    /// Builds synthesized function `id`.
+    fn synth_function(&mut self, what: &Synth, id: FnId) -> mir::Function {
         let entry = self.program.entry;
         let hir_fn = self.program.func(entry);
+        // Messages point at the type's declaration.
+        let about = match what {
+            Synth::Show(t) | Synth::Get(t, _) | Synth::Set(t, _) | Synth::FieldShow(t) => t,
+            Synth::Info { of, .. } => of,
+        };
+        let span = match about {
+            Ty::Struct(sid, _, _) | Ty::Class(sid, _, _) => self.program.struct_def(*sid).name_span,
+            _ => hir_fn.span,
+        };
         self.cur_mir = id;
         let mut b = FnBuilder {
             cx: self,
@@ -513,9 +622,53 @@ impl Cx<'_> {
             propagate: None,
             generator: None,
         };
-        let this = b.temp(t.clone());
-        let v = b.show_body(this, t, span);
-        b.terminate(Terminator::Return(Some(v)));
+        let (name, params, ret, value) = match what {
+            Synth::Show(t) => {
+                let this = b.temp(t.clone());
+                let v = b.show_body(this, t, span);
+                (format!("{t}.<show>"), vec![this], Ty::Str, Some(v))
+            }
+            Synth::Info {
+                seen,
+                of,
+                file,
+                dynamic,
+            } => {
+                let v = dynamic.then(|| b.temp(seen.clone()));
+                let r = b.info_body(seen, of, *file, v, span);
+                let ret = b.cx.type_info_ty(seen);
+                (
+                    format!("{of}.<typeinfo>"),
+                    v.into_iter().collect(),
+                    ret,
+                    Some(r),
+                )
+            }
+            Synth::Get(t, v) | Synth::Set(t, v) => {
+                let obj = b.temp(t.clone());
+                let fid = b.temp(Ty::INT);
+                let set = matches!(what, Synth::Set(..));
+                let value = set.then(|| b.temp(v.clone()));
+                b.access_body(t, Access::new(set, v), obj, fid, value, span);
+                let mut params = vec![obj, fid];
+                params.extend(value);
+                let (n, ret) = if set {
+                    ("set", Ty::Void)
+                } else {
+                    ("get", v.clone())
+                };
+                (format!("{t}.<{n} {v}>"), params, ret, None)
+            }
+            Synth::FieldShow(t) => {
+                let obj = b.temp(t.clone());
+                let fid = b.temp(Ty::INT);
+                b.access_body(t, Access::Show, obj, fid, None, span);
+                (format!("{t}.<show field>"), vec![obj, fid], Ty::Str, None)
+            }
+        };
+        if let Some(v) = value {
+            b.terminate(Terminator::Return(Some(v)));
+        }
         let blocks = b
             .blocks
             .into_iter()
@@ -527,11 +680,30 @@ impl Cx<'_> {
         mir::Function {
             name,
             library: true,
-            params: vec![this],
-            ret: Ty::Str,
+            params,
+            ret,
             locals: b.locals,
             blocks,
         }
+    }
+
+    /// `__TypeInfo<seen>`.
+    fn type_info_ty(&self, seen: &Ty) -> Ty {
+        let sid = self.core_struct("__TypeInfo");
+        self.program
+            .struct_ty(sid)
+            .subst(Ty::type_owner(sid), std::slice::from_ref(seen))
+    }
+
+    /// The type of field `field` of core class `class` seen through type arguments `args`.
+    fn core_field_ty(&self, class: &str, field: &str, args: &[Ty]) -> (u32, Ty) {
+        let sid = self.core_struct(class);
+        let (i, f) = self
+            .program
+            .struct_def(sid)
+            .field(field)
+            .expect("core field");
+        (i as u32, f.ty.subst(Ty::type_owner(sid), args))
     }
 
     fn instance(&mut self, id: FnId, subst: Subst) -> FnId {
@@ -1093,20 +1265,7 @@ impl FnBuilder<'_, '_> {
         };
         match member {
             M::Name => s(t.to_string()),
-            M::Kind => s(match t {
-                Ty::Struct(..) => "struct",
-                Ty::Class(..) => "class",
-                Ty::Iface(..) => "interface",
-                Ty::Enum(..) | Ty::Union(..) => "enum",
-                Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Void => "primitive",
-                Ty::Array(_) => "array",
-                Ty::Fixed(..) => "fixed array",
-                Ty::Tuple(_) => "tuple",
-                Ty::Nullable(_) => "nullable",
-                Ty::Fn(..) => "function",
-                _ => "other",
-            }
-            .to_string()),
+            M::Kind => s(kind_name(t).to_string()),
             M::Fields => {
                 let fields: Vec<(String, String)> = match &def {
                     Some((d, sid, args)) => d
@@ -4013,6 +4172,372 @@ impl FnBuilder<'_, '_> {
         self.rvalue_to_temp(Rvalue::ToStr(v), Ty::Str, span)
     }
 
+    /// Ends the current block with a panic, continuing in a fresh (unreachable) block.
+    fn panic_with(&mut self, msg: String, span: Span) {
+        let loc = self.loc(span);
+        self.terminate(Terminator::Panic {
+            msg: Operand::Const(Const::Str(msg)),
+            loc,
+        });
+        let next = self.new_block();
+        self.switch_to(next);
+    }
+
+    /// A new object of core class type `t` with the given fields set (by name).
+    fn core_object(&mut self, t: &Ty, fields: Vec<(&str, Operand)>, span: Span) -> Operand {
+        let obj = self.temp(t.clone());
+        self.assign(Place::local(obj), Rvalue::New(t.clone()), span);
+        let Ty::Class(sid, _, _) = t else {
+            unreachable!("core object of {t}")
+        };
+        for (name, v) in fields {
+            let (i, _) = self
+                .cx
+                .program
+                .struct_def(*sid)
+                .field(name)
+                .expect("core field");
+            self.assign(Place::local(obj).field(i as u32), Rvalue::Use(v), span);
+        }
+        Operand::Copy(Place::local(obj))
+    }
+
+    /// An array of the operands.
+    fn array_of(&mut self, elem: &Ty, items: Vec<Operand>, span: Span) -> Operand {
+        self.rvalue_to_temp(
+            Rvalue::ArrayNew(elem.clone(), items),
+            Ty::Array(Box::new(elem.clone())),
+            span,
+        )
+    }
+
+    /// A `__Type` for `t`.
+    fn reflected_type(&mut self, name: String, kind: &str, span: Span) -> Operand {
+        let sid = self.cx.core_struct("__Type");
+        let t = self.cx.program.struct_ty(sid);
+        let s = |v: String| Operand::Const(Const::Str(v));
+        self.core_object(&t, vec![("name", s(name)), ("kind", s(kind.into()))], span)
+    }
+
+    /// The body of a type-info function (`Synth::Info`): with the value `v` of a non-generic
+    /// class type, first the subclasses' descriptions for their instances; then a new
+    /// `__TypeInfo<seen>` describing `of`.
+    fn info_body(
+        &mut self,
+        seen: &Ty,
+        of: &Ty,
+        file: ppl_diag::FileId,
+        v: Option<Local>,
+        span: Span,
+    ) -> Operand {
+        let info_ty = self.cx.type_info_ty(seen);
+        let res = Place::local(self.temp(info_ty.clone()));
+        let done = self.new_block();
+        if let (Some(v), Ty::Class(sid, _, args)) = (v, of)
+            && args.is_empty()
+        {
+            let direct: Vec<StructId> = subclasses(self.cx.program, *sid)
+                .into_iter()
+                .filter(|s| self.cx.program.struct_def(*s).base == Some(*sid))
+                .collect();
+            for d in direct {
+                let is = self.rvalue_to_temp(
+                    Rvalue::InstanceOf(Operand::Copy(Place::local(v)), d),
+                    Ty::Bool,
+                    span,
+                );
+                let (yes, no) = (self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: is,
+                    then: yes,
+                    else_: no,
+                });
+                self.switch_to(yes);
+                let f = self.cx.synth(Synth::Info {
+                    seen: seen.clone(),
+                    of: self.cx.program.struct_ty(d),
+                    file,
+                    dynamic: true,
+                });
+                self.call_into(f, vec![Operand::Copy(Place::local(v))], res.clone(), span);
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(no);
+            }
+        }
+        let info = self.describe(seen, of, file, span);
+        self.assign(res.clone(), Rvalue::Use(info), span);
+        self.terminate(Terminator::Goto(done));
+        self.switch_to(done);
+        Operand::Copy(res)
+    }
+
+    /// Calls `f` with `args`, storing the result in `dest`.
+    fn call_into(&mut self, f: FnId, args: Vec<Operand>, dest: Place, span: Span) {
+        let next = self.new_block();
+        let loc = self.loc(span);
+        self.terminate(Terminator::Call {
+            callee: Callee::Fn(f),
+            args,
+            dest: Some(dest),
+            next,
+            loc,
+        });
+        self.switch_to(next);
+    }
+
+    /// A new `__TypeInfo<seen>` describing type `of` (its base class's description included).
+    fn describe(&mut self, seen: &Ty, of: &Ty, file: ppl_diag::FileId, span: Span) -> Operand {
+        let s = |v: String| Operand::Const(Const::Str(v));
+        let targs = std::slice::from_ref(seen);
+        let (_, fields_ty) = self.cx.core_field_ty("__TypeInfo", "fields", targs);
+        let (_, methods_ty) = self.cx.core_field_ty("__TypeInfo", "methods", targs);
+        let (_, ifaces_ty) = self.cx.core_field_ty("__TypeInfo", "interfaces", targs);
+        let (_, decs_ty) = self.cx.core_field_ty("__TypeInfo", "decorators", targs);
+        let elem = |t: &Ty| match t {
+            Ty::Array(e) => (**e).clone(),
+            other => unreachable!("array field of {other}"),
+        };
+        let (field_ty, method_ty, dec_ty) = (elem(&fields_ty), elem(&methods_ty), elem(&decs_ty));
+        let def = match of {
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) | Ty::Iface(sid, _, args) => {
+                Some((*sid, args.clone()))
+            }
+            _ => None,
+        };
+        // Private members only in the declaring module (spec §11.3).
+        let visible = |n: &str, d: &hir::StructDef| {
+            !n.starts_with("__") && (!d.private.contains(n) || d.name_span.file == file)
+        };
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        let mut ifaces = Vec::new();
+        let mut decorators = Vec::new();
+        let mut base = Operand::Const(Const::Null(Ty::Nullable(Box::new(
+            self.cx.type_info_ty(seen),
+        ))));
+        if let Some((sid, args)) = def {
+            let program = self.cx.program;
+            let d = program.struct_def(sid);
+            let owner = Ty::type_owner(sid);
+            for (i, f) in d.fields.iter().enumerate() {
+                if !visible(&f.name, d) {
+                    continue;
+                }
+                let fty = f.ty.subst(owner, &args);
+                let ty = self.reflected_type(fty.to_string(), kind_name(&fty), span);
+                let decs = self.array_of(&dec_ty, Vec::new(), span);
+                let id = Operand::Const(Const::Int(field_id(program, sid, i) as i128, IntTy::I64));
+                let fo = self.core_object(
+                    &field_ty,
+                    vec![
+                        ("name", s(f.name.clone())),
+                        ("type", ty),
+                        ("decorators", decs),
+                        ("isReadonly", Operand::Const(Const::Bool(f.readonly))),
+                        ("id", id),
+                    ],
+                    span,
+                );
+                fields.push(fo);
+            }
+            for (n, _) in &d.methods {
+                if visible(n, d) {
+                    let m = self.rvalue_to_temp(
+                        Rvalue::Aggregate(method_ty.clone(), vec![s(n.clone())]),
+                        method_ty.clone(),
+                        span,
+                    );
+                    methods.push(m);
+                }
+            }
+            for i in d.implements.clone() {
+                let name = program.struct_def(i).name.clone();
+                ifaces.push(self.reflected_type(name, "interface", span));
+            }
+            for (name, dargs) in d.decorators.clone() {
+                let items = dargs.into_iter().map(s).collect();
+                let a = self.array_of(&Ty::Str, items, span);
+                decorators.push(self.core_object(
+                    &dec_ty,
+                    vec![("name", s(name)), ("args", a)],
+                    span,
+                ));
+            }
+            if let Some(b) = d.base {
+                let bt = program.struct_ty(b);
+                if program.struct_def(b).generics.is_empty() {
+                    let f = self.cx.synth(Synth::Info {
+                        seen: seen.clone(),
+                        of: bt,
+                        file,
+                        dynamic: false,
+                    });
+                    let info_ty = self.cx.type_info_ty(seen);
+                    let r = Place::local(self.temp(info_ty.clone()));
+                    self.call_into(f, Vec::new(), r.clone(), span);
+                    base = self.rvalue_to_temp(
+                        Rvalue::WrapSome(Operand::Copy(r), Ty::Nullable(Box::new(info_ty.clone()))),
+                        Ty::Nullable(Box::new(info_ty)),
+                        span,
+                    );
+                }
+            }
+        }
+        let fields = self.array_of(&field_ty, fields, span);
+        let methods = self.array_of(&method_ty, methods, span);
+        let ifaces = self.array_of(&elem(&ifaces_ty), ifaces, span);
+        let decorators = self.array_of(&dec_ty, decorators, span);
+        let info_ty = self.cx.type_info_ty(seen);
+        self.core_object(
+            &info_ty,
+            vec![
+                ("name", s(of.to_string())),
+                ("kind", s(kind_name(of).into())),
+                ("fields", fields),
+                ("methods", methods),
+                ("interfaces", ifaces),
+                ("base", base),
+                ("decorators", decorators),
+            ],
+            span,
+        )
+    }
+
+    /// The body of a field accessor (`Synth::Get`/`Set`/`FieldShow`) for objects of type `t`:
+    /// finds field `fid` among `t`'s fields and those of its subclasses (checking the runtime
+    /// class for a subclass's field), checks its type and reads, writes or shows it.
+    fn access_body(
+        &mut self,
+        t: &Ty,
+        access: Access,
+        obj: Local,
+        fid: Local,
+        value: Option<Local>,
+        span: Span,
+    ) {
+        let program = self.cx.program;
+        // (the class or struct the field is in, its index, its type, its id, a downcast)
+        let mut cands: Vec<(StructId, usize, Ty, i64, bool)> = Vec::new();
+        let (sid, args) = match t {
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => (*sid, args.clone()),
+            _ => {
+                self.panic_with(format!("`{t}` has no fields"), span);
+                self.terminate(Terminator::Unreachable);
+                return;
+            }
+        };
+        let owner = Ty::type_owner(sid);
+        for (i, f) in program.struct_def(sid).fields.iter().enumerate() {
+            cands.push((
+                sid,
+                i,
+                f.ty.subst(owner, &args),
+                field_id(program, sid, i),
+                false,
+            ));
+        }
+        if matches!(t, Ty::Class(..)) && args.is_empty() {
+            let own = program.struct_def(sid).fields.len();
+            for s in subclasses(program, sid) {
+                for (i, f) in program.struct_def(s).fields.iter().enumerate().skip(own) {
+                    let id = field_id(program, s, i);
+                    if cands.iter().all(|c| c.3 != id) {
+                        cands.push((StructId((id >> 20) as u32), i, f.ty.clone(), id, true));
+                    }
+                }
+            }
+        }
+        let is_struct = matches!(t, Ty::Struct(..));
+        for (k, i, fty, id, downcast) in cands {
+            let eq = self.rvalue_to_temp(
+                Rvalue::Binary(
+                    mir::BinOp::Eq,
+                    Operand::Copy(Place::local(fid)),
+                    Operand::Const(Const::Int(id as i128, IntTy::I64)),
+                ),
+                Ty::Bool,
+                span,
+            );
+            let (yes, no) = (self.new_block(), self.new_block());
+            self.terminate(Terminator::Branch {
+                cond: eq,
+                then: yes,
+                else_: no,
+            });
+            self.switch_to(yes);
+            let kd = program.struct_def(k);
+            let fname = kd.fields[i].name.clone();
+            let place = if downcast {
+                let ok = self.rvalue_to_temp(
+                    Rvalue::InstanceOf(Operand::Copy(Place::local(obj)), k),
+                    Ty::Bool,
+                    span,
+                );
+                let (fine, bad) = (self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: ok,
+                    then: fine,
+                    else_: bad,
+                });
+                self.switch_to(bad);
+                self.panic_with(
+                    format!(
+                        "reflection: the object isn't a `{}` (field `{fname}`)",
+                        kd.name
+                    ),
+                    span,
+                );
+                self.terminate(Terminator::Unreachable);
+                self.switch_to(fine);
+                let st = program.struct_ty(k);
+                let o =
+                    self.rvalue_to_temp(Rvalue::Use(Operand::Copy(Place::local(obj))), st, span);
+                let Operand::Copy(p) = o else { unreachable!() };
+                p
+            } else {
+                Place::local(obj)
+            };
+            let fplace = place.field(i as u32);
+            match &access {
+                Access::Show => {
+                    let v =
+                        self.rvalue_to_temp(Rvalue::Use(Operand::Copy(fplace)), fty.clone(), span);
+                    let text = self.show_value(v, &fty, span, true);
+                    self.terminate(Terminator::Return(Some(text)));
+                }
+                Access::Get(v) | Access::Set(v) if fty.erase() != v.erase() => {
+                    self.panic_with(
+                        format!("reflection: field `{fname}` is `{fty}`, not `{v}`"),
+                        span,
+                    );
+                    self.terminate(Terminator::Unreachable);
+                }
+                Access::Get(_) => {
+                    self.terminate(Terminator::Return(Some(Operand::Copy(fplace))));
+                }
+                Access::Set(_) if is_struct => {
+                    self.panic_with(
+                        format!("reflection: `set` needs a class instance (`{t}` is a struct)"),
+                        span,
+                    );
+                    self.terminate(Terminator::Unreachable);
+                }
+                Access::Set(_) if kd.fields[i].readonly => {
+                    self.panic_with(format!("reflection: field `{fname}` is readonly"), span);
+                    self.terminate(Terminator::Unreachable);
+                }
+                Access::Set(_) => {
+                    let v = Operand::Copy(Place::local(value.expect("a value")));
+                    self.assign(fplace, Rvalue::Use(v), span);
+                    self.terminate(Terminator::Return(None));
+                }
+            }
+            self.switch_to(no);
+        }
+        self.panic_with(format!("reflection: not a field of `{t}`"), span);
+        self.terminate(Terminator::Unreachable);
+    }
+
     /// The body of class type `t`'s show function, `this` its parameter. A class without
     /// `toString` first passes an instance of a (non-generic) subclass on to the subclass's
     /// show function; then it's `Name (field = value, …)`, or `Name (…)` for an object that's
@@ -5082,6 +5607,53 @@ impl FnBuilder<'_, '_> {
                 let v = self.expr(object);
                 let t = self.cx.types.final_ty(object.id).clone();
                 self.stringify(v, &t, e.span)
+            }
+            ExprKind::Fn(f) if REFLECT_FNS.contains(&self.cx.program.func(*f).name.as_str()) => {
+                // Reflection (spec §11.3): metadata and accessors made for these types.
+                let name = self.cx.program.func(*f).name.clone();
+                let args: Vec<Operand> = self.call_operands(e, *f, args);
+                let targs: Vec<Ty> = self
+                    .cx
+                    .types
+                    .instances
+                    .get(&e.id)
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|t| self.mono(t))
+                    .collect();
+                let what = match name.as_str() {
+                    "__reflectType" | "__reflectTypeOf" => Synth::Info {
+                        seen: targs[0].clone(),
+                        of: targs[0].clone(),
+                        file: e.span.file,
+                        dynamic: name == "__reflectTypeOf",
+                    },
+                    "__reflectGet" => Synth::Get(targs[0].clone(), targs[1].clone()),
+                    "__reflectSet" => Synth::Set(targs[0].clone(), targs[1].clone()),
+                    _ => Synth::FieldShow(targs[0].clone()),
+                };
+                // `__reflectType<T>()` takes no value.
+                let args = if name == "__reflectType" {
+                    Vec::new()
+                } else {
+                    args
+                };
+                let id = self.cx.synth(what);
+                let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+                let next = self.new_block();
+                self.terminate(Terminator::Call {
+                    callee: Callee::Fn(id),
+                    args,
+                    dest: dest.clone(),
+                    next,
+                    loc,
+                });
+                self.switch_to(next);
+                match dest {
+                    Some(p) => Operand::Copy(p),
+                    None => Operand::Const(Const::Void),
+                }
             }
             ExprKind::Fn(_) | ExprKind::Overloaded(_) => {
                 let id = &match &callee.kind {

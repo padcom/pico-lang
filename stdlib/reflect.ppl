@@ -1,0 +1,15 @@
+// `std/reflect`: runtime reflection (spec §11.3).
+//
+//   const t = reflect.typeOf(user)          // the runtime class of `user`
+//   for (const f of t.fields) println(`${f.name}: ${f.type.name} = ${f.show(user)}`)
+//   const age = t.field("age")!.get<int>(user)
+//
+// Metadata is generated only for the types that reach `reflect.typeOf`.
+
+export {
+  __reflect as reflect,
+  __TypeInfo as TypeInfo,
+  __Field as Field,
+  __Type as Type,
+  __DecoratorInfo as DecoratorInfo,
+}

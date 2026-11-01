@@ -38,3 +38,27 @@ function widen(x: i32): f64 { x }
 function toInt(x: f64): u8 { x as u8 }
 "#));
 }
+
+/// Reflection costs nothing where it isn't used (spec §11.3): no metadata, no classes.
+#[test]
+fn no_reflection_metadata_without_reflect() {
+    let src = r#"
+class User { constructor(public name: string) {} }
+const u = new User("Ann")
+println(u)
+"#;
+    let plain = ir(src);
+    for name in [
+        "__TypeInfo",
+        "__Field",
+        "__Type",
+        "__DecoratorInfo",
+        "typeinfo",
+    ] {
+        assert!(!plain.contains(name), "`{name}` in IR without reflection");
+    }
+    let with = ir(&format!(
+        "import {{ reflect }} from \"std/reflect\"\n{src}println(reflect.typeOf(u).name)\n"
+    ));
+    assert!(with.contains("__TypeInfo"));
+}

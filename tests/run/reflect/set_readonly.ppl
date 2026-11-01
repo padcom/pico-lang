@@ -1,0 +1,9 @@
+// A `readonly` field can't be set through reflection.
+// panic: reflection: field `n` is readonly
+import { reflect } from "std/reflect"
+class Box {
+  public readonly n: int
+  constructor(n: int) { this.n = n }
+}
+const b = new Box(1)
+reflect.typeOf(b).fields[0].set<int>(b, 2)

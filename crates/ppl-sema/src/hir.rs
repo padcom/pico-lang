@@ -161,6 +161,9 @@ pub struct StructDef {
     pub static_getters: Vec<(String, FnId)>,
     /// Class members that aren't `public`/`protected` (classes are private by default).
     pub private: std::collections::HashSet<String>,
+    /// The decorators on the declaration (kept for reflection, spec §11.3): each one's name
+    /// and its arguments' source text.
+    pub decorators: Vec<(String, Vec<String>)>,
 }
 
 impl StructDef {
@@ -192,6 +195,7 @@ impl StructDef {
             static_methods: Vec::new(),
             static_getters: Vec::new(),
             private: Default::default(),
+            decorators: Vec::new(),
         }
     }
 

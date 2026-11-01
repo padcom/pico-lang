@@ -501,11 +501,14 @@ impl<'ctx> Gen<'ctx, '_> {
     }
 
     /// The class metadata globals (after functions are declared, for the vtables).
+    /// Only classes the live code creates or tests (and their base classes) get one, so
+    /// classes nothing uses cost nothing.
     fn class_infos(&mut self) {
         let ptr = self.ptr();
+        let used = used_classes(self.p);
         let mut infos = Vec::new();
-        for s in &self.p.structs {
-            infos.push(s.is_class.then(|| {
+        for (i, s) in self.p.structs.iter().enumerate() {
+            infos.push((s.is_class && used[i]).then(|| {
                 let ty = self.cx.struct_type(
                     &[
                         ptr.into(),
@@ -3182,4 +3185,38 @@ fn int_predicate(op: BinOp, signed: bool) -> IntPredicate {
         (BinOp::Ge, false) => IntPredicate::UGE,
         _ => unreachable!("not a comparison: {op:?}"),
     }
+}
+
+/// Which classes need metadata: those live functions create (`New`) or test (`InstanceOf`),
+/// and their base classes. (The runtime's `ppl_arraybuffer_class` is weak: null without
+/// `ArrayBuffer`s.)
+fn used_classes(p: &ppl_mir::Program) -> Vec<bool> {
+    let mut used = vec![false; p.structs.len()];
+    let live = ppl_mir::mir::live_functions(p);
+    for (f, l) in p.fns.iter().zip(&live) {
+        if !*l {
+            continue;
+        }
+        for b in &f.blocks {
+            for st in &b.stmts {
+                match &st.rvalue {
+                    Rvalue::New(Ty::Class(sid, _, _)) | Rvalue::InstanceOf(_, sid) => {
+                        used[sid.0 as usize] = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    // A class's metadata points at its base class's.
+    for i in 0..used.len() {
+        if used[i] {
+            let mut b = p.structs[i].meta.base;
+            while let Some(s) = b {
+                used[s.0 as usize] = true;
+                b = p.structs[s.0 as usize].meta.base;
+            }
+        }
+    }
+    used
 }

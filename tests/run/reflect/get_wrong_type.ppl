@@ -1,0 +1,6 @@
+// `get` names the field's type; another one panics.
+// panic: reflection: field `n` is `i64`, not `string`
+import { reflect } from "std/reflect"
+class Box { constructor(public n: int) {} }
+const b = new Box(1)
+println(reflect.typeOf(b).fields[0].get<string>(b))
