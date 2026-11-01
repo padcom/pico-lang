@@ -1,0 +1,13 @@
+// A rejected promise that nothing awaits ends the program once the microtasks are done,
+// like an uncaught exception (as in Node).
+// expect: still running
+// expect: microtask
+// exit: 1
+class Boom extends Error {}
+async function fail(): Promise<int> throws Boom {
+  throw new Boom("kaboom")
+}
+fail()
+queueMicrotask(() => println("microtask"))
+setTimeout(() => println("never"), 10)
+println("still running")

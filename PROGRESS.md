@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P5.2: async/await** (see [PLAN.md](PLAN.md#p52-asyncawait)).
+**P5.3: Async generators and `await using`** (see [PLAN.md](PLAN.md#p53-async-generators-and-await-using)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,10 +23,10 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 213 decisions, no open questions |
+| Spec | ✅ 16 chapters, 214 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P5.1) |
+| Last green `scripts/test.sh` | 2026-11-01 (P5.2) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -55,6 +55,9 @@ Notes:
   will need `ptr<void>`, null pointers and casts between pointer types.
 - **Event loop (P5.1, decision 213)**: `stdlib/core/event.ppl` + `runtime/src/ppl_loop.c`.
   Timer tests use gaps of ≥ 10 ms (they run real time, also under `PPL_GC_STRESS`).
+- **async (P5.2, decision 214)**: desugaring in resolve.rs (`desugar_async`, `lower_await`,
+  `build` AST helpers); `Promise` in `stdlib/core/promise.ppl`. Node 24 is installed
+  (`node`), handy for checking orderings.
 - **Arenas (P4.6, decision 212)**: Arena objects are scanned at every nursery collection (cost grows with
   open arena size). Exceptions leaving an arena are deep-copied out; other escapes panic
   natively only. Arenas inside generators and `async` code are untested.
@@ -184,7 +187,7 @@ Notes:
 
 ### Phase 5: Async and concurrency
 - [x] P5.1 Event loop
-- [ ] P5.2 async/await
+- [x] P5.2 async/await
 - [ ] P5.3 Async generators and `await using`
 - [ ] P5.4 Cancellation
 - [ ] P5.5 Workers
@@ -306,3 +309,4 @@ Notes:
 | 2026-11-01 | P4.5 | `unsafe { }`, `unsafe function`, `ptr<T>` (as `Ty::Ref`), `ptr.of`, `read`/`write`, pointer `+`/`-`/`==`, `sizeof`/`alignof` (`mir::Program::size_align`, moved from codegen), `unsafe.cast` bit casts, `@pod` structs; E0342 (needs `unsafe`), E0343 (non-plain `@pod` field). Decision 210. Tests: run/unsafe/pointers, fail/unsafe/{outside,pod}. |
 | 2026-11-01 | P4.6 | Scoped `arena { }` (runtime arena chunks in the block table, roots for the GC, barrier + exit escape checks, exception evacuation, guard restore; lowering via the `finally` exit list; static escape checks E0344), `Arena` class (raw chunks), explicit method type arguments and named arguments for generic calls, `parseInt`, `int[].sum()`, harness `// native-only:`. Decisions 211–212. Tests: run/arena/{scoped,raw,escape_panic,escape_frame}, fail/arena/escape. Phase 4 done. |
 | 2026-11-01 | P5.1 | Event loop in the core library (`event.ppl`: timers, intervals, microtasks, JS ordering; finalizers when idle), `__clock_ms`/`__loop_wait` builtins over `ppl_loop.c` (kqueue/epoll), exit hook `__runEventLoop` (dropped when unused). Decision 213. Test: run/async/timers. |
+| 2026-11-01 | P5.2 | async functions/methods desugared to generator steps over `Promise<T, E>` (core library: executor ctor, `then`, `resolve`/`reject`/`all`/`race`/`allSettled`), checked rethrow, top-level `await`, unhandled rejections (exit 1), E0345; omitted trailing `void` args, `void`-expected lambdas. Decision 214. Tests: run/async/{ordering (= Node), basics, unhandled_rejection}, fail/async/{unhandled, await_outside}. |

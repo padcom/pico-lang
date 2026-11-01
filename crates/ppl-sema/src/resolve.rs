@@ -159,6 +159,8 @@ pub fn resolve_modules(
     modules: &Modules,
 ) -> (Program, Vec<Diagnostic>) {
     let mut r = Resolver {
+        async_methods: HashSet::new(),
+        awaits: 0,
         mods: ModCtx::default(),
         prelude_files: modules.prelude.clone(),
         file,
@@ -268,6 +270,8 @@ struct FnState {
     /// An arrow function (sees the enclosing method's `this`).
     arrow: bool,
     captures: Vec<Capture>,
+    /// An async function's step (`await` suspends, `return` resolves its promise `__p`).
+    async_step: bool,
 }
 
 struct Resolver {
@@ -282,6 +286,10 @@ struct Resolver {
     /// Top-level functions by name (several for overloads).
     top_fns: Names<Vec<FnId>>,
     top_globals: Names<GlobalId>,
+    /// Async methods (by their declaration's span): desugared like async functions.
+    async_methods: HashSet<Span>,
+    /// `await`s desugared so far (their temporaries get unique names).
+    awaits: u32,
     globals_declared: HashSet<GlobalId>,
     f: FnState,
     structs: Vec<StructDef>,
@@ -1118,13 +1126,15 @@ impl Resolver {
     ) -> Function {
         self.enter_module(f.span);
         let name = f.name.clone().expect("named function");
-        if f.flags.is_async || f.flags.decorator {
-            let what = if f.flags.is_async {
-                "async functions"
-            } else {
-                "decorator functions"
-            };
-            self.not_implemented(name.span, what);
+        if (f.flags.is_async || self.async_methods.contains(&f.span))
+            && f.body.is_some()
+            && let Some(d) = self.desugar_async(f)
+        {
+            self.async_methods.remove(&f.span);
+            return self.function_in(&d, is_entry, this_struct, owner);
+        }
+        if f.flags.decorator {
+            self.not_implemented(name.span, "decorator functions");
         }
         self.f = FnState {
             in_entry: is_entry,
@@ -1889,7 +1899,12 @@ impl Resolver {
                 self.not_implemented(dec.span, "decorators");
             }
             if m.mods.is_async {
-                self.not_implemented(m.span, "async methods");
+                match &m.kind {
+                    ast::MemberKind::Method(f) => {
+                        self.async_methods.insert(f.span);
+                    }
+                    _ => self.not_implemented(m.span, "async accessors and constructors"),
+                }
             }
             match &m.kind {
                 ast::MemberKind::Constructor(f) => {
@@ -3107,6 +3122,7 @@ impl Resolver {
         self.f = FnState {
             is_closure: true,
             generator: f.flags.generator,
+            async_step: f.flags.is_async && f.flags.generator && f.flags.arrow,
             arrow: f.flags.arrow,
             owner: if f.flags.arrow { owner } else { None },
             ..Default::default()
@@ -3120,7 +3136,7 @@ impl Resolver {
             .collect();
         self.f.type_params = tps;
         self.f.scopes.push(Scope::default());
-        if f.flags.is_async || (f.flags.generator && !f.flags.arrow) {
+        if (f.flags.is_async && !self.f.async_step) || (f.flags.generator && !f.flags.arrow) {
             self.not_implemented(span, "async and generator closures");
         }
         if let Some(g) = f.generics.first() {
@@ -4490,6 +4506,7 @@ impl Resolver {
                     "ptr.of" => (0, 1),
                     "unsafe.cast" => (1, 1),
                     "__raw_arena_alloc" => (1, 2),
+                    "__throw_unchecked" | "__exit_uncaught" => (0, 1),
                     _ => (1, 0),
                 };
                 if type_args.len() != want_types || args.len() != want_args {
@@ -4521,6 +4538,8 @@ impl Resolver {
                 let arg = args.first().map(|a| Box::new(self.lower_expr(&a.value)));
                 match which {
                     "ptr.of" => ExprKind::PtrOf(arg.expect("checked")),
+                    "__throw_unchecked" => ExprKind::ThrowUnchecked(arg.expect("checked")),
+                    "__exit_uncaught" => ExprKind::ExitUncaught(arg.expect("checked")),
                     "unsafe.cast" => ExprKind::BitCast(arg.expect("checked"), ty.expect("checked")),
                     _ => ExprKind::SizeOf {
                         ty: ty.expect("checked"),
@@ -4623,9 +4642,29 @@ impl Resolver {
                 }
                 ExprKind::Continue
             }
+            // In an async function: resolve its promise, then end the step.
+            A::Return(value) if self.f.async_step => {
+                let v = value
+                    .as_deref()
+                    .cloned()
+                    .unwrap_or_else(|| build::call(build::ident("__void", span), Vec::new(), span));
+                let resolve = build::call(
+                    build::member(build::ident("__p", span), "__resolve", span),
+                    vec![v],
+                    span,
+                );
+                let resolve = self.lower_expr(&resolve);
+                let ret = self.expr(ExprKind::Return(None), span);
+                ExprKind::Block(Block {
+                    stmts: vec![Stmt::Expr(resolve), Stmt::Expr(ret)],
+                    tail: None,
+                    span,
+                })
+            }
             A::Return(value) => {
                 ExprKind::Return(value.as_ref().map(|v| Box::new(self.lower_expr(v))))
             }
+            A::Await(inner) => self.lower_await(inner, span),
             A::Range { start, end } => ExprKind::Range {
                 start: Box::new(self.lower_expr(start)),
                 end: Box::new(self.lower_expr(end)),
@@ -4657,7 +4696,6 @@ impl Resolver {
                 let what = match other {
                     A::Super => "`super` outside a method call",
                     A::Object { .. } => "object and struct literals",
-                    A::Await(_) => "`await`",
                     A::Comptime(_) => "`comptime`",
                     _ => "this expression",
                 };
@@ -4742,6 +4780,8 @@ impl Resolver {
                 }
             }
             ast::ExprKind::Ident(n) if n == "__raw_arena_alloc" => Some("__raw_arena_alloc"),
+            ast::ExprKind::Ident(n) if n == "__throw_unchecked" => Some("__throw_unchecked"),
+            ast::ExprKind::Ident(n) if n == "__exit_uncaught" => Some("__exit_uncaught"),
             _ => None,
         }
     }
@@ -5563,4 +5603,278 @@ fn levenshtein(a: &str, b: &str) -> usize {
         prev = cur;
     }
     prev[b.len()]
+}
+
+// ---------------------------------------------------------------- async desugaring (spec §10.1)
+
+/// Small AST builders for desugarings.
+mod build {
+    use ppl_diag::Span;
+    use ppl_syntax::ast;
+
+    pub fn e(kind: ast::ExprKind, span: Span) -> ast::Expr {
+        ast::Expr { kind, span }
+    }
+
+    pub fn ident(name: &str, span: Span) -> ast::Expr {
+        e(ast::ExprKind::Ident(name.to_string()), span)
+    }
+
+    pub fn member(object: ast::Expr, prop: &str, span: Span) -> ast::Expr {
+        e(
+            ast::ExprKind::Member {
+                object: Box::new(object),
+                prop: ast::Ident {
+                    name: prop.to_string(),
+                    span,
+                },
+                optional: false,
+            },
+            span,
+        )
+    }
+
+    pub fn call(callee: ast::Expr, args: Vec<ast::Expr>, span: Span) -> ast::Expr {
+        e(
+            ast::ExprKind::Call {
+                callee: Box::new(callee),
+                type_args: Vec::new(),
+                args: args
+                    .into_iter()
+                    .map(|value| ast::Arg {
+                        name: None,
+                        spread: false,
+                        value,
+                    })
+                    .collect(),
+            },
+            span,
+        )
+    }
+
+    pub fn stmt(expr: ast::Expr) -> ast::Stmt {
+        let span = expr.span;
+        ast::Stmt {
+            kind: ast::StmtKind::Expr { expr, semi: true },
+            span,
+        }
+    }
+
+    pub fn tail(expr: ast::Expr) -> ast::Stmt {
+        let span = expr.span;
+        ast::Stmt {
+            kind: ast::StmtKind::Expr { expr, semi: false },
+            span,
+        }
+    }
+
+    pub fn const_(name: &str, init: ast::Expr) -> ast::Stmt {
+        let span = init.span;
+        ast::Stmt {
+            kind: ast::StmtKind::Let {
+                kind: ast::BindingKind::Const,
+                pat: ast::Pattern {
+                    kind: ast::PatternKind::Ident(ast::Ident {
+                        name: name.to_string(),
+                        span,
+                    }),
+                    span,
+                },
+                ty: None,
+                init: Some(init),
+                comptime: false,
+            },
+            span,
+        }
+    }
+
+    pub fn block(stmts: Vec<ast::Stmt>, span: Span) -> ast::Expr {
+        e(ast::ExprKind::Block(ast::Block { stmts, span }), span)
+    }
+
+    pub fn named_type(name: &str, args: Vec<ast::Type>, span: Span) -> ast::Type {
+        ast::Type {
+            kind: ast::TypeKind::Path {
+                path: vec![ast::Ident {
+                    name: name.to_string(),
+                    span,
+                }],
+                args,
+            },
+            span,
+        }
+    }
+}
+
+impl Resolver {
+    /// `async function f(…): Promise<T> throws E { body }` →
+    /// `function f(…): Promise<T, E> { const __p = new Promise<T, E>(); __p.__run(<step>); __p }`
+    /// where `<step>` is a generator arrow over `body` (its `await`s yield, its `return`s
+    /// resolve `__p`). Without an annotated `Promise<T>` result it's an error (`None`).
+    fn desugar_async(&mut self, f: &ast::FnDecl) -> Option<ast::FnDecl> {
+        let span = f.span;
+        let elem = match &f.ret {
+            Some(ast::Type {
+                kind: ast::TypeKind::Path { path, args },
+                ..
+            }) if path.len() == 1 && path[0].name == "Promise" && args.len() == 1 => {
+                args[0].clone()
+            }
+            _ => {
+                self.error(
+                    codes::MISSING_PARAM_TYPE,
+                    f.name.as_ref().map_or(span, |n| n.span),
+                    "an async function needs its `Promise<T>` result type",
+                    "add `: Promise<T>`",
+                );
+                return None;
+            }
+        };
+        // What it throws travels with the promise (several errors: `Error`).
+        let err = f.throws.as_ref().map(|t| match &t.kind {
+            ast::TypeKind::Union(_) => build::named_type("Error", Vec::new(), t.span),
+            _ => t.clone(),
+        });
+        let mut targs = vec![elem.clone()];
+        targs.extend(err);
+        let promise_ty = build::named_type("Promise", targs.clone(), span);
+        let is_void = matches!(&elem.kind, ast::TypeKind::Path { path, args }
+            if args.is_empty() && path.len() == 1 && path[0].name == "void");
+        // The step body: `body`, ending by resolving `__p` with its value.
+        let mut stmts = match &f.body {
+            Some(ast::FnBody::Block(b)) => b.stmts.clone(),
+            Some(ast::FnBody::Expr(x)) => vec![build::tail((**x).clone())],
+            None => Vec::new(),
+        };
+        let resolve = |v: ast::Expr| {
+            build::call(
+                build::member(build::ident("__p", span), "__resolve", span),
+                vec![v],
+                span,
+            )
+        };
+        match stmts.pop() {
+            Some(ast::Stmt {
+                kind: ast::StmtKind::Expr { expr, semi: false },
+                ..
+            }) if !is_void
+                && !matches!(
+                    expr.kind,
+                    ast::ExprKind::Return(_) | ast::ExprKind::Throw(_)
+                ) =>
+            {
+                stmts.push(build::stmt(resolve(expr)))
+            }
+            Some(last) => stmts.push(last),
+            None => {}
+        }
+        if is_void {
+            stmts.push(build::stmt(resolve(build::call(
+                build::ident("__void", span),
+                Vec::new(),
+                span,
+            ))));
+        }
+        // (Named for messages: `<async f>`.)
+        let shown = f
+            .name
+            .as_ref()
+            .map_or("function".to_string(), |n| n.name.clone());
+        let step = ast::FnDecl {
+            name: Some(ast::Ident {
+                name: format!("<async {shown}>"),
+                span: f.name.as_ref().map_or(span, |n| n.span),
+            }),
+            flags: ast::FnFlags {
+                arrow: true,
+                generator: true,
+                is_async: true,
+                ..Default::default()
+            },
+            generics: Vec::new(),
+            params: Vec::new(),
+            ret: None,
+            throws: None,
+            where_clause: Vec::new(),
+            body: Some(ast::FnBody::Block(ast::Block { stmts, span })),
+            span,
+        };
+        let new_promise = build::e(
+            ast::ExprKind::New {
+                callee: Box::new(build::ident("Promise", span)),
+                type_args: targs,
+                args: Vec::new(),
+            },
+            span,
+        );
+        let run = build::call(
+            build::member(build::ident("__p", span), "__run", span),
+            vec![build::e(ast::ExprKind::Function(Box::new(step)), span)],
+            span,
+        );
+        let body = ast::Block {
+            stmts: vec![
+                build::const_("__p", new_promise),
+                build::stmt(run),
+                build::tail(build::ident("__p", span)),
+            ],
+            span,
+        };
+        Some(ast::FnDecl {
+            flags: ast::FnFlags {
+                is_async: false,
+                ..f.flags
+            },
+            ret: Some(promise_ty),
+            throws: None,
+            body: Some(ast::FnBody::Block(body)),
+            ..f.clone()
+        })
+    }
+
+    /// `await x`: inside an async function's step `{ const a = x; yield a.__suspend();
+    /// a.__get() }`; at the entry's top level `__awaitTop(x)`.
+    fn lower_await(&mut self, inner: &ast::Expr, span: Span) -> ExprKind {
+        if self.f.async_step {
+            self.awaits += 1;
+            let name = format!("__await{}", self.awaits);
+            let suspend = build::call(
+                build::member(build::ident(&name, span), "__suspend", span),
+                Vec::new(),
+                span,
+            );
+            let yield_ = build::e(
+                ast::ExprKind::Yield {
+                    expr: Some(Box::new(suspend)),
+                    delegate: false,
+                },
+                span,
+            );
+            let get = build::call(
+                build::member(build::ident(&name, span), "__get", span),
+                Vec::new(),
+                span,
+            );
+            let b = build::block(
+                vec![
+                    build::const_(&name, inner.clone()),
+                    build::stmt(yield_),
+                    build::tail(get),
+                ],
+                span,
+            );
+            return self.lower_expr(&b).kind;
+        }
+        if self.f.in_entry && !self.f.is_closure {
+            let c = build::call(build::ident("__awaitTop", span), vec![inner.clone()], span);
+            return self.lower_expr(&c).kind;
+        }
+        self.error(
+            codes::AWAIT_OUTSIDE_ASYNC,
+            span,
+            "`await` outside an async function",
+            "not inside an `async function`",
+        );
+        ExprKind::Error
+    }
 }

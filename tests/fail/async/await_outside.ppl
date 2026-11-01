@@ -1,0 +1,11 @@
+// error: E0345
+// at: 7:3
+// error: E0207
+// at: 9:16
+async function one(): Promise<int> { 1 }
+function sync(): void {
+  await one()                                // not async
+}
+async function noType() {
+  1
+}

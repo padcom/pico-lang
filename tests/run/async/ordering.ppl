@@ -1,0 +1,65 @@
+// async/await ordering (spec §10.1): the same program in JavaScript (Node) prints exactly
+// this. Async functions run eagerly up to their first `await`; each `await` and `then`
+// resumes one microtask after the promise settles; top-level `await` lets everything
+// else run meanwhile.
+// expect: script start
+// expect: a1 start
+// expect: a2
+// expect: x 0
+// expect: y 0
+// expect: script end
+// expect: top 0
+// expect: a1 end
+// expect: then 1
+// expect: micro
+// expect: x 1
+// expect: y 1
+// expect: top 1
+// expect: then 2
+// expect: x 2
+// expect: top done 2
+// expect: all 3,2
+// expect: timeout
+// expect: slow c
+// expect: fulfilled,rejected
+// expect: slow a
+// expect: race a
+// expect: slow b
+function delay(ms: int): Promise<void> {
+  const p = new Promise<void>()
+  setTimeout(() => p.__resolve(__void()), ms)
+  p
+}
+async function a2(): Promise<void> {
+  println("a2")
+}
+async function a1(): Promise<void> {
+  println("a1 start")
+  await a2()
+  println("a1 end")
+}
+async function worker(name: string, n: int): Promise<int> {
+  for (let i = 0; i < n; i++) {
+    println(`${name} ${i}`)
+    await Promise.resolve(i)
+  }
+  return n
+}
+async function slow(v: string, ms: int): Promise<string> {
+  await delay(ms)
+  println(`slow ${v}`)
+  v
+}
+println("script start")
+setTimeout(() => println("timeout"), 0)
+a1()
+Promise.resolve(1).then((v: int) => println(`then ${v}`)).then((_: void) => println("then 2"))
+queueMicrotask(() => println("micro"))
+const w = Promise.all([worker("x", 3), worker("y", 2)])
+w.then((vs: int[]) => println(`all ${vs.join(",")}`))
+Promise.race([slow("b", 40), slow("a", 20)]).then((v: string) => println(`race ${v}`))
+println("script end")
+const total = await worker("top", 2)
+println(`top done ${total}`)
+const settled = await Promise.allSettled([slow("c", 10), Promise.reject<string>(new Error("nope"))])
+println(settled.map((s: Settled<string>) => s.status).join(","))

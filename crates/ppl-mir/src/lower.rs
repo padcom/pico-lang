@@ -2476,6 +2476,23 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(resume);
                 Operand::Const(Const::Void)
             }
+            ExprKind::ExitUncaught(inner) => {
+                let v = self.expr(inner);
+                let tag = Operand::Const(Const::Int(0, IntTy::U32));
+                self.set_exception(v, tag, e.span);
+                let (raw, tag) = self.take_exception(e.span);
+                let (class, msg) = self.exception_text(&raw, &tag, e.span);
+                self.diverge(Terminator::Uncaught { class, msg });
+                Operand::Const(Const::Void)
+            }
+            ExprKind::ThrowUnchecked(inner) => {
+                let v = self.expr(inner);
+                let tag = Operand::Const(Const::Int(0, IntTy::U32));
+                self.set_exception(v, tag, e.span);
+                let target = self.raise_target();
+                self.diverge(Terminator::Goto(target));
+                Operand::Const(Const::Void)
+            }
             ExprKind::Throw(inner) => {
                 let v = self.expr(inner);
                 let it = self.ty(inner);
@@ -4544,8 +4561,14 @@ impl FnBuilder<'_, '_> {
             }
             _ if matches!(self.ty_of(callee), Ty::Fn(..)) => {
                 let f = self.expr(callee);
+                let n = match self.ty_of(callee) {
+                    Ty::Fn(ps, ..) => ps.len(),
+                    _ => args.len(),
+                };
                 let mut ops = vec![f];
                 ops.extend(args.iter().map(|a| self.expr(a)));
+                // Left-out trailing `void` arguments.
+                ops.extend((args.len()..n).map(|_| Operand::Const(Const::Void)));
                 let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
                 let next = self.new_block();
                 self.terminate(Terminator::Call {

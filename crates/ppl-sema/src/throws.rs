@@ -202,6 +202,14 @@ impl<'a, 'm> Walk<'a, 'm> {
                         if let Some(args) = self.types.instances.get(&e.id) {
                             ts = ts.iter().map(|t| t.subst(callee.0, args)).collect();
                         }
+                        // A generic type's method throwing the type's parameter: seen
+                        // through the receiver's type arguments.
+                        if let (Some(recv), Some(owner)) =
+                            (self.types.recv_args.get(&e.id), self.p.func(callee).owner)
+                        {
+                            let o = Ty::type_owner(owner);
+                            ts = ts.iter().map(|t| t.subst(o, recv)).collect();
+                        }
                         for t in &ts {
                             self.raise(t, e.span, Some(callee));
                         }
@@ -251,7 +259,8 @@ impl<'a, 'm> Walk<'a, 'm> {
         self.handlers.iter().any(|h| {
             h.iter().any(|c| match (c, t) {
                 (Catch::All, _) => true,
-                (Catch::Errors, Ty::Class(..)) => true,
+                // (A type parameter that is thrown is bounded by `Error`.)
+                (Catch::Errors, Ty::Class(..) | Ty::Param(..)) => true,
                 (Catch::Class(c), Ty::Class(s, ..)) => self.p.is_subclass(*s, *c),
                 (Catch::Value(v), t) => v == t,
                 _ => false,

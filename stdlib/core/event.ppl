@@ -27,6 +27,8 @@ class __Loop {
   public head: int = 0
   public nextId: int = 1
   public seq: int = 0
+  /// Rejected promises that nothing handled yet: their error while that's still so.
+  public rejected: (() => Error?)[] = []
 
   constructor() {}
 
@@ -49,15 +51,35 @@ class __Loop {
     this.timers = kept
   }
 
-  /// Runs microtasks until none are left (including ones they queue).
-  public drain(): void {
-    while (this.head < this.microtasks.length) {
-      const f = this.microtasks[this.head]
-      this.head += 1
-      f()
+  /// Runs the next microtask, if there is one.
+  public microtask(): bool {
+    if (this.head >= this.microtasks.length) {
+      if (this.head > 0) {
+        this.microtasks = []
+        this.head = 0
+      }
+      return false
     }
-    this.microtasks = []
-    this.head = 0
+    const f = this.microtasks[this.head]
+    this.head += 1
+    f()
+    true
+  }
+
+  /// A rejection nothing handled once the microtasks are done ends the program, like an
+  /// exception escaping the top level.
+  public checkRejections(): void {
+    if (this.rejected.length == 0) {
+      return
+    }
+    const all = this.rejected
+    this.rejected = []
+    for (const f of all) {
+      const e = f()
+      if (e != null) {
+        __exit_uncaught(e)
+      }
+    }
   }
 
   /// The timer to run next (the earliest due, then the oldest), or -1.
@@ -79,10 +101,13 @@ class __Loop {
     best
   }
 
-  /// One turn: microtasks, then the next timer (waiting for it). False when nothing is
-  /// pending.
-  public turn(): bool {
-    this.drain()
+  /// One step: the next microtask, else the next timer (waiting for it). False when nothing
+  /// is pending.
+  public step(): bool {
+    if (this.microtask()) {
+      return true
+    }
+    this.checkRejections()
     const i = this.earliest()
     if (i < 0) {
       return false
@@ -148,7 +173,7 @@ function __runEventLoop(): void {
   loop {
     const l = __loop
     if (l != null) {
-      while (l.turn()) {}
+      while (l.step()) {}
     }
     if (!__runFinalizers()) {
       break

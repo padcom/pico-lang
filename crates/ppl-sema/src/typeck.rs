@@ -1572,6 +1572,13 @@ impl<'p> Checker<'p> {
                 self.unsafe_depth -= 1;
                 t
             }
+            ExprKind::ThrowUnchecked(inner) | ExprKind::ExitUncaught(inner) => {
+                if let Some(err) = self.program.error_class {
+                    let et = Ty::Class(err, "Error".into(), std::sync::Arc::from([]));
+                    self.check(inner, &Expect::new(et));
+                }
+                Ty::Never
+            }
             ExprKind::PtrOf(inner) => {
                 self.require_unsafe(e.span, "`ptr.of`");
                 let t = self.infer(inner);
@@ -3256,12 +3263,12 @@ impl<'p> Checker<'p> {
                 }
             };
         }
-        // An untyped lambda's result type comes from the expected one, when that's known.
+        // An untyped lambda's result type comes from the expected one, when that's known
+        // (`void`: its value is discarded, as in TS).
         if f.ret.is_none()
             && !f.generator
             && let Some((_, r, _)) = &expected
             && !r.to_string().contains("{error}")
-            && !matches!(**r, Ty::Void)
         {
             self.ret_hints.insert(id, (**r).clone());
             self.types.sigs[id.0 as usize].ret = (**r).clone();
@@ -3284,7 +3291,23 @@ impl<'p> Checker<'p> {
                         (Ty::Class(d, ..), Ty::Class(c, ..)) => self.program.is_subclass(*c, *d),
                         (d, t) => d == t,
                     });
-                    if !ok {
+                    let name = &self.program.func(id).name;
+                    if !ok
+                        && let Some(f) = name
+                            .strip_prefix("<async ")
+                            .and_then(|n| n.strip_suffix('>'))
+                    {
+                        // An async function's body (spec §7.4): what it throws travels with
+                        // its promise, so it must be declared.
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::UNHANDLED_ERROR,
+                                format!("unhandled error `{t}`"),
+                            )
+                            .primary(self.program.func(id).name_span, format!("`{f}` can throw `{t}`"))
+                            .help(format!("catch it, or add `throws {t}` to `{f}` (its promise rejects with it)")),
+                        );
+                    } else if !ok {
                         let want = want.map(|w| w.ty.to_string()).unwrap_or_default();
                         self.diags.push(
                             Diagnostic::error(
@@ -5246,8 +5269,11 @@ impl<'p> Checker<'p> {
             _ => {
                 let t = self.infer(callee);
                 if let Ty::Fn(ps, r, _) = &t {
-                    // A function value.
-                    if args.len() != ps.len() {
+                    // A function value. Trailing `void` parameters may be left out (as in
+                    // TS: `resolve()` for a `Promise<void>`).
+                    let given_ok = args.len() < ps.len()
+                        && ps[args.len()..].iter().all(|p| matches!(p, Ty::Void));
+                    if args.len() != ps.len() && !given_ok {
                         self.diags.push(
                             Diagnostic::error(
                                 codes::WRONG_ARG_COUNT,
@@ -5660,6 +5686,27 @@ impl<'p> Checker<'p> {
             }
         }
         let mut subst: Vec<Option<Ty>> = vec![None; n];
+        // Missing trailing type arguments take their defaults (`Promise<int>`).
+        let filled: Vec<Ty>;
+        let explicit = if !explicit.is_empty()
+            && explicit.len() < n
+            && generics[explicit.len()..]
+                .iter()
+                .all(|g| g.default.is_some())
+        {
+            filled = explicit
+                .iter()
+                .cloned()
+                .chain(
+                    generics[explicit.len()..]
+                        .iter()
+                        .map(|g| g.default.clone().expect("checked")),
+                )
+                .collect();
+            &filled[..]
+        } else {
+            explicit
+        };
         if !explicit.is_empty() {
             if explicit.len() != n {
                 self.diags.push(

@@ -1,0 +1,235 @@
+// Promises and async functions (spec §10.1, §7.4). `Promise<T, E>` settles once, with a `T`
+// or an error; `E` is what awaiting it can throw (its async function's `throws`). Reactions
+// run as microtasks, so the ordering is JavaScript's.
+//
+// `async function f(…): Promise<T> throws E { body }` becomes
+// `function f(…): Promise<T, E> { const p = new Promise<T, E>(); p.__run(<step>); p }`, where
+// the step function is a generator that runs `body` up to the next `await`: `await x` yields
+// `x.__suspend()` (the driver resumes the step once `x` settles) and then reads `x.__get()`.
+
+class Promise<T, E extends Error = never> {
+  /// 0: pending, 1: fulfilled, 2: rejected.
+  state: int = 0
+  /// The value once fulfilled (one element).
+  values: T[] = []
+  error: Error? = null
+  /// Reactions waiting for it to settle.
+  waiters: (() => void)[] = []
+  /// Whether something awaits it or reacts to it (else a rejection ends the program).
+  handled: bool = false
+
+  constructor() {}
+
+  /// `new Promise((resolve, reject) => …)`: `executor` runs right away and settles it.
+  constructor(executor: (resolve: (value: T) => void, reject: (error: Error) => void) => void) {
+    executor((v: T) => this.__resolve(v), (e: Error) => this.__reject(e))
+  }
+
+  public __resolve(v: T): void {
+    if (this.state != 0) {
+      return
+    }
+    this.values.push(v)
+    this.state = 1
+    this.wake()
+  }
+
+  public __reject(e: Error): void {
+    if (this.state != 0) {
+      return
+    }
+    this.error = e
+    this.state = 2
+    if (!this.handled) {
+      __theLoop().rejected.push(() => if (this.handled) null else this.error)
+    }
+    this.wake()
+  }
+
+  wake(): void {
+    const ws = this.waiters
+    this.waiters = []
+    for (const w of ws) {
+      queueMicrotask(w)
+    }
+  }
+
+  /// Runs `k` (as a microtask) once settled.
+  public __onSettle(k: () => void): void {
+    this.handled = true
+    if (this.state == 0) {
+      this.waiters.push(k)
+    } else {
+      queueMicrotask(k)
+    }
+  }
+
+  /// What `await` hands to the async function's driver.
+  public __suspend(): (k: () => void) => void {
+    (k: () => void) => this.__onSettle(k)
+  }
+
+  /// The value, or the error rethrown (after it settled).
+  public __get(): T throws E {
+    if (this.state == 2) {
+      const e = this.error
+      if (e != null) {
+        __throw_unchecked(e)
+      }
+    }
+    this.values[0]
+  }
+
+  /// Runs an async function's step function until it finishes or awaits.
+  public __run(step: () => ((k: () => void) => void)? throws E): void {
+    let s: ((k: () => void) => void)? = null
+    try {
+      s = step()
+    } catch (e) {
+      this.__reject(e)
+      return
+    }
+    if (s != null) {
+      s(() => this.__run(step))
+    }
+  }
+
+  public get settled(): bool {
+    this.state != 0
+  }
+
+  /// A promise of `f(value)`, settled after this one (rejected with its error).
+  public then<U>(f: (value: T) => U): Promise<U, E> {
+    const p = new Promise<U, E>()
+    this.__onSettle(() => {
+      const e = this.error
+      if (this.state == 2 && e != null) {
+        p.__reject(e)
+      } else {
+        p.__resolve(f(this.values[0]))
+      }
+    })
+    p
+  }
+
+  public static resolve<U>(value: U): Promise<U> {
+    const p = new Promise<U>()
+    p.__resolve(value)
+    p
+  }
+
+  public static reject<U>(error: Error): Promise<U, Error> {
+    const p = new Promise<U, Error>()
+    p.__reject(error)
+    p
+  }
+
+  /// All the values, in order; rejected with the first error.
+  public static all<U, F extends Error>(ps: Promise<U, F>[]): Promise<U[], F> {
+    const out = new Promise<U[], F>()
+    const slots: U[][] = []
+    for (const _ of ps) {
+      slots.push([])
+    }
+    let left = ps.length
+    if (left == 0) {
+      out.__resolve([])
+    }
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i]
+      p.__onSettle(() => {
+        const e = p.error
+        if (p.state == 2 && e != null) {
+          out.__reject(e)
+          return
+        }
+        slots[i].push(p.values[0])
+        left -= 1
+        if (left == 0) {
+          const vals: U[] = []
+          for (const s of slots) {
+            vals.push(s[0])
+          }
+          out.__resolve(vals)
+        }
+      })
+    }
+    out
+  }
+
+  /// Settles like the first of `ps` to settle.
+  public static race<U, F extends Error>(ps: Promise<U, F>[]): Promise<U, F> {
+    const out = new Promise<U, F>()
+    for (const p of ps) {
+      p.__onSettle(() => {
+        const e = p.error
+        if (p.state == 2 && e != null) {
+          out.__reject(e)
+        } else {
+          out.__resolve(p.values[0])
+        }
+      })
+    }
+    out
+  }
+
+  /// Waits for all of `ps`, never rejecting: how each one ended.
+  public static allSettled<U, F extends Error>(ps: Promise<U, F>[]): Promise<Settled<U>[]> {
+    const out = new Promise<Settled<U>[]>()
+    const slots: Settled<U>[][] = []
+    for (const _ of ps) {
+      slots.push([])
+    }
+    let left = ps.length
+    if (left == 0) {
+      out.__resolve([])
+    }
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i]
+      p.__onSettle(() => {
+        const e = p.error
+        if (p.state == 2 && e != null) {
+          slots[i].push(Settled<U> { status: "rejected", value: null, reason: e })
+        } else {
+          slots[i].push(Settled<U> { status: "fulfilled", value: p.values[0], reason: null })
+        }
+        left -= 1
+        if (left == 0) {
+          const vals: Settled<U>[] = []
+          for (const s of slots) {
+            vals.push(s[0])
+          }
+          out.__resolve(vals)
+        }
+      })
+    }
+    out
+  }
+}
+
+/// How a promise ended (`Promise.allSettled`): `status` is `"fulfilled"` (with `value`) or
+/// `"rejected"` (with `reason`).
+struct Settled<T> {
+  status: string
+  value: T?
+  reason: Error?
+}
+
+/// `await p` at the top level of the entry module: runs the event loop until `p` settles
+/// (and its reaction runs, as a microtask would), then gives its value or throws.
+function __awaitTop<T, E extends Error>(p: Promise<T, E>): T throws E {
+  let done = false
+  p.__onSettle(() => {
+    done = true
+  })
+  const l = __theLoop()
+  while (!done) {
+    if (!l.step()) {
+      panic("top-level `await` on a promise that never settles")
+    }
+  }
+  p.__get()
+}
+
+/// A `void` value (an async function's result without `return`).
+function __void(): void {}

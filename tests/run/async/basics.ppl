@@ -1,0 +1,77 @@
+// async/await (spec §10.1, §7.4): async functions and methods start eagerly, `await`
+// rethrows what the promise was rejected with (checked: `Promise<T, E>` carries `throws E`),
+// `Promise.all` waits for every value, and `new Promise((resolve, reject) => …)` adapts
+// callbacks.
+// expect: before
+// expect: main start
+// expect: after
+// expect: got user1
+// expect: caught no user -1
+// expect: user2 user3
+// expect: counter 3
+// expect: rejected: no
+// expect: then 42
+// expect: result 42
+class HttpError extends Error {}
+class User {
+  constructor(public id: int, public name: string) {}
+}
+
+function delay(ms: int): Promise<void> {
+  new Promise<void>((resolve: (v: void) => void, reject: (e: Error) => void) => {
+    setTimeout(() => resolve(), ms)
+  })
+}
+
+async function fetchUser(id: int): Promise<User> throws HttpError {
+  await delay(5 * (if (id < 0) 1 else id))
+  if (id < 0) {
+    throw new HttpError(`no user ${id}`)
+  }
+  new User(id, `user${id}`)
+}
+
+class Counter {
+  public n: int = 0
+  constructor() {}
+  public async bump(times: int): Promise<int> {
+    for (let i = 0; i < times; i++) {
+      await delay(1)
+      this.n += 1
+    }
+    this.n
+  }
+}
+
+function failing(): Promise<int, Error> {
+  new Promise<int, Error>((resolve: (v: int) => void, reject: (e: Error) => void) => {
+    reject(new Error("no"))
+  })
+}
+
+async function main(): Promise<int> throws HttpError {
+  println("main start")
+  const u = await fetchUser(1)
+  println(`got ${u.name}`)
+  try {
+    await fetchUser(-1)
+  } catch (e: HttpError) {
+    println(`caught ${e.message}`)
+  }
+  const [a, b] = await Promise.all([fetchUser(2), fetchUser(3)])
+  println(`${a.name} ${b.name}`)
+  const c = new Counter()
+  println(`counter ${await c.bump(3)}`)
+  try {
+    await failing()
+  } catch (e) {
+    println(`rejected: ${e.message}`)
+  }
+  42
+}
+
+println("before")
+const r = main()
+println("after")
+r.then((v: int) => println(`then ${v}`))
+println(`result ${await r}`)

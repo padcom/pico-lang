@@ -97,8 +97,8 @@ const n = try! parseInt("42")           // a thrown error becomes a panic: use w
 async function fetchUser(id: i64): Promise<User> throws HttpError { … }
 const u = await fetchUser(1)       // rethrows HttpError (checked)
 ```
-The checker tracks the `throws` set together with the `Promise`. `await` rethrows it, so the
-caller has to handle it or declare it.
+The checker tracks the `throws` set together with the `Promise`: the function above returns a
+`Promise<User, HttpError>`. `await` rethrows it, so the caller has to handle it or declare it.
 
 ## 7.5 Panics
 A panic means a bug. Overflow, out-of-bounds indexing, division by zero, `x!` on null, failed

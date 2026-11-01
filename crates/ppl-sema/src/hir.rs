@@ -864,6 +864,12 @@ pub enum ExprKind {
     TypeOf(Box<Expr>),
     /// `unsafe { … }` (spec §9.5): unsafe operations are allowed inside.
     Unsafe(Block),
+    /// `__throw_unchecked(e)` (core library): throws an `Error` that the `throws` checking
+    /// doesn't see (a promise rethrowing the error it was rejected with as its `E`).
+    ThrowUnchecked(Box<Expr>),
+    /// `__exit_uncaught(e)` (core library): ends the program as if `e` escaped the top level
+    /// (an unhandled promise rejection).
+    ExitUncaught(Box<Expr>),
     /// `ptr.of(place)`: a raw pointer (`ptr<T>`) to a place.
     PtrOf(Box<Expr>),
     /// `sizeof<T>()` (`align` false) / `alignof<T>()`: a `usize`.
@@ -1000,6 +1006,8 @@ impl Expr {
             ExprKind::Spread(e)
             | ExprKind::Tailcall(e)
             | ExprKind::Throw(e)
+            | ExprKind::ThrowUnchecked(e)
+            | ExprKind::ExitUncaught(e)
             | ExprKind::Yield(e)
             | ExprKind::TryOpt(e)
             | ExprKind::TryBang(e) => f(e),

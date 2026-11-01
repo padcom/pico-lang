@@ -20,6 +20,19 @@ the host's loop (browser) or WASI poll.
   `int` id for `clearTimeout` / `clearInterval`; an interval is rescheduled `ms` after its
   callback starts. When nothing is pending, the due finalization callbacks (§9.3) run, and the
   loop continues if they scheduled more.
+- `Promise<T, E = never>`: `E` is what awaiting it can throw. `async function f(): Promise<T>
+  throws E` has the type `() => Promise<T, E>` (several errors: `Error`); its result type
+  must be written. Every `await` and reaction resumes one microtask after the promise settles,
+  so the ordering matches JavaScript's. An error the body neither catches nor declares is an
+  error (E0336); `await` outside an async function or the entry's top level is E0345.
+- Promises: `new Promise<T>((resolve, reject) => …)`, `then(f)`, `settled`,
+  `Promise.resolve(v)`, `Promise.reject<T>(e)` (a `Promise<T, Error>`), `Promise.all`, `race`
+  and `allSettled` (`Settled<T> { status, value, reason }`). A rejected promise that nothing
+  awaits or reacts to by the time the microtasks are done ends the program like an uncaught
+  exception (exit code 1).
+- Top-level `await` runs the event loop until the promise settles. A trailing `void`
+  parameter may be left out when calling a function value (`resolve()`), and a lambda whose
+  expected result is `void` discards its value, as in TS.
 
 ## 10.2 Workers (threads)
 Threads are **strictly isolated**: each worker has its own heap and its own module instances,

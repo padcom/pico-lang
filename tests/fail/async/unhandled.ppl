@@ -1,0 +1,10 @@
+// error: E0336
+// at: 7:16
+class HttpError extends Error {}
+async function fetchUser(id: int): Promise<string> throws HttpError {
+  if (id < 0) throw new HttpError("no") else "u"
+}
+async function show(): Promise<void> {
+  const u = await fetchUser(1)               // HttpError isn't handled or declared
+  println(u)
+}
