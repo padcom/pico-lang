@@ -110,6 +110,7 @@ codes! {
     COMPTIME_ONLY = 351: "a comptime-only operation outside comptime code",
     COMPTIME_CAPTURE = 352: "comptime code that uses a runtime variable",
     COMPTIME_ARG = 353: "a `comptime` argument that isn't a constant",
+    DECORATOR = 354: "an error reported by a decorator, or a decorator used wrongly",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

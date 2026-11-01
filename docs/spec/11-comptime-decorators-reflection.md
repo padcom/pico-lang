@@ -70,14 +70,19 @@ statics** to the declaration they decorate: `decl.addStatic(name, init)` creates
 once-initialized state (per thread, like module `const`s) that only the generated code can
 reference. It returns a reference to splice into templates.
 ```ts
-import { decorator, ClassDecl, FunctionDecl } from "std/meta"
+import { ClassDecl, FunctionDecl } from "std/meta"
 
 export decorator function memoize(fn: FunctionDecl): FunctionDecl {
   const cache = fn.addStatic("cache", `new Map<u64, ${fn.returnType}>()`)
   fn.wrapBody((args, call) => `
     const key = ${args.hashKey()}
-    ${cache}.get(key) ?? ${cache}.set(key, ${call})
+    const hit = ${cache}.get(key)
+    if (hit != null) return hit
+    const v = ${call}
+    ${cache}.set(key, v)
+    v
   `)
+  fn
 }
 
 export decorator function mustHaveId(c: ClassDecl) {
@@ -93,6 +98,20 @@ parsed and type-checked when the decorator runs) and an **AST builder** (`ast.ca
 `ast.ident(...)`) for precise control.
 
 Decorators are allowed on classes, structs, enums, functions, methods, fields and parameters.
+
+**How they run** (decision 223): before the program is compiled, its decorators run in a
+program of their own (the core library, `std/meta`, and the declarations the decorator
+functions use), one call per use with a fresh `ClassDecl` (classes and structs) or
+`FunctionDecl`, followed by the decorator's arguments (evaluated in the decorator's module).
+Their requests apply in order: `addMethod`/`addField`/`addMember(code)` parse a member into
+the class, `addStatic(name, init)` adds a module-level hidden `const` (initialized before the
+module's other code) and returns its name, `wrapBody(f)` replaces the body with the code `f`
+returns, in which `call` runs the original body (`args.hashKey()`, `args.list()` and
+`args.names` describe the arguments), and `error`/`warn`/`note` report at the decorator (an
+error is E0354). A decorator taking a `ClassDecl` used on a function (or the reverse) is
+E0354. Decorator functions and their uses are then removed from the program. For now:
+top-level classes, structs and functions only; generated code is parsed as written, so
+mistakes in it are reported in a generated file named after the decorator.
 
 ## 11.3 Runtime reflection
 Reflection metadata is produced **on demand for the whole program**: the compiler emits it for

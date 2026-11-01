@@ -1,0 +1,27 @@
+// expect: 12586269025
+// expect: 51
+// expect: ann
+// expect: enter add(2, 3)
+// expect: 5
+// Decorators from another module: `@memoize` (a hidden static and a wrapped body), `@mustHaveId`
+// (a check) and `@traced(label)` (an argument; it also logs at compile time).
+import { memoize, mustHaveId, traced } from "./memo"
+
+let calls = 0
+
+@memoize
+function fib(n: i64): i64 {
+  calls += 1
+  if (n < 2) n else fib(n - 1) + fib(n - 2)
+}
+
+@mustHaveId
+class User { constructor(public id: i64, public name: string) {} }
+
+@traced("add")
+function add(a: i64, b: i64): i64 { a + b }
+
+println(fib(50))
+println(calls)
+println(new User(1, "ann").name)
+println(add(2, 3))

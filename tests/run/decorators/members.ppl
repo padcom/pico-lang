@@ -1,0 +1,31 @@
+// expect: hello from Shop
+// expect: 1
+// expect: x, y
+// Decorators in the same module that add members to classes and structs.
+import { ClassDecl } from "std/meta"
+
+decorator function greeter(c: ClassDecl) {
+  c.addMethod(`public greet(): string { "hello from ${c.name}" }`)
+  c.addField("public visits: int = 0")
+}
+
+decorator function described(c: ClassDecl) {
+  const names = c.fields.map(f => f.name).join(", ")
+  c.addMethod(`describe(): string { "${names}" }`)
+}
+
+@greeter
+class Shop { constructor(public id: i64) {} }
+
+@described
+struct Point {
+  x: f64
+  y: f64
+}
+
+const s = new Shop(1)
+s.visits += 1
+println(s.greet())
+println(s.visits)
+const p: Point = { x: 1.0, y: 2.0 }
+println(p.describe())

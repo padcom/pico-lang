@@ -603,6 +603,8 @@ pub enum Builtin {
     ComptimeInfo,
     /// `comptime.readFile(path)`: a file under the package root (comptime only).
     ComptimeReadFile,
+    /// `__meta_emit(decl, kind, a, b)`: a decorator's request (comptime only; `std/meta`).
+    MetaEmit,
 }
 
 impl Builtin {
@@ -632,6 +634,7 @@ impl Builtin {
             Builtin::BufOp => "__buf_op",
             Builtin::ComptimeInfo => "__comptime_info",
             Builtin::ComptimeReadFile => "__comptime_read_file",
+            Builtin::MetaEmit => "__meta_emit",
         }
     }
 
@@ -658,6 +661,7 @@ impl Builtin {
             "__buf_op" => Builtin::BufOp,
             "__comptime_info" => Builtin::ComptimeInfo,
             "__comptime_read_file" => Builtin::ComptimeReadFile,
+            "__meta_emit" => Builtin::MetaEmit,
             _ => return None,
         })
     }

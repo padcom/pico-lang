@@ -1,0 +1,137 @@
+// `std/meta`: what decorators see of the declarations they decorate (spec §11.2).
+//
+// A `decorator function` takes a `ClassDecl` (classes and structs) or a `FunctionDecl` first,
+// then the decorator's own arguments (`@route("GET", "/users")`). The compiler runs it at
+// compile time, before the decorated declaration is compiled, and applies what it asked for:
+// added members, hidden statics, wrapped bodies and diagnostics. Code is written as strings
+// (template literals), parsed and type-checked where it's spliced in.
+
+/// The `${}`-spliceable arguments of a wrapped function's call.
+export class Args {
+  constructor(public names: string[]) {}
+
+  /// The arguments as an argument list: `a, b`.
+  public list(): string {
+    this.names.join(", ")
+  }
+
+  /// Code computing a `u64` hash of the arguments (they must be `Hashable`).
+  public hashKey(): string {
+    if (this.names.length == 0) return "0u64"
+    let key = `__hashOf(${this.names[0]})`
+    for (const i of 1..this.names.length) key = `__hashMix(${key}, __hashOf(${this.names[i]}))`
+    key
+  }
+}
+
+/// A decorated class or struct.
+export class ClassDecl {
+  constructor(
+    public id: int,
+    public name: string,
+    /// `"class"` or `"struct"`.
+    public kind: string,
+    public fieldNames: string[],
+    public fieldTypes: string[],
+    public methodNames: string[],
+  ) {}
+
+  public get fields(): FieldInfo[] {
+    const out: FieldInfo[] = []
+    for (const i of 0..this.fieldNames.length) {
+      out.push({ name: this.fieldNames[i], typeName: this.fieldTypes[i] })
+    }
+    out
+  }
+
+  public hasField(name: string): bool {
+    this.fieldNames.includes(name)
+  }
+
+  public hasMethod(name: string): bool {
+    this.methodNames.includes(name)
+  }
+
+  /// Adds a member written as code: `toString(): string { … }` or `count: int = 0`.
+  public addMember(code: string): void {
+    __meta_emit(this.id, "member", code, "")
+  }
+
+  /// Adds a method written as code.
+  public addMethod(code: string): void {
+    this.addMember(code)
+  }
+
+  /// Adds a field written as code.
+  public addField(code: string): void {
+    this.addMember(code)
+  }
+
+  /// Hidden, once-initialized state only generated code can use; returns the name to splice
+  /// into templates.
+  public addStatic(name: string, init: string): string {
+    const n = `__${this.name}_${name}_${this.id}`
+    __meta_emit(this.id, "static", n, init)
+    n
+  }
+
+  /// A compile error at the decorated declaration.
+  public error(message: string): void {
+    __meta_emit(this.id, "error", message, "")
+  }
+
+  public warn(message: string): void {
+    __meta_emit(this.id, "warn", message, "")
+  }
+
+  public note(message: string): void {
+    __meta_emit(this.id, "note", message, "")
+  }
+}
+
+/// A decorated function.
+export class FunctionDecl {
+  constructor(
+    public id: int,
+    public name: string,
+    public paramNames: string[],
+    public paramTypes: string[],
+    /// The return type as written (`"void"` if it isn't).
+    public returnType: string,
+  ) {}
+
+  public get params(): FieldInfo[] {
+    const out: FieldInfo[] = []
+    for (const i of 0..this.paramNames.length) {
+      out.push({ name: this.paramNames[i], typeName: this.paramTypes[i] })
+    }
+    out
+  }
+
+  /// Replaces the body with the code `f` returns: `f` gets the arguments and the code that
+  /// calls the original body with them (`call`).
+  public wrapBody(f: (args: Args, call: string) => string): void {
+    const call = `__orig(${this.paramNames.join(", ")})`
+    __meta_emit(this.id, "wrap", f(new Args(this.paramNames), call), "")
+  }
+
+  /// Hidden, once-initialized state only generated code can use; returns the name to splice
+  /// into templates.
+  public addStatic(name: string, init: string): string {
+    const n = `__${this.name}_${name}_${this.id}`
+    __meta_emit(this.id, "static", n, init)
+    n
+  }
+
+  public error(message: string): void {
+    __meta_emit(this.id, "error", message, "")
+  }
+
+  public warn(message: string): void {
+    __meta_emit(this.id, "warn", message, "")
+  }
+
+  public note(message: string): void {
+    __meta_emit(this.id, "note", message, "")
+  }
+}

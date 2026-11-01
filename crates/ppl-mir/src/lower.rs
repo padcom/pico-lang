@@ -4868,7 +4868,8 @@ impl FnBuilder<'_, '_> {
                 | Builtin::WorkerError
                 | Builtin::BufOp
                 | Builtin::ComptimeInfo
-                | Builtin::ComptimeReadFile),
+                | Builtin::ComptimeReadFile
+                | Builtin::MetaEmit),
             ) => {
                 let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
                 let dest = matches!(

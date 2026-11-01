@@ -34,3 +34,7 @@ struct FieldInfo {
 struct MethodInfo {
   name: string
 }
+
+/// Hashing helpers for generated code (`Args.hashKey()` in `std/meta`).
+function __hashOf<T extends Hashable<T>>(x: T): u64 { x.hashCode() }
+function __hashMix(a: u64, b: u64): u64 { a * 31u64 + b }

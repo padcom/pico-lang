@@ -9,6 +9,7 @@ use ppl_diag::{Code, Diagnostic, SourceMap};
 use ppl_syntax::ast::Module;
 use std::path::{Path, PathBuf};
 
+mod decorators;
 mod modules;
 pub use modules::stdlib_dir;
 
@@ -130,6 +131,19 @@ pub fn check_source_with(
     let mut types = None;
     let mut mir = None;
     let mut comptime_output = String::new();
+    // Decorators run first: they change the declarations the rest compiles.
+    if !diags.iter().any(Diagnostic::is_error) {
+        let mut ex = decorators::expand(
+            &mut sm,
+            &mut module.stmts,
+            &mut modules,
+            file,
+            dir,
+            opts.release,
+        );
+        diags.append(&mut ex.diags);
+        comptime_output = ex.log;
+    }
     if !diags.iter().any(Diagnostic::is_error) {
         let (program, mut d) = ppl_sema::resolve_modules(&module, file, &modules);
         diags.append(&mut d);
@@ -143,7 +157,7 @@ pub fn check_source_with(
                     let cfg = ppl_interp::comptime::Config::host(dir.to_path_buf(), opts.release);
                     let (mut d, out) = ppl_interp::comptime::run(&mut m, &cfg);
                     diags.append(&mut d);
-                    comptime_output = out;
+                    comptime_output.push_str(&out);
                     // The comptime values fold further.
                     if !diags.iter().any(Diagnostic::is_error) {
                         diags.append(&mut ppl_mir::fold::fold_program(&mut m));

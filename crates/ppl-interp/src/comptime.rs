@@ -65,6 +65,18 @@ pub(crate) struct State {
     pub cfg: Config,
     pub steps: u64,
     pub limit: u64,
+    /// What decorators asked for (`__meta_emit`).
+    pub meta: Vec<MetaEdit>,
+}
+
+/// One request of a decorator (`std/meta`): the decorated declaration's id, what to do
+/// (`"error"`, `"member"`, `"wrap"`, …) and its two string arguments.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MetaEdit {
+    pub decl: i64,
+    pub kind: String,
+    pub a: String,
+    pub b: String,
 }
 
 impl Interp<'_, '_> {
@@ -77,7 +89,11 @@ impl Interp<'_, '_> {
         loc: Loc,
     ) -> Option<Result<Value, Panic>> {
         let Some(st) = &self.comptime else {
-            return matches!(b, Builtin::ComptimeInfo | Builtin::ComptimeReadFile).then(|| {
+            return matches!(
+                b,
+                Builtin::ComptimeInfo | Builtin::ComptimeReadFile | Builtin::MetaEmit
+            )
+            .then(|| {
                 Err(self.panic(
                     &format!("`{}` is only available at comptime", b.name()),
                     loc,
@@ -98,6 +114,26 @@ impl Interp<'_, '_> {
                     _ => return Some(Err(self.panic("unknown comptime fact", loc))),
                 };
                 Ok(Value::Str(s.as_str().into()))
+            }
+            Builtin::MetaEmit => {
+                let s = |v: &Value| match v {
+                    Value::Str(s) => s.to_string(),
+                    _ => String::new(),
+                };
+                let decl = match vals[0] {
+                    Value::Int(k) => k as i64,
+                    _ => -1,
+                };
+                let edit = MetaEdit {
+                    decl,
+                    kind: s(&vals[1]),
+                    a: s(&vals[2]),
+                    b: s(&vals[3]),
+                };
+                if let Some(st) = &mut self.comptime {
+                    st.meta.push(edit);
+                }
+                Ok(Value::Void)
             }
             Builtin::ComptimeReadFile => {
                 let Value::Str(path) = &vals[0] else {
@@ -146,9 +182,16 @@ struct Site {
 /// Evaluates every comptime expression of `p` and puts the values in their place. Returns
 /// the diagnostics and what comptime code printed.
 pub fn run(p: &mut Program, cfg: &Config) -> (Vec<Diagnostic>, String) {
+    let (d, out, _) = run_meta(p, cfg);
+    (d, out)
+}
+
+/// [`run`], also returning what decorators asked for (in order).
+pub fn run_meta(p: &mut Program, cfg: &Config) -> (Vec<Diagnostic>, String, Vec<MetaEdit>) {
     let sites = sites(p);
+    let mut meta = Vec::new();
     if sites.is_empty() {
-        return (Vec::new(), String::new());
+        return (Vec::new(), String::new(), meta);
     }
     let mut diags = Vec::new();
     let mut values: HashMap<FnId, Value> = HashMap::new();
@@ -161,10 +204,14 @@ pub fn run(p: &mut Program, cfg: &Config) -> (Vec<Diagnostic>, String) {
                 continue;
             }
             let limit = site.limit.unwrap_or(DEFAULT_LIMIT);
+            if let Some(st) = it.comptime.take() {
+                meta.extend(st.meta);
+            }
             it.comptime = Some(State {
                 cfg: cfg.clone(),
                 steps: 0,
                 limit,
+                meta: Vec::new(),
             });
             let env = Value::Ref(cell(Value::Struct(Vec::new())), Rc::from(Vec::new()));
             let r = it.call(site.thunk, vec![env], Loc::default());
@@ -208,7 +255,9 @@ pub fn run(p: &mut Program, cfg: &Config) -> (Vec<Diagnostic>, String) {
                 }
             }
         }
-        it.comptime = None;
+        if let Some(st) = it.comptime.take() {
+            meta.extend(st.meta);
+        }
         output = String::from_utf8_lossy(&std::mem::take(&mut *shared.out.lock().expect("output")))
             .into_owned();
     }
@@ -269,7 +318,7 @@ pub fn run(p: &mut Program, cfg: &Config) -> (Vec<Diagnostic>, String) {
     for s in &sites {
         p.fns[s.thunk.0 as usize].library = true;
     }
-    (diags, output)
+    (diags, output, meta)
 }
 
 fn failure(panic: &Panic, span: Span, limit: u64) -> Diagnostic {

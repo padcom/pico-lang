@@ -1,0 +1,26 @@
+import { ClassDecl, FunctionDecl } from "std/meta"
+
+export decorator function memoize(fn: FunctionDecl): FunctionDecl {
+  const cache = fn.addStatic("cache", `new Map<u64, ${fn.returnType}>()`)
+  fn.wrapBody((args, call) => `
+    const key = ${args.hashKey()}
+    const hit = ${cache}.get(key)
+    if (hit != null) return hit
+    const v = ${call}
+    ${cache}.set(key, v)
+    v
+  `)
+  fn
+}
+
+export decorator function mustHaveId(c: ClassDecl) {
+  if (!c.hasField("id")) c.error("entity classes need an `id` field")
+}
+
+export decorator function traced(fn: FunctionDecl, label: string) {
+  println(`tracing ${fn.name} as ${label}`)
+  fn.wrapBody((args, call) => `
+    println("enter ${label}(" + ${args.names.map(n => "`${" + n + "}`").join(" + \", \" + ")} + ")")
+    ${call}
+  `)
+}

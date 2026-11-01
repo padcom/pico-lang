@@ -97,8 +97,11 @@ fn checked_or_report(
     };
     // The compile-time log.
     eprint!("{}", checked.comptime_output);
-    if checked.has_errors() {
+    // Errors, and warnings even when there are none.
+    if !checked.diags.is_empty() {
         eprint!("{}", checked.render_diagnostics());
+    }
+    if checked.has_errors() {
         return Err(ExitCode::FAILURE);
     }
     Ok(checked)

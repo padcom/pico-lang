@@ -6307,6 +6307,13 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[1]), Ty::Str)
             }
+            Builtin::MetaEmit => {
+                for (i, a) in args.iter().enumerate() {
+                    let t = if i == 0 { Ty::INT } else { Ty::Str };
+                    self.check(a, &Expect::new(t));
+                }
+                (arity(&[4]), Ty::Void)
+            }
             Builtin::WorkerOp => {
                 for a in args {
                     self.check(a, &Expect::new(Ty::INT));
@@ -6375,7 +6382,7 @@ impl<'p> Checker<'p> {
                 | Builtin::ComptimeReadFile => "1 argument",
                 Builtin::WorkerOp => "2 arguments",
                 Builtin::WorkerPost => "2 or 3 arguments",
-                Builtin::BufOp => "4 arguments",
+                Builtin::BufOp | Builtin::MetaEmit => "4 arguments",
                 Builtin::ClockMs => "no arguments",
                 Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
                     "no arguments"

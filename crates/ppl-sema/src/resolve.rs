@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 
 /// How the files of a program form modules (spec §8.1). The statements of every file come
 /// in one `ast::Module`; each top-level declaration belongs to the module of its file.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Modules {
     /// The core library's files: their declarations are visible in every module.
     pub prelude: HashSet<FileId>,
@@ -33,9 +33,13 @@ pub struct Modules {
     /// Decorators of top-level bindings (`@comptimeLimit(n) comptime const …`), by the span
     /// of the binding statement.
     pub binding_decorators: HashMap<Span, Vec<ast::Decorator>>,
+    /// Code generated into a module (by decorators) lives in a file of its own, part of the
+    /// module of the file it maps to.
+    pub file_modules: HashMap<FileId, FileId>,
 }
 
 /// `import { name as alias } from "…"` or `import * as alias from "…"`, in `module`.
+#[derive(Clone)]
 pub struct Import {
     pub module: FileId,
     pub target: FileId,
@@ -171,6 +175,7 @@ pub fn resolve_modules(
         uses_inline_workers: false,
         mods: ModCtx::default(),
         prelude_files: modules.prelude.clone(),
+        file_modules: modules.file_modules.clone(),
         file,
         diags: Vec::new(),
         fns: Vec::new(),
@@ -315,6 +320,8 @@ struct Resolver {
     /// The module being resolved and the import tables.
     mods: ModCtx,
     prelude_files: HashSet<FileId>,
+    /// See [`Modules::file_modules`].
+    file_modules: HashMap<FileId, FileId>,
     file: FileId,
     diags: Vec<Diagnostic>,
     fns: Vec<Option<Function>>,
@@ -377,6 +384,7 @@ enum Found {
 
 impl Resolver {
     fn module_of(&self, f: FileId) -> u32 {
+        let f = self.file_modules.get(&f).copied().unwrap_or(f);
         if self.prelude_files.contains(&f) {
             PRELUDE_MODULE
         } else {

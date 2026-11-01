@@ -1,0 +1,9 @@
+// error: E0354
+// at: 8:1
+// A decorator taking a `ClassDecl` can't decorate a function.
+import { ClassDecl } from "std/meta"
+
+decorator function mustHaveId(c: ClassDecl) {}
+
+@mustHaveId
+function f(): void {}

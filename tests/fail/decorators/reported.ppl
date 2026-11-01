@@ -1,0 +1,12 @@
+// error: E0354
+// at: 11:1
+// A decorator's `error` is a compile error at the decorator; `warn` is only a warning.
+import { ClassDecl } from "std/meta"
+
+decorator function mustHaveId(c: ClassDecl) {
+  if (!c.hasField("id")) c.error("entity classes need an `id` field")
+  if (c.methodNames.length == 0) c.warn(`${c.name} has no methods`)
+}
+
+@mustHaveId
+class Thing { constructor(public name: string) {} }

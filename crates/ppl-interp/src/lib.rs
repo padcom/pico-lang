@@ -643,7 +643,7 @@ impl Interp<'_, '_> {
                 Ok(())
             }
             Builtin::Assert | Builtin::Panic => unreachable!("lowered to control flow"),
-            Builtin::ComptimeInfo | Builtin::ComptimeReadFile => {
+            Builtin::ComptimeInfo | Builtin::ComptimeReadFile | Builtin::MetaEmit => {
                 unreachable!("handled by comptime_builtin")
             }
         };

@@ -1310,14 +1310,19 @@ comptime const PRIMES = sieve(10_000_000)  // raise the 10M step limit
 
 ### Decorators
 ```ts
-import { decorator, ClassDecl, FunctionDecl, ast } from "std/meta"
+import { ClassDecl, FunctionDecl, ast } from "std/meta"
 
 export decorator function memoize(fn: FunctionDecl): FunctionDecl {
   const cache = fn.addStatic("cache", `new Map<u64, ${fn.returnType}>()`)   // hidden static
   fn.wrapBody((args, call) => `
     const key = ${args.hashKey()}
-    ${cache}.get(key) ?? ${cache}.set(key, ${call})
+    const hit = ${cache}.get(key)
+    if (hit != null) return hit
+    const v = ${call}
+    ${cache}.set(key, v)
+    v
   `)                                      // quasi-quote template, type-checked on expansion
+  fn
 }
 
 export decorator function mustHaveId(c: ClassDecl) {
