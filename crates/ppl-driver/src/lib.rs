@@ -73,7 +73,13 @@ impl Checked {
 pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked {
     let mut sm = SourceMap::new();
     let file = sm.add(name, text);
-    let (module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
+    let (mut module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
+    // The prelude's declarations (`Error`, …) come first.
+    let prelude_file = sm.add("<prelude>", PRELUDE);
+    let (prelude, _) = ppl_syntax::parse_module(prelude_file, PRELUDE);
+    let mut stmts = prelude.stmts;
+    stmts.append(&mut module.stmts);
+    module.stmts = stmts;
     let mut hir = None;
     let mut types = None;
     let mut mir = None;
@@ -84,7 +90,7 @@ pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked
             let (t, mut d) = ppl_sema::check(&program);
             diags.append(&mut d);
             if !diags.iter().any(Diagnostic::is_error) {
-                let (m, mut d) = ppl_mir::lower(&program, &t, sm.file(file));
+                let (m, mut d) = ppl_mir::lower(&program, &t, sm.file(file), file);
                 diags.append(&mut d);
                 mir = Some(m);
             }
@@ -104,8 +110,24 @@ pub fn check_source(name: impl Into<String>, text: impl Into<String>) -> Checked
     }
 }
 
+/// Declarations every program sees.
+const PRELUDE: &str = r#"
+class Error {
+  public message: string
+  public cause: Error? = null
+  constructor(message: string) { this.message = message }
+  constructor(message: string, cause: Error?) {
+    this(message)
+    this.cause = cause
+  }
+}
+"#;
+
 /// The exit code of a program that panicked (spec §7.5).
 pub const PANIC_EXIT_CODE: i32 = 101;
+
+/// The exit code of a program whose top level let an exception escape (spec §7.3).
+pub const UNCAUGHT_EXIT_CODE: i32 = 1;
 
 /// Runs a checked program in the MIR interpreter, writing its output to `out`. Runs on a
 /// thread with a large stack so deep (but bounded) recursion works.

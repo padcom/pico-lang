@@ -36,6 +36,8 @@ pub struct Program {
     pub expr_spans: Vec<Span>,
     pub structs: Vec<StructDef>,
     pub enums: Vec<EnumDef>,
+    /// The prelude's `Error` class.
+    pub error_class: Option<StructId>,
     /// Functions that initialize classes' static fields; the entry function calls them first.
     pub static_inits: Vec<FnId>,
 }
@@ -357,6 +359,8 @@ pub struct Function {
     pub defaults: Vec<Option<Expr>>,
     /// The last parameter is a rest parameter (`...xs: T[]`).
     pub rest: bool,
+    /// The `throws` clause: the error classes the function may throw.
+    pub throws: Vec<Ty>,
 }
 
 #[derive(Debug, Clone)]
@@ -586,6 +590,14 @@ impl Pattern {
     }
 }
 
+/// `catch (e: IoError { path }) body`: the pattern matches the thrown error.
+#[derive(Debug)]
+pub struct CatchClause {
+    pub pat: Pattern,
+    pub body: Expr,
+    pub span: Span,
+}
+
 #[derive(Debug)]
 pub struct Arm {
     pub pat: Pattern,
@@ -752,6 +764,14 @@ pub enum ExprKind {
     Overloaded(Vec<FnId>),
     /// `tailcall f(args)`: a call that must reuse the caller's stack frame.
     Tailcall(Box<Expr>),
+    /// `throw e`
+    Throw(Box<Expr>),
+    /// `try body catch (…) … finally { … }`
+    Try {
+        body: Box<Expr>,
+        catches: Vec<CatchClause>,
+        finally: Option<Box<Expr>>,
+    },
     Break(Option<Box<Expr>>),
     Continue,
     Return(Option<Box<Expr>>),
@@ -802,7 +822,20 @@ impl Expr {
             | ExprKind::Overloaded(_)
             | ExprKind::Error => {}
             ExprKind::NamedArg { value, .. } => f(value),
-            ExprKind::Spread(e) | ExprKind::Tailcall(e) => f(e),
+            ExprKind::Spread(e) | ExprKind::Tailcall(e) | ExprKind::Throw(e) => f(e),
+            ExprKind::Try {
+                body,
+                catches,
+                finally,
+            } => {
+                f(body);
+                for c in catches {
+                    f(&c.body);
+                }
+                if let Some(x) = finally {
+                    f(x);
+                }
+            }
             ExprKind::Unary(_, e)
             | ExprKind::As(e, _)
             | ExprKind::NonNull(e)

@@ -1,0 +1,192 @@
+// Exceptions: `throw`, `try`/`catch`/`finally` as an expression, typed catch clauses and
+// checked `throws` (spec §7.1–7.3).
+// expect: caught: bad digit 'x'
+// expect: 8080
+// expect: 42
+// expect: finally 0
+// expect: io error at /etc/conf: missing
+// expect: finally 1
+// expect: config: cannot parse (cause: parse error at 3)
+// expect: finally 2
+// expect: other: boom
+// expect: 0 1 2 done
+// expect: returned 7 after cleanup
+// expect: inner finally
+// expect: outer caught: deep
+// expect: loop 0
+// expect: loop 1
+// expect: cleanup 1
+// expect: area 12
+// expect: method threw: negative
+// expect: virtual: from B
+// expect: uncaught at the end
+
+class ParseError extends Error {
+  public line: int
+  constructor(line: int) {
+    super(`parse error at ${line}`)
+    this.line = line
+  }
+}
+
+class IoError extends Error {
+  public path: string
+  constructor(path: string, msg: string) {
+    super(msg)
+    this.path = path
+  }
+}
+
+class ConfigError extends Error {
+  constructor(msg: string, cause: Error) { super(msg, cause) }
+}
+
+function digit(c: string): int throws ParseError {
+  match (c) {
+    "0" => 0,
+    "2" => 2,
+    "4" => 4,
+    _ => throw new ParseError(1),
+  }
+}
+
+function parsePort(s: string): int throws ParseError {
+  if (s == "") {
+    throw new ParseError(0)
+  }
+  if (s == "42") {
+    return digit("4") * 10 + digit("2")
+  }
+  digit(s)
+}
+
+function readConfig(path: string, step: int): string throws IoError | ParseError | Error {
+  if (step == 0) {
+    throw new IoError(path, "missing")
+  }
+  if (step == 1) {
+    throw new ParseError(3)
+  }
+  if (step == 2) {
+    throw new Error("boom")
+  }
+  "ok"
+}
+
+function load(step: int): string throws ConfigError | Error {
+  try {
+    readConfig("/etc/conf", step)
+  } catch (e: IoError) {
+    `io error at ${e.path}: ${e.message}`
+  } catch (e: ParseError) {
+    throw new ConfigError("cannot parse", e)
+  } finally {
+    println(`finally ${step}`)
+  }
+}
+
+try {
+  digit('x')
+} catch (e: ParseError) {
+  println("caught: bad digit 'x'")
+}
+
+const port = try parsePort("") catch (e: ParseError) 8080
+println(port)
+println(try parsePort("42") catch (e) -1)
+
+println(try load(0) catch (e) "?")
+const r1 = try load(1) catch (e: ConfigError) {
+  const c = e.cause!
+  `config: ${e.message} (cause: ${c.message})`
+}
+println(r1)
+println(try load(2) catch (e: ConfigError) "config" catch (e) `other: ${e.message}`)
+
+// `finally` runs on `return`, `break` and `continue`.
+let out = ""
+for (const i of 0..5) {
+  try {
+    if (i == 3) {
+      break
+    }
+    out = out + `${i} `
+  } finally {
+    if (i == 3) {
+      println(`${out}done`)
+    }
+  }
+}
+
+let cleaned = false
+function compute(): int {
+  try {
+    return 7
+  } finally {
+    cleaned = true
+  }
+}
+const v = compute()
+println(`returned ${v} after ${cleaned ? "cleanup" : "nothing"}`)
+
+// Nested: the inner `finally` runs before the outer `catch`.
+function deep(): void throws Error {
+  try {
+    throw new Error("deep")
+  } finally {
+    println("inner finally")
+  }
+}
+try {
+  deep()
+} catch (e) {
+  println(`outer caught: ${e.message}`)
+}
+
+for (const i of 0..2) {
+  try {
+    println(`loop ${i}`)
+    continue
+  } finally {
+    if (i == 1) {
+      println("cleanup 1")
+    }
+  }
+}
+
+// Methods and constructors can throw.
+class Rect {
+  w: int
+  h: int
+  constructor(w: int, h: int) throws Error {
+    if (w < 0 || h < 0) {
+      throw new Error("negative")
+    }
+    this.w = w
+    this.h = h
+  }
+  public area(): int { this.w * this.h }
+}
+println(`area ${try new Rect(3, 4).area() catch (e) 0}`)
+try {
+  new Rect(-1, 2)
+} catch (e) {
+  println(`method threw: ${e.message}`)
+}
+
+class A {
+  public virtual run(): void throws Error { throw new Error("from A") }
+}
+class B extends A {
+  public override run(): void throws Error { throw new Error("from B") }
+}
+const a: A = new B()
+try {
+  a.run()
+} catch (e) {
+  println(`virtual: ${e.message}`)
+}
+
+println("uncaught at the end")
+throw new IoError("/x", "no such file")
+// exit: 1

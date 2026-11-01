@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P3.19: Exceptions I** (see [PLAN.md](PLAN.md#p319-exceptions-i))
+**P3.20: Exceptions II** (see [PLAN.md](PLAN.md#p320-exceptions-ii))
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 178 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.18) |
+| Last green `scripts/test.sh` | 2026-11-01 (P3.19) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -40,7 +40,11 @@ Notes:
 ## Known issues / notes for the next session
 - LLVM can't emit WasmGC, so the browser target starts on linear memory (PLAN P8.6 and P8.7).
 - lld isn't installed (separate Homebrew `lld` formula); needed from P8.1.
-- The unwinding strategy (LLVM EH vs error-return lowering) is decided in P3.19.
+- Exceptions use error-return lowering (decision 197): `Rvalue::SetException/TakeException/
+  ExceptionPending`, `Terminator::Uncaught`; `FnBuilder::terminate` adds the pending check after
+  calls of throwing functions; the throws analysis is `ppl-sema/src/throws.rs`. The prelude
+  (`ppl_driver::PRELUDE`) is a second source file; lowering gives its spans no location.
+  The pending slot is a plain global: make it thread-local with threads (P5).
 - **Decisions 183+ are provisional** (made during an unattended session): pop → `T?`,
   array-literal inference, no `==` on `T[]`, range step rules, debug format of arrays, null
   representation and narrowing rules. Ask the author to confirm.
@@ -127,7 +131,7 @@ Notes:
 - [x] P3.16 Function features
 - [x] P3.17 Operators and equality protocols
 - [x] P3.18 Distinct types, aliases, immutability
-- [ ] P3.19 Exceptions I
+- [x] P3.19 Exceptions I
 - [ ] P3.20 Exceptions II
 - [ ] P3.21 Panics and stack traces
 - [ ] P3.22 Core collections and Array API
@@ -252,3 +256,4 @@ Notes:
 | 2026-11-01 | P3.16 | Named arguments, defaults (callee-evaluated with hidden flags; may use earlier params), optional `?` params, rest params and `...array`/`...tuple` spreads via typeck `Slot`s (`map_args`/`check_slots`) and lowering `call_operands`; overload sets for top-level functions with applicability + specificity resolution (E0332/E0333, same-signature duplicates still E0203); `tailcall` (E0331) as MIR Terminator::TailCall → LLVM musttail / interpreter frame reuse (1,000,000-deep recursion runs). Const::Undef for omitted arguments. Decision 194. Fixtures: run/function_features, fail/types/function_features. |
 | 2026-11-01 | P3.17 | Operators: `operator` members as methods `op+`/`op-u`/`op[]`/`op[]=` (resolver), typeck user_binary/unary/index/index-assign/compound dispatch (op_calls), `==` → user `equals`, comparisons → user or derived `compareTo` (derived), derived `equals`/`compareTo`/`hashCode` method calls; `@derive(Eq, Hash, Ord)` on classes; lowering user_call/receiver, compare_values/cmp_into (structs, tuples, fixed, ranges, enums, nullables, classes), eq_values (derived class equality), hash_value/hash_parts; MIR Rvalue::Hash/HashCombine with matching interpreter and C runtime (ppl_hash_u64/str/combine); bool `&`/`\|`/`^`. Fixed: run cache keyed on the compiler binary. Decision 195. Fixtures: run/operators (Vec2 arithmetic, sorting structs and classes by compareTo, derive), fail/types/operators; bound fixtures now use classes. |
 | 2026-11-01 | P3.18 | Ty::Distinct (from `type X = distinct T`, erased to the base; `as` conversions; literals adopt numeric distinct types), Ty::Immutable (typeck-only, stripped from Types before lowering): deep views with pure-value normalization, `through_immutable` checks for field/element assignment and non-readonly method calls (incl. push/pop), `readonly` methods (immutable `this`), `readonly` fields (E0334) incl. parameter properties; struct members accept `readonly`. Lowering erases literal types. Decision 196. Fixtures: run/distinct, fail/types/immutability (mutation through `immutable`, `Meters`/`Feet` mixing). Type aliases were done in P3.12. |
+| 2026-11-01 | P3.19 | Error-return exceptions: prelude `Error` class, `throw`, `try`/`catch`/`finally` as expression (and statement), typed/pattern catch clauses, `throws` on functions, methods and constructors; checked-throws pass (E0336) with catch narrowing; non-`Error` throws E0337; top-level uncaught → `uncaught Class: msg`, exit 1 (interp `Panic.uncaught`, runtime `ppl_uncaught`). `finally` runs on return/break/continue. Decision 197. Fixtures: run/errors/exceptions, fail/types/{exceptions,throw}, fail/names/throws_clause. IR/MIR snapshots now include the prelude. |

@@ -213,10 +213,12 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
     let mir = checked.mir.as_ref().expect("MIR after a clean check");
     let mut out: Vec<u8> = Vec::new();
     let result = ppl_driver::run_interp(mir, &mut out);
+    let err = result.err();
+    let uncaught = err.as_ref().is_some_and(|p| p.uncaught);
     let interp = Run {
         stdout: String::from_utf8_lossy(&out).into_owned(),
-        panic: result.err().map(|p| p.msg),
-        exit: None,
+        exit: uncaught.then_some(ppl_driver::UNCAUGHT_EXIT_CODE),
+        panic: err.filter(|p| !p.uncaught).map(|p| p.msg),
     };
     let mut problems: Vec<String> = compare_run(d, &interp, "interpreter").into_iter().collect();
     match run_native(checked) {

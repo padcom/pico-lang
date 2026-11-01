@@ -83,6 +83,8 @@ const config = try {
 - Catching narrows the error union. Uncaught types propagate and must be declared by the
   enclosing function.
 - `finally` always runs, and its value is ignored.
+- An exception that escapes the top level prints `uncaught <Class>: <message>` to stderr and
+  ends the program with exit code 1 (decision 197).
 
 ### `try?` and `try!`
 ```ts

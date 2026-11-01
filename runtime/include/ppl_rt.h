@@ -103,6 +103,8 @@ int ppl_format_f32(float v, char *buf);
 _Noreturn void ppl_panic(const char *msg, int64_t msg_len, const char *file, int64_t file_len,
                          int32_t line, int32_t col);
 
+/* An exception escaped the top level: prints `uncaught <class>: <message>`, exits with 1. */
+_Noreturn void ppl_uncaught(const PplStr *cls, const PplStr *msg);
 _Noreturn void ppl_panic_str(const PplStr *msg, const char *file, int64_t file_len, int32_t line,
                              int32_t col);
 

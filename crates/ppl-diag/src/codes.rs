@@ -92,6 +92,8 @@ codes! {
     NO_OVERLOAD = 333: "call that fits no overload",
     READONLY_FIELD = 334: "assignment to a `readonly` field outside a constructor",
     IMMUTABLE_MUTATION = 335: "mutation through an `immutable` view or in a `readonly` method",
+    UNHANDLED_ERROR = 336: "a checked error is neither caught nor declared in `throws`",
+    NOT_THROWABLE = 337: "`throw` of a value that isn't an `Error`",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

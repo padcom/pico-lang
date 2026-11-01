@@ -89,11 +89,16 @@ pub struct Panic {
     pub msg: String,
     pub file: String,
     pub loc: Loc,
+    /// An uncaught exception rather than a panic (`msg` is `<class>: <message>`).
+    pub uncaught: bool,
 }
 
 impl Panic {
     /// The text printed to stderr (shared format with the native runtime).
     pub fn report(&self) -> String {
+        if self.uncaught {
+            return format!("uncaught {}\n", self.msg);
+        }
         format!(
             "panic: {}\n  at {}:{}:{}\n",
             self.msg, self.file, self.loc.line, self.loc.col
@@ -110,6 +115,7 @@ pub fn run(program: &Program, out: &mut dyn Write) -> Result<(), Panic> {
             .map(|_| cell(Value::Uninit))
             .collect(),
         depth: 0,
+        exception: None,
     };
     let r = it
         .call(program.entry, Vec::new(), Loc::default())
@@ -123,6 +129,8 @@ struct Interp<'p, 'o> {
     out: &'o mut dyn Write,
     globals: Vec<Cell>,
     depth: usize,
+    /// The pending exception.
+    exception: Option<Value>,
 }
 
 struct Frame<'p> {
@@ -142,6 +150,7 @@ impl Interp<'_, '_> {
             msg: msg.to_string(),
             file: self.p.file.clone(),
             loc,
+            uncaught: false,
         }
     }
 
@@ -337,6 +346,17 @@ impl Interp<'_, '_> {
                     };
                     return Err(self.panic(&m, *loc));
                 }
+                Terminator::Uncaught { class, msg } => {
+                    let text = |v: Value| match v {
+                        Value::Str(s) => s.to_string(),
+                        _ => String::new(),
+                    };
+                    let c = text(self.operand(frame, class));
+                    let m = text(self.operand(frame, msg));
+                    let mut p = self.panic(&format!("{c}: {m}"), Loc::default());
+                    p.uncaught = true;
+                    return Err(p);
+                }
                 Terminator::Unreachable => unreachable!("reached an unreachable block"),
             }
         }
@@ -486,6 +506,12 @@ impl Interp<'_, '_> {
                 let t = self.operand_ty(frame, o);
                 Ok(Value::Int(hash_value(&self.operand(frame, o), &t) as i128))
             }
+            Rvalue::SetException(o) => {
+                self.exception = Some(self.operand(frame, o));
+                Ok(Value::Void)
+            }
+            Rvalue::TakeException(_) => Ok(self.exception.take().expect("a pending exception")),
+            Rvalue::ExceptionPending => Ok(Value::Bool(self.exception.is_some())),
             Rvalue::HashCombine(a, b) => match (self.operand(frame, a), self.operand(frame, b)) {
                 (Value::Int(x), Value::Int(y)) => {
                     Ok(Value::Int(hash_combine(x as u64, y as u64) as i128))

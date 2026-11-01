@@ -1,0 +1,65 @@
+// error: E0336
+// at: 27:3
+// error: E0336
+// at: 32:7
+// error: E0336
+// at: 37:3
+// error: E0336
+// at: 45:5
+// error: E0336
+// at: 61:7
+// error: E0336
+// at: 65:17
+// Unhandled checked errors (spec §7.2): every thrown error is caught or declared.
+class IoError extends Error {}
+class ParseError extends Error {}
+
+function read(): string throws IoError {
+  throw new IoError("gone")
+}
+
+function parse(s: string): int throws ParseError | IoError {
+  0
+}
+
+// No `throws` clause: can't throw.
+function quiet(): string {
+  read()
+}
+
+// Catching narrows: the `ParseError` is handled, the `IoError` isn't.
+function half(): int throws ParseError {
+  try parse("1") catch (e: ParseError) 0
+}
+
+// `throws Error` covers every subclass, but `throws IoError` doesn't cover `Error`.
+function wide(): void throws IoError {
+  throw new Error("plain")
+}
+
+// An error thrown inside a `catch` isn't caught by the same `try`.
+function rethrow(): void {
+  try {
+    read()
+  } catch (e: IoError) {
+    throw new ParseError("again")
+  }
+}
+
+// A catch with a refutable pattern doesn't handle its type for sure.
+class Coded extends Error {
+  public code: int
+  constructor(code: int) {
+    super("coded")
+    this.code = code
+  }
+}
+function coded(): void throws Coded {
+  throw new Coded(1)
+}
+function partly(): void {
+  try coded() catch (e: Coded { code: 1 }) {}
+}
+
+// Lambdas can't throw (inference arrives with P3.20).
+const f = () => read()

@@ -1,0 +1,11 @@
+// error: E0337
+// at: 10:27
+// error: E0337
+// at: 11:35
+// `throws` lists `Error` classes.
+struct Point {
+  x: int
+}
+
+function c(): void throws string {}
+function d(): void throws Error | Point {}

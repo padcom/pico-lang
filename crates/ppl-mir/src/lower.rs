@@ -18,11 +18,13 @@ pub fn lower(
     program: &hir::Program,
     types: &Types,
     file: &SourceFile,
+    file_id: ppl_diag::FileId,
 ) -> (mir::Program, Vec<Diagnostic>) {
     let mut cx = Cx {
         program,
         types: std::borrow::Cow::Borrowed(types),
         file,
+        file_id,
         diags: Vec::new(),
         reported: HashSet::new(),
         itables: Vec::new(),
@@ -193,7 +195,8 @@ fn erase_program(p: &mut mir::Program) {
                         *t = t.erase();
                         ops.iter_mut().for_each(erase_op)
                     }
-                    Rvalue::New(t) => *t = t.erase(),
+                    Rvalue::New(t) | Rvalue::TakeException(t) => *t = t.erase(),
+                    Rvalue::SetException(o) => erase_op(o),
                     _ => {}
                 }
             }
@@ -242,6 +245,8 @@ struct Cx<'a> {
     /// Named functions used as values: (function, the adapter that takes an environment).
     fn_values: Vec<(FnId, FnId)>,
     file: &'a SourceFile,
+    /// The program's file; spans elsewhere (the prelude) get no location.
+    file_id: ppl_diag::FileId,
     diags: Vec<Diagnostic>,
     /// Spans already reported as not implemented (lowering has no such gaps right now).
     #[allow(dead_code)]
@@ -252,6 +257,20 @@ struct Cx<'a> {
 
 impl Cx<'_> {
     /// The MIR function for generic `id` seen through `subst`.
+    /// Whether MIR function `id` (a HIR function or a generic instance) declares `throws`.
+    fn throws(&self, id: FnId) -> bool {
+        let base = self.program.fns.len();
+        let i = id.0 as usize;
+        let h = if i < base {
+            id
+        } else if let Some((f, _)) = self.instances.get(i - base) {
+            *f
+        } else {
+            return false;
+        };
+        !self.program.func(h).throws.is_empty()
+    }
+
     fn instance(&mut self, id: FnId, subst: Subst) -> FnId {
         let base = self.program.fns.len();
         match self
@@ -518,6 +537,9 @@ impl Cx<'_> {
             blocks: vec![(Vec::new(), None)],
             cur: BlockId(0),
             loops: Vec::new(),
+            handlers: Vec::new(),
+            finallies: Vec::new(),
+            propagate: None,
         };
         for (i, (l, t)) in f.locals.iter().zip(local_tys.iter()).enumerate() {
             // A struct's `this` is passed by reference (a class's is already one).
@@ -614,6 +636,10 @@ impl Cx<'_> {
             _ => Terminator::Return(Some(value)),
         };
         b.terminate(term);
+        if let Some(pb) = b.propagate {
+            b.switch_to(pb);
+            b.propagate_exception(&ret, f.span);
+        }
         let blocks = b
             .blocks
             .into_iter()
@@ -656,6 +682,14 @@ struct FnBuilder<'c, 'a> {
     blocks: Vec<(Vec<mir::Statement>, Option<Terminator>)>,
     cur: BlockId,
     loops: Vec<LoopTarget>,
+    /// Where a raised exception goes: the enclosing `try`s' dispatch blocks, innermost last.
+    handlers: Vec<BlockId>,
+    /// The enclosing `finally` blocks, innermost last, with the loop and handler depths
+    /// outside their `try` (`return`, `break` and `continue` run them on the way out).
+    /// The expressions live in the HIR, which outlives the builder.
+    finallies: Vec<(*const Expr, usize, usize)>,
+    /// The block that passes an exception on to the caller (made when first needed).
+    propagate: Option<BlockId>,
 }
 
 fn has_value(t: &Ty) -> bool {
@@ -690,6 +724,9 @@ fn bin_op(op: ast::BinOp) -> mir::BinOp {
 
 impl FnBuilder<'_, '_> {
     fn loc(&self, span: Span) -> Loc {
+        if span.file != self.cx.file_id {
+            return Loc::default();
+        }
         let (line, col) = self.cx.file.line_col(span.start);
         Loc {
             line: line as u32,
@@ -724,9 +761,261 @@ impl FnBuilder<'_, '_> {
 
     /// Ends the current block (unless it already ended).
     fn terminate(&mut self, term: Terminator) {
-        let slot = &mut self.blocks[self.cur.0 as usize].1;
-        if slot.is_none() {
-            *slot = Some(term);
+        if self.blocks[self.cur.0 as usize].1.is_some() {
+            return;
+        }
+        let throws = match &term {
+            Terminator::Call {
+                callee:
+                    Callee::Fn(id) | Callee::Virtual { decl: id, .. } | Callee::Iface { decl: id, .. },
+                ..
+            } => self.cx.throws(*id),
+            _ => false,
+        };
+        let Terminator::Call {
+            callee,
+            args,
+            dest,
+            next,
+            loc,
+        } = term
+        else {
+            self.blocks[self.cur.0 as usize].1 = Some(term);
+            return;
+        };
+        if !throws {
+            self.blocks[self.cur.0 as usize].1 = Some(Terminator::Call {
+                callee,
+                args,
+                dest,
+                next,
+                loc,
+            });
+            return;
+        }
+        // A throwing call: afterwards, a pending exception goes to the handler.
+        let check = self.new_block();
+        self.blocks[self.cur.0 as usize].1 = Some(Terminator::Call {
+            callee,
+            args,
+            dest,
+            next: check,
+            loc,
+        });
+        let pending = self.temp(Ty::Bool);
+        let target = self.raise_target();
+        let blk = &mut self.blocks[check.0 as usize];
+        blk.0.push(mir::Statement {
+            place: Place::local(pending),
+            rvalue: Rvalue::ExceptionPending,
+            loc,
+        });
+        blk.1 = Some(Terminator::Branch {
+            cond: Operand::Copy(Place::local(pending)),
+            then: target,
+            else_: next,
+        });
+    }
+
+    /// Where an exception raised here goes.
+    fn raise_target(&mut self) -> BlockId {
+        if let Some(h) = self.handlers.last() {
+            return *h;
+        }
+        match self.propagate {
+            Some(b) => b,
+            None => {
+                let b = self.new_block();
+                self.propagate = Some(b);
+                b
+            }
+        }
+    }
+
+    /// The propagate block: return to the caller with the exception pending, or at the top
+    /// level, report it and exit.
+    fn propagate_exception(&mut self, ret: &Ty, span: Span) {
+        let top = self.hir_fn.is_entry || self.cx.program.static_inits.contains(&self.fn_id);
+        if !top {
+            let term = match ret {
+                Ty::Void | Ty::Never | Ty::Error => Terminator::Return(None),
+                t => Terminator::Return(Some(Operand::Const(Const::Undef(t.clone())))),
+            };
+            self.terminate(term);
+            return;
+        }
+        let Some(err) = self.cx.program.error_class else {
+            self.terminate(Terminator::Unreachable);
+            return;
+        };
+        let err_ty = self.cx.program.struct_def(err).self_ty(err);
+        let exc = self.temp(err_ty.clone());
+        self.assign(Place::local(exc), Rvalue::TakeException(err_ty), span);
+        // The class name: test the subclasses of `Error`, deepest first.
+        let p = self.cx.program;
+        let mut classes: Vec<(usize, StructId)> = (0..p.structs.len())
+            .map(|i| StructId(i as u32))
+            .filter(|s| {
+                let d = p.struct_def(*s);
+                d.is_class && d.generics.is_empty() && p.is_subclass(*s, err)
+            })
+            .map(|s| {
+                let mut depth = 0;
+                let mut c = s;
+                while let Some(b) = p.struct_def(c).base {
+                    depth += 1;
+                    c = b;
+                }
+                (depth, s)
+            })
+            .collect();
+        classes.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.0.cmp(&b.1.0)));
+        let name = self.temp(Ty::Str);
+        let done = self.new_block();
+        for (_, s) in classes {
+            let is = self.rvalue_to_temp(
+                Rvalue::InstanceOf(Operand::Copy(Place::local(exc)), s),
+                Ty::Bool,
+                span,
+            );
+            let yes = self.new_block();
+            let no = self.new_block();
+            self.terminate(Terminator::Branch {
+                cond: is,
+                then: yes,
+                else_: no,
+            });
+            self.switch_to(yes);
+            let n = p.struct_def(s).name.clone();
+            self.assign(
+                Place::local(name),
+                Rvalue::Use(Operand::Const(Const::Str(n.as_str().into()))),
+                span,
+            );
+            self.terminate(Terminator::Goto(done));
+            self.switch_to(no);
+        }
+        self.terminate(Terminator::Unreachable);
+        self.switch_to(done);
+        let msg = self.rvalue_to_temp(
+            Rvalue::Use(Operand::Copy(Place::local(exc).field(0))),
+            Ty::Str,
+            span,
+        );
+        self.terminate(Terminator::Uncaught {
+            class: Operand::Copy(Place::local(name)),
+            msg,
+        });
+    }
+
+    /// Runs the enclosing `finally` blocks (innermost first) whose `try` is inside the
+    /// innermost `min_loops` loops… i.e. those entered at a loop depth of at least
+    /// `min_loops`, on the way out of them.
+    fn run_finallies(&mut self, min_loops: usize) {
+        let saved_f = self.finallies.clone();
+        let saved_h = self.handlers.clone();
+        for i in (0..saved_f.len()).rev() {
+            let (fin, loops, handlers) = saved_f[i];
+            if loops < min_loops {
+                break;
+            }
+            self.finallies.truncate(i);
+            self.handlers.truncate(handlers);
+            // SAFETY: the expression is part of the HIR, which outlives this builder.
+            let fin = unsafe { &*fin };
+            self.expr(fin);
+        }
+        self.finallies = saved_f;
+        self.handlers = saved_h;
+    }
+
+    /// `try body catch (…) … finally { … }`
+    fn try_expr(
+        &mut self,
+        body: &Expr,
+        catches: &[hir::CatchClause],
+        finally: Option<&Expr>,
+        ty: Ty,
+        span: Span,
+    ) -> Operand {
+        let result = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+        let outer_handlers = self.handlers.len();
+        let dispatch = self.new_block();
+        let done = self.new_block();
+        if let Some(f) = finally {
+            self.finallies
+                .push((f as *const Expr, self.loops.len(), outer_handlers));
+        }
+        self.handlers.push(dispatch);
+        let v = self.expr(body);
+        if let Some(r) = &result
+            && self.ty(body) != Ty::Never
+        {
+            self.assign(r.clone(), Rvalue::Use(v), span);
+        }
+        self.handlers.pop();
+        self.terminate(Terminator::Goto(done));
+        // An exception in the body: try the catch clauses in order.
+        self.switch_to(dispatch);
+        let err = self.cx.program.error_class.expect("prelude");
+        let err_ty = self.cx.program.struct_def(err).self_ty(err);
+        let exc = Place::local(self.temp(err_ty.clone()));
+        self.assign(exc.clone(), Rvalue::TakeException(err_ty), span);
+        // Exceptions in the catch clauses (and the rethrow) still run `finally`.
+        let fin_exc = finally.map(|_| self.new_block());
+        if let Some(b) = fin_exc {
+            self.handlers.push(b);
+        }
+        for c in catches {
+            let next = self.new_block();
+            self.match_pattern(&c.pat, &exc, next);
+            let v = self.expr(&c.body);
+            if let Some(r) = &result
+                && self.ty(&c.body) != Ty::Never
+            {
+                self.assign(r.clone(), Rvalue::Use(v), c.span);
+            }
+            self.terminate(Terminator::Goto(done));
+            self.switch_to(next);
+        }
+        // No clause matched: rethrow.
+        let t = self.temp(Ty::Void);
+        self.assign(
+            Place::local(t),
+            Rvalue::SetException(Operand::Copy(exc)),
+            span,
+        );
+        let target = self.raise_target();
+        self.terminate(Terminator::Goto(target));
+        if fin_exc.is_some() {
+            self.handlers.pop();
+            self.finallies.pop();
+        }
+        self.switch_to(done);
+        if let Some(f) = finally {
+            self.expr(f);
+        }
+        if let (Some(b), Some(f)) = (fin_exc, finally) {
+            let after = self.new_block();
+            self.terminate(Terminator::Goto(after));
+            self.switch_to(b);
+            let err_ty = self.cx.program.struct_def(err).self_ty(err);
+            let held = Place::local(self.temp(err_ty.clone()));
+            self.assign(held.clone(), Rvalue::TakeException(err_ty), span);
+            self.expr(f);
+            let t = self.temp(Ty::Void);
+            self.assign(
+                Place::local(t),
+                Rvalue::SetException(Operand::Copy(held)),
+                span,
+            );
+            let target = self.raise_target();
+            self.terminate(Terminator::Goto(target));
+            self.switch_to(after);
+        }
+        match result {
+            Some(p) => Operand::Copy(p),
+            None => Operand::Const(Const::Void),
         }
     }
 
@@ -1595,8 +1884,29 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(exit);
                 Operand::Const(Const::Void)
             }
+            ExprKind::Throw(inner) => {
+                let v = self.expr(inner);
+                let t = self.temp(Ty::Void);
+                self.assign(Place::local(t), Rvalue::SetException(v), e.span);
+                let target = self.raise_target();
+                self.diverge(Terminator::Goto(target));
+                Operand::Const(Const::Void)
+            }
+            ExprKind::Try {
+                body,
+                catches,
+                finally,
+            } => self.try_expr(body, catches, finally.as_deref(), ty, e.span),
             ExprKind::Break(value) => {
                 let v = value.as_ref().map(|v| (self.expr(v), self.ty(v)));
+                let v = match v {
+                    Some((v, vt)) if !self.finallies.is_empty() && has_value(&vt) => {
+                        let t = self.rvalue_to_temp(Rvalue::Use(v), vt.clone(), e.span);
+                        Some((t, vt))
+                    }
+                    v => v,
+                };
+                self.run_finallies(self.loops.len());
                 let target = self.loops.last().expect("resolver checked break placement");
                 let (brk, result) = (target.brk, target.result.clone());
                 if let (Some((v, vt)), Some(r)) = (v, result)
@@ -1608,6 +1918,7 @@ impl FnBuilder<'_, '_> {
                 Operand::Const(Const::Void)
             }
             ExprKind::Continue => {
+                self.run_finallies(self.loops.len());
                 let cont = self
                     .loops
                     .last()
@@ -1618,6 +1929,14 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Return(value) => {
                 let v = value.as_ref().map(|v| (self.expr(v), self.ty(v)));
+                let v = match v {
+                    Some((v, vt)) if !self.finallies.is_empty() && has_value(&vt) => {
+                        let t = self.rvalue_to_temp(Rvalue::Use(v), vt.clone(), e.span);
+                        Some((t, vt))
+                    }
+                    v => v,
+                };
+                self.run_finallies(0);
                 let ret_has_value = !self.hir_fn.is_entry
                     && has_value(&self.cx.types.sigs[self.fn_id.0 as usize].ret);
                 let term = match v {

@@ -406,6 +406,12 @@ pub enum Rvalue {
     Hash(Operand),
     /// Mixes a field's hash into an accumulated one.
     HashCombine(Operand, Operand),
+    /// Makes the error the pending exception (`throw`).
+    SetException(Operand),
+    /// The pending exception (of the given type), which stops being pending.
+    TakeException(Ty),
+    /// Whether an exception is pending (checked after calls of throwing functions).
+    ExceptionPending,
 }
 
 #[derive(Debug)]
@@ -463,6 +469,12 @@ pub enum Terminator {
     Panic {
         msg: Operand,
         loc: Loc,
+    },
+    /// An exception escaped the top level: prints `uncaught <class>: <message>` and exits
+    /// with code 1.
+    Uncaught {
+        class: Operand,
+        msg: Operand,
     },
     Unreachable,
 }
@@ -566,6 +578,9 @@ impl fmt::Display for Rvalue {
             Rvalue::BoxNew(t, a) => write!(f, "BoxNew<{t}>({a})"),
             Rvalue::Hash(a) => write!(f, "Hash({a})"),
             Rvalue::HashCombine(a, b) => write!(f, "HashCombine({a}, {b})"),
+            Rvalue::SetException(a) => write!(f, "SetException({a})"),
+            Rvalue::TakeException(t) => write!(f, "TakeException<{t}>"),
+            Rvalue::ExceptionPending => write!(f, "ExceptionPending"),
         }
     }
 }
@@ -652,6 +667,7 @@ pub fn dump(p: &Program) -> String {
                     let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
                     format!("tailcall {}({})", p.func(*callee).name, args.join(", "))
                 }
+                Terminator::Uncaught { class, msg } => format!("uncaught {class}: {msg}"),
                 Terminator::Unreachable => "unreachable".to_string(),
             };
             let _ = writeln!(out, "    {term}");

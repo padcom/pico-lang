@@ -458,6 +458,7 @@ impl Resolver {
             closure: None,
             defaults: Vec::new(),
             rest: false,
+            throws: Vec::new(),
         });
 
         Program {
@@ -472,6 +473,7 @@ impl Resolver {
             expr_spans: std::mem::take(&mut self.spans),
             structs: std::mem::take(&mut self.structs),
             enums: std::mem::take(&mut self.enums),
+            error_class: self.top_structs.get("Error").copied(),
             static_inits,
         }
     }
@@ -813,9 +815,10 @@ impl Resolver {
             };
             self.not_implemented(name.span, what);
         }
-        if let Some(t) = &f.throws {
-            self.not_implemented(t.span, "`throws` clauses");
-        }
+        let throws = match &f.throws {
+            Some(t) => self.throws_clause(t),
+            None => Vec::new(),
+        };
         self.f = FnState {
             in_entry: is_entry,
             owner,
@@ -937,7 +940,30 @@ impl Resolver {
             closure: None,
             defaults,
             rest,
+            throws,
         }
+    }
+
+    /// `throws A | B`: the error classes (each must extend `Error`).
+    fn throws_clause(&mut self, t: &ast::Type) -> Vec<Ty> {
+        let members: Vec<&ast::Type> = match &t.kind {
+            ast::TypeKind::Union(ms) => ms.iter().collect(),
+            _ => vec![t],
+        };
+        let mut out = Vec::new();
+        for m in members {
+            match self.resolve_type(m) {
+                ty @ Ty::Class(..) => out.push(ty),
+                Ty::Error => {}
+                other => self.error(
+                    codes::NOT_THROWABLE,
+                    m.span,
+                    format!("`{other}` can't be thrown"),
+                    "`throws` lists `Error` classes",
+                ),
+            }
+        }
+        out
     }
 
     /// Declares a generic function's type parameters (as `Ty::Param` of the current
@@ -1943,6 +1969,10 @@ impl Resolver {
         let mut body = body;
         stmts.append(&mut body.stmts);
         body.stmts = stmts;
+        let throws = match decl.and_then(|d| d.throws.as_ref()) {
+            Some(t) => self.throws_clause(t),
+            None => Vec::new(),
+        };
         Function {
             name: format!("{class_name}.constructor"),
             name_span: c.decl.name.span,
@@ -1959,6 +1989,7 @@ impl Resolver {
             closure: None,
             defaults: Vec::new(),
             rest: false,
+            throws,
         }
     }
 
@@ -2060,6 +2091,7 @@ impl Resolver {
             closure: None,
             defaults: Vec::new(),
             rest: false,
+            throws: Vec::new(),
         }
     }
 
@@ -2514,6 +2546,7 @@ impl Resolver {
             }),
             defaults: Vec::new(),
             rest: false,
+            throws: Vec::new(),
         });
         ExprKind::Closure(id)
     }
@@ -3264,6 +3297,38 @@ impl Resolver {
             },
             A::Function(decl) => self.closure(decl, span),
             A::Tailcall(inner) => ExprKind::Tailcall(Box::new(self.lower_expr(inner))),
+            A::Throw(inner) => ExprKind::Throw(Box::new(self.lower_expr(inner))),
+            A::Try {
+                body,
+                catches,
+                finally,
+            } => {
+                let body = self.lower_expr(body);
+                let catches = catches
+                    .iter()
+                    .map(|c| {
+                        self.f.scopes.push(Scope::default());
+                        let mut bound = Binds::default();
+                        let pat = self.lower_pattern(&c.pat, &mut bound);
+                        let body = self.lower_expr(&c.body);
+                        self.f.scopes.pop();
+                        CatchClause {
+                            pat,
+                            body,
+                            span: c.span,
+                        }
+                    })
+                    .collect();
+                let finally = finally.as_ref().map(|b| {
+                    let block = self.block(b);
+                    Box::new(self.expr(ExprKind::Block(block), b.span))
+                });
+                ExprKind::Try {
+                    body: Box::new(body),
+                    catches,
+                    finally,
+                }
+            }
             A::This => match self.this_here() {
                 Some((this, _)) => ExprKind::Var(Var::Local(this)),
                 None => {
@@ -3655,7 +3720,7 @@ impl Resolver {
                 let what = match other {
                     A::Super => "`super` outside a method call",
                     A::Object { .. } => "object and struct literals",
-                    A::Try { .. } | A::TryOpt(_) | A::TryBang(_) | A::Throw(_) => "exceptions",
+                    A::TryOpt(_) | A::TryBang(_) => "`try?` and `try!`",
                     A::Await(_) => "`await`",
                     A::Yield { .. } => "generators",
                     A::Comptime(_) => "`comptime`",

@@ -622,6 +622,17 @@ _Noreturn void ppl_panic_str(const PplStr *msg, const char *file, int64_t file_l
     ppl_panic(msg->data, msg->byte_len, file, file_len, line, col);
 }
 
+_Noreturn void ppl_uncaught(const PplStr *cls, const PplStr *msg) {
+    fflush(stdout);
+    fputs("uncaught ", stderr);
+    fwrite(cls->data, 1, (size_t)cls->byte_len, stderr);
+    fputs(": ", stderr);
+    fwrite(msg->data, 1, (size_t)msg->byte_len, stderr);
+    fputs("\n", stderr);
+    fflush(stderr);
+    exit(1);
+}
+
 /* ---------------------------------------------------------------- integer power */
 
 static bool fits_s(__int128 v, int32_t bits) {

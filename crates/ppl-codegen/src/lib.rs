@@ -101,6 +101,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         class_infos: Vec::new(),
         generic_structs: Default::default(),
         itables: Vec::new(),
+        exception: None,
     };
     // Struct types first (named, so they can refer to each other), then their bodies.
     g.structs = program
@@ -168,6 +169,8 @@ struct Gen<'ctx, 'p> {
     eq_fns: HashMap<u32, FunctionValue<'ctx>>,
     /// Per class: `{ ptr base_info, [n x ptr] vtable }`, which object headers point to.
     class_infos: Vec<Option<GlobalValue<'ctx>>>,
+    /// The pending exception (null when none); created when first used.
+    exception: Option<GlobalValue<'ctx>>,
     /// LLVM types of instantiated generic structs and classes.
     generic_structs: std::cell::RefCell<HashMap<Ty, inkwell::types::StructType<'ctx>>>,
     /// Interface method tables, by itable index.
@@ -455,6 +458,19 @@ impl<'ctx> Gen<'ctx, '_> {
         self.cx.ptr_type(AddressSpace::default())
     }
 
+    /// The global holding the pending exception.
+    fn exception_slot(&mut self) -> inkwell::values::PointerValue<'ctx> {
+        if let Some(g) = self.exception {
+            return g.as_pointer_value();
+        }
+        let ptr = self.ptr();
+        let g = self.m.add_global(ptr, None, "ppl.exception");
+        g.set_linkage(Linkage::Internal);
+        g.set_initializer(&ptr.const_null());
+        self.exception = Some(g);
+        g.as_pointer_value()
+    }
+
     fn i32(&self) -> IntType<'ctx> {
         self.cx.i32_type()
     }
@@ -596,6 +612,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 false,
             ),
             "ppl_str_concat" => ptr.fn_type(&[ptr.into(), ptr.into()], false),
+            "ppl_uncaught" => void.fn_type(&[ptr.into(), ptr.into()], false),
             "ppl_fmt_i64" | "ppl_fmt_u64" => ptr.fn_type(&[i64t.into(), ptr.into()], false),
             "ppl_fmt_f64" => {
                 ptr.fn_type(&[self.cx.f64_type().into(), i32t.into(), ptr.into()], false)
@@ -1271,6 +1288,29 @@ impl<'ctx> Gen<'ctx, '_> {
                         .build_extract_value(v.into_struct_value(), 0, "data")
                         .unwrap(),
                 )
+            }
+            Rvalue::SetException(o) => {
+                let v = self.operand(fx, o)?;
+                let slot = self.exception_slot();
+                self.b.build_store(slot, v).unwrap();
+                None
+            }
+            Rvalue::TakeException(_) => {
+                let slot = self.exception_slot();
+                let ptr = self.ptr();
+                let v = self.b.build_load(ptr, slot, "exc").unwrap();
+                self.b.build_store(slot, ptr.const_null()).unwrap();
+                Some(v)
+            }
+            Rvalue::ExceptionPending => {
+                let slot = self.exception_slot();
+                let ptr = self.ptr();
+                let v = self
+                    .b
+                    .build_load(ptr, slot, "exc")
+                    .unwrap()
+                    .into_pointer_value();
+                Some(self.b.build_is_not_null(v, "pending").unwrap().into())
             }
             Rvalue::InstanceOf(o, sid) => {
                 let v = self.operand(fx, o)?;
@@ -2647,6 +2687,14 @@ impl<'ctx> Gen<'ctx, '_> {
                     Callee::Builtin(_) => unreachable!("lowered to control flow"),
                 }
                 self.b.build_unconditional_branch(next).unwrap();
+            }
+            Terminator::Uncaught { class, msg } => {
+                let c = self.operand(fx, class).expect("class name");
+                let m = self.operand(fx, msg).expect("message");
+                self.b
+                    .build_call(self.rt("ppl_uncaught"), &[c.into(), m.into()], "")
+                    .unwrap();
+                self.b.build_unreachable().unwrap();
             }
             Terminator::Panic { msg, loc } => {
                 let m = self.operand(fx, msg).expect("string message");

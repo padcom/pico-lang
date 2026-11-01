@@ -5,9 +5,12 @@ expression: "ir(r#\"\nfunction add(a: i32, b: i32): i32 { a + b }\nfunction half
 ; ModuleID = 'test.ppl'
 source_filename = "test.ppl"
 
+%ppl.Error = type { ptr, ptr, ptr }
+
+@ppl.classinfo.Error = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
-@ppl.cstr.1 = private unnamed_addr constant [8 x i8] c"test.ppl"
-@ppl.cstr.2 = private unnamed_addr constant [16 x i8] c"division by zero"
+@ppl.cstr.2 = private unnamed_addr constant [8 x i8] c"test.ppl"
+@ppl.cstr.3 = private unnamed_addr constant [16 x i8] c"division by zero"
 
 define internal i32 @ppl.add(i32 %0, i32 %1) {
 start:
@@ -27,7 +30,7 @@ bb0:                                              ; preds = %start
   br i1 %6, label %panic, label %ok
 
 panic:                                            ; preds = %bb0
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.1, i64 8, i32 2, i32 37)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.2, i64 8, i32 2, i32 37)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -48,7 +51,7 @@ bb0:                                              ; preds = %start
   br i1 false, label %panic, label %ok
 
 panic:                                            ; preds = %bb0
-  call void @ppl_panic(ptr @ppl.cstr.2, i64 16, ptr @ppl.cstr.1, i64 8, i32 3, i32 30)
+  call void @ppl_panic(ptr @ppl.cstr.3, i64 16, ptr @ppl.cstr.2, i64 8, i32 3, i32 30)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -75,6 +78,49 @@ bb0:                                              ; preds = %start
   store double %4, ptr %t2, align 8
   %5 = load double, ptr %t2, align 8
   ret double %5
+}
+
+define internal void @ppl.Error.constructor(ptr %0, ptr %1) {
+start:
+  %this = alloca ptr, align 8
+  %message = alloca ptr, align 8
+  store ptr %0, ptr %this, align 8
+  store ptr %1, ptr %message, align 8
+  br label %bb0
+
+bb0:                                              ; preds = %start
+  %2 = load ptr, ptr %this, align 8
+  %3 = getelementptr inbounds nuw %ppl.Error, ptr %2, i32 0, i32 2
+  store ptr null, ptr %3, align 8
+  %4 = load ptr, ptr %message, align 8
+  %5 = load ptr, ptr %this, align 8
+  %6 = getelementptr inbounds nuw %ppl.Error, ptr %5, i32 0, i32 1
+  store ptr %4, ptr %6, align 8
+  ret void
+}
+
+define internal void @ppl.Error.constructor.1(ptr %0, ptr %1, ptr %2) {
+start:
+  %this = alloca ptr, align 8
+  %message = alloca ptr, align 8
+  %cause = alloca ptr, align 8
+  store ptr %0, ptr %this, align 8
+  store ptr %1, ptr %message, align 8
+  store ptr %2, ptr %cause, align 8
+  br label %bb0
+
+bb0:                                              ; preds = %start
+  %3 = load ptr, ptr %this, align 8
+  %4 = load ptr, ptr %message, align 8
+  call void @ppl.Error.constructor(ptr %3, ptr %4)
+  br label %bb1
+
+bb1:                                              ; preds = %bb0
+  %5 = load ptr, ptr %cause, align 8
+  %6 = load ptr, ptr %this, align 8
+  %7 = getelementptr inbounds nuw %ppl.Error, ptr %6, i32 0, i32 2
+  store ptr %5, ptr %7, align 8
+  ret void
 }
 
 define void @ppl_entry() {

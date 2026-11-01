@@ -278,6 +278,10 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
         c.check_fn(FnId(i as u32));
     }
     c.check_overrides();
+    if !c.diags.iter().any(|d| d.is_error()) {
+        let more = crate::throws::check(program, &c.types);
+        c.diags.extend(more);
+    }
     // `immutable` only matters to the checks above.
     let mut types = c.types;
     types.strip_immutable();
@@ -1108,7 +1112,13 @@ impl<'p> Checker<'p> {
             match s {
                 Stmt::Let { var, init, span } => self.let_stmt(*var, init.as_ref(), *span),
                 Stmt::Expr(e) => {
-                    if self.infer(e) == Ty::Never {
+                    // A `try` statement's value is unused, so its branches needn't agree.
+                    let t = if matches!(e.kind, ExprKind::Try { .. }) {
+                        self.check(e, &Expect::new(Ty::Void))
+                    } else {
+                        self.infer(e)
+                    };
+                    if t == Ty::Never {
                         diverges = true;
                     }
                     self.early_exit_facts(e);
@@ -1459,6 +1469,55 @@ impl<'p> Checker<'p> {
                 Ty::Error
             }
             ExprKind::Tailcall(inner) => self.tailcall(e, inner, want),
+            ExprKind::Throw(inner) => {
+                let t = self.infer(inner);
+                let ok = match (&t, self.program.error_class) {
+                    (Ty::Class(sid, ..), Some(err)) => self.program.is_subclass(*sid, err),
+                    _ => t.is_error(),
+                };
+                if !ok {
+                    self.diags.push(
+                        Diagnostic::error(codes::NOT_THROWABLE, format!("`{t}` can't be thrown"))
+                            .primary(inner.span, "not an `Error`")
+                            .help("throw an instance of `Error` or one of its subclasses"),
+                    );
+                }
+                Ty::Never
+            }
+            ExprKind::Try {
+                body,
+                catches,
+                finally,
+            } => {
+                let statement = want.is_some_and(|w| w.ty == Ty::Void);
+                let want = want.filter(|w| w.ty != Ty::Void);
+                let mut results: Vec<(&Expr, Ty)> = Vec::new();
+                let t = match want {
+                    Some(w) => self.check(body, w),
+                    None => self.infer(body),
+                };
+                results.push((body, t));
+                let err = match self.program.error_class {
+                    Some(sid) => self.program.struct_def(sid).self_ty(sid),
+                    None => Ty::Error,
+                };
+                for c in catches {
+                    self.check_pattern(&c.pat, &err);
+                    let t = match want {
+                        Some(w) => self.check(&c.body, w),
+                        None => self.infer(&c.body),
+                    };
+                    results.push((&c.body, t));
+                }
+                if let Some(f) = finally {
+                    self.infer(f);
+                }
+                match want {
+                    _ if statement => Ty::Void,
+                    Some(w) => w.ty.clone(),
+                    None => self.unify_exprs(&results, "`try` and `catch` have different types"),
+                }
+            }
             ExprKind::Unary(op, inner) => self.unary(e, *op, inner, want),
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, want),
             ExprKind::Assign {

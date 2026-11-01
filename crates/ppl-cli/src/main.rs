@@ -111,7 +111,11 @@ fn run(path: &Path, interp: bool, opts: ppl_driver::BuildOptions, args: &[String
             Ok(()) => ExitCode::SUCCESS,
             Err(p) => {
                 eprint!("{}", p.report());
-                ExitCode::from(ppl_driver::PANIC_EXIT_CODE as u8)
+                ExitCode::from(if p.uncaught {
+                    ppl_driver::UNCAUGHT_EXIT_CODE
+                } else {
+                    ppl_driver::PANIC_EXIT_CODE
+                } as u8)
             }
         };
     }

@@ -1,0 +1,26 @@
+// error: E0337
+// at: 16:9
+// error: E0337
+// at: 20:9
+// error: E0308
+// at: 25:34
+// error: E0308
+// at: 26:15
+// Only `Error` classes can be thrown or listed in `throws`.
+struct Point {
+  x: int
+  y: int
+}
+
+function a(): void throws Error {
+  throw "text"
+}
+
+function b(): void throws Error {
+  throw Point { x: 1, y: 2 }
+}
+
+// `try` and `catch` must agree on a type when the value is used.
+function d(): int throws Error { 1 }
+const n: int = try d() catch (e) "zero"
+const m = try d() catch (e) "zero"
