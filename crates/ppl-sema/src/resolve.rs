@@ -197,6 +197,7 @@ pub fn resolve_modules(
         binding_decorators: modules.binding_decorators.clone(),
         comptime_limit: None,
         comptime_depth: 0,
+        len_params: HashSet::new(),
     };
     r.mods.entry = modules.entry.map(|f| r.module_of(f));
     for (from, spec, target) in &modules.workers {
@@ -286,6 +287,11 @@ struct FnState {
     owner: Option<StructId>,
     /// A generic function's type parameters, by name.
     type_params: Vec<(String, Ty)>,
+    /// `comptime` parameters (`comptime N: i32`, `comptime n: i32`), by name: used as
+    /// values, they are the instance's constants.
+    const_params: Vec<(String, Ty)>,
+    /// Local `comptime const`s and their thunks.
+    comptime_consts: HashMap<LocalId, FnId>,
     /// A closure: may see the enclosing functions' locals (`captures` records them).
     is_closure: bool,
     /// An arrow function (sees the enclosing method's `this`).
@@ -304,6 +310,8 @@ struct Resolver {
     comptime_limit: Option<u64>,
     /// How many `comptime` expressions the code being lowered is inside.
     comptime_depth: u32,
+    /// `comptime` parameters used as array lengths (owner, index).
+    len_params: HashSet<(u32, u32)>,
     /// The module being resolved and the import tables.
     mods: ModCtx,
     prelude_files: HashSet<FileId>,
@@ -358,6 +366,11 @@ enum Found {
     Builtin(Builtin),
     /// A field or method of `this` (implicit member).
     Member(String),
+    /// A `comptime` parameter (`Ty::Param`).
+    Const(Ty),
+    /// Inside comptime code: a local `comptime const` of the function around it, by the
+    /// thunk that computes it.
+    Thunk(FnId),
 }
 
 impl Resolver {
@@ -1179,7 +1192,7 @@ impl Resolver {
         if let Some(sid) = owner {
             self.enter_type_params(sid);
         }
-        let generics = self.type_params(&f.generics, &f.where_clause, self.cur_fn.0);
+        let mut generics = self.type_params(&f.generics, &f.where_clause, self.cur_fn.0);
         // `throws E` may name the function's type parameters.
         let throws = match &f.throws {
             Some(t) => self.throws_clause(t),
@@ -1208,9 +1221,30 @@ impl Resolver {
             let ast::PatternKind::Ident(pname) = &p.pat.kind else {
                 unreachable!("destructured parameters were renamed");
             };
-            if p.comptime || !p.mods.is_empty() {
-                self.not_implemented(p.span, "comptime parameters and parameter modifiers");
+            if !p.mods.is_empty() {
+                self.not_implemented(p.span, "parameter modifiers");
             }
+            // `comptime n: i32`: a hidden type parameter decided by the (constant) argument;
+            // the parameter itself stays (unused) under a name nothing can refer to.
+            let comptime_name = p.comptime.then(|| {
+                let gi = generics.len();
+                let param = Ty::Param(self.cur_fn.0, gi as u32, pname.name.as_str().into());
+                self.f.const_params.push((pname.name.clone(), param));
+                generics.push(TypeParam {
+                    name: pname.name.clone(),
+                    span: pname.span,
+                    bounds: Vec::new(),
+                    default: None,
+                    comptime: None,
+                    value_param: Some(params.len()),
+                    is_len: false,
+                });
+                ast::Ident {
+                    name: format!("<comptime {}>", pname.name),
+                    span: pname.span,
+                }
+            });
+            let pname = comptime_name.as_ref().unwrap_or(pname);
             // A default sees the parameters before it.
             let default = match (&p.default, p.optional) {
                 (Some(d), _) => Some(self.lower_expr(d)),
@@ -1238,6 +1272,11 @@ impl Resolver {
                     Some(Ty::Error)
                 }
             };
+            if p.comptime
+                && let Some(g) = generics.last_mut()
+            {
+                g.comptime = ty.clone();
+            }
             defaults.push(default);
             if self.f.scopes[0].names.contains_key(&pname.name) {
                 self.error(
@@ -1328,6 +1367,9 @@ impl Resolver {
             Some(sid) => format!("{}.{}", self.structs[sid.0 as usize].name, name.name),
             None => name.name.clone(),
         };
+        for (i, g) in generics.iter_mut().enumerate() {
+            g.is_len = self.len_params.contains(&(self.cur_fn.0, i as u32));
+        }
         Function {
             name: full_name,
             name_span: name.span,
@@ -1416,20 +1458,26 @@ impl Resolver {
     ) -> Vec<TypeParam> {
         let mut out: Vec<TypeParam> = Vec::new();
         for (i, g) in params.iter().enumerate() {
-            let ast::GenericKind::Type { default, .. } = &g.kind else {
-                self.not_implemented(g.span, "`comptime` parameters");
-                continue;
+            let param = Ty::Param(owner, i as u32, g.name.name.as_str().into());
+            let comptime = match &g.kind {
+                ast::GenericKind::Type { .. } => {
+                    self.f.type_params.push((g.name.name.clone(), param));
+                    None
+                }
+                // `comptime N: i32`: a constant, used as a value or an array length.
+                ast::GenericKind::Comptime { ty } => {
+                    self.f.const_params.push((g.name.name.clone(), param));
+                    Some(self.resolve_type(ty))
+                }
             };
-            let _ = default;
-            self.f.type_params.push((
-                g.name.name.clone(),
-                Ty::Param(owner, i as u32, g.name.name.as_str().into()),
-            ));
             out.push(TypeParam {
                 name: g.name.name.clone(),
                 span: g.name.span,
                 bounds: Vec::new(),
                 default: None,
+                comptime,
+                value_param: None,
+                is_len: false,
             });
         }
         for (i, g) in params.iter().enumerate() {
@@ -2916,9 +2964,19 @@ impl Resolver {
                 return None;
             }
         }
+        // Comptime code sees the `comptime const`s of the function around it (not as
+        // captures: it runs their thunks again).
+        if self.comptime_depth > 0
+            && let Some(f) = self.outer_comptime_const(name)
+        {
+            return Some(Found::Thunk(f));
+        }
         // A closure sees the locals of the functions around it (capturing them).
         if let Some(id) = self.capture(name) {
             return Some(Found::Var(Var::Local(id)));
+        }
+        if let Some(t) = self.const_param(name) {
+            return Some(Found::Const(t));
         }
         if self.f.this.is_none() && self.f.arrow {
             self.capture_this();
@@ -3417,7 +3475,12 @@ impl Resolver {
     fn resolve_var(&mut self, name: &str, span: Span) -> Option<Var> {
         match self.lookup(name, span)? {
             Found::Var(v) => Some(v),
-            Found::Fn(_) | Found::Overloads(_) | Found::Builtin(_) | Found::Member(_) => {
+            Found::Fn(_)
+            | Found::Overloads(_)
+            | Found::Builtin(_)
+            | Found::Member(_)
+            | Found::Const(_)
+            | Found::Thunk(_) => {
                 self.error(
                     codes::NOT_A_VALUE,
                     span,
@@ -3475,6 +3538,15 @@ impl Resolver {
                     .expect("checked");
                 ty.clone()
             }
+            // A `comptime` parameter as a type argument (`zeros<N>()`).
+            ast::TypeKind::Path { path, args }
+                if path.len() == 1
+                    && args.is_empty()
+                    && !self.f.type_params.iter().any(|(n, _)| *n == path[0].name)
+                    && self.const_param(&path[0].name).is_some() =>
+            {
+                self.const_param(&path[0].name).expect("checked")
+            }
             ast::TypeKind::Path { path, args } if path.len() == 1 && args.is_empty() => {
                 match Ty::from_name(&path[0].name) {
                     Some(ty) => ty,
@@ -3497,6 +3569,11 @@ impl Resolver {
                     ),
                     None if self.aliases.contains_key(&self.mods, &path[0].name) => {
                         self.alias(&path[0].name, t.span)
+                    }
+                    // `zeros<k>()` with a variable `k`.
+                    None if self.is_value_name(&path[0].name) => {
+                        self.not_constant(t.span);
+                        Ty::Error
                     }
                     None => {
                         self.error(
@@ -3537,7 +3614,8 @@ impl Resolver {
             ast::TypeKind::Fixed { elem, len } => {
                 let elem = self.resolve_type(elem);
                 match self.const_len(len) {
-                    Some(n) => Ty::Fixed(Box::new(elem), n),
+                    Some(Ok(n)) => Ty::Fixed(Box::new(elem), n),
+                    Some(Err(p)) => Ty::FixedN(Box::new(elem), Box::new(p)),
                     None => Ty::Error,
                 }
             }
@@ -3546,6 +3624,8 @@ impl Resolver {
             }
             ast::TypeKind::Nullable(inner) => self.resolve_type(inner).nullable(),
             ast::TypeKind::Lit(ast::Lit::Null) => Ty::Null,
+            // A `comptime` argument: `zeros<4>()`, `zeros<N>()`.
+            ast::TypeKind::Const(e) => self.const_arg(e).unwrap_or(Ty::Error),
             ast::TypeKind::Lit(l) => match lit_val(l) {
                 Some((base, v)) => Ty::Lits(Box::new(base), vec![v].into()),
                 None => {
@@ -3857,15 +3937,101 @@ impl Resolver {
         Ty::Enum(id, ename.into())
     }
 
-    /// The length of a fixed array: an integer literal (until `comptime` arrives).
-    fn const_len(&mut self, e: &ast::Expr) -> Option<u64> {
+    /// The length of a fixed array: an integer literal, or (`Err`) a `comptime` parameter.
+    fn const_len(&mut self, e: &ast::Expr) -> Option<Result<u64, Ty>> {
         match &strip_parens(e).kind {
-            ast::ExprKind::Lit(ast::Lit::Int { value, .. }) => Some(*value),
+            ast::ExprKind::Lit(ast::Lit::Int { value, .. }) => Some(Ok(*value)),
+            ast::ExprKind::Ident(name) if self.const_param(name).is_some() => {
+                let p = self.const_param(name).expect("checked");
+                if let Ty::Param(o, i, _) = &p {
+                    self.len_params.insert((*o, *i));
+                }
+                Some(Err(p))
+            }
             _ => {
-                self.not_implemented(e.span, "array lengths other than integer literals");
+                self.not_implemented(
+                    e.span,
+                    "array lengths other than integer literals and `comptime` parameters",
+                );
                 None
             }
         }
+    }
+
+    /// The thunk of the local `comptime const` `name` of the closest function around this
+    /// one that declares `name` (`None` if that's another kind of local).
+    fn outer_comptime_const(&self, name: &str) -> Option<FnId> {
+        for st in self.outer_fns.iter().rev() {
+            if let Some(id) = st
+                .scopes
+                .iter()
+                .rev()
+                .find_map(|sc| sc.names.get(name).copied())
+            {
+                return st.comptime_consts.get(&id).copied();
+            }
+            if !st.is_closure {
+                break;
+            }
+        }
+        None
+    }
+
+    /// The `comptime` parameter `name` of this function or one around it (`Ty::Param`).
+    fn const_param(&self, name: &str) -> Option<Ty> {
+        std::iter::once(&self.f)
+            .chain(self.outer_fns.iter().rev())
+            .find_map(|st| {
+                st.const_params
+                    .iter()
+                    .rev()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, t)| t.clone())
+            })
+    }
+
+    /// A `comptime` type argument (`zeros<4>()`): a literal (a literal type such as `4`) or
+    /// a `comptime` parameter of the code around it.
+    fn const_arg(&mut self, e: &ast::Expr) -> Option<Ty> {
+        let e = strip_parens(e);
+        let lit = match &e.kind {
+            ast::ExprKind::Lit(l) => lit_val(l),
+            ast::ExprKind::Unary {
+                op: ast::UnOp::Neg,
+                expr,
+            } => match &strip_parens(expr).kind {
+                ast::ExprKind::Lit(ast::Lit::Int {
+                    value,
+                    suffix: None,
+                }) => Some((Ty::INT, LitVal::Int(-(*value as i128)))),
+                _ => None,
+            },
+            ast::ExprKind::Ident(name) => {
+                return self.const_param(name).or_else(|| {
+                    self.not_constant(e.span);
+                    None
+                });
+            }
+            _ => None,
+        };
+        match lit {
+            Some((base, v)) => Some(Ty::Lits(Box::new(base), vec![v].into())),
+            None => {
+                self.not_constant(e.span);
+                None
+            }
+        }
+    }
+
+    fn not_constant(&mut self, span: Span) {
+        self.diags.push(
+            Diagnostic::error(
+                codes::COMPTIME_ARG,
+                "a `comptime` argument must be a constant",
+            )
+            .primary(span, "not known at compile time")
+            .help("pass a literal, or a `comptime` parameter of the code around it"),
+        );
     }
 
     // ------------------------------------------------------------ blocks and statements
@@ -4040,6 +4206,15 @@ impl Resolver {
                 };
                 let init = init.as_ref().map(|e| self.lower_expr(e));
                 let id = self.declare_block_local(name, *kind == ast::BindingKind::Let, ty);
+                // A local `comptime const`: later comptime code runs its thunk again.
+                if *kind == ast::BindingKind::Const
+                    && let Some(Expr {
+                        kind: ExprKind::Comptime { f, .. },
+                        ..
+                    }) = &init
+                {
+                    self.f.comptime_consts.insert(id, *f);
+                }
                 out.push(Stmt::Let {
                     var: Var::Local(id),
                     init,
@@ -4390,6 +4565,8 @@ impl Resolver {
                 return self.lower_expr(&e);
             }
             A::Ident(name) => match self.lookup(name, span) {
+                Some(Found::Const(t)) => ExprKind::ConstParam(t),
+                Some(Found::Thunk(f)) => ExprKind::Comptime { f, limit: None },
                 Some(Found::Var(v)) => ExprKind::Var(v),
                 Some(Found::Fn(f)) => ExprKind::Fn(f),
                 Some(Found::Overloads(fs)) => ExprKind::Overloaded(fs),
@@ -5040,7 +5217,11 @@ impl Resolver {
             A::ArrayRepeat { value, count } => {
                 let value = self.lower_expr(value);
                 match self.const_len(count) {
-                    Some(count) => ExprKind::Repeat {
+                    Some(Ok(count)) => ExprKind::Repeat {
+                        value: Box::new(value),
+                        count,
+                    },
+                    Some(Err(count)) => ExprKind::RepeatN {
                         value: Box::new(value),
                         count,
                     },

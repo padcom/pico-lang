@@ -1,0 +1,6 @@
+// error: E0353
+// at: 6:17
+// A variable isn't a comptime argument.
+function zeros<comptime N: i32>(): [f32; N] { [0; N] }
+let k = 3
+const a = zeros<k>()

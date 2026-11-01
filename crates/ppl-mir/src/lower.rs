@@ -9,7 +9,7 @@ use crate::mir::{
 };
 use ppl_diag::{Diagnostic, SourceFile, Span, codes};
 use ppl_sema::hir::{self, Builtin, Expr, ExprKind, FnId, Stmt, Var};
-use ppl_sema::ty::StructId;
+use ppl_sema::ty::{LitVal, StructId};
 use ppl_sema::{IntTy, Ty, Types};
 use ppl_syntax::ast;
 use std::collections::{HashMap, HashSet};
@@ -2435,6 +2435,24 @@ impl FnBuilder<'_, '_> {
                 }
                 self.rvalue_to_temp(Rvalue::Repeat(v, *count), ty, e.span)
             }
+            // `[v; N]` in an instance: its type has the length.
+            ExprKind::RepeatN { value, .. } => {
+                let v = self.expr(value);
+                let Ty::Fixed(_, n) = ty else {
+                    return Operand::Const(Const::Void);
+                };
+                self.rvalue_to_temp(Rvalue::Repeat(v, n), ty, e.span)
+            }
+            // A `comptime` parameter: this instance's constant.
+            ExprKind::ConstParam(t) => match self.mono(t) {
+                Ty::Lits(_, vs) => match vs.first() {
+                    Some(LitVal::Int(v)) => int_const(*v, &ty.erase()),
+                    Some(LitVal::Bool(b)) => Operand::Const(Const::Bool(*b)),
+                    Some(LitVal::Str(s)) => Operand::Const(Const::Str(s.to_string())),
+                    None => Operand::Const(Const::Void),
+                },
+                _ => Operand::Const(Const::Void),
+            },
             ExprKind::Range { start, end } => {
                 let a = self.expr(start);
                 let b = self.expr(end);

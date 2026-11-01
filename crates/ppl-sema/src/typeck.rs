@@ -258,6 +258,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
         unsafe_depth: 0,
         inherit_unsafe: false,
         method_type_args: Vec::new(),
+        checked_thunks: HashSet::new(),
         arenas: Vec::new(),
         recv_args: Vec::new(),
         pre_inferred: None,
@@ -385,6 +386,9 @@ struct Checker<'p> {
     inherit_unsafe: bool,
     /// Explicit type arguments of the method call being checked (`b.map<string>(…)`).
     method_type_args: Vec<Ty>,
+    /// Comptime thunks already checked (a local `comptime const` used by later comptime
+    /// code refers to its thunk again).
+    checked_thunks: HashSet<FnId>,
     /// The enclosing `arena { }` blocks: their function and own locals (`first..end`).
     arenas: Vec<(FnId, u32, u32)>,
 }
@@ -528,6 +532,30 @@ fn needs_context(e: &Expr) -> bool {
         || matches!(&e.kind, ExprKind::Array(xs) if xs.is_empty())
 }
 
+/// The constant a `comptime` argument stands for, as a literal type (or a `comptime`
+/// parameter of the code around it).
+fn const_of(e: &Expr) -> Option<Ty> {
+    let lit = |v: LitVal| {
+        let base = match v {
+            LitVal::Int(_) => Ty::INT,
+            LitVal::Str(_) => Ty::Str,
+            LitVal::Bool(_) => Ty::Bool,
+        };
+        Some(Ty::Lits(Box::new(base), vec![v].into()))
+    };
+    match &e.kind {
+        ExprKind::Int(v, _) => lit(LitVal::Int(*v as i128)),
+        ExprKind::Unary(UnOp::Neg, inner) => match &inner.kind {
+            ExprKind::Int(v, _) => lit(LitVal::Int(-(*v as i128))),
+            _ => None,
+        },
+        ExprKind::Bool(b) => lit(LitVal::Bool(*b)),
+        ExprKind::Str(s) => lit(LitVal::Str(s.as_str().into())),
+        ExprKind::ConstParam(t) => Some(t.clone()),
+        _ => None,
+    }
+}
+
 /// Whether every type parameter of `owner` in `p` already has a value.
 fn subst_complete(p: &Ty, owner: u32, subst: &[Option<Ty>]) -> bool {
     match p {
@@ -535,6 +563,7 @@ fn subst_complete(p: &Ty, owner: u32, subst: &[Option<Ty>]) -> bool {
         Ty::Array(t) | Ty::Fixed(t, _) | Ty::Nullable(t) | Ty::Ref(t) => {
             subst_complete(t, owner, subst)
         }
+        Ty::FixedN(t, n) => subst_complete(t, owner, subst) && subst_complete(n, owner, subst),
         Ty::Tuple(ts) => ts.iter().all(|t| subst_complete(t, owner, subst)),
         Ty::Fn(ps, r, ts) => {
             ps.iter()
@@ -945,7 +974,9 @@ impl<'p> Checker<'p> {
         match t {
             Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Void | Ty::Null => true,
             Ty::Never | Ty::Error | Ty::Range(_) => true,
-            Ty::Array(e) | Ty::Fixed(e, _) | Ty::Nullable(e) => self.sendable(e, seen),
+            Ty::Array(e) | Ty::Fixed(e, _) | Ty::FixedN(e, _) | Ty::Nullable(e) => {
+                self.sendable(e, seen)
+            }
             Ty::Tuple(ts) => ts.iter().all(|t| self.sendable(t, seen)),
             Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
                 if seen.contains(sid) {
@@ -1731,7 +1762,9 @@ impl<'p> Checker<'p> {
                         w.origin,
                     )
                 });
-                self.closure(e, *f, want.as_ref());
+                if self.checked_thunks.insert(*f) {
+                    self.closure(e, *f, want.as_ref());
+                }
                 self.types.sigs[f.0 as usize].ret.clone()
             }
             ExprKind::Overloaded(_) => {
@@ -1955,7 +1988,7 @@ impl<'p> Checker<'p> {
             } => {
                 let ot = self.infer(object).strip_immutable();
                 match (&ot, name.as_str()) {
-                    (Ty::Str | Ty::Array(_) | Ty::Fixed(..), "length") => Ty::INT,
+                    (Ty::Str | Ty::Array(_) | Ty::Fixed(..) | Ty::FixedN(..), "length") => Ty::INT,
                     (Ty::Range(it), "start" | "end") => Ty::Int(*it),
                     (Ty::Error, _) => Ty::Error,
                     (Ty::Struct(sid, _, args), _) => {
@@ -2048,7 +2081,7 @@ impl<'p> Checker<'p> {
                         self.check(index, &Expect::new(Ty::INT));
                         Ty::Char
                     }
-                    Ty::Array(t) | Ty::Fixed(t, _) => {
+                    Ty::Array(t) | Ty::Fixed(t, _) | Ty::FixedN(t, _) => {
                         self.check(index, &Expect::new(Ty::INT));
                         *t
                     }
@@ -2204,13 +2237,31 @@ impl<'p> Checker<'p> {
             }
             ExprKind::Array(elems) => self.array_lit(e, elems, want),
             ExprKind::Repeat { value, count } => self.repeat_lit(e, value, *count, want),
+            ExprKind::RepeatN { value, count } => {
+                let want_elem = match want.map(|w| &w.ty) {
+                    Some(Ty::FixedN(t, n)) if **n == *count => Some((**t).clone()),
+                    _ => None,
+                };
+                let t = match want_elem {
+                    Some(t) => {
+                        self.check(value, &Expect::new(t.clone()));
+                        t
+                    }
+                    None => self.infer(value),
+                };
+                if t.is_error() {
+                    return Ty::Error;
+                }
+                Ty::FixedN(Box::new(t), Box::new(count.clone()))
+            }
+            ExprKind::ConstParam(t) => self.const_param_ty(t),
             ExprKind::Range { start, end } => self.range(e, start, end, want),
             ExprKind::ForOf { var, iter, body } => {
                 self.forget_assigned(&[body]);
                 let it = self.infer(iter);
                 let elem = match &it {
                     Ty::Range(i) => Ty::Int(*i),
-                    Ty::Array(t) | Ty::Fixed(t, _) => (**t).clone(),
+                    Ty::Array(t) | Ty::Fixed(t, _) | Ty::FixedN(t, _) => (**t).clone(),
                     Ty::Str => Ty::Char,
                     Ty::Error => Ty::Error,
                     Ty::Class(sid, _, args) if Some(*sid) == self.program.iterator_class => {
@@ -3746,7 +3797,7 @@ impl<'p> Checker<'p> {
                 }
                 let ot = ot.strip_immutable();
                 match ot {
-                    Ty::Array(t) | Ty::Fixed(t, _) => {
+                    Ty::Array(t) | Ty::Fixed(t, _) | Ty::FixedN(t, _) => {
                         self.check(index, &Expect::new(Ty::INT));
                         (*t, None)
                     }
@@ -5621,8 +5672,21 @@ impl<'p> Checker<'p> {
                     _ => {}
                 }
             }
-            (Ty::Array(p), Ty::Array(a)) | (Ty::Fixed(p, _), Ty::Fixed(a, _)) => {
-                self.unify(owner, p, a, subst)
+            (Ty::Array(p), Ty::Array(a))
+            | (Ty::Fixed(p, _), Ty::Fixed(a, _))
+            | (Ty::FixedN(p, _), Ty::FixedN(a, _)) => self.unify(owner, p, a, subst),
+            // `[T; N]` against `[f32; 3]`: `N = 3`.
+            (Ty::FixedN(p, n), Ty::Fixed(a, k)) => {
+                self.unify(owner, p, a, subst);
+                if let Ty::Param(o, i, _) = &**n
+                    && *o == owner
+                    && let Some(slot @ None) = subst.get_mut(*i as usize)
+                {
+                    *slot = Some(Ty::Lits(
+                        Box::new(Ty::INT),
+                        vec![LitVal::Int(*k as i128)].into(),
+                    ));
+                }
             }
             (Ty::Nullable(p), Ty::Nullable(a)) => self.unify(owner, p, a, subst),
             (Ty::Nullable(p), a) => self.unify(owner, p, a, subst),
@@ -5670,6 +5734,81 @@ impl<'p> Checker<'p> {
     /// A call of a generic function: type arguments are given or inferred from the arguments
     /// (typed ones first, then literals, which adapt to what's known), then the bounds are
     /// checked and the instance recorded.
+    /// The type of a `comptime` parameter used as a value.
+    fn const_param_ty(&self, t: &Ty) -> Ty {
+        match t {
+            Ty::Param(o, i, _) if *o & 0x8000_0000 == 0 => self
+                .program
+                .func(FnId(*o))
+                .generics
+                .get(*i as usize)
+                .and_then(|g| g.comptime.clone())
+                .unwrap_or(Ty::Error),
+            _ => Ty::Error,
+        }
+    }
+
+    /// Type argument `t` for parameter `g`: a `comptime` parameter takes a constant of its
+    /// type (made a literal type of exactly that type, so equal constants share an instance).
+    fn type_arg(&mut self, span: Span, g: &TypeParam, t: &Ty) -> Ty {
+        let Some(ct) = &g.comptime else {
+            return t.clone();
+        };
+        if g.is_len
+            && let Ty::Lits(_, vs) = t
+            && let [LitVal::Int(v)] = &vs[..]
+            && *v < 0
+        {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::MISMATCHED_TYPES,
+                    format!("`{}` is an array length, so it can't be negative", g.name),
+                )
+                .primary(span, format!("`{}` = {v}", g.name))
+                .secondary(g.span, "declared here"),
+            );
+            return Ty::Error;
+        }
+        let fits = |v: &LitVal| match (v, ct) {
+            (LitVal::Int(v), Ty::Int(it)) => (it.min()..=it.max()).contains(v),
+            (LitVal::Bool(_), Ty::Bool) | (LitVal::Str(_), Ty::Str) => true,
+            _ => false,
+        };
+        match t {
+            Ty::Error => Ty::Error,
+            Ty::Lits(_, vs) if vs.len() == 1 && fits(&vs[0]) => {
+                Ty::Lits(Box::new(ct.clone()), vs.clone())
+            }
+            Ty::Param(..) if self.const_param_ty(t) == *ct => t.clone(),
+            Ty::Lits(_, vs) if vs.len() == 1 => {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MISMATCHED_TYPES,
+                        format!("`{}` isn't a value of type `{ct}`", vs[0]),
+                    )
+                    .primary(span, format!("`{}` takes a `{ct}`", g.name))
+                    .secondary(g.span, "declared here"),
+                );
+                Ty::Error
+            }
+            _ => {
+                self.not_constant(span, &g.name);
+                Ty::Error
+            }
+        }
+    }
+
+    fn not_constant(&mut self, span: Span, name: &str) {
+        self.diags.push(
+            Diagnostic::error(
+                codes::COMPTIME_ARG,
+                format!("the `comptime` parameter `{name}` takes a constant"),
+            )
+            .primary(span, "not known at compile time")
+            .help("pass a literal, or a `comptime` parameter of the code around it"),
+        );
+    }
+
     fn call_generic(&mut self, e: &Expr, id: FnId, args: &[Expr], explicit: &[Ty]) -> Ty {
         let f = self.program.func(id);
         let params = f.generics.clone();
@@ -5761,11 +5900,14 @@ impl<'p> Checker<'p> {
             }
         }
         let mut subst: Vec<Option<Ty>> = vec![None; n];
+        // The hidden parameters of `comptime` value parameters come last; they aren't
+        // written as type arguments.
+        let n_shown = generics.iter().filter(|g| g.value_param.is_none()).count();
         // Missing trailing type arguments take their defaults (`Promise<int>`).
         let filled: Vec<Ty>;
         let explicit = if !explicit.is_empty()
-            && explicit.len() < n
-            && generics[explicit.len()..]
+            && explicit.len() < n_shown
+            && generics[explicit.len()..n_shown]
                 .iter()
                 .all(|g| g.default.is_some())
         {
@@ -5773,7 +5915,7 @@ impl<'p> Checker<'p> {
                 .iter()
                 .cloned()
                 .chain(
-                    generics[explicit.len()..]
+                    generics[explicit.len()..n_shown]
                         .iter()
                         .map(|g| g.default.clone().expect("checked")),
                 )
@@ -5783,6 +5925,7 @@ impl<'p> Checker<'p> {
             explicit
         };
         if !explicit.is_empty() {
+            let n = n_shown;
             if explicit.len() != n {
                 self.diags.push(
                     Diagnostic::error(
@@ -5798,7 +5941,7 @@ impl<'p> Checker<'p> {
                 );
             }
             for (i, t) in explicit.iter().enumerate().take(n) {
-                subst[i] = Some(t.clone());
+                subst[i] = Some(self.type_arg(e.span, &generics[i], t));
             }
         }
         // Trailing parameters with defaults may be left out (positional arguments only):
@@ -5884,6 +6027,19 @@ impl<'p> Checker<'p> {
                 }
                 done[k] = true;
             }
+        }
+        // `comptime` value parameters: the argument's constant decides the instance.
+        for (i, g) in generics.iter().enumerate() {
+            let Some(k) = g.value_param else { continue };
+            let Some((a, _)) = pairs.get(k) else { continue };
+            let a = Self::arg_value(a);
+            subst[i] = Some(match const_of(a) {
+                Some(c) => self.type_arg(a.span, g, &c),
+                None => {
+                    self.not_constant(a.span, &g.name);
+                    Ty::Error
+                }
+            });
         }
         let mut args_ty: Vec<Ty> = Vec::new();
         for (i, t) in subst.iter().enumerate() {

@@ -1,0 +1,20 @@
+// expect: 30 16
+// Local `comptime const`s are usable from later comptime code in the same function.
+function table(): i64[] {
+  comptime const N = 5
+  comptime const SQUARES = buildSquares(N)
+  comptime const TOTAL = sumOf(SQUARES)
+  [TOTAL, SQUARES[4]]
+}
+function buildSquares(n: i64): i64[] {
+  const out: i64[] = []
+  for (const i of 0..n) out.push(i * i)
+  out
+}
+function sumOf(xs: i64[]): i64 {
+  let s = 0
+  for (const x of xs) s += x
+  s
+}
+const t = table()
+println(`${t[0]} ${t[1]}`)

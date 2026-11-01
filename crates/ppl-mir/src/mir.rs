@@ -162,6 +162,7 @@ impl Program {
                 let (s, a) = self.size_align(e);
                 (s * n, a)
             }
+            Ty::FixedN(..) => unreachable!("a `comptime` length outside generic code"),
             Ty::Enum(eid, _) => {
                 let words = self
                     .enum_layout(*eid)

@@ -151,6 +151,9 @@ pub enum Ty {
     Array(Box<Ty>),
     /// `[T; N]`: a fixed-size array stored inline (a value type).
     Fixed(Box<Ty>, u64),
+    /// `[T; N]` whose length is a `comptime` type parameter (only inside generic code:
+    /// substituting a constant for the parameter makes it a `Fixed`).
+    FixedN(Box<Ty>, Box<Ty>),
     /// `[A, B]`: a tuple (a value type).
     Tuple(Vec<Ty>),
     /// `a..b` (with an optional `.step(n)`): start, end and step of an integer type.
@@ -231,6 +234,7 @@ impl Ty {
             Ty::Immutable(t) => s(t),
             Ty::Array(t) => Ty::Array(Box::new(s(t))),
             Ty::Fixed(t, n) => Ty::Fixed(Box::new(s(t)), *n),
+            Ty::FixedN(t, n) => Ty::FixedN(Box::new(s(t)), n.clone()),
             Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(s).collect()),
             Ty::Nullable(t) => Ty::Nullable(Box::new(s(t))),
             Ty::Ref(t) => Ty::Ref(Box::new(s(t))),
@@ -250,6 +254,7 @@ impl Ty {
     pub fn has_params(&self, owner: u32) -> bool {
         match self {
             Ty::Param(o, _, _) => *o == owner,
+            Ty::FixedN(t, n) => t.has_params(owner) || n.has_params(owner),
             Ty::Array(t) | Ty::Fixed(t, _) | Ty::Nullable(t) | Ty::Ref(t) | Ty::Lits(t, _) => {
                 t.has_params(owner)
             }
@@ -267,7 +272,7 @@ impl Ty {
     /// Whether any type parameter occurs in this type.
     pub fn has_any_params(&self) -> bool {
         match self {
-            Ty::Param(..) => true,
+            Ty::Param(..) | Ty::FixedN(..) => true,
             Ty::Array(t) | Ty::Fixed(t, _) | Ty::Nullable(t) | Ty::Ref(t) | Ty::Lits(t, _) => {
                 t.has_any_params()
             }
@@ -299,6 +304,15 @@ impl Ty {
             }
             Ty::Array(t) => Ty::Array(Box::new(s(t))),
             Ty::Fixed(t, n) => Ty::Fixed(Box::new(s(t)), *n),
+            Ty::FixedN(t, n) => match s(n) {
+                Ty::Lits(_, v) if matches!(&v[..], [LitVal::Int(k)] if *k >= 0) => {
+                    let [LitVal::Int(k)] = &v[..] else {
+                        unreachable!()
+                    };
+                    Ty::Fixed(Box::new(s(t)), *k as u64)
+                }
+                n => Ty::FixedN(Box::new(s(t)), Box::new(n)),
+            },
             Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(s).collect()),
             // `T?` with `T = U?` stays `U?`.
             Ty::Nullable(t) => s(t).nullable(),
@@ -355,7 +369,7 @@ impl Ty {
     /// The element type of an indexable collection (`T[]`, `[T; N]`).
     pub fn elem(&self) -> Option<&Ty> {
         match self {
-            Ty::Array(t) | Ty::Fixed(t, _) => Some(t),
+            Ty::Array(t) | Ty::Fixed(t, _) | Ty::FixedN(t, _) => Some(t),
             _ => None,
         }
     }
@@ -424,6 +438,7 @@ impl fmt::Display for Ty {
             Ty::Array(t) if matches!(**t, Ty::Nullable(_)) => write!(f, "({t})[]"),
             Ty::Array(t) => write!(f, "{t}[]"),
             Ty::Fixed(t, n) => write!(f, "[{t}; {n}]"),
+            Ty::FixedN(t, n) => write!(f, "[{t}; {n}]"),
             Ty::Tuple(ts) => {
                 let parts: Vec<String> = ts.iter().map(|t| t.to_string()).collect();
                 write!(f, "[{}]", parts.join(", "))

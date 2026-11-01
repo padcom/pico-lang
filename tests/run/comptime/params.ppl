@@ -1,0 +1,49 @@
+// expect: 4
+// expect: 3
+// expect: 3
+// expect: ababab
+// expect: xyxy
+// expect: lamp: on
+// expect: fan: off
+// expect: 27
+// Comptime parameters: each distinct constant argument makes an instance (spec §11.1).
+function zeros<comptime N: i32>(): [f32; N] { [0; N] }
+
+function sum<comptime N: i32>(xs: [f32; N]): f32 {
+  let s: f32 = 0
+  for (const x of xs) s += x
+  s
+}
+
+function repeat(comptime n: i32, s: string): string {
+  let out = ""
+  for (const _ of 0..n) out += s
+  out
+}
+
+function label<comptime NAME: string, comptime ON: bool>(): string {
+  if (ON) `${NAME}: on` else `${NAME}: off`
+}
+
+function ones<comptime N: i32>(): [f32; N] {
+  const z = zeros<N>()
+  for (const i of 0..N) z[i] = 1
+  z
+}
+
+function powers(comptime n: i32): i64 {
+  comptime const SQ = n * n
+  comptime const CUBE = SQ * n
+  CUBE
+}
+
+const v = zeros<4>()
+println(v.length)
+const w = ones<3>()
+println(sum(w))
+println(sum<3>(w))
+println(repeat(3, "ab"))
+println(repeat(2, "xy"))
+println(label<"lamp", true>())
+println(label<"fan", false>())
+println(powers(3))

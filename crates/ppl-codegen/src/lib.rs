@@ -270,7 +270,9 @@ impl<'ctx> Gen<'ctx, '_> {
                 return self.ty(&t.erase());
             }
             // Monomorphization removed every type parameter.
-            Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..) => return None,
+            Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..) | Ty::FixedN(..) => {
+                return None;
+            }
         })
     }
 

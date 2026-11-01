@@ -109,6 +109,7 @@ codes! {
     COMPTIME_VALUE = 350: "a comptime value that can't be part of the program (an object or a function)",
     COMPTIME_ONLY = 351: "a comptime-only operation outside comptime code",
     COMPTIME_CAPTURE = 352: "comptime code that uses a runtime variable",
+    COMPTIME_ARG = 353: "a `comptime` argument that isn't a constant",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

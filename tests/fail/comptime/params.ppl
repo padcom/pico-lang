@@ -1,0 +1,20 @@
+// error: E0353
+// at: 16:18
+// error: E0308
+// at: 17:11
+// error: E0308
+// at: 18:11
+// error: E0353
+// at: 19:11
+// error: E0308
+// at: 20:11
+// Comptime arguments must be constants of the parameter's type; lengths can't be negative.
+function zeros<comptime N: i32>(): [f32; N] { [0; N] }
+function repeat(comptime n: i32, s: string): string { s }
+let k: i32 = 3
+k = 4
+const b = repeat(k, "x")
+const c = zeros<"x">()
+const d = zeros<5000000000>()
+const e = zeros<i32>()
+const f = zeros<-1>()

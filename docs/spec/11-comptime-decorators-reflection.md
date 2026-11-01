@@ -31,6 +31,12 @@ const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl
   `bool`, structs, tuples, fixed and growable arrays, enums and nullables of those. Objects and
   functions aren't allowed (a growable array becomes a fresh array each time its expression
   runs).
+- **Comptime parameters**: `function vec<comptime N: i32>()` and `function f(comptime n: i32)`
+  take constants (literals, or a comptime parameter of the code around them; anything else is
+  E0353). Each distinct constant instantiates the function, like a generic, and the parameter
+  is a constant inside it, usable as an array length (`[f32; N]`, never negative) and inferred
+  from a fixed-array argument (`sum(xs)` with `xs: [f32; 3]`). For now the parameter's type is
+  an integer type, `bool` or `string` (decision 221).
 - `comptime if (c) a else b` evaluates only the condition at compile time and keeps only the
   chosen branch, which may be any runtime value (a function, as above).
 - `comptime const x = e` is `const x = comptime e`. Output of comptime code is the compile-time

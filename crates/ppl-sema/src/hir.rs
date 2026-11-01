@@ -478,6 +478,14 @@ pub struct TypeParam {
     pub bounds: Vec<Bound>,
     /// `T = i64`: used when a type is written without its arguments.
     pub default: Option<Ty>,
+    /// `comptime N: i32`: a constant of this type, not a type (the argument is a literal
+    /// type such as `4`; spec §11.1).
+    pub comptime: Option<Ty>,
+    /// A `comptime n: i32` value parameter: the index of the parameter whose (constant)
+    /// argument decides this hidden type parameter.
+    pub value_param: Option<usize>,
+    /// A `comptime` parameter used as an array length (it can't be negative).
+    pub is_len: bool,
 }
 
 /// What a type argument must provide.
@@ -865,6 +873,14 @@ pub enum ExprKind {
         value: Box<Expr>,
         count: u64,
     },
+    /// `[value; N]` with `N` a `comptime` parameter (`Ty::Param`).
+    RepeatN {
+        value: Box<Expr>,
+        count: Ty,
+    },
+    /// A `comptime` parameter used as a value (`Ty::Param` of the generic function; each
+    /// instance sees its constant).
+    ConstParam(Ty),
     /// `start..end`
     Range {
         start: Box<Expr>,
@@ -1046,6 +1062,7 @@ impl Expr {
             | ExprKind::Continue
             | ExprKind::Closure(_)
             | ExprKind::Comptime { .. }
+            | ExprKind::ConstParam(_)
             | ExprKind::Overloaded(_)
             | ExprKind::SizeOf { .. }
             | ExprKind::Error => {}
@@ -1103,7 +1120,7 @@ impl Expr {
                 f(index);
             }
             ExprKind::Array(elems) => elems.iter().for_each(f),
-            ExprKind::Repeat { value, .. } => f(value),
+            ExprKind::Repeat { value, .. } | ExprKind::RepeatN { value, .. } => f(value),
             ExprKind::ForOf { iter, body, .. } => {
                 f(iter);
                 f(body);
