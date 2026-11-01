@@ -525,10 +525,19 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 ## Phase 7: Standard library (async I/O)
 
 ### P7.1 std/fs and std/path
+Split into P7.1a (everything but `watch`) and P7.1b (`watch`).
+
+#### P7.1a std/fs and std/path
 - **Spec**: 13 §13.2–13.4
 - **Do**: async file operations (thread-pool backed in the runtime), `File` as `AsyncDisposable`,
   `readDir` as an async iterator, and `std/path`.
 - **Done when**: run tests use a temp directory.
+
+#### P7.1b fs.watch
+- **Spec**: 13 §13.2
+- **Do**: `watch(path)` as an async iterator of change events (FSEvents/kqueue on macOS,
+  inotify on Linux, polling in the interpreter if needed), registered with the loop's poller.
+- **Done when**: a run test sees create/modify/remove events in its temp directory.
 
 ### P7.2 std/process
 - **Spec**: 13 (External processes)

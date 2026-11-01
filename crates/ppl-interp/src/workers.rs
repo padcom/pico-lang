@@ -285,6 +285,9 @@ pub struct Shared {
     pub workers: Mutex<Vec<Arc<IWorker>>>,
     /// The program, for worker threads (copied when the first one starts).
     pub program: Mutex<Option<Arc<Program>>>,
+    /// The working directory the program sees, if not the process's (relative paths in
+    /// `std/fs` resolve against it).
+    pub cwd: Option<std::path::PathBuf>,
 }
 
 impl Shared {
@@ -337,6 +340,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             exception: None,
             exception_tag: 0,
             showing: Vec::new(),
+            io: Default::default(),
             stack: Vec::new(),
             frames: Vec::new(),
             unwinding: Vec::new(),

@@ -1,0 +1,22 @@
+// expect: 40 files, 40 texts, total 1180
+// expect: first file-0...., last file-39
+// Many jobs at once: the I/O threads finish them in any order; each promise gets its own.
+import { readText, writeText, mkdir } from "std/fs"
+
+await mkdir("many")
+const writes: Promise<void, IoError>[] = []
+for (let i = 0; i < 40; i++) {
+  writes.push(writeText(`many/${i}.txt`, `file-${i}`.padEnd(i + 10, ".")))
+}
+await Promise.all(writes)
+const reads: Promise<string, IoError>[] = []
+for (let i = 0; i < 40; i++) {
+  reads.push(readText(`many/${i}.txt`))
+}
+const texts = await Promise.all(reads)
+let total = 0
+for (const t of texts) {
+  total += t.length
+}
+println(`${writes.length} files, ${texts.length} texts, total ${total}`)
+println(`first ${texts[0]}, last ${texts[39].slice(0, 7)}`)

@@ -264,6 +264,7 @@ fn drop_unused_exit_hook(p: &mut mir::Program) {
                 "queueMicrotask",
                 "Worker",
                 "__workerOnMessage",
+                "__ioSubmit",
             ]
             .iter()
             .any(|n| f.name.starts_with(n))
@@ -6233,6 +6234,8 @@ impl FnBuilder<'_, '_> {
                 | Builtin::WorkerPost
                 | Builtin::WorkerError
                 | Builtin::BufOp
+                | Builtin::Io
+                | Builtin::IoText
                 | Builtin::ComptimeInfo
                 | Builtin::ComptimeReadFile
                 | Builtin::MetaEmit),
@@ -6248,13 +6251,18 @@ impl FnBuilder<'_, '_> {
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
                         | Builtin::BufOp
+                        | Builtin::Io
+                        | Builtin::IoText
                         | Builtin::ComptimeInfo
                         | Builtin::ComptimeReadFile
                 )
                 .then(|| {
                     let t = if matches!(
                         b,
-                        Builtin::WorkerError | Builtin::ComptimeInfo | Builtin::ComptimeReadFile
+                        Builtin::WorkerError
+                            | Builtin::ComptimeInfo
+                            | Builtin::ComptimeReadFile
+                            | Builtin::IoText
                     ) {
                         Ty::Str
                     } else if *b == Builtin::ParseF64 {

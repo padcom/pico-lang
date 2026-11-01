@@ -1,0 +1,39 @@
+// expect: 5
+// expect: 2: 65 66
+// expect: 4
+// expect: 1: 69
+// expect: true
+// expect: 6
+// expect: AlreadyExists
+// `open` gives a `File`: read, write and seek, closed by `await using`.
+import { open, readText } from "std/fs"
+
+{
+  await using f = await open("log.bin", write: true, create: true)
+  const data = new Uint8Array(5)
+  for (let i = 0; i < 5; i++) {
+    data.set(i, 65 + i)
+  }
+  println(await f.write(data))
+}
+const f = await open("log.bin")
+const head = await f.read(2)
+println(`${head!.length}: ${head![0]} ${head![1]}`)
+println(await f.seek(4))
+const tail = await f.read(100)
+println(`${tail!.length}: ${tail![0]}`)
+println(await f.read(100) == null)
+await f.close()
+await f.close()
+
+const g = await open("log.bin", write: true, append: true)
+await g.write(new Uint8Array(1))
+await g.close()
+println((await readText("log.bin")).length)
+
+try {
+  const again = await open("log.bin", write: true, createNew: true)
+  await again.close()
+} catch (e: IoError) {
+  println(e.kind)
+}

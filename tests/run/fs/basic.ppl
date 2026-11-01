@@ -1,0 +1,47 @@
+// expect: hello
+// expect: wörld
+// expect:
+// expect: file true, dir false, 13 bytes, mtime set true
+// expect: true
+// expect: 4 1 255
+// expect: 2
+// expect: a.txt file=true dir=false
+// expect: sub file=false dir=true
+// expect: false true
+// expect: left: 0
+// `std/fs` (spec §13.4): files and directories, in the run's (empty) working directory.
+import { readText, writeText, readBytes, writeBytes, stat, mkdir, remove, rename, readDir, exists } from "std/fs"
+import { join } from "std/path"
+
+await mkdir("data")
+await writeText("data/a.txt", "hello\n")
+await writeText("data/a.txt", "wörld\n", append: true)
+println(await readText("data/a.txt"))
+const info = await stat("data/a.txt")
+println(`file ${info.isFile}, dir ${info.isDirectory}, ${info.size} bytes, mtime set ${info.mtime > 0}`)
+println((await stat("data")).isDirectory)
+
+await mkdir(join("data", "sub", "deep"), recursive: true)
+await mkdir("data/sub", recursive: true)
+const bytes = new Uint8Array(4)
+bytes.set(0, 1)
+bytes.set(3, 255)
+await writeBytes("data/sub/b.bin", bytes)
+const back = await readBytes("data/sub/b.bin")
+println(`${back.length} ${back[0]} ${back[3]}`)
+await writeBytes("data/sub/part.bin", new Uint8Array(bytes.buffer, 1, 2))
+println((await stat("data/sub/part.bin")).size)
+
+for await (const e of readDir("data")) {
+  println(`${e.name} file=${e.isFile} dir=${e.isDirectory}`)
+}
+
+await rename("data/a.txt", "data/c.txt")
+println(`${await exists("data/a.txt")} ${await exists("data/c.txt")}`)
+await remove("data/c.txt")
+await remove("data/sub", recursive: true)
+let left = 0
+for await (const e of readDir("data")) {
+  left += 1
+}
+println(`left: ${left}`)

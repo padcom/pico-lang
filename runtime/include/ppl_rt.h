@@ -148,6 +148,11 @@ int32_t ppl_show_enter(const void *obj);
 /* `__parse_f64`: the nearest double to a decimal number's text (NaN if it isn't one, or if
  * it's over 127 bytes). */
 double ppl_parse_f64(const PplStr *s);
+/* File-system jobs for `std/fs` (ppl_io.c): `op` < 100 submits a job (returns its id), 100
+ * polls a finished one (id or -1), 101 counts unfinished ones, 102/103 read a polled job's
+ * results, 104 frees it. `ppl_io_text` is a polled job's text result. */
+int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, const PplStr *t);
+PplStr *ppl_io_text(int64_t id);
 void ppl_show_leave(const void *obj);
 
 /* A growable array (`T[]`): `len` elements of the element size the compiler passes, stored

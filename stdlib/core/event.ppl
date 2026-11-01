@@ -34,6 +34,8 @@ class __Loop {
   public channels: Map<int, () => void> = new Map<int, () => void>()
   /// In a worker: `self.onmessage` is set, so the thread waits for messages.
   public listening: bool = false
+  /// File-system jobs (`std/fs`): what handles each one's result, by job id.
+  public io: Map<int, () => void> = new Map<int, () => void>()
 
   constructor() {}
 
@@ -113,6 +115,19 @@ class __Loop {
       return true
     }
     this.checkRejections()
+    // A finished file-system job.
+    if (this.io.size > 0) {
+      const j = __io(100, 0, 0, 0, "", "")
+      if (j >= 0) {
+        const done = this.io.get(j)
+        this.io.delete(j)
+        if (done != null) {
+          done()
+        }
+        __io(104, j, 0, 0, "", "");
+        return true
+      }
+    }
     // A message from a worker (or the parent).
     const h = __worker_op(2, 0)
     if (h >= 0) {
@@ -124,7 +139,7 @@ class __Loop {
       }
       return true
     }
-    const waiting = this.listening || __worker_op(6, 0) > 0
+    const waiting = this.listening || __worker_op(6, 0) > 0 || this.io.size > 0
     const i = this.earliest()
     if (i < 0) {
       if (waiting) {
@@ -205,4 +220,13 @@ function __runEventLoop(): void {
       break
     }
   }
+}
+
+/// Submits file-system job `op` (see `ppl_io`); `done(job)` runs on the loop once it's
+/// finished, and can read its results (`__io(102, job, …)`, `__io_text(job)`).
+function __ioSubmit(op: int, a: int, b: int, c: int, s: string, t: string, done: (job: int) => void): void {
+  const job = __io(op, a, b, c, s, t)
+  __theLoop().io.set(job, () => {
+    done(job)
+  })
 }

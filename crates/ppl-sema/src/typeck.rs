@@ -6390,6 +6390,18 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[4]), Ty::INT)
             }
+            Builtin::Io => {
+                for (i, a) in args.iter().enumerate() {
+                    self.check(a, &Expect::new(if i < 4 { Ty::INT } else { Ty::Str }));
+                }
+                (arity(&[6]), Ty::INT)
+            }
+            Builtin::IoText => {
+                if let Some(h) = args.first() {
+                    self.check(h, &Expect::new(Ty::INT));
+                }
+                (arity(&[1]), Ty::Str)
+            }
             Builtin::WorkerError => {
                 if let Some(h) = args.first() {
                     self.check(h, &Expect::new(Ty::INT));
@@ -6436,6 +6448,8 @@ impl<'p> Checker<'p> {
                 Builtin::WorkerOp => "2 arguments",
                 Builtin::WorkerPost => "2 or 3 arguments",
                 Builtin::BufOp | Builtin::MetaEmit => "4 arguments",
+                Builtin::Io => "6 arguments",
+                Builtin::IoText => "1 argument",
                 Builtin::ClockMs => "no arguments",
                 Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
                     "no arguments"

@@ -268,11 +268,20 @@ pub fn run_interp(
     mir: &ppl_mir::Program,
     out: &mut (dyn std::io::Write + Send),
 ) -> Result<(), ppl_interp::Panic> {
+    run_interp_in(mir, out, None)
+}
+
+/// [`run_interp`] with its own working directory for file-system operations.
+pub fn run_interp_in(
+    mir: &ppl_mir::Program,
+    out: &mut (dyn std::io::Write + Send),
+    cwd: Option<std::path::PathBuf>,
+) -> Result<(), ppl_interp::Panic> {
     std::thread::scope(|s| {
         std::thread::Builder::new()
             .name("ppl-interp".into())
             .stack_size(1 << 30)
-            .spawn_scoped(s, || ppl_interp::run(mir, out))
+            .spawn_scoped(s, || ppl_interp::run_in(mir, out, cwd))
             .expect("spawn interpreter thread")
             .join()
             .expect("interpreter thread panicked")

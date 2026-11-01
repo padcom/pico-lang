@@ -1,0 +1,226 @@
+// `std/fs`: the file system (spec §13.2, §13.4). Every operation is async: it runs on the
+// runtime's I/O threads and settles its promise on the event loop. Failures reject with an
+// `IoError` (a global) naming the path and the kind of failure.
+
+const __kinds = ["", "NotFound", "AlreadyExists", "PermissionDenied", "NotADirectory",
+  "IsADirectory", "DirectoryNotEmpty", "InvalidData", "Other"]
+const __messages = ["", "no such file or directory", "already exists", "permission denied",
+  "not a directory", "is a directory", "directory not empty", "not valid UTF-8", "I/O error"]
+
+/// A finished job's results.
+struct __IoResult {
+  r: int
+  r2: int
+  job: int
+}
+
+/// The `IoError` for a failed job (`r` < 0).
+function __ioError(path: string, r: int, errno: int): IoError {
+  const k = if (-r > 0 && -r < __kinds.length) -r else 8
+  const what = if (k == 8) `${__messages[k]} (os error ${errno})` else __messages[k]
+  new IoError(path, `${what}: ${path}`, __kinds[k])
+}
+
+/// Runs job `op`; `read(result)` turns its result into the promised value.
+function __job<T>(op: int, a: int, b: int, c: int, s: string, t: string, path: string,
+    read: (res: __IoResult) => T): Promise<T, IoError> {
+  const p = new Promise<T, IoError>()
+  __ioSubmit(op, a, b, c, s, t, (job: int) => {
+    const r = __io(102, job, 0, 0, "", "")
+    const r2 = __io(103, job, 0, 0, "", "")
+    if (r < 0) {
+      p.__reject(__ioError(path, r, r2))
+    } else {
+      p.__resolve(read({ r, r2, job }))
+    }
+  })
+  p
+}
+
+function __unit(res: __IoResult): void {}
+
+/// The bytes of a view as a buffer handle starting at its first byte, and their count.
+function __bytesOf(data: Uint8Array): ArrayBuffer {
+  if (data.byteOffset == 0) data.buffer else data.buffer.slice(data.byteOffset, data.byteOffset + data.length)
+}
+
+/// The file's text (UTF-8; anything else rejects with kind `"InvalidData"`).
+export function readText(path: string): Promise<string, IoError> {
+  __job<string>(1, 0, 0, 0, path, "", path, (res: __IoResult) => __io_text(res.job))
+}
+
+/// The file's bytes.
+export function readBytes(path: string): Promise<Uint8Array, IoError> {
+  __job<Uint8Array>(2, 0, 0, 0, path, "", path, (res: __IoResult) => {
+    new Uint8Array(new ArrayBuffer(res.r, res.r2, true), 0, res.r2)
+  })
+}
+
+/// Writes `text` to the file (created if needed; replaced, or appended to with `append`).
+export function writeText(path: string, text: string, append: bool = false): Promise<void, IoError> {
+  __job<void>(3, if (append) 1 else 0, 0, 0, path, text, path, __unit)
+}
+
+/// Writes the bytes to the file (created if needed; replaced, or appended to with `append`).
+export function writeBytes(path: string, data: Uint8Array, append: bool = false): Promise<void, IoError> {
+  const buf = __bytesOf(data)
+  __job<void>(4, if (append) 1 else 0, buf.__handle, data.length, path, "", path, __unit)
+}
+
+/// What `stat` tells about a path.
+export struct FileInfo {
+  isFile: bool
+  isDirectory: bool
+  isSymlink: bool
+  /// In bytes.
+  size: int
+  /// The last modification, in milliseconds since 1970 (UTC).
+  mtime: int
+}
+
+function __info(text: string): FileInfo {
+  const parts = text.split(" ")
+  const k = parts[0]
+  const info: FileInfo = {
+    isFile: k == "f",
+    isDirectory: k == "d",
+    isSymlink: k == "l",
+    size: parseInt(parts[1]),
+    mtime: parseInt(parts[2]),
+  }
+  info
+}
+
+/// Facts about the file or directory at `path` (following symbolic links unless
+/// `followLinks` is false).
+export function stat(path: string, followLinks: bool = true): Promise<FileInfo, IoError> {
+  __job<FileInfo>(5, if (followLinks) 0 else 1, 0, 0, path, "", path, (res: __IoResult) => __info(__io_text(res.job)))
+}
+
+/// Whether something exists at `path`.
+export async function exists(path: string): Promise<bool> {
+  try {
+    await stat(path, false)
+    true
+  } catch (e: IoError) {
+    false
+  }
+}
+
+/// Creates a directory (with `recursive`, also its missing parents, and an existing
+/// directory is fine).
+export function mkdir(path: string, recursive: bool = false): Promise<void, IoError> {
+  __job<void>(6, if (recursive) 1 else 0, 0, 0, path, "", path, __unit)
+}
+
+/// Removes a file or an empty directory (with `recursive`, a directory and everything in it).
+export function remove(path: string, recursive: bool = false): Promise<void, IoError> {
+  __job<void>(7, if (recursive) 1 else 0, 0, 0, path, "", path, __unit)
+}
+
+/// Moves or renames `from` to `to` (replacing a file there).
+export function rename(from: string, to: string): Promise<void, IoError> {
+  __job<void>(8, 0, 0, 0, from, to, from, __unit)
+}
+
+/// An entry of a directory.
+export struct DirEntry {
+  name: string
+  isFile: bool
+  isDirectory: bool
+  isSymlink: bool
+}
+
+function __entries(text: string): DirEntry[] {
+  const out: DirEntry[] = []
+  for (const line of text.split("\u{0}")) {
+    if (line.length >= 2) {
+      const k = line.slice(0, 1)
+      out.push({ name: line.slice(2), isFile: k == "f", isDirectory: k == "d", isSymlink: k == "l" })
+    }
+  }
+  out
+}
+
+/// The entries of a directory (without `.` and `..`), in name order.
+export async function* readDir(path: string): AsyncIterator<DirEntry> throws IoError {
+  const entries = await __job<DirEntry[]>(9, 0, 0, 0, path, "", path, (res: __IoResult) => __entries(__io_text(res.job)))
+  for (const e of entries) {
+    yield e
+  }
+}
+
+/// An open file: `read`, `write` and `seek` (from the start), then `close` (or `await using`).
+export class File implements AsyncDisposable {
+  fd: int
+  public readonly path: string
+  closed: bool = false
+
+  constructor(fd: int, path: string) {
+    this.fd = fd
+    this.path = path
+  }
+
+  check(): void {
+    if (closed) {
+      panic(`file ${path} is closed`)
+    }
+  }
+
+  /// Up to `n` bytes from the current position; `null` at the end of the file.
+  public read(n: int): Promise<Uint8Array?, IoError> {
+    check()
+    __job<Uint8Array?>(11, fd, n, 0, "", "", path, (res: __IoResult) => {
+      if (res.r2 == 0) {
+        __buf_op(2, res.r, 0, 0);
+        null
+      } else {
+        new Uint8Array(new ArrayBuffer(res.r, res.r2, true), 0, res.r2)
+      }
+    })
+  }
+
+  /// Writes all of `data` at the current position; the count written.
+  public write(data: Uint8Array): Promise<int, IoError> {
+    check()
+    const buf = __bytesOf(data)
+    __job<int>(12, fd, buf.__handle, data.length, "", "", path, (res: __IoResult) => res.r)
+  }
+
+  /// Moves to byte `position` (from the start); the new position.
+  public seek(position: int): Promise<int, IoError> {
+    check()
+    __job<int>(14, fd, position, 0, "", "", path, (res: __IoResult) => res.r)
+  }
+
+  public close(): Promise<void, IoError> {
+    if (closed) {
+      const done = new Promise<void, IoError>()
+      done.__resolve(__void())
+      return done
+    }
+    closed = true
+    __job<void>(13, fd, 0, 0, "", "", path, __unit)
+  }
+
+  public async disposeAsync(): Promise<void> {
+    try {
+      await close()
+    } catch (e: IoError) {}
+  }
+}
+
+/// Opens a file: for reading by default; `write: true` to write (with `create` to create it,
+/// `truncate` to empty it, `append` to write at its end, `createNew` to require that it
+/// doesn't exist).
+export function open(path: string, read: bool = true, write: bool = false, append: bool = false,
+    create: bool = false, truncate: bool = false, createNew: bool = false): Promise<File, IoError> {
+  let flags = 0
+  if (read) flags += 1
+  if (write) flags += 2
+  if (append) flags += 4
+  if (create) flags += 8
+  if (truncate) flags += 16
+  if (createNew) flags += 32
+  __job<File>(10, flags, 0, 0, path, "", path, (res: __IoResult) => new File(res.r, path))
+}

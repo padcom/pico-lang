@@ -1,0 +1,142 @@
+// `std/path`: file paths (spec §13.2), with POSIX semantics as in Node's `path.posix`
+// (Windows paths come with the Windows target).
+
+/// The separator between path segments.
+export const sep = "/"
+
+/// The process's working directory.
+function __cwd(): string {
+  const job = __io(105, 0, 0, 0, "", "")
+  const dir = __io_text(job)
+  __io(104, job, 0, 0, "", "");
+  dir
+}
+
+/// Whether `p` starts at the root.
+export function isAbsolute(p: string): bool { p.startsWith("/") }
+
+/// `p` without `.` segments, `..` segments that follow a name, and repeated slashes
+/// (`a//b/../c/` → `a/c/`); `""` → `"."`.
+export function normalize(p: string): string {
+  if (p == "") {
+    return "."
+  }
+  const absolute = isAbsolute(p)
+  const trailing = p.endsWith("/")
+  const out: string[] = []
+  for (const part of p.split("/")) {
+    if (part == "" || part == ".") {
+      continue
+    }
+    if (part == "..") {
+      if (out.length > 0 && out[out.length - 1] != "..") {
+        const _ = out.pop()
+      } else if (!absolute) {
+        out.push("..")
+      }
+      continue
+    }
+    out.push(part)
+  }
+  let s = out.join("/")
+  if (absolute) {
+    s = "/" + s
+  }
+  if (s == "") {
+    return if (absolute) "/" else "."
+  }
+  if (trailing && s != "/") s + "/" else s
+}
+
+/// The parts joined with `/`, normalized (`join("a", "../b", "c")` → `b/c`).
+export function join(...parts: string[]): string {
+  const kept: string[] = []
+  for (const p of parts) {
+    if (p != "") {
+      kept.push(p)
+    }
+  }
+  if (kept.length == 0) "." else normalize(kept.join("/"))
+}
+
+/// An absolute path: the parts from the last absolute one (or the working directory), joined
+/// and normalized, without a trailing slash.
+export function resolve(...parts: string[]): string {
+  let s = ""
+  let i = parts.length - 1
+  while (i >= 0 && !isAbsolute(s)) {
+    if (parts[i] != "") {
+      s = if (s == "") parts[i] else `${parts[i]}/${s}`
+    }
+    i -= 1
+  }
+  if (!isAbsolute(s)) {
+    s = if (s == "") __cwd() else `${__cwd()}/${s}`
+  }
+  const n = normalize(s)
+  if (n.length > 1 && n.endsWith("/")) n.slice(0, n.length - 1) else n
+}
+
+function __trimSlashes(p: string): string {
+  let end = p.length
+  while (end > 1 && p[end - 1] == '/') {
+    end -= 1
+  }
+  p.slice(0, end)
+}
+
+/// The directory part (`/a/b/c` → `/a/b`, `a` → `.`, `/a` → `/`).
+export function dirname(p: string): string {
+  const t = __trimSlashes(p)
+  let i = t.length - 1
+  while (i >= 0 && t[i] != '/') {
+    i -= 1
+  }
+  if (i < 0) {
+    return "."
+  }
+  const d = __trimSlashes(t.slice(0, i))
+  if (d == "") "/" else d
+}
+
+/// The last segment (`/a/b.txt` → `b.txt`), without `ext` if it ends with it.
+export function basename(p: string, ext: string = ""): string {
+  const t = __trimSlashes(p)
+  if (t == "/") {
+    return ""
+  }
+  let i = t.length - 1
+  while (i >= 0 && t[i] != '/') {
+    i -= 1
+  }
+  const b = t.slice(i + 1)
+  if (ext != "" && b != ext && b.endsWith(ext)) b.slice(0, b.length - ext.length) else b
+}
+
+/// The extension of the last segment, from its last `.` (`a.tar.gz` → `.gz`; `.bashrc` → `""`).
+export function extname(p: string): string {
+  const b = basename(p)
+  let i = b.length - 1
+  while (i > 0 && b[i] != '.') {
+    i -= 1
+  }
+  if (i <= 0) "" else b.slice(i)
+}
+
+/// The path from `from` to `to` (both resolved first; `""` if they're the same).
+export function relative(from: string, to: string): string {
+  const a = resolve(from).split("/").filter((s: string) => s != "")
+  const b = resolve(to).split("/").filter((s: string) => s != "")
+  let i = 0
+  while (i < a.length && i < b.length && a[i] == b[i]) {
+    i += 1
+  }
+  const out: string[] = []
+  for (let k = i; k < a.length; k++) {
+    out.push("..")
+  }
+  for (let k = i; k < b.length; k++) {
+    out.push(b[k])
+  }
+  out.join("/")
+}

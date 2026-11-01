@@ -18,7 +18,7 @@ class Error {
   public get stack(): StackTrace { … }        // captured when the error is thrown
 }
 
-class IoError extends Error { constructor(public path: string, msg: string) { super(msg) } }
+class IoError extends Error { constructor(public path: string, msg: string) { super(msg) } }   // a global; also has `kind` (§13.4)
 class ParseError extends Error { constructor(public line: i32) { super(`parse error at ${line}`) } }
 ```
 `throw` takes an `Error` subclass or a `Throwable`. `Error` subclasses **always** capture a stack

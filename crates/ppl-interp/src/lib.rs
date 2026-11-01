@@ -16,6 +16,7 @@ use std::io::Write;
 use std::rc::Rc;
 use std::sync::Arc;
 pub mod comptime;
+mod io;
 mod workers;
 
 /// Call depth after which the interpreter reports a stack overflow.
@@ -209,7 +210,20 @@ impl Panic {
 /// Runs the program's entry function, writing program output to `out`. Workers run on
 /// threads of their own, each with its own interpreter (its own globals).
 pub fn run(program: &Program, out: &mut dyn Write) -> Result<(), Panic> {
-    let shared = Arc::new(workers::Shared::default());
+    run_in(program, out, None)
+}
+
+/// [`run`] with working directory `cwd` for the program's file-system operations (instead of
+/// the process's, which is shared by every thread).
+pub fn run_in(
+    program: &Program,
+    out: &mut dyn Write,
+    cwd: Option<std::path::PathBuf>,
+) -> Result<(), Panic> {
+    let shared = Arc::new(workers::Shared {
+        cwd,
+        ..Default::default()
+    });
     let mut it = Interp::new(program, Some(out), shared.clone(), None);
     let r = it
         .call(program.entry, Vec::new(), Loc::default())
@@ -236,6 +250,8 @@ struct Interp<'p, 'o> {
     exception_tag: u32,
     /// The objects being shown in their default string form (to stop at cycles).
     showing: Vec<*const Obj>,
+    /// File-system jobs (`std/fs`).
+    io: io::IoState,
     /// The names of the active functions (for stack traces).
     stack: Vec<String>,
     /// Panics whose `finally` handlers are running, innermost last.
@@ -625,6 +641,8 @@ impl Interp<'_, '_> {
             }
             Builtin::WorkerError => return self.worker_error(&vals[0]),
             Builtin::BufOp => return self.buf_op(vals),
+            Builtin::Io => return self.io(vals),
+            Builtin::IoText => return self.io_text(vals),
             Builtin::ClockMs => {
                 return Value::Int(self.started.elapsed().as_millis() as i128);
             }

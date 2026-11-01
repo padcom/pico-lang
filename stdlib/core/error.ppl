@@ -9,6 +9,22 @@ class Error {
   }
 }
 
+/// A failed file-system operation (`std/fs`): the path and what went wrong. `kind` is
+/// `"NotFound"`, `"AlreadyExists"`, `"PermissionDenied"`, `"NotADirectory"`, `"IsADirectory"`,
+/// `"DirectoryNotEmpty"`, `"InvalidData"` (text that isn't UTF-8) or `"Other"`.
+class IoError extends Error {
+  public path: string
+  public kind: string = "Other"
+  constructor(path: string, message: string) {
+    super(message)
+    this.path = path
+  }
+  constructor(path: string, message: string, kind: string) {
+    this(path, message)
+    this.kind = kind
+  }
+}
+
 /// A lightweight error (spec §7.1): a struct or enum that can be thrown without being an
 /// `Error` (no stack trace). Enums can't have methods yet, so their message is their debug form.
 interface Throwable {

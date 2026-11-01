@@ -604,6 +604,10 @@ pub enum Builtin {
     WorkerError,
     /// `__buf_op(op, a, b, c): int`: `ArrayBuffer`s' off-heap memory (see `ppl_buf_op`).
     BufOp,
+    /// `__io(op, a, b, c, s, t): int`: file-system jobs (`ppl_io`, spec §13.4);
+    /// `__io_text(job): string` a finished job's text.
+    Io,
+    IoText,
     /// `__comptime_info(k)`: a fact about the build (comptime only): the target's os, arch
     /// and triple, then the build mode.
     ComptimeInfo,
@@ -639,6 +643,8 @@ impl Builtin {
             Builtin::WorkerPost => "__worker_post",
             Builtin::WorkerError => "__worker_error",
             Builtin::BufOp => "__buf_op",
+            Builtin::Io => "__io",
+            Builtin::IoText => "__io_text",
             Builtin::ComptimeInfo => "__comptime_info",
             Builtin::ComptimeReadFile => "__comptime_read_file",
             Builtin::MetaEmit => "__meta_emit",
@@ -667,6 +673,8 @@ impl Builtin {
             "__worker_post" => Builtin::WorkerPost,
             "__worker_error" => Builtin::WorkerError,
             "__buf_op" => Builtin::BufOp,
+            "__io" => Builtin::Io,
+            "__io_text" => Builtin::IoText,
             "__comptime_info" => Builtin::ComptimeInfo,
             "__comptime_read_file" => Builtin::ComptimeReadFile,
             "__meta_emit" => Builtin::MetaEmit,

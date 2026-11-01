@@ -17,6 +17,7 @@
 //!
 //! Run fixtures execute three times: interpreted, native, and native with `PPL_GC_STRESS=1`
 //! (a collection at every safepoint after an allocation, which shakes out missing GC roots).
+//! Each run's working directory is a fresh empty temp directory (`std/fs` tests write there).
 //!
 //! The harness runs every stage that exists. Checks that need a missing stage are reported
 //! as *pending* rather than passing silently.
@@ -225,7 +226,8 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
     let mut problems: Vec<String> = Vec::new();
     if !d.native_only {
         let mut out: Vec<u8> = Vec::new();
-        let result = ppl_driver::run_interp(mir, &mut out);
+        let dir = TempDir::new();
+        let result = ppl_driver::run_interp_in(mir, &mut out, Some(dir.0.clone()));
         let err = result.err();
         let uncaught = err.as_ref().is_some_and(|p| p.uncaught);
         let interp = Run {
@@ -255,7 +257,9 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
 /// every safepoint.
 fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, String> {
     let exe = ppl_driver::build_cached(checked, ppl_driver::BuildOptions::default())?;
+    let dir = TempDir::new();
     let mut cmd = std::process::Command::new(&exe);
+    cmd.current_dir(&dir.0);
     if gc_stress {
         cmd.env("PPL_GC_STRESS", "1");
     }
@@ -277,6 +281,27 @@ fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, Str
         panic,
         exit: Some(code),
     })
+}
+
+/// A fresh empty directory, the working directory of one run (removed afterwards).
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new() -> TempDir {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("ppl-run-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        TempDir(dir.canonicalize().unwrap_or(dir))
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// What a program did.

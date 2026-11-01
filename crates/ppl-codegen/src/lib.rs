@@ -675,6 +675,18 @@ impl<'ctx> Gen<'ctx, '_> {
                 false,
             ),
             "ppl_buf_op" => i64t.fn_type(&[i64t.into(); 4], false),
+            "ppl_io" => i64t.fn_type(
+                &[
+                    i64t.into(),
+                    i64t.into(),
+                    i64t.into(),
+                    i64t.into(),
+                    ptr.into(),
+                    ptr.into(),
+                ],
+                false,
+            ),
+            "ppl_io_text" => ptr.fn_type(&[i64t.into()], false),
             "ppl_loop_wait" => void.fn_type(&[i64t.into()], false),
             "ppl_raw_arena_free" => void.fn_type(&[i64t.into()], false),
             "ppl_raw_arena_alloc" => ptr.fn_type(&[i64t.into(), i64t.into(), i64t.into()], false),
@@ -2980,10 +2992,14 @@ impl<'ctx> Gen<'ctx, '_> {
                         | Builtin::LoopWait
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
-                        | Builtin::BufOp),
+                        | Builtin::BufOp
+                        | Builtin::Io
+                        | Builtin::IoText),
                     ) => {
                         let name = match b {
                             Builtin::BufOp => "ppl_buf_op",
+                            Builtin::Io => "ppl_io",
+                            Builtin::IoText => "ppl_io_text",
                             Builtin::RawArenaNew => "ppl_raw_arena_new",
                             Builtin::RawArenaFree => "ppl_raw_arena_free",
                             Builtin::ClockMs => "ppl_clock_ms",

@@ -1,0 +1,43 @@
+// expect: read missing: NotFound (nope.txt): no such file or directory: nope.txt
+// expect: mkdir existing: AlreadyExists (d): already exists: d
+// expect: mkdir in a file: NotADirectory (d/f.txt/x): not a directory: d/f.txt/x
+// expect: read a directory: IsADirectory (d): is a directory: d
+// expect: remove non-empty: DirectoryNotEmpty (d): directory not empty: d
+// expect: stat missing: NotFound (d/missing): no such file or directory: d/missing
+// expect: open missing: NotFound (missing.bin): no such file or directory: missing.bin
+// expect: list a file: NotADirectory (d/f.txt): not a directory: d/f.txt
+// expect: read non-UTF-8: InvalidData (d/bad.txt): not valid UTF-8: d/bad.txt
+// Failed operations reject with an `IoError`: the path, a portable kind and a message.
+import { readText, writeText, writeBytes, mkdir, remove, readDir, stat, open, File, FileInfo } from "std/fs"
+
+async function attempt<T>(what: string, p: Promise<T, IoError>): Promise<void> {
+  try {
+    await p
+    println(`${what}: ok`)
+  } catch (e: IoError) {
+    println(`${what}: ${e.kind} (${e.path}): ${e.message}`)
+  }
+}
+
+async function list(path: string): Promise<int> throws IoError {
+  let n = 0
+  for await (const e of readDir(path)) {
+    n += 1
+  }
+  n
+}
+
+await mkdir("d")
+await writeText("d/f.txt", "x")
+await attempt<string>("read missing", readText("nope.txt"))
+await attempt<void>("mkdir existing", mkdir("d"))
+await attempt<void>("mkdir in a file", mkdir("d/f.txt/x"))
+await attempt<string>("read a directory", readText("d"))
+await attempt<void>("remove non-empty", remove("d"))
+await attempt<FileInfo>("stat missing", stat("d/missing"))
+await attempt<File>("open missing", open("missing.bin"))
+await attempt<int>("list a file", list("d/f.txt"))
+const bad = new Uint8Array(1)
+bad.set(0, 255)
+await writeBytes("d/bad.txt", bad)
+await attempt<string>("read non-UTF-8", readText("d/bad.txt"))

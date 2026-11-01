@@ -15,6 +15,13 @@ class ArrayBuffer {
     __bufferRegistry().registerWithToken(this, this.__handle, this)
   }
 
+  /// Takes over memory the runtime allocated (`std/fs` reads).
+  constructor(handle: int, byteLength: int, __adopt: bool) {
+    this.__handle = handle
+    this.byteLength = byteLength
+    __bufferRegistry().registerWithToken(this, this.__handle, this)
+  }
+
   /// Whether it was transferred away (its length is then 0).
   public get detached(): bool {
     this.__handle == 0

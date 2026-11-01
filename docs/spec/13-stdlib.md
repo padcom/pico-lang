@@ -94,3 +94,29 @@ import { readText } from "std/fs"
 const text = await readText("notes.txt")
 for (const line of text.split("\n")) println(line)
 ```
+
+### `std/fs`
+Each operation runs on the runtime's I/O threads and settles its promise on the event loop.
+Failures reject with the global `IoError` (`path`, `message`, and a portable `kind`:
+`NotFound`, `AlreadyExists`, `PermissionDenied`, `NotADirectory`, `IsADirectory`,
+`DirectoryNotEmpty`, `InvalidData`, `Other`); messages read `no such file or directory: a.txt`.
+```text
+readText(path): Promise<string, IoError>              // UTF-8; other bytes: InvalidData
+readBytes(path): Promise<Uint8Array, IoError>
+writeText(path, text, append = false), writeBytes(path, data: Uint8Array, append = false)
+stat(path, followLinks = true): Promise<FileInfo, IoError>  // isFile, isDirectory, isSymlink, size, mtime (ms)
+exists(path): Promise<bool>
+mkdir(path, recursive = false), remove(path, recursive = false), rename(from, to)
+readDir(path): AsyncIterator<DirEntry> throws IoError  // name, isFile, isDirectory, isSymlink; name order
+open(path, read = true, write = false, append = false, create = false, truncate = false,
+     createNew = false): Promise<File, IoError>
+```
+A `File` (`AsyncDisposable`) has `read(n): Promise<Uint8Array?>` (`null` at the end), `write(data):
+Promise<int>`, `seek(position): Promise<int>` (from the start), `close()` (twice is fine) and
+`path`. Using it after `close` panics. `watch` is planned (P7.1b).
+
+### `std/path`
+POSIX paths with Node's `path.posix` semantics: `sep`, `isAbsolute`, `normalize` (`a//b/../c/` →
+`a/c/`), `join(...parts)`, `resolve(...parts)` (from the working directory; no trailing slash),
+`dirname`, `basename(p, ext = "")`, `extname` (`.bashrc` has none), `relative(from, to)`.
+Windows paths come with the Windows target.
