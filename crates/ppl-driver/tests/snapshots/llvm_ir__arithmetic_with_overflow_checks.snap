@@ -10,9 +10,11 @@ source_filename = "test.ppl"
 @ppl.classinfo.Map = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Set = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Iterator = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl_gc_requested = external global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
 @ppl.cstr.7 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.cstr.8 = private unnamed_addr constant [16 x i8] c"division by zero"
+@ppl.gc_globals = private constant { i64, [0 x { ptr, ptr, ptr }] } zeroinitializer
 
 define internal i32 @ppl.add(i32 %0, i32 %1) {
 start:
@@ -21,24 +23,33 @@ start:
   %t2 = alloca i32, align 4
   store i32 %0, ptr %a, align 4
   store i32 %1, ptr %b, align 4
-  br label %bb0
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %2 = icmp ne i32 %gc.requested, 0
+  br i1 %2, label %gc.collect, label %gc.continue
 
-bb0:                                              ; preds = %start
-  %2 = load i32, ptr %a, align 4
-  %3 = load i32, ptr %b, align 4
-  %4 = call { i32, i1 } @llvm.sadd.with.overflow.i32(i32 %2, i32 %3)
-  %5 = extractvalue { i32, i1 } %4, 0
-  %6 = extractvalue { i32, i1 } %4, 1
-  br i1 %6, label %panic, label %ok
+bb0:                                              ; preds = %gc.continue
+  %3 = load i32, ptr %a, align 4
+  %4 = load i32, ptr %b, align 4
+  %5 = call { i32, i1 } @llvm.sadd.with.overflow.i32(i32 %3, i32 %4)
+  %6 = extractvalue { i32, i1 } %5, 0
+  %7 = extractvalue { i32, i1 } %5, 1
+  br i1 %7, label %panic, label %ok
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
 
 panic:                                            ; preds = %bb0
   call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.7, i64 8, i32 2, i32 37)
   unreachable
 
 ok:                                               ; preds = %bb0
-  store i32 %5, ptr %t2, align 4
-  %7 = load i32, ptr %t2, align 4
-  ret i32 %7
+  store i32 %6, ptr %t2, align 4
+  %8 = load i32, ptr %t2, align 4
+  ret i32 %8
 }
 
 define internal i64 @ppl.half(i64 %0) {
@@ -46,21 +57,30 @@ start:
   %a = alloca i64, align 8
   %t1 = alloca i64, align 8
   store i64 %0, ptr %a, align 4
-  br label %bb0
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %1 = icmp ne i32 %gc.requested, 0
+  br i1 %1, label %gc.collect, label %gc.continue
 
-bb0:                                              ; preds = %start
-  %1 = load i64, ptr %a, align 4
+bb0:                                              ; preds = %gc.continue
+  %2 = load i64, ptr %a, align 4
   br i1 false, label %panic, label %ok
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
 
 panic:                                            ; preds = %bb0
   call void @ppl_panic(ptr @ppl.cstr.8, i64 16, ptr @ppl.cstr.7, i64 8, i32 3, i32 30)
   unreachable
 
 ok:                                               ; preds = %bb0
-  %2 = udiv i64 %1, 2
-  store i64 %2, ptr %t1, align 4
-  %3 = load i64, ptr %t1, align 4
-  ret i64 %3
+  %3 = udiv i64 %2, 2
+  store i64 %3, ptr %t1, align 4
+  %4 = load i64, ptr %t1, align 4
+  ret i64 %4
 }
 
 define internal double @ppl.neg(double %0) {
@@ -69,32 +89,55 @@ start:
   %t1 = alloca double, align 8
   %t2 = alloca double, align 8
   store double %0, ptr %x, align 8
-  br label %bb0
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %1 = icmp ne i32 %gc.requested, 0
+  br i1 %1, label %gc.collect, label %gc.continue
 
-bb0:                                              ; preds = %start
-  %1 = load double, ptr %x, align 8
-  %2 = fneg double %1
-  store double %2, ptr %t1, align 8
-  %3 = load double, ptr %t1, align 8
-  %4 = fmul double %3, 2.000000e+00
-  store double %4, ptr %t2, align 8
-  %5 = load double, ptr %t2, align 8
-  ret double %5
+bb0:                                              ; preds = %gc.continue
+  %2 = load double, ptr %x, align 8
+  %3 = fneg double %2
+  store double %3, ptr %t1, align 8
+  %4 = load double, ptr %t1, align 8
+  %5 = fmul double %4, 2.000000e+00
+  store double %5, ptr %t2, align 8
+  %6 = load double, ptr %t2, align 8
+  ret double %6
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
 }
 
 define void @ppl_entry() {
 start:
-  br label %bb0
+  call void @ppl_gc_set_globals(ptr @ppl.gc_globals)
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %0 = icmp ne i32 %gc.requested, 0
+  br i1 %0, label %gc.collect, label %gc.continue
 
-bb0:                                              ; preds = %start
+bb0:                                              ; preds = %gc.continue
   ret void
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
 }
+
+declare void @ppl_gc_safepoint()
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare { i32, i1 } @llvm.sadd.with.overflow.i32(i32, i32) #0
 
 ; Function Attrs: cold noreturn
 declare void @ppl_panic(ptr, i64, ptr, i64, i32, i32) #1
+
+declare void @ppl_gc_set_globals(ptr)
 
 attributes #0 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #1 = { cold noreturn }

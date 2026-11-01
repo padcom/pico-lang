@@ -7,6 +7,8 @@
 //!
 //! Functions are named `ppl.<name>` with internal linkage, so user names never clash with C
 //! symbols; the entry function is the external `ppl_entry` that the runtime's `main` calls.
+//!
+//! GC support (shadow-stack frames, type maps, safepoints, write barriers) is in [`gc`].
 
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -31,6 +33,8 @@ use ppl_sema::hir::Builtin;
 use ppl_sema::{FloatTy, IntTy, Ty};
 use std::collections::HashMap;
 use std::path::Path;
+
+mod gc;
 
 /// Code generation settings.
 #[derive(Clone, Copy, Debug, Default)]
@@ -117,6 +121,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         generic_structs: Default::default(),
         itables: Vec::new(),
         exception: None,
+        layouts: Default::default(),
     };
     // Struct types first (named, so they can refer to each other), then their bodies.
     g.structs = program
@@ -172,6 +177,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
             unsafe { g.fns[i].delete() };
         }
     }
+    g.register_gc_globals();
     g.m
 }
 
@@ -200,6 +206,8 @@ struct Gen<'ctx, 'p> {
     generic_structs: std::cell::RefCell<HashMap<Ty, inkwell::types::StructType<'ctx>>>,
     /// Interface method tables, by itable index.
     itables: Vec<GlobalValue<'ctx>>,
+    /// `PplLayout` constants by type (`true`: a class's objects).
+    layouts: std::cell::RefCell<HashMap<(Ty, bool), PointerValue<'ctx>>>,
 }
 
 /// A variant's name, fields and whether it was declared with parentheses.
@@ -222,6 +230,8 @@ struct FnCx<'ctx, 'p> {
     llfn: FunctionValue<'ctx>,
     locals: Vec<Option<PointerValue<'ctx>>>,
     blocks: Vec<BasicBlock<'ctx>>,
+    /// The shadow-stack frame, when locals hold references.
+    frame: Option<(PointerValue<'ctx>, inkwell::types::StructType<'ctx>)>,
 }
 
 impl<'ctx> Gen<'ctx, '_> {
@@ -673,8 +683,16 @@ impl<'ctx> Gen<'ctx, '_> {
                 ],
                 false,
             ),
-            "ppl_array_new" => ptr.fn_type(&[i64t.into(), i64t.into()], false),
-            "ppl_alloc_zeroed" | "ppl_alloc" => ptr.fn_type(&[i64t.into()], false),
+            "ppl_array_new" => ptr.fn_type(&[i64t.into(), i64t.into(), ptr.into()], false),
+            "ppl_gc_alloc" => ptr.fn_type(&[i64t.into(), ptr.into()], false),
+            "ppl_gc_write" | "ppl_gc_set_globals" => void.fn_type(&[ptr.into()], false),
+            "ppl_gc_safepoint"
+            | "ppl_gc_collect"
+            | "ppl_gc_collect_young"
+            | "ppl_gc_pause"
+            | "ppl_gc_resume"
+            | "ppl_gc_dump_roots" => void.fn_type(&[], false),
+            "ppl_gc_stat" => i64t.fn_type(&[i64t.into()], false),
             "ppl_instance_of" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
             "ppl_hash_u64" => i64t.fn_type(&[i64t.into()], false),
             "ppl_hash_str" => i64t.fn_type(&[ptr.into()], false),
@@ -790,17 +808,22 @@ impl<'ctx> Gen<'ctx, '_> {
                 llfn.add_attribute(inkwell::attributes::AttributeLoc::Function, a);
             }
         }
-        let locals: Vec<Option<PointerValue>> = func
+        let mut locals: Vec<Option<PointerValue>> = func
             .locals
             .iter()
             .enumerate()
             .map(|(i, l)| {
+                if self.p.traced(&l.ty) {
+                    return None;
+                }
                 self.ty(&l.ty).map(|t| {
                     let name = l.name.clone().unwrap_or_else(|| format!("t{i}"));
                     self.b.build_alloca(t, &name).unwrap()
                 })
             })
             .collect();
+        // Locals holding references live in the shadow-stack frame.
+        let frame = self.gc_frame(func, &mut locals);
         let mut arg = 0;
         for p in &func.params {
             if let Some(slot) = locals[p.0 as usize] {
@@ -809,15 +832,21 @@ impl<'ctx> Gen<'ctx, '_> {
                 self.b.build_store(slot, v).unwrap();
             }
         }
+        self.safepoint(llfn);
         self.b.build_unconditional_branch(blocks[0]).unwrap();
         let mut fx = FnCx {
             func,
             llfn,
             locals,
             blocks,
+            frame,
         };
+        let headers = gc::loop_headers(func);
         for (i, bb) in func.blocks.iter().enumerate() {
             self.b.position_at_end(fx.blocks[i]);
+            if headers[i] {
+                self.safepoint(llfn);
+            }
             for s in &bb.stmts {
                 let v = self.rvalue(&mut fx, &s.rvalue, s.loc);
                 if let Some(v) = v {
@@ -911,6 +940,9 @@ impl<'ctx> Gen<'ctx, '_> {
     fn store(&self, fx: &FnCx<'ctx, '_>, p: &Place, v: BasicValueEnum<'ctx>) {
         if let Some(ptr) = self.place_ptr(fx, p) {
             self.b.build_store(ptr, v).unwrap();
+            if self.p.traced(&self.place_ty(fx, p)) && self.place_in_heap(fx, p) {
+                self.barrier(ptr);
+            }
         }
     }
 
@@ -1121,9 +1153,14 @@ impl<'ctx> Gen<'ctx, '_> {
             Rvalue::ArrayNew(elem, ops) => {
                 let size = self.size_of(elem);
                 let n = self.i64().const_int(ops.len() as u64, false);
+                let layout = self.layout(elem);
                 let a = basic(
                     self.b
-                        .build_call(self.rt("ppl_array_new"), &[size.into(), n.into()], "")
+                        .build_call(
+                            self.rt("ppl_array_new"),
+                            &[size.into(), n.into(), layout.into()],
+                            "",
+                        )
                         .unwrap(),
                 )
                 .into_pointer_value();
@@ -1173,6 +1210,9 @@ impl<'ctx> Gen<'ctx, '_> {
                 .into_pointer_value();
                 if let Some(val) = val {
                     self.b.build_store(slot, val).unwrap();
+                    if self.p.traced(&elem) {
+                        self.barrier(slot);
+                    }
                 }
                 None
             }
@@ -1218,9 +1258,14 @@ impl<'ctx> Gen<'ctx, '_> {
                     unreachable!("new of {t}")
                 };
                 let size = self.struct_llty(t).size_of().expect("sized class");
+                let layout = self.object_layout(t);
                 let obj = basic(
                     self.b
-                        .build_call(self.rt("ppl_alloc_zeroed"), &[size.into()], "obj")
+                        .build_call(
+                            self.rt("ppl_gc_alloc"),
+                            &[size.into(), layout.into()],
+                            "obj",
+                        )
                         .unwrap(),
                 )
                 .into_pointer_value();
@@ -1237,9 +1282,14 @@ impl<'ctx> Gen<'ctx, '_> {
                     _ => {
                         // Box the struct.
                         let size = self.size_of(&t);
+                        let layout = self.layout(&t);
                         let b = basic(
                             self.b
-                                .build_call(self.rt("ppl_alloc"), &[size.into()], "box")
+                                .build_call(
+                                    self.rt("ppl_gc_alloc"),
+                                    &[size.into(), layout.into()],
+                                    "box",
+                                )
                                 .unwrap(),
                         )
                         .into_pointer_value();
@@ -1266,9 +1316,14 @@ impl<'ctx> Gen<'ctx, '_> {
                     let tt = Ty::Tuple(tys);
                     let st = self.ty(&tt).expect("tuple").into_struct_type();
                     let size = self.size_of(&tt);
+                    let layout = self.layout(&tt);
                     let env = basic(
                         self.b
-                            .build_call(self.rt("ppl_alloc"), &[size.into()], "env")
+                            .build_call(
+                                self.rt("ppl_gc_alloc"),
+                                &[size.into(), layout.into()],
+                                "env",
+                            )
                             .unwrap(),
                     )
                     .into_pointer_value();
@@ -1292,9 +1347,14 @@ impl<'ctx> Gen<'ctx, '_> {
             }
             Rvalue::BoxNew(t, o) => {
                 let size = self.size_of(t);
+                let layout = self.layout(t);
                 let cell = basic(
                     self.b
-                        .build_call(self.rt("ppl_alloc_zeroed"), &[size.into()], "cell")
+                        .build_call(
+                            self.rt("ppl_gc_alloc"),
+                            &[size.into(), layout.into()],
+                            "cell",
+                        )
                         .unwrap(),
                 )
                 .into_pointer_value();
@@ -2639,6 +2699,7 @@ impl<'ctx> Gen<'ctx, '_> {
             }
             Terminator::Return(v) => {
                 let v = v.as_ref().and_then(|o| self.operand(fx, o));
+                self.gc_pop(fx);
                 match v {
                     Some(v) => self.b.build_return(Some(&v as &dyn BasicValue)).unwrap(),
                     None => self.b.build_return(None).unwrap(),
@@ -2777,6 +2838,33 @@ impl<'ctx> Gen<'ctx, '_> {
                                 .unwrap();
                         }
                     }
+                    Callee::Builtin(Builtin::GcStat) => {
+                        let i = self.operand(fx, &args[0]).expect("int");
+                        let r = basic(
+                            self.b
+                                .build_call(self.rt("ppl_gc_stat"), &[i.into()], "")
+                                .unwrap(),
+                        );
+                        if let Some(d) = dest {
+                            self.store(fx, d, r);
+                        }
+                    }
+                    Callee::Builtin(
+                        b @ (Builtin::GcCollect
+                        | Builtin::GcCollectYoung
+                        | Builtin::GcPause
+                        | Builtin::GcResume
+                        | Builtin::GcDumpRoots),
+                    ) => {
+                        let name = match b {
+                            Builtin::GcCollect => "ppl_gc_collect",
+                            Builtin::GcCollectYoung => "ppl_gc_collect_young",
+                            Builtin::GcPause => "ppl_gc_pause",
+                            Builtin::GcResume => "ppl_gc_resume",
+                            _ => "ppl_gc_dump_roots",
+                        };
+                        self.b.build_call(self.rt(name), &[], "").unwrap();
+                    }
                     Callee::Builtin(_) => unreachable!("lowered to control flow"),
                 }
                 self.b.build_unconditional_branch(next).unwrap();
@@ -2843,6 +2931,8 @@ impl<'ctx> Gen<'ctx, '_> {
                     .filter_map(|a| self.operand(fx, a))
                     .map(Into::into)
                     .collect();
+                // The callee gets the arguments in registers and roots them itself.
+                self.gc_pop(fx);
                 let call = self
                     .b
                     .build_call(self.fns[callee.0 as usize], &vals, "")

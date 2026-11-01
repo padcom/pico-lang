@@ -1,0 +1,57 @@
+// GC roots (spec §9.1): locals and globals that hold references are on the shadow stack;
+// `gc.dumpRoots()` lists the named ones that aren't null, innermost function first.
+// expect: gc roots:
+// expect:   inner: node, local
+// expect:   outer: p, empty, list
+// expect:   globals: banner
+// expect: gc roots:
+// expect:   hidden: name
+// expect:   globals: banner
+// expect: gc roots:
+// expect:   <main>: s
+// expect:   globals: banner
+// expect: 6
+import { gc } from "std/gc"
+
+struct Particle {
+  pos: [f64; 2]
+  label: string
+}
+struct Plain { x: i32; y: i32 }
+class Node {
+  constructor(public value: i32, public next: Node?) {}
+}
+
+const banner = "roots"
+let count = 0
+
+function inner(node: Node, n: i32): int {
+  const local = [n, n + 1]
+  const plain = Plain { x: 1, y: 2 }
+  let missing: string? = null
+  gc.dumpRoots()
+  local.length + node.value + plain.x
+}
+
+function outer(): int {
+  const p = Particle { pos: [0.0, 1.0], label: "dust" }
+  const empty = Particle { pos: [0.0, 0.0], label: "" }
+  const list = new Node(1, new Node(2, null))
+  inner(list, 3)
+}
+
+// Enum payloads and closure environments are traced but not listed.
+enum Token { Word(text: string), End }
+function hidden(): int {
+  const t = Token.Word("x")
+  const name = "n"
+  const f = (x: int) => x + name.length
+  gc.dumpRoots()
+  f(1)
+}
+
+count = outer() + hidden()
+for (const s of ["a", "b"]) {
+  if (s == "b") { gc.dumpRoots() }
+}
+println(count)

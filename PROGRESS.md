@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P4.1: Shadow stack and type maps** (see [PLAN.md](PLAN.md#p41-shadow-stack-and-type-maps)). Phase 3 is complete.
+**P4.2: Mark-sweep GC** (see [PLAN.md](PLAN.md#p42-mark-sweep-gc)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -23,10 +23,10 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 178 decisions, no open questions |
+| Spec | ✅ 16 chapters, 206 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-01 (P3.26) |
+| Last green `scripts/test.sh` | 2026-11-01 (P4.1) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,9 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **GC (P4.x)**: `runtime/src/ppl_gc.c` and `crates/ppl-codegen/src/gc.rs` (decision 206).
+  Collection only at safepoints; layouts mirror codegen's `size_align` (wasm32's 4-byte
+  pointers will need both updated in P8.5). The interpreter has no collector.
 - **Decisions 197–205 (P3.19–P3.26) are provisional** too: exceptions via error-return lowering,
   throws inference/polymorphism, panic unwinding with setjmp guards, the core library in ppl
   (`stdlib/core`), `Iterator<T>` as a class (no generic interfaces yet), and module resolution.
@@ -150,7 +153,7 @@ Notes:
 - [x] P3.26 `using` and Disposable
 
 ### Phase 4: Memory management
-- [ ] P4.1 Shadow stack and type maps
+- [x] P4.1 Shadow stack and type maps
 - [ ] P4.2 Mark-sweep GC
 - [ ] P4.3 Generational and incremental GC
 - [ ] P4.4 Weak references and finalization
@@ -274,3 +277,4 @@ Notes:
 | 2026-11-01 | P3.20b | Lightweight throwables: prelude `Throwable` interface, throwable enums (`EnumDef.throwable`), `Program::throwables`/`throw_tag`, boxed values with a tag slot (`SetException(v, tag)`, `ExceptionTag`; interp field, native `ppl.exception_tag` global), catch dispatch by tag (`catch_pattern`), shared `exception_text` for uncaught/`try!`, throws analysis `Catch` kinds. Decision 203. Tests: run/errors/throwables, fail/types/{throwables,throw_value}. |
 | 2026-11-01 | P3.25 | Destructuring desugared in the resolver: object patterns with defaults, array `...rest` (slice), destructured parameters (`split_destructured`, `destructured_params`), destructuring assignment (`assign_destructured`), array spread via `concat`/`slice`. Decision 204 (object `...rest` still missing). Tests: run/destructuring (§4.1, §5.3, §5.7 examples), fail/{names,types}/destructuring. |
 | 2026-11-01 | P3.26 | `using` desugared in `block_stmts` to `const` + `try { rest } finally { x?.dispose() }` (reverse order, exceptions, early exits, panics); prelude `Disposable`. Decision 205. Tests: run/using, fail/{types,names}/using. **Phase 3 complete.** |
+| 2026-11-01 | P4.1 | GC roots: `PplLayout` type maps (codegen `gc.rs`: reference offsets mirroring `size_align`, enum payloads conservative), shadow-stack frames (traced locals in one zeroed frame struct, pushed at entry, popped at return/tailcall, restored by panic guards), global-roots table, safepoints at entry and loop headers (`ppl_gc_requested`), write-barrier calls on heap stores, `ppl_gc_alloc(size, layout)` everywhere (still malloc), `PplArray.elem`; `__gc_*` builtins, `std/gc` (`gc`, `GcStats`); interpreter frame stack and `dumpRoots`. Decision 206. Test: run/gc/roots. |

@@ -1,0 +1,46 @@
+// std/gc: controlling the collector (spec §9.2).
+//
+// `import { gc } from "std/gc"`, then `gc.collect()`, `gc.stats()` and so on. The interpreter
+// has no collector of its own: there the calls do nothing and the statistics are zero.
+
+// A snapshot of the collector's counters. Sizes are in bytes, pauses in nanoseconds.
+export struct GcStats {
+  // Memory the heap holds from the system.
+  heapSize: int
+  // Bytes in objects that are live or not yet collected.
+  usedBytes: int
+  // Bytes allocated since the program started.
+  allocatedBytes: int
+  // Full collections (the whole heap).
+  collections: int
+  // Nursery-only collections.
+  youngCollections: int
+  lastPause: int
+  maxPause: int
+  totalPause: int
+}
+
+export class gc {
+  // A full collection now.
+  public static collect() { __gc_collect() }
+  // Collects the nursery only.
+  public static collectYoung() { __gc_collect_young() }
+  // No automatic collections until the matching `resume()` (calls nest).
+  public static pause() { __gc_pause() }
+  public static resume() { __gc_resume() }
+  public static stats(): GcStats {
+    GcStats {
+      heapSize: __gc_stat(0),
+      usedBytes: __gc_stat(1),
+      allocatedBytes: __gc_stat(2),
+      collections: __gc_stat(3),
+      youngCollections: __gc_stat(4),
+      lastPause: __gc_stat(5),
+      maxPause: __gc_stat(6),
+      totalPause: __gc_stat(7),
+    }
+  }
+  // Debugging: prints the GC roots that hold references (named locals per active function,
+  // innermost first, then globals).
+  public static dumpRoots() { __gc_dump_roots() }
+}

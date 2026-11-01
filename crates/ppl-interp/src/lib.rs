@@ -79,6 +79,29 @@ pub enum Step {
 /// Storage for one variable. Locals and globals live in cells so references can point at them.
 pub type Cell = Rc<RefCell<Value>>;
 
+/// Whether a root holds a reference that `gc.dumpRoots()` shows (matching the native type
+/// maps: enum payloads and closure environments are left out).
+fn visible_ref(p: &Program, v: &Value, t: &Ty) -> bool {
+    match (v, &t.erase()) {
+        (Value::Uninit | Value::Null | Value::Void, _) => false,
+        (_, Ty::Str | Ty::Array(_) | Ty::Class(..) | Ty::Iface(..) | Ty::Ref(_)) => true,
+        (_, Ty::Nullable(inner)) => visible_ref(p, v, inner),
+        (Value::Struct(parts), Ty::Struct(sid, _, args)) => {
+            let owner = Ty::type_owner(*sid);
+            p.layout(*sid)
+                .fields
+                .iter()
+                .zip(parts)
+                .any(|((_, f), v)| visible_ref(p, v, &f.subst(owner, args)))
+        }
+        (Value::Struct(parts), Ty::Tuple(ts)) => {
+            ts.iter().zip(parts).any(|(t, v)| visible_ref(p, v, t))
+        }
+        (Value::Struct(parts), Ty::Fixed(e, _)) => parts.iter().any(|v| visible_ref(p, v, e)),
+        _ => false,
+    }
+}
+
 fn cell(v: Value) -> Cell {
     Rc::new(RefCell::new(v))
 }
@@ -127,6 +150,7 @@ pub fn run(program: &Program, out: &mut dyn Write) -> Result<(), Panic> {
         exception: None,
         exception_tag: 0,
         stack: Vec::new(),
+        frames: Vec::new(),
         unwinding: Vec::new(),
     };
     let r = it
@@ -148,11 +172,13 @@ struct Interp<'p, 'o> {
     stack: Vec<String>,
     /// Panics whose `finally` handlers are running, innermost last.
     unwinding: Vec<Panic>,
+    /// The active functions' locals, innermost last (for `gc.dumpRoots()`).
+    frames: Vec<(&'p mir::Function, Rc<Vec<Cell>>)>,
 }
 
 struct Frame<'p> {
     f: &'p mir::Function,
-    locals: Vec<Cell>,
+    locals: Rc<Vec<Cell>>,
 }
 
 impl Frame<'_> {
@@ -185,12 +211,15 @@ impl Interp<'_, '_> {
             *self.stack.last_mut().expect("pushed") = f.name.clone();
             let mut frame = Frame {
                 f,
-                locals: (0..f.locals.len()).map(|_| cell(Value::Uninit)).collect(),
+                locals: Rc::new((0..f.locals.len()).map(|_| cell(Value::Uninit)).collect()),
             };
             for (p, a) in f.params.iter().zip(args) {
                 *frame.locals[p.0 as usize].borrow_mut() = a;
             }
-            match self.exec(&mut frame) {
+            self.frames.push((f, frame.locals.clone()));
+            let r = self.exec(&mut frame);
+            self.frames.pop();
+            match r {
                 Ok(Flow::Return(v)) => break Ok(v),
                 Ok(Flow::Tail(next, a)) => {
                     id = next;
@@ -370,8 +399,7 @@ impl Interp<'_, '_> {
                         Callee::Builtin(b) => {
                             let tys: Vec<Ty> =
                                 args.iter().map(|a| self.operand_ty(frame, a)).collect();
-                            self.builtin(*b, &vals, &tys);
-                            Value::Void
+                            self.builtin(*b, &vals, &tys)
                         }
                     };
                     if let Some(d) = dest {
@@ -413,13 +441,56 @@ impl Interp<'_, '_> {
         }
     }
 
-    fn builtin(&mut self, b: Builtin, vals: &[Value], tys: &[Ty]) {
+    fn builtin(&mut self, b: Builtin, vals: &[Value], tys: &[Ty]) -> Value {
         let text: String = vals.iter().zip(tys).map(|(v, t)| display(v, t)).collect();
         let _ = match b {
             Builtin::Println => writeln!(self.out, "{text}"),
             Builtin::Print => write!(self.out, "{text}"),
-            _ => unreachable!("lowered to control flow"),
+            Builtin::GcDumpRoots => {
+                let text = self.dump_roots();
+                write!(self.out, "{text}")
+            }
+            // No collector here: nothing to do, and every statistic is zero.
+            Builtin::GcStat => return Value::Int(0),
+            Builtin::GcCollect | Builtin::GcCollectYoung | Builtin::GcPause | Builtin::GcResume => {
+                Ok(())
+            }
+            Builtin::Assert | Builtin::Panic => unreachable!("lowered to control flow"),
         };
+        Value::Void
+    }
+
+    /// What the native `ppl_gc_dump_roots` prints: per active function (innermost first),
+    /// the named locals holding a reference, then the globals.
+    fn dump_roots(&self) -> String {
+        let mut out = String::from("gc roots:\n");
+        let line = |out: &mut String, title: &str, names: Vec<&str>| {
+            if !names.is_empty() {
+                out.push_str(&format!("  {title}: {}\n", names.join(", ")));
+            }
+        };
+        for (f, locals) in self.frames.iter().rev() {
+            let names = f
+                .locals
+                .iter()
+                .zip(locals.iter())
+                .filter_map(|(l, v)| {
+                    let name = l.name.as_deref()?;
+                    visible_ref(self.p, &v.borrow(), &l.ty).then_some(name)
+                })
+                .collect();
+            line(&mut out, &f.name, names);
+        }
+        let names = self
+            .p
+            .globals
+            .iter()
+            .zip(&self.globals)
+            .filter(|(g, v)| visible_ref(self.p, &v.borrow(), &g.ty))
+            .map(|(g, _)| g.name.as_str())
+            .collect();
+        line(&mut out, "globals", names);
+        out
     }
 
     fn rvalue(&mut self, frame: &Frame, rv: &Rvalue, loc: Loc) -> Result<Value, Panic> {

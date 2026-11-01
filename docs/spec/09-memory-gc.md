@@ -19,6 +19,10 @@
   gc.pause(); …; gc.resume()  // no collections in a frame-critical section
   gc.stats()               // heap size, pause times
   ```
+- `gc.dumpRoots()` (debugging) prints the GC roots that hold references: per active function
+  (innermost first) its named locals, then the globals. `GcStats` has `heapSize`, `usedBytes`,
+  `allocatedBytes`, `collections`, `youngCollections`, and `lastPause`/`maxPause`/`totalPause` in
+  nanoseconds. The interpreter has no collector: its statistics are zero.
 - **Web**: `wasm32-browser` uses **WasmGC**, so the browser's collector manages ppl objects and they
   can be handed to JS without copying. WASI and native targets use the ppl collector.
   *Interim:* LLVM can't emit WasmGC, so until ppl's own WasmGC backend exists, `wasm32-browser`

@@ -10,9 +10,11 @@ source_filename = "test.ppl"
 @ppl.classinfo.Map = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Set = internal constant { ptr, [0 x ptr] } zeroinitializer
 @ppl.classinfo.Iterator = internal constant { ptr, [0 x ptr] } zeroinitializer
+@ppl_gc_requested = external global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
 @ppl.cstr.7 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.str = private global { i64, i64, i64, i64, [4 x i8] } { i64 4, i64 4, i64 0, i64 0, [4 x i8] c"done" }, align 8
+@ppl.gc_globals = private constant { i64, [0 x { ptr, ptr, ptr }] } zeroinitializer
 
 define internal i64 @ppl.fib(i64 %0) {
 start:
@@ -25,55 +27,64 @@ start:
   %t6 = alloca i64, align 8
   %t7 = alloca i64, align 8
   store i64 %0, ptr %n, align 4
-  br label %bb0
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %1 = icmp ne i32 %gc.requested, 0
+  br i1 %1, label %gc.collect, label %gc.continue
 
-bb0:                                              ; preds = %start
-  %1 = load i64, ptr %n, align 4
-  %2 = icmp slt i64 %1, 2
-  store i1 %2, ptr %t1, align 1
-  %3 = load i1, ptr %t1, align 1
-  br i1 %3, label %bb1, label %bb2
+bb0:                                              ; preds = %gc.continue
+  %2 = load i64, ptr %n, align 4
+  %3 = icmp slt i64 %2, 2
+  store i1 %3, ptr %t1, align 1
+  %4 = load i1, ptr %t1, align 1
+  br i1 %4, label %bb1, label %bb2
 
 bb1:                                              ; preds = %bb0
-  %4 = load i64, ptr %n, align 4
-  store i64 %4, ptr %t2, align 4
+  %5 = load i64, ptr %n, align 4
+  store i64 %5, ptr %t2, align 4
   br label %bb3
 
 bb2:                                              ; preds = %bb0
-  %5 = load i64, ptr %n, align 4
-  %6 = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %5, i64 1)
-  %7 = extractvalue { i64, i1 } %6, 0
-  %8 = extractvalue { i64, i1 } %6, 1
-  br i1 %8, label %panic, label %ok
+  %6 = load i64, ptr %n, align 4
+  %7 = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %6, i64 1)
+  %8 = extractvalue { i64, i1 } %7, 0
+  %9 = extractvalue { i64, i1 } %7, 1
+  br i1 %9, label %panic, label %ok
 
 bb3:                                              ; preds = %ok4, %bb1
-  %9 = load i64, ptr %t2, align 4
-  ret i64 %9
+  %10 = load i64, ptr %t2, align 4
+  ret i64 %10
 
 bb4:                                              ; preds = %ok
-  %10 = load i64, ptr %n, align 4
-  %11 = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %10, i64 2)
-  %12 = extractvalue { i64, i1 } %11, 0
-  %13 = extractvalue { i64, i1 } %11, 1
-  br i1 %13, label %panic1, label %ok2
+  %11 = load i64, ptr %n, align 4
+  %12 = call { i64, i1 } @llvm.ssub.with.overflow.i64(i64 %11, i64 2)
+  %13 = extractvalue { i64, i1 } %12, 0
+  %14 = extractvalue { i64, i1 } %12, 1
+  br i1 %14, label %panic1, label %ok2
 
 bb5:                                              ; preds = %ok2
-  %14 = load i64, ptr %t4, align 4
-  %15 = load i64, ptr %t6, align 4
-  %16 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %14, i64 %15)
-  %17 = extractvalue { i64, i1 } %16, 0
-  %18 = extractvalue { i64, i1 } %16, 1
-  br i1 %18, label %panic3, label %ok4
+  %15 = load i64, ptr %t4, align 4
+  %16 = load i64, ptr %t6, align 4
+  %17 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %15, i64 %16)
+  %18 = extractvalue { i64, i1 } %17, 0
+  %19 = extractvalue { i64, i1 } %17, 1
+  br i1 %19, label %panic3, label %ok4
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
 
 panic:                                            ; preds = %bb2
   call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.7, i64 8, i32 3, i32 25)
   unreachable
 
 ok:                                               ; preds = %bb2
-  store i64 %7, ptr %t3, align 4
-  %19 = load i64, ptr %t3, align 4
-  %20 = call i64 @ppl.fib(i64 %19)
-  store i64 %20, ptr %t4, align 4
+  store i64 %8, ptr %t3, align 4
+  %20 = load i64, ptr %t3, align 4
+  %21 = call i64 @ppl.fib(i64 %20)
+  store i64 %21, ptr %t4, align 4
   br label %bb4
 
 panic1:                                           ; preds = %bb4
@@ -81,10 +92,10 @@ panic1:                                           ; preds = %bb4
   unreachable
 
 ok2:                                              ; preds = %bb4
-  store i64 %12, ptr %t5, align 4
-  %21 = load i64, ptr %t5, align 4
-  %22 = call i64 @ppl.fib(i64 %21)
-  store i64 %22, ptr %t6, align 4
+  store i64 %13, ptr %t5, align 4
+  %22 = load i64, ptr %t5, align 4
+  %23 = call i64 @ppl.fib(i64 %22)
+  store i64 %23, ptr %t6, align 4
   br label %bb5
 
 panic3:                                           ; preds = %bb5
@@ -92,25 +103,28 @@ panic3:                                           ; preds = %bb5
   unreachable
 
 ok4:                                              ; preds = %bb5
-  store i64 %17, ptr %t7, align 4
-  %23 = load i64, ptr %t7, align 4
-  store i64 %23, ptr %t2, align 4
+  store i64 %18, ptr %t7, align 4
+  %24 = load i64, ptr %t7, align 4
+  store i64 %24, ptr %t2, align 4
   br label %bb3
 }
 
 define void @ppl_entry() {
 start:
+  call void @ppl_gc_set_globals(ptr @ppl.gc_globals)
   %t0 = alloca i64, align 8
-  br label %bb0
+  %gc.requested = load i32, ptr @ppl_gc_requested, align 4
+  %0 = icmp ne i32 %gc.requested, 0
+  br i1 %0, label %gc.collect, label %gc.continue
 
-bb0:                                              ; preds = %start
-  %0 = call i64 @ppl.fib(i64 10)
-  store i64 %0, ptr %t0, align 4
+bb0:                                              ; preds = %gc.continue
+  %1 = call i64 @ppl.fib(i64 10)
+  store i64 %1, ptr %t0, align 4
   br label %bb1
 
 bb1:                                              ; preds = %bb0
-  %1 = load i64, ptr %t0, align 4
-  call void @ppl_print_i64(i64 %1)
+  %2 = load i64, ptr %t0, align 4
+  call void @ppl_print_i64(i64 %2)
   call void @ppl_print_newline()
   br label %bb2
 
@@ -121,7 +135,16 @@ bb2:                                              ; preds = %bb1
 
 bb3:                                              ; preds = %bb2
   ret void
+
+gc.collect:                                       ; preds = %start
+  call void @ppl_gc_safepoint()
+  br label %gc.continue
+
+gc.continue:                                      ; preds = %gc.collect, %start
+  br label %bb0
 }
+
+declare void @ppl_gc_safepoint()
 
 ; Function Attrs: nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none)
 declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64) #0
@@ -137,6 +160,8 @@ declare void @ppl_print_i64(i64)
 declare void @ppl_print_newline()
 
 declare void @ppl_print_string(ptr)
+
+declare void @ppl_gc_set_globals(ptr)
 
 attributes #0 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #1 = { cold noreturn }

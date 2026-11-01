@@ -13,23 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ---------------------------------------------------------------- memory */
-
-void *ppl_alloc(int64_t size) {
-    void *p = malloc(size > 0 ? (size_t)size : 1);
-    if (!p) {
-        fflush(stdout);
-        fputs("fatal: out of memory\n", stderr);
-        abort();
-    }
-    return p;
-}
-
-void *ppl_alloc_zeroed(int64_t size) {
-    void *p = ppl_alloc(size);
-    memset(p, 0, (size_t)(size > 0 ? size : 1));
-    return p;
-}
+/* ---------------------------------------------------------------- memory: see ppl_gc.c */
 
 int32_t ppl_instance_of(const void *obj, const void *info) {
     if (!obj) return 0;
@@ -63,30 +47,40 @@ uint64_t ppl_hash_combine(uint64_t a, uint64_t b) {
 
 /* ---------------------------------------------------------------- arrays */
 
-PplArray *ppl_array_new(int64_t elem_size, int64_t len) {
-    PplArray *a = ppl_alloc((int64_t)sizeof(PplArray));
+static const struct {
+    int64_t size;
+    int32_t nrefs, reserved;
+    uint32_t refs[1];
+} array_header_layout = {sizeof(PplArray), 1, 0, {offsetof(PplArray, data)}};
+
+static char *array_storage(int64_t cap, int64_t elem_size, const PplLayout *elem) {
+    return ppl_gc_alloc(cap * elem_size, elem);
+}
+
+PplArray *ppl_array_new(int64_t elem_size, int64_t len, const PplLayout *elem) {
+    PplArray *a = ppl_gc_alloc((int64_t)sizeof(PplArray), (const PplLayout *)&array_header_layout);
     int64_t cap = len < 4 ? 4 : len;
     a->len = len;
     a->cap = cap;
-    a->data = ppl_alloc(cap * elem_size);
-    memset(a->data, 0, (size_t)(cap * elem_size));
+    a->elem = elem;
+    a->data = array_storage(cap, elem_size, elem);
     return a;
 }
 
 void *ppl_array_push(PplArray *a, int64_t elem_size) {
     if (a->len == a->cap) {
         int64_t cap = a->cap * 2;
-        char *data = ppl_alloc(cap * elem_size);
+        char *data = array_storage(cap, elem_size, a->elem);
         memcpy(data, a->data, (size_t)(a->len * elem_size));
-        memset(data + a->len * elem_size, 0, (size_t)((cap - a->len) * elem_size));
         a->data = data;
         a->cap = cap;
+        ppl_gc_write(&a->data);
     }
     return a->data + (a->len++) * elem_size;
 }
 
 PplArray *ppl_array_slice(const PplArray *a, int64_t elem_size, int64_t start, int64_t end) {
-    PplArray *r = ppl_array_new(elem_size, end - start);
+    PplArray *r = ppl_array_new(elem_size, end - start, a->elem);
     memcpy(r->data, a->data + start * elem_size, (size_t)((end - start) * elem_size));
     return r;
 }
@@ -647,6 +641,8 @@ PplStr *ppl_fmt_bool(int32_t v, const PplFmt *f) {
 #define PPL_MAX_GUARDS 4096
 #define PPL_MAX_FRAMES 64
 static void *guards[PPL_MAX_GUARDS];
+/* The shadow-stack top when each guard was pushed, restored when a panic jumps to it. */
+static PplFrame *guard_frames[PPL_MAX_GUARDS];
 static int nguards;
 static char *panic_msg;
 static int64_t panic_msg_len;
@@ -662,6 +658,7 @@ void ppl_guard_push(void *buf) {
         fputs("fatal: too many nested `finally` regions\n", stderr);
         abort();
     }
+    guard_frames[nguards] = ppl_gc_top;
     guards[nguards++] = buf;
 }
 
@@ -717,6 +714,7 @@ static _Noreturn void report_panic(void) {
 static _Noreturn void unwind(void) {
     if (nguards > 0) {
         void *buf = guards[--nguards];
+        ppl_gc_top = guard_frames[nguards];
         _longjmp(buf, 1);
     }
     report_panic();

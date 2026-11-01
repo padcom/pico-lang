@@ -114,6 +114,31 @@ impl Program {
         }
     }
 
+    /// Whether values of `t` hold GC references, which the collector traces (spec §9.1).
+    pub fn traced(&self, t: &Ty) -> bool {
+        match &t.erase() {
+            Ty::Str | Ty::Array(_) | Ty::Class(..) | Ty::Iface(..) | Ty::Fn(..) | Ty::Ref(_) => {
+                true
+            }
+            Ty::Nullable(t) => self.traced(t),
+            Ty::Struct(sid, _, args) => {
+                let owner = Ty::type_owner(*sid);
+                self.layout(*sid)
+                    .fields
+                    .iter()
+                    .any(|(_, f)| self.traced(&f.subst(owner, args)))
+            }
+            Ty::Tuple(ts) => ts.iter().any(|t| self.traced(t)),
+            Ty::Fixed(e, n) => *n > 0 && self.traced(e),
+            Ty::Enum(eid, _) => self
+                .enum_layout(*eid)
+                .variants
+                .iter()
+                .any(|v| v.fields.iter().any(|(_, f)| self.traced(f))),
+            _ => false,
+        }
+    }
+
     /// The type of `place` inside `f`.
     pub fn place_ty(&self, f: &Function, place: &Place) -> Ty {
         let mut t = match place.base {

@@ -5615,10 +5615,26 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[1]), Ty::Never)
             }
+            Builtin::GcStat => {
+                if let Some(i) = args.first() {
+                    self.check(i, &Expect::new(Ty::INT));
+                }
+                (arity(&[1]), Ty::INT)
+            }
+            Builtin::GcCollect
+            | Builtin::GcCollectYoung
+            | Builtin::GcPause
+            | Builtin::GcResume
+            | Builtin::GcDumpRoots => (arity(&[0]), Ty::Void),
         };
         if !ok {
             let expected = match b {
-                Builtin::Print | Builtin::Panic => "1 argument",
+                Builtin::Print | Builtin::Panic | Builtin::GcStat => "1 argument",
+                Builtin::GcCollect
+                | Builtin::GcCollectYoung
+                | Builtin::GcPause
+                | Builtin::GcResume
+                | Builtin::GcDumpRoots => "no arguments",
                 Builtin::Println => "0 or 1 arguments",
                 Builtin::Assert => "1 or 2 arguments",
             };

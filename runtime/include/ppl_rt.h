@@ -23,10 +23,75 @@ typedef struct PplStr {
     char data[];
 } PplStr;
 
-/* Memory. v0 is backed by malloc and never frees; the GC (P4.x) keeps this API. Never
- * returns NULL: running out of memory aborts the program. */
+/* ---------------------------------------------------------------- GC (spec §9)
+ *
+ * Where the references are in a value: `refs` holds the byte offsets of the words that may
+ * hold GC references inside one element of `size` bytes. A heap object of n bytes holds
+ * n / size elements (more than one for array storage). Offsets with PPL_REF_HIDDEN set are
+ * traced but ignored by `gc.dumpRoots()` (enum payload words, closure environments). A NULL
+ * layout means no references. */
+typedef struct PplLayout {
+    int64_t size;
+    int32_t nrefs;
+    int32_t reserved;
+    uint32_t refs[];
+} PplLayout;
+#define PPL_REF_HIDDEN 0x80000000u
+
+/* Shadow stack: every function with locals that hold references keeps them in one frame,
+ * `{ prev, map, locals… }`, linked from `ppl_gc_top`. The map names each root (NULL for
+ * compiler temporaries) and gives its offset from the frame's start and its layout. */
+typedef struct PplRootDesc {
+    const char *name;
+    const PplLayout *layout;
+    int64_t offset;
+} PplRootDesc;
+typedef struct PplFrameMap {
+    const char *fn;
+    int64_t nroots;
+    PplRootDesc roots[];
+} PplFrameMap;
+typedef struct PplFrame {
+    struct PplFrame *prev;
+    const PplFrameMap *map;
+} PplFrame;
+extern PplFrame *ppl_gc_top;
+
+/* The program's globals that hold references (registered by the entry function). */
+typedef struct PplGlobalRoot {
+    const char *name; /* NULL: internal (the pending exception) */
+    const PplLayout *layout;
+    void *addr;
+} PplGlobalRoot;
+typedef struct PplGlobalRoots {
+    int64_t n;
+    PplGlobalRoot roots[];
+} PplGlobalRoots;
+void ppl_gc_set_globals(const PplGlobalRoots *g);
+
+/* Set when a collection (or an incremental step) is due; compiled code checks it at
+ * safepoints (function entry, loop back edges) and then calls `ppl_gc_safepoint`. Nothing
+ * else collects, so the runtime's own functions never see a collection mid-call. */
+extern int32_t ppl_gc_requested;
+void ppl_gc_safepoint(void);
+/* Write barrier: called after a reference is stored into `slot`, which may be inside a
+ * heap object. */
+void ppl_gc_write(void *slot);
+
+/* Allocates `size` zeroed bytes described by `layout`. Never returns NULL: running out of
+ * memory aborts the program. */
+void *ppl_gc_alloc(int64_t size, const PplLayout *layout);
+/* Leaf allocations (no references): strings, temporary buffers. */
 void *ppl_alloc(int64_t size);
-void *ppl_alloc_zeroed(int64_t size); /* class instances */
+void *ppl_alloc_zeroed(int64_t size);
+
+/* `std/gc`. */
+void ppl_gc_collect(void);
+void ppl_gc_collect_young(void);
+void ppl_gc_pause(void);
+void ppl_gc_resume(void);
+void ppl_gc_dump_roots(void);
+int64_t ppl_gc_stat(int64_t which); /* the `GcStats` fields, in order */
 /* Whether `obj` (an object, possibly null) is an instance of the class whose metadata is
  * `info`. An object's first word points at its class's metadata, whose first word points at
  * the base class's (null at the root). */
@@ -38,9 +103,11 @@ typedef struct PplArray {
     int64_t len;
     int64_t cap;
     char *data;
+    const PplLayout *elem; /* the elements' layout (NULL: no references) */
 } PplArray;
 
-PplArray *ppl_array_new(int64_t elem_size, int64_t len); /* `len` zeroed elements */
+/* `len` zeroed elements. */
+PplArray *ppl_array_new(int64_t elem_size, int64_t len, const PplLayout *elem);
 void *ppl_array_push(PplArray *a, int64_t elem_size);    /* appends a slot, returns it */
 int32_t ppl_array_pop(PplArray *a);                      /* 1 if an element was removed */
 PplArray *ppl_array_slice(const PplArray *a, int64_t elem_size, int64_t start, int64_t end);

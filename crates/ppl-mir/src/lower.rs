@@ -4357,6 +4357,30 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(next);
                 Operand::Const(Const::Void)
             }
+            ExprKind::Builtin(
+                b @ (Builtin::GcCollect
+                | Builtin::GcCollectYoung
+                | Builtin::GcPause
+                | Builtin::GcResume
+                | Builtin::GcDumpRoots
+                | Builtin::GcStat),
+            ) => {
+                let args: Vec<Operand> = args.iter().map(|a| self.expr(a)).collect();
+                let dest = (*b == Builtin::GcStat).then(|| Place::local(self.temp(Ty::INT)));
+                let next = self.new_block();
+                self.terminate(Terminator::Call {
+                    callee: Callee::Builtin(*b),
+                    args,
+                    dest: dest.clone(),
+                    next,
+                    loc,
+                });
+                self.switch_to(next);
+                match dest {
+                    Some(p) => Operand::Copy(p),
+                    None => Operand::Const(Const::Void),
+                }
+            }
             ExprKind::Builtin(Builtin::Assert) => {
                 let c = self.expr(&args[0]);
                 let ok = self.new_block();

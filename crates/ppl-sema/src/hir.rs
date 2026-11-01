@@ -487,6 +487,14 @@ pub enum Builtin {
     Println,
     Assert,
     Panic,
+    /// The collector's intrinsics (`std/gc` wraps them, spec §9.2).
+    GcCollect,
+    GcCollectYoung,
+    GcPause,
+    GcResume,
+    GcDumpRoots,
+    /// `__gc_stat(i)`: statistic `i` (the `GcStats` fields in order).
+    GcStat,
 }
 
 impl Builtin {
@@ -496,6 +504,12 @@ impl Builtin {
             Builtin::Println => "println",
             Builtin::Assert => "assert",
             Builtin::Panic => "panic",
+            Builtin::GcCollect => "__gc_collect",
+            Builtin::GcCollectYoung => "__gc_collect_young",
+            Builtin::GcPause => "__gc_pause",
+            Builtin::GcResume => "__gc_resume",
+            Builtin::GcDumpRoots => "__gc_dump_roots",
+            Builtin::GcStat => "__gc_stat",
         }
     }
 
@@ -505,6 +519,12 @@ impl Builtin {
             "println" => Builtin::Println,
             "assert" => Builtin::Assert,
             "panic" => Builtin::Panic,
+            "__gc_collect" => Builtin::GcCollect,
+            "__gc_collect_young" => Builtin::GcCollectYoung,
+            "__gc_pause" => Builtin::GcPause,
+            "__gc_resume" => Builtin::GcResume,
+            "__gc_dump_roots" => Builtin::GcDumpRoots,
+            "__gc_stat" => Builtin::GcStat,
             _ => return None,
         })
     }
