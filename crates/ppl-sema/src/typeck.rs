@@ -165,6 +165,14 @@ fn untyped_lit(e: &Expr) -> bool {
     }
 }
 
+fn is_float_lit(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Float(..) => true,
+        ExprKind::Unary(UnOp::Neg | UnOp::Plus, inner) => is_float_lit(inner),
+        _ => false,
+    }
+}
+
 fn suffix_ty(s: NumSuffix) -> Ty {
     match s {
         NumSuffix::I8 => Ty::Int(IntTy::I8),
@@ -548,7 +556,8 @@ impl<'p> Checker<'p> {
             } => {
                 let ot = self.infer(object);
                 match (&ot, name.as_str()) {
-                    (Ty::Str, "length") => Ty::INT,
+                    (Ty::Str | Ty::Array(_) | Ty::Fixed(..), "length") => Ty::INT,
+                    (Ty::Range(it), "start" | "end") => Ty::Int(*it),
                     (Ty::Error, _) => Ty::Error,
                     (Ty::Struct(sid, _), _) => self.field(e.id, *sid, name, *name_span),
                     _ => {
@@ -570,7 +579,15 @@ impl<'p> Checker<'p> {
                         self.check(index, &Expect::new(Ty::INT));
                         Ty::Char
                     }
-                    Ty::Error => Ty::Error,
+                    Ty::Array(t) | Ty::Fixed(t, _) => {
+                        self.check(index, &Expect::new(Ty::INT));
+                        *t
+                    }
+                    Ty::Tuple(ts) => self.tuple_index(&ts, index),
+                    Ty::Error => {
+                        self.infer(index);
+                        Ty::Error
+                    }
                     _ => {
                         self.infer(index);
                         self.diags.push(
@@ -587,16 +604,16 @@ impl<'p> Checker<'p> {
             ExprKind::Template { parts, .. } => {
                 for p in parts {
                     let t = self.infer(&p.expr);
-                    let debug_struct = matches!(t, Ty::Struct(..))
-                        && p.spec.as_deref().is_some_and(|s| s.ends_with('?'));
-                    if !is_printable(&t) && !debug_struct {
-                        if matches!(t, Ty::Struct(..)) {
+                    let compound = crate::format::is_compound(&t);
+                    let debug = compound && p.spec.as_deref().is_some_and(|s| s.ends_with('?'));
+                    if !is_printable(&t) && !debug {
+                        if compound {
                             self.diags.push(
                                 Diagnostic::error(
                                     codes::INVALID_OPERANDS,
                                     format!("`{t}` has no string form"),
                                 )
-                                .primary(p.expr.span, "a struct in a template")
+                                .primary(p.expr.span, "a compound value in a template")
                                 .help("show its fields with the debug format: `${value:?}`"),
                             );
                             continue;
@@ -696,7 +713,221 @@ impl<'p> Checker<'p> {
                 }
                 to.clone()
             }
+            ExprKind::Array(elems) => self.array_lit(e, elems, want),
+            ExprKind::Repeat { value, count } => self.repeat_lit(e, value, *count, want),
+            ExprKind::Range { start, end } => self.range(e, start, end, want),
+            ExprKind::ForOf { var, iter, body } => {
+                let it = self.infer(iter);
+                let elem = match &it {
+                    Ty::Range(i) => Ty::Int(*i),
+                    Ty::Array(t) | Ty::Fixed(t, _) => (**t).clone(),
+                    Ty::Str => Ty::Char,
+                    Ty::Error => Ty::Error,
+                    other => {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::INVALID_OPERANDS,
+                                format!("`{other}` isn't iterable"),
+                            )
+                            .primary(iter.span, format!("has type `{other}`"))
+                            .note("`for-of` works over arrays, fixed arrays, ranges and strings"),
+                        );
+                        Ty::Error
+                    }
+                };
+                self.set_var_ty(Var::Local(*var), elem);
+                self.ctx().loops.push(LoopCtx {
+                    produces_value: false,
+                    want: None,
+                    breaks: Vec::new(),
+                });
+                self.infer(body);
+                self.ctx().loops.pop();
+                Ty::Void
+            }
             ExprKind::Error => Ty::Error,
+        }
+    }
+
+    /// `t[i]` on a tuple: `i` must be an integer literal below the tuple's length.
+    fn tuple_index(&mut self, ts: &[Ty], index: &Expr) -> Ty {
+        match index.kind {
+            ExprKind::Int(v, _) if (v as usize) < ts.len() => {
+                self.set(index, Ty::INT);
+                ts[v as usize].clone()
+            }
+            ExprKind::Int(v, _) => {
+                self.set(index, Ty::INT);
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::TUPLE_INDEX,
+                        format!("tuple index {v} is out of range"),
+                    )
+                    .primary(
+                        index.span,
+                        format!(
+                            "the tuple has {} element{}",
+                            ts.len(),
+                            if ts.len() == 1 { "" } else { "s" }
+                        ),
+                    ),
+                );
+                Ty::Error
+            }
+            _ => {
+                self.infer(index);
+                self.diags.push(
+                    Diagnostic::error(codes::TUPLE_INDEX, "tuple index must be a constant")
+                        .primary(index.span, "not an integer literal")
+                        .note("each tuple element has its own type, so the index must be known")
+                        .help("use an integer literal, `t[0]`, or destructure: `const [a, b] = t`"),
+                );
+                Ty::Error
+            }
+        }
+    }
+
+    fn wrong_length(&mut self, e: &Expr, want: &Expect, expected: usize, found: usize) {
+        let mut d = Diagnostic::error(
+            codes::WRONG_LENGTH,
+            format!(
+                "expected {expected} element{}, found {found}",
+                if expected == 1 { "" } else { "s" }
+            ),
+        )
+        .primary(e.span, format!("this literal has {found}"));
+        if let Some(o) = want.origin {
+            d = d.secondary(o, format!("`{}` expected because of this", want.ty));
+        }
+        self.diags.push(d);
+    }
+
+    /// `[a, b, c]`: a tuple, fixed array or growable array as the expected type says;
+    /// without one, a growable array whose element type comes from the elements.
+    fn array_lit(&mut self, e: &Expr, elems: &[Expr], want: Option<&Expect>) -> Ty {
+        let want = want.map(|w| match &w.ty {
+            Ty::Nullable(inner) => Expect::from((**inner).clone(), w.origin),
+            _ => w.clone(),
+        });
+        match want.as_ref().map(|w| (&w.ty, w)) {
+            Some((Ty::Tuple(ts), w)) => {
+                if ts.len() != elems.len() {
+                    self.wrong_length(e, w, ts.len(), elems.len());
+                    for x in elems {
+                        self.infer(x);
+                    }
+                    return Ty::Error;
+                }
+                for (x, t) in elems.iter().zip(ts) {
+                    self.check(x, &Expect::new(t.clone()));
+                }
+                w.ty.clone()
+            }
+            Some((Ty::Fixed(t, n), w)) => {
+                if *n as usize != elems.len() {
+                    self.wrong_length(e, w, *n as usize, elems.len());
+                }
+                for x in elems {
+                    self.check(x, &Expect::new((**t).clone()));
+                }
+                w.ty.clone()
+            }
+            Some((Ty::Array(t), w)) => {
+                for x in elems {
+                    self.check(x, &Expect::new((**t).clone()));
+                }
+                w.ty.clone()
+            }
+            _ => {
+                if elems.is_empty() {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNKNOWN_ELEMENT_TYPE,
+                            "can't infer the element type of an empty array",
+                        )
+                        .primary(e.span, "no elements and no expected type")
+                        .help("annotate the binding: `const xs: i32[] = []`"),
+                    );
+                    return Ty::Error;
+                }
+                // The first element that isn't an untyped literal decides the type, so
+                // `[1, x]` takes `x`'s type; all literals: `int`, or `number` with a float.
+                let elem = match elems.iter().find(|x| !untyped_lit(x)) {
+                    Some(x) => self.infer(x),
+                    None if elems.iter().any(is_float_lit) => Ty::NUMBER,
+                    None => Ty::INT,
+                };
+                if elem.is_error() {
+                    for x in elems {
+                        self.infer(x);
+                    }
+                    return Ty::Error;
+                }
+                let want = Expect::new(elem.clone());
+                for x in elems {
+                    self.check(x, &want);
+                }
+                Ty::Array(Box::new(elem))
+            }
+        }
+    }
+
+    /// `[value; count]`: a fixed array.
+    fn repeat_lit(&mut self, e: &Expr, value: &Expr, count: u64, want: Option<&Expect>) -> Ty {
+        match want.map(|w| (&w.ty, w)) {
+            Some((Ty::Fixed(t, n), w)) => {
+                if *n != count {
+                    self.wrong_length(e, w, *n as usize, count as usize);
+                }
+                self.check(value, &Expect::new((**t).clone()));
+                w.ty.clone()
+            }
+            _ => {
+                let t = self.infer(value);
+                if t.is_error() {
+                    return Ty::Error;
+                }
+                Ty::Fixed(Box::new(t), count)
+            }
+        }
+    }
+
+    /// `start..end`: both bounds join to one integer type.
+    fn range(&mut self, e: &Expr, start: &Expr, end: &Expr, want: Option<&Expect>) -> Ty {
+        let hint = want.and_then(|w| match &w.ty {
+            Ty::Range(it) => Some(Expect::new(Ty::Int(*it))),
+            _ => None,
+        });
+        let (lt, rt) = self.operands(start, end, hint.as_ref());
+        let t = if lt == rt || rt.is_error() {
+            lt
+        } else if lt.is_error() {
+            rt
+        } else if rt.widens_to(&lt) {
+            self.types.coercions.insert(end.id, lt.clone());
+            lt
+        } else if lt.widens_to(&rt) {
+            self.types.coercions.insert(start.id, rt.clone());
+            rt
+        } else {
+            let mut d = Diagnostic::error(
+                codes::MISMATCHED_TYPES,
+                "the bounds of a range have different types",
+            )
+            .secondary(start.span, format!("`{lt}`"))
+            .secondary(end.span, format!("`{rt}`"))
+            .help("convert one side explicitly with `as`");
+            d.labels[1].primary = true;
+            self.diags.push(d);
+            return Ty::Error;
+        };
+        match t {
+            Ty::Int(it) => Ty::Range(it),
+            Ty::Error => Ty::Error,
+            other => {
+                self.invalid_operand(e.span, "`..`", &other, "integer bounds");
+                Ty::Error
+            }
         }
     }
 
@@ -732,6 +963,40 @@ impl<'p> Checker<'p> {
                                 format!("`{other}` has no field `{name}`"),
                             )
                             .primary(*name_span, "unknown field"),
+                        );
+                        (Ty::Error, None)
+                    }
+                }
+            }
+            Target::Index { object, index } => {
+                let ot = self.infer(object);
+                match ot {
+                    Ty::Array(t) | Ty::Fixed(t, _) => {
+                        self.check(index, &Expect::new(Ty::INT));
+                        (*t, None)
+                    }
+                    Ty::Tuple(ts) => (self.tuple_index(&ts, index), None),
+                    Ty::Error => {
+                        self.infer(index);
+                        (Ty::Error, None)
+                    }
+                    Ty::Str => {
+                        self.infer(index);
+                        self.diags.push(
+                            Diagnostic::error(codes::INVALID_OPERANDS, "strings are immutable")
+                                .primary(object.span, "can't assign to a character of a string")
+                                .help("build a new string instead, e.g. with a template"),
+                        );
+                        (Ty::Error, None)
+                    }
+                    other => {
+                        self.infer(index);
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::INVALID_OPERANDS,
+                                format!("`{other}` can't be indexed"),
+                            )
+                            .primary(object.span, format!("has type `{other}`")),
                         );
                         (Ty::Error, None)
                     }
@@ -863,6 +1128,9 @@ impl<'p> Checker<'p> {
                 .fields
                 .iter()
                 .all(|f| self.equatable(&f.ty)),
+            Ty::Tuple(ts) => ts.iter().all(|t| self.equatable(t)),
+            Ty::Fixed(t, _) => self.equatable(t),
+            Ty::Range(_) => true,
             _ => false,
         }
     }
@@ -1349,6 +1617,9 @@ impl<'p> Checker<'p> {
             } => {
                 let t = self.infer(object);
                 self.set(callee, Ty::Void);
+                if let Some(r) = self.builtin_method(e, &t, name, *name_span, args) {
+                    return r;
+                }
                 if let Ty::Struct(sid, sname) = &t {
                     let def = self.program.struct_def(*sid);
                     if let Some(m) = def.method(name) {
@@ -1413,6 +1684,51 @@ impl<'p> Checker<'p> {
                 Ty::Error
             }
         }
+    }
+
+    /// Methods of built-in types (`xs.push(v)`, `r.step(n)`); `None` if `name` isn't one.
+    fn builtin_method(
+        &mut self,
+        e: &Expr,
+        t: &Ty,
+        name: &str,
+        name_span: Span,
+        args: &[Expr],
+    ) -> Option<Ty> {
+        let _ = name_span;
+        let (arity_ok, expected, ret) = match (t, name) {
+            (Ty::Array(elem), "push") => {
+                let want = Expect::new((**elem).clone());
+                for a in args {
+                    self.check(a, &want);
+                }
+                (!args.is_empty(), "at least 1 argument", Ty::Void)
+            }
+            (Ty::Array(elem), "pop") => {
+                for a in args {
+                    self.infer(a);
+                }
+                (args.is_empty(), "no arguments", (**elem).clone().nullable())
+            }
+            (Ty::Range(it), "step") => {
+                let want = Expect::new(Ty::Int(*it));
+                for a in args {
+                    self.check(a, &want);
+                }
+                (args.len() == 1, "1 argument", Ty::Range(*it))
+            }
+            _ => return None,
+        };
+        if !arity_ok {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::WRONG_ARG_COUNT,
+                    format!("`{name}` takes {expected}, but {} were given", args.len()),
+                )
+                .primary(e.span, "wrong number of arguments"),
+            );
+        }
+        Some(ret)
     }
 
     fn builtin(&mut self, e: &Expr, b: Builtin, args: &[Expr]) -> Ty {

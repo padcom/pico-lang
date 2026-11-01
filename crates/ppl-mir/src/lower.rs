@@ -5,7 +5,7 @@
 //! predecessors, which keeps lowering simple; such blocks end in `unreachable`.
 
 use crate::mir::{
-    self, BlockId, Callee, Const, Loc, Local, LocalDecl, Operand, Place, Rvalue, Terminator,
+    self, BlockId, Callee, Const, Loc, Local, LocalDecl, Operand, Place, Rvalue, Terminator, panics,
 };
 use ppl_diag::{Diagnostic, SourceFile, Span, codes};
 use ppl_sema::hir::{self, Builtin, Expr, ExprKind, FnId, Stmt, Var};
@@ -143,6 +143,15 @@ impl Cx<'_> {
     }
 }
 
+/// A bounds check that must run before an element place is used: `idx` against the length
+/// of the array at `base`.
+#[derive(Clone)]
+struct Check {
+    idx: Local,
+    base: Place,
+    span: Span,
+}
+
 struct LoopTarget {
     brk: BlockId,
     cont: BlockId,
@@ -275,25 +284,38 @@ impl FnBuilder<'_, '_> {
                 other => unreachable!("deref of {other}"),
             },
         };
-        for i in &p.proj {
-            t = match t {
-                Ty::Struct(sid, _) => self.cx.program.struct_def(sid).fields[*i as usize]
-                    .ty
-                    .clone(),
-                other => unreachable!("field of {other}"),
-            };
+        for pr in &p.proj {
+            t = mir::project(&t, pr, |sid, i| {
+                self.cx.program.struct_def(sid).fields[i].ty.clone()
+            });
         }
         t
     }
 
-    /// A place holding the value of `e`: variables and field paths directly, anything else in
-    /// a temporary.
+    /// A place holding the value of `e`: variables, field paths and elements directly,
+    /// anything else in a temporary. Bounds checks run before it returns.
     fn place_of(&mut self, e: &Expr) -> Place {
+        let mut checks = Vec::new();
+        let p = self.place_deferred(e, &mut checks);
+        self.emit_checks(&checks);
+        p
+    }
+
+    /// Like [`Self::place_of`], but leaves the bounds checks in `checks` (an assignment checks
+    /// after evaluating its value, which might change the array).
+    fn place_deferred(&mut self, e: &Expr, checks: &mut Vec<Check>) -> Place {
         match &e.kind {
             ExprKind::Var(v) => self.place(*v),
             ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Struct(..)) => {
                 let i = self.cx.types.fields[&e.id];
-                self.place_of(object).field(i)
+                self.place_deferred(object, checks).field(i)
+            }
+            ExprKind::Member { object, name, .. } if matches!(self.ty_of(object), Ty::Range(_)) => {
+                let i = if name == "start" { 0 } else { 1 };
+                self.place_deferred(object, checks).field(i)
+            }
+            ExprKind::Index { object, index } if *self.ty_of(object) != Ty::Str => {
+                self.index_place(object, index, checks)
             }
             _ => match self.expr(e) {
                 Operand::Copy(p) => p,
@@ -307,13 +329,85 @@ impl FnBuilder<'_, '_> {
         }
     }
 
-    fn target_place(&mut self, t: &hir::Target) -> Place {
+    /// `object[index]` for tuples (a constant index), fixed and growable arrays.
+    fn index_place(&mut self, object: &Expr, index: &Expr, checks: &mut Vec<Check>) -> Place {
+        let base = self.place_deferred(object, checks);
+        if let Ty::Tuple(_) = self.ty_of(object) {
+            let ExprKind::Int(i, _) = index.kind else {
+                unreachable!("type-checked tuple index")
+            };
+            return base.field(i as u32);
+        }
+        let v = self.expr(index);
+        let idx = self.temp(Ty::INT);
+        self.assign(Place::local(idx), Rvalue::Use(v), index.span);
+        checks.push(Check {
+            idx,
+            base: base.clone(),
+            span: object.span.to(index.span),
+        });
+        base.index(idx)
+    }
+
+    /// Panics with "index out of bounds" unless each index is below its array's length.
+    fn emit_checks(&mut self, checks: &[Check]) {
+        for c in checks {
+            let len = match self.place_ty(&c.base) {
+                Ty::Fixed(_, n) => Operand::Const(Const::Int(n as i128, IntTy::I64)),
+                _ => self.rvalue_to_temp(
+                    Rvalue::ArrayLen(Operand::Copy(c.base.clone())),
+                    Ty::INT,
+                    c.span,
+                ),
+            };
+            let ok = self.rvalue_to_temp(
+                Rvalue::InBounds(Operand::Copy(Place::local(c.idx)), len),
+                Ty::Bool,
+                c.span,
+            );
+            self.panic_unless(ok, panics::INDEX, c.span);
+        }
+    }
+
+    /// Continues if `ok` is true; panics with `msg` otherwise.
+    fn panic_unless(&mut self, ok: Operand, msg: &str, span: Span) {
+        let pass = self.new_block();
+        let fail = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond: ok,
+            then: pass,
+            else_: fail,
+        });
+        self.switch_to(fail);
+        let loc = self.loc(span);
+        self.terminate(Terminator::Panic {
+            msg: Operand::Const(Const::Str(msg.into())),
+            loc,
+        });
+        self.switch_to(pass);
+    }
+
+    /// Reads a place; through an array element, into a temporary (later code might shrink or
+    /// grow the array).
+    fn read_place(&mut self, p: Place, span: Span) -> Operand {
+        if p.has_index() {
+            let ty = self.place_ty(&p);
+            if !has_value(&ty) {
+                return Operand::Const(Const::Void);
+            }
+            return self.rvalue_to_temp(Rvalue::Use(Operand::Copy(p)), ty, span);
+        }
+        Operand::Copy(p)
+    }
+
+    fn target_place(&mut self, t: &hir::Target, checks: &mut Vec<Check>) -> Place {
         match t {
             hir::Target::Var(v) => self.place(*v),
             hir::Target::Field { id, object, .. } => {
                 let i = self.cx.types.fields[id];
-                self.place_of(object).field(i)
+                self.place_deferred(object, checks).field(i)
             }
+            hir::Target::Index { object, index } => self.index_place(object, index, checks),
         }
     }
 
@@ -410,14 +504,17 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, ty),
             ExprKind::Assign { op, target, value } => {
-                let place = self.target_place(target);
+                let mut checks = Vec::new();
+                let place = self.target_place(target, &mut checks);
                 match op {
                     None => {
                         let v = self.expr(value);
+                        self.emit_checks(&checks);
                         self.assign(place, Rvalue::Use(v), e.span);
                     }
                     Some(op @ (ast::BinOp::And | ast::BinOp::Or)) => {
                         // `x &&= v`: assign only if `x` is true (`||=`: if false).
+                        self.emit_checks(&checks);
                         let assign_bb = self.new_block();
                         let join = self.new_block();
                         let cur = Operand::Copy(place.clone());
@@ -433,12 +530,14 @@ impl FnBuilder<'_, '_> {
                         });
                         self.switch_to(assign_bb);
                         let v = self.expr(value);
+                        self.emit_checks(&checks);
                         self.assign(place.clone(), Rvalue::Use(v), e.span);
                         self.terminate(Terminator::Goto(join));
                         self.switch_to(join);
                     }
                     Some(op) => {
                         let v = self.expr(value);
+                        self.emit_checks(&checks);
                         self.assign(
                             place.clone(),
                             Rvalue::Binary(bin_op(*op), Operand::Copy(place), v),
@@ -453,7 +552,9 @@ impl FnBuilder<'_, '_> {
                 inc,
                 prefix,
             } => {
-                let place = self.target_place(target);
+                let mut checks = Vec::new();
+                let place = self.target_place(target, &mut checks);
+                self.emit_checks(&checks);
                 let vt = self.place_ty(&place);
                 let Ty::Int(it) = vt else {
                     return Operand::Const(Const::Void);
@@ -481,9 +582,20 @@ impl FnBuilder<'_, '_> {
                 let s = self.expr(object);
                 self.rvalue_to_temp(Rvalue::StrLen(s), ty, e.span)
             }
+            ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Array(_)) => {
+                let a = self.expr(object);
+                self.rvalue_to_temp(Rvalue::ArrayLen(a), ty, e.span)
+            }
+            ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Fixed(..)) => {
+                let Ty::Fixed(_, n) = self.ty_of(object).clone() else {
+                    unreachable!()
+                };
+                self.expr(object);
+                Operand::Const(Const::Int(n as i128, IntTy::I64))
+            }
             ExprKind::Member { .. } => {
                 let place = self.place_of(e);
-                Operand::Copy(place)
+                self.read_place(place, e.span)
             }
             ExprKind::Object { fields, .. } => {
                 let (sid, order) = self.cx.types.objects[&e.id].clone();
@@ -499,10 +611,47 @@ impl FnBuilder<'_, '_> {
                     .collect();
                 self.rvalue_to_temp(Rvalue::Aggregate(sid, ops), ty, e.span)
             }
-            ExprKind::Index { object, index } => {
+            ExprKind::Index { object, index } if *self.ty_of(object) == Ty::Str => {
                 let s = self.expr(object);
                 let i = self.expr(index);
                 self.rvalue_to_temp(Rvalue::StrCharAt(s, i), ty, e.span)
+            }
+            ExprKind::Index { .. } => {
+                let place = self.place_of(e);
+                self.read_place(place, e.span)
+            }
+            ExprKind::Array(elems) => {
+                let ops: Vec<Operand> = elems.iter().map(|x| self.expr(x)).collect();
+                match &ty {
+                    Ty::Array(t) => {
+                        let t = (**t).clone();
+                        self.rvalue_to_temp(Rvalue::ArrayNew(t, ops), ty, e.span)
+                    }
+                    Ty::Tuple(_) | Ty::Fixed(..) => {
+                        self.rvalue_to_temp(Rvalue::Tuple(ty.clone(), ops), ty, e.span)
+                    }
+                    _ => Operand::Const(Const::Void),
+                }
+            }
+            ExprKind::Repeat { value, count } => {
+                let v = self.expr(value);
+                if !matches!(ty, Ty::Fixed(..)) {
+                    return Operand::Const(Const::Void);
+                }
+                self.rvalue_to_temp(Rvalue::Repeat(v, *count), ty, e.span)
+            }
+            ExprKind::Range { start, end } => {
+                let a = self.expr(start);
+                let b = self.expr(end);
+                let Ty::Range(it) = ty else {
+                    return Operand::Const(Const::Void);
+                };
+                let one = Operand::Const(Const::Int(1, it));
+                self.rvalue_to_temp(Rvalue::Tuple(ty.clone(), vec![a, b, one]), ty, e.span)
+            }
+            ExprKind::ForOf { var, iter, body } => {
+                self.for_of(*var, iter, body, e.span);
+                Operand::Const(Const::Void)
             }
             ExprKind::Template { quasis, parts } => self.template(quasis, parts, e.span),
             ExprKind::If { cond, then, else_ } => {
@@ -614,6 +763,174 @@ impl FnBuilder<'_, '_> {
                 }
                 self.rvalue_to_temp(Rvalue::Cast(v, to.clone()), to.clone(), e.span)
             }
+        }
+    }
+
+    /// `for (var of iter) body` over a range, an array, a fixed array or a string.
+    fn for_of(&mut self, var: hir::LocalId, iter: &Expr, body: &Expr, span: Span) {
+        let it_ty = self.ty_of(iter).clone();
+        // `for (i of a..b)`: a plain counting loop (step 1 can't overflow past `b`).
+        let literal = match (&iter.kind, &it_ty) {
+            (ExprKind::Range { start, end }, Ty::Range(it)) => {
+                let a = self.expr(start);
+                let b = self.expr(end);
+                let end = Place::local(self.temp(Ty::Int(*it)));
+                self.assign(end.clone(), Rvalue::Use(b), iter.span);
+                Some((a, end))
+            }
+            _ => None,
+        };
+        if !has_value(&it_ty) {
+            self.expr(iter);
+            return;
+        }
+        // The iterated value (unused for a literal range).
+        let src = match literal {
+            Some(_) => Place::local(Local(0)),
+            None => Place::local(self.temp(it_ty.clone())),
+        };
+        let start = match &literal {
+            Some((a, _)) => a.clone(),
+            None => {
+                let v = self.expr(iter);
+                self.assign(src.clone(), Rvalue::Use(v), iter.span);
+                match &it_ty {
+                    Ty::Range(_) => Operand::Copy(src.field(0)),
+                    _ => Operand::Const(Const::Int(0, IntTy::I64)),
+                }
+            }
+        };
+        let var_place = self.place(hir::Var::Local(var));
+        let var_has_value = has_value(&self.var_ty(hir::Var::Local(var)));
+        let counter_ty = match &it_ty {
+            Ty::Range(it) => Ty::Int(*it),
+            _ => Ty::INT,
+        };
+        let i = Place::local(self.temp(counter_ty.clone()));
+        self.assign(i.clone(), Rvalue::Use(start), span);
+        let cond_bb = self.new_block();
+        let body_bb = self.new_block();
+        let update_bb = self.new_block();
+        let exit = self.new_block();
+        self.terminate(Terminator::Goto(cond_bb));
+
+        self.switch_to(cond_bb);
+        let end = match &it_ty {
+            Ty::Range(_) if literal.is_some() => Operand::Copy(literal.clone().unwrap().1),
+            Ty::Range(_) => Operand::Copy(src.field(1)),
+            Ty::Fixed(_, n) => Operand::Const(Const::Int(*n as i128, IntTy::I64)),
+            Ty::Str => {
+                self.rvalue_to_temp(Rvalue::StrLen(Operand::Copy(src.clone())), Ty::INT, span)
+            }
+            _ => self.rvalue_to_temp(Rvalue::ArrayLen(Operand::Copy(src.clone())), Ty::INT, span),
+        };
+        let c = self.rvalue_to_temp(
+            Rvalue::Binary(mir::BinOp::Lt, Operand::Copy(i.clone()), end),
+            Ty::Bool,
+            span,
+        );
+        self.terminate(Terminator::Branch {
+            cond: c,
+            then: body_bb,
+            else_: exit,
+        });
+
+        self.switch_to(body_bb);
+        if var_has_value {
+            let item = match &it_ty {
+                Ty::Range(_) => Rvalue::Use(Operand::Copy(i.clone())),
+                Ty::Str => Rvalue::StrCharAt(Operand::Copy(src.clone()), Operand::Copy(i.clone())),
+                _ => {
+                    let Place {
+                        base: mir::Base::Local(il),
+                        ..
+                    } = i
+                    else {
+                        unreachable!()
+                    };
+                    Rvalue::Use(Operand::Copy(src.index(il)))
+                }
+            };
+            self.assign(var_place, item, span);
+        }
+        self.loops.push(LoopTarget {
+            brk: exit,
+            cont: update_bb,
+            result: None,
+        });
+        self.expr(body);
+        self.loops.pop();
+        self.terminate(Terminator::Goto(update_bb));
+
+        self.switch_to(update_bb);
+        let step = match &it_ty {
+            Ty::Range(it) if literal.is_some() => Operand::Const(Const::Int(1, *it)),
+            Ty::Range(_) => Operand::Copy(src.field(2)),
+            _ => Operand::Const(Const::Int(1, IntTy::I64)),
+        };
+        if let (Ty::Range(_), None) = (&it_ty, &literal) {
+            // Stop instead of overflowing past the type's maximum: `(0..255u8).step(10)`.
+            let ov = self.rvalue_to_temp(
+                Rvalue::AddOverflows(Operand::Copy(i.clone()), step.clone()),
+                Ty::Bool,
+                span,
+            );
+            let next = self.new_block();
+            self.terminate(Terminator::Branch {
+                cond: ov,
+                then: exit,
+                else_: next,
+            });
+            self.switch_to(next);
+        }
+        self.assign(
+            i.clone(),
+            Rvalue::Binary(mir::BinOp::Add, Operand::Copy(i), step),
+            span,
+        );
+        self.terminate(Terminator::Goto(cond_bb));
+        self.switch_to(exit);
+    }
+
+    /// Methods of built-in types: `xs.push(v)`, `xs.pop()`, `r.step(n)`.
+    fn builtin_method(
+        &mut self,
+        e: &Expr,
+        object: &Expr,
+        name: &str,
+        args: &[Expr],
+        ty: Ty,
+    ) -> Operand {
+        match name {
+            "push" => {
+                let a = self.expr(object);
+                for x in args {
+                    let v = self.expr(x);
+                    let t = self.temp(Ty::Void);
+                    self.assign(Place::local(t), Rvalue::ArrayPush(a.clone(), v), e.span);
+                }
+                Operand::Const(Const::Void)
+            }
+            "pop" => {
+                let a = self.expr(object);
+                self.rvalue_to_temp(Rvalue::ArrayPop(a), ty, e.span)
+            }
+            "step" => {
+                let r = self.place_of(object);
+                let n = self.expr(&args[0]);
+                let Ty::Range(it) = ty else {
+                    return Operand::Const(Const::Void);
+                };
+                let ok = self.rvalue_to_temp(
+                    Rvalue::Binary(mir::BinOp::Gt, n.clone(), Operand::Const(Const::Int(0, it))),
+                    Ty::Bool,
+                    e.span,
+                );
+                self.panic_unless(ok, panics::RANGE_STEP, args[0].span);
+                let parts = vec![Operand::Copy(r.field(0)), Operand::Copy(r.field(1)), n];
+                self.rvalue_to_temp(Rvalue::Tuple(ty.clone(), parts), ty, e.span)
+            }
+            _ => unreachable!("type-checked builtin method {name}"),
         }
     }
 
@@ -765,6 +1082,11 @@ impl FnBuilder<'_, '_> {
                     Some(p) => Operand::Copy(p),
                     None => Operand::Const(Const::Void),
                 }
+            }
+            ExprKind::Member { object, name, .. }
+                if matches!(self.ty_of(object), Ty::Array(_) | Ty::Range(_)) =>
+            {
+                self.builtin_method(e, object, name, args, ty)
             }
             ExprKind::Member { object, name, .. } if name == "toString" => {
                 let v = self.expr(object);

@@ -27,6 +27,18 @@ typedef struct PplStr {
  * returns NULL: running out of memory aborts the program. */
 void *ppl_alloc(int64_t size);
 
+/* A growable array (`T[]`): `len` elements of the element size the compiler passes, stored
+ * contiguously at `data` (zeroed beyond `len` up to `cap`). */
+typedef struct PplArray {
+    int64_t len;
+    int64_t cap;
+    char *data;
+} PplArray;
+
+PplArray *ppl_array_new(int64_t elem_size, int64_t len); /* `len` zeroed elements */
+void *ppl_array_push(PplArray *a, int64_t elem_size);    /* appends a slot, returns it */
+int32_t ppl_array_pop(PplArray *a);                      /* 1 if an element was removed */
+
 /* Strings. */
 PplStr *ppl_str_new(const char *bytes, int64_t byte_len); /* counts code points */
 PplStr *ppl_str_concat(const PplStr *a, const PplStr *b);

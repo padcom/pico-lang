@@ -1,0 +1,62 @@
+// expect: 3
+// expect: 4 [1, 2, 3, 4]
+// expect: 3 [1, 2, 3]
+// expect: sum 6
+// expect: [10, 2, 3]
+// expect: [10, 2, 3]
+// expect: []
+// expect: 0 1 4 9 16
+// expect: [[1, 2], [3]]
+// expect: 5
+// expect: [Point { x: 1, y: 2 }, Point { x: 3, y: 9 }]
+// expect: 2.5
+// expect: ["a", "b"]
+// expect: 9
+struct Point { x: i32; y: i32 }
+
+const xs: i32[] = [1, 2, 3]
+println(xs.length)
+xs.push(4)
+println(`${xs.length} ${xs:?}`)
+xs.pop()
+println(`${xs.length} ${xs:?}`)
+
+let sum = 0
+for (const x of xs) sum += x
+println(`sum ${sum}`)
+
+// Arrays are references: an alias sees the change.
+const alias = xs
+alias[0] = 10
+println(`${xs:?}`)
+println(`${alias:?}`)
+
+const empty: Array<string> = []
+println(`${empty:?}`)
+
+const squares: int[] = []
+for (const i of 0..5) squares.push(i * i)
+let line = ""
+for (const s of squares) line += `${s} `
+println(line.length > 0 ? `${squares[0]} ${squares[1]} ${squares[2]} ${squares[3]} ${squares[4]}` : "")
+
+const nested: i32[][] = [[1, 2], [3]]
+println(`${nested:?}`)
+nested[0][1] += 3
+println(nested[0][1])
+
+const pts = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]
+pts[1].y = 9
+println(`${pts:?}`)
+
+const fs = [1, 2.5, 3]
+println(fs[1])
+const strs = ["a", "b"]
+println(`${strs:?}`)
+
+function total(a: i32[]): i32 {
+  let t: i32 = 0
+  for (let i = 0; i < a.length; i++) t += a[i]
+  t
+}
+println(total([2, 3, 4]))

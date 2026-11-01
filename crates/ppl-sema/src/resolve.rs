@@ -158,11 +158,19 @@ impl Resolver {
                     if *comptime {
                         continue;
                     }
-                    if let ast::PatternKind::Ident(name) = &pat.kind {
+                    // A destructuring pattern's annotation types the whole value, so its
+                    // names get their types from the initializer.
+                    let ann = match &pat.kind {
+                        ast::PatternKind::Ident(_) => ty.as_ref(),
+                        _ => None,
+                    };
+                    let mut names = Vec::new();
+                    pattern_idents(pat, &mut names);
+                    for name in names {
                         if self.check_duplicate(&mut first_seen, name) {
                             continue;
                         }
-                        let ty = ty.as_ref().map(|t| self.resolve_type(t));
+                        let ty = ann.map(|t| self.resolve_type(t));
                         let id = GlobalId(self.globals.len() as u32);
                         self.globals.push(Binding {
                             name: name.name.clone(),
@@ -309,10 +317,12 @@ impl Resolver {
             }
             path.push(id);
             for f in &r.structs[id.0 as usize].fields {
-                if let Ty::Struct(inner, _) = &f.ty
-                    && let Some(c) = visit(r, *inner, path)
-                {
-                    return Some(c);
+                let mut inline = Vec::new();
+                inline_structs(&f.ty, &mut inline);
+                for inner in inline {
+                    if let Some(c) = visit(r, inner, path) {
+                        return Some(c);
+                    }
                 }
             }
             path.pop();
@@ -370,13 +380,22 @@ impl Resolver {
         for (i, stmt) in stmts.iter().enumerate() {
             match &stmt.kind {
                 ast::StmtKind::Let {
+                    kind,
                     pat,
+                    ty,
                     init,
                     comptime: false,
-                    ..
                 } => {
                     let ast::PatternKind::Ident(name) = &pat.kind else {
-                        self.not_implemented(pat.span, "destructuring");
+                        let ty = ty.as_ref().map(|t| self.resolve_type(t));
+                        match init {
+                            Some(e) => {
+                                let init = self.lower_expr(e);
+                                let mutable = *kind == ast::BindingKind::Let;
+                                self.destructure(pat, init, mutable, ty, &mut out, true);
+                            }
+                            None => self.destructure_without_init(pat),
+                        }
                         continue;
                     };
                     let init = init.as_ref().map(|e| self.lower_expr(e));
@@ -547,6 +566,100 @@ impl Resolver {
         scope.later.remove(&name.name);
         scope.names.insert(name.name.clone(), id);
         id
+    }
+
+    /// A `let`/`const` local, with an error if the block already declares the name.
+    fn declare_block_local(&mut self, name: &ast::Ident, mutable: bool, ty: Option<Ty>) -> LocalId {
+        let scope = self.f.scopes.last().expect("scope");
+        if let Some(&prev) = scope.names.get(&name.name) {
+            let decl = self.f.locals[prev.0 as usize].span;
+            self.diags.push(
+                Diagnostic::error(
+                    codes::DUPLICATE_DECL,
+                    format!("`{}` is declared twice in the same block", name.name),
+                )
+                .primary(name.span, "declared again here")
+                .secondary(decl, "first declared here")
+                .help("use a different name, or assign to the existing `let` binding"),
+            );
+        }
+        self.declare_local(name, mutable, ty)
+    }
+
+    /// `const [a, [b, _]] = source` → a hidden local holding `source`, then one binding per
+    /// name, initialized from `hidden[i]`. At the top level (`global`) the names are globals.
+    fn destructure(
+        &mut self,
+        pat: &ast::Pattern,
+        source: Expr,
+        mutable: bool,
+        ty: Option<Ty>,
+        out: &mut Vec<Stmt>,
+        global: bool,
+    ) {
+        let span = pat.span;
+        match &pat.kind {
+            ast::PatternKind::Ident(name) => {
+                if global {
+                    match self.top_globals.get(&name.name).copied() {
+                        Some(g) if self.globals[g.0 as usize].span == name.span => {
+                            self.globals_declared.insert(g);
+                            out.push(Stmt::Let {
+                                var: Var::Global(g),
+                                init: Some(source),
+                                span,
+                            });
+                        }
+                        _ => out.push(Stmt::Expr(source)),
+                    }
+                } else {
+                    let id = self.declare_block_local(name, mutable, ty);
+                    out.push(Stmt::Let {
+                        var: Var::Local(id),
+                        init: Some(source),
+                        span,
+                    });
+                }
+            }
+            ast::PatternKind::Wildcard => out.push(Stmt::Expr(source)),
+            ast::PatternKind::Array(elems) => {
+                let tmp = self.hidden_local("<destructured>", span);
+                self.f.locals[tmp.0 as usize].ty = ty;
+                out.push(Stmt::Let {
+                    var: Var::Local(tmp),
+                    init: Some(source),
+                    span,
+                });
+                for (i, sub) in elems.iter().enumerate() {
+                    if let ast::PatternKind::Rest(_) = sub.kind {
+                        self.not_implemented(sub.span, "rest patterns (`...rest`)");
+                        continue;
+                    }
+                    let object = self.expr(ExprKind::Var(Var::Local(tmp)), sub.span);
+                    let index = self.expr(ExprKind::Int(i as u64, None), sub.span);
+                    let elem = self.expr(
+                        ExprKind::Index {
+                            object: Box::new(object),
+                            index: Box::new(index),
+                        },
+                        sub.span,
+                    );
+                    self.destructure(sub, elem, mutable, None, out, global);
+                }
+            }
+            _ => self.not_implemented(span, "this kind of destructuring pattern"),
+        }
+    }
+
+    fn destructure_without_init(&mut self, pat: &ast::Pattern) {
+        self.diags.push(
+            Diagnostic::error(
+                codes::MISMATCHED_TYPES,
+                "a destructuring declaration needs a value",
+            )
+            .primary(pat.span, "nothing to destructure")
+            .help("add an initializer: `const [a, b] = pair`"),
+        );
     }
 
     /// A compiler-generated local (loop counters).
@@ -732,12 +845,39 @@ impl Resolver {
                     }
                 }
             }
+            ast::TypeKind::Path { path, args }
+                if path.len() == 1 && path[0].name == "Array" && args.len() == 1 =>
+            {
+                Ty::Array(Box::new(self.resolve_type(&args[0])))
+            }
+            ast::TypeKind::Array(elem) => Ty::Array(Box::new(self.resolve_type(elem))),
+            ast::TypeKind::Fixed { elem, len } => {
+                let elem = self.resolve_type(elem);
+                match self.const_len(len) {
+                    Some(n) => Ty::Fixed(Box::new(elem), n),
+                    None => Ty::Error,
+                }
+            }
+            ast::TypeKind::Tuple(elems) => {
+                Ty::Tuple(elems.iter().map(|t| self.resolve_type(t)).collect())
+            }
             ast::TypeKind::Nullable(inner) => self.resolve_type(inner).nullable(),
             ast::TypeKind::Lit(ast::Lit::Null) => Ty::Null,
             ast::TypeKind::Error => Ty::Error,
             _ => {
                 self.not_implemented(t.span, "this kind of type");
                 Ty::Error
+            }
+        }
+    }
+
+    /// The length of a fixed array: an integer literal (until `comptime` arrives).
+    fn const_len(&mut self, e: &ast::Expr) -> Option<u64> {
+        match &strip_parens(e).kind {
+            ast::ExprKind::Lit(ast::Lit::Int { value, .. }) => Some(*value),
+            _ => {
+                self.not_implemented(e.span, "array lengths other than integer literals");
+                None
             }
         }
     }
@@ -751,10 +891,12 @@ impl Resolver {
     fn with_scope<T>(&mut self, stmts: &[ast::Stmt], f: impl FnOnce(&mut Resolver) -> T) -> T {
         let mut scope = Scope::default();
         for s in stmts {
-            if let ast::StmtKind::Let { pat, .. } = &s.kind
-                && let ast::PatternKind::Ident(n) = &pat.kind
-            {
-                scope.later.entry(n.name.clone()).or_insert(n.span);
+            if let ast::StmtKind::Let { pat, .. } = &s.kind {
+                let mut names = Vec::new();
+                pattern_idents(pat, &mut names);
+                for n in names {
+                    scope.later.entry(n.name.clone()).or_insert(n.span);
+                }
             }
         }
         self.f.scopes.push(scope);
@@ -803,26 +945,20 @@ impl Resolver {
                 if *comptime {
                     self.not_implemented(s.span, "`comptime` bindings");
                 }
+                let ty = ty.as_ref().map(|t| self.resolve_type(t));
                 let ast::PatternKind::Ident(name) = &pat.kind else {
-                    self.not_implemented(pat.span, "destructuring");
+                    match init {
+                        Some(e) => {
+                            let init = self.lower_expr(e);
+                            let mutable = *kind == ast::BindingKind::Let;
+                            self.destructure(pat, init, mutable, ty, out, false);
+                        }
+                        None => self.destructure_without_init(pat),
+                    }
                     return;
                 };
-                let ty = ty.as_ref().map(|t| self.resolve_type(t));
                 let init = init.as_ref().map(|e| self.lower_expr(e));
-                let scope = self.f.scopes.last().expect("scope");
-                if let Some(&prev) = scope.names.get(&name.name) {
-                    let decl = self.f.locals[prev.0 as usize].span;
-                    self.diags.push(
-                        Diagnostic::error(
-                            codes::DUPLICATE_DECL,
-                            format!("`{}` is declared twice in the same block", name.name),
-                        )
-                        .primary(name.span, "declared again here")
-                        .secondary(decl, "first declared here")
-                        .help("use a different name, or assign to the existing `let` binding"),
-                    );
-                }
-                let id = self.declare_local(name, *kind == ast::BindingKind::Let, ty);
+                let id = self.declare_block_local(name, *kind == ast::BindingKind::Let, ty);
                 out.push(Stmt::Let {
                     var: Var::Local(id),
                     init,
@@ -878,12 +1014,12 @@ impl Resolver {
             }
             ast::StmtKind::ForOf {
                 is_await,
+                kind,
                 pat,
                 iter,
                 body,
-                ..
             } => {
-                let e = self.for_of(*is_await, pat, iter, body, s.span);
+                let e = self.for_of(*is_await, *kind, pat, iter, body, s.span);
                 out.push(Stmt::Expr(e));
             }
             ast::StmtKind::Decl(d) => {
@@ -955,92 +1091,54 @@ impl Resolver {
         })
     }
 
-    /// `for (const i of a..b) body` → a counting `while` over hidden locals.
+    /// `for (pat of iter) body`. A destructuring pattern binds a hidden loop variable and
+    /// destructures it at the top of the body.
     fn for_of(
         &mut self,
         is_await: bool,
+        kind: ast::BindingKind,
         pat: &ast::Pattern,
         iter: &ast::Expr,
         body: &ast::Expr,
         span: Span,
     ) -> Expr {
-        let ast::ExprKind::Range { start, end } = &iter.kind else {
-            self.not_implemented(iter.span, "`for-of` over anything but a range");
-            return self.error_expr(span);
-        };
         if is_await {
             self.not_implemented(span, "`for await`");
         }
-        let ast::PatternKind::Ident(name) = &pat.kind else {
-            self.not_implemented(pat.span, "destructuring");
-            return self.error_expr(span);
-        };
-        let start = self.lower_expr(start);
-        let end = self.lower_expr(end);
-        let i = self.hidden_local("<i>", start.span);
-        let n = self.hidden_local("<end>", end.span);
-        let mut stmts = vec![
-            Stmt::Let {
-                var: Var::Local(i),
-                init: Some(start),
-                span,
-            },
-            Stmt::Let {
-                var: Var::Local(n),
-                init: Some(end),
-                span,
-            },
-        ];
-        let vi = self.expr(ExprKind::Var(Var::Local(i)), span);
-        let vn = self.expr(ExprKind::Var(Var::Local(n)), span);
-        let cond = self.expr(
-            ExprKind::Binary(ast::BinOp::Lt, Box::new(vi), Box::new(vn)),
-            span,
-        );
-        let one = self.expr(ExprKind::Int(1, None), span);
-        let update = self.expr(
-            ExprKind::Assign {
-                op: Some(ast::BinOp::Add),
-                target: Target::Var(Var::Local(i)),
-                value: Box::new(one),
-            },
-            span,
-        );
+        let iter = self.lower_expr(iter);
+        let mutable = kind == ast::BindingKind::Let;
         // The body sees a fresh binding of the loop variable each iteration.
         self.f.scopes.push(Scope::default());
-        let x = self.declare_local(name, false, None);
-        let vi2 = self.expr(ExprKind::Var(Var::Local(i)), name.span);
-        let body = self.loop_body(body, LoopKind::While);
-        self.f.scopes.pop();
-        let inner = Block {
-            stmts: vec![
-                Stmt::Let {
-                    var: Var::Local(x),
-                    init: Some(vi2),
-                    span: name.span,
-                },
-                Stmt::Expr(body),
-            ],
-            tail: None,
-            span,
+        let mut prelude = Vec::new();
+        let var = match &pat.kind {
+            ast::PatternKind::Ident(name) => self.declare_local(name, mutable, None),
+            _ => {
+                let v = self.hidden_local("<item>", pat.span);
+                let src = self.expr(ExprKind::Var(Var::Local(v)), pat.span);
+                self.destructure(pat, src, mutable, None, &mut prelude, false);
+                v
+            }
         };
-        let inner = self.expr(ExprKind::Block(inner), span);
-        let w = self.expr(
-            ExprKind::While {
-                cond: Box::new(cond),
-                body: Box::new(inner),
-                update: Some(Box::new(update)),
-                test_first: true,
-            },
-            span,
-        );
-        stmts.push(Stmt::Expr(w));
+        let mut body = self.loop_body(body, LoopKind::While);
+        self.f.scopes.pop();
+        if !prelude.is_empty() {
+            let bspan = body.span;
+            prelude.push(Stmt::Expr(body));
+            body = self.expr(
+                ExprKind::Block(Block {
+                    stmts: prelude,
+                    tail: None,
+                    span: bspan,
+                }),
+                bspan,
+            );
+        }
         self.expr(
-            ExprKind::Block(Block {
-                stmts,
-                tail: None,
-                span,
-            }),
+            ExprKind::ForOf {
+                var,
+                iter: Box::new(iter),
+                body: Box::new(body),
+            },
             span,
         )
     }
@@ -1235,15 +1333,36 @@ impl Resolver {
             A::Return(value) => {
                 ExprKind::Return(value.as_ref().map(|v| Box::new(self.lower_expr(v))))
             }
-            A::Range { .. } => {
-                self.not_implemented(span, "ranges outside `for-of`");
-                ExprKind::Error
+            A::Range { start, end } => ExprKind::Range {
+                start: Box::new(self.lower_expr(start)),
+                end: Box::new(self.lower_expr(end)),
+            },
+            A::Array(elems) => {
+                let mut out = Vec::new();
+                for el in elems {
+                    match el {
+                        ast::ArrayElem::Expr(x) => out.push(self.lower_expr(x)),
+                        ast::ArrayElem::Spread(x) => {
+                            self.not_implemented(x.span, "spread in array literals")
+                        }
+                    }
+                }
+                ExprKind::Array(out)
+            }
+            A::ArrayRepeat { value, count } => {
+                let value = self.lower_expr(value);
+                match self.const_len(count) {
+                    Some(count) => ExprKind::Repeat {
+                        value: Box::new(value),
+                        count,
+                    },
+                    None => ExprKind::Error,
+                }
             }
             A::Error => ExprKind::Error,
             other => {
                 let what = match other {
                     A::This | A::Super => "classes",
-                    A::Array(_) | A::ArrayRepeat { .. } => "arrays",
                     A::Object { .. } => "object and struct literals",
                     A::New { .. } => "`new`",
                     A::NonNull(_) => "`!` (non-null assertion)",
@@ -1287,8 +1406,15 @@ impl Resolver {
                     name_span: prop.span,
                 })
             }
+            ast::ExprKind::Index { object, index } => Some(Target::Index {
+                object: Box::new(self.lower_expr(object)),
+                index: Box::new(self.lower_expr(index)),
+            }),
             _ => {
-                self.not_implemented(e.span, "assignment to anything but a variable or a field");
+                self.not_implemented(
+                    e.span,
+                    "assignment to anything but a variable, a field or an element",
+                );
                 None
             }
         }
@@ -1369,6 +1495,29 @@ impl Resolver {
             ty: sid,
             fields: inits,
         }
+    }
+}
+
+/// Structs stored inline in a value of type `t` (directly, or inside tuples and fixed arrays).
+fn inline_structs(t: &Ty, out: &mut Vec<StructId>) {
+    match t {
+        Ty::Struct(id, _) => out.push(*id),
+        Ty::Fixed(e, _) => inline_structs(e, out),
+        Ty::Tuple(ts) => ts.iter().for_each(|t| inline_structs(t, out)),
+        _ => {}
+    }
+}
+
+/// The names a destructuring pattern binds, in order.
+fn pattern_idents<'a>(p: &'a ast::Pattern, out: &mut Vec<&'a ast::Ident>) {
+    match &p.kind {
+        ast::PatternKind::Ident(n) => out.push(n),
+        ast::PatternKind::Array(elems) => {
+            for e in elems {
+                pattern_idents(e, out);
+            }
+        }
+        _ => {}
     }
 }
 

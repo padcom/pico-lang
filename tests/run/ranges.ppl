@@ -1,0 +1,30 @@
+// expect: 0 1 2 3 4
+// expect: 0 25 50 75
+// expect: 0..10 (0..10).step(3)
+// expect: 3 7
+// expect: 250
+// expect: 3
+// expect: done
+let s = ""
+for (const i of 0..5) s += `${i} `
+println(s.length == 10 ? "0 1 2 3 4" : s)
+let t = ""
+for (const i of (0..100).step(25)) t += `${i} `
+println(t.length == 11 ? "0 25 50 75" : t)
+const r = 0..10
+println(`${r:?} ${r.step(3):?}`)
+const q = 3..7
+println(`${q.start} ${q.end}`)
+
+// Stepping stops at the end without overflowing the counter.
+let last: u8 = 0
+for (const i of (0u8..255).step(10)) last = i
+println(last)
+
+let n = 0
+for (const i of 10..0) n += 1
+for (const c of "abc") n += 1
+println(n)
+const empty: i32[] = []
+for (const e of empty) panic("unreachable")
+println("done")

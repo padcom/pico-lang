@@ -180,13 +180,23 @@ pub fn parse(spec: &str) -> Result<FormatSpec, String> {
 }
 
 /// Checks that `spec` makes sense for a value of type `ty`.
+/// Types shown only in the debug format: structs, tuples, arrays and ranges.
+pub fn is_compound(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::Struct(..) | Ty::Tuple(_) | Ty::Fixed(..) | Ty::Array(_) | Ty::Range(_)
+    )
+}
+
 pub fn check(spec: &FormatSpec, ty: &Ty) -> Result<(), String> {
-    if let Ty::Struct(..) = ty {
+    if is_compound(ty) {
         if spec.kind != Kind::Debug {
             return Err(format!("`{ty}` only has the debug format `?`"));
         }
         if spec.zero || spec.sign != Sign::Minus || spec.precision.is_some() {
-            return Err("structs take only fill, alignment and width".into());
+            return Err(
+                "structs, tuples, arrays and ranges take only fill, alignment and width".into(),
+            );
         }
         return Ok(());
     }

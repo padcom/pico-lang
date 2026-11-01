@@ -1,0 +1,3 @@
+// panic: range step must be positive
+const k = 0
+for (const i of (0..10).step(k)) println(i)

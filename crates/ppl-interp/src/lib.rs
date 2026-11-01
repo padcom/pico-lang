@@ -5,7 +5,7 @@
 //! `f32`); printing uses [`format_float`] for numbers.
 
 use ppl_mir::mir::{
-    self, Base, BinOp, Callee, Const, Loc, Operand, Place, Program, Rvalue, Terminator, UnOp,
+    self, Base, BinOp, Callee, Const, Loc, Operand, Place, Program, Proj, Rvalue, Terminator, UnOp,
     panics,
 };
 use ppl_sema::hir::{Builtin, FnId};
@@ -25,12 +25,23 @@ pub enum Value {
     Bool(bool),
     Char(char),
     Str(Rc<str>),
-    /// A struct value (fields in declaration order). Cloning copies it deeply.
+    /// A struct, tuple, fixed array or range (start, end, step) value: its parts in order.
+    /// Cloning copies it deeply.
     Struct(Vec<Value>),
-    /// A reference into a variable: the cell and the field path inside it.
-    Ref(Cell, Rc<[u32]>),
+    /// A growable array: shared, so cloning copies the reference.
+    Array(Rc<RefCell<Vec<Value>>>),
+    /// A reference into a variable: the cell and the path inside it.
+    Ref(Cell, Rc<[Step]>),
     Void,
     Uninit,
+}
+
+/// One resolved step of a path into a value: a part of an inline value, or an element of a
+/// growable array.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Step {
+    Part(usize),
+    Elem(usize),
 }
 
 /// Storage for one variable. Locals and globals live in cells so references can point at them.
@@ -120,46 +131,59 @@ impl Interp<'_, '_> {
         r
     }
 
-    /// The cell a place lives in and the full field path inside it.
-    fn locate(&self, frame: &Frame, place: &Place) -> (Cell, Vec<u32>) {
-        match place.base {
-            Base::Local(l) => (frame.locals[l.0 as usize].clone(), place.proj.clone()),
-            Base::Global(g) => (self.globals[g.0 as usize].clone(), place.proj.clone()),
+    /// The cell a place lives in and the full resolved path inside it.
+    fn locate(&self, frame: &Frame, place: &Place) -> (Cell, Vec<Step>) {
+        let mut path = Vec::new();
+        let cell = match place.base {
+            Base::Local(l) => frame.locals[l.0 as usize].clone(),
+            Base::Global(g) => self.globals[g.0 as usize].clone(),
             Base::Deref(l) => match &*frame.locals[l.0 as usize].borrow() {
-                Value::Ref(c, path) => {
-                    let mut full = path.to_vec();
-                    full.extend(&place.proj);
-                    (c.clone(), full)
+                Value::Ref(c, p) => {
+                    path.extend(p.iter().copied());
+                    c.clone()
                 }
                 v => unreachable!("deref of {v:?}"),
             },
+        };
+        // The type decides whether an index addresses inline parts or a heap array.
+        let mut ty = match place.base {
+            Base::Local(l) => frame.f.local_ty(l).clone(),
+            Base::Global(g) => self.p.globals[g.0 as usize].ty.clone(),
+            Base::Deref(l) => match frame.f.local_ty(l) {
+                Ty::Ref(t) => (**t).clone(),
+                t => unreachable!("deref of {t}"),
+            },
+        };
+        for pr in &place.proj {
+            let step = match pr {
+                Proj::Field(i) => Step::Part(*i as usize),
+                Proj::Index(l) => {
+                    let Value::Int(i) = *frame.locals[l.0 as usize].borrow() else {
+                        unreachable!("index local holds an int")
+                    };
+                    if matches!(ty, Ty::Array(_)) {
+                        Step::Elem(i as usize)
+                    } else {
+                        Step::Part(i as usize)
+                    }
+                }
+            };
+            path.push(step);
+            ty = mir::project(&ty, pr, |sid, i| self.p.layout(sid).fields[i].1.clone());
         }
+        (cell, path)
     }
 
     fn read(&self, frame: &Frame, place: &Place) -> Value {
         let (c, path) = self.locate(frame, place);
         let v = c.borrow();
-        let mut cur: &Value = &v;
-        for i in &path {
-            cur = match cur {
-                Value::Struct(fields) => &fields[*i as usize],
-                other => unreachable!("field {i} of {other:?}"),
-            };
-        }
-        cur.clone()
+        read_path(&v, &path)
     }
 
     fn write(&mut self, frame: &mut Frame, place: &Place, v: Value) {
         let (c, path) = self.locate(frame, place);
         let mut root = c.borrow_mut();
-        let mut cur: &mut Value = &mut root;
-        for i in &path {
-            cur = match cur {
-                Value::Struct(fields) => &mut fields[*i as usize],
-                other => unreachable!("field {i} of {other:?}"),
-            };
-        }
-        *cur = v;
+        write_path(&mut root, &path, v);
     }
 
     fn operand(&self, frame: &Frame, o: &Operand) -> Value {
@@ -283,9 +307,11 @@ impl Interp<'_, '_> {
                 let (c, path) = self.locate(frame, place);
                 Ok(Value::Ref(c, path.into()))
             }
-            Rvalue::Format(o, spec) if matches!(self.operand_ty(frame, o), Ty::Struct(..)) => {
+            Rvalue::Format(o, spec)
+                if ppl_sema::format::is_compound(&self.operand_ty(frame, o)) =>
+            {
                 let t = self.operand_ty(frame, o);
-                let text = debug_struct(self.p, &self.operand(frame, o), &t);
+                let text = debug_value(self.p, &self.operand(frame, o), &t);
                 Ok(Value::Str(pad(false, "", &text, false, spec).into()))
             }
             Rvalue::Format(o, spec) => {
@@ -306,6 +332,46 @@ impl Interp<'_, '_> {
                     .ok_or_else(|| self.panic(panics::INDEX, loc)),
                 v => unreachable!("indexing {v:?}"),
             },
+            Rvalue::Tuple(_, ops) => Ok(Value::Struct(
+                ops.iter().map(|o| self.operand(frame, o)).collect(),
+            )),
+            Rvalue::Repeat(o, n) => {
+                let v = self.operand(frame, o);
+                Ok(Value::Struct(vec![v; *n as usize]))
+            }
+            Rvalue::ArrayNew(_, ops) => Ok(Value::Array(Rc::new(RefCell::new(
+                ops.iter().map(|o| self.operand(frame, o)).collect(),
+            )))),
+            Rvalue::ArrayLen(o) => match self.operand(frame, o) {
+                Value::Array(a) => Ok(Value::Int(a.borrow().len() as i128)),
+                v => unreachable!("length of {v:?}"),
+            },
+            Rvalue::ArrayPush(a, v) => {
+                let v = self.operand(frame, v);
+                match self.operand(frame, a) {
+                    Value::Array(a) => a.borrow_mut().push(v),
+                    v => unreachable!("push to {v:?}"),
+                }
+                Ok(Value::Void)
+            }
+            Rvalue::ArrayPop(a) => match self.operand(frame, a) {
+                // `null` isn't representable yet (P3.6): an empty array gives `Void`.
+                Value::Array(a) => Ok(a.borrow_mut().pop().unwrap_or(Value::Void)),
+                v => unreachable!("pop from {v:?}"),
+            },
+            Rvalue::InBounds(i, n) => match (self.operand(frame, i), self.operand(frame, n)) {
+                (Value::Int(i), Value::Int(n)) => Ok(Value::Bool(0 <= i && i < n)),
+                v => unreachable!("bounds check of {v:?}"),
+            },
+            Rvalue::AddOverflows(a, b) => {
+                let Ty::Int(it) = self.operand_ty(frame, a) else {
+                    unreachable!("integer addition")
+                };
+                match (self.operand(frame, a), self.operand(frame, b)) {
+                    (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(!it.contains(x + y))),
+                    v => unreachable!("addition of {v:?}"),
+                }
+            }
         }
     }
 
@@ -466,6 +532,37 @@ impl Interp<'_, '_> {
     }
 }
 
+fn read_path(v: &Value, path: &[Step]) -> Value {
+    match path.split_first() {
+        None => v.clone(),
+        Some((Step::Part(i), rest)) => match v {
+            Value::Struct(parts) => read_path(&parts[*i], rest),
+            other => unreachable!("part {i} of {other:?}"),
+        },
+        Some((Step::Elem(i), rest)) => match v {
+            Value::Array(a) => read_path(&a.borrow()[*i], rest),
+            other => unreachable!("element {i} of {other:?}"),
+        },
+    }
+}
+
+fn write_path(v: &mut Value, path: &[Step], new: Value) {
+    match path.split_first() {
+        None => *v = new,
+        Some((Step::Part(i), rest)) => match v {
+            Value::Struct(parts) => write_path(&mut parts[*i], rest, new),
+            other => unreachable!("part {i} of {other:?}"),
+        },
+        Some((Step::Elem(i), rest)) => match v {
+            Value::Array(a) => {
+                let a = a.clone();
+                write_path(&mut a.borrow_mut()[*i], rest, new);
+            }
+            other => unreachable!("element {i} of {other:?}"),
+        },
+    }
+}
+
 /// `a ** e` by squaring; `None` if the result doesn't fit in `it`.
 fn int_pow(a: i128, mut e: i128, it: IntTy) -> Option<i128> {
     let (mut base, mut acc) = (a, 1i128);
@@ -521,7 +618,9 @@ pub fn display(v: &Value, t: &Ty) -> String {
         (Value::Bool(b), _) => b.to_string(),
         (Value::Char(c), _) => c.to_string(),
         (Value::Str(s), _) => s.to_string(),
-        (Value::Struct(_) | Value::Ref(..) | Value::Void | Value::Uninit, _) => String::new(),
+        (Value::Struct(_) | Value::Array(_) | Value::Ref(..) | Value::Void | Value::Uninit, _) => {
+            String::new()
+        }
     }
 }
 
@@ -534,32 +633,48 @@ fn values_eq(a: &Value, b: &Value) -> bool {
     }
 }
 
-/// The debug form of a struct: `Point { x: 1, y: 2 }`, fields in their own debug form.
-fn debug_struct(p: &Program, v: &Value, t: &Ty) -> String {
-    let (Value::Struct(fields), Ty::Struct(sid, _)) = (v, t) else {
-        unreachable!("not a struct")
+/// The debug form (`${v:?}`): `Point { x: 1, y: 2 }`, `[1, "a"]`, `0..10`,
+/// `(0..10).step(2)`; parts in their own debug form. Must match the native helpers.
+fn debug_value(p: &Program, v: &Value, t: &Ty) -> String {
+    let list = |items: &mut dyn Iterator<Item = String>| {
+        format!("[{}]", items.collect::<Vec<_>>().join(", "))
     };
-    let layout = p.layout(*sid);
-    if fields.is_empty() {
-        return format!("{} {{}}", layout.name);
-    }
-    let debug = FormatSpec {
-        kind: Kind::Debug,
-        ..FormatSpec::default()
-    };
-    let parts: Vec<String> = layout
-        .fields
-        .iter()
-        .zip(fields)
-        .map(|((name, fty), fv)| {
-            let text = match fty {
-                Ty::Struct(..) => debug_struct(p, fv, fty),
-                _ => format_spec(fv, fty, &debug),
+    match (v, t) {
+        (Value::Struct(fields), Ty::Struct(sid, _)) => {
+            let layout = p.layout(*sid);
+            if fields.is_empty() {
+                return format!("{} {{}}", layout.name);
+            }
+            let parts: Vec<String> = layout
+                .fields
+                .iter()
+                .zip(fields)
+                .map(|((name, fty), fv)| format!("{name}: {}", debug_value(p, fv, fty)))
+                .collect();
+            format!("{} {{ {} }}", layout.name, parts.join(", "))
+        }
+        (Value::Struct(parts), Ty::Tuple(ts)) => {
+            list(&mut parts.iter().zip(ts).map(|(v, t)| debug_value(p, v, t)))
+        }
+        (Value::Struct(parts), Ty::Fixed(et, _)) => {
+            list(&mut parts.iter().map(|v| debug_value(p, v, et)))
+        }
+        (Value::Array(a), Ty::Array(et)) => {
+            list(&mut a.borrow().iter().map(|v| debug_value(p, v, et)))
+        }
+        (Value::Struct(parts), Ty::Range(_)) => match &parts[..] {
+            [Value::Int(a), Value::Int(b), Value::Int(1)] => format!("{a}..{b}"),
+            [Value::Int(a), Value::Int(b), Value::Int(s)] => format!("({a}..{b}).step({s})"),
+            other => unreachable!("range {other:?}"),
+        },
+        _ => {
+            let debug = FormatSpec {
+                kind: Kind::Debug,
+                ..FormatSpec::default()
             };
-            format!("{name}: {text}")
-        })
-        .collect();
-    format!("{} {{ {} }}", layout.name, parts.join(", "))
+            format_spec(v, t, &debug)
+        }
+    }
 }
 
 /// Formats a float like JavaScript's `Number.prototype.toString`: the shortest digits that
@@ -671,7 +786,7 @@ pub fn format_spec(v: &Value, t: &Ty, spec: &FormatSpec) -> String {
             (false, "", body, false)
         }
         Value::Bool(b) => (false, "", b.to_string(), false),
-        Value::Struct(_) | Value::Ref(..) | Value::Void | Value::Uninit => {
+        Value::Struct(_) | Value::Array(_) | Value::Ref(..) | Value::Void | Value::Uninit => {
             (false, "", String::new(), false)
         }
     };

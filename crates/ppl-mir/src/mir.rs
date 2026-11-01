@@ -21,6 +21,7 @@ pub mod panics {
     pub const CHAR_CAST: &str = "invalid char code";
     pub const STACK_OVERFLOW: &str = "stack overflow";
     pub const INDEX: &str = "index out of bounds";
+    pub const RANGE_STEP: &str = "range step must be positive";
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -72,13 +73,21 @@ impl Program {
                 other => unreachable!("deref of non-reference {other}"),
             },
         };
-        for i in &place.proj {
-            t = match t {
-                Ty::Struct(sid, _) => self.layout(sid).fields[*i as usize].1.clone(),
-                other => unreachable!("field {i} of {other}"),
-            };
+        for p in &place.proj {
+            t = project(&t, p, |sid, i| self.layout(sid).fields[i].1.clone());
         }
         t
+    }
+}
+
+/// The type of `p` applied to a value of type `t`; `field` gives a struct's field types.
+pub fn project(t: &Ty, p: &Proj, field: impl Fn(StructId, usize) -> Ty) -> Ty {
+    match (t, p) {
+        (Ty::Struct(sid, _), Proj::Field(i)) => field(*sid, *i as usize),
+        (Ty::Tuple(ts), Proj::Field(i)) => ts[*i as usize].clone(),
+        (Ty::Range(it), Proj::Field(_)) => Ty::Int(*it),
+        (Ty::Array(e) | Ty::Fixed(e, _), Proj::Index(_)) => (**e).clone(),
+        (other, p) => unreachable!("projection {p:?} of {other}"),
     }
 }
 
@@ -129,11 +138,21 @@ pub enum Base {
     Deref(Local),
 }
 
-/// A memory location: a base and a path of struct field indices.
+/// One step from a value to a part of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Proj {
+    /// A struct field, tuple element, or range part (0 start, 1 end, 2 step).
+    Field(u32),
+    /// The element of a fixed or growable array at the index held in a local (`int`). Lowering
+    /// emits the bounds check before the place is used.
+    Index(Local),
+}
+
+/// A memory location: a base and a path of projections.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
     pub base: Base,
-    pub proj: Vec<u32>,
+    pub proj: Vec<Proj>,
 }
 
 impl Place {
@@ -160,8 +179,19 @@ impl Place {
 
     pub fn field(&self, i: u32) -> Place {
         let mut p = self.clone();
-        p.proj.push(i);
+        p.proj.push(Proj::Field(i));
         p
+    }
+
+    pub fn index(&self, l: Local) -> Place {
+        let mut p = self.clone();
+        p.proj.push(Proj::Index(l));
+        p
+    }
+
+    /// Whether the place goes through an array element (and so can be invalidated).
+    pub fn has_index(&self) -> bool {
+        self.proj.iter().any(|p| matches!(p, Proj::Index(_)))
     }
 }
 
@@ -251,6 +281,22 @@ pub enum Rvalue {
     StrLen(Operand),
     /// `s[i]`: the `char` at code-point index `i` (panics when out of bounds).
     StrCharAt(Operand, Operand),
+    /// A tuple, fixed array or range value (the type) from its parts in order.
+    Tuple(Ty, Vec<Operand>),
+    /// `[value; n]`
+    Repeat(Operand, u64),
+    /// A new growable array with element type and initial elements.
+    ArrayNew(Ty, Vec<Operand>),
+    /// `xs.length`
+    ArrayLen(Operand),
+    /// `xs.push(v)` (void).
+    ArrayPush(Operand, Operand),
+    /// `xs.pop()`: removes the last element, if any (`T?`).
+    ArrayPop(Operand),
+    /// `0 <= index < len` (both `int`).
+    InBounds(Operand, Operand),
+    /// Whether `a + b` overflows their integer type (range iteration).
+    AddOverflows(Operand, Operand),
 }
 
 #[derive(Debug)]
@@ -299,8 +345,11 @@ impl fmt::Display for Place {
             Base::Global(g) => write!(f, "@g{}", g.0)?,
             Base::Deref(l) => write!(f, "(*_{})", l.0)?,
         }
-        for i in &self.proj {
-            write!(f, ".{i}")?;
+        for p in &self.proj {
+            match p {
+                Proj::Field(i) => write!(f, ".{i}")?,
+                Proj::Index(l) => write!(f, "[_{}]", l.0)?,
+            }
         }
         Ok(())
     }
@@ -344,6 +393,20 @@ impl fmt::Display for Rvalue {
             Rvalue::Ref(p) => write!(f, "&{p}"),
             Rvalue::Format(a, spec) => write!(f, "Format({a}, {spec:?})"),
             Rvalue::StrCharAt(a, i) => write!(f, "StrCharAt({a}, {i})"),
+            Rvalue::Tuple(t, ops) => {
+                let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();
+                write!(f, "{t}({})", ops.join(", "))
+            }
+            Rvalue::Repeat(v, n) => write!(f, "[{v}; {n}]"),
+            Rvalue::ArrayNew(t, ops) => {
+                let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();
+                write!(f, "ArrayNew<{t}>[{}]", ops.join(", "))
+            }
+            Rvalue::ArrayLen(a) => write!(f, "ArrayLen({a})"),
+            Rvalue::ArrayPush(a, v) => write!(f, "ArrayPush({a}, {v})"),
+            Rvalue::ArrayPop(a) => write!(f, "ArrayPop({a})"),
+            Rvalue::InBounds(i, n) => write!(f, "InBounds({i}, {n})"),
+            Rvalue::AddOverflows(a, b) => write!(f, "AddOverflows({a}, {b})"),
         }
     }
 }

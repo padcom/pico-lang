@@ -115,6 +115,15 @@ struct Vec3 {
 | `[A, B]` | tuple (value type) |
 | `Map<K, V>`, `Set<T>` | hash collections using `equals`/`hashCode` |
 
+- An array literal's kind comes from the expected type: `const p: [string, i32] = ["a", 1]` is a
+  tuple, `const g: [u8; 4] = [1, 2, 3, 4]` a fixed array, otherwise it's a `T[]`. Without an
+  expected type the element type comes from the first element that isn't an untyped literal
+  (all literals: `int`, or `number` if one is a float), so `[]` needs an annotation.
+- Tuples are indexed with a constant (`pair[1]`) or destructured (`const [k, v] = pair`).
+  Indexing an array out of bounds panics (`index out of bounds`). `xs.pop()` returns `T?`.
+- `a..b` is a `Range` of an integer type with `.start`, `.end` and `.step(n)`; `n` must be
+  positive (otherwise a panic), and iteration stops at the end without overflowing (decision 183).
+
 ### Equality, hashing, ordering
 | Interface | Method | Used by |
 |-----------|--------|---------|

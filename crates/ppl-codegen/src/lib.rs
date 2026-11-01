@@ -23,12 +23,11 @@ use inkwell::values::{
 };
 use inkwell::{AddressSpace, FloatPredicate, IntPredicate, OptimizationLevel};
 use ppl_mir::mir::{
-    Base, BinOp, BlockId, Callee, Const, Loc, Operand, Place, Program, Rvalue, Terminator, UnOp,
-    panics,
+    self, Base, BinOp, BlockId, Callee, Const, Loc, Operand, Place, Program, Proj, Rvalue,
+    Terminator, UnOp, panics,
 };
 use ppl_sema::format::{Align, FormatSpec, Kind, Sign};
 use ppl_sema::hir::Builtin;
-use ppl_sema::ty::StructId;
 use ppl_sema::{FloatTy, IntTy, Ty};
 use std::collections::HashMap;
 use std::path::Path;
@@ -126,8 +125,8 @@ struct Gen<'ctx, 'p> {
     file: Option<GlobalValue<'ctx>>,
     /// LLVM struct types, by `StructId`.
     structs: Vec<inkwell::types::StructType<'ctx>>,
-    /// Generated `${s:?}` helpers, by `StructId`.
-    debug_fns: HashMap<u32, FunctionValue<'ctx>>,
+    /// Generated `${v:?}` helpers, by type.
+    debug_fns: HashMap<Ty, FunctionValue<'ctx>>,
 }
 
 /// Per-function state.
@@ -148,10 +147,76 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Float(FloatTy::F64) => self.cx.f64_type().into(),
             Ty::Bool => self.cx.bool_type().into(),
             Ty::Char => self.cx.i32_type().into(),
-            Ty::Str | Ty::Ref(_) => self.ptr().into(),
+            Ty::Str | Ty::Ref(_) | Ty::Array(_) => self.ptr().into(),
             Ty::Struct(sid, _) => self.structs[sid.0 as usize].into(),
+            Ty::Fixed(e, n) => self.elem_ty(e).array_type(*n as u32).into(),
+            Ty::Tuple(ts) => {
+                let fields: Vec<BasicTypeEnum> = ts.iter().map(|t| self.elem_ty(t)).collect();
+                self.cx.struct_type(&fields, false).into()
+            }
+            Ty::Range(it) => {
+                let t = self.int_ty(it.bits());
+                self.cx
+                    .struct_type(&[t.into(), t.into(), t.into()], false)
+                    .into()
+            }
             Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Nullable(_) => return None,
         })
+    }
+
+    /// The type of an element or tuple part (a placeholder byte for types without values).
+    fn elem_ty(&self, t: &Ty) -> BasicTypeEnum<'ctx> {
+        self.ty(t).unwrap_or_else(|| self.cx.i8_type().into())
+    }
+
+    /// The `PplArray` header: `{ len, cap, data }`.
+    fn array_header(&self) -> inkwell::types::StructType<'ctx> {
+        let i64t = self.i64();
+        self.cx
+            .struct_type(&[i64t.into(), i64t.into(), self.ptr().into()], false)
+    }
+
+    /// `a.len` of a `PplArray*`.
+    fn array_len(&self, a: PointerValue<'ctx>) -> IntValue<'ctx> {
+        let p = self
+            .b
+            .build_struct_gep(self.array_header(), a, 0, "len")
+            .unwrap();
+        self.b
+            .build_load(self.i64(), p, "")
+            .unwrap()
+            .into_int_value()
+    }
+
+    /// `a.data` of a `PplArray*`.
+    fn array_data(&self, a: PointerValue<'ctx>) -> PointerValue<'ctx> {
+        let p = self
+            .b
+            .build_struct_gep(self.array_header(), a, 2, "data")
+            .unwrap();
+        self.b
+            .build_load(self.ptr(), p, "")
+            .unwrap()
+            .into_pointer_value()
+    }
+
+    /// A pointer to element `i` of a growable array.
+    fn array_elem(
+        &self,
+        a: PointerValue<'ctx>,
+        elem: &Ty,
+        i: IntValue<'ctx>,
+    ) -> PointerValue<'ctx> {
+        let data = self.array_data(a);
+        unsafe {
+            self.b
+                .build_in_bounds_gep(self.elem_ty(elem), data, &[i], "elem")
+                .unwrap()
+        }
+    }
+
+    fn size_of(&self, t: &Ty) -> IntValue<'ctx> {
+        self.elem_ty(t).size_of().expect("sized type")
     }
 
     fn int_ty(&self, bits: u32) -> IntType<'ctx> {
@@ -271,6 +336,9 @@ impl<'ctx> Gen<'ctx, '_> {
                 ],
                 false,
             ),
+            "ppl_array_new" => ptr.fn_type(&[i64t.into(), i64t.into()], false),
+            "ppl_array_push" => ptr.fn_type(&[ptr.into(), i64t.into()], false),
+            "ppl_array_pop" => i32t.fn_type(&[ptr.into()], false),
             "ppl_ipow_s" | "ppl_ipow_u" => {
                 i64t.fn_type(&[i64t.into(), i64t.into(), i32t.into(), ptr.into()], false)
             }
@@ -402,15 +470,40 @@ impl<'ctx> Gen<'ctx, '_> {
                 (target, (**inner).clone())
             }
         };
-        for i in &p.proj {
-            let Ty::Struct(sid, _) = ty else {
-                unreachable!("field of {ty}")
+        for pr in &p.proj {
+            ptr = match (pr, &ty) {
+                (Proj::Field(i), _) => {
+                    let st = self.ty(&ty).expect("aggregate").into_struct_type();
+                    self.b.build_struct_gep(st, ptr, *i, "").unwrap()
+                }
+                (Proj::Index(l), Ty::Fixed(..)) => {
+                    let i = self.load_index(fx, *l);
+                    let at = self.ty(&ty).expect("array");
+                    let zero = self.i64().const_zero();
+                    unsafe { self.b.build_in_bounds_gep(at, ptr, &[zero, i], "").unwrap() }
+                }
+                (Proj::Index(l), Ty::Array(elem)) => {
+                    let i = self.load_index(fx, *l);
+                    let a = self
+                        .b
+                        .build_load(self.ptr(), ptr, "")
+                        .unwrap()
+                        .into_pointer_value();
+                    self.array_elem(a, elem, i)
+                }
+                (pr, t) => unreachable!("projection {pr:?} of {t}"),
             };
-            let st = self.structs[sid.0 as usize];
-            ptr = self.b.build_struct_gep(st, ptr, *i, "").unwrap();
-            ty = self.p.layout(sid).fields[*i as usize].1.clone();
+            ty = mir::project(&ty, pr, |sid, i| self.p.layout(sid).fields[i].1.clone());
         }
         Some(ptr)
+    }
+
+    fn load_index(&self, fx: &FnCx<'ctx, '_>, l: ppl_mir::mir::Local) -> IntValue<'ctx> {
+        let slot = fx.locals[l.0 as usize].expect("index local");
+        self.b
+            .build_load(self.i64(), slot, "idx")
+            .unwrap()
+            .into_int_value()
     }
 
     fn place_ty(&self, fx: &FnCx<'ctx, '_>, p: &Place) -> Ty {
@@ -549,8 +642,8 @@ impl<'ctx> Gen<'ctx, '_> {
             Rvalue::Format(o, spec) => {
                 let t = self.operand_ty(fx, o);
                 let v = self.operand(fx, o)?;
-                if let Ty::Struct(sid, _) = t {
-                    let text = self.debug_struct_value(sid, v);
+                if ppl_sema::format::is_compound(&t) {
+                    let text = self.debug_value(&t, v);
                     // Width, fill and alignment apply to the whole text.
                     let outer = FormatSpec {
                         kind: Kind::Default,
@@ -579,6 +672,121 @@ impl<'ctx> Gen<'ctx, '_> {
                 Some(agg.into())
             }
             Rvalue::Ref(place) => self.place_ptr(fx, place).map(Into::into),
+            Rvalue::Tuple(t, ops) => {
+                let lt = self.ty(t).expect("aggregate type");
+                let mut agg = match t {
+                    Ty::Fixed(..) => lt.into_array_type().get_undef().as_basic_value_enum(),
+                    _ => lt.into_struct_type().get_undef().as_basic_value_enum(),
+                };
+                for (i, o) in ops.iter().enumerate() {
+                    let Some(v) = self.operand(fx, o) else {
+                        continue;
+                    };
+                    agg = match agg {
+                        BasicValueEnum::ArrayValue(a) => self
+                            .b
+                            .build_insert_value(a, v, i as u32, "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                        BasicValueEnum::StructValue(st) => self
+                            .b
+                            .build_insert_value(st, v, i as u32, "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                        _ => unreachable!(),
+                    };
+                }
+                Some(agg)
+            }
+            Rvalue::Repeat(o, n) => {
+                let et = self.operand_ty(fx, o);
+                let v = self.operand(fx, o);
+                let at = self.elem_ty(&et).array_type(*n as u32);
+                let mut agg = at.get_undef();
+                if let Some(v) = v {
+                    for i in 0..*n {
+                        agg = self
+                            .b
+                            .build_insert_value(agg, v, i as u32, "")
+                            .unwrap()
+                            .into_array_value();
+                    }
+                }
+                Some(agg.into())
+            }
+            Rvalue::ArrayNew(elem, ops) => {
+                let size = self.size_of(elem);
+                let n = self.i64().const_int(ops.len() as u64, false);
+                let a = basic(
+                    self.b
+                        .build_call(self.rt("ppl_array_new"), &[size.into(), n.into()], "")
+                        .unwrap(),
+                )
+                .into_pointer_value();
+                for (i, o) in ops.iter().enumerate() {
+                    if let Some(v) = self.operand(fx, o) {
+                        let idx = self.i64().const_int(i as u64, false);
+                        let p = self.array_elem(a, elem, idx);
+                        self.b.build_store(p, v).unwrap();
+                    }
+                }
+                Some(a.into())
+            }
+            Rvalue::ArrayLen(o) => {
+                let a = self.operand(fx, o)?.into_pointer_value();
+                Some(self.array_len(a).into())
+            }
+            Rvalue::ArrayPush(a, v) => {
+                let Ty::Array(elem) = self.operand_ty(fx, a) else {
+                    unreachable!("push to non-array")
+                };
+                let arr = self.operand(fx, a)?;
+                let val = self.operand(fx, v);
+                let size = self.size_of(&elem);
+                let slot = basic(
+                    self.b
+                        .build_call(self.rt("ppl_array_push"), &[arr.into(), size.into()], "")
+                        .unwrap(),
+                )
+                .into_pointer_value();
+                if let Some(val) = val {
+                    self.b.build_store(slot, val).unwrap();
+                }
+                None
+            }
+            Rvalue::ArrayPop(a) => {
+                // The `T?` result isn't representable until P3.6; only the removal happens.
+                let arr = self.operand(fx, a)?;
+                self.b
+                    .build_call(self.rt("ppl_array_pop"), &[arr.into()], "")
+                    .unwrap();
+                None
+            }
+            Rvalue::InBounds(i, n) => {
+                let i = self.operand(fx, i)?.into_int_value();
+                let n = self.operand(fx, n)?.into_int_value();
+                Some(
+                    self.b
+                        .build_int_compare(IntPredicate::ULT, i, n, "")
+                        .unwrap()
+                        .into(),
+                )
+            }
+            Rvalue::AddOverflows(a, b) => {
+                let Ty::Int(it) = self.operand_ty(fx, a) else {
+                    unreachable!("integer addition")
+                };
+                let x = self.operand(fx, a)?.into_int_value();
+                let y = self.operand(fx, b)?.into_int_value();
+                let name = format!(
+                    "llvm.{}add.with.overflow",
+                    if it.signed() { "s" } else { "u" }
+                );
+                let f = self.intrinsic(&name, &[x.get_type().into()]);
+                let r = basic(self.b.build_call(f, &[x.into(), y.into()], "").unwrap())
+                    .into_struct_value();
+                Some(self.b.build_extract_value(r, 1, "").unwrap())
+            }
             Rvalue::StrLen(o) => {
                 let s = self.operand(fx, o)?.into_pointer_value();
                 Some(self.str_len(s).into())
@@ -607,28 +815,28 @@ impl<'ctx> Gen<'ctx, '_> {
         }
     }
 
-    /// Field-wise equality of two struct values.
-    fn struct_eq(
+    /// `==` on values of type `t`: field by field for structs, tuples, fixed arrays, ranges.
+    fn value_eq(
         &mut self,
-        sid: StructId,
-        a: BasicValueEnum<'ctx>,
-        b: BasicValueEnum<'ctx>,
+        t: &Ty,
+        x: BasicValueEnum<'ctx>,
+        y: BasicValueEnum<'ctx>,
     ) -> IntValue<'ctx> {
-        let (a, b) = (a.into_struct_value(), b.into_struct_value());
-        let mut acc = self.cx.bool_type().const_int(1, false);
-        let fields = self.p.layout(sid).fields.clone();
-        let mut index = 0;
-        for (_, fty) in &fields {
-            if self.ty(fty).is_none() {
-                continue;
-            }
-            let x = self.b.build_extract_value(a, index, "").unwrap();
-            let y = self.b.build_extract_value(b, index, "").unwrap();
-            index += 1;
-            let eq = match fty {
-                Ty::Struct(inner, _) => self.struct_eq(*inner, x, y),
-                Ty::Str => self.str_binary(BinOp::Eq, x, y).into_int_value(),
-                Ty::Float(_) => self
+        let parts: Vec<Ty> = match t {
+            Ty::Struct(sid, _) => self
+                .p
+                .layout(*sid)
+                .fields
+                .iter()
+                .map(|(_, t)| t.clone())
+                .filter(|t| self.ty(t).is_some())
+                .collect(),
+            Ty::Tuple(ts) => ts.clone(),
+            Ty::Range(it) => vec![Ty::Int(*it); 3],
+            Ty::Fixed(e, n) => vec![(**e).clone(); *n as usize],
+            Ty::Str => return self.str_binary(BinOp::Eq, x, y).into_int_value(),
+            Ty::Float(_) => {
+                return self
                     .b
                     .build_float_compare(
                         FloatPredicate::OEQ,
@@ -636,95 +844,230 @@ impl<'ctx> Gen<'ctx, '_> {
                         y.into_float_value(),
                         "",
                     )
-                    .unwrap(),
-                _ => self
+                    .unwrap();
+            }
+            _ => {
+                return self
                     .b
                     .build_int_compare(IntPredicate::EQ, x.into_int_value(), y.into_int_value(), "")
-                    .unwrap(),
+                    .unwrap();
+            }
+        };
+        let mut acc = self.cx.bool_type().const_int(1, false);
+        for (i, pt) in parts.iter().enumerate() {
+            let (a, b) = match (x, y) {
+                (BasicValueEnum::ArrayValue(a), BasicValueEnum::ArrayValue(b)) => (
+                    self.b.build_extract_value(a, i as u32, "").unwrap(),
+                    self.b.build_extract_value(b, i as u32, "").unwrap(),
+                ),
+                _ => (
+                    self.b
+                        .build_extract_value(x.into_struct_value(), i as u32, "")
+                        .unwrap(),
+                    self.b
+                        .build_extract_value(y.into_struct_value(), i as u32, "")
+                        .unwrap(),
+                ),
             };
+            let eq = self.value_eq(pt, a, b);
             acc = self.b.build_and(acc, eq, "").unwrap();
         }
         acc
     }
 
-    /// The debug text of a struct value, via a generated `ppl.debug.<Name>` helper.
-    fn debug_struct_value(
-        &mut self,
-        sid: StructId,
-        v: BasicValueEnum<'ctx>,
-    ) -> BasicValueEnum<'ctx> {
-        let f = self.debug_fn(sid);
+    /// The debug text of a value, via a generated `ppl.debug.<n>` helper.
+    fn debug_value(&mut self, t: &Ty, v: BasicValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let f = self.debug_fn(t);
         let tmp = self
             .b
-            .build_alloca(self.structs[sid.0 as usize], "debug.arg")
+            .build_alloca(self.ty(t).expect("debuggable type"), "debug.arg")
             .unwrap();
         self.b.build_store(tmp, v).unwrap();
         basic(self.b.build_call(f, &[tmp.into()], "").unwrap())
     }
 
-    /// `ppl.debug.<Name>(ptr) -> PplStr*`: "Name { a: …, b: … }".
-    fn debug_fn(&mut self, sid: StructId) -> FunctionValue<'ctx> {
-        if let Some(f) = self.debug_fns.get(&sid.0) {
-            return *f;
+    fn concat(&self, a: BasicValueEnum<'ctx>, b: BasicValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        basic(
+            self.b
+                .build_call(self.rt("ppl_str_concat"), &[a.into(), b.into()], "")
+                .unwrap(),
+        )
+    }
+
+    /// The debug text of the value at `p` (of type `t`).
+    fn debug_at(&mut self, t: &Ty, p: PointerValue<'ctx>) -> BasicValueEnum<'ctx> {
+        if ppl_sema::format::is_compound(t) {
+            let g = self.debug_fn(t);
+            return basic(self.b.build_call(g, &[p.into()], "").unwrap());
         }
-        let layout_name = self.p.layout(sid).name.clone();
-        let fields = self.p.layout(sid).fields.clone();
-        let fn_ty = self.ptr().fn_type(&[self.ptr().into()], false);
-        let f = self.m.add_function(
-            &format!("ppl.debug.{layout_name}"),
-            fn_ty,
-            Some(Linkage::Internal),
-        );
-        self.debug_fns.insert(sid.0, f);
-        let saved = self.b.get_insert_block();
-        let entry = self.cx.append_basic_block(f, "entry");
-        self.b.position_at_end(entry);
-        let this = f.get_nth_param(0).unwrap().into_pointer_value();
-        let st = self.structs[sid.0 as usize];
+        let Some(lt) = self.ty(t) else {
+            return self.str_literal("").into();
+        };
+        let v = self.b.build_load(lt, p, "").unwrap();
         let debug = FormatSpec {
             kind: Kind::Debug,
             ..FormatSpec::default()
         };
-        let concat = |g: &mut Self, a: BasicValueEnum<'ctx>, b: BasicValueEnum<'ctx>| {
-            basic(
-                g.b.build_call(g.rt("ppl_str_concat"), &[a.into(), b.into()], "")
-                    .unwrap(),
-            )
-        };
-        let mut acc: BasicValueEnum = if fields.is_empty() {
-            self.str_literal(&format!("{layout_name} {{}}")).into()
-        } else {
-            self.str_literal(&format!("{layout_name} {{ ")).into()
-        };
-        let mut index = 0;
-        for (i, (name, fty)) in fields.iter().enumerate() {
-            let sep = if i == 0 {
-                format!("{name}: ")
-            } else {
-                format!(", {name}: ")
-            };
-            let sep = self.str_literal(&sep).into();
-            acc = concat(self, acc, sep);
-            let Some(lt) = self.ty(fty) else { continue };
-            let p = self.b.build_struct_gep(st, this, index, "").unwrap();
-            index += 1;
-            let text = match fty {
-                Ty::Struct(inner, _) => {
-                    let g = self.debug_fn(*inner);
-                    basic(self.b.build_call(g, &[p.into()], "").unwrap())
-                }
-                _ => {
-                    let v = self.b.build_load(lt, p, "").unwrap();
-                    self.format(fty, v, &debug)
-                }
-            };
-            acc = concat(self, acc, text);
+        self.format(t, v, &debug)
+    }
+
+    /// `ppl.debug.<n>(ptr) -> PplStr*` for a struct, tuple, array or range: the same text as
+    /// the interpreter's `debug_value`.
+    fn debug_fn(&mut self, t: &Ty) -> FunctionValue<'ctx> {
+        if let Some(f) = self.debug_fns.get(t) {
+            return *f;
         }
-        if !fields.is_empty() {
-            let close = self.str_literal(" }").into();
-            acc = concat(self, acc, close);
-        }
-        self.b.build_return(Some(&acc)).unwrap();
+        let fn_ty = self.ptr().fn_type(&[self.ptr().into()], false);
+        let name = match t {
+            Ty::Struct(sid, _) => format!("ppl.debug.{}", self.p.layout(*sid).name),
+            _ => format!("ppl.debug.{}", self.debug_fns.len()),
+        };
+        let f = self.m.add_function(&name, fn_ty, Some(Linkage::Internal));
+        self.debug_fns.insert(t.clone(), f);
+        let saved = self.b.get_insert_block();
+        let entry = self.cx.append_basic_block(f, "entry");
+        self.b.position_at_end(entry);
+        let this = f.get_nth_param(0).unwrap().into_pointer_value();
+        let lt = self.ty(t).expect("debuggable type");
+        let text = match t {
+            Ty::Struct(sid, _) => {
+                let layout_name = self.p.layout(*sid).name.clone();
+                let fields = self.p.layout(*sid).fields.clone();
+                let st = lt.into_struct_type();
+                let mut acc: BasicValueEnum = if fields.is_empty() {
+                    self.str_literal(&format!("{layout_name} {{}}")).into()
+                } else {
+                    self.str_literal(&format!("{layout_name} {{ ")).into()
+                };
+                let mut index = 0;
+                for (i, (name, fty)) in fields.iter().enumerate() {
+                    let sep = if i == 0 {
+                        format!("{name}: ")
+                    } else {
+                        format!(", {name}: ")
+                    };
+                    let sep = self.str_literal(&sep).into();
+                    acc = self.concat(acc, sep);
+                    if self.ty(fty).is_none() {
+                        continue;
+                    }
+                    let p = self.b.build_struct_gep(st, this, index, "").unwrap();
+                    index += 1;
+                    let text = self.debug_at(fty, p);
+                    acc = self.concat(acc, text);
+                }
+                if !fields.is_empty() {
+                    let close = self.str_literal(" }").into();
+                    acc = self.concat(acc, close);
+                }
+                acc
+            }
+            Ty::Tuple(ts) => {
+                let st = lt.into_struct_type();
+                let mut acc: BasicValueEnum = self.str_literal("[").into();
+                for (i, et) in ts.iter().enumerate() {
+                    if i > 0 {
+                        let sep = self.str_literal(", ").into();
+                        acc = self.concat(acc, sep);
+                    }
+                    let p = self.b.build_struct_gep(st, this, i as u32, "").unwrap();
+                    let text = self.debug_at(et, p);
+                    acc = self.concat(acc, text);
+                }
+                let close = self.str_literal("]").into();
+                self.concat(acc, close)
+            }
+            Ty::Range(it) => {
+                let st = lt.into_struct_type();
+                let part = |g: &mut Self, i: u32| {
+                    let p = g.b.build_struct_gep(st, this, i, "").unwrap();
+                    let v = g.b.build_load(g.int_ty(it.bits()), p, "").unwrap();
+                    let (name, arg) = g
+                        .primitive_arg(&Ty::Int(*it), v, "ppl_str_from")
+                        .expect("integer");
+                    (v, basic(g.b.build_call(g.rt(&name), &[arg], "").unwrap()))
+                };
+                let (_, a) = part(self, 0);
+                let (_, b) = part(self, 1);
+                let (sv, s) = part(self, 2);
+                let dots = self.str_literal("..").into();
+                let ab = self.concat(a, dots);
+                let ab = self.concat(ab, b);
+                let open = self.str_literal("(").into();
+                let stepped = self.concat(open, ab);
+                let mid = self.str_literal(").step(").into();
+                let stepped = self.concat(stepped, mid);
+                let stepped = self.concat(stepped, s);
+                let close = self.str_literal(")").into();
+                let stepped = self.concat(stepped, close);
+                let one = sv.into_int_value().get_type().const_int(1, false);
+                let is_one = self
+                    .b
+                    .build_int_compare(IntPredicate::EQ, sv.into_int_value(), one, "")
+                    .unwrap();
+                self.b.build_select(is_one, ab, stepped, "").unwrap()
+            }
+            Ty::Fixed(et, _) | Ty::Array(et) => {
+                let (data, len) = match t {
+                    Ty::Fixed(_, n) => (this, self.i64().const_int(*n, false)),
+                    _ => {
+                        let a = self
+                            .b
+                            .build_load(self.ptr(), this, "")
+                            .unwrap()
+                            .into_pointer_value();
+                        (self.array_data(a), self.array_len(a))
+                    }
+                };
+                let acc = self.b.build_alloca(self.ptr(), "acc").unwrap();
+                let i = self.b.build_alloca(self.i64(), "i").unwrap();
+                let open: BasicValueEnum = self.str_literal("[").into();
+                self.b.build_store(acc, open).unwrap();
+                self.b.build_store(i, self.i64().const_zero()).unwrap();
+                let cond = self.cx.append_basic_block(f, "cond");
+                let body = self.cx.append_basic_block(f, "body");
+                let done = self.cx.append_basic_block(f, "done");
+                self.b.build_unconditional_branch(cond).unwrap();
+                self.b.position_at_end(cond);
+                let iv = self
+                    .b
+                    .build_load(self.i64(), i, "")
+                    .unwrap()
+                    .into_int_value();
+                let more = self
+                    .b
+                    .build_int_compare(IntPredicate::ULT, iv, len, "")
+                    .unwrap();
+                self.b.build_conditional_branch(more, body, done).unwrap();
+                self.b.position_at_end(body);
+                let first = self
+                    .b
+                    .build_int_compare(IntPredicate::EQ, iv, self.i64().const_zero(), "")
+                    .unwrap();
+                let empty: BasicValueEnum = self.str_literal("").into();
+                let comma: BasicValueEnum = self.str_literal(", ").into();
+                let sep = self.b.build_select(first, empty, comma, "").unwrap();
+                let cur = self.b.build_load(self.ptr(), acc, "").unwrap();
+                let cur = self.concat(cur, sep);
+                let et_ll = self.elem_ty(et);
+                let p = unsafe { self.b.build_in_bounds_gep(et_ll, data, &[iv], "").unwrap() };
+                let text = self.debug_at(et, p);
+                let cur = self.concat(cur, text);
+                self.b.build_store(acc, cur).unwrap();
+                let next = self
+                    .b
+                    .build_int_add(iv, self.i64().const_int(1, false), "")
+                    .unwrap();
+                self.b.build_store(i, next).unwrap();
+                self.b.build_unconditional_branch(cond).unwrap();
+                self.b.position_at_end(done);
+                let cur = self.b.build_load(self.ptr(), acc, "").unwrap();
+                let close = self.str_literal("]").into();
+                self.concat(cur, close)
+            }
+            _ => unreachable!("debug helper for {t}"),
+        };
+        self.b.build_return(Some(&text)).unwrap();
         if let Some(bb) = saved {
             self.b.position_at_end(bb);
         }
@@ -1046,8 +1389,8 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
             }
             Ty::Str => self.str_binary(op, x, y),
-            Ty::Struct(sid, _) => {
-                let eq = self.struct_eq(*sid, x, y);
+            Ty::Struct(..) | Ty::Tuple(_) | Ty::Fixed(..) | Ty::Range(_) => {
+                let eq = self.value_eq(t, x, y);
                 if op == BinOp::Ne {
                     self.b.build_not(eq, "").unwrap().into()
                 } else {

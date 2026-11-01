@@ -2,7 +2,7 @@
 //!
 //! Every expression has an [`ExprId`]; the type checker stores its results in tables indexed
 //! by it. `for` loops become [`ExprKind::While`] (with an `update` step that `continue` runs),
-//! and `for (x of a..b)` becomes a counting `while`.
+//! and `for-of` stays [`ExprKind::ForOf`] (its lowering depends on the iterated type).
 
 pub use crate::ty::StructId;
 use crate::ty::Ty;
@@ -189,6 +189,11 @@ pub enum Target {
         name: String,
         name_span: Span,
     },
+    /// `object[index] = …` (arrays, fixed arrays, tuples with a constant index).
+    Index {
+        object: Box<Expr>,
+        index: Box<Expr>,
+    },
 }
 
 #[derive(Debug)]
@@ -245,6 +250,24 @@ pub enum ExprKind {
     Index {
         object: Box<Expr>,
         index: Box<Expr>,
+    },
+    /// `[a, b, c]`: a growable array, fixed array or tuple, depending on the expected type.
+    Array(Vec<Expr>),
+    /// `[value; count]`: a fixed array.
+    Repeat {
+        value: Box<Expr>,
+        count: u64,
+    },
+    /// `start..end`
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+    },
+    /// `for (var of iter) body`; destructuring patterns become `let`s at the top of `body`.
+    ForOf {
+        var: LocalId,
+        iter: Box<Expr>,
+        body: Box<Expr>,
     },
     /// `quasis.len() == parts.len() + 1`
     Template {

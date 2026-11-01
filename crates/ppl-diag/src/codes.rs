@@ -70,6 +70,9 @@ codes! {
     MISSING_FIELDS = 311: "struct literal without all fields",
     DUPLICATE_FIELD = 312: "field given twice in a struct literal",
     UNKNOWN_OBJECT_TYPE = 313: "object literal without a known struct type",
+    TUPLE_INDEX = 314: "tuple index that isn't a constant in range",
+    UNKNOWN_ELEMENT_TYPE = 315: "array literal without a known element type",
+    WRONG_LENGTH = 316: "array or tuple literal with the wrong number of elements",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

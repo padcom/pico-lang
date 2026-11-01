@@ -1,0 +1,30 @@
+// error: E0315
+// at: 19:11
+// error: E0316
+// at: 20:21
+// error: E0314
+// at: 22:13
+// error: E0314
+// at: 24:13
+// error: E0304
+// at: 26:1
+// error: E0304
+// at: 27:17
+// error: E0308
+// at: 28:19
+// error: E0308
+// at: 29:14
+// error: E0309
+// at: 30:3
+const e = []
+const f: [i32; 2] = [1, 2, 3]
+const t: [string, i32] = ["a", 1]
+const u = t[2]
+let i = 0
+const v = t[i]
+const s = "abc"
+s[0] = "x"
+for (const c of 5) {}
+const w: i32[] = ["a"]
+const z = 0..1.5
+t.foo()

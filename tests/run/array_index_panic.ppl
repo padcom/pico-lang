@@ -1,0 +1,5 @@
+// expect: 3
+// panic: index out of bounds
+const xs: i32[] = [1, 2, 3]
+println(xs[2])
+const y = xs[3]

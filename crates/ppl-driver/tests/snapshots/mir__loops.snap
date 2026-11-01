@@ -58,22 +58,22 @@ fn sum(_0: i64) -> i64 {
 }
 
 fn <main>() -> void {
-    let _0: i64 // <i>
-    let _1: i64 // <end>
-    let _2: i64 // i
+    let _0: i64 // i
+    let _1: i64
+    let _2: i64
     let _3: bool
   bb0:
-    _0 = const 0_i64
     _1 = const 3_i64
+    _2 = const 0_i64
     goto bb1
   bb1:
-    _3 = Lt(_0, _1)
+    _3 = Lt(_2, _1)
     branch _3 -> [true: bb2, false: bb4]
   bb2:
-    _2 = _0
-    call builtin println(_2) -> bb5
+    _0 = _2
+    call builtin println(_0) -> bb5
   bb3:
-    _0 = Add(_0, const 1_i64)
+    _2 = Add(_2, const 1_i64)
     goto bb1
   bb4:
     return

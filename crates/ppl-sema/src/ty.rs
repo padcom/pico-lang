@@ -117,6 +117,14 @@ pub enum Ty {
     Struct(StructId, Arc<str>),
     /// Internal: a reference to a value (method receivers). Not writable in source.
     Ref(Box<Ty>),
+    /// `T[]` / `Array<T>`: a growable, heap-allocated array (a reference type).
+    Array(Box<Ty>),
+    /// `[T; N]`: a fixed-size array stored inline (a value type).
+    Fixed(Box<Ty>, u64),
+    /// `[A, B]`: a tuple (a value type).
+    Tuple(Vec<Ty>),
+    /// `a..b` (with an optional `.step(n)`): start, end and step of an integer type.
+    Range(IntTy),
     /// `T?`
     Nullable(Box<Ty>),
     /// A type error was already reported; suppresses follow-up errors.
@@ -163,6 +171,14 @@ impl Ty {
         matches!(self, Ty::Error)
     }
 
+    /// The element type of an indexable collection (`T[]`, `[T; N]`).
+    pub fn elem(&self) -> Option<&Ty> {
+        match self {
+            Ty::Array(t) | Ty::Fixed(t, _) => Some(t),
+            _ => None,
+        }
+    }
+
     /// `T` → `T?` (idempotent; `void` and `never` stay as they are).
     pub fn nullable(self) -> Ty {
         match self {
@@ -205,6 +221,14 @@ impl fmt::Display for Ty {
             Ty::Null => f.write_str("null"),
             Ty::Struct(_, name) => f.write_str(name),
             Ty::Ref(t) => write!(f, "&{t}"),
+            Ty::Array(t) if matches!(**t, Ty::Nullable(_)) => write!(f, "({t})[]"),
+            Ty::Array(t) => write!(f, "{t}[]"),
+            Ty::Fixed(t, n) => write!(f, "[{t}; {n}]"),
+            Ty::Tuple(ts) => {
+                let parts: Vec<String> = ts.iter().map(|t| t.to_string()).collect();
+                write!(f, "[{}]", parts.join(", "))
+            }
+            Ty::Range(it) => write!(f, "Range<{}>", it.name()),
             Ty::Nullable(t) => write!(f, "{t}?"),
             Ty::Error => f.write_str("{error}"),
         }

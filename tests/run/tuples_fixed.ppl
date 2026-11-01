@@ -1,0 +1,57 @@
+// expect: 42 age
+// expect: age = 42
+// expect: ["age", 43]
+// expect: [0, 0, 0, 0]
+// expect: [0, 7, 0, 0] [0, 0, 0, 0]
+// expect: 4
+// expect: 7
+// expect: true false
+// expect: [[1, 2], [3, 4]]
+// expect: 10
+// expect: 3 4
+// expect: [1, [2, 3]]
+// expect: 1 2 3
+// expect: a1 b2
+// expect: Vertex { pos: [1, 2, 3], uv: [0.5, 0.25] }
+struct Vertex { pos: [f32; 3]; uv: [f32; 2] }
+
+const pair: [string, i32] = ["age", 42]
+println(`${pair[1]} ${pair[0]}`)
+const [label, value] = pair
+println(`${label} = ${value}`)
+let p2 = pair
+p2[1] += 1
+println(`${p2:?}`)
+
+// Fixed arrays are values: copies are independent.
+const grid: [u8; 4] = [0; 4]
+println(`${grid:?}`)
+let g2 = grid
+g2[1] = 7
+println(`${g2:?} ${grid:?}`)
+println(g2.length)
+println(g2[1])
+println(`${g2 == [0u8, 7, 0, 0]} ${g2 == grid}`)
+
+let m: [[i32; 2]; 2] = [[1, 2], [3, 4]]
+println(`${m:?}`)
+let total = 0
+for (const row of m) for (const v of row) total += v
+println(total)
+
+function swap(t: [i32, i32]): [i32, i32] { [t[1], t[0]] }
+const [a, b] = swap([4, 3])
+println(`${a} ${b}`)
+
+const nested: [i32, [i32, i32]] = [1, [2, 3]]
+println(`${nested:?}`)
+const [x, [y, z]] = nested
+println(`${x} ${y} ${z}`)
+
+const entries: [string, i32][] = [["a", 1], ["b", 2]]
+let out = ""
+for (const [k, v] of entries) out += `${k}${v} `
+println(out.length == 6 ? "a1 b2" : out)
+
+const vert = Vertex { pos: [1, 2, 3], uv: [0.5, 0.25] }
+println(`${vert:?}`)

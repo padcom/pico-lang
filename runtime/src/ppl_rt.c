@@ -19,6 +19,36 @@ void *ppl_alloc(int64_t size) {
     return p;
 }
 
+/* ---------------------------------------------------------------- arrays */
+
+PplArray *ppl_array_new(int64_t elem_size, int64_t len) {
+    PplArray *a = ppl_alloc((int64_t)sizeof(PplArray));
+    int64_t cap = len < 4 ? 4 : len;
+    a->len = len;
+    a->cap = cap;
+    a->data = ppl_alloc(cap * elem_size);
+    memset(a->data, 0, (size_t)(cap * elem_size));
+    return a;
+}
+
+void *ppl_array_push(PplArray *a, int64_t elem_size) {
+    if (a->len == a->cap) {
+        int64_t cap = a->cap * 2;
+        char *data = ppl_alloc(cap * elem_size);
+        memcpy(data, a->data, (size_t)(a->len * elem_size));
+        memset(data + a->len * elem_size, 0, (size_t)((cap - a->len) * elem_size));
+        a->data = data;
+        a->cap = cap;
+    }
+    return a->data + (a->len++) * elem_size;
+}
+
+int32_t ppl_array_pop(PplArray *a) {
+    if (a->len == 0) return 0;
+    a->len--;
+    return 1;
+}
+
 /* ---------------------------------------------------------------- strings */
 
 static int64_t count_chars(const char *bytes, int64_t len) {
