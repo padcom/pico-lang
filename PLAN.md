@@ -652,9 +652,25 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Done when**: the golden tests pass natively for `linux-arm64-musl` and for `linux-x64-musl`
   under `qemu-user`.
 
-### P8.3 Windows (MinGW)
-- **Do**: MinGW import libraries, CodeView debug info, IOCP in the event loop, and `CreateProcessW`.
-- **Done when**: golden tests pass under Windows (or Wine) for `windows-x64`.
+### P8.3a Windows toolchain and runtime core
+- **Spec**: 15 §15.1, §15.2
+- **Do**: lld's COFF/MinGW driver in `ppl-lld`; MinGW from Zig's mingw-w64 (CRT start code,
+  import libraries generated from `.def` files, winpthreads), with the Windows headers pruned to
+  what the runtime and Mbed TLS include (a script regenerates the set); codegen for
+  `x86_64`/`aarch64-w64-windows-gnu` with CodeView debug info; the runtime core on Windows (GC
+  memory, threads and workers, the event loop on IOCP with timers, panics). I/O modules report
+  "not supported on Windows yet".
+- **Done when**: the golden tests that need no I/O pass for `windows-arm64` under Wine on the
+  Linux arm64 host, and for `windows-x64` on GitHub's Windows runner (binaries built by the
+  Linux job, run there).
+
+### P8.3b Windows files
+- **Do**: std/fs, `watch` (`ReadDirectoryChangesW`) and encoding ops on Windows.
+- **Done when**: the fs golden tests pass for `windows-arm64` under Wine and `windows-x64` in CI.
+
+### P8.3c Windows processes and networking
+- **Do**: std/process (`CreateProcessW`, pipes), sockets and TLS on IOCP.
+- **Done when**: all golden tests pass for `windows-arm64` under Wine and `windows-x64` in CI.
 
 ### P8.4 macOS cross builds
 - **Do**: bundled `.tbd` stubs, x64 and arm64 from any host, and universal-binary support (optional).

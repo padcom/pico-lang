@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.3: Windows (MinGW)** (see [PLAN.md](PLAN.md#p83-windows-mingw)). Linux targets are complete (P8.0–P8.2b): glibc via generated stubs, musl compiled from source, compiler-rt builtins, all linked by the in-process lld (`crates/ppl-driver/src/{link,glibc,musl,builtins}.rs`). For P8.3: lld's COFF/MinGW drivers need adding to `crates/ppl-lld` (only ELF is wired up), MinGW import libraries and headers need a source (Zig vendors mingw-w64; ask the author, as for decision 245), and Windows test runs need Wine (ask before installing). The Windows runtime parts (`ppl_io.c` is a stub there, IOCP in the loop, `CreateProcessW`) are unwritten.
+**P8.3a: Windows toolchain and runtime core** (see [PLAN.md](PLAN.md#p83a-windows-toolchain-and-runtime-core)); P8.3 split in three, decision 248. Linux targets are complete (P8.0–P8.2b, `crates/ppl-driver/src/{link,glibc,musl,builtins}.rs`). Local Windows runs use Debian's arm64 Wine (windows-arm64 only; ask before installing); windows-x64 runs on GitHub's Windows runner.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -257,7 +257,9 @@ Notes:
 - [x] P8.1 Cross-compilation infrastructure
 - [x] P8.2a glibc stubs
 - [x] P8.2b musl
-- [ ] P8.3 Windows (MinGW)
+- [ ] P8.3a Windows toolchain and runtime core
+- [ ] P8.3b Windows files
+- [ ] P8.3c Windows processes and networking
 - [ ] P8.4 macOS cross builds
 - [ ] P8.5 wasm32-wasi
 - [ ] P8.6 wasm32-browser (linear memory)
@@ -385,3 +387,4 @@ Notes:
 | 2026-11-02 | — | CI green on macOS and Linux arm64 (P8.1 included). P8.2 split into P8.2a (glibc stubs) and P8.2b (musl) with the author's choices recorded as decision 245. |
 | 2026-11-02 | P8.2a | glibc stubs: Zig 0.15.1's `abilists` and glibc/Linux headers vendored in `third_party/zig-libc` (14 MB); `glibc.rs` generates versioned stub libraries per target and version, linked by the in-process lld; the runtime is compiled against the vendored headers with `-D__GLIBC_MINOR__`; our own `_start` and `crt.c` (init arrays, `_IO_stdin_used`, `__dso_handle`, pre-2.33 `stat` wrappers) replace glibc's crt files. No system glibc is needed to build any more. Golden suite green natively (arm64, glibc 2.31 stubs) and for `linux-x64` under qemu (`PPL_TEST_TARGET`, 212 pass, process/pipes pending: qemu loses posix_spawn's exec error, verified with plain C). `tests/cross.rs` checks a 2.31 build needs nothing newer than 2.31 and that `.2.39` builds. Decision 246. |
 | 2026-11-02 | P8.2b | musl 1.2.5 vendored (signature checked; subset for x86_64/aarch64) and compiled by ppl like its Makefile (`musl.rs`); `*-linux-musl` targets link fully statically. compiler-rt builtins (LLVM 23.1.4, attestation checked) vendored and linked into every lld-linked program (aarch64 musl needs soft-float `long double`); `MBEDTLS_NO_UDBL_DIVISION` dropped. Panic traces glibc/macOS only (musl has no `backtrace`). Golden tests green for linux-arm64-musl natively and linux-x64-musl under qemu (212 + pipes pending). `tests/cross.rs` checks musl binaries are static. CI runs the arm64-musl golden suite too. Decision 247. |
+| 2026-11-02 | — | P8.3 split into P8.3a (toolchain + runtime core), P8.3b (files), P8.3c (processes, networking), with the author's choices as decision 248: Windows tests run as windows-arm64 under arm64 Wine locally and windows-x64 on GitHub's Windows runner; MinGW from Zig's mingw-w64 with headers pruned to what's included. |
