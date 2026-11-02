@@ -4,20 +4,28 @@
  * through `ppl_tls_read`/`ppl_tls_write` (callers check `ppl_tls_has`). The socket is made
  * non-blocking; each call holds the session's lock only while Mbed TLS runs and waits with
  * poll() outside it, so a read waiting for data never blocks a write. Shutting the socket
- * down wakes a waiting read (it then sees the end). */
+ * down wakes a waiting read (it then sees the end). On Windows the socket is a SOCKET kept in
+ * an int (handle values fit), waits are 100 ms `WSAPoll` slices (a shutdown doesn't wake
+ * one), and the roots are the system's ROOT store. */
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <wincrypt.h>
+#endif
 #include "ppl_crypto.h"
 
-#if !defined(_WIN32)
-
 #include <errno.h>
-#include <fcntl.h>
-#include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32)
+#include <fcntl.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/entropy.h"
@@ -57,18 +65,69 @@ static Tls *find(int fd) {
 
 int ppl_tls_has(int fd) { return find(fd) != NULL; }
 
+/* ---- the socket calls, per platform ---- */
+#if defined(_WIN32)
+enum { E_INTR = WSAEINTR, E_AGAIN = WSAEWOULDBLOCK, E_RESET = WSAECONNRESET, E_PIPE = WSAESHUTDOWN };
+
+static int sock_error(void) { return WSAGetLastError(); }
+
+static ptrdiff_t sock_send(int fd, const unsigned char *buf, size_t len) {
+    return send((SOCKET)fd, (const char *)buf, len > 0x40000000 ? 0x40000000 : (int)len, 0);
+}
+
+static ptrdiff_t sock_recv(int fd, unsigned char *buf, size_t len) {
+    return recv((SOCKET)fd, (char *)buf, len > 0x40000000 ? 0x40000000 : (int)len, 0);
+}
+
+/* Non-blocking on (1) or off (0); Windows can't tell what it was, and our sockets block. */
+static int set_nonblocking(int fd, int on) {
+    u_long v = (u_long)on;
+    return ioctlsocket((SOCKET)fd, FIONBIO, &v) == 0 ? 0 : -1;
+}
+
+/* Waits (up to 100 ms: a shutdown doesn't end a WSAPoll) for what Mbed TLS asked for. */
+static void wait_for(int fd, int r) {
+    WSAPOLLFD p = {(SOCKET)fd, (short)(r == MBEDTLS_ERR_SSL_WANT_WRITE ? POLLOUT : POLLIN), 0};
+    WSAPoll(&p, 1, 100);
+}
+#else
+enum { E_INTR = EINTR, E_AGAIN = EAGAIN, E_RESET = ECONNRESET, E_PIPE = EPIPE };
+
+static int sock_error(void) { return errno == EWOULDBLOCK ? EAGAIN : errno; }
+
+static ptrdiff_t sock_send(int fd, const unsigned char *buf, size_t len) {
+#if defined(MSG_NOSIGNAL)
+    return send(fd, buf, len, MSG_NOSIGNAL);
+#else
+    return send(fd, buf, len, 0);
+#endif
+}
+
+static ptrdiff_t sock_recv(int fd, unsigned char *buf, size_t len) { return recv(fd, buf, len, 0); }
+
+static int set_nonblocking(int fd, int on) {
+    int fl = fcntl(fd, F_GETFL);
+    if (fl < 0) return -1;
+    return fcntl(fd, F_SETFL, on ? fl | O_NONBLOCK : fl & ~O_NONBLOCK);
+}
+
+/* Waits until the socket is ready for what Mbed TLS asked for. */
+static void wait_for(int fd, int r) {
+    struct pollfd p = {fd, (short)(r == MBEDTLS_ERR_SSL_WANT_WRITE ? POLLOUT : POLLIN), 0};
+    while (poll(&p, 1, -1) < 0 && errno == EINTR) {
+    }
+}
+#endif
+
 static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
     int fd = *(int *)ctx;
     for (;;) {
-#if defined(MSG_NOSIGNAL)
-        ssize_t k = send(fd, buf, len, MSG_NOSIGNAL);
-#else
-        ssize_t k = send(fd, buf, len, 0);
-#endif
+        ptrdiff_t k = sock_send(fd, buf, len);
         if (k >= 0) return (int)k;
-        if (errno == EINTR) continue;
-        if (errno == EAGAIN || errno == EWOULDBLOCK) return MBEDTLS_ERR_SSL_WANT_WRITE;
-        if (errno == EPIPE || errno == ECONNRESET) return MBEDTLS_ERR_NET_CONN_RESET;
+        int e = sock_error();
+        if (e == E_INTR) continue;
+        if (e == E_AGAIN) return MBEDTLS_ERR_SSL_WANT_WRITE;
+        if (e == E_PIPE || e == E_RESET) return MBEDTLS_ERR_NET_CONN_RESET;
         return MBEDTLS_ERR_NET_SEND_FAILED;
     }
 }
@@ -76,19 +135,13 @@ static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
 static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
     int fd = *(int *)ctx;
     for (;;) {
-        ssize_t k = recv(fd, buf, len, 0);
+        ptrdiff_t k = sock_recv(fd, buf, len);
         if (k >= 0) return (int)k;
-        if (errno == EINTR) continue;
-        if (errno == EAGAIN || errno == EWOULDBLOCK) return MBEDTLS_ERR_SSL_WANT_READ;
-        if (errno == ECONNRESET) return MBEDTLS_ERR_NET_CONN_RESET;
+        int e = sock_error();
+        if (e == E_INTR) continue;
+        if (e == E_AGAIN) return MBEDTLS_ERR_SSL_WANT_READ;
+        if (e == E_RESET) return MBEDTLS_ERR_NET_CONN_RESET;
         return MBEDTLS_ERR_NET_RECV_FAILED;
-    }
-}
-
-/* Waits until the socket is ready for what Mbed TLS asked for. */
-static void wait_for(int fd, int r) {
-    struct pollfd p = {fd, (short)(r == MBEDTLS_ERR_SSL_WANT_WRITE ? POLLOUT : POLLIN), 0};
-    while (poll(&p, 1, -1) < 0 && errno == EINTR) {
     }
 }
 
@@ -116,7 +169,7 @@ static int parse_pem_crt(mbedtls_x509_crt *crt, const char *pem, size_t n) {
 }
 
 /* The system's trusted roots: `SSL_CERT_FILE`, `SSL_CERT_DIR`, else the usual bundle
- * locations. Returns how many certificates it found. */
+ * locations (Windows: the ROOT store). Whether it found any. */
 static int load_roots(mbedtls_x509_crt *ca) {
     int found = 0;
     const char *file = getenv("SSL_CERT_FILE");
@@ -124,6 +177,18 @@ static int load_roots(mbedtls_x509_crt *ca) {
     const char *dir = getenv("SSL_CERT_DIR");
     if (dir && *dir && mbedtls_x509_crt_parse_path(ca, dir) >= 0) found = 1;
     if (found) return 1;
+#if defined(_WIN32)
+    HCERTSTORE store = CertOpenSystemStoreW(0, L"ROOT");
+    if (!store) return 0;
+    const CERT_CONTEXT *c = NULL;
+    while ((c = CertEnumCertificatesInStore(store, c))) {
+        if (c->dwCertEncodingType & X509_ASN_ENCODING &&
+            mbedtls_x509_crt_parse_der(ca, c->pbCertEncoded, c->cbCertEncoded) == 0)
+            found = 1;
+    }
+    CertCloseStore(store, 0);
+    return found;
+#else
     static const char *const bundles[] = {
         "/etc/ssl/cert.pem",                  /* macOS, Alpine, OpenBSD */
         "/etc/ssl/certs/ca-certificates.crt", /* Debian, Ubuntu, Arch */
@@ -138,6 +203,7 @@ static int load_roots(mbedtls_x509_crt *ca) {
         }
     }
     return 0;
+#endif
 }
 
 static void set_err(char *err, size_t cap, const char *what, int r) {
@@ -236,8 +302,7 @@ int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
     }
 #endif
-    int fl = fcntl(fd, F_GETFL);
-    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+    set_nonblocking(fd, 1);
     mbedtls_ssl_set_bio(&t->ssl, &t->fd, bio_send, bio_recv, NULL);
     for (;;) {
         r = mbedtls_ssl_handshake(&t->ssl);
@@ -259,7 +324,7 @@ int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n
         } else {
             set_err(err, errcap, "TLS: handshake failed", r);
         }
-        if (fl >= 0) fcntl(fd, F_SETFL, fl);
+        set_nonblocking(fd, 0);
         tls_free(t);
         return -1;
     }
@@ -339,27 +404,3 @@ void ppl_tls_free(int fd) {
     pthread_mutex_unlock(&table_lock);
     if (t) tls_free(t);
 }
-
-#else
-/* No TLS on Windows yet (P8.3). */
-int ppl_tls_has(int fd) {
-    (void)fd;
-    return 0;
-}
-int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n1,
-                  const char *pem2, size_t n2, char *err, size_t errcap) {
-    (void)fd, (void)mode, (void)host, (void)pem1, (void)n1, (void)pem2, (void)n2;
-    if (errcap) err[0] = 0;
-    return -1;
-}
-ptrdiff_t ppl_tls_read(int fd, void *buf, size_t n) {
-    (void)fd, (void)buf, (void)n;
-    return -2;
-}
-ptrdiff_t ppl_tls_write(int fd, const void *buf, size_t n) {
-    (void)fd, (void)buf, (void)n;
-    return -2;
-}
-void ppl_tls_close_notify(int fd) { (void)fd; }
-void ppl_tls_free(int fd) { (void)fd; }
-#endif

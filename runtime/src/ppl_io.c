@@ -6,12 +6,15 @@
  * Errors are portable kinds (the job's `r` is -kind, `r2` the errno), so messages are the same
  * in the interpreter, which runs the same operations with Rust's std::fs. */
 #define _GNU_SOURCE
+#if defined(_WIN32)
+#define _CRT_RAND_S /* rand_s */
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#endif
 #include "ppl_rt.h"
 #include "ppl_crypto.h"
 
-#if defined(_WIN32)
-#define _CRT_RAND_S /* rand_s */
-#endif
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -258,6 +261,8 @@ static const char *dir_next(DirIter *d);
 static void dir_close(DirIter *d);
 /* Runs file job `j` on a pool thread. */
 static void run(Job *j);
+/* Runs socket job `j` (30–35; `std/net` below). */
+static void net_run(Job *j);
 
 /* Appends to the job's text result. */
 static void text_add(Job *j, const char *p, size_t n) {
@@ -1353,14 +1358,9 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
     }
 }
 
-/* ---- `std/net` (spec §13.4) ----
- * Every operation that may block (accept, connect, receiving, sending, resolving) is a job on
- * a thread of its own. Reading and writing a TCP stream are the pipe jobs (20–22). Closing
- * while a job waits is arranged by the library: it shuts the socket down (or wakes the job
- * with a connection or a datagram to itself) and closes the descriptor once the job is done,
- * so a descriptor is never reused under a waiting job. */
+/* ---- the socket shims (see `std/net` below) ---- */
 
-static void ignore_sigpipe(void) {
+static void net_init(void) {
     static int done;
     if (!done) {
         signal(SIGPIPE, SIG_IGN);
@@ -1368,201 +1368,19 @@ static void ignore_sigpipe(void) {
     }
 }
 
-/* "host port" of an address. */
-static void addr_text(Job *j, const struct sockaddr *sa) {
-    char host[INET6_ADDRSTRLEN] = "?";
-    int port = 0;
-    if (sa->sa_family == AF_INET) {
-        const struct sockaddr_in *in = (const struct sockaddr_in *)sa;
-        inet_ntop(AF_INET, &in->sin_addr, host, sizeof host);
-        port = ntohs(in->sin_port);
-    } else if (sa->sa_family == AF_INET6) {
-        const struct sockaddr_in6 *in = (const struct sockaddr_in6 *)sa;
-        inet_ntop(AF_INET6, &in->sin6_addr, host, sizeof host);
-        port = ntohs(in->sin6_port);
-    }
-    char line[INET6_ADDRSTRLEN + 16];
-    int n = snprintf(line, sizeof line, "%s %d", host, port);
-    text_add(j, line, (size_t)n);
-}
+typedef int sock_t;
+#define SOCK_NONE ((int64_t)-1)
 
-/* "local-host local-port remote-host remote-port" of a connected socket. */
-static void ends_text(Job *j, int fd) {
-    struct sockaddr_storage a;
-    socklen_t n = sizeof a;
-    memset(&a, 0, sizeof a);
-    getsockname(fd, (struct sockaddr *)&a, &n);
-    addr_text(j, (struct sockaddr *)&a);
-    text_add(j, " ", 1);
-    n = sizeof a;
-    memset(&a, 0, sizeof a);
-    getpeername(fd, (struct sockaddr *)&a, &n);
-    addr_text(j, (struct sockaddr *)&a);
-}
+/* A new UDP socket's settings (none needed). */
+static void sock_udp(int64_t s) { (void)s; }
 
-static struct addrinfo *lookup(Job *j, const char *host, int port, int udp, int passive) {
-    struct addrinfo hints, *res = NULL;
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = udp ? SOCK_DGRAM : SOCK_STREAM;
-    hints.ai_flags = passive ? AI_PASSIVE : 0;
-    char serv[16];
-    snprintf(serv, sizeof serv, "%d", port);
-    int e = getaddrinfo(host, serv, &hints, &res);
-    if (e != 0) {
-        j->r = -K_HOST_NOT_FOUND;
-        j->r2 = e;
-        return NULL;
-    }
-    return res;
-}
+/* errno after a failed socket call (already set on POSIX). */
+static void sock_failed(void) {}
 
-static void net_run(Job *j) {
-    ignore_sigpipe();
-    switch (j->op) {
-    case 30: { /* listen (b = 0) or bind a UDP socket (b = 1): s = host, a = port */
-        struct addrinfo *res = lookup(j, j->s, (int)j->a, (int)j->b, 1);
-        if (!res) return;
-        int fd = -1, e = 0;
-        for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
-            fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-            if (fd < 0) {
-                e = errno;
-                continue;
-            }
-            int one = 1;
-            if (!j->b) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-            if (bind(fd, ai->ai_addr, ai->ai_addrlen) == 0 && (j->b || listen(fd, 128) == 0))
-                break;
-            e = errno;
-            close(fd);
-            fd = -1;
-        }
-        freeaddrinfo(res);
-        if (fd < 0) {
-            errno = e;
-            fail(j);
-            return;
-        }
-        fcntl(fd, F_SETFD, FD_CLOEXEC);
-        struct sockaddr_storage a;
-        socklen_t n = sizeof a;
-        getsockname(fd, (struct sockaddr *)&a, &n);
-        addr_text(j, (struct sockaddr *)&a);
-        j->r = fd;
-        return;
-    }
-    case 31: { /* accept on listener a */
-        int fd;
-        do fd = accept((int)j->a, NULL, NULL);
-        while (fd < 0 && errno == EINTR);
-        if (fd < 0) {
-            fail(j);
-            return;
-        }
-        fcntl(fd, F_SETFD, FD_CLOEXEC);
-        ends_text(j, fd);
-        j->r = fd;
-        return;
-    }
-    case 32: { /* connect to s, port a */
-        struct addrinfo *res = lookup(j, j->s, (int)j->a, 0, 0);
-        if (!res) return;
-        int fd = -1, e = 0;
-        for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
-            fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-            if (fd < 0) {
-                e = errno;
-                continue;
-            }
-            int r;
-            do r = connect(fd, ai->ai_addr, ai->ai_addrlen);
-            while (r < 0 && errno == EINTR);
-            if (r == 0) break;
-            e = errno;
-            close(fd);
-            fd = -1;
-        }
-        freeaddrinfo(res);
-        if (fd < 0) {
-            errno = e;
-            fail(j);
-            return;
-        }
-        fcntl(fd, F_SETFD, FD_CLOEXEC);
-        ends_text(j, fd);
-        j->r = fd;
-        return;
-    }
-    case 33: { /* receive a datagram on a, at most b bytes: r = handle, r2 = count */
-        size_t n = j->b > 0 ? (size_t)j->b : 1;
-        char *b = calloc(n, 1);
-        if (!b) abort();
-        struct sockaddr_storage from;
-        memset(&from, 0, sizeof from);
-        socklen_t fl = sizeof from;
-        ssize_t k;
-        do k = recvfrom((int)j->a, b, n, 0, (struct sockaddr *)&from, &fl);
-        while (k < 0 && errno == EINTR);
-        if (k < 0) {
-            free(b);
-            fail(j);
-            return;
-        }
-        addr_text(j, (struct sockaddr *)&from);
-        j->r = (int64_t)(intptr_t)b;
-        j->r2 = k;
-        return;
-    }
-    case 34: { /* send t's bytes from socket a to s = "port host" */
-        char *sp = strchr(j->s, ' ');
-        int port = atoi(j->s);
-        struct addrinfo *res = lookup(j, sp ? sp + 1 : "", port, 1, 0);
-        if (!res) return;
-        /* An address of the socket's family. */
-        struct sockaddr_storage mine;
-        socklen_t ml = sizeof mine;
-        memset(&mine, 0, sizeof mine);
-        getsockname((int)j->a, (struct sockaddr *)&mine, &ml);
-        struct addrinfo *to = res;
-        for (struct addrinfo *ai = res; ai; ai = ai->ai_next)
-            if (ai->ai_family == mine.ss_family) {
-                to = ai;
-                break;
-            }
-        ssize_t k;
-        do k = sendto((int)j->a, j->t, j->tlen, 0, to->ai_addr, to->ai_addrlen);
-        while (k < 0 && errno == EINTR);
-        freeaddrinfo(res);
-        if (k < 0) {
-            fail(j);
-            return;
-        }
-        j->r = k;
-        return;
-    }
-    case 35: { /* resolve s: "address\0" each, without repeats */
-        struct addrinfo *res = lookup(j, j->s, 0, 0, 0);
-        if (!res) return;
-        for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
-            Job one;
-            memset(&one, 0, sizeof one);
-            addr_text(&one, ai->ai_addr);
-            char *sp = one.text ? strrchr(one.text, ' ') : NULL;
-            if (sp) *sp = 0;
-            size_t len = one.text ? strlen(one.text) : 0;
-            int seen = 0;
-            for (size_t i = 0; j->text && i < j->text_len; i += strlen(j->text + i) + 1)
-                if (strcmp(j->text + i, one.text) == 0) seen = 1;
-            if (!seen && len) text_add(j, one.text, len + 1);
-            free(one.text);
-        }
-        freeaddrinfo(res);
-        if (!j->text) text_add(j, "", 0);
-        return;
-    }
-    }
-}
+static void sock_close(int64_t s) { close((int)s); }
+
+/* Not inherited by children. */
+static void sock_private(int64_t s) { fcntl((int)s, F_SETFD, FD_CLOEXEC); }
 
 /* Starts job `j` (op < 100), which reports to its queue when it's done. */
 static void os_submit(Job *j) {
@@ -1997,6 +1815,99 @@ static int remove_all(const char *path) {
     return remove_one(path, &in);
 }
 
+/* ---- the socket shims (see `std/net` below) ---- */
+
+typedef SOCKET sock_t;
+#define SOCK_NONE ((int64_t)INVALID_SOCKET)
+/* (mswsock.h: ignore ICMP "port unreachable" on UDP sockets, which would fail a later
+ * receive.) */
+#ifndef SIO_UDP_CONNRESET
+#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
+
+static pthread_once_t wsa_once = PTHREAD_ONCE_INIT;
+
+static void wsa_start(void) {
+    WSADATA d;
+    if (WSAStartup(MAKEWORD(2, 2), &d) != 0) abort();
+}
+
+static void net_init(void) { pthread_once(&wsa_once, wsa_start); }
+
+/* A Winsock error as the POSIX errno the kinds come from. */
+static int wsa_errno(int e) {
+    switch (e) {
+    case WSAECONNREFUSED: return ECONNREFUSED;
+    case WSAECONNRESET:
+    case WSAECONNABORTED:
+    case WSAESHUTDOWN:
+    case WSAENETRESET: return ECONNRESET;
+    case WSAEADDRINUSE: return EADDRINUSE;
+    case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
+    case WSAETIMEDOUT: return ETIMEDOUT;
+    case WSAEACCES: return EACCES;
+    case WSAEINTR: return EINTR;
+    case WSAENETUNREACH: return ENETUNREACH;
+    case WSAEHOSTUNREACH: return EHOSTUNREACH;
+    default: return EIO;
+    }
+}
+
+static void sock_failed(void) { errno = wsa_errno(WSAGetLastError()); }
+
+static void sock_close(int64_t s) { closesocket((SOCKET)s); }
+
+static void sock_private(int64_t s) { SetHandleInformation((HANDLE)(intptr_t)s, HANDLE_FLAG_INHERIT, 0); }
+
+static void sock_udp(int64_t s) {
+    BOOL off = FALSE;
+    DWORD n = 0;
+    WSAIoctl((SOCKET)s, SIO_UDP_CONNRESET, &off, sizeof off, NULL, 0, &n, NULL, NULL);
+}
+
+/* Whether handle `a` is a socket (pipe jobs read and write both). */
+static int is_socket(int64_t a) {
+    if (a <= 2) return 0;
+    net_init();
+    int type = 0, len = sizeof type;
+    return getsockopt((SOCKET)a, SOL_SOCKET, SO_TYPE, (char *)&type, &len) == 0;
+}
+
+/* After `shutdown` or a cancelled wait (op 120), a read sees the end, as on POSIX. */
+static int read_ended(int e) {
+    return e == WSAESHUTDOWN || e == WSAEINTR || e == WSA_OPERATION_ABORTED ||
+           e == WSAECONNABORTED;
+}
+
+/* Reads from socket `a` (TLS sessions first): bytes read, 0 at the end, -1 with errno set. */
+static ptrdiff_t sock_read(int64_t a, char *b, size_t n) {
+    ptrdiff_t k = ppl_tls_read((int)a, b, n);
+    if (k != -2) return k;
+    int got = recv((SOCKET)a, b, n > 0x40000000 ? 0x40000000 : (int)n, 0);
+    if (got >= 0) return got;
+    int e = WSAGetLastError();
+    if (read_ended(e)) return 0;
+    errno = wsa_errno(e);
+    return -1;
+}
+
+static int sock_write(int64_t a, const char *p, size_t n) {
+    ptrdiff_t t = ppl_tls_write((int)a, p, n);
+    if (t != -2) return t < 0 ? -1 : 0;
+    while (n > 0) {
+        int k = send((SOCKET)a, p, n > 0x40000000 ? 0x40000000 : (int)n, 0);
+        if (k < 0) {
+            int e = WSAGetLastError();
+            errno = e == WSAECONNRESET || e == WSAECONNABORTED || e == WSAESHUTDOWN ? EPIPE
+                                                                                   : wsa_errno(e);
+            return -1;
+        }
+        p += k;
+        n -= (size_t)k;
+    }
+    return 0;
+}
+
 /* ---- `std/process` (spec §13.3) on Windows ----
  * Pipe ends are handles (passed to ppl as integers in place of POSIX fds; 0, 1 and 2 still
  * mean this process's standard streams). A child inherits only its three standard handles
@@ -2265,11 +2176,22 @@ static void child_wait(Job *j) {
     j->r2 = sig;
 }
 
-/* Reads pipe or stream `a` (job 20): r = buffer, r2 = count (0 at the end). */
+/* Reads pipe, stream or socket `a` (job 20): r = buffer, r2 = count (0 at the end). */
 static void pipe_read(Job *j) {
     size_t n = j->b > 0 ? (size_t)j->b : 1;
     char *b = calloc(n, 1);
     if (!b) abort();
+    if (is_socket(j->a)) {
+        ptrdiff_t got = sock_read(j->a, b, n);
+        if (got < 0) {
+            free(b);
+            fail(j);
+            return;
+        }
+        j->r = (int64_t)(intptr_t)b;
+        j->r2 = got;
+        return;
+    }
     DWORD k = 0;
     if (!ReadFile(handle_of(j->a), b, n > 0x40000000 ? 0x40000000 : (DWORD)n, &k, NULL)) {
         DWORD e = GetLastError();
@@ -2287,6 +2209,14 @@ static void pipe_read(Job *j) {
 
 /* Writes to pipe or stream `a` (job 21). A reader that's gone is EPIPE, as on POSIX. */
 static void pipe_write(Job *j) {
+    if (is_socket(j->a)) {
+        if (sock_write(j->a, j->t, j->tlen) < 0) {
+            fail(j);
+            return;
+        }
+        j->r = (int64_t)j->tlen;
+        return;
+    }
     if (write_handle(handle_of(j->a), j->t, j->tlen) < 0) {
         DWORD e = GetLastError();
         if (e == ERROR_NO_DATA || e == ERROR_BROKEN_PIPE) fail_with(j, EPIPE);
@@ -2302,6 +2232,7 @@ static void pipe_read_all(Job *j) {
     char *buf = malloc(cap);
     if (!buf) abort();
     HANDLE h = handle_of(j->a);
+    int sock = is_socket(j->a);
     for (;;) {
         if (n == cap) {
             cap *= 2;
@@ -2310,6 +2241,17 @@ static void pipe_read_all(Job *j) {
         }
         DWORD k = 0;
         DWORD want = cap - n > 0x40000000 ? 0x40000000 : (DWORD)(cap - n);
+        if (sock) {
+            ptrdiff_t got = sock_read(j->a, buf + n, want);
+            if (got < 0) {
+                free(buf);
+                fail(j);
+                return;
+            }
+            if (got == 0) break;
+            n += (size_t)got;
+            continue;
+        }
         if (!ReadFile(h, buf + n, want, &k, NULL)) {
             DWORD e = GetLastError();
             if (e == ERROR_BROKEN_PIPE || e == ERROR_HANDLE_EOF) break;
@@ -2613,7 +2555,26 @@ static void run(Job *j) {
     case 21: pipe_write(j); return;
     case 22: pipe_read_all(j); return;
     case 23: child_wait(j); return;
-    default: /* sockets: P8.3c2 */
+    case 30:
+    case 31:
+    case 32:
+    case 33:
+    case 34:
+    case 35: net_run(j); return;
+    case 36: { /* TLS handshake on socket a: b = mode (ppl_tls_start), s = host, t = PEM
+                * text, then NUL and a second PEM text (a server's key); text = the error */
+        size_t n1 = j->t ? strlen(j->t) : 0;
+        const char *pem2 = j->t && n1 < j->tlen ? j->t + n1 + 1 : "";
+        size_t n2 = j->t && n1 < j->tlen ? j->tlen - n1 - 1 : 0;
+        char err[512];
+        if (ppl_tls_start((int)j->a, (int)j->b, j->s ? j->s : "", j->t ? j->t : "", n1, pem2,
+                          n2, err, sizeof err) < 0) {
+            j->r = -15;
+            text_add(j, err, strlen(err));
+        }
+        return;
+    }
+    default:
         fail_with(j, ENOSYS);
         return;
     }
@@ -2624,14 +2585,8 @@ static void os_submit(Job *j) {
         watch_next(j);
         return;
     }
-    if (j->op >= 20 && j->op <= 23) {
+    if ((j->op >= 20 && j->op <= 23) || (j->op >= 30 && j->op <= 36)) {
         run_solo(j);
-        return;
-    }
-    if (j->op > 15) {
-        /* (sockets: P8.3c2) */
-        fail_with(j, ENOSYS);
-        finish(j);
         return;
     }
     start_pool();
@@ -2674,6 +2629,16 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     }
     case 135: /* readlink(s): no links yet ("") */
         return result_job(q)->id;
+    case 120: { /* shutdown socket a: b = 0 reading, 1 writing, 2 both (TLS: close_notify first).
+                 * A blocked read doesn't notice a shutdown on Windows: it's cancelled too. */
+        if (b != 0) ppl_tls_close_notify((int)a);
+        int r = shutdown((SOCKET)a, b == 0 ? SD_RECEIVE : b == 1 ? SD_SEND : SD_BOTH);
+        if (b != 1) CancelIoEx((HANDLE)(intptr_t)a, NULL);
+        return r == 0 ? 0 : -1;
+    }
+    case 121: /* close socket a (and its TLS session) */
+        ppl_tls_free((int)a);
+        return closesocket((SOCKET)a) == 0 ? 0 : -1;
     case 110:
     case 111:
     case 112:
@@ -2690,6 +2655,230 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
 #else
 #error "ppl_io.c: no I/O for this platform"
 #endif
+
+/* ---- `std/net` (spec §13.4) ----
+ * Every operation that may block (accept, connect, receiving, sending, resolving) is a job on
+ * a thread of its own. Reading and writing a TCP stream are the pipe jobs (20–22). Closing
+ * while a job waits is arranged by the library: it shuts the socket down (or wakes the job
+ * with a connection or a datagram to itself) and closes the descriptor once the job is done,
+ * so a descriptor is never reused under a waiting job. The platform parts are the shims
+ * (`net_init`, `sock_failed`, `sock_close`, `sock_private`, `sock_udp`, `sock_t`). */
+
+/* "host port" of an address. */
+static void addr_text(Job *j, const struct sockaddr *sa) {
+    char host[INET6_ADDRSTRLEN] = "?";
+    int port = 0;
+    if (sa->sa_family == AF_INET) {
+        const struct sockaddr_in *in = (const struct sockaddr_in *)sa;
+        inet_ntop(AF_INET, &in->sin_addr, host, sizeof host);
+        port = ntohs(in->sin_port);
+    } else if (sa->sa_family == AF_INET6) {
+        const struct sockaddr_in6 *in = (const struct sockaddr_in6 *)sa;
+        inet_ntop(AF_INET6, &in->sin6_addr, host, sizeof host);
+        port = ntohs(in->sin6_port);
+    }
+    char line[INET6_ADDRSTRLEN + 16];
+    int n = snprintf(line, sizeof line, "%s %d", host, port);
+    text_add(j, line, (size_t)n);
+}
+
+/* "local-host local-port remote-host remote-port" of a connected socket. */
+static void ends_text(Job *j, int64_t fd) {
+    struct sockaddr_storage a;
+    socklen_t n = sizeof a;
+    memset(&a, 0, sizeof a);
+    getsockname((sock_t)fd, (struct sockaddr *)&a, &n);
+    addr_text(j, (struct sockaddr *)&a);
+    text_add(j, " ", 1);
+    n = sizeof a;
+    memset(&a, 0, sizeof a);
+    getpeername((sock_t)fd, (struct sockaddr *)&a, &n);
+    addr_text(j, (struct sockaddr *)&a);
+}
+
+static struct addrinfo *lookup(Job *j, const char *host, int port, int udp, int passive) {
+    struct addrinfo hints, *res = NULL;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = udp ? SOCK_DGRAM : SOCK_STREAM;
+    hints.ai_flags = passive ? AI_PASSIVE : 0;
+    char serv[16];
+    snprintf(serv, sizeof serv, "%d", port);
+    int e = getaddrinfo(host, serv, &hints, &res);
+    if (e != 0) {
+        j->r = -K_HOST_NOT_FOUND;
+        j->r2 = e;
+        return NULL;
+    }
+    return res;
+}
+
+static void net_run(Job *j) {
+    net_init();
+    switch (j->op) {
+    case 30: { /* listen (b = 0) or bind a UDP socket (b = 1): s = host, a = port */
+        struct addrinfo *res = lookup(j, j->s, (int)j->a, (int)j->b, 1);
+        if (!res) return;
+        int64_t fd = -1;
+        int e = 0;
+        for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+            fd = (int64_t)socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+            if (fd == SOCK_NONE) {
+                sock_failed();
+                e = errno;
+                fd = -1;
+                continue;
+            }
+#if !defined(_WIN32)
+            /* (On Windows that would let others take the port; it isn't needed there.) */
+            int one = 1;
+            if (!j->b) setsockopt((int)fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+#endif
+            if (bind((sock_t)fd, ai->ai_addr, (socklen_t)ai->ai_addrlen) == 0 &&
+                (j->b || listen((sock_t)fd, 128) == 0))
+                break;
+            sock_failed();
+            e = errno;
+            sock_close(fd);
+            fd = -1;
+        }
+        freeaddrinfo(res);
+        if (fd < 0) {
+            errno = e;
+            fail(j);
+            return;
+        }
+        sock_private(fd);
+        if (j->b) sock_udp(fd);
+        struct sockaddr_storage a;
+        socklen_t n = sizeof a;
+        getsockname((sock_t)fd, (struct sockaddr *)&a, &n);
+        addr_text(j, (struct sockaddr *)&a);
+        j->r = fd;
+        return;
+    }
+    case 31: { /* accept on listener a */
+        int64_t fd;
+        do {
+            fd = (int64_t)accept((sock_t)j->a, NULL, NULL);
+            if (fd == SOCK_NONE) sock_failed();
+        } while (fd == SOCK_NONE && errno == EINTR);
+        if (fd == SOCK_NONE) {
+            fail(j);
+            return;
+        }
+        sock_private(fd);
+        ends_text(j, fd);
+        j->r = fd;
+        return;
+    }
+    case 32: { /* connect to s, port a */
+        struct addrinfo *res = lookup(j, j->s, (int)j->a, 0, 0);
+        if (!res) return;
+        int64_t fd = -1;
+        int e = 0;
+        for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+            fd = (int64_t)socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+            if (fd == SOCK_NONE) {
+                sock_failed();
+                e = errno;
+                fd = -1;
+                continue;
+            }
+            int r;
+            do {
+                r = connect((sock_t)fd, ai->ai_addr, (socklen_t)ai->ai_addrlen);
+                if (r < 0) sock_failed();
+            } while (r < 0 && errno == EINTR);
+            if (r == 0) break;
+            e = errno;
+            sock_close(fd);
+            fd = -1;
+        }
+        freeaddrinfo(res);
+        if (fd < 0) {
+            errno = e;
+            fail(j);
+            return;
+        }
+        sock_private(fd);
+        ends_text(j, fd);
+        j->r = fd;
+        return;
+    }
+    case 33: { /* receive a datagram on a, at most b bytes: r = handle, r2 = count */
+        size_t n = j->b > 0 ? (size_t)j->b : 1;
+        char *b = calloc(n, 1);
+        if (!b) abort();
+        struct sockaddr_storage from;
+        memset(&from, 0, sizeof from);
+        socklen_t fl = sizeof from;
+        ptrdiff_t k;
+        do {
+            k = recvfrom((sock_t)j->a, b, (int)n, 0, (struct sockaddr *)&from, &fl);
+            if (k < 0) sock_failed();
+        } while (k < 0 && errno == EINTR);
+        if (k < 0) {
+            free(b);
+            fail(j);
+            return;
+        }
+        addr_text(j, (struct sockaddr *)&from);
+        j->r = (int64_t)(intptr_t)b;
+        j->r2 = k;
+        return;
+    }
+    case 34: { /* send t's bytes from socket a to s = "port host" */
+        char *sp = strchr(j->s, ' ');
+        int port = atoi(j->s);
+        struct addrinfo *res = lookup(j, sp ? sp + 1 : "", port, 1, 0);
+        if (!res) return;
+        /* An address of the socket's family. */
+        struct sockaddr_storage mine;
+        socklen_t ml = sizeof mine;
+        memset(&mine, 0, sizeof mine);
+        getsockname((sock_t)j->a, (struct sockaddr *)&mine, &ml);
+        struct addrinfo *to = res;
+        for (struct addrinfo *ai = res; ai; ai = ai->ai_next)
+            if (ai->ai_family == mine.ss_family) {
+                to = ai;
+                break;
+            }
+        ptrdiff_t k;
+        do {
+            k = sendto((sock_t)j->a, j->t, (int)j->tlen, 0, to->ai_addr, (socklen_t)to->ai_addrlen);
+            if (k < 0) sock_failed();
+        } while (k < 0 && errno == EINTR);
+        freeaddrinfo(res);
+        if (k < 0) {
+            fail(j);
+            return;
+        }
+        j->r = k;
+        return;
+    }
+    case 35: { /* resolve s: "address\0" each, without repeats */
+        struct addrinfo *res = lookup(j, j->s, 0, 0, 0);
+        if (!res) return;
+        for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+            Job one;
+            memset(&one, 0, sizeof one);
+            addr_text(&one, ai->ai_addr);
+            char *sp = one.text ? strrchr(one.text, ' ') : NULL;
+            if (sp) *sp = 0;
+            size_t len = one.text ? strlen(one.text) : 0;
+            int seen = 0;
+            for (size_t i = 0; j->text && i < j->text_len; i += strlen(j->text + i) + 1)
+                if (strcmp(j->text + i, one.text) == 0) seen = 1;
+            if (!seen && len) text_add(j, one.text, len + 1);
+            free(one.text);
+        }
+        freeaddrinfo(res);
+        if (!j->text) text_add(j, "", 0);
+        return;
+    }
+    }
+}
 
 /* Fills `p` with `n` bytes from the system's randomness; 0 if there's none. */
 static int random_bytes(char *p, size_t n) {

@@ -26,6 +26,7 @@ pub const LIBS: &[&str] = &[
     "api-ms-win-crt-time-l1-1-0",
     "api-ms-win-crt-utility-l1-1-0",
     "advapi32",
+    "crypt32",
     "kernel32",
     "ntdll",
     "shell32",
