@@ -5,9 +5,13 @@ expression: "ir(r#\"\nfunction add(a: i32, b: i32): i32 { a + b }\nfunction half
 ; ModuleID = 'test.ppl'
 source_filename = "test.ppl"
 
+%ppl.Performance = type {}
+
 @ppl.global.__finalizationRegistries = internal thread_local global ptr null
 @ppl.global.__loop = internal thread_local global ptr null
 @ppl.global.__buffers = internal thread_local global ptr null
+@ppl.global.__zoneCache = internal thread_local global ptr null
+@ppl.global.performance = internal thread_local global %ppl.Performance zeroinitializer
 @ppl.global.Uint8Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @ppl.global.Int32Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @ppl.global.Uint32Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
@@ -15,11 +19,12 @@ source_filename = "test.ppl"
 @ppl.global.Float64Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @ppl_gc_requested = external thread_local global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
-@ppl.cstr.37 = private unnamed_addr constant [8 x i8] c"test.ppl"
-@ppl.cstr.38 = private unnamed_addr constant [16 x i8] c"division by zero"
+@ppl.cstr.39 = private unnamed_addr constant [8 x i8] c"test.ppl"
+@ppl.cstr.40 = private unnamed_addr constant [16 x i8] c"division by zero"
 @ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.layout.39 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.layout.40 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.41 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.42 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.43 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 
 define internal i32 @ppl.add(i32 %0, i32 %1) {
 start:
@@ -48,7 +53,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb0
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.37, i64 8, i32 2, i32 37)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.39, i64 8, i32 2, i32 37)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -78,7 +83,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb0
-  call void @ppl_panic(ptr @ppl.cstr.38, i64 16, ptr @ppl.cstr.37, i64 8, i32 3, i32 30)
+  call void @ppl_panic(ptr @ppl.cstr.40, i64 16, ptr @ppl.cstr.39, i64 8, i32 3, i32 30)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -208,31 +213,38 @@ gc.continue:                                      ; preds = %gc.collect, %start
 
 define void @ppl_entry() {
 start:
-  %gc.globals = alloca { i64, [3 x { ptr, ptr, ptr }] }, align 8
-  %0 = getelementptr inbounds nuw { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 0
-  store i64 3, ptr %0, align 4
-  %1 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 0
+  %gc.globals = alloca { i64, [4 x { ptr, ptr, ptr }] }, align 8
+  %0 = getelementptr inbounds nuw { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 0
+  store i64 4, ptr %0, align 4
+  %1 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 0
   store ptr null, ptr %1, align 8
-  %2 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 1
+  %2 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 1
   store ptr @ppl.layout, ptr %2, align 8
-  %3 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 2
+  %3 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 0, i32 2
   store ptr @ppl.global.__finalizationRegistries, ptr %3, align 8
-  %4 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 0
+  %4 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 0
   store ptr null, ptr %4, align 8
-  %5 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 1
-  store ptr @ppl.layout.39, ptr %5, align 8
-  %6 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 2
+  %5 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 1
+  store ptr @ppl.layout.41, ptr %5, align 8
+  %6 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 2
   store ptr @ppl.global.__loop, ptr %6, align 8
-  %7 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 0
+  %7 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 0
   store ptr null, ptr %7, align 8
-  %8 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 1
-  store ptr @ppl.layout.40, ptr %8, align 8
-  %9 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 2
+  %8 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 1
+  store ptr @ppl.layout.42, ptr %8, align 8
+  %9 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 2
   store ptr @ppl.global.__buffers, ptr %9, align 8
+  %10 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 3, i32 0
+  store ptr null, ptr %10, align 8
+  %11 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 3, i32 1
+  store ptr @ppl.layout.43, ptr %11, align 8
+  %12 = getelementptr { i64, [4 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 3, i32 2
+  store ptr @ppl.global.__zoneCache, ptr %12, align 8
   call void @ppl_gc_set_globals(ptr %gc.globals)
+  %t0 = alloca %ppl.Performance, align 8
   %gc.requested = load i32, ptr @ppl_gc_requested, align 4
-  %10 = icmp ne i32 %gc.requested, 0
-  br i1 %10, label %gc.collect, label %gc.continue
+  %13 = icmp ne i32 %gc.requested, 0
+  br i1 %13, label %gc.collect, label %gc.continue
 
 bb0:                                              ; preds = %gc.continue
   call void @"ppl.Uint8Array.<static>"()
@@ -258,6 +270,10 @@ bb5:                                              ; preds = %bb4
   store ptr null, ptr @ppl.global.__finalizationRegistries, align 8
   store ptr null, ptr @ppl.global.__loop, align 8
   store ptr null, ptr @ppl.global.__buffers, align 8
+  store ptr null, ptr @ppl.global.__zoneCache, align 8
+  store %ppl.Performance undef, ptr %t0, align 1
+  %14 = load %ppl.Performance, ptr %t0, align 1
+  store %ppl.Performance %14, ptr @ppl.global.performance, align 1
   br label %bb6
 
 bb6:                                              ; preds = %bb5

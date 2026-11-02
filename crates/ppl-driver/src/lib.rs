@@ -286,6 +286,10 @@ const PRELUDE: &[(&str, &str)] = &[
         "<core>/regex.ppl",
         include_str!("../../../stdlib/core/regex.ppl"),
     ),
+    (
+        "<core>/time.ppl",
+        include_str!("../../../stdlib/core/time.ppl"),
+    ),
 ];
 
 /// The exit code of a program that panicked (spec §7.5).

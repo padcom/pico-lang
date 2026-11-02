@@ -1609,10 +1609,17 @@ impl<'p> Checker<'p> {
     }
 
     fn expr_kind(&mut self, e: &Expr, want: Option<&Expect>) -> Ty {
+        // A literal checked against literal types or a union (`T?` of one too) picks the
+        // member it fits.
+        fn lit_target(t: &Ty) -> bool {
+            match t {
+                Ty::Lits(..) | Ty::Union(..) => true,
+                Ty::Nullable(inner) => matches!(**inner, Ty::Lits(..) | Ty::Union(..)),
+                _ => false,
+            }
+        }
         match &e.kind {
-            ExprKind::Int(v, None)
-                if want.is_some_and(|w| matches!(w.ty, Ty::Lits(..) | Ty::Union(..))) =>
-            {
+            ExprKind::Int(v, None) if want.is_some_and(|w| lit_target(&w.ty)) => {
                 let w = want.expect("checked");
                 self.lit_in(e, &LitVal::Int(*v as i128), &w.ty)
             }
@@ -1626,15 +1633,11 @@ impl<'p> Checker<'p> {
                 }
                 _ => Ty::NUMBER,
             },
-            ExprKind::Str(s)
-                if want.is_some_and(|w| matches!(w.ty, Ty::Lits(..) | Ty::Union(..))) =>
-            {
+            ExprKind::Str(s) if want.is_some_and(|w| lit_target(&w.ty)) => {
                 let w = want.expect("checked");
                 self.lit_in(e, &LitVal::Str(s.as_str().into()), &w.ty)
             }
-            ExprKind::Bool(b)
-                if want.is_some_and(|w| matches!(w.ty, Ty::Lits(..) | Ty::Union(..))) =>
-            {
+            ExprKind::Bool(b) if want.is_some_and(|w| lit_target(&w.ty)) => {
                 let w = want.expect("checked");
                 self.lit_in(e, &LitVal::Bool(*b), &w.ty)
             }
@@ -4017,6 +4020,19 @@ impl<'p> Checker<'p> {
         {
             return self.discriminated_object(e, *eid, ename, disc, fields);
         }
+        // A union with one struct member (`Duration | DurationParts`): the literal is that
+        // member.
+        let union_want = match want.map(|w| (&w.ty, w)) {
+            Some((Ty::Union(_, ms), w)) => {
+                let structs: Vec<&Ty> = ms.iter().filter(|m| matches!(m, Ty::Struct(..))).collect();
+                match structs.as_slice() {
+                    [one] => Some(Expect::from((*one).clone(), w.origin)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let want = union_want.as_ref().or(want);
         let sid = match (ty, want.map(|w| &w.ty)) {
             (Some(s), _) => s,
             (None, Some(Ty::Struct(s, _, _))) => *s,
@@ -4315,6 +4331,10 @@ impl<'p> Checker<'p> {
     /// A literal where a literal type or a union is expected: the literal type (or union
     /// member) it belongs to.
     fn lit_in(&mut self, e: &Expr, lit: &LitVal, want: &Ty) -> Ty {
+        let want = match want {
+            Ty::Nullable(inner) => &**inner,
+            w => w,
+        };
         let base = match lit {
             LitVal::Str(_) => Ty::Str,
             LitVal::Int(_) => Ty::INT,

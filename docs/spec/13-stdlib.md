@@ -345,3 +345,35 @@ or it panics), `split(separator, limit = -1)` (a regex's groups are spliced in),
 `RegExp`: `match(re)` (`exec`'s match without `g`; with `g`, every match's text as the elements
 and `index` -1), `matchAll(re): RegExpMatch[]`, `search(re): int`. A replacement is a string with
 `$&`, `$1`…`$99`, `$<name>`, `` $` ``, `$'` and `$$`, or a function `(m: RegExpMatch) => string`.
+
+## 13.8 Time
+`std/time` follows Temporal, with exact times in `int` nanoseconds (so instants span 1678–2262):
+
+- `Duration`: an exact length (`ofSeconds(n)`, `ofMilliseconds(n)`, … `ofDays(n)` as 24 hours,
+  `of({ hours: 1, minutes: 30 })`, `parse("PT1H30M")`), with `plus`, `minus`, `times`,
+  `dividedBy`, `negated`, `abs`, `sign`, `totalSeconds()`… and ISO 8601 `toString()` (hours are
+  the largest unit: `PT36H`).
+- `Instant`: a point on the UTC time line (`now()`, `fromEpochMilliseconds(ms)`,
+  `parse("2024-03-10T12:30:00Z")`, which needs `Z` or an offset), with `plus`/`minus` a
+  `Duration`, `since`/`until`, comparisons, `inZone(zone)` and `toString()` in UTC.
+- `TimeZone`: `utc()`, `local()` (`TZ`, else `/etc/localtime`), `of(id)` for IANA ids
+  (`Europe/Berlin`, from the system's tz database: `/usr/share/zoneinfo` or `TZDIR`, with each
+  file's POSIX rule beyond its last transition) and offsets (`+05:30`), `fixed(seconds)`; it
+  gives the offset, abbreviation and DST flag at an instant. An unknown id throws `RangeError`.
+- `DateTime`: an instant in a zone with its ISO calendar fields (`year`, `month` 1–12, `day`,
+  `hour`, …, `dayOfWeek` 1 = Monday, `dayOfYear`, `weekOfYear`, `offset`).
+  `DateTime.of(y, m, d, h, mi, s, ns, zone, disambiguation)` resolves wall-clock times that a
+  zone skips or repeats like Temporal (`"compatible"`: later in a gap, earlier in an overlap;
+  `"earlier"`, `"later"`). `plus`/`minus` take a `Duration` (exact) or `DurationParts`
+  (`{ months: 1, days: 2, hours: 3 }`: years and months keep the day, clamped to the month's
+  end; days keep the wall-clock time; smaller units are exact). Also `with({ day: 1 })`,
+  `withZone`, `startOfDay`, `parse` (`…+01:00[Europe/Berlin]`; a mismatched offset throws),
+  `toString()` (with `[zone]`), `toIsoString()` and `format(pattern)` (`yyyy-MM-dd HH:mm:ss`,
+  `EEE`, `MMMM`, `a`, `XXX`, `z`, `VV`, `'quoted'`; see the doc comment).
+
+The `Date` global is JavaScript's: a `number` of milliseconds (`NaN` when invalid) seen in
+local time or UTC, with the same constructor forms, getters, setters, `Date.UTC`, `Date.parse`
+(ISO 8601 and the `toString`/`toUTCString` forms) and string forms, except that `toString`
+shows the zone's abbreviation (`GMT+0100 (CET)`) and `toISOString` of an invalid date panics.
+`performance.now()` is milliseconds since the program started (`performance.timeOrigin()` when
+it did, since 1970).

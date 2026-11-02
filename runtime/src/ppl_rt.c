@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* ---------------------------------------------------------------- memory: see ppl_gc.c */
 
@@ -883,10 +884,17 @@ uint64_t ppl_ipow_u(uint64_t base, uint64_t exp, int32_t bits, int32_t *overflow
 /* The program's arguments, for `std/process` (`args`). */
 int ppl_argc;
 char **ppl_argv;
+/* When the program started (monotonic nanoseconds), for `performance.now()`. */
+int64_t ppl_start_ns;
 
 int main(int argc, char **argv) {
     ppl_argc = argc;
     ppl_argv = argv;
+#if !defined(_WIN32)
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    ppl_start_ns = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#endif
     ppl_entry();
     fflush(stdout);
     return 0;

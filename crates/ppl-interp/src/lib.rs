@@ -240,6 +240,7 @@ pub fn run_with(
         args,
         ..Default::default()
     });
+    let _ = shared.start.set(std::time::Instant::now());
     let mut it = Interp::new(program, Some(out), shared.clone(), None);
     let r = it
         .call(program.entry, Vec::new(), Loc::default())

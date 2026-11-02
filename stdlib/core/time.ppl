@@ -1,0 +1,986 @@
+// Time support for the `Date` and `performance` globals (spec §13.1) and `std/time`: civil
+// calendar arithmetic (proleptic Gregorian), time zones from the system's TZif files
+// (`/usr/share/zoneinfo`, or `TZDIR`) with their POSIX `TZ` rules for later years, and the
+// local zone (`TZ`, else `/etc/localtime`). Clocks are `__io` 133 (nanoseconds: 0 the wall
+// clock, 1 monotonic); zone files are read with `__io` 134 and links with 135.
+
+/// Nanoseconds since 1970 (the wall clock).
+function __wallNanos(): int {
+  __io(133, 0, 0, 0, "", "")
+}
+
+/// A monotonic clock in nanoseconds (an arbitrary origin).
+function __monoNanos(): int {
+  __io(133, 1, 0, 0, "", "")
+}
+
+/// `a / b` rounded towards negative infinity (`b > 0`).
+function __floorDiv(a: int, b: int): int {
+  const q = a / b
+  if (a % b != 0 && a < 0) q - 1 else q
+}
+
+/// `a` modulo `b`, in `0..b` (`b > 0`).
+function __floorMod(a: int, b: int): int {
+  const r = a % b
+  if (r < 0) r + b else r
+}
+
+/// Days since 1970-01-01 of a civil date (months 1–12; days may overflow the month).
+function __daysFromCivil(year: int, month: int, day: int): int {
+  // Months past 12 or below 1 roll into other years.
+  const y0 = year + __floorDiv(month - 1, 12)
+  const m = __floorMod(month - 1, 12) + 1
+  const y = if (m <= 2) y0 - 1 else y0
+  const era = __floorDiv(y, 400)
+  const yoe = y - era * 400
+  const mp = if (m > 2) m - 3 else m + 9
+  const doy = (153 * mp + 2) / 5 + day - 1
+  const doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+  era * 146097 + doe - 719468
+}
+
+/// The civil date `[year, month, day]` of a day number (days since 1970-01-01).
+function __civilFromDays(days: int): int[] {
+  const z = days + 719468
+  const era = __floorDiv(z, 146097)
+  const doe = z - era * 146097
+  const yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+  const doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+  const mp = (5 * doy + 2) / 153
+  const d = doy - (153 * mp + 2) / 5 + 1
+  const m = if (mp < 10) mp + 3 else mp - 9
+  const y = yoe + era * 400 + (if (m <= 2) 1 else 0)
+  [y, m, d]
+}
+
+function __isLeapYear(y: int): bool {
+  (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
+
+function __daysInMonth(y: int, m: int): int {
+  if (m == 2) {
+    if (__isLeapYear(y)) 29 else 28
+  } else if (m == 4 || m == 6 || m == 9 || m == 11) {
+    30
+  } else {
+    31
+  }
+}
+
+/// The weekday of a day number: 0 = Sunday … 6 = Saturday (1970-01-01 was a Thursday).
+function __weekday(days: int): int {
+  __floorMod(days + 4, 7)
+}
+
+/// `n` as at least `width` digits (a leading `-` for negatives).
+function __pad(n: int, width: int): string {
+  if (n < 0) {
+    return "-" + __pad(-n, width)
+  }
+  `${n}`.padStart(width, "0")
+}
+
+/// A year as ISO 8601 writes it: 4 digits, or a sign and 6 beyond 0000–9999.
+function __isoYear(y: int): string {
+  if (y >= 0 && y <= 9999) __pad(y, 4) else if (y < 0) "-" + __pad(-y, 6) else "+" + __pad(y, 6)
+}
+
+/// An offset in seconds as `+01:00` (seconds too when there are any).
+function __offsetText(off: int, colon: bool = true): string {
+  const sign = if (off < 0) "-" else "+"
+  const a = if (off < 0) -off else off
+  const sep = if (colon) ":" else ""
+  const base = sign + __pad(a / 3600, 2) + sep + __pad((a / 60) % 60, 2)
+  if (a % 60 != 0) base + sep + __pad(a % 60, 2) else base
+}
+
+// ---- POSIX TZ rules ----
+
+/// A POSIX `TZ` string's rule (`CET-1CEST,M3.5.0,M10.5.0/3`): standard time, and optionally
+/// daylight time between two yearly dates. Offsets are seconds east of UTC.
+class __PosixTz {
+  public stdName: string = "UTC"
+  public stdOffset: int = 0
+  public dstName: string = ""
+  public dstOffset: int = 0
+  public hasDst: bool = false
+  /// Each rule: kind (0 `Jn`, 1 `n`, 2 `Mm.w.d`), its three numbers and the time of day.
+  public startRule: int[] = [2, 3, 2, 0, 7200]
+  public endRule: int[] = [2, 10, 5, 0, 7200]
+
+  constructor() {}
+
+  /// Parses `s`, or gives `null` when it isn't a POSIX TZ string.
+  public static parse(s: string): __PosixTz? {
+    const p = new __TzParser(s)
+    const z = new __PosixTz()
+    const n = p.name()
+    if (n == null) return null
+    z.stdName = n
+    const o = p.offset()
+    if (o == null) return null
+    z.stdOffset = -o
+    if (p.done()) return z
+    const dn = p.name()
+    if (dn == null) return null
+    z.dstName = dn
+    z.hasDst = true
+    z.dstOffset = z.stdOffset + 3600
+    if (!p.done() && p.peek() != ",") {
+      const d = p.offset()
+      if (d == null) return null
+      z.dstOffset = -d
+    }
+    if (p.done()) return z
+    if (!p.eat(",")) return null
+    const r1 = p.rule()
+    if (r1 == null || !p.eat(",")) return null
+    const r2 = p.rule()
+    if (r2 == null || !p.done()) return null
+    z.startRule = r1
+    z.endRule = r2
+    z
+  }
+
+  /// The instant (epoch seconds) a rule's transition happens in `year`; `offset` is the
+  /// offset in force before it.
+  public static ruleAt(r: int[], year: int, offset: int): int {
+    let day = 0
+    if (r[0] == 0) {
+      // Jn: day 1–365, February 29 never counted.
+      const n = r[1]
+      day = __daysFromCivil(year, 1, 1) + n - 1
+      if (__isLeapYear(year) && n >= 60) day += 1
+    } else if (r[0] == 1) {
+      day = __daysFromCivil(year, 1, 1) + r[1]
+    } else {
+      // Mm.w.d: the w-th weekday d of month m (5 = the last).
+      const m = r[1]
+      const first = __daysFromCivil(year, m, 1)
+      let d = first + __floorMod(r[3] - __weekday(first), 7) + (r[2] - 1) * 7
+      while (d >= first + __daysInMonth(year, m)) d -= 7
+      day = d
+    }
+    day * 86400 + r[4] - offset
+  }
+
+  public isDst(t: int): bool {
+    if (!this.hasDst) return false
+    const y = __civilFromDays(__floorDiv(t + this.stdOffset, 86400))[0]
+    const start = __PosixTz.ruleAt(this.startRule, y, this.stdOffset)
+    const end = __PosixTz.ruleAt(this.endRule, y, this.dstOffset)
+    if (start < end) t >= start && t < end else t < end || t >= start
+  }
+
+  public offsetAt(t: int): int {
+    if (this.isDst(t)) this.dstOffset else this.stdOffset
+  }
+
+  public nameAt(t: int): string {
+    if (this.isDst(t)) this.dstName else this.stdName
+  }
+}
+
+class __TzParser {
+  public s: string
+  public i: int = 0
+
+  constructor(s: string) {
+    this.s = s
+  }
+
+  public done(): bool {
+    this.i >= this.s.length
+  }
+
+  public peek(): string {
+    if (this.done()) "" else `${this.s[this.i]}`
+  }
+
+  public eat(c: string): bool {
+    if (this.peek() == c) {
+      this.i += 1
+      return true
+    }
+    false
+  }
+
+  /// A zone name: letters, or anything in `<…>`.
+  public name(): string? {
+    if (this.eat("<")) {
+      const start = this.i
+      while (!this.done() && this.peek() != ">") this.i += 1
+      const n = this.s.slice(start, this.i)
+      if (!this.eat(">")) return null
+      return n
+    }
+    const start = this.i
+    while (!this.done()) {
+      const c = this.s[this.i]
+      if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) break
+      this.i += 1
+    }
+    if (this.i - start < 3) null else this.s.slice(start, this.i)
+  }
+
+  public num(): int? {
+    const start = this.i
+    let n = 0
+    while (!this.done()) {
+      const c = this.s[this.i]
+      if (c < '0' || c > '9') break
+      n = n * 10 + ((c as u32) as int) - 48
+      this.i += 1
+    }
+    if (this.i == start) null else n
+  }
+
+  /// `[+-]hh[:mm[:ss]]` in seconds (west of UTC is positive, as POSIX writes it).
+  public offset(): int? {
+    let sign = 1
+    if (this.eat("-")) {
+      sign = -1
+    } else {
+      this.eat("+");
+    }
+    const h = this.num()
+    if (h == null) return null
+    let t = h * 3600
+    if (this.eat(":")) {
+      const m = this.num()
+      if (m == null) return null
+      t += m * 60
+      if (this.eat(":")) {
+        const s = this.num()
+        if (s == null) return null
+        t += s
+      }
+    }
+    sign * t
+  }
+
+  public rule(): int[]? {
+    let r: int[] = []
+    if (this.eat("M")) {
+      const m = this.num()
+      if (m == null || !this.eat(".")) return null
+      const w = this.num()
+      if (w == null || !this.eat(".")) return null
+      const d = this.num()
+      if (d == null) return null
+      r = [2, m, w, d]
+    } else if (this.eat("J")) {
+      const n = this.num()
+      if (n == null) return null
+      r = [0, n, 0, 0]
+    } else {
+      const n = this.num()
+      if (n == null) return null
+      r = [1, n, 0, 0]
+    }
+    let at = 7200
+    if (this.eat("/")) {
+      const o = this.offset()
+      if (o == null) return null
+      at = o
+    }
+    r.push(at)
+    r
+  }
+}
+
+// ---- Zones ----
+
+/// A time zone's rules: transitions from its TZif file, then its POSIX rule.
+class __Zone {
+  public readonly id: string
+  /// Transition instants (epoch seconds), ascending, and the type each one starts.
+  public times: int[] = []
+  public kinds: int[] = []
+  /// Per type: offset (seconds east of UTC), daylight time, abbreviation.
+  public offsets: int[] = []
+  public dst: bool[] = []
+  public names: string[] = []
+  /// For instants after the last transition (or all of them, for a rule-only zone).
+  public rule: __PosixTz? = null
+
+  constructor(id: string) {
+    this.id = id
+  }
+
+  public static fixed(id: string, offset: int, name: string): __Zone {
+    const z = new __Zone(id)
+    const r = new __PosixTz()
+    r.stdName = name
+    r.stdOffset = offset
+    z.rule = r
+    z
+  }
+
+  /// The type in force at `t` (epoch seconds), or -1 when the rule decides.
+  kindAt(t: int): int {
+    const n = this.times.length
+    if (n == 0) {
+      return if (this.offsets.length > 0 && this.rule == null) 0 else -1
+    }
+    if (t < this.times[0]) {
+      // Before the first transition: the first standard-time type (else type 0).
+      for (let k = 0; k < this.dst.length; k++) {
+        if (!this.dst[k]) return k
+      }
+      return 0
+    }
+    if (t >= this.times[n - 1] && this.rule != null) return -1
+    let lo = 0
+    let hi = n - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) / 2
+      if (this.times[mid] <= t) lo = mid else hi = mid - 1
+    }
+    this.kinds[lo]
+  }
+
+  /// The offset from UTC (seconds) at instant `t` (epoch seconds).
+  public offsetAt(t: int): int {
+    const k = this.kindAt(t)
+    if (k >= 0) return this.offsets[k]
+    const r = this.rule
+    if (r != null) r.offsetAt(t) else 0
+  }
+
+  /// The zone's abbreviation at `t` (`CET`, `EDT`).
+  public nameAt(t: int): string {
+    const k = this.kindAt(t)
+    if (k >= 0) return this.names[k]
+    const r = this.rule
+    if (r != null) r.nameAt(t) else "UTC"
+  }
+
+  public isDstAt(t: int): bool {
+    const k = this.kindAt(t)
+    if (k >= 0) return this.dst[k]
+    const r = this.rule
+    if (r != null) r.isDst(t) else false
+  }
+
+  /// The instant (epoch seconds) of wall-clock time `w` (seconds since 1970 as if UTC). In
+  /// a gap the offset before it is used (so 02:30 in a spring-forward gap is 03:30); in an
+  /// overlap `later` picks the second of the two (else the first), as Temporal's
+  /// "compatible" disambiguation does.
+  public instantOf(w: int, later: bool = false): int {
+    const before = this.offsetAt(w - 86400)
+    const after = this.offsetAt(w + 86400)
+    const okBefore = this.offsetAt(w - before) == before
+    const okAfter = this.offsetAt(w - after) == after
+    if (okBefore && okAfter && before != after) {
+      return if (later) w - after else w - before
+    }
+    if (okBefore) return w - before
+    if (okAfter) return w - after
+    // A gap: the offset before it moves the time forward.
+    w - before
+  }
+
+  /// Parses TZif data (RFC 8536, versions 1–4; the 64-bit part when there is one).
+  public static fromTzif(id: string, b: Uint8Array): __Zone? {
+    if (b.length < 44 || b.get(0) != 84 || b.get(1) != 90 || b.get(2) != 105 || b.get(3) != 102) {
+      return null
+    }
+    const z = new __Zone(id)
+    let p = 0
+    let wide = false
+    if (b.get(4) >= 50) {
+      // Skip the 32-bit block to the 64-bit one.
+      const h = __TzifHead.read(b, 0)
+      p = 44 + h.size(4)
+      if (p + 44 > b.length) return null
+      wide = true
+    }
+    const h = __TzifHead.read(b, p)
+    const w = if (wide) 8 else 4
+    let q = p + 44
+    if (q + h.size(w) > b.length) return null
+    for (let i = 0; i < h.timecnt; i++) {
+      z.times.push(__tzifInt(b, q + i * w, w))
+    }
+    q += h.timecnt * w
+    for (let i = 0; i < h.timecnt; i++) {
+      z.kinds.push(b.get(q + i))
+    }
+    q += h.timecnt
+    const abbrAt = q + h.typecnt * 6
+    for (let i = 0; i < h.typecnt; i++) {
+      z.offsets.push(__tzifInt(b, q + i * 6, 4))
+      z.dst.push(b.get(q + i * 6 + 4) != 0)
+      const ai = b.get(q + i * 6 + 5)
+      let e = abbrAt + ai
+      let name = ""
+      while (e < abbrAt + h.charcnt && b.get(e) != 0) {
+        name = name + `${(b.get(e) as u32) as char}`
+        e += 1
+      }
+      z.names.push(name)
+    }
+    q = p + 44 + h.size(w)
+    if (wide && q < b.length && b.get(q) == 10) {
+      // The footer: a POSIX TZ string between newlines.
+      let e = q + 1
+      let s = ""
+      while (e < b.length && b.get(e) != 10) {
+        s = s + `${(b.get(e) as u32) as char}`
+        e += 1
+      }
+      if (s.length > 0) z.rule = __PosixTz.parse(s)
+    }
+    z
+  }
+}
+
+class __TzifHead {
+  public isutcnt: int = 0
+  public isstdcnt: int = 0
+  public leapcnt: int = 0
+  public timecnt: int = 0
+  public typecnt: int = 0
+  public charcnt: int = 0
+
+  constructor() {}
+
+  public static read(b: Uint8Array, p: int): __TzifHead {
+    const h = new __TzifHead()
+    h.isutcnt = __tzifInt(b, p + 20, 4)
+    h.isstdcnt = __tzifInt(b, p + 24, 4)
+    h.leapcnt = __tzifInt(b, p + 28, 4)
+    h.timecnt = __tzifInt(b, p + 32, 4)
+    h.typecnt = __tzifInt(b, p + 36, 4)
+    h.charcnt = __tzifInt(b, p + 40, 4)
+    h
+  }
+
+  /// The data block's size with `w`-byte times.
+  public size(w: int): int {
+    this.timecnt * w + this.timecnt + this.typecnt * 6 + this.charcnt + this.leapcnt * (w + 4) + this.isstdcnt + this.isutcnt
+  }
+}
+
+/// A big-endian signed integer of `w` (4 or 8) bytes.
+function __tzifInt(b: Uint8Array, p: int, w: int): int {
+  let n = 0
+  for (let i = 0; i < w; i++) {
+    n = (n << 8) | b.get(p + i)
+  }
+  if (w == 4 && n >= 0x80000000) n - 0x100000000 else n
+}
+
+let __zoneCache: Map<string, __Zone>? = null
+
+function __zones(): Map<string, __Zone> {
+  const c = __zoneCache
+  if (c != null) return c
+  const m = new Map<string, __Zone>()
+  __zoneCache = m
+  m
+}
+
+function __envVar(name: string): string? {
+  const job = __io(114, 0, 0, 0, name, "")
+  const found = __io(102, job, 0, 0, "", "") == 1
+  const value = __io_text(job)
+  __io(104, job, 0, 0, "", "");
+  if (found) value else null
+}
+
+function __readFileNow(path: string): Uint8Array? {
+  const job = __io(134, 0, 0, 0, path, "")
+  const h = __io(102, job, 0, 0, "", "")
+  const n = __io(103, job, 0, 0, "", "")
+  __io(104, job, 0, 0, "", "");
+  if (h == -1) null else new Uint8Array(new ArrayBuffer(h, n, true), 0, n)
+}
+
+function __zoneDir(): string {
+  const d = __envVar("TZDIR")
+  if (d != null && d.length > 0) d else "/usr/share/zoneinfo"
+}
+
+/// The zone named `id` (IANA, like `Europe/Berlin`, or `UTC`), or `null` if there's none.
+function __zoneNamed(id: string): __Zone? {
+  if (id == "UTC" || id == "Etc/UTC" || id == "Z") return __Zone.fixed("UTC", 0, "UTC")
+  const cache = __zones()
+  const hit = cache.get(id)
+  if (hit != null) return hit
+  if (id.length == 0 || id.startsWith("/") || id.includes("..") || id.includes("\\")) return null
+  const data = __readFileNow(__zoneDir() + "/" + id)
+  if (data == null) return null
+  const z = __Zone.fromTzif(id, data)
+  if (z != null) cache.set(id, z)
+  z
+}
+
+/// The local time zone: `TZ` (a zone name, `:name`, a file path or a POSIX rule), else
+/// `/etc/localtime` (named after its link target), else UTC.
+function __localZone(): __Zone {
+  const tz = __envVar("TZ")
+  if (tz != null) {
+    const spec = if (tz.startsWith(":")) tz.slice(1) else tz
+    if (spec.length == 0) return __Zone.fixed("UTC", 0, "UTC")
+    if (spec.startsWith("/")) {
+      const data = __readFileNow(spec)
+      if (data != null) {
+        const z = __Zone.fromTzif(spec, data)
+        if (z != null) return z
+      }
+    } else {
+      const z = __zoneNamed(spec)
+      if (z != null) return z
+      const r = __PosixTz.parse(spec)
+      if (r != null) {
+        const p = new __Zone(spec)
+        p.rule = r
+        return p
+      }
+    }
+    return __Zone.fixed("UTC", 0, "UTC")
+  }
+  const job = __io(135, 0, 0, 0, "/etc/localtime", "")
+  const link = __io_text(job)
+  __io(104, job, 0, 0, "", "");
+  const at = link.indexOf("zoneinfo/")
+  if (at >= 0) {
+    const z = __zoneNamed(link.slice(at + 9))
+    if (z != null) return z
+  }
+  const data = __readFileNow("/etc/localtime")
+  if (data != null) {
+    const z = __Zone.fromTzif("localtime", data)
+    if (z != null) return z
+  }
+  __Zone.fixed("UTC", 0, "UTC")
+}
+
+// ---- performance ----
+
+/// `performance` (High Resolution Time): `now()` is milliseconds since the program started.
+/// (A struct, so the global costs programs that don't use it nothing.)
+struct Performance {
+  /// Milliseconds (with a fraction) since the program started.
+  now(): number {
+    (__monoNanos() as f64) / 1000000.0
+  }
+
+  /// When the program started, in milliseconds since 1970.
+  timeOrigin(): number {
+    ((__wallNanos() - __monoNanos()) / 1000000) as f64
+  }
+}
+
+const performance = Performance {}
+
+// ---- Date ----
+
+function __dayName(d: int): string {
+  "SunMonTueWedThuFriSat".slice(d * 3, d * 3 + 3)
+}
+
+function __monthName(m: int): string {
+  "JanFebMarAprMayJunJulAugSepOctNovDec".slice(m * 3, m * 3 + 3)
+}
+
+/// JavaScript's `Date`: a time value in milliseconds since 1970 (`NaN` when invalid), seen
+/// in local time or UTC. Kept so ported code works; new code should use `std/time`.
+class Date {
+  t: number
+
+  /// `new Date()` is now; `new Date(ms)` a time value; `new Date("…")` parses (as
+  /// `Date.parse`); `new Date(y, m, …)` is a local date with a 0-based month.
+  constructor(value: number | string | Date | null = null, month: number? = null, day: number = 1, hours: number = 0, minutes: number = 0, seconds: number = 0, ms: number = 0) {
+    if (value == null) {
+      this.t = (__wallNanos() / 1000000) as f64
+      return
+    }
+    if (month != null) {
+      const y = match (value) {
+        n: number => n
+        _ => 0.0 / 0.0
+      }
+      this.t = Date.__clip(Date.__localToUtc(Date.__makeTime(Date.__fullYear(y), month, day, hours, minutes, seconds, ms)))
+      return
+    }
+    this.t = match (value) {
+      n: number => Date.__clip(n)
+      s: string => Date.parse(s)
+      d: Date => d.t
+    }
+  }
+
+  /// Milliseconds since 1970 now.
+  public static now(): number {
+    (__wallNanos() / 1000000) as f64
+  }
+
+  /// The time value of a UTC date (0-based month), like the constructor's local form.
+  public static UTC(year: number, month: number = 0, day: number = 1, hours: number = 0, minutes: number = 0, seconds: number = 0, ms: number = 0): number {
+    Date.__clip(Date.__makeTime(Date.__fullYear(year), month, day, hours, minutes, seconds, ms))
+  }
+
+  /// Parses ISO 8601 (`2024-03-10`, `2024-03-10T12:30:00.5Z`, `…+01:00`; date-only forms are
+  /// UTC, date-times without an offset local) and `toString`/`toUTCString` output. `NaN`
+  /// when it can't.
+  public static parse(s: string): number {
+    const iso = __parseIso(s.trim())
+    if (iso != null) {
+      const f = iso
+      const wall = (__daysFromCivil(f.year, f.month, f.day) * 86400 + f.hour * 3600 + f.minute * 60 + f.second) * 1000 + f.nano / 1000000
+      if (f.hasOffset) return Date.__clip((wall - f.offset * 1000) as f64)
+      if (!f.hasTime) return Date.__clip(wall as f64)
+      return Date.__clip(Date.__localToUtc(wall as f64))
+    }
+    __parseLegacyDate(s)
+  }
+
+  static __fullYear(y: number): number {
+    if (y == y && y >= 0.0 && y <= 99.0 && y == ((y as int) as f64)) 1900.0 + y else y
+  }
+
+  /// MakeDate(MakeDay(…), MakeTime(…)) of ECMAScript, as wall-clock milliseconds.
+  static __makeTime(year: number, month: number, day: number, h: number, mi: number, s: number, ms: number): number {
+    for (const v of [year, month, day, h, mi, s, ms]) {
+      if (v != v || v == 1.0 / 0.0 || v == -1.0 / 0.0) return 0.0 / 0.0
+    }
+    if (year > 400000.0 || year < -400000.0 || month > 1.0e7 || month < -1.0e7 || day > 1.0e9 || day < -1.0e9) {
+      return 0.0 / 0.0
+    }
+    const days = __daysFromCivil(year as int, (month as int) + 1, 1) as f64 + ((day as int) - 1) as f64
+    days * 86400000.0 + ((h as int) as f64) * 3600000.0 + ((mi as int) as f64) * 60000.0 + ((s as int) as f64) * 1000.0 + ((ms as int) as f64)
+  }
+
+  public static __clip(t: number): number {
+    if (t != t || t > 8.64e15 || t < -8.64e15) 0.0 / 0.0 else ((t as int) as f64)
+  }
+
+  /// Local wall-clock milliseconds → a time value.
+  public static __localToUtc(w: number): number {
+    if (w != w || w > 8.7e15 || w < -8.7e15) return 0.0 / 0.0
+    const wi = w as int
+    const sec = __floorDiv(wi, 1000)
+    const t = __localZone().instantOf(sec)
+    (t * 1000 + __floorMod(wi, 1000)) as f64
+  }
+
+  /// The local offset in seconds at this date.
+  __offset(): int {
+    __localZone().offsetAt(__floorDiv(this.t as int, 1000))
+  }
+
+  /// Wall-clock milliseconds of this date (local, or UTC).
+  __wall(utc: bool): int {
+    const ms = this.t as int
+    if (utc) ms else ms + this.__offset() * 1000
+  }
+
+  __field(utc: bool, which: int): number {
+    if (this.t != this.t) return 0.0 / 0.0
+    const w = this.__wall(utc)
+    const days = __floorDiv(w, 86400000)
+    const msOfDay = w - days * 86400000
+    const n = if (which < 3) {
+      const c = __civilFromDays(days)
+      if (which == 1) c[1] - 1 else c[which]
+    } else if (which == 3) {
+      __weekday(days)
+    } else if (which == 4) {
+      msOfDay / 3600000
+    } else if (which == 5) {
+      (msOfDay / 60000) % 60
+    } else if (which == 6) {
+      (msOfDay / 1000) % 60
+    } else {
+      msOfDay % 1000
+    }
+    n as f64
+  }
+
+  public getTime(): number { this.t }
+  public valueOf(): number { this.t }
+  public getFullYear(): number { this.__field(false, 0) }
+  public getMonth(): number { this.__field(false, 1) }
+  public getDate(): number { this.__field(false, 2) }
+  public getDay(): number { this.__field(false, 3) }
+  public getHours(): number { this.__field(false, 4) }
+  public getMinutes(): number { this.__field(false, 5) }
+  public getSeconds(): number { this.__field(false, 6) }
+  public getMilliseconds(): number { this.__field(false, 7) }
+  public getUTCFullYear(): number { this.__field(true, 0) }
+  public getUTCMonth(): number { this.__field(true, 1) }
+  public getUTCDate(): number { this.__field(true, 2) }
+  public getUTCDay(): number { this.__field(true, 3) }
+  public getUTCHours(): number { this.__field(true, 4) }
+  public getUTCMinutes(): number { this.__field(true, 5) }
+  public getUTCSeconds(): number { this.__field(true, 6) }
+  public getUTCMilliseconds(): number { this.__field(true, 7) }
+
+  /// Minutes behind UTC (`-60` in Central Europe in winter), as JavaScript has it.
+  public getTimezoneOffset(): number {
+    if (this.t != this.t) 0.0 / 0.0 else (-this.__offset() / 60) as f64
+  }
+
+  public setTime(t: number): number {
+    this.t = Date.__clip(t)
+    this.t
+  }
+
+  /// Replaces some fields (`-1`… means keep): the shared part of the setters.
+  __set(utc: bool, fields: number[], from: int): number {
+    // Current fields, then the new ones over them.
+    let cur: number[] = []
+    if (this.t != this.t) {
+      if (from != 0) return this.t
+      cur = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    } else {
+      for (const k of [0, 1, 2, 4, 5, 6, 7]) {
+        cur.push(this.__field(utc, k))
+      }
+    }
+    for (let i = 0; i < fields.length; i++) {
+      cur[from + i] = fields[i]
+    }
+    const w = Date.__makeTime(cur[0], cur[1], cur[2], cur[3], cur[4], cur[5], cur[6])
+    this.t = Date.__clip(if (utc) w else Date.__localToUtc(w))
+    this.t
+  }
+
+  public setFullYear(y: number, ...rest: number[]): number { this.__set(false, [y, ...rest], 0) }
+  public setMonth(m: number, ...rest: number[]): number { this.__set(false, [m, ...rest], 1) }
+  public setDate(d: number): number { this.__set(false, [d], 2) }
+  public setHours(h: number, ...rest: number[]): number { this.__set(false, [h, ...rest], 3) }
+  public setMinutes(m: number, ...rest: number[]): number { this.__set(false, [m, ...rest], 4) }
+  public setSeconds(s: number, ...rest: number[]): number { this.__set(false, [s, ...rest], 5) }
+  public setMilliseconds(ms: number): number { this.__set(false, [ms], 6) }
+  public setUTCFullYear(y: number, ...rest: number[]): number { this.__set(true, [y, ...rest], 0) }
+  public setUTCMonth(m: number, ...rest: number[]): number { this.__set(true, [m, ...rest], 1) }
+  public setUTCDate(d: number): number { this.__set(true, [d], 2) }
+  public setUTCHours(h: number, ...rest: number[]): number { this.__set(true, [h, ...rest], 3) }
+  public setUTCMinutes(m: number, ...rest: number[]): number { this.__set(true, [m, ...rest], 4) }
+  public setUTCSeconds(s: number, ...rest: number[]): number { this.__set(true, [s, ...rest], 5) }
+  public setUTCMilliseconds(ms: number): number { this.__set(true, [ms], 6) }
+
+  /// `2024-03-10T12:30:00.000Z`; panics on an invalid date (JavaScript throws `RangeError`).
+  public toISOString(): string {
+    if (this.t != this.t) panic("RangeError: Invalid time value")
+    const w = this.t as int
+    const days = __floorDiv(w, 86400000)
+    const c = __civilFromDays(days)
+    const ms = w - days * 86400000
+    `${__isoYear(c[0])}-${__pad(c[1], 2)}-${__pad(c[2], 2)}T${__pad(ms / 3600000, 2)}:${__pad((ms / 60000) % 60, 2)}:${__pad((ms / 1000) % 60, 2)}.${__pad(ms % 1000, 3)}Z`
+  }
+
+  /// `toISOString()`, or `null` for an invalid date.
+  public toJSON(): string? {
+    if (this.t != this.t) null else this.toISOString()
+  }
+
+  __yearText(y: int): string {
+    if (y < 0) "-" + __pad(-y, 6) else __pad(y, 4)
+  }
+
+  /// `Sun Mar 10 2024`
+  public toDateString(): string {
+    if (this.t != this.t) return "Invalid Date"
+    const y = this.getFullYear() as int
+    `${__dayName(this.getDay() as int)} ${__monthName(this.getMonth() as int)} ${__pad(this.getDate() as int, 2)} ${this.__yearText(y)}`
+  }
+
+  /// `12:30:00 GMT+0100 (CET)`
+  public toTimeString(): string {
+    if (this.t != this.t) return "Invalid Date"
+    const z = __localZone()
+    const sec = __floorDiv(this.t as int, 1000)
+    `${__pad(this.getHours() as int, 2)}:${__pad(this.getMinutes() as int, 2)}:${__pad(this.getSeconds() as int, 2)} GMT${__offsetText(z.offsetAt(sec), false)} (${z.nameAt(sec)})`
+  }
+
+  /// `Sun Mar 10 2024 12:30:00 GMT+0100 (CET)` (JavaScript's long zone names aren't kept;
+  /// the zone's abbreviation is shown).
+  public toString(): string {
+    if (this.t != this.t) "Invalid Date" else this.toDateString() + " " + this.toTimeString()
+  }
+
+  /// `Sun, 10 Mar 2024 11:30:00 GMT`
+  public toUTCString(): string {
+    if (this.t != this.t) return "Invalid Date"
+    const y = this.getUTCFullYear() as int
+    `${__dayName(this.getUTCDay() as int)}, ${__pad(this.getUTCDate() as int, 2)} ${__monthName(this.getUTCMonth() as int)} ${this.__yearText(y)} ${__pad(this.getUTCHours() as int, 2)}:${__pad(this.getUTCMinutes() as int, 2)}:${__pad(this.getUTCSeconds() as int, 2)} GMT`
+  }
+}
+
+// ---- ISO 8601 ----
+
+/// The fields of an ISO 8601 date or date-time.
+class __IsoFields {
+  public year: int = 0
+  public month: int = 1
+  public day: int = 1
+  public hour: int = 0
+  public minute: int = 0
+  public second: int = 0
+  public nano: int = 0
+  public hasTime: bool = false
+  public hasOffset: bool = false
+  /// Seconds east of UTC (`Z` is 0).
+  public offset: int = 0
+  /// A bracketed zone (`[Europe/Berlin]`), or "".
+  public zone: string = ""
+
+  constructor() {}
+}
+
+/// Parses `YYYY-MM-DD[THH:MM[:SS[.fff…]]][Z|±HH:MM][[Zone]]` (also `±YYYYYY` years and a space
+/// instead of `T`); `null` if `s` isn't one.
+function __parseIso(s: string): __IsoFields? {
+  const p = new __TzParser(s)
+  const f = new __IsoFields()
+  let sign = 1
+  let ylen = 4
+  if (p.eat("+")) {
+    ylen = 6
+  } else if (p.eat("-")) {
+    sign = -1
+    ylen = 6
+  }
+  const y = __isoDigits(p, ylen)
+  if (y == null) return null
+  f.year = sign * y
+  if (!p.eat("-")) return null
+  const m = __isoDigits(p, 2)
+  if (m == null || !p.eat("-")) return null
+  const d = __isoDigits(p, 2)
+  if (d == null) return null
+  f.month = m
+  f.day = d
+  if (m < 1 || m > 12 || d < 1 || d > __daysInMonth(f.year, m)) return null
+  if (p.eat("T") || p.eat("t") || p.eat(" ")) {
+    f.hasTime = true
+    const h = __isoDigits(p, 2)
+    if (h == null || !p.eat(":")) return null
+    const mi = __isoDigits(p, 2)
+    if (mi == null) return null
+    f.hour = h
+    f.minute = mi
+    if (p.eat(":")) {
+      const sec = __isoDigits(p, 2)
+      if (sec == null) return null
+      f.second = sec
+      if (p.eat(".") || p.eat(",")) {
+        let scale = 100000000
+        let n = 0
+        let digits = 0
+        while (!p.done() && p.peek() >= "0" && p.peek() <= "9") {
+          if (digits < 9) {
+            n += (((p.s[p.i] as u32) as int) - 48) * scale
+            scale /= 10
+          }
+          digits += 1
+          p.i += 1
+        }
+        if (digits == 0) return null
+        f.nano = n
+      }
+    }
+    if (h > 24 || mi > 59 || f.second > 59 || (h == 24 && (mi != 0 || f.second != 0 || f.nano != 0))) {
+      return null
+    }
+    if (p.eat("Z") || p.eat("z")) {
+      f.hasOffset = true
+    } else if (p.peek() == "+" || p.peek() == "-") {
+      const neg = p.peek() == "-"
+      p.i += 1
+      const oh = __isoDigits(p, 2)
+      if (oh == null) return null
+      p.eat(":")
+      const om = __isoDigits(p, 2)
+      if (om == null) return null
+      f.hasOffset = true
+      f.offset = (oh * 3600 + om * 60) * (if (neg) -1 else 1)
+    }
+  }
+  if (p.eat("[")) {
+    const start = p.i
+    while (!p.done() && p.peek() != "]") p.i += 1
+    f.zone = s.slice(start, p.i)
+    if (!p.eat("]") || f.zone.length == 0) return null
+  }
+  if (!p.done()) return null
+  f
+}
+
+function __isoDigits(p: __TzParser, n: int): int? {
+  let v = 0
+  for (let i = 0; i < n; i++) {
+    if (p.done()) return null
+    const c = p.s[p.i]
+    if (c < '0' || c > '9') return null
+    v = v * 10 + ((c as u32) as int) - 48
+    p.i += 1
+  }
+  v
+}
+
+/// `toString`/`toUTCString`-style dates: `[Day,] Mon DD YYYY HH:MM:SS GMT±hhmm` or
+/// `[Day,] DD Mon YYYY HH:MM:SS GMT`. `NaN` otherwise.
+function __parseLegacyDate(s: string): number {
+  const words = s.replace(",", " ").split(" ").filter((w) => w.length > 0)
+  let i = 0
+  if (words.length > 0 && "SunMonTueWedThuFriSat".includes(words[0]) && words[0].length == 3) i = 1
+  if (words.length < i + 3) return 0.0 / 0.0
+  let mon = -1
+  let day = -1
+  const a = words[i]
+  const b = words[i + 1]
+  if ("JanFebMarAprMayJunJulAugSepOctNovDec".indexOf(a) >= 0 && a.length == 3) {
+    mon = "JanFebMarAprMayJunJulAugSepOctNovDec".indexOf(a) / 3
+    day = __smallInt(b)
+  } else if ("JanFebMarAprMayJunJulAugSepOctNovDec".indexOf(b) >= 0 && b.length == 3) {
+    mon = "JanFebMarAprMayJunJulAugSepOctNovDec".indexOf(b) / 3
+    day = __smallInt(a)
+  }
+  const year = __smallInt(words[i + 2])
+  if (mon < 0 || day < 1 || year < 0) return 0.0 / 0.0
+  let h = 0
+  let mi = 0
+  let sec = 0
+  let utc = false
+  let off = 0
+  if (words.length > i + 3) {
+    const t = words[i + 3].split(":")
+    if (t.length < 2) return 0.0 / 0.0
+    h = __smallInt(t[0])
+    mi = __smallInt(t[1])
+    if (t.length > 2) sec = __smallInt(t[2])
+    if (h < 0 || mi < 0 || sec < 0) return 0.0 / 0.0
+    if (words.length > i + 4) {
+      const z = words[i + 4]
+      if (z == "GMT" || z == "UTC" || z == "Z") {
+        utc = true
+      } else if (z.startsWith("GMT") && z.length == 8) {
+        const hh = __smallInt(z.slice(4, 6))
+        const mm = __smallInt(z.slice(6, 8))
+        if (hh < 0 || mm < 0) return 0.0 / 0.0
+        utc = true
+        off = (hh * 60 + mm) * 60 * (if (z[3] == '-') -1 else 1)
+      }
+    }
+  }
+  const wall = ((__daysFromCivil(year, mon + 1, day) * 86400 + h * 3600 + mi * 60 + sec) * 1000) as f64
+  if (utc) wall - (off * 1000) as f64 else Date.__localToUtc(wall)
+}
+
+/// A non-negative decimal number, or -1.
+function __smallInt(s: string): int {
+  if (s.length == 0 || s.length > 9) return -1
+  let n = 0
+  for (const c of s) {
+    if (c < '0' || c > '9') return -1
+    n = n * 10 + ((c as u32) as int) - 48
+  }
+  n
+}

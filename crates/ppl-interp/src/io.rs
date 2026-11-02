@@ -349,6 +349,47 @@ impl Interp<'_, '_> {
         if (30..=35).contains(&op) {
             return Value::Int(i128::from(self.net_job(op, a, b, c, &s(4), &s(5))));
         }
+        if op == 133 {
+            // Clocks in nanoseconds: the wall clock, or a monotonic one.
+            let ns = if a == 1 {
+                let start = self.shared.start.get_or_init(std::time::Instant::now);
+                start.elapsed().as_nanos() as i128
+            } else {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_nanos() as i128)
+            };
+            return Value::Int(ns);
+        }
+        if op == 134 || op == 135 {
+            // Read a file now (time zone data), or a symbolic link's target.
+            let path = self.at(&s(4));
+            let (r, text) = if op == 134 {
+                match fs::read(&path) {
+                    Ok(bytes) => {
+                        let n = bytes.len() as i64;
+                        let h = self.shared.buffers.lock().expect("buffers").add(bytes);
+                        ((h, n), String::new())
+                    }
+                    Err(_) => ((-1, 0), String::new()),
+                }
+            } else {
+                let t = fs::read_link(&path)
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                ((0, 0), t)
+            };
+            let st = &mut self.io;
+            st.next_id += 1;
+            st.taken.push(Job {
+                id: st.next_id,
+                r: r.0,
+                r2: r.1,
+                text,
+                bytes: None,
+            });
+            return Value::Int(i128::from(st.next_id));
+        }
         if (130..=132).contains(&op) {
             // TextEncoder / TextDecoder, random bytes.
             let (r, r2, text, bytes) = if op == 132 {

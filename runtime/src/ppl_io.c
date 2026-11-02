@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -1560,6 +1561,49 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         if (got < n) abort(); /* no randomness: nothing safe to fall back on */
         j->r = (int64_t)(intptr_t)m;
         j->r2 = (int64_t)n;
+        return j->id;
+    }
+    case 133: { /* a clock in nanoseconds: a = 0 the wall clock (since 1970), 1 monotonic
+                 * (since the program started) */
+        extern int64_t ppl_start_ns;
+        struct timespec ts;
+        clock_gettime(a == 1 ? CLOCK_MONOTONIC : CLOCK_REALTIME, &ts);
+        int64_t ns = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+        return a == 1 ? ns - ppl_start_ns : ns;
+    }
+    case 134: { /* read file s whole, now: r = a buffer handle (or -1), r2 = its size */
+        Job *j = result_job(q);
+        j->r = -1;
+        char *path = cstr(s, NULL);
+        int fd = open(path, O_RDONLY | O_CLOEXEC);
+        free(path);
+        if (fd < 0) return j->id;
+        size_t cap = 4096, n = 0;
+        char *m = malloc(cap);
+        if (!m) abort();
+        for (;;) {
+            if (n == cap) {
+                cap *= 2;
+                m = realloc(m, cap);
+                if (!m) abort();
+            }
+            ssize_t k = read(fd, m + n, cap - n);
+            if (k < 0 && errno == EINTR) continue;
+            if (k <= 0) break;
+            n += (size_t)k;
+        }
+        close(fd);
+        j->r = (int64_t)(intptr_t)m;
+        j->r2 = (int64_t)n;
+        return j->id;
+    }
+    case 135: { /* readlink(s): text = the link's target ("" when s isn't a link) */
+        Job *j = result_job(q);
+        char buf[4096];
+        char *path = cstr(s, NULL);
+        ssize_t k = readlink(path, buf, sizeof buf - 1);
+        free(path);
+        if (k > 0) text_add(j, buf, (size_t)k);
         return j->id;
     }
     case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */

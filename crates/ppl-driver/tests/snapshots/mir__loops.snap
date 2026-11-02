@@ -5,11 +5,13 @@ expression: "mir(r#\"\nfunction sum(n: i64): i64 {\n  let total = 0\n  for (let 
 global @g0: () => bool[]? // __finalizationRegistries
 global @g1: __Loop? // __loop
 global @g2: FinalizationRegistry<i64>? // __buffers
-global @g3: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g4: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g5: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g6: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g7: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g3: Map<string, __Zone>? // __zoneCache
+global @g4: Performance // performance
+global @g5: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g6: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g7: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g8: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g9: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn sum(_0: i64) -> i64 {
     let _1: i64 // total
@@ -68,39 +70,40 @@ fn sum(_0: i64) -> i64 {
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g3 = const 1_i64
+    @g5 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g4 = const 4_i64
+    @g6 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g5 = const 4_i64
+    @g7 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g6 = const 4_i64
+    @g8 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g7 = const 8_i64
+    @g9 = const 8_i64
     return
 }
 
 fn <main>() -> void {
     let _0: i64 // i
-    let _1: i64
+    let _1: Performance
     let _2: i64
-    let _3: bool
+    let _3: i64
+    let _4: bool
   bb0:
     call Uint8Array.<static>() -> bb1
   bb1:
@@ -115,16 +118,19 @@ fn <main>() -> void {
     @g0 = const null<() => bool[]?>
     @g1 = const null<__Loop?>
     @g2 = const null<FinalizationRegistry<i64>?>
-    _2 = const 0_i64
+    @g3 = const null<Map<string, __Zone>?>
+    _1 = struct#111{}
+    @g4 = _1
+    _3 = const 0_i64
     goto bb6
   bb6:
-    _3 = Lt(_2, const 3_i64)
-    branch _3 -> [true: bb7, false: bb9]
+    _4 = Lt(_3, const 3_i64)
+    branch _4 -> [true: bb7, false: bb9]
   bb7:
-    _0 = _2
+    _0 = _3
     call builtin println(_0) -> bb10
   bb8:
-    _2 = Add(_2, const 1_i64)
+    _3 = Add(_3, const 1_i64)
     goto bb6
   bb9:
     goto bb11

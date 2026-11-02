@@ -280,6 +280,8 @@ impl Buffers {
 /// Everything a run's threads share: their output (in order), the workers and the buffers.
 #[derive(Default)]
 pub struct Shared {
+    /// When the program started (`performance.now()`).
+    pub start: std::sync::OnceLock<std::time::Instant>,
     pub buffers: Mutex<Buffers>,
     pub out: Mutex<Vec<u8>>,
     pub workers: Mutex<Vec<Arc<IWorker>>>,
