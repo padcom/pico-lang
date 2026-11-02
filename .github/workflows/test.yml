@@ -10,16 +10,10 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # The Linux job is allowed to fail until P8.0 (Linux host bring-up) is done.
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest
-            experimental: false
-          - os: ubuntu-24.04-arm
-            experimental: true
+        os: [macos-latest, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@v4
 

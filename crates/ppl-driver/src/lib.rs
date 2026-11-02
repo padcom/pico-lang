@@ -377,9 +377,6 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         .arg(ppl_runtime::static_lib())
         .args(ppl_runtime::crypto_libs())
         .args(ppl_runtime::host_link_flags());
-    if cfg!(target_os = "linux") {
-        cmd.arg("-lm");
-    }
     if !opts.release {
         // Panic traces name frames through the dynamic symbol table.
         if cfg!(target_os = "macos") {

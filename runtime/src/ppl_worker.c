@@ -214,8 +214,9 @@ static void encode_values(Enc *e, const char *src, int64_t bytes, const PplLayou
 }
 
 /* `ArrayBuffer`s (spec §10.3) are objects `{ class, handle, byteLength }` whose bytes live
- * off the heap at `handle`. Generated code defines this as their class metadata. */
-__attribute__((weak)) const void *const ppl_arraybuffer_class = NULL;
+ * off the heap at `handle`. Generated code defines this as their class metadata. (Not
+ * `const`: GCC folds a weak constant's initializer, so the override would never be read.) */
+__attribute__((weak)) const void *ppl_arraybuffer_class = NULL;
 
 int64_t ppl_buf_op(int64_t op, int64_t a, int64_t b, int64_t c);
 

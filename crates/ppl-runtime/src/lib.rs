@@ -14,6 +14,9 @@ pub const MACOS_MIN: &str = "13.0";
 pub fn host_link_flags() -> Vec<String> {
     if cfg!(target_os = "macos") {
         vec![format!("-mmacosx-version-min={MACOS_MIN}")]
+    } else if cfg!(target_os = "linux") {
+        // glibc keeps the math functions in libm.
+        vec!["-lm".to_string()]
     } else {
         Vec::new()
     }

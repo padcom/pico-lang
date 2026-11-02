@@ -26,6 +26,28 @@ int32_t ppl_instance_of(const void *obj, const void *info) {
     return 0;
 }
 
+/* `c³ - x`, exact enough to tell which of neighbouring `c`s is nearest the cube root. */
+static double cube_residual(double c, double x) {
+    double c2 = c * c;
+    return fma(c2, c, -x) + fma(c, c, -c2) * c;
+}
+
+/* glibc's `cbrt` can be ulps off (`cbrt(27)` is 3.0000000000000004); Rust's, which the
+ * interpreter uses, and JavaScript's are correctly rounded. `c³ - x` grows with `c`, so step
+ * towards the root while the residual shrinks. */
+static double cbrt_rounded(double x) {
+    double y = cbrt(x);
+    if (!(fabs(x) > 0x1p-900 && fabs(x) < 0x1p900)) return y; /* 0, NaN, ∞, extremes */
+    double err = cube_residual(y, x);
+    double dir = err > 0 ? -INFINITY : INFINITY;
+    for (int i = 0; i < 8; i++) {
+        double c = nextafter(y, dir), e = cube_residual(c, x);
+        if (!(fabs(e) < fabs(err))) break;
+        y = c, err = e;
+    }
+    return y;
+}
+
 /* `Math`'s floating-point functions by number (the interpreter's `math_op` has the same
  * table). */
 double ppl_math(int64_t op, double x, double y) {
@@ -46,7 +68,7 @@ double ppl_math(int64_t op, double x, double y) {
     case 13: return floor(x);
     case 14: return ceil(x);
     case 15: return trunc(x);
-    case 16: return cbrt(x);
+    case 16: return cbrt_rounded(x);
     case 17: return hypot(x, y);
     case 18: return sinh(x);
     case 19: return cosh(x);
@@ -755,15 +777,20 @@ void ppl_guard_pop(void) {
  * top level is `ppl_entry`; anything else (the runtime, libc) is NULL. */
 static const char *frame_name(void *addr) {
 #if defined(__APPLE__) || defined(__linux__)
-    Dl_info info;
+    Dl_info info, self;
     /* A return address can point just past its function (after a call to a noreturn
      * function), so look up the byte before it. */
-    if (dladdr((char *)addr - 1, &info) && info.dli_sname) {
+    if (dladdr((char *)addr - 1, &info)) {
         const char *n = info.dli_sname;
-        if (n[0] == '_' && strncmp(n + 1, "ppl", 3) == 0) n++;
-        if (strncmp(n, "ppl.", 4) == 0) return n + 4;
-        if (strcmp(n, "ppl_entry") == 0) return "<main>";
-        return NULL;
+        if (n) {
+            if (n[0] == '_' && strncmp(n + 1, "ppl", 3) == 0) n++;
+            if (strncmp(n, "ppl.", 4) == 0) return n + 4;
+            if (strcmp(n, "ppl_entry") == 0) return "<main>";
+            return NULL;
+        }
+        /* No symbol outside the executable (glibc's static `__libc_start_call_main`): not
+         * ours. The runtime is linked into the executable, so this function's object is it. */
+        if (dladdr((void *)frame_name, &self) && info.dli_fbase != self.dli_fbase) return NULL;
     }
 #else
     (void)addr;

@@ -1,4 +1,5 @@
 /* The ppl heap (spec §9): allocation, roots and the collector. */
+#define _POSIX_C_SOURCE 200809L
 #include "ppl_rt.h"
 
 #include <stdio.h>

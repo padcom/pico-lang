@@ -6,7 +6,7 @@
 |------|---------|--------|
 | Rust (rustc, cargo, rustfmt, clippy) | 1.99.0 | rustup, pinned by `rust-toolchain.toml` |
 | rustup | 1.29.1 | Homebrew `rustup` (keg-only) |
-| LLVM (llvm-config, clang, libLLVM) | 23.1.3 | Homebrew `llvm@23` (keg-only) |
+| LLVM (llvm-config, clang, libLLVM) | 23.1.x | Homebrew `llvm@23` (keg-only) on macOS, apt.llvm.org `llvm-23` on Linux |
 | inkwell | 0.11 with feature `llvm23-1` | crates.io (added in P2.6) |
 | llvm-sys | 231.x (pulled in by inkwell) | crates.io |
 
@@ -93,8 +93,8 @@ script with `-mmacosx-version-min=13.0`.
 
 These come with the tasks that need them (ask before installing):
 
-- **lld**: Homebrew's `llvm@23` doesn't ship it; it's the separate `lld` formula (on Linux it's
-  `lld-23`, installed with LLVM). Needed for P8.1.
+- **lld** (macOS only): Homebrew's `llvm@23` doesn't ship it; it's the separate `lld` formula.
+  Needed for P8.1. On Linux, `lld-23` comes with LLVM.
 - **wasmtime**: P8.5.
 - **qemu-user** (`qemu-user-static` + binfmt): for running x86-64 Linux binaries on the arm64 host
   (P8.1, P8.2).

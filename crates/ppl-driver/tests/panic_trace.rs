@@ -36,7 +36,7 @@ fn normalize(s: &str) -> String {
 }
 
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn native_debug_trace() {
     let checked = ppl_driver::check_source("trace.ppl", SRC);
     assert!(!checked.has_errors(), "{}", checked.render_diagnostics());
