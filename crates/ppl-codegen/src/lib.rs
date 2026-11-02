@@ -47,7 +47,7 @@ pub struct Options {
 /// The textual LLVM IR for `program` (`ppl build --emit llvm-ir`).
 pub fn emit_llvm_ir(program: &Program) -> String {
     let cx = Context::create();
-    let m = generate(&cx, program, false);
+    let m = generate(&cx, program, Setjmp::Posix);
     m.print_to_string().to_string()
 }
 
@@ -94,8 +94,15 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
         )
         .ok_or("cannot create an LLVM target machine")?;
     let cx = Context::create();
-    let windows = triple.as_str().to_string_lossy().contains("windows");
-    let m = generate(&cx, program, windows);
+    let t = triple.as_str().to_string_lossy();
+    let setjmp = if !t.contains("windows") {
+        Setjmp::Posix
+    } else if t.starts_with("x86_64") {
+        Setjmp::Ucrt
+    } else {
+        Setjmp::Mingw
+    };
+    let m = generate(&cx, program, setjmp);
     // Frame pointers let a panic walk the stack; debug builds also export ppl's functions, so
     // the trace can name every frame (`dladdr`).
     let mut f = m.get_first_function();
@@ -127,8 +134,20 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
         .map_err(|e| e.to_string())
 }
 
-/// `windows`: the target is Windows (MinGW), which changes how `try` regions call `setjmp`.
-fn generate<'ctx>(cx: &'ctx Context, program: &Program, windows: bool) -> Module<'ctx> {
+/// Which setjmp `try` regions call: one whose longjmp (the runtime's `ppl_longjmp`) jumps
+/// without unwinding or restoring signal masks.
+#[derive(Clone, Copy, PartialEq)]
+enum Setjmp {
+    /// `_setjmp`.
+    Posix,
+    /// x64 Windows: the UCRT's setjmp with no frame (its longjmp then doesn't unwind).
+    Ucrt,
+    /// arm64 Windows, where the UCRT's longjmp always unwinds (and fails on frames without
+    /// unwind tables): MinGW's `__mingw_setjmp`.
+    Mingw,
+}
+
+fn generate<'ctx>(cx: &'ctx Context, program: &Program, setjmp: Setjmp) -> Module<'ctx> {
     let m = cx.create_module(&program.file);
     let mut g = Gen {
         cx,
@@ -148,7 +167,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program, windows: bool) -> Module
         itables: Vec::new(),
         exception: None,
         layouts: Default::default(),
-        windows,
+        setjmp,
     };
     // Struct types first (named, so they can refer to each other), then their bodies.
     g.structs = program
@@ -210,8 +229,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program, windows: bool) -> Module
 }
 
 struct Gen<'ctx, 'p> {
-    /// Compiling for Windows.
-    windows: bool,
+    setjmp: Setjmp,
     cx: &'ctx Context,
     m: Module<'ctx>,
     b: Builder<'ctx>,
@@ -744,7 +762,7 @@ impl<'ctx> Gen<'ctx, '_> {
             }
             "ppl_guard_push" => void.fn_type(&[ptr.into()], false),
             "ppl_guard_pop" | "ppl_resume" => void.fn_type(&[], false),
-            "_setjmp" => i32t.fn_type(&[ptr.into()], false),
+            "_setjmp" | "__mingw_setjmp" => i32t.fn_type(&[ptr.into()], false),
             // The UCRT's setjmp (what MinGW's `_setjmp` is); with no frame, its longjmp jumps
             // without unwinding, as `_longjmp` does elsewhere.
             "__intrinsic_setjmpex" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
@@ -755,7 +773,7 @@ impl<'ctx> Gen<'ctx, '_> {
             self.cx
                 .create_enum_attribute(inkwell::attributes::Attribute::get_named_enum_kind_id(n), 0)
         };
-        if name == "_setjmp" || name == "__intrinsic_setjmpex" {
+        if matches!(name, "_setjmp" | "__intrinsic_setjmpex" | "__mingw_setjmp") {
             f.add_attribute(
                 inkwell::attributes::AttributeLoc::Function,
                 attr("returns_twice"),
@@ -3121,15 +3139,20 @@ impl<'ctx> Gen<'ctx, '_> {
                 self.b
                     .build_call(self.rt("ppl_guard_push"), &[buf.into()], "")
                     .unwrap();
-                let call = if self.windows {
-                    let null = self.cx.ptr_type(AddressSpace::default()).const_null();
-                    self.b.build_call(
-                        self.rt("__intrinsic_setjmpex"),
-                        &[buf.into(), null.into()],
-                        "",
-                    )
-                } else {
-                    self.b.build_call(self.rt("_setjmp"), &[buf.into()], "")
+                let call = match self.setjmp {
+                    Setjmp::Ucrt => {
+                        let null = self.cx.ptr_type(AddressSpace::default()).const_null();
+                        self.b.build_call(
+                            self.rt("__intrinsic_setjmpex"),
+                            &[buf.into(), null.into()],
+                            "",
+                        )
+                    }
+                    Setjmp::Mingw => {
+                        self.b
+                            .build_call(self.rt("__mingw_setjmp"), &[buf.into()], "")
+                    }
+                    Setjmp::Posix => self.b.build_call(self.rt("_setjmp"), &[buf.into()], ""),
                 };
                 let r = basic(call.unwrap()).into_int_value();
                 let normal = self

@@ -10,9 +10,16 @@
 #include <stdint.h>
 
 /* setjmp/longjmp without unwinding or signal masks (generated `try` regions use the same
- * form; include <setjmp.h> first). On Windows that's the UCRT's setjmp with no frame, which
- * MinGW's `_setjmp` names. */
-#if defined(_WIN32)
+ * form; include <setjmp.h> first). On x64 Windows that's the UCRT's setjmp with no frame,
+ * which MinGW's `_setjmp` names; on arm64 the UCRT's longjmp always unwinds (failing with
+ * STATUS_BAD_FUNCTION_TABLE on frames without unwind tables), so it's MinGW's own. */
+#if defined(_WIN32) && defined(__aarch64__)
+/* (Declared by <setjmp.h> only in MinGW's non-SEH mode.) */
+int __mingw_setjmp(void *buf) __attribute__((__nothrow__, __returns_twice__));
+__attribute__((__noreturn__, __nothrow__)) void __mingw_longjmp(void *buf, int v);
+#define ppl_setjmp(buf) __mingw_setjmp(buf)
+#define ppl_longjmp(buf, v) __mingw_longjmp((buf), (v))
+#elif defined(_WIN32)
 #define ppl_setjmp(buf) _setjmp((buf), NULL)
 #define ppl_longjmp(buf, v) longjmp((buf), (v))
 #else

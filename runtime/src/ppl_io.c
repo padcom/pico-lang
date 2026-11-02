@@ -9,27 +9,32 @@
 #include "ppl_rt.h"
 #include "ppl_crypto.h"
 
+#if defined(_WIN32)
+#define _CRT_RAND_S /* rand_s */
+#endif
+#include <errno.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(__APPLE__) || defined(__linux__)
+#define PPL_IO_POSIX 1
 #include <dirent.h>
-#include <errno.h>
 #include <fcntl.h>
-#include <pthread.h>
 #include <signal.h>
 #include <spawn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/types.h>
-#include <time.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#endif
 
 void *ppl_loop_waker(void);
 void ppl_loop_wake(void *waker);
@@ -90,11 +95,117 @@ static Queue *queue(void) {
     return my_queue;
 }
 
-/* The pool. */
-static pthread_mutex_t pool_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t pool_cond = PTHREAD_COND_INITIALIZER;
-static Job *work_head, *work_tail;
-static int pool_started;
+/* Hands a finished job to the thread that submitted it (and wakes its loop). */
+static void finish(Job *j) {
+    j->next = NULL;
+    Queue *q = j->owner;
+    pthread_mutex_lock(&q->lock);
+    if (q->tail) q->tail->next = j;
+    else q->head = j;
+    q->tail = j;
+    void *w = q->waker;
+    pthread_mutex_unlock(&q->lock);
+    ppl_loop_wake(w);
+}
+
+/* A control operation's result, polled already (read with 102/103/`__io_text`, freed with
+ * 104). */
+static Job *result_job(Queue *q) {
+    Job *j = calloc(1, sizeof *j);
+    if (!j) abort();
+    j->id = q->next_id++;
+    j->next = q->taken;
+    q->taken = j;
+    return j;
+}
+
+/* WHATWG's UTF-8 decoder: each maximal invalid subsequence becomes U+FFFD (or, when
+ * `fatal`, the job fails with InvalidData and r2 = the offset of the first bad byte). */
+static int64_t decode_utf8(Queue *q, const unsigned char *p, size_t n, int fatal) {
+    Job *j = result_job(q);
+    size_t cap = n + 16, len = 0;
+    char *out = malloc(cap);
+    if (!out) abort();
+    size_t i = 0;
+    while (i < n) {
+        unsigned c = p[i];
+        size_t need = 0;
+        unsigned lo = 0x80, hi = 0xBF;
+        if (c < 0x80) {
+            need = 0;
+        } else if (c >= 0xC2 && c <= 0xDF) {
+            need = 1;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            need = 2;
+            if (c == 0xE0) lo = 0xA0;
+            if (c == 0xED) hi = 0x9F;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            need = 3;
+            if (c == 0xF0) lo = 0x90;
+            if (c == 0xF4) hi = 0x8F;
+        } else {
+            need = (size_t)-1;
+        }
+        size_t k = 1;
+        int ok = need != (size_t)-1;
+        if (ok) {
+            for (; k <= need; k++) {
+                if (i + k >= n) {
+                    ok = 0;
+                    break;
+                }
+                unsigned d = p[i + k];
+                unsigned l = k == 1 ? lo : 0x80, h = k == 1 ? hi : 0xBF;
+                if (d < l || d > h) {
+                    ok = 0;
+                    break;
+                }
+            }
+        }
+        if (len + 4 > cap) {
+            cap = cap * 2 + 4;
+            out = realloc(out, cap);
+            if (!out) abort();
+        }
+        if (ok) {
+            memcpy(out + len, p + i, need + 1);
+            len += need + 1;
+            i += need + 1;
+        } else {
+            if (fatal) {
+                free(out);
+                j->r = -K_INVALID_DATA;
+                j->r2 = (int64_t)i;
+                return j->id;
+            }
+            memcpy(out + len, "\xEF\xBF\xBD", 3);
+            len += 3;
+            i += k; /* (k bytes made up the maximal subpart) */
+        }
+    }
+    out = realloc(out, len + 1);
+    if (!out) abort();
+    out[len] = 0;
+    j->text = out;
+    j->text_len = len;
+    return j->id;
+}
+
+static char *cstr(const PplStr *s, size_t *len) {
+    size_t n = s ? (size_t)s->byte_len : 0;
+    char *m = malloc(n + 1);
+    if (!m) abort();
+    if (n) memcpy(m, s->data, n);
+    m[n] = 0;
+    if (len) *len = n;
+    return m;
+}
+
+static Job *taken(int64_t id) {
+    for (Job *j = queue()->taken; j; j = j->next)
+        if (j->id == id) return j;
+    return NULL;
+}
 
 static int kind_of(int e) {
     switch (e) {
@@ -121,6 +232,15 @@ static void fail(Job *j) {
     j->r = -kind_of(e);
     j->r2 = e;
 }
+
+#if PPL_IO_POSIX
+/* ---- the POSIX operations (files, processes, sockets) ---- */
+
+/* The pool. */
+static pthread_mutex_t pool_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t pool_cond = PTHREAD_COND_INITIALIZER;
+static Job *work_head, *work_tail;
+static int pool_started;
 
 /* Appends to the job's text result. */
 static void text_add(Job *j, const char *p, size_t n) {
@@ -523,19 +643,6 @@ static void run(Job *j) {
     case 35: net_run(j); return;
     default: j->r = -K_OTHER; j->r2 = EINVAL; return;
     }
-}
-
-/* Hands a finished job to the thread that submitted it (and wakes its loop). */
-static void finish(Job *j) {
-    j->next = NULL;
-    Queue *q = j->owner;
-    pthread_mutex_lock(&q->lock);
-    if (q->tail) q->tail->next = j;
-    else q->head = j;
-    q->tail = j;
-    void *w = q->waker;
-    pthread_mutex_unlock(&q->lock);
-    ppl_loop_wake(w);
 }
 
 static void *worker_main(void *arg) {
@@ -992,17 +1099,6 @@ static void child_wait(Job *j) {
     }
 }
 
-/* A control operation's result, polled already (read with 102/103/`__io_text`, freed with
- * 104). */
-static Job *result_job(Queue *q) {
-    Job *j = calloc(1, sizeof *j);
-    if (!j) abort();
-    j->id = q->next_id++;
-    j->next = q->taken;
-    q->taken = j;
-    return j;
-}
-
 /* Spawns `prog` (op 110). `t` holds NUL-separated fields: the working directory ("" for
  * this one), `argc` arguments, then `envc` "NAME=value" variables. `modes` has 2 bits per
  * stream (stdin, stdout, stderr: 0 inherit, 1 pipe, 2 null) and 64 for a cleared
@@ -1385,160 +1481,30 @@ static void net_run(Job *j) {
     }
 }
 
-/* WHATWG's UTF-8 decoder: each maximal invalid subsequence becomes U+FFFD (or, when
- * `fatal`, the job fails with InvalidData and r2 = the offset of the first bad byte). */
-static int64_t decode_utf8(Queue *q, const unsigned char *p, size_t n, int fatal) {
-    Job *j = result_job(q);
-    size_t cap = n + 16, len = 0;
-    char *out = malloc(cap);
-    if (!out) abort();
-    size_t i = 0;
-    while (i < n) {
-        unsigned c = p[i];
-        size_t need = 0;
-        unsigned lo = 0x80, hi = 0xBF;
-        if (c < 0x80) {
-            need = 0;
-        } else if (c >= 0xC2 && c <= 0xDF) {
-            need = 1;
-        } else if (c >= 0xE0 && c <= 0xEF) {
-            need = 2;
-            if (c == 0xE0) lo = 0xA0;
-            if (c == 0xED) hi = 0x9F;
-        } else if (c >= 0xF0 && c <= 0xF4) {
-            need = 3;
-            if (c == 0xF0) lo = 0x90;
-            if (c == 0xF4) hi = 0x8F;
-        } else {
-            need = (size_t)-1;
-        }
-        size_t k = 1;
-        int ok = need != (size_t)-1;
-        if (ok) {
-            for (; k <= need; k++) {
-                if (i + k >= n) {
-                    ok = 0;
-                    break;
-                }
-                unsigned d = p[i + k];
-                unsigned l = k == 1 ? lo : 0x80, h = k == 1 ? hi : 0xBF;
-                if (d < l || d > h) {
-                    ok = 0;
-                    break;
-                }
-            }
-        }
-        if (len + 4 > cap) {
-            cap = cap * 2 + 4;
-            out = realloc(out, cap);
-            if (!out) abort();
-        }
-        if (ok) {
-            memcpy(out + len, p + i, need + 1);
-            len += need + 1;
-            i += need + 1;
-        } else {
-            if (fatal) {
-                free(out);
-                j->r = -K_INVALID_DATA;
-                j->r2 = (int64_t)i;
-                return j->id;
-            }
-            memcpy(out + len, "\xEF\xBF\xBD", 3);
-            len += 3;
-            i += k; /* (k bytes made up the maximal subpart) */
-        }
+/* Starts job `j` (op < 100), which reports to its queue when it's done. */
+static void os_submit(Job *j) {
+    int64_t op = j->op;
+    if (op == 16) {
+        watch_next(j);
+        return;
     }
-    out = realloc(out, len + 1);
-    if (!out) abort();
-    out[len] = 0;
-    j->text = out;
-    j->text_len = len;
-    return j->id;
-}
-
-static char *cstr(const PplStr *s, size_t *len) {
-    size_t n = s ? (size_t)s->byte_len : 0;
-    char *m = malloc(n + 1);
-    if (!m) abort();
-    if (n) memcpy(m, s->data, n);
-    m[n] = 0;
-    if (len) *len = n;
-    return m;
-}
-
-static Job *taken(int64_t id) {
-    for (Job *j = queue()->taken; j; j = j->next)
-        if (j->id == id) return j;
-    return NULL;
-}
-
-int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, const PplStr *t) {
-    Queue *q = queue();
-    if (op < 100) {
-        Job *j = calloc(1, sizeof *j);
-        if (!j) abort();
-        j->id = q->next_id++;
-        j->op = op;
-        j->a = a;
-        j->b = b;
-        j->c = c;
-        j->s = cstr(s, NULL);
-        if (op == 4 || op == 12 || ((op == 21 || op == 25 || op == 34) && c >= 0)) {
-            /* The bytes of buffer `b` (`c` of them), copied now: the buffer may be gone by
-             * the time the job runs. */
-            j->tlen = c > 0 ? (size_t)c : 0;
-            j->t = malloc(j->tlen + 1);
-            if (!j->t) abort();
-            if (j->tlen) memcpy(j->t, (const char *)(intptr_t)b, j->tlen);
-        } else {
-            j->t = cstr(t, &j->tlen);
-        }
-        j->owner = q;
-        q->pending++;
-        if (op == 16) {
-            watch_next(j);
-            return j->id;
-        }
-        if (op == 25) {
-            /* Our own stdout/stderr: written now, in order with `print`. */
-            FILE *f = j->a == 2 ? stderr : stdout;
-            if (j->a == 2) fflush(stdout);
-            if (fwrite(j->t, 1, j->tlen, f) < j->tlen) fail(j);
-            else j->r = (int64_t)j->tlen;
-            if (j->a == 2) fflush(stderr);
-            finish(j);
-            return j->id;
-        }
-        if ((op >= 20 && op <= 23) || (op >= 30 && op <= 36)) {
-            run_solo(j);
-            return j->id;
-        }
-        start_pool();
-        pthread_mutex_lock(&pool_lock);
-        if (work_tail) work_tail->next = j;
-        else work_head = j;
-        work_tail = j;
-        pthread_cond_signal(&pool_cond);
-        pthread_mutex_unlock(&pool_lock);
-        return j->id;
+    if ((op >= 20 && op <= 23) || (op >= 30 && op <= 36)) {
+        run_solo(j);
+        return;
     }
+    start_pool();
+    pthread_mutex_lock(&pool_lock);
+    if (work_tail) work_tail->next = j;
+    else work_head = j;
+    work_tail = j;
+    pthread_cond_signal(&pool_cond);
+    pthread_mutex_unlock(&pool_lock);
+}
+
+/* The POSIX control operations (op >= 100); -1 for unknown ones. */
+static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s,
+                     const PplStr *t) {
     switch (op) {
-    case 100: { /* poll: a finished job's id, or -1 */
-        pthread_mutex_lock(&q->lock);
-        Job *j = q->head;
-        if (j) {
-            q->head = j->next;
-            if (!q->head) q->tail = NULL;
-        }
-        pthread_mutex_unlock(&q->lock);
-        if (!j) return -1;
-        q->pending--;
-        j->next = q->taken;
-        q->taken = j;
-        return j->id;
-    }
-    case 101: return q->pending;
     case 106: /* close watcher a */
         watch_close(a);
         return 0;
@@ -1552,45 +1518,6 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
     case 117:
     case 118:
     case 119: return process_op(q, op, a, b, c, s, t);
-    case 130: { /* TextEncoder: s's UTF-8 bytes; r = a buffer handle, r2 = their count */
-        Job *j = result_job(q);
-        size_t n = s ? (size_t)s->byte_len : 0;
-        char *m = malloc(n ? n : 1);
-        if (!m) abort();
-        if (n) memcpy(m, s->data, n);
-        j->r = (int64_t)(intptr_t)m;
-        j->r2 = (int64_t)n;
-        return j->id;
-    }
-    case 132: { /* a random bytes (from /dev/urandom): r = a buffer handle, r2 = a */
-        Job *j = result_job(q);
-        size_t n = a > 0 ? (size_t)a : 0;
-        char *m = calloc(n ? n : 1, 1);
-        if (!m) abort();
-        int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-        size_t got = 0;
-        while (fd >= 0 && got < n) {
-            ssize_t k = read(fd, m + got, n - got);
-            if (k <= 0) {
-                if (k < 0 && errno == EINTR) continue;
-                break;
-            }
-            got += (size_t)k;
-        }
-        if (fd >= 0) close(fd);
-        if (got < n) abort(); /* no randomness: nothing safe to fall back on */
-        j->r = (int64_t)(intptr_t)m;
-        j->r2 = (int64_t)n;
-        return j->id;
-    }
-    case 133: { /* a clock in nanoseconds: a = 0 the wall clock (since 1970), 1 monotonic
-                 * (since the program started) */
-        extern int64_t ppl_start_ns;
-        struct timespec ts;
-        clock_gettime(a == 1 ? CLOCK_MONOTONIC : CLOCK_REALTIME, &ts);
-        int64_t ns = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
-        return a == 1 ? ns - ppl_start_ns : ns;
-    }
     case 134: { /* read file s whole, now: r = a buffer handle (or -1), r2 = its size */
         Job *j = result_job(q);
         j->r = -1;
@@ -1636,8 +1563,6 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         j->r2 = e ? e : (int64_t)len;
         return j->id;
     }
-    case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */
-        return decode_utf8(q, (const unsigned char *)(intptr_t)b, c > 0 ? (size_t)c : 0, a == 1);
     case 120: /* shutdown socket a: b = 0 reading, 1 writing, 2 both (TLS: close_notify first) */
         if (b != 0) ppl_tls_close_notify((int)a);
         return shutdown((int)a, b == 0 ? SHUT_RD : b == 1 ? SHUT_WR : SHUT_RDWR) < 0 ? -1 : 0;
@@ -1654,6 +1579,133 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         q->taken = j;
         return j->id;
     }
+    default: return -1;
+    }
+}
+
+#else
+/* ---- Windows: no files, processes or sockets yet (P8.3b, P8.3c) ---- */
+
+static void os_submit(Job *j) {
+    j->r = -K_OTHER;
+    j->r2 = ENOSYS;
+    finish(j);
+}
+
+static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s,
+                     const PplStr *t) {
+    (void)q, (void)op, (void)a, (void)b, (void)c, (void)s, (void)t;
+    return -1;
+}
+#endif
+
+/* Fills `p` with `n` bytes from the system's randomness; 0 if there's none. */
+static int random_bytes(char *p, size_t n) {
+#if defined(_WIN32)
+    for (size_t i = 0; i < n; i += 4) {
+        unsigned v;
+        if (rand_s(&v) != 0) return 0;
+        memcpy(p + i, &v, n - i < 4 ? n - i : 4);
+    }
+    return 1;
+#else
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    size_t got = 0;
+    while (fd >= 0 && got < n) {
+        ssize_t k = read(fd, p + got, n - got);
+        if (k <= 0) {
+            if (k < 0 && errno == EINTR) continue;
+            break;
+        }
+        got += (size_t)k;
+    }
+    if (fd >= 0) close(fd);
+    return got == n;
+#endif
+}
+
+int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, const PplStr *t) {
+    Queue *q = queue();
+    if (op < 100) {
+        Job *j = calloc(1, sizeof *j);
+        if (!j) abort();
+        j->id = q->next_id++;
+        j->op = op;
+        j->a = a;
+        j->b = b;
+        j->c = c;
+        j->s = cstr(s, NULL);
+        if (op == 4 || op == 12 || ((op == 21 || op == 25 || op == 34) && c >= 0)) {
+            /* The bytes of buffer `b` (`c` of them), copied now: the buffer may be gone by
+             * the time the job runs. */
+            j->tlen = c > 0 ? (size_t)c : 0;
+            j->t = malloc(j->tlen + 1);
+            if (!j->t) abort();
+            if (j->tlen) memcpy(j->t, (const char *)(intptr_t)b, j->tlen);
+        } else {
+            j->t = cstr(t, &j->tlen);
+        }
+        j->owner = q;
+        q->pending++;
+        if (op == 25) {
+            /* Our own stdout/stderr: written now, in order with `print`. */
+            FILE *f = j->a == 2 ? stderr : stdout;
+            if (j->a == 2) fflush(stdout);
+            if (fwrite(j->t, 1, j->tlen, f) < j->tlen) fail(j);
+            else j->r = (int64_t)j->tlen;
+            if (j->a == 2) fflush(stderr);
+            finish(j);
+        } else {
+            os_submit(j);
+        }
+        return j->id;
+    }
+    switch (op) {
+    case 100: { /* poll: a finished job's id, or -1 */
+        pthread_mutex_lock(&q->lock);
+        Job *j = q->head;
+        if (j) {
+            q->head = j->next;
+            if (!q->head) q->tail = NULL;
+        }
+        pthread_mutex_unlock(&q->lock);
+        if (!j) return -1;
+        q->pending--;
+        j->next = q->taken;
+        q->taken = j;
+        return j->id;
+    }
+    case 101: return q->pending;
+    case 130: { /* TextEncoder: s's UTF-8 bytes; r = a buffer handle, r2 = their count */
+        Job *j = result_job(q);
+        size_t n = s ? (size_t)s->byte_len : 0;
+        char *m = malloc(n ? n : 1);
+        if (!m) abort();
+        if (n) memcpy(m, s->data, n);
+        j->r = (int64_t)(intptr_t)m;
+        j->r2 = (int64_t)n;
+        return j->id;
+    }
+    case 132: { /* a random bytes (from the system): r = a buffer handle, r2 = a */
+        Job *j = result_job(q);
+        size_t n = a > 0 ? (size_t)a : 0;
+        char *m = calloc(n ? n : 1, 1);
+        if (!m) abort();
+        if (!random_bytes(m, n)) abort(); /* no randomness: nothing safe to fall back on */
+        j->r = (int64_t)(intptr_t)m;
+        j->r2 = (int64_t)n;
+        return j->id;
+    }
+    case 133: { /* a clock in nanoseconds: a = 0 the wall clock (since 1970), 1 monotonic
+                 * (since the program started) */
+        extern int64_t ppl_start_ns;
+        struct timespec ts;
+        clock_gettime(a == 1 ? CLOCK_MONOTONIC : CLOCK_REALTIME, &ts);
+        int64_t ns = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+        return a == 1 ? ns - ppl_start_ns : ns;
+    }
+    case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */
+        return decode_utf8(q, (const unsigned char *)(intptr_t)b, c > 0 ? (size_t)c : 0, a == 1);
     case 102: {
         Job *j = taken(a);
         return j ? j->r : 0;
@@ -1674,7 +1726,7 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         free(j);
         return 0;
     }
-    default: return -1;
+    default: return os_op(q, op, a, b, c, s, t);
     }
 }
 
@@ -1683,15 +1735,3 @@ PplStr *ppl_io_text(int64_t id) {
     if (!j || !j->text) return ppl_str_new("", 0);
     return ppl_str_new(j->text, (int64_t)j->text_len);
 }
-
-#else
-/* No file system support on this platform yet (Windows: P8.3). */
-int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, const PplStr *t) {
-    (void)a, (void)b, (void)c, (void)s, (void)t;
-    return op < 100 ? -1 : op == 101 ? 0 : -1;
-}
-PplStr *ppl_io_text(int64_t id) {
-    (void)id;
-    return ppl_str_new("", 0);
-}
-#endif
