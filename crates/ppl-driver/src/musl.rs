@@ -3,7 +3,7 @@
 //! builds `libc.a`, cached like the runtime.
 
 use crate::link::{Clang, Job, Libc, cached_build};
-use crate::target::{Arch, Target};
+use crate::target::{Arch, Os, Target};
 use std::path::{Path, PathBuf};
 
 /// musl compiled for a target.
@@ -183,18 +183,31 @@ fn headers(t: Target) -> Result<PathBuf, String> {
         + &read(src.join("include/alltypes.h.in"))?;
     let syscall_in = read(src.join(format!("arch/{a}/bits/syscall.h.in")))?;
     let version = read(src.join("VERSION"))?;
-    let alltypes = mkalltypes(&alltypes_in);
+    let mut alltypes = mkalltypes(&alltypes_in);
+    let windows = t.os == Os::Windows;
+    if windows {
+        // Windows is LLP64: `long` has 32 bits.
+        for name in ["_Addr", "_Int64", "_Reg"] {
+            let lp64 = format!("#define {name} long\n");
+            assert!(alltypes.contains(&lp64), "{name} in alltypes.h");
+            alltypes = alltypes.replace(&lp64, &format!("#define {name} long long\n"));
+        }
+    }
     let mut syscall = syscall_in.clone();
     for l in syscall_in.lines().filter(|l| l.contains("__NR_")) {
         syscall.push_str(&l.replacen("__NR_", "SYS_", 1));
         syscall.push('\n');
     }
     let version_h = format!("#define VERSION \"{}\"\n", version.trim());
-    let files = [
+    let mut files = vec![
         ("bits/alltypes.h", alltypes),
         ("bits/syscall.h", syscall),
         ("internal/version.h", version_h),
     ];
+    if windows && t.arch == Arch::Aarch64 {
+        // arm64 Windows' `long double` is `double` (musl's aarch64 port has 128 bits).
+        files.push(("bits/float.h", WINDOWS_ARM64_FLOAT_H.into()));
+    }
     // Keyed by the content: a directory per distinct set of headers.
     let key = {
         use std::hash::{Hash, Hasher};
@@ -223,6 +236,92 @@ fn headers(t: Target) -> Result<PathBuf, String> {
         }
     }
     Ok(dir)
+}
+
+/// `bits/float.h` for a 64-bit `long double`.
+const WINDOWS_ARM64_FLOAT_H: &str = "#define FLT_EVAL_METHOD 0
+
+#define LDBL_TRUE_MIN 4.94065645841246544177e-324L
+#define LDBL_MIN 2.22507385850720138309e-308L
+#define LDBL_MAX 1.79769313486231570815e+308L
+#define LDBL_EPSILON 2.22044604925031308085e-16L
+
+#define LDBL_MANT_DIG 53
+#define LDBL_MIN_EXP (-1021)
+#define LDBL_MAX_EXP 1024
+
+#define LDBL_DIG 15
+#define LDBL_MIN_10_EXP (-307)
+#define LDBL_MAX_10_EXP 308
+
+#define DECIMAL_DIG 17
+";
+
+/// musl's double-precision math (`src/math`) for Windows targets (decision 249), so `Math`
+/// gives the same results as on Linux: the UCRT's functions are up to an ulp off (x64's
+/// `sin(π/2)` is `1 + 2⁻⁵²`). Linked before the UCRT, so these definitions win. Left out: the
+/// `float` and `long double` variants (`sinf`, `sinl`, … where the double function exists:
+/// arm64 Windows' `long double` isn't musl's) and the ELF-only assembly files.
+pub fn libm(t: Target) -> Result<Vec<PathBuf>, String> {
+    let src = ppl_runtime::musl_dir();
+    let a = arch(t);
+    let include = headers(t)?;
+    let mut common: Vec<String> = [
+        format!("--target={}", t.llvm_triple()),
+        "-std=c99".into(),
+        "-nostdinc".into(),
+        "-ffreestanding".into(),
+        "-fexcess-precision=standard".into(),
+        "-frounding-math".into(),
+        "-ffp-contract=off".into(),
+        "-fno-strict-aliasing".into(),
+        "-fno-stack-protector".into(),
+        "-fno-builtin".into(),
+        "-ffunction-sections".into(),
+        "-fdata-sections".into(),
+        "-D_XOPEN_SOURCE=700".into(),
+        "-Os".into(),
+        "-w".into(),
+    ]
+    .into();
+    // The generated headers first: they replace `bits/float.h` on arm64.
+    for d in [
+        include.clone(),
+        src.join("arch").join(a),
+        src.join("arch/generic"),
+        include.join("internal"),
+        src.join("src/include"),
+        src.join("src/internal"),
+        src.join("include"),
+    ] {
+        common.push(format!("-I{}", d.display()));
+    }
+    let dir = src.join("src/math");
+    let mut jobs = Vec::new();
+    for file in sources(&src, a)? {
+        if file.parent() != Some(dir.as_path()) && file.parent() != Some(dir.join(a).as_path()) {
+            continue;
+        }
+        let stem = file.file_stem().unwrap().to_string_lossy().into_owned();
+        let variant = (stem.ends_with('f') || stem.ends_with('l'))
+            && dir.join(format!("{}.c", &stem[..stem.len() - 1])).is_file();
+        if variant || file.extension().is_some_and(|x| x != "c") {
+            continue;
+        }
+        let rel = file
+            .strip_prefix(&src)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        jobs.push(Job {
+            obj: format!("{}.o", rel.replace('/', "_")),
+            src: file,
+            args: common.clone(),
+            start: false,
+        });
+    }
+    let built = cached_build("musl", &format!("{a}-windows-libm"), &jobs, &[], |_| Ok(()))?;
+    Ok(jobs.iter().map(|j| built.join(&j.obj)).collect())
 }
 
 /// `tools/mkalltypes.sed`: `TYPEDEF t name;`, `STRUCT name body;` and `UNION name body;`

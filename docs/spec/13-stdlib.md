@@ -389,7 +389,8 @@ it did, since 1970).
 `exp`, `expm1`, `log`, `log1p`, `log2`, `log10`, the trigonometric and hyperbolic functions,
 `atan2`, `hypot(...)`, `min(...)`, `max(...)`, `clz32`, `imul` and `random()` (xoshiro128**
 seeded from the system: not for cryptography). Library functions are the platform's libm in
-both backends.
+both backends, except on Windows, whose programs carry musl's (the UCRT's differ from Linux's by
+up to an ulp; decision 249).
 
 `std/math` has `number` structs with operators (OpenGL conventions: right-handed, column-major
 matrices acting on column vectors, so `a * b` applies `b` first): `Vec2`, `Vec3`, `Vec4` (`+ - *

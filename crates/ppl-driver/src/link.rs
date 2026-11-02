@@ -85,6 +85,7 @@ pub fn link_windows(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
     };
     let runtime = runtime_objects(t, &libc)?;
     let builtins = crate::builtins::objects(t, cc)?;
+    let libm = crate::musl::libm(t)?;
     let machine = match t.arch {
         Arch::X86_64 => "x64",
         _ => "arm64",
@@ -107,7 +108,8 @@ pub fn link_windows(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
     args.push(format!("-out:{}", exe.display()));
     args.push(mingw.start.display().to_string());
     args.push(obj.display().to_string());
-    for group in [&runtime.lazy, &mingw.lib, &builtins] {
+    // musl's math before MinGW's and the UCRT's (`crate::musl::libm`).
+    for group in [&runtime.lazy, &libm, &mingw.lib, &builtins] {
         args.push("-start-lib".into());
         args.extend(paths(group));
         args.push("-end-lib".into());
