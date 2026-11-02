@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.3c1: Windows processes, environment and crypto** (see [PLAN.md](PLAN.md#p83c1-windows-processes-environment-and-crypto)); P8.3c split into c1/c2. Windows runs only in CI (~11 min to the Windows results). Check builds locally with `PPL_TEST_TARGET=windows-x64 PPL_TEST_EXPORT=… cargo test -p ppl-tests --test golden -- export`.
+**P8.3c2: Windows sockets and TLS** (see [PLAN.md](PLAN.md#p83c2-windows-sockets-and-tls)). Then the bundled IANA tz database (the author chose bundling; plan a task for it). Windows runs only in CI (~11 min to the Windows results).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -261,7 +261,7 @@ Notes:
 - [x] P8.2b musl
 - [x] P8.3a Windows toolchain and runtime core
 - [x] P8.3b Windows files
-- [ ] P8.3c1 Windows processes, environment and crypto
+- [x] P8.3c1 Windows processes, environment and crypto
 - [ ] P8.3c2 Windows sockets and TLS
 - [ ] P8.4 macOS cross builds
 - [ ] P8.5 wasm32-wasi
@@ -402,3 +402,4 @@ Notes:
 | 2026-11-02 | P8.3b | Done: CI run 41531065813 green on all 8 jobs (113 golden programs per Windows target, macOS included with the portable watcher). |
 | 2026-11-02 | — | P8.3c split into P8.3c1 (processes, environment, crypto) and P8.3c2 (sockets, TLS); `run/time/date.ppl` is blocked by the tz database (it sets `TZ=Europe/Berlin`), not by P8.3c. |
 | 2026-11-02 | P8.3c1 (part) | Windows processes, pending CI: `CreateProcessW` (MSVCRT quoting; `Command.shell` = `cmd.exe /d /s /c "…"` verbatim, mode bit 128), only the three std handles inherited, pipe jobs 20–23 on solo threads (now portable), `TerminateProcess` kill reported as a signal, env/args/pid/exit through the W functions; crypto op 140 portable, Mbed TLS threading on Windows. Process fixtures portable (comptime shell scripts, `.trim()`); Windows CI appends Git's `usr\bin` to `PATH`. Decision 251. 119 programs per Windows target. |
+| 2026-11-02 | P8.3c1 | Done: CI run 41536018311 green on all 8 jobs (119 golden programs per Windows target). |
