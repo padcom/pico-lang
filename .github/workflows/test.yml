@@ -115,5 +115,11 @@ jobs:
           name: golden-${{ matrix.target }}
           path: golden-${{ matrix.target }}
 
+      # The process fixtures run POSIX tools (`cat`, `echo`, `sleep`, `wc`): Git's. Appended,
+      # so Git's `link.exe` can't shadow MSVC's while cargo builds the runner.
       - name: Run the golden tests
-        run: cargo run --quiet --release -p ppl-golden-run -- golden-${{ matrix.target }}
+        run: |
+          $tools = "C:\Program Files\Git\usr\bin"
+          if (-not (Test-Path "$tools\cat.exe")) { throw "no POSIX tools at $tools" }
+          $env:PATH = "$env:PATH;$tools"
+          cargo run --quiet --release -p ppl-golden-run -- golden-${{ matrix.target }}

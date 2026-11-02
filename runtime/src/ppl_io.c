@@ -340,6 +340,24 @@ static void start_pool(void) {
     pthread_mutex_unlock(&pool_lock);
 }
 
+/* Jobs that may block for long (pipes, waiting for a child) get a thread each, so they
+ * can't hold up the pool (a child may wait for input that another job writes). */
+static void *solo_main(void *arg) {
+    Job *j = arg;
+    run(j);
+    finish(j);
+    return NULL;
+}
+
+static void run_solo(Job *j) {
+    pthread_t t;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&t, &attr, solo_main, j) != 0) abort();
+    pthread_attr_destroy(&attr);
+}
+
 /* `watch` (spec §13.4): a watcher keeps a snapshot of the tree (path, kind, size, mtime,
  * inode per entry, sorted by path). While a "next" job (op 16) waits on it, its thread
  * compares a fresh scan with the snapshot and delivers the differences as events
@@ -1105,24 +1123,6 @@ static void wait_os(Watcher *w, int ms) {
 }
 #endif
 
-/* Jobs that may block for long (pipes, waiting for a child) get a thread each, so they
- * can't hold up the pool (a child may wait for input that another job writes). */
-static void *solo_main(void *arg) {
-    Job *j = arg;
-    run(j);
-    finish(j);
-    return NULL;
-}
-
-static void run_solo(Job *j) {
-    pthread_t t;
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    if (pthread_create(&t, &attr, solo_main, j) != 0) abort();
-    pthread_attr_destroy(&attr);
-}
-
 /* ---- `std/process` (spec §13.3) ---- */
 
 static char *cstr(const PplStr *s, size_t *len);
@@ -1636,16 +1636,6 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
         if (k > 0) text_add(j, buf, (size_t)k);
         return j->id;
     }
-    case 140: { /* crypto operation a on c bytes at b (ppl_crypto.h): r = a buffer handle (or
-                 * -1), r2 = its length (or the error) */
-        Job *j = result_job(q);
-        uint8_t *o = NULL;
-        size_t len = 0;
-        int64_t e = ppl_crypto_op(a, (const uint8_t *)(intptr_t)b, c > 0 ? (size_t)c : 0, &o, &len);
-        j->r = e ? -1 : (int64_t)(intptr_t)o;
-        j->r2 = e ? e : (int64_t)len;
-        return j->id;
-    }
     case 120: /* shutdown socket a: b = 0 reading, 1 writing, 2 both (TLS: close_notify first) */
         if (b != 0) ppl_tls_close_notify((int)a);
         return shutdown((int)a, b == 0 ? SHUT_RD : b == 1 ? SHUT_WR : SHUT_RDWR) < 0 ? -1 : 0;
@@ -1671,6 +1661,9 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
  * side; processes and sockets come with P8.3c. Errors become the POSIX errno values the
  * kinds are mapped from (`win_errno`), so messages match the other platforms. */
 #include <windows.h>
+#include <shellapi.h>
+
+static char *cstr(const PplStr *s, size_t *len);
 
 /* `s` (UTF-8) as UTF-16, malloc'd. */
 static wchar_t *wide(const char *s) {
@@ -2004,6 +1997,432 @@ static int remove_all(const char *path) {
     return remove_one(path, &in);
 }
 
+/* ---- `std/process` (spec §13.3) on Windows ----
+ * Pipe ends are handles (passed to ppl as integers in place of POSIX fds; 0, 1 and 2 still
+ * mean this process's standard streams). A child inherits only its three standard handles
+ * (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`), so pipes made for concurrent spawns never leak into
+ * each other's children. Windows has no signals: `kill` terminates the child with exit code
+ * 128 + the signal's number and remembers the signal, so its status reads as on POSIX. */
+
+/* `a` as a handle: this process's standard streams for 0, 1 and 2. */
+static HANDLE handle_of(int64_t a) {
+    if (a == 0) return GetStdHandle(STD_INPUT_HANDLE);
+    if (a == 1) return GetStdHandle(STD_OUTPUT_HANDLE);
+    if (a == 2) return GetStdHandle(STD_ERROR_HANDLE);
+    return (HANDLE)(intptr_t)a;
+}
+
+/* Children not waited for yet: their process handles, and the signal `kill` sent. */
+typedef struct Child {
+    DWORD pid;
+    HANDLE h;
+    int signal;
+} Child;
+
+static pthread_mutex_t child_lock = PTHREAD_MUTEX_INITIALIZER;
+static Child *live;
+static size_t nlive, caplive;
+
+/* (With child_lock held.) */
+static int live_find(DWORD pid) {
+    for (size_t i = 0; i < nlive; i++)
+        if (live[i].pid == pid) return (int)i;
+    return -1;
+}
+
+/* A growable UTF-8 string. */
+typedef struct Str {
+    char *p;
+    size_t n, cap;
+} Str;
+
+static void str_add(Str *s, const char *p, size_t n) {
+    if (s->n + n + 1 > s->cap) {
+        s->cap = (s->n + n + 1) * 2;
+        s->p = realloc(s->p, s->cap);
+        if (!s->p) abort();
+    }
+    memcpy(s->p + s->n, p, n);
+    s->n += n;
+    s->p[s->n] = 0;
+}
+
+/* `arg` quoted for the Microsoft C runtime's command-line parsing (what CommandLineToArgvW
+ * and nearly every program use): backslashes are literal except before a quote. */
+static void quote_arg(Str *s, const char *arg) {
+    if (*arg && !strpbrk(arg, " \t\n\v\"")) {
+        str_add(s, arg, strlen(arg));
+        return;
+    }
+    str_add(s, "\"", 1);
+    for (const char *p = arg;; p++) {
+        size_t slashes = 0;
+        while (*p == '\\') {
+            slashes++;
+            p++;
+        }
+        if (!*p) {
+            for (size_t i = 0; i < slashes * 2; i++) str_add(s, "\\", 1);
+            break;
+        }
+        size_t n = *p == '"' ? slashes * 2 + 1 : slashes;
+        for (size_t i = 0; i < n; i++) str_add(s, "\\", 1);
+        str_add(s, p, 1);
+    }
+    str_add(s, "\"", 1);
+}
+
+/* Whether environment entry `e` ("NAME=value") is for `name` (`nlen` bytes, up to '='),
+ * ignoring case as Windows does. */
+static int same_var(const wchar_t *e, const wchar_t *name, size_t nlen) {
+    const wchar_t *eq = wcschr(e + 1, L'='); /* ("=C:=C:\x" entries start with '=') */
+    size_t elen = eq ? (size_t)(eq - e) : wcslen(e);
+    return elen == nlen && CompareStringOrdinal(e, (int)elen, name, (int)nlen, TRUE) == CSTR_EQUAL;
+}
+
+/* A handle for the child's stream `i` that it inherits: our own, the null device, or a pipe
+ * end (the other end in `*mine`, not inheritable). NULL on failure (errno set). */
+static HANDLE child_stream(int i, int mode, HANDLE *mine) {
+    SECURITY_ATTRIBUTES sa = {sizeof sa, NULL, TRUE};
+    *mine = NULL;
+    if (mode == 1) {
+        HANDLE r, w;
+        if (!CreatePipe(&r, &w, &sa, 0)) {
+            win_errno(GetLastError(), NULL);
+            return NULL;
+        }
+        *mine = i == 0 ? w : r;
+        SetHandleInformation(*mine, HANDLE_FLAG_INHERIT, 0);
+        return i == 0 ? r : w;
+    }
+    HANDLE own = mode == 0 ? GetStdHandle(i == 0 ? STD_INPUT_HANDLE
+                                          : i == 1 ? STD_OUTPUT_HANDLE
+                                                   : STD_ERROR_HANDLE)
+                           : NULL;
+    HANDLE d = NULL;
+    if (own && own != INVALID_HANDLE_VALUE &&
+        DuplicateHandle(GetCurrentProcess(), own, GetCurrentProcess(), &d, 0, TRUE,
+                        DUPLICATE_SAME_ACCESS))
+        return d;
+    /* "null", or no stream of ours to give. */
+    d = CreateFileW(L"NUL", i == 0 ? GENERIC_READ : GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, NULL);
+    if (d == INVALID_HANDLE_VALUE) {
+        win_errno(GetLastError(), NULL);
+        return NULL;
+    }
+    return d;
+}
+
+/* Spawns `prog` (op 110; the fields as on POSIX). `modes` bit 128: the arguments go on the
+ * command line verbatim (`Command.shell`'s `cmd.exe /s /c "…"`). */
+static void spawn_child(Job *j, int64_t argc, int64_t envc, int64_t modes, const char *prog,
+                        const char *t, size_t tlen) {
+    size_t nf = 1 + (size_t)argc + (size_t)envc;
+    const char **fields = calloc(nf, sizeof *fields);
+    if (!fields) abort();
+    size_t k = 0, start = 0;
+    for (size_t i = 0; i <= tlen && k < nf; i++) {
+        if (i == tlen || t[i] == 0) {
+            fields[k++] = t + start;
+            start = i + 1;
+        }
+    }
+    while (k < nf) fields[k++] = "";
+    Str cl = {0};
+    quote_arg(&cl, prog);
+    for (int64_t i = 0; i < argc; i++) {
+        str_add(&cl, " ", 1);
+        const char *a = fields[1 + i];
+        if (modes & 128) str_add(&cl, a, strlen(a));
+        else quote_arg(&cl, a);
+    }
+    wchar_t *cmdline = wide(cl.p);
+    free(cl.p);
+    /* The environment: ours (unless cleared) without the overridden names, then the
+     * overrides. NULL (inherit ours) when nothing changes. */
+    wchar_t *block = NULL;
+    if (envc > 0 || (modes & 64)) {
+        wchar_t **over = calloc((size_t)envc + 1, sizeof *over);
+        if (!over) abort();
+        for (int64_t v = 0; v < envc; v++) over[v] = wide(fields[1 + argc + v]);
+        size_t cap = 1, n = 0;
+        wchar_t *ours = (modes & 64) ? NULL : GetEnvironmentStringsW();
+        for (const wchar_t *e = ours; e && *e; e += wcslen(e) + 1) cap += wcslen(e) + 1;
+        for (int64_t v = 0; v < envc; v++) cap += wcslen(over[v]) + 1;
+        block = malloc((cap + 1) * sizeof *block);
+        if (!block) abort();
+        for (const wchar_t *e = ours; e && *e; e += wcslen(e) + 1) {
+            int replaced = 0;
+            for (int64_t v = 0; v < envc && !replaced; v++) {
+                const wchar_t *eq = wcschr(over[v], L'=');
+                size_t nlen = eq ? (size_t)(eq - over[v]) : wcslen(over[v]);
+                replaced = same_var(e, over[v], nlen);
+            }
+            if (replaced) continue;
+            size_t len = wcslen(e) + 1;
+            memcpy(block + n, e, len * sizeof *block);
+            n += len;
+        }
+        if (ours) FreeEnvironmentStringsW(ours);
+        for (int64_t v = 0; v < envc; v++) {
+            size_t len = wcslen(over[v]) + 1;
+            memcpy(block + n, over[v], len * sizeof *block);
+            n += len;
+            free(over[v]);
+        }
+        free(over);
+        if (n == 0) block[n++] = 0; /* (an empty block is two NULs) */
+        block[n] = 0;
+    }
+    wchar_t *dir = fields[0][0] ? wide(fields[0]) : NULL;
+    HANDLE theirs[3] = {NULL, NULL, NULL}, mine[3] = {NULL, NULL, NULL};
+    int err = 0;
+    for (int i = 0; i < 3 && !err; i++) {
+        theirs[i] = child_stream(i, (int)(modes >> (2 * i)) & 3, &mine[i]);
+        if (!theirs[i]) err = errno;
+    }
+    PROCESS_INFORMATION pi = {0};
+    if (!err) {
+        SIZE_T size = 0;
+        InitializeProcThreadAttributeList(NULL, 1, 0, &size);
+        LPPROC_THREAD_ATTRIBUTE_LIST list = malloc(size);
+        if (!list) abort();
+        STARTUPINFOEXW si;
+        memset(&si, 0, sizeof si);
+        si.StartupInfo.cb = sizeof si;
+        si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        si.StartupInfo.hStdInput = theirs[0];
+        si.StartupInfo.hStdOutput = theirs[1];
+        si.StartupInfo.hStdError = theirs[2];
+        si.lpAttributeList = list;
+        if (!InitializeProcThreadAttributeList(list, 1, 0, &size) ||
+            !UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, theirs,
+                                       sizeof theirs, NULL, NULL) ||
+            !CreateProcessW(NULL, cmdline, NULL, NULL, TRUE,
+                            CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT, block, dir,
+                            &si.StartupInfo, &pi)) {
+            win_errno(GetLastError(), NULL);
+            err = errno;
+        }
+        DeleteProcThreadAttributeList(list);
+        free(list);
+    }
+    for (int i = 0; i < 3; i++) {
+        if (theirs[i]) CloseHandle(theirs[i]);
+        if (err && mine[i]) {
+            CloseHandle(mine[i]);
+            mine[i] = NULL;
+        }
+    }
+    free(cmdline);
+    free(block);
+    free(dir);
+    free(fields);
+    if (err) {
+        j->r = -kind_of(err);
+        j->r2 = err;
+        return;
+    }
+    CloseHandle(pi.hThread);
+    pthread_mutex_lock(&child_lock);
+    if (nlive == caplive) {
+        caplive = caplive ? caplive * 2 : 8;
+        live = realloc(live, caplive * sizeof *live);
+        if (!live) abort();
+    }
+    live[nlive++] = (Child){pi.dwProcessId, pi.hProcess, 0};
+    pthread_mutex_unlock(&child_lock);
+    j->r = pi.dwProcessId;
+    char line[96];
+    long long fd[3];
+    for (int i = 0; i < 3; i++) fd[i] = mine[i] ? (long long)(intptr_t)mine[i] : -1;
+    int n = snprintf(line, sizeof line, "%lld %lld %lld", fd[0], fd[1], fd[2]);
+    text_add(j, line, (size_t)n);
+}
+
+/* Job 23: waits for child a; r = its exit code (128 + the signal `kill` sent), r2 = that
+ * signal (or 0). */
+static void child_wait(Job *j) {
+    pthread_mutex_lock(&child_lock);
+    int i = live_find((DWORD)j->a);
+    HANDLE h = i >= 0 ? live[i].h : NULL;
+    pthread_mutex_unlock(&child_lock);
+    if (!h) {
+        fail_with(j, ECHILD);
+        return;
+    }
+    WaitForSingleObject(h, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(h, &code);
+    pthread_mutex_lock(&child_lock);
+    i = live_find((DWORD)j->a);
+    int sig = i >= 0 ? live[i].signal : 0;
+    if (i >= 0) live[i] = live[--nlive];
+    pthread_mutex_unlock(&child_lock);
+    CloseHandle(h);
+    j->r = sig ? 128 + sig : (int64_t)code;
+    j->r2 = sig;
+}
+
+/* Reads pipe or stream `a` (job 20): r = buffer, r2 = count (0 at the end). */
+static void pipe_read(Job *j) {
+    size_t n = j->b > 0 ? (size_t)j->b : 1;
+    char *b = calloc(n, 1);
+    if (!b) abort();
+    DWORD k = 0;
+    if (!ReadFile(handle_of(j->a), b, n > 0x40000000 ? 0x40000000 : (DWORD)n, &k, NULL)) {
+        DWORD e = GetLastError();
+        if (e != ERROR_BROKEN_PIPE && e != ERROR_HANDLE_EOF) {
+            free(b);
+            win_errno(e, NULL);
+            fail(j);
+            return;
+        }
+        k = 0;
+    }
+    j->r = (int64_t)(intptr_t)b;
+    j->r2 = k;
+}
+
+/* Writes to pipe or stream `a` (job 21). A reader that's gone is EPIPE, as on POSIX. */
+static void pipe_write(Job *j) {
+    if (write_handle(handle_of(j->a), j->t, j->tlen) < 0) {
+        DWORD e = GetLastError();
+        if (e == ERROR_NO_DATA || e == ERROR_BROKEN_PIPE) fail_with(j, EPIPE);
+        else win_fail(j, NULL);
+        return;
+    }
+    j->r = (int64_t)j->tlen;
+}
+
+/* Reads pipe `a` to its end as text (job 22). */
+static void pipe_read_all(Job *j) {
+    size_t cap = 4096, n = 0;
+    char *buf = malloc(cap);
+    if (!buf) abort();
+    HANDLE h = handle_of(j->a);
+    for (;;) {
+        if (n == cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+            if (!buf) abort();
+        }
+        DWORD k = 0;
+        DWORD want = cap - n > 0x40000000 ? 0x40000000 : (DWORD)(cap - n);
+        if (!ReadFile(h, buf + n, want, &k, NULL)) {
+            DWORD e = GetLastError();
+            if (e == ERROR_BROKEN_PIPE || e == ERROR_HANDLE_EOF) break;
+            free(buf);
+            win_errno(e, NULL);
+            fail(j);
+            return;
+        }
+        if (k == 0) break;
+        n += k;
+    }
+    if (!valid_utf8((unsigned char *)buf, n)) {
+        free(buf);
+        j->r = -K_INVALID_DATA;
+        return;
+    }
+    j->text = buf;
+    j->text_len = n;
+}
+
+/* The control operations of `std/process` (110–119). */
+static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s,
+                          const PplStr *t) {
+    switch (op) {
+    case 110: {
+        Job *j = result_job(q);
+        size_t tlen;
+        char *prog = cstr(s, NULL), *fields = cstr(t, &tlen);
+        spawn_child(j, a, b, c, prog, fields, tlen);
+        free(prog);
+        free(fields);
+        return j->id;
+    }
+    case 111: { /* kill child a with signal b */
+        pthread_mutex_lock(&child_lock);
+        int i = live_find((DWORD)a);
+        if (i >= 0 && !live[i].signal && TerminateProcess(live[i].h, (UINT)(128 + b)))
+            live[i].signal = (int)b;
+        pthread_mutex_unlock(&child_lock);
+        return 0;
+    }
+    case 112: /* close pipe end a */
+        return CloseHandle((HANDLE)(intptr_t)a) ? 0 : -1;
+    case 113: { /* the arguments, each followed by a NUL */
+        Job *j = result_job(q);
+        text_add(j, "", 0);
+        int n = 0;
+        wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &n);
+        for (int i = 1; argv && i < n; i++) {
+            char *u = narrow(argv[i]);
+            text_add(j, u, strlen(u) + 1);
+            free(u);
+        }
+        if (argv) LocalFree(argv);
+        return j->id;
+    }
+    case 114: { /* getenv(s): r = 1 when set, text = its value */
+        Job *j = result_job(q);
+        char *name = cstr(s, NULL);
+        wchar_t *w = wide(name);
+        free(name);
+        SetLastError(0);
+        DWORD n = GetEnvironmentVariableW(w, NULL, 0);
+        if (n == 0) {
+            j->r = GetLastError() != ERROR_ENVVAR_NOT_FOUND;
+        } else {
+            wchar_t *v = malloc((size_t)n * sizeof *v);
+            if (!v) abort();
+            DWORD got = GetEnvironmentVariableW(w, v, n);
+            if (got > 0 && got < n) {
+                char *u = narrow(v);
+                text_add(j, u, strlen(u));
+                free(u);
+            }
+            free(v);
+            j->r = 1;
+        }
+        free(w);
+        return j->id;
+    }
+    case 115:   /* setenv(s, t) */
+    case 116: { /* unsetenv(s) */
+        char *name = cstr(s, NULL), *value = op == 115 ? cstr(t, NULL) : NULL;
+        wchar_t *wn = wide(name), *wv = value ? wide(value) : NULL;
+        BOOL ok = SetEnvironmentVariableW(wn, wv);
+        free(name);
+        free(value);
+        free(wn);
+        free(wv);
+        return ok || op == 116 ? 0 : -1;
+    }
+    case 117: { /* every variable: "NAME=value\0" each */
+        Job *j = result_job(q);
+        text_add(j, "", 0);
+        wchar_t *env = GetEnvironmentStringsW();
+        for (const wchar_t *e = env; e && *e; e += wcslen(e) + 1) {
+            if (*e == L'=') continue; /* (cmd's per-drive directories) */
+            char *u = narrow(e);
+            text_add(j, u, strlen(u) + 1);
+            free(u);
+        }
+        if (env) FreeEnvironmentStringsW(env);
+        return j->id;
+    }
+    case 118: /* exit(a) */
+        fflush(stdout);
+        fflush(stderr);
+        exit((int)a);
+    case 119: return (int64_t)GetCurrentProcessId();
+    default: return -1;
+    }
+}
+
 static void run(Job *j) {
     j->r = 0;
     switch (j->op) {
@@ -2190,7 +2609,11 @@ static void run(Job *j) {
     case 15: /* watch: s = path, a = recursive; r = the watcher's id */
         watch_open(j);
         return;
-    default: /* processes and sockets: P8.3c */
+    case 20: pipe_read(j); return;
+    case 21: pipe_write(j); return;
+    case 22: pipe_read_all(j); return;
+    case 23: child_wait(j); return;
+    default: /* sockets: P8.3c2 */
         fail_with(j, ENOSYS);
         return;
     }
@@ -2201,8 +2624,12 @@ static void os_submit(Job *j) {
         watch_next(j);
         return;
     }
+    if (j->op >= 20 && j->op <= 23) {
+        run_solo(j);
+        return;
+    }
     if (j->op > 15) {
-        /* (processes and sockets: P8.3c) */
+        /* (sockets: P8.3c2) */
         fail_with(j, ENOSYS);
         finish(j);
         return;
@@ -2218,7 +2645,6 @@ static void os_submit(Job *j) {
 
 static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s,
                      const PplStr *t) {
-    (void)b, (void)c, (void)t;
     switch (op) {
     case 106: /* close watcher a */
         watch_close(a);
@@ -2248,6 +2674,16 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     }
     case 135: /* readlink(s): no links yet ("") */
         return result_job(q)->id;
+    case 110:
+    case 111:
+    case 112:
+    case 113:
+    case 114:
+    case 115:
+    case 116:
+    case 117:
+    case 118:
+    case 119: return process_op(q, op, a, b, c, s, t);
     default: return -1;
     }
 }
@@ -2359,6 +2795,16 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         clock_gettime(a == 1 ? CLOCK_MONOTONIC : CLOCK_REALTIME, &ts);
         int64_t ns = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
         return a == 1 ? ns - ppl_start_ns : ns;
+    }
+    case 140: { /* crypto operation a on c bytes at b (ppl_crypto.h): r = a buffer handle (or
+                 * -1), r2 = its length (or the error) */
+        Job *j = result_job(q);
+        uint8_t *o = NULL;
+        size_t len = 0;
+        int64_t e = ppl_crypto_op(a, (const uint8_t *)(intptr_t)b, c > 0 ? (size_t)c : 0, &o, &len);
+        j->r = e ? -1 : (int64_t)(intptr_t)o;
+        j->r2 = e ? e : (int64_t)len;
+        return j->id;
     }
     case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */
         return decode_utf8(q, (const unsigned char *)(intptr_t)b, c > 0 ? (size_t)c : 0, a == 1);

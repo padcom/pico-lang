@@ -9,8 +9,11 @@
 // expect: 2
 // expect: NotFound: cannot run no-such-program-ppl: no such file or directory
 // expect: killed: false 143 15
-// `Command` (spec §13.3): `echo` and `cat` with pipes, a shell, failures and `kill`.
+// `Command` (spec §13.3): `echo` and `cat` with pipes, a shell, failures and `kill`. (On
+// Windows the tools are Git's `usr\bin`, which CI puts on `PATH`; the shell is `cmd.exe`.)
 import { Command, ProcessError } from "std/process"
+
+const windows = comptime (target.os == "windows")
 
 const out = await new Command("echo", ["hello", "world"]).output()
 print(out.stdout)
@@ -44,11 +47,11 @@ cat2.stdin.close()
 print(await cat2.stdout.text())
 await cat2.status()
 
-const sh = await Command.shell("echo oops >&2; exit 3").output()
-print(`stderr: ${sh.stderr}`)
+const sh = await Command.shell(if (windows) "echo oops>&2& exit 3" else "echo oops >&2; exit 3").output()
+println(`stderr: ${sh.stderr.trim()}`)
 println(`code ${sh.code} ${sh.success}`)
 
-const lines = await Command.shell("printf 'a\\nb\\n' | wc -l").output()
+const lines = await Command.shell("printf \"a\\nb\\n\" | wc -l").output()
 println(lines.stdout.trim())
 
 try {

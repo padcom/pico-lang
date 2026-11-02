@@ -5,6 +5,8 @@
 
 import { ReadableStream, WritableStream, ReadableStreamDefaultController } from "std/streams"
 
+const __windows = comptime (target.os == "windows")
+
 const __kinds = ["", "NotFound", "AlreadyExists", "PermissionDenied", "NotADirectory",
   "IsADirectory", "DirectoryNotEmpty", "InvalidData", "Other"]
 const __messages = ["", "no such file or directory", "already exists", "permission denied",
@@ -485,6 +487,8 @@ export class Command {
   stdinMode: Stdio
   stdoutMode: Stdio
   stderrMode: Stdio
+  /// Windows: the arguments go on the command line as they are, unquoted (`shell`).
+  verbatim: bool = false
 
   constructor(program: string, args: string[] = [], cwd: string? = null,
       env: Map<string, string>? = null, clearEnv: bool = false, stdin: Stdio = "inherit",
@@ -503,6 +507,13 @@ export class Command {
   public static shell(script: string, cwd: string? = null, env: Map<string, string>? = null,
       clearEnv: bool = false, stdin: Stdio = "inherit", stdout: Stdio = "inherit",
       stderr: Stdio = "inherit"): Command {
+    if (__windows) {
+      // As Node does: cmd's own parsing of `/s /c "…"` keeps the script as it is.
+      const c = new Command("cmd.exe", ["/d", "/s", "/c", `"${script}"`], cwd: cwd, env: env,
+        clearEnv: clearEnv, stdin: stdin, stdout: stdout, stderr: stderr)
+      c.verbatim = true
+      return c
+    }
     new Command("/bin/sh", ["-c", script], cwd: cwd, env: env, clearEnv: clearEnv,
       stdin: stdin, stdout: stdout, stderr: stderr)
   }
@@ -527,7 +538,8 @@ export class Command {
         count += 1
       }
     }
-    const modes = inMode + outMode * 4 + errMode * 16 + (if (clearEnv) 64 else 0)
+    const modes = inMode + outMode * 4 + errMode * 16 + (if (clearEnv) 64 else 0) +
+      (if (verbatim) 128 else 0)
     const job = __io(110, args.length, count, modes, program, t)
     const r = __io(102, job, 0, 0, "", "")
     const r2 = __io(103, job, 0, 0, "", "")

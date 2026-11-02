@@ -4,9 +4,8 @@
 #ifndef PPL_MBEDTLS_CONFIG_H
 #define PPL_MBEDTLS_CONFIG_H
 
-#if !defined(_WIN32)
+/* (On Windows through winpthreads.) */
 #define MBEDTLS_THREADING_C
 #define MBEDTLS_THREADING_PTHREAD
-#endif
 
 #endif

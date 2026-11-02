@@ -86,6 +86,10 @@ const status = await child.status()         // throws ProcessError when spawning
 child.kill()                                // SIGTERM / TerminateProcess
 ```
 `Command.shell("ls | wc -l")` runs through the platform shell when that's explicitly wanted.
+On Windows that's `cmd.exe /d /s /c "script"` with the script as it is (as Node does), and a
+program without an extension is looked up as CreateProcess does (`.exe` added, `PATH` last).
+Windows has no signals: `kill` terminates the child, whose status then reads as if the signal
+had ended it (`code` 128 + its number, `signal` set; decision 251).
 
 ```text
 new Command(program, args = [], cwd?: string, env?: Map<string, string>, clearEnv = false,
