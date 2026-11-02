@@ -698,12 +698,24 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   macOS arm64 (the VM's host or the CI runner) the arm64 binary runs and the x64 one runs under
   Rosetta.
 
-### P8.5 wasm32-wasi
+### P8.5a wasm32: core programs under wasmtime
 - **Spec**: 12 §12.5
-- **Do**: the wasm32-wasip2 target, WASI-backed runtime pieces (fs, clocks, random, sockets, http),
-  the shadow-stack GC on linear memory, and compile errors for unavailable modules (no workers, no
-  Command).
-- **Done when**: golden tests run under wasmtime (installed in that task).
+- **Do**: target-dependent layouts (4-byte pointers: `Program::size_align`, the GC's type
+  maps), wasi-libc from Zig compiled by ppl (WASI preview 1 core modules for now), the runtime on
+  wasm32 (no threads: `Worker` and `Command` are compile errors there; `try` and panics through
+  Wasm exception handling), linking with lld's wasm driver.
+- **Done when**: the golden tests that need no I/O pass under wasmtime (installed user-local,
+  same version in CI).
+
+### P8.5b wasm32: files, clocks and the event loop
+- **Do**: std/fs, clocks, random and timers on WASI (the loop waits in `poll_oneoff`), with the
+  preopened working directory.
+- **Done when**: the fs, time and async golden tests pass under wasmtime.
+
+### P8.5c wasm32-wasip2: components, sockets and http
+- **Do**: the `wasm32-wasip2` target as a component (preview 2), sockets and `fetch`/`serve` on
+  `wasi:sockets` and `wasi:http`.
+- **Done when**: all golden tests available on WASI pass under wasmtime.
 
 ### P8.6 wasm32-browser (linear memory)
 - **Spec**: 12 §12.3

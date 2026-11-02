@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.4: macOS cross builds** (see [PLAN.md](PLAN.md#p84-macos-cross-builds)).
+**P8.5a: wasm32: core programs under wasmtime** (see [PLAN.md](PLAN.md#p85a-wasm32-core-programs-under-wasmtime)); P8.5 split in three. wasmtime 50.0.1 is in `~/.local/bin` (official release, its GitHub build attestation verified); Zig 0.15.1's wasi-libc is preview 1, hence core modules first.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -264,8 +264,10 @@ Notes:
 - [x] P8.3c1 Windows processes, environment and crypto
 - [x] P8.3c2 Windows sockets and TLS
 - [x] P8.3d Bundled IANA tz database
-- [ ] P8.4 macOS cross builds
-- [ ] P8.5 wasm32-wasi
+- [x] P8.4 macOS cross builds
+- [ ] P8.5a wasm32: core programs under wasmtime
+- [ ] P8.5b wasm32: files, clocks and the event loop
+- [ ] P8.5c wasm32-wasip2: components, sockets and http
 - [ ] P8.6 wasm32-browser (linear memory)
 - [ ] P8.7 WasmGC backend
 - [ ] P8.8 JS imports from .d.ts
@@ -409,3 +411,4 @@ Notes:
 | 2026-11-03 | P8.3d (part) | Bundled IANA tz database, pending CI: `scripts/update-tzdata.sh 2026f` (signatures checked, tzcode's own `zic -b slim`) → `third_party/tzdata/tzdata.bin` (598 zones, 220 KB) and `windows_zones.inc` (CLDR); `runtime/src/ppl_tzdata.c` embeds it with `.incbin` on Windows only; `__io` 136 (bundled zone, after the system database) and 137 (Windows' local zone as an IANA id); the interpreter answers both with nothing. The tz fixtures pass on Linux against the unpacked bundle (`TZDIR`). `tests/windows-skip.txt` is empty. Decision 253. |
 | 2026-11-03 | P8.3d | Done: CI run 41541991808 green on all 8 jobs; every golden test runs on windows-x64 and windows-arm64 (the skip list is empty). |
 | 2026-11-03 | P8.4 (part) | macOS cross builds, pending CI: `ld64.lld` in `ppl-lld`; `link_macos` against Zig 0.15.1's `libSystem.tbd` (SDK 15.5, min 13.0; Zig tarball's minisign signature checked with openssl, earlier vendored files match it); macOS headers pruned to 235 (`scripts/prune-macos-headers.sh`); arm64 ad-hoc signed by lld. `tests/cross.rs` checks Mach-O headers; CI builds both targets' golden programs on Linux (130 each) and runs them on macos-latest (x64 under Rosetta). macOS hosts still link with `cc`. Decision 254. |
+| 2026-11-03 | P8.4 | Done: CI run 41544297530 green on all 12 jobs (macOS programs built on Linux pass on macos-latest, x64 under Rosetta). P8.5 split into P8.5a/b/c; wasmtime 50.0.1 installed user-local (author's choice). |
