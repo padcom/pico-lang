@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Every Linux job installs the same packages and shares one Rust cache (saved by `test` only),
+# so the golden runs for other targets start in parallel with `scripts/test.sh` instead of
+# after it.
+
 jobs:
   test:
     name: test (${{ matrix.os }})
@@ -23,52 +27,73 @@ jobs:
 
       - name: Install LLVM 23 (Linux)
         if: runner.os == 'Linux'
-        run: |
-          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-          sudo bash /tmp/llvm.sh 23
-          sudo apt-get install -y llvm-23-dev libpolly-23-dev libzstd-dev zlib1g-dev liblld-23-dev \
-            libc6-amd64-cross qemu-user-static
+        run: scripts/ci-install-linux.sh
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}
 
       - name: scripts/test.sh
         run: scripts/test.sh
 
-      - name: Golden tests for linux-x64 under qemu-user
-        if: runner.os == 'Linux'
-        run: |
-          source scripts/env.sh
-          PPL_TEST_TARGET=linux-x64 cargo test --quiet -p ppl-tests --test golden
+  # The golden suite's native runs for other targets: linux-x64 under qemu-user, and musl.
+  golden:
+    name: golden (${{ matrix.target }})
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [linux-x64, linux-arm64-musl]
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Golden tests for linux-arm64-musl
-        if: runner.os == 'Linux'
-        run: |
-          source scripts/env.sh
-          PPL_TEST_TARGET=linux-arm64-musl cargo test --quiet -p ppl-tests --test golden
+      - name: Install LLVM 23
+        run: scripts/ci-install-linux.sh
 
-      # Windows programs are built here and run on Windows below (decision 248).
-      - name: Build Windows golden tests
-        if: runner.os == 'Linux'
-        run: |
-          source scripts/env.sh
-          for t in windows-x64 windows-arm64; do
-            PPL_TEST_TARGET=$t PPL_TEST_EXPORT=$PWD/golden-$t \
-              cargo test --quiet -p ppl-tests --test golden -- export
-          done
-
-      - name: Upload Windows golden tests
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          name: golden-windows
-          path: golden-windows-*
+          shared-key: Linux
+          save-if: false
+
+      - name: Golden tests for ${{ matrix.target }}
+        run: |
+          source scripts/env.sh
+          PPL_TEST_TARGET=${{ matrix.target }} cargo test --quiet -p ppl-tests --test golden
+
+  # Windows programs are built on Linux and run on Windows (decision 248).
+  windows-build:
+    name: windows-build (${{ matrix.target }})
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [windows-x64, windows-arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 23
+        run: scripts/ci-install-linux.sh
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: Linux
+          save-if: false
+
+      - name: Build the golden tests for ${{ matrix.target }}
+        run: |
+          source scripts/env.sh
+          PPL_TEST_TARGET=${{ matrix.target }} PPL_TEST_EXPORT=$PWD/golden-${{ matrix.target }} \
+            cargo test --quiet -p ppl-tests --test golden -- export
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ matrix.target }}
+          path: golden-${{ matrix.target }}
           retention-days: 3
 
   windows:
     name: windows (${{ matrix.target }})
-    needs: test
-    # Only the Linux leg of `test` builds the programs: a macOS failure shouldn't skip these.
-    if: ${{ !cancelled() }}
+    needs: windows-build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -87,7 +112,8 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: golden-windows
+          name: golden-${{ matrix.target }}
+          path: golden-${{ matrix.target }}
 
       - name: Run the golden tests
         run: cargo run --quiet --release -p ppl-golden-run -- golden-${{ matrix.target }}
