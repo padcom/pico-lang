@@ -5934,9 +5934,28 @@ impl FnBuilder<'_, '_> {
         if let (Some(id), ExprKind::Member { object, .. }) =
             (self.cx.types.extensions.get(&e.id).copied(), &callee.kind)
         {
-            // A ppl extension of a built-in type: the receiver is the first argument.
+            // A ppl extension of a built-in type: the receiver is the first argument (and
+            // defaulted parameters get their flags, as in any call).
             let mut ops = vec![self.expr(object)];
             ops.extend(args.iter().map(|a| self.expr(a)));
+            let given = ops.len();
+            let sig = self.cx.types.sigs[id.0 as usize].clone();
+            let defaults: Vec<bool> = self
+                .cx
+                .program
+                .func(id)
+                .defaults
+                .iter()
+                .map(Option::is_some)
+                .collect();
+            for t in sig.params.iter().skip(given) {
+                ops.push(Operand::Const(Const::Undef(t.clone())));
+            }
+            for (k, d) in defaults.iter().enumerate() {
+                if *d {
+                    ops.push(Operand::Const(Const::Bool(k < given)));
+                }
+            }
             let id = match self.cx.types.instances.get(&e.id).cloned() {
                 Some(targs) => self.cx.instance(id, vec![(id.0, targs)]),
                 None => id,

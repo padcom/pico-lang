@@ -3381,6 +3381,17 @@ impl<'p> Checker<'p> {
             Some(Ty::Fn(ps, r, ts)) if ps.len() == f.params.len() => {
                 Some((ps.clone(), r.clone(), ts.clone()))
             }
+            // A union with one function member of this arity (`string | (m: M) => string`).
+            Some(Ty::Union(_, ms)) => {
+                let fns: Vec<&Ty> = ms
+                    .iter()
+                    .filter(|m| matches!(m, Ty::Fn(ps, ..) if ps.len() == f.params.len()))
+                    .collect();
+                match fns.as_slice() {
+                    [Ty::Fn(ps, r, ts)] => Some((ps.clone(), r.clone(), ts.clone())),
+                    _ => None,
+                }
+            }
             _ => None,
         };
         for (i, p) in f.params.iter().enumerate() {

@@ -282,6 +282,10 @@ const PRELUDE: &[(&str, &str)] = &[
         "<core>/websocket.ppl",
         include_str!("../../../stdlib/core/websocket.ppl"),
     ),
+    (
+        "<core>/regex.ppl",
+        include_str!("../../../stdlib/core/regex.ppl"),
+    ),
 ];
 
 /// The exit code of a program that panicked (spec §7.5).

@@ -3,6 +3,7 @@
 pub mod exhaust;
 pub mod format;
 pub mod hir;
+pub mod regex;
 pub mod resolve;
 pub mod throws;
 pub mod ty;

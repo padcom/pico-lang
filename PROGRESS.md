@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P7.6: Regex** (see [PLAN.md](PLAN.md#p76-regex)). P7.5b (TLS) waits for the author: **which TLS library?** Options: bundle mbedTLS or BearSSL (vendored C sources, portable incl. WASI), or use the platform (Security.framework/Network.framework on macOS, OpenSSL on Linux, SChannel on Windows). Do P7.5b once decided.
+**P7.7: Time** (see [PLAN.md](PLAN.md#p77-time)). P7.5b (TLS) waits for the author: **which TLS library?** Options: bundle mbedTLS or BearSSL (vendored C sources, portable incl. WASI), or use the platform (Security.framework/Network.framework on macOS, OpenSSL on Linux, SChannel on Windows). Do P7.5b once decided.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 229 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-02 (P7.5c) |
+| Last green `scripts/test.sh` | 2026-11-02 (P7.6) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Regex (P7.6, decision 236)**: engine in `stdlib/core/regex.ppl` (`__RParser` → `__RNode` tree → `__RProgram` instructions → `__RMachine` backtracking VM; `RegExp`, `RegExpMatch`, `SyntaxError`), string methods in `stdlib/core/string.ppl` (`replace`/`replaceAll`/`split` take `string | RegExp`; `match`, `matchAll`, `search`), `std/regex` re-exports. Compile-time check: `ppl-sema/src/regex.rs` (`validate`, unit tests; keep it in step with `__RParser`), E0010, literals → `RegExp.__literal`. Typing: closures get parameter types from a union's single function member; native extension calls pass default flags (`split(sep)` without `limit`). Not yet: Unicode property escapes (`\p{L}`), `v`-flag set operations, `d`-flag `indices`, full case folding (only single-code-point lower/upper), `RegExp` from a `RegExp`, `Symbol.replace`-style protocols, a step limit against catastrophic backtracking, literal caching (each evaluation compiles the pattern again: hoist literals out of hot loops). A function type in a `match` pattern needs an alias (`f: ((m) => T) => …` parses `=>` as part of the type).
 - **WebSocket (P7.5c, decision 235)**: `stdlib/core/websocket.ppl` (`__sha1`, `__wsAccept`, `__randomBytes` via `__io` 132, `Event`/`MessageEvent`/`CloseEvent`, `WebSocket`), `upgradeWebSocket` in `stdlib/http.ppl` (serve hands the conn over when `Response.__upgrade` is set). `Base64`/`Hex` moved to `<core>/encoding.ppl`. Resolver: a program's own type alias now shadows a core type of the same name (`type Event = …`). Core statics are getters (static fields run at every program's start). Not yet: wss (P7.5b), `EventTarget`/`addEventListener`, `binaryType`/`Blob`, `bufferedAmount`, permessage-deflate, max message size, UTF-8 validation of text frames (bad bytes become U+FFFD instead of failing the connection).
 - **HTTP (P7.5a, decision 234)**: `stdlib/core/url.ppl` (URL, URLSearchParams), `stdlib/core/fetch.ppl` (Headers, Request, Response, `__HttpReader`/`__parseHead`/`__writeMessage`, `fetch`), `stdlib/http.ppl` (`serve`, `HttpServer`). Streams and std/net's implementation now live in core (`<core>/streams.ppl`, `<core>/net.ppl`), re-exported by `std/streams`/`std/net`. New: `String.lastIndexOf`; array literals typed through a union's single array member; function values covariant in object-reference returns (lower.rs keeps the pointer). Not yet: https (P7.5b), WebSocket (P7.5c), streaming bodies (read whole first), client keep-alive/pooling, request timeouts/`AbortSignal`, `Request.clone`, URL setters/IDNA, `Response.json` of object literals (needs a declared type), multipart/form-data. Known bug: `match` on a union that includes `null` (`string | Uint8Array | null`) says the type tests can't succeed (narrow with `if (x != null)` first). Byte handling is per-byte `__buf_op` calls (slow for big bodies).
 - **Streams/encoding (P7.4, decision 233)**: `stdlib/streams.ppl` (Readable/Writable/TransformStream, controllers, reader/writer, `pipeTo`/`pipeThrough`, `ReadableStream.from`, `textEncoderStream()`/`textDecoderStream()`), `stdlib/core/text.ppl` (TextEncoder/TextDecoder via `__io` 130/131 in `ppl_io.c`'s `decode_utf8` and `io.rs`), `stdlib/encoding.ppl` (base64, hex), `Uint8Array.subarray/slice/from`, core `TypeError`/`RangeError`. `Conn`, process `Reader`/`Writer` have `readable`/`writable`. Not yet: `tee`, byte streams/BYOB, `size()` strategies, `AbortSignal` for pipes, async iteration of a stream with a reader's lock (for-await just reads), `ReadableStream.from` of async iterables, encodings other than UTF-8, utf-16/csv/toml in std/encoding. Encoding ops live in the POSIX part of `ppl_io.c` (the Windows stub returns -1: fix in P8.3). Strings are built by concatenation (base64/hex O(n²)).
@@ -234,7 +235,7 @@ Notes:
   - [x] P7.5a URL, fetch and serve over HTTP
   - [ ] P7.5b TLS (https) — **needs the author's choice of TLS library**
   - [x] P7.5c WebSocket
-- [ ] P7.6 Regex
+- [x] P7.6 Regex
 - [ ] P7.7 Time
 - [ ] P7.8 Crypto
 - [ ] P7.9 Math, collections, fmt
@@ -356,3 +357,4 @@ Notes:
 | 2026-11-02 | P7.4 | Web Streams (`std/streams`: ReadableStream/WritableStream/TransformStream with controllers, readers, writers, backpressure, pipeTo/pipeThrough, `from`, text encoder/decoder streams), `TextEncoder`/`TextDecoder` globals (UTF-8, fatal/BOM/stream), `std/encoding` (base64 incl. URL-safe, hex), `Uint8Array.subarray/slice/from`, `TypeError`/`RangeError`; `readable`/`writable` on net `Conn` and process pipes. Spec §13.5, decision 233. Tests: run/streams/{pipe, encoding}, run/net/streams (TOUR's echo with `pipeTo`), run/process/streams. |
 | 2026-11-02 | P7.5a | P7.5 split (a: HTTP, b: TLS — waits for the author's library choice, c: WebSocket). `URL`/`URLSearchParams` (checked against Node), `Headers`, `Request`, `Response` (`json<T>()`, `Response.json`, `redirect`), `fetch` over HTTP/1.1 (redirects, chunked, HEAD), `std/http` `serve` (keep-alive, 400/500, chunked stream bodies, `shutdown`/`finished`). Streams and net moved into core. Typing: union array-literal context, function return covariance. Decision 234. Tests: run/http/{url, serve, keepalive}, run/fn_return_covariance. |
 | 2026-11-02 | P7.5c | `WebSocket` global (ws:, text/binary, fragments, ping/pong, closing handshake, masking with random keys), `std/http` `upgradeWebSocket` with the connection handed over by `serve`, SHA-1 in core, `__io` 132 random bytes, base64/hex moved into core; local type aliases shadow core types. Spec §13.6, decision 235. Test: run/http/websocket (incl. RFC 6455's accept example). |
+| 2026-11-02 | P7.6 | `RegExp` engine in ppl (backtracking VM: groups, named groups, backrefs, lookahead/behind, lazy/greedy, flags gimsyu), compile-time validation of literals (E0010, JS messages, Rust port of the parser), `RegExpMatch`, `SyntaxError`, string `replace`/`replaceAll`/`split` with regexes and replacement patterns/functions, `match`/`matchAll`/`search`; `std/regex`. 35 exec cases and the string methods agree with Node. Spec §13.7, decision 236. Tests: run/regex/{engine, strings}, fail/regex/invalid, regex.rs unit tests. |

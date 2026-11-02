@@ -4638,9 +4638,25 @@ impl Resolver {
                 ast::Lit::Str(s) => ExprKind::Str(s.clone()),
                 ast::Lit::Bool(b) => ExprKind::Bool(*b),
                 ast::Lit::Null => ExprKind::Null,
-                ast::Lit::Regex { .. } => {
-                    self.not_implemented(span, "regex literals");
-                    ExprKind::Error
+                ast::Lit::Regex { pattern, flags } => {
+                    // Checked here; at runtime `RegExp.__literal(pattern, flags)` (§13.7).
+                    if let Err(msg) = crate::regex::validate(pattern, flags) {
+                        self.diags.push(
+                            Diagnostic::error(codes::INVALID_REGEX, "invalid regular expression")
+                                .primary(span, msg),
+                        );
+                        return self.expr(ExprKind::Error, span);
+                    }
+                    let call = build::call(
+                        build::member(build::ident("RegExp", span), "__literal", span),
+                        vec![
+                            build::e(ast::ExprKind::Lit(ast::Lit::Str(pattern.clone())), span),
+                            build::e(ast::ExprKind::Lit(ast::Lit::Str(flags.clone())), span),
+                        ],
+                        span,
+                    );
+                    self.cond_scope = cond;
+                    return self.lower_expr(&call);
                 }
             },
             // `target` and `build` (unless the program has its own): facts about the build,

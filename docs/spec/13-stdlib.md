@@ -317,3 +317,31 @@ async function handle(req: Request): Promise<Response> throws TypeError {
 `upgradeWebSocket(req, protocol = "")` checks `upgrade: websocket` and the key, and returns
 `{ socket, response }`; once `serve` has sent the 101 response, the connection belongs to the
 socket (`onopen` runs then). No extensions (`permessage-deflate`).
+
+## 13.7 Regular expressions
+`RegExp` (a global, also exported by `std/regex`) has ECMAScript syntax and semantics:
+alternation, greedy and lazy quantifiers (`*`, `+`, `?`, `{n}`, `{n,}`, `{n,m}`, each with `?`),
+groups (capturing, `(?:…)`, named `(?<name>…)`), backreferences (`\1`, `\k<name>`), lookahead
+and lookbehind (`(?=…)`, `(?!…)`, `(?<=…)`, `(?<!…)`), classes (`[a-z]`, `[^…]`, `\d \w \s \D \W
+\S`, `.`), anchors (`^ $ \b \B`) and escapes (`\n \t \xHH \uHHHH \u{H…} \cX`). Captures inside a
+repeated group are reset at each repetition and an iteration that matches nothing ends the
+loop, as in JavaScript. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
+(`^`/`$` at line ends), `s` (`.` matches line ends), `y` (sticky), `u`, `v`, `d` (accepted).
+Matching is by code point, as if `u` were always on (`.` is one character), and indices count
+code points, as ppl strings do.
+
+A regex literal (`/\d+/g`) is checked at compile time (E0010, with JavaScript's message:
+`Invalid regular expression: /(abc/: Unterminated group`) and can't fail at runtime;
+`new RegExp(pattern, flags = "")` throws a `SyntaxError` instead. A `RegExp` has `source`,
+`flags`, `global`, `ignoreCase`, `multiline`, `dotAll`, `unicode`, `sticky`, `hasIndices`,
+`lastIndex`, `exec(s): RegExpMatch?` (from `lastIndex` with `g`/`y`, which it updates), `test(s)`
+and `toString()`. A `RegExpMatch` is array-like: `m[0]` is the match, `m[i]` group `i` (`string?`:
+`null` when the group didn't take part), `length`, `index`, `input`, `groups` (named groups:
+`Map<string, string?>?`), `toArray()`, `for…of`.
+
+String methods take a `string` or a `RegExp`: `replace(search, replacement)` (the first
+occurrence; every match with `g`), `replaceAll(search, replacement)` (a `RegExp` must have `g`,
+or it panics), `split(separator, limit = -1)` (a regex's groups are spliced in), and only a
+`RegExp`: `match(re)` (`exec`'s match without `g`; with `g`, every match's text as the elements
+and `index` -1), `matchAll(re): RegExpMatch[]`, `search(re): int`. A replacement is a string with
+`$&`, `$1`…`$99`, `$<name>`, `` $` ``, `$'` and `$$`, or a function `(m: RegExpMatch) => string`.

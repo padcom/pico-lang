@@ -38,6 +38,7 @@ codes! {
     UNTERMINATED_TEMPLATE = 7: "unterminated template literal",
     UNTERMINATED_REGEX = 8: "unterminated regex literal",
     INVALID_MULTILINE = 9: "malformed multiline string literal",
+    INVALID_REGEX = 10: "invalid regular expression literal",
     // Syntax
     UNEXPECTED_TOKEN = 100: "unexpected token",
     UNCLOSED_DELIMITER = 101: "unclosed delimiter",

@@ -83,7 +83,19 @@ function __String_toLowerCase(s: string): string {
 }
 
 /// The parts between occurrences of `separator`; an empty separator splits into characters.
-function __String_split(s: string, separator: string): string[] {
+/// The pieces of `s` between occurrences of `separator` (a string or a `RegExp`, whose
+/// captured groups are spliced in), at most `limit` of them.
+function __String_split(s: string, separator: string | RegExp, limit: int = -1): string[] {
+  match (separator) {
+    sep: string => {
+      const parts = __splitStr(s, sep)
+      if (limit >= 0 && parts.length > limit) parts.slice(0, limit) else parts
+    },
+    re: RegExp => __rSplit(s, re, limit),
+  }
+}
+
+function __splitStr(s: string, separator: string): string[] {
   const out: string[] = []
   if (separator.length == 0) {
     for (const c of s) {
@@ -106,16 +118,81 @@ function __String_split(s: string, separator: string): string[] {
   out
 }
 
-/// Replaces the first occurrence.
-function __String_replace(s: string, search: string, replacement: string): string {
-  const i = __String_indexOf(s, search)
-  if (i < 0) {
-    return s
+/// Replaces the first occurrence of `search` (every match for a `RegExp` with the `g` flag).
+/// `replacement` may use `$&`, `$1`, `$<name>`, `` $` ``, `$'` and `$$`, or be a function of the
+/// match.
+function __String_replace(s: string, search: string | RegExp, replacement: string | ((m: RegExpMatch) => string)): string {
+  match (search) {
+    t: string => {
+      const i = __String_indexOf(s, t)
+      if (i < 0) {
+        return s
+      }
+      const m = new RegExpMatch([t], i, s, null)
+      s.slice(0, i) + __rReplaceWith(replacement, m, s) + s.slice(i + t.length)
+    },
+    re: RegExp => __rReplace(s, re, replacement, re.global),
   }
-  s.slice(0, i) + replacement + s.slice(i + search.length)
 }
 
-function __String_replaceAll(s: string, search: string, replacement: string): string {
+/// Replaces every occurrence of `search` (a `RegExp` needs the `g` flag).
+function __String_replaceAll(s: string, search: string | RegExp, replacement: string | ((m: RegExpMatch) => string)): string {
+  match (search) {
+    t: string => match (replacement) {
+      r: string => if (r.includes("$")) __rReplace(s, RegExp.__literal(__rQuote(t), "g"), r, true) else __replaceAllStr(s, t, r),
+      f: __ReplaceFn => __rReplace(s, RegExp.__literal(__rQuote(t), "g"), f, true),
+    },
+    re: RegExp => {
+      if (!re.global) {
+        panic("replaceAll must be called with a global RegExp")
+      }
+      __rReplace(s, re, replacement, true)
+    },
+  }
+}
+
+/// The first match of `re` (no `g` flag), or every match's text (`g`); `null` without one.
+function __String_match(s: string, re: RegExp): RegExpMatch? {
+  if (!re.global) {
+    return re.exec(s)
+  }
+  const all = __rMatchAll(s, re)
+  re.lastIndex = 0
+  if (all.length == 0) {
+    return null
+  }
+  const items: (string?)[] = []
+  for (const m of all) {
+    items.push(m[0])
+  }
+  new RegExpMatch(items, -1, s, null)
+}
+
+/// Every match of `re`, with its groups and index.
+function __String_matchAll(s: string, re: RegExp): RegExpMatch[] {
+  __rMatchAll(s, re)
+}
+
+/// Where the first match of `re` starts, or -1.
+function __String_search(s: string, re: RegExp): int {
+  const caps = re.__search(__rChars(s), 0, re.sticky)
+  if (caps == null) -1 else caps[0]
+}
+
+/// `s` with regex syntax characters escaped (a pattern matching `s` literally).
+function __rQuote(s: string): string {
+  let out = ""
+  for (const c of s) {
+    if ("\\^$.*+?()[]{}|/".includes(`${c}`)) {
+      out = `${out}\\${c}`
+    } else {
+      out = `${out}${c}`
+    }
+  }
+  out
+}
+
+function __replaceAllStr(s: string, search: string, replacement: string): string {
   if (search.length == 0) {
     return s
   }

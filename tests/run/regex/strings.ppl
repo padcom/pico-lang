@@ -1,0 +1,48 @@
+// expect: a+b+c+d
+// expect: Smith, John
+// expect: 02.11.2026
+// expect: price: 20, 40
+// expect: aaaaaa
+// expect: x/y/z
+// expect: x#y#z
+// expect: ["1","2","3"]
+// expect: ["a","b","c","d"]
+// expect: ["one","1","two","2","three"]
+// expect: ["a","b","c"]
+// expect: ["a","b"]
+// expect: 4
+// expect: [[0,"k1","v1"],[6,"k2","v2"]]
+// expect: true 2 true 3 false 0
+// expect: /a\/b/gi true false
+// expect: start
+// expect: -a-b-c-
+// `string` methods that take a `RegExp` (spec §13.7), checked against Node.
+println("a-b_c d".replace(/[-_ ]/g, "+"))
+println("John Smith".replace(/(\w+)\s(\w+)/, "$2, $1"))
+println("2026-11-02".replace(/(?<y>\d+)-(?<m>\d+)-(?<d>\d+)/, "$<d>.$<m>.$<y>"))
+println("price: 10, 20".replace(/\d+/g, (m) => `${parseInt(m[0] ?? "0") * 2}`))
+println("aaa".replace(/a/g, "$&$&"))
+println("x.y.z".replaceAll(".", "/"))
+println("x1y22z".replaceAll(/\d+/g, "#"))
+const digits = "a1b2c3".match(/\d/g)
+println(JSON.stringify<(string?)[]>(if (digits != null) digits.toArray() else []))
+println(JSON.stringify<string[]>("a, b,c ,d".split(/\s*,\s*/)))
+println(JSON.stringify<string[]>("one1two2three".split(/(\d)/)))
+println(JSON.stringify<string[]>("abc".split("")))
+println(JSON.stringify<string[]>("a,b,c".split(",", 2)))
+println("hello world".search(/o\s/))
+let pairs = ""
+for (const m of "k1=v1;k2=v2".matchAll(/(\w+)=(\w+)/g)) {
+  pairs = `${pairs}[${m.index},"${m[1]}","${m[2]}"]`
+}
+println(`[${pairs.replaceAll("][", "],[")}]`)
+const re = /o/g
+const t1 = re.test("foo")
+const l1 = re.lastIndex
+const t2 = re.test("foo")
+const l2 = re.lastIndex
+const t3 = re.test("foo")
+println(`${t1} ${l1} ${t2} ${l2} ${t3} ${re.lastIndex}`)
+println(`${/a\/b/gi} ${/x/y.sticky} ${/x/.global}`)
+println("".replace(/^/, "start"))
+println("abc".replace(/(?:)/g, "-"))

@@ -1,0 +1,4 @@
+// `std/regex` (spec §13.7): `RegExp` and its match type. Both are globals (in the core
+// library, `<core>/regex.ppl`); regex literals make `RegExp`s.
+
+export { RegExp, RegExpMatch, SyntaxError }

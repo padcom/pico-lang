@@ -1,0 +1,99 @@
+// expect: 1 ["aaa"]
+// expect: 0 ["abcd","a","bcd",""]
+// expect: 0 ["555-1234","555","1234"]
+// expect: 0 ["John Smith","John","Smith"]
+// expect: 0 ["aaab","aaa"]
+// expect: 0 ["",""]
+// expect: 0 ["abac","a"]
+// expect: 0 ["zaacbbbcac","z","ac","a",null,"c"]
+// expect: 1 ["d"]
+// expect: 2 ["foo"]
+// expect: 1 ["foo"]
+// expect: 0 ["xxy"]
+// expect: 0 ["aaa"]
+// expect: 0 ["aa"]
+// expect: 0 ["ababab"]
+// expect: 1 ["a","aaa"]
+// expect: 2 ["b"]
+// expect: 6 ["42"]
+// expect: 7 ["5"]
+// expect: 2 ["ll","l"]
+// expect: 1 ["oo","o"]
+// expect: 0 ["HeLLo"]
+// expect: 2 ["b"]
+// expect: 0 ["a\nc"]
+// expect: null
+// expect: 4 ["12-34"]
+// expect: 1 ["AB"]
+// expect: 3 ["éé"]
+// expect: 1 [" "]
+// expect: 5 ["bob.x@ex.com"]
+// expect: 0 ["12em","12"]
+// expect: 0 [""]
+// expect: null
+// expect: 0 ["b",null,"b"]
+// expect: null
+// `RegExp` against JavaScript: each line is exec's index and elements (checked with Node).
+function show(p: string, s: string, f: string): void {
+  let re: RegExp? = null
+  try {
+    re = new RegExp(p, f)
+  } catch (e: SyntaxError) {
+    println(e.message)
+    return
+  }
+  if (re == null) {
+    return
+  }
+  const m = re.exec(s)
+  if (m == null) {
+    println("null")
+    return
+  }
+  let items = ""
+  for (let i = 0; i < m.length; i++) {
+    const x = m[i]
+    const shown = if (x == null) "null" else __jsonQuote(x)
+    items = if (i == 0) shown else `${items},${shown}`
+  }
+  println(`${m.index} [${items}]`)
+}
+
+function __jsonQuote(s: string): string {
+  JSON.stringify<string>(s)
+}
+show("a+", "caaab", "")
+show("(a|ab)(c|bcd)(d*)", "abcd", "")
+show("^(\\d{3})-(\\d{4})$", "555-1234", "")
+show("(\\w+)\\s(\\w+)", "John Smith", "")
+show("(a*)*b", "aaab", "")
+show("(a*)+", "b", "")
+show("(a|b)*c", "abac", "")
+show("(z)((a+)?(b+)?(c))*", "zaacbbbcac", "")
+show("[^aeiou]+", "education", "")
+show("\\bfoo\\b", "a foo b", "")
+show("\\Bfoo", "afoo", "")
+show("x*?y", "xxy", "")
+show("a{2,3}", "aaaa", "")
+show("a{2,3}?", "aaaa", "")
+show("(?:ab)+", "ababab", "")
+show("(?=(\\w+))a", "baaa", "")
+show("(?!a)\\w", "aab", "")
+show("(?<=\\$)\\d+", "cost $42", "")
+show("(?<!\\$)\\b\\d+", "$4 and 5", "")
+show("(\\w)\\1", "hello", "")
+show("(?<w>o)\\k<w>", "foo", "")
+show("[a-z]+", "HeLLo", "i")
+show("^b", "a\nb", "m")
+show("a.c", "a\nc", "s")
+show("a.c", "a\nc", "")
+show("[\\d-]+", "tel 12-34", "")
+show("A\\x42", "xABy", "")
+show("\u00e9+", "caf\u00e9\u00e9", "")
+show("\\s+", "a \\t b", "")
+show("[\\w.]+@[\\w.]+", "mail bob.x@ex.com now", "")
+show("(\\d+)(?:px|em)", "12em", "")
+show("^$", "", "")
+show("a", "b", "")
+show("(a)|(b)", "b", "")
+show("[]a]", "x]", "")
