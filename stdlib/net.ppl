@@ -1,0 +1,463 @@
+// `std/net`: TCP (`listen`, `connect`), UDP (`bind`) and DNS (`resolve`), spec §13.4.
+// Accepting, connecting, reading, writing, sending, receiving and resolving are jobs on
+// runtime threads that settle on the event loop (ops 30–35 and the pipe jobs 20–22 in
+// `ppl_io.c`). A socket's descriptor is closed only once no job uses it any more: `close()`
+// shuts it down (or wakes a waiting accept or receive with a connection or a datagram to
+// itself) and the last job to finish closes it.
+
+const __kinds = ["", "NotFound", "AlreadyExists", "PermissionDenied", "NotADirectory",
+  "IsADirectory", "DirectoryNotEmpty", "InvalidData", "Other", "ConnectionRefused",
+  "ConnectionReset", "AddrInUse", "AddrNotAvailable", "TimedOut", "HostNotFound"]
+const __messages = ["", "not found", "already exists", "permission denied",
+  "not a directory", "is a directory", "directory not empty", "not valid UTF-8", "I/O error",
+  "connection refused", "connection reset", "address in use", "address not available",
+  "timed out", "host not found"]
+
+/// A failed network operation: the address it was about (`host:port`), a message
+/// (`connection refused: 127.0.0.1:9`) and a portable kind (`"ConnectionRefused"`,
+/// `"ConnectionReset"`, `"AddrInUse"`, `"AddrNotAvailable"`, `"TimedOut"`, `"HostNotFound"`,
+/// `"InvalidData"`, `"PermissionDenied"`, `"Other"`).
+export class NetError extends Error {
+  public address: string
+  public kind: string
+  constructor(address: string, message: string, kind: string) {
+    super(message)
+    this.address = address
+    this.kind = kind
+  }
+}
+
+function __netError(address: string, r: int, errno: int): NetError {
+  const k = if (-r > 0 && -r < __kinds.length) -r else 8
+  const what = if (k == 8) `${__messages[k]} (os error ${errno})` else __messages[k]
+  new NetError(address, `${what}: ${address}`, __kinds[k])
+}
+
+/// An IP address and a port.
+export struct Addr {
+  hostname: string
+  port: int
+}
+
+/// `host:port` (`[::1]:80` for IPv6).
+function __show(hostname: string, port: int): string {
+  if (hostname.includes(":")) `[${hostname}]:${port}` else `${hostname}:${port}`
+}
+
+/// An `Addr` from "host port" at `fields[i]`, `fields[i + 1]`.
+function __addr(fields: string[], i: int): Addr {
+  const a: Addr = { hostname: fields[i], port: parseInt(fields[i + 1]) }
+  a
+}
+
+/// A finished job's results.
+struct __NResult {
+  r: int
+  r2: int
+  job: int
+}
+
+/// Runs job `op`; failures reject with a `NetError` about `address`.
+function __njob<T>(op: int, a: int, b: int, c: int, s: string, t: string, address: string,
+    read: (res: __NResult) => T): Promise<T, NetError> {
+  const p = new Promise<T, NetError>()
+  __ioSubmit(op, a, b, c, s, t, (job: int) => {
+    const r = __io(102, job, 0, 0, "", "")
+    const r2 = __io(103, job, 0, 0, "", "")
+    if (r < 0) {
+      p.__reject(__netError(address, r, r2))
+    } else {
+      p.__resolve(read({ r, r2, job }))
+    }
+  })
+  p
+}
+
+function __resolved<T>(value: T): Promise<T, NetError> {
+  const p = new Promise<T, NetError>()
+  p.__resolve(value)
+  p
+}
+
+/// The bytes of a view as a buffer handle starting at its first byte.
+function __bytesOf(data: Uint8Array): ArrayBuffer {
+  if (data.byteOffset == 0) data.buffer else data.buffer.slice(data.byteOffset, data.byteOffset + data.length)
+}
+
+/// A received buffer (`r` its handle, `r2` its length) as bytes.
+function __bytes(res: __NResult): Uint8Array {
+  new Uint8Array(new ArrayBuffer(res.r, res.r2, true), 0, res.r2)
+}
+
+/// Where to connect to reach a listener bound to `a` (the loopback for "every interface").
+function __reach(a: Addr): string {
+  if (a.hostname == "0.0.0.0") "127.0.0.1" else if (a.hostname == "::") "::1" else a.hostname
+}
+
+/// A queued write.
+struct __Send {
+  bytes: ArrayBuffer?
+  count: int
+  text: string
+  p: Promise<int, NetError>
+}
+
+/// A TCP connection: chunks of bytes with `read` or `for await`, the rest as text with
+/// `text()`, writes (in the order they're made) with `write`/`writeText`. One read at a time.
+export class Conn {
+  fd: int
+  public readonly localAddr: Addr
+  public readonly remoteAddr: Addr
+  name: string
+  reading: bool = false
+  done: bool = false
+  queue: __Send[] = []
+  head: int = 0
+  busy: bool = false
+  /// 0 open, 1 closing for writing, 2 closing.
+  closing: int = 0
+  writeShut: bool = false
+  shut: bool = false
+  released: bool = false
+
+  constructor(fd: int, localAddr: Addr, remoteAddr: Addr) {
+    this.fd = fd
+    this.localAddr = localAddr
+    this.remoteAddr = remoteAddr
+    this.name = __show(remoteAddr.hostname, remoteAddr.port)
+  }
+
+  /// Closes the descriptor once it's shut down and no job uses it.
+  release(): void {
+    if (shut && !reading && !busy && !released) {
+      released = true
+      __io(121, fd, 0, 0, "", "");
+    }
+  }
+
+  start(): bool {
+    if (reading) {
+      panic(`the connection to ${name} is already being read`)
+    }
+    if (done || shut) {
+      return false
+    }
+    reading = true
+    true
+  }
+
+  /// Up to `n` bytes (as soon as some arrive), or `null` once the other side has finished
+  /// writing (or this side is closed).
+  public read(n: int = 65536): Promise<Uint8Array?, NetError> {
+    if (!start()) {
+      return __resolved<Uint8Array?>(null)
+    }
+    __njob<Uint8Array?>(20, fd, n, 0, "", "", name, (res: __NResult) => {
+      this.reading = false
+      if (res.r2 == 0) {
+        __buf_op(2, res.r, 0, 0);
+        this.done = true
+        this.release()
+        null
+      } else {
+        this.release()
+        __bytes(res)
+      }
+    })
+  }
+
+  /// `for await` reads chunks until the end.
+  public next(): Promise<Uint8Array?, NetError> {
+    read()
+  }
+
+  public asyncIterator(): Conn {
+    this
+  }
+
+  /// Everything until the other side finishes writing, as text (UTF-8; anything else
+  /// rejects with kind `"InvalidData"`).
+  public text(): Promise<string, NetError> {
+    if (!start()) {
+      return __resolved<string>("")
+    }
+    __njob<string>(22, fd, 0, 0, "", "", name, (res: __NResult) => {
+      this.reading = false
+      this.done = true
+      this.release()
+      __io_text(res.job)
+    })
+  }
+
+  add(w: __Send): Promise<int, NetError> {
+    if (closing > 0) {
+      panic(`the connection to ${name} is closed for writing`)
+    }
+    queue.push(w)
+    pump()
+    w.p
+  }
+
+  /// Writes all of `data`; the count written.
+  public write(data: Uint8Array): Promise<int, NetError> {
+    add({ bytes: __bytesOf(data), count: data.length, text: "", p: new Promise<int, NetError>() })
+  }
+
+  /// Writes `text` as UTF-8; the count of bytes written.
+  public writeText(text: string): Promise<int, NetError> {
+    add({ bytes: null, count: 0, text, p: new Promise<int, NetError>() })
+  }
+
+  /// Finishes writing once earlier writes are done (the other side reads the end); reading
+  /// goes on.
+  public closeWrite(): void {
+    if (closing == 0) {
+      closing = 1
+    }
+    pump()
+  }
+
+  /// Closes the connection once earlier writes are done: a waiting read ends with `null`.
+  /// Twice is fine.
+  public close(): void {
+    closing = 2
+    pump()
+  }
+
+  pump(): void {
+    if (busy) {
+      return
+    }
+    if (head == queue.length) {
+      queue = []
+      head = 0
+      if (closing == 1 && !writeShut) {
+        writeShut = true
+        __io(120, fd, 1, 0, "", "");
+      } else if (closing == 2 && !shut) {
+        shut = true
+        __io(120, fd, 2, 0, "", "");
+        release()
+      }
+      return
+    }
+    const w = queue[head]
+    head += 1
+    busy = true
+    const b = w.bytes
+    const settle = (job: int) => {
+      const r = __io(102, job, 0, 0, "", "")
+      const r2 = __io(103, job, 0, 0, "", "")
+      this.busy = false
+      if (r < 0) {
+        w.p.__reject(__netError(this.name, r, r2))
+      } else {
+        w.p.__resolve(r)
+      }
+      this.pump()
+    }
+    if (b != null) {
+      __ioSubmit(21, fd, b.__handle, w.count, "", "", settle)
+    } else {
+      __ioSubmit(21, fd, 0, -1, "", w.text, settle)
+    }
+  }
+}
+
+/// A TCP listener: `accept()` or `for await (const conn of listener)`.
+export class Listener {
+  fd: int
+  /// The address it listens on (with the port chosen when `listen` was given 0).
+  public readonly addr: Addr
+  accepting: bool = false
+  closed: bool = false
+  released: bool = false
+
+  constructor(fd: int, addr: Addr) {
+    this.fd = fd
+    this.addr = addr
+  }
+
+  release(): void {
+    if (closed && !accepting && !released) {
+      released = true
+      __io(121, fd, 0, 0, "", "");
+    }
+  }
+
+  /// The next connection, or `null` once the listener is closed. One at a time.
+  public accept(): Promise<Conn?, NetError> {
+    if (closed) {
+      return __resolved<Conn?>(null)
+    }
+    if (accepting) {
+      panic(`${__show(addr.hostname, addr.port)} is already accepting`)
+    }
+    accepting = true
+    __njob<Conn?>(31, fd, 0, 0, "", "", __show(addr.hostname, addr.port), (res: __NResult) => {
+      this.accepting = false
+      if (this.closed) {
+        // (The connection that woke it up.)
+        __io(121, res.r, 0, 0, "", "");
+        this.release()
+        return null
+      }
+      const f = __io_text(res.job).split(" ")
+      new Conn(res.r, __addr(f, 0), __addr(f, 2))
+    })
+  }
+
+  /// `for await` accepts connections until the listener is closed.
+  public next(): Promise<Conn?, NetError> {
+    accept()
+  }
+
+  public asyncIterator(): Listener {
+    this
+  }
+
+  /// Stops listening: a waiting `accept()` gives `null` (twice is fine). Open connections
+  /// stay open.
+  public close(): void {
+    if (closed) {
+      return
+    }
+    closed = true
+    if (accepting) {
+      // Wakes the accept up with a connection of our own.
+      __ioSubmit(32, addr.port, 0, 0, __reach(addr), "", (job: int) => {
+        const r = __io(102, job, 0, 0, "", "")
+        if (r >= 0) {
+          __io(121, r, 0, 0, "", "");
+        }
+      })
+    } else {
+      release()
+    }
+  }
+}
+
+/// Listens for TCP connections on `hostname` (`"0.0.0.0"` or `"::"` for every interface) and
+/// `port` (0 picks a free one; see `addr`).
+export function listen(port: int = 0, hostname: string = "127.0.0.1"): Promise<Listener, NetError> {
+  __njob<Listener>(30, port, 0, 0, hostname, "", __show(hostname, port), (res: __NResult) => {
+    const f = __io_text(res.job).split(" ")
+    new Listener(res.r, __addr(f, 0))
+  })
+}
+
+/// Connects to `hostname` (a name or an IP address) and `port` over TCP.
+export function connect(port: int, hostname: string = "127.0.0.1"): Promise<Conn, NetError> {
+  __njob<Conn>(32, port, 0, 0, hostname, "", __show(hostname, port), (res: __NResult) => {
+    const f = __io_text(res.job).split(" ")
+    new Conn(res.r, __addr(f, 0), __addr(f, 2))
+  })
+}
+
+/// A received datagram and where it came from.
+export struct Datagram {
+  data: Uint8Array
+  addr: Addr
+}
+
+/// A UDP socket: `send` datagrams anywhere, `receive` them one at a time.
+export class UdpSocket {
+  fd: int
+  public readonly addr: Addr
+  receiving: bool = false
+  sending: int = 0
+  closed: bool = false
+  released: bool = false
+
+  constructor(fd: int, addr: Addr) {
+    this.fd = fd
+    this.addr = addr
+  }
+
+  release(): void {
+    if (closed && !receiving && sending == 0 && !released) {
+      released = true
+      __io(121, fd, 0, 0, "", "");
+    }
+  }
+
+  sendJob(handle: int, count: int, text: string, port: int, hostname: string): Promise<int, NetError> {
+    if (closed) {
+      panic(`the socket on ${__show(addr.hostname, addr.port)} is closed`)
+    }
+    sending += 1
+    __njob<int>(34, fd, handle, count, `${port} ${hostname}`, text, __show(hostname, port),
+      (res: __NResult) => {
+        this.sending -= 1
+        this.release()
+        res.r
+      })
+  }
+
+  /// Sends `data` as one datagram to `hostname` and `port`; the count of bytes sent.
+  public send(data: Uint8Array, port: int, hostname: string = "127.0.0.1"): Promise<int, NetError> {
+    sendJob(__bytesOf(data).__handle, data.length, "", port, hostname)
+  }
+
+  /// Sends `text` (as UTF-8) as one datagram.
+  public sendText(text: string, port: int, hostname: string = "127.0.0.1"): Promise<int, NetError> {
+    sendJob(0, -1, text, port, hostname)
+  }
+
+  /// The next datagram (at most `n` bytes of it; the rest is dropped), or `null` once the
+  /// socket is closed. One at a time.
+  public receive(n: int = 65536): Promise<Datagram?, NetError> {
+    if (closed) {
+      return __resolved<Datagram?>(null)
+    }
+    if (receiving) {
+      panic(`the socket on ${__show(addr.hostname, addr.port)} is already receiving`)
+    }
+    receiving = true
+    __njob<Datagram?>(33, fd, n, 0, "", "", __show(addr.hostname, addr.port), (res: __NResult) => {
+      this.receiving = false
+      if (this.closed) {
+        __buf_op(2, res.r, 0, 0);
+        this.release()
+        return null
+      }
+      const f = __io_text(res.job).split(" ")
+      const d: Datagram = { data: __bytes(res), addr: __addr(f, 0) }
+      d
+    })
+  }
+
+  /// Closes the socket: a waiting `receive()` gives `null` (twice is fine).
+  public close(): void {
+    if (closed) {
+      return
+    }
+    if (receiving) {
+      // Wakes the receive up with a datagram of our own.
+      sendJob(0, -1, "", addr.port, __reach(addr))
+    }
+    closed = true
+    release()
+  }
+}
+
+/// A UDP socket on `hostname` and `port` (0 picks a free one; see `addr`).
+export function bind(port: int = 0, hostname: string = "127.0.0.1"): Promise<UdpSocket, NetError> {
+  __njob<UdpSocket>(30, port, 1, 0, hostname, "", __show(hostname, port), (res: __NResult) => {
+    const f = __io_text(res.job).split(" ")
+    new UdpSocket(res.r, __addr(f, 0))
+  })
+}
+
+/// The IP addresses of `hostname` (in the order the system gives them, without repeats).
+export function resolve(hostname: string): Promise<string[], NetError> {
+  __njob<string[]>(35, 0, 0, 0, hostname, "", hostname, (res: __NResult) => {
+    const out: string[] = []
+    for (const part of __io_text(res.job).split("\u{0}")) {
+      if (part.length > 0) {
+        out.push(part)
+      }
+    }
+    out
+  })
+}

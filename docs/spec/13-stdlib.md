@@ -166,3 +166,43 @@ POSIX paths with Node's `path.posix` semantics: `sep`, `isAbsolute`, `normalize`
 `a/c/`), `join(...parts)`, `resolve(...parts)` (from the working directory; no trailing slash),
 `dirname`, `basename(p, ext = "")`, `extname` (`.bashrc` has none), `relative(from, to)`.
 Windows paths come with the Windows target.
+
+### `std/net`
+TCP, UDP and DNS. Every operation that can wait (accepting, connecting, reading, writing,
+sending, receiving, resolving) runs on the runtime's I/O threads and settles its promise on the
+event loop. Failures reject with `NetError` (`address` as `host:port`, `message`, and a portable
+`kind`: `ConnectionRefused`, `ConnectionReset`, `AddrInUse`, `AddrNotAvailable`, `TimedOut`,
+`HostNotFound`, `InvalidData`, `PermissionDenied`, `Other`); messages read
+`connection refused: 127.0.0.1:9`.
+```ts
+import { listen, connect } from "std/net"
+
+const server = await listen(port: 9000)          // hostname = "127.0.0.1"; port 0 picks one
+for await (const conn of server) echo(conn)       // conns until server.close()
+
+const conn = await connect(9000, hostname: "localhost")
+await conn.writeText("hi")
+conn.closeWrite()
+println(await conn.text())
+conn.close()
+```
+```text
+listen(port = 0, hostname = "127.0.0.1"): Promise<Listener, NetError>   // "0.0.0.0"/"::": every interface
+connect(port, hostname = "127.0.0.1"): Promise<Conn, NetError>          // tries each address in turn
+bind(port = 0, hostname = "127.0.0.1"): Promise<UdpSocket, NetError>
+resolve(hostname): Promise<string[], NetError>                          // IP addresses, no repeats
+type Addr = { hostname: string, port: int }                             // hostname is an IP address
+```
+A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (one at a time; `null` once
+closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
+connections stay open). A `Conn` has `localAddr`, `remoteAddr`, `read(n = 65536):
+Promise<Uint8Array?, NetError>` (`null` once the other side finished writing or this side is
+closed), `for await` over chunks, `text()` (the rest as UTF-8), `write(data)` and
+`writeText(text)` (`Promise<int, NetError>`, in the order they're made), `closeWrite()` (the
+other side reads the end after earlier writes; reading goes on) and `close()` (after earlier
+writes; a waiting read gives `null`). One read at a time; a second while one waits panics, as
+does writing after `closeWrite`/`close`. A `UdpSocket` has `addr`, `send(data, port, hostname =
+"127.0.0.1")`, `sendText(text, port, hostname)` (one datagram each), `receive(n = 65536):
+Promise<Datagram?, NetError>` (`{ data: Uint8Array, addr }`; bytes past `n` are dropped; `null`
+once closed) and `close()`. Web Streams (`conn.readable`, `conn.writable`) come with
+`std/streams`.

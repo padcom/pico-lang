@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs;
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
@@ -23,6 +24,12 @@ const K_IS_A_DIRECTORY: i64 = 5;
 const K_DIRECTORY_NOT_EMPTY: i64 = 6;
 const K_INVALID_DATA: i64 = 7;
 const K_OTHER: i64 = 8;
+const K_CONN_REFUSED: i64 = 9;
+const K_CONN_RESET: i64 = 10;
+const K_ADDR_IN_USE: i64 = 11;
+const K_ADDR_NOT_AVAIL: i64 = 12;
+const K_TIMED_OUT: i64 = 13;
+const K_HOST_NOT_FOUND: i64 = 14;
 
 #[derive(Default)]
 pub(crate) struct IoState {
@@ -43,6 +50,74 @@ pub(crate) struct IoState {
     /// The program's environment, once it's looked at (changes stay inside the program,
     /// as the interpreter shares its process with other programs).
     env: Option<BTreeMap<String, String>>,
+    /// `std/net` sockets, shared with the threads that accept and connect.
+    net: Arc<Mutex<Net>>,
+}
+
+/// Sockets by id (from 1 000 000, apart from pipes).
+#[derive(Default)]
+struct Net {
+    next: i64,
+    socks: HashMap<i64, Sock>,
+}
+
+impl Net {
+    fn add(&mut self, s: Sock) -> i64 {
+        self.next = self.next.max(999_999) + 1;
+        self.socks.insert(self.next, s);
+        self.next
+    }
+}
+
+#[derive(Clone)]
+enum Sock {
+    Listener(Arc<TcpListener>),
+    Stream(Arc<TcpStream>),
+    Udp(Arc<UdpSocket>),
+}
+
+/// "host port".
+fn addr_text(a: &SocketAddr) -> String {
+    format!("{} {}", a.ip(), a.port())
+}
+
+/// "local-host local-port remote-host remote-port".
+fn ends_text(s: &TcpStream) -> String {
+    let none = SocketAddr::from(([0, 0, 0, 0], 0));
+    format!(
+        "{} {}",
+        addr_text(&s.local_addr().unwrap_or(none)),
+        addr_text(&s.peer_addr().unwrap_or(none))
+    )
+}
+
+fn lookup(host: &str, port: i64) -> Result<Vec<SocketAddr>, (i64, i64)> {
+    match (host, port as u16).to_socket_addrs() {
+        Ok(a) => {
+            let v: Vec<SocketAddr> = a.collect();
+            if v.is_empty() {
+                Err((-K_HOST_NOT_FOUND, 0))
+            } else {
+                Ok(v)
+            }
+        }
+        Err(_) => Err((-K_HOST_NOT_FOUND, 0)),
+    }
+}
+
+/// Tries each address in turn; the last failure if none works.
+fn first_ok<T>(
+    addrs: &[SocketAddr],
+    f: impl Fn(&SocketAddr) -> std::io::Result<T>,
+) -> Result<T, (i64, i64)> {
+    let mut last = (-K_OTHER, 0);
+    for a in addrs {
+        match f(a) {
+            Ok(x) => return Ok(x),
+            Err(e) => last = error(&e),
+        }
+    }
+    Err(last)
 }
 
 type Reader = Arc<Mutex<Box<dyn Read + Send>>>;
@@ -226,6 +301,13 @@ fn error(e: &std::io::Error) -> (i64, i64) {
         ErrorKind::NotADirectory => K_NOT_A_DIRECTORY,
         ErrorKind::IsADirectory => K_IS_A_DIRECTORY,
         ErrorKind::DirectoryNotEmpty => K_DIRECTORY_NOT_EMPTY,
+        ErrorKind::ConnectionRefused => K_CONN_REFUSED,
+        ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted | ErrorKind::BrokenPipe => {
+            K_CONN_RESET
+        }
+        ErrorKind::AddrInUse => K_ADDR_IN_USE,
+        ErrorKind::AddrNotAvailable => K_ADDR_NOT_AVAIL,
+        ErrorKind::TimedOut => K_TIMED_OUT,
         _ => K_OTHER,
     };
     (-k, i64::from(e.raw_os_error().unwrap_or(0)))
@@ -263,6 +345,23 @@ impl Interp<'_, '_> {
         let (op, a, b, c) = (n(0), n(1), n(2), n(3));
         if (20..=23).contains(&op) || op == 25 {
             return Value::Int(i128::from(self.process_job(op, a, b, c, &s(5))));
+        }
+        if (30..=35).contains(&op) {
+            return Value::Int(i128::from(self.net_job(op, a, b, c, &s(4), &s(5))));
+        }
+        if op == 120 || op == 121 {
+            let mut net = self.io.net.lock().expect("net");
+            if op == 121 {
+                net.socks.remove(&a);
+            } else if let Some(Sock::Stream(st)) = net.socks.get(&a) {
+                let how = match b {
+                    0 => std::net::Shutdown::Read,
+                    1 => std::net::Shutdown::Write,
+                    _ => std::net::Shutdown::Both,
+                };
+                let _ = st.shutdown(how);
+            }
+            return Value::Int(0);
         }
         if (110..=119).contains(&op) {
             return Value::Int(i128::from(self.process_op(op, a, b, c, &s(4), &s(5))));
@@ -684,7 +783,20 @@ impl Interp<'_, '_> {
                 Pipe::Read(Arc::new(Mutex::new(Box::new(std::io::stdin())))),
             );
         }
-        let pipe = self.io.pipes.get(&a).cloned();
+        let pipe = match self.io.pipes.get(&a).cloned() {
+            Some(p) => Some(p),
+            // A TCP stream of `std/net`.
+            None => match self.io.net.lock().expect("net").socks.get(&a) {
+                Some(Sock::Stream(st)) => st.try_clone().ok().map(|st| {
+                    if op == 21 {
+                        Pipe::Write(Arc::new(Mutex::new(Box::new(st) as Box<dyn Write + Send>)))
+                    } else {
+                        Pipe::Read(Arc::new(Mutex::new(Box::new(st) as Box<dyn Read + Send>)))
+                    }
+                }),
+                _ => None,
+            },
+        };
         let child = self.io.children.get(&a).cloned();
         let finished = self.io.finished.clone();
         let waker = self.waker.clone();
@@ -792,6 +904,162 @@ impl Interp<'_, '_> {
             _ => {
                 self.io.done.push_back(bad(id));
                 return id;
+            }
+        };
+        std::thread::spawn(move || {
+            let job = work();
+            finished.lock().expect("jobs").push_back(job);
+            waker.wake();
+        });
+        id
+    }
+
+    /// A job of `std/net` (ops 30–35, as in `ppl_io.c`), on a thread of its own.
+    fn net_job(&mut self, op: i64, a: i64, b: i64, c: i64, s: &str, t: &str) -> i64 {
+        self.io.next_id += 1;
+        let id = self.io.next_id;
+        let data = if op != 34 {
+            Vec::new()
+        } else if c >= 0 {
+            self.buffer_bytes(b, c)
+        } else {
+            t.as_bytes().to_vec()
+        };
+        let s = s.to_string();
+        let net = self.io.net.clone();
+        let finished = self.io.finished.clone();
+        let waker = self.waker.clone();
+        let fail = move |(r, r2): (i64, i64)| Job {
+            id,
+            r,
+            r2,
+            ..Default::default()
+        };
+        let sock = net.lock().expect("net").socks.get(&a).cloned();
+        let work = move || -> Job {
+            match op {
+                30 => {
+                    let addrs = match lookup(&s, a) {
+                        Ok(v) => v,
+                        Err(e) => return fail(e),
+                    };
+                    let made = if b == 1 {
+                        first_ok(&addrs, |x| UdpSocket::bind(x)).map(|u| {
+                            let t = u.local_addr().map(|x| addr_text(&x)).unwrap_or_default();
+                            (Sock::Udp(Arc::new(u)), t)
+                        })
+                    } else {
+                        first_ok(&addrs, |x| TcpListener::bind(x)).map(|l| {
+                            let t = l.local_addr().map(|x| addr_text(&x)).unwrap_or_default();
+                            (Sock::Listener(Arc::new(l)), t)
+                        })
+                    };
+                    match made {
+                        Ok((sock, text)) => Job {
+                            id,
+                            r: net.lock().expect("net").add(sock),
+                            text,
+                            ..Default::default()
+                        },
+                        Err(e) => fail(e),
+                    }
+                }
+                31 => match sock {
+                    Some(Sock::Listener(l)) => match l.accept() {
+                        Ok((st, _)) => {
+                            let text = ends_text(&st);
+                            Job {
+                                id,
+                                r: net.lock().expect("net").add(Sock::Stream(Arc::new(st))),
+                                text,
+                                ..Default::default()
+                            }
+                        }
+                        Err(e) => fail(error(&e)),
+                    },
+                    _ => fail((-K_OTHER, 9)),
+                },
+                32 => {
+                    let addrs = match lookup(&s, a) {
+                        Ok(v) => v,
+                        Err(e) => return fail(e),
+                    };
+                    match first_ok(&addrs, |x| TcpStream::connect(x)) {
+                        Ok(st) => {
+                            let text = ends_text(&st);
+                            Job {
+                                id,
+                                r: net.lock().expect("net").add(Sock::Stream(Arc::new(st))),
+                                text,
+                                ..Default::default()
+                            }
+                        }
+                        Err(e) => fail(e),
+                    }
+                }
+                33 => match sock {
+                    Some(Sock::Udp(u)) => {
+                        let mut buf = vec![0u8; b.max(1) as usize];
+                        match u.recv_from(&mut buf) {
+                            Ok((k, from)) => {
+                                buf.truncate(k);
+                                Job {
+                                    id,
+                                    text: addr_text(&from),
+                                    bytes: Some(buf),
+                                    ..Default::default()
+                                }
+                            }
+                            Err(e) => fail(error(&e)),
+                        }
+                    }
+                    _ => fail((-K_OTHER, 9)),
+                },
+                34 => match sock {
+                    Some(Sock::Udp(u)) => {
+                        let (port, host) = s.split_once(' ').unwrap_or((s.as_str(), ""));
+                        let addrs = match lookup(host, port.parse().unwrap_or(0)) {
+                            Ok(v) => v,
+                            Err(e) => return fail(e),
+                        };
+                        let mine = u.local_addr().map(|x| x.is_ipv4()).unwrap_or(true);
+                        let to = addrs
+                            .iter()
+                            .find(|x| x.is_ipv4() == mine)
+                            .unwrap_or(&addrs[0]);
+                        match u.send_to(&data, to) {
+                            Ok(k) => Job {
+                                id,
+                                r: k as i64,
+                                ..Default::default()
+                            },
+                            Err(e) => fail(error(&e)),
+                        }
+                    }
+                    _ => fail((-K_OTHER, 9)),
+                },
+                _ => match lookup(&s, 0) {
+                    Ok(addrs) => {
+                        let mut seen: Vec<String> = Vec::new();
+                        for x in addrs {
+                            let ip = x.ip().to_string();
+                            if !seen.contains(&ip) {
+                                seen.push(ip);
+                            }
+                        }
+                        let mut text = String::new();
+                        for ip in seen {
+                            text.push_str(&ip);
+                            text.push('\0');
+                        }
+                        Job {
+                            id,
+                            text,
+                            ..Default::default()
+                        }
+                    }
+                    Err(e) => fail(e),
+                },
             }
         };
         std::thread::spawn(move || {

@@ -1,0 +1,42 @@
+// expect: got: ping from true
+// expect: reply: 4 bytes
+// expect: localhost: true
+// expect: HostNotFound
+// expect: after close: true
+// `std/net` (spec §13.4): UDP datagrams and DNS.
+import { bind, resolve, NetError, Datagram } from "std/net"
+
+function text(d: Datagram): string {
+  let s = ""
+  for (let i = 0; i < d.data.length; i++) {
+    s = `${s}${d.data[i] as u8 as char}`
+  }
+  s
+}
+
+const a = await bind()
+const b = await bind()
+a.sendText("ping", b.addr.port)
+const got = await b.receive()
+if (got != null) {
+  println(`got: ${text(got)} from ${got.addr.port == a.addr.port}`)
+  await b.send(got.data, got.addr.port)
+}
+const reply = await a.receive()
+if (reply != null) {
+  println(`reply: ${reply.data.length} bytes`)
+}
+
+const ips = await resolve("localhost")
+println(`localhost: ${ips.includes("127.0.0.1") || ips.includes("::1")}`)
+try {
+  await resolve("no-such-host.invalid")
+} catch (e: NetError) {
+  println(e.kind)
+}
+
+// A receive that waits when the socket closes ends with null.
+const waiting = b.receive()
+b.close()
+a.close()
+println(`after close: ${await waiting == null}`)

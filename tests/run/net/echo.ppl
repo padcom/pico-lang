@@ -1,0 +1,60 @@
+// expect: listening: true
+// expect: echo: hello, net!
+// expect: second: 5 bytes back
+// expect: closed: true
+// expect: refused: ConnectionRefused true
+// `std/net` (spec §13.4): a TCP echo server and its clients in one process.
+import { listen, connect, Conn, Listener, NetError } from "std/net"
+
+async function echo(conn: Conn): Promise<void> throws NetError {
+  for await (const chunk of conn) {
+    await conn.write(chunk)
+  }
+  conn.close()
+}
+
+async function serve(server: Listener): Promise<void> throws NetError {
+  for await (const conn of server) {
+    echo(conn)
+  }
+}
+
+const server = await listen()
+println(`listening: ${server.addr.port > 0}`)
+serve(server)
+
+const client = await connect(server.addr.port)
+client.writeText("hello, ")
+client.writeText("net!")
+client.closeWrite()
+println(`echo: ${await client.text()}`)
+client.close()
+
+// Reading chunk by chunk.
+const c2 = await connect(server.addr.port, hostname: "localhost")
+const bytes = new Uint8Array(3)
+bytes.set(0, 97)
+bytes.set(1, 98)
+bytes.set(2, 99)
+await c2.write(bytes)
+await c2.writeText("de")
+c2.closeWrite()
+let total = 0
+for await (const chunk of c2) {
+  total += chunk.length
+}
+println(`second: ${total} bytes back`)
+c2.close()
+
+server.close()
+println(`closed: ${await server.accept() == null}`)
+
+// Nothing listens on the port of a closed listener.
+const gone = await listen()
+gone.close()
+try {
+  const c = await connect(gone.addr.port)
+  c.close()
+} catch (e: NetError) {
+  println(`refused: ${e.kind} ${e.message == `connection refused: 127.0.0.1:${gone.addr.port}`}`)
+}
