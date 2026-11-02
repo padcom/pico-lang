@@ -121,8 +121,12 @@ Rules:
   `\u{…}` escapes.
 
 A class instance shows its string form (§6.1: `toString()` or `Name (field = value, …)`); its
-debug form `${obj:?}` is still `<Name>`. A type can customize how it formats by implementing a
-`Formattable` interface (draft name).
+debug form `${obj:?}` is still `<Name>`. A struct or class that implements the core interface
+`Formattable` (`format(spec: string): string`) formats itself: `${x}` calls `x.format("")` and
+`${x:spec}` calls `x.format("spec")` with the spec's text unchecked (any text up to the `}`, so
+`${date:yyyy-MM-dd}` works); `${x:?}` stays the debug form. `std/fmt` applies the standard
+grammar at run time (`FormatSpec.parse`, `formatInt`, `formatNumber`, `formatString`) for types
+that delegate to their fields.
 
 ## 1.5 Comments
 `// line`, `/* block */` (not nested, as in JS), `/** doc comment */`.

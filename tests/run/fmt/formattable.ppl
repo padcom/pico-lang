@@ -1,0 +1,23 @@
+// `Formattable`: user structs and classes in `${x}` and `${x:spec}` (`:?` stays the debug form).
+// expect: (1, 2) P[yyyy-MM-dd] P { x: 1, y: 2 } $12.34 $12.34>10 [P { x: 1, y: 2 }]
+// expect: (1, 2.5, -3) (1.00, 2.50, -3.00) (0, 0, 0, 1) Vec3 { x: 1, y: 2.5, z: -3 }
+// expect: 2024-03-10T13:05:00+01:00[Europe/Berlin] | 2024-03-10 13:05 | Sun 10 Mar
+struct P implements Formattable {
+  x: int
+  y: int
+  format(spec: string): string { if (spec == "") `(${x}, ${y})` else `P[${spec}]` }
+}
+class Money implements Formattable {
+  cents: int
+  constructor(c: int) { this.cents = c }
+  public format(spec: string): string { `$${this.cents / 100}.${`${this.cents % 100}`.padStart(2, "0")}${spec}` }
+}
+const p = P { x: 1, y: 2 }
+const m = new Money(1234)
+println(`${p} ${p:yyyy-MM-dd} ${p:?} ${m} ${m:>10} ${[p]:?}`)
+import { Vec3, Quat } from "std/math"
+import { DateTime } from "std/time"
+const v = Vec3.of(1, 2.5, -3)
+println(`${v} ${v:.2f} ${Quat.identity} ${v:?}`)
+const dt = DateTime.of(2024, 3, 10, 13, 5, 0, 0, "Europe/Berlin")
+println(`${dt} | ${dt:yyyy-MM-dd HH:mm} | ${dt:EEE d MMM}`)

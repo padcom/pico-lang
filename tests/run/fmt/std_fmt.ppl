@@ -1,0 +1,27 @@
+// `std/fmt`: specs applied at run time agree with the compiler's templates.
+// expect: 3.14|3.14|+3.14159e0|+3.14159e0|00000003.1|00000003.1|314%|314%|**3.14159***|**3.14159***
+// expect: -2.50|-2.50|-2.5e0|-2.5e0|-0000002.5|-0000002.5|-250%|-250%|****-2.5****|****-2.5****
+// expect: 0.12|0.12|+1.25e-1|+1.25e-1|00000000.1|00000000.1|12%|12%|***0.125****|***0.125****
+// expect: 1234.50|1234.50|+1.2345e3|+1.2345e3|00001234.5|00001234.5|123450%|123450%|***1234.5***|***1234.5***
+// expect: 0.00|0.00|+0e0|+0e0|00000000.0|00000000.0|0%|0%|*****0******|*****0******
+// expect: 0xff|0xff|00000255|00000255|0b11111111|0b11111111|+255|+255|255   |255   |FF|FF
+// expect: -0xff|-0xff|-0000255|-0000255|-0b11111111|-0b11111111|-255|-255|-255  |-255  |-FF|-FF
+// expect: 0x0|0x0|00000000|00000000|0b00000000|0b00000000|+0|+0|0     |0     |0|0
+// expect: 0x2a|0x2a|00000042|00000042|0b00101010|0b00101010|+42|+42|42    |42    |2A|2A
+// expect: zażó|**hi**|"a\"b"|  true|-ab--
+// expect: 1,234,567.891 -1,234 12 1_000_000
+// expect: > + true true 8 3 f true
+import { FormatSpec, formatInt, formatNumber, formatString, formatBool, pad, groupDigits } from "std/fmt"
+
+const xs = [3.14159, -2.5, 0.125, 1234.5, 0.0]
+for (const x of xs) {
+  println(`${formatNumber(x, ".2f")}|${x:.2f}|${formatNumber(x, "+e")}|${x:+e}|${formatNumber(x, "010.1f")}|${x:010.1f}|${formatNumber(x, ".0%")}|${x:.0%}|${formatNumber(x, "*^12")}|${x:*^12}`)
+}
+const ns = [255, -255, 0, 42]
+for (const n of ns) {
+  println(`${formatInt(n, "#x")}|${n:#x}|${formatInt(n, "08")}|${n:08}|${formatInt(n, "#010b")}|${n:#010b}|${formatInt(n, "+")}|${n:+}|${formatInt(n, "<6")}|${n:<6}|${formatInt(n, "X")}|${n:X}`)
+}
+println(`${formatString("zażółć", ".4")}|${formatString("hi", "*^6")}|${formatString("a\"b", "?")}|${formatBool(true, ">6")}|${pad("ab", 5, "^", "-")}`)
+println(`${groupDigits("1234567.891")} ${groupDigits("-1234")} ${groupDigits("12")} ${groupDigits(formatInt(1000000), "_")}`)
+const s = FormatSpec.parse(">+#08.3f")
+if (s != null) println(`${s.align} ${s.sign} ${s.alternate} ${s.zero} ${s.width} ${s.precision} ${s.kind} ${FormatSpec.parse("..") == null}`)

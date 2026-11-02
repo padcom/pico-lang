@@ -94,6 +94,9 @@ pub struct Types {
     /// `for-of` over a value with an `iterator()` method: the iterated expression and the
     /// method.
     pub iterables: HashMap<ExprId, FnId>,
+    /// Template parts whose value implements `Formattable`: the part's expression and its
+    /// `format(spec: string): string` method.
+    pub formattables: HashMap<ExprId, FnId>,
 }
 
 /// A protocol implemented field by field.
@@ -192,6 +195,7 @@ impl Types {
             fn_throws: self.fn_throws.clone(),
             extensions: self.extensions.clone(),
             iterables: self.iterables.clone(),
+            formattables: self.formattables.clone(),
             arg_slots: self.arg_slots.clone(),
             overloads: self.overloads.clone(),
             op_calls: self.op_calls.clone(),
@@ -253,6 +257,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             fn_throws: program.fns.iter().map(|f| f.throws.clone()).collect(),
             extensions: HashMap::new(),
             iterables: HashMap::new(),
+            formattables: HashMap::new(),
         },
         narrow: Vec::new(),
         unsafe_depth: 0,
@@ -2156,6 +2161,14 @@ impl<'p> Checker<'p> {
             ExprKind::Template { parts, .. } => {
                 for p in parts {
                     let t = self.infer(&p.expr);
+                    // `Formattable` values format themselves (`${x}`, `${x:spec}`); `:?` stays
+                    // the debug form.
+                    if !p.spec.as_deref().is_some_and(|s| s.ends_with('?'))
+                        && let Some(m) = self.formattable_method(&t)
+                    {
+                        self.types.formattables.insert(p.expr.id, m);
+                        continue;
+                    }
                     let compound = crate::format::is_compound(&t);
                     let debug = compound && p.spec.as_deref().is_some_and(|s| s.ends_with('?'));
                     if !is_printable(&t) && !debug {
@@ -4305,6 +4318,24 @@ impl<'p> Checker<'p> {
             Ty::Range(_) => true,
             _ => false,
         }
+    }
+
+    /// The `format` method of a struct or class implementing the core `Formattable`
+    /// interface.
+    fn formattable_method(&self, t: &Ty) -> Option<FnId> {
+        let (Ty::Struct(sid, _, _) | Ty::Class(sid, _, _)) = t else {
+            return None;
+        };
+        let iface = self
+            .program
+            .structs
+            .iter()
+            .position(|d| d.is_interface && d.name == "Formattable")
+            .map(|i| StructId(i as u32))?;
+        if *sid == iface || !self.program.implements(*sid, iface) {
+            return None;
+        }
+        self.program.struct_def(*sid).method("format")
     }
 
     /// Parses and checks a template part's format spec against the part's type.

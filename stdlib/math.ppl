@@ -2,6 +2,10 @@
 // `Vec4`, `Quat`, `Mat4`: `number` structs with operators, OpenGL conventions: right-handed,
 // column-major, column vectors), arbitrary-precision integers (`BigInt`), a seedable random
 // generator (`Random`) and small helpers. The `Math` global has the scalar functions.
+// Vectors and quaternions are `Formattable`: `${v}` is `(1, 2, 3)`, `${v:.2f}` formats each
+// component.
+
+import { formatNumber } from "std/fmt"
 
 /// `x` limited to `lo..hi`.
 export function clamp(x: number, lo: number, hi: number): number {
@@ -17,7 +21,7 @@ export function degToRad(d: number): number { d * Math.PI / 180.0 }
 export function radToDeg(r: number): number { r * 180.0 / Math.PI }
 
 /// A 2D vector.
-export struct Vec2 {
+export struct Vec2 implements Formattable {
   x: number
   y: number
 
@@ -57,10 +61,11 @@ export struct Vec2 {
   /// Each component within `eps` of `o`'s.
   approxEquals(o: Vec2, eps: number = 1e-9): bool { Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps }
   toString(): string { `(${x}, ${y})` }
+  format(spec: string): string { `(${formatNumber(x, spec)}, ${formatNumber(y, spec)})` }
 }
 
 /// A 3D vector.
-export struct Vec3 {
+export struct Vec3 implements Formattable {
   x: number
   y: number
   z: number
@@ -96,10 +101,11 @@ export struct Vec3 {
     Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps
   }
   toString(): string { `(${x}, ${y}, ${z})` }
+  format(spec: string): string { `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)})` }
 }
 
 /// A 4D vector (homogeneous coordinates: `w` = 1 for points, 0 for directions).
-export struct Vec4 {
+export struct Vec4 implements Formattable {
   x: number
   y: number
   z: number
@@ -136,10 +142,13 @@ export struct Vec4 {
     Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
   }
   toString(): string { `(${x}, ${y}, ${z}, ${w})` }
+  format(spec: string): string {
+    `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)}, ${formatNumber(w, spec)})`
+  }
 }
 
 /// A rotation as a unit quaternion `w + xi + yj + zk`.
-export struct Quat {
+export struct Quat implements Formattable {
   x: number
   y: number
   z: number
@@ -218,6 +227,9 @@ export struct Quat {
     Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
   }
   toString(): string { `(${x}, ${y}, ${z}, ${w})` }
+  format(spec: string): string {
+    `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)}, ${formatNumber(w, spec)})`
+  }
 }
 
 /// A 4×4 matrix, column-major (`m[col * 4 + row]`, as OpenGL and WebGPU upload it), acting on

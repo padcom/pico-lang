@@ -1,0 +1,280 @@
+// `std/fmt` (spec §1.4, §13.2): the format-spec mini-language at run time, for
+// `Formattable` types that delegate to their fields (`${p:.2f}` → `formatNumber(x, spec)`),
+// and padding and number helpers.
+//
+// `FormatSpec.parse("08.2f")` reads `[[fill] align] [sign] ["#"] ["0"] [width] ["." precision]
+// [type]`; `formatInt`, `formatNumber`, `formatString` and `formatBool` apply a spec as a
+// template would (floats go through the compiler's own formatting, so rounding is the same:
+// half to even on the exact binary value; precisions up to 20).
+
+/// A parsed format spec.
+export class FormatSpec {
+  public fill: string = " "
+  /// `<`, `>`, `^`, or "" (the type's default: numbers right, text left).
+  public align: string = ""
+  /// `-` (only negatives), `+` or ` `.
+  public sign: string = "-"
+  /// `#`: `0x`/`0o`/`0b` prefixes.
+  public alternate: bool = false
+  /// `0`: pad numbers with zeros after the sign (and prefix).
+  public zero: bool = false
+  /// -1 when not given.
+  public width: int = -1
+  public precision: int = -1
+  /// One of `d x X o b e E f % ?`, or "".
+  public kind: string = ""
+
+  constructor() {}
+
+  /// The spec, or `null` when `spec` doesn't follow the grammar.
+  public static parse(spec: string): FormatSpec? {
+    const f = new FormatSpec()
+    const cs: string[] = []
+    for (const c of spec) cs.push(`${c}`)
+    let i = 0
+    const isAlign = (c: string) => c == "<" || c == ">" || c == "^"
+    if (cs.length >= 2 && isAlign(cs[1])) {
+      f.fill = cs[0]
+      f.align = cs[1]
+      i = 2
+    } else if (cs.length >= 1 && isAlign(cs[0])) {
+      f.align = cs[0]
+      i = 1
+    }
+    if (i < cs.length && (cs[i] == "+" || cs[i] == "-" || cs[i] == " ")) {
+      f.sign = cs[i]
+      i += 1
+    }
+    if (i < cs.length && cs[i] == "#") {
+      f.alternate = true
+      i += 1
+    }
+    if (i < cs.length && cs[i] == "0") {
+      f.zero = true
+      i += 1
+    }
+    const digits = (): int => {
+      let n = -1
+      while (i < cs.length && cs[i] >= "0" && cs[i] <= "9") {
+        n = (if (n < 0) 0 else n) * 10 + parseInt(cs[i])
+        if (n > 1000) n = 1001
+        i += 1
+      }
+      n
+    }
+    f.width = digits()
+    if (f.width > 1000) return null
+    if (i < cs.length && cs[i] == ".") {
+      i += 1
+      f.precision = digits()
+      if (f.precision < 0 || f.precision > 100) return null
+    }
+    if (i < cs.length && "dxXobeEf%?".includes(cs[i])) {
+      f.kind = cs[i]
+      i += 1
+    }
+    if (i < cs.length) null else f
+  }
+
+  /// Pads `text` to the width: `numeric` text aligns right by default and takes `0` padding
+  /// after its sign and `prefix` (the sign and prefix are already in `text`).
+  public pad(text: string, numeric: bool, prefixLen: int = 0): string {
+    const n = text.length
+    if (this.width <= n) return text
+    const gap = this.width - n
+    if (numeric && this.zero && this.align == "") {
+      return text.slice(0, prefixLen) + "0".repeat(gap) + text.slice(prefixLen)
+    }
+    const a = if (this.align != "") this.align else if (numeric) ">" else "<"
+    if (a == "<") return text + this.fill.repeat(gap)
+    if (a == ">") return this.fill.repeat(gap) + text
+    const left = gap / 2
+    this.fill.repeat(left) + text + this.fill.repeat(gap - left)
+  }
+
+  public __sign(negative: bool): string {
+    if (negative) "-" else if (this.sign == "+") "+" else if (this.sign == " ") " " else ""
+  }
+}
+
+function __spec(spec: string): FormatSpec {
+  const f = FormatSpec.parse(spec)
+  if (f == null) panic(`invalid format spec \`${spec}\``)
+  f
+}
+
+/// `n` (≥ 0) in `radix`.
+function __radix(n: int, radix: int, upper: bool): string {
+  if (n == 0) return "0"
+  const digits = if (upper) "0123456789ABCDEF" else "0123456789abcdef"
+  let s = ""
+  let v = n
+  while (v > 0) {
+    s = `${digits[v % radix]}` + s
+    v = v / radix
+  }
+  s
+}
+
+/// An integer formatted with `spec` (`d x X o b`, or a float type: `e E f %`).
+export function formatInt(n: int, spec: string = ""): string {
+  const f = __spec(spec)
+  if (f.kind == "e" || f.kind == "E" || f.kind == "f" || f.kind == "%") {
+    return formatNumber(n as f64, spec)
+  }
+  if (f.kind == "?") return f.pad(`${n}`, true)
+  if (f.precision >= 0) panic("a precision isn't allowed on integers (use `.Nf`)")
+  const neg = n < 0
+  // |i64::MIN| doesn't fit an int: format it from its text.
+  const minText = "9223372036854775808"
+  const radix = if (f.kind == "x" || f.kind == "X") 16 else if (f.kind == "o") 8 else if (f.kind == "b") 2 else 10
+  const body = if (n == -9223372036854775807 - 1 && radix == 10) minText else if (n == -9223372036854775807 - 1) __radix(-(n + 1), radix, f.kind == "X").slice(0, -1) + "0" else __radix(if (neg) -n else n, radix, f.kind == "X")
+  const prefix = if (!f.alternate || radix == 10) "" else if (radix == 16) "0x" else if (radix == 8) "0o" else "0b"
+  const head = f.__sign(neg) + prefix
+  f.pad(head + body, true, head.length)
+}
+
+function __fixed(x: number, p: int): string {
+  if (p < 0) return `${x:f}`
+  if (p == 0) return `${x:.0f}`
+  if (p == 1) return `${x:.1f}`
+  if (p == 2) return `${x:.2f}`
+  if (p == 3) return `${x:.3f}`
+  if (p == 4) return `${x:.4f}`
+  if (p == 5) return `${x:.5f}`
+  if (p == 6) return `${x:.6f}`
+  if (p == 7) return `${x:.7f}`
+  if (p == 8) return `${x:.8f}`
+  if (p == 9) return `${x:.9f}`
+  if (p == 10) return `${x:.10f}`
+  if (p == 11) return `${x:.11f}`
+  if (p == 12) return `${x:.12f}`
+  if (p == 13) return `${x:.13f}`
+  if (p == 14) return `${x:.14f}`
+  if (p == 15) return `${x:.15f}`
+  if (p == 16) return `${x:.16f}`
+  if (p == 17) return `${x:.17f}`
+  if (p == 18) return `${x:.18f}`
+  if (p == 19) return `${x:.19f}`
+  if (p == 20) return `${x:.20f}`
+  panic("formatNumber: precisions above 20 aren't supported")
+}
+
+function __exp(x: number, p: int): string {
+  if (p < 0) return `${x:e}`
+  if (p == 0) return `${x:.0e}`
+  if (p == 1) return `${x:.1e}`
+  if (p == 2) return `${x:.2e}`
+  if (p == 3) return `${x:.3e}`
+  if (p == 4) return `${x:.4e}`
+  if (p == 5) return `${x:.5e}`
+  if (p == 6) return `${x:.6e}`
+  if (p == 7) return `${x:.7e}`
+  if (p == 8) return `${x:.8e}`
+  if (p == 9) return `${x:.9e}`
+  if (p == 10) return `${x:.10e}`
+  if (p == 11) return `${x:.11e}`
+  if (p == 12) return `${x:.12e}`
+  if (p == 13) return `${x:.13e}`
+  if (p == 14) return `${x:.14e}`
+  if (p == 15) return `${x:.15e}`
+  if (p == 16) return `${x:.16e}`
+  if (p == 17) return `${x:.17e}`
+  if (p == 18) return `${x:.18e}`
+  if (p == 19) return `${x:.19e}`
+  if (p == 20) return `${x:.20e}`
+  panic("formatNumber: precisions above 20 aren't supported")
+}
+
+function __percent(x: number, p: int): string {
+  if (p < 0) return `${x:%}`
+  if (p == 0) return `${x:.0%}`
+  if (p == 1) return `${x:.1%}`
+  if (p == 2) return `${x:.2%}`
+  if (p == 3) return `${x:.3%}`
+  if (p == 4) return `${x:.4%}`
+  if (p == 5) return `${x:.5%}`
+  if (p == 6) return `${x:.6%}`
+  if (p == 7) return `${x:.7%}`
+  if (p == 8) return `${x:.8%}`
+  if (p == 9) return `${x:.9%}`
+  if (p == 10) return `${x:.10%}`
+  if (p == 11) return `${x:.11%}`
+  if (p == 12) return `${x:.12%}`
+  if (p == 13) return `${x:.13%}`
+  if (p == 14) return `${x:.14%}`
+  if (p == 15) return `${x:.15%}`
+  if (p == 16) return `${x:.16%}`
+  if (p == 17) return `${x:.17%}`
+  if (p == 18) return `${x:.18%}`
+  if (p == 19) return `${x:.19%}`
+  if (p == 20) return `${x:.20%}`
+  panic("formatNumber: precisions above 20 aren't supported")
+}
+
+/// A number formatted with `spec` (`e E f %`, or none: the shortest round-trip form).
+export function formatNumber(x: number, spec: string = ""): string {
+  const f = __spec(spec)
+  if (f.kind == "d" || f.kind == "x" || f.kind == "X" || f.kind == "o" || f.kind == "b") {
+    panic(`\`${f.kind}\` needs an integer`)
+  }
+  const neg = x < 0.0 || (x == 0.0 && 1.0 / x < 0.0)
+  const a = if (neg) -x else x
+  let body = ""
+  if (f.kind == "f") {
+    body = __fixed(a, f.precision)
+  } else if (f.kind == "e" || f.kind == "E") {
+    body = __exp(a, f.precision)
+    if (f.kind == "E") body = body.toUpperCase()
+  } else if (f.kind == "%") {
+    body = __percent(a, f.precision)
+  } else if (f.precision >= 0) {
+    body = __fixed(a, f.precision)
+  } else {
+    body = `${a}`
+  }
+  // NaN has no sign.
+  const head = if (x != x) "" else f.__sign(neg)
+  f.pad(head + body, true, head.length)
+}
+
+/// A string formatted with `spec` (a precision truncates; `?` quotes it).
+export function formatString(s: string, spec: string = ""): string {
+  const f = __spec(spec)
+  if (f.kind == "?") return f.pad(`${s:?}`, false)
+  if (f.kind != "") panic(`\`${f.kind}\` needs a number`)
+  const t = if (f.precision >= 0 && s.length > f.precision) s.slice(0, f.precision) else s
+  f.pad(t, false)
+}
+
+export function formatBool(b: bool, spec: string = ""): string {
+  formatString(if (b) "true" else "false", spec)
+}
+
+/// `text` padded to `width` code points: `align` `<` (left, the default), `>` or `^`.
+export function pad(text: string, width: int, align: string = "<", fill: string = " "): string {
+  const f = new FormatSpec()
+  f.width = width
+  f.align = align
+  f.fill = fill
+  f.pad(text, false)
+}
+
+/// The integer part's digits of a number's text in groups (`1234567.5` → `1,234,567.5`).
+export function groupDigits(text: string, separator: string = ",", size: int = 3): string {
+  let start = 0
+  while (start < text.length && !(text[start] >= '0' && text[start] <= '9')) start += 1
+  let end = start
+  while (end < text.length && text[end] >= '0' && text[end] <= '9') end += 1
+  const digits = text.slice(start, end)
+  let out = ""
+  let k = 0
+  let i = digits.length - 1
+  while (i >= 0) {
+    if (k > 0 && k % size == 0) out = separator + out
+    out = `${digits[i]}` + out
+    k += 1
+    i -= 1
+  }
+  text.slice(0, start) + out + text.slice(end)
+}

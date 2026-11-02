@@ -412,3 +412,12 @@ in priority order), `SortedMap<K extends Comparable<K>, V>` (`get`, `set`, `has`
 O(n)) and `BitSet` (`add`, `delete`, `has`, `set(i, on)`, `flip`, `size` (set bits), `length`,
 `and`, `or`, `xor`, `andNot`, `equals`, `toArray`, `for-of` ascending). Iteration ends at the first
 `null` (§5.7), so collections of nullable elements are walked through `toArray()`.
+
+## 13.11 Formatting
+`std/fmt` has `FormatSpec` (`parse(spec): FormatSpec?` for the §1.4 grammar, with `fill`,
+`align`, `sign`, `alternate`, `zero`, `width`, `precision`, `kind` and `pad(text, numeric)`),
+`formatInt(n, spec)`, `formatNumber(x, spec)` (floats through the compiler's formatting, so
+rounding matches templates; precisions up to 20), `formatString(s, spec)`, `formatBool(b,
+spec)`, `pad(text, width, align, fill)` and `groupDigits(text, separator = ",", size = 3)`. An
+invalid spec panics. `DateTime` (`${dt:yyyy-MM-dd}` is its `format` pattern) and `std/math`'s
+vectors and quaternions (`${v:.2f}` per component) are `Formattable`.

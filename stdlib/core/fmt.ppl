@@ -1,0 +1,7 @@
+// `Formattable` (spec §1.4): types that format themselves in templates. `${x}` calls
+// `x.format("")` and `${x:spec}` calls `x.format("spec")` with the spec's text unchecked
+// (`std/fmt`'s `FormatSpec.parse` reads the standard grammar); `${x:?}` stays the debug form.
+
+interface Formattable {
+  format(spec: string): string
+}

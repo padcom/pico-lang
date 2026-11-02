@@ -5124,6 +5124,12 @@ impl FnBuilder<'_, '_> {
             if let Some(p) = parts.get(i) {
                 let v = self.expr(&p.expr);
                 let t = self.cx.types.final_ty(p.expr.id).clone();
+                if let Some(m) = self.cx.types.formattables.get(&p.expr.id).copied() {
+                    let s =
+                        self.format_call(v, &t, m, p.spec.as_deref().unwrap_or(""), p.expr.span);
+                    pieces.push(s);
+                    continue;
+                }
                 match self.cx.types.formats.get(&p.expr.id) {
                     Some(spec) => {
                         let s = self.rvalue_to_temp(Rvalue::Format(v, *spec), Ty::Str, p.expr.span);
@@ -5141,6 +5147,35 @@ impl FnBuilder<'_, '_> {
             acc = self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Add, acc, p), Ty::Str, span);
         }
         acc
+    }
+
+    /// `v.format(spec)` for a `Formattable` value of type `t` (virtual for classes).
+    fn format_call(&mut self, v: Operand, t: &Ty, m: FnId, spec: &str, span: Span) -> Operand {
+        let spec = Operand::Const(Const::Str(spec.to_string()));
+        if let Ty::Class(sid, _, _) = t {
+            let def = self.cx.program.struct_def(*sid);
+            let callee = match def.virtual_slot("format") {
+                Some(slot) => Callee::Virtual { slot, decl: m },
+                None => Callee::Fn(self.method_of(m, t)),
+            };
+            let dest = Place::local(self.temp(Ty::Str));
+            let next = self.new_block();
+            let loc = self.loc(span);
+            self.terminate(Terminator::Call {
+                callee,
+                args: vec![v, spec],
+                dest: Some(dest.clone()),
+                next,
+                loc,
+            });
+            self.switch_to(next);
+            return Operand::Copy(dest);
+        }
+        let m = self.method_of(m, t);
+        let tmp = Place::local(self.temp(t.clone()));
+        self.assign(tmp.clone(), Rvalue::Use(v), span);
+        let recv = self.rvalue_to_temp(Rvalue::Ref(tmp), Ty::Ref(Box::new(t.clone())), span);
+        self.call_fn_value(m, vec![recv, spec], Ty::Str, span)
     }
 
     /// Where a narrowed variable's value is: inside the `T?`, or inside the union member.

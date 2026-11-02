@@ -324,7 +324,7 @@ const __monthLong = ["January", "February", "March", "April", "May", "June", "Ju
 
 /// An instant in a time zone, with its calendar fields (ISO calendar; months 1–12, ISO
 /// weekdays 1 = Monday … 7 = Sunday).
-export class DateTime {
+export class DateTime implements Formattable {
   public readonly instant: Instant
   public readonly zone: TimeZone
   public readonly year: int
@@ -514,12 +514,14 @@ export class DateTime {
   /// ISO 8601 without the zone's name: `2024-03-10T13:30:00+01:00`.
   public toIsoString(): string { this.__iso(false, false) }
 
-  /// Formats with a pattern: `yyyy` `yy` (year), `M` `MM` `MMM` `MMMM` (month), `d` `dd`,
+  /// Formats with a pattern (also `${dt:yyyy-MM-dd}` in templates): `yyyy` `yy` (year), `M` `MM` `MMM` `MMMM` (month), `d` `dd`,
   /// `E` `EEE` (Mon) `EEEE` (Monday), `H` `HH` (0–23), `h` `hh` (1–12), `a` (AM/PM), `m` `mm`,
   /// `s` `ss`, `S`… (fraction digits), `D` (day of year), `w` (ISO week), `X` (`Z`/`+01`),
   /// `XX` (`+0100`), `XXX` (`+01:00`), `Z` (`+0100`), `z` (`CET`), `VV` (the zone's id);
   /// `'text'` is literal (`''` is a quote), and other non-letters are kept.
   public format(pattern: string): string {
+    // (`${dt}` in a template is `format("")`: the ISO form.)
+    if (pattern.length == 0) return this.toString()
     let out = ""
     let i = 0
     const n = pattern.length
