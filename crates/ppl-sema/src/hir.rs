@@ -596,6 +596,11 @@ pub enum Builtin {
     ParseF64,
     /// `__math(op, x, y)`: a floating-point library function (`Math`'s, by number).
     Math,
+    /// `__catch_panic(f)`: runs `f`; a panic inside it ends there, giving its message
+    /// (`null` when `f` returns). For `std/test`'s `toPanic`.
+    CatchPanic,
+    /// The message of the panic a `__catch_panic` handler stopped (MIR only).
+    PanicTaken,
     /// `__loop_wait(ms)`: blocks for up to `ms` milliseconds waiting for events (none yet
     /// but timeouts).
     LoopWait,
@@ -641,6 +646,8 @@ impl Builtin {
             Builtin::ClockMs => "__clock_ms",
             Builtin::ParseF64 => "__parse_f64",
             Builtin::Math => "__math",
+            Builtin::CatchPanic => "__catch_panic",
+            Builtin::PanicTaken => "__panic_taken",
             Builtin::LoopWait => "__loop_wait",
             Builtin::WorkerOp => "__worker_op",
             Builtin::WorkerPost => "__worker_post",
@@ -672,6 +679,7 @@ impl Builtin {
             "__clock_ms" => Builtin::ClockMs,
             "__parse_f64" => Builtin::ParseF64,
             "__math" => Builtin::Math,
+            "__catch_panic" => Builtin::CatchPanic,
             "__loop_wait" => Builtin::LoopWait,
             "__worker_op" => Builtin::WorkerOp,
             "__worker_post" => Builtin::WorkerPost,

@@ -42,6 +42,36 @@ enum Command {
         #[arg(last = true)]
         args: Vec<String>,
     },
+    /// Run the tests in `*.test.ppl` files (spec §14.3), each file in a process of its own,
+    /// in parallel.
+    Test {
+        /// Files or directories to search (default: the current directory).
+        paths: Vec<PathBuf>,
+        /// Only tests whose full name (`group > test`) contains this.
+        #[arg(short = 't', long)]
+        filter: Option<String>,
+        /// Run in the MIR interpreter instead of native binaries.
+        #[arg(long)]
+        interp: bool,
+        /// Optimize.
+        #[arg(long)]
+        release: bool,
+        /// Run again whenever a `.ppl` file under the paths changes.
+        #[arg(long)]
+        watch: bool,
+        /// How many files run at once (default: the number of CPUs).
+        #[arg(short, long)]
+        jobs: Option<usize>,
+    },
+    /// Run the benchmarks (`bench(…)` from `std/test`) in `*.bench.ppl` and `*.test.ppl`
+    /// files, one file at a time, optimized.
+    Bench {
+        /// Files or directories to search (default: the current directory).
+        paths: Vec<PathBuf>,
+        /// Run in the MIR interpreter instead of native binaries.
+        #[arg(long)]
+        interp: bool,
+    },
     /// Parse a file and report syntax errors.
     Parse {
         /// The `.ppl` file to parse.
@@ -73,7 +103,273 @@ fn main() -> ExitCode {
             release,
             args,
         }) => run(&file, interp, ppl_driver::BuildOptions { release }, &args),
+        Some(Command::Test {
+            paths,
+            filter,
+            interp,
+            release,
+            watch,
+            jobs,
+        }) => {
+            let t = TestRun {
+                paths: if paths.is_empty() {
+                    vec![PathBuf::from(".")]
+                } else {
+                    paths
+                },
+                filter,
+                interp,
+                release,
+                bench: false,
+                jobs: jobs.unwrap_or_else(|| {
+                    std::thread::available_parallelism().map_or(4, std::num::NonZero::get)
+                }),
+            };
+            if watch { t.watch() } else { t.run() }
+        }
+        Some(Command::Bench { paths, interp }) => TestRun {
+            paths: if paths.is_empty() {
+                vec![PathBuf::from(".")]
+            } else {
+                paths
+            },
+            filter: None,
+            interp,
+            release: true,
+            bench: true,
+            jobs: 1,
+        }
+        .run(),
         None => ExitCode::SUCCESS,
+    }
+}
+
+/// `ppl test` / `ppl bench`: finds the files and runs each through `ppl run` in a child
+/// process (isolated: a crash or `exit` ends only that file), collecting their reports.
+struct TestRun {
+    paths: Vec<PathBuf>,
+    filter: Option<String>,
+    interp: bool,
+    release: bool,
+    bench: bool,
+    jobs: usize,
+}
+
+/// One file's result.
+struct FileResult {
+    file: PathBuf,
+    output: String,
+    /// Passed, failed, skipped (or benchmarks run); `None` if the file didn't finish.
+    counts: Option<(u64, u64, u64)>,
+    ok: bool,
+}
+
+impl TestRun {
+    fn wanted(&self, name: &str) -> bool {
+        name.ends_with(".test.ppl") || (self.bench && name.ends_with(".bench.ppl"))
+    }
+
+    /// The test files under the paths, sorted (hidden directories and `target` skipped).
+    fn files(&self) -> Vec<PathBuf> {
+        fn walk(t: &TestRun, dir: &Path, out: &mut Vec<PathBuf>) {
+            let Ok(rd) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for e in rd.flatten() {
+                let p = e.path();
+                let name = e.file_name().to_string_lossy().into_owned();
+                if p.is_dir() {
+                    if !name.starts_with('.') && name != "target" && name != "node_modules" {
+                        walk(t, &p, out);
+                    }
+                } else if t.wanted(&name) {
+                    out.push(p);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for p in &self.paths {
+            if p.is_dir() {
+                walk(self, p, &mut out);
+            } else {
+                out.push(p.clone());
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    fn run_file(&self, file: &Path) -> FileResult {
+        let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("ppl"));
+        let mut cmd = std::process::Command::new(exe);
+        cmd.arg("run");
+        if self.interp {
+            cmd.arg("--interp");
+        }
+        if self.release {
+            cmd.arg("--release");
+        }
+        cmd.arg(file);
+        cmd.env("PPL_TEST_MODE", if self.bench { "bench" } else { "test" });
+        match &self.filter {
+            Some(f) => cmd.env("PPL_TEST_FILTER", f),
+            None => cmd.env_remove("PPL_TEST_FILTER"),
+        };
+        let out = match cmd.output() {
+            Ok(o) => o,
+            Err(e) => {
+                return FileResult {
+                    file: file.to_path_buf(),
+                    output: format!("cannot run: {e}\n"),
+                    counts: None,
+                    ok: false,
+                };
+            }
+        };
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        let mut counts = None;
+        let mut output = String::new();
+        for line in stdout.lines() {
+            if let Some(rest) = line.strip_prefix("ppl-test: ") {
+                // "N passed, M failed, K skipped"
+                let n: Vec<u64> = rest
+                    .split(", ")
+                    .filter_map(|p| p.split(' ').next()?.parse().ok())
+                    .collect();
+                if let [a, b, c] = n[..] {
+                    counts = Some((a, b, c));
+                }
+            } else if let Some(rest) = line.strip_prefix("ppl-bench: ") {
+                let n = rest
+                    .split(' ')
+                    .next()
+                    .and_then(|x| x.parse().ok())
+                    .unwrap_or(0);
+                counts = Some((n, 0, 0));
+            } else {
+                output.push_str(line);
+                output.push('\n');
+            }
+        }
+        output.push_str(&stderr);
+        let ok = counts.is_some_and(|c| c.1 == 0) && (out.status.success() || counts.is_some());
+        if counts.is_none() && !self.bench {
+            // A crash, a compile error, or a file without tests.
+            output.push_str(&format!(
+                "(the file didn't finish: exit status {})\n",
+                out.status.code().map_or("signal".into(), |c| c.to_string())
+            ));
+        }
+        FileResult {
+            file: file.to_path_buf(),
+            output,
+            counts,
+            ok: ok || (self.bench && out.status.success()),
+        }
+    }
+
+    fn run(&self) -> ExitCode {
+        let files = self.files();
+        if files.is_empty() {
+            eprintln!(
+                "no {} files found",
+                if self.bench {
+                    "*.bench.ppl or *.test.ppl"
+                } else {
+                    "*.test.ppl"
+                }
+            );
+            return ExitCode::FAILURE;
+        }
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let results: std::sync::Mutex<Vec<FileResult>> = std::sync::Mutex::new(Vec::new());
+        let print = std::sync::Mutex::new(());
+        std::thread::scope(|s| {
+            for _ in 0..self.jobs.max(1).min(files.len()) {
+                s.spawn(|| {
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let Some(f) = files.get(i) else { break };
+                        let r = self.run_file(f);
+                        {
+                            let _g = print.lock().expect("print lock");
+                            let mark = if r.ok { "✓" } else { "✗" };
+                            println!("{mark} {}", r.file.display());
+                            print!("{}", r.output);
+                        }
+                        results.lock().expect("results").push(r);
+                    }
+                });
+            }
+        });
+        let results = results.into_inner().expect("results");
+        let failed_files = results.iter().filter(|r| !r.ok).count();
+        let (mut p, mut f, mut k) = (0, 0, 0);
+        for r in &results {
+            if let Some((a, b, c)) = r.counts {
+                p += a;
+                f += b;
+                k += c;
+            }
+        }
+        if self.bench {
+            println!("\n{} files, {p} benchmarks", results.len());
+        } else {
+            println!(
+                "\nfiles: {} passed, {failed_files} failed | tests: {p} passed, {f} failed, {k} skipped",
+                results.len() - failed_files
+            );
+        }
+        if failed_files == 0 {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        }
+    }
+
+    /// Runs, then again after each change to a `.ppl` file under the paths (polled).
+    fn watch(&self) -> ExitCode {
+        fn stamp(paths: &[PathBuf]) -> Vec<(PathBuf, std::time::SystemTime)> {
+            fn walk(dir: &Path, out: &mut Vec<(PathBuf, std::time::SystemTime)>) {
+                let Ok(rd) = std::fs::read_dir(dir) else {
+                    return;
+                };
+                for e in rd.flatten() {
+                    let p = e.path();
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    if p.is_dir() {
+                        if !name.starts_with('.') && name != "target" {
+                            walk(&p, out);
+                        }
+                    } else if name.ends_with(".ppl")
+                        && let Ok(t) = e.metadata().and_then(|m| m.modified())
+                    {
+                        out.push((p, t));
+                    }
+                }
+            }
+            let mut out = Vec::new();
+            for p in paths {
+                if p.is_dir() {
+                    walk(p, &mut out);
+                } else if let Ok(t) = std::fs::metadata(p).and_then(|m| m.modified()) {
+                    out.push((p.clone(), t));
+                }
+            }
+            out.sort();
+            out
+        }
+        loop {
+            let before = stamp(&self.paths);
+            self.run();
+            println!("\nwatching for changes (ctrl-c to stop)…");
+            while stamp(&self.paths) == before {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+            println!();
+        }
     }
 }
 

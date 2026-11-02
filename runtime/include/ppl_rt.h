@@ -234,6 +234,7 @@ int ppl_format_f32(float v, char *buf);
 void ppl_guard_push(void *buf);
 void ppl_guard_pop(void);
 _Noreturn void ppl_resume(void);
+PplStr *ppl_panic_taken(void);
 _Noreturn void ppl_panic(const char *msg, int64_t msg_len, const char *file, int64_t file_len,
                          int32_t line, int32_t col);
 

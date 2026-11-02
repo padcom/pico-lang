@@ -672,6 +672,11 @@ impl Interp<'_, '_> {
             Builtin::ClockMs => {
                 return Value::Int(self.started.elapsed().as_millis() as i128);
             }
+            Builtin::PanicTaken => {
+                // The handler of `__catch_panic` stops the panic being unwound.
+                let p = self.unwinding.pop().expect("a panic being unwound");
+                return Value::Str(p.msg.into());
+            }
             Builtin::Math => {
                 let f = |i: usize| match vals.get(i) {
                     Some(Value::Float(x)) => *x,
@@ -712,7 +717,9 @@ impl Interp<'_, '_> {
             Builtin::GcCollect | Builtin::GcCollectYoung | Builtin::GcPause | Builtin::GcResume => {
                 Ok(())
             }
-            Builtin::Assert | Builtin::Panic => unreachable!("lowered to control flow"),
+            Builtin::Assert | Builtin::Panic | Builtin::CatchPanic => {
+                unreachable!("lowered to control flow")
+            }
             Builtin::ComptimeInfo | Builtin::ComptimeReadFile | Builtin::MetaEmit => {
                 unreachable!("handled by comptime_builtin")
             }

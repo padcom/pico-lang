@@ -1,0 +1,50 @@
+// std/collections.
+import { describe, test, expect } from "std/test"
+import { Deque, PriorityQueue, SortedMap, BitSet } from "std/collections"
+
+describe("Deque", () => {
+  test("both ends", () => {
+    const d = new Deque<int>()
+    for (let i = 0; i < 10; i++) {
+      d.pushBack(i)
+      d.pushFront(-i)
+    }
+    expect(d.length).toBe(20)
+    expect(d.popFront() ?? 99).toBe(-9)
+    expect(d.popBack() ?? 99).toBe(9)
+    expect(d.at(0) ?? 99).toBe(-8)
+    expect(d.toArray()).toHaveLength(18)
+  })
+})
+
+describe("PriorityQueue", () => {
+  test("heap order", () => {
+    const q = new PriorityQueue<int>((a, b) => a - b, [9, 3, 7, 1, 8, 2])
+    const out: int[] = []
+    while (!q.isEmpty) out.push(q.pop() ?? -1)
+    expect(out).toEqual([1, 2, 3, 7, 8, 9])
+  })
+})
+
+describe("SortedMap", () => {
+  test("ordered queries", () => {
+    const m = new SortedMap<int, string>()
+    for (const k of [30, 10, 20]) m.set(k, `v${k}`)
+    expect(m.keys()).toEqual([10, 20, 30])
+    expect(m.floorKey(25) ?? 0).toBe(20)
+    expect(m.ceilingKey(25) ?? 0).toBe(30)
+    expect(m.delete(20)).toBeTruthy()
+    expect(m.get(20)).toBeNull()
+  })
+})
+
+describe("BitSet", () => {
+  test("set algebra", () => {
+    const a = new BitSet([1, 2, 40])
+    const b = new BitSet([2, 3])
+    expect(a.or(b).toArray()).toEqual([1, 2, 3, 40])
+    expect(a.and(b).toArray()).toEqual([2])
+    expect(a.size).toBe(3)
+    expect(a.length).toBe(41)
+  })
+})

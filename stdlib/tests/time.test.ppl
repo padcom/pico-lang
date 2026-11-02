@@ -1,0 +1,20 @@
+// std/time and Date.
+import { describe, test, expect } from "std/test"
+import { Duration, Instant, DateTime } from "std/time"
+
+describe("std/time", () => {
+  test("durations", () => {
+    expect(Duration.parse("PT1H30M").toString()).toBe("PT1H30M")
+    expect(Duration.ofMinutes(90).totalHours()).toBe(1.5)
+  })
+  test("DST in New York", () => {
+    const a = DateTime.of(2024, 3, 9, 12, 0, 0, 0, "America/New_York")
+    expect(a.plus({ days: 1 }).since(a).toString()).toBe("PT23H")
+    expect(a.plus({ days: 1 }).hour).toBe(12)
+  })
+  test("Date and Instant agree", () => {
+    const i = Instant.parse("2024-02-29T23:59:59.999Z")
+    expect(new Date(i.epochMilliseconds as f64).toISOString()).toBe("2024-02-29T23:59:59.999Z")
+    expect(`${i.inZone("UTC"):yyyy-MM-dd}`).toBe("2024-02-29")
+  })
+})

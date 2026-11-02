@@ -6279,6 +6279,51 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(next);
                 Operand::Const(Const::Void)
             }
+            ExprKind::Builtin(Builtin::CatchPanic) => {
+                // Guard { call f; Unguard → null } with a handler that stops the panic and
+                // takes its message instead of resuming.
+                let f = self.expr(&args[0]);
+                let res_ty = Ty::Str.nullable();
+                let res = Place::local(self.temp(res_ty.clone()));
+                let (body, handler, done) = (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Guard { body, handler });
+                self.switch_to(body);
+                let next = self.new_block();
+                self.terminate(Terminator::Call {
+                    callee: Callee::Indirect,
+                    args: vec![f],
+                    dest: None,
+                    next,
+                    loc,
+                });
+                self.switch_to(next);
+                self.unguard();
+                self.assign(
+                    res.clone(),
+                    Rvalue::Use(Operand::Const(Const::Null(res_ty.clone()))),
+                    e.span,
+                );
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(handler);
+                let msg = Place::local(self.temp(Ty::Str));
+                let after = self.new_block();
+                self.terminate(Terminator::Call {
+                    callee: Callee::Builtin(Builtin::PanicTaken),
+                    args: Vec::new(),
+                    dest: Some(msg.clone()),
+                    next: after,
+                    loc,
+                });
+                self.switch_to(after);
+                self.assign(
+                    res.clone(),
+                    Rvalue::WrapSome(Operand::Copy(msg), res_ty),
+                    e.span,
+                );
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(done);
+                Operand::Copy(res)
+            }
             ExprKind::Builtin(
                 b @ (Builtin::GcCollect
                 | Builtin::GcCollectYoung

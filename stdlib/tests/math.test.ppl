@@ -1,0 +1,37 @@
+// Math and std/math.
+import { describe, test, expect } from "std/test"
+import { Vec3, Quat, Mat4, BigInt, Random, degToRad } from "std/math"
+
+describe("Math", () => {
+  test("JavaScript's rounding", () => {
+    expect(Math.round(-2.5)).toBe(-2)
+    expect(Math.round(2.5)).toBe(3)
+    expect(Math.trunc(-1.7)).toBe(-1)
+    expect(Math.max()).toBe(-1.0 / 0.0)
+    expect(Math.hypot(3, 4)).toBe(5)
+  })
+})
+
+describe("std/math", () => {
+  test("rotations agree", () => {
+    const q = Quat.fromAxisAngle(Vec3.unitY, degToRad(90))
+    const m = Mat4.rotationY(degToRad(90))
+    expect(q.rotate(Vec3.unitX).approxEquals(m.transformPoint(Vec3.unitX))).toBeTruthy()
+    expect(q.rotate(Vec3.unitX).approxEquals(-Vec3.unitZ)).toBeTruthy()
+  })
+  test("inverse", () => {
+    const m = Mat4.translation(Vec3.of(1, 2, 3)) * Mat4.scaling(Vec3.of(2, 4, 8))
+    const inv = m.invert()
+    expect(inv != null && (m * inv).approxEquals(Mat4.identity)).toBeTruthy()
+  })
+  test("BigInt", () => {
+    expect(BigInt.of(2).pow(64).toString()).toBe("18446744073709551616")
+    expect((BigInt.parse("-1000000000000000000000") / BigInt.of(7)).toString()).toBe("-142857142857142857142")
+    expect(() => { BigInt.parse("12x"); }).toThrow("Cannot convert")
+  })
+  test("seeded Random repeats", () => {
+    const a = new Random(123)
+    const b = new Random(123)
+    for (let i = 0; i < 100; i++) expect(a.int(0, 1000)).toBe(b.int(0, 1000))
+  })
+})

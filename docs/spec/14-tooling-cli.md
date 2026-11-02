@@ -54,13 +54,35 @@ describe("add", () => {
   })
 })
 ```
-Tests run in parallel, one isolated worker per file. `--watch` and coverage are supported.
+Tests run in parallel, one isolated process per file (`ppl test [paths] [-t filter] [--interp]
+[--watch] [-j jobs]`; it finds `*.test.ppl` files under the paths). Coverage is planned.
+
+- Registering: `describe(name, fn)` (nesting; names show as `group > test`), `test`/`it(name,
+  fn)` with a function or an `async function` (passed by name: there are no async lambdas yet),
+  `skip`, `only` and `todo`, and the hooks `beforeEach`, `afterEach`, `beforeAll`, `afterAll`.
+  The tests run once the file's top level is done, in order; the file prints one line per test
+  and `ppl-test: N passed, M failed, K skipped`, and exits with 1 when any failed. So
+  `ppl run x.test.ppl` runs a single file too.
+- `expect(v)` picks matchers by type: numbers and `int`s (`toBe`, `toEqual`, `toBeGreaterThan`,
+  `toBeLessThan`, `…OrEqual`, `toBeCloseTo(x, digits)`, `toBeNaN`), strings (`toContain`,
+  `toMatch(re)`, `toHaveLength`), `bool`s (`toBeTruthy`, `toBeFalsy`), arrays (`toEqual`,
+  `toContain`, `toHaveLength`), functions (`toThrow(message?)`, `toPanic(message?)`), promises
+  (`await expect(p).resolves.toBe(v)`, `await expect(p).rejects.toThrow(message?)`) and any
+  other value (`toBe`, `toEqual`, `toBeNull`, `toBeDefined`). `.not` negates. Values compare by
+  their debug form (a class by its string form), so `toBe` doesn't test identity.
+- A failed expectation stops the test (in an async test, after an `await`, it's recorded and the
+  test continues). A panic or an exception escaping the test fails it, and the file goes on.
+- Environment: `PPL_TEST_FILTER`, `PPL_TEST_MODE=bench` and `PPL_TEST_TIMES=0` (no durations).
 
 ### Benchmarks
 ```ts
 import { bench } from "std/test"
 bench("sort 10k", () => data.slice().sort())    // warmup + adaptive iterations; mean/median/stddev
 ```
+`ppl bench [paths]` runs the benchmarks in `*.bench.ppl` and `*.test.ppl` files, one file at a
+time and optimized: a warm-up that doubles the iterations until a batch takes 20 ms, then 20
+samples of about 25 ms; it prints mean, median and standard deviation per iteration.
+`ppl test` and `ppl run` skip benchmarks.
 
 ## 14.4 Formatter
 A Prettier-like style with **a few options**, set in `project.json`:

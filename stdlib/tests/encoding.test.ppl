@@ -1,0 +1,20 @@
+// std/encoding and TextEncoder/TextDecoder.
+import { describe, test, expect } from "std/test"
+import { base64, hex } from "std/encoding"
+
+describe("std/encoding", () => {
+  const bytes = new TextEncoder().encode("hello, wörld")
+  test("base64", () => {
+    expect(base64.encode(bytes)).toBe("aGVsbG8sIHfDtnJsZA==")
+    expect(new TextDecoder().decode(base64.decode("aGVsbG8sIHfDtnJsZA=="))).toBe("hello, wörld")
+    expect(base64.encode(new Uint8Array(0))).toBe("")
+  })
+  test("hex", () => {
+    expect(hex.encode(new TextEncoder().encode("hi"))).toBe("6869")
+    expect(hex.decode("6869").length).toBe(2)
+  })
+  test("bad input throws", () => {
+    expect(() => { base64.decode("!!!"); }).toThrow()
+    expect(() => { hex.decode("abc"); }).toThrow()
+  })
+})

@@ -815,6 +815,13 @@ static _Noreturn void unwind(void) {
 
 _Noreturn void ppl_resume(void) { unwind(); }
 
+/* A `__catch_panic` handler stops the panic that jumped to it: its message. */
+PplStr *ppl_panic_taken(void) {
+    PplStr *s = ppl_str_new(panic_msg ? panic_msg : "", panic_msg ? panic_msg_len : 0);
+    panic_nframes = 0;
+    return s;
+}
+
 _Noreturn void ppl_panic(const char *msg, int64_t msg_len, const char *file, int64_t file_len,
                          int32_t line, int32_t col) {
     free(panic_msg);

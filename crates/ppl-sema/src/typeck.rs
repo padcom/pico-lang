@@ -642,6 +642,69 @@ pub fn json_error(t: &Ty, bad: &Ty, span: Span) -> Diagnostic {
     .note("JSON supports numbers, `bool`, `char`, `string`, arrays, nullable values, structs and classes")
 }
 
+/// Whether an argument of type `t` can instantiate generic parameter type `p` by shape:
+/// a bare type parameter takes anything; otherwise the type constructors must match.
+fn shape_fits(p: &Ty, t: &Ty) -> bool {
+    if !p.has_any_params() {
+        return p == t || t.widens_to(p) || t.is_error();
+    }
+    match (p, t) {
+        (Ty::Param(..), _) => true,
+        (_, Ty::Error | Ty::Never) => true,
+        (Ty::Array(a), Ty::Array(b)) => shape_fits(a, b),
+        (Ty::Nullable(a), Ty::Nullable(b)) => shape_fits(a, b),
+        (Ty::Nullable(a), b) => shape_fits(a, b),
+        (Ty::Fixed(a, _), Ty::Fixed(b, _)) => shape_fits(a, b),
+        (Ty::Tuple(a), Ty::Tuple(b)) => {
+            a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| shape_fits(x, y))
+        }
+        (Ty::Class(s1, _, a1), Ty::Class(s2, _, a2))
+        | (Ty::Struct(s1, _, a1), Ty::Struct(s2, _, a2)) => {
+            s1 == s2
+                && a1.len() == a2.len()
+                && a1.iter().zip(a2.iter()).all(|(x, y)| shape_fits(x, y))
+        }
+        (Ty::Fn(p1, _, _), Ty::Fn(p2, _, _)) => p1.len() == p2.len(),
+        // Other generic shapes (interfaces, maps…) are left to the full check.
+        (Ty::Array(_) | Ty::Fixed(..) | Ty::Tuple(_) | Ty::Fn(..), _) => false,
+        (Ty::Class(..) | Ty::Struct(..), Ty::Param(..)) => true,
+        (Ty::Class(..) | Ty::Struct(..), _) => false,
+        _ => true,
+    }
+}
+
+/// Overload ranking: whether parameter type `x` is at least as specific as `y` (equal, a
+/// widening, concrete over generic, or the same shape with more specific parts; a bare type
+/// parameter is the most general).
+fn at_least_as_specific(x: &Ty, y: &Ty) -> bool {
+    if x == y || x.widens_to(y) {
+        return true;
+    }
+    match (x, y) {
+        (_, Ty::Param(..)) => true,
+        (Ty::Param(..), _) => false,
+        _ if y.has_any_params() && !x.has_any_params() => true,
+        (Ty::Array(a), Ty::Array(b)) | (Ty::Nullable(a), Ty::Nullable(b)) => {
+            at_least_as_specific(a, b)
+        }
+        (Ty::Class(s1, _, a1), Ty::Class(s2, _, a2))
+        | (Ty::Struct(s1, _, a1), Ty::Struct(s2, _, a2)) => {
+            s1 == s2
+                && a1
+                    .iter()
+                    .zip(a2.iter())
+                    .all(|(p, q)| at_least_as_specific(p, q))
+        }
+        (Ty::Tuple(a), Ty::Tuple(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b.iter())
+                    .all(|(p, q)| at_least_as_specific(p, q))
+        }
+        _ => false,
+    }
+}
+
 fn is_printable(t: &Ty) -> bool {
     match t {
         Ty::Nullable(inner)
@@ -3936,7 +3999,11 @@ impl<'p> Checker<'p> {
             if f.ret.is_none() && self.state[g.0 as usize] == FnState::Unchecked {
                 self.check_fn(g);
             }
-            return self.types.sigs[g.0 as usize].ret.clone();
+            // A generic class's getter: its result in the receiver's type arguments.
+            let args = std::mem::take(&mut self.recv_args);
+            return self.types.sigs[g.0 as usize]
+                .ret
+                .subst(Ty::type_owner(sid), &args);
         }
         self.field(id, sid, name, span)
     }
@@ -5328,8 +5395,14 @@ impl<'p> Checker<'p> {
                             t == p
                                 || t.widens_to(p)
                                 || self.upcasts(t, p)
-                                || p.has_any_params()
+                                || (p.has_any_params() && shape_fits(p, t))
                                 || t.is_error()
+                                // A closure checked against a `void` function type drops
+                                // its value (`() => f(x)` where `() => void` is expected).
+                                || matches!((&Self::arg_value(&args[*i]).kind, t, p),
+                                    (ExprKind::Closure(_), Ty::Fn(p1, _, t1), Ty::Fn(p2, r2, _))
+                                        if p1 == p2 && **r2 == Ty::Void
+                                            && self.upcasts(&Ty::Fn(p1.clone(), Box::new(Ty::Void), t1.clone()), p))
                         }
                         None => self.literal_fits(Self::arg_value(&args[*i]), p),
                     };
@@ -5340,10 +5413,24 @@ impl<'p> Checker<'p> {
                 ok.push((*c, used));
             }
         }
+        // A literal argument prefers its own type (`3` → `int` over `number`).
+        let lit_ty: Vec<Option<Ty>> = args
+            .iter()
+            .map(|a| match &Self::arg_value(a).kind {
+                ExprKind::Int(_, None) => Some(Ty::INT),
+                ExprKind::Float(_, None) => Some(Ty::NUMBER),
+                _ => None,
+            })
+            .collect();
         let more_specific = |a: &[Ty], b: &[Ty]| {
-            a.iter()
-                .zip(b)
-                .all(|(x, y)| x == y || x.widens_to(y) || y.has_any_params() && !x.has_any_params())
+            a.iter().zip(b).enumerate().all(|(i, (x, y))| {
+                at_least_as_specific(x, y)
+                    || lit_ty
+                        .get(i)
+                        .cloned()
+                        .flatten()
+                        .is_some_and(|l| *x == l && *y != l)
+            })
         };
         let best: Vec<&(FnId, Vec<Ty>)> = ok
             .iter()
@@ -6468,6 +6555,18 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[1]), Ty::Float(FloatTy::F64))
             }
+            Builtin::CatchPanic => {
+                let f = Ty::Fn(
+                    std::sync::Arc::from([]),
+                    Box::new(Ty::Void),
+                    std::sync::Arc::from([]),
+                );
+                if let Some(a) = args.first() {
+                    self.check(a, &Expect::new(f));
+                }
+                (arity(&[1]), Ty::Str.nullable())
+            }
+            Builtin::PanicTaken => (arity(&[0]), Ty::Str),
             Builtin::Math => {
                 for (i, a) in args.iter().enumerate() {
                     let t = if i == 0 {
@@ -6579,6 +6678,8 @@ impl<'p> Checker<'p> {
                 | Builtin::ComptimeReadFile => "1 argument",
                 Builtin::WorkerOp => "2 arguments",
                 Builtin::Math => "3 arguments",
+                Builtin::CatchPanic => "1 argument",
+                Builtin::PanicTaken => "no arguments",
                 Builtin::WorkerPost => "2 or 3 arguments",
                 Builtin::BufOp | Builtin::MetaEmit => "4 arguments",
                 Builtin::Io => "6 arguments",

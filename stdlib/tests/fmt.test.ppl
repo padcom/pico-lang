@@ -1,0 +1,24 @@
+// std/fmt against the compiler's formatting.
+import { describe, test, expect } from "std/test"
+import { formatInt, formatNumber, formatString, groupDigits } from "std/fmt"
+
+describe("std/fmt", () => {
+  test("numbers", () => {
+    for (const x of [0.125, 2.5, -1234.5678, 1e21, 3.0]) {
+      expect(formatNumber(x, ".2f")).toBe(`${x:.2f}`)
+      expect(formatNumber(x, "+e")).toBe(`${x:+e}`)
+      expect(formatNumber(x, "^14.1%")).toBe(`${x:^14.1%}`)
+    }
+  })
+  test("integers", () => {
+    for (const n of [0, 255, -4096, 9223372036854775807]) {
+      expect(formatInt(n, "#x")).toBe(`${n:#x}`)
+      expect(formatInt(n, "012")).toBe(`${n:012}`)
+      expect(formatInt(n, "*<8b")).toBe(`${n:*<8b}`)
+    }
+  })
+  test("strings and groups", () => {
+    expect(formatString("abcdef", ">8.3")).toBe(`${"abcdef":>8.3}`)
+    expect(groupDigits("-1234567.25")).toBe("-1,234,567.25")
+  })
+})

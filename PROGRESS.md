@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P7.10: std/test and `ppl test`** (see [PLAN.md](PLAN.md#p710-stdtest-and-ppl-test)). P7.5b (TLS) and P7.8 (Crypto) are **deferred by the author** (2026-11-02: "skip crypto/TLS now"); the library choice is still open (mbedTLS vendored, Monocypher + BearSSL, or platform libraries). Ask again before starting either.
+**P8.1: Cross-compilation infrastructure** (see [PLAN.md](PLAN.md#p81-cross-compilation-infrastructure)). Phase 7 is done except P7.5b and P7.8. P7.5b (TLS) and P7.8 (Crypto) are **deferred by the author** (2026-11-02: "skip crypto/TLS now"); the library choice is still open (mbedTLS vendored, Monocypher + BearSSL, or platform libraries). Ask again before starting either.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 229 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-02 (P7.9c) |
+| Last green `scripts/test.sh` | 2026-11-02 (P7.10) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Testing (P7.10, decision 241)**: `stdlib/test.ppl` (registry `__Run`, runner `__runAll`, matchers `Expect`/`IntExpect`/`NumberExpect`/`StringExpect`/`BoolExpect`/`ArrayExpect`/`FnExpect`/`PromiseExpect`, benches), CLI `ppl test`/`ppl bench` (`TestRun` in `crates/ppl-cli/src/main.rs`), builtins `__catch_panic`/`__panic_taken` (`Builtin::CatchPanic` lowered to a `Guard` region in `lower.rs`; `ppl_panic_taken` in `ppl_rt.c`). Stdlib tests: `stdlib/tests/*.test.ppl`, run by `crates/ppl-cli/tests/stdlib_tests.rs` (native and interpreted). Golden: run/test/runner. The old golden fixtures (`tests/run/**`) stay: they also test the compiler; only module-level stdlib checks moved. Not yet: coverage, async hooks, async lambdas as tests, `test.each`, snapshot matchers, mocks (`vi.fn`), `toThrow(Class)`, identity `toBe` for classes, per-test timeouts, a panic after an `await` in an async test (it ends the file: no catching across the event loop), worker-based isolation (processes instead), `--watch` re-runs everything (polling).
 - **Formattable (P7.9c, decision 240)**: core `stdlib/core/fmt.ppl` (the interface), typeck `formattable_method` → `Types.formattables`, lowering `format_call` (virtual for classes). `stdlib/fmt.ppl` (`FormatSpec`, `formatInt/Number/String/Bool`, `pad`, `groupDigits`; precision switches are generated text: 0–20). `DateTime`, `Vec2/3/4`, `Quat` implement it (`std/math` imports `std/fmt`). Not yet: `Formattable` in `print(x)`/`println(x)` of a bare value, string `+`, `toString()`; generic `T extends Formattable` parameters in templates; `Mat4`/`BigInt` specs.
 - **Collections (P7.9b, decision 239)**: `stdlib/collections.ppl` (`Deque`, `PriorityQueue`, `SortedMap`, `BitSet`, helpers `__insertAt`/`__removeAt`). Arrays have no `splice` yet. `string` satisfies `Comparable` but `s.compareTo(t)` isn't callable (E0309): comparators use `<`/`>`. Not yet: a balanced-tree `SortedMap` (inserts are O(n)), `SortedSet`, `MultiMap`, `LinkedList`, `LruCache`.
 - **Math (P7.9a, decision 238)**: `stdlib/core/math.ppl` (`Math`, `__Xoshiro128`), `stdlib/math.ppl` (`Vec2/3/4`, `Quat`, `Mat4`, `Random`, `BigInt`, `clamp`/`lerp`/`degToRad`/`radToDeg`). Builtin `__math(op, x, y)` (`Builtin::Math`; `ppl_math` in `ppl_rt.c`, `math_op` in `ppl-interp/src/lib.rs`: keep the op tables in step). Structs got `static` methods/getters (resolver `struct_members`, `names_class`). Not yet: method overloading (so `Math.abs` is `number`-only; spec §5.4 allows overloads but only free functions have them), wrapping/saturating integer methods (spec §2), `bigint` literals, BigInt bit operations/shifts, Karatsuba (multiplication is O(n²), division O(n² log BASE)), f32 vector types, `Mat3`. A struct's `toString()` isn't its string form yet (P7.9c `Formattable`): tests call `v.toString()`. A class `toString` with parameters (even defaulted) isn't used by `${x}`.
@@ -246,7 +247,7 @@ Notes:
   - [x] P7.9a Math and std/math
   - [x] P7.9b std/collections
   - [x] P7.9c std/fmt
-- [ ] P7.10 std/test and `ppl test`
+- [x] P7.10 std/test and `ppl test`
 
 ### Phase 8: Targets
 - [ ] P8.1 Cross-compilation infrastructure
@@ -369,3 +370,4 @@ Notes:
 | 2026-11-02 | P7.9a | P7.9 split (a/b/c). `Math` global (all of JavaScript's functions and constants, agreeing with Node bit for bit; `__math` builtin over libm), `std/math` (Vec2/3/4, Quat, Mat4 with projections/lookAt/invert, BigInt checked against Node's bigint, seeded Random), static methods/getters on structs, lexer fix for `operator /`. Spec §13.9, decision 238. Tests: run/math/{global, std_math}. |
 | 2026-11-02 | P7.9b | `std/collections`: `Deque` (two-array, amortized O(1) ends, indexing), `PriorityQueue` (binary heap with a comparator), `SortedMap` (sorted arrays: floor/ceiling/range queries), `BitSet` (set algebra). Spec §13.10, decision 239. Test: run/collections/collections. |
 | 2026-11-02 | P7.9c | `Formattable` core interface (`${x}`/`${x:spec}` call `format(spec)` on structs and classes that implement it), `std/fmt` (runtime spec parsing and formatting matching the compiler's, `pad`, `groupDigits`); `DateTime`, vectors and quaternions are Formattable. Spec §1.4/§13.11, decision 240. Tests: run/fmt/{formattable, std_fmt}. |
+| 2026-11-02 | P7.10 | `std/test` (describe/test/it/skip/only/todo, hooks, typed `expect` overloads with `.not`, `toThrow`, `toPanic`, `resolves`/`rejects`, async tests, `bench`), `ppl test` (discovery, a process per file in parallel, `-t`, `--interp`, `--watch`, `-j`) and `ppl bench`; `__catch_panic` builtin; stdlib tests as `stdlib/tests/*.test.ppl` run by cargo. Overload resolution by shape/specificity, generic getters substituted, native debug format of `T?`. Spec §14.3, decision 241. Tests: run/test/runner, ppl-cli stdlib_tests. |

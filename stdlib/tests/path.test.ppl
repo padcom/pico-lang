@@ -1,0 +1,25 @@
+// std/path (POSIX, as Node's `path.posix`).
+import { describe, test, expect } from "std/test"
+import { join, normalize, dirname, basename, extname, relative, isAbsolute, resolve } from "std/path"
+
+describe("std/path", () => {
+  test("join and normalize", () => {
+    expect(join("a", "b", "../c")).toBe("a/c")
+    expect(join("/a/", "/b")).toBe("/a/b")
+    expect(normalize("a//b/./c/..")).toBe("a/b")
+    expect(normalize("")).toBe(".")
+  })
+  test("parts", () => {
+    expect(dirname("/a/b/c.txt")).toBe("/a/b")
+    expect(basename("/a/b/c.txt")).toBe("c.txt")
+    expect(basename("/a/b/c.txt", ".txt")).toBe("c")
+    expect(extname("x.tar.gz")).toBe(".gz")
+    expect(extname(".bashrc")).toBe("")
+  })
+  test("relative and absolute", () => {
+    expect(relative("/a/b/c", "/a/d")).toBe("../../d")
+    expect(isAbsolute("/x")).toBeTruthy()
+    expect(isAbsolute("x")).toBeFalsy()
+    expect(resolve("/a", "b", "../c")).toBe("/a/c")
+  })
+})

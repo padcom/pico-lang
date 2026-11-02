@@ -1,0 +1,629 @@
+// `std/test` (spec §14.3): a Vitest-like test API. `describe`/`test` register tests while the
+// file's top level runs; they run (in order) once it's done, and the file reports each one
+// and a summary, exiting with 1 when any failed. `ppl test` runs every `*.test.ppl` file in
+// parallel, one process each; `ppl run x.test.ppl` runs one.
+//
+// A failed expectation stops a test (it panics, and the runner catches that); after an
+// `await` it's recorded and the test goes on. A panic or an exception in a test fails it.
+// Async tests are `async function`s passed by name (no async lambdas yet). Environment:
+// `PPL_TEST_FILTER` (only tests whose full name contains it), `PPL_TEST_MODE=bench` (run the
+// benchmarks instead), `PPL_TEST_TIMES=0` (no durations, for reproducible output).
+
+import { env, exit } from "std/process"
+
+// ---- registry ----
+
+class __Test {
+  public name: string
+  public sync: (() => void throws Error)?
+  public async_: (() => Promise<void, Error>)?
+  public skip: bool
+  public only: bool
+  /// The suites it's in, outermost first.
+  public suites: __Suite[]
+
+  constructor(name: string, sync: (() => void throws Error)?, async_: (() => Promise<void, Error>)?, skip: bool, only: bool, suites: __Suite[]) {
+    this.name = name
+    this.sync = sync
+    this.async_ = async_
+    this.skip = skip
+    this.only = only
+    this.suites = suites
+  }
+
+  public get fullName(): string {
+    let s = ""
+    for (const suite of this.suites) {
+      if (suite.name != "") s = s + suite.name + " > "
+    }
+    s + this.name
+  }
+}
+
+class __Suite {
+  public name: string
+  public beforeEach: (() => void)[] = []
+  public afterEach: (() => void)[] = []
+  public beforeAll: (() => void)[] = []
+  public afterAll: (() => void)[] = []
+  /// Whether `beforeAll` ran (it runs before the suite's first test).
+  public started: bool = false
+  /// Tests left before `afterAll` runs.
+  public remaining: int = 0
+
+  constructor(name: string) {
+    this.name = name
+  }
+}
+
+class __Bench {
+  public name: string
+  public f: () => void
+
+  constructor(name: string, f: () => void) {
+    this.name = name
+    this.f = f
+  }
+}
+
+class __Run {
+  public tests: __Test[] = []
+  public benches: __Bench[] = []
+  /// The suites being declared (innermost last); the root suite is first.
+  public stack: __Suite[] = [new __Suite("")]
+  public scheduled: bool = false
+  public passed: int = 0
+  public failed: int = 0
+  public skipped: int = 0
+  /// The running test's failures.
+  public failures: string[] = []
+  /// Whether the running test is in its synchronous part (a failure then stops it).
+  public inSync: bool = false
+
+  constructor() {}
+}
+
+const __state = new __Run()
+
+function __run(): __Run { __state }
+
+const __STOP = "\u{1}ppl-test: expectation failed"
+
+/// Records a failed expectation; in a test's synchronous part, stops it too.
+function __fail(message: string): void {
+  const r = __run()
+  r.failures.push(message)
+  if (r.inSync) panic(__STOP)
+}
+
+function __schedule(r: __Run): void {
+  if (r.scheduled) return
+  r.scheduled = true
+  // After the file's top level (which declares the tests).
+  setTimeout(() => {
+    __runAll();
+  }, 0)
+}
+
+function __register(name: string, sync: (() => void throws Error)?, async_: (() => Promise<void, Error>)?, skip: bool, only: bool): void {
+  const r = __run()
+  r.tests.push(new __Test(name, sync, async_, skip, only, r.stack.slice(0)))
+  __schedule(r)
+}
+
+/// Groups tests: `fn` runs now and declares them; names show as `group > test`.
+export function describe(name: string, fn: () => void): void {
+  const r = __run()
+  r.stack.push(new __Suite(name))
+  fn()
+  r.stack.pop();
+}
+
+/// A test (also `it`).
+export function test(name: string, fn: () => void throws Error): void {
+  __register(name, fn, null, false, false)
+}
+
+/// An async test: an `async function` (its promise is awaited).
+export function test(name: string, fn: () => Promise<void, Error>): void {
+  __register(name, null, fn, false, false)
+}
+
+export function it(name: string, fn: () => void throws Error): void { test(name, fn) }
+export function it(name: string, fn: () => Promise<void, Error>): void { test(name, fn) }
+
+/// A test that's reported as skipped.
+export function skip(name: string, fn: () => void throws Error): void {
+  __register(name, fn, null, true, false)
+}
+
+/// When any test is `only`, the others are skipped.
+export function only(name: string, fn: () => void throws Error): void {
+  __register(name, fn, null, false, true)
+}
+
+export function only(name: string, fn: () => Promise<void, Error>): void {
+  __register(name, null, fn, false, true)
+}
+
+/// A test still to write (reported as skipped).
+export function todo(name: string): void {
+  __register(name, null, null, true, false)
+}
+
+export function beforeEach(fn: () => void): void { __currentSuite().beforeEach.push(fn) }
+export function afterEach(fn: () => void): void { __currentSuite().afterEach.push(fn) }
+export function beforeAll(fn: () => void): void { __currentSuite().beforeAll.push(fn) }
+export function afterAll(fn: () => void): void { __currentSuite().afterAll.push(fn) }
+
+function __currentSuite(): __Suite {
+  const r = __run()
+  r.stack[r.stack.length - 1]
+}
+
+/// A benchmark: `ppl bench` runs it (warm-up, then enough iterations for about half a
+/// second) and reports mean, median and standard deviation per iteration. `ppl test` and
+/// `ppl run` skip benchmarks.
+export function bench(name: string, fn: () => void): void {
+  const r = __run()
+  r.benches.push(new __Bench(name, fn))
+  __schedule(r)
+}
+
+// ---- running ----
+
+function __catching(f: () => void): string? {
+  const msg = __catch_panic(f)
+  if (msg == null || msg == __STOP) null else `panic: ${msg}`
+}
+
+/// Runs a hook; a failure or panic in it fails the test.
+function __hook(r: __Run, f: () => void): void {
+  r.inSync = true
+  const p = __catching(f)
+  r.inSync = false
+  if (p != null) r.failures.push(p)
+}
+
+async function __runAll(): Promise<void> {
+  const r = __run()
+  const mode = env.get("PPL_TEST_MODE") ?? "test"
+  const filter = env.get("PPL_TEST_FILTER") ?? ""
+  if (mode == "bench") {
+    __runBenches(r)
+    return
+  }
+  const anyOnly = r.tests.some((t) => t.only)
+  for (const t of r.tests) {
+    for (const s of t.suites) s.remaining += 1
+  }
+  for (const t of r.tests) {
+    const wanted = (!anyOnly || t.only) && (filter == "" || t.fullName.includes(filter))
+    if (t.skip || !wanted) {
+      r.skipped += 1
+      println(`  - ${t.fullName} (skipped)`)
+      __finished(r, t)
+      continue
+    }
+    r.failures = []
+    for (const s of t.suites) {
+      if (!s.started) {
+        s.started = true
+        for (const h of s.beforeAll) __hook(r, h)
+      }
+    }
+    for (const s of t.suites) {
+      for (const h of s.beforeEach) __hook(r, h)
+    }
+    const start = performance.now()
+    if (r.failures.length == 0) {
+      const sync = t.sync
+      const async_ = t.async_
+      if (sync != null) {
+        const run: () => void throws Error = sync
+        r.inSync = true
+        const p = __catching(() => {
+          try {
+            run()
+          } catch (e) {
+            r.failures.push(`uncaught ${typeof e}: ${e.message}`)
+          }
+        })
+        r.inSync = false
+        if (p != null) r.failures.push(p)
+      } else if (async_ != null) {
+        const start_: () => Promise<void, Error> = async_
+        let promise: Promise<void, Error>? = null
+        r.inSync = true
+        const p = __catching(() => {
+          promise = start_()
+        })
+        r.inSync = false
+        if (p != null) r.failures.push(p)
+        const pr = promise
+        if (pr != null) {
+          try {
+            await pr
+          } catch (e) {
+            r.failures.push(`rejected with ${typeof e}: ${e.message}`)
+          }
+        }
+      }
+    }
+    const ms = performance.now() - start
+    let i = t.suites.length - 1
+    while (i >= 0) {
+      for (const h of t.suites[i].afterEach) __hook(r, h)
+      i -= 1
+    }
+    if (r.failures.length == 0) {
+      r.passed += 1
+      println(if (env.get("PPL_TEST_TIMES") == "0") `  ✓ ${t.fullName}` else `  ✓ ${t.fullName} ${__ms(ms)}`)
+    } else {
+      r.failed += 1
+      println(`  ✗ ${t.fullName}`)
+      for (const f of r.failures) {
+        for (const line of f.split("\n")) println(`      ${line}`)
+      }
+    }
+    __finished(r, t)
+  }
+  println(`ppl-test: ${r.passed} passed, ${r.failed} failed, ${r.skipped} skipped`)
+  if (r.failed > 0) exit(1)
+}
+
+/// After a test: `afterAll` of the suites it was the last test of.
+function __finished(r: __Run, t: __Test): void {
+  let i = t.suites.length - 1
+  while (i >= 0) {
+    const s = t.suites[i]
+    s.remaining -= 1
+    if (s.remaining == 0 && s.started && s.afterAll.length > 0) {
+      const saved = r.failures
+      r.failures = []
+      for (const h of s.afterAll) __hook(r, h)
+      if (r.failures.length > 0) {
+        r.failed += 1
+        println(`  ✗ ${if (s.name == "") "afterAll" else s.name + " > afterAll"}`)
+        for (const f of r.failures) println(`      ${f}`)
+      }
+      r.failures = saved
+    }
+    i -= 1
+  }
+}
+
+/// `0.12ms`, with a few significant digits.
+function __ms(ms: number): string {
+  const r = if (ms >= 100.0) Math.round(ms) else Math.round(ms * 100.0) / 100.0
+  `(${r}ms)`
+}
+
+function __runBenches(r: __Run): void {
+  for (const b of r.benches) {
+    const f = b.f
+    // Warm-up, and a first estimate of the time per call.
+    let n = 1
+    let t = 0.0
+    while (true) {
+      const s = performance.now()
+      for (let i = 0; i < n; i++) f()
+      t = performance.now() - s
+      if (t >= 20.0 || n >= 1 << 30) break
+      n *= 2
+    }
+    const per = t / (n as f64)
+    // About 0.5 s in 20 samples.
+    let batch = ((25.0 / (if (per > 0.0) per else 0.000001)) as int)
+    if (batch < 1) batch = 1
+    const samples: number[] = []
+    for (let k = 0; k < 20; k++) {
+      const s = performance.now()
+      for (let i = 0; i < batch; i++) f()
+      samples.push((performance.now() - s) / (batch as f64))
+    }
+    let mean = 0.0
+    for (const x of samples) mean += x
+    mean /= samples.length as f64
+    let v = 0.0
+    for (const x of samples) v += (x - mean) * (x - mean)
+    const sd = Math.sqrt(v / (samples.length as f64))
+    const sorted = samples.slice(0)
+    sorted.sort((a, c) => if (a < c) -1 else if (a > c) 1 else 0)
+    const median = (sorted[9] + sorted[10]) / 2.0
+    println(`  ${b.name}: mean ${__time(mean)}, median ${__time(median)}, stddev ${__time(sd)} (${batch * 20} iterations)`)
+  }
+  println(`ppl-bench: ${r.benches.length} benchmarks`)
+}
+
+/// A per-iteration time in ns, µs or ms.
+function __time(ms: number): string {
+  if (ms < 0.001) return `${Math.round(ms * 1000000.0 * 10.0) / 10.0}ns`
+  if (ms < 1.0) return `${Math.round(ms * 1000.0 * 100.0) / 100.0}µs`
+  `${Math.round(ms * 100.0) / 100.0}ms`
+}
+
+// ---- expectations ----
+
+/// A value's text for comparisons and messages: its debug form, or a class's string form.
+function __show<T>(v: T): string {
+  const d = `${v:?}`
+  if (d.startsWith("<") && d.endsWith(">")) `${v}` else d
+}
+
+/// Expectations on any value: `toBe`/`toEqual` compare string forms (fields for structs,
+/// elements for arrays, `toString` or fields for classes).
+export class Expect<T> {
+  public readonly actual: T
+  public readonly negated: bool
+
+  constructor(actual: T, negated: bool = false) {
+    this.actual = actual
+    this.negated = negated
+  }
+
+  /// The opposite expectation (`expect(x).not.toBe(y)`).
+  public get not(): Expect<T> { new Expect<T>(this.actual, !this.negated) }
+
+  __check(ok: bool, what: string): void {
+    if (ok == this.negated) {
+      __fail(`expected ${__show(this.actual)} ${if (this.negated) "not " else ""}${what}`)
+    }
+  }
+
+  public toBe(expected: T): void { this.__check(__show(this.actual) == __show(expected), `to be ${__show(expected)}`) }
+  public toEqual(expected: T): void { this.__check(__show(this.actual) == __show(expected), `to equal ${__show(expected)}`) }
+  public toBeNull(): void { this.__check(__show(this.actual) == "null", "to be null") }
+  public toBeDefined(): void {
+    if ((__show(this.actual) != "null") == this.negated) {
+      __fail(if (this.negated) `expected ${__show(this.actual)} to be null` else "expected a value, got null")
+    }
+  }
+}
+
+/// Expectations on integers.
+export class IntExpect {
+  public readonly actual: int
+  public readonly negated: bool
+
+  constructor(actual: int, negated: bool = false) {
+    this.actual = actual
+    this.negated = negated
+  }
+
+  public get not(): IntExpect { new IntExpect(this.actual, !this.negated) }
+
+  __check(ok: bool, what: string): void {
+    if (ok == this.negated) __fail(`expected ${this.actual} ${if (this.negated) "not " else ""}${what}`)
+  }
+
+  public toBe(expected: int): void { this.__check(this.actual == expected, `to be ${expected}`) }
+  public toEqual(expected: int): void { this.__check(this.actual == expected, `to equal ${expected}`) }
+  public toBeGreaterThan(n: int): void { this.__check(this.actual > n, `to be greater than ${n}`) }
+  public toBeGreaterThanOrEqual(n: int): void { this.__check(this.actual >= n, `to be at least ${n}`) }
+  public toBeLessThan(n: int): void { this.__check(this.actual < n, `to be less than ${n}`) }
+  public toBeLessThanOrEqual(n: int): void { this.__check(this.actual <= n, `to be at most ${n}`) }
+}
+
+/// Expectations on numbers.
+export class NumberExpect {
+  public readonly actual: number
+  public readonly negated: bool
+
+  constructor(actual: number, negated: bool = false) {
+    this.actual = actual
+    this.negated = negated
+  }
+
+  public get not(): NumberExpect { new NumberExpect(this.actual, !this.negated) }
+
+  __check(ok: bool, what: string): void {
+    if (ok == this.negated) __fail(`expected ${this.actual} ${if (this.negated) "not " else ""}${what}`)
+  }
+
+  public toBe(expected: number): void { this.__check(this.actual == expected, `to be ${expected}`) }
+  public toEqual(expected: number): void { this.__check(this.actual == expected, `to equal ${expected}`) }
+  public toBeGreaterThan(n: number): void { this.__check(this.actual > n, `to be greater than ${n}`) }
+  public toBeGreaterThanOrEqual(n: number): void { this.__check(this.actual >= n, `to be at least ${n}`) }
+  public toBeLessThan(n: number): void { this.__check(this.actual < n, `to be less than ${n}`) }
+  public toBeLessThanOrEqual(n: number): void { this.__check(this.actual <= n, `to be at most ${n}`) }
+  public toBeNaN(): void { this.__check(this.actual != this.actual, "to be NaN") }
+
+  /// Within half of 10^-digits (Vitest's rule).
+  public toBeCloseTo(expected: number, digits: int = 2): void {
+    const tol = Math.pow(10.0, -(digits as f64)) / 2.0
+    this.__check(Math.abs(this.actual - expected) < tol, `to be close to ${expected} (±${tol})`)
+  }
+}
+
+/// Expectations on strings.
+export class StringExpect {
+  public readonly actual: string
+  public readonly negated: bool
+
+  constructor(actual: string, negated: bool = false) {
+    this.actual = actual
+    this.negated = negated
+  }
+
+  public get not(): StringExpect { new StringExpect(this.actual, !this.negated) }
+
+  __check(ok: bool, what: string): void {
+    if (ok == this.negated) __fail(`expected ${this.actual:?} ${if (this.negated) "not " else ""}${what}`)
+  }
+
+  public toBe(expected: string): void { this.__check(this.actual == expected, `to be ${expected:?}`) }
+  public toEqual(expected: string): void { this.__check(this.actual == expected, `to equal ${expected:?}`) }
+  public toContain(part: string): void { this.__check(this.actual.includes(part), `to contain ${part:?}`) }
+  public toMatch(re: RegExp): void { this.__check(re.test(this.actual), `to match ${re}`) }
+  public toHaveLength(n: int): void { this.__check(this.actual.length == n, `to have length ${n} (it's ${this.actual.length})`) }
+}
+
+/// Expectations on `bool`s.
+export class BoolExpect {
+  public readonly actual: bool
+  public readonly negated: bool
+
+  constructor(actual: bool, negated: bool = false) {
+    this.actual = actual
+    this.negated = negated
+  }
+
+  public get not(): BoolExpect { new BoolExpect(this.actual, !this.negated) }
+
+  __check(ok: bool, what: string): void {
+    if (ok == this.negated) __fail(`expected ${this.actual} ${if (this.negated) "not " else ""}${what}`)
+  }
+
+  public toBe(expected: bool): void { this.__check(this.actual == expected, `to be ${expected}`) }
+  public toEqual(expected: bool): void { this.toBe(expected) }
+  public toBeTruthy(): void { this.__check(this.actual, "to be true") }
+  public toBeFalsy(): void { this.__check(!this.actual, "to be false") }
+}
+
+/// Expectations on arrays: `toEqual` compares elements' string forms.
+export class ArrayExpect<T> {
+  public readonly actual: T[]
+  public readonly negated: bool
+
+  constructor(actual: T[], negated: bool = false) {
+    this.actual = actual
+    this.negated = negated
+  }
+
+  public get not(): ArrayExpect<T> { new ArrayExpect<T>(this.actual, !this.negated) }
+
+  __check(ok: bool, what: string): void {
+    if (ok == this.negated) __fail(`expected ${__show(this.actual)} ${if (this.negated) "not " else ""}${what}`)
+  }
+
+  public toBe(expected: T[]): void { this.toEqual(expected) }
+  public toEqual(expected: T[]): void { this.__check(__show(this.actual) == __show(expected), `to equal ${__show(expected)}`) }
+  public toHaveLength(n: int): void { this.__check(this.actual.length == n, `to have length ${n} (it's ${this.actual.length})`) }
+
+  public toContain(x: T): void {
+    const want = __show(x)
+    this.__check(this.actual.some((e) => __show(e) == want), `to contain ${want}`)
+  }
+}
+
+/// Expectations on a function call: it throws, or it panics.
+export class FnExpect {
+  public readonly f: () => void throws Error
+  public readonly negated: bool
+
+  constructor(f: () => void throws Error, negated: bool = false) {
+    this.f = f
+    this.negated = negated
+  }
+
+  public get not(): FnExpect { new FnExpect(this.f, !this.negated) }
+
+  /// It throws (an error whose message contains `message`, when given).
+  public toThrow(message: string = ""): void {
+    const f = this.f
+    let thrown: string? = null
+    let text = ""
+    const p = __catch_panic(() => {
+      try {
+        f()
+      } catch (e) {
+        thrown = e.message
+        text = `${typeof e}: ${e.message}`
+      }
+    })
+    if (p != null) {
+      if (p == __STOP) panic(__STOP)
+      __fail(`expected a throw, but it panicked: ${p}`)
+      return
+    }
+    const m = thrown
+    const ok = m != null && m.includes(message)
+    if (ok == this.negated) {
+      const what = if (message == "") "to throw" else `to throw ${message:?}`
+      __fail(if (m == null) `expected the call ${if (this.negated) "not " else ""}${what}, but it returned` else `expected the call ${if (this.negated) "not " else ""}${what}, but it threw ${text}`)
+    }
+  }
+
+  /// It panics (with a message containing `message`, when given).
+  public toPanic(message: string = ""): void {
+    const f = this.f
+    let threw = ""
+    const p = __catch_panic(() => {
+      try {
+        f()
+      } catch (e) {
+        threw = `${typeof e}: ${e.message}`
+      }
+    })
+    if (p == __STOP) panic(__STOP)
+    const ok = p != null && p.includes(message)
+    if (ok == this.negated) {
+      const what = if (message == "") "to panic" else `to panic with ${message:?}`
+      const got = if (p != null) `it panicked: ${p}` else if (threw != "") `it threw ${threw}` else "it returned"
+      __fail(`expected the call ${if (this.negated) "not " else ""}${what}, but ${got}`)
+    }
+  }
+}
+
+/// Expectations on a promise: `await expect(p).resolves.toBe(v)`,
+/// `await expect(p).rejects.toThrow("…")`.
+export class PromiseExpect<T, E extends Error> {
+  public readonly p: Promise<T, E>
+
+  constructor(p: Promise<T, E>) {
+    this.p = p
+  }
+
+  public get resolves(): Resolves<T, E> { new Resolves<T, E>(this.p) }
+  public get rejects(): Rejects<T, E> { new Rejects<T, E>(this.p) }
+}
+
+export class Resolves<T, E extends Error> {
+  public readonly p: Promise<T, E>
+
+  constructor(p: Promise<T, E>) {
+    this.p = p
+  }
+
+  /// It resolves to a value with `expected`'s string form.
+  public async toBe(expected: T): Promise<void> {
+    try {
+      const v = await this.p
+      if (__show(v) != __show(expected)) __fail(`expected the promise to resolve to ${__show(expected)}, got ${__show(v)}`)
+    } catch (e) {
+      __fail(`expected the promise to resolve, but it rejected with ${typeof e}: ${e.message}`)
+    }
+  }
+
+  public async toEqual(expected: T): Promise<void> {
+    await this.toBe(expected)
+  }
+}
+
+export class Rejects<T, E extends Error> {
+  public readonly p: Promise<T, E>
+
+  constructor(p: Promise<T, E>) {
+    this.p = p
+  }
+
+  /// It rejects (with a message containing `message`, when given).
+  public async toThrow(message: string = ""): Promise<void> {
+    try {
+      const v = await this.p
+      __fail(`expected the promise to reject, but it resolved to ${__show(v)}`)
+    } catch (e) {
+      if (!e.message.includes(message)) __fail(`expected a rejection with ${message:?}, got ${typeof e}: ${e.message}`)
+    }
+  }
+}
+
+export function expect(actual: int): IntExpect { new IntExpect(actual) }
+export function expect(actual: number): NumberExpect { new NumberExpect(actual) }
+export function expect(actual: string): StringExpect { new StringExpect(actual) }
+export function expect(actual: bool): BoolExpect { new BoolExpect(actual) }
+export function expect<T>(actual: T[]): ArrayExpect<T> { new ArrayExpect<T>(actual) }
+export function expect(f: () => void throws Error): FnExpect { new FnExpect(f) }
+export function expect<T, E extends Error>(p: Promise<T, E>): PromiseExpect<T, E> { new PromiseExpect<T, E>(p) }
+export function expect<T>(actual: T): Expect<T> { new Expect<T>(actual) }

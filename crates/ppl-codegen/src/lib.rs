@@ -665,6 +665,7 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_raw_arena_new" => i64t.fn_type(&[i64t.into()], false),
             "ppl_clock_ms" => i64t.fn_type(&[], false),
             "ppl_parse_f64" => self.cx.f64_type().fn_type(&[ptr.into()], false),
+            "ppl_panic_taken" => ptr.fn_type(&[], false),
             "ppl_math" => self.cx.f64_type().fn_type(
                 &[
                     self.i64().into(),
@@ -1151,7 +1152,10 @@ impl<'ctx> Gen<'ctx, '_> {
             Rvalue::Format(o, spec) => {
                 let t = self.operand_ty(fx, o);
                 let v = self.operand(fx, o)?;
-                if ppl_sema::format::is_compound(&t) {
+                // (A `T?`'s debug form, as in generic code: `null` or the value's.)
+                if ppl_sema::format::is_compound(&t)
+                    || (matches!(t, Ty::Nullable(_)) && spec.kind == Kind::Debug)
+                {
                     let text = self.debug_value(&t, v);
                     // Width, fill and alignment apply to the whole text.
                     let outer = FormatSpec {
@@ -2998,6 +3002,7 @@ impl<'ctx> Gen<'ctx, '_> {
                         | Builtin::ClockMs
                         | Builtin::ParseF64
                         | Builtin::Math
+                        | Builtin::PanicTaken
                         | Builtin::LoopWait
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
@@ -3014,6 +3019,7 @@ impl<'ctx> Gen<'ctx, '_> {
                             Builtin::ClockMs => "ppl_clock_ms",
                             Builtin::ParseF64 => "ppl_parse_f64",
                             Builtin::Math => "ppl_math",
+                            Builtin::PanicTaken => "ppl_panic_taken",
                             Builtin::WorkerOp => "ppl_worker_op",
                             Builtin::WorkerError => "ppl_worker_error",
                             _ => "ppl_loop_wait",

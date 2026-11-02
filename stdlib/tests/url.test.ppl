@@ -1,0 +1,18 @@
+// URL and URLSearchParams (WHATWG), against Node's results.
+import { describe, test, expect } from "std/test"
+
+describe("URL", () => {
+  test("parsing", () => {
+    const u = new URL("https://user:pw@example.com:8080/a/../b?x=1&y=2#frag")
+    expect(u.pathname).toBe("/b")
+    expect(u.port).toBe("8080")
+    expect(u.searchParams.get("y") ?? "").toBe("2")
+    expect(u.hash).toBe("#frag")
+  })
+  test("relative", () => {
+    expect(new URL("../c?q", "http://h/a/b/").href).toBe("http://h/a/c?q")
+  })
+  test("invalid", () => {
+    expect(URL.canParse("not a url")).toBeFalsy()
+  })
+})
