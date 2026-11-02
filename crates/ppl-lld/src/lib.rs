@@ -1,7 +1,9 @@
 //! lld, linked into the compiler (spec §15.2: no system linker): the ELF and COFF linkers,
 //! and LLVM's import-library writer for Windows DLLs.
 
-use std::ffi::{CStr, CString, c_char};
+#[cfg(ppl_lld)]
+use std::ffi::c_char;
+use std::ffi::{CStr, CString};
 use std::path::Path;
 use std::sync::Mutex;
 

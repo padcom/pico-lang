@@ -67,6 +67,8 @@ jobs:
   windows:
     name: windows (${{ matrix.target }})
     needs: test
+    # Only the Linux leg of `test` builds the programs: a macOS failure shouldn't skip these.
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

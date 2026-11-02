@@ -1,7 +1,7 @@
 /* The event loop's system interface (spec §10.1): a monotonic clock and waiting for events.
  * The loop itself (timers, microtasks, promises) is ppl code in the core library; it calls
- * `ppl_loop_wait` when nothing is ready. Only timeouts exist so far; I/O sources will be
- * registered with the same kqueue / epoll instance. */
+ * `ppl_loop_wait` when nothing is ready. Each thread waits on its own kqueue / epoll instance /
+ * I/O completion port (Windows); other threads wake it through that. */
 #define _POSIX_C_SOURCE 200809L
 #include "ppl_rt.h"
 
@@ -85,6 +85,28 @@ void ppl_loop_wake(void *w) {
     (void)!write(k->efd, &one, sizeof one);
 #endif
 }
+#elif defined(_WIN32)
+/* Per thread: an I/O completion port; waking posts a completion packet to it. */
+static _Thread_local HANDLE port;
+
+static HANDLE get_port(void) {
+    if (!port) {
+        port = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
+        if (!port) {
+            fflush(stdout);
+            fprintf(stderr, "fatal: event loop: CreateIoCompletionPort failed (%lu)\n",
+                    (unsigned long)GetLastError());
+            abort();
+        }
+    }
+    return port;
+}
+
+void *ppl_loop_waker(void) { return get_port(); }
+
+void ppl_loop_wake(void *w) {
+    if (w) (void)PostQueuedCompletionStatus((HANDLE)w, 0, 0, NULL);
+}
 #else
 void *ppl_loop_waker(void) { return NULL; }
 void ppl_loop_wake(void *w) { (void)w; }
@@ -104,7 +126,11 @@ void ppl_loop_wait(int64_t ms) {
         (void)!read(get_waker()->efd, &n, sizeof n);
     }
 #elif defined(_WIN32)
-    Sleep(ms < 0 ? INFINITE : (DWORD)ms);
+    DWORD n;
+    ULONG_PTR key;
+    OVERLAPPED *ov;
+    DWORD timeout = ms < 0 ? INFINITE : ms >= INFINITE ? INFINITE - 1 : (DWORD)ms;
+    (void)GetQueuedCompletionStatus(get_port(), &n, &key, &ov, timeout);
 #else
     struct timespec t = {(time_t)(ms / 1000), (long)(ms % 1000) * 1000000};
     if (ms > 0) nanosleep(&t, NULL);
