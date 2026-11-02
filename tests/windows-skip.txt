@@ -1,0 +1,11 @@
+# Golden fixtures (name prefixes, as in reports) that Windows can't run yet, with the task that
+# makes them work. PPL_TEST_EXPORT skips them; delete lines as the tasks land.
+run/fs/              P8.3b
+run/path.ppl         P8.3b
+run/streams/         P8.3b
+run/process/         P8.3c
+run/test/runner.ppl  P8.3c
+run/time/date.ppl    P8.3c
+run/net/             P8.3c
+run/http/            P8.3c
+run/crypto/          P8.3c

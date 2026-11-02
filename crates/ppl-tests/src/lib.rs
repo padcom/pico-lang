@@ -636,6 +636,81 @@ pub fn run_all(root: &Path, filter: Option<&str>) -> Report {
     report
 }
 
+/// Builds every run fixture for `target` into `out` without running it: `<name>.exe` (or no
+/// extension) and `<name>.expect` for `ppl-golden-run`, which checks them on a machine that can
+/// run them (Windows in CI). `<name>` is the fixture name with `/` as `__`. Fixtures listed in
+/// `tests/windows-skip.txt` are left out for Windows targets, interpreter-only checks always.
+/// Returns how many were exported and the fixtures that failed to build.
+pub fn export_all(
+    root: &Path,
+    filter: Option<&str>,
+    target: ppl_driver::Target,
+    out: &Path,
+) -> (usize, Vec<(String, String)>) {
+    let skip: Vec<String> = if target.os == ppl_driver::target::Os::Windows {
+        std::fs::read_to_string(root.join("windows-skip.txt"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .filter_map(|l| l.split_whitespace().next().map(str::to_string))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    std::fs::create_dir_all(out).expect("export directory");
+    let (mut n, mut failed) = (0, Vec::new());
+    for f in discover(root) {
+        if f.kind != Kind::Run
+            || filter.is_some_and(|flt| !f.name.contains(flt))
+            || skip.iter().any(|s| f.name.starts_with(s.as_str()))
+        {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&f.path) else {
+            continue;
+        };
+        let Ok(d) = parse_directives(&text) else {
+            continue;
+        };
+        let dir = f.path.parent().unwrap_or(Path::new("."));
+        let checked = ppl_driver::check_source_in(f.name.clone(), text, dir);
+        if checked.has_errors() || only_unimplemented(&checked).is_some() {
+            continue;
+        }
+        let opts = ppl_driver::BuildOptions {
+            target: Some(target),
+            ..Default::default()
+        };
+        let base = f.name.trim_end_matches(".ppl").replace('/', "__");
+        let exe_name = if target.os == ppl_driver::target::Os::Windows {
+            format!("{base}.exe")
+        } else {
+            base.clone()
+        };
+        if let Err(e) = ppl_driver::build_native(&checked, &out.join(exe_name), opts) {
+            failed.push((f.name, e));
+            continue;
+        }
+        let exit = d.exit.unwrap_or(if d.panic.is_some() {
+            ppl_driver::PANIC_EXIT_CODE
+        } else {
+            0
+        });
+        let mut expect = format!("exit {exit}\n");
+        match &d.panic {
+            Some(p) => expect.push_str(&format!("panic: {p}\n")),
+            None => expect.push_str("panic\n"),
+        }
+        for l in &d.expect {
+            expect.push_str(l);
+            expect.push('\n');
+        }
+        std::fs::write(out.join(format!("{base}.expect")), expect).expect("write expectations");
+        n += 1;
+    }
+    (n, failed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

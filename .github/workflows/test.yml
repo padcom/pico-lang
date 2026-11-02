@@ -45,3 +45,47 @@ jobs:
         run: |
           source scripts/env.sh
           PPL_TEST_TARGET=linux-arm64-musl cargo test --quiet -p ppl-tests --test golden
+
+      # Windows programs are built here and run on Windows below (decision 248).
+      - name: Build Windows golden tests
+        if: runner.os == 'Linux'
+        run: |
+          source scripts/env.sh
+          for t in windows-x64 windows-arm64; do
+            PPL_TEST_TARGET=$t PPL_TEST_EXPORT=$PWD/golden-$t \
+              cargo test --quiet -p ppl-tests --test golden -- export
+          done
+
+      - name: Upload Windows golden tests
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-windows
+          path: golden-windows-*
+          retention-days: 3
+
+  windows:
+    name: windows (${{ matrix.target }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+          - os: windows-11-arm
+            target: windows-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: golden-windows
+
+      - name: Run the golden tests
+        run: cargo run --quiet --release -p ppl-golden-run -- golden-${{ matrix.target }}

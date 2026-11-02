@@ -1,0 +1,12 @@
+[package]
+name = "ppl-golden-run"
+description = "Runs golden-test executables exported by ppl-tests (PPL_TEST_EXPORT) and checks them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+# No dependencies: it's built on machines without LLVM (the Windows CI runners).
+
+[lints]
+workspace = true

@@ -16,6 +16,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 /* ---------------------------------------------------------------- memory: see ppl_gc.c */
 
@@ -963,11 +967,15 @@ int64_t ppl_start_ns;
 int main(int argc, char **argv) {
     ppl_argc = argc;
     ppl_argv = argv;
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    /* `\n` stays `\n`: the CRT's text mode would write `\r\n`. */
+    _setmode(0, _O_BINARY);
+    _setmode(1, _O_BINARY);
+    _setmode(2, _O_BINARY);
+#endif
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     ppl_start_ns = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
-#endif
     ppl_entry();
     fflush(stdout);
     return 0;
