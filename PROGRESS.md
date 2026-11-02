@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.2: Linux gnu and musl** (see [PLAN.md](PLAN.md#p82-linux-gnu-and-musl)). P8.1 is done (decision 244): `ppl build --target`, lld linked into ppl (`crates/ppl-lld`), the runtime compiled per target by clang (`crates/ppl-driver/src/link.rs`), glibc still from the system (`/usr/lib/<multiarch>` or the Debian cross sysroot `/usr/x86_64-linux-gnu`). P8.2 replaces that with generated glibc 2.31 stubs (and headers old enough: with glibc 2.41's headers the runtime references `__isoc23_strtol`, a 2.38 symbol), enforces the `.2.xx` suffix, and adds musl (static; ask before installing musl sources/packages). epoll is already in the event loop since P8.0.
+**P8.2a: glibc stubs** (see [PLAN.md](PLAN.md#p82a-glibc-stubs)); P8.2 was split into P8.2a (glibc) and P8.2b (musl), decision 245. P8.1 is done (decision 244) and CI is green on both runners. Watch out: with glibc 2.41's headers the runtime references `__isoc23_strtol` (a 2.38 symbol); the stubs must make that a link error and the headers must avoid it.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -255,7 +255,8 @@ Notes:
 ### Phase 8: Targets
 - [x] P8.0 Linux host bring-up
 - [x] P8.1 Cross-compilation infrastructure
-- [ ] P8.2 Linux gnu and musl
+- [ ] P8.2a glibc stubs
+- [ ] P8.2b musl
 - [ ] P8.3 Windows (MinGW)
 - [ ] P8.4 macOS cross builds
 - [ ] P8.5 wasm32-wasi
@@ -381,3 +382,4 @@ Notes:
 | 2026-11-02 | P8.0 | Linux arm64 host: LLVM 23.1.5 (apt.llvm.org) installed; `scripts/test.sh` green. Fixes: `_POSIX_C_SOURCE` in `ppl_gc.c` (glibc hides `clock_gettime` under `-std=c11`); `-lm` moved into `host_link_flags`; GCC folded the weak `const` `ppl_arraybuffer_class` to NULL, so copied `ArrayBuffer`s were shared with workers (now non-const); glibc's `cbrt` corrected to the nearest double (`Math.cbrt(27)` was 3.0000000000000004; matches Rust's on 2M inputs); panic traces skip unnamed frames outside the executable (glibc's `__libc_start_call_main`); `panic_trace` native test enabled on Linux; CI's Linux job no longer allowed to fail. Checked by hand: `fetch` of a public https site uses the Debian CA bundle. |
 | 2026-11-02 | P8.1 | Cross-compilation: `Target` (§15.1 triples and aliases, glibc suffix, default 2.31) and `ppl build --target`; codegen for any triple (baseline CPU when cross); lld linked in-process (`ppl-lld`: C++ shim over `lld::lldMain`, ELF); runtime + Mbed TLS compiled per target by clang 23 and cached; every linux-gnu build (host included) linked by lld without `cc`. `-mno-outline-atomics` on aarch64 and `MBEDTLS_NO_UDBL_DIVISION`, since no compiler builtins are linked. Decision 244. Test: `ppl-driver/tests/cross.rs` builds linux-x64 from arm64, checks the ELF machine and runs it under qemu-user; the golden tests now go through lld on Linux. CI installs liblld, the amd64 cross glibc and qemu. |
 | 2026-11-02 | — | CI (first run with the Linux job required) failed on two interpreter timing races, one per runner: run/async/timers (a 20 ms interval drifting past a 150 ms timeout under load; now 600 ms) and run/http/websocket (server and client `onclose` order isn't defined; both are now printed after both fired). `gh` 2.103.3 installed in `~/.local/bin` (logged in), so `gh run list` works from the VM. |
+| 2026-11-02 | — | CI green on macOS and Linux arm64 (P8.1 included). P8.2 split into P8.2a (glibc stubs) and P8.2b (musl) with the author's choices recorded as decision 245. |

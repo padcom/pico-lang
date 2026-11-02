@@ -635,11 +635,22 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Done when**: building `linux-x64` from the Linux arm64 host produces an x86-64 ELF binary
   (verified with `file`) that runs under `qemu-user`, linked by lld without the system `cc`.
 
-### P8.2 Linux gnu and musl
-- **Do**: glibc stubs (generate versioned stub libs, as Zig does), musl static linking, and epoll in
-  the event loop.
-- **Done when**: the golden tests pass natively on the Linux arm64 host for gnu and musl, and for
-  `linux-x64` gnu and musl under `qemu-user`.
+### P8.2a glibc stubs
+- **Spec**: 15 §15.2
+- **Do**: vendor glibc's ABI list and headers (from Zig) and generate versioned stub libraries per
+  requested glibc version (`.2.xx` suffix, default 2.31), so `linux-gnu` builds need no system
+  glibc. Our own start files replace glibc's crt objects; whatever `libc_nonshared.a` provided
+  that the runtime needs is ours too. (epoll is in the event loop since P8.0.)
+- **Done when**: the golden tests pass natively on the Linux arm64 host and for `linux-x64` under
+  `qemu-user`, linked against the generated stubs only, and a binary built for 2.31 references
+  no newer symbol version.
+
+### P8.2b musl
+- **Spec**: 15 §15.1
+- **Do**: vendor musl's sources (`third_party/musl`), compile `libc.a` per target with clang on
+  first use (cached like the runtime) and link `*-linux-musl` targets fully statically.
+- **Done when**: the golden tests pass natively for `linux-arm64-musl` and for `linux-x64-musl`
+  under `qemu-user`.
 
 ### P8.3 Windows (MinGW)
 - **Do**: MinGW import libraries, CodeView debug info, IOCP in the event loop, and `CreateProcessW`.
