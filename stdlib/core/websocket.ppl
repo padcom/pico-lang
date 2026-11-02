@@ -1,7 +1,7 @@
 // `WebSocket` (WHATWG WebSockets over RFC 6455, spec §13.6), a global: the client
 // (`new WebSocket("ws://…")`) and the socket `std/http`'s `upgradeWebSocket` hands a server.
 // Text and binary messages (fragmented ones are joined), ping/pong, and the closing
-// handshake. Only `ws:` for now (`wss:` comes with TLS, P7.5b); no extensions.
+// handshake, over `ws:` or `wss:` (TLS); no extensions.
 
 /// `n` random bytes from the system.
 function __randomBytes(n: int): Uint8Array {
@@ -13,6 +13,12 @@ function __randomBytes(n: int): Uint8Array {
 
 function __rotl32(x: int, n: int): int {
   ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
+}
+
+/// `new WebSocket(url, protocols, options)` (a ppl extension): extra trusted certificates
+/// (PEM) for `wss:`.
+struct WebSocketOptions {
+  caCerts?: string[]
 }
 
 /// SHA-1 of `data` (FIPS 180-4), as WebSocket handshakes need it.
@@ -153,11 +159,15 @@ class WebSocket {
   closeCode: int = 1005
   closeReason: string = ""
   closed: bool = false
+  tls: bool = false
+  caCerts: string = ""
 
-  /// Connects to `url` (`ws:`, or `http:` as the same). An invalid URL or another scheme
-  /// throws a `TypeError`.
-  constructor(url: string, protocols: string[] = []) throws TypeError {
+  /// Connects to `url` (`ws:`/`wss:`, or `http:`/`https:` as the same). An invalid URL or
+  /// another scheme throws a `TypeError`. (ppl) `options.caCerts` adds trusted certificates
+  /// (PEM) for `wss:`.
+  constructor(url: string, protocols: string[] = [], options: WebSocketOptions = {}) throws TypeError {
     this.protocols = protocols
+    this.caCerts = (options.caCerts ?? []).join("\n")
     if (url.length == 0) {
       // (A server-side socket: `std/http` attaches the connection.)
       this.url = ""
@@ -165,10 +175,8 @@ class WebSocket {
       return
     }
     const u = new URL(url)
-    if (u.protocol == "wss:" || u.protocol == "https:") {
-      throw new TypeError("WebSocket: wss: isn't supported yet (no TLS)")
-    }
-    if (u.protocol != "ws:" && u.protocol != "http:") {
+    this.tls = u.protocol == "wss:" || u.protocol == "https:"
+    if (u.protocol != "ws:" && u.protocol != "http:" && !this.tls) {
       throw new TypeError(`WebSocket: ${u.protocol} is not a WebSocket URL`)
     }
     this.url = u.href
@@ -177,9 +185,12 @@ class WebSocket {
 
   async handshake(u: URL): Promise<void> {
     try {
-      const port = if (u.port.length > 0) parseInt(u.port) else 80
+      const port = if (u.port.length > 0) parseInt(u.port) else if (this.tls) 443 else 80
       const c = await __netConnect(port, __connectHost(u))
       this.conn = c
+      if (this.tls) {
+        await c.__startTls(0, __connectHost(u), this.caCerts)
+      }
       const key = new Base64().encode(__randomBytes(16))
       let head = `GET ${u.pathname}${u.search} HTTP/1.1\r\nhost: ${u.host}\r\nupgrade: websocket\r\nconnection: Upgrade\r\nsec-websocket-key: ${key}\r\nsec-websocket-version: 13\r\n`
       if (this.protocols.length > 0) {

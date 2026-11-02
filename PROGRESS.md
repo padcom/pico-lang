@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P7.5b: TLS (https)** (see [PLAN.md](PLAN.md#p75b-tls-https)): Mbed TLS is vendored (decision 242). Then P8.1.
+**P8.1: Cross-compilation infrastructure** (see [PLAN.md](PLAN.md#p81-cross-compilation-infrastructure)). Phase 7 is complete. Note for P8: the runtime now also links `libppl_crypto.a` + `libppl_mbedtls.a` (Mbed TLS must be built per target too).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 229 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-02 (P7.8) |
+| Last green `scripts/test.sh` | 2026-11-02 (P7.5b) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **TLS (P7.5b, decision 243)**: `runtime/src/ppl_tls.c` (sessions keyed by fd; `ppl_tls_start/read/write/close_notify/free`), native hooks in `ppl_io.c` (`write_all`, jobs 20/22 reads, job 36 handshake on a solo thread, 120 close_notify, 121 free), interpreter `TlsIo` and job 36 in `io.rs`. ppl: `Conn.__startTls` (`<core>/net.ppl`), https in `__fetchOnce`, `ServeOptions.cert/key` (`stdlib/http.ppl`), `wss:` in `<core>/websocket.ppl`, `RequestInit.caCerts`, `WebSocketOptions`. Test CA and certificate (valid until 2126) in `tests/run/http/data/` (read with `comptime.readFile`). Real sites work with the system roots (checked by hand against example.com and google.com). Not yet: client certificates, ALPN, Keychain/Windows stores, timeouts (a silent peer stalls a handshake), Windows.
 - **Crypto (P7.8, decision 242)**: `third_party/mbedtls` (3.6.7, unmodified; `README.ppl.md`), `runtime/include/ppl_mbedtls_config.h`, `runtime/src/ppl_crypto.c` + `ppl_crypto.h` (`ppl_crypto_op`: op table in the file's header comment), built by `crates/ppl-runtime/build.rs` (`libppl_mbedtls.a`, `libppl_crypto.a`; `ppl_runtime::crypto_libs()` for the native link; Cargo links them into the compiler for the interpreter, `ppl-interp` depends on `ppl-runtime`), `__io` 140 (`ppl_io.c`, `io.rs` `crypto_op` FFI). ppl: `<core>/crypto.ppl` (`CryptoError`, `__cryptoOp`, `CryptoKey`, `Algorithm`, `SubtleCrypto`, the `crypto` global), `stdlib/crypto.ppl`. Inputs are packed byte by byte in ppl (slow for megabytes: a bulk buffer copy op would help). A struct method's closure keeps a *reference* to `this`, so an async method on a short-lived struct temporary could outlive it (the `crypto` global is fine). Not yet: Ed25519, RSA, key formats other than raw (spki/pkcs8/jwk), AES-CBC/CTR, streaming hashes, `wrapKey`, `deriveKey`.
 - **Testing (P7.10, decision 241)**: `stdlib/test.ppl` (registry `__Run`, runner `__runAll`, matchers `Expect`/`IntExpect`/`NumberExpect`/`StringExpect`/`BoolExpect`/`ArrayExpect`/`FnExpect`/`PromiseExpect`, benches), CLI `ppl test`/`ppl bench` (`TestRun` in `crates/ppl-cli/src/main.rs`), builtins `__catch_panic`/`__panic_taken` (`Builtin::CatchPanic` lowered to a `Guard` region in `lower.rs`; `ppl_panic_taken` in `ppl_rt.c`). Stdlib tests: `stdlib/tests/*.test.ppl`, run by `crates/ppl-cli/tests/stdlib_tests.rs` (native and interpreted). Golden: run/test/runner. The old golden fixtures (`tests/run/**`) stay: they also test the compiler; only module-level stdlib checks moved. Not yet: coverage, async hooks, async lambdas as tests, `test.each`, snapshot matchers, mocks (`vi.fn`), `toThrow(Class)`, identity `toBe` for classes, per-test timeouts, a panic after an `await` in an async test (it ends the file: no catching across the event loop), worker-based isolation (processes instead), `--watch` re-runs everything (polling).
 - **Formattable (P7.9c, decision 240)**: core `stdlib/core/fmt.ppl` (the interface), typeck `formattable_method` → `Types.formattables`, lowering `format_call` (virtual for classes). `stdlib/fmt.ppl` (`FormatSpec`, `formatInt/Number/String/Bool`, `pad`, `groupDigits`; precision switches are generated text: 0–20). `DateTime`, `Vec2/3/4`, `Quat` implement it (`std/math` imports `std/fmt`). Not yet: `Formattable` in `print(x)`/`println(x)` of a bare value, string `+`, `toString()`; generic `T extends Formattable` parameters in templates; `Mat4`/`BigInt` specs.
@@ -237,9 +238,9 @@ Notes:
 - [x] P7.2 std/process
 - [x] P7.3 std/net
 - [x] P7.4 Web Streams and encoding
-- [ ] P7.5 fetch and std/http (split)
+- [x] P7.5 fetch and std/http (split)
   - [x] P7.5a URL, fetch and serve over HTTP
-  - [ ] P7.5b TLS (https) — **needs the author's choice of TLS library**
+  - [x] P7.5b TLS (https)
   - [x] P7.5c WebSocket
 - [x] P7.6 Regex
 - [x] P7.7 Time
@@ -373,3 +374,4 @@ Notes:
 | 2026-11-02 | P7.9c | `Formattable` core interface (`${x}`/`${x:spec}` call `format(spec)` on structs and classes that implement it), `std/fmt` (runtime spec parsing and formatting matching the compiler's, `pad`, `groupDigits`); `DateTime`, vectors and quaternions are Formattable. Spec §1.4/§13.11, decision 240. Tests: run/fmt/{formattable, std_fmt}. |
 | 2026-11-02 | P7.10 | `std/test` (describe/test/it/skip/only/todo, hooks, typed `expect` overloads with `.not`, `toThrow`, `toPanic`, `resolves`/`rejects`, async tests, `bench`), `ppl test` (discovery, a process per file in parallel, `-t`, `--interp`, `--watch`, `-j`) and `ppl bench`; `__catch_panic` builtin; stdlib tests as `stdlib/tests/*.test.ppl` run by cargo. Overload resolution by shape/specificity, generic getters substituted, native debug format of `T?`. Spec §14.3, decision 241. Tests: run/test/runner, ppl-cli stdlib_tests. |
 | 2026-11-02 | P7.8 | Mbed TLS 3.6.7 vendored (author's choice); `crypto` global (`getRandomValues`, `randomUUID`, Web Crypto `subtle`: digest, HMAC, AES-GCM, ECDSA, ECDH, HKDF, PBKDF2) and `std/crypto` (hashes incl. SHA-3, HMAC, HKDF, PBKDF2, AES-GCM, ChaCha20-Poly1305, P-256/P-384/X25519 keys, deterministic ECDSA, ECDH) over one C layer shared by both backends. Async struct methods; struct `this` captured by reference. Spec §13.12, decision 242. Tests: run/crypto/{kat (FIPS/RFC/NIST vectors), subtle}, stdlib/tests/crypto. |
+| 2026-11-02 | P7.5b | TLS over Mbed TLS: `fetch` https: (certificate and host checks against the system roots, `caCerts`), `serve` with `cert`/`key`, `wss:`; one C session layer keyed by socket fd used by both backends (concurrent read/write via non-blocking sockets), `NetError` kind `TlsError`. Spec §13.6, decision 243. Test: run/http/https (local CA, IP SAN, big bodies both ways, untrusted rejection, wss echo). **Phase 7 complete.** |

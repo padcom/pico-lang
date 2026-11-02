@@ -346,7 +346,7 @@ impl Interp<'_, '_> {
         if (20..=23).contains(&op) || op == 25 {
             return Value::Int(i128::from(self.process_job(op, a, b, c, &s(5))));
         }
-        if (30..=35).contains(&op) {
+        if (30..=36).contains(&op) {
             return Value::Int(i128::from(self.net_job(op, a, b, c, &s(4), &s(5))));
         }
         if op == 133 {
@@ -460,8 +460,15 @@ impl Interp<'_, '_> {
         if op == 120 || op == 121 {
             let mut net = self.io.net.lock().expect("net");
             if op == 121 {
-                net.socks.remove(&a);
+                if let Some(Sock::Stream(st)) = net.socks.remove(&a) {
+                    // SAFETY: frees the session of a descriptor that no job uses any more.
+                    unsafe { ppl_tls_free(std::os::fd::AsRawFd::as_raw_fd(&*st)) };
+                }
             } else if let Some(Sock::Stream(st)) = net.socks.get(&a) {
+                if b != 0 {
+                    // SAFETY: the descriptor is open (the stream is in the table).
+                    unsafe { ppl_tls_close_notify(std::os::fd::AsRawFd::as_raw_fd(&**st)) };
+                }
                 let how = match b {
                     0 => std::net::Shutdown::Read,
                     1 => std::net::Shutdown::Write,
@@ -895,6 +902,16 @@ impl Interp<'_, '_> {
             Some(p) => Some(p),
             // A TCP stream of `std/net`.
             None => match self.io.net.lock().expect("net").socks.get(&a) {
+                // Through its TLS session, if it has one.
+                Some(Sock::Stream(st)) if tls_has(st) => Some(if op == 21 {
+                    Pipe::Write(Arc::new(Mutex::new(
+                        Box::new(TlsIo(st.clone())) as Box<dyn Write + Send>
+                    )))
+                } else {
+                    Pipe::Read(Arc::new(Mutex::new(
+                        Box::new(TlsIo(st.clone())) as Box<dyn Read + Send>
+                    )))
+                }),
                 Some(Sock::Stream(st)) => st.try_clone().ok().map(|st| {
                     if op == 21 {
                         Pipe::Write(Arc::new(Mutex::new(Box::new(st) as Box<dyn Write + Send>)))
@@ -1034,6 +1051,7 @@ impl Interp<'_, '_> {
             t.as_bytes().to_vec()
         };
         let s = s.to_string();
+        let t_text = t.to_string();
         let net = self.io.net.clone();
         let finished = self.io.finished.clone();
         let waker = self.waker.clone();
@@ -1085,6 +1103,44 @@ impl Interp<'_, '_> {
                         }
                         Err(e) => fail(error(&e)),
                     },
+                    _ => fail((-K_OTHER, 9)),
+                },
+                36 => match sock {
+                    Some(Sock::Stream(st)) => {
+                        // A TLS handshake: `t` holds a PEM text, a NUL and a second one.
+                        let (p1, p2) = t_text.split_once('\0').unwrap_or((t_text.as_str(), ""));
+                        let host = std::ffi::CString::new(s.clone()).unwrap_or_default();
+                        let mut err = vec![0u8; 512];
+                        let fd = std::os::fd::AsRawFd::as_raw_fd(&*st);
+                        // SAFETY: valid pointers and lengths for the duration of the call.
+                        let r = unsafe {
+                            ppl_tls_start(
+                                fd,
+                                b as i32,
+                                host.as_ptr(),
+                                p1.as_ptr(),
+                                p1.len(),
+                                p2.as_ptr(),
+                                p2.len(),
+                                err.as_mut_ptr(),
+                                err.len(),
+                            )
+                        };
+                        if r == 0 {
+                            Job {
+                                id,
+                                ..Default::default()
+                            }
+                        } else {
+                            let end = err.iter().position(|&c| c == 0).unwrap_or(err.len());
+                            Job {
+                                id,
+                                r: -15,
+                                text: String::from_utf8_lossy(&err[..end]).into_owned(),
+                                ..Default::default()
+                            }
+                        }
+                    }
                     _ => fail((-K_OTHER, 9)),
                 },
                 32 => {
@@ -1321,4 +1377,61 @@ fn crypto_op(op: i64, input: &[u8]) -> Result<Vec<u8>, i64> {
     // SAFETY: allocated by the C side, freed once.
     unsafe { ppl_crypto_free(out.cast()) };
     Ok(bytes)
+}
+
+unsafe extern "C" {
+    fn ppl_tls_has(fd: i32) -> i32;
+    fn ppl_tls_start(
+        fd: i32,
+        mode: i32,
+        host: *const std::ffi::c_char,
+        pem1: *const u8,
+        n1: usize,
+        pem2: *const u8,
+        n2: usize,
+        err: *mut u8,
+        errcap: usize,
+    ) -> i32;
+    fn ppl_tls_read(fd: i32, buf: *mut u8, n: usize) -> isize;
+    fn ppl_tls_write(fd: i32, buf: *const u8, n: usize) -> isize;
+    fn ppl_tls_close_notify(fd: i32);
+    fn ppl_tls_free(fd: i32);
+}
+
+fn tls_has(st: &TcpStream) -> bool {
+    // SAFETY: only looks the descriptor up.
+    unsafe { ppl_tls_has(std::os::fd::AsRawFd::as_raw_fd(st)) != 0 }
+}
+
+/// A TLS connection's reads and writes, through the C runtime's session for its socket.
+struct TlsIo(Arc<TcpStream>);
+
+impl Read for TlsIo {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&*self.0);
+        // SAFETY: `buf` is valid for writes of its length.
+        let k = unsafe { ppl_tls_read(fd, buf.as_mut_ptr(), buf.len()) };
+        if k < 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(k as usize)
+        }
+    }
+}
+
+impl Write for TlsIo {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&*self.0);
+        // SAFETY: `buf` is valid for reads of its length.
+        let k = unsafe { ppl_tls_write(fd, buf.as_ptr(), buf.len()) };
+        if k < 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(k as usize)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }

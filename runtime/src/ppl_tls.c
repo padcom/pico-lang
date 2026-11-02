@@ -1,0 +1,365 @@
+/* TLS over Mbed TLS for `std/net` connections (https:, wss:, `serve` with a certificate),
+ * shared by native programs (ppl_io.c) and the interpreter (FFI). A session belongs to a
+ * socket descriptor: once `ppl_tls_start` succeeds, reads and writes on that descriptor go
+ * through `ppl_tls_read`/`ppl_tls_write` (callers check `ppl_tls_has`). The socket is made
+ * non-blocking; each call holds the session's lock only while Mbed TLS runs and waits with
+ * poll() outside it, so a read waiting for data never blocks a write. Shutting the socket
+ * down wakes a waiting read (it then sees the end). */
+#include "ppl_crypto.h"
+
+#if !defined(_WIN32)
+
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include "mbedtls/ctr_drbg.h"
+#include "mbedtls/entropy.h"
+#include "mbedtls/error.h"
+#include "mbedtls/net_sockets.h"
+#include "mbedtls/pk.h"
+#include "mbedtls/ssl.h"
+#include "mbedtls/x509_crt.h"
+#include "psa/crypto.h"
+
+typedef struct Tls {
+    int fd;
+    mbedtls_ssl_context ssl;
+    mbedtls_ssl_config conf;
+    mbedtls_x509_crt ca, own;
+    mbedtls_pk_context key;
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context drbg;
+    pthread_mutex_t lock;
+    struct Tls *next;
+} Tls;
+
+static pthread_mutex_t table_lock = PTHREAD_MUTEX_INITIALIZER;
+static Tls *sessions;
+static pthread_once_t psa_once = PTHREAD_ONCE_INIT;
+static int psa_ok;
+
+static void psa_start(void) { psa_ok = psa_crypto_init() == PSA_SUCCESS; }
+
+static Tls *find(int fd) {
+    pthread_mutex_lock(&table_lock);
+    Tls *t = sessions;
+    while (t && t->fd != fd) t = t->next;
+    pthread_mutex_unlock(&table_lock);
+    return t;
+}
+
+int ppl_tls_has(int fd) { return find(fd) != NULL; }
+
+static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
+    int fd = *(int *)ctx;
+    for (;;) {
+#if defined(MSG_NOSIGNAL)
+        ssize_t k = send(fd, buf, len, MSG_NOSIGNAL);
+#else
+        ssize_t k = send(fd, buf, len, 0);
+#endif
+        if (k >= 0) return (int)k;
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return MBEDTLS_ERR_SSL_WANT_WRITE;
+        if (errno == EPIPE || errno == ECONNRESET) return MBEDTLS_ERR_NET_CONN_RESET;
+        return MBEDTLS_ERR_NET_SEND_FAILED;
+    }
+}
+
+static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
+    int fd = *(int *)ctx;
+    for (;;) {
+        ssize_t k = recv(fd, buf, len, 0);
+        if (k >= 0) return (int)k;
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return MBEDTLS_ERR_SSL_WANT_READ;
+        if (errno == ECONNRESET) return MBEDTLS_ERR_NET_CONN_RESET;
+        return MBEDTLS_ERR_NET_RECV_FAILED;
+    }
+}
+
+/* Waits until the socket is ready for what Mbed TLS asked for. */
+static void wait_for(int fd, int r) {
+    struct pollfd p = {fd, (short)(r == MBEDTLS_ERR_SSL_WANT_WRITE ? POLLOUT : POLLIN), 0};
+    while (poll(&p, 1, -1) < 0 && errno == EINTR) {
+    }
+}
+
+static void tls_free(Tls *t) {
+    mbedtls_ssl_free(&t->ssl);
+    mbedtls_ssl_config_free(&t->conf);
+    mbedtls_x509_crt_free(&t->ca);
+    mbedtls_x509_crt_free(&t->own);
+    mbedtls_pk_free(&t->key);
+    mbedtls_ctr_drbg_free(&t->drbg);
+    mbedtls_entropy_free(&t->entropy);
+    pthread_mutex_destroy(&t->lock);
+    free(t);
+}
+
+/* Parses PEM text (not NUL-terminated) into `crt`: Mbed TLS wants the terminator counted. */
+static int parse_pem_crt(mbedtls_x509_crt *crt, const char *pem, size_t n) {
+    char *z = malloc(n + 1);
+    if (!z) abort();
+    memcpy(z, pem, n);
+    z[n] = 0;
+    int r = mbedtls_x509_crt_parse(crt, (const unsigned char *)z, n + 1);
+    free(z);
+    return r;
+}
+
+/* The system's trusted roots: `SSL_CERT_FILE`, `SSL_CERT_DIR`, else the usual bundle
+ * locations. Returns how many certificates it found. */
+static int load_roots(mbedtls_x509_crt *ca) {
+    int found = 0;
+    const char *file = getenv("SSL_CERT_FILE");
+    if (file && *file && mbedtls_x509_crt_parse_file(ca, file) >= 0) found = 1;
+    const char *dir = getenv("SSL_CERT_DIR");
+    if (dir && *dir && mbedtls_x509_crt_parse_path(ca, dir) >= 0) found = 1;
+    if (found) return 1;
+    static const char *const bundles[] = {
+        "/etc/ssl/cert.pem",                  /* macOS, Alpine, OpenBSD */
+        "/etc/ssl/certs/ca-certificates.crt", /* Debian, Ubuntu, Arch */
+        "/etc/pki/tls/certs/ca-bundle.crt",   /* Fedora, RHEL */
+        "/etc/ssl/ca-bundle.pem",             /* openSUSE */
+        "/etc/pki/tls/cacert.pem",
+    };
+    for (size_t i = 0; i < sizeof bundles / sizeof *bundles; i++) {
+        /* (A bundle with a few unparsable entries still counts.) */
+        if (access(bundles[i], R_OK) == 0 && mbedtls_x509_crt_parse_file(ca, bundles[i]) >= 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void set_err(char *err, size_t cap, const char *what, int r) {
+    char buf[160];
+    mbedtls_strerror(r, buf, sizeof buf);
+    snprintf(err, cap, "%s: %s", what, buf);
+}
+
+int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n1,
+                  const char *pem2, size_t n2, char *err, size_t errcap) {
+    pthread_once(&psa_once, psa_start);
+    if (!psa_ok) {
+        snprintf(err, errcap, "TLS: the crypto library didn't start");
+        return -1;
+    }
+    Tls *t = calloc(1, sizeof *t);
+    if (!t) abort();
+    t->fd = fd;
+    pthread_mutex_init(&t->lock, NULL);
+    mbedtls_ssl_init(&t->ssl);
+    mbedtls_ssl_config_init(&t->conf);
+    mbedtls_x509_crt_init(&t->ca);
+    mbedtls_x509_crt_init(&t->own);
+    mbedtls_pk_init(&t->key);
+    mbedtls_entropy_init(&t->entropy);
+    mbedtls_ctr_drbg_init(&t->drbg);
+    int server = mode == 2;
+    int r = mbedtls_ctr_drbg_seed(&t->drbg, mbedtls_entropy_func, &t->entropy,
+                                  (const unsigned char *)"ppl-tls", 7);
+    if (r) {
+        set_err(err, errcap, "TLS: no randomness", r);
+        tls_free(t);
+        return -1;
+    }
+    r = mbedtls_ssl_config_defaults(&t->conf, server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
+                                    MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
+    if (r) {
+        set_err(err, errcap, "TLS: configuration failed", r);
+        tls_free(t);
+        return -1;
+    }
+    mbedtls_ssl_conf_rng(&t->conf, mbedtls_ctr_drbg_random, &t->drbg);
+    if (server) {
+        /* pem1: the certificate chain, pem2: the private key. */
+        r = parse_pem_crt(&t->own, pem1, n1);
+        if (r) {
+            set_err(err, errcap, "TLS: invalid certificate", r);
+            tls_free(t);
+            return -1;
+        }
+        char *z = malloc(n2 + 1);
+        if (!z) abort();
+        memcpy(z, pem2, n2);
+        z[n2] = 0;
+        r = mbedtls_pk_parse_key(&t->key, (const unsigned char *)z, n2 + 1, NULL, 0,
+                                 mbedtls_ctr_drbg_random, &t->drbg);
+        free(z);
+        if (!r) r = mbedtls_ssl_conf_own_cert(&t->conf, &t->own, &t->key);
+        if (r) {
+            set_err(err, errcap, "TLS: invalid private key", r);
+            tls_free(t);
+            return -1;
+        }
+        mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_NONE);
+    } else {
+        /* pem1: extra trusted certificates (besides the system's). Mode 1 doesn't verify. */
+        int roots = load_roots(&t->ca);
+        if (n1 > 0) {
+            r = parse_pem_crt(&t->ca, pem1, n1);
+            if (r < 0) {
+                set_err(err, errcap, "TLS: invalid CA certificate", r);
+                tls_free(t);
+                return -1;
+            }
+            roots = 1;
+        }
+        if (mode == 0 && !roots) {
+            snprintf(err, errcap, "TLS: no trusted root certificates found (set SSL_CERT_FILE)");
+            tls_free(t);
+            return -1;
+        }
+        mbedtls_ssl_conf_ca_chain(&t->conf, &t->ca, NULL);
+        mbedtls_ssl_conf_authmode(&t->conf,
+                                  mode == 1 ? MBEDTLS_SSL_VERIFY_NONE : MBEDTLS_SSL_VERIFY_REQUIRED);
+    }
+    r = mbedtls_ssl_setup(&t->ssl, &t->conf);
+    if (!r && !server && host && *host) r = mbedtls_ssl_set_hostname(&t->ssl, host);
+    if (r) {
+        set_err(err, errcap, "TLS: setup failed", r);
+        tls_free(t);
+        return -1;
+    }
+#if defined(SO_NOSIGPIPE)
+    {
+        int one = 1;
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+    }
+#endif
+    int fl = fcntl(fd, F_GETFL);
+    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+    mbedtls_ssl_set_bio(&t->ssl, &t->fd, bio_send, bio_recv, NULL);
+    for (;;) {
+        r = mbedtls_ssl_handshake(&t->ssl);
+        if (r == 0) break;
+        if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
+            wait_for(fd, r);
+            continue;
+        }
+        uint32_t flags = mbedtls_ssl_get_verify_result(&t->ssl);
+        if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED && flags != 0 && flags != (uint32_t)-1) {
+            char info[256];
+            mbedtls_x509_crt_verify_info(info, sizeof info, "", flags);
+            size_t k = strlen(info);
+            while (k > 0 && (info[k - 1] == '\n' || info[k - 1] == ' ')) info[--k] = 0;
+            for (char *p = info; *p; p++) {
+                if (*p == '\n') *p = ';';
+            }
+            snprintf(err, errcap, "TLS: certificate verification failed: %s", info);
+        } else {
+            set_err(err, errcap, "TLS: handshake failed", r);
+        }
+        if (fl >= 0) fcntl(fd, F_SETFL, fl);
+        tls_free(t);
+        return -1;
+    }
+    pthread_mutex_lock(&table_lock);
+    t->next = sessions;
+    sessions = t;
+    pthread_mutex_unlock(&table_lock);
+    return 0;
+}
+
+ptrdiff_t ppl_tls_read(int fd, void *buf, size_t n) {
+    Tls *t = find(fd);
+    if (!t) return -2;
+    for (;;) {
+        pthread_mutex_lock(&t->lock);
+        int r = mbedtls_ssl_read(&t->ssl, buf, n);
+        pthread_mutex_unlock(&t->lock);
+        if (r > 0) return r;
+        if (r == 0 || r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || r == MBEDTLS_ERR_SSL_CONN_EOF) {
+            return 0;
+        }
+        if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
+            wait_for(fd, r);
+            continue;
+        }
+        if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) continue;
+        /* A shut-down socket reads as the end. */
+        if (r == MBEDTLS_ERR_NET_RECV_FAILED || r == MBEDTLS_ERR_NET_CONN_RESET) {
+            errno = ECONNRESET;
+            return -1;
+        }
+        errno = EPROTO;
+        return -1;
+    }
+}
+
+ptrdiff_t ppl_tls_write(int fd, const void *buf, size_t n) {
+    Tls *t = find(fd);
+    if (!t) return -2;
+    size_t done = 0;
+    while (done < n) {
+        pthread_mutex_lock(&t->lock);
+        int r = mbedtls_ssl_write(&t->ssl, (const unsigned char *)buf + done, n - done);
+        pthread_mutex_unlock(&t->lock);
+        if (r > 0) {
+            done += (size_t)r;
+            continue;
+        }
+        if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
+            wait_for(fd, r);
+            continue;
+        }
+        errno = r == MBEDTLS_ERR_NET_CONN_RESET ? EPIPE : EPROTO;
+        return -1;
+    }
+    return (ptrdiff_t)done;
+}
+
+void ppl_tls_close_notify(int fd) {
+    Tls *t = find(fd);
+    if (!t) return;
+    for (int tries = 0; tries < 100; tries++) {
+        pthread_mutex_lock(&t->lock);
+        int r = mbedtls_ssl_close_notify(&t->ssl);
+        pthread_mutex_unlock(&t->lock);
+        if (r != MBEDTLS_ERR_SSL_WANT_WRITE && r != MBEDTLS_ERR_SSL_WANT_READ) return;
+        wait_for(fd, MBEDTLS_ERR_SSL_WANT_WRITE);
+    }
+}
+
+void ppl_tls_free(int fd) {
+    pthread_mutex_lock(&table_lock);
+    Tls **p = &sessions;
+    while (*p && (*p)->fd != fd) p = &(*p)->next;
+    Tls *t = *p;
+    if (t) *p = t->next;
+    pthread_mutex_unlock(&table_lock);
+    if (t) tls_free(t);
+}
+
+#else
+/* No TLS on Windows yet (P8.3). */
+int ppl_tls_has(int fd) {
+    (void)fd;
+    return 0;
+}
+int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n1,
+                  const char *pem2, size_t n2, char *err, size_t errcap) {
+    (void)fd, (void)mode, (void)host, (void)pem1, (void)n1, (void)pem2, (void)n2;
+    if (errcap) err[0] = 0;
+    return -1;
+}
+ptrdiff_t ppl_tls_read(int fd, void *buf, size_t n) {
+    (void)fd, (void)buf, (void)n;
+    return -2;
+}
+ptrdiff_t ppl_tls_write(int fd, const void *buf, size_t n) {
+    (void)fd, (void)buf, (void)n;
+    return -2;
+}
+void ppl_tls_close_notify(int fd) { (void)fd; }
+void ppl_tls_free(int fd) { (void)fd; }
+#endif

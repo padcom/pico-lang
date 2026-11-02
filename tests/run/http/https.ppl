@@ -1,0 +1,85 @@
+// TLS (P7.5b): `serve` with a certificate and `fetch("https://…")` against it, checking the
+// certificate (a test CA from data/, trusted with `caCerts`), plus `wss:`.
+// expect: 200 hello over TLS from /hello
+// expect: 200 hello over TLS from /ip
+// expect: got 50000 bytes: zzzzzzzzzz
+// expect: big: 100000
+// expect: untrusted: true true
+// expect: plain: rejected
+// expect: wss got: SECRET HELLO
+// expect: wss closed: 1000
+// expect: stopped
+import { serve, upgradeWebSocket, WebSocketUpgrade } from "std/http"
+
+const CA = comptime comptime.readFile("data/ca.pem")
+const CERT = comptime comptime.readFile("data/server.pem")
+const KEY = comptime comptime.readFile("data/server-key.pem")
+
+async function handle(req: Request): Promise<Response> throws Error {
+  const url = new URL(req.url)
+  if (url.pathname == "/ws") {
+    const up: WebSocketUpgrade = upgradeWebSocket(req)
+    const ws = up.socket
+    ws.onmessage = (e) => {
+      match (e.data) {
+        s: string => ws.send(s.toUpperCase()),
+        b: Uint8Array => ws.send(b),
+      }
+    }
+    return up.response
+  }
+  if (req.method == "POST") {
+    const body = await req.text()
+    return new Response(`got ${body.length} bytes: ${body.slice(0, 10)}`)
+  }
+  if (url.pathname == "/big") {
+    return new Response("y".repeat(100000))
+  }
+  new Response(`hello over TLS from ${url.pathname}`)
+}
+
+const server = await serve({ port: 0, cert: CERT, key: KEY }, handle)
+const port = server.addr.port
+
+const r = await fetch(`https://localhost:${port}/hello`, { caCerts: [CA] })
+println(`${r.status} ${await r.text()}`)
+const ip = await fetch(`https://127.0.0.1:${port}/ip`, { caCerts: [CA] })
+println(`${ip.status} ${await ip.text()}`)
+const post = await fetch(`https://localhost:${port}/up`, { method: "POST", body: "z".repeat(50000), caCerts: [CA] })
+println(await post.text())
+const big = await fetch(`https://localhost:${port}/big`, { caCerts: [CA] })
+println(`big: ${(await big.text()).length}`)
+
+// Without the test CA the certificate isn't trusted.
+try {
+  await fetch(`https://localhost:${port}/hello`)
+  println("unexpected: trusted")
+} catch (e: Error) {
+  const c = e.cause
+  println(`untrusted: ${e.message.includes("certificate verification failed")} ${c != null}`)
+}
+// Plain HTTP to a TLS server fails rather than hanging (the server closes the connection).
+try {
+  const p = await fetch(`http://localhost:${port}/hello`)
+  println(`plain: ${p.status}`)
+} catch (e: Error) {
+  println("plain: rejected")
+}
+
+const done = new Promise<void>()
+const ws = new WebSocket(`wss://localhost:${port}/ws`, [], { caCerts: [CA] })
+ws.onopen = (e) => ws.send("secret hello")
+ws.onmessage = (e) => {
+  match (e.data) {
+    s: string => println(`wss got: ${s}`),
+    b: Uint8Array => println("wss got bytes"),
+  }
+  ws.close(1000, "done")
+}
+ws.onclose = (e) => {
+  println(`wss closed: ${e.code}`)
+  done.__resolve(__void())
+}
+await done
+await server.shutdown()
+println("stopped")

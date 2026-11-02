@@ -247,6 +247,8 @@ struct RequestInit {
   body?: BodyInit
   /// `"follow"` (the default: up to 20 redirects), `"manual"` (the 3xx response) or `"error"`.
   redirect?: string
+  /// (ppl) Extra certificates (PEM) to trust for https:, besides the system's roots.
+  caCerts?: string[]
 }
 
 /// An HTTP request: what `fetch` sends, and what a `serve` handler gets.
@@ -254,6 +256,8 @@ class Request extends __Body {
   public readonly method: string
   public readonly url: string
   public readonly redirect: string
+  /// `RequestInit.caCerts`.
+  public readonly __caCerts: string[]
 
   constructor(input: string | URL, init: RequestInit = {}) throws TypeError {
     super(init.body, __headersCopy(init.headers))
@@ -266,6 +270,7 @@ class Request extends __Body {
     this.method = if (m != null) m.toUpperCase() else "GET"
     const r = init.redirect
     this.redirect = if (r != null) r else "follow"
+    this.__caCerts = init.caCerts ?? []
     if ((this.method == "GET" || this.method == "HEAD") && (this.__bytes != null || this.__stream != null)) {
       throw new TypeError(`a ${this.method} request can't have a body`)
     }
@@ -594,14 +599,21 @@ function __connectHost(u: URL): string {
 /// One request and its response (no redirects).
 async function __fetchOnce(req: Request): Promise<Response> throws Error {
   const u = new URL(req.url)
-  if (u.protocol != "http:") {
-    throw new TypeError(`fetch: ${u.protocol} URLs aren't supported yet (only http:)`)
+  const tls = u.protocol == "https:"
+  if (u.protocol != "http:" && !tls) {
+    throw new TypeError(`fetch: ${u.protocol} URLs aren't supported (only http: and https:)`)
   }
-  const port = if (u.port.length > 0) parseInt(u.port) else 80
+  const port = if (u.port.length > 0) parseInt(u.port) else if (tls) 443 else 80
   let conn: Conn? = null
   try {
-    conn = await __netConnect(port, __connectHost(u))
+    const opened = await __netConnect(port, __connectHost(u))
+    conn = opened
+    if (tls) {
+      await opened.__startTls(0, __connectHost(u), req.__caCerts.join("\n"))
+    }
   } catch (e: NetError) {
+    const c0 = conn
+    if (c0 != null) c0.close()
     const err = new TypeError(`fetch failed: ${e.message}`)
     err.cause = e
     throw err
@@ -688,13 +700,13 @@ async function fetch(input: string | URL | Request, init: RequestInit = {}): Pro
     const next = new URL(loc, req.url).href
     const asGet = s == 303 || ((s == 301 || s == 302) && req.method == "POST")
     if (asGet) {
-      req = new Request(next, { method: if (req.method == "HEAD") "HEAD" else "GET", headers: req.headers, redirect: req.redirect })
+      req = new Request(next, { method: if (req.method == "HEAD") "HEAD" else "GET", headers: req.headers, redirect: req.redirect, caCerts: req.__caCerts })
     } else {
       const bb = req.__bytes
       if (bb != null) {
-        req = new Request(next, { method: req.method, headers: req.headers, body: bb, redirect: req.redirect })
+        req = new Request(next, { method: req.method, headers: req.headers, body: bb, redirect: req.redirect, caCerts: req.__caCerts })
       } else {
-        req = new Request(next, { method: req.method, headers: req.headers, redirect: req.redirect })
+        req = new Request(next, { method: req.method, headers: req.headers, redirect: req.redirect, caCerts: req.__caCerts })
       }
     }
   }

@@ -267,8 +267,12 @@ Globals, as WHATWG Fetch. `fetch(input: string | URL | Request, init = {}): Prom
 Error>` speaks HTTP/1.1 (`Connection: close`), follows up to 20 redirects (`redirect: "follow"`,
 or `"manual"`, `"error"`; 303, and 301/302 after a POST, become a GET) and rejects with a
 `TypeError` on network failures (`fetch failed: connection refused: 127.0.0.1:9`, with the
-`NetError` as `cause`), never for HTTP error statuses. Only `http:` so far (`https:` rejects;
-P7.5b). `RequestInit` is `{ method, headers, body, redirect }`, `ResponseInit` `{ status,
+`NetError` as `cause`), never for HTTP error statuses. `https:` uses TLS (1.2 and 1.3, Mbed
+TLS) and checks the server's certificate and name against the system's roots (`SSL_CERT_FILE`/
+`SSL_CERT_DIR`, else the usual bundles such as `/etc/ssl/cert.pem`); a failure is a `NetError`
+of kind `TlsError` (`TLS: certificate verification failed: …`). `RequestInit` is `{ method,
+headers, body, redirect, caCerts }` (`caCerts`, a ppl extension: extra PEM certificates to
+trust), `ResponseInit` `{ status,
 statusText, headers }`; a body (`BodyInit`) is a `string` (`text/plain;charset=UTF-8`), a
 `Uint8Array`, a `ReadableStream<Uint8Array>` (sent chunked) or `URLSearchParams` (form
 encoded). Bodies have `body` (a stream), `bodyUsed`, `bytes()`, `arrayBuffer()`, `text()` and
@@ -294,11 +298,12 @@ NetError>` resolves once it listens (`server.addr`). Connections stay open betwe
 (HTTP/1.1 keep-alive) unless either side sends `Connection: close`; a handler that throws gets
 a `500` response, a malformed request a `400`. Responses with a known length get
 `content-length`, stream bodies `transfer-encoding: chunked`; `HEAD` responses carry headers
-only. TLS and WebSocket upgrades come with P7.5b and P7.5c.
+only. With `cert` and `key` (PEM texts, as in Deno: `serve({ port: 8443, cert, key }, handle)`)
+it serves HTTPS; a client that fails the handshake is disconnected.
 
 ### `WebSocket`
-A global, as WHATWG WebSockets (RFC 6455): `new WebSocket(url, protocols = [])` (`ws:`; `wss:`
-throws a `TypeError` until TLS, P7.5b) connects in the background. `readyState` (`CONNECTING`
+A global, as WHATWG WebSockets (RFC 6455): `new WebSocket(url, protocols = [], options = {})`
+(`ws:` or `wss:`; `options.caCerts`, a ppl extension, as for `fetch`) connects in the background. `readyState` (`CONNECTING`
 0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`; callbacks `onopen(Event)`,
 `onmessage(MessageEvent)` (`data: string | Uint8Array`: text or binary; fragments are joined),
 `onerror(Event)` and `onclose(CloseEvent)` (`code`, `reason`, `wasClean`; 1006 when the

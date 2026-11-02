@@ -203,6 +203,9 @@ static char *read_all(const char *path, size_t *len) {
 }
 
 static int write_all(int fd, const char *p, size_t n) {
+    /* A TLS connection's bytes go through its session. */
+    ptrdiff_t t = ppl_tls_write(fd, p, n);
+    if (t != -2) return t < 0 ? -1 : 0;
     while (n > 0) {
         ssize_t k = write(fd, p, n);
         if (k < 0) {
@@ -426,9 +429,11 @@ static void run(Job *j) {
         size_t n = j->b > 0 ? (size_t)j->b : 1;
         char *b = calloc(n, 1);
         if (!b) abort();
-        ssize_t k;
-        do k = read((int)j->a, b, n);
-        while (k < 0 && errno == EINTR);
+        ssize_t k = ppl_tls_read((int)j->a, b, n);
+        if (k == -2) {
+            do k = read((int)j->a, b, n);
+            while (k < 0 && errno == EINTR);
+        }
         if (k < 0) {
             free(b);
             {
@@ -473,7 +478,8 @@ static void run(Job *j) {
                 buf = realloc(buf, cap);
                 if (!buf) abort();
             }
-            ssize_t k = read((int)j->a, buf + n, cap - n);
+            ssize_t k = ppl_tls_read((int)j->a, buf + n, cap - n);
+            if (k == -2) k = read((int)j->a, buf + n, cap - n);
             if (k < 0) {
                 if (errno == EINTR) continue;
                 free(buf);
@@ -496,6 +502,19 @@ static void run(Job *j) {
     case 23: /* wait for child a: r = exit code, r2 = the signal that ended it (or 0) */
         child_wait(j);
         return;
+    case 36: { /* TLS handshake on socket a: b = mode (ppl_tls_start), s = host, t = PEM
+                * text, then NUL and a second PEM text (a server's key); text = the error */
+        size_t n1 = j->t ? strlen(j->t) : 0;
+        const char *pem2 = j->t && n1 < j->tlen ? j->t + n1 + 1 : "";
+        size_t n2 = j->t && n1 < j->tlen ? j->tlen - n1 - 1 : 0;
+        char err[512];
+        if (ppl_tls_start((int)j->a, (int)j->b, j->s ? j->s : "", j->t ? j->t : "", n1, pem2,
+                          n2, err, sizeof err) < 0) {
+            j->r = -15;
+            text_add(j, err, strlen(err));
+        }
+        return;
+    }
     case 30:
     case 31:
     case 32:
@@ -1491,7 +1510,7 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
             finish(j);
             return j->id;
         }
-        if ((op >= 20 && op <= 23) || (op >= 30 && op <= 35)) {
+        if ((op >= 20 && op <= 23) || (op >= 30 && op <= 36)) {
             run_solo(j);
             return j->id;
         }
@@ -1619,9 +1638,11 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
     }
     case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */
         return decode_utf8(q, (const unsigned char *)(intptr_t)b, c > 0 ? (size_t)c : 0, a == 1);
-    case 120: /* shutdown socket a: b = 0 reading, 1 writing, 2 both */
+    case 120: /* shutdown socket a: b = 0 reading, 1 writing, 2 both (TLS: close_notify first) */
+        if (b != 0) ppl_tls_close_notify((int)a);
         return shutdown((int)a, b == 0 ? SHUT_RD : b == 1 ? SHUT_WR : SHUT_RDWR) < 0 ? -1 : 0;
-    case 121: /* close socket a */
+    case 121: /* close socket a (and its TLS session) */
+        ppl_tls_free((int)a);
         return close((int)a) < 0 ? -1 : 0;
     case 105: { /* the working directory, as a polled job's text */
         Job *j = calloc(1, sizeof *j);

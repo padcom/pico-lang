@@ -10,7 +10,8 @@
 /// A failed network operation: the address it was about (`host:port`), a message
 /// (`connection refused: 127.0.0.1:9`) and a portable kind (`"ConnectionRefused"`,
 /// `"ConnectionReset"`, `"AddrInUse"`, `"AddrNotAvailable"`, `"TimedOut"`, `"HostNotFound"`,
-/// `"InvalidData"`, `"PermissionDenied"`, `"Other"`).
+/// `"InvalidData"`, `"PermissionDenied"`, `"TlsError"` (a failed TLS handshake: the message
+/// says why, such as an untrusted certificate), `"Other"`).
 class NetError extends Error {
   public address: string
   public kind: string
@@ -25,11 +26,11 @@ function __netError(address: string, r: int, errno: int): NetError {
   // (Kept in a function: a top-level constant would be built at every program's start.)
   const __netKinds = ["", "NotFound", "AlreadyExists", "PermissionDenied", "NotADirectory",
     "IsADirectory", "DirectoryNotEmpty", "InvalidData", "Other", "ConnectionRefused",
-    "ConnectionReset", "AddrInUse", "AddrNotAvailable", "TimedOut", "HostNotFound"]
+    "ConnectionReset", "AddrInUse", "AddrNotAvailable", "TimedOut", "HostNotFound", "TlsError"]
   const __netMessages = ["", "not found", "already exists", "permission denied",
     "not a directory", "is a directory", "directory not empty", "not valid UTF-8", "I/O error",
     "connection refused", "connection reset", "address in use", "address not available",
-    "timed out", "host not found"]
+    "timed out", "host not found", "TLS failure"]
   const k = if (-r > 0 && -r < __netKinds.length) -r else 8
   const what = if (k == 8) `${__netMessages[k]} (os error ${errno})` else __netMessages[k]
   new NetError(address, `${what}: ${address}`, __netKinds[k])
@@ -187,6 +188,27 @@ class Conn {
     }
     reading = true
     true
+  }
+
+  /// Runs a TLS handshake on the connection (P7.5b): afterwards its reads and writes are
+  /// encrypted. `mode` 0 is a client checking the server's certificate for `host` against the
+  /// system's roots and `pem` (extra trusted certificates), 1 a client that doesn't check,
+  /// 2 a server with certificate chain `pem` and private key `key`. Fails with a
+  /// `TlsError` saying why.
+  public __startTls(mode: int, host: string, pem: string, key: string = ""): Promise<void, NetError> {
+    const p = new Promise<void, NetError>()
+    const peer = this.name
+    __ioSubmit(36, fd, mode, 0, host, pem + "\u{0}" + key, (job: int) => {
+      const r = __io(102, job, 0, 0, "", "")
+      if (r == -15) {
+        p.__reject(new NetError(peer, `${__io_text(job)}: ${peer}`, "TlsError"))
+      } else if (r < 0) {
+        p.__reject(__netError(peer, r, __io(103, job, 0, 0, "", "")))
+      } else {
+        p.__resolve(__void())
+      }
+    })
+    p
   }
 
   /// Up to `n` bytes (as soon as some arrive), or `null` once the other side has finished

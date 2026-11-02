@@ -58,6 +58,7 @@ fn main() {
         glue.flag(format!("-mmacosx-version-min={MACOS_MIN}"));
     }
     glue.file(root.join("src/ppl_crypto.c"))
+        .file(root.join("src/ppl_tls.c"))
         .include(mbed.join("include"))
         .include(root.join("include"))
         .define("MBEDTLS_USER_CONFIG_FILE", user_config)

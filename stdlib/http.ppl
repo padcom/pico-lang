@@ -6,10 +6,13 @@
 import { Conn, Listener, NetError, Addr } from "std/net"
 
 /// Where to listen: `port` (0 picks a free one) and `hostname` (`"127.0.0.1"` by default;
-/// `"0.0.0.0"` for every interface).
+/// `"0.0.0.0"` for every interface). With `cert` (a PEM certificate chain) and `key` (its
+/// PEM private key), as in Deno, the server speaks HTTPS.
 export struct ServeOptions {
   port?: int
   hostname?: string
+  cert?: string
+  key?: string
 }
 
 /// A running server: its address, `shutdown()`, and `finished` (settles once it has stopped).
@@ -23,6 +26,9 @@ export class HttpServer {
   public __accepting: bool = true
   public __closing: bool = false
   public __done: Promise<void> = new Promise<void>()
+  /// The certificate chain and key for HTTPS ("" for plain HTTP).
+  public __cert: string = ""
+  public __key: string = ""
 
   constructor(listener: Listener, handler: (req: Request) => Promise<Response, Error>) {
     this.__listener = listener
@@ -77,6 +83,15 @@ function __plain(status: int): Response {
 
 /// Serves requests on one connection until it closes.
 async function __serveConn(server: HttpServer, conn: Conn): Promise<void> {
+  if (server.__cert.length > 0) {
+    // HTTPS: the handshake first (a client that fails it is just closed).
+    try {
+      await conn.__startTls(2, "", server.__cert, server.__key)
+    } catch (e) {
+      conn.close()
+      return
+    }
+  }
   server.__active += 1
   const r = new __HttpReader(conn)
   try {
@@ -168,6 +183,16 @@ export async function serve(options: ServeOptions,
   const h = options.hostname
   const listener = await __netListen(if (p != null) p else 8000, if (h != null) h else "127.0.0.1")
   const server = new HttpServer(listener, handler)
+  const cert = options.cert
+  const key = options.key
+  if (cert != null || key != null) {
+    if (cert == null || key == null) {
+      listener.close()
+      throw new NetError(`${listener.addr.hostname}:${listener.addr.port}`, "serve: HTTPS needs both `cert` and `key`", "TlsError")
+    }
+    server.__cert = cert
+    server.__key = key
+  }
   __acceptAll(server);
   server
 }
