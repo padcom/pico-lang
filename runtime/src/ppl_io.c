@@ -18,7 +18,10 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <signal.h>
+#include <spawn.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -251,6 +254,7 @@ static int remove_all(const char *path) {
 }
 
 static void watch_open(Job *j);
+static void child_wait(Job *j);
 
 static void run(Job *j) {
     j->r = 0;
@@ -396,7 +400,8 @@ static void run(Job *j) {
         j->r = fd;
         return;
     }
-    case 11: { /* read: a = fd, b = at most this many bytes; r = handle, r2 = count */
+    case 11:   /* read: a = fd, b = at most this many bytes; r = handle, r2 = count */
+    case 20: { /* (the same from a pipe) */
         size_t n = j->b > 0 ? (size_t)j->b : 1;
         char *b = calloc(n, 1);
         if (!b) abort();
@@ -415,6 +420,7 @@ static void run(Job *j) {
         return;
     }
     case 12: /* write: a = fd, t = bytes */
+    case 21: /* (the same to a pipe) */
         if (write_all((int)j->a, j->t, j->tlen) < 0) {
             fail(j);
             return;
@@ -435,6 +441,39 @@ static void run(Job *j) {
     }
     case 15: /* watch: s = path, a = recursive; r = the watcher's id */
         watch_open(j);
+        return;
+    case 22: { /* read a pipe to its end as text (UTF-8) */
+        size_t cap = 4096, n = 0;
+        char *buf = malloc(cap);
+        if (!buf) abort();
+        for (;;) {
+            if (n == cap) {
+                cap *= 2;
+                buf = realloc(buf, cap);
+                if (!buf) abort();
+            }
+            ssize_t k = read((int)j->a, buf + n, cap - n);
+            if (k < 0) {
+                if (errno == EINTR) continue;
+                free(buf);
+                fail(j);
+                return;
+            }
+            if (k == 0) break;
+            n += (size_t)k;
+        }
+        if (!valid_utf8((unsigned char *)buf, n)) {
+            free(buf);
+            j->r = -K_INVALID_DATA;
+            return;
+        }
+        j->text = buf;
+        j->text_len = n;
+        if (!n) text_add(j, "", 0);
+        return;
+    }
+    case 23: /* wait for child a: r = exit code, r2 = the signal that ended it (or 0) */
+        child_wait(j);
         return;
     default: j->r = -K_OTHER; j->r2 = EINVAL; return;
     }
@@ -830,6 +869,265 @@ static void watch_close(int64_t id) {
     }
 }
 
+/* Jobs that may block for long (pipes, waiting for a child) get a thread each, so they
+ * can't hold up the pool (a child may wait for input that another job writes). */
+static void *solo_main(void *arg) {
+    Job *j = arg;
+    run(j);
+    finish(j);
+    return NULL;
+}
+
+static void run_solo(Job *j) {
+    pthread_t t;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&t, &attr, solo_main, j) != 0) abort();
+    pthread_attr_destroy(&attr);
+}
+
+/* ---- `std/process` (spec §13.3) ---- */
+
+static char *cstr(const PplStr *s, size_t *len);
+
+extern int ppl_argc;
+extern char **ppl_argv;
+extern char **environ;
+
+/* Children not yet reaped, so `kill` never signals a reused pid. */
+static pthread_mutex_t child_lock = PTHREAD_MUTEX_INITIALIZER;
+static pid_t *live;
+static size_t nlive, caplive;
+
+static void live_add(pid_t pid) {
+    pthread_mutex_lock(&child_lock);
+    if (nlive == caplive) {
+        caplive = caplive ? caplive * 2 : 8;
+        live = realloc(live, caplive * sizeof *live);
+        if (!live) abort();
+    }
+    live[nlive++] = pid;
+    pthread_mutex_unlock(&child_lock);
+}
+
+/* (With child_lock held.) */
+static int live_find(pid_t pid) {
+    for (size_t i = 0; i < nlive; i++)
+        if (live[i] == pid) return (int)i;
+    return -1;
+}
+
+static void child_wait(Job *j) {
+    pid_t pid = (pid_t)j->a;
+    /* Wait without reaping, then reap while no `kill` can run. */
+    siginfo_t info;
+    int r;
+    do r = waitid(P_PID, (id_t)pid, &info, WEXITED | WNOWAIT);
+    while (r < 0 && errno == EINTR);
+    pthread_mutex_lock(&child_lock);
+    int st = 0;
+    pid_t w;
+    do w = waitpid(pid, &st, 0);
+    while (w < 0 && errno == EINTR);
+    int i = live_find(pid);
+    if (i >= 0) live[i] = live[--nlive];
+    pthread_mutex_unlock(&child_lock);
+    if (w < 0) {
+        fail(j);
+        return;
+    }
+    if (WIFSIGNALED(st)) {
+        j->r = 128 + WTERMSIG(st);
+        j->r2 = WTERMSIG(st);
+    } else {
+        j->r = WEXITSTATUS(st);
+        j->r2 = 0;
+    }
+}
+
+/* A control operation's result, polled already (read with 102/103/`__io_text`, freed with
+ * 104). */
+static Job *result_job(Queue *q) {
+    Job *j = calloc(1, sizeof *j);
+    if (!j) abort();
+    j->id = q->next_id++;
+    j->next = q->taken;
+    q->taken = j;
+    return j;
+}
+
+/* Spawns `prog` (op 110). `t` holds NUL-separated fields: the working directory ("" for
+ * this one), `argc` arguments, then `envc` "NAME=value" variables. `modes` has 2 bits per
+ * stream (stdin, stdout, stderr: 0 inherit, 1 pipe, 2 null) and 64 for a cleared
+ * environment. r = pid (or -kind, r2 = errno); text = "<stdin fd> <stdout fd> <stderr fd>"
+ * (-1 where not piped). */
+static void spawn_child(Job *j, int64_t argc, int64_t envc, int64_t modes, const char *prog,
+                        const char *t, size_t tlen) {
+    static int sigpipe_ignored;
+    if (!sigpipe_ignored) {
+        /* A child that stops reading makes writes fail (EPIPE) instead of ending us. */
+        signal(SIGPIPE, SIG_IGN);
+        sigpipe_ignored = 1;
+    }
+    size_t nf = 1 + (size_t)argc + (size_t)envc;
+    const char **fields = calloc(nf, sizeof *fields);
+    if (!fields) abort();
+    size_t k = 0, start = 0;
+    for (size_t i = 0; i <= tlen && k < nf; i++) {
+        if (i == tlen || t[i] == 0) {
+            fields[k++] = t + start;
+            start = i + 1;
+        }
+    }
+    while (k < nf) fields[k++] = "";
+    char **argv = calloc((size_t)argc + 2, sizeof *argv);
+    if (!argv) abort();
+    argv[0] = (char *)prog;
+    for (int64_t i = 0; i < argc; i++) argv[i + 1] = (char *)fields[1 + i];
+    /* The environment: ours (unless cleared) with the overrides replacing or adding. */
+    size_t nenv = 0;
+    if (!(modes & 64))
+        while (environ[nenv]) nenv++;
+    char **envp = calloc(nenv + (size_t)envc + 1, sizeof *envp);
+    if (!envp) abort();
+    size_t ne = 0;
+    for (size_t i = 0; i < nenv; i++) {
+        const char *e = environ[i];
+        const char *eq = strchr(e, '=');
+        size_t klen = eq ? (size_t)(eq - e) : strlen(e);
+        int replaced = 0;
+        for (int64_t v = 0; v < envc && !replaced; v++) {
+            const char *o = fields[1 + argc + v];
+            if (!strncmp(o, e, klen) && o[klen] == '=') replaced = 1;
+        }
+        if (!replaced) envp[ne++] = (char *)e;
+    }
+    for (int64_t v = 0; v < envc; v++) envp[ne++] = (char *)fields[1 + argc + v];
+    envp[ne] = NULL;
+
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    int mine[3] = {-1, -1, -1}, theirs[3] = {-1, -1, -1};
+    int err = 0;
+    for (int i = 0; i < 3 && !err; i++) {
+        int mode = (int)(modes >> (2 * i)) & 3;
+        if (mode == 1) {
+            int p[2];
+            if (pipe(p) < 0) {
+                err = errno;
+                break;
+            }
+            fcntl(p[0], F_SETFD, FD_CLOEXEC);
+            fcntl(p[1], F_SETFD, FD_CLOEXEC);
+            mine[i] = i == 0 ? p[1] : p[0];
+            theirs[i] = i == 0 ? p[0] : p[1];
+            posix_spawn_file_actions_adddup2(&fa, theirs[i], i);
+        } else if (mode == 2) {
+            posix_spawn_file_actions_addopen(&fa, i, "/dev/null", i == 0 ? O_RDONLY : O_WRONLY, 0);
+        }
+    }
+    if (!err && fields[0][0]) err = posix_spawn_file_actions_addchdir_np(&fa, fields[0]);
+    posix_spawnattr_t attr;
+    posix_spawnattr_init(&attr);
+    sigset_t none, def;
+    sigemptyset(&none);
+    sigemptyset(&def);
+    sigaddset(&def, SIGPIPE);
+    posix_spawnattr_setsigmask(&attr, &none);
+    posix_spawnattr_setsigdefault(&attr, &def);
+    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF);
+    pid_t pid = 0;
+    if (!err) {
+        err = posix_spawnp(&pid, prog, &fa, &attr, argv, envp);
+        if (!err) live_add(pid);
+    }
+    posix_spawnattr_destroy(&attr);
+    posix_spawn_file_actions_destroy(&fa);
+    for (int i = 0; i < 3; i++) {
+        if (theirs[i] >= 0) close(theirs[i]);
+        if (err && mine[i] >= 0) {
+            close(mine[i]);
+            mine[i] = -1;
+        }
+    }
+    free(envp);
+    free(argv);
+    free(fields);
+    if (err) {
+        j->r = -kind_of(err);
+        j->r2 = err;
+        return;
+    }
+    j->r = pid;
+    char line[64];
+    int n = snprintf(line, sizeof line, "%d %d %d", mine[0], mine[1], mine[2]);
+    text_add(j, line, (size_t)n);
+}
+
+static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s,
+                          const PplStr *t) {
+    switch (op) {
+    case 110: {
+        Job *j = result_job(q);
+        size_t tlen;
+        char *prog = cstr(s, NULL), *fields = cstr(t, &tlen);
+        spawn_child(j, a, b, c, prog, fields, tlen);
+        free(prog);
+        free(fields);
+        return j->id;
+    }
+    case 111: { /* kill child a with signal b */
+        pthread_mutex_lock(&child_lock);
+        int r = live_find((pid_t)a) >= 0 ? kill((pid_t)a, (int)b) : 0;
+        pthread_mutex_unlock(&child_lock);
+        return r;
+    }
+    case 112: /* close fd a (a pipe's end) */
+        return close((int)a);
+    case 113: { /* the arguments, each followed by a NUL */
+        Job *j = result_job(q);
+        text_add(j, "", 0);
+        for (int i = 1; i < ppl_argc; i++) text_add(j, ppl_argv[i], strlen(ppl_argv[i]) + 1);
+        return j->id;
+    }
+    case 114: { /* getenv(s): r = 1 when set, text = its value */
+        Job *j = result_job(q);
+        char *name = cstr(s, NULL);
+        const char *v = getenv(name);
+        free(name);
+        j->r = v != NULL;
+        if (v) text_add(j, v, strlen(v));
+        return j->id;
+    }
+    case 115: { /* setenv(s, t) */
+        char *name = cstr(s, NULL), *value = cstr(t, NULL);
+        int r = setenv(name, value, 1);
+        free(name);
+        free(value);
+        return r;
+    }
+    case 116: { /* unsetenv(s) */
+        char *name = cstr(s, NULL);
+        int r = unsetenv(name);
+        free(name);
+        return r;
+    }
+    case 117: { /* every variable: "NAME=value\0" each */
+        Job *j = result_job(q);
+        text_add(j, "", 0);
+        for (char **e = environ; *e; e++) text_add(j, *e, strlen(*e) + 1);
+        return j->id;
+    }
+    case 118: /* exit(a) */
+        fflush(stdout);
+        fflush(stderr);
+        exit((int)a);
+    case 119: return (int64_t)getpid();
+    default: return -1;
+    }
+}
+
 static char *cstr(const PplStr *s, size_t *len) {
     size_t n = s ? (size_t)s->byte_len : 0;
     char *m = malloc(n + 1);
@@ -857,7 +1155,7 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         j->b = b;
         j->c = c;
         j->s = cstr(s, NULL);
-        if (op == 4 || op == 12) {
+        if (op == 4 || op == 12 || ((op == 21 || op == 25) && c >= 0)) {
             /* The bytes of buffer `b` (`c` of them), copied now: the buffer may be gone by
              * the time the job runs. */
             j->tlen = c > 0 ? (size_t)c : 0;
@@ -871,6 +1169,20 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         q->pending++;
         if (op == 16) {
             watch_next(j);
+            return j->id;
+        }
+        if (op == 25) {
+            /* Our own stdout/stderr: written now, in order with `print`. */
+            FILE *f = j->a == 2 ? stderr : stdout;
+            if (j->a == 2) fflush(stdout);
+            if (fwrite(j->t, 1, j->tlen, f) < j->tlen) fail(j);
+            else j->r = (int64_t)j->tlen;
+            if (j->a == 2) fflush(stderr);
+            finish(j);
+            return j->id;
+        }
+        if (op >= 20 && op <= 23) {
+            run_solo(j);
             return j->id;
         }
         start_pool();
@@ -901,6 +1213,16 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
     case 106: /* close watcher a */
         watch_close(a);
         return 0;
+    case 110:
+    case 111:
+    case 112:
+    case 113:
+    case 114:
+    case 115:
+    case 116:
+    case 117:
+    case 118:
+    case 119: return process_op(q, op, a, b, c, s, t);
     case 105: { /* the working directory, as a polled job's text */
         Job *j = calloc(1, sizeof *j);
         if (!j) abort();

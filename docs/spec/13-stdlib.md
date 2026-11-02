@@ -87,6 +87,39 @@ child.kill()                                // SIGTERM / TerminateProcess
 ```
 `Command.shell("ls | wc -l")` runs through the platform shell when that's explicitly wanted.
 
+```text
+new Command(program, args = [], cwd?: string, env?: Map<string, string>, clearEnv = false,
+            stdin: Stdio = "inherit", stdout: Stdio = "inherit", stderr: Stdio = "inherit")
+type Stdio = "inherit" | "pipe" | "null"
+Command.shell(script, …the same options)       // /bin/sh -c script (cmd.exe /c on Windows)
+cmd.spawn(): Child                              // never throws; failures surface in status()
+cmd.output(): Promise<Output, ProcessError>     // stdout and stderr piped, read as UTF-8
+cmd.status(): Promise<ExitStatus, ProcessError>
+```
+`env` adds to or replaces this process's variables (with `clearEnv`, it's all the child gets);
+a relative `cwd` is resolved against the working directory. A `Child` has `pid` (0 when it
+couldn't start), `stdin` (a `Writer`), `stdout` and `stderr` (`Reader`s), `status()` (the same
+promise on every call), `output()` (everything its piped streams still have, plus its status)
+and `kill(signal = "SIGTERM")` (`"SIGKILL"`, `"SIGINT"`, `"SIGHUP"`; nothing happens once it has
+ended). Using a stream that isn't piped panics. `ExitStatus` is `{ success, code, signal }`
+(`code` is 128 + the signal's number when a signal ended the child, `signal` is `null`
+otherwise); `Output` adds `stdout` and `stderr` strings. `ProcessError` (`command`, `kind` as
+`IoError`'s, `message`: `cannot run nope: no such file or directory`) also reports output that
+isn't UTF-8 (`InvalidData`).
+
+A `Reader` reads chunks of bytes: `read(n = 65536): Promise<Uint8Array?, IoError>` (`null` at
+the end), `for await (const chunk of r)`, or `text()` for the rest as UTF-8; one read at a
+time (a second one while the first waits panics). A `Writer` has `write(data: Uint8Array)` and
+`writeText(text)` (both `Promise<int, IoError>`, the bytes written), which happen in the order
+they're made, and `close()`, which ends the child's input after them. A child that stops
+reading makes writes reject (`Other`, os error 32) instead of ending the program.
+
+This process: `args: string[]` (the arguments after the program), `pid`, `cwd()`, `env`
+(`get(name): string?`, `has`, `set`, `delete`, `toObject(): Map<string, string>`; children
+started later see changes), `exit(code = 0)` (ends the program at once: no `finally` blocks,
+pending promises dropped) and `stdin` (a `Reader`), `stdout`, `stderr` (`Writer`s whose writes
+are in order with `print`).
+
 ## 13.4 Async-only I/O
 No I/O function has a synchronous variant. Scripts use top-level `await`:
 ```ts

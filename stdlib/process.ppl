@@ -1,0 +1,516 @@
+// `std/process`: this process (`args`, `env`, `exit`, `cwd`, `pid`, `stdin`/`stdout`/`stderr`)
+// and external processes (`Command`), spec §13.2 and §13.3. Programs run without a shell
+// (arguments are passed as an array) unless `Command.shell` asks for one. Reading or writing
+// a pipe and waiting for a child are jobs on runtime threads that settle on the event loop.
+
+const __kinds = ["", "NotFound", "AlreadyExists", "PermissionDenied", "NotADirectory",
+  "IsADirectory", "DirectoryNotEmpty", "InvalidData", "Other"]
+const __messages = ["", "no such file or directory", "already exists", "permission denied",
+  "not a directory", "is a directory", "directory not empty", "not valid UTF-8", "I/O error"]
+
+function __kind(r: int): int {
+  if (-r > 0 && -r < __kinds.length) -r else 8
+}
+
+function __what(r: int, errno: int): string {
+  const k = __kind(r)
+  if (k == 8) `${__messages[k]} (os error ${errno})` else __messages[k]
+}
+
+/// A process that couldn't be started (or whose output couldn't be read as text): the
+/// program, a message and a portable kind (as `IoError`'s: `"NotFound"`, `"PermissionDenied"`,
+/// `"InvalidData"`, `"Other"`, …).
+export class ProcessError extends Error {
+  public command: string
+  public kind: string
+  constructor(command: string, message: string, kind: string) {
+    super(message)
+    this.command = command
+    this.kind = kind
+  }
+}
+
+/// A control operation's text result.
+function __text(job: int): string {
+  const text = __io_text(job)
+  __io(104, job, 0, 0, "", "");
+  text
+}
+
+function __fields(text: string): string[] {
+  const out: string[] = []
+  if (text.length == 0) {
+    return out
+  }
+  for (const part of text.split("\u{0}")) {
+    out.push(part)
+  }
+  // (Every field ends with a NUL, so the last part is empty.)
+  out.pop()
+  out
+}
+
+/// The program's arguments (without the program itself).
+export const args: string[] = __fields(__text(__io(113, 0, 0, 0, "", "")))
+
+/// The process id.
+export const pid: int = __io(119, 0, 0, 0, "", "")
+
+/// The working directory.
+export function cwd(): string {
+  __text(__io(105, 0, 0, 0, "", ""))
+}
+
+/// Ends the process at once with exit code `code` (no `finally` blocks run, and pending
+/// promises are dropped).
+export function exit(code: i32 = 0): void {
+  __io(118, code as int, 0, 0, "", "");
+}
+
+/// The environment variables (`env.get("HOME")`). Changes are seen by commands started
+/// later.
+export class Env {
+  /// The variable's value, or `null` when it isn't set.
+  public get(name: string): string? {
+    const job = __io(114, 0, 0, 0, name, "")
+    const found = __io(102, job, 0, 0, "", "") == 1
+    const value = __text(job)
+    if (found) value else null
+  }
+
+  public has(name: string): bool {
+    this.get(name) != null
+  }
+
+  public set(name: string, value: string): void {
+    __io(115, 0, 0, 0, name, value);
+  }
+
+  public delete(name: string): void {
+    __io(116, 0, 0, 0, name, "");
+  }
+
+  /// Every variable, by name.
+  public toObject(): Map<string, string> {
+    const m = new Map<string, string>()
+    for (const line of __fields(__text(__io(117, 0, 0, 0, "", "")))) {
+      const i = line.indexOf("=")
+      if (i > 0) {
+        m.set(line.slice(0, i), line.slice(i + 1))
+      }
+    }
+    m
+  }
+}
+
+export const env = new Env()
+
+/// A finished job's results.
+struct __PResult {
+  r: int
+  r2: int
+  job: int
+}
+
+/// Runs job `op` (an `IoError` naming `name` when it fails).
+function __pjob<T>(op: int, a: int, b: int, c: int, t: string, name: string,
+    read: (res: __PResult) => T): Promise<T, IoError> {
+  const p = new Promise<T, IoError>()
+  __ioSubmit(op, a, b, c, "", t, (job: int) => {
+    const r = __io(102, job, 0, 0, "", "")
+    const r2 = __io(103, job, 0, 0, "", "")
+    if (r < 0) {
+      p.__reject(new IoError(name, `${__what(r, r2)}: ${name}`, __kinds[__kind(r)]))
+    } else {
+      p.__resolve(read({ r, r2, job }))
+    }
+  })
+  p
+}
+
+/// The bytes of a view as a buffer handle starting at its first byte.
+function __bytesOf(data: Uint8Array): ArrayBuffer {
+  if (data.byteOffset == 0) data.buffer else data.buffer.slice(data.byteOffset, data.byteOffset + data.length)
+}
+
+/// The reading end of a pipe (a child's `stdout`/`stderr`) or this process's `stdin`: chunks
+/// of bytes with `read`, `for await`, or everything at once with `text()`. One read at a time.
+export class Reader {
+  fd: int
+  public readonly name: string
+  piped: bool
+  done: bool = false
+  reading: bool = false
+
+  constructor(fd: int, name: string, piped: bool) {
+    this.fd = fd
+    this.name = name
+    this.piped = piped
+    this.done = piped && fd < 0
+  }
+
+  start(): void {
+    if (!piped) {
+      panic(`${name} isn't piped`)
+    }
+    if (reading) {
+      panic(`${name} is already being read`)
+    }
+    reading = true
+  }
+
+  /// The end of the stream: the pipe is closed (this process's stdin stays open).
+  finish(): void {
+    done = true
+    if (fd > 2) {
+      __io(112, fd, 0, 0, "", "");
+    }
+  }
+
+  /// Up to `n` bytes (as soon as some are there), or `null` at the end.
+  public read(n: int = 65536): Promise<Uint8Array?, IoError> {
+    start()
+    if (done) {
+      reading = false
+      const p = new Promise<Uint8Array?, IoError>()
+      p.__resolve(null)
+      return p
+    }
+    __pjob<Uint8Array?>(20, fd, n, 0, "", name, (res: __PResult) => {
+      this.reading = false
+      if (res.r2 == 0) {
+        __buf_op(2, res.r, 0, 0);
+        this.finish()
+        null
+      } else {
+        new Uint8Array(new ArrayBuffer(res.r, res.r2, true), 0, res.r2)
+      }
+    })
+  }
+
+  /// `for await` reads chunks of bytes until the end.
+  public next(): Promise<Uint8Array?, IoError> {
+    read()
+  }
+
+  public asyncIterator(): Reader {
+    this
+  }
+
+  /// `text()`, or "" when it isn't piped.
+  public __rest(): Promise<string, IoError> {
+    if (piped) {
+      return text()
+    }
+    const p = new Promise<string, IoError>()
+    p.__resolve("")
+    p
+  }
+
+  /// The rest of the stream as text (UTF-8; anything else rejects with kind `"InvalidData"`).
+  public text(): Promise<string, IoError> {
+    start()
+    if (done) {
+      reading = false
+      const p = new Promise<string, IoError>()
+      p.__resolve("")
+      return p
+    }
+    __pjob<string>(22, fd, 0, 0, "", name, (res: __PResult) => {
+      this.reading = false
+      this.finish()
+      __io_text(res.job)
+    })
+  }
+}
+
+/// A queued write.
+struct __Write {
+  bytes: ArrayBuffer?
+  count: int
+  text: string
+  p: Promise<int, IoError>
+}
+
+/// The writing end of a pipe (a child's `stdin`) or this process's `stdout`/`stderr`. Writes
+/// happen in the order they're made; `close()` (after them) ends the child's input.
+export class Writer {
+  fd: int
+  public readonly name: string
+  piped: bool
+  queue: __Write[] = []
+  head: int = 0
+  busy: bool = false
+  closing: bool = false
+  closed: bool = false
+
+  constructor(fd: int, name: string, piped: bool) {
+    this.fd = fd
+    this.name = name
+    this.piped = piped
+  }
+
+  add(w: __Write): Promise<int, IoError> {
+    if (!piped) {
+      panic(`${name} isn't piped`)
+    }
+    if (closing) {
+      panic(`${name} is closed`)
+    }
+    queue.push(w)
+    pump()
+    w.p
+  }
+
+  /// Writes all of `data`; the count written.
+  public write(data: Uint8Array): Promise<int, IoError> {
+    add({ bytes: __bytesOf(data), count: data.length, text: "", p: new Promise<int, IoError>() })
+  }
+
+  /// Writes `text` as UTF-8; the count of bytes written.
+  public writeText(text: string): Promise<int, IoError> {
+    add({ bytes: null, count: 0, text, p: new Promise<int, IoError>() })
+  }
+
+  /// Closes the pipe once earlier writes are done (twice is fine; for `stdout`/`stderr`
+  /// nothing happens).
+  public close(): void {
+    closing = true
+    pump()
+  }
+
+  pump(): void {
+    if (busy) {
+      return
+    }
+    if (head == queue.length) {
+      queue = []
+      head = 0
+      if (closing && !closed) {
+        closed = true
+        if (fd > 2) {
+          __io(112, fd, 0, 0, "", "");
+        }
+      }
+      return
+    }
+    const w = queue[head]
+    head += 1
+    if (fd < 0) {
+      // (The child never started.)
+      w.p.__resolve(0)
+      pump()
+      return
+    }
+    busy = true
+    const op = if (fd <= 2) 25 else 21
+    const b = w.bytes
+    const settle = (job: int) => {
+      const r = __io(102, job, 0, 0, "", "")
+      const r2 = __io(103, job, 0, 0, "", "")
+      this.busy = false
+      if (r < 0) {
+        w.p.__reject(new IoError(this.name, `${__what(r, r2)}: ${this.name}`, __kinds[__kind(r)]))
+      } else {
+        w.p.__resolve(r)
+      }
+      this.pump()
+    }
+    if (b != null) {
+      __ioSubmit(op, fd, b.__handle, w.count, "", "", settle)
+    } else {
+      __ioSubmit(op, fd, 0, -1, "", w.text, settle)
+    }
+  }
+}
+
+/// This process's standard input, output and error.
+export const stdin = new Reader(0, "stdin", true)
+export const stdout = new Writer(1, "stdout", true)
+export const stderr = new Writer(2, "stderr", true)
+
+/// What a child's standard stream is connected to: this process's (`"inherit"`), a pipe to
+/// this process (`"pipe"`), or nothing (`"null"`).
+export type Stdio = "inherit" | "pipe" | "null"
+
+function __mode(s: Stdio): int {
+  if (s == "pipe") 1 else if (s == "null") 2 else 0
+}
+
+/// How a child ended: `code` is its exit code (128 + the signal's number when a signal
+/// ended it, as shells report it).
+export struct ExitStatus {
+  success: bool
+  code: i32
+  signal: i32?
+}
+
+/// A finished child's status and everything it wrote (as UTF-8 text).
+export struct Output {
+  success: bool
+  code: i32
+  signal: i32?
+  stdout: string
+  stderr: string
+}
+
+/// A started process: its pipes (where piped), `status()`, `kill()`.
+export class Child {
+  /// 0 when it couldn't be started.
+  public readonly pid: int
+  public readonly stdin: Writer
+  public readonly stdout: Reader
+  public readonly stderr: Reader
+  program: string
+  error: ProcessError?
+  waited: Promise<ExitStatus, ProcessError>? = null
+  exited: bool = false
+
+  constructor(pid: int, program: string, error: ProcessError?, stdin: Writer, stdout: Reader, stderr: Reader) {
+    this.pid = pid
+    this.program = program
+    this.error = error
+    this.stdin = stdin
+    this.stdout = stdout
+    this.stderr = stderr
+  }
+
+  /// Waits for the child to end (rejects when it couldn't be started). Every call gives the
+  /// same promise.
+  public status(): Promise<ExitStatus, ProcessError> {
+    const w = waited
+    if (w != null) {
+      return w
+    }
+    const p = new Promise<ExitStatus, ProcessError>()
+    waited = p
+    const e = error
+    if (e != null) {
+      p.__reject(e)
+      return p
+    }
+    __ioSubmit(23, pid, 0, 0, "", "", (job: int) => {
+      const code = __io(102, job, 0, 0, "", "")
+      const sig = __io(103, job, 0, 0, "", "")
+      this.exited = true
+      const signal: i32? = if (sig > 0) sig as i32 else null
+      const status: ExitStatus = {
+        success: sig == 0 && code == 0,
+        code: (if (sig > 0) 128 + sig else code) as i32,
+        signal,
+      }
+      p.__resolve(status)
+    })
+    p
+  }
+
+  /// Everything the child writes to its piped `stdout` and `stderr` (as text), and how it
+  /// ended.
+  public async output(): Promise<Output> throws ProcessError {
+    const out = stdout.__rest()
+    const err = stderr.__rest()
+    const s = await status()
+    let o = ""
+    let e = ""
+    try {
+      o = await out
+      e = await err
+    } catch (x: IoError) {
+      throw new ProcessError(program, `the output of ${program} is not valid UTF-8`, "InvalidData")
+    }
+    const res: Output = { success: s.success, code: s.code, signal: s.signal, stdout: o, stderr: e }
+    res
+  }
+
+  /// Sends the child a signal (`SIGTERM` by default; on Windows it's terminated). Nothing
+  /// happens once it has ended.
+  public kill(signal: "SIGTERM" | "SIGKILL" | "SIGINT" | "SIGHUP" = "SIGTERM"): void {
+    if (pid == 0 || exited) {
+      return
+    }
+    const n = if (signal == "SIGKILL") 9 else if (signal == "SIGINT") 2 else if (signal == "SIGHUP") 1 else 15
+    __io(111, pid, n, 0, "", "");
+  }
+}
+
+/// A program to run: its arguments (passed as they are, never through a shell), working
+/// directory, environment (`env` adds to or replaces this process's variables; with
+/// `clearEnv` it's all there is) and standard streams. `spawn()` starts it; `output()` and
+/// `status()` start it and wait.
+export class Command {
+  public readonly program: string
+  public readonly args: string[]
+  dir: string?
+  vars: Map<string, string>?
+  clearEnv: bool
+  stdinMode: Stdio
+  stdoutMode: Stdio
+  stderrMode: Stdio
+
+  constructor(program: string, args: string[] = [], cwd: string? = null,
+      env: Map<string, string>? = null, clearEnv: bool = false, stdin: Stdio = "inherit",
+      stdout: Stdio = "inherit", stderr: Stdio = "inherit") {
+    this.program = program
+    this.args = args
+    this.dir = cwd
+    this.vars = env
+    this.clearEnv = clearEnv
+    this.stdinMode = stdin
+    this.stdoutMode = stdout
+    this.stderrMode = stderr
+  }
+
+  /// `script` run by the platform's shell (`/bin/sh -c`; `cmd.exe /c` on Windows).
+  public static shell(script: string, cwd: string? = null, env: Map<string, string>? = null,
+      clearEnv: bool = false, stdin: Stdio = "inherit", stdout: Stdio = "inherit",
+      stderr: Stdio = "inherit"): Command {
+    new Command("/bin/sh", ["-c", script], cwd: cwd, env: env, clearEnv: clearEnv,
+      stdin: stdin, stdout: stdout, stderr: stderr)
+  }
+
+  /// Starts the program. If it can't be started, the child's `status()` rejects with a
+  /// `ProcessError`.
+  public spawn(): Child {
+    spawnWith(__mode(stdinMode), __mode(stdoutMode), __mode(stderrMode))
+  }
+
+  spawnWith(inMode: int, outMode: int, errMode: int): Child {
+    const d = dir
+    let t = if (d != null) d else ""
+    for (const a of args) {
+      t = `${t}\u{0}${a}`
+    }
+    let count = 0
+    const vs = vars
+    if (vs != null) {
+      for (const [k, v] of vs) {
+        t = `${t}\u{0}${k}=${v}`
+        count += 1
+      }
+    }
+    const modes = inMode + outMode * 4 + errMode * 16 + (if (clearEnv) 64 else 0)
+    const job = __io(110, args.length, count, modes, program, t)
+    const r = __io(102, job, 0, 0, "", "")
+    const r2 = __io(103, job, 0, 0, "", "")
+    const fds = __text(job).split(" ")
+    if (r < 0) {
+      const e = new ProcessError(program, `cannot run ${program}: ${__what(r, r2)}`, __kinds[__kind(r)])
+      return new Child(0, program, e, new Writer(-1, "stdin", inMode == 1),
+        new Reader(-1, "stdout", outMode == 1), new Reader(-1, "stderr", errMode == 1))
+    }
+    new Child(r, program, null, new Writer(parseInt(fds[0]), "stdin", inMode == 1),
+      new Reader(parseInt(fds[1]), "stdout", outMode == 1),
+      new Reader(parseInt(fds[2]), "stderr", errMode == 1))
+  }
+
+  /// Runs the program with its `stdout` and `stderr` piped and waits for it: what it wrote
+  /// and how it ended.
+  public output(): Promise<Output, ProcessError> {
+    spawnWith(__mode(stdinMode), 1, 1).output()
+  }
+
+  /// Runs the program and waits for it to end.
+  public status(): Promise<ExitStatus, ProcessError> {
+    spawn().status()
+  }
+}

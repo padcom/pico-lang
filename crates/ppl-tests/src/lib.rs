@@ -230,10 +230,13 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
         let result = ppl_driver::run_interp_in(mir, &mut out, Some(dir.0.clone()));
         let err = result.err();
         let uncaught = err.as_ref().is_some_and(|p| p.uncaught);
+        let exited = err.as_ref().and_then(|p| p.exit);
         let interp = Run {
             stdout: String::from_utf8_lossy(&out).into_owned(),
-            exit: uncaught.then_some(ppl_driver::UNCAUGHT_EXIT_CODE),
-            panic: err.filter(|p| !p.uncaught).map(|p| p.msg),
+            exit: exited.or(uncaught.then_some(ppl_driver::UNCAUGHT_EXIT_CODE)),
+            panic: err
+                .filter(|p| !p.uncaught && p.exit.is_none())
+                .map(|p| p.msg),
         };
         problems.extend(compare_run(d, &interp, "interpreter"));
     }

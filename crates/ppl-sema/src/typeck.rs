@@ -2353,7 +2353,7 @@ impl<'p> Checker<'p> {
                 // A generic class: its type arguments are given, expected, or inferred from
                 // the constructor's arguments.
                 let def = self.program.struct_def(*class);
-                let Some(ctor) = def.ctor_with(args.len()) else {
+                let Some(ctor) = self.pick_ctor(*class, args) else {
                     for a in args {
                         self.infer(a);
                     }
@@ -2396,7 +2396,7 @@ impl<'p> Checker<'p> {
             {
                 // Inside a generic class: the same type arguments as `this`.
                 let def = self.program.struct_def(*class);
-                let Some(ctor) = def.ctor_with(args.len()) else {
+                let Some(ctor) = self.pick_ctor(*class, args) else {
                     for a in args {
                         self.infer(a);
                     }
@@ -2418,7 +2418,7 @@ impl<'p> Checker<'p> {
             }
             ExprKind::New { class, args, .. } | ExprKind::CtorCall { class, args } => {
                 let def = self.program.struct_def(*class);
-                match def.ctor_with(args.len()) {
+                match self.pick_ctor(*class, args) {
                     Some(ctor) => {
                         self.types.ctor_calls.insert(e.id, ctor);
                         self.call_fn(e, ctor, args);
@@ -4952,6 +4952,46 @@ impl<'p> Checker<'p> {
 
     /// Checks a call of the function `id` (a free function or a method; `this` isn't an
     /// argument) and returns its result type.
+    /// The constructor of `class` that `args` call: the one taking exactly that many
+    /// positional arguments, the only one, else the first whose defaults, rest parameter
+    /// and parameter names allow them (`map_args` then checks the details).
+    fn pick_ctor(&self, class: StructId, args: &[Expr]) -> Option<FnId> {
+        let def = self.program.struct_def(class);
+        let plain = args
+            .iter()
+            .all(|a| !matches!(a.kind, ExprKind::NamedArg { .. } | ExprKind::Spread(_)));
+        if plain && let Some(f) = def.ctor_with(args.len()) {
+            return Some(f);
+        }
+        let spread = args.iter().any(|a| matches!(a.kind, ExprKind::Spread(_)));
+        let named: Vec<&str> = args
+            .iter()
+            .filter_map(|a| match &a.kind {
+                ExprKind::NamedArg { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        let positional = args.len() - named.len();
+        if def.ctors.len() == 1 {
+            // The only one: the argument checks then say what's wrong.
+            return Some(def.ctors[0].0);
+        }
+        def.ctors.iter().map(|(f, _)| *f).find(|&id| {
+            let f = self.program.func(id);
+            let total = f.params.len();
+            let fixed = if f.rest { total - 1 } else { total };
+            let required = (0..fixed)
+                .filter(|k| f.defaults.get(*k).is_none_or(Option::is_none))
+                .count();
+            let names_ok = named
+                .iter()
+                .all(|n| f.params.iter().any(|p| f.local(*p).name == *n));
+            names_ok
+                && (f.rest || (!spread && positional <= fixed))
+                && (spread || positional + named.len() >= required)
+        })
+    }
+
     fn call_fn(&mut self, e: &Expr, id: FnId, args: &[Expr]) -> Ty {
         let f = self.program.func(id);
         // Parameters typed by their defaults need the callee checked first.

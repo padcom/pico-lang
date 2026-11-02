@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P7.2: std/process** (see [PLAN.md](PLAN.md#p72-stdprocess)).
+**P7.3: std/net** (see [PLAN.md](PLAN.md#p73-stdnet)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 229 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-02 (P7.1b) |
+| Last green `scripts/test.sh` | 2026-11-02 (P7.2) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **std/process (P7.2, decision 231)**: `stdlib/process.ppl`; native in `runtime/src/ppl_io.c` (section "std/process": `spawn_child` with `posix_spawnp`, `child_wait`, `process_op`; blocking jobs 20–23 run on a thread each via `run_solo`), `ppl_argc/ppl_argv` saved in `ppl_rt.c`'s `main`; interpreter in `crates/ppl-interp/src/io.rs` (`process_job` threads push to `IoState.finished` and wake the loop; `process_op`; its own env copy), `Panic.exit` for `exit(code)` (no `finally`; harness/CLI turn it into the exit code), `ppl run --interp file -- args` now passes args. Constructors take defaults/named/rest (`typeck::pick_ctor`). Not yet: **Map literals** (decision 175, `env: { "LANG": "C" }` is E0900/E0313, so the spec/TOUR examples don't compile yet; tests build a `Map`), Windows (`CreateProcessW`, P8.3), `TextEncoder`/`TextDecoder` and Web Streams for the pipes (P7.4), `exit` from a worker (interpreter: only ends that worker), PATH lookup with a changed `PATH` in `env` (native looks in ours, the interpreter in the child's), a child's inherited stdout in the interpreter bypasses the captured output (golden tests pipe everything they print), fds of pipes can leak into children spawned at the same moment from another worker (no `pipe2` on macOS).
 - **std/fs (P7.1a, decision 229)**: `stdlib/fs.ppl`, `stdlib/path.ppl`, `runtime/src/ppl_io.c` (4 pool threads, per-thread completion queues waking the loop), `crates/ppl-interp/src/io.rs` (same ops with std::fs, run at submit, delivered on the next loop turn; `Shared.cwd` is a virtual working directory), loop polling in `stdlib/core/event.ppl` (`__ioSubmit`). The golden harness gives every run a fresh temp working directory. POSIX only: Windows `ppl_io` is a stub (P8.3). `watch` (P7.1b, decision 230): watchers in `ppl_io.c` (one thread each, snapshot diffs, kqueue/inotify wake-ups; the inotify code is untested until a Linux host runs it) and `io.rs` (polled from op 100; `__loop_wait` is capped at 5 ms while a watcher waits); not yet: Windows, a watcher that's never closed keeps its thread (it ends with the process), big trees rescan fully each time (kqueue opens one descriptor per entry up to 256 entries, then directories only). Not yet: symlink creation/readlink, permissions/chmod, copy, streaming `readText` for big files, `TextEncoder`/`TextDecoder` (so `File` has no text methods), async closures (tests use helper functions).
 - **JSON (P6.8, decision 228)**: `stdlib/core/json.ppl`, `Synth::JsonRead/JsonWrite` (`json_read`, `json_write` in `ppl-mir/src/lower.rs`), `typeck::json_ok`. Not yet: `Map<string, V>`, enums, pretty printing (`stringify(v, indent)`), cycle detection in `stringify`, class field initializers as defaults (a missing field with an initializer is an error unless nullable), `res.json<T>()` (P7.x http). The reader indexes `text[i]` (code points with a cached index) and builds strings by concatenation: fine for configs, slow for megabytes.
 - **Runtime reflection (P6.7, decision 227)**: `stdlib/core/reflect.ppl` + `stdlib/reflect.ppl`; resolver `reflect_call`; lowering `Synth::Info/Get/Set/FieldShow` (`info_body`, `describe`, `access_body` in `ppl-mir/src/lower.rs`). Not yet: `unknown` (so no untyped `get`), field/method decorators (not implemented in §11.2 either), method signatures in `MethodInfo` (name only), caching of `TypeInfo` objects (each `typeOf` call builds new ones), subclass dispatch for generic classes. Panics from accessors point at the class declaration. JSON (P6.8) is compile-time generated and shouldn't need this metadata.
@@ -222,7 +223,7 @@ Notes:
 ### Phase 7: Standard library
 - [x] P7.1a std/fs and std/path (all but `watch`)
 - [x] P7.1b fs.watch
-- [ ] P7.2 std/process
+- [x] P7.2 std/process
 - [ ] P7.3 std/net
 - [ ] P7.4 Web Streams and encoding
 - [ ] P7.5 fetch and std/http
@@ -343,3 +344,4 @@ Notes:
 | 2026-11-01 | P6.8 | JSON: `JSON.parse<T>` / `JSON.stringify` generated per type in MIR over a ppl reader/writer, precise errors (`field 'port': expected u16, got "x"`, `missing field`, `invalid JSON at L:C`), `@json.name`, optional struct fields (`p?: T`), `__parse_f64` builtin. Decision 228. |
 | 2026-11-02 | P7.1a | `std/fs` (readText/readBytes/writeText/writeBytes/stat/exists/mkdir/remove/rename/readDir/open + `File` read/write/seek/close, `IoError` with portable kinds) on a runtime I/O thread pool polled by the event loop; `std/path` (POSIX, as Node's `path.posix`); golden runs in fresh temp directories. P7.1 split (watch → P7.1b). Decision 229. |
 | 2026-11-02 | P7.1b | `fs.watch(path, recursive = true)` → `Watcher` (async iterator of `WatchEvent { kind, path }`, `close`/`using`): snapshot diffs while a `next()` waits, kqueue/inotify wake-ups natively, polling in the interpreter. Decision 230 (provisional: API shape). Test: run/fs/watch. |
+| 2026-11-02 | P7.2 | `std/process`: `args`, `env` (get/has/set/delete/toObject), `exit` (skips `finally`), `cwd`, `pid`, `stdin`/`stdout`/`stderr`; `Command` (named options: `cwd`, `env`, `clearEnv`, `stdin`/`stdout`/`stderr` `"inherit" \| "pipe" \| "null"`; `spawn`/`output`/`status`, `Command.shell`), `Child` (`Reader`/`Writer` pipes, `status`, `output`, `kill`), `ProcessError`, `ExitStatus`/`Output`. posix_spawn natively, `std::process` in the interpreter; blocking jobs on threads of their own. Constructors now take default, optional and rest parameters and named arguments. Decision 231. Tests: run/process/{pipes (echo, cat with pipes, shell, failure, kill), self}, run/ctor_defaults, fail/types/ctor_defaults. |

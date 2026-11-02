@@ -880,9 +880,13 @@ uint64_t ppl_ipow_u(uint64_t base, uint64_t exp, int32_t bits, int32_t *overflow
 
 /* ---------------------------------------------------------------- entry */
 
+/* The program's arguments, for `std/process` (`args`). */
+int ppl_argc;
+char **ppl_argv;
+
 int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
+    ppl_argc = argc;
+    ppl_argv = argv;
     ppl_entry();
     fflush(stdout);
     return 0;

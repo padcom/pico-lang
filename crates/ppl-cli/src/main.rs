@@ -115,8 +115,9 @@ fn run(path: &Path, interp: bool, opts: ppl_driver::BuildOptions, args: &[String
     if interp {
         let mir = checked.mir.as_ref().expect("MIR after a clean check");
         let mut out = std::io::stdout();
-        return match ppl_driver::run_interp(mir, &mut out) {
+        return match ppl_driver::run_interp_with(mir, &mut out, None, args.to_vec()) {
             Ok(()) => ExitCode::SUCCESS,
+            Err(p) if p.exit.is_some() => ExitCode::from(p.exit.unwrap_or(0).clamp(0, 255) as u8),
             Err(p) => {
                 eprint!("{}", p.report());
                 ExitCode::from(if p.uncaught {

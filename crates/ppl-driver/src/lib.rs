@@ -277,11 +277,22 @@ pub fn run_interp_in(
     out: &mut (dyn std::io::Write + Send),
     cwd: Option<std::path::PathBuf>,
 ) -> Result<(), ppl_interp::Panic> {
+    run_interp_with(mir, out, cwd, Vec::new())
+}
+
+/// [`run_interp_in`] with the program's arguments (`args` in `std/process`). A program that
+/// calls `exit(code)` ends with a [`ppl_interp::Panic`] whose `exit` is set.
+pub fn run_interp_with(
+    mir: &ppl_mir::Program,
+    out: &mut (dyn std::io::Write + Send),
+    cwd: Option<std::path::PathBuf>,
+    args: Vec<String>,
+) -> Result<(), ppl_interp::Panic> {
     std::thread::scope(|s| {
         std::thread::Builder::new()
             .name("ppl-interp".into())
             .stack_size(1 << 30)
-            .spawn_scoped(s, || ppl_interp::run_in(mir, out, cwd))
+            .spawn_scoped(s, || ppl_interp::run_with(mir, out, cwd, args))
             .expect("spawn interpreter thread")
             .join()
             .expect("interpreter thread panicked")

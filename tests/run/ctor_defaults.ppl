@@ -1,0 +1,47 @@
+// expect: Server(localhost:80, tls false, tags 0)
+// expect: Server(example.org:8443, tls true, tags 0)
+// expect: Server(a:9, tls false, tags 2)
+// expect: Server(b:1, tls false, tags 0) note=null
+// expect: Server(c:80, tls false, tags 0) note=hi
+// expect: Sub(d:80) 2
+// Constructor parameters with defaults, `?` and rest, called positionally or by name.
+class Server {
+  public host: string
+  public port: int
+  tls: bool
+  tags: string[]
+  public note: string?
+
+  constructor(host: string = "localhost", port: int = if (host == "localhost") 80 else 443,
+      tls: bool = false, note?: string, ...tags: string[]) {
+    this.host = host
+    this.port = port
+    this.tls = tls
+    this.note = note
+    this.tags = tags
+  }
+
+  public virtual toString(): string {
+    `Server(${host}:${port}, tls ${tls}, tags ${tags.length})`
+  }
+}
+
+println(new Server())
+println(new Server("example.org", 8443, tls: true))
+println(new Server("a", 9, false, "x", "t1", "t2"))
+const b = new Server("b", port: 1)
+println(`${b} note=${b.note}`)
+const c = new Server(host: "c", port: 80, note: "hi")
+println(`${c} note=${c.note}`)
+
+class Sub extends Server {
+  level: int
+  constructor(host: string, level: int = 2) {
+    super(host, 80)
+    this.level = level
+  }
+  public override toString(): string {
+    `Sub(${host}:${port}) ${level}`
+  }
+}
+println(new Sub("d"))

@@ -185,11 +185,16 @@ pub struct Panic {
     pub uncaught: bool,
     /// The functions active when it happened, innermost first.
     pub trace: Vec<String>,
+    /// Not a panic: `exit(code)` from `std/process` ends the program (no `finally` runs).
+    pub exit: Option<i32>,
 }
 
 impl Panic {
     /// The text printed to stderr (shared format with the native runtime).
     pub fn report(&self) -> String {
+        if self.exit.is_some() {
+            return String::new();
+        }
         if self.uncaught {
             return format!("uncaught {}\n", self.msg);
         }
@@ -220,8 +225,19 @@ pub fn run_in(
     out: &mut dyn Write,
     cwd: Option<std::path::PathBuf>,
 ) -> Result<(), Panic> {
+    run_with(program, out, cwd, Vec::new())
+}
+
+/// [`run_in`] with the program's arguments (`args` in `std/process`).
+pub fn run_with(
+    program: &Program,
+    out: &mut dyn Write,
+    cwd: Option<std::path::PathBuf>,
+    args: Vec<String>,
+) -> Result<(), Panic> {
     let shared = Arc::new(workers::Shared {
         cwd,
+        args,
         ..Default::default()
     });
     let mut it = Interp::new(program, Some(out), shared.clone(), None);
@@ -285,6 +301,7 @@ impl Interp<'_, '_> {
             loc,
             uncaught: false,
             trace: self.stack.iter().rev().cloned().collect(),
+            exit: None,
         }
     }
 
@@ -422,7 +439,7 @@ impl Interp<'_, '_> {
         let mut guards: Vec<mir::BlockId> = Vec::new();
         loop {
             match self.run_blocks(frame, &mut bb, &mut guards) {
-                Err(p) if !guards.is_empty() => {
+                Err(p) if !guards.is_empty() && p.exit.is_none() => {
                     self.unwinding.push(p);
                     bb = guards.pop().expect("checked");
                 }
@@ -606,6 +623,14 @@ impl Interp<'_, '_> {
     ) -> Result<Value, Panic> {
         if let Some(r) = self.comptime_builtin(b, vals, loc) {
             return r;
+        }
+        if b == Builtin::Io
+            && let [Value::Int(118), Value::Int(code), ..] = vals
+        {
+            self.flush_output();
+            let mut p = self.panic("exit", loc);
+            p.exit = Some(*code as i32);
+            return Err(p);
         }
         Ok(self.runtime_builtin(b, vals, tys))
     }

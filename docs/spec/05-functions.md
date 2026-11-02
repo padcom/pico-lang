@@ -12,6 +12,9 @@ const sq = (x: f64) => x * x                        // arrow function
   and exported functions, which must declare it.
 - `p?: T` means `p: T? = null`.
 - Defaults can be any expression and can refer to earlier parameters.
+- Constructors take the same parameter forms (`new Command("git", args, cwd: repo)`); with
+  overloaded constructors, the one taking exactly the positional arguments given wins, else the
+  first whose defaults and parameter names fit.
 
 ## 5.2 Named arguments
 **Any** parameter can be passed by name. Positional arguments must come before named ones.

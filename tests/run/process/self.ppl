@@ -1,0 +1,48 @@
+// expect: args: 0
+// expect: pid ok: true
+// expect: PATH set: true
+// expect: PPL_TEST_X: null
+// expect: set: 42
+// expect: child sees 42
+// expect: child sees C
+// expect: cleared: <>
+// expect: in sub: true
+// expect: cwd absolute: true
+// expect: written to stdout
+// expect: 18 bytes
+// expect: deleted: false
+// expect: in order
+// exit: 7
+// `std/process` for this process: arguments, environment (seen by children), working
+// directory, stdout, and `exit` (which skips `finally`).
+import { args, env, exit, cwd, pid, stdout, Command } from "std/process"
+import { mkdir } from "std/fs"
+
+println(`args: ${args.length}`)
+println(`pid ok: ${pid > 0}`)
+println(`PATH set: ${env.has("PATH")}`)
+println(`PPL_TEST_X: ${env.get("PPL_TEST_X")}`)
+env.set("PPL_TEST_X", "42")
+println(`set: ${env.get("PPL_TEST_X")}`)
+print((await Command.shell("echo child sees $PPL_TEST_X").output()).stdout)
+const vars = new Map<string, string>()
+vars.set("LANG", "C")
+print((await Command.shell("echo child sees $LANG", env: vars).output()).stdout)
+const bare = await new Command("/usr/bin/env", clearEnv: true).output()
+println(`cleared: <${bare.stdout}>`)
+await mkdir("sub")
+const sub = await new Command("pwd", cwd: "sub").output()
+println(`in sub: ${sub.stdout.trim().endsWith("/sub")}`)
+println(`cwd absolute: ${cwd().startsWith("/")}`)
+const n = await stdout.writeText("written to stdout\n")
+println(`${n} bytes`)
+env.delete("PPL_TEST_X")
+println(`deleted: ${env.has("PPL_TEST_X")}`)
+stdout.writeText("in ")
+print("order\n")
+try {
+  exit(7)
+} finally {
+  println("not printed")
+}
+println("not reached")

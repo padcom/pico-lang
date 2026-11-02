@@ -2062,6 +2062,7 @@ impl Resolver {
                     let mut tys = Vec::new();
                     for p in &f.params {
                         let ty = match &p.ty {
+                            Some(t) if p.optional => self.resolve_type(t).nullable(),
                             Some(t) => self.resolve_type(t),
                             None => Ty::Error,
                         };
@@ -2416,6 +2417,8 @@ impl Resolver {
         self.f.this = Some((this, sid));
         let mut params = Vec::new();
         let mut props = Vec::new();
+        let mut defaults: Vec<Option<Expr>> = Vec::new();
+        let mut has_rest = false;
         match decl {
             Some(f) => {
                 for p in &f.params {
@@ -2423,14 +2426,22 @@ impl Resolver {
                         self.not_implemented(p.pat.span, "destructured parameters");
                         continue;
                     };
-                    if p.rest || p.optional || p.default.is_some() || p.comptime {
-                        self.not_implemented(
-                            p.span,
-                            "optional, default, rest and comptime parameters",
-                        );
+                    if p.comptime {
+                        self.not_implemented(p.span, "comptime constructor parameters");
                     }
+                    // A default sees the parameters before it (as a function's, §5.3).
+                    let default = match (&p.default, p.optional) {
+                        (Some(d), _) => Some(self.lower_expr(d)),
+                        (None, true) => Some(self.expr(ExprKind::Null, p.span)),
+                        (None, false) => None,
+                    };
+                    has_rest |= p.rest;
+                    defaults.push(default);
                     let ty = match &p.ty {
-                        Some(t) => Some(self.resolve_type(t)),
+                        Some(t) => {
+                            let t = self.resolve_type(t);
+                            Some(if p.optional { t.nullable() } else { t })
+                        }
                         None => {
                             self.error(
                                 codes::MISSING_PARAM_TYPE,
@@ -2581,8 +2592,8 @@ impl Resolver {
             owner: Some(sid),
             generics: Vec::new(),
             closure: None,
-            defaults: Vec::new(),
-            rest: false,
+            defaults,
+            rest: has_rest,
             throws,
             infer_throws: false,
             generator: false,

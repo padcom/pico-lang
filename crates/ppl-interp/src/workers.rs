@@ -288,6 +288,8 @@ pub struct Shared {
     /// The working directory the program sees, if not the process's (relative paths in
     /// `std/fs` resolve against it).
     pub cwd: Option<std::path::PathBuf>,
+    /// The program's arguments.
+    pub args: Vec<String>,
 }
 
 impl Shared {
@@ -313,6 +315,7 @@ pub fn terminated_panic() -> Panic {
         loc: Loc::default(),
         uncaught: false,
         trace: Vec::new(),
+        exit: None,
     }
 }
 
