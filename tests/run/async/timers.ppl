@@ -15,10 +15,11 @@
 // expect: tick 2
 // expect: tick 3
 // expect: cleared
-// expect: timeout 150
+// expect: timeout 600
 let ticks = 0
 const never = setTimeout(() => println("cancelled timer ran"), 40)
-setTimeout(() => println("timeout 150"), 150)
+// (Far after the interval: on a loaded machine its ticks drift late.)
+setTimeout(() => println("timeout 600"), 600)
 setTimeout(() => println("timeout 30"), 30)
 setTimeout(() => {
   println("timeout 0 a")

@@ -13,6 +13,17 @@ import { serve, upgradeWebSocket, WebSocketUpgrade } from "std/http"
 // The RFC 6455 example key.
 println(`accept: ${__wsAccept("dGhlIHNhbXBsZSBub25jZQ==")}`)
 
+// Both ends close independently, so their events can come in either order: print them once
+// both have.
+const done = new Promise<void>()
+let serverClosed = ""
+let clientClosed = ""
+function closed() {
+  if (serverClosed != "" && clientClosed != "") {
+    done.__resolve(__void())
+  }
+}
+
 async function handle(req: Request): Promise<Response> {
   let up: WebSocketUpgrade? = null
   try {
@@ -35,13 +46,15 @@ async function handle(req: Request): Promise<Response> {
       b: Uint8Array => ws.send(b),
     }
   }
-  ws.onclose = (e) => println(`server closed: ${e.code} ${e.reason} ${e.wasClean}`)
+  ws.onclose = (e) => {
+    serverClosed = `server closed: ${e.code} ${e.reason} ${e.wasClean}`
+    closed()
+  }
   up.response
 }
 
 const server = await serve({ port: 0 }, handle)
 const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)
-const done = new Promise<void>()
 let replies = 0
 ws.onopen = (e) => {
   println("open")
@@ -64,10 +77,12 @@ ws.onmessage = (e) => {
   }
 }
 ws.onclose = (e) => {
-  println(`client closed: ${e.code} ${e.reason} ${e.wasClean}`)
-  done.__resolve(__void())
+  clientClosed = `client closed: ${e.code} ${e.reason} ${e.wasClean}`
+  closed()
 }
 await done
+println(serverClosed)
+println(clientClosed)
 
 const plain = await fetch(`http://127.0.0.1:${server.addr.port}/chat`)
 println(`not an upgrade: ${plain.status}`)
