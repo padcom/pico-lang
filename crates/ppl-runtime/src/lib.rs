@@ -49,6 +49,16 @@ pub fn zig_libc_dir() -> PathBuf {
     include_dir().join("../../third_party/zig-libc")
 }
 
+/// The vendored compiler-rt builtins (`third_party/compiler-rt`).
+pub fn compiler_rt_dir() -> PathBuf {
+    include_dir().join("../../third_party/compiler-rt")
+}
+
+/// The vendored musl sources (`third_party/musl`).
+pub fn musl_dir() -> PathBuf {
+    include_dir().join("../../third_party/musl")
+}
+
 /// The vendored Mbed TLS (`third_party/mbedtls`, with `include/` and `library/`).
 pub fn mbedtls_dir() -> PathBuf {
     include_dir().join("../../third_party/mbedtls")

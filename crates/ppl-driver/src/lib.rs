@@ -9,10 +9,12 @@ use ppl_diag::{Code, Diagnostic, SourceMap};
 use ppl_syntax::ast::Module;
 use std::path::{Path, PathBuf};
 
+mod builtins;
 mod decorators;
 mod glibc;
 mod link;
 mod modules;
+mod musl;
 pub mod target;
 
 pub use modules::stdlib_dir;
@@ -362,7 +364,7 @@ pub struct BuildOptions {
 }
 
 /// Compiles a checked program to a native executable at `exe`: an object file from LLVM,
-/// linked with the C runtime by lld (`linux-gnu`) or, on a macOS host, the system `cc`.
+/// linked with the C runtime by lld (Linux targets) or, on a macOS host, the system `cc`.
 pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result<(), String> {
     let mir = checked.mir.as_ref().ok_or("the program has errors")?;
     if let Some(dir) = exe.parent()
@@ -372,7 +374,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
     let target = opts.target.unwrap_or_else(Target::host);
-    let lld = target.os == target::Os::Linux && target.env == target::Env::Gnu;
+    let lld = target.os == target::Os::Linux;
     if !lld && !target.is_host() {
         return Err(format!("building for {target} isn't supported yet"));
     }
@@ -386,7 +388,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         },
     )?;
     if lld {
-        let r = link::link_linux_gnu(target, &obj, exe, !opts.release);
+        let r = link::link_linux(target, &obj, exe, !opts.release);
         let _ = std::fs::remove_file(&obj);
         return r;
     }

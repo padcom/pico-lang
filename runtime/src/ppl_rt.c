@@ -4,7 +4,10 @@
 
 #include <inttypes.h>
 #include <setjmp.h>
-#if defined(__APPLE__) || defined(__linux__)
+/* Panic traces need `backtrace` (glibc, macOS; musl has none). `__GLIBC__` comes with
+ * ppl_rt.h's <stdint.h>. */
+#if defined(__APPLE__) || defined(__GLIBC__)
+#define PPL_BACKTRACE 1
 #include <dlfcn.h>
 #include <execinfo.h>
 #endif
@@ -776,7 +779,7 @@ void ppl_guard_pop(void) {
 /* A frame's function name: ppl functions are `ppl.<name>` (exported in debug builds), the
  * top level is `ppl_entry`; anything else (the runtime, libc) is NULL. */
 static const char *frame_name(void *addr) {
-#if defined(__APPLE__) || defined(__linux__)
+#if PPL_BACKTRACE
     Dl_info info, self;
     /* A return address can point just past its function (after a call to a noreturn
      * function), so look up the byte before it. */
@@ -859,7 +862,7 @@ _Noreturn void ppl_panic(const char *msg, int64_t msg_len, const char *file, int
     panic_file_len = file_len;
     panic_line = line;
     panic_col = col;
-#if defined(__APPLE__) || defined(__linux__)
+#if PPL_BACKTRACE
     panic_nframes = backtrace(panic_frames, PPL_MAX_FRAMES);
 #endif
     unwind();

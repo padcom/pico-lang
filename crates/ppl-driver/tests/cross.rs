@@ -112,3 +112,38 @@ fn glibc_version_suffix() {
         );
     }
 }
+
+/// musl targets are fully static (spec §15.1): no interpreter, no shared libraries.
+#[test]
+fn musl_static() {
+    for target in ["linux-arm64-musl", "linux-x64-musl"] {
+        let Some(exe) = build(target) else {
+            return;
+        };
+        let bytes = std::fs::read(&exe).unwrap();
+        let machine = u16::from_le_bytes([bytes[18], bytes[19]]);
+        assert_eq!(machine, if target.contains("x64") { 62 } else { 183 });
+        // e_type ET_EXEC and no PT_INTERP among the program headers.
+        assert_eq!(
+            u16::from_le_bytes([bytes[16], bytes[17]]),
+            2,
+            "{target}: ET_EXEC"
+        );
+        let phoff = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
+        let phnum = u16::from_le_bytes([bytes[56], bytes[57]]) as usize;
+        for i in 0..phnum {
+            let ty = u32::from_le_bytes(bytes[phoff + i * 56..][..4].try_into().unwrap());
+            assert_ne!(ty, 3, "{target}: has PT_INTERP");
+        }
+        let native = (machine == 62) == cfg!(target_arch = "x86_64");
+        if !native && !Path::new("/proc/sys/fs/binfmt_misc/qemu-x86_64").exists() {
+            continue;
+        }
+        let out = std::process::Command::new(&exe).output().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "hello from 3 [2, 4, 6]\n",
+            "{target}"
+        );
+    }
+}

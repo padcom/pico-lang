@@ -39,3 +39,9 @@ jobs:
         run: |
           source scripts/env.sh
           PPL_TEST_TARGET=linux-x64 cargo test --quiet -p ppl-tests --test golden
+
+      - name: Golden tests for linux-arm64-musl
+        if: runner.os == 'Linux'
+        run: |
+          source scripts/env.sh
+          PPL_TEST_TARGET=linux-arm64-musl cargo test --quiet -p ppl-tests --test golden

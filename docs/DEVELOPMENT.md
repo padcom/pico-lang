@@ -94,7 +94,10 @@ inside ppl against generated glibc stubs (default glibc 2.31, `--target linux-x6
 another). The C runtime and Mbed TLS are compiled for the target and glibc version by clang 23
 on first use, against Zig's glibc headers in `third_party/zig-libc`, and cached in
 `$TMPDIR/ppl-cache/runtime/<triple>-<hash>` (about 2 s); the stubs are cached in
-`$TMPDIR/ppl-cache/glibc/`. On macOS, builds still link
+`$TMPDIR/ppl-cache/glibc/`. `--target linux-x64-musl` / `linux-arm64-musl` link fully
+statically with musl, compiled from `third_party/musl` on first use (about 5 s, cached in
+`$TMPDIR/ppl-cache/musl/`). Compiler builtins (compiler-rt, `third_party/compiler-rt`) are
+compiled per target the same way and linked into every program, like libgcc. On macOS, builds still link
 with the system `cc` until P8.4; lld is optional there (`PPL_LLD_PREFIX` names an lld
 installation with `lib/liblldELF.a`). The interpreter's copy of the runtime is compiled by
 `ppl-runtime`'s build script (with `-mmacosx-version-min=13.0` on macOS).
@@ -103,6 +106,7 @@ installation with `lib/liblldELF.a`). The interpreter's copy of the runtime is c
 cargo run -p ppl-cli -- build --target linux-x64 hello.ppl -o hello-x64
 QEMU_LD_PREFIX=/usr/x86_64-linux-gnu ./hello-x64
 PPL_TEST_TARGET=linux-x64 cargo test -p ppl-tests --test golden   # all golden tests, ~4 min
+PPL_TEST_TARGET=linux-arm64-musl cargo test -p ppl-tests --test golden
 ```
 
 A fixture qemu-user can't run faithfully gets `// not-under-qemu: why` (it's then pending in
