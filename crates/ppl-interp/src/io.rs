@@ -361,6 +361,27 @@ impl Interp<'_, '_> {
             };
             return Value::Int(ns);
         }
+        if op == 140 {
+            // Crypto: the runtime's own code (ppl_crypto.c over Mbed TLS), through FFI.
+            let data = self.buffer_bytes(b, c);
+            let (r, r2) = match crypto_op(a, &data) {
+                Ok(bytes) => {
+                    let n = bytes.len() as i64;
+                    (self.shared.buffers.lock().expect("buffers").add(bytes), n)
+                }
+                Err(e) => (-1, e),
+            };
+            let st = &mut self.io;
+            st.next_id += 1;
+            st.taken.push(Job {
+                id: st.next_id,
+                r,
+                r2,
+                text: String::new(),
+                bytes: None,
+            });
+            return Value::Int(i128::from(st.next_id));
+        }
         if op == 134 || op == 135 {
             // Read a file now (time zone data), or a symbolic link's target.
             let path = self.at(&s(4));
@@ -1272,4 +1293,32 @@ impl Interp<'_, '_> {
             _ => -1,
         }
     }
+}
+
+unsafe extern "C" {
+    fn ppl_crypto_op(
+        op: i64,
+        input: *const u8,
+        n: usize,
+        out: *mut *mut u8,
+        out_len: *mut usize,
+    ) -> i64;
+    fn ppl_crypto_free(p: *mut std::ffi::c_void);
+}
+
+/// Runs crypto operation `op` of the C runtime on `input`: the output, or its error code.
+fn crypto_op(op: i64, input: &[u8]) -> Result<Vec<u8>, i64> {
+    let mut out: *mut u8 = std::ptr::null_mut();
+    let mut len = 0usize;
+    // SAFETY: `input` is valid for its length; the function sets `out`/`len` to a malloc'd
+    // buffer (or null) that we copy and then free.
+    let e = unsafe { ppl_crypto_op(op, input.as_ptr(), input.len(), &mut out, &mut len) };
+    if e != 0 {
+        return Err(e);
+    }
+    // SAFETY: on success `out` points at `len` initialized bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(out, len) }.to_vec();
+    // SAFETY: allocated by the C side, freed once.
+    unsafe { ppl_crypto_free(out.cast()) };
+    Ok(bytes)
 }

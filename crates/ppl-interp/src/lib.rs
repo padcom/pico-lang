@@ -4,11 +4,13 @@
 //! and out-of-range conversions; floats follow IEEE-754 (computed at `f32` precision for
 //! `f32`); printing uses [`format_float`] for numbers.
 
+// (Links the C runtime's crypto layer, which `--interp` calls for `std/crypto` and TLS.)
 use ppl_mir::eval::{self, Prim, Scalar, from_bits, to_bits};
 use ppl_mir::mir::{
     self, Base, BinOp, Callee, Const, Loc, Operand, Place, Program, Proj, Rvalue, Terminator,
     panics,
 };
+use ppl_runtime as _;
 use ppl_sema::hir::{Builtin, FnId};
 use ppl_sema::{FloatTy, Ty};
 use std::cell::RefCell;

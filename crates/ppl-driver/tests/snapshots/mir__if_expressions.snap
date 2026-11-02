@@ -8,11 +8,12 @@ global @g2: FinalizationRegistry<i64>? // __buffers
 global @g3: Map<string, __Zone>? // __zoneCache
 global @g4: Performance // performance
 global @g5: __Xoshiro128? // __mathRng
-global @g6: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g7: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g8: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g9: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g10: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g6: Crypto // crypto
+global @g7: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g8: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g9: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g10: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g11: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn grade(_0: i32) -> i32 {
     let _1: i32 // g
@@ -85,36 +86,38 @@ fn both(_0: bool, _1: bool) -> bool {
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g6 = const 1_i64
+    @g7 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g7 = const 4_i64
+    @g8 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g8 = const 4_i64
+    @g9 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g9 = const 4_i64
+    @g10 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g10 = const 8_i64
+    @g11 = const 8_i64
     return
 }
 
 fn <main>() -> void {
     let _0: Performance
+    let _1: SubtleCrypto
+    let _2: Crypto
   bb0:
     call Uint8Array.<static>() -> bb1
   bb1:
@@ -133,6 +136,9 @@ fn <main>() -> void {
     _0 = struct#111{}
     @g4 = _0
     @g5 = const null<__Xoshiro128?>
+    _1 = struct#122{}
+    _2 = struct#123{_1}
+    @g6 = _2
     goto bb6
   bb6:
     return

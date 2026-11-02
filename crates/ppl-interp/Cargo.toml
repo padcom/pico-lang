@@ -10,6 +10,7 @@ publish = false
 ppl-diag.workspace = true
 ppl-mir.workspace = true
 ppl-sema.workspace = true
+ppl-runtime.workspace = true
 
 [lints]
 workspace = true

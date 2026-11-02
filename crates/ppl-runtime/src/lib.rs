@@ -24,6 +24,13 @@ pub fn static_lib() -> PathBuf {
     Path::new(env!("PPL_RUNTIME_DIR")).join("libppl_rt.a")
 }
 
+/// The libraries linked after the runtime, in link order: ppl's crypto/TLS layer, then
+/// Mbed TLS.
+pub fn crypto_libs() -> [PathBuf; 2] {
+    let dir = Path::new(env!("PPL_RUNTIME_DIR"));
+    [dir.join("libppl_crypto.a"), dir.join("libppl_mbedtls.a")]
+}
+
 /// The directory containing `ppl_rt.h`.
 pub fn include_dir() -> PathBuf {
     PathBuf::from(env!("PPL_RUNTIME_INCLUDE"))

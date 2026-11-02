@@ -1,0 +1,68 @@
+// The `crypto` global: random values, UUIDs and Web Crypto's `subtle` (HMAC, AES-GCM, ECDSA,
+// ECDH, HKDF, PBKDF2), the shapes Web code uses.
+// expect: 16 true 36 4 true
+// expect: digest ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+// expect: HMAC 5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843 true false
+// expect: AES-GCM 21 hello
+// expect: decrypt rejected: AuthenticationFailed
+// expect: ECDSA 64 true
+// expect: ECDH true 32
+// expect: PBKDF2 120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b
+// expect: HKDF 3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865
+const hx = new Hex()
+const enc = new TextEncoder()
+function h(s: string): Uint8Array { try! hx.decode(s) }
+
+const buf = crypto.getRandomValues(new Uint8Array(16))
+const u = crypto.randomUUID()
+println(`${buf.length} ${crypto.randomUUID() != u} ${u.length} ${u[14]} ${"89ab".includes(`${u[19]}`)}`)
+
+function pair(k: CryptoKey | CryptoKeyPair): CryptoKeyPair {
+  match (k) {
+    p: CryptoKeyPair => p
+    _ => panic("expected a key pair")
+  }
+}
+
+function secret(k: CryptoKey | CryptoKeyPair): CryptoKey {
+  match (k) {
+    s: CryptoKey => s
+    _ => panic("expected a key")
+  }
+}
+
+async function main(): Promise<void> throws CryptoError {
+  const s = crypto.subtle
+  println(`digest ${hx.encode(await s.digest("SHA-256", enc.encode("abc")))}`)
+
+  const hk = await s.importKey("raw", enc.encode("Jefe"), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"])
+  const tag = await s.sign("HMAC", hk, enc.encode("what do ya want for nothing?"))
+  println(`HMAC ${hx.encode(tag)} ${await s.verify("HMAC", hk, tag, enc.encode("what do ya want for nothing?"))} ${await s.verify("HMAC", hk, tag, enc.encode("x"))}`)
+
+  const aes = secret(await s.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const ct = await s.encrypt({ name: "AES-GCM", iv: iv }, aes, enc.encode("hello"))
+  println(`AES-GCM ${ct.length} ${try! new TextDecoder().decode(await s.decrypt({ name: "AES-GCM", iv: iv }, aes, ct))}`)
+  ct.set(0, ct.get(0) ^ 255)
+  try {
+    await s.decrypt({ name: "AES-GCM", iv: iv }, aes, ct)
+  } catch (e: CryptoError) {
+    println(`decrypt rejected: ${e.kind}`)
+  }
+
+  const ec = pair(await s.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]))
+  const sig = await s.sign({ name: "ECDSA", hash: "SHA-256" }, ec.privateKey, enc.encode("data"))
+  println(`ECDSA ${sig.length} ${await s.verify({ name: "ECDSA", hash: "SHA-256" }, ec.publicKey, sig, enc.encode("data"))}`)
+
+  const a = pair(await s.generateKey({ name: "ECDH", namedCurve: "X25519" }, false, ["deriveBits"]))
+  const b = pair(await s.generateKey({ name: "ECDH", namedCurve: "X25519" }, false, ["deriveBits"]))
+  const ab = await s.deriveBits({ name: "ECDH", public: b.publicKey }, a.privateKey)
+  const ba = await s.deriveBits({ name: "ECDH", public: a.publicKey }, b.privateKey)
+  println(`ECDH ${hx.encode(ab) == hx.encode(ba)} ${ab.length}`)
+
+  const pw = await s.importKey("raw", enc.encode("password"), "PBKDF2", false, ["deriveBits"])
+  println(`PBKDF2 ${hx.encode(await s.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: enc.encode("salt"), iterations: 1 }, pw, 256))}`)
+  const ikm = await s.importKey("raw", h("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), "HKDF", false, ["deriveBits"])
+  println(`HKDF ${hx.encode(await s.deriveBits({ name: "HKDF", hash: "SHA-256", salt: h("000102030405060708090a0b0c"), info: h("f0f1f2f3f4f5f6f7f8f9") }, ikm, 336))}`)
+}
+main()

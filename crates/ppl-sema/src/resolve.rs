@@ -929,9 +929,16 @@ impl Resolver {
                     m.kind,
                     ast::MemberKind::Method(_) | ast::MemberKind::Getter(_)
                 );
+            // An async method is desugared like a class's (`async_methods`).
+            if m.mods.is_async
+                && let ast::MemberKind::Method(f) = &m.kind
+            {
+                self.async_methods.insert(f.span);
+            }
             let mods_ok = ast::Modifiers {
                 readonly: false,
                 is_static: m.mods.is_static && !is_static,
+                is_async: m.mods.is_async && !matches!(m.kind, ast::MemberKind::Method(_)),
                 ..m.mods
             };
             if !mods_ok.is_empty() {

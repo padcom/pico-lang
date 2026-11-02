@@ -421,3 +421,22 @@ rounding matches templates; precisions up to 20), `formatString(s, spec)`, `form
 spec)`, `pad(text, width, align, fill)` and `groupDigits(text, separator = ",", size = 3)`. An
 invalid spec panics. `DateTime` (`${dt:yyyy-MM-dd}` is its `format` pattern) and `std/math`'s
 vectors and quaternions (`${v:.2f}` per component) are `Formattable`.
+
+## 13.12 Cryptography
+Both the `crypto` global and `std/crypto` run on Mbed TLS (3.6 LTS, vendored in
+`third_party/mbedtls`), natively and in the interpreter alike. The global follows Web Crypto:
+`getRandomValues(u8)` (at most 65536 bytes), `randomUUID()` and `subtle`. `subtle` has
+`digest`, `importKey`/`exportKey` (`"raw"` only), `generateKey` (HMAC, AES-GCM; ECDSA P-256/P-384
+and ECDH P-256/P-384/X25519 key pairs), `sign`/`verify` (HMAC; ECDSA with `r ‖ s` signatures),
+`encrypt`/`decrypt` (AES-GCM, 128-bit tags) and `deriveBits` (ECDH, HKDF, PBKDF2). Algorithm
+parameters are one struct, `Algorithm`, built from object literals (`{ name: "AES-GCM", iv }`).
+Results are `Uint8Array`s, failures reject with `CryptoError` (`kind`: `InvalidArgument`,
+`AuthenticationFailed`, `Internal`), and `CryptoKey` holds its bytes.
+
+`std/crypto` is synchronous: `digest(alg, data)` and `hmac(alg, key, data)` (SHA-1, SHA-224,
+SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), `hkdf`, `pbkdf2`,
+`Aead.aesGcm(key)` / `Aead.chacha20Poly1305(key)` with `seal(nonce, plaintext, aad)` (giving the
+ciphertext then the tag) and `open` (which throws `CryptoError` when the data doesn't
+authenticate), `EcKeyPair.generate(curve)` / `fromPrivateKey`, with `sign(hash, message)`
+(deterministic ECDSA, RFC 6979) and `agree(peerPublic)` (ECDH), `ecdsaVerify`,
+`timingSafeEqual` and `randomBytes`. Ed25519 and RSA aren't available yet.

@@ -1,0 +1,80 @@
+// `std/crypto` known-answer tests: FIPS 180/202 hashes, RFC 4231 HMAC, RFC 5869 HKDF,
+// RFC 7914 PBKDF2, the NIST GCM spec's test case 3, RFC 8439 ChaCha20-Poly1305, RFC 7748
+// X25519 and RFC 6979 deterministic ECDSA (P-256, SHA-256, "sample").
+// expect: SHA-1 true
+// expect: SHA-224 true
+// expect: SHA-256 true
+// expect: SHA-384 true
+// expect: SHA-512 true
+// expect: SHA3-256 true
+// expect: HMAC true
+// expect: HKDF true
+// expect: PBKDF2 true
+// expect: AES-GCM true true
+// expect: AES-GCM tampered AuthenticationFailed
+// expect: ChaCha20-Poly1305 true true
+// expect: X25519 true true true
+// expect: ECDSA true true true false
+// expect: generated P-384 true 97 48
+// expect: InvalidArgument
+import { digest, hmac, hkdf, pbkdf2, Aead, EcKeyPair, ecdsaVerify, CryptoError } from "std/crypto"
+
+const hx = new Hex()
+function h(s: string): Uint8Array { try! hx.decode(s) }
+function eq(a: Uint8Array, hexText: string): bool { hx.encode(a) == hexText.toLowerCase() }
+
+const hashes: [HashAlgorithm, string][] = [
+  ["SHA-1", "a9993e364706816aba3e25717850c26c9cd0d89d"],
+  ["SHA-224", "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7"],
+  ["SHA-256", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"],
+  ["SHA-384", "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7"],
+  ["SHA-512", "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"],
+  ["SHA3-256", "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532"],
+]
+for (const [alg, want] of hashes) println(`${alg} ${eq(digest(alg, "abc"), want)}`)
+println(`HMAC ${eq(hmac("SHA-256", "Jefe", "what do ya want for nothing?"), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")}`)
+
+function main(): void throws CryptoError {
+  const okm = hkdf("SHA-256", h("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), h("000102030405060708090a0b0c"), h("f0f1f2f3f4f5f6f7f8f9"), 42)
+  println(`HKDF ${eq(okm, "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865")}`)
+  println(`PBKDF2 ${eq(pbkdf2("SHA-256", "password", new TextEncoder().encode("salt"), 1, 32), "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b")}`)
+
+  const gcm = Aead.aesGcm(h("feffe9928665731c6d6a8f9467308308"))
+  const iv = h("cafebabefacedbaddecaf888")
+  const pt = "d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b391aafd255"
+  const sealed = gcm.seal(iv, h(pt))
+  println(`AES-GCM ${eq(sealed, "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091473f5985" + "4d5c2af327cd64a62cf35abd2ba6fab4")} ${eq(gcm.open(iv, sealed), pt)}`)
+  sealed.set(3, sealed.get(3) ^ 1)
+  try {
+    gcm.open(iv, sealed);
+  } catch (e: CryptoError) {
+    println(`AES-GCM tampered ${e.kind}`)
+  }
+
+  const cc = Aead.chacha20Poly1305(h("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"))
+  const nonce = h("070000004041424344454647")
+  const aad = h("50515253c0c1c2c3c4c5c6c7")
+  const text = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it."
+  const ct = cc.seal(nonce, text, aad)
+  println(`ChaCha20-Poly1305 ${eq(ct, "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b6116" + "1ae10b594f09e26a7e902ecbd0600691")} ${try! new TextDecoder().decode(cc.open(nonce, ct, aad)) == text}`)
+
+  const alice = EcKeyPair.fromPrivateKey("X25519", h("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"))
+  const bob = EcKeyPair.fromPrivateKey("X25519", h("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb"))
+  const shared = "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"
+  println(`X25519 ${eq(alice.publicKey, "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a")} ${eq(alice.agree(bob.publicKey), shared)} ${eq(bob.agree(alice.publicKey), shared)}`)
+
+  const k = EcKeyPair.fromPrivateKey("P-256", h("C9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721"))
+  const pub = "04" + "60FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB6" + "7903FE1008B8BC99A41AE9E95628BC64F2F1B20C2D7E9F5177A3C294D4462299"
+  const sig = k.sign("SHA-256", "sample")
+  const want = "EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716" + "F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8"
+  println(`ECDSA ${eq(k.publicKey, pub)} ${eq(sig, want)} ${ecdsaVerify("P-256", "SHA-256", k.publicKey, "sample", sig)} ${ecdsaVerify("P-256", "SHA-256", k.publicKey, "samplf", sig)}`)
+
+  const g = EcKeyPair.generate("P-384")
+  println(`generated P-384 ${ecdsaVerify("P-384", "SHA-384", g.publicKey, "msg", g.sign("SHA-384", "msg"))} ${g.publicKey.length} ${g.privateKey.length}`)
+  try {
+    Aead.aesGcm(new Uint8Array(5));
+  } catch (e: CryptoError) {
+    println(e.kind)
+  }
+}
+try! main()

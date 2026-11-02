@@ -1,0 +1,27 @@
+// std/crypto round trips.
+import { describe, test, expect } from "std/test"
+import { digest, hmac, Aead, EcKeyPair, ecdsaVerify, randomBytes, timingSafeEqual } from "std/crypto"
+
+describe("std/crypto", () => {
+  test("hashes have their sizes", () => {
+    expect(digest("SHA-256", "").length).toBe(32)
+    expect(digest("SHA3-512", "x").length).toBe(64)
+    expect(hmac("SHA-1", "k", "d").length).toBe(20)
+  })
+  test("AEAD round trip and tamper detection", () => {
+    const key = randomBytes(32)
+    const nonce = randomBytes(12)
+    const box = Aead.chacha20Poly1305(key)
+    const sealed = box.seal(nonce, "secret message")
+    expect(timingSafeEqual(box.open(nonce, sealed), new TextEncoder().encode("secret message"))).toBeTruthy()
+    sealed.set(0, sealed.get(0) ^ 1)
+    expect(() => { box.open(nonce, sealed); }).toThrow("authenticate")
+  })
+  test("ECDSA and ECDH", () => {
+    const k = EcKeyPair.generate("P-256")
+    expect(ecdsaVerify("P-256", "SHA-256", k.publicKey, "m", k.sign("SHA-256", "m"))).toBeTruthy()
+    const a = EcKeyPair.generate("X25519")
+    const b = EcKeyPair.generate("X25519")
+    expect(timingSafeEqual(a.agree(b.publicKey), b.agree(a.publicKey))).toBeTruthy()
+  })
+})

@@ -298,6 +298,10 @@ const PRELUDE: &[(&str, &str)] = &[
         "<core>/fmt.ppl",
         include_str!("../../../stdlib/core/fmt.ppl"),
     ),
+    (
+        "<core>/crypto.ppl",
+        include_str!("../../../stdlib/core/crypto.ppl"),
+    ),
 ];
 
 /// The exit code of a program that panicked (spec §7.5).
@@ -371,6 +375,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     let mut cmd = std::process::Command::new("cc");
     cmd.arg(&obj)
         .arg(ppl_runtime::static_lib())
+        .args(ppl_runtime::crypto_libs())
         .args(ppl_runtime::host_link_flags());
     if cfg!(target_os = "linux") {
         cmd.arg("-lm");

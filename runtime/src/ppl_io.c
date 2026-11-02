@@ -7,6 +7,7 @@
  * in the interpreter, which runs the same operations with Rust's std::fs. */
 #define _GNU_SOURCE
 #include "ppl_rt.h"
+#include "ppl_crypto.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -1604,6 +1605,16 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         ssize_t k = readlink(path, buf, sizeof buf - 1);
         free(path);
         if (k > 0) text_add(j, buf, (size_t)k);
+        return j->id;
+    }
+    case 140: { /* crypto operation a on c bytes at b (ppl_crypto.h): r = a buffer handle (or
+                 * -1), r2 = its length (or the error) */
+        Job *j = result_job(q);
+        uint8_t *o = NULL;
+        size_t len = 0;
+        int64_t e = ppl_crypto_op(a, (const uint8_t *)(intptr_t)b, c > 0 ? (size_t)c : 0, &o, &len);
+        j->r = e ? -1 : (int64_t)(intptr_t)o;
+        j->r2 = e ? e : (int64_t)len;
         return j->id;
     }
     case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */

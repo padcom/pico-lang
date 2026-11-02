@@ -6,6 +6,8 @@ expression: "ir(r#\"\nfunction fib(n: i64): i64 {\n  if (n < 2) n else fib(n - 1
 source_filename = "test.ppl"
 
 %ppl.Performance = type {}
+%ppl.Crypto = type { %ppl.SubtleCrypto }
+%ppl.SubtleCrypto = type {}
 
 @ppl.global.__finalizationRegistries = internal thread_local global ptr null
 @ppl.global.__loop = internal thread_local global ptr null
@@ -13,6 +15,7 @@ source_filename = "test.ppl"
 @ppl.global.__zoneCache = internal thread_local global ptr null
 @ppl.global.performance = internal thread_local global %ppl.Performance zeroinitializer
 @ppl.global.__mathRng = internal thread_local global ptr null
+@ppl.global.crypto = internal thread_local global %ppl.Crypto zeroinitializer
 @ppl.global.Uint8Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @ppl.global.Int32Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @ppl.global.Uint32Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
@@ -20,13 +23,13 @@ source_filename = "test.ppl"
 @ppl.global.Float64Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @ppl_gc_requested = external thread_local global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
-@ppl.cstr.39 = private unnamed_addr constant [8 x i8] c"test.ppl"
+@ppl.cstr.40 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.str = private constant { i64, i64, i64, i64, [4 x i8] } { i64 4, i64 4, i64 -1, i64 0, [4 x i8] c"done" }, align 8
 @ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.layout.40 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 @ppl.layout.41 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 @ppl.layout.42 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 @ppl.layout.43 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.44 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 
 define internal i64 @ppl.fib(i64 %0) {
 start:
@@ -89,7 +92,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb2
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.39, i64 8, i32 3, i32 25)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.40, i64 8, i32 3, i32 25)
   unreachable
 
 ok:                                               ; preds = %bb2
@@ -100,7 +103,7 @@ ok:                                               ; preds = %bb2
   br label %bb4
 
 panic1:                                           ; preds = %bb4
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.39, i64 8, i32 3, i32 38)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.40, i64 8, i32 3, i32 38)
   unreachable
 
 ok2:                                              ; preds = %bb4
@@ -111,7 +114,7 @@ ok2:                                              ; preds = %bb4
   br label %bb5
 
 panic3:                                           ; preds = %bb5
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.39, i64 8, i32 3, i32 21)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.40, i64 8, i32 3, i32 21)
   unreachable
 
 ok4:                                              ; preds = %bb5
@@ -225,30 +228,32 @@ start:
   %4 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 0
   store ptr null, ptr %4, align 8
   %5 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 1
-  store ptr @ppl.layout.40, ptr %5, align 8
+  store ptr @ppl.layout.41, ptr %5, align 8
   %6 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 2
   store ptr @ppl.global.__loop, ptr %6, align 8
   %7 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 0
   store ptr null, ptr %7, align 8
   %8 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 1
-  store ptr @ppl.layout.41, ptr %8, align 8
+  store ptr @ppl.layout.42, ptr %8, align 8
   %9 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 2
   store ptr @ppl.global.__buffers, ptr %9, align 8
   %10 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 3, i32 0
   store ptr null, ptr %10, align 8
   %11 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 3, i32 1
-  store ptr @ppl.layout.42, ptr %11, align 8
+  store ptr @ppl.layout.43, ptr %11, align 8
   %12 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 3, i32 2
   store ptr @ppl.global.__zoneCache, ptr %12, align 8
   %13 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 4, i32 0
   store ptr null, ptr %13, align 8
   %14 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 4, i32 1
-  store ptr @ppl.layout.43, ptr %14, align 8
+  store ptr @ppl.layout.44, ptr %14, align 8
   %15 = getelementptr { i64, [5 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 4, i32 2
   store ptr @ppl.global.__mathRng, ptr %15, align 8
   call void @ppl_gc_set_globals(ptr %gc.globals)
   %t0 = alloca %ppl.Performance, align 8
-  %t1 = alloca i64, align 8
+  %t1 = alloca %ppl.SubtleCrypto, align 8
+  %t2 = alloca %ppl.Crypto, align 8
+  %t3 = alloca i64, align 8
   %gc.requested = load i32, ptr @ppl_gc_requested, align 4
   %16 = icmp ne i32 %gc.requested, 0
   br i1 %16, label %gc.collect, label %gc.continue
@@ -282,13 +287,19 @@ bb5:                                              ; preds = %bb4
   %17 = load %ppl.Performance, ptr %t0, align 1
   store %ppl.Performance %17, ptr @ppl.global.performance, align 1
   store ptr null, ptr @ppl.global.__mathRng, align 8
-  %18 = call i64 @ppl.fib(i64 10)
-  store i64 %18, ptr %t1, align 4
+  store %ppl.SubtleCrypto undef, ptr %t1, align 1
+  %18 = load %ppl.SubtleCrypto, ptr %t1, align 1
+  %19 = insertvalue %ppl.Crypto undef, %ppl.SubtleCrypto %18, 0
+  store %ppl.Crypto %19, ptr %t2, align 1
+  %20 = load %ppl.Crypto, ptr %t2, align 1
+  store %ppl.Crypto %20, ptr @ppl.global.crypto, align 1
+  %21 = call i64 @ppl.fib(i64 10)
+  store i64 %21, ptr %t3, align 4
   br label %bb6
 
 bb6:                                              ; preds = %bb5
-  %19 = load i64, ptr %t1, align 4
-  call void @ppl_print_i64(i64 %19)
+  %22 = load i64, ptr %t3, align 4
+  call void @ppl_print_i64(i64 %22)
   call void @ppl_print_newline()
   br label %bb7
 

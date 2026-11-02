@@ -316,6 +316,7 @@ version = "0.1.0"
 dependencies = [
  "ppl-diag",
  "ppl-mir",
+ "ppl-runtime",
  "ppl-sema",
 ]
 

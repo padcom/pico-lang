@@ -8,50 +8,53 @@ global @g2: FinalizationRegistry<i64>? // __buffers
 global @g3: Map<string, __Zone>? // __zoneCache
 global @g4: Performance // performance
 global @g5: __Xoshiro128? // __mathRng
-global @g6: i64 // i
-global @g7: string // s
-global @g8: i64 // again
-global @g9: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g10: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g11: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g12: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g13: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g6: Crypto // crypto
+global @g7: i64 // i
+global @g8: string // s
+global @g9: i64 // again
+global @g10: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g11: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g12: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g13: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g14: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g9 = const 1_i64
+    @g10 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g10 = const 4_i64
+    @g11 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g11 = const 4_i64
+    @g12 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g12 = const 4_i64
+    @g13 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g13 = const 8_i64
+    @g14 = const 8_i64
     return
 }
 
 fn <main>() -> void {
     let _0: Performance
-    let _1: i64
-    let _2: string
+    let _1: SubtleCrypto
+    let _2: Crypto
     let _3: i64
+    let _4: string
+    let _5: i64
   bb0:
     call Uint8Array.<static>() -> bb1
   bb1:
@@ -70,15 +73,18 @@ fn <main>() -> void {
     _0 = struct#111{}
     @g4 = _0
     @g5 = const null<__Xoshiro128?>
-    _1 = call max<i64>(const 1_i64, const 2_i64) -> bb6
+    _1 = struct#122{}
+    _2 = struct#123{_1}
+    @g6 = _2
+    _3 = call max<i64>(const 1_i64, const 2_i64) -> bb6
   bb6:
-    @g6 = _1
-    _2 = call max<string>(const "a", const "b") -> bb7
+    @g7 = _3
+    _4 = call max<string>(const "a", const "b") -> bb7
   bb7:
-    @g7 = _2
-    _3 = call max<i64>(const 3_i64, const 4_i64) -> bb8
+    @g8 = _4
+    _5 = call max<i64>(const 3_i64, const 4_i64) -> bb8
   bb8:
-    @g8 = _3
+    @g9 = _5
     goto bb9
   bb9:
     return

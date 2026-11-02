@@ -2535,7 +2535,12 @@ impl FnBuilder<'_, '_> {
                     .map(|c| {
                         // By reference: the variable's cell; by value: its current value.
                         let l = c.outer;
-                        if c.by_ref {
+                        // A struct method's `this` is a reference: the closure keeps it.
+                        let struct_this = self.hir_fn.this.is_some_and(|(this, sid)| {
+                            let d = self.cx.program.struct_def(sid);
+                            this == l && !d.is_class && !d.is_interface
+                        });
+                        if c.by_ref || struct_this {
                             Operand::Copy(Place::local(Local(l.0)))
                         } else {
                             Operand::Copy(self.place(Var::Local(l)))

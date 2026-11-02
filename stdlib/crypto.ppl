@@ -1,0 +1,118 @@
+// `std/crypto` (spec §13.2): synchronous cryptography over Mbed TLS: hashes, HMAC, HKDF,
+// PBKDF2, AEAD (AES-GCM, ChaCha20-Poly1305), elliptic-curve keys (P-256, P-384, X25519),
+// ECDSA and ECDH. The `crypto` global has Web Crypto's async `subtle` over the same code.
+// Strings are taken as their UTF-8 bytes.
+
+export { CryptoError, CryptoKey, KeyAlgorithm, Algorithm, CryptoKeyPair, SubtleCrypto }
+
+/// The hash of `data`: `"SHA-1"`, `"SHA-224"`, `"SHA-256"`, `"SHA-384"`, `"SHA-512"`,
+/// `"SHA3-256"`, `"SHA3-384"` or `"SHA3-512"`.
+export function digest(algorithm: HashAlgorithm, data: Uint8Array | string): Uint8Array {
+  __digest(algorithm, __bytes(data))
+}
+
+/// The HMAC of `data` under `key`.
+export function hmac(algorithm: HashAlgorithm, key: Uint8Array | string, data: Uint8Array | string): Uint8Array {
+  __hmac(algorithm, __bytes(key), __bytes(data))
+}
+
+/// HKDF (RFC 5869): `length` bytes from input keying material.
+export function hkdf(algorithm: HashAlgorithm, ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, length: int): Uint8Array throws CryptoError {
+  __cryptoOp(300 + __hashId(algorithm), [ikm, salt, info, __u32(length)])
+}
+
+/// PBKDF2 with HMAC (RFC 8018): `length` bytes from a password.
+export function pbkdf2(algorithm: HashAlgorithm, password: Uint8Array | string, salt: Uint8Array, iterations: int, length: int): Uint8Array throws CryptoError {
+  __cryptoOp(400 + __hashId(algorithm), [__bytes(password), salt, __u32(iterations), __u32(length)])
+}
+
+/// Whether two byte strings are equal, in time that depends only on their length.
+export function timingSafeEqual(a: Uint8Array, b: Uint8Array): bool {
+  __timingSafeEqual(a, b)
+}
+
+/// `n` random bytes from the system.
+export function randomBytes(n: int): Uint8Array {
+  __randomBytes(n)
+}
+
+/// An AEAD cipher with its key: `seal` encrypts and authenticates (the result is the
+/// ciphertext then a 16-byte tag), `open` checks and decrypts. Never reuse a nonce with
+/// the same key.
+export class Aead {
+  /// 1 AES-GCM, 2 ChaCha20-Poly1305.
+  alg: int
+  key: Uint8Array
+
+  constructor(alg: int, key: Uint8Array) {
+    this.alg = alg
+    this.key = key
+  }
+
+  /// AES-GCM with a 16-, 24- or 32-byte key (nonces: 12 bytes are standard).
+  public static aesGcm(key: Uint8Array): Aead throws CryptoError {
+    __need(key.length == 16 || key.length == 24 || key.length == 32, "AES keys are 16, 24 or 32 bytes")
+    new Aead(1, key.slice(0))
+  }
+
+  /// ChaCha20-Poly1305 (RFC 8439) with a 32-byte key and 12-byte nonces.
+  public static chacha20Poly1305(key: Uint8Array): Aead throws CryptoError {
+    __need(key.length == 32, "ChaCha20-Poly1305 keys are 32 bytes")
+    new Aead(2, key.slice(0))
+  }
+
+  public seal(nonce: Uint8Array, plaintext: Uint8Array | string, aad: Uint8Array = new Uint8Array(0)): Uint8Array throws CryptoError {
+    __cryptoOp(500 + this.alg, [this.key, nonce, aad, __bytes(plaintext)])
+  }
+
+  /// The plaintext; throws `CryptoError` (`AuthenticationFailed`) when the data, nonce,
+  /// associated data or key don't match.
+  public open(nonce: Uint8Array, sealed: Uint8Array, aad: Uint8Array = new Uint8Array(0)): Uint8Array throws CryptoError {
+    __cryptoOp(600 + this.alg, [this.key, nonce, aad, sealed])
+  }
+}
+
+/// An elliptic-curve key pair: the private key (a big-endian scalar; for X25519 the
+/// 32-byte RFC 7748 form) and the public key (an uncompressed point `04 ‖ x ‖ y`; for X25519
+/// 32 bytes).
+export class EcKeyPair {
+  public readonly curve: NamedCurve
+  public readonly privateKey: Uint8Array
+  public readonly publicKey: Uint8Array
+
+  constructor(curve: NamedCurve, privateKey: Uint8Array, publicKey: Uint8Array) {
+    this.curve = curve
+    this.privateKey = privateKey
+    this.publicKey = publicKey
+  }
+
+  /// A new random key pair.
+  public static generate(curve: NamedCurve): EcKeyPair {
+    const parts = __unpack(try! __cryptoOp(700 + __curveId(curve), []))
+    new EcKeyPair(curve, parts[0], parts[1])
+  }
+
+  /// The key pair of a private key.
+  public static fromPrivateKey(curve: NamedCurve, privateKey: Uint8Array): EcKeyPair throws CryptoError {
+    const pub = __cryptoOp(800 + __curveId(curve), [privateKey])
+    new EcKeyPair(curve, privateKey.slice(0), pub)
+  }
+
+  /// An ECDSA signature of `message` (hashed with `hash`): `r ‖ s`, deterministic (RFC 6979).
+  public sign(hash: HashAlgorithm, message: Uint8Array | string): Uint8Array throws CryptoError {
+    __need(this.curve != "X25519", "X25519 keys can't sign")
+    __cryptoOp(900 + __curveId(this.curve), [__u32(__hashId(hash)), this.privateKey, __bytes(message)])
+  }
+
+  /// The ECDH shared secret with a peer's public key.
+  public agree(peerPublicKey: Uint8Array): Uint8Array throws CryptoError {
+    __cryptoOp(1100 + __curveId(this.curve), [this.privateKey, peerPublicKey])
+  }
+}
+
+/// Whether `signature` (`r ‖ s`) is `publicKey`'s ECDSA signature of `message`.
+export function ecdsaVerify(curve: NamedCurve, hash: HashAlgorithm, publicKey: Uint8Array, message: Uint8Array | string, signature: Uint8Array): bool {
+  if (curve == "X25519") return false
+  const r = try! __cryptoOp(1000 + __curveId(curve), [__u32(__hashId(hash)), publicKey, __bytes(message), signature])
+  r.get(0) == 1
+}
