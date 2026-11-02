@@ -1,0 +1,19 @@
+[package]
+name = "ppl-lld"
+description = "lld linked into ppl, for linking programs without a system linker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+# lld's static libraries need LLVM's, which llvm-sys (through inkwell) links: depending on it
+# puts lld first on the link line.
+inkwell.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[lints]
+workspace = true

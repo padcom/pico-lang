@@ -49,12 +49,17 @@ Apple clang. The C runtime should be built with it.
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh && sudo bash /tmp/llvm.sh 23   # clang-23, lld-23, …
-sudo apt-get install -y build-essential llvm-23-dev libpolly-23-dev libzstd-dev zlib1g-dev
+sudo apt-get install -y build-essential llvm-23-dev libpolly-23-dev libzstd-dev zlib1g-dev \
+  liblld-23-dev libc6-dev-amd64-cross qemu-user-static qemu-user-binfmt file
 ```
 
+`liblld-23-dev` is required: lld is linked into ppl (crate `ppl-lld`). `libc6-dev-amd64-cross`
+is the x86-64 glibc that `--target linux-x64` links against until P8.2 bundles stubs, and qemu
+runs the result (`QEMU_LD_PREFIX=/usr/x86_64-linux-gnu ./prog`, or directly through binfmt with
+that variable set).
+
 `source scripts/env.sh` then sets `LLVM_SYS_231_PREFIX=/usr/lib/llvm-23` and puts
-`/usr/lib/llvm-23/bin` (so `clang` is clang 23) and `~/.cargo/bin` on `PATH`. `lld-23` comes with
-the apt.llvm.org script, so P8.1 needs nothing extra on Linux.
+`/usr/lib/llvm-23/bin` (so `clang` is clang 23) and `~/.cargo/bin` on `PATH`.
 
 ## CI
 
@@ -85,17 +90,23 @@ cargo run -p ppl-cli -- build hello.ppl -o hello --release
 cargo run -p ppl-cli -- build --emit mir hello.ppl     # or --emit llvm-ir
 ```
 
-Native builds link with the system `cc` (Apple clang or Homebrew clang both work) until the
-bundled lld arrives in P8.1. The C runtime in `runtime/` is compiled by `ppl-runtime`'s build
-script with `-mmacosx-version-min=13.0`.
+On Linux, native builds (host and `--target linux-x64` / `linux-arm64`) are linked by the lld
+inside ppl. The C runtime and Mbed TLS are compiled for the target by clang 23 on first use and
+cached in `$TMPDIR/ppl-cache/runtime/<triple>-<hash>` (about 2 s). On macOS, builds still link
+with the system `cc` until P8.4; lld is optional there (`PPL_LLD_PREFIX` names an lld
+installation with `lib/liblldELF.a`). The interpreter's copy of the runtime is compiled by
+`ppl-runtime`'s build script (with `-mmacosx-version-min=13.0` on macOS).
+
+```sh
+cargo run -p ppl-cli -- build --target linux-x64 hello.ppl -o hello-x64
+QEMU_LD_PREFIX=/usr/x86_64-linux-gnu ./hello-x64
+```
 
 ## Not installed yet
 
 These come with the tasks that need them (ask before installing):
 
-- **lld** (macOS only): Homebrew's `llvm@23` doesn't ship it; it's the separate `lld` formula.
-  Needed for P8.1. On Linux, `lld-23` comes with LLVM.
+- **lld on macOS**: Homebrew's `llvm@23` doesn't ship it (the separate `lld` formula, pointed to
+  by `PPL_LLD_PREFIX`). Needed by P8.4 at the latest.
 - **wasmtime**: P8.5.
-- **qemu-user** (`qemu-user-static` + binfmt): for running x86-64 Linux binaries on the arm64 host
-  (P8.1, P8.2).
 - **Wine**: optional, for running Windows test binaries (P8.3).

@@ -10,12 +10,14 @@ publish = false
 ppl-codegen.workspace = true
 ppl-diag.workspace = true
 ppl-interp.workspace = true
+ppl-lld.workspace = true
 ppl-mir.workspace = true
 ppl-runtime.workspace = true
 ppl-sema.workspace = true
 ppl-syntax.workspace = true
 
 [dev-dependencies]
+ppl-lld.workspace = true
 insta.workspace = true
 
 [lints]

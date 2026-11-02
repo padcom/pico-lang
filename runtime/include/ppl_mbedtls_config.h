@@ -9,4 +9,8 @@
 #define MBEDTLS_THREADING_PTHREAD
 #endif
 
+/* Programs are linked by lld without libgcc or compiler-rt, so nothing provides the
+ * double-width division helper (`__udivti3`) bignum.c would otherwise call. */
+#define MBEDTLS_NO_UDBL_DIVISION
+
 #endif

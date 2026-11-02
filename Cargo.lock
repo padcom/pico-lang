@@ -304,6 +304,7 @@ dependencies = [
  "ppl-codegen",
  "ppl-diag",
  "ppl-interp",
+ "ppl-lld",
  "ppl-mir",
  "ppl-runtime",
  "ppl-sema",
@@ -318,6 +319,14 @@ dependencies = [
  "ppl-mir",
  "ppl-runtime",
  "ppl-sema",
+]
+
+[[package]]
+name = "ppl-lld"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "inkwell",
 ]
 
 [[package]]

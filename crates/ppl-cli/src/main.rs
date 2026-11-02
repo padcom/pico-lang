@@ -27,6 +27,9 @@ enum Command {
         /// Print an intermediate form instead of building: `mir` or `llvm-ir`.
         #[arg(long, value_name = "FORM")]
         emit: Option<String>,
+        /// The target: an LLVM triple or an alias such as `linux-x64` (default: the host).
+        #[arg(long, value_name = "TARGET", value_parser = ppl_driver::Target::parse)]
+        target: Option<ppl_driver::Target>,
     },
     /// Compile and run a program.
     Run {
@@ -91,10 +94,11 @@ fn main() -> ExitCode {
             output,
             release,
             emit,
+            target,
         }) => build(
             &file,
             output,
-            ppl_driver::BuildOptions { release },
+            ppl_driver::BuildOptions { release, target },
             emit.as_deref(),
         ),
         Some(Command::Run {
@@ -102,7 +106,15 @@ fn main() -> ExitCode {
             interp,
             release,
             args,
-        }) => run(&file, interp, ppl_driver::BuildOptions { release }, &args),
+        }) => run(
+            &file,
+            interp,
+            ppl_driver::BuildOptions {
+                release,
+                ..Default::default()
+            },
+            &args,
+        ),
         Some(Command::Test {
             paths,
             filter,

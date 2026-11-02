@@ -39,6 +39,16 @@ pub fn include_dir() -> PathBuf {
     PathBuf::from(env!("PPL_RUNTIME_INCLUDE"))
 }
 
+/// The runtime's C sources (`runtime/src`), for building it for other targets.
+pub fn source_dir() -> PathBuf {
+    include_dir().join("../src")
+}
+
+/// The vendored Mbed TLS (`third_party/mbedtls`, with `include/` and `library/`).
+pub fn mbedtls_dir() -> PathBuf {
+    include_dir().join("../../third_party/mbedtls")
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -49,5 +59,7 @@ mod tests {
             super::static_lib().display()
         );
         assert!(super::include_dir().join("ppl_rt.h").is_file());
+        assert!(super::source_dir().join("ppl_rt.c").is_file());
+        assert!(super::mbedtls_dir().join("library/ssl_tls.c").is_file());
     }
 }

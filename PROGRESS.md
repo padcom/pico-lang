@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.1: Cross-compilation infrastructure** (see [PLAN.md](PLAN.md#p81-cross-compilation-infrastructure)). P8.0 is done on the Linux arm64 VM (LLVM 23.1.5 from apt.llvm.org, `lld-23` included). Still needed for P8.1: `qemu-user-static` + binfmt (ask before installing). Note: the runtime also links `libppl_crypto.a` + `libppl_mbedtls.a` (Mbed TLS must be built per target too); on Linux, `cc-rs` builds the host runtime with GCC (`cc`), not clang.
+**P8.2: Linux gnu and musl** (see [PLAN.md](PLAN.md#p82-linux-gnu-and-musl)). P8.1 is done (decision 244): `ppl build --target`, lld linked into ppl (`crates/ppl-lld`), the runtime compiled per target by clang (`crates/ppl-driver/src/link.rs`), glibc still from the system (`/usr/lib/<multiarch>` or the Debian cross sysroot `/usr/x86_64-linux-gnu`). P8.2 replaces that with generated glibc 2.31 stubs (and headers old enough: with glibc 2.41's headers the runtime references `__isoc23_strtol`, a 2.38 symbol), enforces the `.2.xx` suffix, and adds musl (static; ask before installing musl sources/packages). epoll is already in the event loop since P8.0.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -103,7 +103,7 @@ Notes:
 - Generic interfaces are the main missing piece for a real `Iterable<T>`/`Iterator<T>`.
 - The core library lives in `stdlib/core/*.ppl` (`ppl_driver::PRELUDE`, `include_str!`). Built-in type methods are `__Array_x`/`__String_x` functions (`Program.extensions`, `Types.extensions`). `mir::live_functions` drops unreachable `library` functions in dumps and codegen. String building is O(n²) (concatenation); a string builder would help. `Map.keys()` etc. return arrays until P3.23 gives iterators.
 - LLVM can't emit WasmGC, so the browser target starts on linear memory (PLAN P8.6 and P8.7).
-- lld: installed on the Linux host (`lld-23`); on macOS it's the separate Homebrew `lld` formula.
+- lld (P8.1): linked into ppl from `liblld-23-dev` (required on Linux; on macOS optional through `PPL_LLD_PREFIX`, and macOS builds still link with `cc` until P8.4). Builds link no compiler builtins: if a runtime change makes lld report an undefined `__…` helper (`__udivti3`, `__aarch64_ldadd…`), avoid it or bundle compiler-rt. The runtime cache is `$TMPDIR/ppl-cache/runtime/<triple>-<hash>`; on Linux, the `cc`-built `libppl_rt.a` is now only used by the interpreter and `ppl-runtime`'s C tests.
 - Math on glibc (P8.0): Rust's `f64` methods don't all call the system libm (`cbrt` is Rust's own, correctly rounded), so `ppl_math` corrects glibc's `cbrt` (up to ~2 ulps off) to the nearest double. Other functions agreed in the golden tests; if one ever differs between backends on Linux, fix it the same way.
 - Exceptions use error-return lowering (decision 197): `Rvalue::SetException/TakeException/
   ExceptionPending`, `Terminator::Uncaught`; `FnBuilder::terminate` adds the pending check after
@@ -254,7 +254,7 @@ Notes:
 
 ### Phase 8: Targets
 - [x] P8.0 Linux host bring-up
-- [ ] P8.1 Cross-compilation infrastructure
+- [x] P8.1 Cross-compilation infrastructure
 - [ ] P8.2 Linux gnu and musl
 - [ ] P8.3 Windows (MinGW)
 - [ ] P8.4 macOS cross builds
@@ -379,3 +379,4 @@ Notes:
 | 2026-11-02 | P7.5b | TLS over Mbed TLS: `fetch` https: (certificate and host checks against the system roots, `caCerts`), `serve` with `cert`/`key`, `wss:`; one C session layer keyed by socket fd used by both backends (concurrent read/write via non-blocking sockets), `NetError` kind `TlsError`. Spec §13.6, decision 243. Test: run/http/https (local CA, IP SAN, big bodies both ways, untrusted rejection, wss echo). **Phase 7 complete.** |
 | 2026-11-02 | — | Move to Linux prepared: `env.sh` finds apt.llvm.org LLVM 23 and `~/.cargo/bin`, DEVELOPMENT.md Linux setup, CI workflow (macOS + Linux arm64, Linux allowed to fail until P8.0), PLAN: new P8.0 (Linux host bring-up), P8.1/P8.2/P8.4 "Done when" reworded for a Linux arm64 host. Fixed a lost wakeup in `ppl_worker_post` (it read `started` before pushing, so a worker starting in between slept forever; hung run/workers/transfer intermittently). |
 | 2026-11-02 | P8.0 | Linux arm64 host: LLVM 23.1.5 (apt.llvm.org) installed; `scripts/test.sh` green. Fixes: `_POSIX_C_SOURCE` in `ppl_gc.c` (glibc hides `clock_gettime` under `-std=c11`); `-lm` moved into `host_link_flags`; GCC folded the weak `const` `ppl_arraybuffer_class` to NULL, so copied `ArrayBuffer`s were shared with workers (now non-const); glibc's `cbrt` corrected to the nearest double (`Math.cbrt(27)` was 3.0000000000000004; matches Rust's on 2M inputs); panic traces skip unnamed frames outside the executable (glibc's `__libc_start_call_main`); `panic_trace` native test enabled on Linux; CI's Linux job no longer allowed to fail. Checked by hand: `fetch` of a public https site uses the Debian CA bundle. |
+| 2026-11-02 | P8.1 | Cross-compilation: `Target` (§15.1 triples and aliases, glibc suffix, default 2.31) and `ppl build --target`; codegen for any triple (baseline CPU when cross); lld linked in-process (`ppl-lld`: C++ shim over `lld::lldMain`, ELF); runtime + Mbed TLS compiled per target by clang 23 and cached; every linux-gnu build (host included) linked by lld without `cc`. `-mno-outline-atomics` on aarch64 and `MBEDTLS_NO_UDBL_DIVISION`, since no compiler builtins are linked. Decision 244. Test: `ppl-driver/tests/cross.rs` builds linux-x64 from arm64, checks the ELF machine and runs it under qemu-user; the golden tests now go through lld on Linux. CI installs liblld, the amd64 cross glibc and qemu. |

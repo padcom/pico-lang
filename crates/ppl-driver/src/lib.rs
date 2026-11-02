@@ -10,8 +10,12 @@ use ppl_syntax::ast::Module;
 use std::path::{Path, PathBuf};
 
 mod decorators;
+mod link;
 mod modules;
+pub mod target;
+
 pub use modules::stdlib_dir;
+pub use target::Target;
 
 /// Compiler stages, in pipeline order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -352,10 +356,12 @@ pub fn run_interp_with(
 pub struct BuildOptions {
     /// `--release`: optimize.
     pub release: bool,
+    /// `--target`; `None` is the host.
+    pub target: Option<Target>,
 }
 
 /// Compiles a checked program to a native executable at `exe`: an object file from LLVM,
-/// linked with the C runtime by the system `cc`.
+/// linked with the C runtime by lld (`linux-gnu`) or, on a macOS host, the system `cc`.
 pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result<(), String> {
     let mir = checked.mir.as_ref().ok_or("the program has errors")?;
     if let Some(dir) = exe.parent()
@@ -364,14 +370,25 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         std::fs::create_dir_all(dir)
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
+    let target = opts.target.unwrap_or_else(Target::host);
+    let lld = target.os == target::Os::Linux && target.env == target::Env::Gnu;
+    if !lld && !target.is_host() {
+        return Err(format!("building for {target} isn't supported yet"));
+    }
     let obj = exe.with_extension("o");
     ppl_codegen::emit_object(
         mir,
         &obj,
         ppl_codegen::Options {
             optimize: opts.release,
+            triple: (!target.is_host()).then(|| target.llvm_triple()),
         },
     )?;
+    if lld {
+        let r = link::link_linux_gnu(target, &obj, exe, !opts.release);
+        let _ = std::fs::remove_file(&obj);
+        return r;
+    }
     let mut cmd = std::process::Command::new("cc");
     cmd.arg(&obj)
         .arg(ppl_runtime::static_lib())
@@ -379,11 +396,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         .args(ppl_runtime::host_link_flags());
     if !opts.release {
         // Panic traces name frames through the dynamic symbol table.
-        if cfg!(target_os = "macos") {
-            cmd.arg("-Wl,-export_dynamic");
-        } else if cfg!(target_os = "linux") {
-            cmd.arg("-rdynamic");
-        }
+        cmd.arg("-Wl,-export_dynamic");
     }
     cmd.arg("-o").arg(exe);
     let out = cmd
@@ -412,6 +425,7 @@ pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
         None => file.text.hash(&mut h),
     }
     opts.release.hash(&mut h);
+    opts.target.hash(&mut h);
     env!("CARGO_PKG_VERSION").hash(&mut h);
     // The compiler itself: a rebuilt compiler must not reuse old executables.
     if let Ok(meta) = std::env::current_exe().and_then(std::fs::metadata) {
@@ -484,8 +498,15 @@ mod tests {
         let debug = check_source("t.ppl", src);
         assert!(!debug.has_errors(), "{}", debug.render_diagnostics());
         assert_eq!(debug.comptime_output, "mode debug\n");
-        let release =
-            check_source_with("t.ppl", src, Path::new(""), BuildOptions { release: true });
+        let release = check_source_with(
+            "t.ppl",
+            src,
+            Path::new(""),
+            BuildOptions {
+                release: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(release.comptime_output, "mode release\n");
     }
 }

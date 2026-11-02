@@ -40,6 +40,8 @@ mod gc;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Options {
     pub optimize: bool,
+    /// The LLVM triple to compile for; `None` is the host (tuned for its CPU).
+    pub triple: Option<&'static str>,
 }
 
 /// The textual LLVM IR for `program` (`ppl build --emit llvm-ir`).
@@ -49,10 +51,32 @@ pub fn emit_llvm_ir(program: &Program) -> String {
     m.print_to_string().to_string()
 }
 
-/// Compiles `program` to a native object file for the host.
+/// Compiles `program` to a native object file for the host or `opts.triple`.
 pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), String> {
-    Target::initialize_native(&InitializationConfig::default())?;
-    let triple = TargetMachine::get_default_triple();
+    let (triple, cpu, features) = match opts.triple {
+        None => {
+            Target::initialize_native(&InitializationConfig::default())?;
+            (
+                TargetMachine::get_default_triple(),
+                TargetMachine::get_host_cpu_name().to_string(),
+                TargetMachine::get_host_cpu_features().to_string(),
+            )
+        }
+        Some(t) => {
+            Target::initialize_all(&InitializationConfig::default());
+            // The baseline CPU, so the binary runs on any machine of the architecture.
+            let cpu = if t.starts_with("x86_64") {
+                "x86-64"
+            } else {
+                "generic"
+            };
+            (
+                inkwell::targets::TargetTriple::create(t),
+                cpu.to_string(),
+                String::new(),
+            )
+        }
+    };
     let target = Target::from_triple(&triple).map_err(|e| e.to_string())?;
     let level = if opts.optimize {
         OptimizationLevel::Default
@@ -62,13 +86,13 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
     let tm = target
         .create_target_machine(
             &triple,
-            &TargetMachine::get_host_cpu_name().to_string(),
-            &TargetMachine::get_host_cpu_features().to_string(),
+            &cpu,
+            &features,
             level,
             RelocMode::PIC,
             CodeModel::Default,
         )
-        .ok_or("cannot create a target machine for the host")?;
+        .ok_or("cannot create an LLVM target machine")?;
     let cx = Context::create();
     let m = generate(&cx, program);
     // Frame pointers let a panic walk the stack; debug builds also export ppl's functions, so
