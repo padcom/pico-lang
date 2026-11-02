@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P7.5: fetch and std/http** (see [PLAN.md](PLAN.md#p75-fetch-and-stdhttp)).
+**P7.5c: WebSocket** (see [PLAN.md](PLAN.md#p75c-websocket)). P7.5b (TLS) waits for the author: **which TLS library?** Options: bundle mbedTLS or BearSSL (vendored C sources, portable incl. WASI), or use the platform (Security.framework/Network.framework on macOS, OpenSSL on Linux, SChannel on Windows). Then do P7.5b.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 229 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-02 (P7.4) |
+| Last green `scripts/test.sh` | 2026-11-02 (P7.5a) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **HTTP (P7.5a, decision 234)**: `stdlib/core/url.ppl` (URL, URLSearchParams), `stdlib/core/fetch.ppl` (Headers, Request, Response, `__HttpReader`/`__parseHead`/`__writeMessage`, `fetch`), `stdlib/http.ppl` (`serve`, `HttpServer`). Streams and std/net's implementation now live in core (`<core>/streams.ppl`, `<core>/net.ppl`), re-exported by `std/streams`/`std/net`. New: `String.lastIndexOf`; array literals typed through a union's single array member; function values covariant in object-reference returns (lower.rs keeps the pointer). Not yet: https (P7.5b), WebSocket (P7.5c), streaming bodies (read whole first), client keep-alive/pooling, request timeouts/`AbortSignal`, `Request.clone`, URL setters/IDNA, `Response.json` of object literals (needs a declared type), multipart/form-data. Known bug: `match` on a union that includes `null` (`string | Uint8Array | null`) says the type tests can't succeed (narrow with `if (x != null)` first). Byte handling is per-byte `__buf_op` calls (slow for big bodies).
 - **Streams/encoding (P7.4, decision 233)**: `stdlib/streams.ppl` (Readable/Writable/TransformStream, controllers, reader/writer, `pipeTo`/`pipeThrough`, `ReadableStream.from`, `textEncoderStream()`/`textDecoderStream()`), `stdlib/core/text.ppl` (TextEncoder/TextDecoder via `__io` 130/131 in `ppl_io.c`'s `decode_utf8` and `io.rs`), `stdlib/encoding.ppl` (base64, hex), `Uint8Array.subarray/slice/from`, core `TypeError`/`RangeError`. `Conn`, process `Reader`/`Writer` have `readable`/`writable`. Not yet: `tee`, byte streams/BYOB, `size()` strategies, `AbortSignal` for pipes, async iteration of a stream with a reader's lock (for-await just reads), `ReadableStream.from` of async iterables, encodings other than UTF-8, utf-16/csv/toml in std/encoding. Encoding ops live in the POSIX part of `ppl_io.c` (the Windows stub returns -1: fix in P8.3). Strings are built by concatenation (base64/hex O(n²)).
 - **std/net (P7.3, decision 232)**: `stdlib/net.ppl` (`listen`/`Listener`, `connect`/`Conn`, `bind`/`UdpSocket`, `resolve`, `NetError`); native section "std/net" in `runtime/src/ppl_io.c` (`net_run`: jobs 30–35 on solo threads; TCP reads/writes reuse pipe jobs 20–22; 120 shutdown, 121 close), interpreter `net_job` in `crates/ppl-interp/src/io.rs` (`IoState.net`, sockets shared with job threads; `process_job` finds TCP streams there). Closing wakes waiting jobs (shutdown, or a self-connect / self-datagram) and the last job closes the fd. Not yet: `timeouts/keepalive/nodelay options, IPv6-only tests, Windows (P8.3), WASI sockets (P8.5), accepting from several `accept()` calls at once.
 - **std/process (P7.2, decision 231)**: `stdlib/process.ppl`; native in `runtime/src/ppl_io.c` (section "std/process": `spawn_child` with `posix_spawnp`, `child_wait`, `process_op`; blocking jobs 20–23 run on a thread each via `run_solo`), `ppl_argc/ppl_argv` saved in `ppl_rt.c`'s `main`; interpreter in `crates/ppl-interp/src/io.rs` (`process_job` threads push to `IoState.finished` and wake the loop; `process_op`; its own env copy), `Panic.exit` for `exit(code)` (no `finally`; harness/CLI turn it into the exit code), `ppl run --interp file -- args` now passes args. Constructors take defaults/named/rest (`typeck::pick_ctor`). Not yet: **Map literals** (decision 175, `env: { "LANG": "C" }` is E0900/E0313, so the spec/TOUR examples don't compile yet; tests build a `Map`), Windows (`CreateProcessW`, P8.3), `TextEncoder`/`TextDecoder` and Web Streams for the pipes (P7.4), `exit` from a worker (interpreter: only ends that worker), PATH lookup with a changed `PATH` in `env` (native looks in ours, the interpreter in the child's), a child's inherited stdout in the interpreter bypasses the captured output (golden tests pipe everything they print), fds of pipes can leak into children spawned at the same moment from another worker (no `pipe2` on macOS).
@@ -228,7 +229,10 @@ Notes:
 - [x] P7.2 std/process
 - [x] P7.3 std/net
 - [x] P7.4 Web Streams and encoding
-- [ ] P7.5 fetch and std/http
+- [ ] P7.5 fetch and std/http (split)
+  - [x] P7.5a URL, fetch and serve over HTTP
+  - [ ] P7.5b TLS (https) — **needs the author's choice of TLS library**
+  - [ ] P7.5c WebSocket
 - [ ] P7.6 Regex
 - [ ] P7.7 Time
 - [ ] P7.8 Crypto
@@ -349,3 +353,4 @@ Notes:
 | 2026-11-02 | P7.2 | `std/process`: `args`, `env` (get/has/set/delete/toObject), `exit` (skips `finally`), `cwd`, `pid`, `stdin`/`stdout`/`stderr`; `Command` (named options: `cwd`, `env`, `clearEnv`, `stdin`/`stdout`/`stderr` `"inherit" \| "pipe" \| "null"`; `spawn`/`output`/`status`, `Command.shell`), `Child` (`Reader`/`Writer` pipes, `status`, `output`, `kill`), `ProcessError`, `ExitStatus`/`Output`. posix_spawn natively, `std::process` in the interpreter; blocking jobs on threads of their own. Constructors now take default, optional and rest parameters and named arguments. Decision 231. Tests: run/process/{pipes (echo, cat with pipes, shell, failure, kill), self}, run/ctor_defaults, fail/types/ctor_defaults. |
 | 2026-11-02 | P7.3 | `std/net`: TCP `listen`/`connect` (`Listener` async iterator of `Conn`; `Conn` read/`for await`/text/write/writeText/closeWrite/close, `localAddr`/`remoteAddr`), UDP `bind` (`UdpSocket` send/sendText/receive/close, `Datagram`), DNS `resolve`, `NetError` with portable kinds. Blocking socket jobs on runtime threads natively, `std::net` in the interpreter. Spec §13.4 `std/net`, decision 232. Tests: run/net/{echo (server and clients in one process), udp (datagrams, DNS)}. |
 | 2026-11-02 | P7.4 | Web Streams (`std/streams`: ReadableStream/WritableStream/TransformStream with controllers, readers, writers, backpressure, pipeTo/pipeThrough, `from`, text encoder/decoder streams), `TextEncoder`/`TextDecoder` globals (UTF-8, fatal/BOM/stream), `std/encoding` (base64 incl. URL-safe, hex), `Uint8Array.subarray/slice/from`, `TypeError`/`RangeError`; `readable`/`writable` on net `Conn` and process pipes. Spec §13.5, decision 233. Tests: run/streams/{pipe, encoding}, run/net/streams (TOUR's echo with `pipeTo`), run/process/streams. |
+| 2026-11-02 | P7.5a | P7.5 split (a: HTTP, b: TLS — waits for the author's library choice, c: WebSocket). `URL`/`URLSearchParams` (checked against Node), `Headers`, `Request`, `Response` (`json<T>()`, `Response.json`, `redirect`), `fetch` over HTTP/1.1 (redirects, chunked, HEAD), `std/http` `serve` (keep-alive, 400/500, chunked stream bodies, `shutdown`/`finished`). Streams and net moved into core. Typing: union array-literal context, function return covariance. Decision 234. Tests: run/http/{url, serve, keepalive}, run/fn_return_covariance. |

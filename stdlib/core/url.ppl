@@ -1,0 +1,622 @@
+// `URL` and `URLSearchParams` (WHATWG URL, spec §13.1), globals. The parser covers what
+// programs meet in practice: special schemes (http, https, ws, wss, ftp, file) with
+// authority, default ports, dot segments and percent-encoding, opaque paths for other
+// schemes (`mailto:`, `data:`), IPv6 hosts in brackets, and resolving against a base.
+// Not covered: IDNA (non-ASCII host names are percent-encoded), IPv4 number forms other
+// than dotted decimal, and `blob:` origins.
+
+function __defaultPort(scheme: string): string {
+  if (scheme == "http" || scheme == "ws") "80"
+  else if (scheme == "https" || scheme == "wss") "443"
+  else if (scheme == "ftp") "21"
+  else ""
+}
+
+function __isSpecial(scheme: string): bool {
+  scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss" ||
+    scheme == "ftp" || scheme == "file"
+}
+
+function __isAlpha(c: char): bool {
+  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+function __isDigit(c: char): bool {
+  c >= '0' && c <= '9'
+}
+
+function __hexValue(c: char): int {
+  if (c >= '0' && c <= '9') (c as u32 as int) - 48
+  else if (c >= 'a' && c <= 'f') (c as u32 as int) - 87
+  else if (c >= 'A' && c <= 'F') (c as u32 as int) - 55
+  else -1
+}
+
+/// `%XX` for each UTF-8 byte of `c`.
+function __pctChar(c: char): string {
+  const bytes = new TextEncoder().encode(`${c}`)
+  const __hexUpper = "0123456789ABCDEF"
+  let out = ""
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes.get(i)
+    out = `${out}%${__hexUpper[b >> 4]}${__hexUpper[b & 15]}`
+  }
+  out
+}
+
+/// `s` with the characters of `set` (and controls, and everything past ASCII) encoded.
+function __encode(s: string, chars: string): string {
+  let out = ""
+  for (const c of s) {
+    const n = c as u32
+    if (n < 0x21 || n > 0x7E || chars.includes(`${c}`)) {
+      out = out + __pctChar(c)
+    } else {
+      out = `${out}${c}`
+    }
+  }
+  out
+}
+
+/// The bytes `%XX` stand for, decoded as UTF-8 (`plus`: `+` is a space).
+function __decode(s: string, plus: bool): string {
+  if (!s.includes("%") && !(plus && s.includes("+"))) {
+    return s
+  }
+  const bytes: int[] = []
+  const chars: char[] = []
+  for (const c of s) {
+    chars.push(c)
+  }
+  const enc = new TextEncoder()
+  let i = 0
+  while (i < chars.length) {
+    const c = chars[i]
+    if (c == '%' && i + 2 < chars.length + 0 && __hexValue(chars[i + 1]) >= 0 && __hexValue(chars[i + 2]) >= 0) {
+      bytes.push(__hexValue(chars[i + 1]) * 16 + __hexValue(chars[i + 2]))
+      i += 3
+      continue
+    }
+    if (plus && c == '+') {
+      bytes.push(32)
+    } else {
+      const b = enc.encode(`${c}`)
+      for (let k = 0; k < b.length; k++) {
+        bytes.push(b.get(k))
+      }
+    }
+    i += 1
+  }
+  let text = ""
+  try {
+    text = new TextDecoder().decode(Uint8Array.from(bytes))
+  } catch (e: TypeError) {}
+  text
+}
+
+/// `application/x-www-form-urlencoded`: letters, digits and `*-._` stay, a space is `+`.
+function __formEncode(s: string): string {
+  let out = ""
+  for (const c of s) {
+    if (__isAlpha(c) || __isDigit(c) || c == '*' || c == '-' || c == '.' || c == '_') {
+      out = `${out}${c}`
+    } else if (c == ' ') {
+      out = out + "+"
+    } else {
+      out = out + __pctChar(c)
+    }
+  }
+  out
+}
+
+/// A query string's name/value pairs (`a=1&b=two%20words`), in order.
+class URLSearchParams {
+  list: [string, string][] = []
+  /// The URL whose query this is (kept in step).
+  public __owner: URL? = null
+
+  /// From a query string (a leading `?` is skipped) or name/value pairs.
+  constructor(init: string | [string, string][] = "") {
+    match (init) {
+      q: string => this.__parse(q),
+      pairs: [string, string][] => {
+        for (const [k, v] of pairs) {
+          this.list.push([k, v])
+        }
+      },
+    }
+  }
+
+  public __parse(init: string): void {
+    this.list = []
+    const q = if (init.startsWith("?")) init.slice(1) else init
+    if (q.length == 0) {
+      return
+    }
+    for (const part of q.split("&")) {
+      if (part.length == 0) {
+        continue
+      }
+      const i = part.indexOf("=")
+      if (i < 0) {
+        this.list.push([__decode(part, true), ""])
+      } else {
+        this.list.push([__decode(part.slice(0, i), true), __decode(part.slice(i + 1), true)])
+      }
+    }
+  }
+
+  update(): void {
+    const o = this.__owner
+    if (o != null) {
+      o.__setQuery(this.toString())
+    }
+  }
+
+  public get size(): int {
+    this.list.length
+  }
+
+  public append(name: string, value: string): void {
+    this.list.push([name, value])
+    this.update()
+  }
+
+  /// Removes every pair named `name`.
+  public delete(name: string): void {
+    const kept: [string, string][] = []
+    for (const [k, v] of this.list) {
+      if (k != name) {
+        kept.push([k, v])
+      }
+    }
+    this.list = kept
+    this.update()
+  }
+
+  /// The first value named `name`.
+  public get(name: string): string? {
+    for (const [k, v] of this.list) {
+      if (k == name) {
+        return v
+      }
+    }
+    null
+  }
+
+  public getAll(name: string): string[] {
+    const out: string[] = []
+    for (const [k, v] of this.list) {
+      if (k == name) {
+        out.push(v)
+      }
+    }
+    out
+  }
+
+  public has(name: string): bool {
+    this.get(name) != null
+  }
+
+  /// Replaces the first pair named `name` (dropping the others), or appends one.
+  public set(name: string, value: string): void {
+    const kept: [string, string][] = []
+    let found = false
+    for (const [k, v] of this.list) {
+      if (k == name) {
+        if (!found) {
+          kept.push([k, value])
+          found = true
+        }
+      } else {
+        kept.push([k, v])
+      }
+    }
+    if (!found) {
+      kept.push([name, value])
+    }
+    this.list = kept
+    this.update()
+  }
+
+  /// Sorts the pairs by name (stable).
+  public sort(): void {
+    const items = this.list
+    for (let i = 1; i < items.length; i++) {
+      const x = items[i]
+      let j = i - 1
+      while (j >= 0 && items[j][0] > x[0]) {
+        items[j + 1] = items[j]
+        j -= 1
+      }
+      items[j + 1] = x
+    }
+    this.update()
+  }
+
+  public keys(): string[] {
+    const out: string[] = []
+    for (const [k, v] of this.list) {
+      out.push(k)
+    }
+    out
+  }
+
+  public entries(): [string, string][] {
+    const out: [string, string][] = []
+    for (const [k, v] of this.list) {
+      out.push([k, v])
+    }
+    out
+  }
+
+  /// `for (const [name, value] of params)`.
+  public iterator(): Iterator<[string, string]> {
+    __Array_iterator(this.entries())
+  }
+
+  /// The pairs as a query string (without `?`).
+  public toString(): string {
+    let out = ""
+    for (const [k, v] of this.list) {
+      if (out.length > 0) {
+        out = out + "&"
+      }
+      out = `${out}${__formEncode(k)}=${__formEncode(v)}`
+    }
+    out
+  }
+}
+
+/// A parsed URL. `new URL(input, base?)` throws a `TypeError` for an invalid URL;
+/// `URL.parse` gives `null` instead.
+class URL {
+  scheme: string = ""
+  public username: string = ""
+  public password: string = ""
+  public hostname: string = ""
+  public port: string = ""
+  path: string = ""
+  /// Whether the path is opaque (`mailto:a@b`) rather than a list of segments.
+  opaque: bool = false
+  hasHost: bool = false
+  query: string? = null
+  fragment: string? = null
+  params: URLSearchParams? = null
+
+  constructor(input: string, base: string? = null) throws TypeError {
+    const b = base
+    if (b != null) {
+      const bu = new URL(b)
+      this.parseInto(input.trim(), bu)
+    } else {
+      this.parseInto(input.trim(), null)
+    }
+  }
+
+  /// The URL, or `null` when `input` isn't one.
+  public static parse(input: string, base: string? = null): URL? {
+    try {
+      return new URL(input, base)
+    } catch (e: TypeError) {}
+    null
+  }
+
+  /// Whether `input` (against `base`) is a valid URL.
+  public static canParse(input: string, base: string? = null): bool {
+    URL.parse(input, base) != null
+  }
+
+  fail(input: string): void throws TypeError {
+    throw new TypeError(`Invalid URL: ${input}`)
+  }
+
+  parseInto(input: string, base: URL?): void throws TypeError {
+    let s = input.replaceAll("\t", "").replaceAll("\n", "").replaceAll("\r", "")
+    // The scheme.
+    let i = 0
+    const chars: char[] = []
+    for (const c of s) {
+      chars.push(c)
+    }
+    let scheme = ""
+    if (chars.length > 0 && __isAlpha(chars[0])) {
+      let k = 1
+      while (k < chars.length && (__isAlpha(chars[k]) || __isDigit(chars[k]) || chars[k] == '+' || chars[k] == '-' || chars[k] == '.')) {
+        k += 1
+      }
+      if (k < chars.length && chars[k] == ':') {
+        scheme = s.slice(0, k).toLowerCase()
+        i = k + 1
+      }
+    }
+    if (scheme == "") {
+      if (base == null) {
+        this.fail(input)
+        return
+      }
+      this.relative(s, base, input)
+      return
+    }
+    this.scheme = scheme
+    let rest = s.slice(i)
+    if (__isSpecial(scheme)) {
+      const bb = base
+      if (bb != null && bb.scheme == scheme && !rest.startsWith("/") && !rest.startsWith("\\")) {
+        // `http:foo` against an http base is relative.
+        this.relative(rest, bb, input)
+        return
+      }
+      let k = 0
+      while (k < rest.length && (rest[k] == '/' || rest[k] == '\\')) {
+        k += 1
+      }
+      this.authorityAndRest(rest.slice(k), input)
+      return
+    }
+    if (rest.startsWith("//")) {
+      this.authorityAndRest(rest.slice(2), input)
+      return
+    }
+    // An opaque path, or a path without a host.
+    this.splitTail(rest, !rest.startsWith("/"))
+  }
+
+  /// `[userinfo@]host[:port]` then the path, query and fragment.
+  authorityAndRest(s: string, input: string): void throws TypeError {
+    let end = s.length
+    for (let k = 0; k < s.length; k++) {
+      const c = s[k]
+      if (c == '/' || c == '?' || c == '#' || (__isSpecial(this.scheme) && c == '\\')) {
+        end = k
+        break
+      }
+    }
+    let auth = s.slice(0, end)
+    const at = auth.lastIndexOf("@")
+    if (at >= 0) {
+      const info = auth.slice(0, at)
+      auth = auth.slice(at + 1)
+      const colon = info.indexOf(":")
+      if (colon >= 0) {
+        this.username = __encode(info.slice(0, colon), " \"#<>?`{}/:;=@[\\]^|")
+        this.password = __encode(info.slice(colon + 1), " \"#<>?`{}/:;=@[\\]^|")
+      } else {
+        this.username = __encode(info, " \"#<>?`{}/:;=@[\\]^|")
+      }
+    }
+    let host = auth
+    let port = ""
+    if (auth.startsWith("[")) {
+      const close = auth.indexOf("]")
+      if (close < 0) {
+        this.fail(input)
+      }
+      host = auth.slice(0, close + 1).toLowerCase()
+      const after = auth.slice(close + 1)
+      if (after.startsWith(":")) {
+        port = after.slice(1)
+      } else if (after.length > 0) {
+        this.fail(input)
+      }
+    } else {
+      const colon = auth.lastIndexOf(":")
+      if (colon >= 0) {
+        host = auth.slice(0, colon)
+        port = auth.slice(colon + 1)
+      }
+      host = __decode(host, false).toLowerCase()
+      for (const c of host) {
+        if (c == ' ' || c == '#' || c == '%' || c == '/' || c == ':' || c == '<' || c == '>' || c == '?' || c == '@' || c == '[' || c == '\\' || c == ']' || c == '^' || c == '|') {
+          this.fail(input)
+        }
+      }
+      host = __encode(host, "")
+    }
+    if (port.length > 0) {
+      for (const c of port) {
+        if (!__isDigit(c)) {
+          this.fail(input)
+        }
+      }
+      const n = parseInt(port)
+      if (n > 65535) {
+        this.fail(input)
+      }
+      port = `${n}`
+      if (port == __defaultPort(this.scheme)) {
+        port = ""
+      }
+    }
+    if (host.length == 0 && __isSpecial(this.scheme) && this.scheme != "file") {
+      this.fail(input)
+    }
+    this.hostname = host
+    this.port = port
+    this.hasHost = true
+    this.splitTail(s.slice(end), false)
+  }
+
+  /// Path, `?query` and `#fragment` of `s`.
+  splitTail(s: string, opaque: bool): void {
+    let rest = s
+    const hash = rest.indexOf("#")
+    if (hash >= 0) {
+      this.fragment = __encode(rest.slice(hash + 1), " \"<>`")
+      rest = rest.slice(0, hash)
+    }
+    const q = rest.indexOf("?")
+    if (q >= 0) {
+      this.query = __encode(rest.slice(q + 1), if (__isSpecial(this.scheme)) " \"#<>'" else " \"#<>")
+      rest = rest.slice(0, q)
+    }
+    this.opaque = opaque
+    if (opaque) {
+      this.path = __encode(rest, "")
+    } else {
+      this.path = this.normalize(rest)
+    }
+  }
+
+  /// A path with `.` and `..` segments resolved and characters encoded.
+  normalize(p: string): string {
+    const special = __isSpecial(this.scheme)
+    const raw = if (special) p.replaceAll("\\", "/") else p
+    if (raw.length == 0) {
+      return if (special) "/" else ""
+    }
+    const out: string[] = []
+    const parts = raw.split("/")
+    for (let k = 0; k < parts.length; k++) {
+      if (k == 0 && raw.startsWith("/")) {
+        continue
+      }
+      const seg = parts[k]
+      const last = k == parts.length - 1
+      const low = seg.toLowerCase()
+      if (seg == "." || low == "%2e") {
+        if (last) {
+          out.push("")
+        }
+      } else if (seg == ".." || low == ".%2e" || low == "%2e." || low == "%2e%2e") {
+        if (out.length > 0) {
+          out.pop()
+        }
+        if (last) {
+          out.push("")
+        }
+      } else {
+        out.push(__encode(seg, " \"#<>?`{}"))
+      }
+    }
+    let text = ""
+    for (const seg of out) {
+      text = `${text}/${seg}`
+    }
+    if (text.length == 0) "/" else text
+  }
+
+  /// `s` (no scheme) against `base`.
+  relative(s: string, base: URL, input: string): void throws TypeError {
+    if (base.opaque && !s.startsWith("#")) {
+      this.fail(input)
+      return
+    }
+    this.scheme = base.scheme
+    const special = __isSpecial(base.scheme)
+    if (s.startsWith("//") || (special && (s.startsWith("\\\\") || s.startsWith("/\\") || s.startsWith("\\/")))) {
+      this.authorityAndRest(s.slice(2), input)
+      return
+    }
+    this.username = base.username
+    this.password = base.password
+    this.hostname = base.hostname
+    this.port = base.port
+    this.hasHost = base.hasHost
+    this.opaque = base.opaque
+    if (s.length == 0) {
+      this.path = base.path
+      this.query = base.query
+      return
+    }
+    if (s.startsWith("#")) {
+      this.path = base.path
+      this.query = base.query
+      this.fragment = __encode(s.slice(1), " \"<>`")
+      return
+    }
+    if (s.startsWith("?")) {
+      this.path = base.path
+      this.splitTail(s, false)
+      this.path = base.path
+      return
+    }
+    if (s.startsWith("/") || (special && s.startsWith("\\"))) {
+      this.splitTail(s, false)
+      return
+    }
+    // Relative to the base's directory.
+    const dir = base.path.slice(0, base.path.lastIndexOf("/") + 1)
+    this.splitTail(`${dir}${s}`, false)
+  }
+
+  public __setQuery(q: string): void {
+    this.query = if (q.length == 0) null else q
+  }
+
+  public get protocol(): string {
+    `${this.scheme}:`
+  }
+
+  /// `hostname` and `:port` (when it isn't the default).
+  public get host(): string {
+    if (this.port.length > 0) `${this.hostname}:${this.port}` else this.hostname
+  }
+
+  public get pathname(): string {
+    this.path
+  }
+
+  /// `?` and the query, or "".
+  public get search(): string {
+    const q = this.query
+    if (q == null || q.length == 0) "" else `?${q}`
+  }
+
+  /// `#` and the fragment, or "".
+  public get hash(): string {
+    const f = this.fragment
+    if (f == null || f.length == 0) "" else `#${f}`
+  }
+
+  /// `scheme://host` for http(s)/ws(s)/ftp, else `"null"`.
+  public get origin(): string {
+    if (__isSpecial(this.scheme) && this.scheme != "file") `${this.scheme}://${this.host}` else "null"
+  }
+
+  /// The query's pairs (changing them changes the URL).
+  public get searchParams(): URLSearchParams {
+    const p = this.params
+    if (p != null) {
+      return p
+    }
+    const q = this.query
+    const made = new URLSearchParams(if (q != null) q else "")
+    made.__owner = this
+    this.params = made
+    made
+  }
+
+  public get href(): string {
+    let out = `${this.scheme}:`
+    if (this.hasHost) {
+      out = out + "//"
+      if (this.username.length > 0 || this.password.length > 0) {
+        out = out + this.username
+        if (this.password.length > 0) {
+          out = `${out}:${this.password}`
+        }
+        out = out + "@"
+      }
+      out = out + this.host
+    }
+    out = out + this.path
+    const q = this.query
+    if (q != null) {
+      out = `${out}?${q}`
+    }
+    const f = this.fragment
+    if (f != null) {
+      out = `${out}#${f}`
+    }
+    out
+  }
+
+  public toString(): string {
+    this.href
+  }
+
+  public toJSON(): string {
+    this.href
+  }
+}

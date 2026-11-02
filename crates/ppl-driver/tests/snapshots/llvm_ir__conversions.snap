@@ -15,11 +15,11 @@ source_filename = "test.ppl"
 @ppl.global.Float64Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @ppl_gc_requested = external thread_local global i32
 @ppl.cstr = private unnamed_addr constant [31 x i8] c"integer conversion out of range"
-@ppl.cstr.22 = private unnamed_addr constant [8 x i8] c"test.ppl"
-@ppl.cstr.23 = private unnamed_addr constant [29 x i8] c"float conversion out of range"
+@ppl.cstr.36 = private unnamed_addr constant [8 x i8] c"test.ppl"
+@ppl.cstr.37 = private unnamed_addr constant [29 x i8] c"float conversion out of range"
 @ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.layout.24 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.layout.25 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.38 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.39 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 
 define internal i16 @ppl.narrow(i64 %0) {
 start:
@@ -46,7 +46,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb0
-  call void @ppl_panic(ptr @ppl.cstr, i64 31, ptr @ppl.cstr.22, i64 8, i32 2, i32 32)
+  call void @ppl_panic(ptr @ppl.cstr, i64 31, ptr @ppl.cstr.36, i64 8, i32 2, i32 32)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -106,7 +106,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb0
-  call void @ppl_panic(ptr @ppl.cstr.23, i64 29, ptr @ppl.cstr.22, i64 8, i32 4, i32 30)
+  call void @ppl_panic(ptr @ppl.cstr.37, i64 29, ptr @ppl.cstr.36, i64 8, i32 4, i32 30)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -220,13 +220,13 @@ start:
   %4 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 0
   store ptr null, ptr %4, align 8
   %5 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 1
-  store ptr @ppl.layout.24, ptr %5, align 8
+  store ptr @ppl.layout.38, ptr %5, align 8
   %6 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 2
   store ptr @ppl.global.__loop, ptr %6, align 8
   %7 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 0
   store ptr null, ptr %7, align 8
   %8 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 1
-  store ptr @ppl.layout.25, ptr %8, align 8
+  store ptr @ppl.layout.39, ptr %8, align 8
   %9 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 2
   store ptr @ppl.global.__buffers, ptr %9, align 8
   call void @ppl_gc_set_globals(ptr %gc.globals)

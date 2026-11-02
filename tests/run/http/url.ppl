@@ -1,0 +1,47 @@
+// expect: https://user:pw@example.com:8080/a/c?x=1#top
+// expect: https: example.com:8080 example.com 8080 /a/c ?x=1 #top
+// expect: origin https://example.com:8080
+// expect: http://example.com/
+// expect: https://example.com/a/b/d.html
+// expect: https://example.com/top?q=2
+// expect: https://example.com/a/b/c.html?k=v
+// expect: http://other.org/x
+// expect: https://example.com/a/b/c.html?k=v#new
+// expect: http://ex.com/caf%C3%A9%20menu?q=a%20b
+// expect: mailto:me@example.com
+// expect: invalid: Invalid URL: not a url
+// expect: parse: true false
+// expect: q=caf%C3%A9+au+lait&n=1&n=2
+// expect: café au lait ["1", "2"] true
+// expect: http://ex.com/s?a=1&b=two+words
+// expect: http://[::1]:3000/
+// `URL` and `URLSearchParams` (spec §13.1).
+const u = new URL("HTTPS://user:pw@Example.COM:8080/a/./b/../c?x=1#top")
+println(u.href)
+println(`${u.protocol} ${u.host} ${u.hostname} ${u.port} ${u.pathname} ${u.search} ${u.hash}`)
+println(`origin ${u.origin}`)
+println(new URL("http://example.com:80").href)
+
+const base = "https://example.com/a/b/c.html?k=v#frag"
+println(new URL("d.html", base).href)
+println(new URL("/top?q=2", base).href)
+println(new URL("", base).href)
+println(new URL("//other.org/x", "http://example.com/").href)
+println(new URL("#new", base).href)
+println(new URL("http://ex.com/café menu?q=a b").href)
+println(new URL("mailto:me@example.com").href)
+try {
+  new URL("not a url")
+} catch (e: TypeError) {
+  println(`invalid: ${e.message}`)
+}
+println(`parse: ${URL.parse("x", "http://a/") != null} ${URL.canParse("x")}`)
+
+const p = new URLSearchParams("q=caf%C3%A9+au+lait&n=1&n=2")
+println(p.toString())
+println(`${p.get("q")} ${p.getAll("n"):?} ${p.has("n")}`)
+const s = new URL("http://ex.com/s")
+s.searchParams.append("a", "1")
+s.searchParams.append("b", "two words")
+println(s.href)
+println(new URL("http://[::1]:3000").href)

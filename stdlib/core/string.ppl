@@ -196,3 +196,17 @@ function parseInt(s: string): int {
   }
   if (negative) -value else value
 }
+
+/// The last position of `search` in `s`, or -1.
+function __String_lastIndexOf(s: string, search: string): int {
+  const n = s.length
+  const m = search.length
+  let i = n - m
+  while (i >= 0) {
+    if (s.slice(i, i + m) == search) {
+      return i
+    }
+    i -= 1
+  }
+  -1
+}

@@ -1,0 +1,700 @@
+// `fetch`, `Headers`, `Request` and `Response` (WHATWG Fetch, spec §13.1), globals, plus the
+// HTTP/1.1 message reading and writing that `std/http`'s `serve` shares. Bodies are read whole
+// (`Content-Length`, chunked, or up to the end of the connection) before `fetch` resolves or a
+// handler runs; a `ReadableStream` body is sent chunked. Only `http:` for now (TLS: P7.5b).
+
+/// HTTP header fields: names are case-insensitive (kept lowercase), values trimmed.
+class Headers {
+  list: [string, string][] = []
+
+  /// From name/value pairs, or a copy of other headers.
+  constructor(init: [string, string][] | Headers = []) {
+    match (init) {
+      pairs: [string, string][] => {
+        for (const [k, v] of pairs) {
+          this.append(k, v)
+        }
+      },
+      h: Headers => {
+        for (const [k, v] of h.list) {
+          this.list.push([k, v])
+        }
+      },
+    }
+  }
+
+  /// Adds a value (after any others of the same name).
+  public append(name: string, value: string): void {
+    this.list.push([name.toLowerCase(), value.trim()])
+  }
+
+  public delete(name: string): void {
+    const n = name.toLowerCase()
+    const kept: [string, string][] = []
+    for (const [k, v] of this.list) {
+      if (k != n) {
+        kept.push([k, v])
+      }
+    }
+    this.list = kept
+  }
+
+  /// The values of `name` joined with ", ", or `null`.
+  public get(name: string): string? {
+    const n = name.toLowerCase()
+    let out: string? = null
+    for (const [k, v] of this.list) {
+      if (k == n) {
+        const o = out
+        out = if (o == null) v else `${o}, ${v}`
+      }
+    }
+    out
+  }
+
+  /// Every `Set-Cookie` value (they're never joined).
+  public getSetCookie(): string[] {
+    const out: string[] = []
+    for (const [k, v] of this.list) {
+      if (k == "set-cookie") {
+        out.push(v)
+      }
+    }
+    out
+  }
+
+  public has(name: string): bool {
+    this.get(name) != null
+  }
+
+  /// Replaces every value of `name` with `value`.
+  public set(name: string, value: string): void {
+    this.delete(name)
+    this.append(name, value)
+  }
+
+  /// The fields sorted by name, values of a name joined (except `set-cookie`).
+  public entries(): [string, string][] {
+    const names: string[] = []
+    for (const [k, v] of this.list) {
+      if (!names.includes(k)) {
+        names.push(k)
+      }
+    }
+    names.sort()
+    const out: [string, string][] = []
+    for (const n of names) {
+      if (n == "set-cookie") {
+        for (const c of this.getSetCookie()) {
+          out.push([n, c])
+        }
+      } else {
+        const v = this.get(n)
+        if (v != null) {
+          out.push([n, v])
+        }
+      }
+    }
+    out
+  }
+
+  public keys(): string[] {
+    const out: string[] = []
+    for (const [k, v] of this.entries()) {
+      out.push(k)
+    }
+    out
+  }
+
+  /// `for (const [name, value] of headers)`.
+  public iterator(): Iterator<[string, string]> {
+    __Array_iterator(this.entries())
+  }
+
+  /// The fields in the order they were added (as sent).
+  public __raw(): [string, string][] {
+    this.list
+  }
+}
+
+/// What a request or response body can be made from.
+type BodyInit = string | Uint8Array | ReadableStream<Uint8Array> | URLSearchParams
+
+/// A copy of `h` (or new headers).
+function __headersCopy(h: Headers?): Headers {
+  if (h != null) new Headers(h) else new Headers()
+}
+
+/// The bytes of `parts`, one after another.
+function __concatBytes(parts: Uint8Array[]): Uint8Array {
+  let n = 0
+  for (const p of parts) {
+    n += p.length
+  }
+  const out = new Uint8Array(n)
+  let k = 0
+  for (const p of parts) {
+    for (let i = 0; i < p.length; i++) {
+      out.set(k, p.get(i))
+      k += 1
+    }
+  }
+  out
+}
+
+/// A request's or response's headers and body (read once).
+class __Body {
+  public readonly headers: Headers
+  public __bytes: Uint8Array? = null
+  public __stream: ReadableStream<Uint8Array>? = null
+  used: bool = false
+
+  constructor(body: BodyInit?, headers: Headers) {
+    this.headers = headers
+    if (body != null) {
+      match (body) {
+        s: string => {
+          this.__bytes = new TextEncoder().encode(s)
+          if (!headers.has("content-type")) {
+            headers.set("content-type", "text/plain;charset=UTF-8")
+          }
+        },
+        b: Uint8Array => {
+          this.__bytes = b
+        },
+        r: ReadableStream<Uint8Array> => {
+          this.__stream = r
+        },
+        p: URLSearchParams => {
+          this.__bytes = new TextEncoder().encode(p.toString())
+          if (!headers.has("content-type")) {
+            headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8")
+          }
+        },
+      }
+    }
+  }
+
+  public get bodyUsed(): bool {
+    this.used
+  }
+
+  /// The body as a stream (`null` without one).
+  public get body(): ReadableStream<Uint8Array>? {
+    const s = this.__stream
+    if (s != null) {
+      return s
+    }
+    const b = this.__bytes
+    if (b == null) {
+      return null
+    }
+    const made = ReadableStream.from<Uint8Array>([b])
+    this.__stream = made
+    this.__bytes = null
+    made
+  }
+
+  /// The whole body.
+  public async bytes(): Promise<Uint8Array> throws Error {
+    if (this.used) {
+      throw new TypeError("the body has already been read")
+    }
+    this.used = true
+    const b = this.__bytes
+    if (b != null) {
+      return b
+    }
+    const s = this.__stream
+    if (s == null) {
+      return new Uint8Array(0)
+    }
+    const parts: Uint8Array[] = []
+    for await (const chunk of s) {
+      parts.push(chunk)
+    }
+    __concatBytes(parts)
+  }
+
+  public async arrayBuffer(): Promise<ArrayBuffer> throws Error {
+    const b = await this.bytes()
+    if (b.byteOffset == 0 && b.length == b.buffer.byteLength) b.buffer else b.slice().buffer
+  }
+
+  /// The body as text (UTF-8; bad bytes become U+FFFD).
+  public async text(): Promise<string> throws Error {
+    const b = await this.bytes()
+    new TextDecoder().decode(b)
+  }
+
+  /// The body parsed as JSON into a `T` (as `JSON.parse<T>`).
+  public async json<T>(): Promise<T> throws Error {
+    const t = await this.text()
+    JSON.parse<T>(t)
+  }
+
+  /// The body's length when it's known.
+  public __length(): int? {
+    const b = this.__bytes
+    if (b != null) b.length else if (this.__stream == null) 0 else null
+  }
+}
+
+/// `new Request(url, { method, headers, body })`.
+struct RequestInit {
+  method?: string
+  headers?: Headers
+  body?: BodyInit
+  /// `"follow"` (the default: up to 20 redirects), `"manual"` (the 3xx response) or `"error"`.
+  redirect?: string
+}
+
+/// An HTTP request: what `fetch` sends, and what a `serve` handler gets.
+class Request extends __Body {
+  public readonly method: string
+  public readonly url: string
+  public readonly redirect: string
+
+  constructor(input: string | URL, init: RequestInit = {}) throws TypeError {
+    super(init.body, __headersCopy(init.headers))
+    const href = match (input) {
+      s: string => s,
+      u: URL => u.href,
+    }
+    this.url = new URL(href).href
+    const m = init.method
+    this.method = if (m != null) m.toUpperCase() else "GET"
+    const r = init.redirect
+    this.redirect = if (r != null) r else "follow"
+    if ((this.method == "GET" || this.method == "HEAD") && (this.__bytes != null || this.__stream != null)) {
+      throw new TypeError(`a ${this.method} request can't have a body`)
+    }
+  }
+}
+
+/// `new Response(body, { status, statusText, headers })`.
+struct ResponseInit {
+  status?: int
+  statusText?: string
+  headers?: Headers
+}
+
+/// The reason phrase of common status codes.
+function __statusText(code: int): string {
+  match (code) {
+    100 => "Continue",
+    101 => "Switching Protocols",
+    200 => "OK",
+    201 => "Created",
+    202 => "Accepted",
+    204 => "No Content",
+    206 => "Partial Content",
+    301 => "Moved Permanently",
+    302 => "Found",
+    303 => "See Other",
+    304 => "Not Modified",
+    307 => "Temporary Redirect",
+    308 => "Permanent Redirect",
+    400 => "Bad Request",
+    401 => "Unauthorized",
+    403 => "Forbidden",
+    404 => "Not Found",
+    405 => "Method Not Allowed",
+    409 => "Conflict",
+    413 => "Content Too Large",
+    415 => "Unsupported Media Type",
+    422 => "Unprocessable Content",
+    429 => "Too Many Requests",
+    500 => "Internal Server Error",
+    501 => "Not Implemented",
+    502 => "Bad Gateway",
+    503 => "Service Unavailable",
+    504 => "Gateway Timeout",
+    _ => "",
+  }
+}
+
+/// An HTTP response: what `fetch` resolves to, and what a `serve` handler returns.
+class Response extends __Body {
+  public readonly status: int
+  public readonly statusText: string
+  /// The URL it came from (after redirects); "" for one made here.
+  public url: string = ""
+  public redirected: bool = false
+
+  constructor(body: BodyInit? = null, init: ResponseInit = {}) {
+    super(body, __headersCopy(init.headers))
+    const s = init.status
+    this.status = if (s != null) s else 200
+    const t = init.statusText
+    this.statusText = if (t != null) t else __statusText(this.status)
+    if (this.status < 200 || this.status > 599) {
+      panic(`Response: status ${this.status} is outside 200–599`)
+    }
+  }
+
+  /// Whether the status is 200–299.
+  public get ok(): bool {
+    this.status >= 200 && this.status < 300
+  }
+
+  /// `data` as JSON (as `JSON.stringify`), with `content-type: application/json`.
+  public static json<T>(data: T, init: ResponseInit = {}): Response {
+    const h = init.headers
+    const headers = if (h != null) new Headers(h) else new Headers()
+    if (!headers.has("content-type")) {
+      headers.set("content-type", "application/json")
+    }
+    new Response(JSON.stringify<T>(data), { status: init.status, statusText: init.statusText, headers })
+  }
+
+  /// A redirect to `url` (301, 302, 303, 307 or 308).
+  public static redirect(url: string, status: int = 302): Response {
+    new Response(null, { status, headers: new Headers([["location", url]]) })
+  }
+}
+
+// ---- HTTP/1.1 messages ----
+
+/// Reads HTTP messages from a connection: the head up to the blank line, then bodies.
+class __HttpReader {
+  conn: Conn
+  buf: Uint8Array = new Uint8Array(0)
+  pos: int = 0
+  eof: bool = false
+
+  constructor(conn: Conn) {
+    this.conn = conn
+  }
+
+  /// Another chunk into the buffer (false at the end of the connection).
+  public async more(): Promise<bool> throws NetError {
+    if (this.eof) {
+      return false
+    }
+    const c = await this.conn.read()
+    if (c == null) {
+      this.eof = true
+      return false
+    }
+    const left = this.buf.length - this.pos
+    const n = new Uint8Array(left + c.length)
+    for (let i = 0; i < left; i++) {
+      n.set(i, this.buf.get(this.pos + i))
+    }
+    for (let i = 0; i < c.length; i++) {
+      n.set(left + i, c.get(i))
+    }
+    this.buf = n
+    this.pos = 0
+    true
+  }
+
+  /// Bytes `from..to` of the buffer as text (each byte one character, as HTTP heads are).
+  latin1(from: int, to: int): string {
+    let s = ""
+    for (let i = from; i < to; i++) {
+      s = `${s}${this.buf.get(i) as u32 as char}`
+    }
+    s
+  }
+
+  /// The next head (without the blank line), or `null` when the connection ends first.
+  public async head(): Promise<string?> throws Error {
+    let from = this.pos
+    while (true) {
+      const b = this.buf
+      for (let i = from; i + 3 < b.length; i++) {
+        if (b.get(i) == 13 && b.get(i + 1) == 10 && b.get(i + 2) == 13 && b.get(i + 3) == 10) {
+          const text = this.latin1(this.pos, i)
+          this.pos = i + 4
+          return text
+        }
+      }
+      if (this.buf.length - this.pos > 65536) {
+        throw new TypeError("the HTTP head is too large")
+      }
+      const seen = this.buf.length - this.pos
+      if (!(await this.more())) {
+        if (this.buf.length - this.pos == 0) {
+          return null
+        }
+        throw new TypeError("the connection closed in the middle of an HTTP head")
+      }
+      from = if (seen > 3) seen - 3 else 0
+    }
+    null
+  }
+
+  /// The next line (without its CRLF).
+  public async line(): Promise<string> throws Error {
+    let from = this.pos
+    while (true) {
+      const b = this.buf
+      for (let i = from; i + 1 < b.length; i++) {
+        if (b.get(i) == 13 && b.get(i + 1) == 10) {
+          const text = this.latin1(this.pos, i)
+          this.pos = i + 2
+          return text
+        }
+      }
+      const seen = this.buf.length - this.pos
+      if (!(await this.more())) {
+        throw new TypeError("the connection closed in the middle of a chunked body")
+      }
+      from = if (seen > 1) seen - 1 else 0
+    }
+    ""
+  }
+
+  /// The next `n` bytes.
+  public async exact(n: int): Promise<Uint8Array> throws Error {
+    while (this.buf.length - this.pos < n) {
+      if (!(await this.more())) {
+        throw new TypeError("the connection closed before the end of the body")
+      }
+    }
+    const out = this.buf.slice(this.pos, this.pos + n)
+    this.pos += n
+    out
+  }
+
+  /// Everything until the connection ends.
+  public async rest(): Promise<Uint8Array> throws Error {
+    while (await this.more()) {}
+    const out = this.buf.slice(this.pos)
+    this.pos = this.buf.length
+    out
+  }
+
+  /// A body as `headers` describe it (`untilEnd`: without a length, it lasts until the
+  /// connection ends, as a response's does; a request's is empty).
+  public async body(headers: Headers, untilEnd: bool): Promise<Uint8Array> throws Error {
+    const te = headers.get("transfer-encoding")
+    if (te != null && te.toLowerCase().includes("chunked")) {
+      const parts: Uint8Array[] = []
+      while (true) {
+        const sizeLine = await this.line()
+        const semi = sizeLine.indexOf(";")
+        const hexText = (if (semi >= 0) sizeLine.slice(0, semi) else sizeLine).trim()
+        let size = 0
+        for (const c of hexText) {
+          const v = __hexValue(c)
+          if (v < 0) {
+            throw new TypeError(`bad chunk size: ${sizeLine}`)
+          }
+          size = size * 16 + v
+        }
+        if (size == 0) {
+          // Trailer fields, then the blank line.
+          while ((await this.line()).length > 0) {}
+          break
+        }
+        parts.push(await this.exact(size))
+        await this.line()
+      }
+      return __concatBytes(parts)
+    }
+    const cl = headers.get("content-length")
+    if (cl != null) {
+      const t = cl.trim()
+      for (const c of t) {
+        if (!__isDigit(c)) {
+          throw new TypeError(`bad content-length: ${cl}`)
+        }
+      }
+      return await this.exact(if (t.length == 0) 0 else parseInt(t))
+    }
+    if (untilEnd) await this.rest() else new Uint8Array(0)
+  }
+}
+
+/// A parsed head: the start line's three parts and the header fields.
+struct __HttpHead {
+  first: string
+  second: string
+  third: string
+  headers: Headers
+}
+
+/// `GET /path HTTP/1.1` (or `HTTP/1.1 200 OK`) and `Name: value` lines.
+function __parseHead(text: string): __HttpHead throws TypeError {
+  const lines = text.split("\r\n")
+  const start = lines[0]
+  const a = start.indexOf(" ")
+  if (a < 0) {
+    throw new TypeError(`bad HTTP start line: ${start}`)
+  }
+  const restText = start.slice(a + 1)
+  const b = restText.indexOf(" ")
+  const second = if (b < 0) restText else restText.slice(0, b)
+  const third = if (b < 0) "" else restText.slice(b + 1)
+  const headers = new Headers()
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]
+    const colon = line.indexOf(":")
+    if (colon <= 0) {
+      throw new TypeError(`bad HTTP header line: ${line}`)
+    }
+    headers.append(line.slice(0, colon).trim(), line.slice(colon + 1))
+  }
+  const head: __HttpHead = { first: start.slice(0, a), second, third, headers }
+  head
+}
+
+/// Writes a head and `msg`'s body (`Content-Length` when known, else chunked; `noBody`:
+/// headers only).
+async function __writeMessage(conn: Conn, start: string, extra: [string, string][], msg: __Body,
+    noBody: bool): Promise<void> throws Error {
+  const n = msg.__length()
+  let head = `${start}\r\n`
+  for (const [k, v] of extra) {
+    head = `${head}${k}: ${v}\r\n`
+  }
+  for (const [k, v] of msg.headers.__raw()) {
+    if (k != "content-length" && k != "transfer-encoding" && k != "connection") {
+      head = `${head}${k}: ${v}\r\n`
+    }
+  }
+  if (n != null) {
+    head = `${head}content-length: ${n}\r\n\r\n`
+  } else {
+    head = `${head}transfer-encoding: chunked\r\n\r\n`
+  }
+  await conn.writeText(head)
+  if (noBody) {
+    return
+  }
+  const b = msg.__bytes
+  const s = msg.__stream
+  if (b != null) {
+    if (b.length > 0) {
+      await conn.write(b)
+    }
+  } else if (s != null) {
+    for await (const chunk of s) {
+      if (chunk.length > 0) {
+        await conn.writeText(`${chunk.length:x}\r\n`)
+        await conn.write(chunk)
+        await conn.writeText("\r\n")
+      }
+    }
+    await conn.writeText("0\r\n\r\n")
+  }
+}
+
+/// `host:port` of a URL for connecting (the host without IPv6 brackets).
+function __connectHost(u: URL): string {
+  const h = u.hostname
+  if (h.startsWith("[")) h.slice(1, h.length - 1) else h
+}
+
+/// One request and its response (no redirects).
+async function __fetchOnce(req: Request): Promise<Response> throws Error {
+  const u = new URL(req.url)
+  if (u.protocol != "http:") {
+    throw new TypeError(`fetch: ${u.protocol} URLs aren't supported yet (only http:)`)
+  }
+  const port = if (u.port.length > 0) parseInt(u.port) else 80
+  let conn: Conn? = null
+  try {
+    conn = await __netConnect(port, __connectHost(u))
+  } catch (e: NetError) {
+    const err = new TypeError(`fetch failed: ${e.message}`)
+    err.cause = e
+    throw err
+  }
+  const c = conn
+  if (c == null) {
+    throw new TypeError("fetch failed")
+  }
+  try {
+    const extra: [string, string][] = [["host", u.host], ["connection", "close"]]
+    if (!req.headers.has("user-agent")) {
+      extra.push(["user-agent", "ppl"])
+    }
+    if (!req.headers.has("accept")) {
+      extra.push(["accept", "*/*"])
+    }
+    const noLength = req.__bytes == null && req.__stream == null && (req.method == "GET" || req.method == "HEAD")
+    const target = `${u.pathname}${u.search}`
+    if (noLength) {
+      let head = `${req.method} ${target} HTTP/1.1\r\n`
+      for (const [k, v] of extra) {
+        head = `${head}${k}: ${v}\r\n`
+      }
+      for (const [k, v] of req.headers.__raw()) {
+        head = `${head}${k}: ${v}\r\n`
+      }
+      await c.writeText(`${head}\r\n`);
+    } else {
+      await __writeMessage(c, `${req.method} ${target} HTTP/1.1`, extra, req, false)
+    }
+    const r = new __HttpReader(c)
+    while (true) {
+      const text = await r.head()
+      if (text == null) {
+        throw new TypeError("fetch failed: the server closed the connection without a response")
+      }
+      const h = __parseHead(text)
+      const status = parseInt(h.second)
+      if (status >= 100 && status < 200) {
+        // (An interim response: the real one follows.)
+        continue
+      }
+      const empty = req.method == "HEAD" || status == 204 || status == 304
+      const body = if (empty) new Uint8Array(0) else await r.body(h.headers, true)
+      const res = new Response(if (empty) null else body, {
+        status: if (status < 200 || status > 599) 500 else status,
+        statusText: h.third,
+        headers: h.headers,
+      })
+      res.url = req.url
+      return res
+    }
+    throw new TypeError("fetch failed")
+  } finally {
+    c.close()
+  }
+}
+
+/// Fetches `input` over HTTP/1.1, following redirects (see `RequestInit.redirect`).
+/// Network failures and unsupported URLs reject with a `TypeError` (its `cause` is the
+/// `NetError`); HTTP error statuses don't (check `ok`).
+async function fetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> throws Error {
+  let req = match (input) {
+    r: Request => r,
+    s: string => new Request(s, init),
+    u: URL => new Request(u, init),
+  }
+  let redirects = 0
+  while (true) {
+    const res = await __fetchOnce(req)
+    const loc = res.headers.get("location")
+    const s = res.status
+    if (loc == null || !(s == 301 || s == 302 || s == 303 || s == 307 || s == 308) || req.redirect == "manual") {
+      res.redirected = redirects > 0
+      return res
+    }
+    if (req.redirect == "error") {
+      throw new TypeError(`fetch: redirected to ${loc}`)
+    }
+    redirects += 1
+    if (redirects > 20) {
+      throw new TypeError("fetch: too many redirects")
+    }
+    const next = new URL(loc, req.url).href
+    const asGet = s == 303 || ((s == 301 || s == 302) && req.method == "POST")
+    if (asGet) {
+      req = new Request(next, { method: if (req.method == "HEAD") "HEAD" else "GET", headers: req.headers, redirect: req.redirect })
+    } else {
+      const bb = req.__bytes
+      if (bb != null) {
+        req = new Request(next, { method: req.method, headers: req.headers, body: bb, redirect: req.redirect })
+      } else {
+        req = new Request(next, { method: req.method, headers: req.headers, redirect: req.redirect })
+      }
+    }
+  }
+  throw new TypeError("fetch failed")
+}

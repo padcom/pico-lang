@@ -556,9 +556,23 @@ Split into P7.1a (everything but `watch`) and P7.1b (`watch`).
 - **Done when**: piping through a TransformStream works in a run test.
 
 ### P7.5 fetch and std/http
+Split into P7.5a (plain HTTP), P7.5b (TLS) and P7.5c (WebSocket).
+
+#### P7.5a URL, fetch and serve over HTTP
 - **Do**: `URL`, `URLSearchParams`, `Headers`, `Request`, `Response` (`json<T>()`), an HTTP/1.1
-  client `fetch` (TLS via a bundled library, decided at task time), `std/http` `serve`, and WebSocket.
+  client `fetch` (`http:`), and `std/http` `serve`.
 - **Done when**: a `serve` + `fetch` round-trip test passes.
+
+#### P7.5b TLS (https)
+- **Do**: TLS for `fetch` (`https:`) and optionally `serve`, via a bundled library or the
+  platform's (**the author decides which**: see PROGRESS.md), with certificate verification
+  against the system roots.
+- **Done when**: `fetch("https://…")` works against a local TLS server in a run test.
+
+#### P7.5c WebSocket
+- **Do**: the `WebSocket` client global and `std/http` upgrades (`upgradeWebSocket(req)`),
+  frames, masking, ping/pong, close.
+- **Done when**: a `serve` + `WebSocket` echo test passes.
 
 ### P7.6 Regex
 - **Spec**: 01 (regex literals)

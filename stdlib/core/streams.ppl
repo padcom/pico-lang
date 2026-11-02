@@ -1,0 +1,923 @@
+// Web Streams (WHATWG Streams, spec §13.5), globals also exported by `std/streams`: `ReadableStream`, `WritableStream`
+// and `TransformStream` with their default controllers, readers and writers, queuing with a
+// high-water mark (counted in chunks), backpressure, `pipeTo` and `pipeThrough`.
+//
+// ppl has no `async` lambdas yet, so a source or sink whose work finishes later gives it as
+// a promise: `pullAsync`, `writeAsync`, `closeAsync` and `transformAsync` sit beside the plain
+// `pull`, `write`, `close` and `transform` callbacks (which finish when they return).
+
+/// What a reader's `read()` gives: a chunk, or `done` at the end.
+struct ReadResult<T> {
+  done: bool
+  value: T?
+}
+
+/// How many chunks a stream queues before it asks its source to wait (`highWaterMark`).
+struct QueuingStrategy {
+  highWaterMark?: int
+}
+
+/// `pipeTo`'s options: by default the destination is closed at the end of the source, aborted
+/// when the source fails, and the source is cancelled when the destination fails.
+struct StreamPipeOptions {
+  preventClose?: bool
+  preventAbort?: bool
+  preventCancel?: bool
+}
+
+/// The source behind a `ReadableStream`: `start` runs at once, `pull` (or `pullAsync`) when
+/// the stream wants more chunks, `cancel` when its reader gives up.
+struct UnderlyingSource<T> {
+  start?: (c: ReadableStreamDefaultController<T>) => void
+  pull?: (c: ReadableStreamDefaultController<T>) => void
+  pullAsync?: (c: ReadableStreamDefaultController<T>) => Promise<void, Error>
+  cancel?: (reason: Error?) => void
+}
+
+/// What a source uses to feed its stream.
+class ReadableStreamDefaultController<T> {
+  s: ReadableStream<T>
+
+  constructor(s: ReadableStream<T>) {
+    this.s = s
+  }
+
+  /// How many more chunks fit before the high-water mark (0 or less: wait).
+  public get desiredSize(): int {
+    this.s.__desired()
+  }
+
+  public enqueue(chunk: T): void {
+    this.s.__enqueue(chunk)
+  }
+
+  /// Ends the stream once the queued chunks are read.
+  public close(): void {
+    this.s.__close()
+  }
+
+  /// Fails the stream: queued chunks are dropped and reads reject with `e`.
+  public error(e: Error): void {
+    this.s.__error(e)
+  }
+}
+
+function __resolvedVoid(): Promise<void, Error> {
+  const p = new Promise<void, Error>()
+  p.__resolve(__void())
+  p
+}
+
+/// A stream of chunks to read: with a reader (`getReader()`), `for await`, or piped into a
+/// `WritableStream`.
+class ReadableStream<T> {
+  source: UnderlyingSource<T>
+  hwm: int
+  queue: T[] = []
+  head: int = 0
+  reads: Promise<T?, Error>[] = []
+  rhead: int = 0
+  /// 0 readable, 1 closed, 2 errored.
+  state: int = 0
+  err: Error? = null
+  closeRequested: bool = false
+  started: bool = false
+  pulling: bool = false
+  pullAgain: bool = false
+  closedP: Promise<void, Error>? = null
+  public __locked: bool = false
+  ctl: ReadableStreamDefaultController<T>? = null
+
+  constructor(source: UnderlyingSource<T> = {}, strategy: QueuingStrategy = {}) {
+    this.source = source
+    const h = strategy.highWaterMark
+    this.hwm = if (h != null) h else 1
+    const c = new ReadableStreamDefaultController<T>(this)
+    this.ctl = c
+    const st = source.start
+    if (st != null) {
+      st(c)
+    }
+    queueMicrotask(() => {
+      this.started = true
+      this.pullIfNeeded()
+    })
+  }
+
+  /// A stream of `items`, in order.
+  public static from<U>(items: U[]): ReadableStream<U> {
+    let i = 0
+    new ReadableStream<U>({
+      pull: (c) => {
+        if (i < items.length) {
+          c.enqueue(items[i])
+          i += 1
+        } else {
+          c.close()
+        }
+      },
+    })
+  }
+
+  /// Whether a reader (or a pipe) holds the stream.
+  public get locked(): bool {
+    this.__locked
+  }
+
+  /// A reader for the stream (only one at a time).
+  public getReader(): ReadableStreamDefaultReader<T> {
+    new ReadableStreamDefaultReader<T>(this)
+  }
+
+  /// `for await` reads the chunks (while no reader holds the stream).
+  public next(): Promise<T?, Error> {
+    if (this.__locked) {
+      panic("the stream is locked to a reader")
+    }
+    this.__read()
+  }
+
+  public asyncIterator(): ReadableStream<T> {
+    this
+  }
+
+  /// Gives up on the stream: queued chunks are dropped, waiting reads get the end, and the
+  /// source's `cancel` runs.
+  public cancel(reason: Error? = null): Promise<void, Error> {
+    if (this.state == 0) {
+      this.queue = []
+      this.head = 0
+      this.finishClose()
+      const f = this.source.cancel
+      if (f != null) {
+        f(reason)
+      }
+    }
+    __resolvedVoid()
+  }
+
+  /// Writes every chunk to `dest`, then closes it (see `StreamPipeOptions`). Rejects with the
+  /// error of either side.
+  public async pipeTo(dest: WritableStream<T>, options: StreamPipeOptions = {}): Promise<void> throws Error {
+    if (this.__locked) {
+      panic("the stream is locked to a reader")
+    }
+    this.__locked = true
+    const w = dest.getWriter()
+    try {
+      while (true) {
+        const chunk = await this.__read()
+        if (chunk == null) {
+          break
+        }
+        await w.write(chunk)
+      }
+      if (options.preventClose != true) {
+        await w.close()
+      }
+    } catch (e) {
+      if (options.preventAbort != true) {
+        dest.__error(e)
+      }
+      if (options.preventCancel != true) {
+        this.cancel(e)
+      }
+      this.__locked = false
+      w.releaseLock()
+      throw e
+    }
+    this.__locked = false
+    w.releaseLock()
+  }
+
+  /// Pipes the stream into `t`'s writable side; its readable side.
+  public pipeThrough<O>(t: TransformStream<T, O>, options: StreamPipeOptions = {}): ReadableStream<O> {
+    const done = this.pipeTo(t.writable, options)
+    // (Failures reach `t.readable`'s readers.)
+    done.__onSettle(() => {})
+    t.readable
+  }
+
+  public __desired(): int {
+    if (this.state != 0) 0 else this.hwm - (this.queue.length - this.head)
+  }
+
+  public __read(): Promise<T?, Error> {
+    const p = new Promise<T?, Error>()
+    if (this.head < this.queue.length) {
+      const x = this.queue[this.head]
+      this.head += 1
+      if (this.head == this.queue.length) {
+        this.queue = []
+        this.head = 0
+      }
+      p.__resolve(x)
+      if (this.closeRequested && this.queue.length == 0) {
+        this.finishClose()
+      } else {
+        this.pullIfNeeded()
+      }
+    } else if (this.state == 1) {
+      p.__resolve(null)
+    } else if (this.state == 2) {
+      const e = this.err
+      if (e != null) {
+        p.__reject(e)
+      }
+    } else {
+      this.reads.push(p)
+      this.pullIfNeeded()
+    }
+    p
+  }
+
+  public __enqueue(chunk: T): void {
+    if (this.state != 0 || this.closeRequested) {
+      panic("enqueue on a closed stream")
+    }
+    if (this.rhead < this.reads.length) {
+      const r = this.reads[this.rhead]
+      this.rhead += 1
+      if (this.rhead == this.reads.length) {
+        this.reads = []
+        this.rhead = 0
+      }
+      r.__resolve(chunk)
+    } else {
+      this.queue.push(chunk)
+    }
+    this.pullIfNeeded()
+  }
+
+  public __close(): void {
+    if (this.state != 0 || this.closeRequested) {
+      panic("close on a closed stream")
+    }
+    this.closeRequested = true
+    if (this.head == this.queue.length) {
+      this.finishClose()
+    }
+  }
+
+  finishClose(): void {
+    this.state = 1
+    const rs = this.reads
+    const from = this.rhead
+    this.reads = []
+    this.rhead = 0
+    for (let i = from; i < rs.length; i++) {
+      rs[i].__resolve(null)
+    }
+    const c = this.closedP
+    if (c != null) {
+      c.__resolve(__void())
+    }
+  }
+
+  public __error(e: Error): void {
+    if (this.state != 0) {
+      return
+    }
+    this.state = 2
+    this.err = e
+    this.queue = []
+    this.head = 0
+    const rs = this.reads
+    const from = this.rhead
+    this.reads = []
+    this.rhead = 0
+    for (let i = from; i < rs.length; i++) {
+      rs[i].__reject(e)
+    }
+    const c = this.closedP
+    if (c != null) {
+      c.__reject(e)
+    }
+  }
+
+  /// Settles when the stream closes (rejects when it fails).
+  public __closed(): Promise<void, Error> {
+    const c = this.closedP
+    if (c != null) {
+      return c
+    }
+    const p = new Promise<void, Error>()
+    this.closedP = p
+    if (this.state == 1) {
+      p.__resolve(__void())
+    } else if (this.state == 2) {
+      const e = this.err
+      if (e != null) {
+        p.__reject(e)
+      }
+    }
+    p
+  }
+
+  pullIfNeeded(): void {
+    if (!this.started || this.state != 0 || this.closeRequested) {
+      return
+    }
+    if (this.pulling) {
+      this.pullAgain = true
+      return
+    }
+    if (this.rhead >= this.reads.length && this.__desired() <= 0) {
+      return
+    }
+    const c = this.ctl
+    if (c == null) {
+      return
+    }
+    const g = this.source.pullAsync
+    const f = this.source.pull
+    if (g != null) {
+      this.pulling = true
+      this.pullAgain = false
+      this.awaitPull(g(c));
+    } else if (f != null) {
+      this.pulling = true
+      this.pullAgain = false
+      f(c)
+      this.pulling = false
+      if (this.pullAgain) {
+        this.pullAgain = false
+        this.pullIfNeeded()
+      }
+    }
+  }
+
+  async awaitPull(p: Promise<void, Error>): Promise<void> {
+    try {
+      await p
+    } catch (e) {
+      this.pulling = false
+      this.__error(e)
+      return
+    }
+    this.pulling = false
+    if (this.pullAgain) {
+      this.pullAgain = false
+      this.pullIfNeeded()
+    }
+  }
+}
+
+/// Reads a `ReadableStream` (which it locks until `releaseLock()`).
+class ReadableStreamDefaultReader<T> {
+  s: ReadableStream<T>
+  released: bool = false
+
+  constructor(stream: ReadableStream<T>) {
+    if (stream.__locked) {
+      panic("the stream is locked to a reader")
+    }
+    stream.__locked = true
+    this.s = stream
+  }
+
+  check(): void {
+    if (this.released) {
+      panic("the reader's lock was released")
+    }
+  }
+
+  /// The next chunk (`{ done: false, value }`), or `{ done: true }` at the end.
+  public read(): Promise<ReadResult<T>, Error> {
+    this.check()
+    this.s.__read().then<ReadResult<T>>((v: T?) => {
+      const r: ReadResult<T> = { done: v == null, value: v }
+      r
+    })
+  }
+
+  public cancel(reason: Error? = null): Promise<void, Error> {
+    this.check()
+    this.s.cancel(reason)
+  }
+
+  /// Settles when the stream closes (rejects when it fails).
+  public get closed(): Promise<void, Error> {
+    this.s.__closed()
+  }
+
+  /// Unlocks the stream (another reader, or `for await`, can take it).
+  public releaseLock(): void {
+    if (!this.released) {
+      this.released = true
+      this.s.__locked = false
+    }
+  }
+}
+
+/// What a sink uses to fail its stream.
+class WritableStreamDefaultController {
+  fail: (e: Error) => void
+
+  constructor(fail: (e: Error) => void) {
+    this.fail = fail
+  }
+
+  /// Fails the stream: waiting and later writes reject with `e`.
+  public error(e: Error): void {
+    const f = this.fail
+    f(e)
+  }
+}
+
+/// The sink behind a `WritableStream`: `start` runs at once, `write` (or `writeAsync`) gets
+/// each chunk in turn, `close` (or `closeAsync`) runs after the last, `abort` when the writer
+/// gives up.
+struct UnderlyingSink<T> {
+  start?: (c: WritableStreamDefaultController) => void
+  write?: (chunk: T, c: WritableStreamDefaultController) => void
+  writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>
+  close?: () => void
+  closeAsync?: () => Promise<void, Error>
+  abort?: (reason: Error?) => void
+}
+
+/// A queued write.
+struct __Chunk<T> {
+  chunk: T
+  p: Promise<void, Error>
+}
+
+/// A destination for chunks: through a writer (`getWriter()`), or as a pipe's end.
+class WritableStream<T> {
+  sink: UnderlyingSink<T>
+  hwm: int
+  queue: __Chunk<T>[] = []
+  head: int = 0
+  /// 0 writable, 1 closed, 2 errored.
+  state: int = 0
+  err: Error? = null
+  busy: bool = false
+  started: bool = false
+  closeP: Promise<void, Error>? = null
+  readyP: Promise<void, Error>? = null
+  closedP: Promise<void, Error>? = null
+  public __locked: bool = false
+  ctl: WritableStreamDefaultController? = null
+
+  constructor(sink: UnderlyingSink<T> = {}, strategy: QueuingStrategy = {}) {
+    this.sink = sink
+    const h = strategy.highWaterMark
+    this.hwm = if (h != null) h else 1
+    const c = new WritableStreamDefaultController((e: Error) => this.__error(e))
+    this.ctl = c
+    const st = sink.start
+    if (st != null) {
+      st(c)
+    }
+    queueMicrotask(() => {
+      this.started = true
+      this.advance()
+    })
+  }
+
+  public get locked(): bool {
+    this.__locked
+  }
+
+  /// A writer for the stream (only one at a time).
+  public getWriter(): WritableStreamDefaultWriter<T> {
+    new WritableStreamDefaultWriter<T>(this)
+  }
+
+  /// Closes the stream after the queued writes (when no writer holds it).
+  public close(): Promise<void, Error> {
+    if (this.__locked) {
+      panic("the stream is locked to a writer")
+    }
+    this.__close()
+  }
+
+  /// Fails the stream at once: queued writes reject, and the sink's `abort` runs.
+  public abort(reason: Error? = null): Promise<void, Error> {
+    if (this.state == 0) {
+      const f = this.sink.abort
+      if (f != null) {
+        f(reason)
+      }
+      this.__error(if (reason != null) reason else new Error("the stream was aborted"))
+    }
+    __resolvedVoid()
+  }
+
+  public __desired(): int {
+    if (this.state != 0) 0 else this.hwm - (this.queue.length - this.head) - (if (this.busy) 1 else 0)
+  }
+
+  public __write(chunk: T): Promise<void, Error> {
+    const p = new Promise<void, Error>()
+    const e = this.err
+    if (this.state == 2 && e != null) {
+      p.__reject(e)
+      return p
+    }
+    if (this.state != 0 || this.closeP != null) {
+      panic("write to a closed stream")
+    }
+    this.queue.push({ chunk, p })
+    this.advance()
+    p
+  }
+
+  public __close(): Promise<void, Error> {
+    const c = this.closeP
+    if (c != null) {
+      return c
+    }
+    const p = new Promise<void, Error>()
+    this.closeP = p
+    const e = this.err
+    if (this.state == 2 && e != null) {
+      p.__reject(e)
+    } else if (this.state == 1) {
+      p.__resolve(__void())
+    } else {
+      this.advance()
+    }
+    p
+  }
+
+  /// Settles once there's room for another chunk.
+  public __ready(): Promise<void, Error> {
+    const e = this.err
+    if (this.state == 2 && e != null) {
+      const p = new Promise<void, Error>()
+      p.__reject(e)
+      return p
+    }
+    if (this.__desired() > 0 || this.state != 0) {
+      return __resolvedVoid()
+    }
+    const r = this.readyP
+    if (r != null) {
+      return r
+    }
+    const p = new Promise<void, Error>()
+    this.readyP = p
+    p
+  }
+
+  public __closed(): Promise<void, Error> {
+    const c = this.closedP
+    if (c != null) {
+      return c
+    }
+    const p = new Promise<void, Error>()
+    this.closedP = p
+    const e = this.err
+    if (this.state == 1) {
+      p.__resolve(__void())
+    } else if (this.state == 2 && e != null) {
+      p.__reject(e)
+    }
+    p
+  }
+
+  public __error(e: Error): void {
+    if (this.state != 0) {
+      return
+    }
+    this.state = 2
+    this.err = e
+    const q = this.queue
+    const from = this.head
+    this.queue = []
+    this.head = 0
+    for (let i = from; i < q.length; i++) {
+      q[i].p.__reject(e)
+    }
+    const c = this.closeP
+    if (c != null) {
+      c.__reject(e)
+    }
+    const r = this.readyP
+    if (r != null) {
+      this.readyP = null
+      r.__reject(e)
+    }
+    const d = this.closedP
+    if (d != null) {
+      d.__reject(e)
+    }
+  }
+
+  advance(): void {
+    if (!this.started || this.busy || this.state != 0) {
+      return
+    }
+    const c = this.ctl
+    if (c == null) {
+      return
+    }
+    if (this.head < this.queue.length) {
+      const w = this.queue[this.head]
+      this.head += 1
+      if (this.head == this.queue.length) {
+        this.queue = []
+        this.head = 0
+      }
+      this.busy = true
+      const g = this.sink.writeAsync
+      const f = this.sink.write
+      if (g != null) {
+        this.awaitWrite(g(w.chunk, c), w.p);
+      } else {
+        if (f != null) {
+          f(w.chunk, c)
+        }
+        this.busy = false
+        this.written(w.p)
+      }
+      return
+    }
+    const cp = this.closeP
+    if (cp != null) {
+      this.busy = true
+      const g = this.sink.closeAsync
+      const f = this.sink.close
+      if (g != null) {
+        this.awaitClose(g(), cp);
+      } else {
+        if (f != null) {
+          f()
+        }
+        this.busy = false
+        this.closed(cp)
+      }
+    }
+  }
+
+  written(p: Promise<void, Error>): void {
+    const e = this.err
+    if (this.state == 2 && e != null) {
+      p.__reject(e)
+      return
+    }
+    p.__resolve(__void())
+    const r = this.readyP
+    if (r != null && this.__desired() > 0) {
+      this.readyP = null
+      r.__resolve(__void())
+    }
+    this.advance()
+  }
+
+  closed(p: Promise<void, Error>): void {
+    const e = this.err
+    if (this.state == 2 && e != null) {
+      p.__reject(e)
+      return
+    }
+    this.state = 1
+    p.__resolve(__void())
+    const d = this.closedP
+    if (d != null) {
+      d.__resolve(__void())
+    }
+  }
+
+  async awaitWrite(work: Promise<void, Error>, p: Promise<void, Error>): Promise<void> {
+    try {
+      await work
+    } catch (e) {
+      this.busy = false
+      this.__error(e)
+      p.__reject(e)
+      return
+    }
+    this.busy = false
+    this.written(p)
+  }
+
+  async awaitClose(work: Promise<void, Error>, p: Promise<void, Error>): Promise<void> {
+    try {
+      await work
+    } catch (e) {
+      this.busy = false
+      this.__error(e)
+      return
+    }
+    this.busy = false
+    this.closed(p)
+  }
+}
+
+/// Writes to a `WritableStream` (which it locks until `releaseLock()`).
+class WritableStreamDefaultWriter<T> {
+  s: WritableStream<T>
+  released: bool = false
+
+  constructor(stream: WritableStream<T>) {
+    if (stream.__locked) {
+      panic("the stream is locked to a writer")
+    }
+    stream.__locked = true
+    this.s = stream
+  }
+
+  check(): void {
+    if (this.released) {
+      panic("the writer's lock was released")
+    }
+  }
+
+  /// Queues `chunk`; settles once the sink has taken it.
+  public write(chunk: T): Promise<void, Error> {
+    this.check()
+    this.s.__write(chunk)
+  }
+
+  /// Closes the stream after the queued writes.
+  public close(): Promise<void, Error> {
+    this.check()
+    this.s.__close()
+  }
+
+  public abort(reason: Error? = null): Promise<void, Error> {
+    this.check()
+    this.s.abort(reason)
+  }
+
+  /// Settles when there's room for another chunk (backpressure).
+  public get ready(): Promise<void, Error> {
+    this.s.__ready()
+  }
+
+  /// How many more chunks fit before the high-water mark.
+  public get desiredSize(): int {
+    this.s.__desired()
+  }
+
+  /// Settles when the stream closes (rejects when it fails).
+  public get closed(): Promise<void, Error> {
+    this.s.__closed()
+  }
+
+  public releaseLock(): void {
+    if (!this.released) {
+      this.released = true
+      this.s.__locked = false
+    }
+  }
+}
+
+/// What a transformer uses to produce output.
+class TransformStreamDefaultController<O> {
+  rc: ReadableStreamDefaultController<O>
+  fail: (e: Error) => void
+
+  constructor(rc: ReadableStreamDefaultController<O>, fail: (e: Error) => void) {
+    this.rc = rc
+    this.fail = fail
+  }
+
+  /// Room left on the readable side.
+  public get desiredSize(): int {
+    this.rc.desiredSize
+  }
+
+  public enqueue(chunk: O): void {
+    this.rc.enqueue(chunk)
+  }
+
+  /// Fails both sides.
+  public error(e: Error): void {
+    const f = this.fail
+    f(e)
+  }
+
+  /// Ends the readable side (later writes fail).
+  public terminate(): void {
+    this.rc.close()
+    const f = this.fail
+    f(new Error("the transform stream was terminated"))
+  }
+}
+
+/// A `TransformStream`'s work: `transform` (or `transformAsync`) turns each written chunk
+/// into enqueued output, `flush` runs after the last one, `start` at once.
+struct Transformer<I, O> {
+  start?: (c: TransformStreamDefaultController<O>) => void
+  transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void
+  transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>
+  flush?: (c: TransformStreamDefaultController<O>) => void
+}
+
+/// The state shared by a transform stream's two sides.
+class __Transform<I, O> {
+  public t: Transformer<I, O>
+  public rc: ReadableStreamDefaultController<O>? = null
+  public wc: WritableStreamDefaultController? = null
+  public tc: TransformStreamDefaultController<O>? = null
+  /// While the readable side is full: settles when it's read from.
+  public bp: Promise<void, Error>? = null
+
+  constructor(t: Transformer<I, O>) {
+    this.t = t
+  }
+
+  public fail(e: Error): void {
+    const r = this.rc
+    if (r != null) {
+      r.error(e)
+    }
+    const w = this.wc
+    if (w != null) {
+      w.error(e)
+    }
+    this.release()
+  }
+
+  public release(): void {
+    const b = this.bp
+    if (b != null) {
+      this.bp = null
+      b.__resolve(__void())
+    }
+  }
+
+  public async write(chunk: I): Promise<void> throws Error {
+    const b = this.bp
+    if (b != null) {
+      await b
+    }
+    const c = this.tc
+    if (c == null) {
+      return
+    }
+    const f = this.t.transform
+    const g = this.t.transformAsync
+    if (f != null) {
+      f(chunk, c)
+    } else if (g != null) {
+      await g(chunk, c)
+    }
+    if (c.desiredSize <= 0 && this.bp == null) {
+      this.bp = new Promise<void, Error>()
+    }
+  }
+
+  public close(): void {
+    const c = this.tc
+    const f = this.t.flush
+    if (c != null && f != null) {
+      f(c)
+    }
+    const r = this.rc
+    if (r != null) {
+      r.close()
+    }
+  }
+}
+
+/// A writable side whose chunks come out of a readable side, transformed.
+class TransformStream<I, O> {
+  public readonly readable: ReadableStream<O>
+  public readonly writable: WritableStream<I>
+
+  constructor(transformer: Transformer<I, O>, writableStrategy: QueuingStrategy = {},
+      readableStrategy: QueuingStrategy = { highWaterMark: 0 }) {
+    if (transformer.transform == null && transformer.transformAsync == null) {
+      panic("a TransformStream needs transform or transformAsync")
+    }
+    const st = new __Transform<I, O>(transformer)
+    this.readable = new ReadableStream<O>({
+      start: (c) => {
+        st.rc = c
+        st.tc = new TransformStreamDefaultController<O>(c, (e: Error) => st.fail(e))
+      },
+      pull: (c) => st.release(),
+      cancel: (reason) => {
+        const w = st.wc
+        if (w != null) {
+          w.error(if (reason != null) reason else new Error("the readable side was cancelled"))
+        }
+      },
+    }, readableStrategy)
+    this.writable = new WritableStream<I>({
+      start: (c) => {
+        st.wc = c
+      },
+      writeAsync: (chunk, c) => st.write(chunk),
+      close: () => st.close(),
+      abort: (reason) => {
+        const r = st.rc
+        if (r != null) {
+          r.error(if (reason != null) reason else new Error("the writable side was aborted"))
+        }
+      },
+    }, writableStrategy)
+    // Backpressure until the readable side is read from.
+    st.bp = new Promise<void, Error>()
+    const t0 = transformer.start
+    const tc = st.tc
+    if (t0 != null && tc != null) {
+      t0(tc)
+    }
+  }
+}

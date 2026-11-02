@@ -2310,6 +2310,14 @@ impl FnBuilder<'_, '_> {
         if class_ref(from) && class_ref(to) {
             return v;
         }
+        // A function returning a subclass reference is the same function value.
+        if let (Ty::Fn(p1, r1, _), Ty::Fn(p2, r2, _)) = (from, to)
+            && p1 == p2
+            && class_ref(r1)
+            && class_ref(r2)
+        {
+            return v;
+        }
         if matches!((from, to), (Ty::Iface(..), Ty::Iface(..))) {
             return v;
         }

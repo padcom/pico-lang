@@ -704,7 +704,11 @@ impl<'p> Checker<'p> {
     fn upcasts(&self, from: &Ty, to: &Ty) -> bool {
         match (from, to) {
             // A function throwing less (or subclasses) fits where one throwing more is expected.
-            (Ty::Fn(p1, r1, t1), Ty::Fn(p2, r2, t2)) if p1 == p2 && r1 == r2 => {
+            // So does one returning a subclass (same representation: a reference), such as
+            // `Promise<T, never>` where `Promise<T, Error>` is expected.
+            (Ty::Fn(p1, r1, t1), Ty::Fn(p2, r2, t2))
+                if p1 == p2 && (r1 == r2 || self.upcasts(r1, r2)) =>
+            {
                 t1.iter().all(|t| {
                     t2.iter().any(|d| match (t, d) {
                         (Ty::Class(a, ..), Ty::Class(b, ..)) => self.program.is_subclass(*a, *b),
@@ -3643,6 +3647,21 @@ impl<'p> Checker<'p> {
         let want = want.map(|w| match &w.ty {
             Ty::Nullable(inner) => Expect::from((**inner).clone(), w.origin),
             _ => w.clone(),
+        });
+        // A union with one array-like member (`string | [string, string][]`): the literal
+        // is that member.
+        let want = want.map(|w| match &w.ty {
+            Ty::Union(_, ms) => {
+                let arrays: Vec<&Ty> = ms
+                    .iter()
+                    .filter(|m| matches!(m, Ty::Array(_) | Ty::Tuple(_) | Ty::Fixed(..)))
+                    .collect();
+                match arrays.as_slice() {
+                    [one] => Expect::from((*one).clone(), w.origin),
+                    _ => w,
+                }
+            }
+            _ => w,
         });
         match want.as_ref().map(|w| (&w.ty, w)) {
             Some((Ty::Tuple(ts), w)) => {

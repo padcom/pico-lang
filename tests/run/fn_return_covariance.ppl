@@ -1,0 +1,22 @@
+// expect: dog
+// expect: rejected: nope
+// A function value returning a subclass fits where one returning the base class is
+// expected (decision 234), including promises that throw less.
+class Animal {
+  public virtual name(): string { "animal" }
+}
+class Dog extends Animal {
+  public override name(): string { "dog" }
+}
+function makeDog(): Dog { new Dog() }
+const make: () => Animal = makeDog
+println(make().name())
+
+async function quiet(): Promise<int> { 1 }
+async function loud(): Promise<int> throws TypeError { throw new TypeError("nope") }
+const fs: (() => Promise<int, Error>)[] = [quiet, loud]
+try {
+  println(await fs[1]())
+} catch (e) {
+  println(`rejected: ${e.message}`)
+}

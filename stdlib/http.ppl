@@ -1,0 +1,160 @@
+// `std/http`: an HTTP/1.1 server (spec §13.2, Deno.serve-shaped). Each request is read whole,
+// handed to the handler as a `Request`, and its `Response` written back (`Content-Length`, or
+// chunked for a stream body); connections are kept alive between requests unless either side
+// says `Connection: close`.
+
+import { Conn, Listener, NetError, Addr } from "std/net"
+
+/// Where to listen: `port` (0 picks a free one) and `hostname` (`"127.0.0.1"` by default;
+/// `"0.0.0.0"` for every interface).
+export struct ServeOptions {
+  port?: int
+  hostname?: string
+}
+
+/// A running server: its address, `shutdown()`, and `finished` (settles once it has stopped).
+export class HttpServer {
+  public __listener: Listener
+  public __handler: (req: Request) => Promise<Response, Error>
+  public readonly addr: Addr
+  /// Connections waiting for their next request (closed by `shutdown`).
+  public __idle: Conn[] = []
+  public __active: int = 0
+  public __accepting: bool = true
+  public __closing: bool = false
+  public __done: Promise<void> = new Promise<void>()
+
+  constructor(listener: Listener, handler: (req: Request) => Promise<Response, Error>) {
+    this.__listener = listener
+    this.__handler = handler
+    this.addr = listener.addr
+  }
+
+  /// Settles once the server has stopped and every connection is closed.
+  public get finished(): Promise<void> {
+    this.__done
+  }
+
+  /// Stops accepting connections, closes idle ones, and lets requests in progress finish.
+  public shutdown(): Promise<void> {
+    if (!this.__closing) {
+      this.__closing = true
+      this.__listener.close()
+      const idle = this.__idle
+      this.__idle = []
+      for (const c of idle) {
+        c.close()
+      }
+    }
+    this.__done
+  }
+
+  public __setIdle(c: Conn, waiting: bool): void {
+    if (waiting) {
+      this.__idle.push(c)
+    } else {
+      const kept: Conn[] = []
+      for (const x of this.__idle) {
+        if (x != c) {
+          kept.push(x)
+        }
+      }
+      this.__idle = kept
+    }
+  }
+
+  public __ended(): void {
+    if (!this.__accepting && this.__active == 0) {
+      this.__done.__resolve(__void())
+    }
+  }
+}
+
+/// A plain response with `status` (as an error page).
+function __plain(status: int): Response {
+  new Response(`${status} ${__statusText(status)}`, { status })
+}
+
+/// Serves requests on one connection until it closes.
+async function __serveConn(server: HttpServer, conn: Conn): Promise<void> {
+  server.__active += 1
+  const r = new __HttpReader(conn)
+  try {
+    while (!server.__closing) {
+      server.__setIdle(conn, true)
+      let text: string? = null
+      try {
+        text = await r.head()
+      } catch (e) {
+        server.__setIdle(conn, false)
+        break
+      }
+      server.__setIdle(conn, false)
+      if (text == null) {
+        break
+      }
+      let res: Response = __plain(400)
+      let keepAlive = false
+      let head = false
+      try {
+        const h = __parseHead(text)
+        const method = h.first.toUpperCase()
+        head = method == "HEAD"
+        const version = h.third
+        const connection = h.headers.get("connection")
+        keepAlive = version == "HTTP/1.1" && (connection == null || connection.toLowerCase() != "close")
+        const body = await r.body(h.headers, false)
+        const host = h.headers.get("host")
+        const authority = if (host != null) host else `${server.addr.hostname}:${server.addr.port}`
+        const hasBody = body.length > 0 && method != "GET" && method != "HEAD"
+        const req = new Request(`http://${authority}${h.second}`, {
+          method,
+          headers: h.headers,
+          body: if (hasBody) body else null,
+        })
+        try {
+          const f = server.__handler
+          res = await f(req)
+        } catch (e) {
+          res = __plain(500)
+        }
+      } catch (e) {
+        res = __plain(400)
+        keepAlive = false
+      }
+      if (server.__closing) {
+        keepAlive = false
+      }
+      await __writeMessage(conn, `HTTP/1.1 ${res.status} ${res.statusText}`,
+        [["connection", if (keepAlive) "keep-alive" else "close"]], res, head)
+      if (!keepAlive) {
+        break
+      }
+    }
+  } catch (e) {}
+  conn.close()
+  server.__active -= 1
+  server.__ended()
+}
+
+async function __acceptAll(server: HttpServer): Promise<void> {
+  try {
+    for await (const conn of server.__listener) {
+      __serveConn(server, conn);
+    }
+  } catch (e) {}
+  server.__accepting = false
+  server.__ended()
+}
+
+/// Serves HTTP on `options.port`, calling `handler` for each request (a handler that throws
+/// gets a 500 response). Resolves once it's listening.
+export async function serve(options: ServeOptions,
+    handler: (req: Request) => Promise<Response, Error>): Promise<HttpServer> throws NetError {
+  const p = options.port
+  const h = options.hostname
+  const listener = await __netListen(if (p != null) p else 8000, if (h != null) h else "127.0.0.1")
+  const server = new HttpServer(listener, handler)
+  __acceptAll(server);
+  server
+}

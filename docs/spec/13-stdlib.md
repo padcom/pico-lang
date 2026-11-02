@@ -224,7 +224,8 @@ positions count from the end) and `Uint8Array.from(values: int[])`.
 whitespace skipped); `hex.encode(data)` (lowercase) and `hex.decode(text) throws TypeError`.
 
 ### `std/streams`
-WHATWG Streams with chunk-counting queues: `ReadableStream<T>`, `WritableStream<T>`,
+WHATWG Streams with chunk-counting queues, globals as on the Web (`std/streams` exports them
+too, with `textEncoderStream()` and `textDecoderStream()`): `ReadableStream<T>`, `WritableStream<T>`,
 `TransformStream<I, O>`, their default controllers, `ReadableStreamDefaultReader<T>`
 (`read(): Promise<ReadResult<T>, Error>` with `{ done, value }`, `cancel`, `closed`,
 `releaseLock`) and `WritableStreamDefaultWriter<T>` (`write`, `close`, `abort`, `ready`,
@@ -248,3 +249,49 @@ streams an array. `textEncoderStream()` and `textDecoderStream()` are transform 
 strings to UTF-8 bytes and back. `std/net`'s `Conn` and `std/process`'s `Reader`/`Writer` have
 `readable`/`writable` streams of `Uint8Array` (closing a connection's writable finishes writing;
 once both directions are finished the connection closes itself).
+
+## 13.6 HTTP
+### `URL` and `URLSearchParams`
+Globals, as WHATWG URL: `new URL(input, base?)` (throws `TypeError: Invalid URL: …`),
+`URL.parse` (`null` instead), `URL.canParse`; `href`, `protocol`, `username`, `password`, `host`,
+`hostname`, `port` (`""` for the scheme's default), `pathname`, `search`, `hash`, `origin`,
+`searchParams` (changing it changes the URL), `toString()`, `toJSON()`. Special schemes (http,
+https, ws, wss, ftp, file) get an authority, dot-segment removal and default ports; others an
+opaque path. Not covered yet: IDNA (non-ASCII hosts are percent-encoded), IPv4 number forms,
+setters. `URLSearchParams(init: string | [string, string][])` has `append`, `delete`, `get`,
+`getAll`, `has`, `set`, `sort`, `size`, `keys`, `entries`, `for…of` and `toString()`
+(`application/x-www-form-urlencoded`).
+
+### `fetch`, `Headers`, `Request`, `Response`
+Globals, as WHATWG Fetch. `fetch(input: string | URL | Request, init = {}): Promise<Response,
+Error>` speaks HTTP/1.1 (`Connection: close`), follows up to 20 redirects (`redirect: "follow"`,
+or `"manual"`, `"error"`; 303, and 301/302 after a POST, become a GET) and rejects with a
+`TypeError` on network failures (`fetch failed: connection refused: 127.0.0.1:9`, with the
+`NetError` as `cause`), never for HTTP error statuses. Only `http:` so far (`https:` rejects;
+P7.5b). `RequestInit` is `{ method, headers, body, redirect }`, `ResponseInit` `{ status,
+statusText, headers }`; a body (`BodyInit`) is a `string` (`text/plain;charset=UTF-8`), a
+`Uint8Array`, a `ReadableStream<Uint8Array>` (sent chunked) or `URLSearchParams` (form
+encoded). Bodies have `body` (a stream), `bodyUsed`, `bytes()`, `arrayBuffer()`, `text()` and
+`json<T>()` (as `JSON.parse<T>`), each readable once. `Response.json<T>(data, init)` and
+`Response.redirect(url, status = 302)` build responses; `ok`, `status`, `statusText`, `url`,
+`redirected`. `Headers(init: [string, string][] | Headers)` keeps names lowercase; `get` joins
+repeated values with `, ` (`getSetCookie()` keeps cookies apart); iteration is sorted by name.
+Bodies are read whole before `fetch` resolves (and before a handler runs).
+
+### `std/http`
+```ts
+import { serve } from "std/http"
+
+async function handle(req: Request): Promise<Response> {
+  new Response(`hello ${new URL(req.url).pathname}`)
+}
+const server = await serve({ port: 8080 }, handle)   // ServeOptions { port = 8000, hostname = "127.0.0.1" }
+await server.shutdown()                             // stop accepting, close idle connections
+await server.finished
+```
+`serve(options, handler: (req: Request) => Promise<Response, Error>): Promise<HttpServer,
+NetError>` resolves once it listens (`server.addr`). Connections stay open between requests
+(HTTP/1.1 keep-alive) unless either side sends `Connection: close`; a handler that throws gets
+a `500` response, a malformed request a `400`. Responses with a known length get
+`content-length`, stream bodies `transfer-encoding: chunked`; `HEAD` responses carry headers
+only. TLS and WebSocket upgrades come with P7.5b and P7.5c.

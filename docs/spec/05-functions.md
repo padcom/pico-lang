@@ -77,6 +77,9 @@ Arrow functions capture `this` lexically. Plain `function` expressions inside me
 type Handler = (req: Request) => Response
 type Mapper<T, U, E extends Error = never> = (x: T) => U throws E   // see §7
 ```
+A function value fits where a function type with the same parameter types is expected if it
+throws less (§7) and returns the same type or, for object references, a subclass (or a class
+instance with other type arguments, such as `Promise<T, never>` for `Promise<T, Error>`).
 
 ## 5.7 Generators
 ```ts

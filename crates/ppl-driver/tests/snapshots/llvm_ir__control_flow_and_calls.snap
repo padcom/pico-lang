@@ -15,11 +15,11 @@ source_filename = "test.ppl"
 @ppl.global.Float64Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @ppl_gc_requested = external thread_local global i32
 @ppl.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
-@ppl.cstr.22 = private unnamed_addr constant [8 x i8] c"test.ppl"
+@ppl.cstr.36 = private unnamed_addr constant [8 x i8] c"test.ppl"
 @ppl.str = private constant { i64, i64, i64, i64, [4 x i8] } { i64 4, i64 4, i64 -1, i64 0, [4 x i8] c"done" }, align 8
 @ppl.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.layout.23 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@ppl.layout.24 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.37 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@ppl.layout.38 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 
 define internal i64 @ppl.fib(i64 %0) {
 start:
@@ -82,7 +82,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb2
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.22, i64 8, i32 3, i32 25)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.36, i64 8, i32 3, i32 25)
   unreachable
 
 ok:                                               ; preds = %bb2
@@ -93,7 +93,7 @@ ok:                                               ; preds = %bb2
   br label %bb4
 
 panic1:                                           ; preds = %bb4
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.22, i64 8, i32 3, i32 38)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.36, i64 8, i32 3, i32 38)
   unreachable
 
 ok2:                                              ; preds = %bb4
@@ -104,7 +104,7 @@ ok2:                                              ; preds = %bb4
   br label %bb5
 
 panic3:                                           ; preds = %bb5
-  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.22, i64 8, i32 3, i32 21)
+  call void @ppl_panic(ptr @ppl.cstr, i64 16, ptr @ppl.cstr.36, i64 8, i32 3, i32 21)
   unreachable
 
 ok4:                                              ; preds = %bb5
@@ -218,13 +218,13 @@ start:
   %4 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 0
   store ptr null, ptr %4, align 8
   %5 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 1
-  store ptr @ppl.layout.23, ptr %5, align 8
+  store ptr @ppl.layout.37, ptr %5, align 8
   %6 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 1, i32 2
   store ptr @ppl.global.__loop, ptr %6, align 8
   %7 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 0
   store ptr null, ptr %7, align 8
   %8 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 1
-  store ptr @ppl.layout.24, ptr %8, align 8
+  store ptr @ppl.layout.38, ptr %8, align 8
   %9 = getelementptr { i64, [3 x { ptr, ptr, ptr }] }, ptr %gc.globals, i32 0, i32 1, i32 2, i32 2
   store ptr @ppl.global.__buffers, ptr %9, align 8
   call void @ppl_gc_set_globals(ptr %gc.globals)

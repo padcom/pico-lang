@@ -1,0 +1,30 @@
+// expect: 2 responses: /a then /b
+// expect: closed after the second: true
+// expect: a, b | x | true false
+// expect: [["accept", "a, b"], ["set-cookie", "s=1"], ["set-cookie", "t=2"], ["x-id", "x"]]
+// Two requests on one kept-alive connection (`serve`, spec §13.2), and `Headers`.
+import { serve } from "std/http"
+import { connect } from "std/net"
+
+async function handle(req: Request): Promise<Response> throws TypeError {
+  new Response(`path ${new URL(req.url).pathname};`)
+}
+
+const server = await serve({ port: 0 }, handle)
+const conn = await connect(server.addr.port)
+await conn.writeText("GET /a HTTP/1.1\r\nHost: x\r\n\r\nGET /b HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+const text = await conn.text()
+conn.close()
+const n = text.split("HTTP/1.1 200 OK").length - 1
+const a = text.indexOf("path /a;")
+const b = text.indexOf("path /b;")
+println(`${n} responses: ${if (a >= 0 && a < b) "/a then /b" else "?"}`)
+println(`closed after the second: ${text.includes("connection: close")}`)
+await server.shutdown()
+
+const h = new Headers([["Accept", "a"], ["X-Id", " x "]])
+h.append("accept", "b")
+h.append("Set-Cookie", "s=1")
+h.append("set-cookie", "t=2")
+println(`${h.get("ACCEPT")} | ${h.get("x-id")} | ${h.has("x-ID")} ${h.has("nope")}`)
+println(`${h.entries():?}`)
