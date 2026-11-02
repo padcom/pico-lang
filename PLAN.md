@@ -594,6 +594,20 @@ Split into P7.5a (plain HTTP), P7.5b (TLS) and P7.5c (WebSocket).
 - **Do**: `std/math` (Vec2/3/4, Mat4, Quat, bigint, random), `std/collections`, and `std/fmt`
   (`Formattable` hook for user types in `${x:…}`).
 - **Done when**: run tests pass.
+Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`std/fmt`).
+
+#### P7.9a Math and std/math
+- **Do**: the `Math` global, `std/math` (Vec2/3/4, Mat4, Quat, BigInt, Random, helpers).
+- **Done when**: run tests pass, `Math` agrees with Node.
+
+#### P7.9b std/collections
+- **Do**: `Deque`, `PriorityQueue`, `SortedMap`, `BitSet`.
+- **Done when**: run tests pass.
+
+#### P7.9c std/fmt
+- **Do**: `Formattable` (user types in `${x}` and `${x:spec}`, structs too) and the padding and
+  number formatting helpers.
+- **Done when**: run tests pass.
 
 ### P7.10 std/test and `ppl test`
 - **Spec**: 14 §14.3

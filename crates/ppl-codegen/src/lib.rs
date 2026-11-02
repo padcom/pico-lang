@@ -665,6 +665,14 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_raw_arena_new" => i64t.fn_type(&[i64t.into()], false),
             "ppl_clock_ms" => i64t.fn_type(&[], false),
             "ppl_parse_f64" => self.cx.f64_type().fn_type(&[ptr.into()], false),
+            "ppl_math" => self.cx.f64_type().fn_type(
+                &[
+                    self.i64().into(),
+                    self.cx.f64_type().into(),
+                    self.cx.f64_type().into(),
+                ],
+                false,
+            ),
             "ppl_worker_op" => i64t.fn_type(&[i64t.into(), i64t.into()], false),
             "ppl_worker_error" => ptr.fn_type(&[i64t.into()], false),
             "ppl_worker_take" => {
@@ -2989,6 +2997,7 @@ impl<'ctx> Gen<'ctx, '_> {
                         | Builtin::RawArenaFree
                         | Builtin::ClockMs
                         | Builtin::ParseF64
+                        | Builtin::Math
                         | Builtin::LoopWait
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
@@ -3004,6 +3013,7 @@ impl<'ctx> Gen<'ctx, '_> {
                             Builtin::RawArenaFree => "ppl_raw_arena_free",
                             Builtin::ClockMs => "ppl_clock_ms",
                             Builtin::ParseF64 => "ppl_parse_f64",
+                            Builtin::Math => "ppl_math",
                             Builtin::WorkerOp => "ppl_worker_op",
                             Builtin::WorkerError => "ppl_worker_error",
                             _ => "ppl_loop_wait",

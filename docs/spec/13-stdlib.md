@@ -377,3 +377,26 @@ local time or UTC, with the same constructor forms, getters, setters, `Date.UTC`
 shows the zone's abbreviation (`GMT+0100 (CET)`) and `toISOString` of an invalid date panics.
 `performance.now()` is milliseconds since the program started (`performance.timeOrigin()` when
 it did, since 1970).
+
+## 13.9 Math
+`Math` (a global) is JavaScript's on `number`s: the constants (`PI`, `E`, …), `abs`, `sign`,
+`floor`, `ceil`, `round` (half up, as in JavaScript), `trunc`, `fround`, `sqrt`, `cbrt`, `pow`,
+`exp`, `expm1`, `log`, `log1p`, `log2`, `log10`, the trigonometric and hyperbolic functions,
+`atan2`, `hypot(...)`, `min(...)`, `max(...)`, `clz32`, `imul` and `random()` (xoshiro128**
+seeded from the system: not for cryptography). Library functions are the platform's libm in
+both backends.
+
+`std/math` has `number` structs with operators (OpenGL conventions: right-handed, column-major
+matrices acting on column vectors, so `a * b` applies `b` first): `Vec2`, `Vec3`, `Vec4` (`+ - *
+/`, unary `-`, `[i]`, `dot`, `cross`, `length`, `normalize`, `distance`, `lerp`, `approxEquals`,
+statics `of`, `zero`, `one`, `unitX`…), `Quat` (`fromAxisAngle`, `fromEuler`, `*`, `rotate(v)`,
+`slerp`, `conjugate`, `inverse`, `toMat4`) and `Mat4` (`identity`, `fromRows`,
+`fromColumnMajor`, `translation`, `scaling`, `rotation(axis, angle)`, `rotationX/Y/Z`,
+`fromQuat`, `perspective`, `orthographic`, `lookAt`, `*` with a `Mat4` or `Vec4`,
+`transformPoint`, `transformDirection`, `transpose`, `determinant`, `invert(): Mat4?`,
+`toArray`). `BigInt` is an arbitrary-precision integer class (`BigInt.of(n)`, `BigInt.parse(s,
+radix)` throwing `SyntaxError`, `+ - * / %` truncating like JavaScript, `pow`, `abs`,
+`compareTo`, `equals`, `toInt`, `toNumber`, `toString()`, `toStringRadix(r)`). `Random` is a
+seedable generator (`new Random(seed?)`: `float`, `int(lo, hi)` without bias, `bool(p)`,
+`gaussian`, `pick`, `shuffle`, `nextU32`); a seed gives the same sequence on every target. Also
+`clamp`, `lerp`, `degToRad`, `radToDeg`.

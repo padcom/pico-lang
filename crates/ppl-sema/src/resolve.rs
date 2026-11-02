@@ -924,12 +924,41 @@ impl Resolver {
         let mut seen: HashMap<String, Span> = HashMap::new();
         for m in &sd.members {
             let json_name = self.json_name(&m.decorators);
+            let is_static = m.mods.is_static
+                && matches!(
+                    m.kind,
+                    ast::MemberKind::Method(_) | ast::MemberKind::Getter(_)
+                );
             let mods_ok = ast::Modifiers {
                 readonly: false,
+                is_static: m.mods.is_static && !is_static,
                 ..m.mods
             };
             if !mods_ok.is_empty() {
-                self.not_implemented(m.span, "member modifiers other than `readonly`");
+                self.not_implemented(
+                    m.span,
+                    "member modifiers other than `readonly` and `static`",
+                );
+            }
+            if is_static {
+                // A static method or getter: a function of the type's namespace (no `this`).
+                let (ast::MemberKind::Method(f) | ast::MemberKind::Getter(f)) = &m.kind else {
+                    unreachable!("checked")
+                };
+                let Some(name) = &f.name else { continue };
+                if self.check_duplicate(&mut seen, name) {
+                    continue;
+                }
+                let id = FnId(self.fns.len() as u32);
+                self.fns.push(None);
+                let d = &mut self.structs[sid.0 as usize];
+                if matches!(m.kind, ast::MemberKind::Getter(_)) {
+                    d.static_getters.push((name.name.clone(), id));
+                } else {
+                    d.static_methods.push((name.name.clone(), id));
+                }
+                fn_decls.push((id, f, None));
+                continue;
             }
             match &m.kind {
                 ast::MemberKind::Field {
@@ -5573,11 +5602,17 @@ impl Resolver {
         }
     }
 
-    /// Whether `e` names a class (as in `Animal.count`), not shadowed by a variable.
+    /// Whether `e` names a class, or a struct with static members (as in `Animal.count`,
+    /// `Vec3.zero()`), not shadowed by a variable.
     fn names_class(&self, e: &ast::Expr) -> bool {
         matches!(&e.kind, ast::ExprKind::Ident(n)
-            if !self.is_value_name(n)
-                && self.top_structs.get(&self.mods, n).is_some_and(|id| self.structs[id.0 as usize].is_class))
+        if !self.is_value_name(n)
+            && self.top_structs.get(&self.mods, n).is_some_and(|id| {
+                let d = &self.structs[id.0 as usize];
+                d.is_class
+                    || (!d.is_interface
+                        && (!d.static_methods.is_empty() || !d.static_getters.is_empty()))
+            }))
     }
 
     /// `Class.name`: a static field or static method (checking visibility).

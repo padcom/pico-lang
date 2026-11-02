@@ -594,6 +594,8 @@ pub enum Builtin {
     /// `__parse_f64(text)`: the nearest `f64` to a decimal number's text (JSON numbers;
     /// `NaN` if it isn't one).
     ParseF64,
+    /// `__math(op, x, y)`: a floating-point library function (`Math`'s, by number).
+    Math,
     /// `__loop_wait(ms)`: blocks for up to `ms` milliseconds waiting for events (none yet
     /// but timeouts).
     LoopWait,
@@ -638,6 +640,7 @@ impl Builtin {
             Builtin::RawArenaFree => "__raw_arena_free",
             Builtin::ClockMs => "__clock_ms",
             Builtin::ParseF64 => "__parse_f64",
+            Builtin::Math => "__math",
             Builtin::LoopWait => "__loop_wait",
             Builtin::WorkerOp => "__worker_op",
             Builtin::WorkerPost => "__worker_post",
@@ -668,6 +671,7 @@ impl Builtin {
             "__raw_arena_free" => Builtin::RawArenaFree,
             "__clock_ms" => Builtin::ClockMs,
             "__parse_f64" => Builtin::ParseF64,
+            "__math" => Builtin::Math,
             "__loop_wait" => Builtin::LoopWait,
             "__worker_op" => Builtin::WorkerOp,
             "__worker_post" => Builtin::WorkerPost,

@@ -1,0 +1,203 @@
+// The `Math` global (spec §13.1): JavaScript's functions and constants on `number`s. The
+// floating-point library functions are the `__math` builtin (the platform's libm, natively
+// and in the interpreter); `random()` is xoshiro128** seeded from the system's randomness.
+
+/// A xoshiro128** generator (32-bit words, so its arithmetic fits `int` without overflow).
+class __Xoshiro128 {
+  public s0: int = 0
+  public s1: int = 0
+  public s2: int = 0
+  public s3: int = 0
+
+  /// Seeded from four 32-bit words (not all zero).
+  constructor(a: int, b: int, c: int, d: int) {
+    this.s0 = a & 0xFFFFFFFF
+    this.s1 = b & 0xFFFFFFFF
+    this.s2 = c & 0xFFFFFFFF
+    this.s3 = d & 0xFFFFFFFF
+    if ((this.s0 | this.s1 | this.s2 | this.s3) == 0) this.s0 = 1
+  }
+
+  /// Seeded from one integer through SplitMix-style mixing (same seed, same sequence).
+  public static seeded(seed: int): __Xoshiro128 {
+    let x = seed & 0xFFFFFFFF
+    let y = (seed >> 32) & 0xFFFFFFFF
+    const w: int[] = []
+    for (let i = 0; i < 4; i++) {
+      x = (x + 0x9E3779B9) & 0xFFFFFFFF
+      let z = x ^ y
+      z = ((z ^ (z >> 16)) * 0x85EB) & 0xFFFFFFFF
+      z = ((z ^ (z >> 13)) * 0xC2B2) & 0xFFFFFFFF
+      z = z ^ (z >> 16)
+      y = (y * 5 + 1) & 0xFFFFFFFF
+      w.push(z)
+    }
+    new __Xoshiro128(w[0], w[1], w[2], w[3])
+  }
+
+  /// From the system's randomness.
+  public static fromSystem(): __Xoshiro128 {
+    const b = __randomBytes(16)
+    const word = (i: int) => b.get(i) | (b.get(i + 1) << 8) | (b.get(i + 2) << 16) | (b.get(i + 3) << 24)
+    new __Xoshiro128(word(0), word(4), word(8), word(12))
+  }
+
+  /// The next 32 random bits, in `0 .. 2**32`.
+  public next(): int {
+    const m = 0xFFFFFFFF
+    const r0 = (this.s1 * 5) & m
+    const r1 = ((r0 << 7) | (r0 >> 25)) & m
+    const result = (r1 * 9) & m
+    const t = (this.s1 << 9) & m
+    this.s2 = this.s2 ^ this.s0
+    this.s3 = this.s3 ^ this.s1
+    this.s1 = this.s1 ^ this.s2
+    this.s0 = this.s0 ^ this.s3
+    this.s2 = this.s2 ^ t
+    this.s3 = ((this.s3 << 11) | (this.s3 >> 21)) & m
+    result
+  }
+
+  /// A number in `[0, 1)` with 53 random bits.
+  public nextFloat(): number {
+    const hi = this.next() >> 5
+    const lo = this.next() >> 6
+    ((hi as f64) * 67108864.0 + (lo as f64)) / 9007199254740992.0
+  }
+}
+
+let __mathRng: __Xoshiro128? = null
+
+/// JavaScript's `Math`: functions and constants on `number`s (static members only).
+class Math {
+  constructor() {}
+
+  public static get E(): number { 2.718281828459045 }
+  public static get LN10(): number { 2.302585092994046 }
+  public static get LN2(): number { 0.6931471805599453 }
+  public static get LOG10E(): number { 0.4342944819032518 }
+  public static get LOG2E(): number { 1.4426950408889634 }
+  public static get PI(): number { 3.141592653589793 }
+  public static get SQRT1_2(): number { 0.7071067811865476 }
+  public static get SQRT2(): number { 1.4142135623730951 }
+
+  public static abs(x: number): number { if (x < 0.0) -x else if (x == 0.0) 0.0 else x }
+  public static sqrt(x: number): number { __math(0, x, 0.0) }
+  public static cbrt(x: number): number { __math(16, x, 0.0) }
+  public static sin(x: number): number { __math(1, x, 0.0) }
+  public static cos(x: number): number { __math(2, x, 0.0) }
+  public static tan(x: number): number { __math(3, x, 0.0) }
+  public static asin(x: number): number { __math(4, x, 0.0) }
+  public static acos(x: number): number { __math(5, x, 0.0) }
+  public static atan(x: number): number { __math(6, x, 0.0) }
+  public static atan2(y: number, x: number): number { __math(7, y, x) }
+  public static sinh(x: number): number { __math(18, x, 0.0) }
+  public static cosh(x: number): number { __math(19, x, 0.0) }
+  public static tanh(x: number): number { __math(20, x, 0.0) }
+  public static asinh(x: number): number { __math(21, x, 0.0) }
+  public static acosh(x: number): number { __math(22, x, 0.0) }
+  public static atanh(x: number): number { __math(23, x, 0.0) }
+  public static exp(x: number): number { __math(8, x, 0.0) }
+  public static expm1(x: number): number { __math(24, x, 0.0) }
+  public static log(x: number): number { __math(9, x, 0.0) }
+  public static log1p(x: number): number { __math(25, x, 0.0) }
+  public static log2(x: number): number { __math(10, x, 0.0) }
+  public static log10(x: number): number { __math(11, x, 0.0) }
+  public static floor(x: number): number { __math(13, x, 0.0) }
+  public static ceil(x: number): number { __math(14, x, 0.0) }
+  public static trunc(x: number): number { __math(15, x, 0.0) }
+  public static fround(x: number): number { __math(27, x, 0.0) }
+
+  /// `x ** y` with JavaScript's special cases (`1 ** NaN` and `(±1) ** ±Infinity` are `NaN`).
+  public static pow(x: number, y: number): number {
+    if (y != y) return 0.0 / 0.0
+    if ((x == 1.0 || x == -1.0) && (y == 1.0 / 0.0 || y == -1.0 / 0.0)) return 0.0 / 0.0
+    __math(12, x, y)
+  }
+
+  /// Rounds half up (towards +Infinity), as JavaScript does: `round(-2.5)` is -2.
+  public static round(x: number): number {
+    if (x != x || x == 1.0 / 0.0 || x == -1.0 / 0.0) return x
+    const f = __math(13, x, 0.0)
+    if (x - f >= 0.5) f + 1.0 else f
+  }
+
+  /// -1, 0 or 1 (NaN stays NaN).
+  public static sign(x: number): number {
+    if (x > 0.0) 1.0 else if (x < 0.0) -1.0 else x
+  }
+
+  /// The square root of the sum of squares, without needless overflow.
+  public static hypot(...values: number[]): number {
+    let r = 0.0
+    for (const v of values) {
+      if (v == 1.0 / 0.0 || v == -1.0 / 0.0) return 1.0 / 0.0
+      r = __math(17, r, v)
+    }
+    r
+  }
+
+  /// The largest value (`-Infinity` for none; `NaN` if any is).
+  public static max(...values: number[]): number {
+    let r = -1.0 / 0.0
+    for (const v of values) {
+      if (v != v) return v
+      if (v > r) r = v
+    }
+    r
+  }
+
+  /// The smallest value (`Infinity` for none; `NaN` if any is).
+  public static min(...values: number[]): number {
+    let r = 1.0 / 0.0
+    for (const v of values) {
+      if (v != v) return v
+      if (v < r) r = v
+    }
+    r
+  }
+
+  /// A number in `[0, 1)`: not for cryptography (use `crypto`).
+  public static random(): number {
+    let g = __mathRng
+    if (g == null) {
+      const fresh = __Xoshiro128.fromSystem()
+      __mathRng = fresh
+      return fresh.nextFloat()
+    }
+    g.nextFloat()
+  }
+
+  /// The count of leading zero bits of `x` as a 32-bit integer.
+  public static clz32(x: number): number {
+    if (x != x || x == 1.0 / 0.0 || x == -1.0 / 0.0) return 32.0
+    let n = Math.__toUint32(x)
+    if (n == 0) return 32.0
+    let c = 0
+    while ((n & 0x80000000) == 0) {
+      n = n << 1
+      c += 1
+    }
+    c as f64
+  }
+
+  /// The 32-bit integer product of `a` and `b` (C-like wrapping).
+  public static imul(a: number, b: number): number {
+    const x = Math.__toUint32(a)
+    const y = Math.__toUint32(b)
+    // Split so the product fits: (xh·2^16 + xl)·y mod 2^32.
+    const lo = (x & 0xFFFF) * y
+    const hi = (((x >> 16) * y) & 0xFFFF) << 16
+    const r = (lo + hi) & 0xFFFFFFFF
+    (if (r >= 0x80000000) r - 0x100000000 else r) as f64
+  }
+
+  /// ToUint32 of ECMAScript.
+  public static __toUint32(x: number): int {
+    if (x != x || x == 1.0 / 0.0 || x == -1.0 / 0.0) return 0
+    const t = __math(15, x, 0.0)
+    const m = __math(26, t, 4294967296.0)
+    const r = (if (m < 0.0) m + 4294967296.0 else m) as int
+    r
+  }
+}

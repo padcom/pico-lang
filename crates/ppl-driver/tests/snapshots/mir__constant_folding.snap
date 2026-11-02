@@ -7,15 +7,16 @@ global @g1: __Loop? // __loop
 global @g2: FinalizationRegistry<i64>? // __buffers
 global @g3: Map<string, __Zone>? // __zoneCache
 global @g4: Performance // performance
-global @g5: i64 // KB
-global @g6: i64 // MB
-global @g7: f64 // ratio
-global @g8: bool // big
-global @g9: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g10: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g11: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g12: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g13: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g5: __Xoshiro128? // __mathRng
+global @g6: i64 // KB
+global @g7: i64 // MB
+global @g8: f64 // ratio
+global @g9: bool // big
+global @g10: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g11: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g12: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g13: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g14: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn scaled(_0: i64) -> i64 {
     let _1: i64
@@ -37,31 +38,31 @@ fn narrow() -> u8 {
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g9 = const 1_i64
+    @g10 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g10 = const 4_i64
+    @g11 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g11 = const 4_i64
+    @g12 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g12 = const 4_i64
+    @g13 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g13 = const 8_i64
+    @g14 = const 8_i64
     return
 }
 
@@ -99,16 +100,17 @@ fn <main>() -> void {
     @g3 = const null<Map<string, __Zone>?>
     _0 = struct#111{}
     @g4 = _0
-    @g5 = const 1024_i64
-    @g6 = const 1048576_i64
-    @g7 = const 3.0_f64
+    @g5 = const null<__Xoshiro128?>
+    @g6 = const 1024_i64
+    @g7 = const 1048576_i64
+    @g8 = const 3.0_f64
     goto bb6
   bb6:
     goto bb8
   bb7:
     unreachable
   bb8:
-    @g8 = const true
+    @g9 = const true
     _7 = call scaled(const 1_i64) -> bb9
   bb9:
     _8 = Add(const 1048576_i64, _7)

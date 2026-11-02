@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P7.9: Math, collections, fmt** (see [PLAN.md](PLAN.md#p79-math-collections-fmt)). P7.5b (TLS) and P7.8 (Crypto) are **deferred by the author** (2026-11-02: "skip crypto/TLS now"); the library choice is still open (mbedTLS vendored, Monocypher + BearSSL, or platform libraries). Ask again before starting either.
+**P7.9b: std/collections** (see [PLAN.md](PLAN.md#p79b-stdcollections)); then P7.9c (std/fmt), P7.10. P7.5b (TLS) and P7.8 (Crypto) are **deferred by the author** (2026-11-02: "skip crypto/TLS now"); the library choice is still open (mbedTLS vendored, Monocypher + BearSSL, or platform libraries). Ask again before starting either.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 229 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-02 (P7.7) |
+| Last green `scripts/test.sh` | 2026-11-02 (P7.9a) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Math (P7.9a, decision 238)**: `stdlib/core/math.ppl` (`Math`, `__Xoshiro128`), `stdlib/math.ppl` (`Vec2/3/4`, `Quat`, `Mat4`, `Random`, `BigInt`, `clamp`/`lerp`/`degToRad`/`radToDeg`). Builtin `__math(op, x, y)` (`Builtin::Math`; `ppl_math` in `ppl_rt.c`, `math_op` in `ppl-interp/src/lib.rs`: keep the op tables in step). Structs got `static` methods/getters (resolver `struct_members`, `names_class`). Not yet: method overloading (so `Math.abs` is `number`-only; spec §5.4 allows overloads but only free functions have them), wrapping/saturating integer methods (spec §2), `bigint` literals, BigInt bit operations/shifts, Karatsuba (multiplication is O(n²), division O(n² log BASE)), f32 vector types, `Mat3`. A struct's `toString()` isn't its string form yet (P7.9c `Formattable`): tests call `v.toString()`. A class `toString` with parameters (even defaulted) isn't used by `${x}`.
 - **Time (P7.7, decision 237)**: `stdlib/core/time.ppl` (civil-date math `__daysFromCivil`/`__civilFromDays`, `__PosixTz`, `__Zone` from TZif via `__Zone.fromTzif`, `__zoneNamed`/`__localZone`, ISO parser `__parseIso`, `Date`, `performance`), `stdlib/time.ppl` (`Duration`, `Instant`, `TimeZone`, `DateTime`, `DurationParts`, `DateTimeFields`). `__io` 133 clocks (monotonic is since program start: `ppl_start_ns` in `ppl_rt.c`'s `main`, `Shared.start` in the interpreter), 134 read a file now, 135 readlink. Typing: literals into `U?` unions, object literals into a union's single struct member. Not yet: plain date/time types (`PlainDate`…), calendar `Duration`s and `since` with largest units (`P1Y2M`), `round`, `Intl`/locale formats, `Date.toLocale*String`, a bundled tz database (WASI/Windows), leap seconds, nanosecond range beyond 1678–2262. Zones are cached per id; `TZ` is read again at every local-time use (each `Date` getter calls `getenv`: slow in hot loops).
 - **Regex (P7.6, decision 236)**: engine in `stdlib/core/regex.ppl` (`__RParser` → `__RNode` tree → `__RProgram` instructions → `__RMachine` backtracking VM; `RegExp`, `RegExpMatch`, `SyntaxError`), string methods in `stdlib/core/string.ppl` (`replace`/`replaceAll`/`split` take `string | RegExp`; `match`, `matchAll`, `search`), `std/regex` re-exports. Compile-time check: `ppl-sema/src/regex.rs` (`validate`, unit tests; keep it in step with `__RParser`), E0010, literals → `RegExp.__literal`. Typing: closures get parameter types from a union's single function member; native extension calls pass default flags (`split(sep)` without `limit`). Not yet: Unicode property escapes (`\p{L}`), `v`-flag set operations, `d`-flag `indices`, full case folding (only single-code-point lower/upper), `RegExp` from a `RegExp`, `Symbol.replace`-style protocols, a step limit against catastrophic backtracking, literal caching (each evaluation compiles the pattern again: hoist literals out of hot loops). A function type in a `match` pattern needs an alias (`f: ((m) => T) => …` parses `=>` as part of the type).
 - **WebSocket (P7.5c, decision 235)**: `stdlib/core/websocket.ppl` (`__sha1`, `__wsAccept`, `__randomBytes` via `__io` 132, `Event`/`MessageEvent`/`CloseEvent`, `WebSocket`), `upgradeWebSocket` in `stdlib/http.ppl` (serve hands the conn over when `Response.__upgrade` is set). `Base64`/`Hex` moved to `<core>/encoding.ppl`. Resolver: a program's own type alias now shadows a core type of the same name (`type Event = …`). Core statics are getters (static fields run at every program's start). Not yet: wss (P7.5b), `EventTarget`/`addEventListener`, `binaryType`/`Blob`, `bufferedAmount`, permessage-deflate, max message size, UTF-8 validation of text frames (bad bytes become U+FFFD instead of failing the connection).
@@ -239,7 +240,10 @@ Notes:
 - [x] P7.6 Regex
 - [x] P7.7 Time
 - [ ] P7.8 Crypto
-- [ ] P7.9 Math, collections, fmt
+- [ ] P7.9 Math, collections, fmt (split)
+  - [x] P7.9a Math and std/math
+  - [ ] P7.9b std/collections
+  - [ ] P7.9c std/fmt
 - [ ] P7.10 std/test and `ppl test`
 
 ### Phase 8: Targets
@@ -360,3 +364,4 @@ Notes:
 | 2026-11-02 | P7.5c | `WebSocket` global (ws:, text/binary, fragments, ping/pong, closing handshake, masking with random keys), `std/http` `upgradeWebSocket` with the connection handed over by `serve`, SHA-1 in core, `__io` 132 random bytes, base64/hex moved into core; local type aliases shadow core types. Spec §13.6, decision 235. Test: run/http/websocket (incl. RFC 6455's accept example). |
 | 2026-11-02 | P7.6 | `RegExp` engine in ppl (backtracking VM: groups, named groups, backrefs, lookahead/behind, lazy/greedy, flags gimsyu), compile-time validation of literals (E0010, JS messages, Rust port of the parser), `RegExpMatch`, `SyntaxError`, string `replace`/`replaceAll`/`split` with regexes and replacement patterns/functions, `match`/`matchAll`/`search`; `std/regex`. 35 exec cases and the string methods agree with Node. Spec §13.7, decision 236. Tests: run/regex/{engine, strings}, fail/regex/invalid, regex.rs unit tests. |
 | 2026-11-02 | P7.7 | `std/time` (`Duration`, `Instant`, `TimeZone` from the system tz database incl. POSIX footer rules, `DateTime` with DST disambiguation, calendar arithmetic, ISO parse/print, `format` patterns), `Date` global (JS-compatible, checked against Node in two zones), `performance.now()`. Typing: literals into nullable unions, object literals into a union's struct member. Spec §13.8, decision 237. Tests: run/time/{date, std_time}. |
+| 2026-11-02 | P7.9a | P7.9 split (a/b/c). `Math` global (all of JavaScript's functions and constants, agreeing with Node bit for bit; `__math` builtin over libm), `std/math` (Vec2/3/4, Quat, Mat4 with projections/lookAt/invert, BigInt checked against Node's bigint, seeded Random), static methods/getters on structs, lexer fix for `operator /`. Spec §13.9, decision 238. Tests: run/math/{global, std_math}. |

@@ -6437,6 +6437,17 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[1]), Ty::Float(FloatTy::F64))
             }
+            Builtin::Math => {
+                for (i, a) in args.iter().enumerate() {
+                    let t = if i == 0 {
+                        Ty::INT
+                    } else {
+                        Ty::Float(FloatTy::F64)
+                    };
+                    self.check(a, &Expect::new(t));
+                }
+                (arity(&[3]), Ty::Float(FloatTy::F64))
+            }
             Builtin::ComptimeInfo => {
                 if let Some(k) = args.first() {
                     self.check(k, &Expect::new(Ty::INT));
@@ -6536,6 +6547,7 @@ impl<'p> Checker<'p> {
                 | Builtin::ComptimeInfo
                 | Builtin::ComptimeReadFile => "1 argument",
                 Builtin::WorkerOp => "2 arguments",
+                Builtin::Math => "3 arguments",
                 Builtin::WorkerPost => "2 or 3 arguments",
                 Builtin::BufOp | Builtin::MetaEmit => "4 arguments",
                 Builtin::Io => "6 arguments",

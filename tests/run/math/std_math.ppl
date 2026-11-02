@@ -1,0 +1,45 @@
+// `std/math`: vectors, quaternions, matrices (OpenGL conventions), BigInt (checked with
+// Node's bigint), seeded Random and helpers.
+// expect: (5, 7, 9) (2, 4, 6) 32 (-3, 6, -3) 8.774964387392123
+// expect: (0.6, 0.8) 3 (-1, -2, -3) true
+// expect: true true
+// expect: true 8
+// expect: true
+// expect: [1, 0, 0, 0; 0, 1, 0, 0; 0, 0, 1, 0; 0, 0, 0, 1]
+// expect: 15241578753238836750495351562536198787501905199875019052100 1272750402189130710322005854 52 1267650600228229401496703205376 -ff
+// expect: -3 -1 -1 255
+// expect: true 3 0.9111183129185815
+// expect: 3 2.5
+// expect: 0.5000000000000001 1.0000000000000002 -1.0202020202020203 -2.0202020202020203 -1
+// expect: (0, 0, -5) true
+// expect: true (1, 2, 3)
+// expect: 5 1 10
+import { Vec2, Vec3, Vec4, Quat, Mat4, BigInt, Random, clamp, lerp, degToRad } from "std/math"
+
+const a = Vec3.of(1, 2, 3)
+const b = Vec3 { x: 4, y: 5, z: 6 }
+println(`${(a + b).toString()} ${(a * 2).toString()} ${a.dot(b)} ${a.cross(b).toString()} ${b.length()}`)
+println(`${Vec2.of(3, 4).normalize().toString()} ${a[2]} ${(-a).toString()} ${a == Vec3.of(1, 2, 3)}`)
+const q = Quat.fromAxisAngle(Vec3.unitZ, degToRad(90))
+println(`${q.rotate(Vec3.unitX).approxEquals(Vec3.unitY)} ${(q * q).rotate(Vec3.unitX).approxEquals(-Vec3.unitX)}`)
+const m = Mat4.translation(Vec3.of(1, 2, 3)) * Mat4.rotationZ(degToRad(90)) * Mat4.scaling(Vec3.of(2, 2, 2))
+println(`${m.transformPoint(Vec3.unitX).approxEquals(Vec3.of(1, 4, 3))} ${m.determinant()}`)
+const inv = m.invert()
+if (inv != null) println(`${(inv * m).approxEquals(Mat4.identity)}`)
+println(Mat4.identity.toString())
+const big = BigInt.parse("123456789012345678901234567890")
+println(`${big * big} ${big / BigInt.of(97)} ${big % BigInt.of(97)} ${BigInt.of(2).pow(100)} ${BigInt.of(-255).toStringRadix(16)}`)
+println(`${BigInt.of(-7) / BigInt.of(2)} ${BigInt.of(-7) % BigInt.of(2)} ${big.compareTo(big + BigInt.of(1))} ${BigInt.parse("0xff")}`)
+const r = new Random(42)
+const r2 = new Random(42)
+println(`${r.nextU32() == r2.nextU32()} ${r.int(0, 10)} ${r.float()}`)
+println(`${clamp(5, 0, 3)} ${lerp(0, 10, 0.25)}`)
+const p = Mat4.perspective(degToRad(90), 2, 1, 100)
+println(`${p.get(0, 0)} ${p.get(1, 1)} ${p.get(2, 2)} ${p.get(2, 3)} ${p.get(3, 2)}`)
+const v = Mat4.lookAt(Vec3.of(0, 0, 5), Vec3.zero, Vec3.unitY)
+println(`${v.transformPoint(Vec3.zero).toString()} ${Mat4.fromRows([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]).invert() == null}`)
+const s = Quat.identity.slerp(q, 0.5)
+println(`${s.approxEquals(Quat.fromAxisAngle(Vec3.unitZ, degToRad(45)))} ${Vec4.of(2, 4, 6, 2).xyz().toString()}`)
+const xs = [1, 2, 3, 4, 5]
+new Random(7).shuffle(xs)
+println(`${xs.length} ${new Random(1).pick(["a", "b"]).length} ${new Random(3).int(10, 11)}`)

@@ -26,6 +26,42 @@ int32_t ppl_instance_of(const void *obj, const void *info) {
     return 0;
 }
 
+/* `Math`'s floating-point functions by number (the interpreter's `math_op` has the same
+ * table). */
+double ppl_math(int64_t op, double x, double y) {
+    switch (op) {
+    case 0: return sqrt(x);
+    case 1: return sin(x);
+    case 2: return cos(x);
+    case 3: return tan(x);
+    case 4: return asin(x);
+    case 5: return acos(x);
+    case 6: return atan(x);
+    case 7: return atan2(x, y);
+    case 8: return exp(x);
+    case 9: return log(x);
+    case 10: return log2(x);
+    case 11: return log10(x);
+    case 12: return pow(x, y);
+    case 13: return floor(x);
+    case 14: return ceil(x);
+    case 15: return trunc(x);
+    case 16: return cbrt(x);
+    case 17: return hypot(x, y);
+    case 18: return sinh(x);
+    case 19: return cosh(x);
+    case 20: return tanh(x);
+    case 21: return asinh(x);
+    case 22: return acosh(x);
+    case 23: return atanh(x);
+    case 24: return expm1(x);
+    case 25: return log1p(x);
+    case 26: return fmod(x, y);
+    case 27: return (double)(float)x;
+    default: return NAN;
+    }
+}
+
 double ppl_parse_f64(const PplStr *s) {
     char buf[128];
     int64_t n = s->byte_len;

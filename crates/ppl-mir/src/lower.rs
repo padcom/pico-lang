@@ -6256,6 +6256,7 @@ impl FnBuilder<'_, '_> {
                 | Builtin::RawArenaFree
                 | Builtin::ClockMs
                 | Builtin::ParseF64
+                | Builtin::Math
                 | Builtin::LoopWait
                 | Builtin::WorkerOp
                 | Builtin::WorkerPost
@@ -6275,6 +6276,7 @@ impl FnBuilder<'_, '_> {
                         | Builtin::RawArenaNew
                         | Builtin::ClockMs
                         | Builtin::ParseF64
+                        | Builtin::Math
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
                         | Builtin::BufOp
@@ -6292,7 +6294,7 @@ impl FnBuilder<'_, '_> {
                             | Builtin::IoText
                     ) {
                         Ty::Str
-                    } else if *b == Builtin::ParseF64 {
+                    } else if matches!(b, Builtin::ParseF64 | Builtin::Math) {
                         Ty::Float(ppl_sema::ty::FloatTy::F64)
                     } else {
                         Ty::INT

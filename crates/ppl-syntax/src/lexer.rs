@@ -89,7 +89,11 @@ impl<'a> Lexer<'a> {
             | TokenKind::Template(_)
             | TokenKind::TemplateTail { .. }
             | TokenKind::Regex { .. } => true,
-            TokenKind::Kw(k) => matches!(k, Kw::This | Kw::Super | Kw::Null | Kw::True | Kw::False),
+            // (After `operator`, `/` is the operator being declared, not a regex.)
+            TokenKind::Kw(k) => matches!(
+                k,
+                Kw::This | Kw::Super | Kw::Null | Kw::True | Kw::False | Kw::Operator
+            ),
             TokenKind::Punct(p) => match p {
                 Punct::RParen | Punct::RBracket => true,
                 // Postfix `!`, `++` and `--` keep the state of the operand before them.

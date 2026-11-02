@@ -1,0 +1,783 @@
+// `std/math` (spec §13.2): vectors and matrices for graphics and games (`Vec2`, `Vec3`,
+// `Vec4`, `Quat`, `Mat4`: `number` structs with operators, OpenGL conventions: right-handed,
+// column-major, column vectors), arbitrary-precision integers (`BigInt`), a seedable random
+// generator (`Random`) and small helpers. The `Math` global has the scalar functions.
+
+/// `x` limited to `lo..hi`.
+export function clamp(x: number, lo: number, hi: number): number {
+  if (x < lo) lo else if (x > hi) hi else x
+}
+
+/// The value `t` of the way from `a` to `b` (`t` = 0 is `a`, 1 is `b`).
+export function lerp(a: number, b: number, t: number): number {
+  a + (b - a) * t
+}
+
+export function degToRad(d: number): number { d * Math.PI / 180.0 }
+export function radToDeg(r: number): number { r * 180.0 / Math.PI }
+
+/// A 2D vector.
+export struct Vec2 {
+  x: number
+  y: number
+
+  static of(x: number, y: number): Vec2 { Vec2 { x: x, y: y } }
+  static get zero(): Vec2 { Vec2 { x: 0, y: 0 } }
+  static get one(): Vec2 { Vec2 { x: 1, y: 1 } }
+
+  operator +(o: Vec2): Vec2 { Vec2 { x: x + o.x, y: y + o.y } }
+  operator -(o: Vec2): Vec2 { Vec2 { x: x - o.x, y: y - o.y } }
+  /// By a scalar, or component by component.
+  operator *(k: number): Vec2 { Vec2 { x: x * k, y: y * k } }
+  operator *(o: Vec2): Vec2 { Vec2 { x: x * o.x, y: y * o.y } }
+  operator /(k: number): Vec2 { Vec2 { x: x / k, y: y / k } }
+  operator -(): Vec2 { Vec2 { x: -x, y: -y } }
+  operator [](i: int): number { if (i == 0) x else if (i == 1) y else panic(`Vec2 index ${i}`) }
+
+  dot(o: Vec2): number { x * o.x + y * o.y }
+  /// The z of the 3D cross product (positive when `o` is counter-clockwise from this).
+  cross(o: Vec2): number { x * o.y - y * o.x }
+  lengthSquared(): number { x * x + y * y }
+  length(): number { Math.sqrt(x * x + y * y) }
+  /// This direction with length 1 (the zero vector stays zero).
+  normalize(): Vec2 {
+    const l = Math.sqrt(x * x + y * y)
+    if (l == 0.0) Vec2 { x: 0, y: 0 } else Vec2 { x: x / l, y: y / l }
+  }
+  distance(o: Vec2): number { Math.sqrt((x - o.x) * (x - o.x) + (y - o.y) * (y - o.y)) }
+  lerp(o: Vec2, t: number): Vec2 { Vec2 { x: x + (o.x - x) * t, y: y + (o.y - y) * t } }
+  /// Rotated counter-clockwise by `angle` radians.
+  rotate(angle: number): Vec2 {
+    const c = Math.cos(angle)
+    const s = Math.sin(angle)
+    Vec2 { x: x * c - y * s, y: x * s + y * c }
+  }
+  /// The angle from the x axis, in radians (`-π..π`).
+  angle(): number { Math.atan2(y, x) }
+  /// Each component within `eps` of `o`'s.
+  approxEquals(o: Vec2, eps: number = 1e-9): bool { Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps }
+  toString(): string { `(${x}, ${y})` }
+}
+
+/// A 3D vector.
+export struct Vec3 {
+  x: number
+  y: number
+  z: number
+
+  static of(x: number, y: number, z: number): Vec3 { Vec3 { x: x, y: y, z: z } }
+  static get zero(): Vec3 { Vec3 { x: 0, y: 0, z: 0 } }
+  static get one(): Vec3 { Vec3 { x: 1, y: 1, z: 1 } }
+  static get unitX(): Vec3 { Vec3 { x: 1, y: 0, z: 0 } }
+  static get unitY(): Vec3 { Vec3 { x: 0, y: 1, z: 0 } }
+  static get unitZ(): Vec3 { Vec3 { x: 0, y: 0, z: 1 } }
+
+  operator +(o: Vec3): Vec3 { Vec3 { x: x + o.x, y: y + o.y, z: z + o.z } }
+  operator -(o: Vec3): Vec3 { Vec3 { x: x - o.x, y: y - o.y, z: z - o.z } }
+  operator *(k: number): Vec3 { Vec3 { x: x * k, y: y * k, z: z * k } }
+  operator *(o: Vec3): Vec3 { Vec3 { x: x * o.x, y: y * o.y, z: z * o.z } }
+  operator /(k: number): Vec3 { Vec3 { x: x / k, y: y / k, z: z / k } }
+  operator -(): Vec3 { Vec3 { x: -x, y: -y, z: -z } }
+  operator [](i: int): number {
+    if (i == 0) x else if (i == 1) y else if (i == 2) z else panic(`Vec3 index ${i}`)
+  }
+
+  dot(o: Vec3): number { x * o.x + y * o.y + z * o.z }
+  cross(o: Vec3): Vec3 { Vec3 { x: y * o.z - z * o.y, y: z * o.x - x * o.z, z: x * o.y - y * o.x } }
+  lengthSquared(): number { x * x + y * y + z * z }
+  length(): number { Math.sqrt(x * x + y * y + z * z) }
+  normalize(): Vec3 {
+    const l = Math.sqrt(x * x + y * y + z * z)
+    if (l == 0.0) Vec3 { x: 0, y: 0, z: 0 } else Vec3 { x: x / l, y: y / l, z: z / l }
+  }
+  distance(o: Vec3): number { (this - o).length() }
+  lerp(o: Vec3, t: number): Vec3 { Vec3 { x: x + (o.x - x) * t, y: y + (o.y - y) * t, z: z + (o.z - z) * t } }
+  approxEquals(o: Vec3, eps: number = 1e-9): bool {
+    Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps
+  }
+  toString(): string { `(${x}, ${y}, ${z})` }
+}
+
+/// A 4D vector (homogeneous coordinates: `w` = 1 for points, 0 for directions).
+export struct Vec4 {
+  x: number
+  y: number
+  z: number
+  w: number
+
+  static of(x: number, y: number, z: number, w: number): Vec4 { Vec4 { x: x, y: y, z: z, w: w } }
+  static point(v: Vec3): Vec4 { Vec4 { x: v.x, y: v.y, z: v.z, w: 1 } }
+  static direction(v: Vec3): Vec4 { Vec4 { x: v.x, y: v.y, z: v.z, w: 0 } }
+  static get zero(): Vec4 { Vec4 { x: 0, y: 0, z: 0, w: 0 } }
+
+  operator +(o: Vec4): Vec4 { Vec4 { x: x + o.x, y: y + o.y, z: z + o.z, w: w + o.w } }
+  operator -(o: Vec4): Vec4 { Vec4 { x: x - o.x, y: y - o.y, z: z - o.z, w: w - o.w } }
+  operator *(k: number): Vec4 { Vec4 { x: x * k, y: y * k, z: z * k, w: w * k } }
+  operator *(o: Vec4): Vec4 { Vec4 { x: x * o.x, y: y * o.y, z: z * o.z, w: w * o.w } }
+  operator /(k: number): Vec4 { Vec4 { x: x / k, y: y / k, z: z / k, w: w / k } }
+  operator -(): Vec4 { Vec4 { x: -x, y: -y, z: -z, w: -w } }
+  operator [](i: int): number {
+    if (i == 0) x else if (i == 1) y else if (i == 2) z else if (i == 3) w else panic(`Vec4 index ${i}`)
+  }
+
+  dot(o: Vec4): number { x * o.x + y * o.y + z * o.z + w * o.w }
+  lengthSquared(): number { x * x + y * y + z * z + w * w }
+  length(): number { Math.sqrt(x * x + y * y + z * z + w * w) }
+  normalize(): Vec4 {
+    const l = this.length()
+    if (l == 0.0) Vec4 { x: 0, y: 0, z: 0, w: 0 } else this / l
+  }
+  /// `x, y, z` (divided by `w` when it isn't 0 or 1: the perspective divide).
+  xyz(): Vec3 {
+    if (w == 0.0 || w == 1.0) Vec3 { x: x, y: y, z: z } else Vec3 { x: x / w, y: y / w, z: z / w }
+  }
+  lerp(o: Vec4, t: number): Vec4 { this + (o - this) * t }
+  approxEquals(o: Vec4, eps: number = 1e-9): bool {
+    Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
+  }
+  toString(): string { `(${x}, ${y}, ${z}, ${w})` }
+}
+
+/// A rotation as a unit quaternion `w + xi + yj + zk`.
+export struct Quat {
+  x: number
+  y: number
+  z: number
+  w: number
+
+  static get identity(): Quat { Quat { x: 0, y: 0, z: 0, w: 1 } }
+  static of(x: number, y: number, z: number, w: number): Quat { Quat { x: x, y: y, z: z, w: w } }
+
+  /// A rotation by `angle` radians around `axis` (normalized here).
+  static fromAxisAngle(axis: Vec3, angle: number): Quat {
+    const a = axis.normalize()
+    const s = Math.sin(angle / 2.0)
+    Quat { x: a.x * s, y: a.y * s, z: a.z * s, w: Math.cos(angle / 2.0) }
+  }
+
+  /// Rotations around x, then y, then z (radians), applied in that order.
+  static fromEuler(rx: number, ry: number, rz: number): Quat {
+    Quat.fromAxisAngle(Vec3.unitZ, rz) * Quat.fromAxisAngle(Vec3.unitY, ry) * Quat.fromAxisAngle(Vec3.unitX, rx)
+  }
+
+  /// The Hamilton product: `a * b` rotates by `b`, then by `a`.
+  operator *(o: Quat): Quat {
+    Quat {
+      x: w * o.x + x * o.w + y * o.z - z * o.y,
+      y: w * o.y - x * o.z + y * o.w + z * o.x,
+      z: w * o.z + x * o.y - y * o.x + z * o.w,
+      w: w * o.w - x * o.x - y * o.y - z * o.z,
+    }
+  }
+  operator -(): Quat { Quat { x: -x, y: -y, z: -z, w: -w } }
+
+  dot(o: Quat): number { x * o.x + y * o.y + z * o.z + w * o.w }
+  length(): number { Math.sqrt(x * x + y * y + z * z + w * w) }
+  normalize(): Quat {
+    const l = this.length()
+    if (l == 0.0) Quat.identity else Quat { x: x / l, y: y / l, z: z / l, w: w / l }
+  }
+  conjugate(): Quat { Quat { x: -x, y: -y, z: -z, w: w } }
+  /// The opposite rotation (the conjugate over the squared length).
+  inverse(): Quat {
+    const n = x * x + y * y + z * z + w * w
+    Quat { x: -x / n, y: -y / n, z: -z / n, w: w / n }
+  }
+
+  /// `v` rotated.
+  rotate(v: Vec3): Vec3 {
+    // v + 2w(q×v) + 2q×(q×v), with q the vector part.
+    const q = Vec3 { x: x, y: y, z: z }
+    const t = q.cross(v) * 2.0
+    v + t * w + q.cross(t)
+  }
+
+  /// Spherical interpolation along the shorter arc.
+  slerp(o: Quat, t: number): Quat {
+    let b = o
+    let cos = this.dot(o)
+    if (cos < 0.0) {
+      b = -o
+      cos = -cos
+    }
+    if (cos > 0.9995) {
+      // Nearly the same: interpolate linearly.
+      return Quat { x: x + (b.x - x) * t, y: y + (b.y - y) * t, z: z + (b.z - z) * t, w: w + (b.w - w) * t }.normalize()
+    }
+    const theta = Math.acos(cos)
+    const s = Math.sin(theta)
+    const ka = Math.sin((1.0 - t) * theta) / s
+    const kb = Math.sin(t * theta) / s
+    Quat { x: x * ka + b.x * kb, y: y * ka + b.y * kb, z: z * ka + b.z * kb, w: w * ka + b.w * kb }
+  }
+
+  /// The rotation matrix.
+  toMat4(): Mat4 { Mat4.fromQuat(this) }
+
+  approxEquals(o: Quat, eps: number = 1e-9): bool {
+    Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
+  }
+  toString(): string { `(${x}, ${y}, ${z}, ${w})` }
+}
+
+/// A 4×4 matrix, column-major (`m[col * 4 + row]`, as OpenGL and WebGPU upload it), acting on
+/// column vectors: `a * b` applies `b` first.
+export struct Mat4 {
+  m: [number; 16]
+
+  static get identity(): Mat4 {
+    Mat4 { m: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] }
+  }
+
+  /// From 16 numbers in column-major order.
+  static fromColumnMajor(v: number[]): Mat4 {
+    if (v.length != 16) panic(`Mat4.fromColumnMajor: ${v.length} numbers, not 16`)
+    let m = Mat4.identity.m
+    for (let i = 0; i < 16; i++) m[i] = v[i]
+    Mat4 { m: m }
+  }
+
+  /// From 16 numbers as written on paper (row by row).
+  static fromRows(v: number[]): Mat4 {
+    if (v.length != 16) panic(`Mat4.fromRows: ${v.length} numbers, not 16`)
+    let m = Mat4.identity.m
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) m[c * 4 + r] = v[r * 4 + c]
+    }
+    Mat4 { m: m }
+  }
+
+  static translation(v: Vec3): Mat4 {
+    let m = Mat4.identity.m
+    m[12] = v.x
+    m[13] = v.y
+    m[14] = v.z
+    Mat4 { m: m }
+  }
+
+  static scaling(v: Vec3): Mat4 {
+    let m = Mat4.identity.m
+    m[0] = v.x
+    m[5] = v.y
+    m[10] = v.z
+    Mat4 { m: m }
+  }
+
+  /// A rotation by `angle` radians around `axis`.
+  static rotation(axis: Vec3, angle: number): Mat4 { Mat4.fromQuat(Quat.fromAxisAngle(axis, angle)) }
+  static rotationX(angle: number): Mat4 { Mat4.rotation(Vec3.unitX, angle) }
+  static rotationY(angle: number): Mat4 { Mat4.rotation(Vec3.unitY, angle) }
+  static rotationZ(angle: number): Mat4 { Mat4.rotation(Vec3.unitZ, angle) }
+
+  static fromQuat(q: Quat): Mat4 {
+    const x = q.x
+    const y = q.y
+    const z = q.z
+    const w = q.w
+    Mat4.fromRows([
+      1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w), 0.0,
+      2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w), 0.0,
+      2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y), 0.0,
+      0.0, 0.0, 0.0, 1.0,
+    ])
+  }
+
+  /// A perspective projection (OpenGL clip space, z in -1..1): `fovy` radians vertically.
+  static perspective(fovy: number, aspect: number, near: number, far: number): Mat4 {
+    const f = 1.0 / Math.tan(fovy / 2.0)
+    const nf = 1.0 / (near - far)
+    Mat4.fromRows([
+      f / aspect, 0.0, 0.0, 0.0,
+      0.0, f, 0.0, 0.0,
+      0.0, 0.0, (far + near) * nf, 2.0 * far * near * nf,
+      0.0, 0.0, -1.0, 0.0,
+    ])
+  }
+
+  /// An orthographic projection (OpenGL clip space).
+  static orthographic(left: number, right: number, bottom: number, top: number, near: number, far: number): Mat4 {
+    Mat4.fromRows([
+      2.0 / (right - left), 0.0, 0.0, -(right + left) / (right - left),
+      0.0, 2.0 / (top - bottom), 0.0, -(top + bottom) / (top - bottom),
+      0.0, 0.0, -2.0 / (far - near), -(far + near) / (far - near),
+      0.0, 0.0, 0.0, 1.0,
+    ])
+  }
+
+  /// A view matrix: the camera at `eye` looking at `target`, `up` roughly up.
+  static lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4 {
+    const f = (target - eye).normalize()
+    const s = f.cross(up).normalize()
+    const u = s.cross(f)
+    Mat4.fromRows([
+      s.x, s.y, s.z, -s.dot(eye),
+      u.x, u.y, u.z, -u.dot(eye),
+      -f.x, -f.y, -f.z, f.dot(eye),
+      0.0, 0.0, 0.0, 1.0,
+    ])
+  }
+
+  /// The element in `row`, `col` (0-based).
+  get(row: int, col: int): number { m[col * 4 + row] }
+
+  operator *(o: Mat4): Mat4 {
+    let r = Mat4.identity.m
+    for (let c = 0; c < 4; c++) {
+      for (let row = 0; row < 4; row++) {
+        let s = 0.0
+        for (let k = 0; k < 4; k++) s += m[k * 4 + row] * o.m[c * 4 + k]
+        r[c * 4 + row] = s
+      }
+    }
+    Mat4 { m: r }
+  }
+
+  operator *(v: Vec4): Vec4 {
+    Vec4 {
+      x: m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12] * v.w,
+      y: m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13] * v.w,
+      z: m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14] * v.w,
+      w: m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15] * v.w,
+    }
+  }
+
+  /// A point (w = 1) transformed, with the perspective divide.
+  transformPoint(p: Vec3): Vec3 { (this * Vec4.point(p)).xyz() }
+  /// A direction (w = 0) transformed: no translation.
+  transformDirection(d: Vec3): Vec3 {
+    const r = this * Vec4.direction(d)
+    Vec3 { x: r.x, y: r.y, z: r.z }
+  }
+
+  transpose(): Mat4 {
+    let r = m
+    for (let c = 0; c < 4; c++) {
+      for (let row = 0; row < 4; row++) r[c * 4 + row] = m[row * 4 + c]
+    }
+    Mat4 { m: r }
+  }
+
+  determinant(): number {
+    const c = Mat4.__cofactors(m)
+    m[0] * c[0] + m[1] * c[4] + m[2] * c[8] + m[3] * c[12]
+  }
+
+  /// The inverse, or `null` for a singular matrix.
+  invert(): Mat4? {
+    let inv = Mat4.__cofactors(m)
+    const det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12]
+    if (det == 0.0) return null
+    for (let i = 0; i < 16; i++) inv[i] = inv[i] / det
+    Mat4 { m: inv }
+  }
+
+  /// The adjugate (transposed cofactors) of a column-major matrix.
+  static __cofactors(m: [number; 16]): [number; 16] {
+    let inv = m
+    inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10]
+    inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10]
+    inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9]
+    inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9]
+    inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10]
+    inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10]
+    inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9]
+    inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9]
+    inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6]
+    inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6]
+    inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5]
+    inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5]
+    inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6]
+    inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6]
+    inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5]
+    inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5]
+    inv
+  }
+
+  /// The 16 numbers in column-major order (for uploading).
+  toArray(): number[] {
+    const r: number[] = []
+    for (let i = 0; i < 16; i++) r.push(m[i])
+    r
+  }
+
+  approxEquals(o: Mat4, eps: number = 1e-9): bool {
+    for (let i = 0; i < 16; i++) {
+      if (Math.abs(m[i] - o.m[i]) > eps) return false
+    }
+    true
+  }
+
+  /// Row by row: `[1, 0, 0, 0; 0, 1, 0, 0; …]`.
+  toString(): string {
+    let s = "["
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        s = s + `${m[c * 4 + r]}` + (if (c < 3) ", " else if (r < 3) "; " else "]")
+      }
+    }
+    s
+  }
+}
+
+// ---- Random ----
+
+/// A seedable pseudo-random generator (xoshiro128**): the same seed gives the same sequence
+/// on every target. Not for cryptography (use `crypto`).
+export class Random {
+  g: __Xoshiro128
+
+  /// Seeded with `seed`, or from the system's randomness without one.
+  constructor(seed: int? = null) {
+    this.g = if (seed == null) __Xoshiro128.fromSystem() else __Xoshiro128.seeded(seed)
+  }
+
+  /// 32 random bits (`0 .. 2**32`).
+  public nextU32(): int { this.g.next() }
+
+  /// A number in `[0, 1)`.
+  public float(): number { this.g.nextFloat() }
+
+  /// An integer in `lo .. hi` (`hi` excluded), without bias.
+  public int(lo: int, hi: int): int {
+    if (hi <= lo) panic(`Random.int: empty range ${lo}..${hi}`)
+    const range = hi - lo
+    if (range <= 0x100000000) {
+      // Rejection sampling over the largest multiple of `range` below 2**32.
+      const limit = 0x100000000 - 0x100000000 % range
+      let r = this.g.next()
+      while (r >= limit) r = this.g.next()
+      return lo + r % range
+    }
+    // 62 bits from two draws, then rejection.
+    const limit = 0x4000000000000000 - 0x4000000000000000 % range
+    let r = ((this.g.next() & 0x3FFFFFFF) << 32) | this.g.next()
+    while (r >= limit) r = ((this.g.next() & 0x3FFFFFFF) << 32) | this.g.next()
+    lo + r % range
+  }
+
+  /// `true` with probability `p`.
+  public bool(p: number = 0.5): bool { this.g.nextFloat() < p }
+
+  /// A normally distributed number (Box–Muller).
+  public gaussian(mean: number = 0.0, stdDev: number = 1.0): number {
+    let u = this.g.nextFloat()
+    while (u == 0.0) u = this.g.nextFloat()
+    const v = this.g.nextFloat()
+    mean + stdDev * Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v)
+  }
+
+  /// A random element (panics on an empty array).
+  public pick<T>(xs: T[]): T {
+    if (xs.length == 0) panic("Random.pick: empty array")
+    xs[this.int(0, xs.length)]
+  }
+
+  /// Shuffles `xs` in place (Fisher–Yates).
+  public shuffle<T>(xs: T[]): void {
+    let i = xs.length - 1
+    while (i > 0) {
+      const j = this.int(0, i + 1)
+      const t = xs[i]
+      xs[i] = xs[j]
+      xs[j] = t
+      i -= 1
+    }
+  }
+}
+
+// ---- BigInt ----
+
+const __BASE = 1000000000
+
+/// An arbitrary-precision integer: `+ - * / %` (division truncates towards zero, as in
+/// JavaScript), comparisons, `pow`, `toString()`/`toStringRadix(radix)` and `parse`.
+export class BigInt {
+  /// -1, 0 or 1.
+  sign: int
+  /// The magnitude in base 10⁹, least significant limb first, no leading zero limbs.
+  limbs: int[]
+
+  constructor(value: int = 0) {
+    this.sign = if (value < 0) -1 else if (value > 0) 1 else 0
+    this.limbs = []
+    if (value == -9223372036854775807 - 1) {
+      // |i64::MIN| doesn't fit: 9223372036854775808.
+      this.limbs = [854775808, 223372036, 9]
+      return
+    }
+    let v = if (value < 0) -value else value
+    while (v > 0) {
+      this.limbs.push(v % __BASE)
+      v = v / __BASE
+    }
+  }
+
+  static __make(sign: int, limbs: int[]): BigInt {
+    let n = limbs.length
+    while (n > 0 && limbs[n - 1] == 0) n -= 1
+    const r = new BigInt(0)
+    r.limbs = limbs.slice(0, n)
+    r.sign = if (n == 0) 0 else sign
+    r
+  }
+
+  public static of(value: int): BigInt { new BigInt(value) }
+
+  /// Parses an optionally signed integer in `radix` (2–36; `0x`/`0o`/`0b` prefixes with the
+  /// default radix 10). Throws `SyntaxError`, as JavaScript's `BigInt("…")` does.
+  public static parse(s: string, radix: int = 10): BigInt throws SyntaxError {
+    let t = s.trim()
+    let sign = 1
+    if (t.startsWith("-")) {
+      sign = -1
+      t = t.slice(1)
+    } else if (t.startsWith("+")) {
+      t = t.slice(1)
+    }
+    let r = radix
+    if (radix == 10 && t.length > 2 && t[0] == '0') {
+      const p = t[1]
+      if (p == 'x' || p == 'X') r = 16
+      if (p == 'o' || p == 'O') r = 8
+      if (p == 'b' || p == 'B') r = 2
+      if (r != 10) t = t.slice(2)
+    }
+    if (r < 2 || r > 36 || t.length == 0) throw new SyntaxError(`Cannot convert ${s} to a BigInt`)
+    let acc = BigInt.__make(1, [])
+    for (const c of t) {
+      const code = (c as u32) as int
+      const d = if (code >= 48 && code <= 57) code - 48 else if (code >= 97 && code <= 122) code - 87 else if (code >= 65 && code <= 90) code - 55 else 99
+      if (d >= r) throw new SyntaxError(`Cannot convert ${s} to a BigInt`)
+      acc = acc.__mulSmall(r).__addSmall(d)
+    }
+    BigInt.__make(sign * acc.sign, acc.limbs)
+  }
+
+  public get isZero(): bool { this.sign == 0 }
+  public get isNegative(): bool { this.sign < 0 }
+
+  /// The value as an `int` (panics if it doesn't fit).
+  public toInt(): int {
+    if (BigInt.__cmpMag(this.limbs, [854775807, 223372036, 9]) > 0) {
+      if (this.sign < 0 && BigInt.__cmpMag(this.limbs, [854775808, 223372036, 9]) == 0) {
+        return -9223372036854775807 - 1
+      }
+      panic(`BigInt ${this} doesn't fit an int`)
+    }
+    let v = 0
+    let i = this.limbs.length - 1
+    while (i >= 0) {
+      v = v * __BASE + this.limbs[i]
+      i -= 1
+    }
+    v * this.sign
+  }
+
+  /// The nearest `number`.
+  public toNumber(): number {
+    let v = 0.0
+    let i = this.limbs.length - 1
+    while (i >= 0) {
+      v = v * 1000000000.0 + (this.limbs[i] as f64)
+      i -= 1
+    }
+    v * (this.sign as f64)
+  }
+
+  static __cmpMag(a: int[], b: int[]): int {
+    if (a.length != b.length) return if (a.length < b.length) -1 else 1
+    let i = a.length - 1
+    while (i >= 0) {
+      if (a[i] != b[i]) return if (a[i] < b[i]) -1 else 1
+      i -= 1
+    }
+    0
+  }
+
+  static __addMag(a: int[], b: int[]): int[] {
+    const r: int[] = []
+    let carry = 0
+    const n = if (a.length > b.length) a.length else b.length
+    for (let i = 0; i < n; i++) {
+      const s = (if (i < a.length) a[i] else 0) + (if (i < b.length) b[i] else 0) + carry
+      r.push(s % __BASE)
+      carry = s / __BASE
+    }
+    if (carry > 0) r.push(carry)
+    r
+  }
+
+  /// `a - b` for `|a| >= |b|`.
+  static __subMag(a: int[], b: int[]): int[] {
+    const r: int[] = []
+    let borrow = 0
+    for (let i = 0; i < a.length; i++) {
+      let d = a[i] - borrow - (if (i < b.length) b[i] else 0)
+      borrow = 0
+      if (d < 0) {
+        d += __BASE
+        borrow = 1
+      }
+      r.push(d)
+    }
+    r
+  }
+
+  __mulSmall(k: int): BigInt {
+    const r: int[] = []
+    let carry = 0
+    for (const l of this.limbs) {
+      const p = l * k + carry
+      r.push(p % __BASE)
+      carry = p / __BASE
+    }
+    while (carry > 0) {
+      r.push(carry % __BASE)
+      carry = carry / __BASE
+    }
+    BigInt.__make(if (this.sign == 0) 1 else this.sign, r)
+  }
+
+  __addSmall(k: int): BigInt {
+    BigInt.__make(1, BigInt.__addMag(this.limbs, [k]))
+  }
+
+  operator +(o: BigInt): BigInt {
+    if (this.sign == 0) return o
+    if (o.sign == 0) return this
+    if (this.sign == o.sign) return BigInt.__make(this.sign, BigInt.__addMag(this.limbs, o.limbs))
+    const c = BigInt.__cmpMag(this.limbs, o.limbs)
+    if (c == 0) return new BigInt(0)
+    if (c > 0) BigInt.__make(this.sign, BigInt.__subMag(this.limbs, o.limbs)) else BigInt.__make(o.sign, BigInt.__subMag(o.limbs, this.limbs))
+  }
+
+  operator -(): BigInt { BigInt.__make(-this.sign, this.limbs) }
+
+  operator -(o: BigInt): BigInt { this + -o }
+
+  operator *(o: BigInt): BigInt {
+    if (this.sign == 0 || o.sign == 0) return new BigInt(0)
+    const a = this.limbs
+    const b = o.limbs
+    const r: int[] = []
+    for (let i = 0; i < a.length + b.length; i++) r.push(0)
+    for (let i = 0; i < a.length; i++) {
+      let carry = 0
+      for (let j = 0; j < b.length; j++) {
+        const cur = r[i + j] + a[i] * b[j] + carry
+        r[i + j] = cur % __BASE
+        carry = cur / __BASE
+      }
+      let k = i + b.length
+      while (carry > 0) {
+        const cur = r[k] + carry
+        r[k] = cur % __BASE
+        carry = cur / __BASE
+        k += 1
+      }
+    }
+    BigInt.__make(this.sign * o.sign, r)
+  }
+
+  /// `[quotient, remainder]` of the magnitudes (`b` not zero): schoolbook long division,
+  /// each quotient limb found by binary search.
+  static __divMag(a: int[], b: int[]): BigInt[] {
+    const bb = BigInt.__make(1, b)
+    let rem = new BigInt(0)
+    const q: int[] = []
+    for (let i = 0; i < a.length; i++) q.push(0)
+    let i = a.length - 1
+    while (i >= 0) {
+      // rem = rem * BASE + a[i]
+      const shifted: int[] = [a[i]]
+      for (const l of rem.limbs) shifted.push(l)
+      rem = BigInt.__make(1, shifted)
+      let lo = 0
+      let hi = __BASE - 1
+      while (lo < hi) {
+        const mid = (lo + hi + 1) / 2
+        if (BigInt.__cmpMag(bb.__mulSmall(mid).limbs, rem.limbs) <= 0) lo = mid else hi = mid - 1
+      }
+      if (lo > 0) rem = BigInt.__make(1, BigInt.__subMag(rem.limbs, bb.__mulSmall(lo).limbs))
+      q[i] = lo
+      i -= 1
+    }
+    [BigInt.__make(1, q), rem]
+  }
+
+  /// Truncating division (panics on division by zero).
+  operator /(o: BigInt): BigInt {
+    if (o.sign == 0) panic("BigInt division by zero")
+    if (BigInt.__cmpMag(this.limbs, o.limbs) < 0) return new BigInt(0)
+    const qr = BigInt.__divMag(this.limbs, o.limbs)
+    BigInt.__make(this.sign * o.sign, qr[0].limbs)
+  }
+
+  /// The remainder of truncating division (its sign is the dividend's).
+  operator %(o: BigInt): BigInt {
+    if (o.sign == 0) panic("BigInt division by zero")
+    if (BigInt.__cmpMag(this.limbs, o.limbs) < 0) return this
+    const qr = BigInt.__divMag(this.limbs, o.limbs)
+    BigInt.__make(this.sign, qr[1].limbs)
+  }
+
+  /// `this ** e` (`e >= 0`).
+  public pow(e: int): BigInt {
+    if (e < 0) panic("BigInt.pow: negative exponent")
+    let result = new BigInt(1)
+    let base = this
+    let k = e
+    while (k > 0) {
+      if (k % 2 == 1) result = result * base
+      base = base * base
+      k = k / 2
+    }
+    result
+  }
+
+  public abs(): BigInt { if (this.sign < 0) -this else this }
+
+  public compareTo(o: BigInt): int {
+    if (this.sign != o.sign) return if (this.sign < o.sign) -1 else 1
+    const c = BigInt.__cmpMag(this.limbs, o.limbs)
+    c * (if (this.sign < 0) -1 else 1)
+  }
+
+  public equals(o: BigInt): bool { this.compareTo(o) == 0 }
+
+  /// In decimal (also the string form: `${big}`).
+  public toString(): string { this.toStringRadix(10) }
+
+  /// In base `radix` (2–36), lower-case digits (JavaScript's `toString(radix)`).
+  public toStringRadix(radix: int): string {
+    if (radix < 2 || radix > 36) panic(`BigInt.toString: radix ${radix}`)
+    if (this.sign == 0) return "0"
+    let s = ""
+    if (radix == 10) {
+      let i = this.limbs.length - 1
+      s = `${this.limbs[i]}`
+      i -= 1
+      while (i >= 0) {
+        s = s + `${this.limbs[i]}`.padStart(9, "0")
+        i -= 1
+      }
+    } else {
+      const digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+      const r = new BigInt(radix)
+      let v = this.abs()
+      const out: string[] = []
+      while (v.sign != 0) {
+        const qr = BigInt.__divMag(v.limbs, r.limbs)
+        const d = if (qr[1].limbs.length == 0) 0 else qr[1].limbs[0]
+        out.push(`${digits[d]}`)
+        v = qr[0]
+      }
+      let i = out.length - 1
+      while (i >= 0) {
+        s = s + out[i]
+        i -= 1
+      }
+    }
+    if (this.sign < 0) "-" + s else s
+  }
+}

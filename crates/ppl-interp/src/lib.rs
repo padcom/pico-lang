@@ -672,6 +672,17 @@ impl Interp<'_, '_> {
             Builtin::ClockMs => {
                 return Value::Int(self.started.elapsed().as_millis() as i128);
             }
+            Builtin::Math => {
+                let f = |i: usize| match vals.get(i) {
+                    Some(Value::Float(x)) => *x,
+                    _ => f64::NAN,
+                };
+                let op = match vals.first() {
+                    Some(Value::Int(x)) => *x as i64,
+                    _ => -1,
+                };
+                return Value::Float(math_op(op, f(1), f(2)));
+            }
             Builtin::ParseF64 => {
                 return Value::Float(match &vals[0] {
                     Value::Str(s) => s.parse::<f64>().unwrap_or(f64::NAN),
@@ -1581,6 +1592,43 @@ fn js_number_string(neg: bool, digits: &str, n: i32) -> String {
         s.push_str(&e.abs().to_string());
     }
     s
+}
+
+/// `Math`'s floating-point functions by number (the same table as `ppl_math` in the C
+/// runtime; both use the platform's libm, so results agree bit for bit).
+fn math_op(op: i64, x: f64, y: f64) -> f64 {
+    match op {
+        0 => x.sqrt(),
+        1 => x.sin(),
+        2 => x.cos(),
+        3 => x.tan(),
+        4 => x.asin(),
+        5 => x.acos(),
+        6 => x.atan(),
+        7 => x.atan2(y),
+        8 => x.exp(),
+        9 => x.ln(),
+        10 => x.log2(),
+        11 => x.log10(),
+        12 => x.powf(y),
+        13 => x.floor(),
+        14 => x.ceil(),
+        15 => x.trunc(),
+        16 => x.cbrt(),
+        17 => x.hypot(y),
+        18 => x.sinh(),
+        19 => x.cosh(),
+        20 => x.tanh(),
+        21 => x.asinh(),
+        22 => x.acosh(),
+        23 => x.atanh(),
+        24 => x.exp_m1(),
+        25 => x.ln_1p(),
+        26 => x % y,
+        // f32 rounding (`Math.fround`).
+        27 => x as f32 as f64,
+        _ => f64::NAN,
+    }
 }
 
 #[cfg(test)]
