@@ -7,6 +7,7 @@
 //! | Directive | Meaning |
 //! |-----------|---------|
 //! | `// expect: text` | one line of expected stdout, in order (`run` only) |
+//! | `// expect-windows: text` | that line on Windows (replaces the `expect` just before it) |
 //! | `// exit: N` | expected exit code (default 0, or 101 with `panic`) |
 //! | `// panic: msg` | the program must panic with this message |
 //! | `// error: E0308` | an expected compile error, in order (`fail` only) |
@@ -49,6 +50,8 @@ pub struct ExpectedError {
 #[derive(Debug, Default, PartialEq)]
 pub struct Directives {
     pub expect: Vec<String>,
+    /// `// expect-windows: text`: (index into `expect`, the line on Windows).
+    pub expect_windows: Vec<(usize, String)>,
     pub exit: Option<i32>,
     pub panic: Option<String>,
     pub errors: Vec<ExpectedError>,
@@ -56,6 +59,19 @@ pub struct Directives {
     pub native_only: bool,
     /// `// not-under-qemu: reason`: something qemu-user doesn't emulate.
     pub not_under_qemu: Option<String>,
+}
+
+impl Directives {
+    /// The expected stdout lines for a target (Windows ones replaced).
+    pub fn expected(&self, windows: bool) -> Vec<String> {
+        let mut lines = self.expect.clone();
+        if windows {
+            for (k, l) in &self.expect_windows {
+                lines[*k] = l.clone();
+            }
+        }
+        lines
+    }
 }
 
 /// Parses the directives in a fixture. Lines that look like directives but are malformed are
@@ -74,7 +90,14 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
         };
         if !matches!(
             name,
-            "expect" | "exit" | "panic" | "error" | "at" | "native-only" | "not-under-qemu"
+            "expect"
+                | "expect-windows"
+                | "exit"
+                | "panic"
+                | "error"
+                | "at"
+                | "native-only"
+                | "not-under-qemu"
         ) {
             continue;
         }
@@ -83,6 +106,14 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
         let value = value.trim();
         match name {
             "expect" => d.expect.push(raw.to_string()),
+            "expect-windows" => match d.expect.len().checked_sub(1) {
+                Some(k) if d.expect_windows.last().is_none_or(|(j, _)| *j != k) => {
+                    d.expect_windows.push((k, raw.to_string()))
+                }
+                _ => problems.push(format!(
+                    "line {n}: `expect-windows` must follow an `expect` line of its own"
+                )),
+            },
             "native-only" => d.native_only = true,
             "not-under-qemu" => d.not_under_qemu = Some(value.to_string()),
             "exit" => match value.parse() {
@@ -210,7 +241,12 @@ pub fn run(f: &Fixture) -> Outcome {
         }
     };
     let dir = f.path.parent().unwrap_or(Path::new("."));
-    let checked = ppl_driver::check_source_in(f.name.clone(), text, dir);
+    // Checked for the target the native runs build for (comptime sees `target`).
+    let opts = ppl_driver::BuildOptions {
+        target: test_target(),
+        ..Default::default()
+    };
+    let checked = ppl_driver::check_source_with(f.name.clone(), text, dir, opts);
     match f.kind {
         Kind::Run => run_test(&directives, &checked),
         Kind::Fail => fail_test(&directives, &checked),
@@ -363,11 +399,13 @@ pub fn compare_run(d: &Directives, run: &Run, mode: &str) -> Option<String> {
     if actual.last().is_some_and(String::is_empty) {
         actual.pop();
     }
-    if actual != d.expect {
+    let windows = test_target().map_or(cfg!(windows), |t| t.os == ppl_driver::target::Os::Windows);
+    let expect = d.expected(windows);
+    if actual != expect {
         let _ = write!(
             problems,
             "stdout differs (- expected, + actual):\n{}",
-            diff_lines(&d.expect, &actual)
+            diff_lines(&expect, &actual)
         );
     }
     let want_exit = d.exit.unwrap_or(if d.panic.is_some() {
@@ -673,14 +711,14 @@ pub fn export_all(
             continue;
         };
         let dir = f.path.parent().unwrap_or(Path::new("."));
-        let checked = ppl_driver::check_source_in(f.name.clone(), text, dir);
-        if checked.has_errors() || only_unimplemented(&checked).is_some() {
-            continue;
-        }
         let opts = ppl_driver::BuildOptions {
             target: Some(target),
             ..Default::default()
         };
+        let checked = ppl_driver::check_source_with(f.name.clone(), text, dir, opts);
+        if checked.has_errors() || only_unimplemented(&checked).is_some() {
+            continue;
+        }
         let base = f.name.trim_end_matches(".ppl").replace('/', "__");
         let exe_name = if target.os == ppl_driver::target::Os::Windows {
             format!("{base}.exe")
@@ -701,7 +739,7 @@ pub fn export_all(
             Some(p) => expect.push_str(&format!("panic: {p}\n")),
             None => expect.push_str("panic\n"),
         }
-        for l in &d.expect {
+        for l in &d.expected(target.os == ppl_driver::target::Os::Windows) {
             expect.push_str(l);
             expect.push('\n');
         }
@@ -734,6 +772,19 @@ mod tests {
         assert_eq!(
             parse_directives("// note: hi\n// see: x\n").unwrap(),
             Directives::default()
+        );
+    }
+
+    #[test]
+    fn windows_expectations_replace_the_line_before() {
+        let d =
+            parse_directives("// expect: a/b\n// expect-windows: a\\b\n// expect: c\n").unwrap();
+        assert_eq!(d.expected(false), vec!["a/b", "c"]);
+        assert_eq!(d.expected(true), vec!["a\\b", "c"]);
+        // Nothing to replace, or two for one line.
+        assert!(parse_directives("// expect-windows: x\n").is_err());
+        assert!(
+            parse_directives("// expect: a\n// expect-windows: b\n// expect-windows: c\n").is_err()
         );
     }
 

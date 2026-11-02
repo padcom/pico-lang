@@ -141,15 +141,9 @@ pub fn check_source_with(
     let mut comptime_output = String::new();
     // Decorators run first: they change the declarations the rest compiles.
     let mut expansion = decorators::Expansion::default();
+    let cfg = comptime_config(dir, &opts);
     if !diags.iter().any(Diagnostic::is_error) {
-        expansion = decorators::expand(
-            &mut sm,
-            &mut module.stmts,
-            &mut modules,
-            file,
-            dir,
-            opts.release,
-        );
+        expansion = decorators::expand(&mut sm, &mut module.stmts, &mut modules, file, &cfg);
         diags.append(&mut expansion.diags);
         comptime_output = std::mem::take(&mut expansion.log);
     }
@@ -163,7 +157,6 @@ pub fn check_source_with(
                 let (mut m, mut d) = ppl_mir::lower(&program, &t, sm.file(file), file);
                 diags.append(&mut d);
                 if !diags.iter().any(Diagnostic::is_error) {
-                    let cfg = ppl_interp::comptime::Config::host(dir.to_path_buf(), opts.release);
                     let (mut d, out) = ppl_interp::comptime::run(&mut m, &cfg);
                     diags.append(&mut d);
                     comptime_output.push_str(&out);
@@ -461,6 +454,30 @@ pub fn build_cached(checked: &Checked, opts: BuildOptions) -> Result<PathBuf, St
         build_native(checked, &exe, opts)?;
     }
     Ok(exe)
+}
+
+/// What comptime code sees of the build (`target`, `build`): the host, or `opts.target`.
+fn comptime_config(dir: &Path, opts: &BuildOptions) -> ppl_interp::comptime::Config {
+    let mut cfg = ppl_interp::comptime::Config::host(dir.to_path_buf(), opts.release);
+    if let Some(t) = opts.target {
+        use target::{Arch, Os};
+        cfg.os = match t.os {
+            Os::Linux => "linux",
+            Os::Macos => "macos",
+            Os::Windows => "windows",
+            Os::Wasi => "wasi",
+            Os::Browser => "browser",
+        }
+        .into();
+        cfg.arch = match t.arch {
+            Arch::X86_64 => "x86_64",
+            Arch::Aarch64 => "aarch64",
+            Arch::Wasm32 => "wasm32",
+        }
+        .into();
+        cfg.triple = t.llvm_triple().into();
+    }
+    cfg
 }
 
 /// Reads `path` and runs [`check_source`] on it, naming the file by its path.

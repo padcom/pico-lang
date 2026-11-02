@@ -1,0 +1,109 @@
+// expect: b\c
+// expect: C:\a\b
+// expect: .
+// expect: \\server\share\x
+// expect: \a
+// expect: a\b\c
+// expect: \\s\h\x
+// expect: a\c\
+// expect: C:.
+// expect: C:\
+// expect: C:..\x
+// expect: \\server\share\
+// expect: \\server\share\
+// expect: \a\b
+// expect: .
+// expect: true
+// expect: false
+// expect: true
+// expect: true
+// expect: false
+// expect: C:\a
+// expect: C:\
+// expect: C:\
+// expect: C:
+// expect: C:
+// expect: .
+// expect: \\s\h\
+// expect: \\s\h
+// expect: \\s\h\
+// expect: /a
+// expect: \
+// expect: b.txt
+// expect: b
+// expect: b
+// expect: b
+// expect: 
+// expect: .gz
+// expect: 
+// expect: .
+// expect: 
+// expect: 
+// expect: C:\x\z
+// expect: D:\y
+// expect: C:\y
+// expect: \\s\h\b
+// expect: c:\a\b
+// expect: ..\..\c
+// expect: 
+// expect: D:\b
+// expect: ..\impl\BBB
+// expect: a/b /\ :;
+// expect: true true
+// `std/path`'s `win32` (Node's `path.win32`), the same on every platform; expectations from Node.
+import { win32, posix, sep, delimiter, join } from "std/path"
+println(`${win32.join("a", "..\\b", "c")}`)
+println(`${win32.join("C:\\a\\", "b", "")}`)
+println(`${win32.join()}`)
+println(`${win32.join("\\\\server", "share", "x")}`)
+println(`${win32.join("//", "a")}`)
+println(`${win32.join("a/b", "/c")}`)
+println(`${win32.join("\\\\s\\h", "x")}`)
+println(`${win32.normalize("a//b\\..\\c\\")}`)
+println(`${win32.normalize("C:")}`)
+println(`${win32.normalize("C:\\")}`)
+println(`${win32.normalize("C:..\\x")}`)
+println(`${win32.normalize("\\\\server\\share")}`)
+println(`${win32.normalize("\\\\server\\share\\a\\..\\..")}`)
+println(`${win32.normalize("/a/./b")}`)
+println(`${win32.normalize("")}`)
+println(`${win32.isAbsolute("C:\\x")}`)
+println(`${win32.isAbsolute("C:x")}`)
+println(`${win32.isAbsolute("/x")}`)
+println(`${win32.isAbsolute("\\\\s\\h")}`)
+println(`${win32.isAbsolute("x")}`)
+println(`${win32.dirname("C:\\a\\b")}`)
+println(`${win32.dirname("C:\\a")}`)
+println(`${win32.dirname("C:\\")}`)
+println(`${win32.dirname("C:a")}`)
+println(`${win32.dirname("C:")}`)
+println(`${win32.dirname("a")}`)
+println(`${win32.dirname("\\\\s\\h\\x")}`)
+println(`${win32.dirname("\\\\s\\h")}`)
+println(`${win32.dirname("\\\\s\\h\\")}`)
+println(`${win32.dirname("/a/b/")}`)
+println(`${win32.dirname("\\")}`)
+println(`${win32.basename("C:\\a\\b.txt")}`)
+println(`${win32.basename("C:\\a\\b.txt", ".txt")}`)
+println(`${win32.basename("C:b")}`)
+println(`${win32.basename("a\\b\\")}`)
+println(`${win32.basename("C:\\")}`)
+println(`${win32.extname("C:\\a.tar.gz")}`)
+println(`${win32.extname(".bashrc")}`)
+println(`${win32.extname("a.")}`)
+println(`${win32.extname("C:x")}`)
+println(`${win32.extname("..")}`)
+println(`${win32.resolve("C:\\x", "y", "..\\z")}`)
+println(`${win32.resolve("C:\\x", "D:\\y")}`)
+println(`${win32.resolve("C:\\x", "\\y")}`)
+println(`${win32.resolve("\\\\s\\h\\a", "..\\b")}`)
+println(`${win32.resolve("C:\\a", "c:b")}`)
+println(`${win32.relative("C:\\data\\a\\b", "C:\\data\\c")}`)
+println(`${win32.relative("C:\\a", "c:\\A")}`)
+println(`${win32.relative("C:\\a", "D:\\b")}`)
+println(`${win32.relative("C:\\Orandea\\test", "c:\\orandea\\impl\\BBB")}`)
+println(`${posix.join("a", "b")} ${posix.sep}${win32.sep} ${posix.delimiter}${win32.delimiter}`)
+// The module's own functions are the platform's.
+const windows = comptime (target.os == "windows")
+const native = if (windows) win32.join("a", "b") else posix.join("a", "b")
+println(`${sep == (if (windows) "\\" else "/")} ${join("a", "b") == native && delimiter == (if (windows) ";" else ":")}`)

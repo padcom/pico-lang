@@ -1,8 +1,11 @@
-// `std/path`: file paths (spec §13.2), with POSIX semantics as in Node's `path.posix`
-// (Windows paths come with the Windows target).
+// `std/path`: file paths (spec §13.4), as Node's `path`: `posix` and `win32` have both
+// flavours on every platform, and the module's own functions are the platform's (`win32` on
+// Windows, `posix` elsewhere; decision 250). The Windows functions follow Node's
+// `path.win32`: `\` and `/` both separate, drive letters (`C:`) and UNC roots
+// (`\\server\share`), results use `\`; comparisons in `relative` ignore case. Not yet: the
+// per-drive working directories (`resolve("D:x")` uses `D:\`), `\\?\` paths, `toNamespacedPath`.
 
-/// The separator between path segments.
-export const sep = "/"
+const __windows = comptime (target.os == "windows")
 
 /// The process's working directory.
 function __cwd(): string {
@@ -12,33 +15,17 @@ function __cwd(): string {
   dir
 }
 
-/// Whether `p` starts at the root.
-export function isAbsolute(p: string): bool { p.startsWith("/") }
+// ---- POSIX ----
 
-/// `p` without `.` segments, `..` segments that follow a name, and repeated slashes
-/// (`a//b/../c/` → `a/c/`); `""` → `"."`.
-export function normalize(p: string): string {
+function __posixIsAbsolute(p: string): bool { p.startsWith("/") }
+
+function __posixNormalize(p: string): string {
   if (p == "") {
     return "."
   }
-  const absolute = isAbsolute(p)
+  const absolute = __posixIsAbsolute(p)
   const trailing = p.endsWith("/")
-  const out: string[] = []
-  for (const part of p.split("/")) {
-    if (part == "" || part == ".") {
-      continue
-    }
-    if (part == "..") {
-      if (out.length > 0 && out[out.length - 1] != "..") {
-        const _ = out.pop()
-      } else if (!absolute) {
-        out.push("..")
-      }
-      continue
-    }
-    out.push(part)
-  }
-  let s = out.join("/")
+  let s = __normalizeSegments(p, !absolute, "/")
   if (absolute) {
     s = "/" + s
   }
@@ -48,32 +35,29 @@ export function normalize(p: string): string {
   if (trailing && s != "/") s + "/" else s
 }
 
-/// The parts joined with `/`, normalized (`join("a", "../b", "c")` → `b/c`).
-export function join(...parts: string[]): string {
+function __posixJoin(parts: string[]): string {
   const kept: string[] = []
   for (const p of parts) {
     if (p != "") {
       kept.push(p)
     }
   }
-  if (kept.length == 0) "." else normalize(kept.join("/"))
+  if (kept.length == 0) "." else __posixNormalize(kept.join("/"))
 }
 
-/// An absolute path: the parts from the last absolute one (or the working directory), joined
-/// and normalized, without a trailing slash.
-export function resolve(...parts: string[]): string {
+function __posixResolve(parts: string[]): string {
   let s = ""
   let i = parts.length - 1
-  while (i >= 0 && !isAbsolute(s)) {
+  while (i >= 0 && !__posixIsAbsolute(s)) {
     if (parts[i] != "") {
       s = if (s == "") parts[i] else `${parts[i]}/${s}`
     }
     i -= 1
   }
-  if (!isAbsolute(s)) {
+  if (!__posixIsAbsolute(s)) {
     s = if (s == "") __cwd() else `${__cwd()}/${s}`
   }
-  const n = normalize(s)
+  const n = __posixNormalize(s)
   if (n.length > 1 && n.endsWith("/")) n.slice(0, n.length - 1) else n
 }
 
@@ -85,8 +69,7 @@ function __trimSlashes(p: string): string {
   p.slice(0, end)
 }
 
-/// The directory part (`/a/b/c` → `/a/b`, `a` → `.`, `/a` → `/`).
-export function dirname(p: string): string {
+function __posixDirname(p: string): string {
   const t = __trimSlashes(p)
   let i = t.length - 1
   while (i >= 0 && t[i] != '/') {
@@ -99,8 +82,7 @@ export function dirname(p: string): string {
   if (d == "") "/" else d
 }
 
-/// The last segment (`/a/b.txt` → `b.txt`), without `ext` if it ends with it.
-export function basename(p: string, ext: string = ""): string {
+function __posixBasename(p: string, ext: string): string {
   const t = __trimSlashes(p)
   if (t == "/") {
     return ""
@@ -109,24 +91,12 @@ export function basename(p: string, ext: string = ""): string {
   while (i >= 0 && t[i] != '/') {
     i -= 1
   }
-  const b = t.slice(i + 1)
-  if (ext != "" && b != ext && b.endsWith(ext)) b.slice(0, b.length - ext.length) else b
+  __withoutExt(t.slice(i + 1), ext)
 }
 
-/// The extension of the last segment, from its last `.` (`a.tar.gz` → `.gz`; `.bashrc` → `""`).
-export function extname(p: string): string {
-  const b = basename(p)
-  let i = b.length - 1
-  while (i > 0 && b[i] != '.') {
-    i -= 1
-  }
-  if (i <= 0) "" else b.slice(i)
-}
-
-/// The path from `from` to `to` (both resolved first; `""` if they're the same).
-export function relative(from: string, to: string): string {
-  const a = resolve(from).split("/").filter((s: string) => s != "")
-  const b = resolve(to).split("/").filter((s: string) => s != "")
+function __posixRelative(from: string, to: string): string {
+  const a = __posixResolve([from]).split("/").filter((s: string) => s != "")
+  const b = __posixResolve([to]).split("/").filter((s: string) => s != "")
   let i = 0
   while (i < a.length && i < b.length && a[i] == b[i]) {
     i += 1
@@ -139,4 +109,388 @@ export function relative(from: string, to: string): string {
     out.push(b[k])
   }
   out.join("/")
+}
+
+// ---- shared ----
+
+/// The segments of `p` (split at `/`, and at `\` too when `sep` is `\`) without empty and
+/// `.` ones, `..` cancelling the name before it (kept at the start when `aboveRoot`), joined
+/// with `sep`.
+function __normalizeSegments(p: string, aboveRoot: bool, sep: string): string {
+  const out: string[] = []
+  const back = sep == "\\"
+  let start = 0
+  for (let i = 0; i <= p.length; i++) {
+    if (i < p.length && !(p[i] == '/' || (back && p[i] == '\\'))) {
+      continue
+    }
+    const part = p.slice(start, i)
+    start = i + 1
+    if (part == "" || part == ".") {
+      continue
+    }
+    if (part == "..") {
+      if (out.length > 0 && out[out.length - 1] != "..") {
+        const _ = out.pop()
+      } else if (aboveRoot) {
+        out.push("..")
+      }
+      continue
+    }
+    out.push(part)
+  }
+  out.join(sep)
+}
+
+function __withoutExt(b: string, ext: string): string {
+  if (ext != "" && b != ext && b.endsWith(ext)) b.slice(0, b.length - ext.length) else b
+}
+
+/// The extension of a last segment, from its last `.` (none for `.bashrc`, `..`).
+function __extOf(b: string): string {
+  let i = b.length - 1
+  while (i > 0 && b[i] != '.') {
+    i -= 1
+  }
+  if (i <= 0 || b == "..") "" else b.slice(i)
+}
+
+// ---- Windows ----
+
+function __isSep(c: char): bool { c == '/' || c == '\\' }
+
+/// Where a Windows path's root ends: its device (`C:`, `\\server\share`, or `""`), whether
+/// it's absolute, and the index after the root.
+struct __WinRoot {
+  device: string
+  absolute: bool
+  end: int
+}
+
+function __winRoot(p: string): __WinRoot {
+  const n = p.length
+  if (n == 0) {
+    return { device: "", absolute: false, end: 0 }
+  }
+  if (__isSep(p[0])) {
+    if (n > 1 && __isSep(p[1])) {
+      // `\\server\share`: both names needed, else it's just rooted.
+      let j = 2
+      while (j < n && !__isSep(p[j])) {
+        j += 1
+      }
+      if (j < n && j != 2) {
+        const server = p.slice(2, j)
+        while (j < n && __isSep(p[j])) {
+          j += 1
+        }
+        const last = j
+        while (j < n && !__isSep(p[j])) {
+          j += 1
+        }
+        if (j != last) {
+          return { device: `\\\\${server}\\${p.slice(last, j)}`, absolute: true, end: j }
+        }
+      }
+    }
+    return { device: "", absolute: true, end: 1 }
+  }
+  if (n > 1 && __isAlpha(p[0]) && p[1] == ':') {
+    const absolute = n > 2 && __isSep(p[2])
+    return { device: p.slice(0, 2), absolute: absolute, end: if (absolute) 3 else 2 }
+  }
+  return { device: "", absolute: false, end: 0 }
+}
+
+function __winIsAbsolute(p: string): bool {
+  const n = p.length
+  if (n == 0) {
+    return false
+  }
+  __isSep(p[0]) || (n > 2 && __isAlpha(p[0]) && p[1] == ':' && __isSep(p[2]))
+}
+
+function __winNormalize(p: string): string {
+  const n = p.length
+  if (n == 0) {
+    return "."
+  }
+  const r = __winRoot(p)
+  let tail = if (r.end < n) __normalizeSegments(p.slice(r.end), !r.absolute, "\\") else ""
+  if (tail == "" && !r.absolute) {
+    tail = "."
+  }
+  if (tail != "" && __isSep(p[n - 1])) {
+    tail = tail + "\\"
+  }
+  if (r.absolute) `${r.device}\\${tail}` else `${r.device}${tail}`
+}
+
+function __winJoin(parts: string[]): string {
+  const kept: string[] = []
+  for (const p of parts) {
+    if (p != "") {
+      kept.push(p)
+    }
+  }
+  if (kept.length == 0) {
+    return "."
+  }
+  let joined = kept.join("\\")
+  // A leading `\\` makes a UNC root only if the first part had one (`join("\\\\s", "x")`).
+  const first = kept[0]
+  let slashes = 0
+  let replace = true
+  if (__isSep(first[0])) {
+    slashes = 1
+    if (first.length > 1 && __isSep(first[1])) {
+      slashes = 2
+      if (first.length > 2) {
+        if (__isSep(first[2])) {
+          slashes = 3
+        } else {
+          replace = false
+        }
+      }
+    }
+  }
+  if (replace) {
+    while (slashes < joined.length && __isSep(joined[slashes])) {
+      slashes += 1
+    }
+    if (slashes >= 2) {
+      joined = "\\" + joined.slice(slashes)
+    }
+  }
+  __winNormalize(joined)
+}
+
+function __winResolve(parts: string[]): string {
+  let device = ""
+  let tail = ""
+  let absolute = false
+  let i = parts.length - 1
+  while (i >= -1) {
+    let p = ""
+    if (i >= 0) {
+      p = parts[i]
+    } else {
+      p = __cwd()
+      // The working directory is on another drive: that drive's root.
+      if (device != "" && p.slice(0, 2).toLowerCase() != device.toLowerCase()) {
+        p = device + "\\"
+      }
+    }
+    i -= 1
+    if (p == "") {
+      continue
+    }
+    const r = __winRoot(p)
+    if (r.device != "") {
+      if (device == "") {
+        device = r.device
+      } else if (r.device.toLowerCase() != device.toLowerCase()) {
+        continue
+      }
+    }
+    if (absolute) {
+      if (device != "") {
+        break
+      }
+    } else {
+      tail = `${p.slice(r.end)}\\${tail}`
+      absolute = r.absolute
+      if (absolute && device != "") {
+        break
+      }
+    }
+  }
+  tail = __normalizeSegments(tail, !absolute, "\\")
+  if (absolute) {
+    return `${device}\\${tail}`
+  }
+  const s = device + tail
+  if (s == "") "." else s
+}
+
+function __winDirname(p: string): string {
+  const n = p.length
+  if (n == 0) {
+    return "."
+  }
+  if (n == 1) {
+    return if (__isSep(p[0])) p else "."
+  }
+  const r = __winRoot(p)
+  if (r.device.startsWith("\\\\") && r.end == n) {
+    return p
+  }
+  // The root's own trailing separator belongs to the root (`C:\`, `\\s\h\`).
+  let rootEnd = r.end
+  if (r.device.startsWith("\\\\") && rootEnd < n && __isSep(p[rootEnd])) {
+    rootEnd += 1
+  }
+  let end = -1
+  let matched = true
+  let k = n - 1
+  while (k >= rootEnd) {
+    if (__isSep(p[k])) {
+      if (!matched) {
+        end = k
+        break
+      }
+    } else {
+      matched = false
+    }
+    k -= 1
+  }
+  if (end == -1) {
+    if (rootEnd == 0) {
+      return "."
+    }
+    end = rootEnd
+  }
+  p.slice(0, end)
+}
+
+/// The last segment of a Windows path (after any drive), trailing separators dropped.
+function __winLast(p: string): string {
+  const start = if (p.length >= 2 && __isAlpha(p[0]) && p[1] == ':') 2 else 0
+  let end = p.length
+  while (end > start && __isSep(p[end - 1])) {
+    end -= 1
+  }
+  let i = end - 1
+  while (i >= start && !__isSep(p[i])) {
+    i -= 1
+  }
+  p.slice(i + 1, end)
+}
+
+function __winRelative(from: string, to: string): string {
+  const a = __winResolve([from])
+  const b = __winResolve([to])
+  if (a.toLowerCase() == b.toLowerCase()) {
+    return ""
+  }
+  const ra = __winRoot(a)
+  const rb = __winRoot(b)
+  if (ra.device.toLowerCase() != rb.device.toLowerCase()) {
+    return b
+  }
+  const sa = __winSegments(a.slice(ra.end))
+  const sb = __winSegments(b.slice(rb.end))
+  let i = 0
+  while (i < sa.length && i < sb.length && sa[i].toLowerCase() == sb[i].toLowerCase()) {
+    i += 1
+  }
+  const out: string[] = []
+  for (let k = i; k < sa.length; k++) {
+    out.push("..")
+  }
+  for (let k = i; k < sb.length; k++) {
+    out.push(sb[k])
+  }
+  out.join("\\")
+}
+
+function __winSegments(p: string): string[] {
+  const out: string[] = []
+  let start = 0
+  for (let i = 0; i <= p.length; i++) {
+    if (i == p.length || __isSep(p[i])) {
+      if (i > start) {
+        out.push(p.slice(start, i))
+      }
+      start = i + 1
+    }
+  }
+  out
+}
+
+// ---- the namespaces ----
+
+/// POSIX paths (Node's `path.posix`), on every platform.
+struct PosixPath {
+  /// The separator between path segments (`/`).
+  sep: string
+  /// The separator between paths in lists such as `PATH` (`:`).
+  delimiter: string
+  isAbsolute(p: string): bool { __posixIsAbsolute(p) }
+  normalize(p: string): string { __posixNormalize(p) }
+  join(...parts: string[]): string { __posixJoin(parts) }
+  resolve(...parts: string[]): string { __posixResolve(parts) }
+  dirname(p: string): string { __posixDirname(p) }
+  basename(p: string, ext: string = ""): string { __posixBasename(p, ext) }
+  extname(p: string): string { __extOf(__posixBasename(p, "")) }
+  relative(from: string, to: string): string { __posixRelative(from, to) }
+}
+
+/// Windows paths (Node's `path.win32`), on every platform.
+struct Win32Path {
+  /// The separator results use (`\`; `/` is accepted too).
+  sep: string
+  /// The separator between paths in lists such as `PATH` (`;`).
+  delimiter: string
+  isAbsolute(p: string): bool { __winIsAbsolute(p) }
+  normalize(p: string): string { __winNormalize(p) }
+  join(...parts: string[]): string { __winJoin(parts) }
+  resolve(...parts: string[]): string { __winResolve(parts) }
+  dirname(p: string): string { __winDirname(p) }
+  basename(p: string, ext: string = ""): string { __withoutExt(__winLast(p), ext) }
+  extname(p: string): string { __extOf(__winLast(p)) }
+  relative(from: string, to: string): string { __winRelative(from, to) }
+}
+
+export const posix = PosixPath { sep: "/", delimiter: ":" }
+export const win32 = Win32Path { sep: "\\", delimiter: ";" }
+
+// ---- the platform's paths ----
+
+/// The separator between path segments (`\` on Windows).
+export const sep = comptime if (target.os == "windows") "\\" else "/"
+
+/// The separator between paths in lists such as `PATH` (`;` on Windows).
+export const delimiter = comptime if (target.os == "windows") ";" else ":"
+
+/// Whether `p` starts at a root (`/`; on Windows also `C:\` and `\\server\share`).
+export function isAbsolute(p: string): bool {
+  if (__windows) __winIsAbsolute(p) else __posixIsAbsolute(p)
+}
+
+/// `p` without `.` segments, `..` segments that follow a name, and repeated separators
+/// (`a//b/../c/` → `a/c/`); `""` → `"."`.
+export function normalize(p: string): string {
+  if (__windows) __winNormalize(p) else __posixNormalize(p)
+}
+
+/// The parts joined with the separator, normalized (`join("a", "../b", "c")` → `b/c`).
+export function join(...parts: string[]): string {
+  if (__windows) __winJoin(parts) else __posixJoin(parts)
+}
+
+/// An absolute path: the parts from the last absolute one (or the working directory), joined
+/// and normalized, without a trailing separator.
+export function resolve(...parts: string[]): string {
+  if (__windows) __winResolve(parts) else __posixResolve(parts)
+}
+
+/// The directory part (`/a/b/c` → `/a/b`, `a` → `.`, `/a` → `/`).
+export function dirname(p: string): string {
+  if (__windows) __winDirname(p) else __posixDirname(p)
+}
+
+/// The last segment (`/a/b.txt` → `b.txt`), without `ext` if it ends with it.
+export function basename(p: string, ext: string = ""): string {
+  if (__windows) __withoutExt(__winLast(p), ext) else __posixBasename(p, ext)
+}
+
+/// The extension of the last segment, from its last `.` (`a.tar.gz` → `.gz`; `.bashrc` → `""`).
+export function extname(p: string): string {
+  __extOf(if (__windows) __winLast(p) else __posixBasename(p, ""))
+}
+
+/// The path from `from` to `to` (both resolved first; `""` if they're the same).
+export function relative(from: string, to: string): string {
+  if (__windows) __winRelative(from, to) else __posixRelative(from, to)
 }

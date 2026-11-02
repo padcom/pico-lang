@@ -2,6 +2,7 @@
 // expect: true true
 // expect: debug 0
 // expect: /
+// expect-windows: \
 // `target` and `build` (spec §15.4), and `comptime.readFile` (relative to the package root,
 // here the directory of this file).
 const GREETING = comptime comptime.readFile("data/greeting.txt").trim()

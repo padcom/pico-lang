@@ -13,7 +13,6 @@ use ppl_sema::Modules;
 use ppl_syntax::TokenKind;
 use ppl_syntax::ast::{self, DeclKind, MemberKind, StmtKind};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 /// The outcome of running a program's decorators.
 #[derive(Default)]
@@ -58,8 +57,7 @@ pub fn expand(
     stmts: &mut Vec<ast::Stmt>,
     modules: &mut Modules,
     entry: FileId,
-    dir: &Path,
-    release: bool,
+    cfg: &ppl_interp::comptime::Config,
 ) -> Expansion {
     let mut out = Expansion::default();
     // Decorator functions, by (module, name): the type their first parameter takes.
@@ -153,17 +151,16 @@ pub fn expand(
         return out;
     }
     if !uses.is_empty() {
-        let edits =
-            match run_decorators(sm, stmts, modules, entry, dir, release, &decorators, &uses) {
-                Ok((edits, log)) => {
-                    out.log = log;
-                    edits
-                }
-                Err(d) => {
-                    out.diags = d;
-                    return out;
-                }
-            };
+        let edits = match run_decorators(sm, stmts, modules, entry, cfg, &decorators, &uses) {
+            Ok((edits, log)) => {
+                out.log = log;
+                edits
+            }
+            Err(d) => {
+                out.diags = d;
+                return out;
+            }
+        };
         apply(
             sm,
             stmts,
@@ -388,8 +385,7 @@ fn run_decorators(
     stmts: &[ast::Stmt],
     modules: &Modules,
     entry: FileId,
-    dir: &Path,
-    release: bool,
+    cfg: &ppl_interp::comptime::Config,
     decorators: &HashMap<(FileId, String), String>,
     uses: &[Use],
 ) -> Result<(Vec<ppl_interp::comptime::MetaEdit>, String), Vec<Diagnostic>> {
@@ -534,8 +530,7 @@ fn run_decorators(
     if diags.iter().any(Diagnostic::is_error) {
         return Err(diags);
     }
-    let cfg = ppl_interp::comptime::Config::host(dir.to_path_buf(), release);
-    let (mut d, log, edits) = ppl_interp::comptime::run_meta(&mut mir, &cfg);
+    let (mut d, log, edits) = ppl_interp::comptime::run_meta(&mut mir, cfg);
     diags.append(&mut d);
     if diags.iter().any(Diagnostic::is_error) {
         return Err(diags);

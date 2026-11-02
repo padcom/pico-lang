@@ -233,14 +233,31 @@ static void fail(Job *j) {
     j->r2 = e;
 }
 
-#if PPL_IO_POSIX
-/* ---- the POSIX operations (files, processes, sockets) ---- */
+/* ---- the platform's part (below) ---- */
 
-/* The pool. */
-static pthread_mutex_t pool_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t pool_cond = PTHREAD_COND_INITIALIZER;
-static Job *work_head, *work_tail;
-static int pool_started;
+#if defined(_WIN32)
+#define PPL_SEP '\\'
+#else
+#define PPL_SEP '/'
+#endif
+
+/* What a path is: `kind` 'f' file, 'd' directory, 'l' symbolic link, 'o' other. */
+typedef struct Info {
+    char kind;
+    int64_t size, mtime_ns;
+    uint64_t ino;
+} Info;
+
+/* Facts about `path` (`follow`ing a final link or not); -1 with errno set. */
+static int fs_info(const char *path, int follow, Info *out);
+/* A directory's entries without `.` and `..`; NULL with errno set. Names are UTF-8 and
+ * valid until the next call. */
+typedef struct DirIter DirIter;
+static DirIter *dir_open(const char *path);
+static const char *dir_next(DirIter *d);
+static void dir_close(DirIter *d);
+/* Runs file job `j` on a pool thread. */
+static void run(Job *j);
 
 /* Appends to the job's text result. */
 static void text_add(Job *j, const char *p, size_t n) {
@@ -285,6 +302,318 @@ static int valid_utf8(const unsigned char *p, size_t n) {
     }
     return 1;
 }
+
+/* The pool. */
+static pthread_mutex_t pool_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t pool_cond = PTHREAD_COND_INITIALIZER;
+static Job *work_head, *work_tail;
+static int pool_started;
+
+static void *worker_main(void *arg) {
+    (void)arg;
+    for (;;) {
+        pthread_mutex_lock(&pool_lock);
+        while (!work_head) pthread_cond_wait(&pool_cond, &pool_lock);
+        Job *j = work_head;
+        work_head = j->next;
+        if (!work_head) work_tail = NULL;
+        pthread_mutex_unlock(&pool_lock);
+        run(j);
+        finish(j);
+    }
+    return NULL;
+}
+
+static void start_pool(void) {
+    pthread_mutex_lock(&pool_lock);
+    if (!pool_started) {
+        pool_started = 1;
+        for (int i = 0; i < 4; i++) {
+            pthread_t t;
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+            if (pthread_create(&t, &attr, worker_main, NULL) != 0) abort();
+            pthread_attr_destroy(&attr);
+        }
+    }
+    pthread_mutex_unlock(&pool_lock);
+}
+
+/* `watch` (spec §13.4): a watcher keeps a snapshot of the tree (path, kind, size, mtime,
+ * inode per entry, sorted by path). While a "next" job (op 16) waits on it, its thread
+ * compares a fresh scan with the snapshot and delivers the differences as events
+ * ("c|m|r <relative path>\0" each, in path order). kqueue (macOS), inotify (Linux) or a
+ * change notification (Windows) only wake the thread up; a timeout catches whatever they
+ * miss. Between two `next` jobs changes aren't looked at, so they arrive as one difference
+ * (the interpreter does the same). The platform parts are `fs_info`, `dir_*`, `wake_*` and
+ * `wait_os`. */
+typedef struct Entry {
+    char *rel;
+    char kind;
+    int64_t size, mtime_ns;
+    uint64_t ino;
+} Entry;
+
+typedef struct Snap {
+    Entry *e;
+    size_t n, cap;
+} Snap;
+
+typedef struct Watcher {
+    int64_t id;
+    char *root;
+    int recursive;
+    Snap snap;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    Job *waiting; /* the "next" job, if one waits */
+    int closed;
+    intptr_t wake[2]; /* signalled on close, to end the OS wait (wake_*) */
+    struct Watcher *next;
+} Watcher;
+
+static void wake_open(Watcher *w);
+static void wake_signal(Watcher *w);
+static void wake_close(Watcher *w);
+/* Waits up to `ms` for a change in the tree or for the wake signal. */
+static void wait_os(Watcher *w, int ms);
+
+static pthread_mutex_t watch_lock = PTHREAD_MUTEX_INITIALIZER;
+static Watcher *watchers;
+static int64_t next_watcher = 1;
+
+static void snap_free(Snap *s) {
+    for (size_t i = 0; i < s->n; i++) free(s->e[i].rel);
+    free(s->e);
+    s->e = NULL;
+    s->n = s->cap = 0;
+}
+
+static void snap_add(Snap *s, const char *rel, const Info *in) {
+    if (s->n == s->cap) {
+        s->cap = s->cap ? s->cap * 2 : 32;
+        s->e = realloc(s->e, s->cap * sizeof *s->e);
+        if (!s->e) abort();
+    }
+    Entry *e = &s->e[s->n++];
+    e->rel = strdup(rel);
+    if (!e->rel) abort();
+    e->kind = in->kind;
+    e->size = in->size;
+    e->mtime_ns = in->mtime_ns;
+    e->ino = in->ino;
+}
+
+/* `root/rel` (or `root` for ""), with the platform's separator, malloc'd. */
+static char *join_rel(const char *root, const char *rel) {
+    size_t n = strlen(root) + strlen(rel) + 2;
+    char *m = malloc(n);
+    if (!m) abort();
+    if (*rel) snprintf(m, n, "%s%c%s", root, PPL_SEP, rel);
+    else snprintf(m, n, "%s", root);
+    return m;
+}
+
+static void scan_dir(Snap *s, const char *root, const char *rel, int recursive) {
+    char *dir = join_rel(root, rel);
+    DirIter *d = dir_open(dir);
+    free(dir);
+    if (!d) return;
+    const char *name;
+    while ((name = dir_next(d))) {
+        char *child = *rel ? join_rel(rel, name) : strdup(name);
+        if (!child) abort();
+        char *full = join_rel(root, child);
+        Info in;
+        if (fs_info(full, 0, &in) == 0) {
+            snap_add(s, child, &in);
+            if (recursive && in.kind == 'd') scan_dir(s, root, child, recursive);
+        }
+        free(full);
+        free(child);
+    }
+    dir_close(d);
+}
+
+static int entry_cmp(const void *a, const void *b) {
+    return strcmp(((const Entry *)a)->rel, ((const Entry *)b)->rel);
+}
+
+/* The tree at `root`: its entries, or the file itself (as ""). -1 (errno set) if it can't
+ * be looked at. */
+static int scan(const char *root, int recursive, Snap *out) {
+    Info in;
+    if (fs_info(root, 1, &in) < 0) return -1;
+    if (in.kind == 'd') scan_dir(out, root, "", recursive);
+    else snap_add(out, "", &in);
+    if (out->n > 1) qsort(out->e, out->n, sizeof *out->e, entry_cmp);
+    return 0;
+}
+
+static void event(Job *j, char k, const char *rel) {
+    char head[2] = {k, ' '};
+    text_add(j, head, 2);
+    text_add(j, rel, strlen(rel) + 1);
+}
+
+/* The differences from `a` to `b`, as events in `j`'s text; how many. */
+static size_t diff(const Snap *a, const Snap *b, Job *j) {
+    size_t i = 0, k = 0, n = 0;
+    while (i < a->n || k < b->n) {
+        int c = i == a->n ? 1 : k == b->n ? -1 : strcmp(a->e[i].rel, b->e[k].rel);
+        if (c < 0) {
+            event(j, 'r', a->e[i++].rel);
+            n++;
+        } else if (c > 0) {
+            event(j, 'c', b->e[k++].rel);
+            n++;
+        } else {
+            const Entry *x = &a->e[i++], *y = &b->e[k++];
+            if (x->kind != y->kind || x->ino != y->ino) {
+                event(j, 'r', x->rel);
+                event(j, 'c', y->rel);
+                n += 2;
+            } else if (x->kind != 'd' && (x->size != y->size || x->mtime_ns != y->mtime_ns)) {
+                event(j, 'm', y->rel);
+                n++;
+            }
+        }
+    }
+    return n;
+}
+
+static Watcher *find_watcher(int64_t id) {
+    for (Watcher *w = watchers; w; w = w->next)
+        if (w->id == id) return w;
+    return NULL;
+}
+
+/* Scans; if anything changed, hands the events to the waiting job. Whether it did. */
+static int deliver(Watcher *w) {
+    Snap now = {0};
+    scan(w->root, w->recursive, &now);
+    Job tmp = {0};
+    if (diff(&w->snap, &now, &tmp) == 0) {
+        snap_free(&now);
+        return 0;
+    }
+    snap_free(&w->snap);
+    w->snap = now;
+    pthread_mutex_lock(&w->lock);
+    Job *j = w->waiting;
+    w->waiting = NULL;
+    pthread_mutex_unlock(&w->lock);
+    if (j) {
+        j->r = 0;
+        j->text = tmp.text;
+        j->text_len = tmp.text_len;
+        finish(j);
+    } else {
+        free(tmp.text);
+    }
+    return 1;
+}
+
+static void *watch_main(void *arg) {
+    Watcher *w = arg;
+    for (;;) {
+        pthread_mutex_lock(&w->lock);
+        while (!w->closed && !w->waiting) pthread_cond_wait(&w->cond, &w->lock);
+        int closed = w->closed;
+        pthread_mutex_unlock(&w->lock);
+        if (closed) break;
+        if (deliver(w)) continue;
+        wait_os(w, 250);
+    }
+    /* Closed (and no longer listed): nobody else uses it now. */
+    snap_free(&w->snap);
+    wake_close(w);
+    pthread_mutex_destroy(&w->lock);
+    pthread_cond_destroy(&w->cond);
+    free(w->root);
+    free(w);
+    return NULL;
+}
+
+static void watch_open(Job *j) {
+    Snap s = {0};
+    if (scan(j->s, (int)j->a, &s) < 0) {
+        fail(j);
+        return;
+    }
+    Watcher *w = calloc(1, sizeof *w);
+    if (!w) abort();
+    w->root = strdup(j->s);
+    if (!w->root) abort();
+    w->recursive = (int)j->a;
+    w->snap = s;
+    pthread_mutex_init(&w->lock, NULL);
+    pthread_cond_init(&w->cond, NULL);
+    wake_open(w);
+    pthread_mutex_lock(&watch_lock);
+    w->id = next_watcher++;
+    w->next = watchers;
+    watchers = w;
+    pthread_mutex_unlock(&watch_lock);
+    pthread_t t;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&t, &attr, watch_main, w) != 0) abort();
+    pthread_attr_destroy(&attr);
+    j->r = w->id;
+}
+
+/* A "next" job (op 16, a = watcher): waits on the watcher; ends at once (r = 1) if it's
+ * closed. */
+static void watch_next(Job *j) {
+    pthread_mutex_lock(&watch_lock);
+    Watcher *w = find_watcher(j->a);
+    int ok = 0;
+    if (w) {
+        pthread_mutex_lock(&w->lock);
+        if (!w->closed && !w->waiting) {
+            w->waiting = j;
+            pthread_cond_signal(&w->cond);
+            ok = 1;
+        }
+        pthread_mutex_unlock(&w->lock);
+    }
+    pthread_mutex_unlock(&watch_lock);
+    if (!ok) {
+        j->r = 1;
+        finish(j);
+    }
+}
+
+/* Closes watcher `id`: a waiting job ends (r = 1) and the thread stops. */
+static void watch_close(int64_t id) {
+    pthread_mutex_lock(&watch_lock);
+    Watcher **p = &watchers;
+    while (*p && (*p)->id != id) p = &(*p)->next;
+    Watcher *w = *p;
+    if (w) *p = w->next;
+    Job *j = NULL;
+    if (w) {
+        pthread_mutex_lock(&w->lock);
+        w->closed = 1;
+        j = w->waiting;
+        w->waiting = NULL;
+        pthread_cond_signal(&w->cond);
+        wake_signal(w);
+        pthread_mutex_unlock(&w->lock);
+    }
+    pthread_mutex_unlock(&watch_lock);
+    if (j) {
+        j->r = 1;
+        finish(j);
+    }
+}
+
+#if PPL_IO_POSIX
+/* ---- the POSIX operations (files, processes, sockets) ---- */
+
 
 /* The whole file at `path` (malloc'd), or NULL with errno set. */
 static char *read_all(const char *path, size_t *len) {
@@ -645,78 +974,8 @@ static void run(Job *j) {
     }
 }
 
-static void *worker_main(void *arg) {
-    (void)arg;
-    for (;;) {
-        pthread_mutex_lock(&pool_lock);
-        while (!work_head) pthread_cond_wait(&pool_cond, &pool_lock);
-        Job *j = work_head;
-        work_head = j->next;
-        if (!work_head) work_tail = NULL;
-        pthread_mutex_unlock(&pool_lock);
-        run(j);
-        finish(j);
-    }
-    return NULL;
-}
 
-static void start_pool(void) {
-    pthread_mutex_lock(&pool_lock);
-    if (!pool_started) {
-        pool_started = 1;
-        for (int i = 0; i < 4; i++) {
-            pthread_t t;
-            pthread_attr_t attr;
-            pthread_attr_init(&attr);
-            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-            if (pthread_create(&t, &attr, worker_main, NULL) != 0) abort();
-            pthread_attr_destroy(&attr);
-        }
-    }
-    pthread_mutex_unlock(&pool_lock);
-}
-
-/* `watch` (spec §13.4): a watcher keeps a snapshot of the tree (path, kind, size, mtime,
- * inode per entry, sorted by path). While a "next" job (op 16) waits on it, its thread
- * compares a fresh scan with the snapshot and delivers the differences as events
- * ("c|m|r <relative path>\0" each, in path order). kqueue (macOS) or inotify (Linux) only
- * wake the thread up; a timeout catches whatever they miss. Between two `next` jobs changes
- * aren't looked at, so they arrive as one difference (the interpreter does the same). */
-typedef struct Entry {
-    char *rel;
-    char kind;
-    int64_t size, mtime_ns;
-    uint64_t ino;
-} Entry;
-
-typedef struct Snap {
-    Entry *e;
-    size_t n, cap;
-} Snap;
-
-typedef struct Watcher {
-    int64_t id;
-    char *root;
-    int recursive;
-    Snap snap;
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
-    Job *waiting; /* the "next" job, if one waits */
-    int closed;
-    int wake[2]; /* a pipe: written on close, to end the OS wait */
-    struct Watcher *next;
-} Watcher;
-
-static pthread_mutex_t watch_lock = PTHREAD_MUTEX_INITIALIZER;
-static Watcher *watchers;
-static int64_t next_watcher = 1;
-
-static void snap_free(Snap *s) {
-    for (size_t i = 0; i < s->n; i++) free(s->e[i].rel);
-    free(s->e);
-    s->e = NULL;
-    s->n = s->cap = 0;
-}
+/* ---- the hooks (see `Info`) ---- */
 
 static int64_t mtime_ns(const struct stat *st) {
 #if defined(__APPLE__)
@@ -726,134 +985,56 @@ static int64_t mtime_ns(const struct stat *st) {
 #endif
 }
 
-static void snap_add(Snap *s, const char *rel, const struct stat *st) {
-    if (s->n == s->cap) {
-        s->cap = s->cap ? s->cap * 2 : 32;
-        s->e = realloc(s->e, s->cap * sizeof *s->e);
-        if (!s->e) abort();
-    }
-    Entry *e = &s->e[s->n++];
-    e->rel = strdup(rel);
-    if (!e->rel) abort();
-    e->kind = kind_char(st->st_mode);
-    e->size = (int64_t)st->st_size;
-    e->mtime_ns = mtime_ns(st);
-    e->ino = (uint64_t)st->st_ino;
-}
-
-/* `root/rel` (or `root` for ""), malloc'd. */
-static char *join_rel(const char *root, const char *rel) {
-    size_t n = strlen(root) + strlen(rel) + 2;
-    char *m = malloc(n);
-    if (!m) abort();
-    if (*rel) snprintf(m, n, "%s/%s", root, rel);
-    else snprintf(m, n, "%s", root);
-    return m;
-}
-
-static void scan_dir(Snap *s, const char *root, const char *rel, int recursive) {
-    char *dir = join_rel(root, rel);
-    DIR *d = opendir(dir);
-    free(dir);
-    if (!d) return;
-    struct dirent *de;
-    while ((de = readdir(d))) {
-        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
-        char *child = join_rel(rel, de->d_name);
-        if (!*rel) {
-            free(child);
-            child = strdup(de->d_name);
-            if (!child) abort();
-        }
-        char *full = join_rel(root, child);
-        struct stat st;
-        if (lstat(full, &st) == 0) {
-            snap_add(s, child, &st);
-            if (recursive && S_ISDIR(st.st_mode)) scan_dir(s, root, child, recursive);
-        }
-        free(full);
-        free(child);
-    }
-    closedir(d);
-}
-
-static int entry_cmp(const void *a, const void *b) {
-    return strcmp(((const Entry *)a)->rel, ((const Entry *)b)->rel);
-}
-
-/* The tree at `root`: its entries, or the file itself (as ""). -1 (errno set) if it can't
- * be looked at. */
-static int scan(const char *root, int recursive, Snap *out) {
+static int fs_info(const char *path, int follow, Info *out) {
     struct stat st;
-    if (stat(root, &st) < 0) return -1;
-    if (S_ISDIR(st.st_mode)) scan_dir(out, root, "", recursive);
-    else snap_add(out, "", &st);
-    if (out->n > 1) qsort(out->e, out->n, sizeof *out->e, entry_cmp);
+    if ((follow ? stat(path, &st) : lstat(path, &st)) < 0) return -1;
+    out->kind = kind_char(st.st_mode);
+    out->size = (int64_t)st.st_size;
+    out->mtime_ns = mtime_ns(&st);
+    out->ino = (uint64_t)st.st_ino;
     return 0;
 }
 
-static void event(Job *j, char k, const char *rel) {
-    char head[2] = {k, ' '};
-    text_add(j, head, 2);
-    text_add(j, rel, strlen(rel) + 1);
+struct DirIter {
+    DIR *d;
+};
+
+static DirIter *dir_open(const char *path) {
+    DIR *d = opendir(path);
+    if (!d) return NULL;
+    DirIter *it = malloc(sizeof *it);
+    if (!it) abort();
+    it->d = d;
+    return it;
 }
 
-/* The differences from `a` to `b`, as events in `j`'s text; how many. */
-static size_t diff(const Snap *a, const Snap *b, Job *j) {
-    size_t i = 0, k = 0, n = 0;
-    while (i < a->n || k < b->n) {
-        int c = i == a->n ? 1 : k == b->n ? -1 : strcmp(a->e[i].rel, b->e[k].rel);
-        if (c < 0) {
-            event(j, 'r', a->e[i++].rel);
-            n++;
-        } else if (c > 0) {
-            event(j, 'c', b->e[k++].rel);
-            n++;
-        } else {
-            const Entry *x = &a->e[i++], *y = &b->e[k++];
-            if (x->kind != y->kind || x->ino != y->ino) {
-                event(j, 'r', x->rel);
-                event(j, 'c', y->rel);
-                n += 2;
-            } else if (x->kind != 'd' && (x->size != y->size || x->mtime_ns != y->mtime_ns)) {
-                event(j, 'm', y->rel);
-                n++;
-            }
-        }
-    }
-    return n;
-}
-
-static Watcher *find_watcher(int64_t id) {
-    for (Watcher *w = watchers; w; w = w->next)
-        if (w->id == id) return w;
+static const char *dir_next(DirIter *it) {
+    struct dirent *e;
+    while ((e = readdir(it->d)))
+        if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) return e->d_name;
     return NULL;
 }
 
-/* Scans; if anything changed, hands the events to the waiting job. Whether it did. */
-static int deliver(Watcher *w) {
-    Snap now = {0};
-    scan(w->root, w->recursive, &now);
-    Job tmp = {0};
-    if (diff(&w->snap, &now, &tmp) == 0) {
-        snap_free(&now);
-        return 0;
-    }
-    snap_free(&w->snap);
-    w->snap = now;
-    pthread_mutex_lock(&w->lock);
-    Job *j = w->waiting;
-    w->waiting = NULL;
-    pthread_mutex_unlock(&w->lock);
-    if (j) {
-        j->r = 0;
-        j->text = tmp.text;
-        j->text_len = tmp.text_len;
-        finish(j);
-    } else {
-        free(tmp.text);
-    }
-    return 1;
+static void dir_close(DirIter *it) {
+    closedir(it->d);
+    free(it);
+}
+
+static void wake_open(Watcher *w) {
+    int p[2];
+    if (pipe(p) < 0) abort();
+    w->wake[0] = p[0];
+    w->wake[1] = p[1];
+}
+
+static void wake_signal(Watcher *w) {
+    char c = 1;
+    if (write((int)w->wake[1], &c, 1) < 0) { /* the thread still ends at its timeout */ }
+}
+
+static void wake_close(Watcher *w) {
+    close((int)w->wake[0]);
+    close((int)w->wake[1]);
 }
 
 #if defined(__APPLE__)
@@ -872,7 +1053,7 @@ static void wait_os(Watcher *w, int ms) {
     struct kevent *ch = calloc(cap, sizeof *ch);
     int *fds = calloc(cap, sizeof *fds);
     if (!ch || !fds) abort();
-    EV_SET(&ch[n++], w->wake[0], EVFILT_READ, EV_ADD, 0, 0, NULL);
+    EV_SET(&ch[n++], (int)w->wake[0], EVFILT_READ, EV_ADD, 0, 0, NULL);
     size_t nfds = 0;
     int files = w->snap.n <= 256;
     for (size_t i = 0; i <= w->snap.n; i++) {
@@ -917,110 +1098,12 @@ static void wait_os(Watcher *w, int ms) {
         inotify_add_watch(fd, full, mask);
         free(full);
     }
-    struct pollfd p[2] = {{fd, POLLIN, 0}, {w->wake[0], POLLIN, 0}};
+    struct pollfd p[2] = {{fd, POLLIN, 0}, {(int)w->wake[0], POLLIN, 0}};
     int got = poll(p, 2, ms);
     close(fd);
     if (got > 0) usleep(20000); /* let a burst of changes finish */
 }
 #endif
-
-static void *watch_main(void *arg) {
-    Watcher *w = arg;
-    for (;;) {
-        pthread_mutex_lock(&w->lock);
-        while (!w->closed && !w->waiting) pthread_cond_wait(&w->cond, &w->lock);
-        int closed = w->closed;
-        pthread_mutex_unlock(&w->lock);
-        if (closed) break;
-        if (deliver(w)) continue;
-        wait_os(w, 250);
-    }
-    /* Closed (and no longer listed): nobody else uses it now. */
-    snap_free(&w->snap);
-    close(w->wake[0]);
-    close(w->wake[1]);
-    pthread_mutex_destroy(&w->lock);
-    pthread_cond_destroy(&w->cond);
-    free(w->root);
-    free(w);
-    return NULL;
-}
-
-static void watch_open(Job *j) {
-    Snap s = {0};
-    if (scan(j->s, (int)j->a, &s) < 0) {
-        fail(j);
-        return;
-    }
-    Watcher *w = calloc(1, sizeof *w);
-    if (!w) abort();
-    w->root = strdup(j->s);
-    if (!w->root) abort();
-    w->recursive = (int)j->a;
-    w->snap = s;
-    pthread_mutex_init(&w->lock, NULL);
-    pthread_cond_init(&w->cond, NULL);
-    if (pipe(w->wake) < 0) abort();
-    pthread_mutex_lock(&watch_lock);
-    w->id = next_watcher++;
-    w->next = watchers;
-    watchers = w;
-    pthread_mutex_unlock(&watch_lock);
-    pthread_t t;
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    if (pthread_create(&t, &attr, watch_main, w) != 0) abort();
-    pthread_attr_destroy(&attr);
-    j->r = w->id;
-}
-
-/* A "next" job (op 16, a = watcher): waits on the watcher; ends at once (r = 1) if it's
- * closed. */
-static void watch_next(Job *j) {
-    pthread_mutex_lock(&watch_lock);
-    Watcher *w = find_watcher(j->a);
-    int ok = 0;
-    if (w) {
-        pthread_mutex_lock(&w->lock);
-        if (!w->closed && !w->waiting) {
-            w->waiting = j;
-            pthread_cond_signal(&w->cond);
-            ok = 1;
-        }
-        pthread_mutex_unlock(&w->lock);
-    }
-    pthread_mutex_unlock(&watch_lock);
-    if (!ok) {
-        j->r = 1;
-        finish(j);
-    }
-}
-
-/* Closes watcher `id`: a waiting job ends (r = 1) and the thread stops. */
-static void watch_close(int64_t id) {
-    pthread_mutex_lock(&watch_lock);
-    Watcher **p = &watchers;
-    while (*p && (*p)->id != id) p = &(*p)->next;
-    Watcher *w = *p;
-    if (w) *p = w->next;
-    Job *j = NULL;
-    if (w) {
-        pthread_mutex_lock(&w->lock);
-        w->closed = 1;
-        j = w->waiting;
-        w->waiting = NULL;
-        pthread_cond_signal(&w->cond);
-        char c = 1;
-        if (write(w->wake[1], &c, 1) < 0) { /* the thread still ends at its timeout */ }
-        pthread_mutex_unlock(&w->lock);
-    }
-    pthread_mutex_unlock(&watch_lock);
-    if (j) {
-        j->r = 1;
-        finish(j);
-    }
-}
 
 /* Jobs that may block for long (pipes, waiting for a child) get a thread each, so they
  * can't hold up the pool (a child may wait for input that another job writes). */
@@ -1583,20 +1666,593 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     }
 }
 
-#else
-/* ---- Windows: no files, processes or sockets yet (P8.3b, P8.3c) ---- */
+#elif defined(_WIN32)
+/* ---- Windows: files and `watch` (P8.3b) over the W functions, paths UTF-8 on the ppl
+ * side; processes and sockets come with P8.3c. Errors become the POSIX errno values the
+ * kinds are mapped from (`win_errno`), so messages match the other platforms. */
+#include <windows.h>
+
+/* `s` (UTF-8) as UTF-16, malloc'd. */
+static wchar_t *wide(const char *s) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    wchar_t *w = malloc((size_t)(n > 0 ? n : 1) * sizeof *w);
+    if (!w) abort();
+    if (n <= 0 || !MultiByteToWideChar(CP_UTF8, 0, s, -1, w, n)) w[0] = 0;
+    return w;
+}
+
+/* `w` as UTF-8, malloc'd. */
+static char *narrow(const wchar_t *w) {
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
+    char *s = malloc((size_t)(n > 0 ? n : 1));
+    if (!s) abort();
+    if (n <= 0 || !WideCharToMultiByte(CP_UTF8, 0, w, -1, s, n, NULL, NULL)) s[0] = 0;
+    return s;
+}
+
+static int is_sep(char c) { return c == '/' || c == '\\'; }
+
+static DWORD attributes(const char *path) {
+    wchar_t *w = wide(path);
+    DWORD a = GetFileAttributesW(w);
+    free(w);
+    return a;
+}
+
+/* Sets errno for Windows error `e` on `path`. A missing path under something that isn't a
+ * directory is ENOTDIR, as on POSIX (Windows says the path wasn't found). */
+static void win_errno(DWORD e, const char *path) {
+    int en;
+    switch (e) {
+    case ERROR_FILE_NOT_FOUND:
+    case ERROR_PATH_NOT_FOUND:
+    case ERROR_INVALID_NAME:
+    case ERROR_INVALID_DRIVE:
+    case ERROR_BAD_NETPATH:
+    case ERROR_BAD_NET_NAME: en = ENOENT; break;
+    case ERROR_ALREADY_EXISTS:
+    case ERROR_FILE_EXISTS: en = EEXIST; break;
+    case ERROR_ACCESS_DENIED:
+    case ERROR_SHARING_VIOLATION:
+    case ERROR_LOCK_VIOLATION:
+    case ERROR_WRITE_PROTECT: en = EACCES; break;
+    case ERROR_DIRECTORY: en = ENOTDIR; break;
+    case ERROR_DIR_NOT_EMPTY: en = ENOTEMPTY; break;
+    default: en = EIO; break;
+    }
+    if (en == ENOENT && path) {
+        size_t n = strlen(path);
+        char *p = malloc(n + 1);
+        if (!p) abort();
+        memcpy(p, path, n + 1);
+        for (size_t i = 1; i < n; i++) {
+            if (!is_sep(p[i]) || p[i - 1] == ':') continue;
+            p[i] = 0;
+            DWORD a = attributes(p);
+            p[i] = path[i];
+            if (a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY)) {
+                en = ENOTDIR;
+                break;
+            }
+        }
+        free(p);
+    }
+    errno = en;
+}
+
+/* The last error on `path`, as `fail` reports it. */
+static void win_fail(Job *j, const char *path) {
+    win_errno(GetLastError(), path);
+    fail(j);
+}
+
+static void fail_with(Job *j, int en) {
+    errno = en;
+    fail(j);
+}
+
+/* 100 ns since 1601 → ns since 1970. */
+static int64_t unix_ns(FILETIME t) {
+    int64_t v = (int64_t)(((uint64_t)t.dwHighDateTime << 32) | t.dwLowDateTime);
+    return (v - 116444736000000000LL) * 100;
+}
+
+static int fs_info(const char *path, int follow, Info *out) {
+    wchar_t *w = wide(path);
+    WIN32_FILE_ATTRIBUTE_DATA d;
+    if (!GetFileAttributesExW(w, GetFileExInfoStandard, &d)) {
+        free(w);
+        win_errno(GetLastError(), path);
+        return -1;
+    }
+    DWORD attr = d.dwFileAttributes;
+    uint64_t size = ((uint64_t)d.nFileSizeHigh << 32) | d.nFileSizeLow;
+    FILETIME mtime = d.ftLastWriteTime;
+    if ((attr & FILE_ATTRIBUTE_REPARSE_POINT) && follow) {
+        /* What the link leads to. */
+        HANDLE h = CreateFileW(w, FILE_READ_ATTRIBUTES,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                               OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+        BY_HANDLE_FILE_INFORMATION bi;
+        if (h == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(h, &bi)) {
+            DWORD e = GetLastError();
+            if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+            free(w);
+            win_errno(e, path);
+            return -1;
+        }
+        CloseHandle(h);
+        attr = bi.dwFileAttributes;
+        size = ((uint64_t)bi.nFileSizeHigh << 32) | bi.nFileSizeLow;
+        mtime = bi.ftLastWriteTime;
+    }
+    free(w);
+    out->kind = (attr & FILE_ATTRIBUTE_REPARSE_POINT) && !follow ? 'l'
+                : (attr & FILE_ATTRIBUTE_DIRECTORY)            ? 'd'
+                                                               : 'f';
+    out->size = out->kind == 'd' ? 0 : (int64_t)size;
+    out->mtime_ns = unix_ns(mtime);
+    out->ino = 0;
+    return 0;
+}
+
+struct DirIter {
+    HANDLE h;
+    WIN32_FIND_DATAW data;
+    int first;
+    char *name;
+};
+
+static DirIter *dir_open(const char *path) {
+    size_t n = strlen(path);
+    char *pattern = malloc(n + 3);
+    if (!pattern) abort();
+    memcpy(pattern, path, n);
+    size_t k = n;
+    if (k > 0 && !is_sep(pattern[k - 1])) pattern[k++] = '\\';
+    pattern[k++] = '*';
+    pattern[k] = 0;
+    wchar_t *w = wide(pattern);
+    free(pattern);
+    DirIter *it = calloc(1, sizeof *it);
+    if (!it) abort();
+    it->h = FindFirstFileW(w, &it->data);
+    free(w);
+    if (it->h == INVALID_HANDLE_VALUE) {
+        DWORD e = GetLastError();
+        free(it);
+        DWORD a = attributes(path);
+        if (a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY)) errno = ENOTDIR;
+        else win_errno(e, path);
+        return NULL;
+    }
+    it->first = 1;
+    return it;
+}
+
+static const char *dir_next(DirIter *it) {
+    for (;;) {
+        if (!it->first && !FindNextFileW(it->h, &it->data)) return NULL;
+        it->first = 0;
+        const wchar_t *f = it->data.cFileName;
+        if (!wcscmp(f, L".") || !wcscmp(f, L"..")) continue;
+        free(it->name);
+        it->name = narrow(f);
+        return it->name;
+    }
+}
+
+static void dir_close(DirIter *it) {
+    FindClose(it->h);
+    free(it->name);
+    free(it);
+}
+
+static void wake_open(Watcher *w) {
+    HANDLE e = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!e) abort();
+    w->wake[0] = (intptr_t)e;
+}
+
+static void wake_signal(Watcher *w) { SetEvent((HANDLE)w->wake[0]); }
+
+static void wake_close(Watcher *w) { CloseHandle((HANDLE)w->wake[0]); }
+
+/* A change notification on the watched directory (a watched file's directory). */
+static void wait_os(Watcher *w, int ms) {
+    char *dir = NULL;
+    if (w->snap.n == 1 && !*w->snap.e[0].rel) {
+        size_t n = strlen(w->root);
+        while (n > 0 && !is_sep(w->root[n - 1])) n--;
+        dir = malloc(n + 2);
+        if (!dir) abort();
+        if (n == 0) {
+            strcpy(dir, ".");
+        } else {
+            memcpy(dir, w->root, n);
+            dir[n] = 0;
+        }
+    }
+    wchar_t *wd = wide(dir ? dir : w->root);
+    free(dir);
+    HANDLE ch = FindFirstChangeNotificationW(
+        wd, w->recursive && !dir,
+        FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE |
+            FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_ATTRIBUTES);
+    free(wd);
+    HANDLE hs[2] = {(HANDLE)w->wake[0], ch};
+    DWORD got = WaitForMultipleObjects(ch == INVALID_HANDLE_VALUE ? 1 : 2, hs, FALSE, (DWORD)ms);
+    if (ch != INVALID_HANDLE_VALUE) FindCloseChangeNotification(ch);
+    if (got == WAIT_OBJECT_0 + 1) Sleep(20); /* let a burst of changes finish */
+}
+
+/* The whole file at `path` (malloc'd), or NULL with errno set. */
+static char *read_all(const char *path, size_t *len) {
+    DWORD a = attributes(path);
+    if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) {
+        errno = EISDIR;
+        return NULL;
+    }
+    wchar_t *w = wide(path);
+    HANDLE h = CreateFileW(w, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    free(w);
+    if (h == INVALID_HANDLE_VALUE) {
+        win_errno(GetLastError(), path);
+        return NULL;
+    }
+    size_t cap = 4096, n = 0;
+    char *buf = malloc(cap);
+    if (!buf) abort();
+    for (;;) {
+        if (n == cap) {
+            cap *= 2;
+            buf = realloc(buf, cap);
+            if (!buf) abort();
+        }
+        DWORD k = 0;
+        DWORD want = cap - n > 0x40000000 ? 0x40000000 : (DWORD)(cap - n);
+        if (!ReadFile(h, buf + n, want, &k, NULL)) {
+            win_errno(GetLastError(), path);
+            free(buf);
+            CloseHandle(h);
+            return NULL;
+        }
+        if (k == 0) break;
+        n += k;
+    }
+    CloseHandle(h);
+    *len = n;
+    return buf;
+}
+
+static int write_handle(HANDLE h, const char *p, size_t n) {
+    while (n > 0) {
+        DWORD k = 0;
+        DWORD want = n > 0x40000000 ? 0x40000000 : (DWORD)n;
+        if (!WriteFile(h, p, want, &k, NULL)) return -1;
+        p += k;
+        n -= k;
+    }
+    return 0;
+}
+
+static int make_dir(const char *path) {
+    wchar_t *w = wide(path);
+    BOOL ok = CreateDirectoryW(w, NULL);
+    free(w);
+    if (!ok) win_errno(GetLastError(), path);
+    return ok ? 0 : -1;
+}
+
+static int mkdir_all(const char *path) {
+    size_t n = strlen(path);
+    char *p = malloc(n + 1);
+    if (!p) abort();
+    memcpy(p, path, n + 1);
+    for (size_t i = 1; i < n; i++) {
+        if (!is_sep(p[i]) || p[i - 1] == ':' || is_sep(p[i - 1])) continue;
+        p[i] = 0;
+        wchar_t *w = wide(p);
+        CreateDirectoryW(w, NULL); /* (it may exist; the last step reports problems) */
+        free(w);
+        p[i] = path[i];
+    }
+    free(p);
+    if (make_dir(path) < 0) {
+        DWORD a = attributes(path);
+        if (errno == EEXIST && a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY))
+            return 0;
+        return -1;
+    }
+    return 0;
+}
+
+/* Removes the file or (empty) directory `path`; a link to a directory is a directory to
+ * Windows. */
+static int remove_one(const char *path, const Info *in) {
+    wchar_t *w = wide(path);
+    DWORD a = GetFileAttributesW(w);
+    BOOL ok = in->kind == 'd' || (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY))
+                  ? RemoveDirectoryW(w)
+                  : DeleteFileW(w);
+    free(w);
+    if (!ok) win_errno(GetLastError(), path);
+    return ok ? 0 : -1;
+}
+
+static int remove_all(const char *path) {
+    Info in;
+    if (fs_info(path, 0, &in) < 0) return -1;
+    if (in.kind == 'd') {
+        DirIter *d = dir_open(path);
+        if (!d) return -1;
+        const char *name;
+        while ((name = dir_next(d))) {
+            char *child = join_rel(path, name);
+            int r = remove_all(child);
+            free(child);
+            if (r < 0) {
+                int e = errno;
+                dir_close(d);
+                errno = e;
+                return -1;
+            }
+        }
+        dir_close(d);
+    }
+    return remove_one(path, &in);
+}
+
+static void run(Job *j) {
+    j->r = 0;
+    switch (j->op) {
+    case 1: { /* readText */
+        size_t n;
+        char *b = read_all(j->s, &n);
+        if (!b) {
+            fail(j);
+            return;
+        }
+        if (!valid_utf8((unsigned char *)b, n)) {
+            free(b);
+            j->r = -K_INVALID_DATA;
+            return;
+        }
+        j->text = b;
+        j->text_len = n;
+        return;
+    }
+    case 2: { /* readBytes: a buffer handle */
+        size_t n;
+        char *b = read_all(j->s, &n);
+        if (!b) {
+            fail(j);
+            return;
+        }
+        j->r = (int64_t)(intptr_t)b;
+        j->r2 = (int64_t)n;
+        return;
+    }
+    case 3:   /* writeText (t), a: append */
+    case 4: { /* writeBytes (t holds the bytes) */
+        DWORD a = attributes(j->s);
+        if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) {
+            fail_with(j, EISDIR);
+            return;
+        }
+        wchar_t *w = wide(j->s);
+        HANDLE h = CreateFileW(w, j->a ? FILE_APPEND_DATA : GENERIC_WRITE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                               j->a ? OPEN_ALWAYS : CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        free(w);
+        if (h == INVALID_HANDLE_VALUE) {
+            win_fail(j, j->s);
+            return;
+        }
+        if (write_handle(h, j->t, j->tlen) < 0) win_fail(j, j->s);
+        CloseHandle(h);
+        return;
+    }
+    case 5: { /* stat, a: don't follow links */
+        Info in;
+        if (fs_info(j->s, !j->a, &in) < 0) {
+            fail(j);
+            return;
+        }
+        char line[96];
+        int n = snprintf(line, sizeof line, "%c %lld %lld", in.kind, (long long)in.size,
+                         (long long)(in.mtime_ns / 1000000));
+        text_add(j, line, (size_t)n);
+        return;
+    }
+    case 6: /* mkdir, a: recursive */
+        if ((j->a ? mkdir_all(j->s) : make_dir(j->s)) < 0) fail(j);
+        return;
+    case 7: { /* remove, a: recursive */
+        Info in;
+        if (fs_info(j->s, 0, &in) < 0 || (j->a ? remove_all(j->s) : remove_one(j->s, &in)) < 0)
+            fail(j);
+        return;
+    }
+    case 8: { /* rename */
+        wchar_t *from = wide(j->s), *to = wide(j->t);
+        BOOL ok = MoveFileExW(from, to, MOVEFILE_REPLACE_EXISTING);
+        free(from);
+        free(to);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
+    case 9: { /* readDir: "<kind> <name>\0" per entry, in name order */
+        DirIter *d = dir_open(j->s);
+        if (!d) {
+            fail(j);
+            return;
+        }
+        char **names = NULL;
+        size_t count = 0, cap = 0;
+        const char *name;
+        while ((name = dir_next(d))) {
+            DWORD a = d->data.dwFileAttributes;
+            char k = (a & FILE_ATTRIBUTE_REPARSE_POINT) ? 'l'
+                     : (a & FILE_ATTRIBUTE_DIRECTORY)   ? 'd'
+                                                        : 'f';
+            size_t len = strlen(name) + 3;
+            char *entry = malloc(len);
+            if (!entry) abort();
+            snprintf(entry, len, "%c %s", k, name);
+            if (count == cap) {
+                cap = cap ? cap * 2 : 16;
+                names = realloc(names, cap * sizeof *names);
+                if (!names) abort();
+            }
+            names[count++] = entry;
+        }
+        dir_close(d);
+        /* Sorted by name (byte order), as on the other platforms. */
+        for (size_t i = 1; i < count; i++) {
+            for (size_t k = i; k > 0 && strcmp(names[k - 1] + 2, names[k] + 2) > 0; k--) {
+                char *x = names[k];
+                names[k] = names[k - 1];
+                names[k - 1] = x;
+            }
+        }
+        text_add(j, "", 0);
+        for (size_t i = 0; i < count; i++) {
+            text_add(j, names[i], strlen(names[i]) + 1);
+            free(names[i]);
+        }
+        free(names);
+        return;
+    }
+    case 10: { /* open: a = flags (1 read, 2 write, 4 append, 8 create, 16 truncate, 32 new);
+                * r = the handle */
+        int64_t f = j->a;
+        DWORD a = attributes(j->s);
+        if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) {
+            fail_with(j, EISDIR);
+            return;
+        }
+        DWORD access = (f & 1) ? GENERIC_READ : 0;
+        if (f & 4) access |= FILE_APPEND_DATA;
+        else if (f & 2) access |= GENERIC_WRITE;
+        DWORD disposition = (f & 32)              ? CREATE_NEW
+                            : (f & 8) && (f & 16) ? CREATE_ALWAYS
+                            : (f & 8)             ? OPEN_ALWAYS
+                            : (f & 16)            ? TRUNCATE_EXISTING
+                                                  : OPEN_EXISTING;
+        wchar_t *w = wide(j->s);
+        HANDLE h = CreateFileW(w, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                               NULL, disposition, FILE_ATTRIBUTE_NORMAL, NULL);
+        free(w);
+        if (h == INVALID_HANDLE_VALUE) {
+            win_fail(j, j->s);
+            return;
+        }
+        j->r = (int64_t)(intptr_t)h;
+        return;
+    }
+    case 11: { /* read: a = handle, b = at most this many bytes; r = buffer, r2 = count */
+        size_t n = j->b > 0 ? (size_t)j->b : 1;
+        char *b = calloc(n, 1);
+        if (!b) abort();
+        DWORD k = 0;
+        if (!ReadFile((HANDLE)(intptr_t)j->a, b, n > 0x40000000 ? 0x40000000 : (DWORD)n, &k,
+                      NULL)) {
+            free(b);
+            win_fail(j, NULL);
+            return;
+        }
+        j->r = (int64_t)(intptr_t)b;
+        j->r2 = k;
+        return;
+    }
+    case 12: /* write: a = handle, t = bytes */
+        if (write_handle((HANDLE)(intptr_t)j->a, j->t, j->tlen) < 0) {
+            win_fail(j, NULL);
+            return;
+        }
+        j->r = (int64_t)j->tlen;
+        return;
+    case 13: /* close */
+        if (!CloseHandle((HANDLE)(intptr_t)j->a)) win_fail(j, NULL);
+        return;
+    case 14: { /* seek: a = handle, b = position from the start */
+        LARGE_INTEGER to, at;
+        to.QuadPart = j->b;
+        if (!SetFilePointerEx((HANDLE)(intptr_t)j->a, to, &at, FILE_BEGIN)) {
+            win_fail(j, NULL);
+            return;
+        }
+        j->r = (int64_t)at.QuadPart;
+        return;
+    }
+    case 15: /* watch: s = path, a = recursive; r = the watcher's id */
+        watch_open(j);
+        return;
+    default: /* processes and sockets: P8.3c */
+        fail_with(j, ENOSYS);
+        return;
+    }
+}
 
 static void os_submit(Job *j) {
-    j->r = -K_OTHER;
-    j->r2 = ENOSYS;
-    finish(j);
+    if (j->op == 16) {
+        watch_next(j);
+        return;
+    }
+    if (j->op > 15) {
+        /* (processes and sockets: P8.3c) */
+        fail_with(j, ENOSYS);
+        finish(j);
+        return;
+    }
+    start_pool();
+    pthread_mutex_lock(&pool_lock);
+    if (work_tail) work_tail->next = j;
+    else work_head = j;
+    work_tail = j;
+    pthread_cond_signal(&pool_cond);
+    pthread_mutex_unlock(&pool_lock);
 }
 
 static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s,
                      const PplStr *t) {
-    (void)q, (void)op, (void)a, (void)b, (void)c, (void)s, (void)t;
-    return -1;
+    (void)b, (void)c, (void)t;
+    switch (op) {
+    case 106: /* close watcher a */
+        watch_close(a);
+        return 0;
+    case 105: { /* the working directory, as a polled job's text */
+        Job *j = result_job(q);
+        DWORD n = GetCurrentDirectoryW(0, NULL);
+        wchar_t *w = malloc((size_t)(n ? n : 1) * sizeof *w);
+        if (!w) abort();
+        if (n && GetCurrentDirectoryW(n, w)) {
+            char *u = narrow(w);
+            text_add(j, u, strlen(u));
+            free(u);
+        }
+        free(w);
+        return j->id;
+    }
+    case 134: { /* read file s whole, now: r = a buffer handle (or -1), r2 = its size */
+        Job *j = result_job(q);
+        char *path = cstr(s, NULL);
+        size_t n = 0;
+        char *m = read_all(path, &n);
+        free(path);
+        j->r = m ? (int64_t)(intptr_t)m : -1;
+        j->r2 = (int64_t)n;
+        return j->id;
+    }
+    case 135: /* readlink(s): no links yet ("") */
+        return result_job(q)->id;
+    default: return -1;
+    }
 }
+#else
+#error "ppl_io.c: no I/O for this platform"
 #endif
 
 /* Fills `p` with `n` bytes from the system's randomness; 0 if there's none. */

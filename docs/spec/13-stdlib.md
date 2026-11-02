@@ -162,10 +162,15 @@ nothing), a rename is a `remove` and a `create`, and directories are never `modi
 notifications (kqueue, inotify) only wake the watcher up; it also looks every 250 ms.
 
 ### `std/path`
-POSIX paths with Node's `path.posix` semantics: `sep`, `isAbsolute`, `normalize` (`a//b/../c/` →
-`a/c/`), `join(...parts)`, `resolve(...parts)` (from the working directory; no trailing slash),
+Node's `path`: `sep`, `delimiter`, `isAbsolute`, `normalize` (`a//b/../c/` → `a/c/`),
+`join(...parts)`, `resolve(...parts)` (from the working directory; no trailing separator),
 `dirname`, `basename(p, ext = "")`, `extname` (`.bashrc` has none), `relative(from, to)`.
-Windows paths come with the Windows target.
+`posix` and `win32` have these with `path.posix` and `path.win32` semantics on every platform;
+the module's own are the target's (decision 250). Windows paths take `\` and `/` as separators,
+drive letters (`C:`) and UNC roots (`\\server\share`), give results with `\`, and compare
+case-insensitively in `relative`; per-drive working directories and `\\?\` paths aren't
+supported. On Windows, `std/fs` takes paths in either form and returns native ones (the working
+directory, `watch` events joined with `\`).
 
 ### `std/net`
 TCP, UDP and DNS. Every operation that can wait (accepting, connecting, reading, writing,

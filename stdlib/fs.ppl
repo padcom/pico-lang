@@ -225,6 +225,9 @@ export function open(path: string, read: bool = true, write: bool = false, appen
   __job<File>(10, flags, 0, 0, path, "", path, (res: __IoResult) => new File(res.r, path))
 }
 
+/// The platform's path separator, which watch events use.
+const __sep = comptime if (target.os == "windows") "\\" else "/"
+
 /// A change `watch` saw: `kind` is `"create"`, `"modify"` (a file's size or modification time
 /// changed) or `"remove"`; `path` is the watched path joined with the changed entry's path
 /// (the watched path itself when watching a file). A rename is a remove and a create.
@@ -313,7 +316,7 @@ export class Watcher implements Disposable {
               const rel = line.slice(2)
               const kind = if (k == "c") "create" else if (k == "m") "modify" else "remove"
               const root = this.path
-              const full = if (rel.length == 0) root else if (root.endsWith("/")) `${root}${rel}` else `${root}/${rel}`
+              const full = if (rel.length == 0) root else if (root.endsWith("/") || root.endsWith(__sep)) `${root}${rel}` else `${root}${__sep}${rel}`
               this.queued.push({ kind, path: full })
             }
           }

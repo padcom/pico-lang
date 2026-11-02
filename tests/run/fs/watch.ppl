@@ -1,15 +1,25 @@
 // expect: create w/a.txt
+// expect-windows: create w\a.txt
 // expect: modify w/a.txt
+// expect-windows: modify w\a.txt
 // expect: create w/sub
+// expect-windows: create w\sub
 // expect: create w/sub/b.txt
+// expect-windows: create w\sub\b.txt
 // expect: remove w/a.txt
+// expect-windows: remove w\a.txt
 // expect: create w/c.txt
+// expect-windows: create w\c.txt
 // expect: remove w/sub
+// expect-windows: remove w\sub
 // expect: remove w/sub/b.txt
+// expect-windows: remove w\sub\b.txt
 // expect: create w/d.txt
+// expect-windows: create w\d.txt
 // expect: closed: true
 // expect: nothing: true
 // expect: top: create top/t.txt
+// expect-windows: top: create top\t.txt
 // expect: NotFound
 // `watch` reports creates, modifications and removals in the temp directory: changes made
 // between two `next()` calls arrive together (in path order), and `for await` waits for
