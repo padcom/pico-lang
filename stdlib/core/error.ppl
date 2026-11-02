@@ -9,6 +9,17 @@ class Error {
   }
 }
 
+/// A value of the wrong type or shape, as JavaScript's (`TextDecoder` with `fatal` throws it
+/// for bytes that aren't UTF-8).
+class TypeError extends Error {
+  constructor(message: string) { super(message) }
+}
+
+/// A value outside the allowed range, as JavaScript's.
+class RangeError extends Error {
+  constructor(message: string) { super(message) }
+}
+
 /// A failed file-system operation (`std/fs`): the path and what went wrong. `kind` is
 /// `"NotFound"`, `"AlreadyExists"`, `"PermissionDenied"`, `"NotADirectory"`, `"IsADirectory"`,
 /// `"DirectoryNotEmpty"`, `"InvalidData"` (text that isn't UTF-8) or `"Other"`.

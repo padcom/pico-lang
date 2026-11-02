@@ -3,6 +3,8 @@
 // (arguments are passed as an array) unless `Command.shell` asks for one. Reading or writing
 // a pipe and waiting for a child are jobs on runtime threads that settle on the event loop.
 
+import { ReadableStream, WritableStream, ReadableStreamDefaultController } from "std/streams"
+
 const __kinds = ["", "NotFound", "AlreadyExists", "PermissionDenied", "NotADirectory",
   "IsADirectory", "DirectoryNotEmpty", "InvalidData", "Other"]
 const __messages = ["", "no such file or directory", "already exists", "permission denied",
@@ -141,12 +143,24 @@ export class Reader {
   piped: bool
   done: bool = false
   reading: bool = false
+  rs: ReadableStream<Uint8Array>? = null
 
   constructor(fd: int, name: string, piped: bool) {
     this.fd = fd
     this.name = name
     this.piped = piped
     this.done = piped && fd < 0
+  }
+
+  /// The bytes as a stream (reading it and `read()` don't mix).
+  public get readable(): ReadableStream<Uint8Array> {
+    const r = this.rs
+    if (r != null) {
+      return r
+    }
+    const s = new ReadableStream<Uint8Array>({ pullAsync: (c) => __pullReader(this, c) })
+    this.rs = s
+    s
   }
 
   start(): void {
@@ -224,6 +238,16 @@ export class Reader {
   }
 }
 
+/// Reads the next chunk of `r` into a stream.
+async function __pullReader(r: Reader, c: ReadableStreamDefaultController<Uint8Array>): Promise<void> throws IoError {
+  const chunk = await r.read()
+  if (chunk == null) {
+    c.close()
+  } else {
+    c.enqueue(chunk)
+  }
+}
+
 /// A queued write.
 struct __Write {
   bytes: ArrayBuffer?
@@ -243,11 +267,26 @@ export class Writer {
   busy: bool = false
   closing: bool = false
   closed: bool = false
+  ws: WritableStream<Uint8Array>? = null
 
   constructor(fd: int, name: string, piped: bool) {
     this.fd = fd
     this.name = name
     this.piped = piped
+  }
+
+  /// The writer as a stream: closing it closes the pipe.
+  public get writable(): WritableStream<Uint8Array> {
+    const w = this.ws
+    if (w != null) {
+      return w
+    }
+    const s = new WritableStream<Uint8Array>({
+      writeAsync: (chunk, c) => this.write(chunk).then<void>((n: int) => {}),
+      close: () => this.close(),
+    })
+    this.ws = s
+    s
   }
 
   add(w: __Write): Promise<int, IoError> {

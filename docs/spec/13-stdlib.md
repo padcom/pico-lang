@@ -206,3 +206,45 @@ does writing after `closeWrite`/`close`. A `UdpSocket` has `addr`, `send(data, p
 Promise<Datagram?, NetError>` (`{ data: Uint8Array, addr }`; bytes past `n` are dropped; `null`
 once closed) and `close()`. Web Streams (`conn.readable`, `conn.writable`) come with
 `std/streams`.
+
+## 13.5 Streams and encoding
+### `TextEncoder` and `TextDecoder`
+Globals, as WHATWG Encoding, UTF-8 only. `new TextEncoder().encode(text): Uint8Array`.
+`new TextDecoder(label = "utf-8", { fatal, ignoreBOM })` (another label panics);
+`decode(bytes = empty, { stream }): string throws TypeError`: each invalid sequence becomes
+U+FFFD (the WHATWG "maximal subpart" rule) or, with `fatal`, throws `TypeError` (`The encoded
+data was not valid utf-8 (at byte 1)`); a leading BOM is dropped unless `ignoreBOM`; with
+`stream`, an incomplete sequence at the end waits for the next call. `TypeError` and `RangeError`
+are core error classes. `Uint8Array` has `subarray(begin, end?)`, `slice(begin, end?)` (negative
+positions count from the end) and `Uint8Array.from(values: int[])`.
+
+### `std/encoding`
+`base64.encode(data, url = false)` (RFC 4648; `url` uses `-`/`_` without padding) and
+`base64.decode(text): Uint8Array throws TypeError` (either alphabet, padding optional,
+whitespace skipped); `hex.encode(data)` (lowercase) and `hex.decode(text) throws TypeError`.
+
+### `std/streams`
+WHATWG Streams with chunk-counting queues: `ReadableStream<T>`, `WritableStream<T>`,
+`TransformStream<I, O>`, their default controllers, `ReadableStreamDefaultReader<T>`
+(`read(): Promise<ReadResult<T>, Error>` with `{ done, value }`, `cancel`, `closed`,
+`releaseLock`) and `WritableStreamDefaultWriter<T>` (`write`, `close`, `abort`, `ready`,
+`desiredSize`, `closed`, `releaseLock`).
+```ts
+import { ReadableStream, TransformStream, WritableStream } from "std/streams"
+
+const upper = new TransformStream<string, string>({ transform: (s, c) => c.enqueue(s.toUpperCase()) })
+const sink = new WritableStream<string>({ write: (chunk, c) => println(chunk) })
+await ReadableStream.from(["a", "b"]).pipeThrough(upper).pipeTo(sink)
+for await (const chunk of conn.readable) handle(chunk)   // without a reader
+```
+Sources, sinks and transformers are structs of callbacks (`UnderlyingSource<T>`: `start`,
+`pull`, `cancel`; `UnderlyingSink<T>`: `start`, `write`, `close`, `abort`; `Transformer<I, O>`:
+`start`, `transform`, `flush`). Callbacks finish when they return; work that finishes later is
+given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transformAsync` (ppl has
+no async lambdas yet). Strategies are `{ highWaterMark }` (default 1; a transform's readable
+side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel })` writes each chunk after
+the last one was taken; `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
+streams an array. `textEncoderStream()` and `textDecoderStream()` are transform streams from
+strings to UTF-8 bytes and back. `std/net`'s `Conn` and `std/process`'s `Reader`/`Writer` have
+`readable`/`writable` streams of `Uint8Array` (closing a connection's writable finishes writing;
+once both directions are finished the connection closes itself).

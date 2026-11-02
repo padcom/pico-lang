@@ -1,0 +1,28 @@
+// expect: HELLO, STREAMS!
+// expect: server done
+// A TCP echo server written with Web Streams (`conn.readable.pipeTo(conn.writable)`),
+// with a client that uppercases what comes back through a TransformStream.
+import { listen, connect, Listener, NetError } from "std/net"
+import { ReadableStream, TransformStream, textDecoderStream, textEncoderStream } from "std/streams"
+
+async function serve(server: Listener): Promise<void> throws NetError {
+  for await (const conn of server) {
+    conn.readable.pipeTo(conn.writable)
+  }
+  println("server done")
+}
+
+const server = await listen()
+const served = serve(server)
+
+const conn = await connect(server.addr.port)
+ReadableStream.from(["hello, ", "streams!"]).pipeThrough(textEncoderStream()).pipeTo(conn.writable)
+const upper = new TransformStream<string, string>({ transform: (s, c) => c.enqueue(s.toUpperCase()) })
+let text = ""
+for await (const s of conn.readable.pipeThrough(textDecoderStream()).pipeThrough(upper)) {
+  text = text + s
+}
+println(text)
+conn.close()
+server.close()
+await served

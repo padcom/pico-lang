@@ -1,0 +1,57 @@
+// expect: 14 bytes
+// expect: zażółć €
+// expect: h�i�
+// expect: streamed: zażółć €
+// expect: The encoded data was not valid utf-8 (at byte 1)
+// expect: BOM: A
+// expect: emHFvMOzxYLEhyDigqw=
+// expect: emHFvMOzxYLEhyDigqw
+// expect: zażółć €
+// expect: Zm9v Zm8= Zg== ''
+// expect: invalid base64: unexpected '!'
+// expect: 00ff10ab
+// expect: 4 171
+// expect: invalid hex: odd length
+// `TextEncoder`/`TextDecoder` (spec §13.1) and `std/encoding` (base64, hex).
+import { base64, hex } from "std/encoding"
+
+const bytes = new TextEncoder().encode("zażółć €")
+println(`${bytes.length} bytes`)
+const d = new TextDecoder()
+println(d.decode(bytes))
+println(d.decode(Uint8Array.from([104, 0xFF, 105, 0xE2, 0x82])))
+
+// One byte at a time: incomplete sequences wait for the next chunk.
+const s = new TextDecoder()
+let out = ""
+for (let i = 0; i < bytes.length; i++) {
+  out = out + s.decode(bytes.subarray(i, i + 1), { stream: true })
+}
+println(`streamed: ${out}${s.decode()}`)
+
+try {
+  new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from([97, 0xC0]))
+} catch (e: TypeError) {
+  println(e.message)
+}
+println(`BOM: ${new TextDecoder().decode(Uint8Array.from([0xEF, 0xBB, 0xBF, 65]))}`)
+
+println(base64.encode(bytes))
+println(base64.encode(bytes, url: true))
+println(new TextDecoder().decode(base64.decode("emHFvMOzxYLEhyDigqw")))
+const enc = new TextEncoder()
+println(`${base64.encode(enc.encode("foo"))} ${base64.encode(enc.encode("fo"))} ${base64.encode(enc.encode("f"))} '${base64.encode(enc.encode(""))}'`)
+try {
+  base64.decode("ab!d")
+} catch (e: TypeError) {
+  println(e.message)
+}
+
+println(hex.encode(Uint8Array.from([0, 255, 16, 171])))
+const h = hex.decode("04AB")
+println(`${h[0]} ${h[1]}`)
+try {
+  println(hex.decode("abc").length)
+} catch (e: TypeError) {
+  println(e.message)
+}

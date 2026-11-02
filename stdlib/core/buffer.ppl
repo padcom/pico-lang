@@ -140,6 +140,39 @@ class Uint8Array {
   operator [](i: int): int {
     this.get(i)
   }
+
+  /// `i` as a position in `0..length` (negative counts from the end), as on the Web.
+  clamp(i: int): int {
+    const n = this.length
+    if (i < 0) { if (n + i < 0) 0 else n + i } else if (i > n) n else i
+  }
+
+  /// A view of the same bytes from `begin` to `end` (negative counts from the end).
+  public subarray(begin: int = 0, end: int? = null): Uint8Array {
+    const a = this.clamp(begin)
+    const e = end
+    const b = if (e != null) this.clamp(e) else this.length
+    new Uint8Array(this.buffer, this.byteOffset + a, if (b > a) b - a else 0)
+  }
+
+  /// A copy of the bytes from `begin` to `end` (negative counts from the end).
+  public slice(begin: int = 0, end: int? = null): Uint8Array {
+    const v = this.subarray(begin, end)
+    const out = new Uint8Array(v.length)
+    for (let i = 0; i < v.length; i++) {
+      out.set(i, v.get(i))
+    }
+    out
+  }
+
+  /// The bytes of `values` (each taken modulo 256).
+  public static from(values: int[]): Uint8Array {
+    const out = new Uint8Array(values.length)
+    for (let i = 0; i < values.length; i++) {
+      out.set(i, values[i] & 255)
+    }
+    out
+  }
 }
 
 /// A view of an `ArrayBuffer` as 4-byte elements (`int`), as on the Web.

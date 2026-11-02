@@ -1,0 +1,115 @@
+// `TextEncoder` and `TextDecoder` (WHATWG Encoding, UTF-8 only), spec §13.1. Strings are
+// UTF-8 already, so encoding copies their bytes and decoding checks (or repairs) them; both
+// are runtime operations (`__io` 130 and 131).
+
+/// Turns strings into their UTF-8 bytes.
+class TextEncoder {
+  public readonly encoding: string = "utf-8"
+
+  constructor() {}
+
+  /// The UTF-8 bytes of `input`.
+  public encode(input: string = ""): Uint8Array {
+    const job = __io(130, 0, 0, 0, input, "")
+    const h = __io(102, job, 0, 0, "", "")
+    const n = __io(103, job, 0, 0, "", "")
+    __io(104, job, 0, 0, "", "");
+    new Uint8Array(new ArrayBuffer(h, n, true), 0, n)
+  }
+}
+
+/// `TextDecoder` options: `fatal` makes bytes that aren't UTF-8 throw a `TypeError` (else
+/// each bad sequence becomes U+FFFD); `ignoreBOM` keeps a leading byte-order mark.
+struct TextDecoderOptions {
+  fatal?: bool
+  ignoreBOM?: bool
+}
+
+/// `decode` options: with `stream`, an incomplete sequence at the end waits for the next call.
+struct TextDecodeOptions {
+  stream?: bool
+}
+
+/// Turns UTF-8 bytes into strings, also chunk by chunk (`{ stream: true }`).
+class TextDecoder {
+  public readonly encoding: string = "utf-8"
+  public readonly fatal: bool
+  public readonly ignoreBOM: bool
+  /// Bytes of an incomplete sequence from the last streamed chunk.
+  pending: int[] = []
+  /// Whether the next bytes start the stream (where a BOM is dropped).
+  atStart: bool = true
+
+  constructor(label: string = "utf-8", options: TextDecoderOptions = {}) {
+    const l = label.trim().toLowerCase()
+    if (l != "utf-8" && l != "utf8" && l != "unicode-1-1-utf-8") {
+      panic(`TextDecoder: unsupported encoding ${label} (only utf-8)`)
+    }
+    this.fatal = options.fatal == true
+    this.ignoreBOM = options.ignoreBOM == true
+  }
+
+  /// The text of `input` (and of bytes held back from earlier streamed calls).
+  public decode(input: Uint8Array = new Uint8Array(0), options: TextDecodeOptions = {}): string throws TypeError {
+    const stream = options.stream == true
+    let bytes = input
+    if (this.pending.length > 0) {
+      const joined = new Uint8Array(this.pending.length + input.length)
+      for (let i = 0; i < this.pending.length; i++) {
+        joined.set(i, this.pending[i])
+      }
+      for (let i = 0; i < input.length; i++) {
+        joined.set(this.pending.length + i, input.get(i))
+      }
+      this.pending = []
+      bytes = joined
+    }
+    let end = bytes.length
+    if (stream) {
+      end = __utf8Complete(bytes)
+      for (let i = end; i < bytes.length; i++) {
+        this.pending.push(bytes.get(i))
+      }
+    }
+    let start = 0
+    if (this.atStart && !this.ignoreBOM && end >= 3 && bytes.get(0) == 0xEF && bytes.get(1) == 0xBB && bytes.get(2) == 0xBF) {
+      start = 3
+    }
+    if (end > 0 || !stream) {
+      this.atStart = stream && end == 0
+    }
+    if (!stream) {
+      this.atStart = true
+    }
+    const view = bytes.subarray(start, end)
+    const data = if (view.byteOffset == 0) view.buffer else view.buffer.slice(view.byteOffset, view.byteOffset + view.length)
+    const job = __io(131, if (this.fatal) 1 else 0, data.__handle, view.length, "", "")
+    const r = __io(102, job, 0, 0, "", "")
+    const at = __io(103, job, 0, 0, "", "")
+    const text = __io_text(job)
+    __io(104, job, 0, 0, "", "");
+    if (r < 0) {
+      this.pending = []
+      throw new TypeError(`The encoded data was not valid utf-8 (at byte ${start + at})`)
+    }
+    text
+  }
+}
+
+/// Where the last complete UTF-8 sequence of `b` ends (a trailing lead byte and its
+/// continuation bytes, if fewer than the lead asks for, are left out).
+function __utf8Complete(b: Uint8Array): int {
+  const n = b.length
+  let i = n - 1
+  let back = 0
+  while (i >= 0 && back < 3 && (b.get(i) & 0xC0) == 0x80) {
+    i -= 1
+    back += 1
+  }
+  if (i < 0) {
+    return n
+  }
+  const lead = b.get(i)
+  const need = if (lead >= 0xF0 && lead <= 0xF4) 4 else if (lead >= 0xE0) 3 else if (lead >= 0xC2 && lead < 0xE0) 2 else 1
+  if (need > 1 && n - i < need) i else n
+}

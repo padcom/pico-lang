@@ -1,0 +1,141 @@
+// `std/encoding`: bytes as text (spec §13.2): `base64` (RFC 4648, also the URL-safe alphabet)
+// and `hex`. Text ↔ UTF-8 bytes is `TextEncoder`/`TextDecoder` (globals).
+
+const __b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+const __b64url = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+const __hexDigits = "0123456789abcdef"
+
+/// The value of base64 character `c` (either alphabet), or -1.
+function __b64value(c: char): int {
+  const n = c as u32 as int
+  if (n >= 65 && n <= 90) n - 65
+  else if (n >= 97 && n <= 122) n - 71
+  else if (n >= 48 && n <= 57) n + 4
+  else if (c == '+' || c == '-') 62
+  else if (c == '/' || c == '_') 63
+  else -1
+}
+
+/// Base64 (RFC 4648 §4, or §5's URL-safe alphabet with `url`).
+export class Base64 {
+  constructor() {}
+
+  /// `data` as base64; `url` uses `-` and `_` and leaves out the `=` padding.
+  public encode(data: Uint8Array, url: bool = false): string {
+    const alphabet = if (url) __b64url else __b64
+    const digits: char[] = []
+    for (const c of alphabet) {
+      digits.push(c)
+    }
+    let out = ""
+    const n = data.length
+    let i = 0
+    while (i + 2 < n) {
+      const v = (data.get(i) << 16) | (data.get(i + 1) << 8) | data.get(i + 2)
+      out = `${out}${digits[(v >> 18) & 63]}${digits[(v >> 12) & 63]}${digits[(v >> 6) & 63]}${digits[v & 63]}`
+      i += 3
+    }
+    if (n - i == 1) {
+      const v = data.get(i) << 16
+      out = `${out}${digits[(v >> 18) & 63]}${digits[(v >> 12) & 63]}`
+      if (!url) out = `${out}==`
+    } else if (n - i == 2) {
+      const v = (data.get(i) << 16) | (data.get(i + 1) << 8)
+      out = `${out}${digits[(v >> 18) & 63]}${digits[(v >> 12) & 63]}${digits[(v >> 6) & 63]}`
+      if (!url) out = `${out}=`
+    }
+    out
+  }
+
+  /// The bytes of base64 `text` (either alphabet, padding optional; whitespace is skipped).
+  /// Other characters, or a length no encoding has, throw a `TypeError`.
+  public decode(text: string): Uint8Array throws TypeError {
+    const values: int[] = []
+    let padding = 0
+    for (const c of text) {
+      if (c == ' ' || c == '\n' || c == '\r' || c == '\t') {
+        continue
+      }
+      if (c == '=') {
+        padding += 1
+        continue
+      }
+      const v = __b64value(c)
+      if (v < 0 || padding > 0) {
+        throw new TypeError(`invalid base64: unexpected '${c}'`)
+      }
+      values.push(v)
+    }
+    if (values.length % 4 == 1 || padding > 2 || (padding > 0 && (values.length + padding) % 4 != 0)) {
+      throw new TypeError("invalid base64: wrong length")
+    }
+    const rest = values.length % 4
+    const out = new Uint8Array(values.length / 4 * 3 + (if (rest == 0) 0 else rest - 1))
+    let k = 0
+    let i = 0
+    while (i < values.length) {
+      const left = values.length - i
+      let v = values[i] << 18 | values[i + 1] << 12
+      if (left > 2) v = v | values[i + 2] << 6
+      if (left > 3) v = v | values[i + 3]
+      out.set(k, (v >> 16) & 255)
+      k += 1
+      if (left > 2) {
+        out.set(k, (v >> 8) & 255)
+        k += 1
+      }
+      if (left > 3) {
+        out.set(k, v & 255)
+        k += 1
+      }
+      i += 4
+    }
+    out
+  }
+}
+
+/// Hexadecimal: two lowercase digits per byte.
+export class Hex {
+  constructor() {}
+
+  public encode(data: Uint8Array): string {
+    const digits: char[] = []
+    for (const c of __hexDigits) {
+      digits.push(c)
+    }
+    let out = ""
+    for (let i = 0; i < data.length; i++) {
+      const b = data.get(i)
+      out = `${out}${digits[b >> 4]}${digits[b & 15]}`
+    }
+    out
+  }
+
+  /// The bytes of `text` (digits in either case); an odd length or another character throws
+  /// a `TypeError`.
+  public decode(text: string): Uint8Array throws TypeError {
+    const values: int[] = []
+    for (const c of text) {
+      const n = c as u32 as int
+      const v = if (n >= 48 && n <= 57) n - 48
+        else if (n >= 97 && n <= 102) n - 87
+        else if (n >= 65 && n <= 70) n - 55
+        else -1
+      if (v < 0) {
+        throw new TypeError(`invalid hex: unexpected '${c}'`)
+      }
+      values.push(v)
+    }
+    if (values.length % 2 != 0) {
+      throw new TypeError("invalid hex: odd length")
+    }
+    const out = new Uint8Array(values.length / 2)
+    for (let i = 0; i < out.length; i++) {
+      out.set(i, values[2 * i] * 16 + values[2 * i + 1])
+    }
+    out
+  }
+}
+
+export const base64 = new Base64()
+export const hex = new Hex()

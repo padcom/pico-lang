@@ -1,0 +1,15 @@
+// expect: ONE
+// expect: TWO
+// A child's pipes as Web Streams: strings → bytes → `cat` → text → uppercase.
+import { Command } from "std/process"
+import { ReadableStream, TransformStream, textDecoderStream, textEncoderStream } from "std/streams"
+
+const cat = new Command("cat", stdin: "pipe", stdout: "pipe").spawn()
+ReadableStream.from(["one\n", "two\n"]).pipeThrough(textEncoderStream()).pipeTo(cat.stdin.writable)
+const upper = new TransformStream<string, string>({ transform: (s, c) => c.enqueue(s.toUpperCase()) })
+let text = ""
+for await (const s of cat.stdout.readable.pipeThrough(textDecoderStream()).pipeThrough(upper)) {
+  text = text + s
+}
+print(text)
+await cat.status()

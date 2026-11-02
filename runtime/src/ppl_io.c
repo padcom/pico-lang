@@ -1364,6 +1364,78 @@ static void net_run(Job *j) {
     }
 }
 
+/* WHATWG's UTF-8 decoder: each maximal invalid subsequence becomes U+FFFD (or, when
+ * `fatal`, the job fails with InvalidData and r2 = the offset of the first bad byte). */
+static int64_t decode_utf8(Queue *q, const unsigned char *p, size_t n, int fatal) {
+    Job *j = result_job(q);
+    size_t cap = n + 16, len = 0;
+    char *out = malloc(cap);
+    if (!out) abort();
+    size_t i = 0;
+    while (i < n) {
+        unsigned c = p[i];
+        size_t need = 0;
+        unsigned lo = 0x80, hi = 0xBF;
+        if (c < 0x80) {
+            need = 0;
+        } else if (c >= 0xC2 && c <= 0xDF) {
+            need = 1;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            need = 2;
+            if (c == 0xE0) lo = 0xA0;
+            if (c == 0xED) hi = 0x9F;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            need = 3;
+            if (c == 0xF0) lo = 0x90;
+            if (c == 0xF4) hi = 0x8F;
+        } else {
+            need = (size_t)-1;
+        }
+        size_t k = 1;
+        int ok = need != (size_t)-1;
+        if (ok) {
+            for (; k <= need; k++) {
+                if (i + k >= n) {
+                    ok = 0;
+                    break;
+                }
+                unsigned d = p[i + k];
+                unsigned l = k == 1 ? lo : 0x80, h = k == 1 ? hi : 0xBF;
+                if (d < l || d > h) {
+                    ok = 0;
+                    break;
+                }
+            }
+        }
+        if (len + 4 > cap) {
+            cap = cap * 2 + 4;
+            out = realloc(out, cap);
+            if (!out) abort();
+        }
+        if (ok) {
+            memcpy(out + len, p + i, need + 1);
+            len += need + 1;
+            i += need + 1;
+        } else {
+            if (fatal) {
+                free(out);
+                j->r = -K_INVALID_DATA;
+                j->r2 = (int64_t)i;
+                return j->id;
+            }
+            memcpy(out + len, "\xEF\xBF\xBD", 3);
+            len += 3;
+            i += k; /* (k bytes made up the maximal subpart) */
+        }
+    }
+    out = realloc(out, len + 1);
+    if (!out) abort();
+    out[len] = 0;
+    j->text = out;
+    j->text_len = len;
+    return j->id;
+}
+
 static char *cstr(const PplStr *s, size_t *len) {
     size_t n = s ? (size_t)s->byte_len : 0;
     char *m = malloc(n + 1);
@@ -1459,6 +1531,18 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
     case 117:
     case 118:
     case 119: return process_op(q, op, a, b, c, s, t);
+    case 130: { /* TextEncoder: s's UTF-8 bytes; r = a buffer handle, r2 = their count */
+        Job *j = result_job(q);
+        size_t n = s ? (size_t)s->byte_len : 0;
+        char *m = malloc(n ? n : 1);
+        if (!m) abort();
+        if (n) memcpy(m, s->data, n);
+        j->r = (int64_t)(intptr_t)m;
+        j->r2 = (int64_t)n;
+        return j->id;
+    }
+    case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */
+        return decode_utf8(q, (const unsigned char *)(intptr_t)b, c > 0 ? (size_t)c : 0, a == 1);
     case 120: /* shutdown socket a: b = 0 reading, 1 writing, 2 both */
         return shutdown((int)a, b == 0 ? SHUT_RD : b == 1 ? SHUT_WR : SHUT_RDWR) < 0 ? -1 : 0;
     case 121: /* close socket a */

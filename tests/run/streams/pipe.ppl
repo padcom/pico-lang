@@ -1,0 +1,73 @@
+// expect: upper: HELLO
+// expect: upper: STREAMS
+// expect: sink closed after 2 chunks
+// expect: read: 1 2 3 done
+// expect: decoded: zażółć € (3 parts)
+// expect: lengths: 2 7
+// expect: failed: boom
+// expect: backpressure: 1 then 0
+// `std/streams` (spec §13.2): piping through a TransformStream, readers and writers,
+// text encoder/decoder streams, errors and backpressure.
+import { ReadableStream, WritableStream, TransformStream, textEncoderStream,
+  textDecoderStream } from "std/streams"
+
+const upper = new TransformStream<string, string>({ transform: (s, c) => c.enqueue(s.toUpperCase()) })
+let count = 0
+const sink = new WritableStream<string>({
+  write: (chunk, c) => {
+    println(`upper: ${chunk}`)
+    count += 1
+  },
+  close: () => println(`sink closed after ${count} chunks`),
+})
+await ReadableStream.from(["hello", "streams"]).pipeThrough(upper).pipeTo(sink)
+
+// A reader, chunk by chunk.
+const reader = ReadableStream.from([1, 2, 3]).getReader()
+let line = "read:"
+while (true) {
+  const r = await reader.read()
+  if (r.done) {
+    line = `${line} done`
+    break
+  }
+  line = `${line} ${r.value}`
+}
+println(line)
+
+// Bytes split inside a character, decoded by a TextDecoderStream.
+const bytes = new TextEncoder().encode("zażółć €")
+const parts = ReadableStream.from([bytes.subarray(0, 3), bytes.subarray(3, 13), bytes.subarray(13)])
+let text = ""
+let n = 0
+for await (const s of parts.pipeThrough(textDecoderStream())) {
+  text = text + s
+  n += 1
+}
+println(`decoded: ${text} (${n} parts)`)
+
+// And back.
+const lengths: int[] = []
+for await (const b of ReadableStream.from(["hi", "żółw"]).pipeThrough(textEncoderStream())) {
+  lengths.push(b.length)
+}
+println(`lengths: ${lengths[0]} ${lengths[1]}`)
+
+// A failing source rejects the pipe.
+const broken = new ReadableStream<string>({
+  pull: (c) => c.error(new Error("boom")),
+})
+try {
+  await broken.pipeTo(new WritableStream<string>({}))
+} catch (e) {
+  println(`failed: ${e.message}`)
+}
+
+// A writer sees backpressure once the high-water mark is reached.
+const slow = new WritableStream<int>({}, { highWaterMark: 2 })
+const w = slow.getWriter()
+w.write(1)
+const before = w.desiredSize
+w.write(2)
+println(`backpressure: ${before} then ${w.desiredSize}`)
+await w.close()

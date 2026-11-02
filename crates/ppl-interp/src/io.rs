@@ -349,6 +349,45 @@ impl Interp<'_, '_> {
         if (30..=35).contains(&op) {
             return Value::Int(i128::from(self.net_job(op, a, b, c, &s(4), &s(5))));
         }
+        if op == 130 || op == 131 {
+            // TextEncoder / TextDecoder.
+            let (r, r2, text, bytes) = if op == 130 {
+                let bytes = s(4).into_bytes();
+                let n = bytes.len() as i64;
+                (0, n, String::new(), Some(bytes))
+            } else {
+                let data = self.buffer_bytes(b, c);
+                match String::from_utf8(data) {
+                    Ok(t) => (0, 0, t, None),
+                    Err(e) if a == 1 => (
+                        -K_INVALID_DATA,
+                        e.utf8_error().valid_up_to() as i64,
+                        String::new(),
+                        None,
+                    ),
+                    Err(e) => (
+                        0,
+                        0,
+                        String::from_utf8_lossy(e.as_bytes()).into_owned(),
+                        None,
+                    ),
+                }
+            };
+            let r = match bytes {
+                Some(bytes) => self.shared.buffers.lock().expect("buffers").add(bytes),
+                None => r,
+            };
+            let st = &mut self.io;
+            st.next_id += 1;
+            st.taken.push(Job {
+                id: st.next_id,
+                r,
+                r2,
+                text,
+                bytes: None,
+            });
+            return Value::Int(i128::from(st.next_id));
+        }
         if op == 120 || op == 121 {
             let mut net = self.io.net.lock().expect("net");
             if op == 121 {
