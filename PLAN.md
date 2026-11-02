@@ -683,6 +683,15 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Done when**: all golden tests pass for `windows-x64` and `windows-arm64` in CI, except
   those needing named time zones (no tz database on Windows yet).
 
+### P8.3d Bundled IANA tz database
+- **Spec**: 13 (std/time)
+- **Do**: vendor the IANA tzdb (data and `zic`; a script regenerates compact TZif files), link
+  them into programs for targets without a system database (Windows; WASI later), look zones
+  up there when the system has none, and find Windows' local zone (Windows zone names mapped to
+  IANA ids with CLDR's `windowsZones` table). The author chose bundling.
+- **Done when**: `run/time/std_time`, `run/time/date` and `run/fmt/formattable` pass for
+  `windows-x64` and `windows-arm64` in CI (nothing left in `tests/windows-skip.txt`).
+
 ### P8.4 macOS cross builds
 - **Do**: bundled `.tbd` stubs, x64 and arm64 from any host, and universal-binary support (optional).
 - **Done when**: both architectures build from the Linux host (Mach-O verified with `file`), and on

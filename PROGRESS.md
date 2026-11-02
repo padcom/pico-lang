@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.3c2: Windows sockets and TLS** (see [PLAN.md](PLAN.md#p83c2-windows-sockets-and-tls)). Then the bundled IANA tz database (the author chose bundling; plan a task for it). Windows runs only in CI (~11 min to the Windows results).
+**P8.3d: Bundled IANA tz database** (see [PLAN.md](PLAN.md#p83d-bundled-iana-tz-database)); the author chose bundling over mapping Windows' own zone data. Zones are read in `stdlib/core/time.ppl` (`__zoneNamed`, `__localZone`, TZif via `__io` 134). Windows runs only in CI (~11 min to the Windows results).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -262,7 +262,8 @@ Notes:
 - [x] P8.3a Windows toolchain and runtime core
 - [x] P8.3b Windows files
 - [x] P8.3c1 Windows processes, environment and crypto
-- [ ] P8.3c2 Windows sockets and TLS
+- [x] P8.3c2 Windows sockets and TLS
+- [ ] P8.3d Bundled IANA tz database
 - [ ] P8.4 macOS cross builds
 - [ ] P8.5 wasm32-wasi
 - [ ] P8.6 wasm32-browser (linear memory)
@@ -404,3 +405,4 @@ Notes:
 | 2026-11-02 | P8.3c1 (part) | Windows processes, pending CI: `CreateProcessW` (MSVCRT quoting; `Command.shell` = `cmd.exe /d /s /c "…"` verbatim, mode bit 128), only the three std handles inherited, pipe jobs 20–23 on solo threads (now portable), `TerminateProcess` kill reported as a signal, env/args/pid/exit through the W functions; crypto op 140 portable, Mbed TLS threading on Windows. Process fixtures portable (comptime shell scripts, `.trim()`); Windows CI appends Git's `usr\bin` to `PATH`. Decision 251. 119 programs per Windows target. |
 | 2026-11-02 | P8.3c1 | Done: CI run 41536018311 green on all 8 jobs (119 golden programs per Windows target). |
 | 2026-11-02 | P8.3c2 (part) | Windows sockets and TLS, pending CI: `net_run` portable behind shims, Windows pipe jobs on sockets (TLS sessions first), shutdown cancels blocked reads, `ppl_tls.c` on Winsock with ROOT-store roots (crypt32 import library). `run/net/`, `run/http/` no longer skipped (127 programs per Windows target). Decision 252. |
+| 2026-11-02 | P8.3c2 | Done: CI run 41538412531 green on all 8 jobs (127 golden programs per Windows target). Only the three tz fixtures are still skipped on Windows; new task P8.3d bundles the IANA tz database (author's choice). |
