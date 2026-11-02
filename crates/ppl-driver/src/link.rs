@@ -12,7 +12,7 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 /// Bump to invalidate cached runtime builds made by older compilers.
-const RUNTIME_CACHE_FORMAT: u32 = 3;
+pub(crate) const RUNTIME_CACHE_FORMAT: u32 = 3;
 
 /// lld's `-m` for an architecture.
 pub(crate) fn emulation(a: Arch) -> &'static str {
@@ -72,6 +72,48 @@ fn link_musl(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
     lazy(&mut args, &crate::builtins::objects(t, cc)?);
     args.extend(paths(&musl.end));
     ppl_lld::link_elf(&args).map_err(|e| format!("linking failed:\n{e}"))
+}
+
+/// Windows (MinGW): lld's COFF linker in MinGW mode, MinGW's CRT and import libraries.
+pub fn link_windows(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
+    let cc = clang()?;
+    let mingw = crate::mingw::libc(t, cc)?;
+    let libc = Libc {
+        name: "mingw".into(),
+        args: crate::mingw::runtime_args(cc),
+        start: Vec::new(),
+    };
+    let runtime = runtime_objects(t, &libc)?;
+    let builtins = crate::builtins::objects(t, cc)?;
+    let machine = match t.arch {
+        Arch::X86_64 => "x64",
+        _ => "arm64",
+    };
+    let mut args: Vec<String> = [
+        "-lldmingw",
+        "-errorlimit:0",
+        "-nologo",
+        "-subsystem:console",
+        "-dynamicbase",
+        "-nxcompat",
+        "-alternatename:__image_base__=__ImageBase",
+    ]
+    .map(String::from)
+    .into();
+    args.push(format!("-machine:{machine}"));
+    if t.arch == Arch::X86_64 {
+        args.push("-highentropyva".into());
+    }
+    args.push(format!("-out:{}", exe.display()));
+    args.push(mingw.start.display().to_string());
+    args.push(obj.display().to_string());
+    for group in [&runtime.lazy, &mingw.lib, &builtins] {
+        args.push("-start-lib".into());
+        args.extend(paths(group));
+        args.push("-end-lib".into());
+    }
+    args.extend(paths(&mingw.imports));
+    ppl_lld::link_coff(&args).map_err(|e| format!("linking failed:\n{e}"))
 }
 
 fn common_args(t: Target) -> Vec<String> {
@@ -360,8 +402,15 @@ fn compile_all(clang: &Path, what: &str, jobs: &[Job], out: &Path) -> Result<(),
         for _ in 0..n {
             s.spawn(|| {
                 while let Some(j) = jobs.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    let r = Command::new(clang)
-                        .args(&j.args)
+                    let mut cmd = Command::new(clang);
+                    cmd.args(&j.args);
+                    // For scripts/prune-windows-headers.sh: which headers each object used.
+                    if std::env::var_os("PPL_DEPFILES").is_some() {
+                        cmd.arg("-MD")
+                            .arg("-MF")
+                            .arg(out.join(format!("{}.d", j.obj)));
+                    }
+                    let r = cmd
                         .arg("-c")
                         .arg(&j.src)
                         .arg("-o")

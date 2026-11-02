@@ -13,6 +13,7 @@ mod builtins;
 mod decorators;
 mod glibc;
 mod link;
+mod mingw;
 mod modules;
 mod musl;
 pub mod target;
@@ -374,7 +375,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
     let target = opts.target.unwrap_or_else(Target::host);
-    let lld = target.os == target::Os::Linux;
+    let lld = matches!(target.os, target::Os::Linux | target::Os::Windows);
     if !lld && !target.is_host() {
         return Err(format!("building for {target} isn't supported yet"));
     }
@@ -388,7 +389,11 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         },
     )?;
     if lld {
-        let r = link::link_linux(target, &obj, exe, !opts.release);
+        let r = if target.os == target::Os::Windows {
+            link::link_windows(target, &obj, exe)
+        } else {
+            link::link_linux(target, &obj, exe, !opts.release)
+        };
         let _ = std::fs::remove_file(&obj);
         return r;
     }
@@ -437,9 +442,12 @@ pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
             t.hash(&mut h);
         }
     }
-    let stem = Path::new(&file.name)
+    let mut stem = Path::new(&file.name)
         .file_stem()
         .map_or("main".into(), |s| s.to_string_lossy().into_owned());
+    if opts.target.is_some_and(|t| t.os == target::Os::Windows) {
+        stem.push_str(".exe");
+    }
     std::env::temp_dir()
         .join("ppl-cache")
         .join(format!("{:016x}", h.finish()))

@@ -4,7 +4,7 @@
 //! program lld links.
 
 use crate::link::{Clang, Job, cached_build};
-use crate::target::{Arch, Target};
+use crate::target::{Arch, Os, Target};
 use std::path::PathBuf;
 
 /// compiler-rt's `GENERIC_SOURCES` (lib/builtins/CMakeLists.txt) without the Apple-only and
@@ -70,11 +70,16 @@ pub fn objects(t: Target, cc: &Clang) -> Result<Vec<PathBuf>, String> {
     if t.arch == Arch::Aarch64 {
         common.push("-mno-outline-atomics".into());
     }
+    if t.os == Os::Windows {
+        // (int_util.c includes <stdlib.h> there, even freestanding.)
+        common.push("-isystem".into());
+        common.push(crate::mingw::headers().display().to_string());
+    }
     let mut names: Vec<&str> = GENERIC.iter().chain(TF).copied().collect();
     if t.arch == Arch::X86_64 {
         names.extend(X86_80);
     }
-    let jobs: Vec<Job> = names
+    let mut jobs: Vec<Job> = names
         .iter()
         .map(|n| Job {
             src: src.join(format!("{n}.c")),
@@ -83,6 +88,19 @@ pub fn objects(t: Target, cc: &Clang) -> Result<Vec<PathBuf>, String> {
             start: false,
         })
         .collect();
+    if t.os == Os::Windows {
+        // The stack probe Windows code calls for big frames (`___chkstk_ms`, `__chkstk`).
+        let arch = match t.arch {
+            Arch::X86_64 => "x86_64",
+            _ => "aarch64",
+        };
+        jobs.push(Job {
+            src: src.join(format!("{arch}/chkstk.S")),
+            obj: "chkstk.o".into(),
+            args: common.clone(),
+            start: false,
+        });
+    }
     // compiler-rt's headers aren't in the key: they're vendored and change only with it.
     let dir = cached_build("builtins", t.llvm_triple(), &jobs, &[], |_| Ok(()))?;
     Ok(jobs.iter().map(|j| dir.join(&j.obj)).collect())

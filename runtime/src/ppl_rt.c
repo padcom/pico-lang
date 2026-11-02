@@ -838,7 +838,7 @@ static _Noreturn void unwind(void) {
         ppl_gc_top = guard_frames[nguards];
         /* (Arenas opened inside the guarded region are dropped unchecked.) */
         ppl_arena_release(guard_arenas[nguards]);
-        _longjmp(buf, 1);
+        ppl_longjmp(buf, 1);
     }
     report_panic();
 }

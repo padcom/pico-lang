@@ -10,11 +10,17 @@ can link `linux-gnu` programs without a system glibc (decision 245, spec §15.2)
 | `include/{x86,aarch64}-linux-gnu` | same | glibc's architecture-specific headers |
 | `include/{x86,aarch64}-linux-any` | same | Linux UAPI headers, architecture-specific |
 | `include/any-linux-any` | same | Linux UAPI headers, generic |
+| `include/any-windows-any` | same, **pruned** | mingw-w64's Windows headers: only the 229 of 1,610 that ppl compiles against (`scripts/prune-windows-headers.sh <zig source>` regenerates the set) |
+| `mingw/` | `lib/libc/mingw` without `lib32/`, `libarm32/`, `libsrc/` | mingw-w64's CRT and winpthreads sources and the `.def` files for import libraries |
+| `mingw/sources.txt` | generated from `src/libs/mingw.zig` | which sources make up libmingw32, per architecture |
 
 Include order (as Zig's `LibCDirs.zig`): `<arch>-linux-gnu`, `generic-glibc`, `<arch>-linux-any`,
 `any-linux-any`, where `<arch>` is `x86` for x86-64.
 
-Licenses: Zig's own work is MIT (`LICENSE`). The headers are glibc's (LGPL-2.1+, notices in
+Licenses: Zig's own work is MIT (`LICENSE`). mingw-w64 is ZPL 2.1 except parts marked
+public domain, BSD or LGPL (`mingw/COPYING`); winpthreads is MIT-style (its file headers).
+Unlike glibc's, mingw-w64's CRT code is linked into the Windows programs ppl builds, and
+ZPL 2.1 asks binary redistributions to reproduce its notice. The glibc headers are glibc's (LGPL-2.1+, notices in
 `glibc/LICENSES`) and Linux's UAPI headers (GPL-2.0 WITH Linux-syscall-note). Only headers and
 symbol lists are used: no glibc code ends up in ppl programs, which link against glibc
 dynamically.

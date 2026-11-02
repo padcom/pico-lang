@@ -200,13 +200,31 @@ static void unlink_block(Block *b) {
     if (b->next) b->next->prev = b->prev;
 }
 
+/* Blocks are BLOCK_SIZE-aligned. Windows has no aligned_alloc, and memory from its
+ * _aligned_malloc must go back through _aligned_free. */
+static void *block_alloc(size_t bytes) {
+#if defined(_WIN32)
+    return _aligned_malloc(bytes, BLOCK_SIZE);
+#else
+    return aligned_alloc(BLOCK_SIZE, bytes);
+#endif
+}
+
+static void block_free(void *b) {
+#if defined(_WIN32)
+    _aligned_free(b);
+#else
+    free(b);
+#endif
+}
+
 static Block *new_block(int cls) {
     Block *b = spare;
     if (b) {
         spare = b->next;
         nspare--;
     } else {
-        b = aligned_alloc(BLOCK_SIZE, BLOCK_SIZE);
+        b = block_alloc(BLOCK_SIZE);
         if (!b) out_of_memory();
         b->bytes = BLOCK_SIZE;
         heap_bytes += BLOCK_SIZE;
@@ -240,7 +258,7 @@ static void retire_block(Block *b) {
     }
     table_del((uintptr_t)b >> BLOCK_SHIFT);
     heap_bytes -= (int64_t)b->bytes;
-    free(b);
+    block_free(b);
 }
 
 static void free_large(Block *b) {
@@ -252,7 +270,7 @@ static void free_large(Block *b) {
         table_del(((uintptr_t)b >> BLOCK_SHIFT) + i);
     }
     heap_bytes -= (int64_t)b->bytes;
-    free(b);
+    block_free(b);
 }
 
 static void init_classes(void) {
@@ -301,7 +319,7 @@ static Obj *alloc_small(int c) {
 
 static Obj *alloc_large(size_t payload) {
     size_t bytes = (header_size() + sizeof(Obj) + payload + BLOCK_SIZE - 1) & ~(BLOCK_SIZE - 1);
-    Block *b = aligned_alloc(BLOCK_SIZE, bytes);
+    Block *b = block_alloc(bytes);
     if (!b) out_of_memory();
     memset(b, 0, sizeof *b);
     b->bytes = bytes;
@@ -338,7 +356,7 @@ static Obj *arena_alloc(int level, size_t need) {
     Block *b = arena_chunks[level - 1];
     if (!b || b->bump + need > b->end) {
         size_t bytes = (header_size() + need + ARENA_CHUNK - 1) & ~(size_t)(ARENA_CHUNK - 1);
-        b = aligned_alloc(BLOCK_SIZE, bytes);
+        b = block_alloc(bytes);
         if (!b) out_of_memory();
         memset(b, 0, sizeof *b);
         b->cls = -1;
@@ -394,7 +412,7 @@ void ppl_arena_release(int32_t level) {
             for (size_t i = 0; i < b->bytes / BLOCK_SIZE; i++) {
                 table_del(((uintptr_t)b >> BLOCK_SHIFT) + i);
             }
-            free(b);
+            block_free(b);
             b = next;
         }
         arena_chunks[arena_depth] = NULL;

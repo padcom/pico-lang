@@ -47,7 +47,7 @@ pub struct Options {
 /// The textual LLVM IR for `program` (`ppl build --emit llvm-ir`).
 pub fn emit_llvm_ir(program: &Program) -> String {
     let cx = Context::create();
-    let m = generate(&cx, program);
+    let m = generate(&cx, program, false);
     m.print_to_string().to_string()
 }
 
@@ -94,7 +94,8 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
         )
         .ok_or("cannot create an LLVM target machine")?;
     let cx = Context::create();
-    let m = generate(&cx, program);
+    let windows = triple.as_str().to_string_lossy().contains("windows");
+    let m = generate(&cx, program, windows);
     // Frame pointers let a panic walk the stack; debug builds also export ppl's functions, so
     // the trace can name every frame (`dladdr`).
     let mut f = m.get_first_function();
@@ -126,7 +127,8 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
         .map_err(|e| e.to_string())
 }
 
-fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
+/// `windows`: the target is Windows (MinGW), which changes how `try` regions call `setjmp`.
+fn generate<'ctx>(cx: &'ctx Context, program: &Program, windows: bool) -> Module<'ctx> {
     let m = cx.create_module(&program.file);
     let mut g = Gen {
         cx,
@@ -146,6 +148,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
         itables: Vec::new(),
         exception: None,
         layouts: Default::default(),
+        windows,
     };
     // Struct types first (named, so they can refer to each other), then their bodies.
     g.structs = program
@@ -207,6 +210,8 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program) -> Module<'ctx> {
 }
 
 struct Gen<'ctx, 'p> {
+    /// Compiling for Windows.
+    windows: bool,
     cx: &'ctx Context,
     m: Module<'ctx>,
     b: Builder<'ctx>,
@@ -740,6 +745,9 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_guard_push" => void.fn_type(&[ptr.into()], false),
             "ppl_guard_pop" | "ppl_resume" => void.fn_type(&[], false),
             "_setjmp" => i32t.fn_type(&[ptr.into()], false),
+            // The UCRT's setjmp (what MinGW's `_setjmp` is); with no frame, its longjmp jumps
+            // without unwinding, as `_longjmp` does elsewhere.
+            "__intrinsic_setjmpex" => i32t.fn_type(&[ptr.into(), ptr.into()], false),
             _ => unreachable!("unknown runtime function {name}"),
         };
         let f = self.m.add_function(name, fn_ty, Some(Linkage::External));
@@ -747,7 +755,7 @@ impl<'ctx> Gen<'ctx, '_> {
             self.cx
                 .create_enum_attribute(inkwell::attributes::Attribute::get_named_enum_kind_id(n), 0)
         };
-        if name == "_setjmp" {
+        if name == "_setjmp" || name == "__intrinsic_setjmpex" {
             f.add_attribute(
                 inkwell::attributes::AttributeLoc::Function,
                 attr("returns_twice"),
@@ -3105,15 +3113,25 @@ impl<'ctx> Gen<'ctx, '_> {
                 // A jmp_buf (large enough for every supported target) in this frame.
                 let buf_ty = self.i64().array_type(64);
                 let buf = self.entry_alloca(buf_ty.into(), "guard");
+                // x64 Windows' setjmp saves the XMM registers with aligned stores.
+                buf.as_instruction()
+                    .expect("an alloca")
+                    .set_alignment(16)
+                    .unwrap();
                 self.b
                     .build_call(self.rt("ppl_guard_push"), &[buf.into()], "")
                     .unwrap();
-                let r = basic(
-                    self.b
-                        .build_call(self.rt("_setjmp"), &[buf.into()], "")
-                        .unwrap(),
-                )
-                .into_int_value();
+                let call = if self.windows {
+                    let null = self.cx.ptr_type(AddressSpace::default()).const_null();
+                    self.b.build_call(
+                        self.rt("__intrinsic_setjmpex"),
+                        &[buf.into(), null.into()],
+                        "",
+                    )
+                } else {
+                    self.b.build_call(self.rt("_setjmp"), &[buf.into()], "")
+                };
+                let r = basic(call.unwrap()).into_int_value();
                 let normal = self
                     .b
                     .build_int_compare(IntPredicate::EQ, r, self.i32().const_zero(), "")

@@ -17,6 +17,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 /* Generated: runs worker `k`'s entry (library modules' code, the worker module's, the loop).
  * (The weak default is for programs linked without generated code, like the runtime's
@@ -330,7 +333,7 @@ static void *thread_main(void *arg) {
     atomic_store(&t->requested, &ppl_gc_requested);
     atomic_store(&t->started, 1);
     atomic_thread_fence(memory_order_seq_cst); /* before the first inbox check (see post) */
-    if (setjmp(worker_exit) == 0) {
+    if (ppl_setjmp(worker_exit) == 0) {
         ppl_worker_main(t->entry);
     }
     fflush(stdout);
@@ -354,13 +357,13 @@ void ppl_worker_failed(const char *msg, int64_t len) {
     chan_push(&t->to_parent, MSG_ERROR, copy, (size_t)len);
     ppl_loop_wake(t->parent_waker);
     atomic_store(&t->terminate, 1); /* (no exit message after the error) */
-    longjmp(worker_exit, 1);
+    ppl_longjmp(worker_exit, 1);
 }
 
 /* Called at safepoints and when the loop wakes: a terminated worker stops right there. */
 void ppl_worker_check(void) {
     Thread *t = self_thread;
-    if (t && atomic_load(&t->terminate)) longjmp(worker_exit, 1);
+    if (t && atomic_load(&t->terminate)) ppl_longjmp(worker_exit, 1);
 }
 
 static int64_t spawn(int32_t entry) {
@@ -473,7 +476,11 @@ int64_t ppl_worker_op(int64_t op, int64_t arg) {
         return 0;
     }
     case 11: { /* the number of processors */
+#if defined(_WIN32)
+        DWORD n = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+#else
         long n = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
         return n > 0 ? n : 1;
     }
     default:
