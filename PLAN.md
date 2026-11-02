@@ -660,17 +660,17 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   `x86_64`/`aarch64-w64-windows-gnu` with CodeView debug info; the runtime core on Windows (GC
   memory, threads and workers, the event loop on IOCP with timers, panics). I/O modules report
   "not supported on Windows yet".
-- **Done when**: the golden tests that need no I/O pass for `windows-arm64` under Wine on the
-  Linux arm64 host, and for `windows-x64` on GitHub's Windows runner (binaries built by the
-  Linux job, run there).
+- **Done when**: the golden tests that need no I/O pass for `windows-x64` and `windows-arm64`
+  on GitHub's `windows-latest` and `windows-11-arm` runners (binaries built by the Linux job,
+  run there).
 
 ### P8.3b Windows files
 - **Do**: std/fs, `watch` (`ReadDirectoryChangesW`) and encoding ops on Windows.
-- **Done when**: the fs golden tests pass for `windows-arm64` under Wine and `windows-x64` in CI.
+- **Done when**: the fs golden tests pass for `windows-x64` and `windows-arm64` in CI.
 
 ### P8.3c Windows processes and networking
 - **Do**: std/process (`CreateProcessW`, pipes), sockets and TLS on IOCP.
-- **Done when**: all golden tests pass for `windows-arm64` under Wine and `windows-x64` in CI.
+- **Done when**: all golden tests pass for `windows-x64` and `windows-arm64` in CI.
 
 ### P8.4 macOS cross builds
 - **Do**: bundled `.tbd` stubs, x64 and arm64 from any host, and universal-binary support (optional).
