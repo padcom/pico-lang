@@ -328,6 +328,7 @@ static void *thread_main(void *arg) {
     t->waker = ppl_loop_waker();
     atomic_store(&t->requested, &ppl_gc_requested);
     atomic_store(&t->started, 1);
+    atomic_thread_fence(memory_order_seq_cst); /* before the first inbox check (see post) */
     if (setjmp(worker_exit) == 0) {
         ppl_worker_main(t->entry);
     }
@@ -482,23 +483,29 @@ int64_t ppl_worker_op(int64_t op, int64_t arg) {
 void ppl_worker_post(int64_t h, const void *slot, int64_t size, const PplLayout *layout,
                      const struct PplArray *transfer) {
     Chan *c;
-    void *waker;
+    Thread *t = NULL;
     if (h == 0) {
         if (!self_thread) return; /* (the main thread has no parent) */
         c = &self_thread->to_parent;
-        waker = self_thread->parent_waker;
     } else {
-        Thread *t = thread_of(h);
+        t = thread_of(h);
         if (!t || !t->live) return;
         c = &t->to_worker;
-        /* Not running yet: it reads its inbox once its loop starts. (`started` is set after
-         * `waker`.) */
-        waker = atomic_load(&t->started) ? t->waker : NULL;
     }
     size_t len;
     char *buf = encode(slot, size, layout, &len, transfer);
     chan_push(c, MSG_DATA, buf, len);
-    if (waker) ppl_loop_wake(waker);
+    if (!t) {
+        ppl_loop_wake(self_thread->parent_waker);
+        return;
+    }
+    /* A worker that hasn't started yet reads its inbox once its loop starts. `started` must be
+     * read *after* the push (and the worker sets it before its first inbox check): otherwise
+     * the worker can start, find the inbox empty and sleep between our check and the push,
+     * and nothing wakes it (a lost wakeup that hung run/workers/transfer). `started` is set
+     * after `waker`. */
+    atomic_thread_fence(memory_order_seq_cst);
+    if (atomic_load(&t->started)) ppl_loop_wake(t->waker);
 }
 
 void ppl_worker_take(int64_t h, void *slot, int64_t size, const PplLayout *layout) {
