@@ -1541,6 +1541,27 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         j->r2 = (int64_t)n;
         return j->id;
     }
+    case 132: { /* a random bytes (from /dev/urandom): r = a buffer handle, r2 = a */
+        Job *j = result_job(q);
+        size_t n = a > 0 ? (size_t)a : 0;
+        char *m = calloc(n ? n : 1, 1);
+        if (!m) abort();
+        int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+        size_t got = 0;
+        while (fd >= 0 && got < n) {
+            ssize_t k = read(fd, m + got, n - got);
+            if (k <= 0) {
+                if (k < 0 && errno == EINTR) continue;
+                break;
+            }
+            got += (size_t)k;
+        }
+        if (fd >= 0) close(fd);
+        if (got < n) abort(); /* no randomness: nothing safe to fall back on */
+        j->r = (int64_t)(intptr_t)m;
+        j->r2 = (int64_t)n;
+        return j->id;
+    }
     case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */
         return decode_utf8(q, (const unsigned char *)(intptr_t)b, c > 0 ? (size_t)c : 0, a == 1);
     case 120: /* shutdown socket a: b = 0 reading, 1 writing, 2 both */

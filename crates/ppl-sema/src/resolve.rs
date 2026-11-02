@@ -135,6 +135,12 @@ impl<T> Names<T> {
         self.get(m, name).is_some()
     }
 
+    /// Whether `name` is visible and declared outside the core library.
+    fn outside_prelude(&self, m: &ModCtx, name: &str) -> bool {
+        m.resolve(name, &|k| self.map.contains_key(k))
+            .is_some_and(|(km, _)| km != PRELUDE_MODULE)
+    }
+
     /// Declares `name` in the current module.
     fn insert(&mut self, m: &ModCtx, name: String, v: T) {
         self.map.insert((m.cur, name), v);
@@ -3636,6 +3642,10 @@ impl Resolver {
             ast::TypeKind::Path { path, args } if path.len() == 1 && args.is_empty() => {
                 match Ty::from_name(&path[0].name) {
                     Some(ty) => ty,
+                    // A program's own alias shadows a core library type of the same name.
+                    None if self.aliases.outside_prelude(&self.mods, &path[0].name) => {
+                        self.alias(&path[0].name, t.span)
+                    }
                     None if self.top_structs.contains_key(&self.mods, &path[0].name) => {
                         let sid = *self
                             .top_structs

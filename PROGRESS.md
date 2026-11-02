@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P7.5c: WebSocket** (see [PLAN.md](PLAN.md#p75c-websocket)). P7.5b (TLS) waits for the author: **which TLS library?** Options: bundle mbedTLS or BearSSL (vendored C sources, portable incl. WASI), or use the platform (Security.framework/Network.framework on macOS, OpenSSL on Linux, SChannel on Windows). Then do P7.5b.
+**P7.6: Regex** (see [PLAN.md](PLAN.md#p76-regex)). P7.5b (TLS) waits for the author: **which TLS library?** Options: bundle mbedTLS or BearSSL (vendored C sources, portable incl. WASI), or use the platform (Security.framework/Network.framework on macOS, OpenSSL on Linux, SChannel on Windows). Do P7.5b once decided.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -26,7 +26,7 @@ Notes:
 | Spec | ✅ 16 chapters, 229 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-02 (P7.5a) |
+| Last green `scripts/test.sh` | 2026-11-02 (P7.5c) |
 | Host | macOS arm64 |
 
 ## Session protocol
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **WebSocket (P7.5c, decision 235)**: `stdlib/core/websocket.ppl` (`__sha1`, `__wsAccept`, `__randomBytes` via `__io` 132, `Event`/`MessageEvent`/`CloseEvent`, `WebSocket`), `upgradeWebSocket` in `stdlib/http.ppl` (serve hands the conn over when `Response.__upgrade` is set). `Base64`/`Hex` moved to `<core>/encoding.ppl`. Resolver: a program's own type alias now shadows a core type of the same name (`type Event = …`). Core statics are getters (static fields run at every program's start). Not yet: wss (P7.5b), `EventTarget`/`addEventListener`, `binaryType`/`Blob`, `bufferedAmount`, permessage-deflate, max message size, UTF-8 validation of text frames (bad bytes become U+FFFD instead of failing the connection).
 - **HTTP (P7.5a, decision 234)**: `stdlib/core/url.ppl` (URL, URLSearchParams), `stdlib/core/fetch.ppl` (Headers, Request, Response, `__HttpReader`/`__parseHead`/`__writeMessage`, `fetch`), `stdlib/http.ppl` (`serve`, `HttpServer`). Streams and std/net's implementation now live in core (`<core>/streams.ppl`, `<core>/net.ppl`), re-exported by `std/streams`/`std/net`. New: `String.lastIndexOf`; array literals typed through a union's single array member; function values covariant in object-reference returns (lower.rs keeps the pointer). Not yet: https (P7.5b), WebSocket (P7.5c), streaming bodies (read whole first), client keep-alive/pooling, request timeouts/`AbortSignal`, `Request.clone`, URL setters/IDNA, `Response.json` of object literals (needs a declared type), multipart/form-data. Known bug: `match` on a union that includes `null` (`string | Uint8Array | null`) says the type tests can't succeed (narrow with `if (x != null)` first). Byte handling is per-byte `__buf_op` calls (slow for big bodies).
 - **Streams/encoding (P7.4, decision 233)**: `stdlib/streams.ppl` (Readable/Writable/TransformStream, controllers, reader/writer, `pipeTo`/`pipeThrough`, `ReadableStream.from`, `textEncoderStream()`/`textDecoderStream()`), `stdlib/core/text.ppl` (TextEncoder/TextDecoder via `__io` 130/131 in `ppl_io.c`'s `decode_utf8` and `io.rs`), `stdlib/encoding.ppl` (base64, hex), `Uint8Array.subarray/slice/from`, core `TypeError`/`RangeError`. `Conn`, process `Reader`/`Writer` have `readable`/`writable`. Not yet: `tee`, byte streams/BYOB, `size()` strategies, `AbortSignal` for pipes, async iteration of a stream with a reader's lock (for-await just reads), `ReadableStream.from` of async iterables, encodings other than UTF-8, utf-16/csv/toml in std/encoding. Encoding ops live in the POSIX part of `ppl_io.c` (the Windows stub returns -1: fix in P8.3). Strings are built by concatenation (base64/hex O(n²)).
 - **std/net (P7.3, decision 232)**: `stdlib/net.ppl` (`listen`/`Listener`, `connect`/`Conn`, `bind`/`UdpSocket`, `resolve`, `NetError`); native section "std/net" in `runtime/src/ppl_io.c` (`net_run`: jobs 30–35 on solo threads; TCP reads/writes reuse pipe jobs 20–22; 120 shutdown, 121 close), interpreter `net_job` in `crates/ppl-interp/src/io.rs` (`IoState.net`, sockets shared with job threads; `process_job` finds TCP streams there). Closing wakes waiting jobs (shutdown, or a self-connect / self-datagram) and the last job closes the fd. Not yet: `timeouts/keepalive/nodelay options, IPv6-only tests, Windows (P8.3), WASI sockets (P8.5), accepting from several `accept()` calls at once.
@@ -232,7 +233,7 @@ Notes:
 - [ ] P7.5 fetch and std/http (split)
   - [x] P7.5a URL, fetch and serve over HTTP
   - [ ] P7.5b TLS (https) — **needs the author's choice of TLS library**
-  - [ ] P7.5c WebSocket
+  - [x] P7.5c WebSocket
 - [ ] P7.6 Regex
 - [ ] P7.7 Time
 - [ ] P7.8 Crypto
@@ -354,3 +355,4 @@ Notes:
 | 2026-11-02 | P7.3 | `std/net`: TCP `listen`/`connect` (`Listener` async iterator of `Conn`; `Conn` read/`for await`/text/write/writeText/closeWrite/close, `localAddr`/`remoteAddr`), UDP `bind` (`UdpSocket` send/sendText/receive/close, `Datagram`), DNS `resolve`, `NetError` with portable kinds. Blocking socket jobs on runtime threads natively, `std::net` in the interpreter. Spec §13.4 `std/net`, decision 232. Tests: run/net/{echo (server and clients in one process), udp (datagrams, DNS)}. |
 | 2026-11-02 | P7.4 | Web Streams (`std/streams`: ReadableStream/WritableStream/TransformStream with controllers, readers, writers, backpressure, pipeTo/pipeThrough, `from`, text encoder/decoder streams), `TextEncoder`/`TextDecoder` globals (UTF-8, fatal/BOM/stream), `std/encoding` (base64 incl. URL-safe, hex), `Uint8Array.subarray/slice/from`, `TypeError`/`RangeError`; `readable`/`writable` on net `Conn` and process pipes. Spec §13.5, decision 233. Tests: run/streams/{pipe, encoding}, run/net/streams (TOUR's echo with `pipeTo`), run/process/streams. |
 | 2026-11-02 | P7.5a | P7.5 split (a: HTTP, b: TLS — waits for the author's library choice, c: WebSocket). `URL`/`URLSearchParams` (checked against Node), `Headers`, `Request`, `Response` (`json<T>()`, `Response.json`, `redirect`), `fetch` over HTTP/1.1 (redirects, chunked, HEAD), `std/http` `serve` (keep-alive, 400/500, chunked stream bodies, `shutdown`/`finished`). Streams and net moved into core. Typing: union array-literal context, function return covariance. Decision 234. Tests: run/http/{url, serve, keepalive}, run/fn_return_covariance. |
+| 2026-11-02 | P7.5c | `WebSocket` global (ws:, text/binary, fragments, ping/pong, closing handshake, masking with random keys), `std/http` `upgradeWebSocket` with the connection handed over by `serve`, SHA-1 in core, `__io` 132 random bytes, base64/hex moved into core; local type aliases shadow core types. Spec §13.6, decision 235. Test: run/http/websocket (incl. RFC 6455's accept example). |

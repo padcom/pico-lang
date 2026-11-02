@@ -295,3 +295,25 @@ NetError>` resolves once it listens (`server.addr`). Connections stay open betwe
 a `500` response, a malformed request a `400`. Responses with a known length get
 `content-length`, stream bodies `transfer-encoding: chunked`; `HEAD` responses carry headers
 only. TLS and WebSocket upgrades come with P7.5b and P7.5c.
+
+### `WebSocket`
+A global, as WHATWG WebSockets (RFC 6455): `new WebSocket(url, protocols = [])` (`ws:`; `wss:`
+throws a `TypeError` until TLS, P7.5b) connects in the background. `readyState` (`CONNECTING`
+0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`; callbacks `onopen(Event)`,
+`onmessage(MessageEvent)` (`data: string | Uint8Array`: text or binary; fragments are joined),
+`onerror(Event)` and `onclose(CloseEvent)` (`code`, `reason`, `wasClean`; 1006 when the
+connection was lost); `send(data: string | Uint8Array)` (panics while connecting) and
+`close(code = 1000, reason = "")` (codes 1000 or 3000–4999, reason ≤ 123 bytes). Pings are
+answered; client frames are masked with random keys. On the server:
+```ts
+import { serve, upgradeWebSocket } from "std/http"
+
+async function handle(req: Request): Promise<Response> throws TypeError {
+  const { socket, response } = upgradeWebSocket(req)   // throws TypeError if not an upgrade
+  socket.onmessage = (e) => socket.send(e.data)
+  response                                            // 101 Switching Protocols
+}
+```
+`upgradeWebSocket(req, protocol = "")` checks `upgrade: websocket` and the key, and returns
+`{ socket, response }`; once `serve` has sent the 101 response, the connection belongs to the
+socket (`onopen` runs then). No extensions (`permessage-deflate`).

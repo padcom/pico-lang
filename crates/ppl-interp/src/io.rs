@@ -349,9 +349,16 @@ impl Interp<'_, '_> {
         if (30..=35).contains(&op) {
             return Value::Int(i128::from(self.net_job(op, a, b, c, &s(4), &s(5))));
         }
-        if op == 130 || op == 131 {
-            // TextEncoder / TextDecoder.
-            let (r, r2, text, bytes) = if op == 130 {
+        if (130..=132).contains(&op) {
+            // TextEncoder / TextDecoder, random bytes.
+            let (r, r2, text, bytes) = if op == 132 {
+                let mut bytes = vec![0u8; a.max(0) as usize];
+                fs::File::open("/dev/urandom")
+                    .and_then(|mut f| f.read_exact(&mut bytes))
+                    .expect("/dev/urandom");
+                let n = bytes.len() as i64;
+                (0, n, String::new(), Some(bytes))
+            } else if op == 130 {
                 let bytes = s(4).into_bytes();
                 let n = bytes.len() as i64;
                 (0, n, String::new(), Some(bytes))

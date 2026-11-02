@@ -274,6 +274,14 @@ const PRELUDE: &[(&str, &str)] = &[
         "<core>/fetch.ppl",
         include_str!("../../../stdlib/core/fetch.ppl"),
     ),
+    (
+        "<core>/encoding.ppl",
+        include_str!("../../../stdlib/core/encoding.ppl"),
+    ),
+    (
+        "<core>/websocket.ppl",
+        include_str!("../../../stdlib/core/websocket.ppl"),
+    ),
 ];
 
 /// The exit code of a program that panicked (spec §7.5).

@@ -122,6 +122,19 @@ async function __serveConn(server: HttpServer, conn: Conn): Promise<void> {
         res = __plain(400)
         keepAlive = false
       }
+      const ws = res.__upgrade
+      if (ws != null) {
+        // The connection is the WebSocket's from here on.
+        let head = "HTTP/1.1 101 Switching Protocols\r\n"
+        for (const [k, v] of res.headers.__raw()) {
+          head = `${head}${k}: ${v}\r\n`
+        }
+        await conn.writeText(`${head}\r\n`)
+        server.__active -= 1
+        server.__ended()
+        ws.__attach(conn, r)
+        return
+      }
       if (server.__closing) {
         keepAlive = false
       }
@@ -157,4 +170,33 @@ export async function serve(options: ServeOptions,
   const server = new HttpServer(listener, handler)
   __acceptAll(server);
   server
+}
+
+/// What `upgradeWebSocket` gives: the server's end of the socket, and the response to return
+/// from the handler.
+export struct WebSocketUpgrade {
+  socket: WebSocket
+  response: Response
+}
+
+/// Accepts a WebSocket request (`upgrade: websocket`): return `response` from the handler
+/// and use `socket` (its `onopen` runs once the response is sent). Anything else throws a
+/// `TypeError`.
+export function upgradeWebSocket(req: Request, protocol: string = ""): WebSocketUpgrade throws TypeError {
+  const up = req.headers.get("upgrade")
+  const key = req.headers.get("sec-websocket-key")
+  if (up == null || up.toLowerCase() != "websocket" || key == null) {
+    throw new TypeError("not a WebSocket upgrade request")
+  }
+  const socket = new WebSocket("")
+  socket.protocol = protocol
+  const headers = new Headers([["upgrade", "websocket"], ["connection", "Upgrade"],
+    ["sec-websocket-accept", __wsAccept(key)]])
+  if (protocol.length > 0) {
+    headers.set("sec-websocket-protocol", protocol)
+  }
+  const response = new Response(null, { status: 101, headers })
+  response.__upgrade = socket
+  const out: WebSocketUpgrade = { socket, response }
+  out
 }

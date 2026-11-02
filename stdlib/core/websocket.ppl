@@ -1,0 +1,413 @@
+// `WebSocket` (WHATWG WebSockets over RFC 6455, spec §13.6), a global: the client
+// (`new WebSocket("ws://…")`) and the socket `std/http`'s `upgradeWebSocket` hands a server.
+// Text and binary messages (fragmented ones are joined), ping/pong, and the closing
+// handshake. Only `ws:` for now (`wss:` comes with TLS, P7.5b); no extensions.
+
+/// `n` random bytes from the system.
+function __randomBytes(n: int): Uint8Array {
+  const job = __io(132, n, 0, 0, "", "")
+  const h = __io(102, job, 0, 0, "", "")
+  __io(104, job, 0, 0, "", "");
+  new Uint8Array(new ArrayBuffer(h, n, true), 0, n)
+}
+
+function __rotl32(x: int, n: int): int {
+  ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
+}
+
+/// SHA-1 of `data` (FIPS 180-4), as WebSocket handshakes need it.
+function __sha1(data: Uint8Array): Uint8Array {
+  const n = data.length
+  const total = ((n + 8) / 64 + 1) * 64
+  const m = new Uint8Array(total)
+  for (let i = 0; i < n; i++) {
+    m.set(i, data.get(i))
+  }
+  m.set(n, 0x80)
+  const bits = n * 8
+  for (let i = 0; i < 8; i++) {
+    m.set(total - 1 - i, (bits >> (8 * i)) & 255)
+  }
+  let h0 = 0x67452301
+  let h1 = 0xEFCDAB89
+  let h2 = 0x98BADCFE
+  let h3 = 0x10325476
+  let h4 = 0xC3D2E1F0
+  const w: int[] = []
+  for (let i = 0; i < 80; i++) {
+    w.push(0)
+  }
+  let block = 0
+  while (block < total) {
+    for (let i = 0; i < 16; i++) {
+      const o = block + i * 4
+      w[i] = (m.get(o) << 24) | (m.get(o + 1) << 16) | (m.get(o + 2) << 8) | m.get(o + 3)
+    }
+    for (let i = 16; i < 80; i++) {
+      w[i] = __rotl32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1)
+    }
+    let a = h0
+    let b = h1
+    let c = h2
+    let d = h3
+    let e = h4
+    for (let i = 0; i < 80; i++) {
+      let f = 0
+      let k = 0
+      if (i < 20) {
+        f = (b & c) | ((~b) & d)
+        k = 0x5A827999
+      } else if (i < 40) {
+        f = b ^ c ^ d
+        k = 0x6ED9EBA1
+      } else if (i < 60) {
+        f = (b & c) | (b & d) | (c & d)
+        k = 0x8F1BBCDC
+      } else {
+        f = b ^ c ^ d
+        k = 0xCA62C1D6
+      }
+      const t = (__rotl32(a, 5) + (f & 0xFFFFFFFF) + e + k + w[i]) & 0xFFFFFFFF
+      e = d
+      d = c
+      c = __rotl32(b, 30)
+      b = a
+      a = t
+    }
+    h0 = (h0 + a) & 0xFFFFFFFF
+    h1 = (h1 + b) & 0xFFFFFFFF
+    h2 = (h2 + c) & 0xFFFFFFFF
+    h3 = (h3 + d) & 0xFFFFFFFF
+    h4 = (h4 + e) & 0xFFFFFFFF
+    block += 64
+  }
+  const out = new Uint8Array(20)
+  const hs = [h0, h1, h2, h3, h4]
+  for (let i = 0; i < 5; i++) {
+    for (let k = 0; k < 4; k++) {
+      out.set(i * 4 + k, (hs[i] >> (24 - 8 * k)) & 255)
+    }
+  }
+  out
+}
+
+/// `Sec-WebSocket-Accept` for a `Sec-WebSocket-Key`.
+function __wsAccept(key: string): string {
+  new Base64().encode(__sha1(new TextEncoder().encode(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)))
+}
+
+/// A plain event (`open`, `error`).
+class Event {
+  public readonly type: string
+  constructor(type: string) {
+    this.type = type
+  }
+}
+
+/// A received message: text (`string`) or binary (`Uint8Array`) `data`.
+class MessageEvent {
+  public readonly type: string = "message"
+  public readonly data: string | Uint8Array
+  constructor(data: string | Uint8Array) {
+    this.data = data
+  }
+}
+
+/// How a connection ended: `code` (1000 normal, 1005 none given, 1006 lost), `reason`, and
+/// whether the closing handshake completed (`wasClean`).
+class CloseEvent {
+  public readonly type: string = "close"
+  public readonly code: int
+  public readonly reason: string
+  public readonly wasClean: bool
+  constructor(code: int, reason: string, wasClean: bool) {
+    this.code = code
+    this.reason = reason
+    this.wasClean = wasClean
+  }
+}
+
+/// A WebSocket connection. Assign `onopen`, `onmessage`, `onclose` and `onerror` right after
+/// creating it (they're called from the event loop); `send` text or bytes once it's open.
+class WebSocket {
+  // (Getters: static fields would be set up at every program's start.)
+  public static get CONNECTING(): int { 0 }
+  public static get OPEN(): int { 1 }
+  public static get CLOSING(): int { 2 }
+  public static get CLOSED(): int { 3 }
+
+  public readonly url: string
+  public readyState: int = 0
+  /// The subprotocol the server chose ("" for none).
+  public protocol: string = ""
+  public onopen: ((e: Event) => void)? = null
+  public onmessage: ((e: MessageEvent) => void)? = null
+  public onclose: ((e: CloseEvent) => void)? = null
+  public onerror: ((e: Event) => void)? = null
+  protocols: string[]
+  conn: Conn? = null
+  reader: __HttpReader? = null
+  /// Clients mask what they send; servers don't.
+  client: bool = true
+  sentClose: bool = false
+  closeCode: int = 1005
+  closeReason: string = ""
+  closed: bool = false
+
+  /// Connects to `url` (`ws:`, or `http:` as the same). An invalid URL or another scheme
+  /// throws a `TypeError`.
+  constructor(url: string, protocols: string[] = []) throws TypeError {
+    this.protocols = protocols
+    if (url.length == 0) {
+      // (A server-side socket: `std/http` attaches the connection.)
+      this.url = ""
+      this.client = false
+      return
+    }
+    const u = new URL(url)
+    if (u.protocol == "wss:" || u.protocol == "https:") {
+      throw new TypeError("WebSocket: wss: isn't supported yet (no TLS)")
+    }
+    if (u.protocol != "ws:" && u.protocol != "http:") {
+      throw new TypeError(`WebSocket: ${u.protocol} is not a WebSocket URL`)
+    }
+    this.url = u.href
+    this.handshake(u);
+  }
+
+  async handshake(u: URL): Promise<void> {
+    try {
+      const port = if (u.port.length > 0) parseInt(u.port) else 80
+      const c = await __netConnect(port, __connectHost(u))
+      this.conn = c
+      const key = new Base64().encode(__randomBytes(16))
+      let head = `GET ${u.pathname}${u.search} HTTP/1.1\r\nhost: ${u.host}\r\nupgrade: websocket\r\nconnection: Upgrade\r\nsec-websocket-key: ${key}\r\nsec-websocket-version: 13\r\n`
+      if (this.protocols.length > 0) {
+        head = `${head}sec-websocket-protocol: ${this.protocols.join(", ")}\r\n`
+      }
+      await c.writeText(`${head}\r\n`)
+      const r = new __HttpReader(c)
+      const text = await r.head()
+      if (text == null) {
+        throw new TypeError("the server closed the connection")
+      }
+      const h = __parseHead(text)
+      const accept = h.headers.get("sec-websocket-accept")
+      if (h.second != "101" || accept == null || accept != __wsAccept(key)) {
+        throw new TypeError(`the server refused the WebSocket (status ${h.second})`)
+      }
+      const p = h.headers.get("sec-websocket-protocol")
+      this.protocol = if (p != null) p else ""
+      this.__attach(c, r)
+    } catch (e) {
+      this.fail()
+    }
+  }
+
+  /// Starts a socket on an upgraded connection (`r` may hold bytes already read).
+  public __attach(c: Conn, r: __HttpReader): void {
+    this.conn = c
+    this.reader = r
+    this.readyState = 1
+    const f = this.onopen
+    if (f != null) {
+      f(new Event("open"))
+    }
+    this.receive();
+  }
+
+  /// A failure before or during the connection: `error`, then `close` (code 1006).
+  fail(): void {
+    if (this.closed) {
+      return
+    }
+    const f = this.onerror
+    if (f != null) {
+      f(new Event("error"))
+    }
+    this.finish(1006, "", false)
+  }
+
+  finish(code: int, reason: string, clean: bool): void {
+    if (this.closed) {
+      return
+    }
+    this.closed = true
+    this.readyState = 3
+    const c = this.conn
+    if (c != null) {
+      c.close()
+    }
+    const f = this.onclose
+    if (f != null) {
+      f(new CloseEvent(code, reason, clean))
+    }
+  }
+
+  /// Frames until the connection closes.
+  async receive(): Promise<void> {
+    const r = this.reader
+    if (r == null) {
+      return
+    }
+    let parts: Uint8Array[] = []
+    let messageOp = 0
+    try {
+      while (true) {
+        const h = await r.exact(2)
+        const fin = (h[0] & 0x80) != 0
+        const op = h[0] & 15
+        const masked = (h[1] & 0x80) != 0
+        let len = h[1] & 127
+        if (len == 126) {
+          const x = await r.exact(2)
+          len = (x[0] << 8) | x[1]
+        } else if (len == 127) {
+          const x = await r.exact(8)
+          len = 0
+          for (let i = 0; i < 8; i++) {
+            len = (len << 8) | x[i]
+          }
+        }
+        const key = if (masked) await r.exact(4) else new Uint8Array(0)
+        const payload = await r.exact(len)
+        if (masked) {
+          for (let i = 0; i < len; i++) {
+            payload.set(i, payload.get(i) ^ key.get(i % 4))
+          }
+        }
+        if (op == 8) {
+          // Close: answer it (unless we started it) and end.
+          let code = 1005
+          let reason = ""
+          if (len >= 2) {
+            code = (payload[0] << 8) | payload[1]
+            reason = new TextDecoder().decode(payload.subarray(2))
+          }
+          if (!this.sentClose) {
+            await this.sendFrame(8, payload)
+            this.sentClose = true
+          }
+          this.finish(code, reason, true)
+          return
+        }
+        if (op == 9) {
+          await this.sendFrame(10, payload)
+          continue
+        }
+        if (op == 10) {
+          continue
+        }
+        if (op == 1 || op == 2) {
+          messageOp = op
+        }
+        parts.push(payload)
+        if (fin) {
+          const whole = if (parts.length == 1) parts[0] else __concatBytes(parts)
+          parts = []
+          const f = this.onmessage
+          if (f != null && this.readyState == 1) {
+            if (messageOp == 1) {
+              f(new MessageEvent(new TextDecoder().decode(whole)))
+            } else {
+              f(new MessageEvent(whole))
+            }
+          }
+        }
+      }
+    } catch (e) {
+      this.finish(1006, "", false)
+    }
+  }
+
+  /// Writes one frame (masked when this is a client).
+  async sendFrame(op: int, payload: Uint8Array): Promise<void> throws NetError {
+    const c = this.conn
+    if (c == null) {
+      return
+    }
+    const n = payload.length
+    const ext = if (n < 126) 0 else if (n < 65536) 2 else 8
+    const maskLen = if (this.client) 4 else 0
+    const frame = new Uint8Array(2 + ext + maskLen + n)
+    frame.set(0, 0x80 | op)
+    let i = 2
+    if (ext == 0) {
+      frame.set(1, n | (if (this.client) 0x80 else 0))
+    } else if (ext == 2) {
+      frame.set(1, 126 | (if (this.client) 0x80 else 0))
+      frame.set(2, (n >> 8) & 255)
+      frame.set(3, n & 255)
+      i = 4
+    } else {
+      frame.set(1, 127 | (if (this.client) 0x80 else 0))
+      for (let k = 0; k < 8; k++) {
+        frame.set(2 + k, (n >> (56 - 8 * k)) & 255)
+      }
+      i = 10
+    }
+    if (this.client) {
+      const key = __randomBytes(4)
+      for (let k = 0; k < 4; k++) {
+        frame.set(i + k, key.get(k))
+      }
+      for (let k = 0; k < n; k++) {
+        frame.set(i + 4 + k, payload.get(k) ^ key.get(k % 4))
+      }
+    } else {
+      for (let k = 0; k < n; k++) {
+        frame.set(i + k, payload.get(k))
+      }
+    }
+    await c.write(frame)
+  }
+
+  async sendSafely(op: int, payload: Uint8Array): Promise<void> {
+    try {
+      await this.sendFrame(op, payload)
+    } catch (e) {
+      this.finish(1006, "", false)
+    }
+  }
+
+  /// Sends a text or binary message. Panics before the socket is open.
+  public send(data: string | Uint8Array): void {
+    if (this.readyState == 0) {
+      panic("WebSocket: send() before the connection is open")
+    }
+    if (this.readyState != 1) {
+      return
+    }
+    match (data) {
+      s: string => this.sendSafely(1, new TextEncoder().encode(s)),
+      b: Uint8Array => this.sendSafely(2, b),
+    };
+  }
+
+  /// Starts the closing handshake (`code` 1000 or 3000–4999, `reason` at most 123 bytes).
+  public close(code: int = 1000, reason: string = ""): void {
+    if (this.readyState >= 2) {
+      return
+    }
+    if (code != 1000 && (code < 3000 || code > 4999)) {
+      panic(`WebSocket: close code ${code} isn't allowed (1000 or 3000–4999)`)
+    }
+    const why = new TextEncoder().encode(reason)
+    if (why.length > 123) {
+      panic("WebSocket: the close reason is longer than 123 bytes")
+    }
+    if (this.readyState == 0) {
+      this.finish(1006, "", false)
+      return
+    }
+    this.readyState = 2
+    this.sentClose = true
+    const payload = new Uint8Array(2 + why.length)
+    payload.set(0, (code >> 8) & 255)
+    payload.set(1, code & 255)
+    for (let i = 0; i < why.length; i++) {
+      payload.set(2 + i, why.get(i))
+    }
+    this.sendSafely(8, payload);
+  }
+}

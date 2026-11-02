@@ -1,0 +1,74 @@
+// expect: accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+// expect: open
+// expect: server got: hello
+// expect: client got: HELLO
+// expect: client got 300 bytes, last 43
+// expect: client got: a long message: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+// expect: server closed: 4001 bye true
+// expect: client closed: 4001 bye true
+// expect: not an upgrade: 400
+// `WebSocket` (spec §13.6) against `std/http`'s `upgradeWebSocket`: an echo that shouts.
+import { serve, upgradeWebSocket, WebSocketUpgrade } from "std/http"
+
+// The RFC 6455 example key.
+println(`accept: ${__wsAccept("dGhlIHNhbXBsZSBub25jZQ==")}`)
+
+async function handle(req: Request): Promise<Response> {
+  let up: WebSocketUpgrade? = null
+  try {
+    up = upgradeWebSocket(req)
+  } catch (e: TypeError) {
+    return new Response(e.message, { status: 400 })
+  }
+  if (up == null) {
+    return new Response("", { status: 500 })
+  }
+  const ws = up.socket
+  ws.onmessage = (e) => {
+    match (e.data) {
+      s: string => {
+        if (s.length < 20) {
+          println(`server got: ${s}`)
+        }
+        ws.send(s.toUpperCase().replaceAll("X", "x").replace("A LONG MESSAGE", "a long message"))
+      },
+      b: Uint8Array => ws.send(b),
+    }
+  }
+  ws.onclose = (e) => println(`server closed: ${e.code} ${e.reason} ${e.wasClean}`)
+  up.response
+}
+
+const server = await serve({ port: 0 }, handle)
+const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)
+const done = new Promise<void>()
+let replies = 0
+ws.onopen = (e) => {
+  println("open")
+  ws.send("hello")
+}
+ws.onmessage = (e) => {
+  replies += 1
+  match (e.data) {
+    s: string => println(`client got: ${s}`),
+    b: Uint8Array => println(`client got ${b.length} bytes, last ${b[b.length - 1]}`),
+  }
+  if (replies == 1) {
+    const bytes = new Uint8Array(300)
+    bytes.set(299, 43)
+    ws.send(bytes)
+  } else if (replies == 2) {
+    ws.send(`a long message: ${"x".repeat(200)}`)
+  } else {
+    ws.close(4001, "bye")
+  }
+}
+ws.onclose = (e) => {
+  println(`client closed: ${e.code} ${e.reason} ${e.wasClean}`)
+  done.__resolve(__void())
+}
+await done
+
+const plain = await fetch(`http://127.0.0.1:${server.addr.port}/chat`)
+println(`not an upgrade: ${plain.status}`)
+await server.shutdown()

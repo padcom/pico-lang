@@ -321,6 +321,8 @@ class Response extends __Body {
   /// The URL it came from (after redirects); "" for one made here.
   public url: string = ""
   public redirected: bool = false
+  /// The socket a `101 Switching Protocols` response hands the connection to (`std/http`).
+  public __upgrade: WebSocket? = null
 
   constructor(body: BodyInit? = null, init: ResponseInit = {}) {
     super(body, __headersCopy(init.headers))
@@ -328,7 +330,7 @@ class Response extends __Body {
     this.status = if (s != null) s else 200
     const t = init.statusText
     this.statusText = if (t != null) t else __statusText(this.status)
-    if (this.status < 200 || this.status > 599) {
+    if ((this.status < 200 && this.status != 101) || this.status > 599) {
       panic(`Response: status ${this.status} is outside 200–599`)
     }
   }
