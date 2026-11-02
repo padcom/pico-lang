@@ -1,0 +1,426 @@
+// `std/collections` (spec §13.2): `Deque` (a double-ended queue), `PriorityQueue` (a binary
+// heap), `SortedMap` (keys kept in order) and `BitSet`. Each one walks with `for-of`.
+//
+// Iterators end at `null` (spec §5.7), so iterating a collection of a nullable type stops at
+// its first `null` element; use `toArray()` for those.
+
+/// A double-ended queue: push and pop at both ends in amortized O(1), index in O(1).
+export class Deque<T> {
+  /// The front half, reversed (its last element is the deque's first).
+  front: T[] = []
+  back: T[] = []
+
+  constructor(items: T[] = []) {
+    for (const x of items) this.back.push(x)
+  }
+
+  public get length(): int { this.front.length + this.back.length }
+  public get isEmpty(): bool { this.front.length == 0 && this.back.length == 0 }
+
+  /// Adds `x` at the back (also `push`).
+  public pushBack(x: T): void { this.back.push(x) }
+  public push(x: T): void { this.back.push(x) }
+
+  /// Adds `x` at the front (also `unshift`).
+  public pushFront(x: T): void { this.front.push(x) }
+  public unshift(x: T): void { this.front.push(x) }
+
+  /// Moves half of one side over when the other runs out.
+  balance(toFront: bool): void {
+    const from = if (toFront) this.back else this.front
+    const n = from.length
+    if (n == 0) return
+    // Keep the far half where it is; the near half moves (reversed) to the other side.
+    const keep = n / 2
+    const moved = n - keep
+    const rest: T[] = []
+    for (let i = 0; i < keep; i++) rest.push(from[moved + i])
+    const other: T[] = []
+    let i = moved - 1
+    while (i >= 0) {
+      other.push(from[i])
+      i -= 1
+    }
+    if (toFront) {
+      this.front = other
+      this.back = rest
+    } else {
+      this.back = other
+      this.front = rest
+    }
+  }
+
+  /// Removes and returns the last element (`null` when empty; also `pop`).
+  public popBack(): T? {
+    if (this.back.length == 0) this.balance(false)
+    if (this.back.length == 0) return null
+    this.back.pop()
+  }
+  public pop(): T? { this.popBack() }
+
+  /// Removes and returns the first element (`null` when empty; also `shift`).
+  public popFront(): T? {
+    if (this.front.length == 0) this.balance(true)
+    if (this.front.length == 0) return null
+    this.front.pop()
+  }
+  public shift(): T? { this.popFront() }
+
+  /// The element at `i` (negative counts from the back), or `null` out of range.
+  public at(i: int): T? {
+    const n = this.length
+    const k = if (i < 0) n + i else i
+    if (k < 0 || k >= n) return null
+    if (k < this.front.length) this.front[this.front.length - 1 - k] else this.back[k - this.front.length]
+  }
+
+  public peekFront(): T? { this.at(0) }
+  public peekBack(): T? { this.at(-1) }
+
+  public clear(): void {
+    this.front = []
+    this.back = []
+  }
+
+  /// The elements, front to back.
+  public toArray(): T[] {
+    const r: T[] = []
+    let i = this.front.length - 1
+    while (i >= 0) {
+      r.push(this.front[i])
+      i -= 1
+    }
+    for (const x of this.back) r.push(x)
+    r
+  }
+
+  public iterator(): Iterator<T> { this.toArray().iterator() }
+}
+
+/// A priority queue: `pop` gives the smallest element by `compare` (negative when `a` comes
+/// first), so `(a, b) => b - a` makes a max-queue. Push and pop are O(log n).
+export class PriorityQueue<T> {
+  heap: T[] = []
+  compare: (a: T, b: T) => int
+
+  constructor(compare: (a: T, b: T) => int, items: T[] = []) {
+    this.compare = compare
+    for (const x of items) this.push(x)
+  }
+
+  public get size(): int { this.heap.length }
+  public get isEmpty(): bool { this.heap.length == 0 }
+
+  public push(x: T): void {
+    this.heap.push(x)
+    let i = this.heap.length - 1
+    const cmp = this.compare
+    while (i > 0) {
+      const parent = (i - 1) / 2
+      if (cmp(this.heap[i], this.heap[parent]) >= 0) break
+      const t = this.heap[i]
+      this.heap[i] = this.heap[parent]
+      this.heap[parent] = t
+      i = parent
+    }
+  }
+
+  /// The first element without removing it (`null` when empty).
+  public peek(): T? {
+    if (this.heap.length == 0) null else this.heap[0]
+  }
+
+  /// Removes and returns the first element (`null` when empty).
+  public pop(): T? {
+    const n = this.heap.length
+    if (n == 0) return null
+    const top = this.heap[0]
+    const last = this.heap.pop()
+    if (n > 1 && last != null) {
+      this.heap[0] = last
+      this.siftDown(0)
+    }
+    top
+  }
+
+  siftDown(start: int): void {
+    const cmp = this.compare
+    const n = this.heap.length
+    let i = start
+    while (true) {
+      const l = 2 * i + 1
+      const r = l + 1
+      let m = i
+      if (l < n && cmp(this.heap[l], this.heap[m]) < 0) m = l
+      if (r < n && cmp(this.heap[r], this.heap[m]) < 0) m = r
+      if (m == i) break
+      const t = this.heap[i]
+      this.heap[i] = this.heap[m]
+      this.heap[m] = t
+      i = m
+    }
+  }
+
+  public clear(): void { this.heap = [] }
+
+  /// The elements in priority order (the queue is unchanged).
+  public toSortedArray(): T[] {
+    const copy = new PriorityQueue<T>(this.compare)
+    for (const x of this.heap) copy.heap.push(x)
+    const r: T[] = []
+    while (copy.heap.length > 0) {
+      const v = copy.pop()
+      if (v != null) r.push(v)
+    }
+    r
+  }
+
+  /// The elements in heap order (not sorted).
+  public toArray(): T[] { this.heap.slice(0) }
+
+  /// Walks the elements in priority order.
+  public iterator(): Iterator<T> { this.toSortedArray().iterator() }
+}
+
+/// Inserts `x` at `i`, moving later elements up.
+function __insertAt<T>(xs: T[], i: int, x: T): void {
+  xs.push(x)
+  let j = xs.length - 1
+  while (j > i) {
+    xs[j] = xs[j - 1]
+    j -= 1
+  }
+  xs[i] = x
+}
+
+/// Removes the element at `i`, moving later elements down.
+function __removeAt<T>(xs: T[], i: int): void {
+  for (let j = i; j < xs.length - 1; j++) xs[j] = xs[j + 1]
+  xs.pop();
+}
+
+/// A map whose keys stay sorted (by `compareTo`): lookups in O(log n); inserting and
+/// deleting move later entries (O(n)), so it suits read-heavy maps and ordered queries
+/// (`floorKey`, `ceilingKey`, `range`).
+export class SortedMap<K extends Comparable<K>, V> {
+  ks: K[] = []
+  vs: V[] = []
+
+  constructor() {}
+
+  public get size(): int { this.ks.length }
+  public get isEmpty(): bool { this.ks.length == 0 }
+
+  /// The first index whose key is `>= k`.
+  lowerBound(k: K): int {
+    let lo = 0
+    let hi = this.ks.length
+    while (lo < hi) {
+      const mid = (lo + hi) / 2
+      if (this.ks[mid].compareTo(k) < 0) lo = mid + 1 else hi = mid
+    }
+    lo
+  }
+
+  found(i: int, k: K): bool { i < this.ks.length && this.ks[i].compareTo(k) == 0 }
+
+  public get(k: K): V? {
+    const i = this.lowerBound(k)
+    if (this.found(i, k)) this.vs[i] else null
+  }
+
+  public has(k: K): bool { this.found(this.lowerBound(k), k) }
+
+  public set(k: K, v: V): SortedMap<K, V> {
+    const i = this.lowerBound(k)
+    if (this.found(i, k)) {
+      this.vs[i] = v
+      return this
+    }
+    __insertAt(this.ks, i, k)
+    __insertAt(this.vs, i, v)
+    this
+  }
+
+  public delete(k: K): bool {
+    const i = this.lowerBound(k)
+    if (!this.found(i, k)) return false
+    __removeAt(this.ks, i)
+    __removeAt(this.vs, i)
+    true
+  }
+
+  public clear(): void {
+    this.ks = []
+    this.vs = []
+  }
+
+  public firstKey(): K? { if (this.ks.length == 0) null else this.ks[0] }
+  public lastKey(): K? { if (this.ks.length == 0) null else this.ks[this.ks.length - 1] }
+
+  /// The largest key `<= k`, or `null`.
+  public floorKey(k: K): K? {
+    const i = this.lowerBound(k)
+    if (this.found(i, k)) return this.ks[i]
+    if (i == 0) null else this.ks[i - 1]
+  }
+
+  /// The smallest key `>= k`, or `null`.
+  public ceilingKey(k: K): K? {
+    const i = this.lowerBound(k)
+    if (i < this.ks.length) this.ks[i] else null
+  }
+
+  /// The entries with `lo <= key < hi`, in order.
+  public range(lo: K, hi: K): [K, V][] {
+    const r: [K, V][] = []
+    let i = this.lowerBound(lo)
+    while (i < this.ks.length && this.ks[i].compareTo(hi) < 0) {
+      r.push([this.ks[i], this.vs[i]])
+      i += 1
+    }
+    r
+  }
+
+  public keys(): K[] { this.ks.slice(0) }
+  public values(): V[] { this.vs.slice(0) }
+
+  public entries(): [K, V][] {
+    const r: [K, V][] = []
+    for (let i = 0; i < this.ks.length; i++) r.push([this.ks[i], this.vs[i]])
+    r
+  }
+
+  public forEach(f: (value: V, key: K) => void): void {
+    for (let i = 0; i < this.ks.length; i++) f(this.vs[i], this.ks[i])
+  }
+
+  /// `for (const [k, v] of map)`: in key order.
+  public iterator(): Iterator<[K, V]> { this.entries().iterator() }
+}
+
+/// A growable set of small non-negative integers, one bit each.
+export class BitSet {
+  /// 32 bits per word.
+  words: int[] = []
+
+  constructor(bits: int[] = []) {
+    for (const b of bits) this.add(b)
+  }
+
+  static __check(i: int): void {
+    if (i < 0) panic(`BitSet: negative index ${i}`)
+  }
+
+  public has(i: int): bool {
+    BitSet.__check(i)
+    const w = i >> 5
+    w < this.words.length && ((this.words[w] >> (i & 31)) & 1) == 1
+  }
+
+  /// Sets bit `i` (grows as needed).
+  public add(i: int): BitSet {
+    BitSet.__check(i)
+    const w = i >> 5
+    while (this.words.length <= w) this.words.push(0)
+    this.words[w] = this.words[w] | (1 << (i & 31))
+    this
+  }
+
+  /// Clears bit `i`; `true` if it was set.
+  public delete(i: int): bool {
+    if (!this.has(i)) return false
+    const w = i >> 5
+    this.words[w] = this.words[w] & ~(1 << (i & 31)) & 0xFFFFFFFF
+    true
+  }
+
+  /// Sets `i` when `on`, else clears it.
+  public set(i: int, on: bool): void {
+    if (on) {
+      this.add(i);
+    } else {
+      this.delete(i);
+    }
+  }
+
+  public flip(i: int): void { this.set(i, !this.has(i)) }
+
+  public clear(): void { this.words = [] }
+
+  /// The number of set bits.
+  public get size(): int {
+    let n = 0
+    for (const w of this.words) {
+      let x = w
+      while (x != 0) {
+        x = x & (x - 1)
+        n += 1
+      }
+    }
+    n
+  }
+
+  public get isEmpty(): bool { this.size == 0 }
+
+  /// One more than the highest set bit (0 when empty).
+  public get length(): int {
+    let w = this.words.length - 1
+    while (w >= 0) {
+      const x = this.words[w]
+      if (x != 0) {
+        let b = 31
+        while (((x >> b) & 1) == 0) b -= 1
+        return w * 32 + b + 1
+      }
+      w -= 1
+    }
+    0
+  }
+
+  static __combine(a: BitSet, b: BitSet, op: int): BitSet {
+    const r = new BitSet()
+    const n = if (a.words.length > b.words.length) a.words.length else b.words.length
+    for (let i = 0; i < n; i++) {
+      const x = if (i < a.words.length) a.words[i] else 0
+      const y = if (i < b.words.length) b.words[i] else 0
+      r.words.push(if (op == 0) x & y else if (op == 1) x | y else if (op == 2) x ^ y else x & ~y & 0xFFFFFFFF)
+    }
+    r
+  }
+
+  /// New sets: the bits in both, either, exactly one, or this one but not `o`.
+  public and(o: BitSet): BitSet { BitSet.__combine(this, o, 0) }
+  public or(o: BitSet): BitSet { BitSet.__combine(this, o, 1) }
+  public xor(o: BitSet): BitSet { BitSet.__combine(this, o, 2) }
+  public andNot(o: BitSet): BitSet { BitSet.__combine(this, o, 3) }
+
+  /// The same bits set (trailing zero words don't matter).
+  public equals(o: BitSet): bool {
+    const n = if (this.words.length > o.words.length) this.words.length else o.words.length
+    for (let i = 0; i < n; i++) {
+      const x = if (i < this.words.length) this.words[i] else 0
+      const y = if (i < o.words.length) o.words[i] else 0
+      if (x != y) return false
+    }
+    true
+  }
+
+  /// The set bits, ascending.
+  public toArray(): int[] {
+    const r: int[] = []
+    for (let w = 0; w < this.words.length; w++) {
+      const x = this.words[w]
+      if (x == 0) continue
+      for (let b = 0; b < 32; b++) {
+        if (((x >> b) & 1) == 1) r.push(w * 32 + b)
+      }
+    }
+    r
+  }
+
+  public iterator(): Iterator<int> { this.toArray().iterator() }
+
+  /// `{1, 5, 64}`
+  public toString(): string { "{" + this.toArray().join(", ") + "}" }
+}

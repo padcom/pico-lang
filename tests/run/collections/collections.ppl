@@ -1,0 +1,65 @@
+// `std/collections`: Deque, PriorityQueue, SortedMap, BitSet.
+// expect: [0, 1, 2, 3, 4] 5 0 4 null
+// expect: 0 1 4 [2, 3]
+// expect: f0 f1 f5 f2 4
+// expect: f5 f4 f3 f2 f5 null
+// expect: 1 [1, 2, 3, 4, 5] 5
+// expect: [1, 2, 3, 4, 5] null
+// expect: pear fig apple 
+// expect: ["apple", "fig", "kiwi", "pear"] [1, 20, 9, 3] 20 null true 4
+// expect: apple pear fig kiwi null null
+// expect: true false [["kiwi", 9]]
+// expect: apple=1 kiwi=9 pear=3 
+// expect: [10, 20, 30, 40, 50] 30 40
+// expect: {1, 3, 64} 3 65 true false false
+// expect: {1, 3} {1, 2, 3, 64, 100} {2, 64, 100} {64} true
+// expect: 106 true 4 true
+import { Deque, PriorityQueue, SortedMap, BitSet } from "std/collections"
+
+const d = new Deque<int>([1, 2, 3])
+d.pushFront(0)
+d.pushBack(4)
+println(`${d.toArray():?} ${d.length} ${d.at(0)} ${d.at(-1)} ${d.at(9)}`)
+println(`${d.popFront()} ${d.popFront()} ${d.popBack()} ${d.toArray():?}`)
+const e = new Deque<string>()
+for (let i = 0; i < 6; i++) e.pushFront(`f${i}`)
+println(`${e.popBack()} ${e.popBack()} ${e.peekFront()} ${e.peekBack()} ${e.length}`)
+let joined = ""
+for (const s of e) joined = joined + s + " "
+println(`${joined}${e.popFront() ?? "-"} ${new Deque<int>().pop()}`)
+
+const pq = new PriorityQueue<int>((a, b) => a - b, [5, 1, 4])
+pq.push(3)
+pq.push(2)
+println(`${pq.peek()} ${pq.toSortedArray():?} ${pq.size}`)
+const order: int[] = []
+while (!pq.isEmpty) {
+  const v = pq.pop()
+  if (v != null) order.push(v)
+}
+println(`${order:?} ${pq.pop()}`)
+const maxq = new PriorityQueue<string>((a, b) => if (a < b) 1 else if (a > b) -1 else 0, ["pear", "apple", "fig"])
+for (const s of maxq) print(`${s} `)
+println("")
+
+const m = new SortedMap<string, int>()
+m.set("pear", 3).set("apple", 1).set("fig", 2).set("kiwi", 9)
+m.set("fig", 20)
+println(`${m.keys():?} ${m.values():?} ${m.get("fig")} ${m.get("x")} ${m.has("kiwi")} ${m.size}`)
+println(`${m.firstKey()} ${m.lastKey()} ${m.floorKey("g")} ${m.ceilingKey("g")} ${m.floorKey("a")} ${m.ceilingKey("z")}`)
+println(`${m.delete("fig")} ${m.delete("fig")} ${m.range("b", "p"):?}`)
+for (const [k, v] of m) print(`${k}=${v} `)
+println("")
+const nums = new SortedMap<int, string>()
+for (const n of [50, 10, 40, 20, 30]) nums.set(n, `n${n}`)
+println(`${nums.keys():?} ${nums.floorKey(35)} ${nums.ceilingKey(35)}`)
+
+const b = new BitSet([1, 5, 64])
+b.add(3)
+b.flip(5)
+println(`${b} ${b.size} ${b.length} ${b.has(64)} ${b.has(5)} ${b.has(1000)}`)
+const c = new BitSet([1, 2, 3, 100])
+println(`${b.and(c)} ${b.or(c)} ${b.xor(c)} ${b.andNot(c)} ${b.equals(new BitSet([3, 64, 1]))}`)
+let sum = 0
+for (const i of c) sum += i
+println(`${sum} ${c.delete(100)} ${c.length} ${new BitSet().isEmpty}`)

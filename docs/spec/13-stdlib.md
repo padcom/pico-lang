@@ -400,3 +400,15 @@ radix)` throwing `SyntaxError`, `+ - * / %` truncating like JavaScript, `pow`, `
 seedable generator (`new Random(seed?)`: `float`, `int(lo, hi)` without bias, `bool(p)`,
 `gaussian`, `pick`, `shuffle`, `nextU32`); a seed gives the same sequence on every target. Also
 `clamp`, `lerp`, `degToRad`, `radToDeg`.
+
+## 13.10 Collections
+`std/collections` has `Deque<T>` (`pushBack`/`push`, `pushFront`/`unshift`, `popBack`/`pop`,
+`popFront`/`shift` giving `T?`, `at(i)` with negative indices, `peekFront`, `peekBack`,
+`length`, amortized O(1) at both ends), `PriorityQueue<T>` (a binary heap built with
+`compare(a, b): int`, smallest first: `push`, `pop`, `peek`, `size`, `toSortedArray`, `for-of`
+in priority order), `SortedMap<K extends Comparable<K>, V>` (`get`, `set`, `has`, `delete`,
+`firstKey`, `lastKey`, `floorKey`, `ceilingKey`, `range(lo, hi)` for `lo <= k < hi`, `keys`,
+`values`, `entries`, `for-of` in key order; binary search over sorted arrays, so inserting is
+O(n)) and `BitSet` (`add`, `delete`, `has`, `set(i, on)`, `flip`, `size` (set bits), `length`,
+`and`, `or`, `xor`, `andNot`, `equals`, `toArray`, `for-of` ascending). Iteration ends at the first
+`null` (§5.7), so collections of nullable elements are walked through `toArray()`.
