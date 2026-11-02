@@ -23,6 +23,66 @@ pub(crate) fn emulation(a: Arch) -> &'static str {
     }
 }
 
+/// The oldest macOS programs run on (spec §15.3) and the SDK the stubs are from
+/// (`third_party/zig-libc/darwin/SDKSettings.json`).
+const MACOS_MIN: &str = "13.0";
+const MACOS_SDK: &str = "15.5";
+
+/// The runtime's compile arguments for macOS: Zig's macOS headers, then clang's.
+fn darwin_libc(cc: &Clang) -> Libc {
+    let mut args = vec![format!("-mmacos-version-min={MACOS_MIN}")];
+    for d in [
+        ppl_runtime::zig_libc_dir().join("include/any-macos-any"),
+        PathBuf::from(format!("{}/include", cc.resource_dir)),
+    ] {
+        args.push("-isystem".into());
+        args.push(d.display().to_string());
+    }
+    Libc {
+        name: "darwin".into(),
+        args,
+        start: Vec::new(),
+    }
+}
+
+/// Links `obj` with the runtime into the executable `exe` for macOS, against `libSystem`'s
+/// `.tbd` stubs (no SDK needed). dyld calls `main` (`LC_MAIN`), so there are no start files;
+/// `libSystem` re-exports compiler-rt. arm64 executables get lld's ad-hoc signature.
+pub fn link_macos(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), String> {
+    let cc = clang()?;
+    let runtime = runtime_objects(t, &darwin_libc(cc))?;
+    let arch = match t.arch {
+        Arch::X86_64 => "x86_64",
+        _ => "arm64",
+    };
+    let mut args: Vec<String> = vec![
+        "-arch".into(),
+        arch.into(),
+        "-platform_version".into(),
+        "macos".into(),
+        MACOS_MIN.into(),
+        MACOS_SDK.into(),
+        "-dead_strip".into(),
+        "-o".into(),
+        exe.display().to_string(),
+    ];
+    if debug {
+        // Panic traces name frames through the dynamic symbol table.
+        args.push("-export_dynamic".into());
+    }
+    args.push(obj.display().to_string());
+    args.push("--start-lib".into());
+    args.extend(paths(&runtime.lazy));
+    args.push("--end-lib".into());
+    args.push(
+        ppl_runtime::zig_libc_dir()
+            .join("darwin/libSystem.tbd")
+            .display()
+            .to_string(),
+    );
+    ppl_lld::link_macho(&args).map_err(|e| format!("linking failed:\n{e}"))
+}
+
 /// Links `obj` with the runtime into the executable `exe` for a Linux target.
 pub fn link_linux(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), String> {
     match t.env {

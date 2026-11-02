@@ -368,7 +368,9 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
     let target = opts.target.unwrap_or_else(Target::host);
-    let lld = matches!(target.os, target::Os::Linux | target::Os::Windows);
+    // (A macOS host still links its own programs with `cc`: lld is optional there.)
+    let lld = matches!(target.os, target::Os::Linux | target::Os::Windows)
+        || (target.os == target::Os::Macos && !target.is_host());
     if !lld && !target.is_host() {
         return Err(format!("building for {target} isn't supported yet"));
     }
@@ -384,6 +386,8 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     if lld {
         let r = if target.os == target::Os::Windows {
             link::link_windows(target, &obj, exe)
+        } else if target.os == target::Os::Macos {
+            link::link_macos(target, &obj, exe, !opts.release)
         } else {
             link::link_linux(target, &obj, exe, !opts.release)
         };

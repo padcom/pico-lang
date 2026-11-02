@@ -1,6 +1,6 @@
 //! Cross-compilation (spec §15): `linux-x64` from another host gives an x86-64 ELF linked by
 //! the built-in lld against generated glibc stubs, using no symbol newer than the requested
-//! glibc, and it runs under qemu-user when that's set up.
+//! glibc, and it runs under qemu-user when that's set up; macOS and Windows targets build too.
 
 use std::path::Path;
 
@@ -137,6 +137,31 @@ fn musl_static() {
         }
         let native = (machine == 62) == cfg!(target_arch = "x86_64");
         if !native && !Path::new("/proc/sys/fs/binfmt_misc/qemu-x86_64").exists() {
+            continue;
+        }
+        let out = std::process::Command::new(&exe).output().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "hello from 3 [2, 4, 6]\n",
+            "{target}"
+        );
+    }
+}
+
+/// macOS from any host (P8.4): Mach-O executables for both architectures, linked by lld
+/// against the bundled `libSystem.tbd`; on a Mac they run (x86-64 under Rosetta).
+#[test]
+fn macos() {
+    for (target, cpu) in [("macos-arm64", 0x0100_000c_u32), ("macos-x64", 0x0100_0007)] {
+        let Some(exe) = build(target) else {
+            return;
+        };
+        let bytes = std::fs::read(&exe).unwrap();
+        let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+        assert_eq!(word(0), 0xfeed_facf, "{target}: 64-bit Mach-O");
+        assert_eq!(word(4), cpu, "{target}: CPU type");
+        assert_eq!(word(12), 2, "{target}: MH_EXECUTE");
+        if !cfg!(target_os = "macos") {
             continue;
         }
         let out = std::process::Command::new(&exe).output().unwrap();

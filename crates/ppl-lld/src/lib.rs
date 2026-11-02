@@ -49,6 +49,11 @@ pub fn link_coff(args: &[String]) -> Result<(), String> {
     link("lld-link", args)
 }
 
+/// Runs `ld64.lld` (the Mach-O linker, ld64-style arguments).
+pub fn link_macho(args: &[String]) -> Result<(), String> {
+    link("ld64.lld", args)
+}
+
 fn link(flavor: &str, args: &[String]) -> Result<(), String> {
     let mut usable = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if !*usable {

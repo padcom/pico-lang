@@ -60,6 +60,66 @@ jobs:
           source scripts/env.sh
           PPL_TEST_TARGET=${{ matrix.target }} cargo test --quiet -p ppl-tests --test golden
 
+  # macOS programs built on Linux (P8.4: lld and the bundled libSystem.tbd), run on a Mac.
+  macos-build:
+    name: macos-build (${{ matrix.target }})
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [macos-arm64, macos-x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 23
+        run: scripts/ci-install-linux.sh
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: Linux
+          save-if: false
+
+      - name: Build the golden tests for ${{ matrix.target }}
+        run: |
+          source scripts/env.sh
+          PPL_TEST_TARGET=${{ matrix.target }} PPL_TEST_EXPORT=$PWD/golden-${{ matrix.target }} \
+            cargo test --quiet -p ppl-tests --test golden -- export
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: golden-${{ matrix.target }}
+          path: golden-${{ matrix.target }}
+          retention-days: 3
+
+  macos:
+    name: macos (${{ matrix.target }})
+    needs: macos-build
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [macos-arm64, macos-x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+
+      - name: Rosetta (for x86-64 programs)
+        if: matrix.target == 'macos-x64'
+        run: /usr/bin/pgrep -q oahd || softwareupdate --install-rosetta --agree-to-license
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: golden-${{ matrix.target }}
+          path: golden-${{ matrix.target }}
+
+      - name: Run the golden tests
+        run: |
+          chmod +x golden-${{ matrix.target }}/* || true
+          cargo run --quiet --release -p ppl-golden-run -- golden-${{ matrix.target }}
+
   # Windows programs are built on Linux and run on Windows (decision 248).
   windows-build:
     name: windows-build (${{ matrix.target }})

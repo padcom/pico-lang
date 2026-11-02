@@ -1,7 +1,10 @@
 # zig-libc
 
-Files copied unmodified from Zig 0.15.1 (`https://github.com/ziglang/zig`, tag `0.15.1`), so ppl
-can link `linux-gnu` programs without a system glibc (decision 245, spec §15.2):
+Files copied unmodified from Zig 0.15.1 (`https://github.com/ziglang/zig`, tag `0.15.1`; the
+release tarball `zig-0.15.1.tar.xz` checks against Zig's minisign key
+`RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U`), so ppl can link `linux-gnu`,
+Windows and macOS programs without a system C library or SDK (decisions 245, 248, 254; spec
+§15.2):
 
 | Here | From Zig | What |
 |------|----------|------|
@@ -13,6 +16,8 @@ can link `linux-gnu` programs without a system glibc (decision 245, spec §15.2)
 | `include/any-windows-any` | same, **pruned** | mingw-w64's Windows headers: only the 229 of 1,610 that ppl compiles against (`scripts/prune-windows-headers.sh <zig source>` regenerates the set) |
 | `mingw/` | `lib/libc/mingw` without `lib32/`, `libarm32/`, `libsrc/` | mingw-w64's CRT and winpthreads sources and the `.def` files for import libraries |
 | `mingw/sources.txt` | generated from `src/libs/mingw.zig` | which sources make up libmingw32, per architecture |
+| `include/any-macos-any` | same, **pruned** | the macOS SDK's C headers: only the 235 of 542 that ppl compiles against (`scripts/prune-macos-headers.sh <zig source>` regenerates the set) |
+| `darwin/libSystem.tbd`, `darwin/SDKSettings.json` | `lib/libc/darwin` | text stubs of `libSystem` (macOS SDK 15.5) that lld links macOS programs against |
 
 Include order (as Zig's `LibCDirs.zig`): `<arch>-linux-gnu`, `generic-glibc`, `<arch>-linux-any`,
 `any-linux-any`, where `<arch>` is `x86` for x86-64.
