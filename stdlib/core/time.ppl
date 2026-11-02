@@ -1,8 +1,9 @@
 // Time support for the `Date` and `performance` globals (spec §13.1) and `std/time`: civil
 // calendar arithmetic (proleptic Gregorian), time zones from the system's TZif files
-// (`/usr/share/zoneinfo`, or `TZDIR`) with their POSIX `TZ` rules for later years, and the
-// local zone (`TZ`, else `/etc/localtime`). Clocks are `__io` 133 (nanoseconds: 0 the wall
-// clock, 1 monotonic); zone files are read with `__io` 134 and links with 135.
+// (`/usr/share/zoneinfo`, or `TZDIR`; else the bundled IANA database, on Windows) with their
+// POSIX `TZ` rules for later years, and the local zone (`TZ`, else Windows' setting, else
+// `/etc/localtime`). Clocks are `__io` 133 (nanoseconds: 0 the wall clock, 1 monotonic); zone
+// files are read with `__io` 134, links with 135, bundled zones with 136, Windows' zone with 137.
 
 /// Nanoseconds since 1970 (the wall clock).
 function __wallNanos(): int {
@@ -504,22 +505,37 @@ function __zoneDir(): string {
   if (d != null && d.length > 0) d else "/usr/share/zoneinfo"
 }
 
-/// The zone named `id` (IANA, like `Europe/Berlin`, or `UTC`), or `null` if there's none.
+/// Zone `id` from the tz database bundled into programs for targets without a system one
+/// (Windows), or `null`.
+function __bundledZone(id: string): Uint8Array? {
+  const job = __io(136, 0, 0, 0, id, "")
+  const h = __io(102, job, 0, 0, "", "")
+  const n = __io(103, job, 0, 0, "", "")
+  __io(104, job, 0, 0, "", "");
+  if (h == -1) null else new Uint8Array(new ArrayBuffer(h, n, true), 0, n)
+}
+
+/// The zone named `id` (IANA, like `Europe/Berlin`, or `UTC`), or `null` if there's none: the
+/// system's database (`TZDIR`, else `/usr/share/zoneinfo`), else the bundled one.
 function __zoneNamed(id: string): __Zone? {
   if (id == "UTC" || id == "Etc/UTC" || id == "Z") return __Zone.fixed("UTC", 0, "UTC")
   const cache = __zones()
   const hit = cache.get(id)
   if (hit != null) return hit
   if (id.length == 0 || id.startsWith("/") || id.includes("..") || id.includes("\\")) return null
-  const data = __readFileNow(__zoneDir() + "/" + id)
+  let data = __readFileNow(__zoneDir() + "/" + id)
+  if (data == null) {
+    data = __bundledZone(id)
+  }
   if (data == null) return null
-  const z = __Zone.fromTzif(id, data)
+  const z = __Zone.fromTzif(id, data!)
   if (z != null) cache.set(id, z)
   z
 }
 
-/// The local time zone: `TZ` (a zone name, `:name`, a file path or a POSIX rule), else
-/// `/etc/localtime` (named after its link target), else UTC.
+/// The local time zone: `TZ` (a zone name, `:name`, a file path or a POSIX rule), else the
+/// system's setting (Windows' zone, mapped to its IANA id), else `/etc/localtime` (named after
+/// its link target), else UTC.
 function __localZone(): __Zone {
   const tz = __envVar("TZ")
   if (tz != null) {
@@ -542,6 +558,13 @@ function __localZone(): __Zone {
       }
     }
     return __Zone.fixed("UTC", 0, "UTC")
+  }
+  const sys = __io(137, 0, 0, 0, "", "")
+  const sysId = __io_text(sys)
+  __io(104, sys, 0, 0, "", "");
+  if (sysId.length > 0) {
+    const z = __zoneNamed(sysId)
+    if (z != null) return z
   }
   const job = __io(135, 0, 0, 0, "/etc/localtime", "")
   const link = __io_text(job)

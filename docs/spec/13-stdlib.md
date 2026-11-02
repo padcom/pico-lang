@@ -370,9 +370,11 @@ and `index` -1), `matchAll(re): RegExpMatch[]`, `search(re): int`. A replacement
 - `Instant`: a point on the UTC time line (`now()`, `fromEpochMilliseconds(ms)`,
   `parse("2024-03-10T12:30:00Z")`, which needs `Z` or an offset), with `plus`/`minus` a
   `Duration`, `since`/`until`, comparisons, `inZone(zone)` and `toString()` in UTC.
-- `TimeZone`: `utc()`, `local()` (`TZ`, else `/etc/localtime`), `of(id)` for IANA ids
-  (`Europe/Berlin`, from the system's tz database: `/usr/share/zoneinfo` or `TZDIR`, with each
-  file's POSIX rule beyond its last transition) and offsets (`+05:30`), `fixed(seconds)`; it
+- `TimeZone`: `utc()`, `local()` (`TZ`, else the system's zone: Windows' setting mapped to
+  its IANA id, else `/etc/localtime`), `of(id)` for IANA ids (`Europe/Berlin`, from the
+  system's tz database: `/usr/share/zoneinfo` or `TZDIR`; programs for targets without one,
+  Windows, carry a bundled copy of the IANA database, 220 KB; each file's POSIX rule applies
+  beyond its last transition) and offsets (`+05:30`), `fixed(seconds)`; it
   gives the offset, abbreviation and DST flag at an instant. An unknown id throws `RangeError`.
 - `DateTime`: an instant in a zone with its ISO calendar fields (`year`, `month` 1–12, `day`,
   `hour`, …, `dayOfWeek` 1 = Monday, `dayOfYear`, `weekOfYear`, `offset`).

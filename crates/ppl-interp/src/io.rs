@@ -382,10 +382,16 @@ impl Interp<'_, '_> {
             });
             return Value::Int(i128::from(st.next_id));
         }
-        if op == 134 || op == 135 {
-            // Read a file now (time zone data), or a symbolic link's target.
+        if (134..=137).contains(&op) {
+            // Read a file now (time zone data), or a symbolic link's target. The bundled tz
+            // database (136) and a system zone outside TZ and /etc/localtime (137) are for
+            // native Windows programs: the interpreter's hosts have neither.
             let path = self.at(&s(4));
-            let (r, text) = if op == 134 {
+            let (r, text) = if op == 136 {
+                ((-1, 0), String::new())
+            } else if op == 137 {
+                ((0, 0), String::new())
+            } else if op == 134 {
                 match fs::read(&path) {
                     Ok(bytes) => {
                         let n = bytes.len() as i64;

@@ -1,5 +1,2 @@
 # Golden fixtures (name prefixes, as in reports) that Windows can't run yet, with the task that
 # makes them work. PPL_TEST_EXPORT skips them; delete lines as the tasks land.
-run/time/date          tzdb (sets TZ=Europe/Berlin)
-run/time/std_time       tzdb (Windows has no /usr/share/zoneinfo; a bundled tz database isn't planned yet)
-run/fmt/formattable     tzdb

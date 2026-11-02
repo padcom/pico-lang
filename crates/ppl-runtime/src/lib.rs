@@ -64,6 +64,11 @@ pub fn mbedtls_dir() -> PathBuf {
     include_dir().join("../../third_party/mbedtls")
 }
 
+/// The bundled IANA tz database (`tzdata.bin`, `windows_zones.inc`; decision 253).
+pub fn tzdata_dir() -> PathBuf {
+    include_dir().join("../../third_party/tzdata")
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -248,11 +248,13 @@ fn runtime_objects(t: Target, libc: &Libc) -> Result<RuntimeObjects, String> {
     let jobs = runtime_jobs(t, libc)?;
     let name = format!("{}-{}", t.llvm_triple(), libc.name);
     // The runtime's headers too (Mbed TLS's are vendored and never change on their own).
-    let headers: Vec<PathBuf> = std::fs::read_dir(ppl_runtime::include_dir())
+    let mut headers: Vec<PathBuf> = std::fs::read_dir(ppl_runtime::include_dir())
         .map_err(|e| e.to_string())?
         .flatten()
         .map(|e| e.path())
         .collect();
+    let tz = ppl_runtime::tzdata_dir();
+    headers.extend([tz.join("tzdata.bin"), tz.join("windows_zones.inc")]);
     let dir = cached_build("runtime", &name, &jobs, &headers, |_| Ok(()))?;
     let pick = |start: bool| {
         jobs.iter()
@@ -357,6 +359,15 @@ fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
         common.push(format!("-I{}", d.display()));
     }
     common.push("-DMBEDTLS_USER_CONFIG_FILE=\"ppl_mbedtls_config.h\"".into());
+    // The bundled tz database (ppl_tzdata.c embeds it on Windows).
+    let tz = ppl_runtime::tzdata_dir()
+        .canonicalize()
+        .map_err(|e| format!("cannot find the bundled tz database: {e}"))?;
+    common.push(format!("-I{}", tz.display()));
+    common.push(format!(
+        "-DPPL_TZDATA_BIN=\"{}\"",
+        tz.join("tzdata.bin").display()
+    ));
     let mut jobs = Vec::new();
     for (dir, std, prefix) in [
         (ppl_runtime::source_dir(), "-std=c11", ""),

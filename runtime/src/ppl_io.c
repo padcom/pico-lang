@@ -2995,6 +2995,25 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         j->r2 = e ? e : (int64_t)len;
         return j->id;
     }
+    case 136: { /* the bundled tz database's zone s: r = a buffer handle (or -1), r2 = its size */
+        extern char *ppl_tz_bundled(const char *name, size_t *len);
+        Job *j = result_job(q);
+        char *name = cstr(s, NULL);
+        size_t n = 0;
+        char *m = ppl_tz_bundled(name, &n);
+        free(name);
+        j->r = m ? (int64_t)(intptr_t)m : -1;
+        j->r2 = (int64_t)n;
+        return j->id;
+    }
+    case 137: { /* the system's local zone as an IANA id, where it isn't TZ or /etc/localtime
+                 * (Windows): text ("" when unknown) */
+        extern const char *ppl_tz_local_id(void);
+        Job *j = result_job(q);
+        const char *id = ppl_tz_local_id();
+        text_add(j, id ? id : "", id ? strlen(id) : 0);
+        return j->id;
+    }
     case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */
         return decode_utf8(q, (const unsigned char *)(intptr_t)b, c > 0 ? (size_t)c : 0, a == 1);
     case 102: {
