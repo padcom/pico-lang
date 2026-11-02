@@ -1,9 +1,9 @@
 //! Linking through lld (spec §15.2), without a system linker: the C runtime is compiled for
 //! the target by clang (once, cached), then lld links it with the program's object file.
 //!
-//! Only `linux-gnu` so far. Until ppl bundles glibc stubs, the C library comes from the
-//! system: the host's (`/usr/lib/<multiarch>`) or a Debian cross package
-//! (`/usr/<multiarch>`, e.g. `libc6-dev-amd64-cross`).
+//! Only `linux-gnu` so far: against generated glibc stubs ([`crate::glibc`]) and Zig's
+//! multi-version glibc headers, with our own start files (`runtime/glibc`), so no glibc needs
+//! to be installed.
 
 use crate::target::{Arch, Target};
 use std::path::{Path, PathBuf};
@@ -11,18 +11,25 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 /// Bump to invalidate cached runtime builds made by older compilers.
-const RUNTIME_CACHE_FORMAT: u32 = 1;
+const RUNTIME_CACHE_FORMAT: u32 = 2;
+
+/// lld's `-m` for an architecture.
+pub(crate) fn emulation(a: Arch) -> &'static str {
+    match a {
+        Arch::X86_64 => "elf_x86_64",
+        Arch::Aarch64 => "aarch64linux",
+        Arch::Wasm32 => unreachable!("wasm isn't linux"),
+    }
+}
 
 /// Links `obj` with the runtime into the executable `exe` for a `linux-gnu` target.
 pub fn link_linux_gnu(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), String> {
-    let libc = Glibc::find(t)?;
-    let runtime = runtime_objects(t, &libc)?;
-    let (emulation, loader) = match t.arch {
-        Arch::X86_64 => ("elf_x86_64", "/lib64/ld-linux-x86-64.so.2"),
-        Arch::Aarch64 => ("aarch64linux", "/lib/ld-linux-aarch64.so.1"),
-        Arch::Wasm32 => unreachable!("wasm isn't linux"),
+    let runtime = runtime_objects(t)?;
+    let stubs = crate::glibc::stubs(t, &clang()?.exe)?;
+    let loader = match t.arch {
+        Arch::X86_64 => "/lib64/ld-linux-x86-64.so.2",
+        _ => "/lib/ld-linux-aarch64.so.1",
     };
-    let lib = |name: &str| libc.lib.join(name).display().to_string();
     let mut args: Vec<String> = [
         "--hash-style=gnu",
         "--build-id",
@@ -31,8 +38,10 @@ pub fn link_linux_gnu(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<
         "relro",
         "-z",
         "now",
+        "-z",
+        "noexecstack",
         "-m",
-        emulation,
+        emulation(t.arch),
         "-pie",
         "-dynamic-linker",
         loader,
@@ -45,65 +54,32 @@ pub fn link_linux_gnu(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<
     }
     args.push("-o".into());
     args.push(exe.display().to_string());
-    args.push(lib("Scrt1.o"));
-    args.push(lib("crti.o"));
+    args.extend(runtime.start.iter().map(|o| o.display().to_string()));
     args.push(obj.display().to_string());
     // The runtime's objects behave like an archive: only the ones the program needs.
     args.push("--start-lib".into());
-    args.extend(runtime.iter().map(|o| o.display().to_string()));
+    args.extend(runtime.lazy.iter().map(|o| o.display().to_string()));
     args.push("--end-lib".into());
-    args.push(format!("-L{}", libc.lib.display()));
-    args.push("-lm".into());
-    args.push("-lc".into());
-    args.push(lib("crtn.o"));
+    // Only the libraries something refers to become dependencies (libdl, libutil, …).
+    args.push("--as-needed".into());
+    args.extend(stubs.iter().map(|o| o.display().to_string()));
     ppl_lld::link_elf(&args).map_err(|e| format!("linking failed:\n{e}"))
 }
 
-/// Where a target's glibc lives on this machine.
-struct Glibc {
-    /// The directory with `Scrt1.o`, `libc.so`, …
-    lib: PathBuf,
-    /// Header directories, most specific first.
-    include: Vec<PathBuf>,
-}
-
-impl Glibc {
-    fn find(t: Target) -> Result<Glibc, String> {
-        let m = t.multiarch();
-        let mut candidates = Vec::new();
-        if t.is_host() {
-            candidates.push((
-                PathBuf::from(format!("/usr/lib/{m}")),
-                vec![
-                    PathBuf::from(format!("/usr/include/{m}")),
-                    "/usr/include".into(),
-                ],
-            ));
-            for lib in ["/usr/lib64", "/usr/lib"] {
-                candidates.push((lib.into(), vec!["/usr/include".into()]));
-            }
-        }
-        candidates.push((
-            PathBuf::from(format!("/usr/{m}/lib")),
-            vec![PathBuf::from(format!("/usr/{m}/include"))],
-        ));
-        candidates
-            .into_iter()
-            .find(|(lib, inc)| {
-                lib.join("Scrt1.o").is_file() && inc.iter().any(|i| i.join("stdio.h").is_file())
-            })
-            .map(|(lib, include)| Glibc { lib, include })
-            .ok_or_else(|| {
-                let deb = match t.arch {
-                    Arch::X86_64 => "amd64",
-                    _ => "arm64",
-                };
-                format!(
-                    "no glibc for {m} to link against (ppl doesn't bundle glibc stubs yet): \
-                     install it, e.g. `libc6-dev-{deb}-cross` on Debian and Ubuntu"
-                )
-            })
-    }
+/// The header directories for a `linux-gnu` target, in Zig's order (see
+/// `third_party/zig-libc/README.md`).
+fn glibc_headers(t: Target) -> Vec<PathBuf> {
+    let inc = ppl_runtime::zig_libc_dir().join("include");
+    let arch = match t.arch {
+        Arch::X86_64 => "x86",
+        _ => "aarch64",
+    };
+    vec![
+        inc.join(format!("{arch}-linux-gnu")),
+        inc.join("generic-glibc"),
+        inc.join(format!("{arch}-linux-any")),
+        inc.join("any-linux-any"),
+    ]
 }
 
 /// clang from the LLVM installation ppl was built with (or the one on `PATH`), its resource
@@ -139,18 +115,27 @@ fn clang() -> Result<&'static Clang, String> {
         .map_err(Clone::clone)
 }
 
+/// The runtime compiled for a target.
+#[derive(Clone)]
+struct RuntimeObjects {
+    /// Linked as they are: the start files.
+    start: Vec<PathBuf>,
+    /// Linked as needed: the runtime and Mbed TLS.
+    lazy: Vec<PathBuf>,
+}
+
 /// The runtime (and Mbed TLS) compiled for `t`: object files in a cache directory keyed by
 /// the sources, the compiler and the flags.
-fn runtime_objects(t: Target, libc: &Glibc) -> Result<Vec<PathBuf>, String> {
+fn runtime_objects(t: Target) -> Result<RuntimeObjects, String> {
     // Threads of one process (the golden tests) wait for one build; other processes race
     // harmlessly, each renaming a finished directory into place.
-    static BUILT: Mutex<Vec<(Target, Vec<PathBuf>)>> = Mutex::new(Vec::new());
+    static BUILT: Mutex<Vec<(Target, RuntimeObjects)>> = Mutex::new(Vec::new());
     let mut built = BUILT.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, objs)) = built.iter().find(|(b, _)| *b == t) {
         return Ok(objs.clone());
     }
     let cc = clang()?;
-    let jobs = compile_jobs(t, libc, cc)?;
+    let jobs = compile_jobs(t, cc)?;
     let dir = {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -176,7 +161,16 @@ fn runtime_objects(t: Target, libc: &Glibc) -> Result<Vec<PathBuf>, String> {
             .join("runtime")
             .join(format!("{}-{:016x}", t.llvm_triple(), h.finish()))
     };
-    let objects: Vec<PathBuf> = jobs.iter().map(|j| dir.join(&j.obj)).collect();
+    let pick = |start: bool| {
+        jobs.iter()
+            .filter(|j| j.start == start)
+            .map(|j| dir.join(&j.obj))
+            .collect()
+    };
+    let objects = RuntimeObjects {
+        start: pick(true),
+        lazy: pick(false),
+    };
     if dir.is_dir() {
         built.push((t, objects.clone()));
         return Ok(objects);
@@ -200,19 +194,27 @@ struct Job {
     src: PathBuf,
     obj: String,
     args: Vec<String>,
+    /// A start file (always linked).
+    start: bool,
 }
 
-fn compile_jobs(t: Target, libc: &Glibc, cc: &Clang) -> Result<Vec<Job>, String> {
+fn compile_jobs(t: Target, cc: &Clang) -> Result<Vec<Job>, String> {
     let mut common: Vec<String> = vec![
         format!("--target={}", t.llvm_triple()),
         "-nostdinc".into(),
         "-isystem".into(),
         format!("{}/include", cc.resource_dir),
     ];
-    for i in &libc.include {
+    for i in glibc_headers(t) {
         common.push("-isystem".into());
         common.push(i.display().to_string());
     }
+    let (major, minor) = t.glibc.expect("a gnu target");
+    if major != 2 {
+        return Err(format!("glibc {major}.{minor} doesn't exist"));
+    }
+    // Zig's headers declare what this glibc version has.
+    common.push(format!("-D__GLIBC_MINOR__={minor}"));
     common.extend(
         [
             "-O2",
@@ -258,8 +260,24 @@ fn compile_jobs(t: Target, libc: &Glibc, cc: &Clang) -> Result<Vec<Job>, String>
                 obj: format!("{prefix}{stem}.o"),
                 src,
                 args,
+                start: false,
             });
         }
+    }
+    let crt = ppl_runtime::source_dir().join("../glibc");
+    let start = match t.arch {
+        Arch::X86_64 => "start_x86_64.S",
+        _ => "start_aarch64.S",
+    };
+    for (file, std) in [(start, None), ("crt.c", Some("-std=c11"))] {
+        let mut args = common.clone();
+        args.extend(std.map(String::from));
+        jobs.push(Job {
+            obj: format!("glibc_{file}.o"),
+            src: crt.join(file),
+            args,
+            start: true,
+        });
     }
     Ok(jobs)
 }

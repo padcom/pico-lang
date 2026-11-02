@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.2a: glibc stubs** (see [PLAN.md](PLAN.md#p82a-glibc-stubs)); P8.2 was split into P8.2a (glibc) and P8.2b (musl), decision 245. P8.1 is done (decision 244) and CI is green on both runners. Watch out: with glibc 2.41's headers the runtime references `__isoc23_strtol` (a 2.38 symbol); the stubs must make that a link error and the headers must avoid it.
+**P8.2b: musl** (see [PLAN.md](PLAN.md#p82b-musl)). Vendor musl's sources (decision 245; ask which musl version, 1.2.5 is current) into `third_party/musl`, compile `libc.a` per target with clang (like `runtime_objects` in `crates/ppl-driver/src/link.rs`; Zig's `src/libs/musl.zig` lists the files and flags), and link `*-linux-musl` statically with lld. Zig 0.15.1's source was useful for P8.2a (download it to the scratchpad; `lib/libc/musl`, `lib/libc/include/{generic-musl,x86-linux-musl,aarch64-linux-musl}` are what P8.2b needs; `any-linux-any` and the `*-linux-any` dirs are already in `third_party/zig-libc`). Check with `PPL_TEST_TARGET=linux-arm64-musl` and `linux-x64-musl` (qemu needs no loader prefix for static binaries).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -255,7 +255,7 @@ Notes:
 ### Phase 8: Targets
 - [x] P8.0 Linux host bring-up
 - [x] P8.1 Cross-compilation infrastructure
-- [ ] P8.2a glibc stubs
+- [x] P8.2a glibc stubs
 - [ ] P8.2b musl
 - [ ] P8.3 Windows (MinGW)
 - [ ] P8.4 macOS cross builds
@@ -383,3 +383,4 @@ Notes:
 | 2026-11-02 | P8.1 | Cross-compilation: `Target` (§15.1 triples and aliases, glibc suffix, default 2.31) and `ppl build --target`; codegen for any triple (baseline CPU when cross); lld linked in-process (`ppl-lld`: C++ shim over `lld::lldMain`, ELF); runtime + Mbed TLS compiled per target by clang 23 and cached; every linux-gnu build (host included) linked by lld without `cc`. `-mno-outline-atomics` on aarch64 and `MBEDTLS_NO_UDBL_DIVISION`, since no compiler builtins are linked. Decision 244. Test: `ppl-driver/tests/cross.rs` builds linux-x64 from arm64, checks the ELF machine and runs it under qemu-user; the golden tests now go through lld on Linux. CI installs liblld, the amd64 cross glibc and qemu. |
 | 2026-11-02 | — | CI (first run with the Linux job required) failed on two interpreter timing races, one per runner: run/async/timers (a 20 ms interval drifting past a 150 ms timeout under load; now 600 ms) and run/http/websocket (server and client `onclose` order isn't defined; both are now printed after both fired). `gh` 2.103.3 installed in `~/.local/bin` (logged in), so `gh run list` works from the VM. |
 | 2026-11-02 | — | CI green on macOS and Linux arm64 (P8.1 included). P8.2 split into P8.2a (glibc stubs) and P8.2b (musl) with the author's choices recorded as decision 245. |
+| 2026-11-02 | P8.2a | glibc stubs: Zig 0.15.1's `abilists` and glibc/Linux headers vendored in `third_party/zig-libc` (14 MB); `glibc.rs` generates versioned stub libraries per target and version, linked by the in-process lld; the runtime is compiled against the vendored headers with `-D__GLIBC_MINOR__`; our own `_start` and `crt.c` (init arrays, `_IO_stdin_used`, `__dso_handle`, pre-2.33 `stat` wrappers) replace glibc's crt files. No system glibc is needed to build any more. Golden suite green natively (arm64, glibc 2.31 stubs) and for `linux-x64` under qemu (`PPL_TEST_TARGET`, 212 pass, process/pipes pending: qemu loses posix_spawn's exec error, verified with plain C). `tests/cross.rs` checks a 2.31 build needs nothing newer than 2.31 and that `.2.39` builds. Decision 246. |

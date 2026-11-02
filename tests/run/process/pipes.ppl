@@ -1,3 +1,4 @@
+// not-under-qemu: qemu-user runs posix_spawn's vfork as a fork, so exec errors don't reach the parent
 // expect: hello world
 // expect: code 0 true
 // expect: cat: 8 bytes, 2 lines

@@ -10,6 +10,7 @@ use ppl_syntax::ast::Module;
 use std::path::{Path, PathBuf};
 
 mod decorators;
+mod glibc;
 mod link;
 mod modules;
 pub mod target;

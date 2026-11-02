@@ -12,12 +12,17 @@
 //! | `// error: E0308` | an expected compile error, in order (`fail` only) |
 //! | `// at: 4:19` | position (line:col) of the preceding `error` |
 //! | `// native-only: why` | skip the interpreter (runtime checks only native code has) |
+//! | `// not-under-qemu: why` | pending when native runs would go through qemu-user |
 //!
 //! A directory containing `main.ppl` is one multi-file fixture; its other files are modules.
 //!
 //! Run fixtures execute three times: interpreted, native, and native with `PPL_GC_STRESS=1`
 //! (a collection at every safepoint after an allocation, which shakes out missing GC roots).
 //! Each run's working directory is a fresh empty temp directory (`std/fs` tests write there).
+//!
+//! `PPL_TEST_TARGET=linux-x64` (any `--target` value) builds the native runs for that target
+//! and skips the interpreter. Executables for another architecture run through qemu-user's
+//! binfmt handler, with `QEMU_LD_PREFIX=/usr/<multiarch>` (Debian's cross glibc) when it exists.
 //!
 //! The harness runs every stage that exists. Checks that need a missing stage are reported
 //! as *pending* rather than passing silently.
@@ -49,6 +54,8 @@ pub struct Directives {
     pub errors: Vec<ExpectedError>,
     /// `// native-only: reason`: the interpreter run is skipped.
     pub native_only: bool,
+    /// `// not-under-qemu: reason`: something qemu-user doesn't emulate.
+    pub not_under_qemu: Option<String>,
 }
 
 /// Parses the directives in a fixture. Lines that look like directives but are malformed are
@@ -67,7 +74,7 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
         };
         if !matches!(
             name,
-            "expect" | "exit" | "panic" | "error" | "at" | "native-only"
+            "expect" | "exit" | "panic" | "error" | "at" | "native-only" | "not-under-qemu"
         ) {
             continue;
         }
@@ -77,6 +84,7 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
         match name {
             "expect" => d.expect.push(raw.to_string()),
             "native-only" => d.native_only = true,
+            "not-under-qemu" => d.not_under_qemu = Some(value.to_string()),
             "exit" => match value.parse() {
                 Ok(code) if d.exit.is_none() => d.exit = Some(code),
                 Ok(_) => problems.push(format!("line {n}: more than one `exit` directive")),
@@ -222,9 +230,14 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
             checked.render_diagnostics()
         ));
     }
+    if let Some(why) = &d.not_under_qemu
+        && test_target().is_some_and(|t| !t.is_host())
+    {
+        return Outcome::Pending(format!("not under qemu: {why}"));
+    }
     let mir = checked.mir.as_ref().expect("MIR after a clean check");
     let mut problems: Vec<String> = Vec::new();
-    if !d.native_only {
+    if !d.native_only && test_target().is_none() {
         let mut out: Vec<u8> = Vec::new();
         let dir = TempDir::new();
         let result = ppl_driver::run_interp_in(mir, &mut out, Some(dir.0.clone()));
@@ -259,10 +272,21 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
 /// Builds the program (cached) and runs the executable, optionally collecting garbage at
 /// every safepoint.
 fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, String> {
-    let exe = ppl_driver::build_cached(checked, ppl_driver::BuildOptions::default())?;
+    let target = test_target();
+    let opts = ppl_driver::BuildOptions {
+        target,
+        ..Default::default()
+    };
+    let exe = ppl_driver::build_cached(checked, opts)?;
     let dir = TempDir::new();
     let mut cmd = std::process::Command::new(&exe);
     cmd.current_dir(&dir.0);
+    if let Some(t) = target.filter(|t| !t.is_host()) {
+        let prefix = PathBuf::from(format!("/usr/{}", t.multiarch()));
+        if prefix.is_dir() {
+            cmd.env("QEMU_LD_PREFIX", prefix);
+        }
+    }
     if gc_stress {
         cmd.env("PPL_GC_STRESS", "1");
     }
@@ -284,6 +308,12 @@ fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, Str
         panic,
         exit: Some(code),
     })
+}
+
+/// `PPL_TEST_TARGET`, parsed (a bad value is a test failure, not a silent host run).
+fn test_target() -> Option<ppl_driver::Target> {
+    let t = std::env::var("PPL_TEST_TARGET").ok()?;
+    Some(ppl_driver::Target::parse(&t).unwrap_or_else(|e| panic!("PPL_TEST_TARGET: {e}")))
 }
 
 /// A fresh empty directory, the working directory of one run (removed afterwards).

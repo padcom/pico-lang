@@ -27,9 +27,15 @@ jobs:
           wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
           sudo bash /tmp/llvm.sh 23
           sudo apt-get install -y llvm-23-dev libpolly-23-dev libzstd-dev zlib1g-dev liblld-23-dev \
-            libc6-dev-amd64-cross qemu-user-static
+            libc6-amd64-cross qemu-user-static
 
       - uses: Swatinem/rust-cache@v2
 
       - name: scripts/test.sh
         run: scripts/test.sh
+
+      - name: Golden tests for linux-x64 under qemu-user
+        if: runner.os == 'Linux'
+        run: |
+          source scripts/env.sh
+          PPL_TEST_TARGET=linux-x64 cargo test --quiet -p ppl-tests --test golden

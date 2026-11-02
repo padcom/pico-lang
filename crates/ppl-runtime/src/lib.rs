@@ -44,6 +44,11 @@ pub fn source_dir() -> PathBuf {
     include_dir().join("../src")
 }
 
+/// Zig's glibc ABI list and libc headers (`third_party/zig-libc`).
+pub fn zig_libc_dir() -> PathBuf {
+    include_dir().join("../../third_party/zig-libc")
+}
+
 /// The vendored Mbed TLS (`third_party/mbedtls`, with `include/` and `library/`).
 pub fn mbedtls_dir() -> PathBuf {
     include_dir().join("../../third_party/mbedtls")

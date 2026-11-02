@@ -50,13 +50,12 @@ Apple clang. The C runtime should be built with it.
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh && sudo bash /tmp/llvm.sh 23   # clang-23, lld-23, …
 sudo apt-get install -y build-essential llvm-23-dev libpolly-23-dev libzstd-dev zlib1g-dev \
-  liblld-23-dev libc6-dev-amd64-cross qemu-user-static qemu-user-binfmt file
+  liblld-23-dev libc6-amd64-cross qemu-user-static qemu-user-binfmt file
 ```
 
-`liblld-23-dev` is required: lld is linked into ppl (crate `ppl-lld`). `libc6-dev-amd64-cross`
-is the x86-64 glibc that `--target linux-x64` links against until P8.2 bundles stubs, and qemu
-runs the result (`QEMU_LD_PREFIX=/usr/x86_64-linux-gnu ./prog`, or directly through binfmt with
-that variable set).
+`liblld-23-dev` is required: lld is linked into ppl (crate `ppl-lld`). Building for any
+`linux-gnu` target needs no glibc at all (ppl generates stubs, P8.2a); `libc6-amd64-cross` is
+only there so qemu can run x86-64 programs (`QEMU_LD_PREFIX=/usr/x86_64-linux-gnu ./prog`).
 
 `source scripts/env.sh` then sets `LLVM_SYS_231_PREFIX=/usr/lib/llvm-23` and puts
 `/usr/lib/llvm-23/bin` (so `clang` is clang 23) and `~/.cargo/bin` on `PATH`.
@@ -91,8 +90,11 @@ cargo run -p ppl-cli -- build --emit mir hello.ppl     # or --emit llvm-ir
 ```
 
 On Linux, native builds (host and `--target linux-x64` / `linux-arm64`) are linked by the lld
-inside ppl. The C runtime and Mbed TLS are compiled for the target by clang 23 on first use and
-cached in `$TMPDIR/ppl-cache/runtime/<triple>-<hash>` (about 2 s). On macOS, builds still link
+inside ppl against generated glibc stubs (default glibc 2.31, `--target linux-x64.2.35` for
+another). The C runtime and Mbed TLS are compiled for the target and glibc version by clang 23
+on first use, against Zig's glibc headers in `third_party/zig-libc`, and cached in
+`$TMPDIR/ppl-cache/runtime/<triple>-<hash>` (about 2 s); the stubs are cached in
+`$TMPDIR/ppl-cache/glibc/`. On macOS, builds still link
 with the system `cc` until P8.4; lld is optional there (`PPL_LLD_PREFIX` names an lld
 installation with `lib/liblldELF.a`). The interpreter's copy of the runtime is compiled by
 `ppl-runtime`'s build script (with `-mmacosx-version-min=13.0` on macOS).
@@ -100,7 +102,11 @@ installation with `lib/liblldELF.a`). The interpreter's copy of the runtime is c
 ```sh
 cargo run -p ppl-cli -- build --target linux-x64 hello.ppl -o hello-x64
 QEMU_LD_PREFIX=/usr/x86_64-linux-gnu ./hello-x64
+PPL_TEST_TARGET=linux-x64 cargo test -p ppl-tests --test golden   # all golden tests, ~4 min
 ```
+
+A fixture qemu-user can't run faithfully gets `// not-under-qemu: why` (it's then pending in
+such runs).
 
 ## Not installed yet
 
