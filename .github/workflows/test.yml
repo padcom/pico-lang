@@ -1,0 +1,40 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # The Linux job is allowed to fail until P8.0 (Linux host bring-up) is done.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            experimental: false
+          - os: ubuntu-24.04-arm
+            experimental: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 23 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm@23
+
+      - name: Install LLVM 23 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash /tmp/llvm.sh 23
+          sudo apt-get install -y llvm-23-dev libpolly-23-dev libzstd-dev zlib1g-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: scripts/test.sh
+        run: scripts/test.sh

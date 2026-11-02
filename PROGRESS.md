@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.1: Cross-compilation infrastructure** (see [PLAN.md](PLAN.md#p81-cross-compilation-infrastructure)). Phase 7 is complete. Note for P8: the runtime now also links `libppl_crypto.a` + `libppl_mbedtls.a` (Mbed TLS must be built per target too).
+**P8.0: Linux host bring-up** (see [PLAN.md](PLAN.md#p80-linux-host-bring-up)), on the new Linux arm64 VM. Set up the toolchain per `docs/DEVELOPMENT.md` "Setup (Linux)" (ask before installing). Then P8.1. Phase 7 is complete. Note for P8: the runtime now also links `libppl_crypto.a` + `libppl_mbedtls.a` (Mbed TLS must be built per target too).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -27,7 +27,7 @@ Notes:
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23.1.3 (Homebrew `llvm@23`), inkwell 0.11 `llvm23-1` |
 | Last green `scripts/test.sh` | 2026-11-02 (P7.5b) |
-| Host | macOS arm64 |
+| Host | Linux arm64 VM from P8.0 on (macOS arm64 before); CI: macOS + Linux arm64 |
 
 ## Session protocol
 1. Read this file, then the task in PLAN.md and its **Spec** sections. Nothing else unless you need it.
@@ -252,6 +252,7 @@ Notes:
 - [x] P7.10 std/test and `ppl test`
 
 ### Phase 8: Targets
+- [ ] P8.0 Linux host bring-up
 - [ ] P8.1 Cross-compilation infrastructure
 - [ ] P8.2 Linux gnu and musl
 - [ ] P8.3 Windows (MinGW)
@@ -375,3 +376,4 @@ Notes:
 | 2026-11-02 | P7.10 | `std/test` (describe/test/it/skip/only/todo, hooks, typed `expect` overloads with `.not`, `toThrow`, `toPanic`, `resolves`/`rejects`, async tests, `bench`), `ppl test` (discovery, a process per file in parallel, `-t`, `--interp`, `--watch`, `-j`) and `ppl bench`; `__catch_panic` builtin; stdlib tests as `stdlib/tests/*.test.ppl` run by cargo. Overload resolution by shape/specificity, generic getters substituted, native debug format of `T?`. Spec §14.3, decision 241. Tests: run/test/runner, ppl-cli stdlib_tests. |
 | 2026-11-02 | P7.8 | Mbed TLS 3.6.7 vendored (author's choice); `crypto` global (`getRandomValues`, `randomUUID`, Web Crypto `subtle`: digest, HMAC, AES-GCM, ECDSA, ECDH, HKDF, PBKDF2) and `std/crypto` (hashes incl. SHA-3, HMAC, HKDF, PBKDF2, AES-GCM, ChaCha20-Poly1305, P-256/P-384/X25519 keys, deterministic ECDSA, ECDH) over one C layer shared by both backends. Async struct methods; struct `this` captured by reference. Spec §13.12, decision 242. Tests: run/crypto/{kat (FIPS/RFC/NIST vectors), subtle}, stdlib/tests/crypto. |
 | 2026-11-02 | P7.5b | TLS over Mbed TLS: `fetch` https: (certificate and host checks against the system roots, `caCerts`), `serve` with `cert`/`key`, `wss:`; one C session layer keyed by socket fd used by both backends (concurrent read/write via non-blocking sockets), `NetError` kind `TlsError`. Spec §13.6, decision 243. Test: run/http/https (local CA, IP SAN, big bodies both ways, untrusted rejection, wss echo). **Phase 7 complete.** |
+| 2026-11-02 | — | Move to Linux prepared: `env.sh` finds apt.llvm.org LLVM 23 and `~/.cargo/bin`, DEVELOPMENT.md Linux setup, CI workflow (macOS + Linux arm64, Linux allowed to fail until P8.0), PLAN: new P8.0 (Linux host bring-up), P8.1/P8.2/P8.4 "Done when" reworded for a Linux arm64 host. Fixed a lost wakeup in `ppl_worker_post` (it read `started` before pushing, so a worker starting in between slept forever; hung run/workers/transfer intermittently). |

@@ -619,17 +619,27 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 ## Phase 8: Targets
 
+### P8.0 Linux host bring-up
+- **Spec**: 15 §15.3
+- **Do**: make `scripts/test.sh` green on Linux arm64 (`aarch64-unknown-linux-gnu`), the new
+  development host. The Linux branches of the runtime were written but never compiled: epoll in
+  `ppl_loop.c`, inotify in `ppl_io.c`, the TLS CA bundle paths in `ppl_tls.c`, and the `-lm` /
+  `-rdynamic` link flags in `ppl-driver`. Enable `panic_trace.rs` on Linux (glibc `dladdr`/
+  backtrace symbolization). Drop `continue-on-error` from the Linux CI job.
+- **Done when**: `scripts/test.sh` passes on the Linux VM and both CI jobs (macOS, Linux) are green.
+
 ### P8.1 Cross-compilation infrastructure
 - **Spec**: 15
 - **Do**: target triples and aliases, a `--target` flag, per-target runtime builds (clang), linking
   through **lld** (via LLVM, no system linker), and the glibc version suffix.
-- **Done when**: building `linux-x64` from macOS produces an ELF binary (verified with `file`, run
-  under Docker if available).
+- **Done when**: building `linux-x64` from the Linux arm64 host produces an x86-64 ELF binary
+  (verified with `file`) that runs under `qemu-user`, linked by lld without the system `cc`.
 
 ### P8.2 Linux gnu and musl
 - **Do**: glibc stubs (generate versioned stub libs, as Zig does), musl static linking, and epoll in
   the event loop.
-- **Done when**: the golden tests pass in a Linux container for gnu and musl.
+- **Done when**: the golden tests pass natively on the Linux arm64 host for gnu and musl, and for
+  `linux-x64` gnu and musl under `qemu-user`.
 
 ### P8.3 Windows (MinGW)
 - **Do**: MinGW import libraries, CodeView debug info, IOCP in the event loop, and `CreateProcessW`.
@@ -637,7 +647,9 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 ### P8.4 macOS cross builds
 - **Do**: bundled `.tbd` stubs, x64 and arm64 from any host, and universal-binary support (optional).
-- **Done when**: both architectures build from macOS arm64, and an x64 binary runs under Rosetta.
+- **Done when**: both architectures build from the Linux host (Mach-O verified with `file`), and on
+  macOS arm64 (the VM's host or the CI runner) the arm64 binary runs and the x64 one runs under
+  Rosetta.
 
 ### P8.5 wasm32-wasi
 - **Spec**: 12 §12.5
