@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.3a: Windows toolchain and runtime core** (see [PLAN.md](PLAN.md#p83a-windows-toolchain-and-runtime-core)); P8.3 split in three, decision 248. Linux targets are complete (P8.0–P8.2b, `crates/ppl-driver/src/{link,glibc,musl,builtins}.rs`). Windows binaries run only in CI (GitHub's windows-latest and windows-11-arm runners): Wine 10 crashes in its own startup on this VM (installed, unusable). Plan the CI shape first: the Linux job builds golden-test executables per Windows target plus a manifest of expectations; a Windows job downloads the artifact and checks them (it can't run the Rust harness without a Windows ppl).
+**P8.3b: Windows files** (see [PLAN.md](PLAN.md#p83b-windows-files)): std/fs, `watch` (`ReadDirectoryChangesW`) and the remaining encoding ops on Windows. The Windows half of `runtime/src/ppl_io.c` is the `#else` of `PPL_IO_POSIX`: `os_submit` (jobs < 100, now failing with ENOSYS) and `os_op` (controls ≥ 100); the portable core (results, polling 100–104, text codecs 130/131, random 132, clocks 133, stdout writes op 25) is shared. Delete `run/fs/`, `run/path.ppl`, `run/streams/` from `tests/windows-skip.txt` as they pass. Windows runs only in CI (~1 h per round trip: Linux job ~52 min, then the Windows jobs), so batch fixes and check the Windows build locally with `PPL_TEST_TARGET=windows-x64 PPL_TEST_EXPORT=… cargo test -p ppl-tests --test golden -- export`.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -259,7 +259,7 @@ Notes:
 - [x] P8.1 Cross-compilation infrastructure
 - [x] P8.2a glibc stubs
 - [x] P8.2b musl
-- [ ] P8.3a Windows toolchain and runtime core
+- [x] P8.3a Windows toolchain and runtime core
 - [ ] P8.3b Windows files
 - [ ] P8.3c Windows processes and networking
 - [ ] P8.4 macOS cross builds
@@ -395,3 +395,4 @@ Notes:
 | 2026-11-02 | P8.3a (part) | Event loop on IOCP for Windows: a completion port per thread (`ppl_loop_wait` = `GetQueuedCompletionStatus` with the timer timeout, `ppl_loop_wake` posts a packet), replacing `Sleep`. CI: Windows jobs no longer skipped when the macOS leg fails; fixed an unused import that broke the macOS build (no lld there). |
 | 2026-11-02 | P8.3a (part) | First Windows CI run: 102/106 pass on x64, 97/106 on arm64. Fixes: arm64 Windows `try`/panics use MinGW's `__mingw_setjmp`/`__mingw_longjmp` (the UCRT's longjmp always unwinds there and failed with STATUS_BAD_FUNCTION_TABLE; codegen `Setjmp` enum, `ppl_rt.h`); `ppl_io.c` split into a portable core (job results, polling, text codecs, random bytes via `rand_s` on Windows, clocks, our own stdout writes) and the POSIX I/O, so `Math.random()` works (it crashed on the stub's -1 buffer); Windows I/O jobs fail at once as Other (os error 40, ENOSYS) until P8.3b/c. `run/time/std_time` and `run/fmt/formattable` skipped on Windows: no tz database there. |
 | 2026-11-02 | P8.3a (part) | CI after the arm64 setjmp fix: arm64 Windows all green (104), x64 one failure: `run/math/std_math` printed a determinant as 8.000000000000004 (the UCRT's `sin(π/2)` is 1 + 1 ulp). Author chose musl's libm for Windows (decision 249): `musl::libm` builds musl's double-precision `src/math` for the Windows target (LLP64 alltypes, a 64-bit-`long double` `float.h` on arm64), linked ahead of MinGW and the UCRT; checked with `llvm-objdump -p` that only `__setusermatherr` is still imported from the UCRT's math DLL. Spec §13.9 notes it. |
+| 2026-11-02 | P8.3a | Done: CI run 41508096436 green on windows-x64 and windows-arm64 (104 golden programs each; I/O fixtures and the two tz ones skipped). macOS was cancelled for runner capacity before any step ran (re-run requested). |
