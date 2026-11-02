@@ -2,7 +2,7 @@
 # makes them work. PPL_TEST_EXPORT skips them; delete lines as the tasks land.
 run/process/         P8.3c
 run/test/runner.ppl  P8.3c
-run/time/date.ppl    P8.3c
+run/time/date          tzdb (sets TZ=Europe/Berlin)
 run/net/             P8.3c
 run/http/            P8.3c
 run/crypto/          P8.3c

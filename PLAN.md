@@ -668,9 +668,20 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Do**: std/fs, `watch` (`ReadDirectoryChangesW`) and encoding ops on Windows.
 - **Done when**: the fs golden tests pass for `windows-x64` and `windows-arm64` in CI.
 
-### P8.3c Windows processes and networking
-- **Do**: std/process (`CreateProcessW`, pipes), sockets and TLS on IOCP.
-- **Done when**: all golden tests pass for `windows-x64` and `windows-arm64` in CI.
+### P8.3c1 Windows processes, environment and crypto
+- **Do**: std/process on Windows: `CreateProcessW` with pipe handles (the pipe jobs on their own
+  threads, as on POSIX), waiting, `kill` (`TerminateProcess`), `Command.shell` through
+  `cmd.exe /c`, the environment, arguments, `exit`, `pid`; Mbed TLS and `std/crypto` on Windows;
+  Windows process fixtures (the POSIX ones use `sh`, `cat` and friends).
+- **Done when**: `run/process/` (or its Windows counterparts), `run/crypto/` and
+  `run/test/runner.ppl` pass for `windows-x64` and `windows-arm64` in CI.
+
+### P8.3c2 Windows sockets and TLS
+- **Do**: std/net on Winsock (blocking calls on the job threads, as on POSIX; the loop already
+  waits on a completion port), `ppl_tls.c` on Winsock, and the Windows certificate store for
+  `fetch`.
+- **Done when**: all golden tests pass for `windows-x64` and `windows-arm64` in CI, except
+  those needing named time zones (no tz database on Windows yet).
 
 ### P8.4 macOS cross builds
 - **Do**: bundled `.tbd` stubs, x64 and arm64 from any host, and universal-binary support (optional).
