@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.3d: Bundled IANA tz database** (see [PLAN.md](PLAN.md#p83d-bundled-iana-tz-database)); the author chose bundling over mapping Windows' own zone data. Zones are read in `stdlib/core/time.ppl` (`__zoneNamed`, `__localZone`, TZif via `__io` 134). Windows runs only in CI (~11 min to the Windows results).
+**P8.4: macOS cross builds** (see [PLAN.md](PLAN.md#p84-macos-cross-builds)).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -263,7 +263,7 @@ Notes:
 - [x] P8.3b Windows files
 - [x] P8.3c1 Windows processes, environment and crypto
 - [x] P8.3c2 Windows sockets and TLS
-- [ ] P8.3d Bundled IANA tz database
+- [x] P8.3d Bundled IANA tz database
 - [ ] P8.4 macOS cross builds
 - [ ] P8.5 wasm32-wasi
 - [ ] P8.6 wasm32-browser (linear memory)
@@ -407,3 +407,4 @@ Notes:
 | 2026-11-02 | P8.3c2 (part) | Windows sockets and TLS, pending CI: `net_run` portable behind shims, Windows pipe jobs on sockets (TLS sessions first), shutdown cancels blocked reads, `ppl_tls.c` on Winsock with ROOT-store roots (crypt32 import library). `run/net/`, `run/http/` no longer skipped (127 programs per Windows target). Decision 252. |
 | 2026-11-02 | P8.3c2 | Done: CI run 41538412531 green on all 8 jobs (127 golden programs per Windows target). Only the three tz fixtures are still skipped on Windows; new task P8.3d bundles the IANA tz database (author's choice). |
 | 2026-11-03 | P8.3d (part) | Bundled IANA tz database, pending CI: `scripts/update-tzdata.sh 2026f` (signatures checked, tzcode's own `zic -b slim`) → `third_party/tzdata/tzdata.bin` (598 zones, 220 KB) and `windows_zones.inc` (CLDR); `runtime/src/ppl_tzdata.c` embeds it with `.incbin` on Windows only; `__io` 136 (bundled zone, after the system database) and 137 (Windows' local zone as an IANA id); the interpreter answers both with nothing. The tz fixtures pass on Linux against the unpacked bundle (`TZDIR`). `tests/windows-skip.txt` is empty. Decision 253. |
+| 2026-11-03 | P8.3d | Done: CI run 41541991808 green on all 8 jobs; every golden test runs on windows-x64 and windows-arm64 (the skip list is empty). |
