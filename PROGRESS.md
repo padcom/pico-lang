@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.3b: Windows files** (see [PLAN.md](PLAN.md#p83b-windows-files)): std/fs, `watch` (`ReadDirectoryChangesW`) and the remaining encoding ops on Windows. The Windows half of `runtime/src/ppl_io.c` is the `#else` of `PPL_IO_POSIX`: `os_submit` (jobs < 100, now failing with ENOSYS) and `os_op` (controls ≥ 100); the portable core (results, polling 100–104, text codecs 130/131, random 132, clocks 133, stdout writes op 25) is shared. Delete `run/fs/`, `run/path.ppl`, `run/streams/` from `tests/windows-skip.txt` as they pass. Windows runs only in CI (the export jobs run in parallel with the rest since the CI split; was ~1 h per round trip), so batch fixes and check the Windows build locally with `PPL_TEST_TARGET=windows-x64 PPL_TEST_EXPORT=… cargo test -p ppl-tests --test golden -- export`.
+**P8.3c: Windows processes and networking** (see [PLAN.md](PLAN.md#p83c-windows-processes-and-networking)); being split (see the log).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -260,7 +260,7 @@ Notes:
 - [x] P8.2a glibc stubs
 - [x] P8.2b musl
 - [x] P8.3a Windows toolchain and runtime core
-- [ ] P8.3b Windows files
+- [x] P8.3b Windows files
 - [ ] P8.3c Windows processes and networking
 - [ ] P8.4 macOS cross builds
 - [ ] P8.5 wasm32-wasi
@@ -398,3 +398,4 @@ Notes:
 | 2026-11-02 | P8.3a | Done: CI run 41508096436 green on windows-x64 and windows-arm64 (104 golden programs each; I/O fixtures and the two tz ones skipped). macOS was cancelled for runner capacity before any step ran (re-run requested). |
 | 2026-11-02 | — | CI parallelized: `test` (macOS, Linux: `scripts/test.sh` only), `golden` (linux-x64 under qemu, linux-arm64-musl), `windows-build` (one export per Windows target) and `windows` (each needs only the exports) run side by side; Linux jobs share one Rust cache (saved by `test`), install through `scripts/ci-install-linux.sh`. |
 | 2026-11-02 | P8.3b (part) | Windows files, pending CI: author chose platform-native paths like Node (decision 250). `std/path` has `posix`/`win32` namespaces (struct globals) and the target's flavour at top level (win32 ported from Node; `tests/run/path_win32.ppl`'s expectations generated with Node). Comptime `target` follows `--target` (`comptime_config` in ppl-driver; the golden harness checks fixtures for the target). New directive `// expect-windows:` (replaces the `expect` before it). `ppl_io.c`: the pool and `watch` are portable behind `fs_info`/`dir_*`/`wake_*`/`wait_os`; Windows `run()` for ops 1–15 on the W functions (errors mapped to errno, ENOTDIR fix-up for missing paths under files), cwd (105), read-now (134), `watch` woken by `FindFirstChangeNotificationW`. `run/fs/`, `run/path.ppl`, `run/streams/` no longer skipped on Windows (113 programs per target). |
+| 2026-11-02 | P8.3b | Done: CI run 41531065813 green on all 8 jobs (113 golden programs per Windows target, macOS included with the portable watcher). |
