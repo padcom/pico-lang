@@ -5,8 +5,10 @@
   comments (`/** */`, `///`), decorators and declarations. Comment toggling, bracket matching,
   auto-closing pairs and `/** */` continuation come from the language configuration.
 - **The language server** (`ppl lsp`): errors and warnings as you type (also those in imported
-  modules), and Format Document (the `ppl fmt` formatter with `project.json`'s options).
-  Hover, go-to-definition, completion and rename follow (PLAN P10.6c–d).
+  modules), Format Document (the `ppl fmt` formatter with `project.json`'s options), hover
+  (the type or signature and the doc comment) and Go to Definition (also into imported modules
+  and the core library). A file with errors keeps the answers of its last good version until
+  P10.6c2; completion and rename follow (PLAN P10.6d).
 
 ## Settings
 

@@ -5,8 +5,11 @@
 //! until edits pause ([`DEBOUNCE`]), runs the front end (`ppl_driver::check_source_with`) on
 //! each changed document and publishes the diagnostics of every file they reach (imported
 //! modules too). `textDocument/formatting` runs the formatter (P10.1) with the document's
-//! `project.json` options.
+//! `project.json` options. Hover and go-to-definition answer from the document's symbol
+//! index ([`index`]), built by each check that gets as far as type checking (a document with
+//! earlier errors keeps its last index).
 
+mod index;
 mod uri;
 
 use ppl_diag::{Diagnostic, Severity, SourceMap};
@@ -115,6 +118,8 @@ struct Server {
     /// For each checked document, the URIs it published diagnostics for (cleared when they
     /// have none any more).
     published: HashMap<String, BTreeSet<String>>,
+    /// The last symbol index of each open document.
+    indexes: HashMap<String, index::Index>,
     shutdown: bool,
 }
 
@@ -132,6 +137,8 @@ impl Server {
                     "capabilities": {
                         "textDocumentSync": { "openClose": true, "change": 1, "save": true },
                         "documentFormattingProvider": true,
+                        "hoverProvider": true,
+                        "definitionProvider": true,
                     },
                     "serverInfo": { "name": "ppl", "version": env!("CARGO_PKG_VERSION") },
                 },
@@ -168,6 +175,7 @@ impl Server {
                 let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
                 self.docs.remove(uri);
                 self.dirty.remove(uri);
+                self.indexes.remove(uri);
                 for u in self.published.remove(uri).unwrap_or_default() {
                     send(publish(&u, Vec::new()));
                 }
@@ -175,6 +183,30 @@ impl Server {
             ("textDocument/formatting", Some(id)) => {
                 let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
                 let result = self.format(uri);
+                send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+            }
+            ("textDocument/hover" | "textDocument/definition", Some(id)) => {
+                let uri = params["textDocument"]["uri"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                if self.dirty.contains(&uri) {
+                    self.check_dirty(send);
+                }
+                let result = match self.ref_at(&uri, &params["position"]) {
+                    None => Value::Null,
+                    Some((idx, r)) if method == "textDocument/hover" => json!({
+                        "contents": { "kind": "markdown", "value": r.hover },
+                        "range": {
+                            "start": position(idx.sm.file(idx.file), r.start),
+                            "end": position(idx.sm.file(idx.file), r.end),
+                        },
+                    }),
+                    Some((idx, r)) => match file_uri(&idx.sm, r.def.file) {
+                        Some(u) => json!({ "uri": u, "range": range(&idx.sm, r.def) }),
+                        None => Value::Null,
+                    },
+                };
                 send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
             }
             (_, Some(id)) if !method.is_empty() => send(json!({
@@ -196,7 +228,10 @@ impl Server {
             let Some(text) = self.docs.get(&uri).cloned() else {
                 continue;
             };
-            let by_uri = check(&uri, &text);
+            let (by_uri, index) = check(&uri, &text);
+            if let Some(i) = index {
+                self.indexes.insert(uri.clone(), i);
+            }
             let old = self.published.remove(&uri).unwrap_or_default();
             for u in old.difference(&by_uri.keys().cloned().collect()) {
                 send(publish(u, Vec::new()));
@@ -208,6 +243,22 @@ impl Server {
             }
             self.published.insert(uri, now);
         }
+    }
+
+    /// The indexed name at an LSP position of an open document. An index older than the
+    /// text still answers where the name under the position is unchanged.
+    fn ref_at(&self, uri: &str, pos: &Value) -> Option<(&index::Index, &index::Ref)> {
+        let text = self.docs.get(uri)?;
+        let idx = self.indexes.get(uri)?;
+        let line = pos["line"].as_u64()? as usize;
+        let character = pos["character"].as_u64()? as usize;
+        let offset = offset_of(text, line, character)?;
+        let r = idx.at(offset)?;
+        if *text != idx.text && text.get(r.start as usize..r.end as usize) != Some(r.name.as_str())
+        {
+            return None;
+        }
+        Some((idx, r))
     }
 
     /// The document formatted, as one edit (`null` with syntax errors, as `ppl fmt`).
@@ -246,8 +297,9 @@ fn publish(uri: &str, diagnostics: Vec<Value>) -> Value {
 }
 
 /// Checks a document: its diagnostics and those of the files it imports, by URI (the
-/// document's own entry is always there, possibly empty).
-fn check(uri: &str, text: &str) -> BTreeMap<String, Vec<Value>> {
+/// document's own entry is always there, possibly empty), and its symbol index if checking
+/// got as far as types.
+fn check(uri: &str, text: &str) -> (BTreeMap<String, Vec<Value>>, Option<index::Index>) {
     let path = uri_to_path(uri).unwrap_or_else(|| PathBuf::from("untitled.ppl"));
     let dir = path
         .parent()
@@ -264,7 +316,7 @@ fn check(uri: &str, text: &str) -> BTreeMap<String, Vec<Value>> {
             ppl_driver::BuildOptions::default(),
         )
     });
-    let checked = match checked {
+    let mut checked = match checked {
         Ok(c) => c,
         Err(e) => {
             let why = e
@@ -278,7 +330,7 @@ fn check(uri: &str, text: &str) -> BTreeMap<String, Vec<Value>> {
                 "source": "ppl",
                 "message": format!("internal compiler error: {why}"),
             }));
-            return out;
+            return (out, None);
         }
     };
     for d in &checked.diags {
@@ -296,7 +348,84 @@ fn check(uri: &str, text: &str) -> BTreeMap<String, Vec<Value>> {
         let v = to_lsp(d, span, &checked.sm, &name);
         out.entry(u).or_default().push(v);
     }
-    out
+    let index = match (&checked.hir, &checked.types) {
+        (Some(hir), Some(types)) => {
+            let sm = std::mem::take(&mut checked.sm);
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                index::build(sm, hir, types)
+            }))
+            .ok()
+        }
+        _ => None,
+    };
+    (out, index)
+}
+
+/// A URI the client can open for a source file: its path, or for the embedded core library
+/// (`<core>/…`) and generated modules (`<c:…>`, `<js:…>`) the bundled stdlib's copy or a
+/// read-only copy in the temporary directory.
+fn file_uri(sm: &SourceMap, file: ppl_diag::FileId) -> Option<String> {
+    let f = sm.file(file);
+    let p = Path::new(&f.name);
+    if p.is_absolute() {
+        return Some(path_to_uri(p));
+    }
+    if let Some(rest) = f.name.strip_prefix("<core>/") {
+        let bundled = ppl_driver::stdlib_dir().join("core").join(rest);
+        if std::fs::read_to_string(&bundled).is_ok_and(|t| t == f.text) {
+            return Some(path_to_uri(&bundled.canonicalize().unwrap_or(bundled)));
+        }
+    }
+    let name: String = f
+        .name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let dir = std::env::temp_dir().join(format!("ppl-lsp-{}", env!("CARGO_PKG_VERSION")));
+    let path = dir.join(if name.ends_with(".ppl") {
+        name
+    } else {
+        format!("{name}.ppl")
+    });
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(f.text.as_str()) {
+        std::fs::create_dir_all(&dir).ok()?;
+        // (An older copy is read-only.)
+        if let Ok(m) = std::fs::metadata(&path) {
+            let mut perm = m.permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            perm.set_readonly(false);
+            let _ = std::fs::set_permissions(&path, perm);
+        }
+        std::fs::write(&path, &f.text).ok()?;
+        let mut perm = std::fs::metadata(&path).ok()?.permissions();
+        perm.set_readonly(true);
+        let _ = std::fs::set_permissions(&path, perm);
+    }
+    Some(path_to_uri(&path))
+}
+
+/// The byte offset of an LSP position (UTF-16 code units in the line).
+fn offset_of(text: &str, line: usize, character: usize) -> Option<u32> {
+    let mut start = 0;
+    for _ in 0..line {
+        start += text[start..].find('\n')? + 1;
+    }
+    let rest = &text[start..];
+    let end = rest.find('\n').unwrap_or(rest.len());
+    let mut units = 0;
+    for (i, c) in rest[..end].char_indices() {
+        if units >= character {
+            return Some((start + i) as u32);
+        }
+        units += c.len_utf16();
+    }
+    Some((start + end) as u32)
 }
 
 /// A diagnostic as LSP sends it (at `span`, or the document's start).

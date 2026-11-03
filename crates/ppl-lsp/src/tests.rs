@@ -42,7 +42,7 @@ fn initialize_and_shutdown() {
     let out = session(vec![
         init(),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-        json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {} }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown" }),
         json!({ "jsonrpc": "2.0", "method": "exit" }),
     ]);
@@ -51,6 +51,8 @@ fn initialize_and_shutdown() {
     let caps = &out[0]["result"]["capabilities"];
     assert_eq!(caps["textDocumentSync"]["change"], 1);
     assert_eq!(caps["documentFormattingProvider"], true);
+    assert_eq!(caps["hoverProvider"], true);
+    assert_eq!(caps["definitionProvider"], true);
     assert_eq!(out[1]["error"]["code"], -32601);
     assert_eq!(out[2]["id"], 3);
     assert!(out[2]["result"].is_null());
@@ -190,4 +192,257 @@ fn uris() {
         uri_to_path("file:///c%3A/x/y.ppl").unwrap(),
         PathBuf::from("c:/x/y.ppl")
     );
+}
+
+/// A hover or definition request at the `n`th (0-based) occurrence of `needle` in `text`
+/// (plus `skip` characters into it; ASCII lines).
+fn at(id: u64, method: &str, uri: &str, text: &str, needle: &str, n: usize, skip: usize) -> Value {
+    let offset = text
+        .match_indices(needle)
+        .nth(n)
+        .unwrap_or_else(|| panic!("no {needle} #{n}"))
+        .0
+        + skip;
+    let line = text[..offset].matches('\n').count();
+    let character = offset - text[..offset].rfind('\n').map_or(0, |i| i + 1);
+    json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": {
+        "textDocument": { "uri": uri }, "position": { "line": line, "character": character } } })
+}
+
+fn response(out: &[Value], id: u64) -> &Value {
+    let m = out
+        .iter()
+        .find(|m| m["id"] == id && m.get("method").is_none())
+        .unwrap_or_else(|| panic!("no response {id}: {out:#?}"));
+    &m["result"]
+}
+
+fn hover_text(out: &[Value], id: u64) -> String {
+    let r = response(out, id);
+    assert_eq!(r["contents"]["kind"], "markdown", "{r:#?}");
+    r["contents"]["value"].as_str().unwrap().to_string()
+}
+
+fn def_line(out: &[Value], id: u64) -> (String, u64, u64) {
+    let r = response(out, id);
+    (
+        r["uri"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{r:#?}"))
+            .to_string(),
+        r["range"]["start"]["line"].as_u64().unwrap(),
+        r["range"]["start"]["character"].as_u64().unwrap(),
+    )
+}
+
+const SAMPLE: &str = r#"/** A point on the grid. */
+struct Point {
+  x: i32
+  /// The vertical position.
+  y: i32
+}
+
+class Counter {
+  count = 0
+  public bump(by: i64): i64 {
+    count += by
+    count
+  }
+}
+
+type Meters = f64
+
+/**
+ * Adds two numbers.
+ */
+function add(a: i32, b: i32): i32 { a + b }
+
+const p: Point = Point { x: 1, y: 2 }
+let total = add(p.x, p.y)
+const c = new Counter()
+c.bump(2)
+const m: Meters = 2.0
+println(`${total} ${m}`)
+"#;
+
+#[test]
+fn hover() {
+    let dir = tmp("hover");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, SAMPLE, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SAMPLE),
+        h(2, "Point", 1, 0),   // the annotation
+        h(3, "add", 1, 0),     // the call
+        h(4, "p.y", 0, 0),     // `p`
+        h(5, "p.y", 0, 2),     // the field
+        h(6, "bump", 1, 0),    // the method call
+        h(7, "by", 1, 1),      // the parameter's use (inside the name)
+        h(8, "Counter", 1, 0), // `new Counter`
+        h(9, "Meters", 1, 0),
+        h(10, "total", 0, 0),
+        h(11, "count", 1, 0), // an implicit `this.count`
+        h(12, "\n\n", 0, 1),  // nothing
+    ]);
+    let t = |id| hover_text(&out, id);
+    assert_eq!(t(2), "```ppl\nstruct Point\n```\n\nA point on the grid.");
+    assert_eq!(
+        t(3),
+        "```ppl\nfunction add(a: i32, b: i32): i32\n```\n\nAdds two numbers."
+    );
+    assert_eq!(t(4), "```ppl\nconst p: Point\n```");
+    assert_eq!(
+        t(5),
+        "```ppl\n(field) Point.y: i32\n```\n\nThe vertical position."
+    );
+    assert_eq!(t(6), "```ppl\n(method) Counter.bump(by: i64): i64\n```");
+    assert_eq!(t(7), "```ppl\n(parameter) by: i64\n```");
+    assert_eq!(t(8), "```ppl\nclass Counter\n```");
+    assert_eq!(t(9), "```ppl\ntype Meters = f64\n```");
+    assert_eq!(t(10), "```ppl\nlet total: i32\n```");
+    assert_eq!(t(11), "```ppl\n(field) Counter.count: i64\n```");
+    assert!(response(&out, 12).is_null());
+    // The range is the name's.
+    let r = &response(&out, 3)["range"];
+    assert_eq!(r["start"], json!({ "line": 23, "character": 12 }));
+    assert_eq!(r["end"], json!({ "line": 23, "character": 15 }));
+}
+
+#[test]
+fn definition() {
+    let dir = tmp("def");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, SAMPLE, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SAMPLE),
+        d(2, "Point", 2, 0), // the literal's type
+        d(3, "add", 1, 0),
+        d(4, "p.x", 0, 2), // the field
+        d(5, "bump", 1, 0),
+        d(6, "Counter", 1, 0),
+        d(7, "a + b", 0, 0),
+        d(8, "Meters", 1, 0),
+        d(9, "Point { x", 0, 8), // a literal's field
+    ]);
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        assert_eq!(u, uri);
+        (line, ch)
+    };
+    assert_eq!(l(2), (1, 7));
+    assert_eq!(l(3), (20, 9));
+    assert_eq!(l(4), (2, 2));
+    assert_eq!(l(5), (9, 9));
+    assert_eq!(l(6), (7, 6));
+    assert_eq!(l(7), (20, 13));
+    assert_eq!(l(8), (15, 5));
+    assert_eq!(l(9), (2, 2));
+}
+
+#[test]
+fn definition_across_modules_and_into_the_prelude() {
+    let dir = tmp("modules");
+    let geo = "export struct Vec2 {\n  x: i32\n  y: i32\n}\n/// The dot product.\nexport function dot(a: Vec2, b: Vec2): i32 { a.x * b.x + a.y * b.y }\n";
+    std::fs::write(dir.join("geo.ppl"), geo).unwrap();
+    let geo_uri = path_to_uri(&dir.join("geo.ppl").canonicalize().unwrap());
+    let main = "import { Vec2, dot } from \"./geo\"\nconst v = Vec2 { x: 1, y: 2 }\nconst e = new Error(\"x\")\nprintln(`${dot(v, v)} ${e.message} ${[1].map((n) => n).length}`)\n";
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, main, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, main),
+        d(2, "dot", 1, 0),  // a call of an imported function
+        d(3, "dot", 0, 0),  // the import
+        d(4, "Vec2", 1, 0), // an imported struct
+        d(6, "Error", 0, 0),
+        d(7, "message", 0, 0),
+        d(8, "map", 0, 0),
+        at(9, "textDocument/hover", &uri, main, "dot", 1, 0),
+    ]);
+    let canon = |u: String| path_to_uri(&uri_to_path(&u).unwrap().canonicalize().unwrap());
+    let (u, line, ch) = def_line(&out, 2);
+    assert_eq!((canon(u), line, ch), (geo_uri.clone(), 5, 16));
+    let (u, line, _) = def_line(&out, 3);
+    assert_eq!((canon(u), line), (geo_uri.clone(), 5));
+    let (u, line, ch) = def_line(&out, 4);
+    assert_eq!((canon(u), line, ch), (geo_uri.clone(), 0, 14));
+    // The core library: the bundled stdlib's file, or a copy of it.
+    for (id, file, decl) in [
+        (6, "error.ppl", "class Error"),
+        (7, "error.ppl", "message"),
+        (8, "array.ppl", "__Array_map"),
+    ] {
+        let (u, line, _) = def_line(&out, id);
+        assert!(u.ends_with(&format!("/{file}")), "{u}");
+        let text = std::fs::read_to_string(uri_to_path(&u).unwrap()).unwrap();
+        let l = text.lines().nth(line as usize).unwrap();
+        assert!(l.contains(decl), "{l}");
+    }
+    assert_eq!(
+        hover_text(&out, 9),
+        "```ppl\nfunction dot(a: Vec2, b: Vec2): i32\n```\n\nThe dot product."
+    );
+}
+
+#[test]
+fn a_document_with_errors_keeps_its_last_index() {
+    let dir = tmp("stale");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let good = "const answer = 42\nprintln(answer)\n";
+    let bad = "const answer = 42\nprintln(answer)\nconst broken: i32 = \nconst more = answer + 1\n";
+    let out = session(vec![
+        init(),
+        open(&uri, good),
+        // (A request checks the document first: this builds the index of `good`.)
+        at(10, "textDocument/hover", &uri, good, "answer", 1, 0),
+        json!({ "jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
+            "textDocument": { "uri": uri, "version": 2 },
+            "contentChanges": [{ "text": bad }] } }),
+        at(2, "textDocument/hover", &uri, bad, "answer", 1, 0),
+        at(3, "textDocument/definition", &uri, bad, "answer", 1, 0),
+        // (Not in the old text: nothing.)
+        at(4, "textDocument/hover", &uri, bad, "answer", 2, 0),
+    ]);
+    // The hover was answered after the change was checked (its diagnostics came first).
+    let pos = |pred: &dyn Fn(&Value) -> bool| out.iter().position(pred).unwrap();
+    let diag = pos(&|m| {
+        m["method"] == "textDocument/publishDiagnostics"
+            && !m["params"]["diagnostics"].as_array().unwrap().is_empty()
+    });
+    assert!(diag < pos(&|m| m["id"] == 2), "{out:#?}");
+    assert_eq!(hover_text(&out, 2), "```ppl\nconst answer: i64\n```");
+    assert_eq!(def_line(&out, 3), (uri.clone(), 0, 6));
+    assert!(response(&out, 4).is_null());
+}
+
+#[test]
+fn hover_positions_count_utf16() {
+    let dir = tmp("utf16");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    // `𝄞` is two UTF-16 code units, `ż` one; `n` starts at character 15.
+    let text = "const n = 1\nprintln(\"𝄞ż\", n)\n";
+    let req = |id, character| {
+        json!({ "jsonrpc": "2.0", "id": id, "method": "textDocument/hover",
+        "params": { "textDocument": { "uri": uri }, "position": { "line": 1, "character": character } } })
+    };
+    let out = session(vec![init(), open(&uri, text), req(2, 15), req(3, 13)]);
+    assert_eq!(hover_text(&out, 2), "```ppl\nconst n: i64\n```");
+    let r = &response(&out, 2)["range"];
+    assert_eq!(r["start"]["character"], 15);
+    assert_eq!(r["end"]["character"], 16);
+    assert!(response(&out, 3).is_null());
+}
+
+#[test]
+fn embedded_files_get_a_read_only_copy() {
+    let name = format!("<js:lsp-test-{}>", std::process::id());
+    for text in ["export function a() {}\n", "export function b() {}\n"] {
+        let mut sm = SourceMap::new();
+        let f = sm.add(name.clone(), text);
+        let path = uri_to_path(&file_uri(&sm, f).unwrap()).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        assert!(std::fs::metadata(&path).unwrap().permissions().readonly());
+    }
 }

@@ -217,6 +217,7 @@ pub fn resolve_modules(
         cur_fn: FnId(0),
         distincts: 0,
         outer_fns: Vec::new(),
+        name_refs: Vec::new(),
         binding_decorators: modules.binding_decorators.clone(),
         type_decorators: modules.type_decorators.clone(),
         comptime_limit: None,
@@ -276,7 +277,18 @@ pub fn resolve_modules(
             }
         }
     }
-    let program = r.program(module);
+    let mut program = r.program(module);
+    // Imported names, for the language server's index.
+    for imp in &modules.imports {
+        let Some(name) = &imp.name else { continue };
+        r.mods.cur = r.module_of(imp.module);
+        if let Some(decl) = r.top_level_decl(&imp.alias.name, &program) {
+            program.name_refs.push((name.span, decl));
+            if imp.alias.span != name.span {
+                program.name_refs.push((imp.alias.span, decl));
+            }
+        }
+    }
     (program, r.diags)
 }
 
@@ -392,6 +404,8 @@ struct Resolver {
     distincts: u32,
     /// The states of the functions enclosing the closure being resolved, outermost first.
     outer_fns: Vec<FnState>,
+    /// See [`Program::name_refs`].
+    name_refs: Vec<(Span, Span)>,
 }
 
 enum Found {
@@ -996,6 +1010,7 @@ impl Resolver {
             exports: std::mem::take(&mut self.exports),
             externs: std::mem::take(&mut self.externs),
             links: std::mem::take(&mut self.links),
+            name_refs: std::mem::take(&mut self.name_refs),
         }
     }
 
@@ -3836,6 +3851,62 @@ impl Resolver {
     // ------------------------------------------------------------ types
 
     pub(crate) fn resolve_type(&mut self, t: &ast::Type) -> Ty {
+        let ty = self.resolve_type_here(t);
+        if let ast::TypeKind::Path { path, .. } = &t.kind
+            && let [name] = path.as_slice()
+            && let Some(decl) = self.type_decl(&name.name)
+        {
+            self.name_refs.push((name.span, decl));
+        }
+        ty
+    }
+
+    /// Where the top-level `name` in scope is declared (after [`Resolver::program`]).
+    fn top_level_decl(&self, name: &str, p: &Program) -> Option<Span> {
+        if let Some(sid) = self.top_structs.get(&self.mods, name) {
+            return Some(p.structs[sid.0 as usize].name_span);
+        }
+        if let Some(eid) = self.top_enums.get(&self.mods, name) {
+            return Some(p.enums[eid.0 as usize].name_span);
+        }
+        if let Some(fs) = self.top_fns.get(&self.mods, name) {
+            return Some(p.fns[fs.first()?.0 as usize].name_span);
+        }
+        if let Some(g) = self.top_globals.get(&self.mods, name) {
+            return Some(p.globals[g.0 as usize].span);
+        }
+        let key = self
+            .mods
+            .resolve(name, &|k| self.aliases.map.contains_key(k))?;
+        Some(self.aliases.map[&key].1)
+    }
+
+    /// Where the type `name` in scope is declared (for the language server's index): a
+    /// type parameter, an alias, a struct, class, interface or enum.
+    fn type_decl(&self, name: &str) -> Option<Span> {
+        if Ty::from_name(name).is_some() {
+            return None;
+        }
+        let alias = |r: &Self| {
+            let key = r.mods.resolve(name, &|k| r.aliases.map.contains_key(k))?;
+            Some(r.aliases.map[&key].1)
+        };
+        if self.f.type_params.iter().any(|(n, _)| n == name) {
+            return None;
+        }
+        if self.aliases.outside_prelude(&self.mods, name) {
+            return alias(self);
+        }
+        if let Some(sid) = self.top_structs.get(&self.mods, name) {
+            return Some(self.structs[sid.0 as usize].name_span);
+        }
+        if let Some(eid) = self.top_enums.get(&self.mods, name) {
+            return Some(self.enums[eid.0 as usize].name_span);
+        }
+        alias(self)
+    }
+
+    fn resolve_type_here(&mut self, t: &ast::Type) -> Ty {
         if let ast::TypeKind::Path { path, args } = &t.kind
             && let [ns, name] = path.as_slice()
             && let Some(target) = self
@@ -5204,6 +5275,10 @@ impl Resolver {
                         .filter(|id| self.structs[id.0 as usize].is_class),
                     _ => None,
                 };
+                if let Some(c) = class {
+                    let decl = self.structs[c.0 as usize].name_span;
+                    self.name_refs.push((callee.span, decl));
+                }
                 let Some(class) = class else {
                     self.error(
                         codes::UNKNOWN_TYPE,
@@ -6385,7 +6460,11 @@ impl Resolver {
                         );
                         return ExprKind::Error;
                     }
-                    Some(id) => Some(*id),
+                    Some(id) => {
+                        let decl = self.structs[id.0 as usize].name_span;
+                        self.name_refs.push((path[0].span, decl));
+                        Some(*id)
+                    }
                     None => {
                         let what = if Ty::from_name(&path[0].name).is_some() {
                             "isn't a struct"

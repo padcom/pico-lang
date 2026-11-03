@@ -887,6 +887,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   index of a document while it has errors).
 - **Done when**: protocol tests on error-free fixtures (locals, parameters, functions, types,
   members, imported names, a prelude declaration).
+- **Done (decision 272)**: `crates/ppl-lsp/src/index.rs`, `Program::name_refs` in the resolver;
+  protocol tests in `crates/ppl-lsp/src/tests.rs`.
 
 #### P10.6c2 Error recovery for the language server
 - **Do**: the driver keeps resolving and checking past errors (for the language server at

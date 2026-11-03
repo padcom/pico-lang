@@ -58,6 +58,10 @@ pub struct Program {
     pub externs: Vec<Extern>,
     /// Libraries `@link("name")` asks for.
     pub links: Vec<String>,
+    /// Names the HIR doesn't keep, and where each is declared (use, declaration), for the
+    /// language server's index: type names (types don't keep spans), `new C` and `S { … }`,
+    /// imported names.
+    pub name_refs: Vec<(Span, Span)>,
 }
 
 /// A function declared in an `extern "C"` block: calls go to the C symbol.
