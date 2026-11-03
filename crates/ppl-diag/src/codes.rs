@@ -112,6 +112,7 @@ codes! {
     COMPTIME_CAPTURE = 352: "comptime code that uses a runtime variable",
     COMPTIME_ARG = 353: "a `comptime` argument that isn't a constant",
     DECORATOR = 354: "an error reported by a decorator, or a decorator used wrongly",
+    EXPORT_TYPE = 355: "an `@export`ed function whose signature can't cross to JavaScript or C",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

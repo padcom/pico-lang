@@ -38,6 +38,11 @@ fn header_args(cc: &Clang) -> Vec<String> {
 /// The runtime's compile arguments: the installed headers, single-threaded. Our own
 /// `pthread.h` (`runtime/wasm`) stands in for the threads wasi-libc doesn't have.
 pub fn runtime_libc(cc: &Clang) -> Libc {
+    runtime_libc_for(cc, false)
+}
+
+/// [`runtime_libc`], for `wasm32-browser` when `browser` (`PPL_BROWSER`, decision 258).
+pub fn runtime_libc_for(cc: &Clang, browser: bool) -> Libc {
     let mut args = vec![
         "-isystem".into(),
         ppl_runtime::include_dir()
@@ -49,9 +54,12 @@ pub fn runtime_libc(cc: &Clang) -> Libc {
         "-mthread-model".into(),
         "single".into(),
     ];
+    if browser {
+        args.push("-DPPL_BROWSER=1".into());
+    }
     args.extend(header_args(cc));
     Libc {
-        name: "wasi".into(),
+        name: if browser { "browser" } else { "wasi" }.into(),
         args,
         start: Vec::new(),
     }

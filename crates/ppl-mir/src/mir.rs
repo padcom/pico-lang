@@ -60,6 +60,23 @@ pub struct Program {
     /// Interface method tables: for one implementing type and interface, the function for
     /// each interface method slot. Every entry takes the interface value as its first argument.
     pub itables: Vec<Vec<FnId>>,
+    /// `@export`ed functions (spec §12.3, §12.4), each called through a wrapper.
+    pub exports: Vec<Export>,
+}
+
+/// An `@export`ed function, as the outside sees it.
+#[derive(Clone, Debug)]
+pub struct Export {
+    /// What the outside calls (decision 258): for JavaScript, a wrapper that takes structs
+    /// through pointers (and returns them into a buffer given first), and everything else
+    /// as is.
+    pub wrapper: FnId,
+    /// The exported function itself.
+    pub func: FnId,
+    pub name: String,
+    pub abi: ppl_sema::hir::ExportAbi,
+    pub params: Vec<(String, Ty)>,
+    pub ret: Ty,
 }
 
 /// A class's runtime metadata: its base class and its vtable (empty for structs).

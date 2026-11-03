@@ -69,6 +69,11 @@ pub fn tzdata_dir() -> PathBuf {
     include_dir().join("../../third_party/tzdata")
 }
 
+/// TypeScript's `lib.dom.d.ts` (`third_party/typescript`), for `js:dom` imports (P8.8).
+pub fn typescript_dir() -> PathBuf {
+    include_dir().join("../../third_party/typescript")
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -134,6 +134,11 @@ impl SourceMap {
         &self.files[id.0 as usize]
     }
 
+    /// Every file's id, in the order they were added.
+    pub fn ids(&self) -> impl Iterator<Item = FileId> + use<> {
+        (0..self.files.len() as u32).map(FileId)
+    }
+
     /// The source text covered by `span`.
     pub fn snippet(&self, span: Span) -> &str {
         &self.file(span.file).text[span.start as usize..span.end as usize]

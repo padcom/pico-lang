@@ -611,11 +611,21 @@ impl<'ctx> Gen<'ctx, '_> {
             let is_entry = i == self.p.entry.0 as usize;
             let (name, linkage) = if is_entry {
                 ("ppl_entry".to_string(), Linkage::External)
+            } else if let Some(e) = self.p.exports.iter().find(|e| e.wrapper.0 as usize == i) {
+                (export_symbol(e), Linkage::External)
+            } else if f.library && f.name == "__runEventLoop" {
+                // The browser's runtime resumes the loop from JavaScript (`ppl_resume`).
+                ("ppl_run_event_loop".to_string(), Linkage::External)
             } else {
                 (format!("ppl.{}", f.name), Linkage::Internal)
             };
-            self.fns
-                .push(self.m.add_function(&name, fn_ty, Some(linkage)));
+            let func = self.m.add_function(&name, fn_ty, Some(linkage));
+            if linkage == Linkage::External && name.starts_with("ppl_js_") {
+                // (A wasm export of the browser's module.)
+                let attr = self.cx.create_string_attribute("wasm-export-name", &name);
+                func.add_attribute(inkwell::attributes::AttributeLoc::Function, attr);
+            }
+            self.fns.push(func);
         }
         for (i, gdecl) in self.p.globals.iter().enumerate() {
             let g = self.ty(&gdecl.ty).map(|t| {
@@ -3420,4 +3430,13 @@ fn used_classes(p: &ppl_mir::Program) -> Vec<bool> {
         }
     }
     used
+}
+
+/// The symbol of an `@export`ed function's wrapper: `ppl_js_<name>` for JavaScript (the glue
+/// calls it), the plain name for C.
+pub fn export_symbol(e: &ppl_mir::mir::Export) -> String {
+    match e.abi {
+        ppl_sema::hir::ExportAbi::Js => format!("ppl_js_{}", e.name),
+        ppl_sema::hir::ExportAbi::C => e.name.clone(),
+    }
 }

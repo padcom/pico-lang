@@ -1,0 +1,25 @@
+// (The wait is far after the ticks: on a loaded machine they drift late.)
+// Timers, promises and an interval run on browser timers through the glue (decision 258).
+function wait(ms: int): Promise<int> {
+  new Promise<int>((resolve: (v: int) => void, reject: (e: Error) => void) => {
+    setTimeout(() => { resolve(ms) }, ms)
+  })
+}
+
+async function main(): Promise<void> {
+  const a = await wait(400)
+  println(`waited ${a}`)
+}
+
+let ticks = 0
+let id: int = 0
+id = setInterval(() => {
+  ticks += 1
+  println(`tick ${ticks}`)
+  if (ticks == 3) {
+    clearInterval(id)
+  }
+}, 10)
+main()
+queueMicrotask(() => { println("microtask") })
+println("top level done")

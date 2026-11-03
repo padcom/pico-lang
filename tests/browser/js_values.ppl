@@ -1,0 +1,41 @@
+// std/js under Node.js: dynamic values, calls, callbacks, errors, and a `js:dom` global that
+// Node.js has too (`console`). Decision 259.
+import { JsValue, JsError, js } from "std/js"
+import { console } from "js:dom"
+
+const math = js.global.get("Math")
+println(`max ${math.call("max", 1, 5, 3).asNumber()}`)
+println(`pi ${math.get("PI").asNumber()}`)
+const parsed = js.global.get("JSON").call("parse", "{\"a\": [1, 2, 3], \"s\": \"hé\"}")
+println(`a.length ${parsed.get("a").get("length").asNumber()} s ${parsed.get("s").asString()}`)
+println(`typeof ${parsed.typeOf()} ${parsed.get("missing").typeOf()} ${js.global.get("Math").get("max").typeOf()}`)
+println(`nullish ${parsed.get("missing").isNullish()}`)
+
+// A ppl function called from JavaScript.
+let sum = 0.0
+const add = JsValue.fn((args: JsValue) => {
+  sum += args.at(0).asNumber()
+})
+parsed.get("a").call("forEach", add)
+println(`sum ${sum}`)
+
+// A ppl function JavaScript calls later (on the event loop).
+js.global.call("setTimeout", JsValue.fn((args: JsValue) => {
+  println("timer from JavaScript")
+}), 10)
+
+try {
+  js.global.get("JSON").call("parse", "{")
+} catch (e: JsError) {
+  println(`caught ${e.message.startsWith("SyntaxError")}`)
+}
+try {
+  parsed.get("s").asNumber()
+} catch (e: JsError) {
+  println(`caught ${e.message}`)
+}
+const obj = js.global.get("Object").construct()
+obj.set("x", 42.0)
+obj.set("name", "ppl")
+println(js.global.get("JSON").call("stringify", obj).asString())
+console.log("console.log", 1.5, true)

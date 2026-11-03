@@ -1,0 +1,243 @@
+// std/js (spec §12.3): JavaScript values in wasm32-browser programs. A `JsValue` is a handle
+// to a value the JavaScript glue keeps for ppl code (`__io` 150–168; decision 259); it's
+// released once the `JsValue` is collected. Every JavaScript operation can throw `JsError`.
+// `js:` imports (`import { document } from "js:dom"`) are typed wrappers over these.
+
+/// An exception thrown by JavaScript code (its `String(e)` is the message), or a JavaScript
+/// value of the wrong type.
+export class JsError extends Error {
+  constructor(message: string) {
+    super(message)
+  }
+}
+
+/// What JavaScript functions take: numbers, strings, booleans and other JavaScript values.
+export type JsArg = f64 | string | bool | JsValue
+
+/// Handles are released when their `JsValue` is collected.
+const __jsHandles = new FinalizationRegistry<int>((h: int) => {
+  __io(164, h, 0, 0, "", "");
+})
+
+/// `__io` ops answer -3 outside the browser.
+function __jsCheck(r: int): int {
+  if (r == -3) {
+    panic("std/js is only available on wasm32-browser")
+  }
+  r
+}
+
+/// A handle from an operation that may have thrown (-1): the exception becomes a `JsError`.
+function __jsResult(r: int): JsValue throws JsError {
+  if (__jsCheck(r) == -1) {
+    const e = new JsValue(__io(165, 0, 0, 0, "", ""))
+    throw new JsError(e.toString())
+  }
+  new JsValue(r)
+}
+
+/// The array handle of `args`, for calls.
+function __jsArgs(args: JsArg[]): int {
+  const a = __jsCheck(__io(158, 0, 0, 0, "", ""))
+  for (const x of args) {
+    const v = JsValue.from(x)
+    __io(159, a, v.handle, 0, "", "");
+  }
+  a
+}
+
+/// A JavaScript array of `xs` (rest parameters of generated `js:` functions).
+export function __jsArray(xs: JsArg[]): JsValue {
+  new JsValue(__jsArgs(xs))
+}
+
+/// `target[name](...fixed, ...rest)` (generated `js:` methods with rest parameters).
+export function __jsCallRest(target: JsValue, name: string, fixed: JsArg[], rest: JsArg[]): JsValue throws JsError {
+  const all: JsArg[] = []
+  for (const x of fixed) {
+    all.push(x)
+  }
+  for (const x of rest) {
+    all.push(x)
+  }
+  __jsResult(__io(152, target.handle, __jsArgs(all), 0, name, ""))
+}
+
+/// A JavaScript value held by ppl code.
+export class JsValue {
+  public readonly handle: int
+
+  constructor(handle: int) {
+    this.handle = handle
+    // (0, 1 and 2 are `undefined`, `null` and `globalThis`: never released.)
+    if (handle > 2) {
+      __jsHandles.register(this, handle)
+    }
+  }
+
+  /// `x` as a JavaScript value (a number, a string, a boolean, or `x` itself).
+  public static from(x: JsArg): JsValue {
+    match (x) {
+      n: f64 => {
+        const hi = __math(29, n, 0.0) as int
+        const lo = __math(30, n, 0.0) as int
+        new JsValue(__jsCheck(__io(156, hi, lo, 0, "", "")))
+      }
+      s: string => new JsValue(__jsCheck(__io(155, 0, 0, 0, s, "")))
+      b: bool => new JsValue(__jsCheck(__io(157, if (b) 1 else 0, 0, 0, "", "")))
+      v: JsValue => v
+    }
+  }
+
+  /// A JavaScript function that calls `f` with its arguments (an array). A `JsError` `f`
+  /// throws is reported on the console (`console.error`).
+  public static fn(f: (args: JsValue) => void throws JsError): JsValue {
+    const id = __jsCallbacks.add(f)
+    new JsValue(__jsCheck(__io(166, id, 0, 0, "", "")))
+  }
+
+  /// `this[name]`.
+  public get(name: string): JsValue throws JsError {
+    __jsResult(__io(150, this.handle, 0, 0, name, ""))
+  }
+
+  /// `this[name] = v`.
+  public set(name: string, v: JsArg): void throws JsError {
+    const x = JsValue.from(v)
+    __jsResult(__io(151, this.handle, x.handle, 0, name, ""));
+  }
+
+  /// `this[name](...args)`.
+  public call(name: string, ...args: JsArg[]): JsValue throws JsError {
+    __jsResult(__io(152, this.handle, __jsArgs(args), 0, name, ""))
+  }
+
+  /// `this(...args)` (with `undefined` as `this`).
+  public invoke(...args: JsArg[]): JsValue throws JsError {
+    __jsResult(__io(153, this.handle, 0, __jsArgs(args), "", ""))
+  }
+
+  /// `new this(...args)`.
+  public construct(...args: JsArg[]): JsValue throws JsError {
+    __jsResult(__io(154, this.handle, __jsArgs(args), 0, "", ""))
+  }
+
+  /// `this[i]` (arrays, array-likes).
+  public at(i: int): JsValue throws JsError {
+    this.get(`${i}`)
+  }
+
+  /// `typeof this`, with `"null"` for `null`.
+  public typeOf(): string {
+    match (__jsCheck(__io(160, this.handle, 0, 0, "", ""))) {
+      0 => "undefined"
+      1 => "null"
+      2 => "boolean"
+      3 => "number"
+      4 => "string"
+      5 => "object"
+      6 => "function"
+      _ => "other"
+    }
+  }
+
+  public isNull(): bool { this.typeOf() == "null" }
+  public isUndefined(): bool { this.typeOf() == "undefined" }
+  /// `null` or `undefined`.
+  public isNullish(): bool { this.handle <= 1 || __jsCheck(__io(160, this.handle, 0, 0, "", "")) <= 1 }
+
+  /// The number this is (`JsError` if it isn't one).
+  public asNumber(): f64 throws JsError {
+    if (this.typeOf() != "number") {
+      throw new JsError(`expected a number, got ${this.typeOf()}`)
+    }
+    const bits = __io(161, this.handle, 0, 0, "", "")
+    const hi = (bits >> 32) & 0xffffffff
+    const lo = bits & 0xffffffff
+    __math(28, hi as f64, lo as f64)
+  }
+
+  /// The string this is (`JsError` if it isn't one).
+  public asString(): string throws JsError {
+    if (this.typeOf() != "string") {
+      throw new JsError(`expected a string, got ${this.typeOf()}`)
+    }
+    this.toString()
+  }
+
+  /// The boolean this is (`JsError` if it isn't one).
+  public asBool(): bool throws JsError {
+    if (this.typeOf() != "boolean") {
+      throw new JsError(`expected a boolean, got ${this.typeOf()}`)
+    }
+    __io(162, this.handle, 0, 0, "", "") == 1
+  }
+
+  /// `String(this)`.
+  public toString(): string {
+    const j = __jsCheck(__io(163, this.handle, 0, 0, "", ""))
+    const s = __io_text(j)
+    __io(104, j, 0, 0, "", "");
+    s
+  }
+
+  /// `this === other`.
+  public equals(other: JsValue): bool {
+    __jsCheck(__io(167, this.handle, other.handle, 0, "", "")) == 1
+  }
+}
+
+/// JavaScript's `null` and `undefined`.
+export function jsNull(): JsValue { new JsValue(1) }
+export function jsUndefined(): JsValue { new JsValue(0) }
+
+/// The base of classes generated from `.d.ts` files (`js:` imports): a typed view of a
+/// JavaScript object.
+export class JsObject {
+  public readonly jsValue: JsValue
+  constructor(v: JsValue) {
+    this.jsValue = v
+  }
+}
+
+/// `js.global`: `globalThis`.
+class __Js {
+  constructor() {}
+  public get global(): JsValue { new JsValue(2) }
+  /// A module a `js:` import names (`"dom"` is `globalThis`).
+  public module(name: string): JsValue { new JsValue(__jsCheck(__io(168, 0, 0, 0, name, ""))) }
+}
+
+export const js = new __Js()
+
+/// The functions JavaScript calls back (`JsValue.fn`), by id.
+class __JsCallbacks {
+  public fns: Map<int, (args: JsValue) => void throws JsError> =
+    new Map<int, (args: JsValue) => void throws JsError>()
+  public next: int = 1
+  constructor() {}
+  public add(f: (args: JsValue) => void throws JsError): int {
+    const id = this.next
+    this.next += 1
+    this.fns.set(id, f)
+    id
+  }
+}
+
+const __jsCallbacks = new __JsCallbacks()
+
+/// Called by the glue when a `JsValue.fn` function is called: `args` is the arguments array.
+@export("js")
+export function __jsCallback(id: int, args: int): int {
+  const f = __jsCallbacks.fns.get(id)
+  if (f != null) {
+    try {
+      f(new JsValue(args))
+    } catch (e: JsError) {
+      try {
+        js.global.get("console").call("error", `uncaught JsError: ${e.message}`);
+      } catch (e2: JsError) {}
+    }
+  }
+  0
+}

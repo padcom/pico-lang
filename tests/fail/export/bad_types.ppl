@@ -1,0 +1,8 @@
+// error: E0355
+// error: E0355
+// What can't cross to JavaScript: arrays (not yet), and errors thrown out of the function.
+@export("js")
+export function takesArray(xs: int[]): int { xs.length }
+
+@export("js")
+export function fails(): int throws Error { throw new Error("x") }

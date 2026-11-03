@@ -109,6 +109,31 @@ pub fn link_wasi(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
     crate::wasi::componentize(exe)
 }
 
+/// Links `obj` with the runtime into `wasm` for the browser (decision 258): a module with no
+/// `_start`, whose `ppl_start`/`ppl_resume` the JavaScript glue calls; wasi-libc's few WASI
+/// calls are the glue's too.
+pub fn link_browser(t: Target, obj: &Path, wasm: &Path) -> Result<(), String> {
+    let cc = clang()?;
+    let wasi = crate::wasi::libc(t, cc)?;
+    let runtime = runtime_objects(t, &crate::wasi::runtime_libc_for(cc, true))?;
+    let builtins = crate::builtins::objects(t, cc)?;
+    let mut args: Vec<String> = vec![
+        "-z".into(),
+        "stack-size=8388608".into(),
+        "--gc-sections".into(),
+        "--no-entry".into(),
+        "-o".into(),
+        wasm.display().to_string(),
+        obj.display().to_string(),
+    ];
+    for group in [&runtime.lazy, &wasi.lib, &builtins] {
+        args.push("--start-lib".into());
+        args.extend(paths(group));
+        args.push("--end-lib".into());
+    }
+    ppl_lld::link_wasm(&args).map_err(|e| format!("linking failed:\n{e}"))
+}
+
 /// Links `obj` with the runtime into the executable `exe` for a Linux target.
 pub fn link_linux(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), String> {
     match t.env {
@@ -476,7 +501,7 @@ fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
         (ppl_runtime::source_dir(), "-std=c11", ""),
         (mbed.join("library"), "-std=c99", "mbedtls_"),
     ];
-    if t.os == crate::target::Os::Wasi {
+    if t.arch == Arch::Wasm32 {
         // The WASI bindings (`runtime/wasi`).
         dirs.push((
             ppl_runtime::include_dir().join("../wasi"),

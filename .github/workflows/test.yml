@@ -29,6 +29,11 @@ jobs:
         if: runner.os == 'Linux'
         run: scripts/ci-install-linux.sh
 
+      # The wasm32-browser glue tests run under Node.js (Wasm exception handling).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ runner.os }}
@@ -36,15 +41,15 @@ jobs:
       - name: scripts/test.sh
         run: scripts/test.sh
 
-  # The golden suite's native runs for other targets: linux-x64 under qemu-user, musl, and
-  # wasm32-wasi under wasmtime.
+  # The golden suite's native runs for other targets: linux-x64 under qemu-user, musl,
+  # wasm32-wasi under wasmtime and wasm32-browser under Node.js (through the glue).
   golden:
     name: golden (${{ matrix.target }})
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:
-        target: [linux-x64, linux-arm64-musl, wasm32-wasi]
+        target: [linux-x64, linux-arm64-musl, wasm32-wasi, wasm32-browser]
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +68,11 @@ jobs:
           gh attestation verify /tmp/wasmtime-$v-aarch64-linux.tar.xz --repo bytecodealliance/wasmtime
           tar -xJf /tmp/wasmtime-$v-aarch64-linux.tar.xz -C /tmp
           echo /tmp/wasmtime-$v-aarch64-linux >> "$GITHUB_PATH"
+
+      - uses: actions/setup-node@v4
+        if: matrix.target == 'wasm32-browser'
+        with:
+          node-version: 26
 
       - uses: Swatinem/rust-cache@v2
         with:

@@ -349,6 +349,14 @@ impl Interp<'_, '_> {
         if (30..=36).contains(&op) {
             return Value::Int(i128::from(self.net_job(op, a, b, c, &s(4), &s(5))));
         }
+        if (150..=168).contains(&op) {
+            // std/js: only in the browser.
+            return Value::Int(-3);
+        }
+        if op == 138 {
+            // The browser's event loop hands waits to its host (wasm32-browser only).
+            return Value::Int(0);
+        }
         if op == 133 {
             // Clocks in nanoseconds: the wall clock, or a monotonic one.
             let ns = if a == 1 {

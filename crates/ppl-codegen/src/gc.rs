@@ -336,7 +336,7 @@ impl<'ctx> Gen<'ctx, '_> {
             .cx
             .struct_type(&[ptr.into(), ptr.into(), ptr.into()], false);
         // (name, layout, address); the addresses are thread-local, so the table is filled in
-        // by each thread's entry function, in its frame.
+        // by each thread's entry function, in a thread-local table.
         let mut entries: Vec<(PointerValue<'ctx>, PointerValue<'ctx>, PointerValue<'ctx>)> =
             Vec::new();
         for (i, g) in self.p.globals.iter().enumerate() {
@@ -366,6 +366,12 @@ impl<'ctx> Gen<'ctx, '_> {
             ],
             false,
         );
+        // (A global, not the entry's frame: the browser's entry returns while the program
+        // goes on running from JavaScript.)
+        let global = self.m.add_global(table_ty, None, "ppl.gc_globals");
+        global.set_linkage(inkwell::module::Linkage::Internal);
+        global.set_thread_local(self.threads());
+        global.set_initializer(&table_ty.const_zero());
         for f in self.entry_fns() {
             let entry = f.get_first_basic_block().expect("entry block");
             let b = self.cx.create_builder();
@@ -373,7 +379,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 Some(i) => b.position_before(&i),
                 None => b.position_at_end(entry),
             }
-            let table = b.build_alloca(table_ty, "gc.globals").unwrap();
+            let table = global.as_pointer_value();
             let n = b.build_struct_gep(table_ty, table, 0, "").unwrap();
             b.build_store(n, i64t.const_int(entries.len() as u64, false))
                 .unwrap();

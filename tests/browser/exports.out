@@ -1,0 +1,9 @@
+started
+42 hello, wörld! {"x":2,"y":4}
+{"label":"a/21","at":{"x":1.5,"y":-1},"count":42,"ok":false}
+2 true
+this Counter was freed
+expected a string, got number
+exit 0
+later 10
+end

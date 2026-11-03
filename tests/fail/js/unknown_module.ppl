@@ -1,0 +1,3 @@
+// error: E0341
+// `js:` modules are `dom` and `npm/<package>`.
+import { x } from "js:react-ish"

@@ -860,7 +860,32 @@ static void scan_object(const Obj *o, void (*visit)(const void *)) {
     scan((const char *)(o + 1), o->layout, o->size, visit);
 }
 
+/* Objects held from outside ppl code (JavaScript handles, values passed in from C): roots
+ * until unpinned. A pin is counted (pinned twice, unpinned twice). */
+static _Thread_local void **pins;
+static _Thread_local size_t npins, cappins;
+
+void ppl_gc_pin(const void *p) {
+    if (!p) return;
+    if (npins == cappins) {
+        cappins = cappins ? cappins * 2 : 16;
+        pins = realloc(pins, cappins * sizeof *pins);
+        if (!pins) out_of_memory();
+    }
+    pins[npins++] = (void *)p;
+}
+
+void ppl_gc_unpin(const void *p) {
+    for (size_t i = npins; i-- > 0;) {
+        if (pins[i] == p) {
+            pins[i] = pins[--npins];
+            return;
+        }
+    }
+}
+
 static void scan_roots(void (*visit)(const void *)) {
+    for (size_t i = 0; i < npins; i++) visit(pins[i]);
     for (PplFrame *f = ppl_gc_top; f; f = f->prev) {
         for (int64_t i = 0; i < f->map->nroots; i++) {
             const PplRootDesc *r = &f->map->roots[i];

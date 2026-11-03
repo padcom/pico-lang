@@ -225,7 +225,9 @@ pub fn lower(
                 .collect(),
         })
         .collect();
+    let exports = export_wrappers(&mut cx, &mut fns);
     let mut mir = mir::Program {
+        exports,
         file: file.name.clone(),
         fns,
         entry: program.entry,
@@ -240,6 +242,159 @@ pub fn lower(
     drop_unused_exit_hook(&mut mir);
     cx.diags.extend(crate::fold::fold_program(&mut mir));
     (mir, cx.diags)
+}
+
+/// Why `t` can't cross to JavaScript (spec §12.3): numbers, `bool`, `string`, structs of
+/// those (copied as plain objects) and classes (handles) can.
+fn js_problem(p: &hir::Program, t: &Ty, seen: &mut Vec<StructId>) -> Option<String> {
+    match t {
+        Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Str => None,
+        Ty::Class(_, _, args) if args.is_empty() => None,
+        Ty::Struct(sid, name, args) if args.is_empty() => {
+            if seen.contains(sid) {
+                return None;
+            }
+            seen.push(*sid);
+            p.struct_def(*sid).fields.iter().find_map(|f| {
+                js_problem(p, &f.ty, seen).map(|why| format!("field `{name}.{}`: {why}", f.name))
+            })
+        }
+        _ => Some(format!(
+            "`{t}` can't cross to JavaScript (numbers, `bool`, `string`, structs of those and classes can)"
+        )),
+    }
+}
+
+/// The wrappers of `@export` functions (decision 258): `(out?, params…)`, where struct
+/// parameters come as pointers to a copy and a struct result is stored through `out`.
+fn export_wrappers(cx: &mut Cx, fns: &mut Vec<mir::Function>) -> Vec<mir::Export> {
+    let p = cx.program;
+    let mut out = Vec::new();
+    for e in &p.exports {
+        let f = p.func(e.func);
+        let sig = cx.types.sigs[e.func.0 as usize].clone();
+        let mut bad = Vec::new();
+        if !f.throws.is_empty() {
+            bad.push("it throws: an exported function has to catch its errors".to_string());
+        }
+        if e.abi == hir::ExportAbi::Js {
+            for t in sig
+                .params
+                .iter()
+                .chain(std::iter::once(&sig.ret).filter(|t| !matches!(t, Ty::Void)))
+            {
+                bad.extend(js_problem(p, t, &mut Vec::new()));
+            }
+        }
+        if f.rest || f.defaults.iter().any(Option::is_some) {
+            bad.push("default and rest parameters can't be exported yet".into());
+        }
+        if let Some(why) = bad.first() {
+            cx.diags.push(
+                Diagnostic::error(
+                    codes::EXPORT_TYPE,
+                    format!("`{}` can't be exported: {why}", e.name),
+                )
+                .primary(e.span, "exported here"),
+            );
+            continue;
+        }
+        let by_ptr = |t: &Ty| matches!(t, Ty::Struct(..));
+        let mut locals = Vec::new();
+        let out_param = by_ptr(&sig.ret).then(|| {
+            locals.push(LocalDecl {
+                ty: Ty::Ref(Box::new(sig.ret.clone())),
+                name: Some("out".into()),
+            });
+            Local(0)
+        });
+        let mut args = Vec::new();
+        for (i, t) in sig.params.iter().enumerate() {
+            let l = Local(locals.len() as u32);
+            let name = f
+                .params
+                .get(i)
+                .map(|pl| f.local(*pl).name.clone())
+                .unwrap_or_default();
+            if by_ptr(t) {
+                locals.push(LocalDecl {
+                    ty: Ty::Ref(Box::new(t.clone())),
+                    name: Some(name),
+                });
+                args.push(Operand::Copy(Place::deref(l)));
+            } else {
+                locals.push(LocalDecl {
+                    ty: t.clone(),
+                    name: Some(name),
+                });
+                args.push(Operand::Copy(Place::local(l)));
+            }
+        }
+        let params: Vec<Local> = (0..locals.len() as u32).map(Local).collect();
+        let result = has_value(&sig.ret).then(|| {
+            locals.push(LocalDecl {
+                ty: sig.ret.clone(),
+                name: None,
+            });
+            Local(locals.len() as u32 - 1)
+        });
+        let (ret, last) = match (out_param, result) {
+            (Some(o), Some(r)) => (
+                Ty::Void,
+                mir::BasicBlock {
+                    stmts: vec![mir::Statement {
+                        place: Place::deref(o),
+                        rvalue: Rvalue::Use(Operand::Copy(Place::local(r))),
+                        loc: Loc::default(),
+                    }],
+                    term: Terminator::Return(None),
+                },
+            ),
+            _ => (
+                sig.ret.clone(),
+                mir::BasicBlock {
+                    stmts: Vec::new(),
+                    term: Terminator::Return(result.map(|r| Operand::Copy(Place::local(r)))),
+                },
+            ),
+        };
+        let blocks = vec![
+            mir::BasicBlock {
+                stmts: Vec::new(),
+                term: Terminator::Call {
+                    callee: Callee::Fn(e.func),
+                    args,
+                    dest: result.map(Place::local),
+                    next: BlockId(1),
+                    loc: Loc::default(),
+                },
+            },
+            last,
+        ];
+        let wrapper = FnId(fns.len() as u32);
+        fns.push(mir::Function {
+            library: false,
+            name: format!("{}<export>", e.name),
+            params,
+            ret,
+            locals,
+            blocks,
+        });
+        out.push(mir::Export {
+            wrapper,
+            func: e.func,
+            name: e.name.clone(),
+            abi: e.abi,
+            params: f
+                .params
+                .iter()
+                .zip(&sig.params)
+                .map(|(l, t)| (f.local(*l).name.clone(), t.clone()))
+                .collect(),
+            ret: sig.ret.clone(),
+        });
+    }
+    out
 }
 
 /// Without timers, microtasks or a `FinalizationRegistry` there's no loop to run at exit: the

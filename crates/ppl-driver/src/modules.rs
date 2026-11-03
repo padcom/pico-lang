@@ -4,7 +4,7 @@
 use ppl_diag::{Diagnostic, FileId, SourceMap, Span, codes};
 use ppl_sema::{Import, Modules};
 use ppl_syntax::ast::{self, DeclKind, StmtKind};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// The bundled standard library (`std/…` imports).
@@ -32,10 +32,32 @@ struct Loader<'s> {
     order: Vec<FileId>,
     modules: Modules,
     diags: Vec<Diagnostic>,
+    /// Names imported from each `js:` module (spec §12.3): collected by a first pass, which
+    /// skips those modules; the second generates each one for all of them (decision 259).
+    js_requests: BTreeMap<String, BTreeSet<String>>,
+    js_names: Option<BTreeMap<String, BTreeSet<String>>>,
 }
 
 /// Loads the modules the entry (already parsed, in `dir`) imports.
 pub fn load(sm: &mut SourceMap, entry: FileId, module: ast::Module, dir: &Path) -> Loaded {
+    let first = load_pass(sm, entry, module.clone(), dir, None);
+    match first {
+        Ok(loaded) => loaded,
+        // `js:` imports: again, generating those modules.
+        Err(requests) => match load_pass(sm, entry, module, dir, Some(requests)) {
+            Ok(loaded) => loaded,
+            Err(_) => unreachable!("the second pass generates js: modules"),
+        },
+    }
+}
+
+fn load_pass(
+    sm: &mut SourceMap,
+    entry: FileId,
+    module: ast::Module,
+    dir: &Path,
+    js_names: Option<BTreeMap<String, BTreeSet<String>>>,
+) -> Result<Loaded, BTreeMap<String, BTreeSet<String>>> {
     let mut l = Loader {
         sm,
         by_path: HashMap::new(),
@@ -46,6 +68,8 @@ pub fn load(sm: &mut SourceMap, entry: FileId, module: ast::Module, dir: &Path) 
         order: Vec::new(),
         modules: Modules::default(),
         diags: Vec::new(),
+        js_requests: BTreeMap::new(),
+        js_names,
     };
     l.modules.entry = Some(entry);
     if let Ok(p) = dir.join(file_name(l.sm, entry)).canonicalize() {
@@ -54,6 +78,9 @@ pub fn load(sm: &mut SourceMap, entry: FileId, module: ast::Module, dir: &Path) 
     l.parsed.insert(entry, module);
     l.dirs.insert(entry, dir.to_path_buf());
     l.visit(entry);
+    if l.js_names.is_none() && !l.js_requests.is_empty() {
+        return Err(l.js_requests);
+    }
     let mut stmts = Vec::new();
     for f in l.order.clone() {
         let m = l.parsed.remove(&f).expect("parsed");
@@ -83,11 +110,11 @@ pub fn load(sm: &mut SourceMap, entry: FileId, module: ast::Module, dir: &Path) 
             }
         }
     }
-    Loaded {
+    Ok(Loaded {
         stmts,
         modules: l.modules,
         diags: l.diags,
-    }
+    })
 }
 
 fn file_name(sm: &SourceMap, f: FileId) -> String {
@@ -149,6 +176,25 @@ impl Loader<'_> {
             }
             match &d.kind {
                 DeclKind::Import(imp) => {
+                    if let Some(js) = imp.from.strip_prefix("js:") {
+                        match &imp.kind {
+                            ast::ImportKind::Named(names) => {
+                                let set = self.js_requests.entry(js.to_string()).or_default();
+                                set.extend(names.iter().map(|n| n.name.name.clone()));
+                            }
+                            ast::ImportKind::Namespace(_) => {
+                                self.diags.push(
+                                    Diagnostic::error(
+                                        codes::UNKNOWN_MODULE,
+                                        format!("`{}` needs named imports", imp.from),
+                                    )
+                                    .primary(imp.from_span, "imported as a namespace")
+                                    .note("a `js:` module is generated for the names it's asked for: `import { document } from \"js:dom\"`"),
+                                );
+                                continue;
+                            }
+                        }
+                    }
                     let Some(t) = self.module(f, &imp.from, imp.from_span) else {
                         continue;
                     };
@@ -240,6 +286,9 @@ impl Loader<'_> {
 
     /// The module a specifier in file `from` names, loading (and visiting) it first.
     fn module(&mut self, from: FileId, spec: &str, span: Span) -> Option<FileId> {
+        if let Some(js) = spec.strip_prefix("js:") {
+            return self.js_module(from, js, span);
+        }
         let base = if spec.starts_with("./") || spec.starts_with("../") {
             self.dirs[&from].join(spec)
         } else if let Some(rest) = spec.strip_prefix("std/") {
@@ -315,6 +364,89 @@ impl Loader<'_> {
         }
         Some(f)
     }
+}
+
+impl Loader<'_> {
+    /// A `js:` module (spec §12.3): generated from TypeScript declarations for every name the
+    /// program imports from it (none in the first pass).
+    fn js_module(&mut self, from: FileId, js: &str, span: Span) -> Option<FileId> {
+        let names = self.js_names.as_ref()?.get(js)?.clone();
+        let key = PathBuf::from(format!("<js:{js}>"));
+        if let Some(&f) = self.by_path.get(&key) {
+            return Some(f);
+        }
+        let dts = match js_declarations(js, &self.dirs[&from]) {
+            Ok(d) => d,
+            Err(why) => {
+                self.diags.push(
+                    Diagnostic::error(codes::UNKNOWN_MODULE, format!("cannot find module `js:{js}`"))
+                        .primary(span, why)
+                        .note("`js:dom` is the browser's API; `js:npm/<package>` a package in `node_modules` with TypeScript declarations"),
+                );
+                return None;
+            }
+        };
+        let decls = crate::dts::parse(&dts);
+        let missing: Vec<&String> = names
+            .iter()
+            .filter(|n| {
+                !decls.vars.contains_key(*n)
+                    && !decls.fns.contains_key(*n)
+                    && !decls.ifaces.contains_key(*n)
+            })
+            .collect();
+        if let Some(n) = missing.first() {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::NOT_EXPORTED,
+                    format!("`js:{js}` doesn't declare `{n}`"),
+                )
+                .primary(span, "imported from here"),
+            );
+        }
+        let text = crate::dts::generate(&decls, js, &names);
+        let f = self.sm.add(format!("<js:{js}>"), text);
+        self.by_path.insert(key, f);
+        let (m, mut d) = ppl_syntax::parse_module(f, &self.sm.file(f).text);
+        self.diags.append(&mut d);
+        self.parsed.insert(f, m);
+        self.dirs.insert(f, stdlib_dir());
+        self.modules.names.insert(f, format!("js:{js}"));
+        self.visit(f);
+        Some(f)
+    }
+}
+
+/// The TypeScript declarations of `js:<js>`: TypeScript's `lib.dom.d.ts` for `dom`, or a
+/// package's in the nearest `node_modules` for `npm/<package>`.
+fn js_declarations(js: &str, dir: &Path) -> Result<String, String> {
+    let path = if js == "dom" {
+        ppl_runtime::typescript_dir().join("lib.dom.d.ts")
+    } else if let Some(pkg) = js.strip_prefix("npm/") {
+        let mut found = None;
+        let mut d = Some(dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()));
+        while let Some(cur) = d {
+            let p = cur.join("node_modules").join(pkg);
+            if p.is_dir() {
+                found = Some(p);
+                break;
+            }
+            d = cur.parent().map(Path::to_path_buf);
+        }
+        let p = found.ok_or_else(|| format!("no `node_modules/{pkg}` here or above"))?;
+        let manifest = std::fs::read_to_string(p.join("package.json")).unwrap_or_default();
+        let types = ["\"types\"", "\"typings\""].iter().find_map(|k| {
+            let at = manifest.find(k)?;
+            let rest = &manifest[at + k.len()..];
+            let start = rest.find('"')? + 1;
+            let end = rest[start..].find('"')?;
+            Some(rest[start..start + end].to_string())
+        });
+        p.join(types.unwrap_or_else(|| "index.d.ts".into()))
+    } else {
+        return Err(format!("unknown `js:` module `{js}`"));
+    };
+    std::fs::read_to_string(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))
 }
 
 /// The string literals of `new Worker<…>("spec")` in a module's source, with the literal's

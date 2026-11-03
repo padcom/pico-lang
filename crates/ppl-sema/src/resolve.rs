@@ -187,6 +187,7 @@ pub fn resolve_modules(
         worker_files: Vec::new(),
         worker_ids: HashMap::new(),
         uses_inline_workers: false,
+        exports: Vec::new(),
         mods: ModCtx::default(),
         prelude_files: modules.prelude.clone(),
         file_modules: modules.file_modules.clone(),
@@ -351,6 +352,8 @@ struct Resolver {
     async_methods: HashSet<Span>,
     /// `new Worker(f)` appears (the program needs the inline workers' entry function).
     uses_inline_workers: bool,
+    /// `@export(…)` functions.
+    exports: Vec<Export>,
     /// Worker modules by id - 1, and what `new Worker("spec")` in a module refers to.
     worker_files: Vec<FileId>,
     worker_ids: HashMap<(FileId, String), u32>,
@@ -417,6 +420,63 @@ impl Resolver {
     fn error(&mut self, code: Code, span: Span, msg: impl Into<String>, label: impl Into<String>) {
         self.diags
             .push(Diagnostic::error(code, msg).primary(span, label));
+    }
+
+    /// `@export("js")` / `@export("c")` on a top-level function (spec §12.3, §12.4): which,
+    /// and the decorator's span. Other decorators on functions aren't implemented here (user
+    /// decorators were expanded before resolution).
+    fn export_decorator(&mut self, d: &ast::Decl, f: &ast::FnDecl) -> Option<(ExportAbi, Span)> {
+        let mut found = None;
+        for dec in &d.decorators {
+            let is_export = dec.path.len() == 1 && dec.path[0].name == "export";
+            if !is_export {
+                self.not_implemented(dec.span, "decorators");
+                continue;
+            }
+            let abi = match dec.args.as_deref() {
+                Some([a]) if a.name.is_none() => match &a.value.kind {
+                    ast::ExprKind::Lit(ast::Lit::Str(s)) if s == "js" => Some(ExportAbi::Js),
+                    ast::ExprKind::Lit(ast::Lit::Str(s)) if s == "c" => Some(ExportAbi::C),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(abi) = abi else {
+                self.error(
+                    codes::DECORATOR,
+                    dec.span,
+                    "`@export` takes \"js\" or \"c\"",
+                    "e.g. `@export(\"js\")`",
+                );
+                continue;
+            };
+            if !d.exported {
+                self.error(
+                    codes::EXPORT_TYPE,
+                    dec.span,
+                    "an `@export`ed function must be exported from its module too",
+                    "write `export function`",
+                );
+            }
+            if !f.generics.is_empty() || f.flags.is_async || f.flags.generator {
+                self.error(
+                    codes::EXPORT_TYPE,
+                    dec.span,
+                    "generic, async and generator functions can't be `@export`ed yet",
+                    "export a plain function",
+                );
+            }
+            if found.is_some() {
+                self.error(
+                    codes::DECORATOR,
+                    dec.span,
+                    "`@export` given twice",
+                    "keep one",
+                );
+            }
+            found = Some((abi, dec.span));
+        }
+        found
     }
 
     fn not_implemented(&mut self, span: Span, what: &str) {
@@ -553,15 +613,32 @@ impl Resolver {
                     if let ast::DeclKind::Function(f) = &d.kind
                         && let Some(name) = &f.name
                     {
-                        if !d.decorators.is_empty() {
-                            self.not_implemented(d.decorators[0].span, "decorators");
-                        }
+                        let export = self.export_decorator(d, f);
                         // Functions may share a name (overloads); anything else may not.
                         let overload = self.top_fns.own_mut(&self.mods, &name.name).is_some();
                         if !overload && self.check_duplicate(&mut first_seen, name) {
                             continue;
                         }
                         let id = FnId(self.fns.len() as u32);
+                        if let Some((abi, span)) = export {
+                            if overload {
+                                self.error(
+                                    codes::EXPORT_TYPE,
+                                    span,
+                                    format!(
+                                        "`{}` is overloaded, so it can't be exported",
+                                        name.name
+                                    ),
+                                    "exported functions need a name of their own",
+                                );
+                            }
+                            self.exports.push(Export {
+                                func: id,
+                                abi,
+                                name: name.name.clone(),
+                                span,
+                            });
+                        }
                         self.fns.push(None);
                         match self.top_fns.own_mut(&self.mods, &name.name) {
                             Some(v) => v.push(id),
@@ -828,6 +905,7 @@ impl Resolver {
             static_inits,
             workers: std::mem::take(&mut self.worker_files),
             uses_inline_workers: self.uses_inline_workers,
+            exports: std::mem::take(&mut self.exports),
         }
     }
 

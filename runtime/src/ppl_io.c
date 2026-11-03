@@ -4008,6 +4008,80 @@ static int random_bytes(char *p, size_t n) {
 #endif
 }
 
+#if defined(PPL_BROWSER)
+/* What the event loop waits for once it has handed control back to JavaScript (ms; -1:
+ * nothing). Read by `ppl_browser_pending` (ppl_rt.c). */
+int64_t ppl_browser_wait = -1;
+#endif
+
+/* ---------------------------------------------------------------- std/js (P8.8)
+ * JavaScript values held by ppl code are handles into a table the glue keeps (0 `undefined`,
+ * 1 `null`, 2 `globalThis`); these are its imports. Operations that may throw answer -1 and
+ * keep the exception for `error`. Outside the browser every op answers -3. Decision 259. */
+#if defined(PPL_BROWSER)
+#define JS_IMPORT(n) __attribute__((import_module("ppl_js"), import_name(#n)))
+JS_IMPORT(get) int32_t js_get(int32_t h, const char *s, int32_t n);
+JS_IMPORT(set) int32_t js_set(int32_t h, const char *s, int32_t n, int32_t v);
+JS_IMPORT(call) int32_t js_call(int32_t h, const char *s, int32_t n, int32_t args);
+JS_IMPORT(invoke) int32_t js_invoke(int32_t f, int32_t self, int32_t args);
+JS_IMPORT(construct) int32_t js_construct(int32_t f, int32_t args);
+JS_IMPORT(string) int32_t js_string(const char *s, int32_t n);
+JS_IMPORT(number) int32_t js_number(double d);
+JS_IMPORT(boolean) int32_t js_boolean(int32_t b);
+JS_IMPORT(array) int32_t js_array(void);
+JS_IMPORT(push) void js_push(int32_t a, int32_t v);
+JS_IMPORT(type) int32_t js_type(int32_t h);
+JS_IMPORT(to_number) double js_to_number(int32_t h);
+JS_IMPORT(to_bool) int32_t js_to_bool(int32_t h);
+JS_IMPORT(to_string) int32_t js_to_string(int32_t h);
+JS_IMPORT(take_string) void js_take_string(char *dst);
+JS_IMPORT(release) void js_release(int32_t h);
+JS_IMPORT(error) int32_t js_error(void);
+JS_IMPORT(func) int32_t js_func(int32_t id);
+JS_IMPORT(module) int32_t js_module(const char *s, int32_t n);
+JS_IMPORT(equals) int32_t js_equals(int32_t a, int32_t b);
+
+static int64_t js_text_job(Queue *q, int32_t h);
+
+static int64_t js_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s) {
+    const char *sp = s ? s->data : "";
+    int32_t sn = s ? (int32_t)s->byte_len : 0;
+    /* What ppl printed comes before what JavaScript code prints. */
+    if (op <= 154) fflush(stdout);
+    switch (op) {
+    case 150: return js_get((int32_t)a, sp, sn);
+    case 151: return js_set((int32_t)a, sp, sn, (int32_t)b);
+    case 152: return js_call((int32_t)a, sp, sn, (int32_t)b);
+    case 153: return js_invoke((int32_t)a, (int32_t)b, (int32_t)c);
+    case 154: return js_construct((int32_t)a, (int32_t)b);
+    case 155: return js_string(sp, sn);
+    case 156: { /* a number from its bits: a the high half, b the low one */
+        uint64_t bits = ((uint64_t)(uint32_t)a << 32) | (uint64_t)(uint32_t)b;
+        double d;
+        memcpy(&d, &bits, sizeof d);
+        return js_number(d);
+    }
+    case 157: return js_boolean((int32_t)a);
+    case 158: return js_array();
+    case 159: js_push((int32_t)a, (int32_t)b); return 0;
+    case 160: return js_type((int32_t)a);
+    case 161: { /* a number's bits */
+        double d = js_to_number((int32_t)a);
+        int64_t bits;
+        memcpy(&bits, &d, sizeof bits);
+        return bits;
+    }
+    case 162: return js_to_bool((int32_t)a);
+    case 163: return js_text_job(q, (int32_t)a);
+    case 164: js_release((int32_t)a); return 0;
+    case 165: return js_error();
+    case 166: return js_func((int32_t)a);
+    case 168: return js_module(sp, sn);
+    default: return js_equals((int32_t)a, (int32_t)b); /* 167 */
+    }
+}
+#endif
+
 int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, const PplStr *t) {
     Queue *q = queue();
     if (op < 100) {
@@ -4060,6 +4134,14 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         return j->id;
     }
     case 101: return q->pending;
+    case 138: /* the event loop is about to wait a ms: 1 = the host waits instead (the browser:
+               * the program returns to JavaScript, which resumes the loop when it's due) */
+#if defined(PPL_BROWSER)
+        ppl_browser_wait = a;
+        return 1;
+#else
+        return 0;
+#endif
     case 130: { /* TextEncoder: s's UTF-8 bytes; r = a buffer handle, r2 = their count */
         Job *j = result_job(q);
         size_t n = s ? (size_t)s->byte_len : 0;
@@ -4117,6 +4199,14 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         text_add(j, id ? id : "", id ? strlen(id) : 0);
         return j->id;
     }
+    case 150: case 151: case 152: case 153: case 154: case 155: case 156: case 157:
+    case 158: case 159: case 160: case 161: case 162: case 163: case 164: case 165:
+    case 166: case 167: case 168:
+#if defined(PPL_BROWSER)
+        return js_op(q, op, a, b, c, s);
+#else
+        return -3;
+#endif
     case 131: /* TextDecoder: c bytes at b as text; a = 1 rejects bad bytes (r = -InvalidData) */
         return decode_utf8(q, (const unsigned char *)(intptr_t)b, c > 0 ? (size_t)c : 0, a == 1);
     case 102: {
@@ -4142,6 +4232,20 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
     default: return os_op(q, op, a, b, c, s, t);
     }
 }
+
+#if defined(PPL_BROWSER)
+/* `String(value)` as a job's text. */
+static int64_t js_text_job(Queue *q, int32_t h) {
+    Job *j = result_job(q);
+    int32_t n = js_to_string(h);
+    char *buf = malloc(n > 0 ? (size_t)n : 1);
+    if (!buf) abort();
+    js_take_string(buf);
+    text_add(j, buf, (size_t)n);
+    free(buf);
+    return j->id;
+}
+#endif
 
 PplStr *ppl_io_text(int64_t id) {
     Job *j = taken(id);

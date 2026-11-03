@@ -90,6 +90,10 @@ typedef struct PplGlobalRoots {
     PplGlobalRoot roots[];
 } PplGlobalRoots;
 void ppl_gc_set_globals(const PplGlobalRoots *g);
+/* Keeps `p` (an object) alive while something outside ppl code holds it (a JavaScript handle,
+ * a C caller), until it's unpinned as often as it was pinned. */
+void ppl_gc_pin(const void *p);
+void ppl_gc_unpin(const void *p);
 
 /* Set when a collection (or an incremental step) is due; compiled code checks it at
  * safepoints (function entry, loop back edges) and then calls `ppl_gc_safepoint`. Nothing

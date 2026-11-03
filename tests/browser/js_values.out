@@ -1,0 +1,12 @@
+max 5
+pi 3.141592653589793
+a.length 3 s hé
+typeof object undefined function
+nullish true
+sum 6
+caught true
+caught expected a number, got string
+{"x":42,"name":"ppl"}
+console.log 1.5 true
+timer from JavaScript
+exit 0

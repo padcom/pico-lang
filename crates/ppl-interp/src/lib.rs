@@ -1636,6 +1636,10 @@ fn math_op(op: i64, x: f64, y: f64) -> f64 {
         26 => x % y,
         // f32 rounding (`Math.fround`).
         27 => x as f32 as f64,
+        // A double's bits in two exact 32-bit halves (std/js).
+        28 => f64::from_bits(((x as u64) << 32) | (y as u64 & 0xffff_ffff)),
+        29 => (x.to_bits() >> 32) as f64,
+        30 => (x.to_bits() & 0xffff_ffff) as f64,
         _ => f64::NAN,
     }
 }

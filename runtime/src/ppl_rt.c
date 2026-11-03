@@ -87,6 +87,20 @@ double ppl_math(int64_t op, double x, double y) {
     case 25: return log1p(x);
     case 26: return fmod(x, y);
     case 27: return (double)(float)x;
+    /* The bits of a double, in two 32-bit halves held exactly as doubles (std/js, P8.8):
+     * 28 the double with high half x and low half y, 29 x's high half, 30 x's low half. */
+    case 28: {
+        uint64_t bits = ((uint64_t)(uint32_t)x << 32) | (uint64_t)(uint32_t)y;
+        double d;
+        memcpy(&d, &bits, sizeof d);
+        return d;
+    }
+    case 29:
+    case 30: {
+        uint64_t bits;
+        memcpy(&bits, &x, sizeof bits);
+        return (double)(uint32_t)(op == 29 ? bits >> 32 : bits);
+    }
     default: return NAN;
     }
 }
@@ -963,7 +977,7 @@ uint64_t ppl_ipow_u(uint64_t base, uint64_t exp, int32_t bits, int32_t *overflow
 _Noreturn void ppl_exit(int code) {
     fflush(stdout);
     fflush(stderr);
-#if defined(__wasi__)
+#if defined(__wasi__) && !defined(PPL_BROWSER) /* (the glue's `proc_exit` keeps codes) */
     if (code != 0) {
         extern void wasi_cli_exit_exit_with_code(uint8_t status_code);
         wasi_cli_exit_exit_with_code((uint8_t)code);
@@ -994,3 +1008,53 @@ int main(int argc, char **argv) {
     fflush(stdout);
     return 0;
 }
+
+#if defined(PPL_BROWSER)
+/* wasm32-browser (spec §12.3): there's no `_start`; the JavaScript glue (`app.js`) calls
+ * `ppl_start`, then `ppl_resume` (`ppl_browser_resume`) whenever the event loop's next timer is due, for as long as
+ * `ppl_browser_pending` says something is (decision 258). The loop never blocks: where it
+ * would wait it returns (`__io` 138), leaving the wait to the host. */
+extern void __wasm_call_ctors(void);
+extern int __main_void(void);
+extern int64_t ppl_browser_wait;
+/* The core library's `__runEventLoop` (absent when the program has no loop). */
+extern void ppl_run_event_loop(void) __attribute__((weak));
+
+__attribute__((export_name("ppl_start"))) int ppl_start(void) {
+    __wasm_call_ctors();
+    return __main_void(); /* args from the glue, then `main` */
+}
+
+__attribute__((export_name("ppl_resume"))) void ppl_browser_resume(void) {
+    if (ppl_run_event_loop) ppl_run_event_loop();
+    fflush(stdout);
+    fflush(stderr);
+}
+
+/* For the glue's conversions of `@export("js")` arguments and results (decision 258). */
+__attribute__((export_name("ppl_js_alloc"))) void *ppl_js_alloc(int32_t n) {
+    void *p = calloc(1, n > 0 ? (size_t)n : 1);
+    if (!p) abort();
+    return p;
+}
+__attribute__((export_name("ppl_js_free"))) void ppl_js_free(void *p) { free(p); }
+/* A string of `n` bytes for the glue to fill in (at offset 32), pinned until it's unpinned;
+ * `ppl_js_str_done` then counts its characters. */
+__attribute__((export_name("ppl_js_str"))) PplStr *ppl_js_str(int32_t n) {
+    PplStr *s = str_alloc(n);
+    ppl_gc_pin(s);
+    return s;
+}
+__attribute__((export_name("ppl_js_str_done"))) void ppl_js_str_done(PplStr *s) {
+    s->char_len = count_chars(s->data, s->byte_len);
+}
+__attribute__((export_name("ppl_js_pin"))) void ppl_js_pin(void *p) { ppl_gc_pin(p); }
+__attribute__((export_name("ppl_js_unpin"))) void ppl_js_unpin(void *p) { ppl_gc_unpin(p); }
+
+/* How long until the loop wants `ppl_resume` (ms), or -1 when it has finished. */
+__attribute__((export_name("ppl_browser_pending"))) int64_t ppl_browser_pending(void) {
+    int64_t w = ppl_browser_wait;
+    ppl_browser_wait = -1;
+    return w;
+}
+#endif

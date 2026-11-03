@@ -723,6 +723,8 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   `.d.ts`, structs crossing as plain objects, classes as handles, and the event loop bridged to the
   browser.
 - **Done when**: golden tests run in node/deno through the glue, and a demo page works.
+- **Done (decision 258)**: linear memory, `@export("js")` for numbers, `bool`, `string`, structs
+  and class handles; arrays, enums and nullable types at the boundary are left for later.
 
 ### P8.7 WasmGC backend (later)
 - **Do**: a separate wasm emitter from MIR that uses WasmGC types (LLVM can't do this), so ppl
@@ -734,6 +736,8 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Do**: a `.d.ts` subset parser, best-effort mapping (handles, simple shapes → structs, else
   `JsValue`), `js:` specifiers, and `std/js` `JsValue`.
 - **Done when**: a DOM demo using `lib.dom.d.ts` builds and runs.
+- **Done (decision 259)**: `examples/browser-dom` (checked in headless Chromium); promises and
+  object shapes as structs are left for later.
 
 ### P8.9 Platform files and conditionals
 - **Spec**: 15 §15.4, 13 (matrix)

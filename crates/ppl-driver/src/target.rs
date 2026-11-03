@@ -143,7 +143,8 @@ impl Target {
     /// The triple objects are compiled for: [`Target::llvm_triple`], except that WASI programs
     /// are preview 1 code (wasi-libc's) made into a preview 2 component when linked.
     pub fn clang_triple(self) -> &'static str {
-        if self.os == Os::Wasi {
+        if matches!(self.os, Os::Wasi | Os::Browser) {
+            // (The browser's runtime runs on wasi-libc too; its few WASI calls are the glue's.)
             "wasm32-wasip1"
         } else {
             self.llvm_triple()

@@ -36,6 +36,9 @@ class __Loop {
   public listening: bool = false
   /// File-system jobs (`std/fs`): what handles each one's result, by job id.
   public io: Map<int, () => void> = new Map<int, () => void>()
+  /// A top-level `await` is waiting: the loop waits here even in the browser (where it
+  /// otherwise hands its waits to the host).
+  public blocking: bool = false
 
   constructor() {}
 
@@ -152,6 +155,10 @@ class __Loop {
     const t = this.timers[i]
     const now = __clock_ms()
     if (t.due > now) {
+      // (The browser: the host waits and resumes the loop; spec §12.3.)
+      if (!this.blocking && __io(138, t.due - now, 0, 0, "", "") > 0) {
+        return false
+      }
       __loop_wait(t.due - now)
       // (Woken early by a message: that first.)
       if (__clock_ms() < t.due) {

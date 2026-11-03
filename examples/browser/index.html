@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ppl wasm32-browser demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      button { font-size: 1rem; padding: 0.4rem 1rem; }
+    </style>
+  </head>
+  <body>
+    <div id="app">loading…</div>
+    <button id="inc" disabled>+1</button>
+    <script type="module">
+      import init from "./app.js";
+
+      const app = await init();
+      const log = app.newHistory();
+      let state = app.initial();
+      const show = () => (document.getElementById("app").innerHTML = app.render(state, log));
+      show();
+      const button = document.getElementById("inc");
+      button.disabled = false;
+      button.onclick = () => {
+        state = app.increment(state, log);
+        show();
+      };
+      // (For automated checks: a click once loaded.)
+      if (location.hash === "#click") button.click();
+    </script>
+  </body>
+</html>

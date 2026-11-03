@@ -68,6 +68,19 @@ import { js } from "std/js"
 const v: JsValue = js.global.get("someLib").call("doThing", 1, "a")
 const n = v.as<f64>()          // throws JsError on type mismatch
 ```
+`get`, `set`, `call`, `invoke`, `construct` and `at` work on any value; `asNumber()`,
+`asString()` and `asBool()` convert (or throw `JsError`); `JsValue.fn(f)` makes a JavaScript
+function that calls the ppl closure `f` with its arguments array (event listeners:
+`button.addEventListener("click", JsValue.fn((args) => …))`). A `JsValue` keeps its JavaScript
+value alive until it's collected.
+
+### What's implemented
+`js:dom` is typed from TypeScript's `lib.dom.d.ts`, `js:npm/<package>` from the package's own
+declarations. Only named imports work (`import { document } from "js:dom"`): the compiler
+generates classes for the imported names, the interfaces they use directly and their bases;
+types further away are `JsValue`. Interfaces with type parameters, `Promise<T>` and object shapes
+are `JsValue` for now, and function-typed parameters take a `JsValue` (`JsValue.fn(…)`).
+Decision 259.
 
 ### Exports to JS
 ```ts
@@ -78,6 +91,21 @@ export function render(state: AppState): string { … }
 the exported API. Structs and enums cross the boundary as **plain JS object copies**
 (`{ x, y }`, `{ kind: "Circle", r }`), while classes are exposed as JS handle classes wrapping
 WasmGC references.
+
+```js
+import init from "./app.js"
+const app = await init()               // runs the program's top-level code
+const html = app.render({ count: 1 })  // @export("js") functions
+await app.done                         // the exit code, once nothing is pending
+```
+
+Until the WasmGC backend (P8.7), the module uses linear memory with the ppl GC: handles keep
+their object alive until `free()` (or `[Symbol.dispose]`, or until the handle is collected).
+Numbers, `bool`, `string`, structs and classes cross so far (64-bit integers as JS numbers);
+arrays, enums, nullable types and throwing, generic or async functions can't be exported yet
+(E0355). The event loop runs on browser timers: the program's top level returns to JavaScript,
+and the glue resumes the loop when its next timer is due. Under Node.js, `node app.js args…`
+runs the program like an executable. Decision 258.
 
 ## 12.4 Exporting to C
 ```ts

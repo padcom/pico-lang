@@ -330,6 +330,7 @@ fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, Str
     let exe = ppl_driver::build_cached(checked, opts)?;
     let dir = TempDir::new();
     let wasi = target.is_some_and(|t| t.os == ppl_driver::target::Os::Wasi);
+    let browser = target.is_some_and(|t| t.os == ppl_driver::target::Os::Browser);
     let mut cmd = if wasi {
         // A WASI module runs under wasmtime, with Wasm exception handling (`try`, panics);
         // it sees no environment variables but those passed in.
@@ -350,11 +351,16 @@ fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, Str
         }
         c.arg(&exe);
         c
+    } else if browser {
+        // The browser target's glue runs the module under Node.js (decision 258).
+        let mut c = std::process::Command::new("node");
+        c.arg(&exe);
+        c
     } else {
         std::process::Command::new(&exe)
     };
     cmd.current_dir(&dir.0);
-    if let Some(t) = target.filter(|t| !t.is_host() && !wasi) {
+    if let Some(t) = target.filter(|t| !t.is_host() && !wasi && !browser) {
         let prefix = PathBuf::from(format!("/usr/{}", t.multiarch()));
         if prefix.is_dir() {
             cmd.env("QEMU_LD_PREFIX", prefix);
@@ -717,6 +723,7 @@ pub fn target_skips(root: &Path, target: ppl_driver::Target) -> Vec<(String, Str
     let file = match target.os {
         ppl_driver::target::Os::Windows => "windows-skip.txt",
         ppl_driver::target::Os::Wasi => "wasi-skip.txt",
+        ppl_driver::target::Os::Browser => "browser-skip.txt",
         _ => return Vec::new(),
     };
     std::fs::read_to_string(root.join(file))

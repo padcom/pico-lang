@@ -234,11 +234,15 @@ function __awaitTop<T, E extends Error>(p: Promise<T, E>): T throws E {
     done = true
   })
   const l = __theLoop()
+  // (In the browser this blocks the page until `p` settles: there's no suspending.)
+  const outer = l.blocking
+  l.blocking = true
   while (!done) {
     if (!l.step()) {
       panic("top-level `await` on a promise that never settles")
     }
   }
+  l.blocking = outer
   p.__get()
 }
 

@@ -52,6 +52,25 @@ pub struct Program {
     pub workers: Vec<FileId>,
     /// `new Worker(f)` appears somewhere: inline workers need an entry function.
     pub uses_inline_workers: bool,
+    /// `@export("js")` / `@export("c")` functions (spec §12.3, §12.4).
+    pub exports: Vec<Export>,
+}
+
+/// Who an exported function is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportAbi {
+    Js,
+    C,
+}
+
+/// An `@export(…)` function.
+#[derive(Clone, Debug)]
+pub struct Export {
+    pub func: FnId,
+    pub abi: ExportAbi,
+    pub name: String,
+    /// The decorator.
+    pub span: Span,
 }
 
 #[derive(Debug)]

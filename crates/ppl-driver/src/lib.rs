@@ -9,14 +9,19 @@ use ppl_diag::{Code, Diagnostic, SourceMap};
 use ppl_syntax::ast::Module;
 use std::path::{Path, PathBuf};
 
+mod browser;
 mod builtins;
 mod decorators;
+mod dts;
 mod glibc;
 mod link;
 mod mingw;
 mod modules;
 mod musl;
 pub mod target;
+pub use ppl_codegen::export_symbol;
+/// Whether this compiler links with lld (needed for every target but a macOS host's own).
+pub const LLD_AVAILABLE: bool = ppl_lld::AVAILABLE;
 mod wasi;
 
 pub use modules::stdlib_dir;
@@ -372,7 +377,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     // (A macOS host still links its own programs with `cc`: lld is optional there.)
     let lld = matches!(
         target.os,
-        target::Os::Linux | target::Os::Windows | target::Os::Wasi
+        target::Os::Linux | target::Os::Windows | target::Os::Wasi | target::Os::Browser
     ) || (target.os == target::Os::Macos && !target.is_host());
     if !lld && !target.is_host() {
         return Err(format!("building for {target} isn't supported yet"));
@@ -397,6 +402,8 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
             link::link_macos(target, &obj, exe, !opts.release)
         } else if target.os == target::Os::Wasi {
             link::link_wasi(target, &obj, exe)
+        } else if target.os == target::Os::Browser {
+            browser::build(mir, &obj, exe, &js_packages(&checked.sm))
         } else {
             link::link_linux(target, &obj, exe, !opts.release)
         };
@@ -426,6 +433,18 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     Ok(())
 }
 
+/// The npm packages a program's `js:npm/<package>` imports name (the glue imports them).
+fn js_packages(sm: &ppl_diag::SourceMap) -> Vec<String> {
+    sm.ids()
+        .filter_map(|f| {
+            let name = &sm.file(f).name;
+            name.strip_prefix("<js:npm/")?
+                .strip_suffix('>')
+                .map(str::to_string)
+        })
+        .collect()
+}
+
 /// Where `ppl run` puts the executable for a source file: a cache directory keyed by the
 /// file's path and contents, so unchanged programs aren't rebuilt.
 pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
@@ -453,6 +472,10 @@ pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
         .map_or("main".into(), |s| s.to_string_lossy().into_owned());
     if opts.target.is_some_and(|t| t.os == target::Os::Windows) {
         stem.push_str(".exe");
+    }
+    if opts.target.is_some_and(|t| t.os == target::Os::Browser) {
+        // (The glue; the module is next to it.)
+        stem.push_str(".js");
     }
     std::env::temp_dir()
         .join("ppl-cache")

@@ -1,0 +1,8 @@
+// error: E0355
+// error: E0354
+// `@export` needs `export` too, and takes "js" or "c".
+@export("js")
+function notExported(): int { 1 }
+
+@export("wasm")
+export function wrongAbi(): int { 1 }
