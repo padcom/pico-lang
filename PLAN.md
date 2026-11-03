@@ -896,6 +896,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   of follow-up errors, so hover and go-to-definition keep answering in half-typed code.
 - **Done when**: protocol tests on fixtures with syntax and type errors, and `tests/fail`
   still reports the same first errors.
+- **Done (decision 273)**: `ppl_driver::check_source_recovering`, used by the server only when
+  the normal check stops before types; the compiler's pipeline is unchanged.
 
 #### P10.6d Completion and rename
 - **Do**: completion (scope names, members after `.`, imports' names, keywords), rename (all

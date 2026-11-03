@@ -387,7 +387,7 @@ fn definition_across_modules_and_into_the_prelude() {
 }
 
 #[test]
-fn a_document_with_errors_keeps_its_last_index() {
+fn a_changed_document_with_errors_is_indexed_again() {
     let dir = tmp("stale");
     let uri = path_to_uri(&dir.join("main.ppl"));
     let good = "const answer = 42\nprintln(answer)\n";
@@ -402,7 +402,7 @@ fn a_document_with_errors_keeps_its_last_index() {
             "contentChanges": [{ "text": bad }] } }),
         at(2, "textDocument/hover", &uri, bad, "answer", 1, 0),
         at(3, "textDocument/definition", &uri, bad, "answer", 1, 0),
-        // (Not in the old text: nothing.)
+        // (Only in the new text: the recovering pass indexed it.)
         at(4, "textDocument/hover", &uri, bad, "answer", 2, 0),
     ]);
     // The hover was answered after the change was checked (its diagnostics came first).
@@ -414,7 +414,7 @@ fn a_document_with_errors_keeps_its_last_index() {
     assert!(diag < pos(&|m| m["id"] == 2), "{out:#?}");
     assert_eq!(hover_text(&out, 2), "```ppl\nconst answer: i64\n```");
     assert_eq!(def_line(&out, 3), (uri.clone(), 0, 6));
-    assert!(response(&out, 4).is_null());
+    assert_eq!(hover_text(&out, 4), "```ppl\nconst answer: i64\n```");
 }
 
 #[test]
@@ -444,5 +444,115 @@ fn embedded_files_get_a_read_only_copy() {
         let path = uri_to_path(&file_uri(&sm, f).unwrap()).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
         assert!(std::fs::metadata(&path).unwrap().permissions().readonly());
+    }
+}
+
+/// Opens `text` and asks for a hover at the `n`th `needle` (`skip` characters in) and the
+/// definition of the `m`th `def_needle`: the diagnostics, the hover and the definition's line.
+fn ask(
+    name: &str,
+    text: &str,
+    hover: (&str, usize, usize),
+    def: (&str, usize),
+) -> (usize, String, u64) {
+    let dir = tmp(name);
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        at(
+            2,
+            "textDocument/hover",
+            &uri,
+            text,
+            hover.0,
+            hover.1,
+            hover.2,
+        ),
+        at(3, "textDocument/definition", &uri, text, def.0, def.1, 0),
+    ]);
+    let d = diags_for(&out, &uri);
+    let n = d.last().unwrap()["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .len();
+    (n, hover_text(&out, 2), def_line(&out, 3).1)
+}
+
+#[test]
+fn answers_in_code_with_syntax_errors() {
+    // A half-written method: the rest of the class is still there.
+    let text = "class Box {\n  constructor(public v: i32) {}\n  public half(\n  public get(): i32 { v }\n}\nconst b = new Box(1)\nprintln(b.get())\n";
+    let (n, h, line) = ask("syntax1", text, ("b.get", 0, 2), ("get", 1));
+    assert_eq!(n, 1, "only the parser's error is shown");
+    assert_eq!(h, "```ppl\n(method) Box.get(): i32\n```");
+    assert_eq!(line, 3);
+    // A half-written expression, and member access right after it.
+    let text = "struct Point {\n  x: i32\n  y: i32\n}\nconst p = Point { x: 1, y: 2 }\nfunction f(n: i32): i32 {\n  const k = n *\n  const j = k + p.y\n  j\n}\n";
+    let (n, h, line) = ask("syntax2", text, ("p.y", 0, 2), ("k + ", 0));
+    assert_eq!(n, 1);
+    assert_eq!(h, "```ppl\n(field) Point.y: i32\n```");
+    assert_eq!(line, 6);
+    // A field without a type.
+    let text = "struct P {\n  x: i32\n  y:\n}\nconst p = P { x: 1 }\nprintln(p.x)\n";
+    let (_, h, _) = ask("syntax3", text, ("y:", 0, 0), ("p.x", 0));
+    assert_eq!(h, "```ppl\n(field) P.y: unknown\n```");
+}
+
+#[test]
+fn answers_in_code_with_name_and_type_errors() {
+    let text = "function add(a: i32, b: i32): i32 { a + b }\nconst r = add(1, missing)\nconst s = add(r, 2)\nprintln(s)\n";
+    let (n, h, line) = ask("names", text, ("s)", 0, 0), ("add", 2));
+    assert_eq!(n, 1, "no follow-up errors");
+    assert_eq!(h, "```ppl\nconst s: i32\n```");
+    assert_eq!(line, 0);
+    let text = "function g(x: Missing, y: i32): i32 { y }\nconst k = g(1, 2)\n";
+    let (n, h, _) = ask("types", text, ("g(1", 0, 0), ("g(1", 0));
+    assert_eq!(n, 1);
+    assert_eq!(h, "```ppl\nfunction g(x: unknown, y: i32): i32\n```");
+}
+
+#[test]
+fn constructors_this_is_not_a_name() {
+    let text = "class Box {\n  constructor(public v: i32) {}\n}\nprintln(new Box(1).v)\n";
+    let dir = tmp("this");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        at(2, "textDocument/hover", &uri, text, "constructor", 0, 3),
+    ]);
+    assert!(response(&out, 2).is_null(), "{out:#?}");
+}
+
+/// The recovering front end on fixtures with pieces cut out: no panics, always types.
+#[test]
+fn recovery_never_panics() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/run");
+    for f in [
+        "classes.ppl",
+        "generics.ppl",
+        "enums.ppl",
+        "closures.ppl",
+        "destructuring.ppl",
+    ] {
+        let path = root.join(f);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let dir = path.parent().unwrap().to_path_buf();
+        let mut cut = 0;
+        while cut < text.len() {
+            let end = (cut + 7).min(text.len());
+            if text.is_char_boundary(cut) && text.is_char_boundary(end) {
+                let t = format!("{}{}", &text[..cut], &text[end..]);
+                let c = ppl_driver::check_source_recovering(
+                    path.display().to_string(),
+                    t,
+                    &dir,
+                    ppl_driver::BuildOptions::default(),
+                );
+                assert!(c.types.is_some(), "{f} without {cut}..{end}");
+            }
+            cut += 151;
+        }
     }
 }

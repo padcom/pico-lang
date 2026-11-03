@@ -117,6 +117,23 @@ pub fn check_source_with(
     dir: &Path,
     opts: BuildOptions,
 ) -> Checked {
+    check(name.into(), text.into(), dir, opts, false)
+}
+
+/// The front end for the language server's index in code with errors: resolves and type
+/// checks whatever parsed, past errors (each stage marks what it couldn't make sense of as an
+/// error node or `Ty::Error`), and stops before MIR. Its diagnostics include follow-up
+/// errors the normal pipeline doesn't report: show [`check_source_with`]'s instead.
+pub fn check_source_recovering(
+    name: impl Into<String>,
+    text: impl Into<String>,
+    dir: &Path,
+    opts: BuildOptions,
+) -> Checked {
+    check(name.into(), text.into(), dir, opts, true)
+}
+
+fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bool) -> Checked {
     let mut sm = SourceMap::new();
     let file = sm.add(name, text);
     let (mut module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
@@ -158,13 +175,13 @@ pub fn check_source_with(
         diags.append(&mut expansion.diags);
         comptime_output = std::mem::take(&mut expansion.log);
     }
-    if !diags.iter().any(Diagnostic::is_error) {
+    if recover || !diags.iter().any(Diagnostic::is_error) {
         let (program, mut d) = ppl_sema::resolve_modules(&module, file, &modules);
         diags.append(&mut d);
-        if !diags.iter().any(Diagnostic::is_error) {
+        if recover || !diags.iter().any(Diagnostic::is_error) {
             let (t, mut d) = ppl_sema::check(&program);
             diags.append(&mut d);
-            if !diags.iter().any(Diagnostic::is_error) {
+            if !recover && !diags.iter().any(Diagnostic::is_error) {
                 let (mut m, mut d) = ppl_mir::lower(&program, &t, sm.file(file), file);
                 diags.append(&mut d);
                 if !diags.iter().any(Diagnostic::is_error) {

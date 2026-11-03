@@ -124,9 +124,17 @@ struct Builder<'a> {
 impl Builder<'_> {
     /// A declaration's hover text: `sig`, and with `docs` its doc comment.
     fn decl(&mut self, at: Span, sig: String, docs: bool) {
-        if at.is_empty() {
+        // (Synthesized declarations, such as a constructor's `this`, borrow longer spans.)
+        let name = self.sm.snippet(at);
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        {
             return;
         }
+        // (Types that didn't resolve, in code with errors.)
+        let sig = sig.replace("{error}", "unknown");
         let docs = if docs {
             doc_comment(self.sm, at)
         } else {

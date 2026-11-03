@@ -6,8 +6,10 @@
 //! each changed document and publishes the diagnostics of every file they reach (imported
 //! modules too). `textDocument/formatting` runs the formatter (P10.1) with the document's
 //! `project.json` options. Hover and go-to-definition answer from the document's symbol
-//! index ([`index`]), built by each check that gets as far as type checking (a document with
-//! earlier errors keeps its last index).
+//! index ([`index`]), built by each check: when errors stop the normal check before types, a
+//! recovering pass (`ppl_driver::check_source_recovering`) indexes what it makes of the code
+//! (only the normal check's diagnostics are shown). If that pass fails too, the document keeps
+//! its last index.
 
 mod index;
 mod uri;
@@ -348,17 +350,34 @@ fn check(uri: &str, text: &str) -> (BTreeMap<String, Vec<Value>>, Option<index::
         let v = to_lsp(d, span, &checked.sm, &name);
         out.entry(u).or_default().push(v);
     }
-    let index = match (&checked.hir, &checked.types) {
-        (Some(hir), Some(types)) => {
-            let sm = std::mem::take(&mut checked.sm);
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                index::build(sm, hir, types)
-            }))
-            .ok()
+    if checked.types.is_none() {
+        // Errors stopped the check early: index what a recovering pass makes of the code
+        // (its follow-up diagnostics aren't shown).
+        let recovered = std::panic::catch_unwind(|| {
+            ppl_driver::check_source_recovering(
+                name.clone(),
+                text.to_string(),
+                &dir,
+                ppl_driver::BuildOptions::default(),
+            )
+        });
+        if let Ok(r) = recovered {
+            checked = r;
         }
-        _ => None,
+    }
+    (out, index_of(checked))
+}
+
+/// The symbol index of a check that got as far as types.
+fn index_of(mut checked: ppl_driver::Checked) -> Option<index::Index> {
+    let (Some(hir), Some(types)) = (&checked.hir, &checked.types) else {
+        return None;
     };
-    (out, index)
+    let sm = std::mem::take(&mut checked.sm);
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        index::build(sm, hir, types)
+    }))
+    .ok()
 }
 
 /// A URI the client can open for a source file: its path, or for the embedded core library
