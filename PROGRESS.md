@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.9: Documentation tooling** (see PLAN; P10.3 is done, P10.4 deferred, P10.7 split into a/b and moved to Phase 11 by the author; the author should try F5 and Run Build Task on a project with `entry` in VS Code (`scripts/vscode-package.sh --install`); Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.9a: `ppl explain`** (see PLAN; P10.9 is split into a (`explain`) and b (`doc`); P10.3 is done, P10.4 deferred, P10.7 split into a/b and moved to Phase 11 by the author; the author should try F5 and Run Build Task on a project with `entry` in VS Code (`scripts/vscode-package.sh --install`); Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
@@ -316,7 +316,8 @@ Notes:
 - [x] P10.3b Git dependencies, the lockfile, offline builds
 - [x] P10.3c Commands
 - [ ] P10.4 Registry (deferred)
-- [ ] P10.9 Documentation tooling
+- [ ] P10.9a `ppl explain`
+- [ ] P10.9b `ppl doc`
 - [ ] P10.10 Release packaging
 
 ### Phase 11: Later
@@ -502,3 +503,4 @@ Notes:
 | 2026-11-03 | P10.3c | `ppl init [name] [--lib]`, `ppl add <git-url> [--tag/--branch/--rev] [--dev]` (name from the package's manifest; default pin: the newest release tag, else the default branch; registry names → P10.4), `ppl remove <name>`; manifests rewritten keeping key order (`preserve_order`), the lockfile updated. Test drives init → add → run → remove on a scratch project with a local git repository. P10.3 done. |
 | 2026-11-03 | plan | P10.4 (registry) deferred by the author: git dependencies, also over SSH (the system git's keys), cover sharing libraries for now. |
 | 2026-11-03 | plan | P10.7 split into P10.7a (JIT `ppl run`) and P10.7b (REPL) and moved to Phase 11 by the author. Next: P10.9, then P10.10. |
+| 2026-11-03 | plan | P10.9 split into a (`ppl explain`, verified examples per code) and b (`ppl doc`). |

@@ -1025,6 +1025,21 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 ### P10.9 Documentation tooling
 - **Do**: `ppl doc` (HTML from `/** */`) and `ppl explain E####` for every error code.
 - **Done when**: stdlib docs are generated.
+- Split into two slices:
+
+#### P10.9a `ppl explain`
+- **Do**: a long-form explanation for every error and lint code (`docs/errors/E0308.md`: what
+  it means, an erroneous example, the fix), embedded in `ppl`; `ppl explain E0308` prints it,
+  and the compiler's messages mention it.
+- **Done when**: a test checks every explanation exists and its examples are real: each
+  erroneous example reports its code, each fixed one compiles.
+
+#### P10.9b `ppl doc`
+- **Do**: HTML from doc comments: an index and a page per module, each exported declaration's
+  signature (as written) and its rendered Markdown, members of types, links between pages;
+  `ppl doc --std` for the standard library and the core library, `ppl doc` for the current
+  project's API (its `index.ppl`).
+- **Done when**: stdlib docs are generated (and a test checks a page's declarations and links).
 
 ### P10.10 Release packaging
 - **Spec**: 14 §14.6
