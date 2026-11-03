@@ -226,8 +226,15 @@ pub fn lower(
         })
         .collect();
     let exports = export_wrappers(&mut cx, &mut fns);
+    check_externs(&mut cx);
     let mut mir = mir::Program {
         exports,
+        externs: program
+            .externs
+            .iter()
+            .map(|e| (e.func, e.symbol.clone()))
+            .collect(),
+        links: program.links.clone(),
         file: file.name.clone(),
         fns,
         entry: program.entry,
@@ -262,6 +269,44 @@ fn js_problem(p: &hir::Program, t: &Ty, seen: &mut Vec<StructId>) -> Option<Stri
         _ => Some(format!(
             "`{t}` can't cross to JavaScript (numbers, `bool`, `string`, structs of those and classes can)"
         )),
+    }
+}
+
+/// What an `extern "C"` function may take and return (spec §12.1): numbers, `bool`, pointers
+/// (callbacks too) and, as parameters, `string` (a temporary C string). The core library's
+/// externs may return a ppl `string` from the runtime.
+fn check_externs(cx: &mut Cx) {
+    let p = cx.program;
+    for e in &p.externs {
+        let f = p.func(e.func);
+        let sig = &cx.types.sigs[e.func.0 as usize];
+        let core = f.span.file != cx.file_id && cx.program.func(e.func).name.starts_with("ppl_");
+        let ok = |t: &Ty, ret: bool| match t {
+            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Ref(_) => true,
+            Ty::Str => !ret || core,
+            Ty::Void => ret,
+            _ => false,
+        };
+        let bad = sig
+            .params
+            .iter()
+            .find(|t| !ok(t, false))
+            .or_else(|| (!ok(&sig.ret, true)).then_some(&sig.ret));
+        if let Some(t) = bad {
+            let hint = if *t == Ty::Str {
+                "return `ptr<u8>` and copy it with `string.fromC(p)`"
+            } else {
+                "C takes numbers, `bool`, pointers and strings (structs by pointer for now)"
+            };
+            cx.diags.push(
+                Diagnostic::error(
+                    codes::EXPORT_TYPE,
+                    format!("`{}` can't have `{t}` in a C signature", f.name),
+                )
+                .primary(f.name_span, "declared here")
+                .help(hint),
+            );
+        }
     }
 }
 
@@ -2672,6 +2717,7 @@ impl FnBuilder<'_, '_> {
                 });
                 Operand::Const(Const::Void)
             }
+            ExprKind::FnAddr(id) => self.rvalue_to_temp(Rvalue::FnAddr(*id), ty, e.span),
             ExprKind::Fn(id) if matches!(ty, Ty::Fn(..)) => {
                 let a = self.cx.fn_value(*id);
                 self.rvalue_to_temp(Rvalue::Closure(a, Vec::new()), ty, e.span)
@@ -3344,6 +3390,10 @@ impl FnBuilder<'_, '_> {
                     && it.contains(*n)
                 {
                     return Operand::Const(Const::Int(*n, *it));
+                }
+                if matches!((&from, to), (Ty::Ref(_), Ty::Ref(_))) {
+                    // A pointer to another pointee: the same address.
+                    return self.rvalue_to_temp(Rvalue::Use(v), to.clone(), e.span);
                 }
                 self.rvalue_to_temp(Rvalue::Cast(v, to.clone()), to.clone(), e.span)
             }

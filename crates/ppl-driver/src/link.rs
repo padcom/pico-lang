@@ -135,14 +135,61 @@ pub fn link_browser(t: Target, obj: &Path, wasm: &Path) -> Result<(), String> {
 }
 
 /// Links `obj` with the runtime into the executable `exe` for a Linux target.
-pub fn link_linux(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), String> {
+/// `links` are the program's `@link` libraries (spec §12.1).
+pub fn link_linux(
+    t: Target,
+    obj: &Path,
+    exe: &Path,
+    debug: bool,
+    links: &[String],
+) -> Result<(), String> {
     match t.env {
-        Env::Musl => link_musl(t, obj, exe),
-        _ => link_gnu(t, obj, exe, debug),
+        Env::Musl => link_musl(t, obj, exe, links),
+        _ => link_gnu(t, obj, exe, debug, links),
     }
 }
 
-fn link_gnu(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), String> {
+/// `-l` arguments for `@link` libraries, with the system's library directories for the
+/// target (a library the generated glibc stubs already provide, like `m`, is left out).
+fn system_libs(t: Target, links: &[String], provided: &[PathBuf]) -> Vec<String> {
+    let mut out = Vec::new();
+    // (The C library's own parts: musl has them all in `libc.a`, glibc's are stubs.)
+    let libc = ["c", "m", "pthread", "dl", "rt", "util"];
+    let wanted: Vec<&String> = links
+        .iter()
+        .filter(|l| !libc.contains(&l.as_str()))
+        .filter(|l| {
+            !provided.iter().any(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with(&format!("lib{l}.so")))
+            })
+        })
+        .collect();
+    if wanted.is_empty() {
+        return out;
+    }
+    let ma = t.multiarch();
+    for d in [
+        format!("/usr/lib/{ma}"),
+        format!("/lib/{ma}"),
+        "/usr/local/lib".to_string(),
+        "/usr/lib".to_string(),
+    ] {
+        if Path::new(&d).is_dir() {
+            out.push(format!("-L{d}"));
+        }
+    }
+    out.extend(wanted.iter().map(|l| format!("-l{l}")));
+    out
+}
+
+fn link_gnu(
+    t: Target,
+    obj: &Path,
+    exe: &Path,
+    debug: bool,
+    links: &[String],
+) -> Result<(), String> {
     let cc = clang()?;
     let runtime = runtime_objects(t, &gnu_libc(t, cc)?)?;
     let stubs = crate::glibc::stubs(t, &cc.exe)?;
@@ -165,11 +212,12 @@ fn link_gnu(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), String
     // Only the libraries something refers to become dependencies (libdl, libutil, …).
     args.push("--as-needed".into());
     args.extend(paths(&stubs));
+    args.extend(system_libs(t, links, &stubs));
     ppl_lld::link_elf(&args).map_err(|e| format!("linking failed:\n{e}"))
 }
 
 /// musl targets are fully static (spec §15.1): musl's `libc.a` objects are linked in.
-fn link_musl(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
+fn link_musl(t: Target, obj: &Path, exe: &Path, links: &[String]) -> Result<(), String> {
     let cc = clang()?;
     let musl = crate::musl::libc(t, cc)?;
     let runtime = runtime_objects(t, &crate::musl::runtime_libc(t, cc, &musl))?;
@@ -181,6 +229,8 @@ fn link_musl(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
     lazy(&mut args, &runtime.lazy);
     lazy(&mut args, &musl.lib);
     lazy(&mut args, &crate::builtins::objects(t, cc)?);
+    // (Static libraries built for musl, if the system has them.)
+    args.extend(system_libs(t, links, &[]));
     args.extend(paths(&musl.end));
     ppl_lld::link_elf(&args).map_err(|e| format!("linking failed:\n{e}"))
 }

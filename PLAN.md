@@ -756,6 +756,8 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   conversion, the safe/unsafe call rules, and callbacks.
 - **Done when**: calling libc `strlen`/`qsort` works, and a fail test covers a pointer call outside
   `unsafe`.
+- **Done (decision 261)**: `tests/run/ffi/libc.ppl`, `tests/fail/ffi/`; `@pod` structs by value
+  are left for later (by pointer works).
 
 ### P9.2 C header import
 - **Spec**: 12 §12.2

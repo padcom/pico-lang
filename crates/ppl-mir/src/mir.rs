@@ -62,6 +62,11 @@ pub struct Program {
     pub itables: Vec<Vec<FnId>>,
     /// `@export`ed functions (spec §12.3, §12.4), each called through a wrapper.
     pub exports: Vec<Export>,
+    /// Functions declared in `extern "C"` blocks: their bodies (a panic, for the
+    /// interpreter) are replaced by calls of these C symbols in native code.
+    pub externs: Vec<(FnId, String)>,
+    /// `@link` libraries.
+    pub links: Vec<String>,
 }
 
 /// An `@export`ed function, as the outside sees it.
@@ -568,6 +573,8 @@ pub enum Rvalue {
     /// A function value: the (lifted) function and the captured values, in order (its
     /// environment, which the function receives as its first parameter).
     Closure(FnId, Vec<Operand>),
+    /// A function's address as a C function pointer (callbacks of extern functions).
+    FnAddr(FnId),
     /// A new heap cell of the type holding the value (`Const::Void`: uninitialized); the
     /// result is a reference to it (captured `let` variables).
     BoxNew(Ty, Operand),
@@ -640,7 +647,7 @@ macro_rules! rvalue_operands {
             | Variant(_, _, ops)
             | Closure(_, ops) => ops.$iter().for_each($f),
             Ref(_) | SizeOf(..) | New(_) | ExceptionTag | TakeException(_) | ExceptionPending
-            | Comptime(..) => {}
+            | Comptime(..) | FnAddr(_) => {}
         }
     }};
 }
@@ -902,6 +909,7 @@ impl fmt::Display for Rvalue {
             Rvalue::InstanceOf(a, c) => write!(f, "InstanceOf({a}, class#{})", c.0),
             Rvalue::ToIface(a, i) => write!(f, "ToIface({a}, itable#{i})"),
             Rvalue::IfaceData(a) => write!(f, "IfaceData({a})"),
+            Rvalue::FnAddr(id) => write!(f, "FnAddr(fn#{})", id.0),
             Rvalue::Closure(id, ops) => {
                 let ops: Vec<String> = ops.iter().map(|o| o.to_string()).collect();
                 write!(f, "Closure(fn#{}, [{}])", id.0, ops.join(", "))
@@ -957,7 +965,9 @@ pub fn live_functions(p: &Program) -> Vec<bool> {
         live[i] = true;
         for b in &p.fns[i].blocks {
             for st in &b.stmts {
-                if let Rvalue::Closure(g, _) | Rvalue::Comptime(g, _) = &st.rvalue {
+                if let Rvalue::Closure(g, _) | Rvalue::Comptime(g, _) | Rvalue::FnAddr(g) =
+                    &st.rvalue
+                {
                     work.push(*g);
                 }
             }

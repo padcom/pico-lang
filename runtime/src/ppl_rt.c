@@ -240,6 +240,21 @@ PplStr *ppl_str_new(const char *bytes, int64_t byte_len) {
     return s;
 }
 
+/* `extern "C"` calls (spec §12.1): a string argument as a temporary NUL-terminated copy,
+ * freed after the call; and `string.fromC(p)`. */
+char *ppl_cstr_new(const PplStr *s) {
+    size_t n = s ? (size_t)s->byte_len : 0;
+    char *c = malloc(n + 1);
+    if (!c) abort();
+    if (n) memcpy(c, s->data, n);
+    c[n] = 0;
+    return c;
+}
+
+void ppl_cstr_free(char *c) { free(c); }
+
+PplStr *ppl_str_from_c(const char *p) { return ppl_str_new(p ? p : "", p ? (int64_t)strlen(p) : 0); }
+
 PplStr *ppl_str_concat(const PplStr *a, const PplStr *b) {
     PplStr *s = str_alloc(a->byte_len + b->byte_len);
     memcpy(s->data, a->data, (size_t)a->byte_len);

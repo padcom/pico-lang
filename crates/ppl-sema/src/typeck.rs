@@ -1849,7 +1849,33 @@ impl<'p> Checker<'p> {
                 let ts = self.types.fn_throws[id.0 as usize].clone();
                 Ty::Fn(sig.params.into(), Box::new(sig.ret), ts.into())
             }
-            ExprKind::Fn(_) | ExprKind::Builtin(_) => {
+            ExprKind::FnAddr(id) if self.program.func(*id).generics.is_empty() => {
+                // A C function pointer to a top-level function (spec §12.1).
+                let g = self.program.func(*id);
+                if (g.ret.is_none() || g.infer_throws)
+                    && self.state[id.0 as usize] == FnState::Unchecked
+                {
+                    self.check_fn(*id);
+                }
+                let sig = self.types.sigs[id.0 as usize].clone();
+                let ts = self.types.fn_throws[id.0 as usize].clone();
+                if !ts.is_empty() {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNHANDLED_ERROR,
+                            "a function C calls back can't throw",
+                        )
+                        .primary(e.span, "this function throws")
+                        .help("catch its errors inside it"),
+                    );
+                }
+                Ty::Ref(Box::new(Ty::Fn(
+                    sig.params.into(),
+                    Box::new(sig.ret),
+                    Vec::new().into(),
+                )))
+            }
+            ExprKind::Fn(_) | ExprKind::FnAddr(_) | ExprKind::Builtin(_) => {
                 self.diags.push(
                     Diagnostic::error(
                         codes::NOT_IMPLEMENTED,
@@ -2338,6 +2364,8 @@ impl<'p> Checker<'p> {
                     (Ty::Int(_) | Ty::Float(_), Ty::Int(_) | Ty::Float(_)) => true,
                     (Ty::Char, Ty::Int(_)) => true,
                     (Ty::Int(IntTy::U8 | IntTy::U32), Ty::Char) => true,
+                    // Raw pointers to any other pointee (`ptr<void>` for C; spec §12.1).
+                    (Ty::Ref(_), Ty::Ref(_)) => true,
                     (Ty::Error, _) | (_, Ty::Error) => true,
                     _ => false,
                 };

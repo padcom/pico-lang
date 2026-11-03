@@ -31,6 +31,15 @@ into a ppl `string` with `string.fromC(p)`, inside `unsafe`.
 | `struct` | `@pod struct` |
 | function pointer | `extern "C" (args) => R` |
 | `const char*` (param) | `string` (auto-converted) |
+| `size_t`, `ptrdiff_t` | `usize`, `isize` (pointer-sized at the boundary) |
+| `void*` | `ptr<void>` |
+
+C's other names: `c_char`, `c_uchar`, `c_short`, `c_ushort`, `c_uint`, `c_ulong`,
+`c_longlong`, `c_ulonglong`, `c_float`, `c_double` (`c_long` is pointer-sized: on Windows, where
+C's `long` has 32 bits, declare `i32`). A callback parameter (`extern "C" (a: ptr<void>) => c_int`)
+takes a top-level function by name, which mustn't throw. Pointers convert to other pointee
+types with `as`. Extern functions run only in native code (the interpreter panics), and
+structs cross by pointer until by-value C structs are implemented. Decision 261.
 
 ## 12.2 C: automatic header import
 ```ts

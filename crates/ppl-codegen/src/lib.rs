@@ -278,8 +278,12 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program, setjmp: Setjmp, ptr: u64
     g.class_infos();
     let live = ppl_mir::mir::live_functions(program);
     for (i, l) in live.iter().enumerate() {
-        if *l {
-            g.function(i);
+        if !*l {
+            continue;
+        }
+        match program.externs.iter().find(|(f, _)| f.0 as usize == i) {
+            Some((_, symbol)) => g.extern_body(i, symbol),
+            None => g.function(i),
         }
     }
     // Unreachable functions (the core library's unused code) are dropped.
@@ -733,6 +737,8 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_print_f32" => void.fn_type(&[self.cx.f32_type().into()], false),
             "ppl_print_bool" | "ppl_print_char" => void.fn_type(&[i32t.into()], false),
             "ppl_print_string" => void.fn_type(&[ptr.into()], false),
+            "ppl_cstr_new" => ptr.fn_type(&[ptr.into()], false),
+            "ppl_cstr_free" => void.fn_type(&[ptr.into()], false),
             "ppl_print_newline" => void.fn_type(&[], false),
             "ppl_panic" => void.fn_type(
                 &[
@@ -941,6 +947,117 @@ impl<'ctx> Gen<'ctx, '_> {
     }
 
     // ------------------------------------------------------------ functions
+
+    /// The body of an `extern "C"` function (spec §12.1, decision 261): a call of the C
+    /// symbol, with each `string` argument passed as a temporary NUL-terminated copy.
+    fn extern_body(&mut self, index: usize, symbol: &str) {
+        let func = &self.p.fns[index];
+        let llfn = self.fns[index];
+        let zeroext = inkwell::attributes::Attribute::get_named_enum_kind_id("zeroext");
+        let signext = inkwell::attributes::Attribute::get_named_enum_kind_id("signext");
+        // C wants arguments narrower than an `int` extended.
+        let ext = |t: &Ty| match t {
+            Ty::Bool => Some(zeroext),
+            Ty::Int(it) if it.bits() < 32 => Some(if it.signed() { signext } else { zeroext }),
+            _ => None,
+        };
+        let params: Vec<Ty> = func
+            .params
+            .iter()
+            .map(|l| func.local_ty(*l).clone())
+            .collect();
+        // `isize`/`usize` are C's `ptrdiff_t`/`size_t`: 32 bits on wasm32.
+        let narrow = |t: &Ty| self.ptr == 4 && matches!(t, Ty::Int(IntTy::Isize | IntTy::Usize));
+        let cty = |t: &Ty| -> Option<BasicTypeEnum<'ctx>> {
+            if narrow(t) {
+                Some(self.i32().into())
+            } else {
+                self.ty(t)
+            }
+        };
+        let cfn = match self.m.get_function(symbol) {
+            Some(f) => f,
+            None => {
+                let ps: Vec<BasicMetadataTypeEnum> =
+                    params.iter().filter_map(cty).map(Into::into).collect();
+                let fn_ty = match cty(&func.ret) {
+                    Some(t) => t.fn_type(&ps, false),
+                    None => self.cx.void_type().fn_type(&ps, false),
+                };
+                let f = self.m.add_function(symbol, fn_ty, Some(Linkage::External));
+                for (k, t) in params.iter().enumerate() {
+                    if let Some(kind) = ext(t) {
+                        f.add_attribute(
+                            inkwell::attributes::AttributeLoc::Param(k as u32),
+                            self.cx.create_enum_attribute(kind, 0),
+                        );
+                    }
+                }
+                if let Some(kind) = ext(&func.ret) {
+                    f.add_attribute(
+                        inkwell::attributes::AttributeLoc::Return,
+                        self.cx.create_enum_attribute(kind, 0),
+                    );
+                }
+                f
+            }
+        };
+        let entry = self.cx.append_basic_block(llfn, "start");
+        self.b.position_at_end(entry);
+        let mut args: Vec<BasicMetadataValueEnum> = Vec::new();
+        let mut temps = Vec::new();
+        for (k, t) in params.iter().enumerate() {
+            let v = llfn.get_nth_param(k as u32).expect("parameter");
+            if *t == Ty::Str {
+                let c = basic(
+                    self.b
+                        .build_call(self.rt("ppl_cstr_new"), &[v.into()], "cstr")
+                        .unwrap(),
+                );
+                temps.push(c);
+                args.push(c.into());
+            } else if narrow(t) {
+                let n = self
+                    .b
+                    .build_int_truncate(v.into_int_value(), self.i32(), "")
+                    .unwrap();
+                args.push(n.into());
+            } else {
+                args.push(v.into());
+            }
+        }
+        let call = self.b.build_call(cfn, &args, "r").unwrap();
+        for (k, t) in params.iter().enumerate() {
+            if let Some(kind) = ext(t) {
+                call.add_attribute(
+                    inkwell::attributes::AttributeLoc::Param(k as u32),
+                    self.cx.create_enum_attribute(kind, 0),
+                );
+            }
+        }
+        for c in temps {
+            self.b
+                .build_call(self.rt("ppl_cstr_free"), &[c.into()], "")
+                .unwrap();
+        }
+        match call.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(r) if narrow(&func.ret) => {
+                let wide = if matches!(func.ret, Ty::Int(IntTy::Isize)) {
+                    self.b
+                        .build_int_s_extend(r.into_int_value(), self.i64(), "")
+                } else {
+                    self.b
+                        .build_int_z_extend(r.into_int_value(), self.i64(), "")
+                }
+                .unwrap();
+                self.b.build_return(Some(&wide)).unwrap()
+            }
+            inkwell::values::ValueKind::Basic(r) if self.ty(&func.ret).is_some() => {
+                self.b.build_return(Some(&r)).unwrap()
+            }
+            _ => self.b.build_return(None).unwrap(),
+        };
+    }
 
     fn function(&mut self, index: usize) {
         let func = &self.p.fns[index];
@@ -1674,6 +1791,12 @@ impl<'ctx> Gen<'ctx, '_> {
                 Some(v)
             }
             Rvalue::Comptime(..) => unreachable!("comptime code runs before code generation"),
+            Rvalue::FnAddr(f) => Some(
+                self.fns[f.0 as usize]
+                    .as_global_value()
+                    .as_pointer_value()
+                    .into(),
+            ),
             Rvalue::ExceptionPending => {
                 let slot = self.exception_slot();
                 let ptr = self.ptr();

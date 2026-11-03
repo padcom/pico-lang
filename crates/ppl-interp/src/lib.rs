@@ -965,6 +965,10 @@ impl Interp<'_, '_> {
                 let env = Value::Ref(cell(Value::Struct(caps)), Rc::from(Vec::new()));
                 Ok(Value::Closure(Rc::new((*f, env))))
             }
+            Rvalue::FnAddr(_) => Err(self.panic(
+                "C function pointers need a native build (extern functions don't run in the interpreter)",
+                loc,
+            )),
             // Comptime code inside comptime code: just run it.
             Rvalue::Comptime(f, _) => {
                 let env = Value::Ref(cell(Value::Struct(Vec::new())), Rc::from(Vec::new()));

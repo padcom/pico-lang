@@ -406,7 +406,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         } else if target.os == target::Os::Browser {
             browser::build(mir, &obj, exe, &js_packages(&checked.sm))
         } else {
-            link::link_linux(target, &obj, exe, !opts.release)
+            link::link_linux(target, &obj, exe, !opts.release, &mir.links)
         };
         let _ = std::fs::remove_file(&obj);
         return r;
@@ -415,7 +415,8 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     cmd.arg(&obj)
         .arg(ppl_runtime::static_lib())
         .args(ppl_runtime::crypto_libs())
-        .args(ppl_runtime::host_link_flags());
+        .args(ppl_runtime::host_link_flags())
+        .args(mir.links.iter().map(|l| format!("-l{l}")));
     if !opts.release {
         // Panic traces name frames through the dynamic symbol table.
         cmd.arg("-Wl,-export_dynamic");

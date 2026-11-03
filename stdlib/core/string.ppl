@@ -294,3 +294,8 @@ function __String_lastIndexOf(s: string, search: string): int {
   }
   -1
 }
+
+// `string.fromC(p)` (spec §12.1): a copy of the NUL-terminated UTF-8 string at `p`.
+extern "C" {
+  function ppl_str_from_c(p: ptr<u8>): string
+}

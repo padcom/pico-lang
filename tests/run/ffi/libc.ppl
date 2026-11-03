@@ -1,0 +1,41 @@
+// native-only: the interpreter can't call C
+// expect: strlen 6
+// expect: abs 42
+// expect: sorted [1, 3, 5, 7, 9]
+// expect: from C: ppl
+// expect: sqrt 4
+// Spec §12.1: `extern "C"` functions from libc, a `string` argument passed as a C string, a
+// ppl function as a C callback (`qsort`), `string.fromC`, `@link`.
+extern "C" {
+  function strlen(s: string): usize
+  function abs(x: c_int): c_int
+  function qsort(base: ptr<void>, n: usize, size: usize, cmp: extern "C" (a: ptr<void>, b: ptr<void>) => c_int): void
+  function strchr(s: ptr<u8>, c: c_int): ptr<u8>
+}
+
+@link("m")
+extern "C" {
+  function sqrt(x: f64): f64
+}
+
+function compareInts(a: ptr<void>, b: ptr<void>): c_int {
+  unsafe {
+    const x = (a as ptr<i32>).read()
+    const y = (b as ptr<i32>).read()
+    if (x < y) -1 as c_int else if (x > y) 1 as c_int else 0 as c_int
+  }
+}
+
+println(`strlen ${strlen("héllo")}`)
+println(`abs ${abs(-42 as c_int)}`)
+const xs: i32[] = [5, 3, 9, 1, 7]
+unsafe {
+  qsort(ptr.of(xs[0]) as ptr<void>, xs.length as usize, 4 as usize, compareInts)
+}
+println(`sorted ${xs:?}`)
+const bytes: u8[] = [104, 105, 58, 112, 112, 108, 0]
+unsafe {
+  const colon = strchr(ptr.of(bytes[0]), 58 as c_int)
+  println(`from C: ${string.fromC(colon + 1)}`)
+}
+println(`sqrt ${sqrt(16.0)}`)

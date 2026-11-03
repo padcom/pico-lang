@@ -54,6 +54,17 @@ pub struct Program {
     pub uses_inline_workers: bool,
     /// `@export("js")` / `@export("c")` functions (spec §12.3, §12.4).
     pub exports: Vec<Export>,
+    /// Functions of `extern "C"` blocks (spec §12.1).
+    pub externs: Vec<Extern>,
+    /// Libraries `@link("name")` asks for.
+    pub links: Vec<String>,
+}
+
+/// A function declared in an `extern "C"` block: calls go to the C symbol.
+#[derive(Clone, Debug)]
+pub struct Extern {
+    pub func: FnId,
+    pub symbol: String,
 }
 
 /// Who an exported function is for.
@@ -878,6 +889,9 @@ pub enum ExprKind {
     Null,
     Var(Var),
     Fn(FnId),
+    /// A top-level function's address, as a C function pointer (`extern "C" (…) => R`; only
+    /// as an argument of an extern function).
+    FnAddr(FnId),
     Builtin(Builtin),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
@@ -1140,6 +1154,7 @@ impl Expr {
             | ExprKind::Null
             | ExprKind::Var(_)
             | ExprKind::Fn(_)
+            | ExprKind::FnAddr(_)
             | ExprKind::Builtin(_)
             | ExprKind::Continue
             | ExprKind::Closure(_)

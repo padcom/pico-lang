@@ -188,6 +188,9 @@ pub fn resolve_modules(
         worker_ids: HashMap::new(),
         uses_inline_workers: false,
         exports: Vec::new(),
+        externs: Vec::new(),
+        extern_cfns: HashMap::new(),
+        links: Vec::new(),
         mods: ModCtx::default(),
         prelude_files: modules.prelude.clone(),
         file_modules: modules.file_modules.clone(),
@@ -354,6 +357,11 @@ struct Resolver {
     uses_inline_workers: bool,
     /// `@export(…)` functions.
     exports: Vec<Export>,
+    /// `extern "C"` functions, and which of their parameters are C function pointers.
+    externs: Vec<Extern>,
+    extern_cfns: HashMap<FnId, Vec<bool>>,
+    /// `@link(…)` libraries.
+    links: Vec<String>,
     /// Worker modules by id - 1, and what `new Worker("spec")` in a module refers to.
     worker_files: Vec<FileId>,
     worker_ids: HashMap<(FileId, String), u32>,
@@ -420,6 +428,83 @@ impl Resolver {
     fn error(&mut self, code: Code, span: Span, msg: impl Into<String>, label: impl Into<String>) {
         self.diags
             .push(Diagnostic::error(code, msg).primary(span, label));
+    }
+
+    /// An `extern "C" { … }` block (spec §12.1): its functions are declared like top-level
+    /// ones (their bodies panic in the interpreter; native code calls the C symbol), and
+    /// `@link("name")` on it asks for a library.
+    fn extern_block<'a>(
+        &mut self,
+        d: &ast::Decl,
+        abi: &str,
+        items: &'a [ast::Decl],
+        first_seen: &mut HashMap<String, Span>,
+        fn_decls: &mut Vec<(FnId, &'a ast::FnDecl, Option<StructId>)>,
+    ) {
+        if abi != "C" {
+            self.not_implemented(d.span, "`extern` blocks for ABIs other than \"C\"");
+            return;
+        }
+        for dec in &d.decorators {
+            let lib = match (&dec.path[..], dec.args.as_deref()) {
+                ([p], Some([a])) if p.name == "link" => match &a.value.kind {
+                    ast::ExprKind::Lit(ast::Lit::Str(s)) => Some(s.clone()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            match lib {
+                Some(l) => {
+                    if !self.links.contains(&l) {
+                        self.links.push(l)
+                    }
+                }
+                None => self.error(
+                    codes::DECORATOR,
+                    dec.span,
+                    "an `extern` block takes only `@link(\"library\")`",
+                    "e.g. `@link(\"SDL2\")`",
+                ),
+            }
+        }
+        for item in items {
+            let ast::DeclKind::Function(f) = &item.kind else {
+                self.not_implemented(
+                    item.span,
+                    "declarations other than functions in `extern` blocks",
+                );
+                continue;
+            };
+            let Some(name) = &f.name else { continue };
+            if f.body.is_some() || !f.generics.is_empty() || f.flags.is_async {
+                self.error(
+                    codes::NOT_IMPLEMENTED,
+                    f.span,
+                    "an `extern` function is a declaration: no body, type parameters or `async`",
+                    "declare the C function's signature only",
+                );
+                continue;
+            }
+            if self.check_duplicate(first_seen, name) {
+                continue;
+            }
+            let id = FnId(self.fns.len() as u32);
+            self.fns.push(None);
+            self.top_fns.insert(&self.mods, name.name.clone(), vec![id]);
+            fn_decls.push((id, f, None));
+            let cfns = f
+                .params
+                .iter()
+                .map(|p| {
+                    matches!(&p.ty, Some(t) if matches!(&t.kind, ast::TypeKind::Function { extern_abi: Some(_), .. }))
+                })
+                .collect();
+            self.extern_cfns.insert(id, cfns);
+            self.externs.push(Extern {
+                func: id,
+                symbol: name.name.clone(),
+            });
+        }
     }
 
     /// `@export("js")` / `@export("c")` on a top-level function (spec §12.3, §12.4): which,
@@ -609,6 +694,9 @@ impl Resolver {
                             self.variant_names.insert(v.name.name.clone());
                         }
                         enum_decls.push((id, ed));
+                    }
+                    if let ast::DeclKind::Extern { abi, items } = &d.kind {
+                        self.extern_block(d, abi, items, &mut first_seen, &mut fn_decls);
                     }
                     if let ast::DeclKind::Function(f) = &d.kind
                         && let Some(name) = &f.name
@@ -906,6 +994,8 @@ impl Resolver {
             workers: std::mem::take(&mut self.worker_files),
             uses_inline_workers: self.uses_inline_workers,
             exports: std::mem::take(&mut self.exports),
+            externs: std::mem::take(&mut self.externs),
+            links: std::mem::take(&mut self.links),
         }
     }
 
@@ -1289,6 +1379,7 @@ impl Resolver {
                             | ast::DeclKind::Class(_)
                             | ast::DeclKind::Interface(_)
                             | ast::DeclKind::TypeAlias { .. }
+                            | ast::DeclKind::Extern { .. }
                     ) => {}
                 _ => {
                     let last = i + 1 == stmts.len();
@@ -1523,6 +1614,26 @@ impl Resolver {
                     span: e.span,
                 }
             }
+            None if self.extern_cfns.contains_key(&self.cur_fn) => {
+                // The interpreter can't call C: native builds replace this body with the call.
+                let msg = format!("`{}` is a C function: it needs a native build", name.name);
+                let lit = |kind| ast::Expr { kind, span: f.span };
+                let call = lit(ast::ExprKind::Call {
+                    callee: Box::new(lit(ast::ExprKind::Ident("panic".into()))),
+                    type_args: Vec::new(),
+                    args: vec![ast::Arg {
+                        name: None,
+                        spread: false,
+                        value: lit(ast::ExprKind::Lit(ast::Lit::Str(msg))),
+                    }],
+                });
+                let tail = self.lower_expr(&call);
+                Block {
+                    stmts: Vec::new(),
+                    tail: Some(Box::new(tail)),
+                    span: f.span,
+                }
+            }
             None => {
                 self.not_implemented(name.span, "functions without a body");
                 Block {
@@ -1540,6 +1651,12 @@ impl Resolver {
         for (i, g) in generics.iter_mut().enumerate() {
             g.is_len = self.len_params.contains(&(self.cur_fn.0, i as u32));
         }
+        // An extern function taking or returning pointers (callbacks too) is unsafe to call
+        // (spec §12.1).
+        let is_extern = self.extern_cfns.contains_key(&self.cur_fn) && f.body.is_none();
+        let raw = |t: &Option<Ty>| matches!(t, Some(Ty::Ref(_)));
+        let unsafe_extern =
+            is_extern && (raw(&ret) || params.iter().any(|p| raw(&self.f.locals[p.0 as usize].ty)));
         Function {
             name: full_name,
             name_span: name.span,
@@ -1550,7 +1667,7 @@ impl Resolver {
             body,
             span: f.span,
             is_entry,
-            is_unsafe: f.flags.is_unsafe,
+            is_unsafe: f.flags.is_unsafe || unsafe_extern,
             this: self.f.this,
             owner,
             generics,
@@ -3850,8 +3967,11 @@ impl Resolver {
                 throws,
                 extern_abi,
             } => {
-                if extern_abi.is_some() {
-                    self.not_implemented(t.span, "`extern` function types");
+                if extern_abi.as_deref().is_some_and(|a| a != "C") {
+                    self.not_implemented(
+                        t.span,
+                        "`extern` function types for ABIs other than \"C\"",
+                    );
                 }
                 for p in params {
                     if p.optional || p.rest {
@@ -3867,6 +3987,10 @@ impl Resolver {
                     Some(th) => self.throws_clause(th),
                     None => Vec::new(),
                 };
+                if extern_abi.is_some() {
+                    // A C function pointer: a pointer to the function (decision 261).
+                    return Ty::Ref(Box::new(Ty::Fn(ps.into(), Box::new(ret), ts.into())));
+                }
                 Ty::Fn(ps.into(), Box::new(ret), ts.into())
             }
             ast::TypeKind::Object(_) => {
@@ -5005,6 +5129,25 @@ impl Resolver {
                 );
                 ExprKind::Error
             }
+            A::Call { callee, args, .. }
+                if matches!(&callee.kind, A::Member { object, prop, .. }
+                    if prop.name == "fromC" && matches!(&object.kind, A::Ident(n) if n == "string")) =>
+            {
+                // `string.fromC(p)` (spec §12.1): the runtime copies the C string.
+                let f = self
+                    .top_fns
+                    .prelude()
+                    .find(|(n, _)| *n == "ppl_str_from_c")
+                    .map(|(_, ids)| ids[0])
+                    .expect("in the core library");
+                let callee = self.expr(ExprKind::Fn(f), callee.span);
+                let args = self.call_args(args);
+                ExprKind::Call {
+                    callee: Box::new(callee),
+                    args,
+                    type_args: Vec::new(),
+                }
+            }
             A::Call { callee, args, .. } if self.names_enum_member(callee) => {
                 let Some((enum_, variant)) = self.variant_ref(callee) else {
                     return self.error_expr(span);
@@ -5364,7 +5507,18 @@ impl Resolver {
                 let type_args = type_args.iter().map(|t| self.resolve_type(t)).collect();
                 let is_parallel_map = matches!(&callee.kind, A::Ident(n) if n == "parallelMap");
                 let callee = self.lower_expr(callee);
-                let out = self.call_args(args);
+                let mut out = self.call_args(args);
+                // A top-level function passed where an extern function takes a C function
+                // pointer: its address.
+                if let ExprKind::Fn(f) = &callee.kind
+                    && let Some(cfns) = self.extern_cfns.get(f)
+                {
+                    for (a, is_cfn) in out.iter_mut().zip(cfns) {
+                        if *is_cfn && let ExprKind::Fn(g) = a.kind {
+                            a.kind = ExprKind::FnAddr(g);
+                        }
+                    }
+                }
                 // `parallelMap(items, f, …)` runs `f` in inline workers: no captures.
                 if is_parallel_map && let Some(f) = out.get(1) {
                     self.check_capture_free(f);
