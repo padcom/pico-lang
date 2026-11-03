@@ -724,23 +724,41 @@ class Date {
     n as f64
   }
 
+  /// The time value: milliseconds since 1970 (UTC), or `NaN` for an invalid date.
   public getTime(): number { this.t }
+  /// The time value, as `getTime()`.
   public valueOf(): number { this.t }
+  /// The full year (`2024`; not 2-digit), in local time; `NaN` for an invalid date.
   public getFullYear(): number { this.__field(false, 0) }
+  /// The month, 0–11 (January is 0), in local time; `NaN` for an invalid date.
   public getMonth(): number { this.__field(false, 1) }
+  /// The day of the month, 1–31, in local time; `NaN` for an invalid date.
   public getDate(): number { this.__field(false, 2) }
+  /// The day of the week, 0–6 (Sunday is 0), in local time; `NaN` for an invalid date.
   public getDay(): number { this.__field(false, 3) }
+  /// The hour, 0–23, in local time; `NaN` for an invalid date.
   public getHours(): number { this.__field(false, 4) }
+  /// The minutes, 0–59, in local time; `NaN` for an invalid date.
   public getMinutes(): number { this.__field(false, 5) }
+  /// The seconds, 0–59, in local time; `NaN` for an invalid date.
   public getSeconds(): number { this.__field(false, 6) }
+  /// The milliseconds, 0–999, in local time; `NaN` for an invalid date.
   public getMilliseconds(): number { this.__field(false, 7) }
+  /// The full year (`2024`; not 2-digit), in UTC; `NaN` for an invalid date.
   public getUTCFullYear(): number { this.__field(true, 0) }
+  /// The month, 0–11 (January is 0), in UTC; `NaN` for an invalid date.
   public getUTCMonth(): number { this.__field(true, 1) }
+  /// The day of the month, 1–31, in UTC; `NaN` for an invalid date.
   public getUTCDate(): number { this.__field(true, 2) }
+  /// The day of the week, 0–6 (Sunday is 0), in UTC; `NaN` for an invalid date.
   public getUTCDay(): number { this.__field(true, 3) }
+  /// The hour, 0–23, in UTC; `NaN` for an invalid date.
   public getUTCHours(): number { this.__field(true, 4) }
+  /// The minutes, 0–59, in UTC; `NaN` for an invalid date.
   public getUTCMinutes(): number { this.__field(true, 5) }
+  /// The seconds, 0–59, in UTC; `NaN` for an invalid date.
   public getUTCSeconds(): number { this.__field(true, 6) }
+  /// The milliseconds, 0–999, in UTC; `NaN` for an invalid date.
   public getUTCMilliseconds(): number { this.__field(true, 7) }
 
   /// Minutes behind UTC (`-60` in Central Europe in winter), as JavaScript has it.
@@ -748,6 +766,8 @@ class Date {
     if (this.t != this.t) 0.0 / 0.0 else (-this.__offset() / 60) as f64
   }
 
+  /// Sets the time value to `t` (truncated to whole milliseconds; `NaN` past ±8.64e15) and returns
+  /// it.
   public setTime(t: number): number {
     this.t = Date.__clip(t)
     this.t
@@ -773,19 +793,47 @@ class Date {
     this.t
   }
 
+  /// Sets the year (and optionally the month and day) in local time, out-of-range values rolling
+  /// over; returns the new time value (an invalid date starts from 1 January, 00:00).
   public setFullYear(y: number, ...rest: number[]): number { this.__set(false, [y, ...rest], 0) }
+  /// Sets the month, 0-based (and optionally the day) in local time, out-of-range values rolling
+  /// over; returns the new time value (an invalid date stays invalid).
   public setMonth(m: number, ...rest: number[]): number { this.__set(false, [m, ...rest], 1) }
+  /// Sets the day of the month in local time, out-of-range values rolling over (`setDate(0)` is the
+  /// previous month's last day); returns the new time value (an invalid date stays invalid).
   public setDate(d: number): number { this.__set(false, [d], 2) }
+  /// Sets the hour (and optionally minutes, seconds, milliseconds) in local time, out-of-range
+  /// values rolling over; returns the new time value (an invalid date stays invalid).
   public setHours(h: number, ...rest: number[]): number { this.__set(false, [h, ...rest], 3) }
+  /// Sets the minutes (and optionally seconds, milliseconds) in local time, out-of-range values
+  /// rolling over; returns the new time value (an invalid date stays invalid).
   public setMinutes(m: number, ...rest: number[]): number { this.__set(false, [m, ...rest], 4) }
+  /// Sets the seconds (and optionally milliseconds) in local time, out-of-range values rolling
+  /// over; returns the new time value (an invalid date stays invalid).
   public setSeconds(s: number, ...rest: number[]): number { this.__set(false, [s, ...rest], 5) }
+  /// Sets the milliseconds in local time, out-of-range values rolling over; returns the new time
+  /// value (an invalid date stays invalid).
   public setMilliseconds(ms: number): number { this.__set(false, [ms], 6) }
+  /// Sets the year (and optionally the month and day) in UTC, out-of-range values rolling over;
+  /// returns the new time value (an invalid date starts from 1 January, 00:00).
   public setUTCFullYear(y: number, ...rest: number[]): number { this.__set(true, [y, ...rest], 0) }
+  /// Sets the month, 0-based (and optionally the day) in UTC, out-of-range values rolling over;
+  /// returns the new time value (an invalid date stays invalid).
   public setUTCMonth(m: number, ...rest: number[]): number { this.__set(true, [m, ...rest], 1) }
+  /// Sets the day of the month in UTC, out-of-range values rolling over (`setDate(0)` is the
+  /// previous month's last day); returns the new time value (an invalid date stays invalid).
   public setUTCDate(d: number): number { this.__set(true, [d], 2) }
+  /// Sets the hour (and optionally minutes, seconds, milliseconds) in UTC, out-of-range values
+  /// rolling over; returns the new time value (an invalid date stays invalid).
   public setUTCHours(h: number, ...rest: number[]): number { this.__set(true, [h, ...rest], 3) }
+  /// Sets the minutes (and optionally seconds, milliseconds) in UTC, out-of-range values rolling
+  /// over; returns the new time value (an invalid date stays invalid).
   public setUTCMinutes(m: number, ...rest: number[]): number { this.__set(true, [m, ...rest], 4) }
+  /// Sets the seconds (and optionally milliseconds) in UTC, out-of-range values rolling over;
+  /// returns the new time value (an invalid date stays invalid).
   public setUTCSeconds(s: number, ...rest: number[]): number { this.__set(true, [s, ...rest], 5) }
+  /// Sets the milliseconds in UTC, out-of-range values rolling over; returns the new time value (an
+  /// invalid date stays invalid).
   public setUTCMilliseconds(ms: number): number { this.__set(true, [ms], 6) }
 
   /// `2024-03-10T12:30:00.000Z`; panics on an invalid date (JavaScript throws `RangeError`).

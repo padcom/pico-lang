@@ -15,6 +15,7 @@ function __b64value(c: char): int {
 
 /// Base64 (RFC 4648 §4, or §5's URL-safe alphabet with `url`).
 class Base64 {
+  /// A base64 codec (`std/encoding` exports one as `base64`).
   constructor() {}
 
   /// `data` as base64; `url` uses `-` and `_` and leaves out the `=` padding.
@@ -93,8 +94,10 @@ class Base64 {
 
 /// Hexadecimal: two lowercase digits per byte.
 class Hex {
+  /// A hex codec (`std/encoding` exports one as `hex`).
   constructor() {}
 
+  /// `data` as hexadecimal text: two lowercase digits per byte.
   public encode(data: Uint8Array): string {
     const digits: char[] = []
     for (const c of "0123456789abcdef") {

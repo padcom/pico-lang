@@ -153,10 +153,12 @@ class URLSearchParams {
     }
   }
 
+  /// The count of pairs (repeated names included).
   public get size(): int {
     this.list.length
   }
 
+  /// Adds a pair (after any others of the same name).
   public append(name: string, value: string): void {
     this.list.push([name, value])
     this.update()
@@ -184,6 +186,7 @@ class URLSearchParams {
     null
   }
 
+  /// Every value named `name`, in order (empty when there's none).
   public getAll(name: string): string[] {
     const out: string[] = []
     for (const [k, v] of this.list) {
@@ -194,6 +197,7 @@ class URLSearchParams {
     out
   }
 
+  /// Whether there's a pair named `name`.
   public has(name: string): bool {
     this.get(name) != null
   }
@@ -234,6 +238,7 @@ class URLSearchParams {
     this.update()
   }
 
+  /// Every pair's name, in order (repeats included).
   public keys(): string[] {
     const out: string[] = []
     for (const [k, v] of this.list) {
@@ -242,6 +247,7 @@ class URLSearchParams {
     out
   }
 
+  /// The pairs, in order (a copy).
   public entries(): [string, string][] {
     const out: [string, string][] = []
     for (const [k, v] of this.list) {
@@ -272,9 +278,13 @@ class URLSearchParams {
 /// `URL.parse` gives `null` instead.
 class URL {
   scheme: string = ""
+  /// The user name (percent-encoded), or "".
   public username: string = ""
+  /// The password (percent-encoded), or "".
   public password: string = ""
+  /// The host, lowercased (an IPv6 address in brackets, `[::1]`), or "".
   public hostname: string = ""
+  /// The port as text, or "" when there's none or it's the scheme's default (`80` for `http:`).
   public port: string = ""
   path: string = ""
   /// Whether the path is opaque (`mailto:a@b`) rather than a list of segments.
@@ -284,6 +294,8 @@ class URL {
   fragment: string? = null
   params: URLSearchParams? = null
 
+  /// Parses `input`, resolving it against `base` when it's relative. Throws a `TypeError` for an
+  /// invalid URL (or base).
   constructor(input: string, base: string? = null) throws TypeError {
     const b = base
     if (b != null) {
@@ -544,6 +556,7 @@ class URL {
     this.query = if (q.length == 0) null else q
   }
 
+  /// The scheme, lowercased, with its `:` (`"https:"`).
   public get protocol(): string {
     `${this.scheme}:`
   }
@@ -553,6 +566,8 @@ class URL {
     if (this.port.length > 0) `${this.hostname}:${this.port}` else this.hostname
   }
 
+  /// The path with dot segments resolved and percent-encoded (`"/"` at least for special schemes;
+  /// the whole opaque path for `mailto:a@b`).
   public get pathname(): string {
     this.path
   }
@@ -587,6 +602,7 @@ class URL {
     made
   }
 
+  /// The whole URL, serialized.
   public get href(): string {
     let out = `${this.scheme}:`
     if (this.hasHost) {
@@ -612,10 +628,12 @@ class URL {
     out
   }
 
+  /// `href`.
   public toString(): string {
     this.href
   }
 
+  /// `href` (as `JSON.stringify` writes a URL).
   public toJSON(): string {
     this.href
   }

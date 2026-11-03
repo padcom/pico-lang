@@ -3,6 +3,7 @@
 
 /// A worker ended by a panic or an uncaught error (`Worker.onerror`).
 class WorkerPanicked extends Error {
+  /// A `WorkerPanicked` with the panic's or the uncaught error's `message`.
   constructor(message: string) {
     super(message)
   }
@@ -26,7 +27,11 @@ struct __Reply<T> {
 /// the worker (throwing what `f` throws, `E`).
 class Worker<In extends Sendable, Out extends Sendable, E extends Error = never> {
   handle: int
+  /// Called with each message the worker sends (inline workers' replies settle `call`'s promises
+  /// instead).
   public onmessage: ((message: Out) => void)? = null
+  /// Called when the worker ends by a panic or an uncaught error; without it, the error ends the
+  /// program like an uncaught one.
   public onerror: ((error: WorkerPanicked) => void)? = null
   inline: bool = false
   /// Inline workers: the calls not answered yet.
@@ -39,6 +44,8 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
     __theLoop().channels.set(this.handle, () => this.__deliver())
   }
 
+  /// `new Worker(f)`: an inline worker that serves `call`s with `f`, a capture-free function copied
+  /// to the worker. While no call is pending it doesn't keep the program running.
   constructor(f: (input: In) => Out throws E) {
     this.inline = true
     this.handle = __worker_op(8, 0)

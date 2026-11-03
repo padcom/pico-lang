@@ -4,9 +4,11 @@
 
 /// What an aborted operation throws.
 class AbortError extends Error {
+  /// An `AbortError` with `message` (and no `cause`).
   constructor(message: string) {
     super(message)
   }
+  /// An `AbortError` with `message`; `cause` is the reason given to `abort`, if any.
   constructor(message: string, cause: Error?) {
     super(message, cause)
   }
@@ -14,6 +16,7 @@ class AbortError extends Error {
 
 /// Tells operations that they should stop (`AbortController.signal`).
 class AbortSignal {
+  /// Whether it has been aborted.
   public aborted: bool = false
   /// Why it was aborted: an `AbortError` (with the reason as its `cause`).
   public reason: AbortError? = null
@@ -21,6 +24,8 @@ class AbortSignal {
   public onabort: (() => void)? = null
   listeners: (() => void)[] = []
 
+  /// A signal that isn't aborted (`AbortController` makes one; `AbortSignal.abort` and
+  /// `AbortSignal.timeout` make others).
   constructor() {}
 
   /// Calls `f` when the signal is aborted (`type` must be `"abort"`); right away (as a

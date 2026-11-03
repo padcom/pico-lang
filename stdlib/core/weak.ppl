@@ -7,6 +7,7 @@
 class WeakRef<T extends object> {
   @weak target: T?
 
+  /// A reference to `target`.
   constructor(target: T) {
     this.target = target
   }
@@ -36,6 +37,7 @@ class WeakMap<K extends object, V> {
   /// The entry count at which `set` drops the dead entries.
   pruneAt: int = 16
 
+  /// An empty map.
   constructor() {}
 
   live(key: K): __WeakEntry<K, V>? {
@@ -56,10 +58,12 @@ class WeakMap<K extends object, V> {
     this.pruneAt = if (this.entries.size * 2 > 16) this.entries.size * 2 else 16
   }
 
+  /// Whether the map has an entry for `key`.
   public has(key: K): bool {
     this.live(key) != null
   }
 
+  /// The value for `key`, or `null` if there's none.
   public get(key: K): V? {
     const e = this.live(key)
     if (e == null) {
@@ -68,6 +72,7 @@ class WeakMap<K extends object, V> {
     e.value
   }
 
+  /// Sets `key`'s value; the map itself.
   public set(key: K, value: V): WeakMap<K, V> {
     const e = this.live(key)
     if (e != null) {
@@ -81,6 +86,7 @@ class WeakMap<K extends object, V> {
     this
   }
 
+  /// Removes `key`'s entry; whether there was one.
   public delete(key: K): bool {
     if (this.live(key) == null) {
       return false
@@ -93,17 +99,21 @@ class WeakMap<K extends object, V> {
 class WeakSet<T extends object> {
   members: WeakMap<T, bool> = new WeakMap<T, bool>()
 
+  /// An empty set.
   constructor() {}
 
+  /// Whether `value` is in the set.
   public has(value: T): bool {
     this.members.has(value)
   }
 
+  /// Adds `value`; the set itself.
   public add(value: T): WeakSet<T> {
     this.members.set(value, true)
     this
   }
 
+  /// Removes `value`; whether it was in the set.
   public delete(value: T): bool {
     this.members.delete(value)
   }
@@ -129,6 +139,8 @@ class FinalizationRegistry<T> {
   callback: (held: T) => void
   cells: __FinalizationCell<T>[] = []
 
+  /// A registry that calls `callback` with the `held` value of each registered target that gets
+  /// collected.
   constructor(callback: (held: T) => void) {
     this.callback = callback
     const all = __finalizationRegistries ?? []

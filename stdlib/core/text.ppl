@@ -4,8 +4,10 @@
 
 /// Turns strings into their UTF-8 bytes.
 class TextEncoder {
+  /// Always `"utf-8"`, the only encoding.
   public readonly encoding: string = "utf-8"
 
+  /// A UTF-8 encoder.
   constructor() {}
 
   /// The UTF-8 bytes of `input`.
@@ -21,25 +23,35 @@ class TextEncoder {
 /// `TextDecoder` options: `fatal` makes bytes that aren't UTF-8 throw a `TypeError` (else
 /// each bad sequence becomes U+FFFD); `ignoreBOM` keeps a leading byte-order mark.
 struct TextDecoderOptions {
+  /// Whether bytes that aren't UTF-8 throw a `TypeError` (default `false`: each bad sequence
+  /// becomes U+FFFD).
   fatal?: bool
+  /// Whether a leading byte-order mark is kept in the text (default `false`: it's dropped).
   ignoreBOM?: bool
 }
 
 /// `decode` options: with `stream`, an incomplete sequence at the end waits for the next call.
 struct TextDecodeOptions {
+  /// Whether more bytes follow: an incomplete sequence at the end is held back for the next call
+  /// (default `false`: the call ends the stream).
   stream?: bool
 }
 
 /// Turns UTF-8 bytes into strings, also chunk by chunk (`{ stream: true }`).
 class TextDecoder {
+  /// Always `"utf-8"`, the only encoding.
   public readonly encoding: string = "utf-8"
+  /// Whether bytes that aren't UTF-8 throw a `TypeError` (else they become U+FFFD).
   public readonly fatal: bool
+  /// Whether a leading byte-order mark is kept in the text.
   public readonly ignoreBOM: bool
   /// Bytes of an incomplete sequence from the last streamed chunk.
   pending: int[] = []
   /// Whether the next bytes start the stream (where a BOM is dropped).
   atStart: bool = true
 
+  /// A UTF-8 decoder. `label` is matched case-insensitively, ignoring surrounding whitespace;
+  /// anything but `"utf-8"`, `"utf8"` or `"unicode-1-1-utf-8"` panics.
   constructor(label: string = "utf-8", options: TextDecoderOptions = {}) {
     const l = label.trim().toLowerCase()
     if (l != "utf-8" && l != "utf8" && l != "unicode-1-1-utf-8") {

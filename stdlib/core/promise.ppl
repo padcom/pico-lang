@@ -22,6 +22,7 @@ class Promise<T, E extends Error = never> {
   /// Whether something awaits it or reacts to it (else a rejection ends the program).
   handled: bool = false
 
+  /// A pending promise (what an async function settles).
   constructor() {}
 
   /// `new Promise((resolve, reject) => …)`: `executor` runs right away and settles it.
@@ -228,8 +229,11 @@ class Promise<T, E extends Error = never> {
 /// How a promise ended (`Promise.allSettled`): `status` is `"fulfilled"` (with `value`) or
 /// `"rejected"` (with `reason`).
 struct Settled<T> {
+  /// `"fulfilled"` or `"rejected"`.
   status: string
+  /// The value, if it was fulfilled (else `null`).
   value: T?
+  /// The error, if it was rejected (else `null`).
   reason: Error?
 }
 
@@ -272,6 +276,7 @@ class AsyncIterator<T, E extends Error = never> {
   running: bool = false
   finished: bool = false
 
+  /// An iterator with no steps (an `async function*` makes the ones that produce values).
   constructor() {}
 
   public __start(step: () => ((k: () => void) => void)? throws E): void {
@@ -288,6 +293,9 @@ class AsyncIterator<T, E extends Error = never> {
     }
   }
 
+  /// Promises the next value, or `null` once done. The promise rejects with what the generator
+  /// throws (and later calls give `null`). Calls made before earlier ones are fulfilled queue up,
+  /// in order.
   public next(): Promise<T?, E> {
     const p = new Promise<T?, E>()
     if (this.finished) {
@@ -373,5 +381,6 @@ class AsyncIterator<T, E extends Error = never> {
 
 /// Released by `await using` (spec §11.5) at the end of its scope.
 interface AsyncDisposable {
+  /// Releases the resource; `await using` waits for the promise.
   disposeAsync(): Promise<void>
 }

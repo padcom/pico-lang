@@ -19,11 +19,13 @@ class Error {
 /// A value of the wrong type or shape, as JavaScript's (`TextDecoder` with `fatal` throws it
 /// for bytes that aren't UTF-8).
 class TypeError extends Error {
+  /// A `TypeError` with `message`.
   constructor(message: string) { super(message) }
 }
 
 /// A value outside the allowed range, as JavaScript's.
 class RangeError extends Error {
+  /// A `RangeError` with `message`.
   constructor(message: string) { super(message) }
 }
 
@@ -31,12 +33,16 @@ class RangeError extends Error {
 /// `"NotFound"`, `"AlreadyExists"`, `"PermissionDenied"`, `"NotADirectory"`, `"IsADirectory"`,
 /// `"DirectoryNotEmpty"`, `"InvalidData"` (text that isn't UTF-8) or `"Other"`.
 class IoError extends Error {
+  /// The path the operation was on.
   public path: string
+  /// What went wrong, as one of the kinds above (`"Other"` unless given).
   public kind: string = "Other"
+  /// An error of kind `"Other"` on `path`, with `message`.
   constructor(path: string, message: string) {
     super(message)
     this.path = path
   }
+  /// An error of `kind` on `path`, with `message`.
   constructor(path: string, message: string, kind: string) {
     this(path, message)
     this.kind = kind
@@ -46,10 +52,13 @@ class IoError extends Error {
 /// A lightweight error (spec §7.1): a struct or enum that can be thrown without being an
 /// `Error` (no stack trace). Enums can't have methods yet, so their message is their debug form.
 interface Throwable {
+  /// What went wrong, for people (what an uncaught throw prints).
   message(): string
 }
 
 /// Cleaned up by `using` at the end of its scope (spec §11.5).
 interface Disposable {
+  /// Releases what this value holds; `using` calls it once, when the scope ends (also when it's
+  /// left by a throw).
   dispose(): void
 }

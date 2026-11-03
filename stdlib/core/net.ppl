@@ -13,8 +13,12 @@
 /// `"InvalidData"`, `"PermissionDenied"`, `"TlsError"` (a failed TLS handshake: the message
 /// says why, such as an untrusted certificate), `"Other"`).
 class NetError extends Error {
+  /// What the operation was about: usually `host:port` (`[::1]:80` for IPv6), the host name alone
+  /// for a failed lookup.
   public address: string
+  /// The portable kind (`"ConnectionRefused"`, `"TimedOut"`, …; see above).
   public kind: string
+  /// A `NetError` about `address` with `message` and `kind`.
   constructor(address: string, message: string, kind: string) {
     super(message)
     this.address = address
@@ -38,7 +42,9 @@ function __netError(address: string, r: int, errno: int): NetError {
 
 /// An IP address and a port.
 struct Addr {
+  /// The IP address (`"127.0.0.1"`, `"::1"`, without brackets).
   hostname: string
+  /// The port number.
   port: int
 }
 
@@ -109,7 +115,9 @@ struct __NetSend {
 /// `text()`, writes (in the order they're made) with `write`/`writeText`. One read at a time.
 class Conn {
   fd: int
+  /// This side's address.
   public readonly localAddr: Addr
+  /// The other side's address.
   public readonly remoteAddr: Addr
   name: string
   reading: bool = false
@@ -125,6 +133,7 @@ class Conn {
   rs: ReadableStream<Uint8Array>? = null
   ws: WritableStream<Uint8Array>? = null
 
+  /// A connection on descriptor `fd`; made by `connect` and `accept`, not by programs.
   constructor(fd: int, localAddr: Addr, remoteAddr: Addr) {
     this.fd = fd
     this.localAddr = localAddr
@@ -237,6 +246,7 @@ class Conn {
     read()
   }
 
+  /// The connection itself (`for await (const chunk of conn)`).
   public asyncIterator(): Conn {
     this
   }
@@ -351,6 +361,7 @@ class Listener {
   closed: bool = false
   released: bool = false
 
+  /// A listener on descriptor `fd`; made by `listen`, not by programs.
   constructor(fd: int, addr: Addr) {
     this.fd = fd
     this.addr = addr
@@ -390,6 +401,7 @@ class Listener {
     accept()
   }
 
+  /// The listener itself (`for await (const conn of listener)`).
   public asyncIterator(): Listener {
     this
   }
@@ -434,19 +446,23 @@ function __netConnect(port: int, hostname: string = "127.0.0.1"): Promise<Conn, 
 
 /// A received datagram and where it came from.
 struct Datagram {
+  /// The datagram's bytes (cut to the size `receive` asked for).
   data: Uint8Array
+  /// The address it came from.
   addr: Addr
 }
 
 /// A UDP socket: `send` datagrams anywhere, `receive` them one at a time.
 class UdpSocket {
   fd: int
+  /// The address it's bound to (with the port chosen when `bind` was given 0).
   public readonly addr: Addr
   receiving: bool = false
   sending: int = 0
   closed: bool = false
   released: bool = false
 
+  /// A socket on descriptor `fd`; made by `bind`, not by programs.
   constructor(fd: int, addr: Addr) {
     this.fd = fd
     this.addr = addr

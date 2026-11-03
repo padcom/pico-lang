@@ -7,6 +7,20 @@
 **P10.10: Release packaging** (see PLAN; the last of Phase 10, then Phase 11 Reactivity starting with the P11.1 spec chapter; P10.3 is done, P10.4 deferred, P10.7 split into a/b and moved to Phase 11 by the author; the author should try F5 and Run Build Task on a project with `entry` in VS Code (`scripts/vscode-package.sh --install`); Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
+- Known issues found while documenting the core library (2026-11-03, not fixed yet):
+  **memory safety**: typed-array views (`new Uint8Array(buf, byteOffset, length)`, all five
+  views) don't check `byteOffset`/`length` against the buffer, and `new Uint8Array(-1)` has
+  length -1; an untyped `catch (e)` doesn't catch a lightweight `Throwable` struct (it ends the
+  program as uncaught); `net.ppl`: a failed `read`/`accept`/`send`/`receive` job leaves the busy
+  flag set (the next call panics, the descriptor is never released); an inline `Worker` that
+  panics leaves `call()` promises pending forever; `WebSocket.close()` during the handshake
+  doesn't stop it (`onopen` can follow `onclose`); `TransformStreamDefaultController.terminate`
+  errors the readable side (drops queued output); `TextDecoder` with an unknown label panics
+  (the Web API throws `RangeError`); `ReadableStream.cancel` on an errored stream resolves;
+  `SubtleCrypto`: key `usages` aren't enforced, raw EC keys aren't validated, `decrypt` ignores
+  `tagLength`; `ArrayBuffer.slice` doesn't count negative indices from the end; `RegExp`'s
+  `toString` doesn't escape `/`; fetch drops a stream body on 307/308 and ignores `init` for a
+  `Request` input; `Base64`/`Hex.encode` are quadratic.
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
   `run_interp` and `build_native` run it. New features touch: resolver (`ppl-sema/src/resolve.rs`,
@@ -515,6 +529,7 @@ Notes:
 | 2026-11-03 | P10.9b | `ppl doc [--std] [--out dir]` (`crates/ppl-cli/src/doc.rs`, decision 294): an index and a page per module (std: 18 modules, core, `Array` and `String` from the `__Array_*`/`__String_*` functions), signatures as written with type names linked, doc comments as Markdown (pulldown-cmark), public members. Much of the stdlib (core, std/math, std/time, std/test) has no doc comments yet. |
 | 2026-11-03 | P10.9b | Fix: modules that export through an export list (`std/meta`, `std/reflect`, `std/net`, `std/regex`, re-exporting the core library's `__` declarations) were left out; they're documented under their public names now. |
 | 2026-11-03 | P10.6 fix | Hovers for `std/meta`/`std/reflect` (the author's report): names imported under another name than their declaration's (`export { __ClassDecl as ClassDecl }`) had no hover (the index required the same spelling; the resolver's links are now trusted), hovers show the public names (`Program::public_names`), static members (`ast.string`) and `reflect.typeOf` link, and the language server keeps decorator functions as ordinary functions (`check_source_for_editor`) so their code has hovers. |
+| 2026-11-03 | docs | The core library is fully documented (the author's request): docs for the built-ins `print`/`println`/`assert`/`panic` and the type checker's members (`push`, `pop`, `length`, `String.slice`) in `hir::BUILTIN_DOCS`/`BUILTIN_MEMBER_DOCS` (hover, completion, `ppl doc`); every core global, `Array`/`String` method and public member (~400 doc comments, the members written with four subagents); `ppl doc` lists constructors without a modifier. Bugs found on the way are under Notes. |
 | 2026-11-03 | plan | New Phase 11: Reactivity (the author's: `reactive`/`Reactive<T>`, `computed`, `watchEffect`; P11.1 spec with open questions on access, scope, depth, timing, workers, cleanup; P11.2 runtime; P11.3 compiler; P11.4 event loop; P11.5 tooling). "Later" becomes Phase 12 (P12.1–P12.5, with P10.7a/b). |
 | 2026-11-03 | decisions | Reactivity (decisions 288–293, the author's answers): transparent access (`reactive n = 1`, `n + 1`, `n = 2`), local and module-level bindings (fields open), deep reactivity, synchronous effects, not `Sendable` (no sharing with workers), `watchEffect` returns a `Disposable` and effects end with their scope. |
 | 2026-11-03 | decisions | The author revised 289 and 291: reactive class fields are allowed; `computed` is lazy (dirty on write, recomputed on read), `watchEffect` stays synchronous. |

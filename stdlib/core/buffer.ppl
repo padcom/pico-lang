@@ -6,8 +6,10 @@
 class ArrayBuffer {
   /// The memory (0: detached). The runtime knows this layout: `{ class, handle, byteLength }`.
   public __handle: int
+  /// Its size in bytes (0 once detached).
   public byteLength: int
 
+  /// `byteLength` zeroed bytes (a negative length gives an empty buffer).
   constructor(byteLength: int) {
     const n = if (byteLength < 0) 0 else byteLength
     this.__handle = __buf_op(1, n, 0, 0)
@@ -63,6 +65,7 @@ function __bufferRegistry(): FinalizationRegistry<int> {
 
 /// `postMessage(message, { transfer: [buffer] })`: the buffers to move instead of copy.
 struct TransferOptions {
+  /// The buffers to move; each is detached in the sender.
   transfer: ArrayBuffer[]
 }
 
@@ -87,8 +90,11 @@ function __detachAll(options: TransferOptions?): void {
 
 /// A view of an `ArrayBuffer` as 1-byte elements (`int`), as on the Web.
 class Uint8Array {
+  /// The size of an element: 1 byte.
   public static BYTES_PER_ELEMENT: int = 1
+  /// The `ArrayBuffer` whose bytes the view reads and writes.
   public buffer: ArrayBuffer
+  /// Where the view starts in `buffer`, in bytes.
   public byteOffset: int
   count: int
 
@@ -106,6 +112,8 @@ class Uint8Array {
     this.count = (buffer.byteLength - byteOffset) / 1
   }
 
+  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
+  /// `buffer`'s size).
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -117,6 +125,7 @@ class Uint8Array {
     if (this.buffer.detached) 0 else this.count
   }
 
+  /// The view's size in bytes (`length * 1`; 0 once the buffer is detached).
   public get byteLength(): int {
     this.length * 1
   }
@@ -127,11 +136,14 @@ class Uint8Array {
     }
   }
 
+  /// The byte at `i` (0 to 255); panics if `i` is out of bounds.
   public get(i: int): int {
     this.check(i)
     __buf_op(11, this.buffer.__handle, this.byteOffset + i, 0)
   }
 
+  /// Sets the byte at `i` to `value`'s low 8 bits (`value` modulo 256); panics if `i` is out of
+  /// bounds.
   public set(i: int, value: int): void {
     this.check(i)
     __buf_op(21, this.buffer.__handle, this.byteOffset + i, value);
@@ -177,8 +189,11 @@ class Uint8Array {
 
 /// A view of an `ArrayBuffer` as 4-byte elements (`int`), as on the Web.
 class Int32Array {
+  /// The size of an element: 4 bytes.
   public static BYTES_PER_ELEMENT: int = 4
+  /// The `ArrayBuffer` whose bytes the view reads and writes.
   public buffer: ArrayBuffer
+  /// Where the view starts in `buffer`, in bytes.
   public byteOffset: int
   count: int
 
@@ -196,6 +211,8 @@ class Int32Array {
     this.count = (buffer.byteLength - byteOffset) / 4
   }
 
+  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
+  /// `buffer`'s size).
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -207,6 +224,7 @@ class Int32Array {
     if (this.buffer.detached) 0 else this.count
   }
 
+  /// The view's size in bytes (`length * 4`; 0 once the buffer is detached).
   public get byteLength(): int {
     this.length * 4
   }
@@ -217,11 +235,13 @@ class Int32Array {
     }
   }
 
+  /// The element at `i`, a signed 32-bit integer; panics if `i` is out of bounds.
   public get(i: int): int {
     this.check(i)
     unsafe { unsafe.cast<i32>(__buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0) as u32) as int }
   }
 
+  /// Sets the element at `i` to `value`'s low 32 bits (wrapping); panics if `i` is out of bounds.
   public set(i: int, value: int): void {
     this.check(i)
     __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, value);
@@ -234,8 +254,11 @@ class Int32Array {
 
 /// A view of an `ArrayBuffer` as 4-byte elements (`int`), as on the Web.
 class Uint32Array {
+  /// The size of an element: 4 bytes.
   public static BYTES_PER_ELEMENT: int = 4
+  /// The `ArrayBuffer` whose bytes the view reads and writes.
   public buffer: ArrayBuffer
+  /// Where the view starts in `buffer`, in bytes.
   public byteOffset: int
   count: int
 
@@ -253,6 +276,8 @@ class Uint32Array {
     this.count = (buffer.byteLength - byteOffset) / 4
   }
 
+  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
+  /// `buffer`'s size).
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -264,6 +289,7 @@ class Uint32Array {
     if (this.buffer.detached) 0 else this.count
   }
 
+  /// The view's size in bytes (`length * 4`; 0 once the buffer is detached).
   public get byteLength(): int {
     this.length * 4
   }
@@ -274,11 +300,14 @@ class Uint32Array {
     }
   }
 
+  /// The element at `i`, an unsigned 32-bit integer (0 to `2**32 - 1`); panics if `i` is out of
+  /// bounds.
   public get(i: int): int {
     this.check(i)
     __buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0)
   }
 
+  /// Sets the element at `i` to `value`'s low 32 bits (wrapping); panics if `i` is out of bounds.
   public set(i: int, value: int): void {
     this.check(i)
     __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, value);
@@ -291,8 +320,11 @@ class Uint32Array {
 
 /// A view of an `ArrayBuffer` as 4-byte elements (`f32`), as on the Web.
 class Float32Array {
+  /// The size of an element: 4 bytes.
   public static BYTES_PER_ELEMENT: int = 4
+  /// The `ArrayBuffer` whose bytes the view reads and writes.
   public buffer: ArrayBuffer
+  /// Where the view starts in `buffer`, in bytes.
   public byteOffset: int
   count: int
 
@@ -310,6 +342,8 @@ class Float32Array {
     this.count = (buffer.byteLength - byteOffset) / 4
   }
 
+  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
+  /// `buffer`'s size).
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -321,6 +355,7 @@ class Float32Array {
     if (this.buffer.detached) 0 else this.count
   }
 
+  /// The view's size in bytes (`length * 4`; 0 once the buffer is detached).
   public get byteLength(): int {
     this.length * 4
   }
@@ -331,11 +366,13 @@ class Float32Array {
     }
   }
 
+  /// The element at `i`; panics if `i` is out of bounds.
   public get(i: int): f32 {
     this.check(i)
     unsafe { unsafe.cast<f32>(__buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0) as u32) }
   }
 
+  /// Sets the element at `i` to `value`; panics if `i` is out of bounds.
   public set(i: int, value: f32): void {
     this.check(i)
     __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, unsafe { unsafe.cast<u32>(value) as int });
@@ -348,8 +385,11 @@ class Float32Array {
 
 /// A view of an `ArrayBuffer` as 8-byte elements (`f64`), as on the Web.
 class Float64Array {
+  /// The size of an element: 8 bytes.
   public static BYTES_PER_ELEMENT: int = 8
+  /// The `ArrayBuffer` whose bytes the view reads and writes.
   public buffer: ArrayBuffer
+  /// Where the view starts in `buffer`, in bytes.
   public byteOffset: int
   count: int
 
@@ -367,6 +407,8 @@ class Float64Array {
     this.count = (buffer.byteLength - byteOffset) / 8
   }
 
+  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
+  /// `buffer`'s size).
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -378,6 +420,7 @@ class Float64Array {
     if (this.buffer.detached) 0 else this.count
   }
 
+  /// The view's size in bytes (`length * 8`; 0 once the buffer is detached).
   public get byteLength(): int {
     this.length * 8
   }
@@ -388,11 +431,13 @@ class Float64Array {
     }
   }
 
+  /// The element at `i`; panics if `i` is out of bounds.
   public get(i: int): f64 {
     this.check(i)
     unsafe { unsafe.cast<f64>(__buf_op(18, this.buffer.__handle, this.byteOffset + i * 8, 0)) }
   }
 
+  /// Sets the element at `i` to `value`; panics if `i` is out of bounds.
   public set(i: int, value: f64): void {
     this.check(i)
     __buf_op(28, this.buffer.__handle, this.byteOffset + i * 8, unsafe { unsafe.cast<i64>(value) });

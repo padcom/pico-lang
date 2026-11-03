@@ -7,6 +7,7 @@
 /// What `JSON.parse` throws: the place in the value and what was wrong
 /// (`field 'port': expected u16, got "x"`), or where the text isn't JSON.
 class JsonError extends Error {
+  /// An error with `message`.
   constructor(message: string) { super(message) }
 }
 

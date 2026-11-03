@@ -8,29 +8,41 @@
 
 /// What a reader's `read()` gives: a chunk, or `done` at the end.
 struct ReadResult<T> {
+  /// Whether the stream has ended (then there's no `value`).
   done: bool
+  /// The chunk, or `null` at the end.
   value: T?
 }
 
 /// How many chunks a stream queues before it asks its source to wait (`highWaterMark`).
 struct QueuingStrategy {
+  /// The number of chunks (default 1; a `TransformStream`'s readable side defaults to 0).
   highWaterMark?: int
 }
 
 /// `pipeTo`'s options: by default the destination is closed at the end of the source, aborted
 /// when the source fails, and the source is cancelled when the destination fails.
 struct StreamPipeOptions {
+  /// Whether to leave the destination open when the source ends.
   preventClose?: bool
+  /// Whether to leave the destination alone when the source fails.
   preventAbort?: bool
+  /// Whether to leave the source alone when the destination fails.
   preventCancel?: bool
 }
 
 /// The source behind a `ReadableStream`: `start` runs at once, `pull` (or `pullAsync`) when
 /// the stream wants more chunks, `cancel` when its reader gives up.
 struct UnderlyingSource<T> {
+  /// Runs once, inside the constructor (it can already enqueue chunks).
   start?: (c: ReadableStreamDefaultController<T>) => void
+  /// Called when the stream wants more chunks (a waiting read, or room below the high-water mark);
+  /// not again while it runs. The first call comes after `start`, as a microtask.
   pull?: (c: ReadableStreamDefaultController<T>) => void
+  /// Like `pull`, but finishes when the promise settles (not called again until then); a rejection
+  /// fails the stream. Used instead of `pull` when both are given.
   pullAsync?: (c: ReadableStreamDefaultController<T>) => Promise<void, Error>
+  /// Called with the reason when the stream is cancelled.
   cancel?: (reason: Error?) => void
 }
 
@@ -38,6 +50,7 @@ struct UnderlyingSource<T> {
 class ReadableStreamDefaultController<T> {
   s: ReadableStream<T>
 
+  /// (Made by the stream, for its source.)
   constructor(s: ReadableStream<T>) {
     this.s = s
   }
@@ -47,6 +60,8 @@ class ReadableStreamDefaultController<T> {
     this.s.__desired()
   }
 
+  /// Adds `chunk` to the stream (straight to a waiting read, if any). Panics once the stream is
+  /// closed, failed or closing.
   public enqueue(chunk: T): void {
     this.s.__enqueue(chunk)
   }
@@ -88,6 +103,8 @@ class ReadableStream<T> {
   public __locked: bool = false
   ctl: ReadableStreamDefaultController<T>? = null
 
+  /// A stream fed by `source` (its `start` runs right away), queuing up to `strategy.highWaterMark`
+  /// chunks (default 1).
   constructor(source: UnderlyingSource<T> = {}, strategy: QueuingStrategy = {}) {
     this.source = source
     const h = strategy.highWaterMark
@@ -137,6 +154,7 @@ class ReadableStream<T> {
     this.__read()
   }
 
+  /// `for await` uses the stream itself (see `next`).
   public asyncIterator(): ReadableStream<T> {
     this
   }
@@ -368,6 +386,7 @@ class ReadableStreamDefaultReader<T> {
   s: ReadableStream<T>
   released: bool = false
 
+  /// A reader that locks `stream`; panics if the stream is already locked.
   constructor(stream: ReadableStream<T>) {
     if (stream.__locked) {
       panic("the stream is locked to a reader")
@@ -391,6 +410,8 @@ class ReadableStreamDefaultReader<T> {
     })
   }
 
+  /// Cancels the stream (see `ReadableStream.cancel`); the lock stays held. Panics after
+  /// `releaseLock()`.
   public cancel(reason: Error? = null): Promise<void, Error> {
     this.check()
     this.s.cancel(reason)
@@ -414,6 +435,7 @@ class ReadableStreamDefaultReader<T> {
 class WritableStreamDefaultController {
   fail: (e: Error) => void
 
+  /// (Made by the stream, for its sink.)
   constructor(fail: (e: Error) => void) {
     this.fail = fail
   }
@@ -429,11 +451,19 @@ class WritableStreamDefaultController {
 /// each chunk in turn, `close` (or `closeAsync`) runs after the last, `abort` when the writer
 /// gives up.
 struct UnderlyingSink<T> {
+  /// Runs once, inside the constructor.
   start?: (c: WritableStreamDefaultController) => void
+  /// Takes a chunk; the next one comes after it returns.
   write?: (chunk: T, c: WritableStreamDefaultController) => void
+  /// Like `write`, but finishes when the promise settles; a rejection fails the stream. Used
+  /// instead of `write` when both are given.
   writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>
+  /// Runs after the last queued chunk is written, when the stream is closed.
   close?: () => void
+  /// Like `close`, but finishes when the promise settles; a rejection fails the stream. Used
+  /// instead of `close` when both are given.
   closeAsync?: () => Promise<void, Error>
+  /// Called with the reason when the stream is aborted (before the queued writes reject).
   abort?: (reason: Error?) => void
 }
 
@@ -460,6 +490,8 @@ class WritableStream<T> {
   public __locked: bool = false
   ctl: WritableStreamDefaultController? = null
 
+  /// A stream writing to `sink` (its `start` runs right away), with room for
+  /// `strategy.highWaterMark` chunks (default 1) before writers see backpressure.
   constructor(sink: UnderlyingSink<T> = {}, strategy: QueuingStrategy = {}) {
     this.sink = sink
     const h = strategy.highWaterMark
@@ -476,6 +508,7 @@ class WritableStream<T> {
     })
   }
 
+  /// Whether a writer (or a pipe) holds the stream.
   public get locked(): bool {
     this.__locked
   }
@@ -712,6 +745,7 @@ class WritableStreamDefaultWriter<T> {
   s: WritableStream<T>
   released: bool = false
 
+  /// A writer that locks `stream`; panics if the stream is already locked.
   constructor(stream: WritableStream<T>) {
     if (stream.__locked) {
       panic("the stream is locked to a writer")
@@ -738,6 +772,7 @@ class WritableStreamDefaultWriter<T> {
     this.s.__close()
   }
 
+  /// Aborts the stream (see `WritableStream.abort`). Panics after `releaseLock()`.
   public abort(reason: Error? = null): Promise<void, Error> {
     this.check()
     this.s.abort(reason)
@@ -758,6 +793,7 @@ class WritableStreamDefaultWriter<T> {
     this.s.__closed()
   }
 
+  /// Unlocks the stream (another writer can take it); using this writer afterwards panics.
   public releaseLock(): void {
     if (!this.released) {
       this.released = true
@@ -771,6 +807,7 @@ class TransformStreamDefaultController<O> {
   rc: ReadableStreamDefaultController<O>
   fail: (e: Error) => void
 
+  /// (Made by the transform stream, for its transformer.)
   constructor(rc: ReadableStreamDefaultController<O>, fail: (e: Error) => void) {
     this.rc = rc
     this.fail = fail
@@ -781,6 +818,7 @@ class TransformStreamDefaultController<O> {
     this.rc.desiredSize
   }
 
+  /// Adds `chunk` to the readable side. Panics once that side is closed or failed.
   public enqueue(chunk: O): void {
     this.rc.enqueue(chunk)
   }
@@ -802,9 +840,15 @@ class TransformStreamDefaultController<O> {
 /// A `TransformStream`'s work: `transform` (or `transformAsync`) turns each written chunk
 /// into enqueued output, `flush` runs after the last one, `start` at once.
 struct Transformer<I, O> {
+  /// Runs once, at the end of the constructor.
   start?: (c: TransformStreamDefaultController<O>) => void
+  /// Turns a written chunk into output (`c.enqueue`); any number of chunks, or none. Used instead
+  /// of `transformAsync` when both are given.
   transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void
+  /// Like `transform`, but finishes when the promise settles; a rejection fails the writable side.
   transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>
+  /// Runs when the writable side is closed, before the readable side closes (it can enqueue final
+  /// output).
   flush?: (c: TransformStreamDefaultController<O>) => void
 }
 
@@ -877,9 +921,15 @@ class __Transform<I, O> {
 
 /// A writable side whose chunks come out of a readable side, transformed.
 class TransformStream<I, O> {
+  /// The side the output is read from.
   public readonly readable: ReadableStream<O>
+  /// The side the input is written to.
   public readonly writable: WritableStream<I>
 
+  /// A transform stream running `transformer`, which must have `transform` or `transformAsync`
+  /// (else it panics). The writable side queues `writableStrategy.highWaterMark` chunks (default
+  /// 1), the readable side `readableStrategy.highWaterMark` (default 0: each write waits until
+  /// output is read).
   constructor(transformer: Transformer<I, O>, writableStrategy: QueuingStrategy = {},
     readableStrategy: QueuingStrategy = { highWaterMark: 0 }) {
     if (transformer.transform == null && transformer.transformAsync == null) {

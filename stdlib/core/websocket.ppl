@@ -18,6 +18,7 @@ function __rotl32(x: int, n: int): int {
 /// `new WebSocket(url, protocols, options)` (a ppl extension): extra trusted certificates
 /// (PEM) for `wss:`.
 struct WebSocketOptions {
+  /// Extra trusted certificates (PEM) for `wss:`, besides the system's roots.
   caCerts?: string[]
 }
 
@@ -104,7 +105,9 @@ function __wsAccept(key: string): string {
 
 /// A plain event (`open`, `error`).
 class Event {
+  /// `"open"` or `"error"`.
   public readonly type: string
+  /// An event of type `type`.
   constructor(type: string) {
     this.type = type
   }
@@ -112,8 +115,11 @@ class Event {
 
 /// A received message: text (`string`) or binary (`Uint8Array`) `data`.
 class MessageEvent {
+  /// Always `"message"`.
   public readonly type: string = "message"
+  /// The message: a `string` for a text message, a `Uint8Array` for a binary one.
   public readonly data: string | Uint8Array
+  /// A message event carrying `data`.
   constructor(data: string | Uint8Array) {
     this.data = data
   }
@@ -122,10 +128,16 @@ class MessageEvent {
 /// How a connection ended: `code` (1000 normal, 1005 none given, 1006 lost), `reason`, and
 /// whether the closing handshake completed (`wasClean`).
 class CloseEvent {
+  /// Always `"close"`.
   public readonly type: string = "close"
+  /// The close code: the peer's, 1005 when its close frame had none, 1006 when the connection was
+  /// lost or failed.
   public readonly code: int
+  /// The peer's close reason ("" for none).
   public readonly reason: string
+  /// Whether the closing handshake completed.
   public readonly wasClean: bool
+  /// A close event with `code`, `reason` and `wasClean`.
   constructor(code: int, reason: string, wasClean: bool) {
     this.code = code
     this.reason = reason
@@ -137,18 +149,28 @@ class CloseEvent {
 /// creating it (they're called from the event loop); `send` text or bytes once it's open.
 class WebSocket {
   // (Getters: static fields would be set up at every program's start.)
+  /// `readyState` 0: the handshake hasn't finished yet.
   public static get CONNECTING(): int { 0 }
+  /// `readyState` 1: messages can be sent and received.
   public static get OPEN(): int { 1 }
+  /// `readyState` 2: `close()` started the closing handshake.
   public static get CLOSING(): int { 2 }
+  /// `readyState` 3: the connection is closed (or never opened).
   public static get CLOSED(): int { 3 }
 
+  /// The URL connected to, normalized (as `URL.href`); "" for a server-side socket.
   public readonly url: string
+  /// The connection's state: `CONNECTING`, `OPEN`, `CLOSING` or `CLOSED` (0–3).
   public readyState: int = 0
   /// The subprotocol the server chose ("" for none).
   public protocol: string = ""
+  /// Called once the connection is open (an `"open"` event).
   public onopen: ((e: Event) => void)? = null
+  /// Called for each message received while the socket is open (fragmented ones arrive whole).
   public onmessage: ((e: MessageEvent) => void)? = null
+  /// Called once when the connection ends, cleanly or not.
   public onclose: ((e: CloseEvent) => void)? = null
+  /// Called when connecting fails (an `"error"` event), just before `onclose` with code 1006.
   public onerror: ((e: Event) => void)? = null
   protocols: string[]
   conn: Conn? = null

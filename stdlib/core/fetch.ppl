@@ -28,6 +28,7 @@ class Headers {
     this.list.push([name.toLowerCase(), value.trim()])
   }
 
+  /// Removes every value of `name`.
   public delete(name: string): void {
     const n = name.toLowerCase()
     const kept: [string, string][] = []
@@ -63,6 +64,7 @@ class Headers {
     out
   }
 
+  /// Whether there's a value for `name`.
   public has(name: string): bool {
     this.get(name) != null
   }
@@ -98,6 +100,7 @@ class Headers {
     out
   }
 
+  /// The field names, sorted, once each (`set-cookie` once per value, as in `entries`).
   public keys(): string[] {
     const out: string[] = []
     for (const [k, v] of this.entries()) {
@@ -144,6 +147,8 @@ function __concatBytes(parts: Uint8Array[]): Uint8Array {
 
 /// A request's or response's headers and body (read once).
 class __Body {
+  /// The header fields (a string body adds `content-type: text/plain;charset=UTF-8` and a
+  /// `URLSearchParams` one `application/x-www-form-urlencoded;charset=UTF-8`, unless set).
   public readonly headers: Headers
   public __bytes: Uint8Array? = null
   public __stream: ReadableStream<Uint8Array>? = null
@@ -175,6 +180,7 @@ class __Body {
     }
   }
 
+  /// Whether the body has been read (`bytes`, `text`, `json`, `arrayBuffer`).
   public get bodyUsed(): bool {
     this.used
   }
@@ -216,6 +222,7 @@ class __Body {
     __concatBytes(parts)
   }
 
+  /// The whole body as an `ArrayBuffer`.
   public async arrayBuffer(): Promise<ArrayBuffer> throws Error {
     const b = await this.bytes()
     if (b.byteOffset == 0 && b.length == b.buffer.byteLength) b.buffer else b.slice().buffer
@@ -242,8 +249,11 @@ class __Body {
 
 /// `new Request(url, { method, headers, body })`.
 struct RequestInit {
+  /// The method (uppercased; `"GET"` by default).
   method?: string
+  /// The header fields (copied).
   headers?: Headers
+  /// The body; a `GET` or `HEAD` request can't have one.
   body?: BodyInit
   /// `"follow"` (the default: up to 20 redirects), `"manual"` (the 3xx response) or `"error"`.
   redirect?: string
@@ -253,12 +263,17 @@ struct RequestInit {
 
 /// An HTTP request: what `fetch` sends, and what a `serve` handler gets.
 class Request extends __Body {
+  /// The method, uppercased (`"GET"`, `"POST"`, …).
   public readonly method: string
+  /// The URL, normalized (as `URL.href`).
   public readonly url: string
+  /// How `fetch` treats redirects: `"follow"`, `"manual"` or `"error"`.
   public readonly redirect: string
   /// `RequestInit.caCerts`.
   public readonly __caCerts: string[]
 
+  /// A request for `input` with `init`'s method, headers, body and redirect mode. Throws a
+  /// `TypeError` for an invalid URL or a `GET`/`HEAD` request with a body.
   constructor(input: string | URL, init: RequestInit = {}) throws TypeError {
     super(init.body, __headersCopy(init.headers))
     const href = match (input) {
@@ -279,8 +294,11 @@ class Request extends __Body {
 
 /// `new Response(body, { status, statusText, headers })`.
 struct ResponseInit {
+  /// The status code (200 by default; 101 or 200–599).
   status?: int
+  /// The reason phrase (by default the usual one for `status`, or "").
   statusText?: string
+  /// The header fields (copied).
   headers?: Headers
 }
 
@@ -321,14 +339,19 @@ function __statusText(code: int): string {
 
 /// An HTTP response: what `fetch` resolves to, and what a `serve` handler returns.
 class Response extends __Body {
+  /// The status code (`200`, `404`, …).
   public readonly status: int
+  /// The reason phrase (`"OK"`, `"Not Found"`, …): the server's for a fetched response.
   public readonly statusText: string
   /// The URL it came from (after redirects); "" for one made here.
   public url: string = ""
+  /// Whether `fetch` followed at least one redirect to get it.
   public redirected: bool = false
   /// The socket a `101 Switching Protocols` response hands the connection to (`std/http`).
   public __upgrade: WebSocket? = null
 
+  /// A response with `body` and `init`'s status, reason phrase and headers. Panics for a status
+  /// outside 200–599 (other than 101).
   constructor(body: BodyInit? = null, init: ResponseInit = {}) {
     super(body, __headersCopy(init.headers))
     const s = init.status

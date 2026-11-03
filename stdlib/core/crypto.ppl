@@ -5,8 +5,10 @@
 /// A failed cryptographic operation: a bad key or argument, or data that doesn't
 /// authenticate. `kind` is `"InvalidArgument"`, `"AuthenticationFailed"` or `"Internal"`.
 class CryptoError extends Error {
+  /// `"InvalidArgument"`, `"AuthenticationFailed"` or `"Internal"`.
   public kind: string
 
+  /// An error of `kind` with `message`.
   constructor(kind: string, message: string) {
     super(message)
     this.kind = kind
@@ -91,11 +93,15 @@ function __hmac(alg: HashAlgorithm, key: Uint8Array, data: Uint8Array): Uint8Arr
 class CryptoKey {
   /// `"secret"`, `"private"` or `"public"`.
   public readonly type: string
+  /// Whether `exportKey` may export a non-public key's bytes.
   public readonly extractable: bool
+  /// The algorithm the key is for, with its hash, curve or length.
   public readonly algorithm: KeyAlgorithm
+  /// What the key may be used for (`"sign"`, `"encrypt"`, …), as given; not enforced.
   public readonly usages: string[]
   public readonly __bytes: Uint8Array
 
+  /// A key from its parts; `crypto.subtle`'s `generateKey` and `importKey` make them.
   constructor(type: string, extractable: bool, algorithm: KeyAlgorithm, usages: string[], bytes: Uint8Array) {
     this.type = type
     this.extractable = extractable
@@ -108,9 +114,13 @@ class CryptoKey {
 /// A key's algorithm: `name` (`"HMAC"`, `"AES-GCM"`, `"ECDSA"`, `"ECDH"`, `"HKDF"`,
 /// `"PBKDF2"`), and its `hash`, `namedCurve` or `length` (bits).
 struct KeyAlgorithm {
+  /// The algorithm's name (`"HMAC"`, `"AES-GCM"`, …).
   name: string
+  /// The hash (`"SHA-256"`, …), for HMAC keys.
   hash?: string
+  /// The curve (`"P-256"`, `"P-384"`, `"X25519"`), for ECDSA and ECDH keys.
   namedCurve?: string
+  /// The key's length in bits, for secret keys.
   length?: int
 }
 
@@ -120,22 +130,37 @@ struct KeyAlgorithm {
 /// `{ name: "ECDH", public: key }`, `{ name: "HKDF", hash, salt, info }`,
 /// `{ name: "PBKDF2", hash, salt, iterations }`, `{ name: "AES-GCM", length: 256 }`.
 struct Algorithm {
+  /// The algorithm's name (`"AES-GCM"`, `"HMAC"`, `"ECDSA"`, `"ECDH"`, `"HKDF"`, `"PBKDF2"`; any
+  /// case), or, for `digest`, the hash's.
   name: string
+  /// The hash (`"SHA-256"`, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.
   hash?: string
+  /// The curve for `generateKey` and `importKey` of ECDSA (`"P-256"`, `"P-384"`) and ECDH keys
+  /// (also `"X25519"`).
   namedCurve?: string
+  /// The key length in bits for `generateKey` (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).
   length?: int
+  /// AES-GCM's nonce (required; 12 bytes is usual).
   iv?: Uint8Array
+  /// AES-GCM's authenticated, unencrypted data (none unless given).
   additionalData?: Uint8Array
+  /// AES-GCM's tag length in bits: only 128 (the default) is supported.
   tagLength?: int
+  /// ECDH's peer public key, for `deriveBits`.
   public?: CryptoKey
+  /// The HKDF or PBKDF2 salt (empty unless given).
   salt?: Uint8Array
+  /// HKDF's context info (empty unless given).
   info?: Uint8Array
+  /// PBKDF2's iteration count.
   iterations?: int
 }
 
 /// `generateKey`'s result for key-pair algorithms.
 struct CryptoKeyPair {
+  /// The public key (always extractable).
   publicKey: CryptoKey
+  /// The private key (extractable as `generateKey` was told).
   privateKey: CryptoKey
 }
 
@@ -170,12 +195,17 @@ function __hashOf(a: Algorithm, key: CryptoKey?): HashAlgorithm throws CryptoErr
 /// `deriveBits` (ECDH, HKDF, PBKDF2). Results are `Uint8Array`s (Web Crypto's are
 /// `ArrayBuffer`s); failures reject with `CryptoError`.
 struct SubtleCrypto {
+  /// The hash of `data` with `algorithm` (`"SHA-256"` or `{ name: "SHA-256" }`; the SHA-1, SHA-2
+  /// and SHA-3 hashes).
   async digest(algorithm: Algorithm | string, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
     const h = __hashOf(Algorithm { name: "", hash: match (algorithm) { s: string => s
       x: Algorithm => x.name } }, null)
     __digest(h, data)
   }
 
+  /// A key from raw bytes (`format` must be `"raw"`): a secret key for HMAC (needs `hash`), AES-GCM
+  /// (16, 24 or 32 bytes), HKDF or PBKDF2, or, for ECDSA/ECDH (needs `namedCurve`), a public key
+  /// (an uncompressed point; always extractable, and not checked here).
   async importKey(format: string, keyData: Uint8Array, algorithm: Algorithm | string, extractable: bool, usages: string[]): Promise<CryptoKey> throws CryptoError {
     __need(format == "raw", `unsupported key format ${format:?} (only "raw")`)
     const name = __algName(algorithm)
@@ -195,6 +225,8 @@ struct SubtleCrypto {
     new CryptoKey("secret", extractable, KeyAlgorithm { name: name, hash: hash, length: keyData.length * 8 }, usages, keyData.slice(0))
   }
 
+  /// A copy of `key`'s bytes (`format` must be `"raw"`); rejects for a key that is neither
+  /// extractable nor public.
   async exportKey(format: string, key: CryptoKey): Promise<Uint8Array> throws CryptoError {
     __need(format == "raw", `unsupported key format ${format:?} (only "raw")`)
     __need(key.extractable || key.type == "public", "the key isn't extractable")
@@ -236,6 +268,8 @@ struct SubtleCrypto {
     __cryptoOp(900 + __curveId(key.algorithm.namedCurve ?? ""), [__u32(__hashId(__hashOf(a, null))), key.__bytes, data])
   }
 
+  /// Whether `signature` is `data`'s HMAC tag (compared in constant time) or its ECDSA signature
+  /// (`r ‖ s`, with a public key).
   async verify(algorithm: Algorithm | string, key: CryptoKey, signature: Uint8Array, data: Uint8Array): Promise<bool> throws CryptoError {
     const name = __algName(algorithm)
     const a = match (algorithm) {
@@ -260,6 +294,8 @@ struct SubtleCrypto {
     __cryptoOp(501, [key.__bytes, iv ?? new Uint8Array(0), algorithm.additionalData ?? new Uint8Array(0), data])
   }
 
+  /// AES-GCM: the plaintext of `data` (ciphertext ‖ 16-byte tag); rejects with
+  /// `"AuthenticationFailed"` if the key, `iv`, `additionalData` or data are wrong.
   async decrypt(algorithm: Algorithm, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
     __need(algorithm.name.toUpperCase() == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM is supported")
     const iv = algorithm.iv
@@ -314,6 +350,7 @@ function __timingSafeEqual(a: Uint8Array, b: Uint8Array): bool {
 /// The `crypto` global (Web Crypto): random values, UUIDs and `subtle`. A struct, so it
 /// costs programs that don't use it nothing.
 struct Crypto {
+  /// Web Crypto's asynchronous operations (keys, signatures, encryption, derivation).
   subtle: SubtleCrypto
 
   /// Fills `array` with random bytes from the system and returns it (at most 65536 bytes,

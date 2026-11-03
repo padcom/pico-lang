@@ -8,6 +8,7 @@
 
 /// A pattern that isn't valid (`new RegExp("(")`): `Invalid regular expression: /(/: …`.
 class SyntaxError extends Error {
+  /// A `SyntaxError` with `message`.
   constructor(message: string) { super(message) }
 }
 
@@ -988,10 +989,15 @@ class __RMachine {
 /// flag, `string.match` gives every match's text as the elements instead (`index` -1).
 class RegExpMatch {
   public __items: (string?)[]
+  /// Where the match starts in `input`, in code points (-1 for a `g`-flag `string.match` result).
   public readonly index: int
+  /// The string that was searched.
   public readonly input: string
+  /// The named groups' texts by name (`null` for one that didn't take part), or `null` when the
+  /// pattern has no named groups.
   public readonly groups: Map<string, string?>?
 
+  /// A match of `items` (the elements) at `index` in `input`, with named `groups`.
   constructor(items: (string?)[], index: int, input: string, groups: Map<string, string?>?) {
     this.__items = items
     this.index = index
@@ -999,6 +1005,7 @@ class RegExpMatch {
     this.groups = groups
   }
 
+  /// The count of elements: 1 plus the count of capture groups.
   public get length(): int {
     this.__items.length
   }
@@ -1021,8 +1028,12 @@ class RegExpMatch {
 /// A regular expression: `/pattern/flags` or `new RegExp(pattern, flags)` (flags `d`, `g`,
 /// `i`, `m`, `s`, `u`, `v`, `y`).
 class RegExp {
+  /// The pattern's text (`"(?:)"` for an empty pattern).
   public readonly source: string
+  /// The flags, in canonical order (`"dgimsuvy"`).
   public readonly flags: string
+  /// Where the next `exec` or `test` starts with the `g` or `y` flag, in code points; other regexes
+  /// ignore it.
   public lastIndex: int = 0
   prog: __RProgram
   ngroups: int
@@ -1075,12 +1086,19 @@ class RegExp {
     panic("unreachable")
   }
 
+  /// Whether the `g` flag is set (find every match).
   public get global(): bool { this.flags.includes("g") }
+  /// Whether the `i` flag is set (case-insensitive).
   public get ignoreCase(): bool { this.flags.includes("i") }
+  /// Whether the `m` flag is set (`^` and `$` also match at line breaks).
   public get multiline(): bool { this.flags.includes("m") }
+  /// Whether the `s` flag is set (`.` also matches line breaks).
   public get dotAll(): bool { this.flags.includes("s") }
+  /// Whether the `u` flag is set.
   public get unicode(): bool { this.flags.includes("u") }
+  /// Whether the `y` flag is set (a match only at `lastIndex`).
   public get sticky(): bool { this.flags.includes("y") }
+  /// Whether the `d` flag is set.
   public get hasIndices(): bool { this.flags.includes("d") }
 
   /// The first match in `cs` at or after `from` (only at `from` when `sticky`): the capture
@@ -1145,6 +1163,7 @@ class RegExp {
     this.exec(s) != null
   }
 
+  /// `/source/flags`.
   public toString(): string {
     `/${this.source}/${this.flags}`
   }

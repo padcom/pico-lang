@@ -25,6 +25,7 @@ function __build(): BuildInfo { return { mode: __comptime_info(3), flags: [] } }
 
 /// A field of a type, as `T.fields` describes it (spec §11.1).
 struct FieldInfo {
+  /// The field's name.
   name: string
   /// The field's type as written in messages, e.g. `"f64"` or `"string[]"`.
   typeName: string
@@ -32,6 +33,7 @@ struct FieldInfo {
 
 /// A method of a type, as `T.methods` describes it.
 struct MethodInfo {
+  /// The method's name.
   name: string
 }
 
