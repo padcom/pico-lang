@@ -2,10 +2,15 @@
 // function, which returns `null` once it's done; `function*` generators build one, and
 // `for-of` walks one (or anything with an `iterator()` method returning one).
 
+/// Values produced on demand (spec §5.7): `function*` generators return one, `for-of` walks one (or
+/// anything with an `iterator()` method), and its adapters (`map`, `filter`, `take`, …) build new
+/// ones without running anything until values are asked for. An iterator is used up as it goes:
+/// walk it once.
 class Iterator<T> {
   step: () => T?
   done: bool = false
 
+  /// An iterator whose values come from calling `step` until it returns `null`.
   constructor(step: () => T?) {
     this.step = step
   }
@@ -23,10 +28,12 @@ class Iterator<T> {
     v
   }
 
+  /// Itself (so an iterator works in `for-of`).
   public iterator(): Iterator<T> {
     this
   }
 
+  /// `f` of each value, lazily.
   public map<U>(f: (x: T) => U): Iterator<U> {
     const src = this
     new Iterator<U>(() => {
@@ -35,6 +42,7 @@ class Iterator<T> {
     })
   }
 
+  /// The values for which `f` is true, lazily.
   public filter(f: (x: T) => bool): Iterator<T> {
     const src = this
     new Iterator<T>(() => {
@@ -50,6 +58,7 @@ class Iterator<T> {
     })
   }
 
+  /// The first `n` values (fewer if it ends sooner).
   public take(n: int): Iterator<T> {
     const src = this
     let left = n
@@ -62,6 +71,7 @@ class Iterator<T> {
     })
   }
 
+  /// The values after the first `n`.
   public skip(n: int): Iterator<T> {
     const src = this
     let left = n
@@ -74,6 +84,7 @@ class Iterator<T> {
     })
   }
 
+  /// Pairs of this iterator's and `other`'s values, until either ends.
   public zip<U>(other: Iterator<U>): Iterator<[T, U]> {
     const src = this
     new Iterator<[T, U]>(() => {
@@ -89,6 +100,7 @@ class Iterator<T> {
     })
   }
 
+  /// Each value with its position, from 0: `for (const [i, x] of it.enumerate())`.
   public enumerate(): Iterator<[int, T]> {
     const src = this
     let i = 0
@@ -103,6 +115,7 @@ class Iterator<T> {
     })
   }
 
+  /// The remaining values in an array (runs the iterator to its end).
   public toArray(): T[] {
     const out: T[] = []
     loop {
@@ -115,6 +128,7 @@ class Iterator<T> {
     out
   }
 
+  /// Calls `f` with each remaining value.
   public forEach(f: (x: T) => void): void {
     loop {
       const v = this.next()

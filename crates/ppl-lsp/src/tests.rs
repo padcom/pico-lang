@@ -1232,8 +1232,7 @@ fn hover_exported_aliases_and_decorators() {
 fn builtin_functions_have_docs() {
     let dir = tmp("builtins");
     let uri = path_to_uri(&dir.join("main.ppl"));
-    let text =
-        "print(1)\nprintln(\"a\")\nassert(true, \"x\")\nfunction f(): never { panic(\"no\") }\n";
+    let text = "print(1)\nprintln(\"a\")\nassert(true, \"x\")\nfunction f(): never { panic(\"no\") }\nconst xs = [1]\nxs.push(2)\nprintln(xs.length)\nprintln(\"ab\".length)\n";
     let h = |id, needle| at(id, "textDocument/hover", &uri, text, needle, 0, 0);
     let out = session(vec![
         init(),
@@ -1243,6 +1242,9 @@ fn builtin_functions_have_docs() {
         h(4, "assert"),
         h(5, "panic"),
         at(6, "textDocument/definition", &uri, text, "println", 0, 0),
+        h(7, "push"),
+        h(8, "length"),
+        at(9, "textDocument/hover", &uri, text, "length", 1, 0),
     ]);
     let t = |id| hover_text(&out, id);
     assert!(
@@ -1264,4 +1266,12 @@ fn builtin_functions_have_docs() {
         t(5)
     );
     assert_eq!(response(&out, 6), &Value::Null);
+    // Members of built-in types the type checker implements.
+    assert!(
+        t(7).starts_with("```ppl\n(method) Array.push(...values: T): void\n```\n\nAppends"),
+        "{}",
+        t(7)
+    );
+    assert!(t(8).contains("How many elements"), "{}", t(8));
+    assert!(t(9).contains("How many code points"), "{}", t(9));
 }

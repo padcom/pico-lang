@@ -309,19 +309,16 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
         }
     }
     // Calls of built-in functions: their documentation.
-    for (at, b) in std::mem::take(&mut b.builtins) {
-        let Some((sig, docs)) = b.docs() else {
-            continue;
-        };
-        if at.file != file || sm.snippet(at) != b.name() || !seen.insert((at.start, at.end)) {
+    for (at, name, hover) in std::mem::take(&mut b.builtins) {
+        if at.file != file || sm.snippet(at) != name || !seen.insert((at.start, at.end)) {
             continue;
         }
         refs.push(Ref {
             start: at.start,
             end: at.end,
-            name: b.name().to_string(),
+            name: name.to_string(),
             def: at,
-            hover: format!("```ppl\n{sig}\n```\n\n{docs}"),
+            hover,
             builtin: true,
         });
     }
@@ -355,8 +352,9 @@ struct Builder<'a> {
     uses: Vec<(Span, Span)>,
     /// See [`Index::shorthand`].
     shorthand: Vec<Span>,
-    /// Built-in functions where they're named.
-    builtins: Vec<(Span, hir::Builtin)>,
+    /// Built-in functions and members of built-in types where they're named: the name and
+    /// the hover.
+    builtins: Vec<(Span, &'static str, String)>,
 }
 
 impl Builder<'_> {
@@ -505,6 +503,24 @@ impl Builder<'_> {
         }
     }
 
+    /// A member of a built-in type that the type checker implements (`xs.push`), at `at`.
+    fn builtin_member(&mut self, object: &hir::Expr, at: Span) {
+        let on = match self.t.exprs.get(object.id.0 as usize) {
+            Some(Ty::Array(_)) => "Array",
+            Some(Ty::Str) => "String",
+            Some(Ty::Fixed(..) | Ty::FixedN(..)) => "Fixed",
+            _ => return,
+        };
+        let name = self.sm.snippet(at);
+        if let Some((_, n, sig, docs)) = hir::BUILTIN_MEMBER_DOCS
+            .iter()
+            .find(|(o, n, ..)| *o == on && *n == name)
+        {
+            self.builtins
+                .push((at, n, format!("```ppl\n{sig}\n```\n\n{docs}")));
+        }
+    }
+
     /// A static member's name in `Class.name` (a name stays as it is).
     fn last_part(&self, at: Span) -> Span {
         let text = self.sm.snippet(at);
@@ -573,7 +589,12 @@ impl Builder<'_> {
                 let def = self.var_span(fid, *v);
                 self.uses.push((self.last_part(e.span), def));
             }
-            ExprKind::Builtin(b) => self.builtins.push((e.span, *b)),
+            ExprKind::Builtin(b) => {
+                if let Some((sig, docs)) = b.docs() {
+                    let hover = format!("```ppl\n{sig}\n```\n\n{docs}");
+                    self.builtins.push((e.span, b.name(), hover));
+                }
+            }
             ExprKind::Fn(f) | ExprKind::FnAddr(f) => {
                 self.uses.push((self.last_part(e.span), self.fn_span(*f)));
             }
@@ -586,6 +607,9 @@ impl Builder<'_> {
                     && let Some(def) = self.field_span(object, idx)
                 {
                     self.uses.push((*name_span, def));
+                } else {
+                    // `xs.length`, `xs.push(…)`: members the type checker implements.
+                    self.builtin_member(object, *name_span);
                 }
             }
             ExprKind::Call { callee, .. } => {

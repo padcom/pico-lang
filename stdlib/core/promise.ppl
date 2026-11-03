@@ -7,6 +7,10 @@
 // the step function is a generator that runs `body` up to the next `await`: `await x` yields
 // `x.__suspend()` (the driver resumes the step once `x` settles) and then reads `x.__get()`.
 
+/// A value that arrives later (spec §10.1): settles once, with a `T` or an error. `E` is what
+/// awaiting it can throw (an `async function`'s `throws`). `await p` waits for it inside an async
+/// function (or at the top level); reactions run as microtasks, so the ordering is JavaScript's. An
+/// `async function f(): Promise<T> throws E` returns a `Promise<T, E>`.
 class Promise<T, E extends Error = never> {
   /// 0: pending, 1: fulfilled, 2: rejected.
   state: int = 0
@@ -105,6 +109,7 @@ class Promise<T, E extends Error = never> {
     }
   }
 
+  /// Whether it has settled (fulfilled or rejected).
   public get settled(): bool {
     this.state != 0
   }
@@ -123,12 +128,14 @@ class Promise<T, E extends Error = never> {
     p
   }
 
+  /// A promise already fulfilled with `value`.
   public static resolve<U>(value: U): Promise<U> {
     const p = new Promise<U>()
     p.__resolve(value)
     p
   }
 
+  /// A promise already rejected with `error`.
   public static reject<U>(error: Error): Promise<U, Error> {
     const p = new Promise<U, Error>()
     p.__reject(error)

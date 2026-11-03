@@ -202,10 +202,13 @@ function setInterval(f: () => void, ms: int = 0): int {
   __theLoop().addTimer(f, period, period)
 }
 
+/// Cancels the `setTimeout` call whose id is `id` (nothing happens if it already ran or was
+/// cleared).
 function clearTimeout(id: int): void {
   __theLoop().clear(id)
 }
 
+/// Stops the `setInterval` calls whose id is `id`.
 function clearInterval(id: int): void {
   __theLoop().clear(id)
 }

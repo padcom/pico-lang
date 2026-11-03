@@ -41,20 +41,6 @@ const BUILTIN_TYPES: &[&str] = &[
     "number", "bool", "char", "string", "void", "never",
 ];
 
-/// Methods the type checker implements itself (the rest are ppl extensions).
-const BUILTIN_MEMBERS: &[(&str, &str, &str)] = &[
-    ("Array", "length", "(property) length: i64"),
-    ("Array", "push", "(method) Array.push(...values: T): void"),
-    ("Array", "pop", "(method) Array.pop(): T?"),
-    ("String", "length", "(property) length: i64"),
-    (
-        "String",
-        "slice",
-        "(method) String.slice(start: i64, end?: i64): string",
-    ),
-    ("Fixed", "length", "(property) length: i64"),
-];
-
 #[derive(Default)]
 struct Items {
     list: Vec<Value>,
@@ -316,14 +302,15 @@ fn type_members(
         Ty::Fixed(..) | Ty::FixedN(..) => "Fixed",
         _ => "",
     };
-    for (on, name, sig) in BUILTIN_MEMBERS {
+    // (Members the type checker implements itself.)
+    for (on, name, sig, docs) in hir::BUILTIN_MEMBER_DOCS {
         if *on == builtin {
             let k = if sig.starts_with("(property)") {
                 kind::PROPERTY
             } else {
                 kind::METHOD
             };
-            items.add(name, k, Some(&format!("```ppl\n{sig}\n```")));
+            items.add(name, k, Some(&format!("```ppl\n{sig}\n```\n\n{docs}")));
         }
     }
     let mut ext: Vec<(&String, &Vec<hir::FnId>)> = p

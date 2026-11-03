@@ -124,6 +124,30 @@ fn std_pages() -> Vec<Page> {
             None => {}
         }
     }
+    // The members of `Array` and `String` the compiler implements (`push`, `length`, …).
+    for (on, name, sig, docs) in ppl_sema::hir::BUILTIN_MEMBER_DOCS {
+        let Some(page) = methods.get_mut(*on) else {
+            continue;
+        };
+        // (`(method) Array.push(…)` → `push(…)`, `(property) length: i64` → `length: i64`.)
+        let (kind, sig) = match sig.strip_prefix("(property) ") {
+            Some(s) => ("property", s.to_string()),
+            None => {
+                let s = sig.strip_prefix("(method) ").unwrap_or(sig);
+                (
+                    "method",
+                    s.split_once('.').map_or(s, |(_, m)| m).to_string(),
+                )
+            }
+        };
+        page.push(Item {
+            name: name.to_string(),
+            kind,
+            signature: sig,
+            docs: docs.to_string(),
+            members: Vec::new(),
+        });
+    }
     // The functions the compiler implements (`println`, …).
     for (name, sig, docs) in ppl_sema::hir::BUILTIN_DOCS {
         core.push(Item {
@@ -387,9 +411,13 @@ fn header(text: &str, d: &ast::Decl) -> String {
 }
 
 fn member_item(text: &str, m: &ast::Member, vis: Vis) -> Option<Item> {
+    // (A class's constructors are callable unless `private`; its other members only when
+    // `public`.)
+    let ctor = matches!(m.kind, MemberKind::Constructor(_));
     let public = match (vis, m.mods.visibility) {
         (Vis::All, _) => true,
         (Vis::UnlessPrivate, v) => v != Some(Visibility::Private),
+        (Vis::Public, v) if ctor => v != Some(Visibility::Private),
         (Vis::Public, v) => v == Some(Visibility::Public),
     };
     if !public {

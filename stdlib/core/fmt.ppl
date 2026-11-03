@@ -2,6 +2,10 @@
 // `x.format("")` and `${x:spec}` calls `x.format("spec")` with the spec's text unchecked
 // (`std/fmt`'s `FormatSpec.parse` reads the standard grammar); `${x:?}` stays the debug form.
 
+/// Types that format themselves in templates (spec §1.4): `${x}` calls `x.format("")` and
+/// `${x:spec}` calls `x.format("spec")` (`${x:?}` stays the debug form). `std/fmt`'s
+/// `FormatSpec.parse` reads the standard spec grammar (`>8`, `.2`, `x`).
 interface Formattable {
+  /// The value formatted as `spec` says (the text after the `:` in `${x:spec}`; empty for `${x}`).
   format(spec: string): string
 }

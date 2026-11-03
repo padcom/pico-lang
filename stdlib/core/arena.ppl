@@ -2,9 +2,15 @@
 // untraced storage for plain data that stays valid until `free()`; pointers into it dangle
 // afterwards (undefined behavior). The scoped `arena { … }` block needs none of this.
 
+/// Explicitly managed memory for unsafe code (spec §9.4): `alloc` hands out zeroed storage for
+/// plain data (no references), which the collector doesn't trace and which stays valid until
+/// `free()`. Pointers into it dangle afterwards (undefined behavior). The scoped `arena { … }`
+/// block needs none of this.
 class Arena {
   handle: int
 
+  /// An arena that reserves memory in chunks of `capacity` bytes (4096 if it isn't positive;
+  /// a bigger allocation gets a chunk of its own).
   constructor(capacity: int) {
     this.handle = __raw_arena_new(capacity)
   }

@@ -1,8 +1,15 @@
 // The root of thrown errors (spec §7.1).
+/// The root of thrown errors: a message and, optionally, the error that caused it. Subclass it for
+/// errors of your own (`class ParseError extends Error`); functions declare what they throw
+/// (`throws ParseError`), and callers handle it with `try`/`catch` or declare it in turn.
 class Error {
+  /// What went wrong, for people.
   public message: string
+  /// The error this one wraps, if any (`new Error("can't load config", e)`).
   public cause: Error? = null
+  /// An error with `message`.
   constructor(message: string) { this.message = message }
+  /// An error with `message`, caused by `cause`.
   constructor(message: string, cause: Error?) {
     this(message)
     this.cause = cause

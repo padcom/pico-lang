@@ -1,6 +1,7 @@
 // Array methods (spec §13.1). `xs.name(args)` on a `T[]` calls `__Array_name(xs, args)`.
 // Callbacks take the element only; what they throw, the method throws (§7.2).
 
+/// A new array of `f` of each element, in order: `[1, 2].map(x => x * 2)` is `[2, 4]`.
 function __Array_map<T, U, E extends Error>(xs: T[], f: (x: T) => U throws E): U[] throws E {
   const out: U[] = []
   for (const x of xs) {
@@ -9,6 +10,7 @@ function __Array_map<T, U, E extends Error>(xs: T[], f: (x: T) => U throws E): U
   out
 }
 
+/// A new array of the elements for which `f` is true, in order.
 function __Array_filter<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): T[] throws E {
   const out: T[] = []
   for (const x of xs) {
@@ -19,6 +21,8 @@ function __Array_filter<T, E extends Error>(xs: T[], f: (x: T) => bool throws E)
   out
 }
 
+/// Folds the elements into one value: `f(acc, x)` for each element in order, starting from
+/// `initial`. `[1, 2, 3].reduce((sum, x) => sum + x, 0)` is `6`.
 function __Array_reduce<T, A, E extends Error>(
   xs: T[],
   f: (acc: A, x: T) => A throws E,
@@ -31,12 +35,14 @@ function __Array_reduce<T, A, E extends Error>(
   acc
 }
 
+/// Calls `f` with each element, in order.
 function __Array_forEach<T, E extends Error>(xs: T[], f: (x: T) => void throws E): void throws E {
   for (const x of xs) {
     f(x)
   }
 }
 
+/// The first element for which `f` is true, or `null`.
 function __Array_find<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): T? throws E {
   for (const x of xs) {
     if (f(x)) {
@@ -46,6 +52,7 @@ function __Array_find<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): 
   null
 }
 
+/// The index of the first element for which `f` is true, or -1.
 function __Array_findIndex<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): int throws E {
   let i = 0
   for (const x of xs) {
@@ -57,6 +64,7 @@ function __Array_findIndex<T, E extends Error>(xs: T[], f: (x: T) => bool throws
   -1
 }
 
+/// Whether `f` is true for at least one element (stops at the first; false for an empty array).
 function __Array_some<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): bool throws E {
   for (const x of xs) {
     if (f(x)) {
@@ -66,6 +74,7 @@ function __Array_some<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): 
   false
 }
 
+/// Whether `f` is true for every element (stops at the first that isn't; true for an empty array).
 function __Array_every<T, E extends Error>(xs: T[], f: (x: T) => bool throws E): bool throws E {
   for (const x of xs) {
     if (!f(x)) {
@@ -75,6 +84,7 @@ function __Array_every<T, E extends Error>(xs: T[], f: (x: T) => bool throws E):
   true
 }
 
+/// The index of the first element `== value`, or -1.
 function __Array_indexOf<T extends Equatable<T>>(xs: T[], value: T): int {
   let i = 0
   for (const x of xs) {
@@ -86,14 +96,17 @@ function __Array_indexOf<T extends Equatable<T>>(xs: T[], value: T): int {
   -1
 }
 
+/// Whether an element is `== value`.
 function __Array_includes<T extends Equatable<T>>(xs: T[], value: T): bool {
   __Array_indexOf(xs, value) >= 0
 }
 
+/// The elements' string forms joined with commas: `[1, 2].join()` is `"1,2"`.
 function __Array_join<T>(xs: T[]): string {
   __Array_join(xs, ",")
 }
 
+/// The elements' string forms joined with `separator`: `["a", "b"].join(", ")` is `"a, b"`.
 function __Array_join<T>(xs: T[], separator: string): string {
   let out = ""
   let first = true
@@ -118,10 +131,14 @@ function __clampIndex(i: int, n: int): int {
   }
 }
 
+/// A new array of the elements from index `start` to the end. A negative `start` counts from the
+/// end (`xs.slice(-2)`: the last two); it's clamped to the array.
 function __Array_slice<T>(xs: T[], start: int): T[] {
   __Array_slice(xs, start, xs.length)
 }
 
+/// A new array of the elements from index `start` up to (not including) `end`. Negative indices
+/// count from the end; both are clamped to the array, and `start >= end` gives an empty array.
 function __Array_slice<T>(xs: T[], start: int, end: int): T[] {
   const out: T[] = []
   let i = __clampIndex(start, xs.length)
@@ -133,6 +150,7 @@ function __Array_slice<T>(xs: T[], start: int, end: int): T[] {
   out
 }
 
+/// A new array of this array's elements followed by `other`'s.
 function __Array_concat<T>(xs: T[], other: T[]): T[] {
   const out: T[] = []
   for (const x of xs) {

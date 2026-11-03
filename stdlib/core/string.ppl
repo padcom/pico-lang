@@ -1,6 +1,8 @@
 // String methods (spec §13.1). `s.name(args)` calls `__String_name(s, args)`. Indices count
 // code points, like `s[i]` and `s.length`; `s.slice(start, end)` is built in.
 
+/// Where the first occurrence of `search` starts (in code points, like `s[i]`), or -1. An empty
+/// `search` is found at 0.
 function __String_indexOf(s: string, search: string): int {
   const n = s.length
   const m = search.length
@@ -25,14 +27,17 @@ function __matchesAt(s: string, search: string, at: int): bool {
   true
 }
 
+/// Whether `search` occurs in the string.
 function __String_includes(s: string, search: string): bool {
   __String_indexOf(s, search) >= 0
 }
 
+/// Whether the string starts with `prefix`.
 function __String_startsWith(s: string, prefix: string): bool {
   prefix.length <= s.length && __matchesAt(s, prefix, 0)
 }
 
+/// Whether the string ends with `suffix`.
 function __String_endsWith(s: string, suffix: string): bool {
   suffix.length <= s.length && __matchesAt(s, suffix, s.length - suffix.length)
 }
@@ -42,6 +47,7 @@ function __isSpace(c: char): bool {
   n == 32 || (n >= 9 && n <= 13)
 }
 
+/// The string without leading whitespace (spaces, tabs, line breaks, vertical tabs and form feeds).
 function __String_trimStart(s: string): string {
   let i = 0
   while (i < s.length && __isSpace(s[i])) {
@@ -50,6 +56,8 @@ function __String_trimStart(s: string): string {
   s.slice(i)
 }
 
+/// The string without trailing whitespace (spaces, tabs, line breaks, vertical tabs and form
+/// feeds).
 function __String_trimEnd(s: string): string {
   let j = s.length
   while (j > 0 && __isSpace(s[j - 1])) {
@@ -58,6 +66,8 @@ function __String_trimEnd(s: string): string {
   s.slice(0, j)
 }
 
+/// The string without leading and trailing whitespace (spaces, tabs, line breaks, vertical tabs and
+/// form feeds).
 function __String_trim(s: string): string {
   __String_trimEnd(__String_trimStart(s))
 }
@@ -82,9 +92,9 @@ function __String_toLowerCase(s: string): string {
   out
 }
 
-/// The parts between occurrences of `separator`; an empty separator splits into characters.
-/// The pieces of `s` between occurrences of `separator` (a string or a `RegExp`, whose
-/// captured groups are spliced in), at most `limit` of them.
+/// The pieces of the string between occurrences of `separator` (a string or a `RegExp`, whose
+/// captured groups are spliced in), at most `limit` of them; an empty separator splits into
+/// characters.
 function __String_split(s: string, separator: string | RegExp, limit: int = -1): string[] {
   match (separator) {
     sep: string => {
@@ -211,6 +221,8 @@ function __replaceAllStr(s: string, search: string, replacement: string): string
   out + s.slice(start)
 }
 
+/// The string `count` times over: `"ab".repeat(3)` is `"ababab"` (empty for a `count` of 0 or
+/// less).
 function __String_repeat(s: string, count: int): string {
   // By doubling: O(n) bytes built rather than O(n²) (a 100 kB string was 5 GB of garbage).
   let out = ""
@@ -239,18 +251,26 @@ function __padding(length: int, fill: string): string {
   pad.slice(0, length)
 }
 
+/// The string padded with spaces at the start to `length` code points (unchanged if it's that long
+/// already): `"7".padStart(3)` is `"  7"`.
 function __String_padStart(s: string, length: int): string {
   __String_padStart(s, length, " ")
 }
 
+/// The string padded at the start to `length` code points with `fill`, repeated and cut to fit
+/// (unchanged if it's that long already, or `fill` is empty): `"7".padStart(3, "0")` is `"007"`.
 function __String_padStart(s: string, length: int, fill: string): string {
   if (s.length >= length) s else __padding(length - s.length, fill) + s
 }
 
+/// The string padded with spaces at the end to `length` code points (unchanged if it's that long
+/// already).
 function __String_padEnd(s: string, length: int): string {
   __String_padEnd(s, length, " ")
 }
 
+/// The string padded at the end to `length` code points with `fill`, repeated and cut to fit
+/// (unchanged if it's that long already, or `fill` is empty).
 function __String_padEnd(s: string, length: int, fill: string): string {
   if (s.length >= length) s else s + __padding(length - s.length, fill)
 }

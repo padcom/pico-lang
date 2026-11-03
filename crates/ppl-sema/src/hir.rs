@@ -702,6 +702,50 @@ process (exit code 101) with the message and a stack trace; in a worker, the par
     ),
 ];
 
+/// The members of built-in types the type checker implements itself (the others are the core
+/// library's `__Array_…`/`__String_…` functions): the type (`Array`, `String`, `Fixed`), the
+/// name, the signature and the documentation (Markdown).
+pub const BUILTIN_MEMBER_DOCS: &[(&str, &str, &str, &str)] = &[
+    (
+        "Array",
+        "length",
+        "(property) length: i64",
+        "How many elements the array has.",
+    ),
+    (
+        "Array",
+        "push",
+        "(method) Array.push(...values: T): void",
+        "Appends `values` to the end of the array, in order.",
+    ),
+    (
+        "Array",
+        "pop",
+        "(method) Array.pop(): T?",
+        "Removes the last element and returns it; `null` (and nothing changes) when the array is \
+empty.",
+    ),
+    (
+        "String",
+        "length",
+        "(property) length: i64",
+        "How many code points the string has (as `s[i]` and the string methods count).",
+    ),
+    (
+        "String",
+        "slice",
+        "(method) String.slice(start: i64, end?: i64): string",
+        "The part of the string from code point `start` up to (not including) `end`, or to the \
+end. Negative indices count from the end; both are clamped to the string.",
+    ),
+    (
+        "Fixed",
+        "length",
+        "(property) length: i64",
+        "How many elements the fixed-size array has (part of its type).",
+    ),
+];
+
 impl Builtin {
     /// [`BUILTIN_DOCS`]' entry for a built-in a program can call.
     pub fn docs(self) -> Option<(&'static str, &'static str)> {

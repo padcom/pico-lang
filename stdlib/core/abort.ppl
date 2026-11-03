@@ -76,9 +76,13 @@ class AbortSignal {
   }
 }
 
+/// Cancels operations that take an `AbortSignal` (`fetch(url, { signal })`, streams): pass its
+/// `signal` along, call `abort()` to cancel them.
 class AbortController {
+  /// The signal to hand to the operations this controller cancels.
   public signal: AbortSignal = new AbortSignal()
 
+  /// A controller whose signal isn't aborted yet.
   constructor() {}
 
   /// Aborts the signal (once; later calls do nothing).

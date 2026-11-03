@@ -62,6 +62,11 @@ fn standard_library() {
     let core = read(&site.join("core.html"));
     assert!(core.contains("<h2 id=\"println\">"), "{core}");
     assert!(core.contains("function println(value?): void"), "{core}");
+    // Constructors without a modifier are callable, so documented.
+    assert!(
+        core.contains("<pre class=\"sig\">constructor()</pre>\n<p>An empty map"),
+        "{core}"
+    );
     // A built-in type's methods (from the core library's `__Array_map(xs, f)`), the receiver
     // dropped, and type names linked to their pages.
     let array = read(&site.join("type-Array.html"));
@@ -71,6 +76,9 @@ fn standard_library() {
         "{array}"
     );
     assert!(!array.contains("__Array"), "{array}");
+    // (And the ones the compiler implements.)
+    assert!(array.contains("<h2 id=\"push\">"), "{array}");
+    assert!(array.contains("push(...values: T): void"), "{array}");
     // A class: its public members.
     let collections = read(&site.join("std-collections.html"));
     assert!(

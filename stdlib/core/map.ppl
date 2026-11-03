@@ -11,6 +11,10 @@ class __MapEntry<K, V> {
   }
 }
 
+/// A hash table from keys to values, iterated in insertion order like JavaScript's (spec §13.1).
+/// Keys are compared with `==` and hashed with `hashCode()`: numbers, strings, `bool`, `char`, and
+/// classes or structs with a `hashCode(): u64` method (the `Hashable` protocol, spec §2.8).
+/// `for (const [k, v] of map)` walks the entries.
 class Map<K extends Hashable<K>, V> {
   /// In insertion order; deleted entries stay (not `live`) until the next rehash.
   items: __MapEntry<K, V>[] = []
@@ -18,6 +22,7 @@ class Map<K extends Hashable<K>, V> {
   buckets: int[][] = []
   count: int = 0
 
+  /// An empty map (`new Map<string, int>()`).
   constructor() {}
 
   bucket(key: K): int {
@@ -61,14 +66,17 @@ class Map<K extends Hashable<K>, V> {
     }
   }
 
+  /// How many entries the map has.
   public get size(): int {
     this.count
   }
 
+  /// Whether the map has an entry for `key`.
   public has(key: K): bool {
     this.find(key) >= 0
   }
 
+  /// The value for `key`, or `null` if there's none.
   public get(key: K): V? {
     const i = this.find(key)
     if (i < 0) {
@@ -77,6 +85,8 @@ class Map<K extends Hashable<K>, V> {
     this.items[i].value
   }
 
+  /// Sets `key`'s value (replacing an earlier one, which keeps its place in the order); returns the
+  /// map, so calls chain.
   public set(key: K, value: V): Map<K, V> {
     const i = this.find(key)
     if (i >= 0) {
@@ -92,6 +102,7 @@ class Map<K extends Hashable<K>, V> {
     this
   }
 
+  /// Removes `key`'s entry; whether there was one.
   public delete(key: K): bool {
     const i = this.find(key)
     if (i < 0) {
@@ -110,12 +121,14 @@ class Map<K extends Hashable<K>, V> {
     true
   }
 
+  /// Removes every entry.
   public clear(): void {
     this.items = []
     this.buckets = []
     this.count = 0
   }
 
+  /// The keys, in insertion order (a new array).
   public keys(): K[] {
     const out: K[] = []
     for (const e of this.items) {
@@ -126,6 +139,7 @@ class Map<K extends Hashable<K>, V> {
     out
   }
 
+  /// The values, in insertion order (a new array).
   public values(): V[] {
     const out: V[] = []
     for (const e of this.items) {
@@ -136,6 +150,7 @@ class Map<K extends Hashable<K>, V> {
     out
   }
 
+  /// The entries as `[key, value]` pairs, in insertion order (a new array).
   public entries(): [K, V][] {
     const out: [K, V][] = []
     for (const e of this.items) {
@@ -151,6 +166,7 @@ class Map<K extends Hashable<K>, V> {
     __Array_iterator(this.entries())
   }
 
+  /// Calls `f` with each value and its key, in insertion order.
   public forEach<E extends Error>(f: (value: V, key: K) => void throws E): void throws E {
     for (const e of this.items) {
       if (e.live) {
@@ -160,40 +176,52 @@ class Map<K extends Hashable<K>, V> {
   }
 }
 
+/// A set of distinct values, iterated in insertion order like JavaScript's (spec §13.1). Values are
+/// compared with `==` and hashed with `hashCode()`, as `Map` keys are. `for (const x of set)` walks
+/// it.
 class Set<T extends Hashable<T>> {
   map: Map<T, bool> = new Map()
 
+  /// An empty set (`new Set<string>()`).
   constructor() {}
 
+  /// How many values the set has.
   public get size(): int {
     this.map.size
   }
 
+  /// Whether `value` is in the set.
   public has(value: T): bool {
     this.map.has(value)
   }
 
+  /// Adds `value` (nothing changes if it's already there); returns the set, so calls chain.
   public add(value: T): Set<T> {
     this.map.set(value, true)
     this
   }
 
+  /// Removes `value`; whether it was there.
   public delete(value: T): bool {
     this.map.delete(value)
   }
 
+  /// Removes every value.
   public clear(): void {
     this.map.clear()
   }
 
+  /// The values, in insertion order (a new array).
   public values(): T[] {
     this.map.keys()
   }
 
+  /// `for (const x of set)`: the values in insertion order.
   public iterator(): Iterator<T> {
     __Array_iterator(this.map.keys())
   }
 
+  /// Calls `f` with each value, in insertion order.
   public forEach<E extends Error>(f: (value: T) => void throws E): void throws E {
     for (const v of this.map.keys()) {
       f(v)
