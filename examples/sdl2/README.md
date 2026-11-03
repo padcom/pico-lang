@@ -10,5 +10,5 @@ ppl run examples/sdl2/main.ppl
 `project.json` takes SDL2's include and link flags from pkg-config. The program opens a blue
 window with a white square for five seconds, or until it's closed.
 
-Not checked automatically: the development VM has no SDL2 or display (PLAN P9.2's manual
-check).
+Not checked automatically (it needs a display): checked by hand on Debian 13 arm64 (PLAN
+P9.2).

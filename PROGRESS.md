@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.2: Lint** (see PLAN). Phase 8 is done (P8.7 WasmGC backend finished with P8.7f). The author should still run the SDL2 demo by hand (P9.2's manual check, `examples/sdl2`).
+**P10.2: Lint** (see PLAN). Phase 8 is done (P8.7 WasmGC backend finished with P8.7f).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -288,7 +288,7 @@ Notes:
 
 ### Phase 9: C interop
 - [x] P9.1 extern "C"
-- [x] P9.2 C header import (SDL2 demo: manual check pending)
+- [x] P9.2 C header import
 - [x] P9.3 Export to C
 
 ### Phase 10: Tooling and ecosystem
@@ -444,3 +444,4 @@ Notes:
 | 2026-11-03 | P8.7d | WasmGC panics through Wasm exception handling (guards, `finally`, `__catch_panic`), the event loop on browser timers, hashing, reference coercions, `void` elements: 81 run fixtures pass, none fail; skip list for what needs linear memory. Decision 268. |
 | 2026-11-03 | P8.7e | WasmGC buffers, synchronous browser `__io` ops (text codecs, random, bundled tz), `__parse_f64`/`__ref_id`/`__math`, covariant generic class instances: 193 of the suite pass, none fail. Size/perf comparison (`scripts/wasm-compare.sh`): ~2 KiB vs ~2.1 MiB, 1.3–1.7× slower. P8.7f split off for JS interop. Decision 269. |
 | 2026-11-03 | P8.7f | `@export("js")` and `std/js` on WasmGC (exported functions with struct constructors/getters, `js_op`/`js_text` imports, nested calls in the glue); `tests/browser` on both backends, both browser examples work in headless Chromium. P8.7 and Phase 8 done. Decision 270. |
+| 2026-11-03 | P9.2 | Manual check: the SDL2 demo (`examples/sdl2`) builds, links libSDL2 and shows its window (Debian 13 arm64, confirmed by the author). |
