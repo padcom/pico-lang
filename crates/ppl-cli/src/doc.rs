@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 /// One documented declaration (or member).
+#[derive(Clone)]
 struct Item {
     /// What it's called on the page (its anchor too).
     name: String,
@@ -76,6 +77,22 @@ pub fn run(std: bool, out: Option<&Path>) -> ExitCode {
 /// globals, and the built-in types' methods).
 fn std_pages() -> Vec<Page> {
     let dir = ppl_driver::stdlib_dir();
+    // The core library first: std modules re-export its internal declarations under public
+    // names (`export { __ClassDecl as ClassDecl }`).
+    let mut core_files: Vec<PathBuf> = std::fs::read_dir(dir.join("core"))
+        .map(|r| r.filter_map(|e| Some(e.ok()?.path())).collect())
+        .unwrap_or_default();
+    core_files.retain(|p| p.extension().is_some_and(|e| e == "ppl"));
+    core_files.sort();
+    let core_items: Vec<Item> = core_files
+        .iter()
+        .flat_map(|f| module_items(f, Exports::Core, &BTreeMap::new(), &mut BTreeMap::new()))
+        .collect();
+    let core_by_name: BTreeMap<String, Item> = core_items
+        .iter()
+        .map(|i| (i.name.clone(), i.clone()))
+        .collect();
+    let mut renames = BTreeMap::new();
     let mut pages = Vec::new();
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .map(|r| r.filter_map(|e| Some(e.ok()?.path())).collect())
@@ -88,7 +105,7 @@ fn std_pages() -> Vec<Page> {
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        let items = module_items(&f, Exports::Exported);
+        let items = module_items(&f, Exports::Exported, &core_by_name, &mut renames);
         if !items.is_empty() {
             pages.push(Page {
                 title: format!("std/{stem}"),
@@ -100,18 +117,11 @@ fn std_pages() -> Vec<Page> {
     // The core library: its globals, and the methods of built-in types.
     let mut core = Vec::new();
     let mut methods: BTreeMap<String, Vec<Item>> = BTreeMap::new();
-    let mut core_files: Vec<PathBuf> = std::fs::read_dir(dir.join("core"))
-        .map(|r| r.filter_map(|e| Some(e.ok()?.path())).collect())
-        .unwrap_or_default();
-    core_files.retain(|p| p.extension().is_some_and(|e| e == "ppl"));
-    core_files.sort();
-    for f in core_files {
-        for item in module_items(&f, Exports::Core) {
-            match builtin_method(&item) {
-                Some((ty, m)) => methods.entry(ty).or_default().push(m),
-                None if !item.name.starts_with("__") => core.push(item),
-                None => {}
-            }
+    for item in core_items {
+        match builtin_method(&item) {
+            Some((ty, m)) => methods.entry(ty).or_default().push(m),
+            None if !item.name.starts_with("__") => core.push(item),
+            None => {}
         }
     }
     core.sort_by(|a, b| a.name.cmp(&b.name));
@@ -134,7 +144,38 @@ fn std_pages() -> Vec<Page> {
             },
         );
     }
+    // Internal names in signatures as their modules export them (`__ClassDecl` → `ClassDecl`).
+    for p in &mut pages {
+        for i in &mut p.items {
+            rename_in(i, &renames);
+        }
+    }
     pages
+}
+
+fn rename_in(item: &mut Item, renames: &BTreeMap<String, String>) {
+    item.signature = rename_words(&item.signature, renames);
+    for m in &mut item.members {
+        rename_in(m, renames);
+    }
+}
+
+/// `s` with each whole word that `renames` names replaced.
+fn rename_words(s: &str, renames: &BTreeMap<String, String>) -> String {
+    let mut out = String::new();
+    let mut word = String::new();
+    for c in s.chars().chain(std::iter::once('\0')) {
+        if c.is_alphanumeric() || c == '_' {
+            word.push(c);
+            continue;
+        }
+        out.push_str(renames.get(&word).unwrap_or(&word));
+        word.clear();
+        if c != '\0' {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// The current project's package: its `index.ppl`.
@@ -159,7 +200,12 @@ fn project_pages() -> Result<Vec<Page>, String> {
     Ok(vec![Page {
         title: m.label(),
         file: "index-api.html".into(),
-        items: module_items(&index, Exports::Exported),
+        items: module_items(
+            &index,
+            Exports::Exported,
+            &BTreeMap::new(),
+            &mut BTreeMap::new(),
+        ),
     }])
 }
 
@@ -171,23 +217,52 @@ enum Exports {
     Core,
 }
 
-/// The documented declarations of a file.
-fn module_items(path: &Path, which: Exports) -> Vec<Item> {
+/// The documented declarations of a file: its `export`ed ones and those an export list names
+/// (`export { a, __b as b }`: declared in the file or, for std modules, in the core library
+/// `core`; each renaming is added to `renames`).
+fn module_items(
+    path: &Path,
+    which: Exports,
+    core: &BTreeMap<String, Item>,
+    renames: &mut BTreeMap<String, String>,
+) -> Vec<Item> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
     let (module, _) = ppl_syntax::parse_module(FileId(0), &text);
     let mut out = Vec::new();
+    let mut local = BTreeMap::new();
+    let mut lists = Vec::new();
     for s in &module.stmts {
         let StmtKind::Decl(d) = &s.kind else {
             continue;
         };
-        if which == Exports::Exported && !d.exported {
+        if let DeclKind::ExportList { names, from: None } = &d.kind {
+            lists.extend(names.iter().cloned());
             continue;
         }
-        if let Some(item) = decl_item(&text, d) {
+        let Some(item) = decl_item(&text, d) else {
+            continue;
+        };
+        if which == Exports::Core || d.exported {
             out.push(item);
+        } else {
+            local.insert(item.name.clone(), item);
         }
+    }
+    for n in lists {
+        let Some(mut item) = local
+            .get(&n.name.name)
+            .or_else(|| core.get(&n.name.name))
+            .cloned()
+        else {
+            continue;
+        };
+        if let Some(alias) = &n.alias {
+            renames.insert(item.name.clone(), alias.name.clone());
+            item.name = alias.name.clone();
+        }
+        out.push(item);
     }
     out
 }

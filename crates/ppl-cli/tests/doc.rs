@@ -77,6 +77,13 @@ fn standard_library() {
         collections.contains("<h3 id=\"pushBack\">"),
         "{collections}"
     );
+    // A module whose export list renames the core library's declarations
+    // (`export { __ClassDecl as ClassDecl }`): documented under the public names.
+    let meta = read(&site.join("std-meta.html"));
+    assert!(meta.contains("<h2 id=\"ClassDecl\">"), "{meta}");
+    assert!(meta.contains("class ClassDecl"), "{meta}");
+    assert!(meta.contains("<h3 id=\"addMethod\">"), "{meta}");
+    assert!(!meta.contains("__ClassDecl"), "{meta}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
