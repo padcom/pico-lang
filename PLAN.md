@@ -959,6 +959,30 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Do**: DWARF/CodeView emission, `ppl dap` built on lldb-dap, pretty-printers for ppl values,
   and `ppl symbolize` for release traces.
 - **Done when**: breakpoints and value display work in VS Code (manual check).
+- Split into slices (lldb-23 and lldb-dap-23 are installed on the Linux host):
+
+#### P10.8a Line tables
+- **Do**: DWARF compile unit, files and a subprogram per function, and a source location for every
+  statement and terminator, in every file (modules and the core library too: MIR locations
+  carry the file); `ppl build` emits them unless `--release`.
+- **Done when**: an lldb batch test (skipped without lldb) stops at a breakpoint set by
+  `file:line` and its backtrace shows the ppl functions with their files and lines.
+
+#### P10.8b Variables
+- **Do**: parameters and locals as DWARF variables with their types (integers, floats, `bool`,
+  `char`, strings, arrays, structs, classes, enums, nullables) and scopes.
+- **Done when**: an lldb batch test shows the variables of a frame with their values.
+
+#### P10.8c Debugging in VS Code
+- **Do**: lldb formatters (Python) that show ppl values (strings, arrays, maps, enums,
+  nullables, objects' fields), `ppl dap` (lldb-dap with them loaded), and the extension's
+  debugger (a launch configuration that builds and debugs a `.ppl` program).
+- **Done when**: breakpoints, stepping and value display work in VS Code (manual check).
+
+#### P10.8d `ppl symbolize`
+- **Do**: release builds keep a separate debug file; `ppl symbolize` turns a release stack
+  trace's addresses into functions, files and lines.
+- **Done when**: a test symbolizes a release program's panic trace.
 
 ### P10.9 Documentation tooling
 - **Do**: `ppl doc` (HTML from `/** */`) and `ppl explain E####` for every error code.
