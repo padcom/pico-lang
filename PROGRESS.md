@@ -321,11 +321,18 @@ Notes:
 - [ ] P10.10 Release packaging
 
 ### Phase 11: Later
-- [ ] P11.1 `--no-gc` subset + bare metal
-- [ ] P11.2 riscv64
-- [ ] P11.3 Android
-- [ ] P11.4 iOS
-- [ ] P11.5 Self-hosting investigation
+- [ ] P11.1 Reactivity: spec (open questions first)
+- [ ] P11.2 Reactivity: core runtime
+- [ ] P11.3 Reactivity: compiler support
+- [ ] P11.4 Reactivity: effects in the event loop
+- [ ] P11.5 Reactivity: tooling
+- [ ] P10.7a JIT `ppl run` (moved to Phase 12)
+- [ ] P10.7b REPL (moved to Phase 12)
+- [ ] P12.1 `--no-gc` subset + bare metal
+- [ ] P12.2 riscv64
+- [ ] P12.3 Android
+- [ ] P12.4 iOS
+- [ ] P12.5 Self-hosting investigation
 
 ## Log
 | Date | Task | Notes |
@@ -505,3 +512,4 @@ Notes:
 | 2026-11-03 | plan | P10.7 split into P10.7a (JIT `ppl run`) and P10.7b (REPL) and moved to Phase 11 by the author. Next: P10.9, then P10.10. |
 | 2026-11-03 | plan | P10.9 split into a (`ppl explain`, verified examples per code) and b (`ppl doc`). |
 | 2026-11-03 | P10.9a | 88 explanations (`docs/errors/`, 83 error + 5 lint codes; written with three subagents, each example checked by `tests/explain.rs`), `ppl explain`, the CLI's hint. Found while writing them: E0009 (`INVALID_MULTILINE`) is never emitted; exported top-level functions still infer `throws` (the resolver's interim rule); a `const` isn't accepted as a `comptime` argument (E0353); an overloaded function as a value is E0900; `tailcall` inside an `if` expression is rejected (E0331). |
+| 2026-11-03 | plan | New Phase 11: Reactivity (the author's: `reactive`/`Reactive<T>`, `computed`, `watchEffect`; P11.1 spec with open questions on access, scope, depth, timing, workers, cleanup; P11.2 runtime; P11.3 compiler; P11.4 event loop; P11.5 tooling). "Later" becomes Phase 12 (P12.1–P12.5, with P10.7a/b). |

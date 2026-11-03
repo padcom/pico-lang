@@ -40,7 +40,7 @@ and the runtime in C.
 | Path | Contents |
 |------|----------|
 | `PROGRESS.md` | status, next task, session log |
-| `PLAN.md` | architecture and all tasks (P1.1 … P11.5) |
+| `PLAN.md` | architecture and all tasks (P1.1 … P12.5) |
 | `docs/spec/` | the language specification (chapters 00–15) |
 | `docs/DECISIONS.md` | numbered design decisions and their reasons |
 | `docs/TOUR.md` | an example of every language feature (for review, not normative) |

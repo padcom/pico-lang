@@ -1053,16 +1053,59 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 
 ---
 
-## Phase 11: Later
+## Phase 11: Reactivity
+Vue-like reactive state (the author, 2026-11-03): `reactive` declarations of `Reactive<T>`,
+`computed(() => …)` / `computed({ get, set })` and `watchEffect(() => …)`.
+
+### P11.1 Spec
+- **Do**: the `reactive` declaration and `Reactive<T>`; how reads and writes look; `computed`
+  (getter, or `{ get, set }`) returning a `Reactive<T>`; `watchEffect`; dependency tracking,
+  caching and invalidation; decisions recorded. First settle with the author:
+  - **Access**: is a read transparent (`n + 1`, Svelte's runes) or explicit (`n.value`, Vue's
+    `ref`)? Writes `n = 2` or `n.value = 2`?
+  - **Scope**: `reactive` for locals only, or also fields and module-level bindings?
+  - **Depth**: does mutating what a reactive holds (`xs.push(1)`) trigger updates, or only
+    reassigning it?
+  - **Timing**: do effects run synchronously on a write, or batched to the end of the task (a
+    microtask, as Vue's scheduler)?
+  - **Workers**: `Reactive` isn't `Sendable` (no passing to workers): intended?
+  - **Cleanup**: does `watchEffect` return a handle to stop it (`Disposable`, `using`), and do
+    effects end with the scope that created them?
+- **Done when**: spec chapter and decisions committed, the author's answers recorded.
+
+### P11.2 Core runtime
+- **Do**: in the core library (ppl): the dependency graph, the stack of the effect being
+  tracked, lazy cached `computed` values with dirty marking, effect scheduling, cleanup through
+  `Disposable`/`using`.
+- **Done when**: golden tests of tracking, caching, invalidation and cleanup pass.
+
+### P11.3 Compiler support
+- **Do**: the `reactive` keyword, and typing `Reactive<T>` reads and writes (transparent access
+  where the spec says so).
+- **Done when**: golden and fail tests of the syntax and typing pass.
+
+### P11.4 Effects in the event loop
+- **Do**: batching, and when `watchEffect` runs again (synchronously or in a microtask, per the
+  spec).
+- **Done when**: golden tests of batching and ordering pass (interpreted and native).
+
+### P11.5 Tooling
+- **Do**: reactive values in the debugger (lldb formatters), hover showing `Reactive<T>`,
+  examples in TOUR.
+- **Done when**: tests of the formatter and hover, and a manual check in VS Code.
+
+---
+
+## Phase 12: Later
 - **P10.7a** (moved from Phase 10 by the author): `ppl run` through LLVM's ORC JIT (no object
   file, no linking; the C runtime available to the JIT). Done when `ppl run` on a script is
   faster than an AOT build and run.
 - **P10.7b** (moved from Phase 10 by the author): a REPL (`ppl` with no arguments) that keeps
   declarations and variables between inputs and continues incomplete statements on the next
   line. Done when it handles multi-line input and redefinitions.
-- **P11.1** `--no-gc` subset (`str`, `StrBuf<N>`, lightweight throwables only) and a bare-metal
+- **P12.1** `--no-gc` subset (`str`, `StrBuf<N>`, lightweight throwables only) and a bare-metal
   target.
-- **P11.2** riscv64.
-- **P11.3** Android (`aarch64-linux-android`).
-- **P11.4** iOS (`aarch64-apple-ios`).
-- **P11.5** Self-hosting investigation (rewrite parts of the compiler in ppl).
+- **P12.2** riscv64.
+- **P12.3** Android (`aarch64-linux-android`).
+- **P12.4** iOS (`aarch64-apple-ios`).
+- **P12.5** Self-hosting investigation (rewrite parts of the compiler in ppl).
