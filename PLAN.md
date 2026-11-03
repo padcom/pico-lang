@@ -747,6 +747,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 #### P8.7c Objects
 - **Do**: virtual dispatch (vtables in class structs), interfaces (itables), closures (funcrefs
   and environments), enums and unions, `instanceof`, the string form of objects.
+- **Done (decision 267)**: with exceptions' error-return slot (from P8.7d); 59 run fixtures pass.
 
 #### P8.7d Errors and the event loop
 - **Do**: exceptions and panic guards through Wasm exception handling, generators, async and the

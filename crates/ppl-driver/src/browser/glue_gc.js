@@ -230,6 +230,7 @@ export default async function init(options = {}) {
       return mk(pad(false, "", b ? "true" : "false", false, spec(...a)));
     },
   };
+  const showing = new Set();
   const ppl = {
     ...fmtSpec,
     print_str: (r) => out.put(str(r)),
@@ -247,6 +248,16 @@ export default async function init(options = {}) {
       err.put(`panic: ${str(msg)}\n` + (line ? `  at ${FILE}:${line}:${col}\n` : ""));
       err.flush();
       throw new Exit(101);
+    },
+    uncaught(cls, msg) {
+      out.flush();
+      err.put(`uncaught ${str(cls)}: ${str(msg)}\n`);
+      err.flush();
+      throw new Exit(1);
+    },
+    show_enter: (o) => (showing.has(o) ? 0 : (showing.add(o), 1)),
+    show_leave: (o) => {
+      showing.delete(o);
     },
     pow_f64: Math.pow,
     clock_ms: () => BigInt(Math.floor(performance.now())),

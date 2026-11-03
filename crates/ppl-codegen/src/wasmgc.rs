@@ -20,14 +20,16 @@ use ppl_mir::mir::{
     self, BinOp, Callee, Const, Operand, Place, Program, Proj, Rvalue, Terminator, UnOp,
 };
 use ppl_sema::hir::{Builtin, FnId, StructId};
+use ppl_sema::ty::EnumId;
 use ppl_sema::{FloatTy, IntTy, Ty};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use wasm_encoder::{
     BlockType, CodeSection, CompositeInnerType, CompositeType, ConstExpr, DataCountSection,
-    DataSection, EntityType, ExportKind, ExportSection, FieldType, Function, FunctionSection,
-    GlobalSection, GlobalType, HeapType, Ieee32, Ieee64, ImportSection, InstructionSink, Module,
-    RefType, StorageType, StructType, SubType, TypeSection, ValType,
+    DataSection, ElementSection, Elements, EntityType, ExportKind, ExportSection, FieldType,
+    Function, FunctionSection, GlobalSection, GlobalType, HeapType, Ieee32, Ieee64, ImportSection,
+    InstructionSink, Module, NameMap, NameSection, RefType, StorageType, StructType, SubType,
+    TableSection, TableType, TypeSection, ValType,
 };
 
 type R<T> = Result<T, String>;
@@ -58,6 +60,9 @@ const IMPORTS: &[(&str, &[ValT], &[ValT])] = &[
     ("fmt_f32", &[ValT::F32], &[ValT::Str]),
     ("fmt_char", &[ValT::I32], &[ValT::Str]),
     ("panic", &[ValT::Str, ValT::I32, ValT::I32], &[]),
+    ("uncaught", &[ValT::Str, ValT::Str], &[]),
+    ("show_enter", &[ValT::Any], &[ValT::I32]),
+    ("show_leave", &[ValT::Any], &[]),
     ("pow_f64", &[ValT::F64, ValT::F64], &[ValT::F64]),
     ("clock_ms", &[], &[ValT::I64]),
     // Format specs (`${x:08.2f}`): the value, then the spec's eight fields (as `ppl_rt.h`'s
@@ -112,6 +117,7 @@ enum ValT {
     F32,
     F64,
     Str,
+    Any,
 }
 
 fn import_index(name: &str) -> u32 {
@@ -139,6 +145,7 @@ fn val(v: ValT) -> ValType {
         ValT::F32 => ValType::F32,
         ValT::F64 => ValType::F64,
         ValT::Str => str_ref(),
+        ValT::Any => ANYREF,
     }
 }
 
@@ -153,6 +160,10 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
         extra: Vec::new(),
         extra_keys: HashMap::new(),
         first_extra: 0,
+        closure_targets: std::collections::HashSet::new(),
+        itable_base: Vec::new(),
+        vt_globals: Vec::new(),
+        refd: Vec::new(),
     };
     let mut next = (IMPORTS.len() + HELPERS.len()) as u32;
     for (i, l) in live.iter().enumerate() {
@@ -162,6 +173,25 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
         }
     }
     g.first_extra = next;
+    // Closure targets take their environment as `anyref` (one signature per function type).
+    for (i, f) in p.fns.iter().enumerate() {
+        if !live[i] {
+            continue;
+        }
+        for b in &f.blocks {
+            for st in &b.stmts {
+                if let Rvalue::Closure(c, _) = &st.rvalue {
+                    g.closure_targets.insert(*c);
+                }
+            }
+        }
+    }
+    // Interface method tables, flattened into the funcref table.
+    let mut base = 0u32;
+    for t in &p.itables {
+        g.itable_base.push(base);
+        base += t.len() as u32;
+    }
     let mut code = CodeSection::new();
     g.helpers(&mut code);
     let mut func_types = Vec::new();
@@ -169,26 +199,49 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
         if !live[i] {
             continue;
         }
-        let (params, results) = g.signature(f)?;
-        func_types.push((params, results));
+        func_types.push(g.fn_sig(FnId(i as u32))?);
         let body = g
             .function(FnId(i as u32), f)
             .map_err(|e| format!("{e} (in `{}`)", f.name))?;
         code.function(&body);
     }
-    // On-demand helpers (array operations, copies), after the program's functions.
+    // Vtables (filled before the entry runs), then the start function.
+    let start = g.start_fn()?;
+    // On-demand helpers (array operations, copies, thunks), after the program's functions.
     let extra = std::mem::take(&mut g.extra);
     for (_, _, body) in &extra {
         code.function(body.as_ref().expect("built"));
     }
-    // Globals' types first: they may register more types.
-    let global_types: Vec<ValType> = p
+    // Every function's type, and the globals' (they may register more types).
+    let mut import_types = Vec::new();
+    for (_, ps, rs) in IMPORTS {
+        import_types.push(g.func_type(
+            ps.iter().map(|v| val(*v)).collect(),
+            rs.iter().map(|v| val(*v)).collect(),
+        ));
+    }
+    let mut fn_types = Vec::new();
+    for h in HELPERS {
+        let (ps, rs) = helper_sig(h);
+        fn_types.push(g.func_type(ps, rs));
+    }
+    for (ps, rs) in func_types {
+        fn_types.push(g.func_type(ps, rs));
+    }
+    for (ps, rs, _) in &extra {
+        fn_types.push(g.func_type(ps.clone(), rs.clone()));
+    }
+    let mut global_types: Vec<ValType> = p
         .globals
         .iter()
         .map(|gl| g.wasm_ty(&gl.ty).unwrap_or(ANYREF))
         .collect();
-    // Types: the rec group (strings, then the registry's), then function types. Struct fields
-    // can register more types, so they're resolved until nothing new comes.
+    let vt = g.vt_type();
+    global_types.push(ANYREF);
+    global_types.push(ValType::I32);
+    global_types.extend(g.vt_globals.iter().map(|_| ref_to(vt)));
+    // The rec group: strings, then the registry's types. Struct fields can register more, so
+    // they're resolved until nothing new comes.
     let mut resolved: Vec<CompositeInnerType> = Vec::new();
     let mut k = 0;
     loop {
@@ -199,44 +252,7 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
                 None => break,
             }
         };
-        let inner = match &def {
-            Def::Struct { fields, .. } => {
-                // (A `void` field is an `anyref` placeholder, so indices stay MIR's.)
-                let fs: Vec<FieldType> = fields
-                    .iter()
-                    .map(|t| FieldType {
-                        element_type: StorageType::Val(g.wasm_ty(t).unwrap_or(ANYREF)),
-                        mutable: true,
-                    })
-                    .collect();
-                CompositeInnerType::Struct(StructType { fields: fs.into() })
-            }
-            Def::Raw(e) => CompositeInnerType::Array(wasm_encoder::ArrayType(FieldType {
-                element_type: StorageType::Val(*e),
-                mutable: true,
-            })),
-            Def::Grow(raw) => CompositeInnerType::Struct(StructType {
-                fields: vec![
-                    FieldType {
-                        element_type: StorageType::Val(ref_to(*raw)),
-                        mutable: true,
-                    },
-                    FieldType {
-                        element_type: StorageType::Val(ValType::I32),
-                        mutable: true,
-                    },
-                ]
-                .into(),
-            }),
-            Def::Opt(v) => CompositeInnerType::Struct(StructType {
-                fields: vec![FieldType {
-                    element_type: StorageType::Val(*v),
-                    mutable: true,
-                }]
-                .into(),
-            }),
-        };
-        resolved.push(inner);
+        resolved.push(g.composite(&def));
         k += 1;
     }
     let mut types = TypeSection::new();
@@ -256,6 +272,8 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
     for (def, inner) in g.reg.borrow().defs.iter().zip(resolved) {
         let (is_final, base) = match def {
             Def::Struct { base, is_final, .. } => (*is_final, *base),
+            Def::Enum => (false, None),
+            Def::Variant(e, _, _) => (true, Some(*e)),
             _ => (true, None),
         };
         group.push(SubType {
@@ -269,37 +287,25 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
             },
         });
     }
-    let first_fn_type = group.len() as u32;
     types.ty().rec(group);
-    let mut sigs: Vec<(Vec<ValType>, Vec<ValType>)> = Vec::new();
-    let mut sig_index = |sig: (Vec<ValType>, Vec<ValType>), types: &mut TypeSection| -> u32 {
-        if let Some(i) = sigs.iter().position(|s| *s == sig) {
-            return first_fn_type + i as u32;
-        }
-        types.ty().function(sig.0.clone(), sig.1.clone());
-        sigs.push(sig);
-        first_fn_type + sigs.len() as u32 - 1
-    };
     let mut imports = ImportSection::new();
-    for (name, ps, rs) in IMPORTS {
-        let t = sig_index(
-            (
-                ps.iter().map(|v| val(*v)).collect(),
-                rs.iter().map(|v| val(*v)).collect(),
-            ),
-            &mut types,
-        );
+    for ((name, ..), t) in IMPORTS.iter().zip(import_types) {
         imports.import("ppl", name, EntityType::Function(t));
     }
     let mut functions = FunctionSection::new();
-    for h in HELPERS {
-        functions.function(sig_index(helper_sig(h), &mut types));
+    for t in fn_types {
+        functions.function(t);
     }
-    for sig in func_types {
-        functions.function(sig_index(sig, &mut types));
-    }
-    for (ps, rs, _) in extra {
-        functions.function(sig_index((ps, rs), &mut types));
+    let mut tables = TableSection::new();
+    let table_len = base;
+    if table_len > 0 {
+        tables.table(TableType {
+            element_type: RefType::FUNCREF,
+            minimum: table_len as u64,
+            maximum: Some(table_len as u64),
+            table64: false,
+            shared: false,
+        });
     }
     let mut globals = GlobalSection::new();
     // (A global of a type this backend can't hold yet is an `anyref` placeholder: only `null`
@@ -318,7 +324,25 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
     for (i, h) in HELPERS.iter().enumerate() {
         exports.export(h, ExportKind::Func, IMPORTS.len() as u32 + i as u32);
     }
-    exports.export("start", ExportKind::Func, g.fn_index[&p.entry]);
+    exports.export("start", ExportKind::Func, start);
+    let mut elements = ElementSection::new();
+    if table_len > 0 {
+        let funcs: Vec<u32> = p
+            .itables
+            .iter()
+            .flatten()
+            .map(|f| g.fn_index.get(f).copied().unwrap_or(0))
+            .collect();
+        elements.active(
+            Some(0),
+            &ConstExpr::i32_const(0),
+            Elements::Functions(funcs.into()),
+        );
+    }
+    if !g.refd.is_empty() {
+        let funcs: Vec<u32> = g.refd.clone();
+        elements.declared(Elements::Functions(funcs.into()));
+    }
     let mut data = DataSection::new();
     for d in &g.data {
         data.passive(d.iter().copied());
@@ -327,13 +351,40 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
     m.section(&types)
         .section(&imports)
         .section(&functions)
+        .section(&tables)
         .section(&globals)
         .section(&exports)
+        .section(&elements)
         .section(&DataCountSection {
             count: g.data.len() as u32,
         })
         .section(&code)
         .section(&data);
+    // Function names, for stack traces.
+    let mut names = NameMap::new();
+    for (i, (n, ..)) in IMPORTS.iter().enumerate() {
+        names.append(i as u32, n);
+    }
+    for (i, h) in HELPERS.iter().enumerate() {
+        names.append((IMPORTS.len() + i) as u32, h);
+    }
+    let mut by_index: Vec<(u32, &str)> = g
+        .fn_index
+        .iter()
+        .map(|(f, i)| (*i, p.fns[f.0 as usize].name.as_str()))
+        .collect();
+    by_index.sort();
+    for (i, n) in by_index {
+        names.append(i, n);
+    }
+    let mut keys: Vec<(&u32, &String)> = g.extra_keys.iter().map(|(k, v)| (v, k)).collect();
+    keys.sort();
+    for (i, k) in keys {
+        names.append(*i, k);
+    }
+    let mut ns = NameSection::new();
+    ns.functions(&names);
+    m.section(&ns);
     Ok(m.finish())
 }
 
@@ -374,13 +425,28 @@ enum Def {
         fields: Vec<Ty>,
         base: Option<u32>,
         is_final: bool,
+        /// A class: a vtable field comes first.
+        class: bool,
     },
     /// A GC array of `E`: a fixed array, or a growable array's storage.
     Raw(ValType),
     /// A growable array: `{ data: (ref null raw), len: i32 }`.
     Grow(u32),
-    /// A `T?` of a value type: a box `{ value }` (`null` is a null reference).
+    /// A `T?` of a value type: a box struct `{ value }` (`null` is a null reference); also a
+    /// captured variable's cell.
     Opt(ValType),
+    /// A function type.
+    Func(Vec<ValType>, Vec<ValType>),
+    /// An enum's (or union's) values: `{ tag: i32 }`, the supertype of its variants'.
+    Enum,
+    /// One variant: `{ tag, fields… }` (the enum's struct type index, the enum, the variant).
+    Variant(u32, EnumId, u32),
+    /// A function value: `{ fn: (ref null func type), env: anyref }`.
+    Clo(u32),
+    /// An interface value: `{ data: anyref, itable: i32 }` (the table's offset).
+    Iface,
+    /// Vtables: `(array (ref null func))`.
+    Vt,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -388,6 +454,11 @@ enum Key {
     Ty(Ty),
     Raw(ValType),
     Opt(ValType),
+    Func(Vec<ValType>, Vec<ValType>),
+    Enum(EnumId),
+    Variant(EnumId, u32),
+    Iface,
+    Vt,
 }
 
 /// The GC types registered so far; `defs[i]` is type `i + 1`.
@@ -417,6 +488,14 @@ struct Gen<'p> {
     extra_keys: HashMap<String, u32>,
     /// The function index of the first on-demand helper.
     first_extra: u32,
+    /// Functions made into closures: they take their environment as `anyref`.
+    closure_targets: std::collections::HashSet<FnId>,
+    /// Each interface method table's offset in the funcref table.
+    itable_base: Vec<u32>,
+    /// The classes whose vtable a global holds (global `globals.len() + k`).
+    vt_globals: Vec<StructId>,
+    /// Functions `ref.func` names (declared in an element segment).
+    refd: Vec<u32>,
 }
 
 /// Where a MIR local lives.
@@ -430,28 +509,35 @@ struct FnCx<'f> {
     locals: Vec<Option<Slot>>,
     /// The block counter (`$pc`) and scratch locals.
     pc: u32,
-    scratch: HashMap<u8, u32>,
+    /// Scratch locals: one per wasm type (`scratch`), and numbered ones (`tmp`).
+    scratch: HashMap<ValType, u32>,
+    tmps: HashMap<u32, u32>,
     nlocals: u32,
     extra: Vec<ValType>,
 }
 
 impl FnCx<'_> {
-    /// A scratch local of type `t` (one per kind).
+    /// A scratch local of type `t` (one per type).
     fn scratch(&mut self, t: ValType) -> u32 {
-        let key = match t {
-            ValType::I32 => 0,
-            ValType::I64 => 1,
-            ValType::F32 => 2,
-            ValType::F64 => 3,
-            _ => 4,
-        };
-        if let Some(&i) = self.scratch.get(&key) {
+        if let Some(&i) = self.scratch.get(&t) {
             return i;
         }
         let i = self.nlocals;
         self.nlocals += 1;
-        self.extra.push(if key == 4 { str_ref() } else { t });
-        self.scratch.insert(key, i);
+        self.extra.push(t);
+        self.scratch.insert(t, i);
+        i
+    }
+
+    /// Numbered scratch local `key` of type `t` (several of one type at once).
+    fn tmp(&mut self, key: u32, t: ValType) -> u32 {
+        if let Some(&i) = self.tmps.get(&key) {
+            return i;
+        }
+        let i = self.nlocals;
+        self.nlocals += 1;
+        self.extra.push(t);
+        self.tmps.insert(key, i);
         i
     }
 }
@@ -498,6 +584,7 @@ impl<'p> Gen<'p> {
                 let base = layout.meta.base.filter(|_| is_class);
                 self.register(Key::Ty(t.clone()), |g| Def::Struct {
                     fields,
+                    class: is_class,
                     base: base.map(|b| {
                         g.struct_type(&Ty::Class(
                             b,
@@ -512,18 +599,236 @@ impl<'p> Gen<'p> {
                 fields: ts.clone(),
                 base: None,
                 is_final: true,
+                class: false,
             }),
             Ty::Range(it) => self.register(Key::Ty(t.clone()), |_| Def::Struct {
                 fields: vec![Ty::Int(*it); 3],
                 base: None,
                 is_final: true,
+                class: false,
             }),
             _ => unreachable!("struct_type of {t}"),
         }
     }
 
+    /// The root of a class's hierarchy (the class itself without a base).
+    fn root_class(&self, t: &Ty) -> Ty {
+        let Ty::Class(sid, ..) = t else {
+            return t.clone();
+        };
+        let mut c = *sid;
+        while let Some(b) = self.p.layout(c).meta.base {
+            c = b;
+        }
+        if c == *sid {
+            t.clone()
+        } else {
+            Ty::Class(c, self.p.layout(c).name.as_str().into(), Vec::new().into())
+        }
+    }
+
     fn raw_type(&self, e: ValType) -> u32 {
         self.register(Key::Raw(e), |_| Def::Raw(e))
+    }
+
+    /// A function type's index.
+    fn func_type(&self, ps: Vec<ValType>, rs: Vec<ValType>) -> u32 {
+        self.register(Key::Func(ps.clone(), rs.clone()), |_| Def::Func(ps, rs))
+    }
+
+    /// The function type behind function values of `(ps) => r`: the environment (`anyref`)
+    /// first.
+    fn closure_sig(&self, ps: &[Ty], r: &Ty) -> Option<u32> {
+        let mut params = vec![ANYREF];
+        for t in ps {
+            if !no_value(t) {
+                params.push(self.wasm_ty(t)?);
+            }
+        }
+        let rs = if no_value(r) {
+            Vec::new()
+        } else {
+            vec![self.wasm_ty(r)?]
+        };
+        Some(self.func_type(params, rs))
+    }
+
+    fn enum_type(&self, eid: EnumId) -> u32 {
+        self.register(Key::Enum(eid), |_| Def::Enum)
+    }
+
+    fn variant_type(&self, eid: EnumId, v: u32) -> u32 {
+        let base = self.enum_type(eid);
+        self.register(Key::Variant(eid, v), |_| Def::Variant(base, eid, v))
+    }
+
+    fn vt_type(&self) -> u32 {
+        self.register(Key::Vt, |_| Def::Vt)
+    }
+
+    /// The global holding class `sid`'s vtable.
+    fn vt_global(&mut self, sid: StructId) -> u32 {
+        let k = match self.vt_globals.iter().position(|c| *c == sid) {
+            Some(k) => k,
+            None => {
+                self.vt_globals.push(sid);
+                self.vt_globals.len() - 1
+            }
+        };
+        (self.p.globals.len() + 2 + k) as u32
+    }
+
+    /// The pending exception (`anyref`, null when none) and its tag (`i32`): globals right
+    /// after the program's (decision 267).
+    fn exc_global(&self) -> u32 {
+        self.p.globals.len() as u32
+    }
+
+    /// A function's wasm signature (a closure target takes its environment as `anyref`).
+    fn fn_sig(&self, id: FnId) -> R<(Vec<ValType>, Vec<ValType>)> {
+        let f = &self.p.fns[id.0 as usize];
+        let (mut ps, rs) = self.signature(f)?;
+        if self.closure_targets.contains(&id) {
+            if f.params.first().is_some_and(|p| !no_value(f.local_ty(*p))) {
+                ps[0] = ANYREF;
+            } else {
+                ps.insert(0, ANYREF);
+            }
+        }
+        Ok((ps, rs))
+    }
+
+    /// The wasm definition of a registered type.
+    fn composite(&self, def: &Def) -> CompositeInnerType {
+        let field = |v: ValType| FieldType {
+            element_type: StorageType::Val(v),
+            mutable: true,
+        };
+        let structure =
+            |fs: Vec<FieldType>| CompositeInnerType::Struct(StructType { fields: fs.into() });
+        match def {
+            Def::Struct { fields, class, .. } => {
+                let mut fs = Vec::new();
+                if *class {
+                    fs.push(field(ref_to(self.vt_type())));
+                }
+                // (A `void` field is an `anyref` placeholder, so indices stay MIR's.)
+                fs.extend(
+                    fields
+                        .iter()
+                        .map(|t| field(self.wasm_ty(t).unwrap_or(ANYREF))),
+                );
+                structure(fs)
+            }
+            Def::Raw(e) => CompositeInnerType::Array(wasm_encoder::ArrayType(field(*e))),
+            Def::Grow(raw) => structure(vec![field(ref_to(*raw)), field(ValType::I32)]),
+            Def::Opt(v) => structure(vec![field(*v)]),
+            Def::Func(ps, rs) => {
+                CompositeInnerType::Func(wasm_encoder::FuncType::new(ps.clone(), rs.clone()))
+            }
+            Def::Enum => structure(vec![field(ValType::I32)]),
+            Def::Variant(_, eid, v) => {
+                let mut fs = vec![field(ValType::I32)];
+                for (_, t) in &self.p.enum_layout(*eid).variants[*v as usize].fields {
+                    fs.push(field(self.wasm_ty(t).unwrap_or(ANYREF)));
+                }
+                structure(fs)
+            }
+            Def::Clo(sig) => structure(vec![field(ref_to(*sig)), field(ANYREF)]),
+            Def::Iface => structure(vec![field(ANYREF), field(ValType::I32)]),
+            Def::Vt => CompositeInnerType::Array(wasm_encoder::ArrayType(field(ValType::Ref(
+                RefType::FUNCREF,
+            )))),
+        }
+    }
+
+    /// The function `start` exports: fills the vtables, then runs the entry.
+    fn start_fn(&mut self) -> R<u32> {
+        let vt = self.vt_type();
+        let entry = self.fn_index[&self.p.entry];
+        // Each class's slots, each a function of its slot's root signature (a thunk where the
+        // class's method differs: its receiver is the class itself).
+        let mut tables: Vec<(u32, Vec<Option<u32>>)> = Vec::new();
+        let mut k = 0;
+        while k < self.vt_globals.len() {
+            let sid = self.vt_globals[k];
+            let g = (self.p.globals.len() + 2 + k) as u32;
+            let slots = self.p.layout(sid).meta.vtable.clone();
+            let mut entries = Vec::new();
+            for (slot, f) in slots.iter().enumerate() {
+                entries.push(self.slot_fn(sid, slot as u32, *f)?);
+            }
+            tables.push((g, entries));
+            k += 1;
+        }
+        for (_, entries) in &tables {
+            for f in entries.iter().flatten() {
+                if !self.refd.contains(f) {
+                    self.refd.push(*f);
+                }
+            }
+        }
+        Ok(self.extra_fn("start".into(), vec![], vec![], move |_| {
+            let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+            let mut s = f.instructions();
+            for (g, entries) in &tables {
+                for e in entries {
+                    match e {
+                        Some(i) => s.ref_func(*i),
+                        None => s.ref_null(HeapType::FUNC),
+                    };
+                }
+                s.array_new_fixed(vt, entries.len() as u32).global_set(*g);
+            }
+            s.call(entry).end();
+            f
+        }))
+    }
+
+    /// The root of a vtable slot: the topmost class whose vtable has it.
+    fn slot_root(&self, sid: StructId, slot: u32) -> FnId {
+        let mut c = sid;
+        while let Some(b) = self.p.layout(c).meta.base
+            && self.p.layout(b).meta.vtable.len() > slot as usize
+        {
+            c = b;
+        }
+        self.p.layout(c).meta.vtable[slot as usize]
+    }
+
+    /// What class `sid`'s vtable holds in `slot`: method `f`, or a thunk with the slot root's
+    /// signature (`None`: a method this program never runs).
+    fn slot_fn(&mut self, sid: StructId, slot: u32, f: FnId) -> R<Option<u32>> {
+        let Some(&idx) = self.fn_index.get(&f) else {
+            return Ok(None);
+        };
+        let root = self.slot_root(sid, slot);
+        let (rps, rrs) = self.fn_sig(root)?;
+        let (ps, _) = self.fn_sig(f)?;
+        if ps == rps {
+            return Ok(Some(idx));
+        }
+        let recv = ps[0];
+        let n = rps.len() as u32;
+        Ok(Some(self.extra_fn(
+            format!("thunk {}/{slot}", f.0),
+            rps,
+            rrs,
+            move |_| {
+                let mut fun = Function::new_with_locals_types(Vec::<ValType>::new());
+                let mut s = fun.instructions();
+                for i in 0..n {
+                    s.local_get(i);
+                    if i == 0
+                        && let ValType::Ref(r) = recv
+                    {
+                        s.ref_cast_nullable(r.heap_type);
+                    }
+                }
+                s.call(idx).end();
+                fun
+            },
+        )))
     }
 
     /// A ppl type's wasm type (`None`: no value, or unsupported). Registers the GC types it
@@ -541,9 +846,10 @@ impl<'p> Gen<'p> {
             Ty::Float(FloatTy::F32) => ValType::F32,
             Ty::Float(_) => ValType::F64,
             Ty::Str => str_ref(),
-            t @ (Ty::Struct(..) | Ty::Class(..) | Ty::Tuple(_) | Ty::Range(_)) => {
-                ref_to(self.struct_type(&t))
-            }
+            // A class value is typed as its hierarchy's root: any subclass fits (field access
+            // casts to the class itself).
+            t @ Ty::Class(..) => ref_to(self.struct_type(&self.root_class(&t))),
+            t @ (Ty::Struct(..) | Ty::Tuple(_) | Ty::Range(_)) => ref_to(self.struct_type(&t)),
             Ty::Fixed(elem, _) => {
                 let e = self.wasm_ty(&elem)?;
                 ref_to(self.raw_type(e))
@@ -554,7 +860,21 @@ impl<'p> Gen<'p> {
                 let raw = self.raw_type(e);
                 ref_to(self.register(Key::Ty(t.clone()), |_| Def::Grow(raw)))
             }
-            Ty::Ref(inner) if matches!(*inner, Ty::Struct(..)) => self.wasm_ty(&inner)?,
+            // A reference to a value aggregate is the aggregate; to anything else, a cell.
+            Ty::Ref(inner) if Self::is_value_aggregate(&inner) => self.wasm_ty(&inner)?,
+            Ty::Ref(inner) => {
+                let v = self.wasm_ty(&inner)?;
+                ref_to(self.register(Key::Opt(v), |_| Def::Opt(v)))
+            }
+            Ty::Enum(eid, _) => ref_to(self.enum_type(eid)),
+            Ty::Iface(..) => ref_to(self.register(Key::Iface, |_| Def::Iface)),
+            Ty::Fn(ps, r, _) => {
+                let sig = self.closure_sig(&ps, &r)?;
+                ref_to(self.register(
+                    Key::Ty(Ty::Fn(ps.clone(), r.clone(), Vec::new().into())),
+                    |_| Def::Clo(sig),
+                ))
+            }
             Ty::Nullable(inner) => {
                 if is_ref_like(&inner) {
                     self.wasm_ty(&inner)?
@@ -914,7 +1234,7 @@ impl<'p> Gen<'p> {
 
     // ------------------------------------------------------------ functions
 
-    fn function(&mut self, _id: FnId, f: &mir::Function) -> R<Function> {
+    fn function(&mut self, id: FnId, f: &mir::Function) -> R<Function> {
         let mut locals = Vec::new();
         let mut n = 0u32;
         let mut extra = Vec::new();
@@ -923,11 +1243,30 @@ impl<'p> Gen<'p> {
             .map(|i| f.params.iter().any(|p| p.0 as usize == i))
             .collect();
         let mut slots: Vec<Option<Slot>> = vec![None; f.locals.len()];
-        for p in &f.params {
+        // A closure target gets its environment as `anyref` (wasm parameter 0), cast into a
+        // local of its real type first thing.
+        let closure = self.closure_targets.contains(&id);
+        let mut env_cast: Option<(u32, ValType)> = None;
+        let mut params = f.params.iter().peekable();
+        if closure {
+            n = 1;
+            if let Some(p0) = f.params.first()
+                && let Some(t) = self.ty_or_err(f.local_ty(*p0))?
+            {
+                params.next();
+                env_cast = Some((p0.0, t));
+            }
+        }
+        for p in params {
             if self.ty_or_err(f.local_ty(*p))?.is_some() {
                 slots[p.0 as usize] = Some(Slot { index: n });
                 n += 1;
             }
+        }
+        if let Some((l, t)) = env_cast {
+            slots[l as usize] = Some(Slot { index: n });
+            extra.push(t);
+            n += 1;
         }
         for (i, l) in f.locals.iter().enumerate() {
             if is_param[i] {
@@ -948,6 +1287,7 @@ impl<'p> Gen<'p> {
             locals,
             pc,
             scratch: HashMap::new(),
+            tmps: HashMap::new(),
             nlocals: n,
             extra,
         };
@@ -956,6 +1296,11 @@ impl<'p> Gen<'p> {
         let mut code: Vec<u8> = Vec::new();
         {
             let mut sink = InstructionSink::new(&mut code);
+            if let Some((l, ValType::Ref(r))) = env_cast {
+                sink.local_get(0);
+                sink.ref_cast_nullable(r.heap_type);
+                sink.local_set(fx.locals[l as usize].expect("a slot").index);
+            }
             let nblocks = f.blocks.len() as u32;
             sink.loop_(BlockType::Empty);
             for _ in 0..nblocks {
@@ -988,6 +1333,19 @@ impl<'p> Gen<'p> {
             // (Nothing to store: a `void` value.)
             return match &st.rvalue {
                 Rvalue::Use(o) if no_value(&self.operand_ty(fx, o)?) => Ok(()),
+                Rvalue::ShowLeave(o) => {
+                    self.operand(fx, s, o)?;
+                    s.call(import_index("show_leave"));
+                    Ok(())
+                }
+                Rvalue::SetException(e, tag) => {
+                    let g = self.exc_global();
+                    self.operand(fx, s, e)?;
+                    s.global_set(g);
+                    self.operand(fx, s, tag)?;
+                    s.global_set(g + 1);
+                    Ok(())
+                }
                 Rvalue::ArrayPush(a, v) => {
                     let at = self.operand_ty(fx, a)?;
                     let f = self.array_fn(&at, "push")?;
@@ -1030,6 +1388,11 @@ impl<'p> Gen<'p> {
             (Proj::Field(i), _) => self.struct_of(t)?.1[*i as usize].clone(),
             (Proj::Index(_), Ty::Array(elem) | Ty::Fixed(elem, _)) => *elem,
             (Proj::Payload, Ty::Nullable(inner)) => *inner,
+            (Proj::VariantField(v, i), Ty::Enum(eid, _)) => {
+                self.p.enum_layout(eid).variants[*v as usize].fields[*i as usize]
+                    .1
+                    .clone()
+            }
             (pr, t) => return unsupported(format!("the place `{pr:?}` of `{t}`")),
         })
     }
@@ -1039,7 +1402,36 @@ impl<'p> Gen<'p> {
     /// get or a set.
     fn proj_prefix(&mut self, fx: &FnCx, s: &mut InstructionSink, t: &Ty, pr: &Proj) -> R<Access> {
         Ok(match (pr, t.erase()) {
-            (Proj::Field(i), _) => Access::Field(self.struct_of(t)?.0, *i),
+            // (A class's fields come after its vtable.)
+            (Proj::Field(i), inner) => {
+                let class = matches!(inner, Ty::Class(..))
+                    || matches!(&inner, Ty::Nullable(c) | Ty::Ref(c) if matches!(**c, Ty::Class(..)));
+                let idx = self.struct_of(t)?.0;
+                if class {
+                    // (Typed as the root class: cast to this one.)
+                    s.ref_cast_nullable(HeapType::Concrete(idx));
+                }
+                Access::Field(idx, *i + class as u32)
+            }
+            (Proj::VariantField(v, i), Ty::Enum(eid, _)) => {
+                // A field every variant has (a discriminated union's discriminant) may be read
+                // before the variant is known: through a getter dispatching on the tag.
+                let layout = self.p.enum_layout(eid);
+                let want = layout.variants[*v as usize].fields[*i as usize].1.clone();
+                let shared = layout.variants.len() > 1
+                    && layout.variants.iter().all(|var| {
+                        var.fields
+                            .get(*i as usize)
+                            .is_some_and(|(_, t)| self.wasm_ty(t) == self.wasm_ty(&want))
+                    });
+                if shared {
+                    Access::Getter(self.shared_field_fn(eid, *i, &want)?)
+                } else {
+                    let vt = self.variant_type(eid, *v);
+                    s.ref_cast_nullable(HeapType::Concrete(vt));
+                    Access::Field(vt, *i + 1)
+                }
+            }
             (Proj::Index(l), Ty::Array(elem)) => {
                 let e = self.ty_or_err(&elem)?.expect("a value");
                 let raw = self.raw_type(e);
@@ -1079,9 +1471,24 @@ impl<'p> Gen<'p> {
     /// reference is the struct).
     fn base_get(&self, fx: &FnCx, s: &mut InstructionSink, p: &Place) -> R<()> {
         match p.base {
-            mir::Base::Local(l) | mir::Base::Deref(l) => {
+            mir::Base::Local(l) => {
                 if let Some(slot) = fx.locals[l.0 as usize] {
                     s.local_get(slot.index);
+                }
+            }
+            mir::Base::Deref(l) => {
+                if let Some(slot) = fx.locals[l.0 as usize] {
+                    s.local_get(slot.index);
+                    // A cell: its value (a value aggregate is reached directly).
+                    if let Ty::Ref(inner) = fx.f.local_ty(l).erase()
+                        && !Self::is_value_aggregate(&inner)
+                    {
+                        let cell = self
+                            .wasm_ty(&Ty::Ref(inner))
+                            .and_then(heap_index)
+                            .expect("a cell");
+                        s.struct_get(cell, 0);
+                    }
                 }
             }
             mir::Base::Global(g) => {
@@ -1102,7 +1509,10 @@ impl<'p> Gen<'p> {
         let mut cur = match p.base {
             mir::Base::Local(l) => fx.f.local_ty(l).clone(),
             mir::Base::Global(g) => self.p.globals[g.0 as usize].ty.clone(),
-            mir::Base::Deref(l) => fx.f.local_ty(l).clone(),
+            mir::Base::Deref(l) => match fx.f.local_ty(l).erase() {
+                Ty::Ref(inner) => *inner,
+                t => t,
+            },
         };
         for pr in &p.proj {
             match self.proj_prefix(fx, s, &cur, pr)? {
@@ -1113,6 +1523,9 @@ impl<'p> Gen<'p> {
                     s.array_get(raw);
                 }
                 Access::Same => {}
+                Access::Getter(f) => {
+                    s.call(f);
+                }
             }
             cur = self.proj_ty(&cur, pr)?;
         }
@@ -1223,18 +1636,7 @@ impl<'p> Gen<'p> {
     /// A scratch local holding a reference to struct type `idx` (one per type, per depth of
     /// use; nested copies reuse different types).
     fn ref_scratch(&self, fx: &mut FnCx, idx: u32) -> u32 {
-        let key = 10 + idx as u8;
-        if let Some(&i) = fx.scratch.get(&key) {
-            return i;
-        }
-        let i = fx.nlocals;
-        fx.nlocals += 1;
-        fx.extra.push(ValType::Ref(RefType {
-            nullable: true,
-            heap_type: HeapType::Concrete(idx),
-        }));
-        fx.scratch.insert(key, i);
-        i
+        fx.tmp(1_000_000 + idx, ref_to(idx))
     }
 
     /// Stores what `value` pushes into a place.
@@ -1246,8 +1648,27 @@ impl<'p> Gen<'p> {
         value: impl FnOnce(&mut Self, &mut FnCx, &mut InstructionSink) -> R<()>,
     ) -> R<()> {
         if p.proj.is_empty() {
-            if let mir::Base::Deref(_) = p.base {
-                return unsupported("assigning through a reference");
+            if let mir::Base::Deref(l) = p.base {
+                let slot = fx.locals[l.0 as usize].expect("a reference").index;
+                let Ty::Ref(inner) = fx.f.local_ty(l).erase() else {
+                    return unsupported("dereferencing a non-reference");
+                };
+                if Self::is_value_aggregate(&inner) {
+                    // Into the aggregate it refers to: every part copied over.
+                    let f = self.assign_fn(&inner)?;
+                    s.local_get(slot);
+                    value(self, fx, s)?;
+                    s.call(f);
+                } else {
+                    let cell = self
+                        .wasm_ty(&Ty::Ref(inner))
+                        .and_then(heap_index)
+                        .expect("a cell");
+                    s.local_get(slot);
+                    value(self, fx, s)?;
+                    s.struct_set(cell, 0);
+                }
+                return Ok(());
             }
             value(self, fx, s)?;
             match p.base {
@@ -1287,6 +1708,7 @@ impl<'p> Gen<'p> {
                 s.array_set(raw);
             }
             Access::Same => unreachable!("handled above"),
+            Access::Getter(_) => return unsupported("assigning a union's shared field"),
         }
         Ok(())
     }
@@ -1453,7 +1875,137 @@ impl<'p> Gen<'p> {
             }
             Rvalue::New(ty) => {
                 let (idx, _) = self.struct_of(ty)?;
+                let Ty::Class(sid, ..) = ty.erase() else {
+                    return unsupported(format!("`new` of `{ty}`"));
+                };
+                let g = self.vt_global(sid);
+                let tmp = self.ref_scratch(fx, idx);
                 s.struct_new_default(idx);
+                s.local_tee(tmp);
+                s.global_get(g);
+                s.struct_set(idx, 0);
+                s.local_get(tmp);
+            }
+            Rvalue::InstanceOf(o, sid) => {
+                self.operand(fx, s, o)?;
+                let cls = self.struct_type(&Ty::Class(
+                    *sid,
+                    self.p.layout(*sid).name.as_str().into(),
+                    Vec::new().into(),
+                ));
+                s.ref_test_non_null(HeapType::Concrete(cls));
+            }
+            Rvalue::ShowEnter(o) => {
+                // (The glue keeps the objects being shown: a cycle shows as `(…)`.)
+                self.operand(fx, s, o)?;
+                s.call(import_index("show_enter"));
+            }
+            Rvalue::Closure(f, ops) => {
+                let ft = self
+                    .wasm_ty(t)
+                    .and_then(heap_index)
+                    .expect("a function value");
+                let callee = &self.p.fns[f.0 as usize];
+                if ops.is_empty() {
+                    s.ref_null(RefType::ANYREF.heap_type);
+                } else {
+                    // The environment: the lifted function's first parameter is `ptr<[…]>`.
+                    let env_ty = match callee.params.first().map(|p| callee.local_ty(*p).erase()) {
+                        Some(Ty::Ref(inner)) => *inner,
+                        other => {
+                            return unsupported(format!("a closure environment of `{other:?}`"));
+                        }
+                    };
+                    let (env, _) = self.struct_of(&env_ty)?;
+                    for o in ops {
+                        self.operand(fx, s, o)?;
+                    }
+                    s.struct_new(env);
+                }
+                let Some(&fi) = self.fn_index.get(f) else {
+                    return unsupported("a closure of a dropped function");
+                };
+                if !self.refd.contains(&fi) {
+                    self.refd.push(fi);
+                }
+                // (`{ fn, env }`: the env was pushed first, so swap through a scratch local.)
+                let env_tmp = fx.scratch(ANYREF);
+                s.local_set(env_tmp);
+                s.ref_func(fi);
+                s.local_get(env_tmp);
+                s.struct_new(ft);
+            }
+            Rvalue::BoxNew(ty, o) => {
+                let uninit = matches!(o, Operand::Const(Const::Void));
+                if Self::is_value_aggregate(ty) {
+                    if uninit {
+                        let v = self.ty_or_err(ty)?.expect("a value");
+                        match ty.erase() {
+                            Ty::Fixed(_, n) => {
+                                s.i32_const(n as i32);
+                                s.array_new_default(heap_index(v).expect("a ref"));
+                            }
+                            _ => {
+                                s.struct_new_default(heap_index(v).expect("a ref"));
+                            }
+                        }
+                    } else {
+                        self.operand(fx, s, o)?;
+                    }
+                } else {
+                    let cell = self
+                        .wasm_ty(&Ty::Ref(Box::new(ty.clone())))
+                        .and_then(heap_index)
+                        .expect("a cell");
+                    if uninit {
+                        s.struct_new_default(cell);
+                    } else {
+                        self.operand(fx, s, o)?;
+                        s.struct_new(cell);
+                    }
+                }
+            }
+            Rvalue::Variant(eid, v, ops) => {
+                let vt = self.variant_type(*eid, *v);
+                s.i32_const(*v as i32);
+                let fields: Vec<Ty> = self.p.enum_layout(*eid).variants[*v as usize]
+                    .fields
+                    .iter()
+                    .map(|(_, t)| t.clone())
+                    .collect();
+                for (o, ft) in ops.iter().zip(&fields) {
+                    if no_value(ft) {
+                        s.ref_null(RefType::ANYREF.heap_type);
+                    } else {
+                        self.operand(fx, s, o)?;
+                    }
+                }
+                s.struct_new(vt);
+            }
+            Rvalue::Tag(o) => {
+                let ot = self.operand_ty(fx, o)?;
+                let Ty::Enum(eid, _) = ot.erase() else {
+                    return unsupported(format!("the tag of `{ot}`"));
+                };
+                self.operand(fx, s, o)?;
+                s.struct_get(self.enum_type(eid), 0);
+            }
+            Rvalue::ToIface(o, i) => {
+                let it = self.register(Key::Iface, |_| Def::Iface);
+                self.operand(fx, s, o)?;
+                s.i32_const(self.itable_base[*i as usize] as i32);
+                s.struct_new(it);
+            }
+            Rvalue::IfaceData(o) => {
+                let it = self.register(Key::Iface, |_| Def::Iface);
+                self.operand(fx, s, o)?;
+                s.struct_get(it, 0);
+                match self.wasm_ty(t) {
+                    Some(ValType::Ref(r)) => {
+                        s.ref_cast_nullable(r.heap_type);
+                    }
+                    _ => return unsupported(format!("interface data of `{t}`")),
+                }
             }
             Rvalue::Ref(p) => {
                 let pt = self.place_ty(fx, p)?;
@@ -1615,8 +2167,24 @@ impl<'p> Gen<'p> {
                 self.add_overflows(fx, s, it, false)?;
             }
             Rvalue::ExceptionPending => {
-                // (Nothing throws in code this backend compiles yet.)
-                s.i32_const(0);
+                s.global_get(self.exc_global());
+                s.ref_is_null();
+                s.i32_eqz();
+            }
+            Rvalue::ExceptionTag => {
+                s.global_get(self.exc_global() + 1);
+            }
+            Rvalue::TakeException(ty) => {
+                let g = self.exc_global();
+                s.global_get(g);
+                match self.ty_or_err(ty)? {
+                    Some(ValType::Ref(r)) => {
+                        s.ref_cast_nullable(r.heap_type);
+                    }
+                    _ => return unsupported(format!("exceptions of type `{ty}`")),
+                }
+                s.ref_null(RefType::ANYREF.heap_type);
+                s.global_set(g);
             }
             other => {
                 let name = format!("{other:?}");
@@ -1749,15 +2317,7 @@ impl<'p> Gen<'p> {
 
     /// Distinct `i64` scratch locals (beyond the shared one).
     fn i64_tmp(&self, fx: &mut FnCx, n: u8) -> u32 {
-        let key = 100 + n;
-        if let Some(&i) = fx.scratch.get(&key) {
-            return i;
-        }
-        let i = fx.nlocals;
-        fx.nlocals += 1;
-        fx.extra.push(ValType::I64);
-        fx.scratch.insert(key, i);
-        i
+        fx.tmp(100 + n as u32, ValType::I64)
     }
 
     /// `i32` of a narrow integer → its `i64` value.
@@ -1883,7 +2443,8 @@ impl<'p> Gen<'p> {
             | Ty::Struct(..)
             | Ty::Tuple(_)
             | Ty::Range(_)
-            | Ty::Fixed(..))
+            | Ty::Fixed(..)
+            | Ty::Enum(..))
                 if matches!(op, Eq | Ne) =>
             {
                 let f = self.eq_fn(&t2)?;
@@ -2177,15 +2738,7 @@ impl<'p> Gen<'p> {
     }
 
     fn i32_tmp(&self, fx: &mut FnCx, n: u8) -> u32 {
-        let key = 120 + n;
-        if let Some(&i) = fx.scratch.get(&key) {
-            return i;
-        }
-        let i = fx.nlocals;
-        fx.nlocals += 1;
-        fx.extra.push(ValType::I32);
-        fx.scratch.insert(key, i);
-        i
+        fx.tmp(200 + n as u32, ValType::I32)
     }
 
     fn cast(
@@ -2578,6 +3131,82 @@ impl<'p> Gen<'p> {
                     f
                 }));
             }
+            Ty::Enum(eid, _) => {
+                let eid = *eid;
+                let base = self.enum_type(eid);
+                let layout = self.p.enum_layout(eid).clone();
+                // Per variant: its literal pieces and fields (`Shape.Circle(r: 1)`).
+                let mut per: Vec<(u32, Vec<Part>)> = Vec::new();
+                for (v, var) in layout.variants.iter().enumerate() {
+                    let vt2 = self.variant_type(eid, v as u32);
+                    let mut parts = Vec::new();
+                    let lit = |g: &mut Self, text: String, parts: &mut Vec<Part>| {
+                        let d = g.string_data(&text);
+                        parts.push(Part::Lit(d, text.len()));
+                    };
+                    if var.fields.is_empty() && !var.has_parens {
+                        lit(self, format!("{}.{}", layout.name, var.name), &mut parts);
+                    } else {
+                        lit(self, format!("{}.{}(", layout.name, var.name), &mut parts);
+                        for (i, (fname, ft)) in var.fields.iter().enumerate() {
+                            let sep = if i == 0 {
+                                format!("{fname}: ")
+                            } else {
+                                format!(", {fname}: ")
+                            };
+                            lit(self, sep, &mut parts);
+                            if !no_value(ft) {
+                                parts.push(Part::Field(vt2, i as u32 + 1, ft.clone()));
+                            }
+                        }
+                        lit(self, ")".into(), &mut parts);
+                    }
+                    per.push((vt2, parts));
+                }
+                let mut fns: Vec<Vec<u32>> = Vec::new();
+                for (_, parts) in &per {
+                    let mut v = Vec::new();
+                    for p in parts {
+                        if let Part::Field(_, _, ft) = p {
+                            v.push(self.part_fn(ft)?);
+                        }
+                    }
+                    fns.push(v);
+                }
+                let concat = helper_index("str_concat");
+                return Ok(self.extra_fn(key, vec![vt], vec![str_ref()], move |_| {
+                    let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                    let mut s = f.instructions();
+                    for (v, (_, parts)) in per.iter().enumerate() {
+                        s.local_get(0)
+                            .struct_get(base, 0)
+                            .i32_const(v as i32)
+                            .i32_eq();
+                        s.if_(BlockType::Empty);
+                        let mut first = true;
+                        let mut k = 0;
+                        for p in parts {
+                            match p {
+                                Part::Lit(d, n) => {
+                                    s.i32_const(0).i32_const(*n as i32).array_new_data(STR, *d);
+                                }
+                                Part::Field(vt2, i, _) => {
+                                    s.local_get(0).ref_cast_non_null(HeapType::Concrete(*vt2));
+                                    s.struct_get(*vt2, *i).call(fns[v][k]);
+                                    k += 1;
+                                }
+                            }
+                            if !first {
+                                s.call(concat);
+                            }
+                            first = false;
+                        }
+                        s.return_().end();
+                    }
+                    s.unreachable().end();
+                    f
+                }));
+            }
             Ty::Range(it) => {
                 let it = *it;
                 let idx = self.struct_type(&t);
@@ -2657,6 +3286,75 @@ impl<'p> Gen<'p> {
         Ok(self.extra_fn(key, vec![vt], vec![str_ref()], move |_| {
             let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
             f.raw(body);
+            f
+        }))
+    }
+
+    /// Reads field `i` that every variant of enum `eid` has, whatever the variant.
+    fn shared_field_fn(&mut self, eid: EnumId, i: u32, t: &Ty) -> R<u32> {
+        let et = ref_to(self.enum_type(eid));
+        let rt = self.ty_or_err(t)?.expect("a value");
+        let base = self.enum_type(eid);
+        let n = self.p.enum_layout(eid).variants.len() as u32;
+        let vts: Vec<u32> = (0..n).map(|v| self.variant_type(eid, v)).collect();
+        Ok(self.extra_fn(
+            format!("shared field {}.{i}", eid.0),
+            vec![et],
+            vec![rt],
+            move |_| {
+                let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                let mut s = f.instructions();
+                for (v, vt) in vts.iter().enumerate() {
+                    s.local_get(0)
+                        .struct_get(base, 0)
+                        .i32_const(v as i32)
+                        .i32_eq();
+                    s.if_(BlockType::Empty);
+                    s.local_get(0)
+                        .ref_cast_non_null(HeapType::Concrete(*vt))
+                        .struct_get(*vt, i + 1);
+                    s.return_().end();
+                }
+                s.unreachable().end();
+                f
+            },
+        ))
+    }
+
+    /// Copies a value aggregate's parts into another of its type: `(dst, src)` (assigning
+    /// through a reference to a struct: the struct itself changes).
+    fn assign_fn(&mut self, t: &Ty) -> R<u32> {
+        let t = t.erase();
+        let vt = self.ty_or_err(&t)?.expect("a value");
+        let key = format!("assign {t}");
+        if let Ty::Fixed(elem, _) = &t {
+            let e = self.ty_or_err(elem)?.expect("a value");
+            let raw = self.raw_type(e);
+            return Ok(self.extra_fn(key, vec![vt, vt], vec![], move |_| {
+                let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                let mut s = f.instructions();
+                s.local_get(0)
+                    .i32_const(0)
+                    .local_get(1)
+                    .i32_const(0)
+                    .local_get(1)
+                    .array_len();
+                s.array_copy(raw, raw).end();
+                f
+            }));
+        }
+        let (idx, fields) = self.struct_of(&t)?;
+        let n = fields.len() as u32;
+        Ok(self.extra_fn(key, vec![vt, vt], vec![], move |_| {
+            let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+            let mut s = f.instructions();
+            for i in 0..n {
+                s.local_get(0)
+                    .local_get(1)
+                    .struct_get(idx, i)
+                    .struct_set(idx, i);
+            }
+            s.end();
             f
         }))
     }
@@ -2795,6 +3493,64 @@ impl<'p> Gen<'p> {
                                 .i32_const(0)
                                 .return_()
                                 .end();
+                        }
+                        s.i32_const(1).end();
+                        f
+                    }),
+                )
+            }
+            Ty::Enum(eid, _) => {
+                let eid = *eid;
+                let base = self.enum_type(eid);
+                let nv = self.p.enum_layout(eid).variants.len();
+                let mut per: Vec<(u32, Vec<(u32, Cmp)>)> = Vec::new();
+                for v in 0..nv {
+                    let vt2 = self.variant_type(eid, v as u32);
+                    let fts: Vec<Ty> = self.p.enum_layout(eid).variants[v]
+                        .fields
+                        .iter()
+                        .map(|(_, t)| t.clone())
+                        .collect();
+                    let mut cs = Vec::new();
+                    for (i, ft) in fts.iter().enumerate() {
+                        if !no_value(ft) {
+                            cs.push((i as u32 + 1, cmp_of(self, ft)?));
+                        }
+                    }
+                    per.push((vt2, cs));
+                }
+                Ok(
+                    self.extra_fn(key, vec![vt, vt], vec![ValType::I32], move |_| {
+                        let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                        let mut s = f.instructions();
+                        s.local_get(0)
+                            .struct_get(base, 0)
+                            .local_get(1)
+                            .struct_get(base, 0)
+                            .i32_ne();
+                        s.if_(BlockType::Empty).i32_const(0).return_().end();
+                        for (v, (vt2, cs)) in per.iter().enumerate() {
+                            if cs.is_empty() {
+                                continue;
+                            }
+                            s.local_get(0)
+                                .struct_get(base, 0)
+                                .i32_const(v as i32)
+                                .i32_eq();
+                            s.if_(BlockType::Empty);
+                            for (i, c) in cs {
+                                s.local_get(0).ref_cast_non_null(HeapType::Concrete(*vt2));
+                                s.struct_get(*vt2, *i);
+                                s.local_get(1).ref_cast_non_null(HeapType::Concrete(*vt2));
+                                s.struct_get(*vt2, *i);
+                                emit_cmp(&mut s, *c);
+                                s.i32_eqz()
+                                    .if_(BlockType::Empty)
+                                    .i32_const(0)
+                                    .return_()
+                                    .end();
+                            }
+                            s.end();
                         }
                         s.i32_const(1).end();
                         f
@@ -2960,9 +3716,90 @@ impl<'p> Gen<'p> {
                     Callee::Builtin(b) => {
                         return unsupported(format!("the builtin `{}`", b.name()));
                     }
-                    Callee::Virtual { .. } => return unsupported("virtual methods"),
-                    Callee::Indirect => return unsupported("function values"),
-                    Callee::Iface { .. } => return unsupported("interface methods"),
+                    Callee::Virtual { slot, decl } => {
+                        let decl_fn = &self.p.fns[decl.0 as usize];
+                        let recv_ty = self.operand_ty(fx, &args[0])?;
+                        let root_ty = self.root_class(&recv_ty.erase());
+                        let (cls, _) = self.struct_of(&root_ty)?;
+                        let Ty::Class(sid, ..) = recv_ty.erase() else {
+                            return unsupported(format!("a virtual call on `{recv_ty}`"));
+                        };
+                        let root = self.slot_root(sid, *slot);
+                        let (rps, rrs) = self.fn_sig(root)?;
+                        let sig = self.func_type(rps, rrs.clone());
+                        let recv = self.ref_scratch(fx, cls);
+                        self.operand(fx, s, &args[0])?;
+                        s.local_set(recv);
+                        s.local_get(recv);
+                        for (a, p) in args.iter().zip(&decl_fn.params).skip(1) {
+                            if no_value(decl_fn.local_ty(*p)) {
+                                continue;
+                            }
+                            self.operand(fx, s, a)?;
+                        }
+                        s.local_get(recv);
+                        s.struct_get(cls, 0);
+                        s.i32_const(*slot as i32);
+                        s.array_get(self.vt_type());
+                        s.ref_cast_non_null(HeapType::Concrete(sig));
+                        s.call_ref(sig);
+                        // (The root may return a base class of what this override does.)
+                        let ret = decl_fn.ret.clone();
+                        if let (Some(ValType::Ref(want)), Some(got)) =
+                            (self.wasm_ty(&ret), rrs.first())
+                            && ValType::Ref(want) != *got
+                        {
+                            s.ref_cast_nullable(want.heap_type);
+                        }
+                        self.call_result(fx, s, dest.as_ref(), &ret)?;
+                    }
+                    Callee::Indirect => {
+                        let ft = self.operand_ty(fx, &args[0])?;
+                        let Ty::Fn(ps, ret, _) = ft.erase() else {
+                            return unsupported(format!("calling `{ft}`"));
+                        };
+                        let clo = self
+                            .wasm_ty(&ft)
+                            .and_then(heap_index)
+                            .expect("a function value");
+                        let sig = self.closure_sig(&ps, &ret).expect("its signature");
+                        let tmp = self.ref_scratch(fx, clo);
+                        self.operand(fx, s, &args[0])?;
+                        s.local_tee(tmp);
+                        s.struct_get(clo, 1);
+                        for (a, pt) in args.iter().skip(1).zip(ps.iter()) {
+                            if no_value(pt) {
+                                continue;
+                            }
+                            self.operand(fx, s, a)?;
+                        }
+                        s.local_get(tmp);
+                        s.struct_get(clo, 0);
+                        s.call_ref(sig);
+                        self.call_result(fx, s, dest.as_ref(), &ret)?;
+                    }
+                    Callee::Iface { slot, decl } => {
+                        let decl_fn = &self.p.fns[decl.0 as usize];
+                        let (ps, rs) = self.fn_sig(*decl)?;
+                        let sig = self.func_type(ps, rs);
+                        let it = self.register(Key::Iface, |_| Def::Iface);
+                        let tmp = self.ref_scratch(fx, it);
+                        self.operand(fx, s, &args[0])?;
+                        s.local_tee(tmp);
+                        for (a, p) in args.iter().zip(&decl_fn.params).skip(1) {
+                            if no_value(decl_fn.local_ty(*p)) {
+                                continue;
+                            }
+                            self.operand(fx, s, a)?;
+                        }
+                        s.local_get(tmp);
+                        s.struct_get(it, 1);
+                        s.i32_const(*slot as i32);
+                        s.i32_add();
+                        s.call_indirect(0, sig);
+                        let ret = decl_fn.ret.clone();
+                        self.call_result(fx, s, dest.as_ref(), &ret)?;
+                    }
                 }
                 let _ = loc;
                 self.goto(fx, s, *next, to_loop);
@@ -2990,7 +3827,12 @@ impl<'p> Gen<'p> {
             Terminator::Guard { .. } | Terminator::Unguard(_) | Terminator::Resume => {
                 return unsupported("panic guards (`try`/`finally`)");
             }
-            Terminator::Uncaught { .. } => return unsupported("uncaught exceptions"),
+            Terminator::Uncaught { class, msg } => {
+                self.operand(fx, s, class)?;
+                self.operand(fx, s, msg)?;
+                s.call(import_index("uncaught"));
+                s.unreachable();
+            }
         }
         Ok(())
     }
@@ -3245,6 +4087,8 @@ enum Access {
     Field(u32, u32),
     Elem(u32),
     Same,
+    /// Read through a function (a field every variant of a union has: its discriminant).
+    Getter(u32),
 }
 
 /// The type index of a concrete reference type.
@@ -3269,6 +4113,9 @@ fn is_ref_like(t: &Ty) -> bool {
             | Ty::Fixed(..)
             | Ty::Tuple(_)
             | Ty::Range(_)
+            | Ty::Enum(..)
+            | Ty::Iface(..)
+            | Ty::Fn(..)
     )
 }
 
