@@ -15,6 +15,7 @@ clap.workspace = true
 ppl-diag.workspace = true
 ppl-codegen.workspace = true
 ppl-driver.workspace = true
+ppl-lsp.workspace = true
 ppl-mir.workspace = true
 ppl-syntax.workspace = true
 

@@ -1,0 +1,16 @@
+[package]
+name = "ppl-lsp"
+description = "The ppl language server (`ppl lsp`)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ppl-diag.workspace = true
+ppl-driver.workspace = true
+ppl-syntax.workspace = true
+serde_json = "1"
+
+[lints]
+workspace = true

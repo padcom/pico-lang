@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Packages editors/vscode as a .vsix (no npm needed while the extension has no code) and,
-# with --install, installs it with VS Code's CLI (`code`, or $CODE).
+# Packages editors/vscode as a .vsix (its npm dependencies installed first, from the lockfile)
+# and, with --install, installs it with VS Code's CLI (`code`, or $CODE).
 # Usage: scripts/vscode-package.sh [--install]   → target/vscode/ppl-<version>.vsix
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=target/vscode
 mkdir -p "$out"
+(cd editors/vscode && npm ci --omit=dev --no-audit --no-fund --silent)
 vsix=$(python3 - "$out" <<'PY'
 import json, sys, zipfile, pathlib
 src = pathlib.Path("editors/vscode")
@@ -30,20 +31,19 @@ manifest = f"""<?xml version="1.0" encoding="utf-8"?>
   </Assets>
 </PackageManifest>
 """
-types = """<?xml version="1.0" encoding="utf-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension=".json" ContentType="application/json" />
-  <Default Extension=".md" ContentType="text/markdown" />
-  <Default Extension=".py" ContentType="text/plain" />
-  <Default Extension=".vsixmanifest" ContentType="text/xml" />
-</Types>
-"""
+files = [f for f in sorted(src.rglob("*")) if f.is_file() and f.suffix != ".py"]
+known = {".json": "application/json", ".md": "text/markdown", ".js": "application/javascript",
+         ".vsixmanifest": "text/xml"}
+exts = sorted({f.suffix.lower() for f in files if f.suffix} | {".vsixmanifest"})
+types = '<?xml version="1.0" encoding="utf-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+for e in exts:
+    types += f'  <Default Extension="{e}" ContentType="{known.get(e, "application/octet-stream")}" />\n'
+types += "</Types>\n"
 with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("extension.vsixmanifest", manifest)
     z.writestr("[Content_Types].xml", types)
-    for f in sorted(src.rglob("*")):
-        if f.is_file() and f.suffix != ".py":
-            z.write(f, "extension/" + f.relative_to(src).as_posix())
+    for f in files:
+        z.write(f, "extension/" + f.relative_to(src).as_posix())
 print(dest)
 PY
 )

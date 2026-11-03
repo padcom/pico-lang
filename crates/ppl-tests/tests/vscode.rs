@@ -48,6 +48,23 @@ fn manifest() {
     assert_eq!(langs[0]["extensions"][0], ".ppl");
     let conf = dir.join(langs[0]["configuration"].as_str().unwrap());
     json(&conf);
+    // The client (P10.6b): its entry point, and the lockfile `scripts/vscode-package.sh`
+    // installs from.
+    assert!(dir.join(pkg["main"].as_str().unwrap()).is_file());
+    assert!(dir.join("package-lock.json").is_file());
+    assert!(pkg["dependencies"]["vscode-languageclient"].is_string());
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok()
+    {
+        let ok = std::process::Command::new("node")
+            .arg("--check")
+            .arg(dir.join("extension.js"))
+            .status()
+            .unwrap();
+        assert!(ok.success(), "extension.js doesn't parse");
+    }
     for g in pkg["contributes"]["grammars"].as_array().unwrap() {
         let grammar = json(&dir.join(g["path"].as_str().unwrap()));
         assert_eq!(grammar["scopeName"], g["scopeName"]);

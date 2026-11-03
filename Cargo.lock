@@ -339,6 +339,7 @@ dependencies = [
  "ppl-codegen",
  "ppl-diag",
  "ppl-driver",
+ "ppl-lsp",
  "ppl-mir",
  "ppl-syntax",
 ]
@@ -398,6 +399,16 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "inkwell",
+]
+
+[[package]]
+name = "ppl-lsp"
+version = "0.1.0"
+dependencies = [
+ "ppl-diag",
+ "ppl-driver",
+ "ppl-syntax",
+ "serde_json",
 ]
 
 [[package]]

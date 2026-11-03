@@ -1,12 +1,22 @@
 # ppl for VS Code
 
-Syntax highlighting for ppl (`.ppl` files and ` ```ppl ` blocks in Markdown): keywords,
-built-in types, numbers with suffixes, strings and template strings with `${…}`, comments and
-doc comments (`/** */`, `///`), decorators and declarations. Comment toggling, bracket
-matching, auto-closing pairs and `/** */` continuation come from the language configuration.
+- **Syntax highlighting** for `.ppl` files and ` ```ppl ` blocks in Markdown: keywords, built-in
+  types, numbers with suffixes, strings and template strings with `${…}`, comments and doc
+  comments (`/** */`, `///`), decorators and declarations. Comment toggling, bracket matching,
+  auto-closing pairs and `/** */` continuation come from the language configuration.
+- **The language server** (`ppl lsp`): errors and warnings as you type (also those in imported
+  modules), and Format Document (the `ppl fmt` formatter with `project.json`'s options).
+  Hover, go-to-definition, completion and rename follow (PLAN P10.6c–d).
 
-The language server (`ppl lsp`: diagnostics, formatting, hover, go-to-definition, completion,
-rename) follows in PLAN P10.6b–d.
+## Settings
+
+| Setting | Default | |
+|---------|---------|---|
+| `ppl.server.path` | `ppl` | the ppl binary (looked up on PATH: VS Code started from a desktop launcher may not have your shell's PATH, so set an absolute path if the server doesn't start) |
+| `ppl.server.args` | `[]` | arguments before `lsp` |
+| `ppl.trace.server` | `off` | `messages`/`verbose`: the protocol in the "ppl language server" output |
+
+The command **ppl: Restart Language Server** restarts it (after rebuilding `ppl`, say).
 
 ## Install from the repository
 
@@ -14,7 +24,9 @@ rename) follows in PLAN P10.6b–d.
 scripts/vscode-package.sh --install    # builds target/vscode/ppl-<version>.vsix, installs it
 ```
 
-then reload VS Code (Developer: Reload Window). Run it again after changing the extension.
+then reload VS Code (Developer: Reload Window). Run it again after changing the extension. It
+installs the npm dependencies (`vscode-languageclient`) from `package-lock.json` first, so it
+needs Node.js and npm.
 (A symlink into `~/.vscode/extensions` isn't enough: VS Code only loads extensions registered
 in its `extensions.json` and marks unknown folders obsolete.) To work on the extension, open
 `editors/vscode` in VS Code and press F5 (an Extension Development Host).

@@ -13,3 +13,4 @@ examples/browser/app.d.ts
 examples/browser-dom/app.js
 examples/browser-dom/app.wasm
 examples/browser-dom/app.d.ts
+/editors/vscode/node_modules/

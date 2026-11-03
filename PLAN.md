@@ -874,6 +874,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   diagnostics from `check_source` on open/change (debounced), `textDocument/formatting`
   (P10.1), and the extension's language client starting `ppl lsp`.
 - **Done when**: LSP protocol tests (a scripted session over stdio) pass.
+- **Done (decision 271)**: `crates/ppl-lsp` (tests in `src/tests.rs`), the client in
+  `editors/vscode/extension.js`; also checked against `vscode-jsonrpc` during development.
 
 #### P10.6c Hover and go-to-definition
 - **Do**: an index from source positions to resolved symbols (declarations, uses, types),

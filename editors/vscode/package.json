@@ -1,21 +1,32 @@
 {
   "name": "ppl",
   "displayName": "ppl",
-  "description": "The padcom programming language: syntax highlighting (the language server follows: PLAN P10.6b).",
-  "version": "0.1.0",
+  "description": "The padcom programming language: syntax highlighting, diagnostics and formatting (ppl lsp).",
+  "version": "0.2.0",
   "publisher": "padcom",
   "license": "MIT",
   "private": true,
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.91.0"
   },
-  "categories": ["Programming Languages"],
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:ppl"
+  ],
   "contributes": {
     "languages": [
       {
         "id": "ppl",
-        "aliases": ["ppl", "PPL"],
-        "extensions": [".ppl"],
+        "aliases": [
+          "ppl",
+          "PPL"
+        ],
+        "extensions": [
+          ".ppl"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -28,11 +39,53 @@
       {
         "scopeName": "markdown.ppl.codeblock",
         "path": "./syntaxes/ppl.markdown.tmLanguage.json",
-        "injectTo": ["text.html.markdown"],
+        "injectTo": [
+          "text.html.markdown"
+        ],
         "embeddedLanguages": {
           "meta.embedded.block.ppl": "ppl"
         }
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "ppl.restartServer",
+        "title": "ppl: Restart Language Server"
+      }
+    ],
+    "configuration": {
+      "title": "ppl",
+      "properties": {
+        "ppl.server.path": {
+          "type": "string",
+          "default": "ppl",
+          "description": "The ppl binary that runs the language server (`ppl lsp`); `ppl` is looked up on PATH."
+        },
+        "ppl.server.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Arguments before `lsp`."
+        },
+        "ppl.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication with the language server (the \"ppl language server\" output)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "../../scripts/vscode-package.sh"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^11.0.0"
   }
 }

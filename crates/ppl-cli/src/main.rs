@@ -87,6 +87,12 @@ enum Command {
         #[arg(long)]
         interp: bool,
     },
+    /// The language server (LSP over stdio; editors/vscode starts it).
+    Lsp {
+        /// Accepted for clients that pass it (stdio is the only transport).
+        #[arg(long)]
+        stdio: bool,
+    },
     /// Parse a file and report syntax errors.
     Parse {
         /// The `.ppl` file to parse.
@@ -128,6 +134,13 @@ fn main() -> ExitCode {
             emit.as_deref(),
         ),
         Some(Command::Fmt { paths, check }) => fmt(&paths, check),
+        Some(Command::Lsp { .. }) => match ppl_lsp::run_stdio() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
         Some(Command::Run {
             file,
             interp,
