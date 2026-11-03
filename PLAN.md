@@ -822,7 +822,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 **Order** (the author's, 2026-11-03): first what leads to the VS Code integration, then debugging
 (which adds debugging in VS Code), then the rest, release packaging last:
-P10.6a → P10.6b → P10.6c1 → P10.6c2 → P10.6d1 → P10.6d2 → P10.2 → P10.5 → P10.8 → P10.3 → P10.4 → P10.7 → P10.9 →
+P10.6a → P10.6b → P10.6c1 → P10.6c2 → P10.6d1 → P10.6d2 → P10.2 → P10.5 → P10.8 → P10.3 → P10.4 → P10.9 →
 P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 
 ### P10.1 Formatter
@@ -982,10 +982,6 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Done (decision 275)**: `crates/ppl-lsp/src/rename.rs`, `symbols.rs`; links, shorthand
   fields and method families in the index.
 
-### P10.7 REPL and JIT
-- **Do**: `ppl run` through LLVM ORC JIT (no linking), and a REPL that keeps state between lines.
-- **Done when**: `ppl run` on a script is faster than AOT and the REPL handles multi-line input.
-
 ### P10.8 Debugging
 - **Spec**: 14 §14.5
 - **Do**: DWARF/CodeView emission, `ppl dap` built on lldb-dap, pretty-printers for ppl values,
@@ -1040,6 +1036,12 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 ---
 
 ## Phase 11: Later
+- **P10.7a** (moved from Phase 10 by the author): `ppl run` through LLVM's ORC JIT (no object
+  file, no linking; the C runtime available to the JIT). Done when `ppl run` on a script is
+  faster than an AOT build and run.
+- **P10.7b** (moved from Phase 10 by the author): a REPL (`ppl` with no arguments) that keeps
+  declarations and variables between inputs and continues incomplete statements on the next
+  line. Done when it handles multi-line input and redefinitions.
 - **P11.1** `--no-gc` subset (`str`, `StrBuf<N>`, lightweight throwables only) and a bare-metal
   target.
 - **P11.2** riscv64.
