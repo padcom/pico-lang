@@ -127,6 +127,7 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
         shorthand: Vec::new(),
     };
     b.declarations();
+    b.inherit_docs();
     for (i, f) in program.fns.iter().enumerate() {
         let fid = hir::FnId(i as u32);
         for d in f.defaults.iter().flatten() {
@@ -231,6 +232,57 @@ impl Builder<'_> {
             h.push_str(&docs);
         }
         self.decls.entry(at).or_insert(h);
+    }
+
+    /// A method without a doc comment shows the one of the method it implements or
+    /// overrides: the nearest documented same-named method up its type's `extends` and
+    /// `implements` (base classes and interfaces, breadth first).
+    fn inherit_docs(&mut self) {
+        let p = self.p;
+        for (i, s) in p.structs.iter().enumerate() {
+            let sid = StructId(i as u32);
+            for (name, f) in &s.methods {
+                let func = &p.fns[f.0 as usize];
+                // (Inherited methods are their declaring type's.)
+                if func.this.map(|t| t.1).or(func.owner) != Some(sid) {
+                    continue;
+                }
+                let span = func.name_span;
+                if !doc_comment(self.sm, span).is_empty() {
+                    continue;
+                }
+                let Some(docs) = self.ancestor_docs(sid, name) else {
+                    continue;
+                };
+                if let Some(h) = self.decls.get_mut(&span) {
+                    h.push_str("\n\n");
+                    h.push_str(&docs);
+                }
+            }
+        }
+    }
+
+    fn ancestor_docs(&self, sid: StructId, name: &str) -> Option<String> {
+        let p = self.p;
+        let up = |s: StructId| {
+            let d = &p.structs[s.0 as usize];
+            d.base.into_iter().chain(d.implements.iter().copied())
+        };
+        let mut queue: std::collections::VecDeque<StructId> = up(sid).collect();
+        let mut seen = HashSet::from([sid]);
+        while let Some(s) = queue.pop_front() {
+            if !seen.insert(s) {
+                continue;
+            }
+            if let Some(f) = p.structs[s.0 as usize].method(name) {
+                let docs = doc_comment(self.sm, p.fns[f.0 as usize].name_span);
+                if !docs.is_empty() {
+                    return Some(docs);
+                }
+            }
+            queue.extend(up(s));
+        }
+        None
     }
 
     fn declarations(&mut self) {

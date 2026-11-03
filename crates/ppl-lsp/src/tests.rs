@@ -976,3 +976,38 @@ fn document_symbols() {
         json!({ "line": 12, "character": 0 })
     );
 }
+
+#[test]
+fn methods_inherit_doc_comments() {
+    let text = "interface Speakable {\n  /** Says something. */\n  speak(s: string): string\n  /** Waves. */\n  wave(): void\n}\nclass Person implements Speakable {\n  public speak(s: string): string { s }\n  /// Waves twice.\n  public wave() {}\n}\nclass Loud extends Person {\n  public override speak(s: string): string { s }\n}\nconst p = new Person()\nconst l = new Loud()\nprintln(p.speak(\"a\") + l.speak(\"b\"))\np.wave()\n";
+    let dir = tmp("inherit_docs");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let h = |id, needle, n| at(id, "textDocument/hover", &uri, text, needle, n, 0);
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        h(2, "speak", 3),
+        h(3, "speak", 4),
+        h(4, "wave", 2),
+    ]);
+    // An implementation and an override (through its base class) show the interface's docs.
+    assert_eq!(
+        hover_text(&out, 2),
+        "```ppl\n(method) Person.speak(s: string): string\n```\n\nSays something."
+    );
+    assert_eq!(
+        hover_text(&out, 3),
+        "```ppl\n(method) Loud.speak(s: string): string\n```\n\nSays something."
+    );
+    // Its own docs win.
+    assert_eq!(
+        hover_text(&out, 4),
+        "```ppl\n(method) Person.wave(): void\n```\n\nWaves twice."
+    );
+    // Completion shows them too.
+    let (_, items) = complete_at("inherit_docs_c", &format!("{text}p.‸\n"), &[]);
+    assert_eq!(
+        item(&items, "speak")["documentation"]["value"],
+        "Says something."
+    );
+}
