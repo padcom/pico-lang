@@ -7,6 +7,7 @@
 **P10.5: Incremental compilation** (see PLAN; Phase 10 order: … P10.2 → P10.5 → P10.8 → …). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
+- After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
   `run_interp` and `build_native` run it. New features touch: resolver (`ppl-sema/src/resolve.rs`,
   replace an E0900 "not implemented"), typeck, MIR lowering, the interpreter **and** codegen (+ C
@@ -474,3 +475,4 @@ Notes:
 | 2026-11-03 | P10.6c1 | Author's request: a method without a doc comment shows (hover, completion) the nearest documented same-named method up `extends`/`implements` (`Builder::inherit_docs`). Test `methods_inherit_doc_comments`. |
 | 2026-11-03 | spec | Lint (§14.7, decision 277): the author's three optional rules (complexity max 4, blank lines before if/switch/match/functions/members, docs on exports of every file that exports), configured in `project.json`'s `"lint"`; P10.2 split into a (command, config, naming, unused) and b (the optional rules). |
 | 2026-11-03 | P10.2a/b | `crates/ppl-lint`: config (`project.json` `"lint"`, validated), AST visitor, rules naming, unused, complexity, blankLines, docs; `W0xxx` codes (`Code::warning`); `ppl lint [paths]`; lint warnings in the language server; `ppl_syntax::docs` (doc comments, attached lines) and `ppl_driver::project_root/project_files` shared. Dogfooded on `tests/run` + examples (exemptions for type-test bindings, comptime, protocol methods; private fields not checked). Insta snapshots. Decision 278. |
+| 2026-11-03 | CI | The run of 9f636c5 failed in `scripts/ci-install-linux.sh` (cross-build and golden jobs): `wget` exit 4 fetching apt.llvm.org's `llvm.sh` during a brief outage; the script now retries (`wget --tries`, apt `Acquire::Retries`). |
