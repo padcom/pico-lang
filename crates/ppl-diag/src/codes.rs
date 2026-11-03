@@ -155,6 +155,31 @@ codes! {
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }
 
+include!(concat!(env!("OUT_DIR"), "/explanations.rs"));
+
+/// The long-form explanation of a code (`ppl explain E0308`, spec §14.2): Markdown from
+/// `docs/errors/<code>.md`.
+pub fn explain(code: Code) -> Option<&'static str> {
+    let key = code.to_string();
+    EXPLANATIONS
+        .iter()
+        .find(|(c, _)| *c == key)
+        .map(|(_, t)| *t)
+}
+
+/// A code from its written form: `E0308`, `e0308`, `308`, `W0001`.
+pub fn parse(s: &str) -> Option<Code> {
+    let s = s.trim();
+    let (warning, digits) = match s.chars().next()? {
+        'E' | 'e' => (false, &s[1..]),
+        'W' | 'w' => (true, &s[1..]),
+        _ => (false, s),
+    };
+    let n: u16 = digits.parse().ok()?;
+    let code = if warning { Code::warning(n) } else { Code(n) };
+    describe(code).map(|_| code)
+}
+
 pub fn describe(code: Code) -> Option<&'static str> {
     ALL.iter()
         .find(|(c, _)| *c == code)

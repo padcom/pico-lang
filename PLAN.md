@@ -1033,6 +1033,9 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   and the compiler's messages mention it.
 - **Done when**: a test checks every explanation exists and its examples are real: each
   erroneous example reports its code, each fixed one compiles.
+- **Done (decision 287)**: `docs/errors/*.md` (83 error and 5 lint codes), embedded by
+  `ppl-diag/build.rs` (`codes::explain`, `codes::parse`); `ppl explain`; the CLI's hint after
+  errors; test `crates/ppl-tests/tests/explain.rs`.
 
 #### P10.9b `ppl doc`
 - **Do**: HTML from doc comments: an index and a page per module, each exported declaration's

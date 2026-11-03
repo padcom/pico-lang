@@ -130,6 +130,11 @@ enum Command {
         /// The package's name, `scope/name`.
         name: String,
     },
+    /// Explain an error or lint code: what it means, an example, the fix (`ppl explain E0308`).
+    Explain {
+        /// The code: `E0308`, `308`, `W0001`.
+        code: String,
+    },
     /// Bring `project.lock` up to date and download every locked package into the cache, so
     /// later builds work offline (spec §8.3).
     Fetch,
@@ -206,6 +211,33 @@ fn main() -> ExitCode {
         Some(Command::Lint { paths }) => lint(&paths),
         Some(Command::Dap) => dap::run(),
         Some(Command::Fetch) => fetch(),
+        Some(Command::Explain { code }) => {
+            match ppl_diag::codes::parse(&code)
+                .and_then(|c| Some((c, ppl_diag::codes::explain(c)?)))
+            {
+                Some((_, text)) => {
+                    print!("{text}");
+                    ExitCode::SUCCESS
+                }
+                None => match ppl_diag::codes::parse(&code) {
+                    Some(c) => {
+                        println!(
+                            "{c}: {}
+
+(no longer explanation yet)",
+                            ppl_diag::codes::describe(c).unwrap_or_default()
+                        );
+                        ExitCode::SUCCESS
+                    }
+                    None => {
+                        eprintln!(
+                            "error: `{code}` isn't an error or lint code (they look like E0308, W0001)"
+                        );
+                        ExitCode::from(2)
+                    }
+                },
+            }
+        }
         Some(Command::Init { name, lib }) => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             match ppl_driver::packages::init(&cwd, name.as_deref(), lib) {
@@ -579,9 +611,32 @@ fn checked_or_report(
         eprint!("{}", checked.render_diagnostics());
     }
     if checked.has_errors() {
+        explain_hint(&checked.diags);
         return Err(ExitCode::FAILURE);
     }
     Ok(checked)
+}
+
+/// After errors: which `ppl explain` explains them.
+fn explain_hint(diags: &[ppl_diag::Diagnostic]) {
+    let mut codes: Vec<String> = diags
+        .iter()
+        .filter(|d| d.is_error())
+        .filter_map(|d| d.code)
+        .filter(|c| ppl_diag::codes::explain(*c).is_some())
+        .map(|c| c.to_string())
+        .collect();
+    codes.sort();
+    codes.dedup();
+    match codes.as_slice() {
+        [] => {}
+        [one] => eprintln!("For more about this error, try `ppl explain {one}`."),
+        many => eprintln!(
+            "Some errors are explained: {}; try `ppl explain {}`.",
+            many.join(", "),
+            many[0]
+        ),
+    }
 }
 
 fn run(path: &Path, interp: bool, opts: ppl_driver::BuildOptions, args: &[String]) -> ExitCode {

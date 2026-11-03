@@ -15,4 +15,5 @@ ppl-syntax.workspace = true
 workspace = true
 
 [dev-dependencies]
+ppl-lint.workspace = true
 serde_json = "1"
