@@ -1,5 +1,7 @@
 //! The `ppl` command-line tool.
 
+mod dap;
+
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -96,6 +98,9 @@ enum Command {
         #[arg(long)]
         interp: bool,
     },
+    /// The debug adapter (DAP over stdio, on lldb-dap; editors/vscode starts it): builds a
+    /// `.ppl` program to debug and loads ppl's formatters into lldb (spec §14.5).
+    Dap,
     /// The language server (LSP over stdio; editors/vscode starts it).
     Lsp {
         /// Accepted for clients that pass it (stdio is the only transport).
@@ -147,6 +152,7 @@ fn main() -> ExitCode {
         ),
         Some(Command::Fmt { paths, check }) => fmt(&paths, check),
         Some(Command::Lint { paths }) => lint(&paths),
+        Some(Command::Dap) => dap::run(),
         Some(Command::Lsp { .. }) => match ppl_lsp::run_stdio() {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -706,7 +712,7 @@ fn build(
             Some(t) => {
                 let o = ppl_codegen::Options {
                     optimize: opts.release,
-                    debug: false,
+                    debug: std::env::var_os("PPL_TMP_DEBUG_IR").is_some(),
                     triple: Some(t.llvm_triple()),
                 };
                 match ppl_codegen::emit_llvm_ir_for(mir, o) {

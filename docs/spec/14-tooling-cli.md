@@ -98,8 +98,9 @@ yet, and skips files with syntax errors. Decision 265.
 Debug builds (`ppl build` without `--release`) emit DWARF (CodeView on Windows): a line table
 for every ppl source, the core library's too, so breakpoints by file and line and backtraces
 work in lldb and gdb; on macOS the DWARF goes into `program.dSYM`. `ppl dap` is a Debug Adapter Protocol server
-(on top of lldb) that the VS Code extension uses for breakpoints, stepping, watches and
-pretty-printing of ppl values (strings, arrays, maps, enums).
+(on top of lldb-dap) that the VS Code extension uses for breakpoints, stepping, watches and
+pretty-printing of ppl values (strings, arrays, maps, sets, enums): a `launch` whose `program`
+is a `.ppl` file builds it first, and lldb loads ppl's formatters. Decisions 280–282.
 
 ## 14.6 Builds
 - **Incremental**: `ppl build` keeps a fingerprint of each output: the compiler, the options and

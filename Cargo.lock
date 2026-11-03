@@ -343,6 +343,7 @@ dependencies = [
  "ppl-lsp",
  "ppl-mir",
  "ppl-syntax",
+ "serde_json",
 ]
 
 [[package]]

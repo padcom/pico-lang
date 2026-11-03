@@ -14,7 +14,9 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:ppl"
+    "onLanguage:ppl",
+    "onDebugResolve:ppl",
+    "onDebugDynamicConfigurations:ppl"
   ],
   "contributes": {
     "languages": [
@@ -80,7 +82,81 @@
           "description": "Traces the communication with the language server (the \"ppl language server\" output)."
         }
       }
-    }
+    },
+    "breakpoints": [
+      {
+        "language": "ppl"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "ppl",
+        "label": "ppl",
+        "languages": [
+          "ppl"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "The `.ppl` file to build and debug (or an executable).",
+                "default": "${file}"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments for the program.",
+                "default": []
+              },
+              "cwd": {
+                "type": "string",
+                "description": "The working directory (default: the program's directory).",
+                "default": "${workspaceFolder}"
+              },
+              "env": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Environment variables, as `NAME=value`.",
+                "default": []
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop at the program's first line.",
+                "default": false
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "ppl",
+            "request": "launch",
+            "name": "Debug the current ppl file",
+            "program": "${file}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "ppl: Launch",
+            "description": "Build and debug a ppl program.",
+            "body": {
+              "type": "ppl",
+              "request": "launch",
+              "name": "Debug ${1:main.ppl}",
+              "program": "^\"\\${workspaceFolder}/${1:main.ppl}\""
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "package": "../../scripts/vscode-package.sh"

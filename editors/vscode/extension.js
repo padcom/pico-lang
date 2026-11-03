@@ -47,6 +47,28 @@ async function stop() {
 
 /** @param {vscode.ExtensionContext} context */
 async function activate(context) {
+  // The debugger (spec §14.5): `ppl dap` builds the program and runs lldb-dap.
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory("ppl", {
+      createDebugAdapterDescriptor() {
+        const { command, args } = serverOptions();
+        // (`serverOptions` ends with `lsp`: the same binary and arguments, then `dap`.)
+        return new vscode.DebugAdapterExecutable(command, [...args.slice(0, -1), "dap"]);
+      },
+    }),
+    vscode.debug.registerDebugConfigurationProvider("ppl", {
+      // F5 without a launch.json: debug the current file.
+      resolveDebugConfiguration(_folder, config) {
+        if (!config.type && !config.request && !config.name) {
+          const editor = vscode.window.activeTextEditor;
+          if (editor && editor.document.languageId === "ppl") {
+            return { type: "ppl", request: "launch", name: "Debug the current ppl file", program: "${file}" };
+          }
+        }
+        return config;
+      },
+    }),
+  );
   context.subscriptions.push(
     vscode.commands.registerCommand("ppl.restartServer", async () => {
       await stop();

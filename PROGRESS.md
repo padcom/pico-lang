@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.8c: Debugging in VS Code** (see PLAN; P10.8 is split into a–d; Phase 10 order: … P10.5a → P10.8 → P10.3 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.8d: `ppl symbolize`** (see PLAN; P10.8 is split into a–d; the author should check debugging in VS Code (P10.8c): `scripts/vscode-package.sh --install`, reload, F5 in a `.ppl` file; Phase 10 order: … P10.5a → P10.8 → P10.3 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
@@ -310,7 +310,7 @@ Notes:
 - [ ] P10.5b Cached code generation
 - [x] P10.8a Line tables
 - [x] P10.8b Variables
-- [ ] P10.8c Debugging in VS Code
+- [x] P10.8c Debugging in VS Code (manual check in VS Code pending)
 - [ ] P10.8d `ppl symbolize`
 - [ ] P10.3 Package manager
 - [ ] P10.4 Registry
@@ -488,3 +488,4 @@ Notes:
 | 2026-11-03 | plan | P10.8 split into a (line tables), b (variables), c (VS Code: formatters, `ppl dap`, debugger), d (`ppl symbolize`). |
 | 2026-11-03 | P10.8a | DWARF line tables in native debug builds (`ppl-codegen`: `Dbg`, `begin_debug`, `debug_loc`, `without_debug_loc`; `mir::Source`, `debug_sources` in the driver; `dsymutil` on macOS). lldb: `breakpoint set -f util.ppl -l 2` stops in an imported module, `bt` shows ppl functions with files and lines, through the core library. Golden suite green with debug info in every native build. Decision 280. |
 | 2026-11-03 | P10.8b | DWARF variables for named locals and parameters (`declare_variables`, `di_type`: basic types, `PplStr`/`PplArray` structs behind pointers, structs, classes, enums, nullable references, recursion via forward declarations); declare records through the C API (inkwell asserts on LLVM 23's records). Entry code at line 0, so line breakpoints stop after the parameter stores (found by the test: `twice(n=0)`). lldb: `frame variable` shows `n = 41`, `p = {x = 3, y = 4}`, `maybe = NULL`; `p xs->data[2]`. Decision 281. |
+| 2026-11-03 | P10.8c | `ppl dap` (`crates/ppl-cli/src/dap.rs`: lldb-dap proxy, builds `.ppl` programs on `launch`, loads `ppl_lldb.py`), formatters (strings, arrays, maps, sets), enum tags as DWARF enumerations, generic structs described with their arguments, scope line 0 (a first-line breakpoint stopped before the parameter stores in `show(col, m, names)`); the extension's `ppl` debugger (F5, breakpoints in `.ppl`). Test: a scripted DAP session (launch, breakpoint, stack, variables, map entries, a build error). Decision 282. |

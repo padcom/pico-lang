@@ -983,6 +983,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   nullables, objects' fields), `ppl dap` (lldb-dap with them loaded), and the extension's
   debugger (a launch configuration that builds and debugs a `.ppl` program).
 - **Done when**: breakpoints, stepping and value display work in VS Code (manual check).
+- **Done (decision 282)**: `crates/ppl-cli/src/dap.rs`, `ppl_lldb.py`, the extension's debugger;
+  test `crates/ppl-cli/tests/dap.rs` (a scripted DAP session).
 
 #### P10.8d `ppl symbolize`
 - **Do**: release builds keep a separate debug file; `ppl symbolize` turns a release stack

@@ -1310,7 +1310,9 @@ impl<'ctx> Gen<'ctx, '_> {
             ty,
             true,
             true,
-            line,
+            // (Scope line 0: LLVM gives the prologue the scope line, which would put the
+            // first line's breakpoint before the parameter stores.)
+            0,
             inkwell::debug_info::DIFlags::ZERO,
             false,
         );
@@ -1497,10 +1499,16 @@ impl<'ctx> Gen<'ctx, '_> {
                 d.di.create_pointer_type(&name, st, ptr_bits, 64, AddressSpace::default())
                     .as_type()
             }
-            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) if args.is_empty() => {
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
                 let class = matches!(t, Ty::Class(..));
                 let layout = self.p.layout(*sid).clone();
-                let name = layout.name.clone();
+                // (A generic type's fields with its arguments: `Map<string, i64>`.)
+                let name = if args.is_empty() {
+                    layout.name.clone()
+                } else {
+                    t.to_string()
+                };
+                let owner = Ty::type_owner(*sid);
                 let d = self.dbg.as_mut()?;
                 if !d.building.insert(t.clone()) {
                     // (Recursive: a declaration of the type being described.)
@@ -1533,11 +1541,16 @@ impl<'ctx> Gen<'ctx, '_> {
                 }
                 let mut fields = Vec::new();
                 for (n, ft) in &layout.fields {
-                    if self.ty(ft).is_none() {
+                    let ft = if args.is_empty() {
+                        ft.clone()
+                    } else {
+                        ft.subst(owner, args)
+                    };
+                    if self.ty(&ft).is_none() {
                         continue;
                     }
-                    parts.push(self.size_align(ft));
-                    fields.push((n.clone(), ft.clone()));
+                    parts.push(self.size_align(&ft));
+                    fields.push((n.clone(), ft));
                 }
                 let offsets = Self::part_offsets(&parts);
                 let (size, align) = struct_layout(&parts);
@@ -1597,10 +1610,34 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Enum(eid, name) => {
                 // `{ i32 tag, [k x i64] payload }`.
                 let (size, _) = self.size_align(t);
-                let _ = eid;
+                let variants: Vec<String> = self
+                    .p
+                    .enum_layout(*eid)
+                    .variants
+                    .iter()
+                    .map(|v| v.name.clone())
+                    .collect();
                 let d = self.dbg.as_ref()?;
-                let tag = basic(d, "i32", 32, SIGNED)?;
+                let i32t = basic(d, "i32", 32, SIGNED)?;
                 let scope = file.as_debug_info_scope();
+                // The tag as an enumeration: the debugger shows the variant's name.
+                let enumerators: Vec<_> = variants
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| d.di.create_enumerator(v, i as i64, false))
+                    .collect();
+                let tag =
+                    d.di.create_enumeration_type(
+                        scope,
+                        &format!("{name}.tag"),
+                        file,
+                        0,
+                        32,
+                        32,
+                        &enumerators,
+                        i32t,
+                    )
+                    .as_type();
                 let mut members = vec![
                     d.di.create_member_type(scope, "tag", file, 0, 32, 32, 0, flags, tag)
                         .as_type(),

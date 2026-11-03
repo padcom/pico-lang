@@ -185,7 +185,7 @@ fn canonical_output(exe: &Path) -> PathBuf {
 }
 
 /// The user's cache directory (`PPL_CACHE_DIR` overrides it).
-fn cache_dir() -> PathBuf {
+pub fn cache_dir() -> PathBuf {
     let env = |v: &str| {
         std::env::var_os(v)
             .filter(|s| !s.is_empty())

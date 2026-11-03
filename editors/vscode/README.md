@@ -13,6 +13,16 @@
   (document symbols, also for Go to Symbol and breadcrumbs). Lint warnings (`ppl lint`'s, spec
   §14.7, configured in `project.json`'s `"lint"`) appear with the errors.
 
+## Debugging
+
+Press F5 in a `.ppl` file (or add a `ppl` launch configuration: `program` is the `.ppl` file,
+also `args`, `cwd`, `env`, `stopOnEntry`). The extension starts `ppl dap`, which builds the
+program (a debug build, cached while nothing changes) and runs it under lldb-dap, so lldb must
+be installed (`lldb-dap`, or a versioned `lldb-dap-23` as apt.llvm.org installs it; Xcode's on
+macOS; `PPL_LLDB_DAP` names another). Breakpoints, stepping, the call stack and variables work;
+strings show as text, arrays and maps and sets with their elements, enums by variant. A program
+that doesn't compile shows the compiler's errors instead of starting.
+
 ## Settings
 
 | Setting | Default | |
