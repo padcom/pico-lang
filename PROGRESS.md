@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.6c2: Error recovery for the language server** (see PLAN). The author should try hover and Go to Definition in VS Code (`scripts/vscode-package.sh --install`, reload). Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.6c2: Error recovery for the language server** (see PLAN). Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -298,7 +298,7 @@ Notes:
 (In the author's order: see PLAN.)
 - [x] P10.6a VS Code extension: syntax
 - [x] P10.6b `ppl lsp`: diagnostics and formatting
-- [x] P10.6c1 Symbol index, hover and go-to-definition (manual check in VS Code pending)
+- [x] P10.6c1 Symbol index, hover and go-to-definition
 - [ ] P10.6c2 Error recovery for the language server
 - [ ] P10.6d Completion and rename
 - [ ] P10.2 Lint
@@ -459,3 +459,4 @@ Notes:
 | 2026-11-03 | P10.6b | Manual check: the author confirmed the language server in VS Code (start, diagnostics as you type and in imported modules, UTF-16 columns, Format Document, restart). |
 | 2026-11-03 | plan | P10.6c split into c1 (symbol index, hover, go-to-definition on clean code) and c2 (error recovery). |
 | 2026-11-03 | P10.6c1 | Symbol index in `ppl-lsp` (`index.rs`) from the HIR, `Types` and the resolver's new `Program::name_refs`; `textDocument/hover` (signature + doc comment) and `textDocument/definition` (across modules; the core library opens the bundled stdlib file or a read-only temp copy); a document with errors keeps its last index. Protocol tests: hover, definition, modules and prelude, stale index, UTF-16, embedded copies. Decision 272. |
+| 2026-11-03 | P10.6c1 | Manual check: hover and Go to Definition confirmed by the author in VS Code. |
