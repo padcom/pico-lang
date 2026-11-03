@@ -720,3 +720,156 @@ pub fn prepare_with(dir: &Path, fetch: bool) -> Result<Option<Prepared>, String>
         dirs,
     }))
 }
+
+// ---------------------------------------------------------------- commands (P10.3c)
+
+/// `ppl init [name] [--lib]` in `dir` (decision 286): an application (`entry` →
+/// `src/main.ppl`) or a library (`index.ppl`). Existing files are left alone; the files it
+/// wrote.
+pub fn init(dir: &Path, name: Option<&str>, lib: bool) -> Result<Vec<PathBuf>, String> {
+    let manifest = dir.join("project.json");
+    if manifest.exists() {
+        return Err(format!("{} exists already", manifest.display()));
+    }
+    if let Some(n) = name
+        && !is_package_name(n)
+    {
+        return Err(format!(
+            "`{n}` isn't a package name: `scope/name` (lowercase letters, digits, `-`, `_`, `.`)"
+        ));
+    }
+    if lib && name.is_none() {
+        return Err("a library needs a name: `ppl init scope/name --lib`".into());
+    }
+    let mut json = serde_json::Map::new();
+    if let Some(n) = name {
+        json.insert("name".into(), Value::from(n));
+    }
+    json.insert("version".into(), Value::from("0.1.0"));
+    if !lib {
+        json.insert("entry".into(), Value::from("src/main.ppl"));
+    }
+    json.insert("dependencies".into(), Value::Object(serde_json::Map::new()));
+    let mut written = Vec::new();
+    let mut write = |path: PathBuf, text: String| -> Result<(), String> {
+        if path.exists() {
+            return Ok(());
+        }
+        if let Some(p) = path.parent() {
+            std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&path, text).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        written.push(path);
+        Ok(())
+    };
+    write(manifest, pretty(&Value::Object(json)))?;
+    if lib {
+        write(
+            dir.join("index.ppl"),
+            "/** Says hello to `who`. */\nexport function hello(who: string): string {\n  `hello, ${who}`\n}\n".into(),
+        )?;
+    } else {
+        write(dir.join("src/main.ppl"), "println(\"hello\")\n".into())?;
+    }
+    Ok(written)
+}
+
+fn pretty(v: &Value) -> String {
+    let mut s = serde_json::to_string_pretty(v).expect("json");
+    s.push('\n');
+    s
+}
+
+/// The manifest of the package `dir` is in, as JSON (for editing), and its path.
+fn manifest_json(dir: &Path) -> Result<(PathBuf, serde_json::Map<String, Value>), String> {
+    let m = match package_of(dir) {
+        Some(Ok(m)) => m,
+        Some(Err(e)) => return Err(format!("project.json is invalid: {}", e.join("; "))),
+        None => return Err("no project.json here or above (`ppl init` makes one)".into()),
+    };
+    let path = m.path();
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    match serde_json::from_str::<Value>(&text) {
+        Ok(Value::Object(o)) => Ok((path, o)),
+        _ => Err(format!("{} isn't a JSON object", path.display())),
+    }
+}
+
+/// `ppl add <git-url> [--tag|--branch|--rev] [--dev]`: adds the package at `url` under its own
+/// name (from its project.json) and locks it. Without a pin: the newest version tag
+/// (`v1.2.3` or `1.2.3`), else the default branch. The name and what it was pinned to.
+pub fn add_git(dir: &Path, url: &str, pin: GitPin, dev: bool) -> Result<(String, String), String> {
+    if is_package_name(url) && !url.contains(':') && !Path::new(url).exists() {
+        return Err(format!(
+            "`{url}` is a registry name: the registry comes with P10.4 (give a git URL)"
+        ));
+    }
+    let pin = match pin {
+        GitPin::Default => {
+            let newest = crate::git::tags(url)?
+                .into_iter()
+                .filter_map(|t| Some((Version::parse(t.strip_prefix('v').unwrap_or(&t)).ok()?, t)))
+                .filter(|(v, _)| v.pre.is_empty())
+                .max_by(|a, b| a.0.cmp(&b.0));
+            newest.map_or(GitPin::Default, |(_, t)| GitPin::Tag(t))
+        }
+        p => p,
+    };
+    let commit = crate::git::resolve(url, &pin)?;
+    let checkout = crate::git::checkout(url, &commit, true)?.expect("fetched");
+    let name = match Manifest::read(&checkout) {
+        Some(Ok(Manifest { name: Some(n), .. })) => n,
+        Some(Ok(_)) => return Err(format!("{url}'s project.json has no `name`")),
+        Some(Err(e)) => return Err(format!("{url}'s project.json is invalid: {}", e.join("; "))),
+        None => return Err(format!("{url} isn't a ppl package: it has no project.json")),
+    };
+    let (path, mut json) = manifest_json(dir)?;
+    let key = if dev {
+        "devDependencies"
+    } else {
+        "dependencies"
+    };
+    let mut dep = serde_json::Map::new();
+    dep.insert("git".into(), Value::from(url));
+    match &pin {
+        GitPin::Tag(t) => {
+            dep.insert("tag".into(), Value::from(t.as_str()));
+        }
+        GitPin::Branch(b) => {
+            dep.insert("branch".into(), Value::from(b.as_str()));
+        }
+        GitPin::Rev(r) => {
+            dep.insert("rev".into(), Value::from(r.as_str()));
+        }
+        GitPin::Default => {}
+    }
+    let deps = json
+        .entry(key)
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Some(deps) = deps.as_object_mut() else {
+        return Err(format!("`{key}` in {} isn't an object", path.display()));
+    };
+    deps.insert(name.clone(), Value::Object(dep));
+    std::fs::write(&path, pretty(&Value::Object(json)))
+        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    prepare_with(dir, true)?;
+    Ok((name, crate::git::describe(&pin)))
+}
+
+/// `ppl remove <name>`: drops the dependency (or dev dependency) and updates the lockfile.
+pub fn remove(dir: &Path, name: &str) -> Result<(), String> {
+    let (path, mut json) = manifest_json(dir)?;
+    let mut found = false;
+    for key in ["dependencies", "devDependencies"] {
+        if let Some(Value::Object(deps)) = json.get_mut(key) {
+            found |= deps.shift_remove(name).is_some();
+        }
+    }
+    if !found {
+        return Err(format!("`{name}` isn't a dependency in {}", path.display()));
+    }
+    std::fs::write(&path, pretty(&Value::Object(json)))
+        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    prepare_with(dir, true)?;
+    Ok(())
+}

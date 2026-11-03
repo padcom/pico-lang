@@ -884,6 +884,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Do**: `ppl init [name] [--lib]`, `ppl add <git-url> [--tag/--branch/--rev] [--dev]`,
   `ppl remove <name>`.
 - **Done when**: tests drive the commands on a scratch project (manifest and lockfile after each).
+- **Done**: `packages::{init, add_git, remove}`, `git::tags`; `ppl init/add/remove` in the CLI;
+  test `crates/ppl-cli/tests/packages.rs`.
 
 ### P10.4 Registry
 - **Do**: the index format (`scope/name.json`), sparse HTTPS fetching, `ppl publish` (tag + PR via

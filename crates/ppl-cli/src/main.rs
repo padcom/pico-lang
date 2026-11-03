@@ -99,6 +99,37 @@ enum Command {
         #[arg(long)]
         interp: bool,
     },
+    /// Create a project here: `project.json` and `src/main.ppl` (an application, with
+    /// `"entry": "src/main.ppl"`), or `index.ppl` with `--lib` (spec §8.3).
+    Init {
+        /// The package's name, `scope/name` (a library needs one).
+        name: Option<String>,
+        /// A library: its API is `index.ppl`.
+        #[arg(long)]
+        lib: bool,
+    },
+    /// Add a git dependency (its name comes from its project.json) and lock it.
+    Add {
+        /// The repository's URL (or path).
+        source: String,
+        /// A tag (default: the newest version tag, else the default branch).
+        #[arg(long, conflicts_with_all = ["branch", "rev"])]
+        tag: Option<String>,
+        /// A branch.
+        #[arg(long, conflicts_with = "rev")]
+        branch: Option<String>,
+        /// A commit.
+        #[arg(long)]
+        rev: Option<String>,
+        /// A development dependency (only `*.test.ppl` files see it).
+        #[arg(long)]
+        dev: bool,
+    },
+    /// Remove a dependency and update the lockfile.
+    Remove {
+        /// The package's name, `scope/name`.
+        name: String,
+    },
     /// Bring `project.lock` up to date and download every locked package into the cache, so
     /// later builds work offline (spec §8.3).
     Fetch,
@@ -175,6 +206,60 @@ fn main() -> ExitCode {
         Some(Command::Lint { paths }) => lint(&paths),
         Some(Command::Dap) => dap::run(),
         Some(Command::Fetch) => fetch(),
+        Some(Command::Init { name, lib }) => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            match ppl_driver::packages::init(&cwd, name.as_deref(), lib) {
+                Ok(files) => {
+                    for f in files {
+                        println!("created {}", f.strip_prefix(&cwd).unwrap_or(&f).display());
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Some(Command::Add {
+            source,
+            tag,
+            branch,
+            rev,
+            dev,
+        }) => {
+            use ppl_driver::packages::GitPin;
+            let pin = match (tag, branch, rev) {
+                (Some(t), _, _) => GitPin::Tag(t),
+                (_, Some(b), _) => GitPin::Branch(b),
+                (_, _, Some(r)) => GitPin::Rev(r),
+                _ => GitPin::Default,
+            };
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            match ppl_driver::packages::add_git(&cwd, &source, pin, dev) {
+                Ok((name, pinned)) => {
+                    println!("added {name} ({source}, {pinned})");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Some(Command::Remove { name }) => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            match ppl_driver::packages::remove(&cwd, &name) {
+                Ok(()) => {
+                    println!("removed {name}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Some(Command::Symbolize { trace, debug }) => symbolize::run(&trace, debug.as_deref()),
         Some(Command::Lsp { .. }) => match ppl_lsp::run_stdio() {
             Ok(()) => ExitCode::SUCCESS,

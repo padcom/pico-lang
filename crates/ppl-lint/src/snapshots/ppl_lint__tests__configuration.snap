@@ -2,7 +2,7 @@
 source: crates/ppl-lint/src/tests.rs
 expression: "e.join(\"\\n\")"
 ---
-"lint.blankLines": `before` lists "loop"; it can list if, switch, match, function, method, constructor, getter, setter
 "lint.complexity": the maximum must be a whole number of at least 1
+"lint.blankLines": `before` lists "loop"; it can list if, switch, match, function, method, constructor, getter, setter
 "lint.docs": must be true or false
 "lint": unknown rule `speed` (the rules: naming, unused, complexity, blankLines, docs)

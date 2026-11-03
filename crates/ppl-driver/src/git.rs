@@ -81,6 +81,17 @@ pub fn resolve(url: &str, pin: &crate::packages::GitPin) -> Result<String, Strin
     .map_err(|_| format!("{url} has no {}", describe(pin)))
 }
 
+/// The repository's tags (fetching it first).
+pub fn tags(url: &str) -> Result<Vec<String>, String> {
+    let m = mirror(url, true).map_err(|e| format!("cannot fetch {url}: {e}"))?;
+    let out = git(&["--git-dir", &m.display().to_string(), "tag", "--list"])?;
+    Ok(out
+        .lines()
+        .map(str::to_string)
+        .filter(|t| !t.is_empty())
+        .collect())
+}
+
 pub fn describe(pin: &crate::packages::GitPin) -> String {
     use crate::packages::GitPin;
     match pin {

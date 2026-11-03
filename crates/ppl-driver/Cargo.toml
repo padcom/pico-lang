@@ -19,7 +19,8 @@ ppl-syntax.workspace = true
 wit-component = "0.263"
 wit-parser = "0.263"
 # Reading clang's JSON AST of C headers (`c:` imports, decision 262).
-serde_json = "1"
+# (`preserve_order`: `ppl add`/`remove` keep a manifest's key order.)
+serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
 
 [dev-dependencies]
