@@ -49,3 +49,6 @@ Newer facilities can be used where they exist (io_uring on Linux, for example).
 At comptime: `target.os` (`"linux" | "macos" | "windows" | "wasi" | "browser"`), `target.arch`,
 `target.triple`. Modules can also be platform-specific by file name: `fs.linux.ppl`,
 `fs.windows.ppl`, `fs.wasm.ppl`.
+
+`import … from "./fs"` picks `fs.<os>.ppl` (`target.os`) first, then `fs.wasm.ppl` on
+`wasm32-wasi` and `wasm32-browser`, then `fs.ppl`, then `fs/index.ppl` (decision 260).

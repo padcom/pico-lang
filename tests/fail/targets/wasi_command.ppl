@@ -1,0 +1,4 @@
+// target: wasm32-wasi
+// error: E0356
+// Spec §13.3: WASI has no processes to spawn.
+import { Command, args } from "std/process"

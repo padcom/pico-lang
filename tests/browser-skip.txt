@@ -6,3 +6,5 @@ run/process/         Command isn't available in the browser (spec §13.3)
 run/workers/         no threads in the browser yet
 run/net/             no sockets in the browser
 run/http/            no sockets in the browser (fetch through the browser's own: P8.8)
+run/time/date        reads the environment (std/process isn't available in the browser)
+run/test/runner      reads the environment (std/process isn't available in the browser)

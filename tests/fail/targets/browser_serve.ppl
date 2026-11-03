@@ -1,0 +1,4 @@
+// target: wasm32-browser
+// error: E0356
+// Spec §13.3: a browser program can't serve HTTP.
+import { serve } from "std/http"

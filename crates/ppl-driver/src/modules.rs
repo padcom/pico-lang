@@ -36,15 +36,25 @@ struct Loader<'s> {
     /// skips those modules; the second generates each one for all of them (decision 259).
     js_requests: BTreeMap<String, BTreeSet<String>>,
     js_names: Option<BTreeMap<String, BTreeSet<String>>>,
+    /// The target's `target.os`.
+    os: String,
 }
 
 /// Loads the modules the entry (already parsed, in `dir`) imports.
-pub fn load(sm: &mut SourceMap, entry: FileId, module: ast::Module, dir: &Path) -> Loaded {
-    let first = load_pass(sm, entry, module.clone(), dir, None);
+/// `os` is the target's (`target.os`): it picks platform files (spec §15.4) and decides what
+/// is available (spec §13.3).
+pub fn load(
+    sm: &mut SourceMap,
+    entry: FileId,
+    module: ast::Module,
+    dir: &Path,
+    os: &str,
+) -> Loaded {
+    let first = load_pass(sm, entry, module.clone(), dir, os, None);
     match first {
         Ok(loaded) => loaded,
         // `js:` imports: again, generating those modules.
-        Err(requests) => match load_pass(sm, entry, module, dir, Some(requests)) {
+        Err(requests) => match load_pass(sm, entry, module, dir, os, Some(requests)) {
             Ok(loaded) => loaded,
             Err(_) => unreachable!("the second pass generates js: modules"),
         },
@@ -56,6 +66,7 @@ fn load_pass(
     entry: FileId,
     module: ast::Module,
     dir: &Path,
+    os: &str,
     js_names: Option<BTreeMap<String, BTreeSet<String>>>,
 ) -> Result<Loaded, BTreeMap<String, BTreeSet<String>>> {
     let mut l = Loader {
@@ -70,6 +81,7 @@ fn load_pass(
         diags: Vec::new(),
         js_requests: BTreeMap::new(),
         js_names,
+        os: os.to_string(),
     };
     l.modules.entry = Some(entry);
     if let Ok(p) = dir.join(file_name(l.sm, entry)).canonicalize() {
@@ -176,6 +188,9 @@ impl Loader<'_> {
             }
             match &d.kind {
                 DeclKind::Import(imp) => {
+                    if self.unavailable(f, imp) {
+                        continue;
+                    }
                     if let Some(js) = imp.from.strip_prefix("js:") {
                         match &imp.kind {
                             ast::ImportKind::Named(names) => {
@@ -316,7 +331,18 @@ impl Loader<'_> {
             }
         }
         let base = clean;
-        let candidates = [base.with_extension("ppl"), base.join("index.ppl")];
+        // Platform files first (spec §15.4): `x.linux.ppl`, then `x.wasm.ppl` on wasm targets.
+        let file = base
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let mut candidates = vec![base.with_file_name(format!("{file}.{}.ppl", self.os))];
+        if self.os == "wasi" || self.os == "browser" {
+            candidates.push(base.with_file_name(format!("{file}.wasm.ppl")));
+        }
+        candidates.push(base.with_file_name(format!("{file}.ppl")));
+        candidates.push(base.join("index.ppl"));
         let Some(path) = candidates.iter().find(|p| p.is_file()) else {
             self.diags.push(
                 Diagnostic::error(
@@ -325,9 +351,12 @@ impl Loader<'_> {
                 )
                 .primary(span, "no such file")
                 .note(format!(
-                    "looked for `{}` and `{}`",
-                    candidates[0].display(),
-                    candidates[1].display()
+                    "looked for {}",
+                    candidates
+                        .iter()
+                        .map(|c| format!("`{}`", c.display()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )),
             );
             return None;
@@ -366,7 +395,76 @@ impl Loader<'_> {
     }
 }
 
+/// The target's name in messages.
+fn target_name(os: &str) -> &'static str {
+    match os {
+        "browser" => "wasm32-browser",
+        "wasi" => "wasm32-wasi",
+        "linux" => "Linux",
+        "macos" => "macOS",
+        _ => "Windows",
+    }
+}
+
+/// What a target doesn't have (spec §13.3): a whole module, or one of its names.
+fn unavailable_on(os: &str, spec: &str, name: Option<&str>) -> bool {
+    let browser = os == "browser";
+    match (spec, name) {
+        ("std/process", Some("Command")) => browser || os == "wasi",
+        ("std/fs" | "std/net" | "std/process", _) => browser,
+        ("std/http", Some("serve" | "HttpServer" | "upgradeWebSocket")) => browser,
+        ("std/js", _) => !browser,
+        _ => spec.starts_with("js:") && !browser,
+    }
+}
+
 impl Loader<'_> {
+    /// Reports an import of something the target doesn't have (spec §13.3), from the program's
+    /// own code (the standard library sorts out its own imports). True when the whole module
+    /// is unavailable (the import is then skipped).
+    fn unavailable(&mut self, f: FileId, imp: &ast::ImportDecl) -> bool {
+        // (A module's name is the specifier it was first loaded by.)
+        let lib = self
+            .modules
+            .names
+            .get(&f)
+            .is_some_and(|n| n.starts_with("std/") || n.starts_with("js:"));
+        if lib {
+            return false;
+        }
+        let target = target_name(&self.os);
+        let fix = "use a platform file (`x.wasm.ppl`, `x.linux.ppl`, …) or `comptime if (target.os == …)`";
+        if unavailable_on(&self.os, &imp.from, None) {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::UNAVAILABLE,
+                    format!("`{}` isn't available on {target}", imp.from),
+                )
+                .primary(imp.from_span, format!("not on {target}"))
+                .note(fix),
+            );
+            return true;
+        }
+        if let ast::ImportKind::Named(names) = &imp.kind {
+            for n in names {
+                if unavailable_on(&self.os, &imp.from, Some(&n.name.name)) {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::UNAVAILABLE,
+                            format!(
+                                "`{}` from `{}` isn't available on {target}",
+                                n.name.name, imp.from
+                            ),
+                        )
+                        .primary(n.name.span, format!("not on {target}"))
+                        .note(fix),
+                    );
+                }
+            }
+        }
+        false
+    }
+
     /// A `js:` module (spec §12.3): generated from TypeScript declarations for every name the
     /// program imports from it (none in the first pass).
     fn js_module(&mut self, from: FileId, js: &str, span: Span) -> Option<FileId> {

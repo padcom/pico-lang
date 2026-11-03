@@ -1,0 +1,6 @@
+// target: linux-x64
+// error: E0356
+// error: E0356
+// Spec §13.3: std/js and `js:` modules are only for wasm32-browser.
+import { js } from "std/js"
+import { document } from "js:dom"

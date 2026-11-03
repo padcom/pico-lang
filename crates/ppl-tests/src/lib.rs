@@ -14,6 +14,7 @@
 //! | `// at: 4:19` | position (line:col) of the preceding `error` |
 //! | `// native-only: why` | skip the interpreter (runtime checks only native code has) |
 //! | `// not-under-qemu: why` | pending when native runs would go through qemu-user |
+//! | `// target: wasm32-browser` | check for that target (`fail` only; spec §13.3 errors) |
 //!
 //! A directory containing `main.ppl` is one multi-file fixture; its other files are modules.
 //!
@@ -59,6 +60,9 @@ pub struct Directives {
     pub native_only: bool,
     /// `// not-under-qemu: reason`: something qemu-user doesn't emulate.
     pub not_under_qemu: Option<String>,
+    /// `// target: wasm32-browser`: checked for that target (`fail` only), whatever
+    /// `PPL_TEST_TARGET` says.
+    pub target: Option<String>,
 }
 
 impl Directives {
@@ -98,6 +102,7 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
                 | "at"
                 | "native-only"
                 | "not-under-qemu"
+                | "target"
         ) {
             continue;
         }
@@ -116,6 +121,7 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
             },
             "native-only" => d.native_only = true,
             "not-under-qemu" => d.not_under_qemu = Some(value.to_string()),
+            "target" => d.target = Some(value.to_string()),
             "exit" => match value.parse() {
                 Ok(code) if d.exit.is_none() => d.exit = Some(code),
                 Ok(_) => problems.push(format!("line {n}: more than one `exit` directive")),
@@ -256,8 +262,15 @@ pub fn run(f: &Fixture) -> Outcome {
     }
     let dir = f.path.parent().unwrap_or(Path::new("."));
     // Checked for the target the native runs build for (comptime sees `target`).
+    let target = match &directives.target {
+        Some(t) => match ppl_driver::Target::parse(t) {
+            Ok(t) => Some(t),
+            Err(e) => return Outcome::Fail(format!("bad target directive: {e}")),
+        },
+        None => test_target(),
+    };
     let opts = ppl_driver::BuildOptions {
-        target: test_target(),
+        target,
         ..Default::default()
     };
     let checked = ppl_driver::check_source_with(f.name.clone(), text, dir, opts);

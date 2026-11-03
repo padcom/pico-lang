@@ -1,0 +1,8 @@
+// target: wasm32-browser
+// error: E0356
+// error: E0356
+// error: E0356
+// Spec §13.3: std/fs, std/net and std/process aren't available in the browser.
+import { readText } from "std/fs"
+import { connect } from "std/net"
+import { args } from "std/process"

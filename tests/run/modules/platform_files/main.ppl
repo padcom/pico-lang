@@ -1,0 +1,10 @@
+// expect: true
+// expect: shared
+// Spec §15.4: `./plat` is `plat.<os>.ppl` when there is one, then `plat.wasm.ppl` on wasm
+// targets, then `plat.ppl`.
+import { platform } from "./plat"
+import { shared } from "./common"
+
+const expected = comptime if (target.os == "wasi" || target.os == "browser") "wasm" else target.os
+println(platform() == expected)
+println(shared())

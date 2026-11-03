@@ -113,6 +113,7 @@ codes! {
     COMPTIME_ARG = 353: "a `comptime` argument that isn't a constant",
     DECORATOR = 354: "an error reported by a decorator, or a decorator used wrongly",
     EXPORT_TYPE = 355: "an `@export`ed function whose signature can't cross to JavaScript or C",
+    UNAVAILABLE = 356: "a module or feature that isn't available on the target",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

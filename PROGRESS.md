@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.9: Platform files and conditionals** (see [PLAN.md](PLAN.md#p89-platform-files-and-conditionals)). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
+**P9.1: extern "C"** (see [PLAN.md](PLAN.md#p91-extern-c)). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Platform files and availability (P8.9, decision 260)**: candidates in `modules.rs` `module()` (`x.<os>.ppl`, `x.wasm.ppl`, `x.ppl`, `x/index.ppl`), checks in `Loader::unavailable`/`unavailable_on` (E0356), the loader takes `target.os` (`modules::load(…, os)`). Golden fail fixtures: `// target: <triple>`. `Worker` on WASI/browser isn't a compile error yet.
 - **std/js and `js:` imports (P8.8, decision 259)**: `stdlib/js.ppl` (`JsValue`, `JsError`, `JsObject`, `JsArg`, `js`, `__jsCallback`, `__jsCallRest`), `__io` 150–168 (`js_op` in `ppl_io.c` over the `ppl_js` imports; the glue's value table in `browser/glue.js`), `__math` 28–30 (double bits). `crates/ppl-driver/src/dts.rs` (parser + generator, `DEPTH` = 1), the two-pass loader in `modules.rs` (`js_requests`/`js_names`, `js_module`, `js_declarations`), `third_party/typescript/lib.dom.d.ts` (5.9.3). Tests: `tests/browser/js_values.*`, `tests/fail/js/`, `dts` unit test; demo `examples/browser-dom` (headless Chromium). The glue imports `js:npm/<package>` packages with `await import("<package>")` before instantiating (an import map or bundler resolves it in a browser); there's no test with a real package yet. Known compiler bug found on the way: passing a subclass instance where a union holding its base class is expected miscompiles (the interpreter hits `unreachable!` casting the object to `f64`).
 - **wasm32-browser (P8.6, decision 258)**: `crates/ppl-driver/src/browser.rs` (build, glue and `.d.ts` generation) and `browser/glue.js` (the template: WASI preview 1 shim, loop driver, export helpers); runtime `PPL_BROWSER` parts in `ppl_rt.c` (`ppl_start`, `ppl_resume`, `ppl_browser_pending`, `ppl_js_*` helpers), `__io` 138 (the loop hands its wait to the host), `ppl_gc_pin`/`unpin` (`ppl_gc.c`); `@export` in the resolver (`export_decorator`, `hir::Export`), wrappers in `lower.rs` (`export_wrappers`, `mir::Export`), symbols `ppl_js_<name>` (`ppl_codegen::export_symbol`). Tests: `PPL_TEST_TARGET=wasm32-browser` (golden, under Node.js 24+, skips in `tests/browser-skip.txt`), `crates/ppl-tests/tests/browser.rs` (`tests/browser/*.ppl` + `.mjs` + `.out`), `tests/fail/export/`. Demo: `examples/browser` (checked in headless Chromium). Not yet: arrays/enums/nullables/async/throwing functions at the boundary, methods on handle classes, `ppl run --target`. The module still imports the WASI socket functions (stubs that throw): `PPL_BROWSER` could leave the socket code out.
 - **TLS (P7.5b, decision 243)**: `runtime/src/ppl_tls.c` (sessions keyed by fd; `ppl_tls_start/read/write/close_notify/free`), native hooks in `ppl_io.c` (`write_all`, jobs 20/22 reads, job 36 handshake on a solo thread, 120 close_notify, 121 free), interpreter `TlsIo` and job 36 in `io.rs`. ppl: `Conn.__startTls` (`<core>/net.ppl`), https in `__fetchOnce`, `ServeOptions.cert/key` (`stdlib/http.ppl`), `wss:` in `<core>/websocket.ppl`, `RequestInit.caCerts`, `WebSocketOptions`. Test CA and certificate (valid until 2126) in `tests/run/http/data/` (read with `comptime.readFile`). Real sites work with the system roots (checked by hand against example.com and google.com). Not yet: client certificates, ALPN, Keychain/Windows stores, timeouts (a silent peer stalls a handshake), Windows.
@@ -273,7 +274,7 @@ Notes:
 - [x] P8.6 wasm32-browser (linear memory)
 - [ ] P8.7 WasmGC backend (deferred until after P9.3: a whole second backend, "later" in PLAN)
 - [x] P8.8 JS imports from .d.ts
-- [ ] P8.9 Platform files and conditionals
+- [x] P8.9 Platform files and conditionals
 
 ### Phase 9: C interop
 - [ ] P9.1 extern "C"
@@ -422,3 +423,4 @@ Notes:
 | 2026-11-03 | P8.5c | Done: CI run 41566424212 green on all 13 jobs (the adapter had been ignored as `*.wasm`; now vendored). P8.5 complete: every golden test available on WASI passes under wasmtime. |
 | 2026-11-03 | P8.6 | wasm32-browser on linear memory: wasi-libc runtime with `PPL_BROWSER`, ES module glue (WASI preview 1 shim, loop on browser timers via `__io` 138, `node app.js` runs it), `@export("js")` with struct copies and class handles, `app.d.ts`. Golden suite under Node.js (`PPL_TEST_TARGET=wasm32-browser`, CI job added) all pass but fs/process/workers/net/http; demo `examples/browser` checked in headless Chromium. Fixed: the GC's global-roots table lived in the entry's frame. Decision 258. P8.7 deferred until after P9.3. |
 | 2026-11-03 | P8.8 | `std/js` (`JsValue` handles, `JsError`, callbacks) and `js:dom`/`js:npm/…` imports generated from `.d.ts` files (TypeScript's `lib.dom.d.ts` vendored); DOM demo `examples/browser-dom` checked in headless Chromium. Decision 259. |
+| 2026-11-03 | P8.9 | Platform files (`x.<os>.ppl`, `x.wasm.ppl`) and §13.3 availability errors at imports (E0356): std/fs/net/process in the browser, `Command` on WASI, std/js and `js:` off the browser. Decision 260. |

@@ -135,7 +135,8 @@ pub fn check_source_with(
             span,
         },
     );
-    let mut loaded = modules::load(&mut sm, file, entry, dir);
+    let target_os = comptime_config(dir, &opts).os;
+    let mut loaded = modules::load(&mut sm, file, entry, dir, &target_os);
     diags.append(&mut loaded.diags);
     stmts.append(&mut loaded.stmts);
     module.stmts = stmts;

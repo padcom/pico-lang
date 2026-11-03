@@ -19,3 +19,5 @@ const y = new P(1, c: 2)
 const z = new P(1, 2, 3)
 const c = new Command("ls", stdout: "piped")
 const d = new Command("ls", cwd: 3)
+// (Checked for a native target: `Command` is a spec §13.3 error on wasm32.)
+// target: linux-x64

@@ -744,6 +744,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Do**: `x.linux.ppl`/`x.wasm.ppl` resolution, `target.*` at comptime, and the stdlib availability
   matrix enforced with clear errors.
 - **Done when**: fail tests cover importing `std/fs` for the browser.
+- **Done (decision 260)**: `tests/fail/targets/`, `tests/run/modules/platform_files`.
 
 ---
 
