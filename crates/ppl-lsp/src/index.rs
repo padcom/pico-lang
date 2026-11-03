@@ -243,8 +243,23 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
             b.expr(fid, t);
         }
     }
+    // (The resolver's links are exact: a name imported or exported under another name,
+    // `import { a as b }`, `export { __ClassDecl as ClassDecl }`, is its declaration's.)
+    let mut aliases: HashMap<String, String> = program.public_names.clone();
+    let mut resolved: HashSet<(Span, Span)> = HashSet::new();
     for &(at, def) in &program.name_refs {
         b.uses.push((at, def));
+        resolved.insert((at, def));
+        let (name, decl) = (sm.snippet(at), sm.snippet(def));
+        // Internal names (`__ClassDecl`) are shown as what their modules export them as.
+        if name != decl && decl.starts_with("__") && is_ident(name) {
+            aliases.insert(decl.to_string(), name.to_string());
+        }
+    }
+    if !aliases.is_empty() {
+        for h in b.decls.values_mut() {
+            *h = public_names(h, &aliases);
+        }
     }
     let mut refs = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -263,7 +278,13 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
     let mut links: Vec<(Span, Span)> = refs.iter().map(|r| (r.def, r.def)).collect();
     let mut linked: HashSet<(Span, Span)> = links.iter().copied().collect();
     for (at, def) in std::mem::take(&mut b.uses) {
-        if at.file != file || at.is_empty() || !same_name(sm.snippet(at), sm.snippet(def)) {
+        let name = sm.snippet(at);
+        let named = if resolved.contains(&(at, def)) {
+            is_ident(name)
+        } else {
+            same_name(name, sm.snippet(def))
+        };
+        if at.file != file || at.is_empty() || !named {
             continue;
         }
         let Some(hover) = b.decls.get(&def) else {
@@ -460,6 +481,17 @@ impl Builder<'_> {
         }
     }
 
+    /// A static member's name in `Class.name` (a name stays as it is).
+    fn last_part(&self, at: Span) -> Span {
+        let text = self.sm.snippet(at);
+        match text.rfind('.') {
+            Some(i) if is_ident(&text[i + 1..]) => {
+                Span::new(at.file, at.start + i as u32 + 1, at.end)
+            }
+            _ => at,
+        }
+    }
+
     fn fn_sig(&self, fid: hir::FnId) -> String {
         fn_sig(self.p, self.t, fid)
     }
@@ -515,10 +547,10 @@ impl Builder<'_> {
         match &e.kind {
             ExprKind::Var(v) => {
                 let def = self.var_span(fid, *v);
-                self.uses.push((e.span, def));
+                self.uses.push((self.last_part(e.span), def));
             }
             ExprKind::Fn(f) | ExprKind::FnAddr(f) => {
-                self.uses.push((e.span, self.fn_span(*f)));
+                self.uses.push((self.last_part(e.span), self.fn_span(*f)));
             }
             ExprKind::Member {
                 object, name_span, ..
@@ -656,6 +688,35 @@ fn same_name(at: &str, decl: &str) -> bool {
             .strip_prefix("__")
             .and_then(|r| r.split_once('_'))
             .is_some_and(|(_, m)| m == at)
+}
+
+fn is_ident(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+}
+
+/// A hover's signature with internal names replaced by their public ones (only in its code
+/// block; the doc comment stays as written).
+fn public_names(hover: &str, aliases: &HashMap<String, String>) -> String {
+    let (code, rest) = match hover.find("\n```") {
+        Some(i) => hover.split_at(i),
+        None => (hover, ""),
+    };
+    let mut out = String::new();
+    let mut word = String::new();
+    for c in code.chars().chain(std::iter::once('\0')) {
+        if c.is_alphanumeric() || c == '_' || c == '$' {
+            word.push(c);
+            continue;
+        }
+        out.push_str(aliases.get(&word).unwrap_or(&word));
+        word.clear();
+        if c != '\0' {
+            out.push(c);
+        }
+    }
+    out + rest
 }
 
 fn binding(kind: &str, name: &str, ty: Option<&Ty>) -> String {

@@ -123,7 +123,18 @@ pub fn check_source_with(
     dir: &Path,
     opts: BuildOptions,
 ) -> Checked {
-    check(name.into(), text.into(), dir, opts, false)
+    check(name.into(), text.into(), dir, opts, Mode::Build)
+}
+
+/// Like [`check_source_with`], for the language server: the program's decorator functions
+/// stay in it (as ordinary functions, not run), so the index covers their code.
+pub fn check_source_for_editor(
+    name: impl Into<String>,
+    text: impl Into<String>,
+    dir: &Path,
+    opts: BuildOptions,
+) -> Checked {
+    check(name.into(), text.into(), dir, opts, Mode::Editor)
 }
 
 /// The front end for the language server's index in code with errors: resolves and type
@@ -136,7 +147,7 @@ pub fn check_source_recovering(
     dir: &Path,
     opts: BuildOptions,
 ) -> Checked {
-    check(name.into(), text.into(), dir, opts, true)
+    check(name.into(), text.into(), dir, opts, Mode::Recovering)
 }
 
 /// With `PPL_TIMINGS=1`: how long each front-end stage takes, on stderr.
@@ -178,7 +189,18 @@ impl Timings {
     }
 }
 
-fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bool) -> Checked {
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Build,
+    /// [`check_source_for_editor`].
+    Editor,
+    /// [`check_source_recovering`] (for the editor too).
+    Recovering,
+}
+
+fn check(name: String, text: String, dir: &Path, opts: BuildOptions, mode: Mode) -> Checked {
+    let recover = mode == Mode::Recovering;
+    let editor = mode != Mode::Build;
     let mut t = Timings::new();
     // (Forget reads of an earlier check on this thread.)
     ppl_interp::comptime::take_files_read();
@@ -221,7 +243,8 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
     let mut expansion = decorators::Expansion::default();
     let cfg = comptime_config(dir, &opts);
     if !diags.iter().any(Diagnostic::is_error) {
-        expansion = decorators::expand(&mut sm, &mut module.stmts, &mut modules, file, &cfg);
+        expansion =
+            decorators::expand(&mut sm, &mut module.stmts, &mut modules, file, &cfg, editor);
         diags.append(&mut expansion.diags);
         comptime_output = std::mem::take(&mut expansion.log);
     }
@@ -259,6 +282,12 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
     expansion.annotate(&mut diags);
     // Report in source order, whichever pass found each problem.
     diags.sort_by_key(|d| d.main_span().map(|s| (s.file, s.start)));
+    // (Kept decorator functions, in the language server's analysis, are checked twice: in the
+    // decorators' program and in this one.)
+    if editor {
+        let mut seen = std::collections::HashSet::new();
+        diags.retain(|d| seen.insert((d.code, d.main_span(), d.message.clone())));
+    }
     Checked {
         sm,
         module,

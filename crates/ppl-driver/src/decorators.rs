@@ -51,13 +51,16 @@ struct Use {
 }
 
 /// Runs the decorators of `stmts` (the whole program, prelude first) and applies what they
-/// ask for. Decorator functions and their uses are removed.
+/// ask for. Their uses are removed, and so are decorator functions, unless `keep_functions`
+/// (the language server's analysis: the program's own decorator functions stay, as ordinary
+/// functions, so their code has hovers and links).
 pub fn expand(
     sm: &mut SourceMap,
     stmts: &mut Vec<ast::Stmt>,
     modules: &mut Modules,
     entry: FileId,
     cfg: &ppl_interp::comptime::Config,
+    keep_functions: bool,
 ) -> Expansion {
     let mut out = Expansion::default();
     // Decorator functions, by (module, name): the type their first parameter takes.
@@ -177,7 +180,13 @@ pub fn expand(
     let mut type_decorators = Vec::new();
     for mut st in std::mem::take(stmts) {
         if let StmtKind::Decl(d) = &mut st.kind {
-            if matches!(&d.kind, DeclKind::Function(f) if f.flags.decorator) {
+            if let DeclKind::Function(f) = &mut d.kind
+                && f.flags.decorator
+            {
+                if keep_functions && !modules.prelude.contains(&st.span.file) {
+                    f.flags.decorator = false;
+                    kept.push(st);
+                }
                 continue;
             }
             let file = st.span.file;

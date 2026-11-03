@@ -278,6 +278,16 @@ pub fn resolve_modules(
         }
     }
     let mut program = r.program(module);
+    for ex in modules.exports.values() {
+        for (exported, local) in ex {
+            if local.starts_with("__") && exported != local {
+                program
+                    .public_names
+                    .entry(local.clone())
+                    .or_insert_with(|| exported.clone());
+            }
+        }
+    }
     // Imported names, for the language server's index.
     for imp in &modules.imports {
         let Some(name) = &imp.name else { continue };
@@ -1011,6 +1021,7 @@ impl Resolver {
             externs: std::mem::take(&mut self.externs),
             links: std::mem::take(&mut self.links),
             name_refs: std::mem::take(&mut self.name_refs),
+            public_names: HashMap::new(),
         }
     }
 
@@ -5565,6 +5576,18 @@ impl Resolver {
                     .find(|(n, _)| *n == name)
                     .map(|(_, ids)| ids[0])
                     .expect("in the core library");
+                // (For the language server: `reflect` and `typeOf` are `__reflect`'s.)
+                if let ast::ExprKind::Member { object, prop, .. } = &callee.kind
+                    && let Some(id) = self
+                        .top_structs
+                        .prelude()
+                        .find(|(n, _)| *n == "__reflect")
+                        .map(|(_, id)| *id)
+                {
+                    let decl = self.structs[id.0 as usize].name_span;
+                    self.name_refs.push((object.span, decl));
+                    self.name_refs.push((prop.span, decl));
+                }
                 let type_args = type_args.iter().map(|t| self.resolve_type(t)).collect();
                 let callee = self.expr(ExprKind::Fn(f), callee.span);
                 let args = self.call_args(args);
@@ -5942,6 +5965,10 @@ impl Resolver {
             .find(|(n, _)| *n == prop.name)
             .map(|(_, f)| *f);
         let (field, method) = (def.static_field(&prop.name), def.static_method(&prop.name));
+        // (For the language server: `Class` links to its declaration; the index links the
+        // member, `Class.name`'s last part.)
+        self.name_refs.push((class.span, def.name_span));
+        let def = &self.structs[sid.0 as usize];
         let found = match (field, method) {
             (Some(g), _) => ExprKind::Var(Var::Global(g)),
             (_, Some(f)) => ExprKind::Fn(f),

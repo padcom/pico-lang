@@ -2,8 +2,11 @@
 // metadata where `reflect.typeOf` is used, for the types that can reach it; programs that don't
 // reflect pay nothing.
 
-/// `reflect.typeOf(value)` (the value's runtime class) and `reflect.typeOf<T>()`; the compiler
-/// rewrites both calls (`__reflectTypeOf`, `__reflectType`).
+// (The compiler rewrites both calls to `__reflectTypeOf` and `__reflectType`.)
+
+/// `reflect.typeOf(value)` describes the value's runtime class (a subclass of its static type
+/// for a class value), `reflect.typeOf<T>()` the type `T`; both as a `TypeInfo<T>`. Metadata
+/// is generated only for the types that reach `reflect.typeOf`.
 class __reflect {}
 
 /// A type, as the type of a field or an implemented interface shows it.

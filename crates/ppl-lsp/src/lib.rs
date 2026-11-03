@@ -415,7 +415,7 @@ fn check(uri: &str, text: &str) -> (BTreeMap<String, Vec<Value>>, Option<index::
     let mut out: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     out.insert(uri.to_string(), Vec::new());
     let checked = std::panic::catch_unwind(|| {
-        ppl_driver::check_source_with(
+        ppl_driver::check_source_for_editor(
             name.clone(),
             text.to_string(),
             &dir,

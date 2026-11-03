@@ -62,6 +62,10 @@ pub struct Program {
     /// language server's index: type names (types don't keep spans), `new C` and `S { … }`,
     /// imported names.
     pub name_refs: Vec<(Span, Span)>,
+    /// The core library's internal names that modules export under public ones
+    /// (`__ClassDecl` → `ClassDecl`, from `std/meta`'s `export { __ClassDecl as ClassDecl }`),
+    /// for the language server's hovers.
+    pub public_names: HashMap<String, String>,
 }
 
 /// A function declared in an `extern "C"` block: calls go to the C symbol.

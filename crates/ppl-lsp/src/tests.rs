@@ -1154,3 +1154,75 @@ fn implementations_across_the_project() {
     assert_eq!(found(4), [("main.ppl".into(), 1)]);
     assert!(response(&out, 5).is_null());
 }
+
+/// Names a module exports under another name (`std/meta`'s `export { __ClassDecl as
+/// ClassDecl }`) have hovers, under the public names; so do static members (`ast.string`),
+/// `reflect.typeOf`, and the code of decorator functions.
+#[test]
+fn hover_exported_aliases_and_decorators() {
+    let dir = tmp("meta-hover");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let text = "import { ClassDecl, ast } from \"std/meta\"\nimport { reflect } from \"std/reflect\"\nfunction f(c: ClassDecl): string { c.addMethod(ast.string(c.name)); c.name }\ndecorator function mark(c: ClassDecl) { c.addField(\"x = 1\") }\n@mark\nclass A {}\nprintln(reflect.typeOf(new A()).name)\nconst t = reflect.typeOf(new A())\nprintln(t.fields.length)\n";
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, text, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        h(2, "ClassDecl", 0, 0),
+        h(3, "ClassDecl", 1, 0),
+        h(4, "addMethod", 0, 0),
+        h(5, "ast", 1, 0),
+        h(6, "ast.string", 0, 4),
+        h(7, "typeOf", 0, 0),
+        h(8, "fields", 0, 0),
+        h(9, "addField", 0, 0),
+        h(10, "ClassDecl", 2, 0),
+    ]);
+    let t = |id| hover_text(&out, id);
+    assert!(
+        t(2).starts_with("```ppl\nclass ClassDecl\n```\n\nA decorated class"),
+        "{}",
+        t(2)
+    );
+    assert_eq!(t(3), t(2));
+    assert!(
+        t(4).starts_with(
+            "```ppl\n(method) ClassDecl.addMethod(code: string): void\n```\n\nAdds a method"
+        ),
+        "{}",
+        t(4)
+    );
+    assert!(
+        t(5).starts_with("```ppl\nclass ast\n```\n\nThe AST builder"),
+        "{}",
+        t(5)
+    );
+    assert!(
+        t(6).starts_with("```ppl\n(method) ast.string(s: string): string\n```"),
+        "{}",
+        t(6)
+    );
+    assert!(
+        t(7).starts_with("```ppl\nclass reflect\n```\n\n`reflect.typeOf(value)`"),
+        "{}",
+        t(7)
+    );
+    assert!(
+        t(8).starts_with("```ppl\n(field) TypeInfo.fields: Field<T>[]\n```"),
+        "{}",
+        t(8)
+    );
+    // Inside a decorator function.
+    assert!(
+        t(9).starts_with("```ppl\n(method) ClassDecl.addField("),
+        "{}",
+        t(9)
+    );
+    assert_eq!(t(10), t(2));
+    // Kept for the index, the decorator isn't reported twice or as unused.
+    let diags: Vec<&Value> = out
+        .iter()
+        .filter(|m| m["method"] == "textDocument/publishDiagnostics")
+        .flat_map(|m| m["params"]["diagnostics"].as_array().unwrap())
+        .collect();
+    assert!(diags.is_empty(), "{diags:#?}");
+}
