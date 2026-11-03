@@ -28,7 +28,7 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Iface(..) => out.push(base as u32),
             // `{ fn, env }`: a closure without captures has no environment, which the
             // interpreter can't tell apart, so roots dumps leave environments out.
-            Ty::Fn(..) => out.push((base + 8) as u32 | REF_HIDDEN),
+            Ty::Fn(..) => out.push((base + self.ptr) as u32 | REF_HIDDEN),
             Ty::Nullable(inner) if inner.is_ref() => self.ref_words(inner, base, out),
             Ty::Nullable(inner) => {
                 let at = Self::part_offsets(&[(1, 1), self.size_align(inner)])[1];
@@ -56,9 +56,11 @@ impl<'ctx> Gen<'ctx, '_> {
             // The payload words depend on the variant: all of them are scanned, and the
             // collector ignores words that aren't heap pointers.
             Ty::Enum(..) if self.p.traced(t) => {
-                let words = (self.size_align(t).0 - 8) / 8;
+                // (Pointer-sized words: a 4-byte pointer may sit in either half of a
+                // payload word on wasm32.)
+                let words = (self.size_align(t).0 - 8) / self.ptr;
                 for w in 0..words {
-                    out.push((base + 8 + 8 * w) as u32 | REF_HIDDEN);
+                    out.push((base + 8 + self.ptr * w) as u32 | REF_HIDDEN);
                 }
             }
             Ty::Lits(..)
@@ -179,7 +181,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 let g = self.m.add_global(t, None, name);
                 g.set_linkage(Linkage::External);
                 // Per thread: every worker has its own heap and shadow stack.
-                g.set_thread_local(true);
+                g.set_thread_local(self.threads());
                 g.as_pointer_value()
             }
         }
@@ -211,7 +213,7 @@ impl<'ctx> Gen<'ctx, '_> {
         fields.extend(rooted.iter().map(|i| self.elem_ty(&func.locals[*i].ty)));
         let frame_ty = self.cx.struct_type(&fields, false);
         let frame = self.b.build_alloca(frame_ty, "gc.frame").unwrap();
-        let mut sizes = vec![(8, 8), (8, 8)];
+        let mut sizes = vec![(self.ptr, self.ptr), (self.ptr, self.ptr)];
         sizes.extend(rooted.iter().map(|i| self.size_align(&func.locals[*i].ty)));
         let offsets = Self::part_offsets(&sizes);
         // The map: function name, then per root its name, layout and offset.

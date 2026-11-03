@@ -1,0 +1,10 @@
+# Golden fixtures (name prefixes) that wasm32-wasi can't run yet, with the task that makes them
+# work or why they never will. `PPL_TEST_TARGET=wasm32-wasi` reports them as pending.
+run/fs/              P8.5b
+run/path.ppl         P8.5b (the working directory)
+run/time/            P8.5b (named zones: the bundled database)
+run/fmt/formattable  P8.5b (named zones)
+run/process/         Command isn't available on WASI (spec §13.3)
+run/net/             P8.5c
+run/http/            P8.5c
+run/workers/         no threads on WASI (spec §13.3)

@@ -37,6 +37,8 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#elif defined(__wasi__)
+#include <sys/random.h> /* getentropy */
 #endif
 
 void *ppl_loop_waker(void);
@@ -2652,10 +2654,108 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     default: return -1;
     }
 }
+#elif defined(__wasi__)
+/* ---- wasm32-wasi: no I/O yet (P8.5b: files, clocks and the loop; P8.5c: sockets). Jobs end
+ * at once with ENOSYS. ---- */
+
+static void fail_with(Job *j, int en) {
+    errno = en;
+    fail(j);
+}
+
+static int fs_info(const char *path, int follow, Info *out) {
+    (void)path, (void)follow, (void)out;
+    errno = ENOSYS;
+    return -1;
+}
+
+struct DirIter {
+    int unused;
+};
+
+static DirIter *dir_open(const char *path) {
+    (void)path;
+    errno = ENOSYS;
+    return NULL;
+}
+
+static const char *dir_next(DirIter *d) {
+    (void)d;
+    return NULL;
+}
+
+static void dir_close(DirIter *d) { (void)d; }
+
+static void wake_open(Watcher *w) { (void)w; }
+static void wake_signal(Watcher *w) { (void)w; }
+static void wake_close(Watcher *w) { (void)w; }
+static void wait_os(Watcher *w, int ms) { (void)w, (void)ms; }
+
+static void run(Job *j) { fail_with(j, ENOSYS); }
+
+static void net_run(Job *j) { fail_with(j, ENOSYS); }
+
+static void os_submit(Job *j) {
+    fail_with(j, ENOSYS);
+    finish(j);
+}
+
+extern int ppl_argc;
+extern char **ppl_argv;
+extern char **environ;
+
+/* This process (spec §13.3's availability table: args, env and exit work on WASI). */
+static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s,
+                     const PplStr *t) {
+    (void)b, (void)c;
+    switch (op) {
+    case 113: { /* the arguments, each followed by a NUL */
+        Job *j = result_job(q);
+        text_add(j, "", 0);
+        for (int i = 1; i < ppl_argc; i++) text_add(j, ppl_argv[i], strlen(ppl_argv[i]) + 1);
+        return j->id;
+    }
+    case 114: { /* getenv(s): r = 1 when set, text = its value */
+        Job *j = result_job(q);
+        char *name = cstr(s, NULL);
+        const char *v = getenv(name);
+        free(name);
+        j->r = v != NULL;
+        if (v) text_add(j, v, strlen(v));
+        return j->id;
+    }
+    case 115: { /* setenv(s, t) */
+        char *name = cstr(s, NULL), *value = cstr(t, NULL);
+        int r = setenv(name, value, 1);
+        free(name);
+        free(value);
+        return r;
+    }
+    case 116: { /* unsetenv(s) */
+        char *name = cstr(s, NULL);
+        int r = unsetenv(name);
+        free(name);
+        return r;
+    }
+    case 117: { /* every variable: "NAME=value\0" each */
+        Job *j = result_job(q);
+        text_add(j, "", 0);
+        for (char **e = environ; e && *e; e++) text_add(j, *e, strlen(*e) + 1);
+        return j->id;
+    }
+    case 118: /* exit(a) */
+        fflush(stdout);
+        fflush(stderr);
+        exit((int)a);
+    case 119: return 1; /* (WASI has no process ids) */
+    default: return -1;
+    }
+}
 #else
 #error "ppl_io.c: no I/O for this platform"
 #endif
 
+#if !defined(__wasi__) /* (sockets on WASI: P8.5c) */
 /* ---- `std/net` (spec §13.4) ----
  * Every operation that may block (accept, connect, receiving, sending, resolving) is a job on
  * a thread of its own. Reading and writing a TCP stream are the pipe jobs (20–22). Closing
@@ -2880,6 +2980,8 @@ static void net_run(Job *j) {
     }
 }
 
+#endif
+
 /* Fills `p` with `n` bytes from the system's randomness; 0 if there's none. */
 static int random_bytes(char *p, size_t n) {
 #if defined(_WIN32)
@@ -2887,6 +2989,11 @@ static int random_bytes(char *p, size_t n) {
         unsigned v;
         if (rand_s(&v) != 0) return 0;
         memcpy(p + i, &v, n - i < 4 ? n - i : 4);
+    }
+    return 1;
+#elif defined(__wasi__)
+    for (size_t i = 0; i < n; i += 256) {
+        if (getentropy(p + i, n - i < 256 ? n - i : 256) != 0) return 0;
     }
     return 1;
 #else

@@ -38,6 +38,13 @@ unsafe extern "C" {
 /// recover from.
 static LOCK: Mutex<bool> = Mutex::new(true);
 
+/// Holds off links: lld resets LLVM's command-line options to their defaults at every link
+/// (to parse its own `-mllvm` flags), so code generation that sets options of its own (wasm's
+/// setjmp lowering) must not overlap one.
+pub fn lock() -> std::sync::MutexGuard<'static, bool> {
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Runs `ld.lld` with these arguments (without the program name). On failure, the error is
 /// lld's output.
 pub fn link_elf(args: &[String]) -> Result<(), String> {
@@ -52,6 +59,11 @@ pub fn link_coff(args: &[String]) -> Result<(), String> {
 /// Runs `ld64.lld` (the Mach-O linker, ld64-style arguments).
 pub fn link_macho(args: &[String]) -> Result<(), String> {
     link("ld64.lld", args)
+}
+
+/// Runs `wasm-ld` (the WebAssembly linker).
+pub fn link_wasm(args: &[String]) -> Result<(), String> {
+    link("wasm-ld", args)
 }
 
 fn link(flavor: &str, args: &[String]) -> Result<(), String> {
@@ -99,6 +111,10 @@ fn run(cs: &[CString], usable: &mut bool) -> Result<(), String> {
     let code = unsafe { ppl_lld_link(ptrs.as_ptr(), ptrs.len() as i32, &mut out, &mut again) };
     let text = take(out);
     *usable = again != 0;
+    // `PPL_LINK_WARNINGS=1` shows what lld says about a link that succeeds.
+    if code == 0 && !text.is_empty() && std::env::var_os("PPL_LINK_WARNINGS").is_some() {
+        eprint!("{text}");
+    }
     if code == 0 { Ok(()) } else { Err(text) }
 }
 

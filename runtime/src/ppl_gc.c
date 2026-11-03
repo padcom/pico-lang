@@ -57,8 +57,11 @@ typedef struct Obj {
     const PplLayout *layout; /* NULL: no references */
     uint32_t size;           /* payload bytes */
     uint8_t flags;
-    uint8_t pad[3];
+    /* 16 bytes on every target (4-byte pointers on wasm32), so sizes stay multiples of the
+     * 16-byte granule and payloads 16-byte aligned. */
+    uint8_t pad[3 + 8 - sizeof(void *)];
 } Obj;
+_Static_assert(sizeof(Obj) == 16, "object headers are 16 bytes");
 
 enum {
     F_ALLOC = 1,
@@ -158,7 +161,8 @@ static void table_put(uintptr_t k, Block *b) {
 }
 
 static Block *table_get(uintptr_t k) {
-    if (k >> (LEAF_BITS + ROOT_BITS) || !block_table) return NULL;
+    /* (In 64 bits: shifting a 32-bit `uintptr_t` by 32, on wasm32, is undefined.) */
+    if ((uint64_t)k >> (LEAF_BITS + ROOT_BITS) || !block_table) return NULL;
     Block **leaf = block_table[k >> LEAF_BITS];
     return leaf ? leaf[k & (((uintptr_t)1 << LEAF_BITS) - 1)] : NULL;
 }

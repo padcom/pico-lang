@@ -14,7 +14,31 @@
  *  10xx ECDSA verify [hash:u32, public, message, r ‖ s] → 1 byte (1 valid, 0 not)
  *  11xx ECDH [private, peer public] → shared secret
  */
+#define _POSIX_C_SOURCE 200809L /* clock_gettime (WASI) */
 #include "ppl_crypto.h"
+
+#if defined(__wasi__)
+#include <sys/random.h> /* getentropy */
+#include <time.h>
+
+#include "mbedtls/platform_time.h"
+
+/* Mbed TLS's millisecond clock on WASI (MBEDTLS_PLATFORM_MS_TIME_ALT). */
+mbedtls_ms_time_t mbedtls_ms_time(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (mbedtls_ms_time_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+/* Mbed TLS's entropy source on WASI (MBEDTLS_ENTROPY_HARDWARE_ALT). */
+int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen) {
+    (void)data;
+    size_t n = len < 256 ? len : 256;
+    if (getentropy(output, n) != 0) return -1;
+    *olen = n;
+    return 0;
+}
+#endif
 
 #include <stdlib.h>
 #include <string.h>

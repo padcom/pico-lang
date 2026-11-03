@@ -126,6 +126,11 @@ fn has_storage(t: &Ty) -> bool {
 impl Program {
     /// Size and alignment in bytes, as LLVM lays the type out on 64-bit targets.
     pub fn size_align(&self, t: &Ty) -> (u64, u64) {
+        self.size_align_with(t, 8)
+    }
+
+    /// Size and alignment in bytes on a target whose pointers take `ptr` bytes (4 on wasm32).
+    pub fn size_align_with(&self, t: &Ty, ptr: u64) -> (u64, u64) {
         match t {
             Ty::Int(it) => {
                 let b = u64::from(it.bits() / 8);
@@ -134,10 +139,10 @@ impl Program {
             Ty::Float(FloatTy::F32) | Ty::Char => (4, 4),
             Ty::Float(FloatTy::F64) => (8, 8),
             Ty::Bool => (1, 1),
-            Ty::Str | Ty::Array(_) | Ty::Ref(_) | Ty::Class(..) => (8, 8),
-            Ty::Iface(..) | Ty::Fn(..) => (16, 8),
-            Ty::Nullable(inner) if inner.is_ref() => (8, 8),
-            Ty::Nullable(inner) => struct_layout(&[(1, 1), self.size_align(inner)]),
+            Ty::Str | Ty::Array(_) | Ty::Ref(_) | Ty::Class(..) => (ptr, ptr),
+            Ty::Iface(..) | Ty::Fn(..) => (2 * ptr, ptr),
+            Ty::Nullable(inner) if inner.is_ref() => (ptr, ptr),
+            Ty::Nullable(inner) => struct_layout(&[(1, 1), self.size_align_with(inner, ptr)]),
             Ty::Struct(sid, _, args) => {
                 let owner = Ty::type_owner(*sid);
                 let parts: Vec<(u64, u64)> = self
@@ -146,12 +151,13 @@ impl Program {
                     .iter()
                     .map(|(_, t)| t.subst(owner, args))
                     .filter(has_storage)
-                    .map(|t| self.size_align(&t))
+                    .map(|t| self.size_align_with(&t, ptr))
                     .collect();
                 struct_layout(&parts)
             }
             Ty::Tuple(ts) => {
-                let parts: Vec<(u64, u64)> = ts.iter().map(|t| self.size_align(t)).collect();
+                let parts: Vec<(u64, u64)> =
+                    ts.iter().map(|t| self.size_align_with(t, ptr)).collect();
                 struct_layout(&parts)
             }
             Ty::Range(it) => {
@@ -159,7 +165,7 @@ impl Program {
                 (3 * b, b)
             }
             Ty::Fixed(e, n) => {
-                let (s, a) = self.size_align(e);
+                let (s, a) = self.size_align_with(e, ptr);
                 (s * n, a)
             }
             Ty::FixedN(..) => unreachable!("a `comptime` length outside generic code"),
@@ -169,8 +175,11 @@ impl Program {
                     .variants
                     .iter()
                     .map(|v| {
-                        let parts: Vec<(u64, u64)> =
-                            v.fields.iter().map(|(_, t)| self.size_align(t)).collect();
+                        let parts: Vec<(u64, u64)> = v
+                            .fields
+                            .iter()
+                            .map(|(_, t)| self.size_align_with(t, ptr))
+                            .collect();
                         struct_layout(&parts).0.div_ceil(8)
                     })
                     .max()
@@ -185,7 +194,7 @@ impl Program {
             | Ty::Union(..)
             | Ty::Variant(..)
             | Ty::Distinct(..)
-            | Ty::Immutable(_) => self.size_align(&t.erase()),
+            | Ty::Immutable(_) => self.size_align_with(&t.erase(), ptr),
             Ty::Void | Ty::Never | Ty::Error | Ty::Null | Ty::Param(..) => (1, 1),
         }
     }

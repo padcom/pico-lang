@@ -468,10 +468,29 @@ fn build(
             print!("{}", ppl_mir::dump(mir));
             ExitCode::SUCCESS
         }
-        Some("llvm-ir") => {
-            print!("{}", ppl_codegen::emit_llvm_ir(mir));
-            ExitCode::SUCCESS
-        }
+        // (Without `--target`, the IR is the target-independent form the snapshot tests use.)
+        Some("llvm-ir") => match opts.target {
+            None => {
+                print!("{}", ppl_codegen::emit_llvm_ir(mir));
+                ExitCode::SUCCESS
+            }
+            Some(t) => {
+                let o = ppl_codegen::Options {
+                    optimize: opts.release,
+                    triple: Some(t.llvm_triple()),
+                };
+                match ppl_codegen::emit_llvm_ir_for(mir, o) {
+                    Ok(ir) => {
+                        print!("{ir}");
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        ExitCode::FAILURE
+                    }
+                }
+            }
+        },
         Some(other) => {
             eprintln!("error: unknown --emit form `{other}` (expected `mir` or `llvm-ir`)");
             ExitCode::from(2)

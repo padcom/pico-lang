@@ -17,6 +17,7 @@ mod mingw;
 mod modules;
 mod musl;
 pub mod target;
+mod wasi;
 
 pub use modules::stdlib_dir;
 pub use target::Target;
@@ -369,25 +370,33 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     }
     let target = opts.target.unwrap_or_else(Target::host);
     // (A macOS host still links its own programs with `cc`: lld is optional there.)
-    let lld = matches!(target.os, target::Os::Linux | target::Os::Windows)
-        || (target.os == target::Os::Macos && !target.is_host());
+    let lld = matches!(
+        target.os,
+        target::Os::Linux | target::Os::Windows | target::Os::Wasi
+    ) || (target.os == target::Os::Macos && !target.is_host());
     if !lld && !target.is_host() {
         return Err(format!("building for {target} isn't supported yet"));
     }
     let obj = exe.with_extension("o");
-    ppl_codegen::emit_object(
-        mir,
-        &obj,
-        ppl_codegen::Options {
-            optimize: opts.release,
-            triple: (!target.is_host()).then(|| target.llvm_triple()),
-        },
-    )?;
+    {
+        // (wasm code generation sets LLVM options that a concurrent lld link would reset.)
+        let _no_links = (target.arch == target::Arch::Wasm32).then(ppl_lld::lock);
+        ppl_codegen::emit_object(
+            mir,
+            &obj,
+            ppl_codegen::Options {
+                optimize: opts.release,
+                triple: (!target.is_host()).then(|| target.llvm_triple()),
+            },
+        )?;
+    }
     if lld {
         let r = if target.os == target::Os::Windows {
             link::link_windows(target, &obj, exe)
         } else if target.os == target::Os::Macos {
             link::link_macos(target, &obj, exe, !opts.release)
+        } else if target.os == target::Os::Wasi {
+            link::link_wasi(target, &obj, exe)
         } else {
             link::link_linux(target, &obj, exe, !opts.release)
         };

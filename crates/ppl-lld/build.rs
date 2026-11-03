@@ -35,7 +35,14 @@ fn main() {
         "cargo:rustc-link-search=native={}",
         lld.join("lib").display()
     );
-    for l in ["lldELF", "lldCOFF", "lldMinGW", "lldMachO", "lldCommon"] {
+    for l in [
+        "lldELF",
+        "lldCOFF",
+        "lldMinGW",
+        "lldMachO",
+        "lldWasm",
+        "lldCommon",
+    ] {
         println!("cargo:rustc-link-lib=static={l}");
     }
     println!("cargo:rustc-cfg=ppl_lld");

@@ -118,5 +118,9 @@ These come with the tasks that need them (ask before installing):
 
 - **lld on macOS**: Homebrew's `llvm@23` doesn't ship it (the separate `lld` formula, pointed to
   by `PPL_LLD_PREFIX`). Needed by P8.4 at the latest.
-- **wasmtime**: P8.5.
+- **wasmtime** 50.0.1 (P8.5a), for running `wasm32-wasi` programs: the official release binary in
+  `~/.local/bin` (no root; its GitHub build attestation checked with
+  `gh attestation verify <tarball> --repo bytecodealliance/wasmtime`). CI installs the same
+  version. Programs need Wasm exception handling: `wasmtime run -W exceptions=y prog.wasm`
+  (`PPL_TEST_TARGET=wasm32-wasi cargo test -p ppl-tests --test golden` runs them that way).
 - **Wine**: optional, for running Windows test binaries (P8.3).

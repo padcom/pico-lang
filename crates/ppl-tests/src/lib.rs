@@ -175,6 +175,8 @@ pub struct Fixture {
     /// Path relative to the tests root, for display (`run/hello.ppl`).
     pub name: String,
     pub kind: Kind,
+    /// The tests directory it was found in.
+    pub root: PathBuf,
 }
 
 /// Finds every fixture under `root/run` and `root/fail`, sorted by name.
@@ -217,7 +219,12 @@ fn fixture(path: PathBuf, root: &Path, kind: Kind) -> Fixture {
         .unwrap_or(&path)
         .to_string_lossy()
         .replace('\\', "/");
-    Fixture { path, name, kind }
+    Fixture {
+        path,
+        name,
+        kind,
+        root: root.to_path_buf(),
+    }
 }
 
 #[derive(Debug)]
@@ -240,6 +247,13 @@ pub fn run(f: &Fixture) -> Outcome {
             return Outcome::Fail(format!("bad directives:\n  {}", problems.join("\n  ")));
         }
     };
+    if let Some(t) = test_target()
+        && let Some((_, why)) = target_skips(&f.root, t)
+            .into_iter()
+            .find(|(p, _)| f.name.starts_with(p.as_str()))
+    {
+        return Outcome::Pending(format!("not on {t} yet: {why}"));
+    }
     let dir = f.path.parent().unwrap_or(Path::new("."));
     // Checked for the target the native runs build for (comptime sees `target`).
     let opts = ppl_driver::BuildOptions {
@@ -315,9 +329,22 @@ fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, Str
     };
     let exe = ppl_driver::build_cached(checked, opts)?;
     let dir = TempDir::new();
-    let mut cmd = std::process::Command::new(&exe);
+    let wasi = target.is_some_and(|t| t.os == ppl_driver::target::Os::Wasi);
+    let mut cmd = if wasi {
+        // A WASI module runs under wasmtime, with Wasm exception handling (`try`, panics);
+        // it sees no environment variables but those passed in.
+        let mut c = std::process::Command::new("wasmtime");
+        c.args(["run", "-W", "exceptions=y"]);
+        if gc_stress {
+            c.args(["--env", "PPL_GC_STRESS=1"]);
+        }
+        c.arg(&exe);
+        c
+    } else {
+        std::process::Command::new(&exe)
+    };
     cmd.current_dir(&dir.0);
-    if let Some(t) = target.filter(|t| !t.is_host()) {
+    if let Some(t) = target.filter(|t| !t.is_host() && !wasi) {
         let prefix = PathBuf::from(format!("/usr/{}", t.multiarch()));
         if prefix.is_dir() {
             cmd.env("QEMU_LD_PREFIX", prefix);
@@ -674,10 +701,30 @@ pub fn run_all(root: &Path, filter: Option<&str>) -> Report {
     report
 }
 
+/// What a target can't run yet: `tests/<os>-skip.txt` (`windows`, `wasi`) lists name prefixes,
+/// each with the task or reason; (prefix, why).
+pub fn target_skips(root: &Path, target: ppl_driver::Target) -> Vec<(String, String)> {
+    let file = match target.os {
+        ppl_driver::target::Os::Windows => "windows-skip.txt",
+        ppl_driver::target::Os::Wasi => "wasi-skip.txt",
+        _ => return Vec::new(),
+    };
+    std::fs::read_to_string(root.join(file))
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+        .filter_map(|l| {
+            let mut it = l.splitn(2, char::is_whitespace);
+            let prefix = it.next()?.to_string();
+            Some((prefix, it.next().unwrap_or("").trim().to_string()))
+        })
+        .collect()
+}
+
 /// Builds every run fixture for `target` into `out` without running it: `<name>.exe` (or no
 /// extension) and `<name>.expect` for `ppl-golden-run`, which checks them on a machine that can
 /// run them (Windows in CI). `<name>` is the fixture name with `/` as `__`. Fixtures listed in
-/// `tests/windows-skip.txt` are left out for Windows targets, interpreter-only checks always.
+/// [`target_skips`] are left out, interpreter-only checks always.
 /// Returns how many were exported and the fixtures that failed to build.
 pub fn export_all(
     root: &Path,
@@ -685,16 +732,10 @@ pub fn export_all(
     target: ppl_driver::Target,
     out: &Path,
 ) -> (usize, Vec<(String, String)>) {
-    let skip: Vec<String> = if target.os == ppl_driver::target::Os::Windows {
-        std::fs::read_to_string(root.join("windows-skip.txt"))
-            .unwrap_or_default()
-            .lines()
-            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
-            .filter_map(|l| l.split_whitespace().next().map(str::to_string))
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let skip: Vec<String> = target_skips(root, target)
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect();
     std::fs::create_dir_all(out).expect("export directory");
     let (mut n, mut failed) = (0, Vec::new());
     for f in discover(root) {

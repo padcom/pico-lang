@@ -1,5 +1,5 @@
 // What ppl needs from lld and LLVM's COFF support: run a linker in-process (ELF, COFF for
-// Windows, Mach-O for macOS), and write a Windows import library from a module-definition (.def) file.
+// Windows, Mach-O for macOS, wasm), and write a Windows import library from a module-definition (.def) file.
 #include "lld/Common/Driver.h"
 #include "llvm/Object/COFFImportFile.h"
 #include "llvm/Object/COFFModuleDefinition.h"
@@ -13,6 +13,7 @@ LLD_HAS_DRIVER(elf)
 LLD_HAS_DRIVER(coff)
 LLD_HAS_DRIVER(mingw)
 LLD_HAS_DRIVER(macho)
+LLD_HAS_DRIVER(wasm)
 
 static char *copy_out(const std::string &text) {
     char *out = new char[text.size() + 1];
@@ -22,7 +23,7 @@ static char *copy_out(const std::string &text) {
 }
 
 // Links with `argv`; argv[0] names the flavor, as for the executables (`ld.lld`, `lld-link`,
-// `ld64.lld`).
+// `ld64.lld`, `wasm-ld`).
 // Returns lld's exit code; its messages go to `*out` (freed with ppl_lld_free).
 extern "C" int ppl_lld_link(const char *const *argv, int argc, char **out, int *can_run_again) {
     std::vector<const char *> args(argv, argv + argc);
@@ -32,7 +33,8 @@ extern "C" int ppl_lld_link(const char *const *argv, int argc, char **out, int *
                                  {{lld::Gnu, &lld::elf::link},
                                   {lld::WinLink, &lld::coff::link},
                                   {lld::MinGW, &lld::mingw::link},
-                                  {lld::Darwin, &lld::macho::link}});
+                                  {lld::Darwin, &lld::macho::link},
+                                  {lld::Wasm, &lld::wasm::link}});
     os.flush();
     *out = copy_out(text);
     *can_run_again = r.canRunAgain;

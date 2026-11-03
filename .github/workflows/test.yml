@@ -36,19 +36,33 @@ jobs:
       - name: scripts/test.sh
         run: scripts/test.sh
 
-  # The golden suite's native runs for other targets: linux-x64 under qemu-user, and musl.
+  # The golden suite's native runs for other targets: linux-x64 under qemu-user, musl, and
+  # wasm32-wasi under wasmtime.
   golden:
     name: golden (${{ matrix.target }})
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:
-        target: [linux-x64, linux-arm64-musl]
+        target: [linux-x64, linux-arm64-musl, wasm32-wasi]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install LLVM 23
         run: scripts/ci-install-linux.sh
+
+      # The version the development VM uses (docs/DEVELOPMENT.md).
+      - name: Install wasmtime
+        if: matrix.target == 'wasm32-wasi'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=v50.0.1
+          gh release download $v --repo bytecodealliance/wasmtime \
+            --pattern "wasmtime-$v-aarch64-linux.tar.xz" --dir /tmp
+          gh attestation verify /tmp/wasmtime-$v-aarch64-linux.tar.xz --repo bytecodealliance/wasmtime
+          tar -xJf /tmp/wasmtime-$v-aarch64-linux.tar.xz -C /tmp
+          echo /tmp/wasmtime-$v-aarch64-linux >> "$GITHUB_PATH"
 
       - uses: Swatinem/rust-cache@v2
         with:

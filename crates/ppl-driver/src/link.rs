@@ -83,6 +83,31 @@ pub fn link_macos(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), 
     ppl_lld::link_macho(&args).map_err(|e| format!("linking failed:\n{e}"))
 }
 
+/// Links `obj` with the runtime into the module `exe` for `wasm32-wasi` (P8.5a): wasi-libc's
+/// start file (it calls `main`), then the program, the runtime, wasi-libc and compiler-rt as
+/// needed. An 8 MiB stack: wasm's default 64 KiB is too little for deep recursion.
+pub fn link_wasi(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
+    let cc = clang()?;
+    let wasi = crate::wasi::libc(t, cc)?;
+    let runtime = runtime_objects(t, &crate::wasi::runtime_libc(cc))?;
+    let builtins = crate::builtins::objects(t, cc)?;
+    let mut args: Vec<String> = vec![
+        "-z".into(),
+        "stack-size=8388608".into(),
+        "--gc-sections".into(),
+        "-o".into(),
+        exe.display().to_string(),
+        wasi.start.display().to_string(),
+        obj.display().to_string(),
+    ];
+    for group in [&runtime.lazy, &wasi.lib, &builtins] {
+        args.push("--start-lib".into());
+        args.extend(paths(group));
+        args.push("--end-lib".into());
+    }
+    ppl_lld::link_wasm(&args).map_err(|e| format!("linking failed:\n{e}"))
+}
+
 /// Links `obj` with the runtime into the executable `exe` for a Linux target.
 pub fn link_linux(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), String> {
     match t.env {
@@ -397,7 +422,6 @@ fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
         [
             "-O2",
             "-g",
-            "-fPIC",
             "-fno-omit-frame-pointer",
             "-ffunction-sections",
             "-fdata-sections",
@@ -405,6 +429,22 @@ fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
         ]
         .map(String::from),
     );
+    if t.arch == Arch::Wasm32 {
+        // setjmp/longjmp through Wasm exception handling, as generated code does.
+        common.extend(
+            [
+                "-mexception-handling",
+                "-mllvm",
+                "-wasm-enable-sjlj",
+                "-mllvm",
+                "-wasm-use-legacy-eh=false",
+            ]
+            .map(String::from),
+        );
+    } else {
+        // (PIC on wasm is the dynamic-linking ABI.)
+        common.push("-fPIC".into());
+    }
     if t.arch == Arch::Aarch64 {
         // Inline LL/SC atomics, not calls to the `__aarch64_*` helpers (compiler-rt's
         // assembly, which isn't vendored).

@@ -47,12 +47,31 @@ pub struct Options {
 /// The textual LLVM IR for `program` (`ppl build --emit llvm-ir`).
 pub fn emit_llvm_ir(program: &Program) -> String {
     let cx = Context::create();
-    let m = generate(&cx, program, Setjmp::Posix);
+    let m = generate(&cx, program, Setjmp::Posix, 8);
     m.print_to_string().to_string()
 }
 
 /// Compiles `program` to a native object file for the host or `opts.triple`.
 pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), String> {
+    with_module(program, opts, |tm, m| {
+        tm.write_to_file(m, FileType::Object, path)
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// The textual LLVM IR of `program` as compiled for the host or `opts.triple` (`ppl build
+/// --emit llvm-ir --target …`).
+pub fn emit_llvm_ir_for(program: &Program, opts: Options) -> Result<String, String> {
+    with_module(program, opts, |_, m| Ok(m.print_to_string().to_string()))
+}
+
+/// Builds `program`'s module for the host or `opts.triple` (verified, optimized when asked)
+/// and hands it to `f` with the target machine.
+fn with_module<R>(
+    program: &Program,
+    opts: Options,
+    then: impl FnOnce(&TargetMachine, &Module) -> Result<R, String>,
+) -> Result<R, String> {
     let (triple, cpu, features) = match opts.triple {
         None => {
             Target::initialize_native(&InitializationConfig::default())?;
@@ -70,10 +89,19 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
             } else {
                 "generic"
             };
+            // wasm: `try` and panics are setjmp/longjmp, lowered to Wasm exception handling
+            // (the final, exnref form), as the runtime's C is.
+            let features = if t.starts_with("wasm32") {
+                wasm_sjlj();
+                // (Guaranteed tail calls too: wasmtime has them.)
+                "+exception-handling,+tail-call"
+            } else {
+                ""
+            };
             (
                 inkwell::targets::TargetTriple::create(t),
                 cpu.to_string(),
-                String::new(),
+                features.to_string(),
             )
         }
     };
@@ -89,7 +117,12 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
             &cpu,
             &features,
             level,
-            RelocMode::PIC,
+            // (PIC on wasm is the dynamic-linking ABI, which programs don't use.)
+            if triple.as_str().to_string_lossy().starts_with("wasm32") {
+                RelocMode::Static
+            } else {
+                RelocMode::PIC
+            },
             CodeModel::Default,
         )
         .ok_or("cannot create an LLVM target machine")?;
@@ -102,7 +135,8 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
     } else {
         Setjmp::Mingw
     };
-    let m = generate(&cx, program, setjmp);
+    let ptr = if t.starts_with("wasm32") { 4 } else { 8 };
+    let m = generate(&cx, program, setjmp, ptr);
     // Frame pointers let a panic walk the stack; debug builds also export ppl's functions, so
     // the trace can name every frame (`dladdr`).
     let mut f = m.get_first_function();
@@ -112,6 +146,13 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
                 inkwell::attributes::AttributeLoc::Function,
                 cx.create_string_attribute("frame-pointer", "all"),
             );
+            if !features.is_empty() {
+                // (wasm's setjmp lowering checks each function's own features.)
+                func.add_attribute(
+                    inkwell::attributes::AttributeLoc::Function,
+                    cx.create_string_attribute("target-features", &features),
+                );
+            }
         }
         if !opts.optimize && func.get_name().to_bytes().starts_with(b"ppl.") {
             func.set_linkage(Linkage::External);
@@ -130,8 +171,31 @@ pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), 
         )
         .map_err(|e| e.to_string())?;
     }
-    tm.write_to_file(&m, FileType::Object, path)
-        .map_err(|e| e.to_string())
+    then(&tm, &m)
+}
+
+/// LLVM's options for setjmp/longjmp on wasm (as clang's `-mllvm` flags for the runtime), set
+/// before every wasm compile: the in-process lld resets every option to its default at each
+/// link, so they don't stay set (callers keep links off meanwhile: `ppl_lld::lock`). A second
+/// parse without a link between is rejected by LLVM, but then the values are still set.
+fn wasm_sjlj() {
+    {
+        let args: Vec<std::ffi::CString> =
+            ["ppl", "-wasm-enable-sjlj", "-wasm-use-legacy-eh=false"]
+                .iter()
+                .map(|a| std::ffi::CString::new(*a).expect("no NUL"))
+                .collect();
+        let ptrs: Vec<*const std::ffi::c_char> = args.iter().map(|a| a.as_ptr()).collect();
+        // SAFETY: `ptrs` points at NUL-terminated strings that outlive the call; LLVM copies
+        // what it keeps.
+        unsafe {
+            inkwell::llvm_sys::support::LLVMParseCommandLineOptions(
+                ptrs.len() as i32,
+                ptrs.as_ptr(),
+                c"".as_ptr(),
+            );
+        }
+    }
 }
 
 /// Which setjmp `try` regions call: one whose longjmp (the runtime's `ppl_longjmp`) jumps
@@ -147,7 +211,8 @@ enum Setjmp {
     Mingw,
 }
 
-fn generate<'ctx>(cx: &'ctx Context, program: &Program, setjmp: Setjmp) -> Module<'ctx> {
+/// `ptr`: the target's pointer size in bytes.
+fn generate<'ctx>(cx: &'ctx Context, program: &Program, setjmp: Setjmp, ptr: u64) -> Module<'ctx> {
     let m = cx.create_module(&program.file);
     let mut g = Gen {
         cx,
@@ -168,6 +233,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program, setjmp: Setjmp) -> Modul
         exception: None,
         layouts: Default::default(),
         setjmp,
+        ptr,
     };
     // Struct types first (named, so they can refer to each other), then their bodies.
     g.structs = program
@@ -230,6 +296,8 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program, setjmp: Setjmp) -> Modul
 
 struct Gen<'ctx, 'p> {
     setjmp: Setjmp,
+    /// The target's pointer size in bytes (layouts: `Program::size_align_with`).
+    ptr: u64,
     cx: &'ctx Context,
     m: Module<'ctx>,
     b: Builder<'ctx>,
@@ -325,7 +393,25 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// Size and alignment in bytes, as LLVM lays the type out on 64-bit targets.
     fn size_align(&self, t: &Ty) -> (u64, u64) {
-        self.p.size_align(t)
+        self.p.size_align_with(t, self.ptr)
+    }
+
+    /// Whether the target has threads, so globals are per thread: not wasm32 (WASI programs
+    /// are single-threaded, and LLVM miscompiles indexing into a stripped `thread_local`
+    /// global there).
+    fn threads(&self) -> bool {
+        self.ptr == 8
+    }
+
+    /// A GEP index of the target's index width: 32 bits on wasm32, where LLVM's fast
+    /// instruction selection emits invalid code for 64-bit indices into globals (clang only
+    /// ever uses 32-bit ones there). Truncating keeps negative offsets right.
+    fn index(&self, v: IntValue<'ctx>) -> IntValue<'ctx> {
+        if self.ptr == 4 && v.get_type().get_bit_width() > 32 {
+            self.b.build_int_truncate(v, self.i32(), "idx").unwrap()
+        } else {
+            v
+        }
     }
 
     /// The payload layout of one variant.
@@ -432,7 +518,7 @@ impl<'ctx> Gen<'ctx, '_> {
         let data = self.array_data(a);
         unsafe {
             self.b
-                .build_in_bounds_gep(self.elem_ty(elem), data, &[i], "elem")
+                .build_in_bounds_gep(self.elem_ty(elem), data, &[self.index(i)], "elem")
                 .unwrap()
         }
     }
@@ -481,7 +567,7 @@ impl<'ctx> Gen<'ctx, '_> {
         let ptr = self.ptr();
         let g = self.m.add_global(ptr, None, "ppl.exception");
         g.set_linkage(Linkage::Internal);
-        g.set_thread_local(true);
+        g.set_thread_local(self.threads());
         g.set_initializer(&ptr.const_null());
         self.exception = Some(g);
         g.as_pointer_value()
@@ -495,7 +581,7 @@ impl<'ctx> Gen<'ctx, '_> {
         let t = self.i32();
         let g = self.m.add_global(t, None, "ppl.exception_tag");
         g.set_linkage(Linkage::Internal);
-        g.set_thread_local(true);
+        g.set_thread_local(self.threads());
         g.set_initializer(&t.const_zero());
         g.as_pointer_value()
     }
@@ -538,7 +624,7 @@ impl<'ctx> Gen<'ctx, '_> {
                     .add_global(t, None, &format!("ppl.global.{}", gdecl.name));
                 g.set_linkage(Linkage::Internal);
                 // Module instances are per thread (spec §10.2).
-                g.set_thread_local(true);
+                g.set_thread_local(self.threads());
                 g.set_initializer(&t.const_zero());
                 g
             });
@@ -785,7 +871,8 @@ impl<'ctx> Gen<'ctx, '_> {
                 attr("noreturn"),
             );
         }
-        if name.starts_with("ppl_panic") {
+        // (`ppl_panic_taken` returns: it hands a caught panic's message over.)
+        if name.starts_with("ppl_panic") && name != "ppl_panic_taken" {
             let noreturn = self.cx.create_enum_attribute(
                 inkwell::attributes::Attribute::get_named_enum_kind_id("noreturn"),
                 0,
@@ -959,7 +1046,11 @@ impl<'ctx> Gen<'ctx, '_> {
                     let i = self.load_index(fx, *l);
                     let at = self.ty(&ty).expect("array");
                     let zero = self.i64().const_zero();
-                    unsafe { self.b.build_in_bounds_gep(at, ptr, &[zero, i], "").unwrap() }
+                    unsafe {
+                        self.b
+                            .build_in_bounds_gep(at, ptr, &[zero, self.index(i)], "")
+                            .unwrap()
+                    }
                 }
                 (Proj::Index(l), Ty::Array(elem)) => {
                     let i = self.load_index(fx, *l);
@@ -1140,7 +1231,7 @@ impl<'ctx> Gen<'ctx, '_> {
                     n = self.b.build_int_neg(n, "").unwrap();
                 }
                 let et = self.elem_ty(&elem);
-                Some(unsafe { self.b.build_gep(et, p, &[n], "ptr").unwrap() }.into())
+                Some(unsafe { self.b.build_gep(et, p, &[self.index(n)], "ptr").unwrap() }.into())
             }
             Rvalue::WorkerTake(t, h) => {
                 let h = self.operand(fx, h)?;
@@ -2248,7 +2339,11 @@ impl<'ctx> Gen<'ctx, '_> {
                 let cur = self.b.build_load(self.ptr(), acc, "").unwrap();
                 let cur = self.concat(cur, sep);
                 let et_ll = self.elem_ty(et);
-                let p = unsafe { self.b.build_in_bounds_gep(et_ll, data, &[iv], "").unwrap() };
+                let p = unsafe {
+                    self.b
+                        .build_in_bounds_gep(et_ll, data, &[self.index(iv)], "")
+                        .unwrap()
+                };
                 let text = self.debug_at(et, p);
                 let cur = self.concat(cur, text);
                 self.b.build_store(acc, cur).unwrap();
@@ -2936,8 +3031,11 @@ impl<'ctx> Gen<'ctx, '_> {
                             .unwrap()
                             .into_pointer_value();
                         let idx = self.i64().const_int(u64::from(*slot), false);
-                        let slot_ptr =
-                            unsafe { self.b.build_gep(self.ptr(), table, &[idx], "slot").unwrap() };
+                        let slot_ptr = unsafe {
+                            self.b
+                                .build_gep(self.ptr(), table, &[self.index(idx)], "slot")
+                                .unwrap()
+                        };
                         let fnptr = self
                             .b
                             .build_load(self.ptr(), slot_ptr, "method")
@@ -2965,8 +3063,11 @@ impl<'ctx> Gen<'ctx, '_> {
                             .unwrap()
                             .into_pointer_value();
                         let idx = self.i64().const_int(1 + u64::from(*slot), false);
-                        let slot_ptr =
-                            unsafe { self.b.build_gep(self.ptr(), info, &[idx], "slot").unwrap() };
+                        let slot_ptr = unsafe {
+                            self.b
+                                .build_gep(self.ptr(), info, &[self.index(idx)], "slot")
+                                .unwrap()
+                        };
                         let fnptr = self
                             .b
                             .build_load(self.ptr(), slot_ptr, "method")

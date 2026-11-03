@@ -17,6 +17,9 @@ Windows and macOS programs without a system C library or SDK (decisions 245, 248
 | `mingw/` | `lib/libc/mingw` without `lib32/`, `libarm32/`, `libsrc/` | mingw-w64's CRT and winpthreads sources and the `.def` files for import libraries |
 | `mingw/sources.txt` | generated from `src/libs/mingw.zig` | which sources make up libmingw32, per architecture |
 | `include/any-macos-any` | same, **pruned** | the macOS SDK's C headers: only the 235 of 542 that ppl compiles against (`scripts/prune-macos-headers.sh <zig source>` regenerates the set) |
+| `wasi/` | `lib/libc/wasi` | wasi-libc's sources (WASI preview 1), with emmalloc |
+| `wasi/sources.txt` | generated from `src/libs/wasi_libc.zig` | which sources make up wasi-libc, plus the musl files Zig supplies from its own code instead (string functions, `sin`/`cos`/`tan`, …); `musl/...` paths are in `third_party/musl` (identical to Zig's copy but for `iconv.c`, left out) |
+| `include/wasm-wasi-musl`, `include/generic-musl` | same | wasi-libc's installed headers |
 | `darwin/libSystem.tbd`, `darwin/SDKSettings.json` | `lib/libc/darwin` | text stubs of `libSystem` (macOS SDK 15.5) that lld links macOS programs against |
 
 Include order (as Zig's `LibCDirs.zig`): `<arch>-linux-gnu`, `generic-glibc`, `<arch>-linux-any`,
