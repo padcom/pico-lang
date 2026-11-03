@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.5b: wasm32: files, clocks and the event loop** (see [PLAN.md](PLAN.md#p85b-wasm32-files-clocks-and-the-event-loop)). wasi-libc has the POSIX file API over preopens: share `ppl_io.c`'s POSIX file code with WASI (jobs run at once, no threads), `watch` by polling, the bundled tz database on WASI too (`ppl_tzdata.c`), and the harness passes `--dir=.`. Run the wasm suite with `PPL_TEST_TARGET=wasm32-wasi cargo test -p ppl-tests --test golden`.
+**P8.5c: wasm32-wasip2: components, sockets and http** (pending CI; see the log), then P8.6. The author asked to pause after P8.5c until after 4:51am (a resume is scheduled).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -266,7 +266,7 @@ Notes:
 - [x] P8.3d Bundled IANA tz database
 - [x] P8.4 macOS cross builds
 - [x] P8.5a wasm32: core programs under wasmtime
-- [ ] P8.5b wasm32: files, clocks and the event loop
+- [x] P8.5b wasm32: files, clocks and the event loop
 - [ ] P8.5c wasm32-wasip2: components, sockets and http
 - [ ] P8.6 wasm32-browser (linear memory)
 - [ ] P8.7 WasmGC backend
@@ -415,3 +415,5 @@ Notes:
 | 2026-11-03 | P8.5a (part) | wasm32-wasi core programs, pending CI: wasi-libc from Zig (`wasi.rs`, `third_party/zig-libc/wasi`), lld wasm driver, pointer-size layouts, setjmp over Wasm EH (`ppl_wasm_sjlj.c`), stub pthreads (`runtime/wasm/pthread.h`), WASI args/env/exit. `PPL_TEST_TARGET=wasm32-wasi` runs fixtures under wasmtime (`-W exceptions=y`): all pass but the 26 in `tests/wasi-skip.txt` (fs, time zones, process, net, http, workers). Fixes found: GC block-table shift (nothing marked on wasm32), `ppl_panic_taken` wrongly `noreturn`, 32-bit GEP indices, lld resetting LLVM options. CI runs the wasm golden suite. Decision 255. |
 | 2026-11-03 | P8.5a | Done: CI run 41557799525 green on all 13 jobs (the new golden wasm32-wasi job included). |
 | 2026-11-03 | P8.5b (part) | WASI files, clocks and the loop, pending CI: POSIX file code shared with WASI (synchronous jobs), `--dir=.`, the tz database embedded with `#embed` on Windows and WASI. Only `fs/watch` (needs a thread), process, workers, net and http are skipped on WASI. Decision 256. |
+| 2026-11-03 | P8.5b | Done: CI green on all 13 jobs. |
+| 2026-11-03 | P8.5c (part) | Preview 2 components (`wit-component` + the preview 1 adapter, `third_party/wasi`), wit-bindgen C bindings (`runtime/wasi`, `ppl-wasi-bindgen`), WASI sockets as pollable state machines on the event loop, TLS stepped and non-blocking, `exit-with-code`. Every WASI-available golden test passes under wasmtime (only watch, process and workers skipped). Fixes: handles of pointers past 2 GiB, GC blocks from `memory.grow`. Decision 257. |

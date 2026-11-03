@@ -551,7 +551,7 @@ int64_t ppl_buf_op(int64_t op, int64_t a, int64_t b, int64_t c) {
     if (op == 1) {
         void *m = calloc(a > 0 ? (size_t)a : 1, 1);
         if (!m) abort();
-        return (int64_t)(intptr_t)m;
+        return (int64_t)(uintptr_t)m;
     }
     if (op == 2) {
         free(p);
@@ -561,7 +561,7 @@ int64_t ppl_buf_op(int64_t op, int64_t a, int64_t b, int64_t c) {
         char *m = malloc(c > 0 ? (size_t)c : 1);
         if (!m) abort();
         if (c > 0) memcpy(m, p + b, (size_t)c);
-        return (int64_t)(intptr_t)m;
+        return (int64_t)(uintptr_t)m;
     }
     if (op >= 11 && op <= 18) {
         uint64_t x = 0;

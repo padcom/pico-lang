@@ -24,6 +24,15 @@ void ppl_crypto_free(void *p);
 int ppl_tls_has(int fd);
 int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n1,
                   const char *pem2, size_t n2, char *err, size_t errcap);
+/* The handshake in steps, for callers that can't block (WASI): `ppl_tls_begin` sets the
+ * session up (-1 with `err`), then each `ppl_tls_step` returns 0 when it's done, 1 when it waits
+ * to read, 2 to write, -1 on failure (the session is gone). `ppl_tls_try_read`/`_write` are the
+ * non-blocking reads and writes: -3 waiting to read, -4 to write, else as above. */
+int ppl_tls_begin(int fd, int mode, const char *host, const char *pem1, size_t n1,
+                  const char *pem2, size_t n2, char *err, size_t errcap);
+int ppl_tls_step(int fd, char *err, size_t errcap);
+ptrdiff_t ppl_tls_try_read(int fd, void *buf, size_t n);
+ptrdiff_t ppl_tls_try_write(int fd, const void *buf, size_t n);
 ptrdiff_t ppl_tls_read(int fd, void *buf, size_t n);
 ptrdiff_t ppl_tls_write(int fd, const void *buf, size_t n);
 void ppl_tls_close_notify(int fd);

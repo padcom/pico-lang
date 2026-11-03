@@ -833,7 +833,7 @@ static _Noreturn void report_panic(void) {
         }
     }
     fflush(stderr);
-    exit(PPL_PANIC_EXIT_CODE);
+    ppl_exit(PPL_PANIC_EXIT_CODE);
 }
 
 static _Noreturn void unwind(void) {
@@ -898,7 +898,7 @@ _Noreturn void ppl_uncaught(const PplStr *cls, const PplStr *msg) {
     fwrite(msg->data, 1, (size_t)msg->byte_len, stderr);
     fputs("\n", stderr);
     fflush(stderr);
-    exit(1);
+    ppl_exit(1);
 }
 
 /* ---------------------------------------------------------------- integer power */
@@ -957,6 +957,20 @@ uint64_t ppl_ipow_u(uint64_t base, uint64_t exp, int32_t bits, int32_t *overflow
 }
 
 /* ---------------------------------------------------------------- entry */
+
+/* Ends the program with `code`, its output flushed. On WASI a code other than 0 goes through
+ * `wasi:cli/exit`'s `exit-with-code`: the preview 1 adapter would make every failure 1. */
+_Noreturn void ppl_exit(int code) {
+    fflush(stdout);
+    fflush(stderr);
+#if defined(__wasi__)
+    if (code != 0) {
+        extern void wasi_cli_exit_exit_with_code(uint8_t status_code);
+        wasi_cli_exit_exit_with_code((uint8_t)code);
+    }
+#endif
+    exit(code);
+}
 
 /* The program's arguments, for `std/process` (`args`). */
 int ppl_argc;

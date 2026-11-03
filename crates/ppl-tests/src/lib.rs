@@ -335,7 +335,16 @@ fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, Str
         // it sees no environment variables but those passed in.
         let mut c = std::process::Command::new("wasmtime");
         // The run's directory is preopened as the working directory (`--dir=.`).
-        c.args(["run", "-W", "exceptions=y", "--dir=."]);
+        c.args([
+            "run",
+            "-W",
+            "exceptions=y",
+            "--dir=.",
+            "-S",
+            "inherit-network=y",
+            "-S",
+            "allow-ip-name-lookup=y",
+        ]);
         if gc_stress {
             c.args(["--env", "PPL_GC_STRESS=1"]);
         }

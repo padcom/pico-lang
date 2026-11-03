@@ -15,6 +15,9 @@ ppl-mir.workspace = true
 ppl-runtime.workspace = true
 ppl-sema.workspace = true
 ppl-syntax.workspace = true
+# Making WASI programs preview 2 components (decision 257).
+wit-component = "0.263"
+wit-parser = "0.263"
 
 [dev-dependencies]
 ppl-lld.workspace = true

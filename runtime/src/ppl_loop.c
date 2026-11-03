@@ -113,7 +113,15 @@ void ppl_loop_wake(void *w) { (void)w; }
 #endif
 
 /* `ms` < 0: until woken. */
+#if defined(__wasi__)
+void ppl_wasi_poll(int64_t ms); /* ppl_io.c: waits for sockets too */
+#endif
+
 void ppl_loop_wait(int64_t ms) {
+#if defined(__wasi__)
+    ppl_wasi_poll(ms);
+    return;
+#endif
     if (ms == 0) return;
 #if defined(__APPLE__)
     struct kevent ev;

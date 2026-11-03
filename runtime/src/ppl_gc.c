@@ -204,6 +204,60 @@ static void unlink_block(Block *b) {
     if (b->next) b->next->prev = b->prev;
 }
 
+#if defined(__wasi__)
+/* WASI: blocks come straight from `memory.grow`, whose 64 KiB pages are exactly BLOCK_SIZE and
+ * aligned, and freed blocks go to a free list here (first fit, split, neighbours merged).
+ * Taking them from emmalloc's aligned_alloc fragmented its heap when many small allocations
+ * (Mbed TLS's) fell between them, until linear memory ran out. wasi-libc's sbrk works out the
+ * break from the memory's size, so growing it here too is fine. */
+typedef struct Pages {
+    char *at;
+    size_t n; /* pages */
+} Pages;
+static Pages *free_pages;
+static size_t nfree_pages, capfree_pages;
+
+static void *block_alloc(size_t bytes) {
+    size_t n = (bytes + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    for (size_t i = 0; i < nfree_pages; i++) {
+        if (free_pages[i].n < n) continue;
+        char *at = free_pages[i].at;
+        free_pages[i].at += n * BLOCK_SIZE;
+        free_pages[i].n -= n;
+        if (free_pages[i].n == 0) free_pages[i] = free_pages[--nfree_pages];
+        return at;
+    }
+    size_t old = __builtin_wasm_memory_grow(0, n);
+    if (old == (size_t)-1) return NULL;
+    return (char *)(old * BLOCK_SIZE);
+}
+
+static void block_free(void *b) {
+    char *at = b;
+    size_t n = (((Block *)b)->bytes + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    /* Merge with a free neighbour on either side (repeatedly: a merge can join two). */
+    for (size_t i = 0; i < nfree_pages;) {
+        Pages *f = &free_pages[i];
+        if (f->at + f->n * BLOCK_SIZE == at) {
+            at = f->at;
+            n += f->n;
+        } else if (at + n * BLOCK_SIZE == f->at) {
+            n += f->n;
+        } else {
+            i++;
+            continue;
+        }
+        free_pages[i] = free_pages[--nfree_pages];
+        i = 0;
+    }
+    if (nfree_pages == capfree_pages) {
+        capfree_pages = capfree_pages ? capfree_pages * 2 : 64;
+        free_pages = realloc(free_pages, capfree_pages * sizeof *free_pages);
+        if (!free_pages) out_of_memory();
+    }
+    free_pages[nfree_pages++] = (Pages){at, n};
+}
+#else
 /* Blocks are BLOCK_SIZE-aligned. Windows has no aligned_alloc, and memory from its
  * _aligned_malloc must go back through _aligned_free. */
 static void *block_alloc(size_t bytes) {
@@ -221,6 +275,7 @@ static void block_free(void *b) {
     free(b);
 #endif
 }
+#endif
 
 static Block *new_block(int cls) {
     Block *b = spare;
@@ -549,7 +604,7 @@ int64_t ppl_raw_arena_new(int64_t capacity) {
     if (!a) out_of_memory();
     a->capacity = capacity > 0 ? (size_t)capacity : 4096;
     a->chunks = raw_chunk(a->capacity);
-    return (int64_t)(intptr_t)a;
+    return (int64_t)(uintptr_t)a;
 }
 
 void *ppl_raw_arena_alloc(int64_t arena, int64_t bytes, int64_t align) {

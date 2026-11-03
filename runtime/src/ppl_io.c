@@ -81,6 +81,9 @@ typedef struct Job {
     size_t text_len;
     struct Queue *owner;
     struct Job *next;
+    /* WASI socket jobs (P8.5c): the pollable it waits on (-1: none) and its progress. */
+    int32_t wasi_pollable;
+    void *wasi;
 } Job;
 
 /* A thread's finished jobs, and the jobs it polled but hasn't freed. */
@@ -789,7 +792,7 @@ static void run(Job *j) {
             fail(j);
             return;
         }
-        j->r = (int64_t)(intptr_t)b;
+        j->r = (int64_t)(uintptr_t)b;
         j->r2 = (int64_t)n;
         return;
     }
@@ -927,7 +930,7 @@ static void run(Job *j) {
             return;
         }
         }
-        j->r = (int64_t)(intptr_t)b;
+        j->r = (int64_t)(uintptr_t)b;
         j->r2 = k;
         return;
     }
@@ -1418,6 +1421,993 @@ static void sock_private(int64_t s) { fcntl((int)s, F_SETFD, FD_CLOEXEC); }
 #endif
 
 #if defined(__wasi__)
+/* ---- sockets on WASI preview 2 (P8.5c, decision 257) ----
+ * Sockets are `wasi:sockets` resources behind ids from SOCK_BASE (so they're never taken for
+ * file descriptors), driven through wit-bindgen's bindings (`runtime/wasi/imports.h`). There
+ * are no threads, so a socket job is a little state machine: `net_step` advances it as far as
+ * it goes without blocking and either finishes it or leaves it waiting on a pollable. The
+ * event loop's wait (`ppl_wasi_poll`, from `ppl_loop_wait`) polls every waiting job's pollable
+ * with the timeout and steps the ready ones. TLS runs on the same sockets, through
+ * `ppl_wasi_send`/`ppl_wasi_recv` (non-blocking) and the stepped handshake (`ppl_tls_step`). */
+#include "imports.h"
+
+/* What wit-bindgen's component-type object would define: the type is embedded at link time
+ * instead (`ppl-driver`'s `wasi::componentize`). */
+void __component_type_object_force_link_imports(void) {}
+
+#define SOCK_BASE ((int64_t)1 << 24)
+
+typedef struct Sock {
+    int udp;
+    wasi_sockets_tcp_own_tcp_socket_t tcp;
+    wasi_sockets_udp_own_udp_socket_t usock;
+    int streams; /* TCP: in/out are set */
+    wasi_io_streams_own_input_stream_t in;
+    wasi_io_streams_own_output_stream_t out;
+    int dstreams; /* UDP: din/dout are set */
+    wasi_sockets_udp_own_incoming_datagram_stream_t din;
+    wasi_sockets_udp_own_outgoing_datagram_stream_t dout;
+    int shut_rd;
+    int eof; /* the peer closed its side */
+    /* Writes happen in the order they're made (a TLS record can't be interleaved): the one
+     * in progress, and the ones queued behind it. */
+    Job *writer;
+    Job **queued;
+    size_t nqueued;
+} Sock;
+
+static Sock **socks;
+static size_t nsocks, capsocks;
+
+static int64_t sock_add(Sock *k) {
+    if (nsocks == capsocks) {
+        capsocks = capsocks ? capsocks * 2 : 16;
+        socks = realloc(socks, capsocks * sizeof *socks);
+        if (!socks) abort();
+    }
+    socks[nsocks] = k;
+    return SOCK_BASE + (int64_t)nsocks++;
+}
+
+static Sock *sock_of(int64_t id) {
+    if (id < SOCK_BASE || (size_t)(id - SOCK_BASE) >= nsocks) return NULL;
+    return socks[id - SOCK_BASE];
+}
+
+static wasi_sockets_network_borrow_network_t net(void) {
+    static wasi_sockets_network_own_network_t n;
+    static int have;
+    if (!have) {
+        n = wasi_sockets_instance_network_instance_network();
+        have = 1;
+    }
+    return wasi_sockets_network_borrow_network(n);
+}
+
+static int net_errno(wasi_sockets_network_error_code_t e) {
+    switch (e) {
+    case WASI_SOCKETS_NETWORK_ERROR_CODE_WOULD_BLOCK: return EAGAIN;
+    case WASI_SOCKETS_NETWORK_ERROR_CODE_CONNECTION_REFUSED: return ECONNREFUSED;
+    case WASI_SOCKETS_NETWORK_ERROR_CODE_CONNECTION_RESET: return ECONNRESET;
+    case WASI_SOCKETS_NETWORK_ERROR_CODE_ADDRESS_IN_USE: return EADDRINUSE;
+    case WASI_SOCKETS_NETWORK_ERROR_CODE_ADDRESS_NOT_BINDABLE: return EADDRNOTAVAIL;
+    case WASI_SOCKETS_NETWORK_ERROR_CODE_TIMEOUT: return ETIMEDOUT;
+    case WASI_SOCKETS_NETWORK_ERROR_CODE_ACCESS_DENIED: return EACCES;
+    default: return EIO;
+    }
+}
+
+static void net_fail(Job *j, wasi_sockets_network_error_code_t e) {
+    if (e == WASI_SOCKETS_NETWORK_ERROR_CODE_NAME_UNRESOLVABLE ||
+        e == WASI_SOCKETS_NETWORK_ERROR_CODE_TEMPORARY_RESOLVER_FAILURE ||
+        e == WASI_SOCKETS_NETWORK_ERROR_CODE_PERMANENT_RESOLVER_FAILURE) {
+        j->r = -K_HOST_NOT_FOUND;
+        j->r2 = e;
+        return;
+    }
+    errno = net_errno(e);
+    fail(j);
+}
+
+/* "a.b.c.d" as an IPv4 address. */
+static int parse_ipv4(const char *s, wasi_sockets_network_ip_address_t *out) {
+    unsigned v[4];
+    char tail;
+    if (sscanf(s, "%u.%u.%u.%u%c", &v[0], &v[1], &v[2], &v[3], &tail) != 4) return 0;
+    for (int i = 0; i < 4; i++)
+        if (v[i] > 255) return 0;
+    out->tag = WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV4;
+    out->val.ipv4 = (wasi_sockets_network_ipv4_address_t){(uint8_t)v[0], (uint8_t)v[1],
+                                                           (uint8_t)v[2], (uint8_t)v[3]};
+    return 1;
+}
+
+/* An address as inet_ntop writes it (IPv6 with the longest run of zeros as "::"). */
+static void ip_text(const wasi_sockets_network_ip_address_t *a, char *buf, size_t cap) {
+    if (a->tag == WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV4) {
+        const wasi_sockets_network_ipv4_address_t *v = &a->val.ipv4;
+        snprintf(buf, cap, "%u.%u.%u.%u", v->f0, v->f1, v->f2, v->f3);
+        return;
+    }
+    const wasi_sockets_network_ipv6_address_t *v = &a->val.ipv6;
+    uint16_t w[8] = {v->f0, v->f1, v->f2, v->f3, v->f4, v->f5, v->f6, v->f7};
+    int best = -1, blen = 0;
+    for (int i = 0; i < 8;) {
+        if (w[i]) {
+            i++;
+            continue;
+        }
+        int k = i;
+        while (k < 8 && !w[k]) k++;
+        if (k - i > blen && k - i > 1) best = i, blen = k - i;
+        i = k;
+    }
+    size_t n = 0;
+    for (int i = 0; i < 8 && n < cap; i++) {
+        if (i == best) {
+            n += (size_t)snprintf(buf + n, cap - n, i == 0 ? "::" : ":");
+            i += blen - 1;
+            continue;
+        }
+        n += (size_t)snprintf(buf + n, cap - n, "%x%s", w[i], i < 7 && i + 1 != best ? ":" : "");
+    }
+}
+
+static void sockaddr_text(Job *j, const wasi_sockets_network_ip_socket_address_t *a) {
+    wasi_sockets_network_ip_address_t ip;
+    int port;
+    if (a->tag == WASI_SOCKETS_NETWORK_IP_SOCKET_ADDRESS_IPV4) {
+        ip.tag = WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV4;
+        ip.val.ipv4 = a->val.ipv4.address;
+        port = a->val.ipv4.port;
+    } else {
+        ip.tag = WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV6;
+        ip.val.ipv6 = a->val.ipv6.address;
+        port = a->val.ipv6.port;
+    }
+    char host[64], line[80];
+    ip_text(&ip, host, sizeof host);
+    int n = snprintf(line, sizeof line, "%s %d", host, port);
+    text_add(j, line, (size_t)n);
+}
+
+static wasi_sockets_network_ip_socket_address_t sockaddr_of(const wasi_sockets_network_ip_address_t *ip,
+                                                             int port) {
+    wasi_sockets_network_ip_socket_address_t a;
+    memset(&a, 0, sizeof a);
+    if (ip->tag == WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV4) {
+        a.tag = WASI_SOCKETS_NETWORK_IP_SOCKET_ADDRESS_IPV4;
+        a.val.ipv4.port = (uint16_t)port;
+        a.val.ipv4.address = ip->val.ipv4;
+    } else {
+        a.tag = WASI_SOCKETS_NETWORK_IP_SOCKET_ADDRESS_IPV6;
+        a.val.ipv6.port = (uint16_t)port;
+        a.val.ipv6.address = ip->val.ipv6;
+    }
+    return a;
+}
+
+/* "local-host local-port remote-host remote-port" of a connected TCP socket. */
+static void ends_text(Job *j, Sock *k) {
+    wasi_sockets_network_ip_socket_address_t a;
+    wasi_sockets_network_error_code_t e;
+    wasi_sockets_tcp_borrow_tcp_socket_t b = wasi_sockets_tcp_borrow_tcp_socket(k->tcp);
+    if (wasi_sockets_tcp_method_tcp_socket_local_address(b, &a, &e)) sockaddr_text(j, &a);
+    else text_add(j, "? 0", 3);
+    text_add(j, " ", 1);
+    if (wasi_sockets_tcp_method_tcp_socket_remote_address(b, &a, &e)) sockaddr_text(j, &a);
+    else text_add(j, "? 0", 3);
+}
+
+/* A job's progress across steps: the name lookup, the addresses it found, the socket. */
+typedef struct NetState {
+    int phase;
+    wasi_sockets_ip_name_lookup_own_resolve_address_stream_t resolver;
+    int resolving;
+    wasi_sockets_network_ip_address_t addrs[16];
+    int naddrs, next;
+    Sock *k;
+    size_t done; /* bytes written so far */
+    int flushing;
+    char *buf; /* reads */
+    size_t cap, len;
+} NetState;
+
+/* Jobs waiting on a pollable (`j->wasi_pollable`, owned). */
+static Job **waiting;
+static size_t nwaiting, capwaiting;
+
+static void wait_on(Job *j, wasi_io_poll_own_pollable_t p) {
+    j->wasi_pollable = p.__handle;
+    if (nwaiting == capwaiting) {
+        capwaiting = capwaiting ? capwaiting * 2 : 16;
+        waiting = realloc(waiting, capwaiting * sizeof *waiting);
+        if (!waiting) abort();
+    }
+    waiting[nwaiting++] = j;
+}
+
+static void state_free(Job *j) {
+    NetState *st = j->wasi;
+    if (!st) return;
+    if (st->resolving) wasi_sockets_ip_name_lookup_resolve_address_stream_drop_own(st->resolver);
+    free(st->buf);
+    free(st);
+    j->wasi = NULL;
+}
+
+/* Starts (or continues) resolving `host`: 1 when the addresses are in, 0 while waiting, -1 on
+ * failure (the job is failed). */
+static int resolve_step(Job *j, NetState *st, const char *host) {
+    if (!st->resolving && st->naddrs == 0) {
+        if (!*host || !strcmp(host, "0.0.0.0")) {
+            st->addrs[0].tag = WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV4;
+            memset(&st->addrs[0].val.ipv4, 0, sizeof st->addrs[0].val.ipv4);
+            st->naddrs = 1;
+            return 1;
+        }
+        if (parse_ipv4(host, &st->addrs[0])) {
+            st->naddrs = 1;
+            return 1;
+        }
+        imports_string_t name = {(uint8_t *)host, strlen(host)};
+        wasi_sockets_network_error_code_t e;
+        if (!wasi_sockets_ip_name_lookup_resolve_addresses(net(), &name, &st->resolver, &e)) {
+            net_fail(j, e);
+            return -1;
+        }
+        st->resolving = 1;
+    }
+    while (st->resolving) {
+        wasi_sockets_ip_name_lookup_option_ip_address_t a;
+        wasi_sockets_network_error_code_t e;
+        wasi_sockets_ip_name_lookup_borrow_resolve_address_stream_t b =
+            wasi_sockets_ip_name_lookup_borrow_resolve_address_stream(st->resolver);
+        if (!wasi_sockets_ip_name_lookup_method_resolve_address_stream_resolve_next_address(b, &a, &e)) {
+            if (e == WASI_SOCKETS_NETWORK_ERROR_CODE_WOULD_BLOCK) {
+                wait_on(j, wasi_sockets_ip_name_lookup_method_resolve_address_stream_subscribe(b));
+                return 0;
+            }
+            net_fail(j, e);
+            return -1;
+        }
+        if (!a.is_some) {
+            wasi_sockets_ip_name_lookup_resolve_address_stream_drop_own(st->resolver);
+            st->resolving = 0;
+            break;
+        }
+        if (st->naddrs < 16) st->addrs[st->naddrs++] = a.val;
+    }
+    if (st->naddrs == 0) {
+        net_fail(j, WASI_SOCKETS_NETWORK_ERROR_CODE_NAME_UNRESOLVABLE);
+        return -1;
+    }
+    return 1;
+}
+
+/* Reads from TCP socket `k` without blocking: bytes, 0 at the end, -1 (errno) on errors, -3
+ * when it would block (then `*p` is set to wait on). TLS sessions come first. */
+static ptrdiff_t sock_try_read(int64_t id, Sock *k, char *buf, size_t n, wasi_io_poll_own_pollable_t *p) {
+    if (k->shut_rd || k->eof) return 0;
+    ptrdiff_t t = ppl_tls_try_read((int)id, buf, n);
+    if (t != -2) {
+        if (t == -3 || t == -4) {
+            *p = t == -3 ? wasi_io_streams_method_input_stream_subscribe(
+                               wasi_io_streams_borrow_input_stream(k->in))
+                         : wasi_io_streams_method_output_stream_subscribe(
+                               wasi_io_streams_borrow_output_stream(k->out));
+            return -3;
+        }
+        return t;
+    }
+    imports_list_u8_t got;
+    wasi_io_streams_stream_error_t e;
+    wasi_io_streams_borrow_input_stream_t in = wasi_io_streams_borrow_input_stream(k->in);
+    if (!wasi_io_streams_method_input_stream_read(in, n, &got, &e)) {
+        if (e.tag == WASI_IO_STREAMS_STREAM_ERROR_CLOSED) {
+            k->eof = 1;
+            return 0;
+        }
+        wasi_io_error_error_drop_own(e.val.last_operation_failed);
+        errno = ECONNRESET;
+        return -1;
+    }
+    if (got.len == 0) {
+        imports_list_u8_free(&got);
+        *p = wasi_io_streams_method_input_stream_subscribe(in);
+        return -3;
+    }
+    memcpy(buf, got.ptr, got.len);
+    ptrdiff_t r = (ptrdiff_t)got.len;
+    imports_list_u8_free(&got);
+    return r;
+}
+
+/* Writes to TCP socket `k` without blocking: bytes taken (maybe fewer than `n`), -1 (errno),
+ * -3 when nothing can be taken now (`*p` to wait on). */
+static ptrdiff_t sock_try_write(int64_t id, Sock *k, const char *buf, size_t n, wasi_io_poll_own_pollable_t *p) {
+    ptrdiff_t t = ppl_tls_try_write((int)id, buf, n);
+    if (t != -2) {
+        if (t == -3 || t == -4) {
+            *p = t == -3 ? wasi_io_streams_method_input_stream_subscribe(
+                               wasi_io_streams_borrow_input_stream(k->in))
+                         : wasi_io_streams_method_output_stream_subscribe(
+                               wasi_io_streams_borrow_output_stream(k->out));
+            return -3;
+        }
+        return t;
+    }
+    wasi_io_streams_borrow_output_stream_t out = wasi_io_streams_borrow_output_stream(k->out);
+    uint64_t permit;
+    wasi_io_streams_stream_error_t e;
+    if (!wasi_io_streams_method_output_stream_check_write(out, &permit, &e)) {
+        if (e.tag == WASI_IO_STREAMS_STREAM_ERROR_LAST_OPERATION_FAILED)
+            wasi_io_error_error_drop_own(e.val.last_operation_failed);
+        errno = EPIPE;
+        return -1;
+    }
+    if (permit == 0) {
+        *p = wasi_io_streams_method_output_stream_subscribe(out);
+        return -3;
+    }
+    size_t m = n < permit ? n : (size_t)permit;
+    imports_list_u8_t data = {(uint8_t *)buf, m};
+    if (!wasi_io_streams_method_output_stream_write(out, &data, &e) ||
+        !wasi_io_streams_method_output_stream_flush(out, &e)) {
+        if (e.tag == WASI_IO_STREAMS_STREAM_ERROR_LAST_OPERATION_FAILED)
+            wasi_io_error_error_drop_own(e.val.last_operation_failed);
+        errno = EPIPE;
+        return -1;
+    }
+    return (ptrdiff_t)m;
+}
+
+/* For ppl_tls.c's BIO: raw bytes on socket `fd`, -1 with errno EAGAIN when it would block. */
+ptrdiff_t ppl_wasi_send(int fd, const unsigned char *buf, size_t len) {
+    Sock *k = sock_of(fd);
+    if (!k || !k->streams) {
+        errno = EBADF;
+        return -1;
+    }
+    wasi_io_streams_borrow_output_stream_t out = wasi_io_streams_borrow_output_stream(k->out);
+    uint64_t permit;
+    wasi_io_streams_stream_error_t e;
+    if (!wasi_io_streams_method_output_stream_check_write(out, &permit, &e)) {
+        if (e.tag == WASI_IO_STREAMS_STREAM_ERROR_LAST_OPERATION_FAILED)
+            wasi_io_error_error_drop_own(e.val.last_operation_failed);
+        errno = EPIPE;
+        return -1;
+    }
+    if (permit == 0) {
+        errno = EAGAIN;
+        return -1;
+    }
+    size_t m = len < permit ? len : (size_t)permit;
+    imports_list_u8_t data = {(uint8_t *)buf, m};
+    if (!wasi_io_streams_method_output_stream_write(out, &data, &e) ||
+        !wasi_io_streams_method_output_stream_flush(out, &e)) {
+        if (e.tag == WASI_IO_STREAMS_STREAM_ERROR_LAST_OPERATION_FAILED)
+            wasi_io_error_error_drop_own(e.val.last_operation_failed);
+        errno = EPIPE;
+        return -1;
+    }
+    return (ptrdiff_t)m;
+}
+
+ptrdiff_t ppl_wasi_recv(int fd, unsigned char *buf, size_t len) {
+    Sock *k = sock_of(fd);
+    if (!k || !k->streams) {
+        errno = EBADF;
+        return -1;
+    }
+    if (k->shut_rd || k->eof) return 0;
+    imports_list_u8_t got;
+    wasi_io_streams_stream_error_t e;
+    if (!wasi_io_streams_method_input_stream_read(wasi_io_streams_borrow_input_stream(k->in), len,
+                                                  &got, &e)) {
+        if (e.tag == WASI_IO_STREAMS_STREAM_ERROR_CLOSED) {
+            k->eof = 1;
+            return 0;
+        }
+        wasi_io_error_error_drop_own(e.val.last_operation_failed);
+        errno = ECONNRESET;
+        return -1;
+    }
+    if (got.len == 0) {
+        imports_list_u8_free(&got);
+        errno = EAGAIN;
+        return -1;
+    }
+    memcpy(buf, got.ptr, got.len);
+    ptrdiff_t r = (ptrdiff_t)got.len;
+    imports_list_u8_free(&got);
+    return r;
+}
+
+/* Blocks until socket `fd` can be read (or written): only TLS's close_notify does. */
+void ppl_wasi_wait(int fd, int write) {
+    Sock *k = sock_of(fd);
+    if (!k || !k->streams) return;
+    wasi_io_poll_own_pollable_t p =
+        write ? wasi_io_streams_method_output_stream_subscribe(wasi_io_streams_borrow_output_stream(k->out))
+              : wasi_io_streams_method_input_stream_subscribe(wasi_io_streams_borrow_input_stream(k->in));
+    wasi_io_poll_method_pollable_block(wasi_io_poll_borrow_pollable(p));
+    wasi_io_poll_pollable_drop_own(p);
+}
+
+static void sock_close(Sock *k) {
+    if (k->streams) {
+        wasi_io_streams_input_stream_drop_own(k->in);
+        wasi_io_streams_output_stream_drop_own(k->out);
+    }
+    if (k->dstreams) {
+        wasi_sockets_udp_incoming_datagram_stream_drop_own(k->din);
+        wasi_sockets_udp_outgoing_datagram_stream_drop_own(k->dout);
+    }
+    if (k->udp) wasi_sockets_udp_udp_socket_drop_own(k->usock);
+    else wasi_sockets_tcp_tcp_socket_drop_own(k->tcp);
+    free(k);
+}
+
+static int net_step(Job *j);
+
+/* The write after `k`'s current one gets its turn. */
+static void next_writer(Sock *k) {
+    k->writer = NULL;
+    while (k->nqueued > 0 && !k->writer) {
+        Job *n = k->queued[0];
+        memmove(k->queued, k->queued + 1, --k->nqueued * sizeof *k->queued);
+        if (net_step(n)) { /* (it may finish at once, or become the writer and wait) */
+            state_free(n);
+            finish(n);
+        }
+    }
+}
+
+/* Advances socket job `j` (ops 20–22, 30–36): 1 when it's done (its results are set), 0 when
+ * it waits on the pollable it registered. */
+static int net_step(Job *j) {
+    NetState *st = j->wasi;
+    if (!st) {
+        st = calloc(1, sizeof *st);
+        if (!st) abort();
+        j->wasi = st;
+    }
+    wasi_io_poll_own_pollable_t p;
+    switch (j->op) {
+    case 30: { /* listen (b = 0) or bind a UDP socket (b = 1): s = host, a = port */
+        if (st->phase == 0) {
+            int r = resolve_step(j, st, j->s);
+            if (r <= 0) return r < 0;
+            wasi_sockets_network_ip_address_t *ip = &st->addrs[0];
+            wasi_sockets_network_ip_address_family_t fam =
+                ip->tag == WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV4 ? WASI_SOCKETS_NETWORK_IP_ADDRESS_FAMILY_IPV4
+                                                                : WASI_SOCKETS_NETWORK_IP_ADDRESS_FAMILY_IPV6;
+            Sock *k = calloc(1, sizeof *k);
+            if (!k) abort();
+            wasi_sockets_network_error_code_t e;
+            wasi_sockets_network_ip_socket_address_t local = sockaddr_of(ip, (int)j->a);
+            int ok;
+            if (j->b) {
+                k->udp = 1;
+                ok = wasi_sockets_udp_create_socket_create_udp_socket(fam, &k->usock, &e) &&
+                     wasi_sockets_udp_method_udp_socket_start_bind(
+                         wasi_sockets_udp_borrow_udp_socket(k->usock), net(), &local, &e);
+            } else {
+                ok = wasi_sockets_tcp_create_socket_create_tcp_socket(fam, &k->tcp, &e) &&
+                     wasi_sockets_tcp_method_tcp_socket_start_bind(
+                         wasi_sockets_tcp_borrow_tcp_socket(k->tcp), net(), &local, &e);
+            }
+            if (!ok) {
+                free(k);
+                net_fail(j, e);
+                return 1;
+            }
+            st->k = k;
+            st->phase = 1;
+        }
+        Sock *k = st->k;
+        wasi_sockets_network_error_code_t e;
+        if (st->phase == 1) {
+            int ok = k->udp ? wasi_sockets_udp_method_udp_socket_finish_bind(
+                                  wasi_sockets_udp_borrow_udp_socket(k->usock), &e)
+                            : wasi_sockets_tcp_method_tcp_socket_finish_bind(
+                                  wasi_sockets_tcp_borrow_tcp_socket(k->tcp), &e);
+            if (!ok && e == WASI_SOCKETS_NETWORK_ERROR_CODE_WOULD_BLOCK) {
+                wait_on(j, k->udp ? wasi_sockets_udp_method_udp_socket_subscribe(
+                                        wasi_sockets_udp_borrow_udp_socket(k->usock))
+                                  : wasi_sockets_tcp_method_tcp_socket_subscribe(
+                                        wasi_sockets_tcp_borrow_tcp_socket(k->tcp)));
+                return 0;
+            }
+            if (!ok) {
+                sock_close(k);
+                net_fail(j, e);
+                return 1;
+            }
+            if (k->udp) {
+                wasi_sockets_udp_tuple2_own_incoming_datagram_stream_own_outgoing_datagram_stream_t ds;
+                if (!wasi_sockets_udp_method_udp_socket_stream(wasi_sockets_udp_borrow_udp_socket(k->usock),
+                                                               NULL, &ds, &e)) {
+                    sock_close(k);
+                    net_fail(j, e);
+                    return 1;
+                }
+                k->din = ds.f0;
+                k->dout = ds.f1;
+                k->dstreams = 1;
+                wasi_sockets_network_ip_socket_address_t a;
+                if (wasi_sockets_udp_method_udp_socket_local_address(
+                        wasi_sockets_udp_borrow_udp_socket(k->usock), &a, &e))
+                    sockaddr_text(j, &a);
+                j->r = sock_add(k);
+                return 1;
+            }
+            wasi_sockets_tcp_borrow_tcp_socket_t b = wasi_sockets_tcp_borrow_tcp_socket(k->tcp);
+            wasi_sockets_tcp_method_tcp_socket_set_listen_backlog_size(b, 128, &e);
+            if (!wasi_sockets_tcp_method_tcp_socket_start_listen(b, &e)) {
+                sock_close(k);
+                net_fail(j, e);
+                return 1;
+            }
+            st->phase = 2;
+        }
+        wasi_sockets_tcp_borrow_tcp_socket_t b = wasi_sockets_tcp_borrow_tcp_socket(k->tcp);
+        if (!wasi_sockets_tcp_method_tcp_socket_finish_listen(b, &e)) {
+            if (e == WASI_SOCKETS_NETWORK_ERROR_CODE_WOULD_BLOCK) {
+                wait_on(j, wasi_sockets_tcp_method_tcp_socket_subscribe(b));
+                return 0;
+            }
+            sock_close(k);
+            net_fail(j, e);
+            return 1;
+        }
+        wasi_sockets_network_ip_socket_address_t a;
+        if (wasi_sockets_tcp_method_tcp_socket_local_address(b, &a, &e)) sockaddr_text(j, &a);
+        j->r = sock_add(k);
+        return 1;
+    }
+    case 31: { /* accept on listener a */
+        Sock *l = sock_of(j->a);
+        if (!l || l->udp) {
+            errno = EBADF;
+            fail(j);
+            return 1;
+        }
+        if (l->shut_rd) {
+            errno = EINVAL;
+            fail(j);
+            return 1;
+        }
+        wasi_sockets_tcp_borrow_tcp_socket_t b = wasi_sockets_tcp_borrow_tcp_socket(l->tcp);
+        wasi_sockets_tcp_tuple3_own_tcp_socket_own_input_stream_own_output_stream_t got;
+        wasi_sockets_network_error_code_t e;
+        if (!wasi_sockets_tcp_method_tcp_socket_accept(b, &got, &e)) {
+            if (e == WASI_SOCKETS_NETWORK_ERROR_CODE_WOULD_BLOCK) {
+                wait_on(j, wasi_sockets_tcp_method_tcp_socket_subscribe(b));
+                return 0;
+            }
+            net_fail(j, e);
+            return 1;
+        }
+        Sock *k = calloc(1, sizeof *k);
+        if (!k) abort();
+        k->tcp = got.f0;
+        k->in = got.f1;
+        k->out = got.f2;
+        k->streams = 1;
+        ends_text(j, k);
+        j->r = sock_add(k);
+        return 1;
+    }
+    case 32: { /* connect to s, port a (trying each address) */
+        for (;;) {
+            if (st->phase == 0) {
+                int r = resolve_step(j, st, j->s);
+                if (r <= 0) return r < 0;
+                st->phase = 1;
+            }
+            wasi_sockets_network_error_code_t e;
+            if (st->phase == 1) {
+                if (st->next >= st->naddrs) {
+                    errno = ECONNREFUSED;
+                    fail(j);
+                    return 1;
+                }
+                wasi_sockets_network_ip_address_t *ip = &st->addrs[st->next++];
+                wasi_sockets_network_ip_address_family_t fam =
+                    ip->tag == WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV4
+                        ? WASI_SOCKETS_NETWORK_IP_ADDRESS_FAMILY_IPV4
+                        : WASI_SOCKETS_NETWORK_IP_ADDRESS_FAMILY_IPV6;
+                Sock *k = calloc(1, sizeof *k);
+                if (!k) abort();
+                wasi_sockets_network_ip_socket_address_t to = sockaddr_of(ip, (int)j->a);
+                if (!wasi_sockets_tcp_create_socket_create_tcp_socket(fam, &k->tcp, &e)) {
+                    free(k);
+                    if (st->next < st->naddrs) continue;
+                    net_fail(j, e);
+                    return 1;
+                }
+                if (!wasi_sockets_tcp_method_tcp_socket_start_connect(
+                        wasi_sockets_tcp_borrow_tcp_socket(k->tcp), net(), &to, &e)) {
+                    sock_close(k);
+                    if (st->next < st->naddrs) continue;
+                    net_fail(j, e);
+                    return 1;
+                }
+                st->k = k;
+                st->phase = 2;
+            }
+            Sock *k = st->k;
+            wasi_sockets_tcp_borrow_tcp_socket_t b = wasi_sockets_tcp_borrow_tcp_socket(k->tcp);
+            wasi_sockets_tcp_tuple2_own_input_stream_own_output_stream_t io;
+            if (!wasi_sockets_tcp_method_tcp_socket_finish_connect(b, &io, &e)) {
+                if (e == WASI_SOCKETS_NETWORK_ERROR_CODE_WOULD_BLOCK) {
+                    wait_on(j, wasi_sockets_tcp_method_tcp_socket_subscribe(b));
+                    return 0;
+                }
+                sock_close(k);
+                st->k = NULL;
+                st->phase = 1;
+                if (st->next < st->naddrs) continue;
+                net_fail(j, e);
+                return 1;
+            }
+            k->in = io.f0;
+            k->out = io.f1;
+            k->streams = 1;
+            ends_text(j, k);
+            j->r = sock_add(k);
+            st->k = NULL;
+            return 1;
+        }
+    }
+    case 33: { /* receive a datagram on a, at most b bytes: r = handle, r2 = count */
+        Sock *k = sock_of(j->a);
+        if (!k || !k->dstreams) {
+            errno = EBADF;
+            fail(j);
+            return 1;
+        }
+        wasi_sockets_udp_borrow_incoming_datagram_stream_t din =
+            wasi_sockets_udp_borrow_incoming_datagram_stream(k->din);
+        wasi_sockets_udp_list_incoming_datagram_t got;
+        wasi_sockets_network_error_code_t e;
+        if (!wasi_sockets_udp_method_incoming_datagram_stream_receive(din, 1, &got, &e)) {
+            net_fail(j, e);
+            return 1;
+        }
+        if (got.len == 0) {
+            wasi_sockets_udp_list_incoming_datagram_free(&got);
+            wait_on(j, wasi_sockets_udp_method_incoming_datagram_stream_subscribe(din));
+            return 0;
+        }
+        size_t n = j->b > 0 ? (size_t)j->b : 1;
+        size_t m = got.ptr[0].data.len < n ? got.ptr[0].data.len : n;
+        char *buf = calloc(n, 1);
+        if (!buf) abort();
+        memcpy(buf, got.ptr[0].data.ptr, m);
+        sockaddr_text(j, &got.ptr[0].remote_address);
+        wasi_sockets_udp_list_incoming_datagram_free(&got);
+        j->r = (int64_t)(uintptr_t)buf;
+        j->r2 = (int64_t)m;
+        return 1;
+    }
+    case 34: { /* send t's bytes from socket a to s = "port host" */
+        Sock *k = sock_of(j->a);
+        if (!k || !k->dstreams) {
+            errno = EBADF;
+            fail(j);
+            return 1;
+        }
+        const char *sp = strchr(j->s, ' ');
+        int r = resolve_step(j, st, sp ? sp + 1 : "");
+        if (r <= 0) return r < 0;
+        wasi_sockets_udp_borrow_outgoing_datagram_stream_t dout =
+            wasi_sockets_udp_borrow_outgoing_datagram_stream(k->dout);
+        uint64_t permit;
+        wasi_sockets_network_error_code_t e;
+        if (!wasi_sockets_udp_method_outgoing_datagram_stream_check_send(dout, &permit, &e)) {
+            net_fail(j, e);
+            return 1;
+        }
+        if (permit == 0) {
+            wait_on(j, wasi_sockets_udp_method_outgoing_datagram_stream_subscribe(dout));
+            return 0;
+        }
+        /* An address of the socket's family. */
+        wasi_sockets_network_ip_socket_address_t mine;
+        int v4 = !wasi_sockets_udp_method_udp_socket_local_address(
+                     wasi_sockets_udp_borrow_udp_socket(k->usock), &mine, &e) ||
+                 mine.tag == WASI_SOCKETS_NETWORK_IP_SOCKET_ADDRESS_IPV4;
+        int pick = 0;
+        for (int i = 0; i < st->naddrs; i++)
+            if ((st->addrs[i].tag == WASI_SOCKETS_NETWORK_IP_ADDRESS_IPV4) == v4) {
+                pick = i;
+                break;
+            }
+        wasi_sockets_udp_outgoing_datagram_t d;
+        d.data = (imports_list_u8_t){(uint8_t *)j->t, j->tlen};
+        d.remote_address.is_some = true;
+        d.remote_address.val = sockaddr_of(&st->addrs[pick], atoi(j->s));
+        wasi_sockets_udp_list_outgoing_datagram_t list = {&d, 1};
+        uint64_t sent;
+        if (!wasi_sockets_udp_method_outgoing_datagram_stream_send(dout, &list, &sent, &e)) {
+            net_fail(j, e);
+            return 1;
+        }
+        j->r = (int64_t)j->tlen;
+        return 1;
+    }
+    case 35: { /* resolve s: "address\0" each, without repeats */
+        int r = resolve_step(j, st, j->s);
+        if (r <= 0) return r < 0;
+        for (int i = 0; i < st->naddrs; i++) {
+            char host[64];
+            ip_text(&st->addrs[i], host, sizeof host);
+            int seen = 0;
+            for (size_t o = 0; j->text && o < j->text_len; o += strlen(j->text + o) + 1)
+                if (!strcmp(j->text + o, host)) seen = 1;
+            if (!seen) text_add(j, host, strlen(host) + 1);
+        }
+        if (!j->text) text_add(j, "", 0);
+        return 1;
+    }
+    case 20: { /* read: a = socket, b = at most this many bytes; r = handle, r2 = count */
+        Sock *k = sock_of(j->a);
+        if (!k || !k->streams) {
+            errno = EBADF;
+            fail(j);
+            return 1;
+        }
+        size_t n = j->b > 0 ? (size_t)j->b : 1;
+        if (!st->buf) {
+            st->buf = calloc(n, 1);
+            if (!st->buf) abort();
+        }
+        ptrdiff_t got = sock_try_read(j->a, k, st->buf, n, &p);
+        if (got == -3) {
+            wait_on(j, p);
+            return 0;
+        }
+        if (got < 0) {
+            fail(j);
+            return 1;
+        }
+        j->r = (int64_t)(uintptr_t)st->buf;
+        j->r2 = got;
+        st->buf = NULL;
+        return 1;
+    }
+    case 21: { /* write t's bytes to socket a (after the writes made before it) */
+        Sock *k = sock_of(j->a);
+        if (!k || !k->streams) {
+            errno = EBADF;
+            fail(j);
+            return 1;
+        }
+        if (k->writer && k->writer != j) {
+            k->queued = realloc(k->queued, (k->nqueued + 1) * sizeof *k->queued);
+            if (!k->queued) abort();
+            k->queued[k->nqueued++] = j; /* (stepped again when its turn comes) */
+            return 0;
+        }
+        k->writer = j;
+        while (st->done < j->tlen) {
+            ptrdiff_t w = sock_try_write(j->a, k, j->t + st->done, j->tlen - st->done, &p);
+            if (w == -3) {
+                wait_on(j, p);
+                return 0;
+            }
+            if (w < 0) {
+                fail(j);
+                next_writer(k);
+                return 1;
+            }
+            st->done += (size_t)w;
+        }
+        j->r = (int64_t)j->tlen;
+        next_writer(k);
+        return 1;
+    }
+    case 22: { /* read socket a to its end as text (UTF-8) */
+        Sock *k = sock_of(j->a);
+        if (!k || !k->streams) {
+            errno = EBADF;
+            fail(j);
+            return 1;
+        }
+        for (;;) {
+            if (st->len == st->cap) {
+                st->cap = st->cap ? st->cap * 2 : 4096;
+                st->buf = realloc(st->buf, st->cap);
+                if (!st->buf) abort();
+            }
+            ptrdiff_t got = sock_try_read(j->a, k, st->buf + st->len, st->cap - st->len, &p);
+            if (got == -3) {
+                wait_on(j, p);
+                return 0;
+            }
+            if (got < 0) {
+                fail(j);
+                return 1;
+            }
+            if (got == 0) break;
+            st->len += (size_t)got;
+        }
+        if (!valid_utf8((unsigned char *)st->buf, st->len)) {
+            j->r = -K_INVALID_DATA;
+            return 1;
+        }
+        text_add(j, st->buf ? st->buf : "", st->len);
+        return 1;
+    }
+    case 36: { /* TLS handshake on socket a: b = mode, s = host, t = PEM text, NUL, PEM */
+        Sock *k = sock_of(j->a);
+        char err[512];
+        if (!k || !k->streams) {
+            errno = EBADF;
+            fail(j);
+            return 1;
+        }
+        if (st->phase == 0) {
+            size_t n1 = j->t ? strlen(j->t) : 0;
+            const char *pem2 = j->t && n1 < j->tlen ? j->t + n1 + 1 : "";
+            size_t n2 = j->t && n1 < j->tlen ? j->tlen - n1 - 1 : 0;
+            if (ppl_tls_begin((int)j->a, (int)j->b, j->s ? j->s : "", j->t ? j->t : "", n1, pem2,
+                              n2, err, sizeof err) < 0) {
+                j->r = -15;
+                text_add(j, err, strlen(err));
+                return 1;
+            }
+            st->phase = 1;
+        }
+        int r = ppl_tls_step((int)j->a, err, sizeof err);
+        if (r == 1 || r == 2) {
+            wait_on(j, r == 1 ? wasi_io_streams_method_input_stream_subscribe(
+                                    wasi_io_streams_borrow_input_stream(k->in))
+                              : wasi_io_streams_method_output_stream_subscribe(
+                                    wasi_io_streams_borrow_output_stream(k->out)));
+            return 0;
+        }
+        if (r < 0) {
+            j->r = -15;
+            text_add(j, err, strlen(err));
+        }
+        return 1;
+    }
+    default:
+        errno = ENOSYS;
+        fail(j);
+        return 1;
+    }
+}
+
+/* Starts socket job `j`. */
+static void net_submit(Job *j) {
+    j->wasi_pollable = -1;
+    if (net_step(j)) {
+        state_free(j);
+        finish(j);
+    }
+}
+
+/* Ends the jobs waiting on socket `id` (shut down for reading, or closed): reads see the end,
+ * accepts fail. */
+static void net_release(int64_t id, int closed) {
+    for (size_t i = 0; i < nwaiting;) {
+        Job *j = waiting[i];
+        if (j->a != id || j->op == 21 || j->op == 34 || j->op == 36) {
+            i++;
+            continue;
+        }
+        waiting[i] = waiting[--nwaiting];
+        wasi_io_poll_pollable_drop_own((wasi_io_poll_own_pollable_t){j->wasi_pollable});
+        j->wasi_pollable = -1;
+        if (closed || j->op == 31 || j->op == 33) {
+            errno = closed ? EBADF : EINVAL;
+            fail(j);
+        } else if (j->op == 20) {
+            NetState *st = j->wasi;
+            j->r = (int64_t)(uintptr_t)st->buf;
+            j->r2 = 0;
+            st->buf = NULL;
+        } else if (j->op == 22) {
+            NetState *st = j->wasi;
+            text_add(j, st->buf ? st->buf : "", st->len);
+        }
+        state_free(j);
+        finish(j);
+    }
+}
+
+/* The event loop's wait on WASI: up to `ms` (-1: no limit) for any waiting socket job, which
+ * then takes its next steps. */
+void ppl_wasi_poll(int64_t ms) {
+    if (nwaiting == 0) {
+        if (ms > 0) {
+            struct timespec t = {(time_t)(ms / 1000), (long)(ms % 1000) * 1000000};
+            nanosleep(&t, NULL);
+        }
+        return;
+    }
+    size_t n = nwaiting;
+    wasi_io_poll_borrow_pollable_t *list = calloc(n + 1, sizeof *list);
+    if (!list) abort();
+    for (size_t i = 0; i < n; i++)
+        list[i] = wasi_io_poll_borrow_pollable((wasi_io_poll_own_pollable_t){waiting[i]->wasi_pollable});
+    wasi_io_poll_own_pollable_t timer = {-1};
+    size_t total = n;
+    if (ms >= 0) {
+        timer = wasi_clocks_monotonic_clock_subscribe_duration((uint64_t)ms * 1000000);
+        list[total++] = wasi_io_poll_borrow_pollable(timer);
+    }
+    wasi_io_poll_list_borrow_pollable_t in = {list, total};
+    imports_list_u32_t ready;
+    wasi_io_poll_poll(&in, &ready);
+    free(list);
+    if (timer.__handle >= 0) wasi_io_poll_pollable_drop_own(timer);
+    /* The ready jobs, taken off the list first (stepping may add jobs). */
+    Job **todo = calloc(ready.len + 1, sizeof *todo);
+    if (!todo) abort();
+    size_t ntodo = 0;
+    for (size_t r = 0; r < ready.len; r++)
+        if (ready.ptr[r] < n) todo[ntodo++] = waiting[ready.ptr[r]];
+    imports_list_u32_free(&ready);
+    for (size_t t = 0; t < ntodo; t++) {
+        for (size_t i = 0; i < nwaiting; i++)
+            if (waiting[i] == todo[t]) {
+                waiting[i] = waiting[--nwaiting];
+                break;
+            }
+    }
+    for (size_t t = 0; t < ntodo; t++) {
+        Job *j = todo[t];
+        wasi_io_poll_pollable_drop_own((wasi_io_poll_own_pollable_t){j->wasi_pollable});
+        j->wasi_pollable = -1;
+        if (net_step(j)) {
+            state_free(j);
+            finish(j);
+        }
+    }
+    free(todo);
+}
+
+/* Shutdown (op 120) and close (121) of socket `a`. */
+static int64_t net_control(int64_t op, int64_t a, int64_t b) {
+    Sock *k = sock_of(a);
+    if (!k) return -1;
+    if (op == 120) {
+        if (b != 0) ppl_tls_close_notify((int)a);
+        if (!k->udp) {
+            wasi_sockets_network_error_code_t e;
+            wasi_sockets_tcp_method_tcp_socket_shutdown(
+                wasi_sockets_tcp_borrow_tcp_socket(k->tcp),
+                b == 0 ? WASI_SOCKETS_TCP_SHUTDOWN_TYPE_RECEIVE
+                : b == 1 ? WASI_SOCKETS_TCP_SHUTDOWN_TYPE_SEND
+                         : WASI_SOCKETS_TCP_SHUTDOWN_TYPE_BOTH,
+                &e);
+        }
+        if (b != 1) {
+            k->shut_rd = 1;
+            net_release(a, 0);
+        }
+        return 0;
+    }
+    ppl_tls_free((int)a);
+    net_release(a, 1);
+    for (size_t i = 0; i < k->nqueued; i++) {
+        errno = EBADF;
+        fail(k->queued[i]);
+        state_free(k->queued[i]);
+        finish(k->queued[i]);
+    }
+    free(k->queued);
+    sock_close(k);
+    socks[a - SOCK_BASE] = NULL;
+    return 0;
+}
+
 extern int ppl_argc;
 extern char **ppl_argv;
 extern char **environ;
@@ -1462,9 +2452,7 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
         return j->id;
     }
     case 118: /* exit(a) */
-        fflush(stdout);
-        fflush(stderr);
-        exit((int)a);
+        ppl_exit((int)a);
     case 119: return 1; /* (WASI has no process ids) */
     default: return -1;
     }
@@ -1479,7 +2467,12 @@ static void os_submit(Job *j) {
         return;
     }
 #if defined(__wasi__)
-    /* No threads: the job runs now, and is polled on the loop's next turn. */
+    /* No threads: a file job runs now (it's polled on the loop's next turn); a socket job
+     * goes as far as it can and waits on the loop for the rest. */
+    if ((op >= 20 && op <= 22) || (op >= 30 && op <= 36)) {
+        net_submit(j);
+        return;
+    }
     run(j);
     finish(j);
     return;
@@ -1536,7 +2529,7 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
             n += (size_t)k;
         }
         close(fd);
-        j->r = (int64_t)(intptr_t)m;
+        j->r = (int64_t)(uintptr_t)m;
         j->r2 = (int64_t)n;
         return j->id;
     }
@@ -1549,6 +2542,11 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
         if (k > 0) text_add(j, buf, (size_t)k);
         return j->id;
     }
+#if defined(__wasi__)
+    case 120: /* shutdown socket a */
+    case 121: /* close socket a */
+        return net_control(op, a, b);
+#endif
 #if PPL_IO_POSIX
     case 120: /* shutdown socket a: b = 0 reading, 1 writing, 2 both (TLS: close_notify first) */
         if (b != 0) ppl_tls_close_notify((int)a);
@@ -2285,7 +3283,7 @@ static void pipe_read(Job *j) {
             fail(j);
             return;
         }
-        j->r = (int64_t)(intptr_t)b;
+        j->r = (int64_t)(uintptr_t)b;
         j->r2 = got;
         return;
     }
@@ -2300,7 +3298,7 @@ static void pipe_read(Job *j) {
         }
         k = 0;
     }
-    j->r = (int64_t)(intptr_t)b;
+    j->r = (int64_t)(uintptr_t)b;
     j->r2 = k;
 }
 
@@ -2488,7 +3486,7 @@ static void run(Job *j) {
             fail(j);
             return;
         }
-        j->r = (int64_t)(intptr_t)b;
+        j->r = (int64_t)(uintptr_t)b;
         j->r2 = (int64_t)n;
         return;
     }
@@ -2607,7 +3605,7 @@ static void run(Job *j) {
             win_fail(j, j->s);
             return;
         }
-        j->r = (int64_t)(intptr_t)h;
+        j->r = (int64_t)(uintptr_t)h;
         return;
     }
     case 11: { /* read: a = handle, b = at most this many bytes; r = buffer, r2 = count */
@@ -2621,7 +3619,7 @@ static void run(Job *j) {
             win_fail(j, NULL);
             return;
         }
-        j->r = (int64_t)(intptr_t)b;
+        j->r = (int64_t)(uintptr_t)b;
         j->r2 = k;
         return;
     }
@@ -2720,7 +3718,7 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
         size_t n = 0;
         char *m = read_all(path, &n);
         free(path);
-        j->r = m ? (int64_t)(intptr_t)m : -1;
+        j->r = m ? (int64_t)(uintptr_t)m : -1;
         j->r2 = (int64_t)n;
         return j->id;
     }
@@ -2922,7 +3920,7 @@ static void net_run(Job *j) {
             return;
         }
         addr_text(j, (struct sockaddr *)&from);
-        j->r = (int64_t)(intptr_t)b;
+        j->r = (int64_t)(uintptr_t)b;
         j->r2 = k;
         return;
     }
@@ -3068,7 +4066,7 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         char *m = malloc(n ? n : 1);
         if (!m) abort();
         if (n) memcpy(m, s->data, n);
-        j->r = (int64_t)(intptr_t)m;
+        j->r = (int64_t)(uintptr_t)m;
         j->r2 = (int64_t)n;
         return j->id;
     }
@@ -3078,7 +4076,7 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         char *m = calloc(n ? n : 1, 1);
         if (!m) abort();
         if (!random_bytes(m, n)) abort(); /* no randomness: nothing safe to fall back on */
-        j->r = (int64_t)(intptr_t)m;
+        j->r = (int64_t)(uintptr_t)m;
         j->r2 = (int64_t)n;
         return j->id;
     }
@@ -3096,7 +4094,7 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         uint8_t *o = NULL;
         size_t len = 0;
         int64_t e = ppl_crypto_op(a, (const uint8_t *)(intptr_t)b, c > 0 ? (size_t)c : 0, &o, &len);
-        j->r = e ? -1 : (int64_t)(intptr_t)o;
+        j->r = e ? -1 : (int64_t)(uintptr_t)o;
         j->r2 = e ? e : (int64_t)len;
         return j->id;
     }
@@ -3107,7 +4105,7 @@ int64_t ppl_io(int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s, con
         size_t n = 0;
         char *m = ppl_tz_bundled(name, &n);
         free(name);
-        j->r = m ? (int64_t)(intptr_t)m : -1;
+        j->r = m ? (int64_t)(uintptr_t)m : -1;
         j->r2 = (int64_t)n;
         return j->id;
     }

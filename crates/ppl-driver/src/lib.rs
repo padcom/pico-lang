@@ -386,7 +386,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
             &obj,
             ppl_codegen::Options {
                 optimize: opts.release,
-                triple: (!target.is_host()).then(|| target.llvm_triple()),
+                triple: (!target.is_host()).then(|| target.clang_triple()),
             },
         )?;
     }

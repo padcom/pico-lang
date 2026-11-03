@@ -90,4 +90,9 @@ heap, initialized lazily.
 
 ## 12.5 WASI
 `wasm32-wasi` uses WASI preview 2 for fs, clocks, sockets and random. The `std/*` modules are
-implemented on top of it.
+implemented on top of it. Programs are preview 2 components (`wasm32-wasip2`): wasi-libc's
+preview 1 calls go through the standard adapter, sockets straight to `wasi:sockets`; they run with
+`wasmtime run -W exceptions=y` (`try` and panics use Wasm exception handling), with network
+access granted (`-S inherit-network=y -S allow-ip-name-lookup=y`) when they use it. There are
+no threads (no `Worker`, no `watch`) and no `Command`; TLS trusts only `caCerts` there (no system
+roots are in reach). Decisions 255–257.

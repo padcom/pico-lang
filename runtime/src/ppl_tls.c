@@ -20,11 +20,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__wasi__)
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
-#include <unistd.h>
+#endif
+#if !defined(_WIN32)
+#include <unistd.h> /* access */
 #endif
 
 #include "mbedtls/ctr_drbg.h"
@@ -66,7 +68,27 @@ static Tls *find(int fd) {
 int ppl_tls_has(int fd) { return find(fd) != NULL; }
 
 /* ---- the socket calls, per platform ---- */
-#if defined(_WIN32)
+#if defined(__wasi__)
+/* WASI: ppl's sockets (`ppl_io.c`: preview 2 streams behind ids), non-blocking. */
+ptrdiff_t ppl_wasi_send(int fd, const unsigned char *buf, size_t len);
+ptrdiff_t ppl_wasi_recv(int fd, unsigned char *buf, size_t len);
+void ppl_wasi_wait(int fd, int write);
+
+enum { E_INTR = EINTR, E_AGAIN = EAGAIN, E_RESET = ECONNRESET, E_PIPE = EPIPE };
+
+static int sock_error(void) { return errno; }
+static ptrdiff_t sock_send(int fd, const unsigned char *buf, size_t len) {
+    return ppl_wasi_send(fd, buf, len);
+}
+static ptrdiff_t sock_recv(int fd, unsigned char *buf, size_t len) {
+    return ppl_wasi_recv(fd, buf, len);
+}
+static int set_nonblocking(int fd, int on) {
+    (void)fd, (void)on;
+    return 0;
+}
+static void wait_for(int fd, int r) { ppl_wasi_wait(fd, r == MBEDTLS_ERR_SSL_WANT_WRITE); }
+#elif defined(_WIN32)
 enum { E_INTR = WSAEINTR, E_AGAIN = WSAEWOULDBLOCK, E_RESET = WSAECONNRESET, E_PIPE = WSAESHUTDOWN };
 
 static int sock_error(void) { return WSAGetLastError(); }
@@ -212,7 +234,7 @@ static void set_err(char *err, size_t cap, const char *what, int r) {
     snprintf(err, cap, "%s: %s", what, buf);
 }
 
-int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n1,
+int ppl_tls_begin(int fd, int mode, const char *host, const char *pem1, size_t n1,
                   const char *pem2, size_t n2, char *err, size_t errcap) {
     pthread_once(&psa_once, psa_start);
     if (!psa_ok) {
@@ -280,7 +302,14 @@ int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n
             }
             roots = 1;
         }
+        /* (WASI has no system roots in reach: there, only `caCerts` are trusted, and other
+         * servers fail verification as untrusted ones do.) */
+#if defined(__wasi__)
+        (void)roots;
+        if (0) {
+#else
         if (mode == 0 && !roots) {
+#endif
             snprintf(err, errcap, "TLS: no trusted root certificates found (set SSL_CERT_FILE)");
             tls_free(t);
             return -1;
@@ -304,13 +333,35 @@ int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n
 #endif
     set_nonblocking(fd, 1);
     mbedtls_ssl_set_bio(&t->ssl, &t->fd, bio_send, bio_recv, NULL);
-    for (;;) {
-        r = mbedtls_ssl_handshake(&t->ssl);
-        if (r == 0) break;
-        if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) {
-            wait_for(fd, r);
-            continue;
-        }
+    pthread_mutex_lock(&table_lock);
+    t->next = sessions;
+    sessions = t;
+    pthread_mutex_unlock(&table_lock);
+    return 0;
+}
+
+/* Takes session `fd` out of the table and frees it. */
+static void tls_drop(int fd) {
+    pthread_mutex_lock(&table_lock);
+    Tls **p = &sessions;
+    while (*p && (*p)->fd != fd) p = &(*p)->next;
+    Tls *t = *p;
+    if (t) *p = t->next;
+    pthread_mutex_unlock(&table_lock);
+    if (t) tls_free(t);
+}
+
+int ppl_tls_step(int fd, char *err, size_t errcap) {
+    Tls *t = find(fd);
+    if (!t) {
+        snprintf(err, errcap, "TLS: no session");
+        return -1;
+    }
+    int r = mbedtls_ssl_handshake(&t->ssl);
+    if (r == 0) return 0;
+    if (r == MBEDTLS_ERR_SSL_WANT_READ) return 1;
+    if (r == MBEDTLS_ERR_SSL_WANT_WRITE) return 2;
+    {
         uint32_t flags = mbedtls_ssl_get_verify_result(&t->ssl);
         if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED && flags != 0 && flags != (uint32_t)-1) {
             char info[256];
@@ -325,14 +376,52 @@ int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n
             set_err(err, errcap, "TLS: handshake failed", r);
         }
         set_nonblocking(fd, 0);
-        tls_free(t);
+        tls_drop(fd);
         return -1;
     }
-    pthread_mutex_lock(&table_lock);
-    t->next = sessions;
-    sessions = t;
-    pthread_mutex_unlock(&table_lock);
-    return 0;
+}
+
+int ppl_tls_start(int fd, int mode, const char *host, const char *pem1, size_t n1,
+                  const char *pem2, size_t n2, char *err, size_t errcap) {
+    if (ppl_tls_begin(fd, mode, host, pem1, n1, pem2, n2, err, errcap) < 0) return -1;
+    for (;;) {
+        int r = ppl_tls_step(fd, err, errcap);
+        if (r <= 0) return r;
+        wait_for(fd, r == 1 ? MBEDTLS_ERR_SSL_WANT_READ : MBEDTLS_ERR_SSL_WANT_WRITE);
+    }
+}
+
+ptrdiff_t ppl_tls_try_read(int fd, void *buf, size_t n) {
+    Tls *t = find(fd);
+    if (!t) return -2;
+    for (;;) {
+        pthread_mutex_lock(&t->lock);
+        int r = mbedtls_ssl_read(&t->ssl, buf, n);
+        pthread_mutex_unlock(&t->lock);
+        if (r > 0) return r;
+        if (r == 0 || r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || r == MBEDTLS_ERR_SSL_CONN_EOF) {
+            return 0;
+        }
+        if (r == MBEDTLS_ERR_SSL_WANT_READ) return -3;
+        if (r == MBEDTLS_ERR_SSL_WANT_WRITE) return -4;
+        if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) continue;
+        errno = r == MBEDTLS_ERR_NET_RECV_FAILED || r == MBEDTLS_ERR_NET_CONN_RESET ? ECONNRESET
+                                                                                   : EPROTO;
+        return -1;
+    }
+}
+
+ptrdiff_t ppl_tls_try_write(int fd, const void *buf, size_t n) {
+    Tls *t = find(fd);
+    if (!t) return -2;
+    pthread_mutex_lock(&t->lock);
+    int r = mbedtls_ssl_write(&t->ssl, buf, n);
+    pthread_mutex_unlock(&t->lock);
+    if (r > 0) return r;
+    if (r == MBEDTLS_ERR_SSL_WANT_READ) return -3;
+    if (r == MBEDTLS_ERR_SSL_WANT_WRITE) return -4;
+    errno = r == MBEDTLS_ERR_NET_CONN_RESET ? EPIPE : EPROTO;
+    return -1;
 }
 
 ptrdiff_t ppl_tls_read(int fd, void *buf, size_t n) {
@@ -395,12 +484,4 @@ void ppl_tls_close_notify(int fd) {
     }
 }
 
-void ppl_tls_free(int fd) {
-    pthread_mutex_lock(&table_lock);
-    Tls **p = &sessions;
-    while (*p && (*p)->fd != fd) p = &(*p)->next;
-    Tls *t = *p;
-    if (t) *p = t->next;
-    pthread_mutex_unlock(&table_lock);
-    if (t) tls_free(t);
-}
+void ppl_tls_free(int fd) { tls_drop(fd); }

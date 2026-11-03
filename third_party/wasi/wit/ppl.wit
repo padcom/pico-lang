@@ -1,0 +1,19 @@
+// What ppl's runtime imports directly on wasm32-wasip2 (P8.5c, decision 257): sockets, with the
+// streams, pollables and clock they use. Everything else goes through wasi-libc (preview 1),
+// which the preview 1 adapter maps to preview 2.
+package ppl:runtime;
+
+world imports {
+  // Exit codes besides 0 and 1 (the preview 1 adapter keeps only success or failure).
+  import wasi:cli/exit@0.2.12;
+  import wasi:io/poll@0.2.12;
+  import wasi:io/streams@0.2.12;
+  import wasi:clocks/monotonic-clock@0.2.12;
+  import wasi:sockets/network@0.2.12;
+  import wasi:sockets/instance-network@0.2.12;
+  import wasi:sockets/ip-name-lookup@0.2.12;
+  import wasi:sockets/tcp@0.2.12;
+  import wasi:sockets/tcp-create-socket@0.2.12;
+  import wasi:sockets/udp@0.2.12;
+  import wasi:sockets/udp-create-socket@0.2.12;
+}

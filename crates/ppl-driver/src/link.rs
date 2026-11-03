@@ -105,7 +105,8 @@ pub fn link_wasi(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
         args.extend(paths(group));
         args.push("--end-lib".into());
     }
-    ppl_lld::link_wasm(&args).map_err(|e| format!("linking failed:\n{e}"))
+    ppl_lld::link_wasm(&args).map_err(|e| format!("linking failed:\n{e}"))?;
+    crate::wasi::componentize(exe)
 }
 
 /// Links `obj` with the runtime into the executable `exe` for a Linux target.
@@ -340,6 +341,7 @@ fn runtime_objects(t: Target, libc: &Libc) -> Result<RuntimeObjects, String> {
         .collect();
     let tz = ppl_runtime::tzdata_dir();
     headers.extend([tz.join("tzdata.bin"), tz.join("windows_zones.inc")]);
+    headers.push(ppl_runtime::include_dir().join("../wasi/imports.h"));
     let dir = cached_build("runtime", &name, &jobs, &headers, |_| Ok(()))?;
     let pick = |start: bool| {
         jobs.iter()
@@ -416,7 +418,8 @@ pub(crate) struct Job {
 }
 
 fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
-    let mut common: Vec<String> = vec![format!("--target={}", t.llvm_triple()), "-nostdinc".into()];
+    let mut common: Vec<String> =
+        vec![format!("--target={}", t.clang_triple()), "-nostdinc".into()];
     common.extend(libc.args.iter().cloned());
     common.extend(
         [
@@ -469,10 +472,19 @@ fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
         tz.join("tzdata.bin").display()
     ));
     let mut jobs = Vec::new();
-    for (dir, std, prefix) in [
+    let mut dirs = vec![
         (ppl_runtime::source_dir(), "-std=c11", ""),
         (mbed.join("library"), "-std=c99", "mbedtls_"),
-    ] {
+    ];
+    if t.os == crate::target::Os::Wasi {
+        // The WASI bindings (`runtime/wasi`).
+        dirs.push((
+            ppl_runtime::include_dir().join("../wasi"),
+            "-std=c11",
+            "wasi_",
+        ));
+    }
+    for (dir, std, prefix) in dirs {
         let mut srcs: Vec<PathBuf> = std::fs::read_dir(&dir)
             .map_err(|e| format!("cannot read {}: {e}", dir.display()))?
             .flatten()

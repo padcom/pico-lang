@@ -50,8 +50,8 @@ const TARGETS: &[(&str, &str)] = &[
     ("x86_64-w64-windows-gnu", "windows-x64"),
     ("aarch64-w64-windows-gnu", "windows-arm64"),
     ("wasm32-unknown-unknown", "wasm32-browser"),
-    // (Preview 1 core modules until P8.5c makes it `wasm32-wasip2`, a preview 2 component.)
-    ("wasm32-wasip1", "wasm32-wasi"),
+    // A preview 2 component, built from preview 1 objects (`clang_triple`; decision 257).
+    ("wasm32-wasip2", "wasm32-wasi"),
 ];
 
 impl Target {
@@ -140,6 +140,16 @@ impl Target {
     }
 
     /// The LLVM triple, without the glibc suffix.
+    /// The triple objects are compiled for: [`Target::llvm_triple`], except that WASI programs
+    /// are preview 1 code (wasi-libc's) made into a preview 2 component when linked.
+    pub fn clang_triple(self) -> &'static str {
+        if self.os == Os::Wasi {
+            "wasm32-wasip1"
+        } else {
+            self.llvm_triple()
+        }
+    }
+
     pub fn llvm_triple(self) -> &'static str {
         TARGETS
             .iter()

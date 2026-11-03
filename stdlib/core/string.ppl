@@ -212,11 +212,18 @@ function __replaceAllStr(s: string, search: string, replacement: string): string
 }
 
 function __String_repeat(s: string, count: int): string {
+  // By doubling: O(n) bytes built rather than O(n²) (a 100 kB string was 5 GB of garbage).
   let out = ""
-  let k = 0
-  while (k < count) {
-    out = out + s
-    k += 1
+  let piece = s
+  let n = count
+  while (n > 0) {
+    if (n % 2 == 1) {
+      out = out + piece
+    }
+    n = n / 2
+    if (n > 0) {
+      piece = piece + piece
+    }
   }
   out
 }

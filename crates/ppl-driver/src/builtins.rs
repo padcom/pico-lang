@@ -50,7 +50,7 @@ const X86_80: &[&str] = &[
 pub fn objects(t: Target, cc: &Clang) -> Result<Vec<PathBuf>, String> {
     let src = ppl_runtime::compiler_rt_dir().join("lib/builtins");
     let mut common: Vec<String> = [
-        format!("--target={}", t.llvm_triple()),
+        format!("--target={}", t.clang_triple()),
         "-nostdinc".into(),
         "-isystem".into(),
         format!("{}/include", cc.resource_dir),
