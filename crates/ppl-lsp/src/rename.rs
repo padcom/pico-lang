@@ -13,9 +13,6 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-/// The most files a rename checks.
-const MAX_FILES: usize = 2000;
-
 /// A declaration, independent of the check that found it: its file and name's offset.
 type Decl = (PathBuf, u32);
 
@@ -67,7 +64,7 @@ pub fn rename(
         .iter()
         .filter_map(|(u, t)| Some((canonical(&uri_to_path(u)?), (u, t))))
         .collect();
-    let mut files = project_files(&project_root(&doc_path));
+    let mut files = ppl_driver::project_files(&ppl_driver::project_root(&doc_path));
     let doc_canon = canonical(&doc_path);
     if !files.iter().any(|f| canonical(f) == doc_canon) {
         files.push(doc_path.clone());
@@ -142,37 +139,4 @@ fn is_identifier(s: &str) -> bool {
     cs.next()
         .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
         && cs.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
-}
-
-/// The nearest directory with a `project.json` above `doc` (else `doc`'s directory).
-fn project_root(doc: &Path) -> PathBuf {
-    let dir = doc.parent().unwrap_or(Path::new("."));
-    dir.ancestors()
-        .find(|d| d.join("project.json").is_file())
-        .unwrap_or(dir)
-        .to_path_buf()
-}
-
-/// The `.ppl` files under `root` (no hidden directories, `target` or `node_modules`).
-fn project_files(root: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let mut dirs = vec![root.to_path_buf()];
-    while let Some(d) = dirs.pop() {
-        let Ok(entries) = std::fs::read_dir(&d) else {
-            continue;
-        };
-        let mut entries: Vec<PathBuf> = entries.filter_map(|e| Some(e.ok()?.path())).collect();
-        entries.sort();
-        for p in entries {
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if p.is_dir() {
-                if !name.starts_with('.') && name != "target" && name != "node_modules" {
-                    dirs.push(p);
-                }
-            } else if name.ends_with(".ppl") && out.len() < MAX_FILES {
-                out.push(p);
-            }
-        }
-    }
-    out
 }

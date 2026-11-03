@@ -1,0 +1,12 @@
+---
+source: crates/ppl-lint/src/tests.rs
+expression: all
+---
+2:10 W0004 a blank line is needed before this function
+3:10 W0004 a blank line is needed before this function
+5:3 W0004 a blank line is needed before this `if`
+12:3 W0004 a blank line is needed before this `match`
+19:10 W0004 a blank line is needed before this function
+23:3 W0004 a blank line is needed before this constructor
+24:14 W0004 a blank line is needed before this getter
+27:14 W0004 a blank line is needed before this setter

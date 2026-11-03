@@ -417,6 +417,25 @@ fn check(uri: &str, text: &str) -> (BTreeMap<String, Vec<Value>>, Option<index::
         let v = to_lsp(d, span, &checked.sm, &name);
         out.entry(u).or_default().push(v);
     }
+    // Lint warnings (spec §14.7) of the document itself, under its project's configuration.
+    let (cfg, problems) = ppl_lint::Config::for_dir(&dir);
+    for p in problems {
+        out.get_mut(uri).expect("inserted").push(json!({
+            "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } },
+            "severity": 2,
+            "source": "ppl",
+            "message": format!("project.json: {p}"),
+        }));
+    }
+    let entry = ppl_lint::entry_file(&checked);
+    let lints = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ppl_lint::lint(&checked, entry, &cfg)
+    }))
+    .unwrap_or_default();
+    for d in &lints {
+        let v = to_lsp(d, d.main_span(), &checked.sm, &name);
+        out.get_mut(uri).expect("inserted").push(v);
+    }
     if checked.types.is_none() {
         // Errors stopped the check early: index what a recovering pass makes of the code
         // (its follow-up diagnostics aren't shown).

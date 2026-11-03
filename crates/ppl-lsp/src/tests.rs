@@ -97,7 +97,13 @@ fn utf16_positions() {
         open(&uri, "const s = \"🙂\"; const y: int = s\n"),
     ]);
     let d = diags_for(&out, &uri);
-    let list = d[0]["params"]["diagnostics"].as_array().unwrap();
+    // (The errors; `y` is also reported as unused.)
+    let list: Vec<&Value> = d[0]["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["severity"] == 1)
+        .collect();
     assert_eq!(list.len(), 1, "{list:#?}");
     let col = list[0]["range"]["start"]["character"].as_u64().unwrap();
     let text = "const s = \"🙂\"; const y: int = s";
@@ -1009,5 +1015,48 @@ fn methods_inherit_doc_comments() {
     assert_eq!(
         item(&items, "speak")["documentation"]["value"],
         "Says something."
+    );
+}
+
+#[test]
+fn lint_warnings() {
+    let dir = tmp("lint");
+    std::fs::write(
+        dir.join("project.json"),
+        r#"{ "lint": { "blankLines": true, "speed": 1 } }"#,
+    )
+    .unwrap();
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let text = "const my_value = 1\nconst other = 2\nif (other > 1) { println(other) }\n";
+    let out = session(vec![init(), open(&uri, text)]);
+    let d = diags_for(&out, &uri);
+    let list = d.last().unwrap()["params"]["diagnostics"]
+        .as_array()
+        .unwrap();
+    let got: Vec<(String, u64, u64)> = list
+        .iter()
+        .map(|d| {
+            (
+                d["code"].as_str().unwrap_or("").to_string(),
+                d["severity"].as_u64().unwrap(),
+                d["range"]["start"]["line"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("".to_string(), 2, 0), // the configuration's unknown rule
+            ("W0001".to_string(), 2, 0),
+            ("W0002".to_string(), 2, 0),
+            ("W0004".to_string(), 2, 2),
+        ],
+        "{list:#?}"
+    );
+    assert!(
+        list[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown rule `speed`")
     );
 }

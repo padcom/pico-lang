@@ -1,15 +1,52 @@
 //! Error codes. Ranges: `E00xx` lexical, `E01xx` syntax, `E02xx` names and modules,
-//! `E03xx` types. Codes are never reused once assigned.
+//! `E03xx` types. Lint warnings are `W0xxx` ([`LINTS`], spec §14.7). Codes are never reused
+//! once assigned.
 
 use std::fmt;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Code(pub u16);
 
+/// The bit that marks a lint warning's code (`W0001` is `Code(WARNING | 1)`).
+pub const WARNING: u16 = 0x8000;
+
+impl Code {
+    /// A lint warning's code, `W{n:04}`.
+    pub const fn warning(n: u16) -> Code {
+        Code(WARNING | n)
+    }
+
+    pub fn is_warning(self) -> bool {
+        self.0 & WARNING != 0
+    }
+}
+
 impl fmt::Display for Code {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "E{:04}", self.0)
+        if self.is_warning() {
+            write!(f, "W{:04}", self.0 & !WARNING)
+        } else {
+            write!(f, "E{:04}", self.0)
+        }
     }
+}
+
+macro_rules! lints {
+    ($($name:ident = $num:literal: $rule:literal: $desc:literal,)*) => {
+        $(#[doc = $desc] pub const $name: Code = Code::warning($num);)*
+
+        /// Every lint warning: its code, its rule in `project.json`'s `"lint"`, and a one-line
+        /// description.
+        pub const LINTS: &[(Code, &str, &str)] = &[$(($name, $rule, $desc),)*];
+    };
+}
+
+lints! {
+    LINT_NAMING = 1: "naming": "a name doesn't follow the naming conventions",
+    LINT_UNUSED = 2: "unused": "a variable, parameter, private member or import is never used",
+    LINT_COMPLEXITY = 3: "complexity": "a function's cyclomatic complexity is above the maximum",
+    LINT_BLANK_LINE = 4: "blankLines": "a blank line is missing before a statement or declaration",
+    LINT_DOCS = 5: "docs": "an exported declaration has no doc comment",
 }
 
 impl fmt::Debug for Code {
@@ -119,7 +156,10 @@ codes! {
 }
 
 pub fn describe(code: Code) -> Option<&'static str> {
-    ALL.iter().find(|(c, _)| *c == code).map(|(_, d)| *d)
+    ALL.iter()
+        .find(|(c, _)| *c == code)
+        .map(|(_, d)| *d)
+        .or_else(|| LINTS.iter().find(|(c, ..)| *c == code).map(|(.., d)| *d))
 }
 
 #[cfg(test)]
@@ -132,7 +172,13 @@ mod tests {
         for (c, _) in ALL {
             assert!(seen.insert(c.0), "duplicate code {c}");
         }
+        for (c, ..) in LINTS {
+            assert!(seen.insert(c.0), "duplicate code {c}");
+        }
         assert_eq!(MISMATCHED_TYPES.to_string(), "E0308");
+        assert_eq!(LINT_DOCS.to_string(), "W0005");
+        assert!(LINT_DOCS.is_warning() && !MISMATCHED_TYPES.is_warning());
+        assert_eq!(describe(LINT_UNUSED), Some(LINTS[1].2));
         assert_eq!(
             describe(UNTERMINATED_STRING),
             Some("unterminated string literal")

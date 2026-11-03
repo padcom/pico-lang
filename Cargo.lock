@@ -339,6 +339,7 @@ dependencies = [
  "ppl-codegen",
  "ppl-diag",
  "ppl-driver",
+ "ppl-lint",
  "ppl-lsp",
  "ppl-mir",
  "ppl-syntax",
@@ -394,6 +395,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ppl-lint"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "ppl-diag",
+ "ppl-driver",
+ "ppl-sema",
+ "ppl-syntax",
+ "serde_json",
+]
+
+[[package]]
 name = "ppl-lld"
 version = "0.1.0"
 dependencies = [
@@ -407,6 +420,7 @@ version = "0.1.0"
 dependencies = [
  "ppl-diag",
  "ppl-driver",
+ "ppl-lint",
  "ppl-sema",
  "ppl-syntax",
  "serde_json",

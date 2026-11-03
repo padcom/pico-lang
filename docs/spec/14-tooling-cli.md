@@ -118,7 +118,7 @@ Each rule is off with `false`, on with its defaults with `true`, or on with opti
 | Rule | Checks |
 |------|--------|
 | `naming` | camelCase values and functions, PascalCase types, enum variants and type parameters (decision 39) |
-| `unused` | local variables, parameters, private members and imports that are never used (a name starting with `_` is exempt) |
+| `unused` | variables (read, not only assigned), parameters after the last used one (not those an overridden or implemented method fixes), module-level bindings that aren't exported, private methods and imports that are never used. Exempt: names starting with `_`, bindings with a type test (`catch (e: E)`, `s: string =>`, `c as R`), `comptime` bindings, and the protocol methods the language calls itself (`toString`, `equals`, `hashCode`, `compareTo`, `format`, `iterator`, `next`, `dispose`, `disposeAsync`). Private fields aren't checked (printing, reflection and derived methods read them) |
 | `complexity` | the cyclomatic complexity of each function: at most `true` → 4, or the number given (`{ "max": n }` too) |
 | `blankLines` | a blank line before a statement `if` (not `else if`), `switch` and `match`, and before a function, method, constructor, getter or setter, unless it's the first in its block or type body; comments and decorators that belong to it go after the blank line. `{ "before": ["if", "function", …] }` picks the constructs |
 | `docs` | a doc comment (`/** … */` or `///`, with a description) on every exported declaration of a module, and on the public members (methods, getters, setters, fields) of exported types; a member that implements or overrides a documented member is documented by it |

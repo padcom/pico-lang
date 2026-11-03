@@ -17,6 +17,7 @@ ppl-codegen = { path = "crates/ppl-codegen" }
 ppl-runtime = { path = "crates/ppl-runtime" }
 ppl-driver = { path = "crates/ppl-driver" }
 ppl-lsp = { path = "crates/ppl-lsp" }
+ppl-lint = { path = "crates/ppl-lint" }
 ppl-lld = { path = "crates/ppl-lld" }
 ppl-tests = { path = "crates/ppl-tests" }
 clap = { version = "4.6", features = ["derive"] }

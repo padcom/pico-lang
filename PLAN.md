@@ -841,12 +841,15 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   any), `project.json`'s `"lint"` (each rule `false`/`true`/options), the `naming` and `unused`
   rules, and the language server publishing lint warnings with the diagnostics.
 - **Done when**: snapshot tests of the rules and the configuration pass.
+- **Done (decision 278)**: `crates/ppl-lint` (`config`, `walk`, `naming`, `unused`), `ppl lint`,
+  warnings in `ppl-lsp`'s diagnostics; snapshots in `crates/ppl-lint/src/snapshots`.
 
 #### P10.2b Optional rules: complexity, blank lines, docs
 - **Do**: the `complexity` (default 4), `blankLines` (`before` list) and `docs` (exported
   declarations and public members of exported types; inherited docs count) rules, off unless
   enabled.
 - **Done when**: snapshot tests of each rule, enabled, disabled and with options, pass.
+- **Done (decision 278)**: `complexity.rs`, `blank.rs`, `docs.rs` in `crates/ppl-lint`.
 
 ### P10.3 Package manager
 - **Spec**: 08 §8.3–8.4

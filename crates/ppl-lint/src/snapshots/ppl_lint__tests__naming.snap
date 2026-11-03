@@ -1,0 +1,15 @@
+---
+source: crates/ppl-lint/src/tests.rs
+expression: "run(\"naming\", r#\"{ \"unused\": false }\"#, text, &[])"
+---
+1:8 W0001 struct `point_2d` should be PascalCase (rename it to `Point2d`)
+2:3 W0001 field `X_pos` should be camelCase (rename it to `xPos`)
+5:6 W0001 enum `color` should be PascalCase (rename it to `Color`)
+5:14 W0001 enum variant `red` should be PascalCase (rename it to `Red`)
+6:6 W0001 type `meters` should be PascalCase (rename it to `Meters`)
+8:7 W0001 constant `Bad_Const` should be camelCase (rename it to `badConst`)
+9:5 W0001 variable `my_var` should be camelCase (rename it to `myVar`)
+10:10 W0001 function `Do_Thing` should be camelCase (rename it to `doThing`)
+10:19 W0001 type parameter `t` should be PascalCase (rename it to `T`)
+10:22 W0001 parameter `Some_Param` should be camelCase (rename it to `someParam`)
+13:10 W0001 method `Area` should be camelCase (rename it to `area`)

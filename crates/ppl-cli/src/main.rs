@@ -57,6 +57,12 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Lint `.ppl` files (spec §14.7; rules from `project.json`'s `lint`): warnings about
+    /// naming, unused code, complexity, blank lines and docs. Fails if there are any.
+    Lint {
+        /// Files or directories (default: the project around the current directory).
+        paths: Vec<PathBuf>,
+    },
     /// Run the tests in `*.test.ppl` files (spec §14.3), each file in a process of its own,
     /// in parallel.
     Test {
@@ -134,6 +140,7 @@ fn main() -> ExitCode {
             emit.as_deref(),
         ),
         Some(Command::Fmt { paths, check }) => fmt(&paths, check),
+        Some(Command::Lint { paths }) => lint(&paths),
         Some(Command::Lsp { .. }) => match ppl_lsp::run_stdio() {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -546,6 +553,55 @@ fn fmt(paths: &[PathBuf], check: bool) -> ExitCode {
     if !check {
         println!("formatted {unformatted} of {} file(s)", files.len());
     }
+    ExitCode::SUCCESS
+}
+
+fn lint(paths: &[PathBuf]) -> ExitCode {
+    let mut files = Vec::new();
+    if paths.is_empty() {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        files = ppl_driver::project_files(&ppl_driver::project_root(&cwd.join("_")));
+    } else {
+        for p in paths {
+            ppl_files(p, &mut files);
+        }
+    }
+    files.sort();
+    let (mut warnings, mut errors, mut config_errors) = (0, 0, std::collections::BTreeSet::new());
+    for f in &files {
+        let Ok(text) = std::fs::read_to_string(f) else {
+            eprintln!("error: cannot read {}", f.display());
+            errors += 1;
+            continue;
+        };
+        let (cfg, problems) = ppl_lint::Config::for_dir(f.parent().unwrap_or(Path::new(".")));
+        config_errors.extend(problems);
+        let (checked, found) = ppl_lint::lint_file(f, &text, &cfg);
+        // (Only the file's own errors: an imported module's are reported with it.)
+        let entry = ppl_lint::entry_file(&checked);
+        let own: Vec<ppl_diag::Diagnostic> = checked
+            .diags
+            .iter()
+            .filter(|d| d.is_error() && d.main_span().is_none_or(|s| s.file == entry))
+            .cloned()
+            .collect();
+        errors += own.len();
+        warnings += found.len();
+        eprint!("{}", ppl_diag::render_all(&own, &checked.sm));
+        eprint!("{}", ppl_diag::render_all(&found, &checked.sm));
+    }
+    for e in &config_errors {
+        eprintln!("error: {e}");
+    }
+    if errors + warnings + config_errors.len() > 0 {
+        eprintln!(
+            "{warnings} warning(s), {} error(s) in {} file(s)",
+            errors + config_errors.len(),
+            files.len()
+        );
+        return ExitCode::FAILURE;
+    }
+    println!("no warnings in {} file(s)", files.len());
     ExitCode::SUCCESS
 }
 

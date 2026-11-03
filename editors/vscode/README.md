@@ -10,7 +10,8 @@
   and the core library), also in code with errors, and completion (names in scope, members
   after `.`, the names a module exports inside `import { … }`), Rename Symbol (F2: every use in
   the project's modules, methods with their overrides and implementations) and the outline
-  (document symbols, also for Go to Symbol and breadcrumbs).
+  (document symbols, also for Go to Symbol and breadcrumbs). Lint warnings (`ppl lint`'s, spec
+  §14.7, configured in `project.json`'s `"lint"`) appear with the errors.
 
 ## Settings
 

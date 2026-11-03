@@ -568,58 +568,7 @@ pub(crate) fn struct_of(t: &Ty) -> Option<StructId> {
     }
 }
 
-/// The doc comment above the declaration whose name is at `at` (`/** … */` or `///` lines,
-/// decorators in between are skipped), as Markdown.
+/// The doc comment above the declaration whose name is at `at`, as Markdown.
 pub fn doc_comment(sm: &SourceMap, at: Span) -> String {
-    let f = sm.file(at.file);
-    let mut line = f.line_index(at.start);
-    let mut out: Vec<String> = Vec::new();
-    // Lines above, nearest first.
-    let above = |l: usize| f.line_text(l).trim();
-    while line > 0 && above(line - 1).starts_with('@') {
-        line -= 1;
-    }
-    if line == 0 {
-        return String::new();
-    }
-    let prev = above(line - 1);
-    if prev.starts_with("///") {
-        let mut l = line;
-        while l > 0 && above(l - 1).starts_with("///") {
-            l -= 1;
-            out.push(above(l).trim_start_matches('/').trim_start().to_string());
-        }
-        out.reverse();
-    } else if prev.ends_with("*/") {
-        let mut l = line;
-        let mut lines = Vec::new();
-        loop {
-            if l == 0 {
-                return String::new();
-            }
-            l -= 1;
-            let t = above(l);
-            lines.push(t.to_string());
-            if t.starts_with("/**") {
-                break;
-            }
-            if t.starts_with("/*") || (l + 1 < line && t.ends_with("*/")) {
-                return String::new();
-            }
-        }
-        lines.reverse();
-        for t in lines {
-            let t = t.strip_prefix("/**").unwrap_or(&t);
-            let t = t.strip_suffix("*/").unwrap_or(t).trim();
-            let t = t.strip_prefix('*').map(str::trim_start).unwrap_or(t);
-            out.push(t.to_string());
-        }
-        while out.first().is_some_and(|s| s.is_empty()) {
-            out.remove(0);
-        }
-        while out.last().is_some_and(|s| s.is_empty()) {
-            out.pop();
-        }
-    }
-    out.join("\n")
+    ppl_syntax::docs::doc_comment(&sm.file(at.file).text, at.start)
 }

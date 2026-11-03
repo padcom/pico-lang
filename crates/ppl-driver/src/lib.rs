@@ -471,6 +471,42 @@ fn js_packages(sm: &ppl_diag::SourceMap) -> Vec<String> {
         .collect()
 }
 
+/// The most files [`project_files`] lists.
+const MAX_PROJECT_FILES: usize = 2000;
+
+/// The nearest directory with a `project.json` above `doc` (else `doc`'s directory).
+pub fn project_root(doc: &Path) -> PathBuf {
+    let dir = doc.parent().unwrap_or(Path::new("."));
+    dir.ancestors()
+        .find(|d| d.join("project.json").is_file())
+        .unwrap_or(dir)
+        .to_path_buf()
+}
+
+/// The `.ppl` files under `root` (no hidden directories, `target` or `node_modules`).
+pub fn project_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(d) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        let mut entries: Vec<PathBuf> = entries.filter_map(|e| Some(e.ok()?.path())).collect();
+        entries.sort();
+        for p in entries {
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if p.is_dir() {
+                if !name.starts_with('.') && name != "target" && name != "node_modules" {
+                    dirs.push(p);
+                }
+            } else if name.ends_with(".ppl") && out.len() < MAX_PROJECT_FILES {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
 /// The formatter's options for files in `dir`: `project.json`'s `"fmt"` (spec §14.4), found
 /// in `dir` or above, over the defaults.
 pub fn fmt_options(dir: &Path) -> ppl_syntax::fmt::FmtOptions {
