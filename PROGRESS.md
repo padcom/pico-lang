@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.2: Lint** (see PLAN; Phase 10 order: P10.2 → P10.5 → P10.8 → …). The author should try rename (F2) and the outline in VS Code (`scripts/vscode-package.sh --install`, reload), and hover/definition in files with errors (P10.6c2); completion is checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.2: Lint** (see PLAN; Phase 10 order: P10.2 → P10.5 → P10.8 → …). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -301,7 +301,7 @@ Notes:
 - [x] P10.6c1 Symbol index, hover and go-to-definition
 - [x] P10.6c2 Error recovery for the language server (manual check in VS Code pending)
 - [x] P10.6d1 Completion
-- [x] P10.6d2 Rename and document symbols (manual check in VS Code pending)
+- [x] P10.6d2 Rename and document symbols
 - [ ] P10.2 Lint
 - [ ] P10.5 Incremental compilation
 - [ ] P10.8 Debugging
@@ -468,3 +468,4 @@ Notes:
 | 2026-11-03 | P10.6d2 | Rename (`rename.rs`: each project file checked as an entry, uses matched by declaration file+offset, method families, shorthand fields expanded, `prepareRename` refusals) and document symbols (`symbols.rs`, from the syntax tree). Interface calls now indexed (hover/definition too). Protocol tests apply the edits. Decision 275. |
 | 2026-11-03 | P10.6d1 | Fix (asked by the author): completion inside `import { … }` only read double-quoted paths; `from './x'` works too. |
 | 2026-11-03 | P10.6d1 | Manual check: completion confirmed by the author in VS Code. Fix: completion showed `print`/`println` as variadic (`...values`); they take 1 and 0–1 values, as the checker enforces (`println(1, 2, 3)` is an error by design). |
+| 2026-11-03 | P10.6d2 | Manual check: rename and the outline confirmed by the author in VS Code. Grammar (author's remark): plain identifiers had no scope, so expressions inside `${…}` took the string's color; now `variable.other.readwrite`/`object`/`property` like TypeScript's (`syntaxes/generate.py`, `identifiers`), checked with vscode-textmate. |

@@ -45,6 +45,9 @@
         },
         {
           "include": "#braces"
+        },
+        {
+          "include": "#identifiers"
         }
       ]
     },
@@ -293,6 +296,22 @@
           "name": "entity.name.function.ppl"
         }
       }
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.property.ppl",
+          "match": "(?<=[^.]\\.)[A-Za-z_$][A-Za-z0-9_$]*(?![\\w$])"
+        },
+        {
+          "name": "variable.other.object.ppl",
+          "match": "[A-Za-z_$][A-Za-z0-9_$]*(?=\\s*\\??\\.(?!\\.))"
+        },
+        {
+          "name": "variable.other.readwrite.ppl",
+          "match": "[A-Za-z_$][A-Za-z0-9_$]*"
+        }
+      ]
     },
     "operators": {
       "patterns": [

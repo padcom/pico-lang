@@ -24,7 +24,7 @@ g = {
       {"include": "#comments"}, {"include": "#strings"}, {"include": "#decorators"},
       {"include": "#declarations"}, {"include": "#keywords"}, {"include": "#constants"},
       {"include": "#types"}, {"include": "#numbers"}, {"include": "#calls"},
-      {"include": "#operators"}, {"include": "#braces"}]},
+      {"include": "#operators"}, {"include": "#braces"}, {"include": "#identifiers"}]},
     "comments": {"patterns": [
       {"name": "comment.block.documentation.ppl", "begin": r"/\*\*(?!/)", "end": r"\*/",
        "beginCaptures": {"0": {"name": "punctuation.definition.comment.ppl"}},
@@ -75,6 +75,12 @@ g = {
       "match": r"(?<![\w$])(0[xX][0-9A-Fa-f_]+|0[oO][0-7_]+|0[bB][01_]+|[0-9][0-9_]*(\.[0-9][0-9_]*)?([eE][+-]?[0-9]+)?)(i8|i16|i32|i64|u8|u16|u32|u64|isize|usize|f32|f64)?(?![\w$])"},
     "calls": {"match": "(" + ID + r")(?=\s*(<[A-Za-z0-9_$<>,\s\[\]?|]*>)?\()",
       "captures": {"1": {"name": "entity.name.function.ppl"}}},
+    # Last: what the rules above didn't claim (keywords, types and calls win at the same
+    # position). Scoped like TypeScript's, so themes color them, also inside `${…}`.
+    "identifiers": {"patterns": [
+      {"name": "variable.other.property.ppl", "match": r"(?<=[^.]\.)" + ID + r"(?![\w$])"},
+      {"name": "variable.other.object.ppl", "match": ID + r"(?=\s*\??\.(?!\.))"},
+      {"name": "variable.other.readwrite.ppl", "match": ID}]},
     "operators": {"patterns": [
       {"name": "storage.type.function.arrow.ppl", "match": "=>"},
       {"name": "keyword.operator.spread.ppl", "match": r"\.\.\.|\.\."},
