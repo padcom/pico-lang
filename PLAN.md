@@ -767,6 +767,8 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   converted by the glue) and `std/js` (`JsValue` handles, `js:` imports, callbacks into ppl)
   on the WasmGC build.
 - **Done when**: `examples/browser` and `examples/browser-dom` work with `PPL_BACKEND=wasmgc`.
+- **Done (decision 270)**: `tests/browser` runs on both backends; `JsValue` handles aren't
+  released on WasmGC yet (no weak references there).
 
 ### P8.8 JS imports from .d.ts
 - **Spec**: 12 §12.3

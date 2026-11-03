@@ -34,9 +34,22 @@ fn browser() {
         .collect();
     entries.sort();
     assert!(!entries.is_empty(), "no tests in {}", dir.display());
-    for src in entries {
+    // Each with both backends: LLVM on linear memory, and WasmGC (P8.7f).
+    let runs = entries
+        .iter()
+        .flat_map(|e| [(e.clone(), false), (e.clone(), true)]);
+    for (src, gc) in runs {
         let name = src.file_stem().unwrap().to_string_lossy().into_owned();
-        let out = std::env::temp_dir().join(format!("ppl-browser-{}-{name}", std::process::id()));
+        let label = if gc {
+            format!("{name} (WasmGC)")
+        } else {
+            name.clone()
+        };
+        let out = std::env::temp_dir().join(format!(
+            "ppl-browser-{}-{name}{}",
+            std::process::id(),
+            if gc { "-gc" } else { "" }
+        ));
         let _ = std::fs::remove_dir_all(&out);
         std::fs::create_dir_all(&out).unwrap();
         let opts = ppl_driver::BuildOptions {
@@ -45,11 +58,16 @@ fn browser() {
         };
         let checked = ppl_driver::check_file_with(&src, opts).unwrap();
         if checked.has_errors() {
-            failed.push(format!("{name}: {}", checked.render_diagnostics()));
+            failed.push(format!("{label}: {}", checked.render_diagnostics()));
             continue;
         }
-        if let Err(e) = ppl_driver::build_native(&checked, &out.join(&name), opts) {
-            failed.push(format!("{name}: {e}"));
+        let built = if gc {
+            ppl_driver::build_wasmgc(&checked, &out.join(&name))
+        } else {
+            ppl_driver::build_native(&checked, &out.join(&name), opts)
+        };
+        if let Err(e) = built {
+            failed.push(format!("{label}: {e}"));
             continue;
         }
         // Packages `js:npm/…` imports (the glue imports them from next to itself).
@@ -64,7 +82,7 @@ fn browser() {
         let want = std::fs::read_to_string(dir.join(format!("{name}.out"))).unwrap();
         if !run.status.success() || got != want {
             failed.push(format!(
-                "{name}: exit {:?}\n--- got\n{got}--- want\n{want}--- stderr\n{}",
+                "{label}: exit {:?}\n--- got\n{got}--- want\n{want}--- stderr\n{}",
                 run.status.code(),
                 String::from_utf8_lossy(&run.stderr)
             ));

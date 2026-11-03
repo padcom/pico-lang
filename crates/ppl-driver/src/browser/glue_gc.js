@@ -10,6 +10,9 @@ const WASM = new URL("./__PPL_WASM__", import.meta.url);
 const FILE = __PPL_FILE__;
 const isNode = typeof process === "object" && !!process?.versions?.node;
 
+/** A JavaScript argument of the wrong type for an `@export("js")` function. */
+class ArgError extends Error {}
+
 class Exit {
   constructor(code) {
     this.code = code;
@@ -234,8 +237,111 @@ export default async function init(options = {}) {
   let badAt = 0;
   const ids = new WeakMap();
   let nextId = 0;
+  // ---- std/js: JavaScript values held by ppl code, by handle (decision 259)
+  const jsModules = { dom: globalThis };
+/*__PPL_JS_MODULES__*/
+  const values = [undefined, null, globalThis];
+  const freeSlots = [];
+  let lastError = null;
+  const put = (v) => {
+    if (v === undefined) return 0;
+    if (v === null) return 1;
+    if (v === globalThis) return 2;
+    const h = freeSlots.length ? freeSlots.pop() : values.length;
+    values[h] = v;
+    return h;
+  };
+  const val = (h) => values[h];
+  const guard = (f) => {
+    try {
+      return f();
+    } catch (e) {
+      lastError = e;
+      return -1;
+    }
+  };
+  const bits = new DataView(new ArrayBuffer(8));
+  /** `__io` 150–168 (but 163) as `ppl_io.c` hands them to the linear-memory glue. */
+  const jsOp = (op, a, b, c, s, t) => {
+    // (JavaScript code may write to the console: ppl's output so far goes first.)
+    if (op >= 151 && op <= 154) {
+      out.flush();
+      err.flush();
+    }
+    switch (op) {
+      case 150:
+        return guard(() => put(val(a)[str(s)]));
+      case 151:
+        return guard(() => {
+          val(a)[str(s)] = val(b);
+          return 0;
+        });
+      case 152:
+        return guard(() => {
+          const o = val(a), name = str(s);
+          if (typeof o?.[name] !== "function") throw new TypeError(`${name} is not a function`);
+          return put(o[name](...val(b)));
+        });
+      case 153:
+        return guard(() => put(Reflect.apply(val(a), val(b), val(c))));
+      case 154:
+        return guard(() => put(Reflect.construct(val(a), val(b))));
+      case 155:
+        return put(str(s));
+      case 156: // a number from its bits: a the high half, b the low one
+        bits.setUint32(0, b >>> 0, true);
+        bits.setUint32(4, a >>> 0, true);
+        return put(bits.getFloat64(0, true));
+      case 157:
+        return put(a !== 0);
+      case 158:
+        return put([]);
+      case 159:
+        val(a).push(val(b));
+        return 0;
+      case 160: {
+        const v = val(a);
+        if (v === undefined) return 0;
+        if (v === null) return 1;
+        return { boolean: 2, number: 3, string: 4, object: 5, function: 6 }[typeof v] ?? 7;
+      }
+      case 161: // a number's bits
+        bits.setFloat64(0, Number(val(a)), true);
+        return bits.getBigInt64(0, true);
+      case 162:
+        return val(a) ? 1 : 0;
+      case 164:
+        if (a > 2) {
+          values[a] = undefined;
+          freeSlots.push(a);
+        }
+        return 0;
+      case 165: {
+        const e = lastError;
+        lastError = null;
+        return put(e);
+      }
+      case 166:
+        return put((...args) => callback(a, args));
+      case 168:
+        return put(jsModules[str(s)]);
+      default: // 167
+        return val(a) === val(b) ? 1 : 0;
+    }
+  };
+  /** A `JsValue.fn` function was called from JavaScript. */
+  function callback(id, args) {
+    const ah = put(args);
+    enter(() => {
+      ex.js___jsCallback(BigInt(id), BigInt(ah));
+      if (depth === 1) ex.resume();
+    });
+  }
+
   const ppl = {
     ...fmtSpec,
+    js_op: (op, a, b, c, s, t) => BigInt(jsOp(op, Number(a), Number(b), Number(c), s, t)),
+    js_text: (h) => mk(String(val(Number(h)))),
     print_str: (r) => out.put(str(r)),
     print_i64: (v, u) => out.put(int(v, u)),
     print_f64: (x) => out.put(String(x)),
@@ -332,41 +438,106 @@ export default async function init(options = {}) {
   };
   const instance = await WebAssembly.instantiate(module, { ppl });
   ex = instance.exports;
-  let resolveDone, rejectDone;
+  let resolveDone, rejectDone, timer = null, finished = false;
   const done = new Promise((res, rej) => {
     resolveDone = res;
     rejectDone = rej;
   });
-  /** Runs `f` in the module; a panic or an exit ends the program, a wait schedules `resume`. */
-  const enter = (f) => {
+  const flush = () => {
+    out.flush();
+    err.flush();
+  };
+  /** Runs `f` in the module, then hands the event loop's next wait to a timer. Calls nest
+   * (ppl code calling JavaScript calling ppl code): only the outermost one does that. A panic
+   * or an exit ends the program. */
+  let depth = 0;
+  function enter(f) {
+    if (finished) throw new Error("the program has exited");
+    let r;
+    depth++;
     try {
-      f();
+      r = f();
     } catch (e) {
-      out.flush();
-      if (e instanceof Exit) {
-        err.flush();
-        resolveDone(e.code);
-        return;
-      }
+      depth--;
+      flush();
+      if (e instanceof ArgError) throw new TypeError(e.message);
+      if (depth > 0) throw e; // (the outermost call ends the program)
+      finished = true;
+      if (timer !== null) clearTimeout(timer);
       if (e instanceof WebAssembly.Exception && e.is(ex.panic)) {
         const line = ex.panic_line.value;
         err.put(`panic: ${str(ex.panic_msg.value)}\n` + (line ? `  at ${FILE}:${line}:${ex.panic_col.value}\n` : ""));
         err.flush();
-        resolveDone(101);
-        return;
+        e = new Exit(101);
       }
-      err.flush();
+      if (e instanceof Exit) {
+        resolveDone(e.code);
+        throw new Error(`the program exited (${e.code})`);
+      }
       rejectDone(e);
-      return;
+      throw e;
     }
-    out.flush();
-    err.flush();
+    depth--;
+    flush();
+    if (depth > 0) return r;
     const wait = Number(ex.pending());
-    if (wait >= 0) setTimeout(() => enter(() => ex.resume()), wait);
-    else resolveDone(0);
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    if (wait >= 0) {
+      timer = setTimeout(() => {
+        timer = null;
+        try {
+          enter(() => ex.resume());
+        } catch {
+          // (Reported through `done`.)
+        }
+      }, wait);
+    } else {
+      // Nothing pending: the program has finished (its exports stay callable).
+      resolveDone(0);
+    }
+    return r;
+  }
+  try {
+    enter(() => ex.start());
+  } catch {
+    // (Reported through `done`.)
+  }
+  const app = { instance, done };
+
+  // ---- @export("js") functions (generated)
+  const i64 = (x) => BigInt.asIntN(64, typeof x === "bigint" ? x : BigInt(Math.trunc(x)));
+  const u64 = (x) => BigInt.asUintN(64, typeof x === "bigint" ? x : BigInt(Math.trunc(x)));
+  const mkStr = (s) => {
+    if (typeof s !== "string") throw new ArgError(`expected a string, got ${typeof s}`);
+    return mk(s);
   };
-  enter(() => ex.start());
-  return { instance, done };
+  /** A ppl object (the browser's collector keeps it alive while the handle is). */
+  class Handle {
+    constructor(r) {
+      this.__ref = r;
+    }
+    free() {
+      this.__ref = null;
+    }
+    [Symbol.dispose]() {
+      this.free();
+    }
+  }
+  const refOf = (h, cls) => {
+    if (!(h instanceof cls)) throw new ArgError(`expected a ${cls.name}`);
+    if (h.__ref === null) throw new ArgError(`this ${cls.name} was freed`);
+    return h.__ref;
+  };
+  /** Calls an export, then runs what it queued (microtasks, due timers). */
+  const call = (f) =>
+    enter(() => {
+      const r = f();
+      if (depth === 1) ex.resume();
+      return r;
+    });
+/*__PPL_EXPORTS__*/
+  return app;
 }
 
 // (Real paths: the module's is resolved, `argv[1]` may go through a symlink, as macOS's

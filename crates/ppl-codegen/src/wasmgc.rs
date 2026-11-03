@@ -81,6 +81,21 @@ const IMPORTS: &[(&str, &[ValT], &[ValT])] = &[
     ("parse_f64", &[ValT::Str], &[ValT::F64]),
     ("ref_id", &[ValT::Any], &[ValT::I64]),
     ("math", &[ValT::I32, ValT::F64, ValT::F64], &[ValT::F64]),
+    // std/js (`__io` 150–168 but 163, decision 259): op, a, b, c, s, t.
+    (
+        "js_op",
+        &[
+            ValT::I32,
+            ValT::I64,
+            ValT::I64,
+            ValT::I64,
+            ValT::Str,
+            ValT::Str,
+        ],
+        &[ValT::I64],
+    ),
+    // `String(value)` of a handle (`__io` 163).
+    ("js_text", &[ValT::I64], &[ValT::Str]),
     // Format specs (`${x:08.2f}`): the value, then the spec's eight fields (as `ppl_rt.h`'s
     // `PplFmt`: fill, align, sign, alternate, zero, width, precision, kind).
     (
@@ -228,6 +243,7 @@ pub fn emit(p: &Program, tzdata: &[u8]) -> R<Vec<u8>> {
     // `resume` and `pending`.
     let start = g.start_fn()?;
     let (resume, pending) = g.loop_fns();
+    let js_exports = g.js_exports()?;
     // On-demand helpers (array operations, copies, thunks), after the program's functions.
     let extra = std::mem::take(&mut g.extra);
     for (_, _, body) in &extra {
@@ -353,6 +369,9 @@ pub fn emit(p: &Program, tzdata: &[u8]) -> R<Vec<u8>> {
     let mut exports = ExportSection::new();
     for (i, h) in HELPERS.iter().enumerate() {
         exports.export(h, ExportKind::Func, IMPORTS.len() as u32 + i as u32);
+    }
+    for (name, f) in &js_exports {
+        exports.export(name, ExportKind::Func, *f);
     }
     exports.export("start", ExportKind::Func, start);
     exports.export("resume", ExportKind::Func, resume);
@@ -1865,6 +1884,77 @@ impl<'p> Gen<'p> {
                 f
             }),
         }
+    }
+
+    /// `@export("js")` functions (as `js_<name>`: the glue converts numbers and strings,
+    /// references pass as they are), and for the structs they take or return, a constructor
+    /// (`js_new_<id>`, the fields in order) and field getters (`js_get_<id>_<field>`).
+    fn js_exports(&mut self) -> R<Vec<(String, u32)>> {
+        let mut out = Vec::new();
+        let mut structs: Vec<Ty> = Vec::new();
+        fn visit(g: &Gen, t: &Ty, structs: &mut Vec<Ty>) {
+            if let Ty::Struct(sid, _, args) = t.erase()
+                && !structs.contains(&t.erase())
+            {
+                structs.push(t.erase());
+                let owner = Ty::type_owner(sid);
+                for (_, ft) in &g.p.layout(sid).fields {
+                    visit(g, &ft.subst(owner, &args), structs);
+                }
+            }
+        }
+        for e in &self.p.exports {
+            if e.abi != ppl_sema::hir::ExportAbi::Js {
+                continue;
+            }
+            let Some(&f) = self.fn_index.get(&e.func) else {
+                continue;
+            };
+            out.push((format!("js_{}", e.name), f));
+            for (_, t) in &e.params {
+                visit(self, t, &mut structs);
+            }
+            visit(self, &e.ret, &mut structs);
+        }
+        for t in structs {
+            let Ty::Struct(sid, _, _) = &t else {
+                unreachable!()
+            };
+            let (idx, fields) = self.struct_of(&t)?;
+            let sty = ref_to(idx);
+            let ftys: Vec<Option<ValType>> = fields
+                .iter()
+                .map(|f| if no_value(f) { None } else { self.wasm_ty(f) })
+                .collect();
+            let params: Vec<ValType> = ftys.iter().flatten().copied().collect();
+            let make = self.extra_fn(format!("js new {t}"), params, vec![sty], |_| {
+                let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                let mut s = f.instructions();
+                let mut k = 0;
+                for ft in &ftys {
+                    if ft.is_some() {
+                        s.local_get(k);
+                        k += 1;
+                    } else {
+                        s.ref_null(RefType::ANYREF.heap_type);
+                    }
+                }
+                s.struct_new(idx).end();
+                f
+            });
+            out.push((format!("js_new_{}", sid.0), make));
+            for (i, ft) in ftys.iter().enumerate() {
+                let Some(ft) = *ft else { continue };
+                let get = self.extra_fn(format!("js get {t} {i}"), vec![sty], vec![ft], |_| {
+                    let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                    let mut s = f.instructions();
+                    s.local_get(0).struct_get(idx, i as u32).end();
+                    f
+                });
+                out.push((format!("js_get_{}_{i}", sid.0), get));
+            }
+        }
+        Ok(out)
     }
 
     /// A helper function made once per `key`: its index (built by `build` the first time).
@@ -4645,6 +4735,20 @@ impl<'p> Gen<'p> {
                             // A job's results (always job 1: see `job_global`).
                             102 | 103 => {
                                 s.global_get(self.job_global() + (op - 102) as u32);
+                            }
+                            // std/js: through the glue.
+                            163 => {
+                                self.operand(fx, s, &args[1])?;
+                                s.call(import_index("js_text"));
+                                s.global_set(self.job_global() + 2);
+                                s.i64_const(1);
+                            }
+                            150..=168 => {
+                                s.i32_const(op as i32);
+                                for a in &args[1..6] {
+                                    self.operand(fx, s, a)?;
+                                }
+                                s.call(import_index("js_op"));
                             }
                             130 | 131 | 132 | 105 | 114 | 134 | 135 | 136 | 137 => {
                                 self.io_job(fx, s, op, args)?;

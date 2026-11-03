@@ -52,6 +52,8 @@ pub fn build(mir: &Program, obj: &Path, out: &Path, packages: &[String]) -> Resu
         dts: String::new(),
         classes: Vec::new(),
         structs: Vec::new(),
+        gc: false,
+        gc_structs: Vec::new(),
     };
     let exports: Vec<&Export> = mir
         .exports
@@ -90,8 +92,9 @@ pub fn wasmgc_selected() -> bool {
     std::env::var("PPL_BACKEND").is_ok_and(|b| b == "wasmgc")
 }
 
-/// The module from the WasmGC backend, and its glue.
-pub fn build_gc(mir: &Program, out: &Path) -> Result<(), String> {
+/// The module from the WasmGC backend, and its glue (`@export("js")` functions as in
+/// `build`, with structs built and read through the module's `js_new_*`/`js_get_*` exports).
+pub fn build_gc(mir: &Program, out: &Path, packages: &[String]) -> Result<(), String> {
     let f = files(out);
     let tz = std::fs::read(ppl_runtime::tzdata_dir().join("tzdata.bin")).unwrap_or_default();
     let bytes = ppl_codegen::wasmgc::emit(mir, &tz)?;
@@ -99,11 +102,28 @@ pub fn build_gc(mir: &Program, out: &Path) -> Result<(), String> {
         .map_err(|e| format!("cannot write {}: {e}", f.wasm.display()))?;
     let wasm = f.wasm.file_name().unwrap_or_default().to_string_lossy();
     let base = wasm.trim_end_matches(".wasm");
+    let mut g = Gen {
+        p: mir,
+        js: String::new(),
+        dts: String::new(),
+        classes: Vec::new(),
+        structs: Vec::new(),
+        gc: true,
+        gc_structs: Vec::new(),
+    };
+    for e in &mir.exports {
+        if e.abi == ExportAbi::Js && !e.name.starts_with("__") {
+            g.export(e);
+        }
+    }
     let glue = GLUE_GC
         .replace("__PPL_WASM__", &wasm)
         .replace("__PPL_BASE__", base)
-        .replace("__PPL_FILE__", &format!("{:?}", mir.file));
-    write(&f.js, &glue)
+        .replace("__PPL_FILE__", &format!("{:?}", mir.file))
+        .replace("/*__PPL_EXPORTS__*/\n", &g.js)
+        .replace("/*__PPL_JS_MODULES__*/\n", &js_modules(packages));
+    write(&f.js, &glue)?;
+    write(&f.dts, &g.declarations(base))
 }
 
 fn write(path: &Path, text: &str) -> Result<(), String> {
@@ -119,10 +139,16 @@ struct Gen<'a> {
     /// Handle classes (by name) and structs (by name) used so far.
     classes: Vec<String>,
     structs: Vec<ppl_sema::hir::StructId>,
+    /// The WasmGC glue (`build_gc`), and the structs whose converters it has so far.
+    gc: bool,
+    gc_structs: Vec<ppl_sema::hir::StructId>,
 }
 
 impl Gen<'_> {
     fn export(&mut self, e: &Export) {
+        if self.gc {
+            return self.export_gc(e);
+        }
         let sym = crate::export_symbol(e);
         let params: Vec<String> = e.params.iter().map(|(n, _)| js_name(n)).collect();
         let mut body = String::new();
@@ -171,6 +197,103 @@ impl Gen<'_> {
             .collect();
         let ret = self.ts(&e.ret);
         let _ = writeln!(self.dts, "  {}({}): {ret};", e.name, dps.join(", "));
+    }
+
+    /// An export on the WasmGC build: `ex.js_<name>` takes and returns references as they are.
+    fn export_gc(&mut self, e: &Export) {
+        let params: Vec<String> = e.params.iter().map(|(n, _)| js_name(n)).collect();
+        let args: Vec<String> = params
+            .iter()
+            .zip(&e.params)
+            .map(|(n, (_, t))| self.gc_to_wasm(t, n))
+            .collect();
+        let callexpr = format!("ex[{:?}]({})", format!("js_{}", e.name), args.join(", "));
+        let body = if matches!(e.ret, Ty::Void) {
+            callexpr
+        } else {
+            self.gc_to_js(&e.ret, &callexpr)
+        };
+        let _ = writeln!(
+            self.js,
+            "  app[{name:?}] = ({ps}) => call(() => {body});",
+            name = e.name,
+            ps = params.join(", "),
+        );
+        let dps: Vec<String> = params
+            .iter()
+            .zip(&e.params)
+            .map(|(n, (_, t))| format!("{n}: {}", self.ts(t)))
+            .collect();
+        let ret = self.ts(&e.ret);
+        let _ = writeln!(self.dts, "  {}({}): {ret};", e.name, dps.join(", "));
+    }
+
+    /// A JavaScript value as the WasmGC module takes it.
+    fn gc_to_wasm(&mut self, t: &Ty, v: &str) -> String {
+        match t {
+            Ty::Str => format!("mkStr({v})"),
+            Ty::Struct(sid, ..) => {
+                self.gc_struct(*sid);
+                format!("toS{}({v})", sid.0)
+            }
+            Ty::Class(_, name, _) => {
+                self.class(name);
+                format!("refOf({v}, {})", js_name(name))
+            }
+            _ => self.js_to_wasm(t, v),
+        }
+    }
+
+    /// A WasmGC result as JavaScript sees it.
+    fn gc_to_js(&mut self, t: &Ty, v: &str) -> String {
+        match t {
+            Ty::Str => format!("str({v})"),
+            Ty::Struct(sid, ..) => {
+                self.gc_struct(*sid);
+                format!("fromS{}({v})", sid.0)
+            }
+            Ty::Int(it) if it.bits() == 64 => format!("Number({v})"),
+            Ty::Int(IntTy::U32) => format!("({v}) >>> 0"),
+            Ty::Bool => format!("({v}) !== 0"),
+            _ => self.wasm_to_js(t, v),
+        }
+    }
+
+    /// A struct's converters for the WasmGC glue: `toS<id>` (a plain object to a new struct)
+    /// and `fromS<id>` (back), through the module's `js_new_<id>`/`js_get_<id>_<field>`.
+    fn gc_struct(&mut self, sid: ppl_sema::hir::StructId) {
+        if self.gc_structs.contains(&sid) {
+            return;
+        }
+        self.gc_structs.push(sid);
+        self.structs_push(sid);
+        let layout = self.p.layout(sid);
+        let name = layout.name.clone();
+        let fields: Vec<(usize, String, Ty)> = layout
+            .fields
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, t))| !matches!(t, Ty::Void | Ty::Never))
+            .map(|(i, (n, t))| (i, n.clone(), t.clone()))
+            .collect();
+        let mut args = Vec::new();
+        let mut parts = Vec::new();
+        for (i, f, t) in &fields {
+            args.push(self.gc_to_wasm(t, &format!("v[{f:?}]")));
+            let get = format!("ex.js_get_{}_{i}(r)", sid.0);
+            parts.push(format!("{f:?}: {}", self.gc_to_js(t, &get)));
+        }
+        let id = sid.0;
+        let _ = writeln!(
+            self.js,
+            "  function toS{id}(v) {{
+    if (typeof v !== \"object\" || v === null) throw new ArgError(\"expected a {name} object\");
+    return ex.js_new_{id}({});
+  }}
+  const fromS{id} = (r) => ({{ {} }});",
+            args.join(", "),
+            parts.join(", "),
+        );
     }
 
     /// A JavaScript value as the wasm function takes it (not structs).

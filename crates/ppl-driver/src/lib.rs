@@ -388,7 +388,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         return Err(format!("building for {target} isn't supported yet"));
     }
     if target.os == target::Os::Browser && browser::wasmgc_selected() {
-        return browser::build_gc(mir, exe);
+        return browser::build_gc(mir, exe, &js_packages(&checked.sm));
     }
     let obj = exe.with_extension("o");
     {
@@ -489,7 +489,7 @@ pub fn fmt_options(dir: &Path) -> ppl_syntax::fmt::FmtOptions {
 /// `PPL_BACKEND=wasmgc` does for `--target wasm32-browser`.
 pub fn build_wasmgc(checked: &Checked, out: &Path) -> Result<(), String> {
     let mir = checked.mir.as_ref().ok_or("the program has errors")?;
-    browser::build_gc(mir, out)
+    browser::build_gc(mir, out, &js_packages(&checked.sm))
 }
 
 /// `ppl build --lib static|shared` (spec §12.4).

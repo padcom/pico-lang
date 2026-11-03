@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.7f: JavaScript interop on WasmGC** (`@export("js")` and `std/js`; see PLAN), the last slice of P8.7, then **P10.2: Lint**. The author's list (P8.6 … P10.1) is done. The author should still run the SDL2 demo by hand (P9.2's manual check, `examples/sdl2`).
+**P10.2: Lint** (see PLAN). Phase 8 is done (P8.7 WasmGC backend finished with P8.7f). The author should still run the SDL2 demo by hand (P9.2's manual check, `examples/sdl2`).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **WasmGC JavaScript interop (P8.7f, decision 270)**: `Gen::js_exports` (`js_<name>`, `js_new_<id>`, `js_get_<id>_<i>`), imports `js_op`/`js_text`; driver `Gen::export_gc`/`gc_struct` (`gc: true` in `browser::build_gc`); glue_gc's `jsOp`, `enter`/`call` (nesting like glue.js). `tests/browser` runs both backends. Not yet: releasing `JsValue` handles on WasmGC (FinalizationRegistry never fires there), arrays/enums/nullables at the boundary (as on linear memory). WasmGC stays opt-in (`PPL_BACKEND=wasmgc`): 1.3–1.7× slower than LLVM's build (decision 269).
 - **WasmGC coverage (P8.7e, decision 269)**: buffers (`buf_fn`, `buf_bytes_fn`, table global), synchronous `__io` jobs (`io_job`, `tz_fn`), `__parse_f64`/`__ref_id`/`__math` (glue), generic class erasure (`Key::Gen`, `erased_field`, `struct_of`), `tests/wasmgc-skip.txt`. 193 pass, 37 pending (skip lists), 0 failed. `scripts/wasm-compare.sh` compares both browser builds (sizes, Node run times). Crypto on WasmGC would need WebCrypto (async) or a port; `std/js`/`@export("js")` are P8.7f.
 - **WasmGC errors and loop (P8.7d, decision 268)**: the `panic` tag and globals (`throw_panic`, guards in `function`), `loop_fns` (`resume`/`pending`), `__io`/worker builtins, `hash_fn`, `operand_to`/`coerce`, `local_types` (`anyref` for taken exceptions), `elem_ty`, `tests/wasmgc-skip.txt` (read with `PPL_BACKEND=wasmgc`). 181 of the suite pass (all fail fixtures plus 81 run fixtures), 48 pending, 0 failed; pending now: buffers (`__buf_op`), random bytes, env/cwd, `__parse_f64`, generic-class covariance, `null` of a type parameter.
 - **WasmGC objects (P8.7c, decision 267)**: `root_class`, vtables (`vt_global`, `start_fn`, `slot_fn`/`slot_root`), interfaces (`itable_base`, funcref table), closures (`closure_targets`, `closure_sig`, `Def::Clo`), cells (`Ref(T)`), enums (`Def::Enum`/`Variant`, `shared_field_fn`), the exception slot (`exc_global`), JS `show_enter`/`show_leave`, a name section. Pending reasons now: `__io` (19: the event loop and I/O), `Hash` (8), panic guards (5), `__gc_stat`, arenas, pointers.
@@ -281,7 +282,7 @@ Notes:
 - [x] P8.5b wasm32: files, clocks and the event loop
 - [x] P8.5c wasm32-wasip2: components, sockets and http
 - [x] P8.6 wasm32-browser (linear memory)
-- [ ] P8.7 WasmGC backend (split into P8.7a–f; P8.7a–e done)
+- [x] P8.7 WasmGC backend (P8.7a–f)
 - [x] P8.8 JS imports from .d.ts
 - [x] P8.9 Platform files and conditionals
 
@@ -442,3 +443,4 @@ Notes:
 | 2026-11-03 | P8.7c | WasmGC objects: root-typed classes with vtables and `ref.test`, interfaces through a funcref table, closures, cells, enums and unions, the exception slot and `uncaught`: 59 run fixtures pass, none fail. Decision 267. |
 | 2026-11-03 | P8.7d | WasmGC panics through Wasm exception handling (guards, `finally`, `__catch_panic`), the event loop on browser timers, hashing, reference coercions, `void` elements: 81 run fixtures pass, none fail; skip list for what needs linear memory. Decision 268. |
 | 2026-11-03 | P8.7e | WasmGC buffers, synchronous browser `__io` ops (text codecs, random, bundled tz), `__parse_f64`/`__ref_id`/`__math`, covariant generic class instances: 193 of the suite pass, none fail. Size/perf comparison (`scripts/wasm-compare.sh`): ~2 KiB vs ~2.1 MiB, 1.3–1.7× slower. P8.7f split off for JS interop. Decision 269. |
+| 2026-11-03 | P8.7f | `@export("js")` and `std/js` on WasmGC (exported functions with struct constructors/getters, `js_op`/`js_text` imports, nested calls in the glue); `tests/browser` on both backends, both browser examples work in headless Chromium. P8.7 and Phase 8 done. Decision 270. |
