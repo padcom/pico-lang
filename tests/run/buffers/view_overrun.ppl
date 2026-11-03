@@ -1,0 +1,4 @@
+// A view can't reach past its buffer: the runtime trusts views' lengths.
+// panic: Uint8Array of 100 elements from byte 0 overruns its 4-byte buffer
+const v = new Uint8Array(new ArrayBuffer(4), 0, 100)
+println(v.get(50))

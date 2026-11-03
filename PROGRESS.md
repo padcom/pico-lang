@@ -8,10 +8,10 @@
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
-  **memory safety**: typed-array views (`new Uint8Array(buf, byteOffset, length)`, all five
-  views) don't check `byteOffset`/`length` against the buffer, and `new Uint8Array(-1)` has
-  length -1; an untyped `catch (e)` doesn't catch a lightweight `Throwable` struct (it ends the
-  program as uncaught); `net.ppl`: a failed `read`/`accept`/`send`/`receive` job leaves the busy
+  (typed-array views' bounds: fixed); a panic raised inside the core library reports its
+  location as `<user file>:0:0`; an untyped `catch (e)` catches only `Error`s (decision 203),
+  so a `Throwable` thrown at the top level ends the program as uncaught (by design; spec §7.3
+  doesn't say so: ask the author); `net.ppl`: a failed `read`/`accept`/`send`/`receive` job leaves the busy
   flag set (the next call panics, the descriptor is never released); an inline `Worker` that
   panics leaves `call()` promises pending forever; `WebSocket.close()` during the handshake
   doesn't stop it (`onopen` can follow `onclose`); `TransformStreamDefaultController.terminate`
@@ -530,6 +530,7 @@ Notes:
 | 2026-11-03 | P10.9b | Fix: modules that export through an export list (`std/meta`, `std/reflect`, `std/net`, `std/regex`, re-exporting the core library's `__` declarations) were left out; they're documented under their public names now. |
 | 2026-11-03 | P10.6 fix | Hovers for `std/meta`/`std/reflect` (the author's report): names imported under another name than their declaration's (`export { __ClassDecl as ClassDecl }`) had no hover (the index required the same spelling; the resolver's links are now trusted), hovers show the public names (`Program::public_names`), static members (`ast.string`) and `reflect.typeOf` link, and the language server keeps decorator functions as ordinary functions (`check_source_for_editor`) so their code has hovers. |
 | 2026-11-03 | docs | The core library is fully documented (the author's request): docs for the built-ins `print`/`println`/`assert`/`panic` and the type checker's members (`push`, `pop`, `length`, `String.slice`) in `hir::BUILTIN_DOCS`/`BUILTIN_MEMBER_DOCS` (hover, completion, `ppl doc`); every core global, `Array`/`String` method and public member (~400 doc comments, the members written with four subagents); `ppl doc` lists constructors without a modifier. Bugs found on the way are under Notes. |
+| 2026-11-03 | fix | Typed-array views check their offset and length against the buffer (they could read and write past it): a negative length, an offset outside the buffer or not a multiple of the element size, or a view past the end panics, as the Web API throws `RangeError` (`tests/run/buffers/`). |
 | 2026-11-03 | plan | New Phase 11: Reactivity (the author's: `reactive`/`Reactive<T>`, `computed`, `watchEffect`; P11.1 spec with open questions on access, scope, depth, timing, workers, cleanup; P11.2 runtime; P11.3 compiler; P11.4 event loop; P11.5 tooling). "Later" becomes Phase 12 (P12.1–P12.5, with P10.7a/b). |
 | 2026-11-03 | decisions | Reactivity (decisions 288–293, the author's answers): transparent access (`reactive n = 1`, `n + 1`, `n = 2`), local and module-level bindings (fields open), deep reactivity, synchronous effects, not `Sendable` (no sharing with workers), `watchEffect` returns a `Disposable` and effects end with their scope. |
 | 2026-11-03 | decisions | The author revised 289 and 291: reactive class fields are allowed; `computed` is lazy (dirty on write, recomputed on read), `watchEffect` stays synchronous. |

@@ -1,0 +1,2 @@
+// panic: Uint8Array offset 5 is outside its buffer of 4 bytes
+const v = new Uint8Array(new ArrayBuffer(4), 5)

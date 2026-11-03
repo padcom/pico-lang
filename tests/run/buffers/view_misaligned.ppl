@@ -1,0 +1,3 @@
+// A view of 4-byte elements starts at a multiple of 4.
+// panic: Int32Array offset 2 isn't a multiple of 4
+const v = new Int32Array(new ArrayBuffer(8), 2)

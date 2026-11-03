@@ -1,0 +1,17 @@
+// Typed-array views over a buffer: offsets, lengths and the checks that keep them inside it.
+// expect: 4 2 3
+// expect: 2 1
+// expect: 0
+// expect: 258
+const buf = new ArrayBuffer(8)
+const bytes = new Uint8Array(buf, 0)
+const tail = new Uint8Array(buf, 6)
+const mid = new Uint8Array(buf, 2, 3)
+println(`${new Int32Array(buf, 4).byteOffset} ${tail.length} ${mid.length}`)
+const words = new Int32Array(buf, 0, 2)
+println(`${words.length} ${new Uint32Array(buf, 4, 1).length}`)
+// A view that ends exactly at the buffer's end, and an empty one there.
+println(new Uint8Array(buf, 8, 0).length)
+bytes.set(4, 2)
+bytes.set(5, 1)
+println(new Int32Array(buf, 4, 1).get(0))

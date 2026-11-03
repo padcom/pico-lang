@@ -88,6 +88,53 @@ function __detachAll(options: TransferOptions?): void {
   }
 }
 
+// The typed arrays' checks (the runtime trusts views' offsets and lengths): each panics, as the
+// Web API throws a `RangeError`.
+
+/// `length`, if a view can have that many elements.
+function __viewLength(length: int, view: string): int {
+  if (length < 0) {
+    panic(`invalid ${view} length: ${length}`)
+  }
+  length
+}
+
+/// How many `size`-byte elements fit in `buffer` from `byteOffset` to its end.
+function __viewRest(buffer: ArrayBuffer, byteOffset: int, size: int, view: string): int {
+  __viewOffset(buffer, byteOffset, size, view)
+  const rest = buffer.byteLength - byteOffset
+  if (rest % size != 0) {
+    panic(`${view}: the buffer's length minus the offset isn't a multiple of ${size}`)
+  }
+  rest / size
+}
+
+/// `length`, if `length` `size`-byte elements from `byteOffset` fit in `buffer`.
+function __viewSpan(
+  buffer: ArrayBuffer,
+  byteOffset: int,
+  length: int,
+  size: int,
+  view: string,
+): int {
+  __viewOffset(buffer, byteOffset, size, view)
+  __viewLength(length, view)
+  if (length > (buffer.byteLength - byteOffset) / size) {
+    const bytes = buffer.byteLength
+    panic(`${view} of ${length} elements from byte ${byteOffset} overruns its ${bytes}-byte buffer`)
+  }
+  length
+}
+
+function __viewOffset(buffer: ArrayBuffer, byteOffset: int, size: int, view: string): void {
+  if (byteOffset < 0 || byteOffset > buffer.byteLength) {
+    panic(`${view} offset ${byteOffset} is outside its buffer of ${buffer.byteLength} bytes`)
+  }
+  if (byteOffset % size != 0) {
+    panic(`${view} offset ${byteOffset} isn't a multiple of ${size}`)
+  }
+}
+
 /// A view of an `ArrayBuffer` as 1-byte elements (`int`), as on the Web.
 class Uint8Array {
   /// The size of an element: 1 byte.
@@ -98,26 +145,27 @@ class Uint8Array {
   public byteOffset: int
   count: int
 
-  /// `length` zeroed elements in a new buffer.
+  /// `length` zeroed elements in a new buffer; panics if `length` is negative.
   constructor(length: int) {
-    this.buffer = new ArrayBuffer(length * 1)
+    this.buffer = new ArrayBuffer(__viewLength(length, "Uint8Array") * 1)
     this.byteOffset = 0
     this.count = length
   }
 
-  /// A view of `buffer` from `byteOffset` to its end.
+  /// A view of `buffer` from `byteOffset` to its end; panics if `byteOffset` is outside the
+  /// buffer.
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = (buffer.byteLength - byteOffset) / 1
+    this.count = __viewRest(buffer, byteOffset, 1, "Uint8Array")
   }
 
-  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
-  /// `buffer`'s size).
+  /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
+  /// negative, `length` is negative, or the view would end past the buffer.
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = length
+    this.count = __viewSpan(buffer, byteOffset, length, 1, "Uint8Array")
   }
 
   /// 0 once the buffer is detached (transferred).
@@ -197,26 +245,28 @@ class Int32Array {
   public byteOffset: int
   count: int
 
-  /// `length` zeroed elements in a new buffer.
+  /// `length` zeroed elements in a new buffer; panics if `length` is negative.
   constructor(length: int) {
-    this.buffer = new ArrayBuffer(length * 4)
+    this.buffer = new ArrayBuffer(__viewLength(length, "Int32Array") * 4)
     this.byteOffset = 0
     this.count = length
   }
 
-  /// A view of `buffer` from `byteOffset` to its end.
+  /// A view of `buffer` from `byteOffset` to its end. Panics if `byteOffset` is outside the
+  /// buffer or not a multiple of 4, or the bytes after it aren't a whole number of elements.
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = (buffer.byteLength - byteOffset) / 4
+    this.count = __viewRest(buffer, byteOffset, 4, "Int32Array")
   }
 
-  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
-  /// `buffer`'s size).
+  /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
+  /// negative or not a multiple of 4, `length` is negative, or the view would end past the
+  /// buffer.
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = length
+    this.count = __viewSpan(buffer, byteOffset, length, 4, "Int32Array")
   }
 
   /// 0 once the buffer is detached (transferred).
@@ -262,26 +312,28 @@ class Uint32Array {
   public byteOffset: int
   count: int
 
-  /// `length` zeroed elements in a new buffer.
+  /// `length` zeroed elements in a new buffer; panics if `length` is negative.
   constructor(length: int) {
-    this.buffer = new ArrayBuffer(length * 4)
+    this.buffer = new ArrayBuffer(__viewLength(length, "Uint32Array") * 4)
     this.byteOffset = 0
     this.count = length
   }
 
-  /// A view of `buffer` from `byteOffset` to its end.
+  /// A view of `buffer` from `byteOffset` to its end. Panics if `byteOffset` is outside the
+  /// buffer or not a multiple of 4, or the bytes after it aren't a whole number of elements.
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = (buffer.byteLength - byteOffset) / 4
+    this.count = __viewRest(buffer, byteOffset, 4, "Uint32Array")
   }
 
-  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
-  /// `buffer`'s size).
+  /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
+  /// negative or not a multiple of 4, `length` is negative, or the view would end past the
+  /// buffer.
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = length
+    this.count = __viewSpan(buffer, byteOffset, length, 4, "Uint32Array")
   }
 
   /// 0 once the buffer is detached (transferred).
@@ -328,26 +380,28 @@ class Float32Array {
   public byteOffset: int
   count: int
 
-  /// `length` zeroed elements in a new buffer.
+  /// `length` zeroed elements in a new buffer; panics if `length` is negative.
   constructor(length: int) {
-    this.buffer = new ArrayBuffer(length * 4)
+    this.buffer = new ArrayBuffer(__viewLength(length, "Float32Array") * 4)
     this.byteOffset = 0
     this.count = length
   }
 
-  /// A view of `buffer` from `byteOffset` to its end.
+  /// A view of `buffer` from `byteOffset` to its end. Panics if `byteOffset` is outside the
+  /// buffer or not a multiple of 4, or the bytes after it aren't a whole number of elements.
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = (buffer.byteLength - byteOffset) / 4
+    this.count = __viewRest(buffer, byteOffset, 4, "Float32Array")
   }
 
-  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
-  /// `buffer`'s size).
+  /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
+  /// negative or not a multiple of 4, `length` is negative, or the view would end past the
+  /// buffer.
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = length
+    this.count = __viewSpan(buffer, byteOffset, length, 4, "Float32Array")
   }
 
   /// 0 once the buffer is detached (transferred).
@@ -393,26 +447,28 @@ class Float64Array {
   public byteOffset: int
   count: int
 
-  /// `length` zeroed elements in a new buffer.
+  /// `length` zeroed elements in a new buffer; panics if `length` is negative.
   constructor(length: int) {
-    this.buffer = new ArrayBuffer(length * 8)
+    this.buffer = new ArrayBuffer(__viewLength(length, "Float64Array") * 8)
     this.byteOffset = 0
     this.count = length
   }
 
-  /// A view of `buffer` from `byteOffset` to its end.
+  /// A view of `buffer` from `byteOffset` to its end. Panics if `byteOffset` is outside the
+  /// buffer or not a multiple of 8, or the bytes after it aren't a whole number of elements.
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = (buffer.byteLength - byteOffset) / 8
+    this.count = __viewRest(buffer, byteOffset, 8, "Float64Array")
   }
 
-  /// A view of `length` elements of `buffer` from `byteOffset` (neither is checked against
-  /// `buffer`'s size).
+  /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
+  /// negative or not a multiple of 8, `length` is negative, or the view would end past the
+  /// buffer.
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
-    this.count = length
+    this.count = __viewSpan(buffer, byteOffset, length, 8, "Float64Array")
   }
 
   /// 0 once the buffer is detached (transferred).

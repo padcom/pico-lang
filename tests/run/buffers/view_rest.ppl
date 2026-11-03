@@ -1,0 +1,2 @@
+// panic: Float64Array: the buffer's length minus the offset isn't a multiple of 8
+const v = new Float64Array(new ArrayBuffer(12), 0)
