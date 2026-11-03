@@ -287,6 +287,7 @@ fn generate<'ctx>(
         }
     }
     g.declare();
+    g.debug_shadows();
     g.class_infos();
     let live = ppl_mir::mir::live_functions(program);
     for (i, l) in live.iter().enumerate() {
@@ -307,6 +308,7 @@ fn generate<'ctx>(
     }
     g.register_gc_globals();
     g.worker_main();
+    g.describe_globals();
     if let Some(d) = &g.dbg {
         d.di.finalize();
         let flag = |v: u64| cx.i32_type().const_int(v, false);
@@ -331,6 +333,11 @@ struct Dbg<'ctx> {
     /// declaration of itself).
     types: HashMap<Ty, inkwell::debug_info::DIType<'ctx>>,
     building: std::collections::HashSet<Ty>,
+    /// For references (strings, arrays, objects): the type of what they point to.
+    pointees: HashMap<Ty, inkwell::debug_info::DIType<'ctx>>,
+    /// Per thread-local global (by index): a plain global the main thread stores its copy's
+    /// address in (DWARF can't locate thread-locals on every target).
+    shadows: HashMap<usize, GlobalValue<'ctx>>,
 }
 
 impl<'ctx> Dbg<'ctx> {
@@ -387,6 +394,8 @@ impl<'ctx> Dbg<'ctx> {
             line: 0,
             types: HashMap::new(),
             building: Default::default(),
+            pointees: HashMap::new(),
+            shadows: HashMap::new(),
         }
     }
 }
@@ -1192,6 +1201,9 @@ impl<'ctx> Gen<'ctx, '_> {
         let entry = self.cx.prepend_basic_block(blocks[0], "start");
         self.b.position_at_end(entry);
         self.begin_debug(func, llfn);
+        if index == self.p.entry.0 as usize {
+            self.store_debug_shadows();
+        }
         // A C caller's thread may not have run the program's top-level code yet (spec §12.4).
         if self
             .p
@@ -1328,6 +1340,109 @@ impl<'ctx> Gen<'ctx, '_> {
         d.loc = Some(loc);
     }
 
+    /// Debug variables for the program's globals (top-level bindings, static fields: the
+    /// debugger's globals).
+    /// The shadow globals of the thread-local ones (see [`Dbg::shadows`]).
+    fn debug_shadows(&mut self) {
+        if self.dbg.is_none() {
+            return;
+        }
+        for i in 0..self.p.globals.len() {
+            let Some(storage) = self.globals.get(i).copied().flatten() else {
+                continue;
+            };
+            if !storage.is_thread_local() {
+                continue;
+            }
+            let name = format!("ppl.debug.{}", storage.get_name().to_string_lossy());
+            let shadow = self.m.add_global(self.ptr(), None, &name);
+            shadow.set_linkage(Linkage::Internal);
+            shadow.set_initializer(&self.ptr().const_null());
+            self.dbg
+                .as_mut()
+                .expect("debug info")
+                .shadows
+                .insert(i, shadow);
+        }
+    }
+
+    /// In the main thread's entry: the addresses of its thread-local globals, for the debugger.
+    fn store_debug_shadows(&mut self) {
+        let Some(d) = &self.dbg else {
+            return;
+        };
+        let pairs: Vec<(usize, GlobalValue<'ctx>)> =
+            d.shadows.iter().map(|(i, g)| (*i, *g)).collect();
+        for (i, shadow) in pairs {
+            if let Some(storage) = self.globals[i] {
+                self.b
+                    .build_store(shadow.as_pointer_value(), storage.as_pointer_value())
+                    .unwrap();
+            }
+        }
+    }
+
+    fn describe_globals(&mut self) {
+        if self.dbg.is_none() {
+            return;
+        }
+        let kind = self.cx.get_kind_id("dbg");
+        for (i, g) in self.p.globals.iter().enumerate() {
+            let Some(storage) = self.globals.get(i).copied().flatten() else {
+                continue;
+            };
+            if !g.name.starts_with(|c: char| c.is_alphabetic() || c == '_') {
+                continue;
+            }
+            // The program's own globals (the core library's would crowd the debugger's view).
+            let src = g
+                .span
+                .and_then(|s| Some((s, self.p.sources.get(s.file.0 as usize)?)));
+            let Some((span, src)) = src else {
+                continue;
+            };
+            if src.library {
+                continue;
+            }
+            let line = src.line_col(span.start).0;
+            let Some((ty, deref)) = self.di_variable(&g.ty) else {
+                continue;
+            };
+            let d = self.dbg.as_ref().expect("debug info");
+            let file = d.files[span.file.0 as usize];
+            // A thread-local is found through its shadow (one more dereference).
+            let (storage, mut ops) = match d.shadows.get(&i) {
+                Some(shadow) => (*shadow, vec![0x06]),
+                None => (storage, Vec::new()),
+            };
+            if deref {
+                ops.push(0x06);
+            }
+            let expr = d.di.create_expression(ops);
+            // (No linkage name: debuggers would show it instead of the ppl name.)
+            let gve = d.di.create_global_variable_expression(
+                file.as_debug_info_scope(),
+                &g.name,
+                "",
+                file,
+                line,
+                ty,
+                true,
+                Some(expr),
+                None,
+                0,
+            );
+            // (inkwell attaches metadata values; debug info is attached as plain metadata.)
+            unsafe {
+                inkwell::llvm_sys::core::LLVMGlobalSetMetadata(
+                    inkwell::values::AsValueRef::as_value_ref(&storage.as_pointer_value()),
+                    kind,
+                    gve.as_mut_ptr(),
+                );
+            }
+        }
+    }
+
     /// Debug variables for `func`'s named locals and parameters, at their storage (a stack slot,
     /// or the collector's frame for references), declared in the entry block.
     fn declare_variables(
@@ -1350,7 +1465,7 @@ impl<'ctx> Gen<'ctx, '_> {
             if !name.starts_with(|c: char| c.is_alphabetic() || c == '_') {
                 continue;
             }
-            let Some(ty) = self.di_type(&l.ty) else {
+            let Some((ty, deref)) = self.di_variable(&l.ty) else {
                 continue;
             };
             let d = self.dbg.as_ref().expect("debug info");
@@ -1375,7 +1490,9 @@ impl<'ctx> Gen<'ctx, '_> {
             };
             // (inkwell's `insert_declare_at_end` takes LLVM 23's debug record for an
             // instruction and asserts; the C API inserts the record.)
-            let expr = d.di.create_expression(Vec::new());
+            // (DW_OP_deref: the slot holds the reference.)
+            let expr =
+                d.di.create_expression(if deref { vec![0x06] } else { Vec::new() });
             unsafe {
                 inkwell::llvm_sys::debuginfo::LLVMDIBuilderInsertDeclareRecordAtEnd(
                     d.di.as_mut_ptr(),
@@ -1415,6 +1532,8 @@ impl<'ctx> Gen<'ctx, '_> {
         const UTF: u32 = 0x10;
         let ptr_bits = self.ptr * 8;
         let i64t = basic(d, "i64", 64, SIGNED)?;
+        // (For references: the type they point to.)
+        let mut pointee = None;
         let made = match t {
             Ty::Int(it) => {
                 let enc = if it.signed() { SIGNED } else { UNSIGNED };
@@ -1457,6 +1576,7 @@ impl<'ctx> Gen<'ctx, '_> {
                         "ppl.string",
                     )
                     .as_type();
+                pointee = Some(st);
                 d.di.create_pointer_type("string", st, ptr_bits, 64, AddressSpace::default())
                     .as_type()
             }
@@ -1496,6 +1616,7 @@ impl<'ctx> Gen<'ctx, '_> {
                         &format!("ppl.{name}"),
                     )
                     .as_type();
+                pointee = Some(st);
                 d.di.create_pointer_type(&name, st, ptr_bits, 64, AddressSpace::default())
                     .as_type()
             }
@@ -1596,6 +1717,7 @@ impl<'ctx> Gen<'ctx, '_> {
                     )
                     .as_type();
                 if class {
+                    pointee = Some(st);
                     d.di.create_pointer_type(&name, st, ptr_bits, 64, AddressSpace::default())
                         .as_type()
                 } else {
@@ -1682,7 +1804,22 @@ impl<'ctx> Gen<'ctx, '_> {
         };
         let d = self.dbg.as_mut()?;
         d.types.insert(t.clone(), made);
+        if let Some(p) = pointee {
+            d.pointees.insert(t.clone(), p);
+        }
         Some(made)
+    }
+
+    /// How a variable of type `t` is described: its debug type and whether its location is
+    /// dereferenced. A (non-null) string, array or object is described as what it points to,
+    /// so a debugger shows `"hello"` rather than an address and the summary; a nullable one
+    /// stays a pointer (`NULL` when absent).
+    fn di_variable(&mut self, t: &Ty) -> Option<(inkwell::debug_info::DIType<'ctx>, bool)> {
+        let ty = self.di_type(t)?;
+        match self.dbg.as_ref()?.pointees.get(t) {
+            Some(p) if matches!(t, Ty::Str | Ty::Array(_) | Ty::Class(..)) => Some((*p, true)),
+            _ => Some((ty, false)),
+        }
     }
 
     /// The source location of what's emitted next (spans in another file than the function's,

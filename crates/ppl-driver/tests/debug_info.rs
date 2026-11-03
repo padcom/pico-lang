@@ -116,11 +116,11 @@ inspect(41, true, "hello", [1, 2, 3], Point { x: 3, y: 4 }, new Person("Ann", 30
         ])
         .args([
             "-o",
-            "p who->age",
+            "p who.age",
             "-o",
-            "p xs->data[2]",
+            "p xs.data[2]",
             "-o",
-            "p s->byte_len",
+            "p s.byte_len",
             "-o",
             "kill",
         ])

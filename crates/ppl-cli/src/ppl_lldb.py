@@ -44,6 +44,23 @@ def string_summary(valobj, _dict):
     return "null" if s is None else _quote(s)
 
 
+def _shown_value(v):
+    """The value lldb shows for a reference: the object itself (its summary), not the address."""
+    raw = v.GetNonSyntheticValue()
+    if raw.TypeIsPointerType() and raw.GetValueAsUnsigned(0) != 0:
+        return raw.Dereference()
+    return raw
+
+
+def _object(name, v):
+    """A child to show: a (non-null) reference as the object it points to (its summary, not
+    an address), anything else as it is."""
+    raw = v.GetNonSyntheticValue()
+    if raw.TypeIsPointerType() and raw.GetValueAsUnsigned(0) != 0:
+        return v.CreateValueFromAddress(name, raw.GetValueAsUnsigned(0), raw.GetType().GetPointeeType())
+    return v.CreateValueFromData(name, raw.GetData(), raw.GetType())
+
+
 def _null(valobj):
     v = valobj.GetNonSyntheticValue()
     return v.TypeIsPointerType() and v.GetValueAsUnsigned(0) == 0
@@ -84,10 +101,32 @@ class ArrayProvider:
         if i < 0 or i >= self.len:
             return None
         addr = self.data.GetValueAsUnsigned(0) + i * self.size
-        return self.v.CreateValueFromAddress("[%d]" % i, addr, self.elem)
+        return _object("[%d]" % i, self.v.CreateValueFromAddress("e", addr, self.elem))
 
     def has_children(self):
         return True
+
+
+class NoChildren:
+    """A string isn't expandable (its runtime fields and bytes are implementation details)."""
+
+    def __init__(self, valobj, _dict):
+        self.v = valobj
+
+    def num_children(self):
+        return 0
+
+    def get_child_index(self, _name):
+        return -1
+
+    def get_child_at_index(self, _i):
+        return None
+
+    def update(self):
+        return False
+
+    def has_children(self):
+        return False
 
 
 def array_summary(valobj, _dict):
@@ -145,7 +184,7 @@ class MapProvider:
         if i < 0 or i >= len(self.entries):
             return None
         k, v = self.entries[i]
-        return self.v.CreateValueFromData("[%s]" % _shown(k), v.GetData(), v.GetType())
+        return _object("[%s]" % _shown(k), v)
 
     def has_children(self):
         return True
@@ -180,8 +219,7 @@ class SetProvider:
     def get_child_at_index(self, i):
         if i < 0 or i >= len(self.keys):
             return None
-        k = self.keys[i]
-        return self.v.CreateValueFromData("[%d]" % i, k.GetData(), k.GetType())
+        return _object("[%d]" % i, self.keys[i])
 
     def has_children(self):
         return True
@@ -196,11 +234,15 @@ def set_summary(valobj, _dict):
 def __lldb_init_module(debugger, _dict):
     run = debugger.HandleCommand
     run("type category define ppl")
-    run('type summary add -w ppl -F ppl_lldb.string_summary "string"')
-    run('type summary add -w ppl -F ppl_lldb.array_summary -x "\\[\\]$"')
-    run('type synthetic add -w ppl -l ppl_lldb.ArrayProvider -x "\\[\\]$"')
-    run('type summary add -w ppl -F ppl_lldb.map_summary -x "^Map<"')
-    run('type synthetic add -w ppl -l ppl_lldb.MapProvider -x "^Map<"')
-    run('type summary add -w ppl -F ppl_lldb.set_summary -x "^Set<"')
-    run('type synthetic add -w ppl -l ppl_lldb.SetProvider -x "^Set<"')
+    # Variables of these types are described as the objects (the reference dereferenced), so
+    # a debugger shows the summary alone (`-v`: no value): `"hello"`, `length=2`, `size=2`.
+    # The providers apply to the objects and to references to them (fields, nullables).
+    run('type summary add -w ppl -v -F ppl_lldb.string_summary "string"')
+    run('type synthetic add -w ppl -l ppl_lldb.NoChildren -x "^string( \\*)?$"')
+    run('type summary add -w ppl -v -F ppl_lldb.array_summary -x "\\[\\]$"')
+    run('type synthetic add -w ppl -l ppl_lldb.ArrayProvider -x "\\[\\]( \\*)?$"')
+    run('type summary add -w ppl -v -F ppl_lldb.map_summary -x "^Map<.*>$"')
+    run('type synthetic add -w ppl -l ppl_lldb.MapProvider -x "^Map<.*>( \\*)?$"')
+    run('type summary add -w ppl -v -F ppl_lldb.set_summary -x "^Set<.*>$"')
+    run('type synthetic add -w ppl -l ppl_lldb.SetProvider -x "^Set<.*>( \\*)?$"')
     run("type category enable ppl")

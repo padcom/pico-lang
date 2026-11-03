@@ -712,7 +712,7 @@ fn build(
             Some(t) => {
                 let o = ppl_codegen::Options {
                     optimize: opts.release,
-                    debug: std::env::var_os("PPL_TMP_DEBUG_IR").is_some(),
+                    debug: false,
                     triple: Some(t.llvm_triple()),
                 };
                 match ppl_codegen::emit_llvm_ir_for(mir, o) {

@@ -76,6 +76,8 @@ pub struct Program {
 pub struct Source {
     pub path: String,
     pub line_starts: Vec<u32>,
+    /// The core library's (left out of the debugger's globals).
+    pub library: bool,
 }
 
 impl Source {
@@ -325,6 +327,8 @@ pub fn project(t: &Ty, p: &Proj, field: impl Fn(FieldRef) -> Ty) -> Ty {
 pub struct GlobalDecl {
     pub name: String,
     pub ty: Ty,
+    /// Where it's declared (for debug info).
+    pub span: Option<ppl_diag::Span>,
 }
 
 #[derive(Clone, Debug)]

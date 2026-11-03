@@ -196,6 +196,7 @@ pub fn lower(
         .map(|(g, t)| mir::GlobalDecl {
             name: g.name.clone(),
             ty: t.clone(),
+            span: Some(g.span),
         })
         .collect();
     let structs = program

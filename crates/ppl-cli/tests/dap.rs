@@ -130,7 +130,7 @@ fn debugs_a_ppl_program() {
     let main = dir.join("main.ppl");
     std::fs::write(
         &main,
-        "function show(m: Map<string, i64>, names: string[], greeting: string) {\n  println(`${m.size} ${names.length} ${greeting}`)\n}\nconst m = new Map<string, i64>()\nm.set(\"a\", 1)\nm.set(\"b\", 2)\nshow(m, [\"x\", \"y\"], \"hello\")\n",
+        "function show(m: Map<string, i64>, names: string[], greeting: string) {\n  println(`${m.size} ${names.length} ${greeting}`)\n}\nconst TITLE = \"report\"\nconst m = new Map<string, i64>()\nm.set(\"a\", 1)\nm.set(\"b\", 2)\nshow(m, [\"x\", \"y\"], \"hello\")\n",
     )
     .unwrap();
     let mut s = Session::start(&dir.join("cache"));
@@ -183,19 +183,12 @@ fn debugs_a_ppl_program() {
             .unwrap_or_else(|| panic!("{n}: {list:#?}"))
             .clone()
     };
-    assert!(
-        var("greeting")["value"]
-            .as_str()
-            .unwrap()
-            .contains("\"hello\""),
-        "{list:#?}"
-    );
-    assert!(
-        var("names")["value"].as_str().unwrap().contains("length=2"),
-        "{list:#?}"
-    );
+    // Just the text: no address, nothing to expand.
+    assert_eq!(var("greeting")["value"], "\"hello\"", "{list:#?}");
+    assert_eq!(var("greeting")["variablesReference"], 0, "{list:#?}");
+    assert_eq!(var("names")["value"], "length=2", "{list:#?}");
     let m = var("m");
-    assert!(m["value"].as_str().unwrap().contains("size=2"), "{list:#?}");
+    assert_eq!(m["value"], "size=2", "{list:#?}");
     // The map's entries, by key.
     let entries = s.request(
         "variables",
@@ -214,6 +207,26 @@ fn debugs_a_ppl_program() {
         })
         .collect();
     assert_eq!(names, ["[\"a\"] = 1", "[\"b\"] = 2"], "{entries:#?}");
+    // The top-level bindings, in the globals.
+    let globals = scopes["body"]["scopes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|sc| sc["name"].as_str().unwrap_or("").contains("Global"))
+        .unwrap_or_else(|| panic!("{scopes:#?}"))
+        .clone();
+    let g = s.request(
+        "variables",
+        json!({ "variablesReference": globals["variablesReference"] }),
+    );
+    let title = g["body"]["variables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "TITLE")
+        .unwrap_or_else(|| panic!("{g:#?}"))
+        .clone();
+    assert_eq!(title["value"], "\"report\"", "{g:#?}");
     s.request("disconnect", json!({ "terminateDebuggee": true }));
     let _ = s.child.wait();
 

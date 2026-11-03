@@ -302,6 +302,7 @@ fn debug_sources(sm: &SourceMap) -> Vec<ppl_mir::mir::Source> {
             ppl_mir::mir::Source {
                 path,
                 line_starts: (0..f.line_count()).map(|l| f.line_start(l)).collect(),
+                library: f.name.starts_with("<core>/"),
             }
         })
         .collect()

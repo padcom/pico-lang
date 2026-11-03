@@ -20,7 +20,8 @@ also `args`, `cwd`, `env`, `stopOnEntry`). The extension starts `ppl dap`, which
 program (a debug build, cached while nothing changes) and runs it under lldb-dap, so lldb must
 be installed (`lldb-dap`, or a versioned `lldb-dap-23` as apt.llvm.org installs it; Xcode's on
 macOS; `PPL_LLDB_DAP` names another). Breakpoints, stepping, the call stack and variables work;
-strings show as text, arrays and maps and sets with their elements, enums by variant. A program
+strings show as text, arrays and maps and sets with their elements, enums by variant; the
+Globals scope has the program's top-level bindings (the main thread's values). A program
 that doesn't compile shows the compiler's errors instead of starting.
 
 ## Settings
