@@ -397,7 +397,7 @@ class __JsonReader {
     }
     const limit = "18446744073709551615"
     if (t.startsWith("-") || t.includes(".") || t.includes("e") || t.includes("E")
-      || t.length > limit.length || (t.length == limit.length && t > limit)) {
+        || t.length > limit.length || (t.length == limit.length && t > limit)) {
       fail(`expected ${type}, got ${t}`)
       return 0u64
     }

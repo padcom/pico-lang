@@ -89,6 +89,10 @@ A Prettier-like style with **a few options**, set in `project.json`:
 ```json
 { "fmt": { "indent": 2, "lineWidth": 100, "quotes": "double", "semicolons": false } }
 ```
+`ppl fmt --check` lists the files that aren't formatted and fails if there are any. The formatter
+rewrites only the whitespace between tokens (comments are kept): indentation, spacing around
+commas and brackets, blank lines and quotes; it doesn't break long lines or change semicolons
+yet, and skips files with syntax errors. Decision 265.
 
 ## 14.5 Debugging
 Debug builds emit DWARF (CodeView on Windows). `ppl dap` is a Debug Adapter Protocol server

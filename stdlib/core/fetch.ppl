@@ -552,7 +552,7 @@ function __parseHead(text: string): __HttpHead throws TypeError {
 /// Writes a head and `msg`'s body (`Content-Length` when known, else chunked; `noBody`:
 /// headers only).
 async function __writeMessage(conn: Conn, start: string, extra: [string, string][], msg: __Body,
-    noBody: bool): Promise<void> throws Error {
+  noBody: bool): Promise<void> throws Error {
   const n = msg.__length()
   let head = `${start}\r\n`
   for (const [k, v] of extra) {

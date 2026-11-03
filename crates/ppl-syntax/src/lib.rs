@@ -2,6 +2,7 @@
 
 pub mod ast;
 pub mod dump;
+pub mod fmt;
 pub mod lexer;
 pub mod newline;
 pub mod parser;

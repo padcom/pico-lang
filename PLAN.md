@@ -810,6 +810,8 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Spec**: 14 §14.4
 - **Do**: a lossless CST or trivia-preserving printer, the configured options, and `ppl fmt --check`.
 - **Done when**: formatting every fixture is idempotent and the fixtures are formatted in CI.
+- **Done (decision 265)**: token-based (lossless); breaking long lines (`lineWidth`) is left for
+  later.
 
 ### P10.2 Lint
 - **Do**: `ppl lint` covering naming conventions and unused variables/imports.

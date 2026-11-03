@@ -49,6 +49,14 @@ enum Command {
         #[arg(last = true)]
         args: Vec<String>,
     },
+    /// Format `.ppl` files in place (spec §14.4; options from `project.json`'s `fmt`).
+    Fmt {
+        /// Files or directories (default: the current directory).
+        paths: Vec<PathBuf>,
+        /// Change nothing: list the files that aren't formatted, and fail if there are any.
+        #[arg(long)]
+        check: bool,
+    },
     /// Run the tests in `*.test.ppl` files (spec §14.3), each file in a process of its own,
     /// in parallel.
     Test {
@@ -119,6 +127,7 @@ fn main() -> ExitCode {
             ppl_driver::BuildOptions { release, target },
             emit.as_deref(),
         ),
+        Some(Command::Fmt { paths, check }) => fmt(&paths, check),
         Some(Command::Run {
             file,
             interp,
@@ -467,6 +476,85 @@ fn run(path: &Path, interp: bool, opts: ppl_driver::BuildOptions, args: &[String
             eprintln!("error: cannot run {}: {e}", exe.display());
             ExitCode::FAILURE
         }
+    }
+}
+
+/// `ppl fmt [--check] [paths…]`.
+fn fmt(paths: &[PathBuf], check: bool) -> ExitCode {
+    let roots: Vec<PathBuf> = if paths.is_empty() {
+        vec![PathBuf::from(".")]
+    } else {
+        paths.to_vec()
+    };
+    let mut files = Vec::new();
+    for r in &roots {
+        ppl_files(r, &mut files);
+    }
+    files.sort();
+    let mut unformatted = 0;
+    let mut failed = false;
+    for f in &files {
+        let Ok(text) = std::fs::read_to_string(f) else {
+            eprintln!("error: cannot read {}", f.display());
+            failed = true;
+            continue;
+        };
+        // (Like Prettier: a file with syntax errors isn't touched.)
+        let (_, diags) = ppl_syntax::parse_module(ppl_diag::FileId(0), &text);
+        if diags.iter().any(|d| d.is_error()) {
+            eprintln!("skipping {}: it has syntax errors", f.display());
+            continue;
+        }
+        let dir = f.parent().unwrap_or(Path::new("."));
+        let opts = ppl_driver::fmt_options(dir);
+        match ppl_syntax::fmt::format(&text, opts) {
+            Ok(out) if out == text => {}
+            Ok(out) => {
+                unformatted += 1;
+                if check {
+                    println!("{}", f.display());
+                } else if let Err(e) = std::fs::write(f, out) {
+                    eprintln!("error: cannot write {}: {e}", f.display());
+                    failed = true;
+                }
+            }
+            Err(e) => {
+                eprintln!("error: {}: {e}", f.display());
+                failed = true;
+            }
+        }
+    }
+    if failed || (check && unformatted > 0) {
+        if check && unformatted > 0 {
+            eprintln!("{unformatted} file(s) aren't formatted (run `ppl fmt`)");
+        }
+        return ExitCode::FAILURE;
+    }
+    if !check {
+        println!("formatted {unformatted} of {} file(s)", files.len());
+    }
+    ExitCode::SUCCESS
+}
+
+/// The `.ppl` files at `p` (a file, or a directory searched recursively, skipping hidden
+/// directories, `target` and `node_modules`).
+fn ppl_files(p: &Path, out: &mut Vec<PathBuf>) {
+    if p.is_file() {
+        if p.extension().is_some_and(|e| e == "ppl") {
+            out.push(p.to_path_buf());
+        }
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(p) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        let name = e.file_name().to_string_lossy().into_owned();
+        if path.is_dir() && (name.starts_with('.') || name == "target" || name == "node_modules") {
+            continue;
+        }
+        ppl_files(&path, out);
     }
 }
 

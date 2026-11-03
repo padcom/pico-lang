@@ -44,7 +44,7 @@ function kind(a: Animal): string {
   match (a) {
     d: Dog => `dog ${d.name}`,
     c: Cat => `cat ${c.name}`,
-    x      => `animal ${x.name}`,
+    x => `animal ${x.name}`,
   }
 }
 println(`${kind(animals[0])}, ${kind(animals[1])}, ${kind(animals[2])}`)

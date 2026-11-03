@@ -19,7 +19,7 @@ println(`${show(42)} | ${show("hello")}`)
 function climate(d: Dir): string {
   match (d) {
     "north" | "south" => `${d} is cold`,
-    "east" | "west"   => `${d} is mild`,
+    "east" | "west" => `${d} is mild`,
   }
 }
 println(`${climate("north")} | ${climate("east")}`)
@@ -37,7 +37,7 @@ println(`${handle(click)} | ${handle(key)}`)
 function describe(v: i64 | string): string {
   match (v) {
     s: string => `string ${s.length}`,
-    n: i64    => `i64 ${n}`,
+    n: i64 => `i64 ${n}`,
   }
 }
 println(`${describe("abc")} | ${describe(7)}`)

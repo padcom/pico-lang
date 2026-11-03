@@ -178,7 +178,7 @@ async function __acceptAll(server: HttpServer): Promise<void> {
 /// Serves HTTP on `options.port`, calling `handler` for each request (a handler that throws
 /// gets a 500 response). Resolves once it's listening.
 export async function serve(options: ServeOptions,
-    handler: (req: Request) => Promise<Response, Error>): Promise<HttpServer> throws NetError {
+  handler: (req: Request) => Promise<Response, Error>): Promise<HttpServer> throws NetError {
   const p = options.port
   const h = options.hostname
   const listener = await __netListen(if (p != null) p else 8000, if (h != null) h else "127.0.0.1")

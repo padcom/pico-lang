@@ -62,7 +62,7 @@ struct __NetResult {
 
 /// Runs job `op`; failures reject with a `NetError` about `address`.
 function __netJob<T>(op: int, a: int, b: int, c: int, s: string, t: string, address: string,
-    read: (res: __NetResult) => T): Promise<T, NetError> {
+  read: (res: __NetResult) => T): Promise<T, NetError> {
   const p = new Promise<T, NetError>()
   __ioSubmit(op, a, b, c, s, t, (job: int) => {
     const r = __io(102, job, 0, 0, "", "")

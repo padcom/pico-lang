@@ -118,7 +118,7 @@ struct __PResult {
 
 /// Runs job `op` (an `IoError` naming `name` when it fails).
 function __pjob<T>(op: int, a: int, b: int, c: int, t: string, name: string,
-    read: (res: __PResult) => T): Promise<T, IoError> {
+  read: (res: __PResult) => T): Promise<T, IoError> {
   const p = new Promise<T, IoError>()
   __ioSubmit(op, a, b, c, "", t, (job: int) => {
     const r = __io(102, job, 0, 0, "", "")
@@ -491,8 +491,8 @@ export class Command {
   verbatim: bool = false
 
   constructor(program: string, args: string[] = [], cwd: string? = null,
-      env: Map<string, string>? = null, clearEnv: bool = false, stdin: Stdio = "inherit",
-      stdout: Stdio = "inherit", stderr: Stdio = "inherit") {
+    env: Map<string, string>? = null, clearEnv: bool = false, stdin: Stdio = "inherit",
+    stdout: Stdio = "inherit", stderr: Stdio = "inherit") {
     this.program = program
     this.args = args
     this.dir = cwd
@@ -505,8 +505,8 @@ export class Command {
 
   /// `script` run by the platform's shell (`/bin/sh -c`; `cmd.exe /c` on Windows).
   public static shell(script: string, cwd: string? = null, env: Map<string, string>? = null,
-      clearEnv: bool = false, stdin: Stdio = "inherit", stdout: Stdio = "inherit",
-      stderr: Stdio = "inherit"): Command {
+    clearEnv: bool = false, stdin: Stdio = "inherit", stdout: Stdio = "inherit",
+    stderr: Stdio = "inherit"): Command {
     if (__windows) {
       // As Node does: cmd's own parsing of `/s /c "…"` keeps the script as it is.
       const c = new Command("cmd.exe", ["/d", "/s", "/c", `"${script}"`], cwd: cwd, env: env,

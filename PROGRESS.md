@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.1: Formatter** (the author's list goes P8.7 → … → P10.1; P8.7's remaining slices P8.7b–e follow it, see PLAN). Before that, the author should run the SDL2 demo by hand (P9.2's manual check, `examples/sdl2`). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
+**P8.7b: WasmGC strings and arrays** (see PLAN), then P8.7c–e, then **P10.2: Lint**. The author's list (P8.6 … P10.1) is done except P8.7's later slices. Before that, the author should run the SDL2 demo by hand (P9.2's manual check, `examples/sdl2`). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Formatter (P10.1, decision 265)**: `crates/ppl-syntax/src/fmt.rs` (`format`, `FmtOptions`), CLI `ppl fmt [--check]`, `ppl_driver::fmt_options` (project.json), test `crates/ppl-tests/tests/fmt.rs` (the repo's `.ppl` files must stay formatted: run `ppl fmt tests stdlib examples` after editing them). Not yet: breaking long lines, Prettier-style spacing around operators (kept as written), adding/removing semicolons.
 - **WasmGC backend (P8.7a, decision 264)**: `crates/ppl-codegen/src/wasmgc.rs`, glue `crates/ppl-driver/src/browser/glue_gc.js`, `browser::build_gc`/`ppl_driver::build_wasmgc`, harness pending on `WASMGC_UNSUPPORTED`. `PPL_BACKEND=wasmgc PPL_TEST_TARGET=wasm32-browser cargo test -p ppl-tests --test golden`: 15 of 130 run fixtures pass, 115 pending (top reasons: `StrCharAt`, arrays, enums, `SetException`, `StrSlice`, `Format`, `T?` of values), none fail. Next slices P8.7b–e in PLAN.
 - **Libraries for C (P9.3, decision 263)**: `ppl_driver::build_library` (`LibKind`), `link_static_lib`/`link_shared_lib` in `link.rs` (linux-gnu only), `clib.rs` (the header), CLI `ppl build --lib static|shared`, runtime `ppl_lib_enter`/`ppl_runtime_start` (`ppl_rt.c`) and `ppl_main.c`; codegen calls `ppl_lib_enter` first in C export wrappers (and extends `bool`/narrow integers). Test: `tests/c/export` via `crates/ppl-tests/tests/c_headers.rs`. Not yet: `.dylib`/`.dll`, musl/static-pie, strings and structs by value in exported signatures, unloading (a thread's module instance lives until the process ends).
 - **C headers (P9.2, decision 262)**: `crates/ppl-driver/src/cheader.rs` (`config` reads `project.json`/pkg-config, `generate` runs clang, `Gen` maps), `c_module` in `modules.rs`. Tests: `tests/run/ffi/c_math.ppl`, `tests/run/ffi/local_header/`, `tests/c/zlib` (run by `crates/ppl-tests/tests/c_headers.rs` where zlib is installed), unit tests in `cheader.rs`. **Manual check for the author**: `examples/sdl2` (install SDL2's development package and pkg-config, then `ppl run examples/sdl2/main.ppl`: a window with a square for 5 s). Not yet: structs/unions by value, bit-fields, function-like macros, a header-per-target sysroot (host headers are used for every target), caching of generated modules (clang runs at every build).
@@ -286,7 +287,7 @@ Notes:
 - [x] P9.3 Export to C
 
 ### Phase 10: Tooling and ecosystem
-- [ ] P10.1 Formatter
+- [x] P10.1 Formatter
 - [ ] P10.2 Lint
 - [ ] P10.3 Package manager
 - [ ] P10.4 Registry
@@ -432,3 +433,4 @@ Notes:
 | 2026-11-03 | P9.2 | `c:` header imports through clang's JSON AST: functions, `@pod` structs, enum and literal-macro constants, `project.json` include/link/pkg-config; `c:math.h`, a local header and zlib tested; SDL2 demo written, manual window check pending (no SDL2 here). Decision 262. |
 | 2026-11-03 | P9.3 | `ppl build --lib static|shared`: archives (llvm-ar) and shared objects (lld, version script) with a generated header; `@export("c")` wrappers start the calling thread's module instance lazily; `main` moved to `ppl_main.c`. A C program calls a ppl static and shared library from two threads. Decision 263. Phase 9 done (P9.2's SDL2 window still to be checked by hand). |
 | 2026-11-03 | P8.7a | WasmGC backend skeleton (decision 264): wasm-encoder module from MIR (numbers with ppl's checks, strings, structs/classes as GC structs, calls, panics), glue, `PPL_BACKEND=wasmgc`; 15 run fixtures pass, the rest pending; P8.7 split into a–e in PLAN. |
+| 2026-11-03 | P10.1 | `ppl fmt [--check]`: a lossless token-based formatter (indentation, comma/bracket spacing, blank lines, quotes, final newline), `project.json` options; the repo's `.ppl` files formatted and checked by `crates/ppl-tests/tests/fmt.rs`. Decision 265. |

@@ -881,7 +881,7 @@ class TransformStream<I, O> {
   public readonly writable: WritableStream<I>
 
   constructor(transformer: Transformer<I, O>, writableStrategy: QueuingStrategy = {},
-      readableStrategy: QueuingStrategy = { highWaterMark: 0 }) {
+    readableStrategy: QueuingStrategy = { highWaterMark: 0 }) {
     if (transformer.transform == null && transformer.transformAsync == null) {
       panic("a TransformStream needs transform or transformAsync")
     }

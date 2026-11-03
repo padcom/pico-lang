@@ -454,6 +454,37 @@ fn js_packages(sm: &ppl_diag::SourceMap) -> Vec<String> {
         .collect()
 }
 
+/// The formatter's options for files in `dir`: `project.json`'s `"fmt"` (spec §14.4), found
+/// in `dir` or above, over the defaults.
+pub fn fmt_options(dir: &Path) -> ppl_syntax::fmt::FmtOptions {
+    let mut o = ppl_syntax::fmt::FmtOptions::default();
+    let mut d = dir.canonicalize().ok();
+    while let Some(cur) = d {
+        let p = cur.join("project.json");
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text)
+                && let Some(f) = json.get("fmt")
+            {
+                if let Some(n) = f.get("indent").and_then(|v| v.as_u64()) {
+                    o.indent = n as usize;
+                }
+                if let Some(n) = f.get("lineWidth").and_then(|v| v.as_u64()) {
+                    o.line_width = n as usize;
+                }
+                if f.get("quotes").and_then(|v| v.as_str()) == Some("single") {
+                    o.quotes = ppl_syntax::fmt::Quotes::Single;
+                }
+                if let Some(b) = f.get("semicolons").and_then(|v| v.as_bool()) {
+                    o.semicolons = b;
+                }
+            }
+            break;
+        }
+        d = cur.parent().map(Path::to_path_buf);
+    }
+    o
+}
+
 /// Builds `out` (`.wasm` and `.js` glue) with the WasmGC backend (P8.7, decision 264), as
 /// `PPL_BACKEND=wasmgc` does for `--target wasm32-browser`.
 pub fn build_wasmgc(checked: &Checked, out: &Path) -> Result<(), String> {

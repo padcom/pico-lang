@@ -23,10 +23,10 @@ function area(s: Shape): f64 {
 // §3.5: guards, struct-style variant patterns, `as` bindings.
 function describe(shape: Shape): string {
   match (shape) {
-    Circle { r } if r > 10   => "big circle",
-    Circle { r }             => `circle ${r}`,
-    c as Rect { w, h }       => `rect ${w}x${h} (${area(c)})`,
-    Empty                    => "nothing",
+    Circle { r } if r > 10 => "big circle",
+    Circle { r } => `circle ${r}`,
+    c as Rect { w, h } => `rect ${w}x${h} (${area(c)})`,
+    Empty => "nothing",
   }
 }
 println(`${describe(Shape.Circle(r: 20))} | ${describe(Shape.Circle(2))} | ${describe(Shape.Rect(2, 3))} | ${describe(Shape.Empty)}`)
@@ -35,8 +35,8 @@ println(`${describe(Shape.Circle(r: 20))} | ${describe(Shape.Circle(2))} | ${des
 function kind(code: i32): string {
   match (code) {
     200 | 201 | 204 => "ok",
-    300..400        => "redirect",
-    _               => "other",
+    300..400 => "redirect",
+    _ => "other",
   }
 }
 println(`${kind(200)} ${kind(204)} ${kind(302)} ${kind(404)}`)
@@ -52,7 +52,7 @@ function dispatch(cmd: string): string {
 function exec(c: Command): string {
   let out = "usage"
   switch (c) {
-    case Build:        out = "building"
+    case Build: out = "building"
     case Run { file }: out = `running ${file}`
   }
   out
@@ -77,9 +77,9 @@ println(`${log}done`)
 // Tuple patterns.
 function axis(pair: [i32, i32]): string {
   match (pair) {
-    [0, 0]          => "origin",
+    [0, 0] => "origin",
     [x, 0] | [0, x] => `on an axis: ${x}`,
-    [x, y]          => `${x}, ${y}`,
+    [x, y] => `${x}, ${y}`,
   }
 }
 println(`${axis([0, 0])} | ${axis([5, 0])} | ${axis([0, 7])} | ${axis([1, 2])}`)
@@ -87,8 +87,8 @@ println(`${axis([0, 0])} | ${axis([5, 0])} | ${axis([0, 7])} | ${axis([1, 2])}`)
 // Array patterns with rest.
 function list(xs: i32[]): string {
   match (xs) {
-    []               => "empty",
-    [only]           => `one: ${only}`,
+    [] => "empty",
+    [only] => `one: ${only}`,
     [first, ...rest] if rest.length == 2 => `${first} and ${rest.length} more`,
     [first, ..., last] => `first ${first}, last ${last}`,
   }
@@ -101,8 +101,8 @@ function what(u: string?, n: i64?): string {
     s: string => `string ${s}`,
     null => match (n) {
       n: i64 if n < 0 => "negative",
-      n: i64          => `int ${n}`,
-      _               => "nothing",
+      n: i64 => `int ${n}`,
+      _ => "nothing",
     },
   }
 }

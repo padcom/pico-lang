@@ -23,7 +23,7 @@ function __ioError(path: string, r: int, errno: int): IoError {
 
 /// Runs job `op`; `read(result)` turns its result into the promised value.
 function __job<T>(op: int, a: int, b: int, c: int, s: string, t: string, path: string,
-    read: (res: __IoResult) => T): Promise<T, IoError> {
+  read: (res: __IoResult) => T): Promise<T, IoError> {
   const p = new Promise<T, IoError>()
   __ioSubmit(op, a, b, c, s, t, (job: int) => {
     const r = __io(102, job, 0, 0, "", "")
@@ -214,7 +214,7 @@ export class File implements AsyncDisposable {
 /// `truncate` to empty it, `append` to write at its end, `createNew` to require that it
 /// doesn't exist).
 export function open(path: string, read: bool = true, write: bool = false, append: bool = false,
-    create: bool = false, truncate: bool = false, createNew: bool = false): Promise<File, IoError> {
+  create: bool = false, truncate: bool = false, createNew: bool = false): Promise<File, IoError> {
   let flags = 0
   if (read) flags += 1
   if (write) flags += 2

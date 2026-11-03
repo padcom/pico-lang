@@ -2,7 +2,6 @@
 // bytes as text: `base64` (RFC 4648, also the URL-safe alphabet)
 // and `hex`. Text ↔ UTF-8 bytes is `TextEncoder`/`TextDecoder` (globals).
 
-
 /// The value of base64 character `c` (either alphabet), or -1.
 function __b64value(c: char): int {
   const n = c as u32 as int

@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 ppl-diag.workspace = true
 ppl-driver.workspace = true
+ppl-syntax.workspace = true
 
 [lints]
 workspace = true

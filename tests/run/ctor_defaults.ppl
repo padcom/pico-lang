@@ -13,7 +13,7 @@ class Server {
   public note: string?
 
   constructor(host: string = "localhost", port: int = if (host == "localhost") 80 else 443,
-      tls: bool = false, note?: string, ...tags: string[]) {
+    tls: bool = false, note?: string, ...tags: string[]) {
     this.host = host
     this.port = port
     this.tls = tls

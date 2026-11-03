@@ -31,8 +31,8 @@ println(`${r:?} ${Shape.Empty:?}`)
 function area(sh: Shape): f64 {
   match (sh) {
     Shape.Circle(r) => 3.14159 * r * r,
-    Rect { w, h }   => w * h,
-    Empty           => 0,
+    Rect { w, h } => w * h,
+    Empty => 0,
   }
 }
 println(`${area(s)} ${area(r)} ${area(Shape.Empty)}`)
@@ -49,8 +49,8 @@ println(`${c == Color.Red} ${s == Shape.Circle(r: 2)} ${r == Shape.Rect(w: 2, h:
 
 const desc = match (Shape.Circle(r: 20)) {
   Circle { r } if r > 10 => "big circle",
-  Circle { r }           => `circle ${r}`,
-  _                      => "other",
+  Circle { r } => `circle ${r}`,
+  _ => "other",
 }
 println(desc)
 
@@ -65,9 +65,9 @@ println(`${count(0)} ${count(1)} ${count(7)}`)
 
 function locate(p: Point): string {
   match (p) {
-    Point { x: 0, y }   => `on the y axis at ${y}`,
-    Point { x, y: 0 }   => `on the x axis at ${x}`,
-    Point { x, y }      => `(${x}, ${y})`,
+    Point { x: 0, y } => `on the y axis at ${y}`,
+    Point { x, y: 0 } => `on the x axis at ${x}`,
+    Point { x, y } => `(${x}, ${y})`,
   }
 }
 println(locate(Point { x: 0, y: 5 }))
