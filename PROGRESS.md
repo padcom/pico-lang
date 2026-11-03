@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.6b: `ppl lsp`: diagnostics and formatting** (see PLAN). Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last). The author should try `editors/vscode` in VS Code (README there: symlink into `~/.vscode/extensions`).
+**P10.6b: `ppl lsp`: diagnostics and formatting** (see PLAN). Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last). The author should try `editors/vscode` in VS Code (`scripts/vscode-package.sh --install`).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;

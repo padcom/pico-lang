@@ -10,13 +10,14 @@ rename) follows in PLAN P10.6b–d.
 
 ## Install from the repository
 
-No build step yet (the extension has no code). Either link it into VS Code's extensions:
-
 ```sh
-ln -s "$PWD/editors/vscode" ~/.vscode/extensions/padcom.ppl-0.1.0    # then reload VS Code
+scripts/vscode-package.sh --install    # builds target/vscode/ppl-<version>.vsix, installs it
 ```
 
-or open `editors/vscode` in VS Code and press F5 (an Extension Development Host).
+then reload VS Code (Developer: Reload Window). Run it again after changing the extension.
+(A symlink into `~/.vscode/extensions` isn't enough: VS Code only loads extensions registered
+in its `extensions.json` and marks unknown folders obsolete.) To work on the extension, open
+`editors/vscode` in VS Code and press F5 (an Extension Development Host).
 
 ## Editing the grammar
 
