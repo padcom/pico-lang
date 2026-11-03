@@ -147,3 +147,176 @@ fn manifest_validation() {
     );
     assert!(ok.is_ok());
 }
+
+// ---------------------------------------------------------------- git dependencies (P10.3b)
+
+/// A git repository with a package `name` at `version`, its `index.ppl` exporting `what()`,
+/// tagged `v<version>`; more versions are commits and tags on top.
+fn repo(dir: &Path, name: &str, versions: &[(&str, &str)]) {
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    std::fs::create_dir_all(dir).unwrap();
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.email", "t@example.com"]);
+    git(&["config", "user.name", "t"]);
+    for (version, what) in versions {
+        write(
+            dir.join("project.json"),
+            &format!(r#"{{ "name": "{name}", "version": "{version}" }}"#),
+        );
+        write(
+            dir.join("index.ppl"),
+            &format!("/** What. */\nexport function what(): string {{ \"{what}\" }}\n"),
+        );
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", version]);
+        git(&["tag", &format!("v{version}")]);
+    }
+}
+
+fn have_git() -> bool {
+    std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .is_ok()
+}
+
+/// A workspace whose `demo/util` member uses `ext/colors` at `util_tag`, and whose `demo/app`
+/// uses `demo/util` and, when given, `ext/colors` at `app_tag` too.
+fn git_workspace(name: &str, util_tag: &str, app_tag: Option<&str>) -> (PathBuf, PathBuf) {
+    let base = std::env::temp_dir().join(format!("ppl-gitdeps-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    // (Each test its own cache: tests run in parallel.)
+    let repo_dir = base.join("colors");
+    repo(
+        &repo_dir,
+        "ext/colors",
+        &[
+            ("1.2.0", "one-two"),
+            ("1.3.0", "one-three"),
+            ("2.0.0", "two"),
+        ],
+    );
+    let url = repo_dir.display().to_string();
+    let ws = base.join("ws");
+    write(
+        ws.join("project.json"),
+        r#"{ "workspace": ["packages/*"] }"#,
+    );
+    write(
+        ws.join("packages/util/project.json"),
+        &format!(
+            r#"{{ "name": "demo/util", "version": "0.1.0", "dependencies": {{ "ext/colors": {{ "git": "{url}", "tag": "{util_tag}" }} }} }}"#
+        ),
+    );
+    write(
+        ws.join("packages/util/index.ppl"),
+        "import { what } from \"ext/colors\"\n/** Says. */\nexport function say(): string { what() }\n",
+    );
+    let app_dep = app_tag
+        .map(|t| format!(r#", "ext/colors": {{ "git": "{url}", "tag": "{t}" }}"#))
+        .unwrap_or_default();
+    write(
+        ws.join("packages/app/project.json"),
+        &format!(
+            r#"{{ "name": "demo/app", "version": "1.0.0", "entry": "src/main.ppl", "dependencies": {{ "demo/util": "^0.1"{app_dep} }} }}"#
+        ),
+    );
+    let main = if app_tag.is_some() {
+        "import { say } from \"demo/util\"\nimport { what } from \"ext/colors\"\nprintln(`${say()} ${what()}`)\n"
+    } else {
+        "import { say } from \"demo/util\"\nprintln(say())\n"
+    };
+    write(ws.join("packages/app/src/main.ppl"), main);
+    (base, ws)
+}
+
+fn with_cache<T>(base: &Path, f: impl FnOnce() -> T) -> T {
+    // (The cache directory comes from the environment; tests set it to their own.)
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    unsafe { std::env::set_var("PPL_CACHE_DIR", base.join("cache")) };
+    f()
+}
+
+#[test]
+fn git_dependency_builds_offline_from_the_lockfile() {
+    if !have_git() {
+        return;
+    }
+    let (base, ws) = git_workspace("offline", "v1.2.0", None);
+    let app = ws.join("packages/app");
+    with_cache(&base, || {
+        // Locked (and fetched) once…
+        let p = ppl_driver::packages::prepare_with(&app, true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(p.lock.packages.len(), 3, "{:#?}", p.lock);
+        let lock = std::fs::read_to_string(ws.join("project.lock")).unwrap();
+        assert!(
+            lock.contains("\"ref\": \"tag:v1.2.0\"") && lock.contains("\"hash\": \"sha256:"),
+            "{lock}"
+        );
+        // …then built without the repository: from the lockfile and the cache.
+        std::fs::rename(base.join("colors"), base.join("colors.gone")).unwrap();
+        assert_eq!(errors(&app.join("src/main.ppl")), Vec::<String>::new());
+        // A changed cached source doesn't build.
+        let checkout = ppl_driver::packages::prepare_with(&app, false)
+            .unwrap()
+            .unwrap()
+            .dirs["ext/colors@1.2.0"]
+            .clone();
+        let index = checkout.join("index.ppl");
+        let orig = std::fs::read_to_string(&index).unwrap();
+        std::fs::write(&index, format!("{orig}// changed\n")).unwrap();
+        assert!(
+            errors(&app.join("src/main.ppl"))
+                .join("\n")
+                .contains("doesn't match its hash")
+        );
+        std::fs::write(&index, orig).unwrap();
+        // A dependency the lockfile doesn't have yet needs `ppl fetch` (no fetching here).
+        let util = ws.join("packages/util/project.json");
+        let text = std::fs::read_to_string(&util).unwrap();
+        std::fs::write(&util, text.replace("v1.2.0", "v1.3.0")).unwrap();
+        assert!(
+            errors(&app.join("src/main.ppl"))
+                .join("\n")
+                .contains("run `ppl fetch`")
+        );
+    });
+}
+
+#[test]
+fn majors_unify_or_coexist() {
+    if !have_git() {
+        return;
+    }
+    // One major: two different commits are a conflict.
+    let (base, ws) = git_workspace("one-major", "v1.2.0", Some("v1.3.0"));
+    with_cache(&base, || {
+        let e = ppl_driver::packages::prepare_with(&ws.join("packages/app"), true).unwrap_err();
+        assert!(e.contains("versions of one major must be one"), "{e}");
+    });
+    // Different majors coexist: each dependent gets its own.
+    let (base, ws) = git_workspace("two-majors", "v1.2.0", Some("v2.0.0"));
+    let app = ws.join("packages/app");
+    with_cache(&base, || {
+        let p = ppl_driver::packages::prepare_with(&app, true)
+            .unwrap()
+            .unwrap();
+        assert!(
+            p.lock.packages.contains_key("ext/colors@1.2.0")
+                && p.lock.packages.contains_key("ext/colors@2.0.0")
+        );
+        assert_eq!(errors(&app.join("src/main.ppl")), Vec::<String>::new());
+    });
+}

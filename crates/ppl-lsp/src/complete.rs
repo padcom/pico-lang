@@ -565,7 +565,13 @@ fn module_path(spec: &str, dir: &Path) -> Option<std::path::PathBuf> {
         dir.join(spec)
     } else if ppl_driver::packages::is_package_name(spec) {
         // A package: its `index.ppl` (spec §8.3).
-        let index = ppl_driver::packages::resolve(spec, dir, None).ok()?;
+        let index = ppl_driver::packages::resolve(
+            spec,
+            dir,
+            None,
+            Some(&ppl_driver::packages::prepare(dir)),
+        )
+        .ok()?;
         return Some(index.with_extension("ppl")).filter(|p| p.is_file());
     } else {
         return None;

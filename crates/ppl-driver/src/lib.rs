@@ -16,6 +16,7 @@ mod clib;
 mod decorators;
 mod dts;
 pub mod fingerprint;
+mod git;
 mod glibc;
 mod link;
 mod mingw;

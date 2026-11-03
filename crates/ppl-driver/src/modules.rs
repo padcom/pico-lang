@@ -41,6 +41,8 @@ struct Loader<'s> {
     /// When the entry is a test (`*.test.ppl`, `*.bench.ppl`): its package's directory, whose
     /// files see its `devDependencies` (spec §8.3).
     dev_root: Option<PathBuf>,
+    /// The build's packages (git dependencies' checkouts, from `project.lock`), prepared once.
+    prepared: Option<Result<Option<crate::packages::Prepared>, String>>,
 }
 
 /// Loads the modules the entry (already parsed, in `dir`) imports.
@@ -86,6 +88,7 @@ fn load_pass(
         js_names,
         os: os.to_string(),
         dev_root: None,
+        prepared: None,
     };
     let name = file_name(l.sm, entry);
     if name.ends_with(".test.ppl") || name.ends_with(".bench.ppl") {
@@ -324,7 +327,16 @@ impl Loader<'_> {
             stdlib_dir().join(rest)
         } else {
             // A package (spec §8.3): the dependency's root `index.ppl`.
-            match crate::packages::resolve(spec, &self.dirs[&from], self.dev_root.as_deref()) {
+            if self.prepared.is_none() {
+                let entry_dir = self.dirs[&self.modules.entry.expect("entry")].clone();
+                self.prepared = Some(crate::packages::prepare(&entry_dir));
+            }
+            match crate::packages::resolve(
+                spec,
+                &self.dirs[&from],
+                self.dev_root.as_deref(),
+                self.prepared.as_ref(),
+            ) {
                 Ok(index) => index,
                 Err(why) => {
                     self.diags.push(

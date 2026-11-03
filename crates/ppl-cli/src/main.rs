@@ -99,6 +99,9 @@ enum Command {
         #[arg(long)]
         interp: bool,
     },
+    /// Bring `project.lock` up to date and download every locked package into the cache, so
+    /// later builds work offline (spec §8.3).
+    Fetch,
     /// Resolve a release build's panic trace (its frames are offsets into the executable) to
     /// ppl functions, files and lines, from the debug file the build wrote (spec §7.1).
     Symbolize {
@@ -129,6 +132,10 @@ enum Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    // Builds may fetch packages and update project.lock; the language server only reads them.
+    if !matches!(cli.command, Some(Command::Lsp { .. })) {
+        ppl_driver::packages::allow_fetching(true);
+    }
     match cli.command {
         Some(Command::Parse { file, dump }) => parse(&file, dump),
         Some(Command::Build {
@@ -167,6 +174,7 @@ fn main() -> ExitCode {
         Some(Command::Fmt { paths, check }) => fmt(&paths, check),
         Some(Command::Lint { paths }) => lint(&paths),
         Some(Command::Dap) => dap::run(),
+        Some(Command::Fetch) => fetch(),
         Some(Command::Symbolize { trace, debug }) => symbolize::run(&trace, debug.as_deref()),
         Some(Command::Lsp { .. }) => match ppl_lsp::run_stdio() {
             Ok(()) => ExitCode::SUCCESS,
@@ -583,6 +591,34 @@ fn fmt(paths: &[PathBuf], check: bool) -> ExitCode {
         println!("formatted {unformatted} of {} file(s)", files.len());
     }
     ExitCode::SUCCESS
+}
+
+fn fetch() -> ExitCode {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    match ppl_driver::packages::prepare_with(&cwd, true) {
+        Ok(Some(p)) => {
+            let git = p
+                .lock
+                .packages
+                .values()
+                .filter(|l| matches!(l.source, ppl_driver::packages::LockSource::Git { .. }))
+                .count();
+            println!(
+                "{} package(s) locked in {}, {git} from git, all in the cache",
+                p.lock.packages.len(),
+                p.root.join("project.lock").display()
+            );
+            ExitCode::SUCCESS
+        }
+        Ok(None) => {
+            eprintln!("error: no project.json here or above");
+            ExitCode::from(2)
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// Runs `f` on the file given, or else on the project's `entry` (spec §8.3).

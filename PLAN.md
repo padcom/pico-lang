@@ -875,6 +875,10 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   commits, `sha256:` hashes), unification by major (majors coexist), offline builds from the
   lockfile and cache (hash checks), `ppl fetch`, `devDependencies` for tests.
 - **Done when**: a two-package workspace with one git dependency builds offline from the lockfile.
+- **Done**: `crates/ppl-driver/src/git.rs` (mirror, `resolve`, `checkout`, `content_hash`),
+  `packages::{Lock, prepare, Prepared}`, the loader resolving git dependencies through it,
+  `ppl fetch`; tests in `crates/ppl-driver/tests/packages.rs` (offline build, tampering, an
+  out-of-date lockfile, majors unifying or coexisting).
 
 #### P10.3c Commands
 - **Do**: `ppl init [name] [--lib]`, `ppl add <git-url> [--tag/--branch/--rev] [--dev]`,
