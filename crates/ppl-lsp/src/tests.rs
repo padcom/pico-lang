@@ -699,3 +699,17 @@ fn completes_imported_names() {
     let (l, _) = complete_at("imports_std", "import { ‸ } from \"std/path\"\n", &[]);
     assert!(l.iter().any(|x| x == "join"), "{l:?}");
 }
+
+#[test]
+fn completes_members_before_an_existing_name() {
+    // An interface-typed value, with the cursor between `.` and a name already there.
+    let base = "interface Speakable { speak(s: string): string }\nclass Person implements Speakable {\n  public speak(s: string): string { s }\n}\nconst x: Speakable = new Person()\n";
+    for tail in ["x.‸speak('...')\n", "println(x.sp‸eak(\"...\"))\n", "x.‸\n"] {
+        let (l, items) = complete_at("before_name", &format!("{base}{tail}"), &[]);
+        assert_eq!(l, ["speak"], "{tail}");
+        assert_eq!(
+            item(&items, "speak")["detail"],
+            "(method) Speakable.speak(s: string): string"
+        );
+    }
+}

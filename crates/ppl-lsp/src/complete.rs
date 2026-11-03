@@ -110,13 +110,19 @@ pub fn complete(path: &Path, text: &str, offset: usize) -> Vec<Value> {
         .take_while(|(_, c)| c.is_alphanumeric() || *c == '_' || *c == '$')
         .last()
         .map_or(offset, |(i, _)| i);
+    // The whole word is replaced: `x.‸speak()` completes the member `speak` stands for.
+    let end = offset
+        + text[offset..]
+            .char_indices()
+            .find(|(_, c)| !(c.is_alphanumeric() || *c == '_' || *c == '$'))
+            .map_or(text.len() - offset, |(i, _)| i);
     let dir = path.parent().unwrap_or(Path::new("."));
     if let Some(items) = import_names(text, start, dir) {
         return items;
     }
     let before = &text[..start];
     let member = before.ends_with('.') && !before.ends_with("..");
-    let edited = format!("{before}{PLACEHOLDER}{}", &text[offset..]);
+    let edited = format!("{before}{PLACEHOLDER}{}", &text[end..]);
     let checked = std::panic::catch_unwind(|| {
         ppl_driver::check_source_recovering(
             path.display().to_string(),
