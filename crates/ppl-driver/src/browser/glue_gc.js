@@ -134,7 +134,14 @@ export default async function init(options = {}) {
   return { instance, done: Promise.resolve(code) };
 }
 
-if (isNode && import.meta.filename && import.meta.filename === process.argv[1]) {
+// (Real paths: the module's is resolved, `argv[1]` may go through a symlink, as macOS's
+// temporary directory does.)
+const isMain =
+  isNode &&
+  !!import.meta.filename &&
+  !!process.argv[1] &&
+  (await import("node:fs")).realpathSync(process.argv[1]) === import.meta.filename;
+if (isMain) {
   try {
     const app = await init();
     process.exitCode = await app.done;

@@ -408,7 +408,14 @@ export default async function init(options = {}) {
 }
 
 // `node __PPL_BASE__.js args…`
-if (isNode && import.meta.filename && import.meta.filename === process.argv[1]) {
+// (Real paths: the module's is resolved, `argv[1]` may go through a symlink, as macOS's
+// temporary directory does.)
+const isMain =
+  isNode &&
+  !!import.meta.filename &&
+  !!process.argv[1] &&
+  (await import("node:fs")).realpathSync(process.argv[1]) === import.meta.filename;
+if (isMain) {
   try {
     const app = await init({ args: process.argv.slice(2), env: process.env });
     process.exitCode = await app.done;
