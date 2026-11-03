@@ -1058,20 +1058,19 @@ Vue-like reactive state (the author, 2026-11-03): `reactive` declarations of `Re
 `computed(() => …)` / `computed({ get, set })` and `watchEffect(() => …)`.
 
 ### P11.1 Spec
-- **Do**: the `reactive` declaration and `Reactive<T>`; how reads and writes look; `computed`
-  (getter, or `{ get, set }`) returning a `Reactive<T>`; `watchEffect`; dependency tracking,
-  caching and invalidation; decisions recorded. First settle with the author:
-  - **Access**: is a read transparent (`n + 1`, Svelte's runes) or explicit (`n.value`, Vue's
-    `ref`)? Writes `n = 2` or `n.value = 2`?
-  - **Scope**: `reactive` for locals only, or also fields and module-level bindings?
-  - **Depth**: does mutating what a reactive holds (`xs.push(1)`) trigger updates, or only
-    reassigning it?
-  - **Timing**: do effects run synchronously on a write, or batched to the end of the task (a
-    microtask, as Vue's scheduler)?
-  - **Workers**: `Reactive` isn't `Sendable` (no passing to workers): intended?
-  - **Cleanup**: does `watchEffect` return a handle to stop it (`Disposable`, `using`), and do
-    effects end with the scope that created them?
-- **Done when**: spec chapter and decisions committed, the author's answers recorded.
+- **Do**: the `reactive` declaration and `Reactive<T>`; reads and writes; `computed` (getter,
+  or `{ get, set }`) returning a `Reactive<T>`; `watchEffect`; dependency tracking, caching and
+  invalidation; a spec chapter. The author's answers (decisions 288–293):
+  - **Access** is transparent: `reactive n = 1`, read as `n + 1`, written as `n = 2`.
+  - **Scope**: local and module-level bindings. (Fields: still to settle.)
+  - **Depth**: deep: mutating what a reactive holds (`xs.push(1)`, `user.name = …`,
+    `map.set(…)`) triggers updates, as reassigning does.
+  - **Timing**: effects run synchronously, during the write that triggers them.
+  - **Workers**: `Reactive<T>` isn't `Sendable`: reactive state is never shared with workers.
+  - **Cleanup**: `watchEffect` returns a `Disposable` handle that stops it, and effects stop
+    when the scope that created them ends.
+- **Done when**: the spec chapter and its decisions are committed, fields settled with the
+  author.
 
 ### P11.2 Core runtime
 - **Do**: in the core library (ppl): the dependency graph, the stack of the effect being
