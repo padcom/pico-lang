@@ -616,6 +616,7 @@ version = "0.1.0"
 dependencies = [
  "ppl-diag",
  "ppl-driver",
+ "ppl-lint",
  "ppl-syntax",
  "serde_json",
 ]
