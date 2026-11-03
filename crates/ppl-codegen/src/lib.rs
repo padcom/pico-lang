@@ -51,7 +51,7 @@ pub struct Options {
 /// The textual LLVM IR for `program` (`ppl build --emit llvm-ir`).
 pub fn emit_llvm_ir(program: &Program) -> String {
     let cx = Context::create();
-    let m = generate(&cx, program, Setjmp::Posix, 8, false);
+    let m = generate(&cx, program, Setjmp::Posix, 8, false, false);
     m.print_to_string().to_string()
 }
 
@@ -140,7 +140,7 @@ fn with_module<R>(
         Setjmp::Mingw
     };
     let ptr = if t.starts_with("wasm32") { 4 } else { 8 };
-    let m = generate(&cx, program, setjmp, ptr, opts.debug);
+    let m = generate(&cx, program, setjmp, ptr, opts.debug, opts.optimize);
     // Frame pointers let a panic walk the stack; debug builds also export ppl's functions, so
     // the trace can name every frame (`dladdr`).
     let mut f = m.get_first_function();
@@ -222,8 +222,15 @@ fn generate<'ctx>(
     setjmp: Setjmp,
     ptr: u64,
     debug: bool,
+    release: bool,
 ) -> Module<'ctx> {
     let m = cx.create_module(&program.file);
+    if release {
+        // Release traces print offsets for `ppl symbolize` even where the executable keeps
+        // its symbols (macOS): the runtime's weak `ppl_release_trace` is 0 otherwise.
+        let g = m.add_global(cx.i32_type(), None, "ppl_release_trace");
+        g.set_initializer(&cx.i32_type().const_int(1, false));
+    }
     let dbg = (debug && !program.sources.is_empty()).then(|| Dbg::new(&m, program));
     let mut g = Gen {
         cx,

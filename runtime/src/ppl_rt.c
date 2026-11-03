@@ -837,6 +837,10 @@ static const char *frame_name(void *addr) {
     return "";
 }
 
+/* 1 in release builds (codegen defines it): traces print offsets for `ppl symbolize`, also
+ * where the executable keeps symbols. (Not const: a weak const default gets folded.) */
+__attribute__((weak)) int32_t ppl_release_trace = 0;
+
 #if PPL_BACKTRACE
 /* The executable's build ID in hex (`ppl symbolize` matches it with the debug file): the GNU
  * build-ID note on Linux, the LC_UUID on macOS. "" when there's none. */
@@ -913,10 +917,11 @@ static _Noreturn void report_panic(void) {
     if (panic_nframes > 0) {
         /* Release builds have no symbols: their frames are offsets into the executable, and the
          * build ID finds the debug file (`ppl symbolize`, spec §7.1). */
+        int release = *(volatile int32_t *)&ppl_release_trace;
         int named = 0;
         for (int i = 0; i < panic_nframes; i++) {
             const char *n = frame_name(panic_frames[i]);
-            if (n && *n) named = 1;
+            if (n && *n && !release) named = 1;
         }
 #if PPL_BACKTRACE
         if (!named) find_build_id();
@@ -929,7 +934,7 @@ static _Noreturn void report_panic(void) {
         for (int i = 0; i < panic_nframes; i++) {
             const char *n = frame_name(panic_frames[i]);
             if (!n) continue;
-            if (*n) {
+            if (*n && !release) {
                 fprintf(stderr, "  %d: %s\n", k++, n);
                 continue;
             }
