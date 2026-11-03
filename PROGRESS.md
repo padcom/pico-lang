@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.7d: WasmGC errors and the event loop** (panic guards through Wasm exception handling, the event loop on browser timers and the `__io` builtins it uses, generators/async; see PLAN), then P8.7e, then **P10.2: Lint**. The author's list (P8.6 … P10.1) is done except P8.7's later slices. Before that, the author should run the SDL2 demo by hand (P9.2's manual check, `examples/sdl2`). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
+**P8.7e: WasmGC coverage and comparison** (buffers, random, env/cwd, `__ref_id`, `__parse_f64`, `@export("js")`/`std/js`, then the size/perf comparison; see PLAN), then **P10.2: Lint**. The author's list (P8.6 … P10.1) is done except P8.7's later slices. Before that, the author should run the SDL2 demo by hand (P9.2's manual check, `examples/sdl2`). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **WasmGC errors and loop (P8.7d, decision 268)**: the `panic` tag and globals (`throw_panic`, guards in `function`), `loop_fns` (`resume`/`pending`), `__io`/worker builtins, `hash_fn`, `operand_to`/`coerce`, `local_types` (`anyref` for taken exceptions), `elem_ty`, `tests/wasmgc-skip.txt` (read with `PPL_BACKEND=wasmgc`). 181 of the suite pass (all fail fixtures plus 81 run fixtures), 48 pending, 0 failed; pending now: buffers (`__buf_op`), random bytes, env/cwd, `__parse_f64`, generic-class covariance, `null` of a type parameter.
 - **WasmGC objects (P8.7c, decision 267)**: `root_class`, vtables (`vt_global`, `start_fn`, `slot_fn`/`slot_root`), interfaces (`itable_base`, funcref table), closures (`closure_targets`, `closure_sig`, `Def::Clo`), cells (`Ref(T)`), enums (`Def::Enum`/`Variant`, `shared_field_fn`), the exception slot (`exc_global`), JS `show_enter`/`show_leave`, a name section. Pending reasons now: `__io` (19: the event loop and I/O), `Hash` (8), panic guards (5), `__gc_stat`, arenas, pointers.
 - **WasmGC strings and arrays (P8.7b, decision 266)**: the type registry (`Registry`, `Def`, `Key`; `wasm_ty` registers lazily), on-demand helpers (`extra_fn`: `array_fn`, `str_fn`, `clone_fn`, `eq_fn`, `debug_fn`), places through `proj_prefix`/`Access`, format specs in `glue_gc.js` (`fmtSpec`). 39 run fixtures pass with `PPL_BACKEND=wasmgc`; the most common pending reasons now: function values (16, the core's `__finalizationRegistries` global type among them), `string | RegExp` unions (8), enums (`Shape` …), exceptions (`SetException`, `ExceptionTag`), unsafe pointers.
 - **Formatter (P10.1, decision 265)**: `crates/ppl-syntax/src/fmt.rs` (`format`, `FmtOptions`), CLI `ppl fmt [--check]`, `ppl_driver::fmt_options` (project.json), test `crates/ppl-tests/tests/fmt.rs` (the repo's `.ppl` files must stay formatted: run `ppl fmt tests stdlib examples` after editing them). Not yet: breaking long lines, Prettier-style spacing around operators (kept as written), adding/removing semicolons.
@@ -279,7 +280,7 @@ Notes:
 - [x] P8.5b wasm32: files, clocks and the event loop
 - [x] P8.5c wasm32-wasip2: components, sockets and http
 - [x] P8.6 wasm32-browser (linear memory)
-- [ ] P8.7 WasmGC backend (split into P8.7a–e; P8.7a–c done)
+- [ ] P8.7 WasmGC backend (split into P8.7a–e; P8.7a–d done)
 - [x] P8.8 JS imports from .d.ts
 - [x] P8.9 Platform files and conditionals
 
@@ -438,3 +439,4 @@ Notes:
 | 2026-11-03 | P10.1 | `ppl fmt [--check]`: a lossless token-based formatter (indentation, comma/bracket spacing, blank lines, quotes, final newline), `project.json` options; the repo's `.ppl` files formatted and checked by `crates/ppl-tests/tests/fmt.rs`. Decision 265. |
 | 2026-11-03 | P8.7b | WasmGC strings and arrays: lazy GC type registry, growable/fixed arrays, tuples, ranges, `T?` boxes, value copies and `==`, string `charAt`/`slice`/ordering, format specs and debug forms (glue port of `ppl_fmt_*`): 39 run fixtures pass (from 15), none fail. Decision 266. |
 | 2026-11-03 | P8.7c | WasmGC objects: root-typed classes with vtables and `ref.test`, interfaces through a funcref table, closures, cells, enums and unions, the exception slot and `uncaught`: 59 run fixtures pass, none fail. Decision 267. |
+| 2026-11-03 | P8.7d | WasmGC panics through Wasm exception handling (guards, `finally`, `__catch_panic`), the event loop on browser timers, hashing, reference coercions, `void` elements: 81 run fixtures pass, none fail; skip list for what needs linear memory. Decision 268. |

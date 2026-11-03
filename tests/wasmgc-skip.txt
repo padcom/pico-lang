@@ -1,0 +1,9 @@
+# Golden fixtures (name prefixes) the WasmGC backend (`PPL_BACKEND=wasmgc`, P8.7) can't run, with
+# why: they need linear memory or the C runtime. Read on top of browser-skip.txt.
+run/arena/           arenas allocate in linear memory (WasmGC objects live on the host's heap)
+run/unsafe/          raw pointers into linear memory
+run/ffi/             extern "C" needs linear memory and a C library
+run/crypto/          std/crypto runs Mbed TLS (C) in linear memory
+run/gc/roots         dumps the ppl collector's roots (the host collects WasmGC objects)
+run/gc/weak          weak references (WasmGC has none yet)
+run/gc/finalization  finalization depends on the ppl collector (WasmGC has no weak references)

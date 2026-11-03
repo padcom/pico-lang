@@ -29,7 +29,7 @@ use wasm_encoder::{
     DataSection, ElementSection, Elements, EntityType, ExportKind, ExportSection, FieldType,
     Function, FunctionSection, GlobalSection, GlobalType, HeapType, Ieee32, Ieee64, ImportSection,
     InstructionSink, Module, NameMap, NameSection, RefType, StorageType, StructType, SubType,
-    TableSection, TableType, TypeSection, ValType,
+    TableSection, TableType, TagKind, TagSection, TagType, TypeSection, ValType,
 };
 
 type R<T> = Result<T, String>;
@@ -43,6 +43,10 @@ pub const UNSUPPORTED: &str = "not supported by the WasmGC backend yet";
 
 /// Placeholder for values of types this backend can't represent yet.
 const ANYREF: ValType = ValType::Ref(RefType::ANYREF);
+
+/// Globals after the program's: the pending exception and its tag, the panic's message, line
+/// and column, the event loop's wait.
+const FIXED_GLOBALS: usize = 6;
 
 /// The string type's index (the first type of the rec group).
 const STR: u32 = 0;
@@ -65,6 +69,7 @@ const IMPORTS: &[(&str, &[ValT], &[ValT])] = &[
     ("show_leave", &[ValT::Any], &[]),
     ("pow_f64", &[ValT::F64, ValT::F64], &[ValT::F64]),
     ("clock_ms", &[], &[ValT::I64]),
+    ("clock_ns", &[ValT::I32], &[ValT::I64]),
     // Format specs (`${x:08.2f}`): the value, then the spec's eight fields (as `ppl_rt.h`'s
     // `PplFmt`: fill, align, sign, alternate, zero, width, precision, kind).
     (
@@ -205,8 +210,10 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
             .map_err(|e| format!("{e} (in `{}`)", f.name))?;
         code.function(&body);
     }
-    // Vtables (filled before the entry runs), then the start function.
+    // Vtables (filled before the entry runs), then the start function; the event loop's
+    // `resume` and `pending`.
     let start = g.start_fn()?;
+    let (resume, pending) = g.loop_fns();
     // On-demand helpers (array operations, copies, thunks), after the program's functions.
     let extra = std::mem::take(&mut g.extra);
     for (_, _, body) in &extra {
@@ -220,6 +227,7 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
             rs.iter().map(|v| val(*v)).collect(),
         ));
     }
+    let panic_tag_type = g.func_type(Vec::new(), Vec::new());
     let mut fn_types = Vec::new();
     for h in HELPERS {
         let (ps, rs) = helper_sig(h);
@@ -239,6 +247,7 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
     let vt = g.vt_type();
     global_types.push(ANYREF);
     global_types.push(ValType::I32);
+    global_types.extend([str_ref(), ValType::I32, ValType::I32, ValType::I64]);
     global_types.extend(g.vt_globals.iter().map(|_| ref_to(vt)));
     // The rec group: strings, then the registry's types. Struct fields can register more, so
     // they're resolved until nothing new comes.
@@ -310,14 +319,19 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
     let mut globals = GlobalSection::new();
     // (A global of a type this backend can't hold yet is an `anyref` placeholder: only `null`
     // goes in.)
-    for t in global_types {
+    let wait = g.wait_global() as usize;
+    for (i, t) in global_types.into_iter().enumerate() {
         globals.global(
             GlobalType {
                 val_type: t,
                 mutable: true,
                 shared: false,
             },
-            &zero_const(t),
+            &if i == wait {
+                ConstExpr::i64_const(-1)
+            } else {
+                zero_const(t)
+            },
         );
     }
     let mut exports = ExportSection::new();
@@ -325,6 +339,18 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
         exports.export(h, ExportKind::Func, IMPORTS.len() as u32 + i as u32);
     }
     exports.export("start", ExportKind::Func, start);
+    exports.export("resume", ExportKind::Func, resume);
+    exports.export("pending", ExportKind::Func, pending);
+    exports.export("panic", ExportKind::Tag, 0);
+    let pg = g.panic_global();
+    exports.export("panic_msg", ExportKind::Global, pg);
+    exports.export("panic_line", ExportKind::Global, pg + 1);
+    exports.export("panic_col", ExportKind::Global, pg + 2);
+    let mut tags = TagSection::new();
+    tags.tag(TagType {
+        kind: TagKind::Exception,
+        func_type_idx: panic_tag_type,
+    });
     let mut elements = ElementSection::new();
     if table_len > 0 {
         let funcs: Vec<u32> = p
@@ -352,6 +378,7 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
         .section(&imports)
         .section(&functions)
         .section(&tables)
+        .section(&tags)
         .section(&globals)
         .section(&exports)
         .section(&elements)
@@ -459,6 +486,7 @@ enum Key {
     Variant(EnumId, u32),
     Iface,
     Vt,
+    Clo(u32),
 }
 
 /// The GC types registered so far; `defs[i]` is type `i + 1`.
@@ -512,6 +540,11 @@ struct FnCx<'f> {
     /// Scratch locals: one per wasm type (`scratch`), and numbered ones (`tmp`).
     scratch: HashMap<ValType, u32>,
     tmps: HashMap<u32, u32>,
+    /// A function with panic guards: its guard stack (handler blocks) and depth locals.
+    guards: Option<(u32, u32)>,
+    /// Each local's wasm type (`anyref` for one that takes exceptions, which may be boxed
+    /// throwables rather than `Error`s).
+    local_types: Vec<Option<ValType>>,
     nlocals: u32,
     extra: Vec<ValType>,
 }
@@ -627,6 +660,22 @@ impl<'p> Gen<'p> {
         }
     }
 
+    /// An array element's storage type (`void` elements are `anyref` placeholders).
+    fn elem_ty(&self, t: &Ty) -> Option<ValType> {
+        if no_value(t) {
+            Some(ANYREF)
+        } else {
+            self.wasm_ty(t)
+        }
+    }
+
+    fn elem_storage(&self, t: &Ty) -> R<ValType> {
+        if no_value(t) {
+            return Ok(ANYREF);
+        }
+        Ok(self.ty_or_err(t)?.expect("a value"))
+    }
+
     fn raw_type(&self, e: ValType) -> u32 {
         self.register(Key::Raw(e), |_| Def::Raw(e))
     }
@@ -675,7 +724,17 @@ impl<'p> Gen<'p> {
                 self.vt_globals.len() - 1
             }
         };
-        (self.p.globals.len() + 2 + k) as u32
+        (self.p.globals.len() + FIXED_GLOBALS + k) as u32
+    }
+
+    /// The panic's message, line and column (exported for the glue), then the event loop's
+    /// next wait (ms, -1: none; decision 268).
+    fn panic_global(&self) -> u32 {
+        self.p.globals.len() as u32 + 2
+    }
+
+    fn wait_global(&self) -> u32 {
+        self.p.globals.len() as u32 + 5
     }
 
     /// The pending exception (`anyref`, null when none) and its tag (`i32`): globals right
@@ -752,7 +811,7 @@ impl<'p> Gen<'p> {
         let mut k = 0;
         while k < self.vt_globals.len() {
             let sid = self.vt_globals[k];
-            let g = (self.p.globals.len() + 2 + k) as u32;
+            let g = (self.p.globals.len() + FIXED_GLOBALS + k) as u32;
             let slots = self.p.layout(sid).meta.vtable.clone();
             let mut entries = Vec::new();
             for (slot, f) in slots.iter().enumerate() {
@@ -783,6 +842,34 @@ impl<'p> Gen<'p> {
             s.call(entry).end();
             f
         }))
+    }
+
+    /// `resume` (runs the core library's event loop again) and `pending` (the loop's next wait
+    /// in ms, or -1, which it resets).
+    fn loop_fns(&mut self) -> (u32, u32) {
+        let run = self
+            .p
+            .fns
+            .iter()
+            .position(|f| f.library && f.name == "__runEventLoop")
+            .and_then(|i| self.fn_index.get(&FnId(i as u32)).copied());
+        let resume = self.extra_fn("resume".into(), vec![], vec![], move |_| {
+            let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+            let mut s = f.instructions();
+            if let Some(r) = run {
+                s.call(r);
+            }
+            s.end();
+            f
+        });
+        let w = self.wait_global();
+        let pending = self.extra_fn("pending".into(), vec![], vec![ValType::I64], move |_| {
+            let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+            let mut s = f.instructions();
+            s.global_get(w).i64_const(-1).global_set(w).end();
+            f
+        });
+        (resume, pending)
     }
 
     /// The root of a vtable slot: the topmost class whose vtable has it.
@@ -851,12 +938,12 @@ impl<'p> Gen<'p> {
             t @ Ty::Class(..) => ref_to(self.struct_type(&self.root_class(&t))),
             t @ (Ty::Struct(..) | Ty::Tuple(_) | Ty::Range(_)) => ref_to(self.struct_type(&t)),
             Ty::Fixed(elem, _) => {
-                let e = self.wasm_ty(&elem)?;
+                let e = self.elem_ty(&elem)?;
                 ref_to(self.raw_type(e))
             }
             t @ Ty::Array(_) => {
                 let Ty::Array(elem) = &t else { unreachable!() };
-                let e = self.wasm_ty(elem)?;
+                let e = self.elem_ty(elem)?;
                 let raw = self.raw_type(e);
                 ref_to(self.register(Key::Ty(t.clone()), |_| Def::Grow(raw)))
             }
@@ -870,10 +957,8 @@ impl<'p> Gen<'p> {
             Ty::Iface(..) => ref_to(self.register(Key::Iface, |_| Def::Iface)),
             Ty::Fn(ps, r, _) => {
                 let sig = self.closure_sig(&ps, &r)?;
-                ref_to(self.register(
-                    Key::Ty(Ty::Fn(ps.clone(), r.clone(), Vec::new().into())),
-                    |_| Def::Clo(sig),
-                ))
+                // (One per wasm signature: function values of covariant types share it.)
+                ref_to(self.register(Key::Clo(sig), |_| Def::Clo(sig)))
             }
             Ty::Nullable(inner) => {
                 if is_ref_like(&inner) {
@@ -889,6 +974,9 @@ impl<'p> Gen<'p> {
 
     /// The box type of a `T?` of a value type.
     fn opt_type(&self, inner: &Ty) -> R<u32> {
+        if no_value(inner) {
+            return unsupported(format!("`{inner}?`"));
+        }
         let v = self.ty_or_err(inner)?.expect("a value");
         Ok(self.register(Key::Opt(v), |_| Def::Opt(v)))
     }
@@ -936,12 +1024,83 @@ impl<'p> Gen<'p> {
         }
     }
 
+    /// The runtime's hash functions (`ppl_hash_u64`, `ppl_hash_str`, `ppl_hash_combine`).
+    fn hash_fn(&mut self, which: &str) -> u32 {
+        use ValType::*;
+        match which {
+            "u64" => self.extra_fn("hash u64".into(), vec![I64], vec![I64], |_| {
+                let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                let mut s = f.instructions();
+                s.local_get(0)
+                    .i64_const(0x9e3779b97f4a7c15u64 as i64)
+                    .i64_add()
+                    .local_set(0);
+                s.local_get(0)
+                    .local_get(0)
+                    .i64_const(30)
+                    .i64_shr_u()
+                    .i64_xor();
+                s.i64_const(0xbf58476d1ce4e5b9u64 as i64)
+                    .i64_mul()
+                    .local_set(0);
+                s.local_get(0)
+                    .local_get(0)
+                    .i64_const(27)
+                    .i64_shr_u()
+                    .i64_xor();
+                s.i64_const(0x94d049bb133111ebu64 as i64)
+                    .i64_mul()
+                    .local_set(0);
+                s.local_get(0)
+                    .local_get(0)
+                    .i64_const(31)
+                    .i64_shr_u()
+                    .i64_xor()
+                    .end();
+                f
+            }),
+            "str" => self.extra_fn("hash str".into(), vec![str_ref()], vec![I64], |_| {
+                // FNV-1a over the bytes. locals: 1 h, 2 i, 3 n
+                let mut f = Function::new_with_locals_types(vec![I64, I32, I32]);
+                let mut s = f.instructions();
+                s.i64_const(0xcbf29ce484222325u64 as i64).local_set(1);
+                s.local_get(0).array_len().local_set(3);
+                s.block(BlockType::Empty).loop_(BlockType::Empty);
+                s.local_get(2).local_get(3).i32_ge_u().br_if(1);
+                s.local_get(1)
+                    .local_get(0)
+                    .local_get(2)
+                    .array_get_u(STR)
+                    .i64_extend_i32_u()
+                    .i64_xor();
+                s.i64_const(0x100000001b3).i64_mul().local_set(1);
+                s.local_get(2).i32_const(1).i32_add().local_set(2);
+                s.br(0).end().end();
+                s.local_get(1).end();
+                f
+            }),
+            _ => self.extra_fn("hash combine".into(), vec![I64, I64], vec![I64], |_| {
+                // a ^ (b + 0x9e3779b97f4a7c15 + (a << 6) + (a >> 2))
+                let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                let mut s = f.instructions();
+                s.local_get(0);
+                s.local_get(1)
+                    .i64_const(0x9e3779b97f4a7c15u64 as i64)
+                    .i64_add();
+                s.local_get(0).i64_const(6).i64_shl().i64_add();
+                s.local_get(0).i64_const(2).i64_shr_u().i64_add();
+                s.i64_xor().end();
+                f
+            }),
+        }
+    }
+
     /// A growable array's operation (`push`, `pop`, `slice`) for array type `at`.
     fn array_fn(&mut self, at: &Ty, op: &str) -> R<u32> {
         let Ty::Array(elem) = at.erase() else {
             return unsupported(format!("`{op}` on `{at}`"));
         };
-        let e = self.ty_or_err(&elem)?.expect("a value");
+        let e = self.elem_storage(&elem)?;
         let raw = self.raw_type(e);
         let gv = self.wasm_ty(at).expect("an array");
         let grow = heap_index(gv).expect("a ref");
@@ -1246,6 +1405,25 @@ impl<'p> Gen<'p> {
         // A closure target gets its environment as `anyref` (wasm parameter 0), cast into a
         // local of its real type first thing.
         let closure = self.closure_targets.contains(&id);
+        // Locals taking a pending exception hold `anyref` (it may be a boxed throwable).
+        let taken: std::collections::HashSet<u32> = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.stmts)
+            .filter(|st| matches!(st.rvalue, Rvalue::TakeException(_)) && st.place.proj.is_empty())
+            .filter_map(|st| match st.place.base {
+                mir::Base::Local(l) => Some(l.0),
+                _ => None,
+            })
+            .collect();
+        let mut local_types: Vec<Option<ValType>> = Vec::new();
+        for (i, l) in f.locals.iter().enumerate() {
+            local_types.push(if taken.contains(&(i as u32)) {
+                Some(ANYREF)
+            } else {
+                self.ty_or_err(&l.ty)?
+            });
+        }
         let mut env_cast: Option<(u32, ValType)> = None;
         let mut params = f.params.iter().peekable();
         if closure {
@@ -1268,11 +1446,11 @@ impl<'p> Gen<'p> {
             extra.push(t);
             n += 1;
         }
-        for (i, l) in f.locals.iter().enumerate() {
+        for (i, _) in f.locals.iter().enumerate() {
             if is_param[i] {
                 continue;
             }
-            if let Some(t) = self.ty_or_err(&l.ty)? {
+            if let Some(t) = local_types[i] {
                 slots[i] = Some(Slot { index: n });
                 extra.push(t);
                 n += 1;
@@ -1288,6 +1466,8 @@ impl<'p> Gen<'p> {
             pc,
             scratch: HashMap::new(),
             tmps: HashMap::new(),
+            guards: None,
+            local_types,
             nlocals: n,
             extra,
         };
@@ -1302,6 +1482,25 @@ impl<'p> Gen<'p> {
                 sink.local_set(fx.locals[l as usize].expect("a slot").index);
             }
             let nblocks = f.blocks.len() as u32;
+            // Panic guards: the dispatch loop runs inside a `try_table`; a caught panic goes
+            // to the innermost guard's handler (popped), or on when this frame has none left.
+            let guarded = f
+                .blocks
+                .iter()
+                .any(|b| matches!(b.term, Terminator::Guard { .. }));
+            if guarded {
+                let raw = self.raw_type(ValType::I32);
+                let stack = fx.tmp(3_000_000, ref_to(raw));
+                let depth = fx.tmp(3_000_001, ValType::I32);
+                fx.guards = Some((stack, depth));
+                sink.i32_const(64).array_new_default(raw).local_set(stack);
+                sink.loop_(BlockType::Empty); // retry
+                sink.block(BlockType::Empty); // caught
+                sink.try_table(
+                    BlockType::Empty,
+                    [wasm_encoder::Catch::One { tag: 0, label: 0 }],
+                );
+            }
             sink.loop_(BlockType::Empty);
             for _ in 0..nblocks {
                 sink.block(BlockType::Empty);
@@ -1319,6 +1518,22 @@ impl<'p> Gen<'p> {
             }
             sink.end(); // the loop
             sink.unreachable();
+            if let Some((stack, depth)) = fx.guards {
+                sink.end(); // try_table
+                sink.unreachable();
+                sink.end(); // caught
+                sink.local_get(depth).i32_eqz();
+                sink.if_(BlockType::Empty).throw(0).end();
+                sink.local_get(depth)
+                    .i32_const(1)
+                    .i32_sub()
+                    .local_set(depth);
+                sink.local_get(stack).local_get(depth);
+                sink.array_get(self.raw_type(ValType::I32)).local_set(fx.pc);
+                sink.br(0); // retry
+                sink.end();
+                sink.unreachable();
+            }
             sink.end();
         }
         let _ = &mut body;
@@ -1350,7 +1565,14 @@ impl<'p> Gen<'p> {
                     let at = self.operand_ty(fx, a)?;
                     let f = self.array_fn(&at, "push")?;
                     self.operand(fx, s, a)?;
-                    self.operand(fx, s, v)?;
+                    let Ty::Array(elem) = at.erase() else {
+                        unreachable!()
+                    };
+                    if no_value(&elem) {
+                        s.ref_null(RefType::ANYREF.heap_type);
+                    } else {
+                        self.operand_to(fx, s, v, &elem)?;
+                    }
                     s.call(f);
                     Ok(())
                 }
@@ -1361,7 +1583,31 @@ impl<'p> Gen<'p> {
                 }
             };
         }
+        // (A local's wasm type may differ from its ppl type's: `local_types`.)
+        let dest = match (&st.place.base, st.place.proj.is_empty()) {
+            (mir::Base::Local(l), true) => fx.local_types[l.0 as usize],
+            _ => self.wasm_ty(&t),
+        };
         self.store(fx, s, &st.place, |g, fx, s| {
+            if let Rvalue::Use(o) = &st.rvalue {
+                g.operand(fx, s, o)?;
+                let from = match o {
+                    Operand::Copy(p)
+                        if p.proj.is_empty() && matches!(p.base, mir::Base::Local(_)) =>
+                    {
+                        let mir::Base::Local(l) = p.base else {
+                            unreachable!()
+                        };
+                        fx.local_types[l.0 as usize]
+                    }
+                    o => {
+                        let ot = g.operand_ty(fx, o)?;
+                        g.wasm_ty(&ot)
+                    }
+                };
+                g.coerce(s, from, dest);
+                return Ok(());
+            }
             g.rvalue(fx, s, &st.rvalue, &t, st.loc).map(|_| ())
         })
     }
@@ -1433,7 +1679,7 @@ impl<'p> Gen<'p> {
                 }
             }
             (Proj::Index(l), Ty::Array(elem)) => {
-                let e = self.ty_or_err(&elem)?.expect("a value");
+                let e = self.elem_storage(&elem)?;
                 let raw = self.raw_type(e);
                 let grow = self.wasm_ty(t).and_then(heap_index).expect("an array");
                 s.struct_get(grow, 0);
@@ -1441,7 +1687,7 @@ impl<'p> Gen<'p> {
                 Access::Elem(raw)
             }
             (Proj::Index(l), Ty::Fixed(elem, _)) => {
-                let e = self.ty_or_err(&elem)?.expect("a value");
+                let e = self.elem_storage(&elem)?;
                 let raw = self.raw_type(e);
                 self.index_local(fx, s, *l);
                 Access::Elem(raw)
@@ -1561,7 +1807,7 @@ impl<'p> Gen<'p> {
         let key = format!("clone {t}");
         if let Ty::Fixed(elem, _) = &t {
             let elem = (**elem).clone();
-            let e = self.ty_or_err(&elem)?.expect("a value");
+            let e = self.elem_storage(&elem)?;
             let raw = self.raw_type(e);
             let inner = if Self::is_value_aggregate(&elem) {
                 Some(self.clone_fn(&elem)?)
@@ -1713,6 +1959,60 @@ impl<'p> Gen<'p> {
         Ok(())
     }
 
+    /// Pushes an operand as a value of type `to`: a reference of another wasm type is cast
+    /// (a narrowed class, a taken exception, a covariant function value's result).
+    fn operand_to(
+        &mut self,
+        fx: &mut FnCx,
+        s: &mut InstructionSink,
+        o: &Operand,
+        to: &Ty,
+    ) -> R<()> {
+        // Two instances of a generic class are unrelated struct types here.
+        let ot = self.operand_ty(fx, o)?;
+        if let (Ty::Class(a, _, aa), Ty::Class(b, _, ba)) = (ot.erase(), to.erase())
+            && a == b
+            && aa != ba
+        {
+            return unsupported(format!(
+                "`{ot}` where `{to}` is expected (generic class covariance)"
+            ));
+        }
+        // (Function values whose types differ in a generic class instance: distinct structs.)
+        if matches!((ot.erase(), to.erase()), (Ty::Fn(..), Ty::Fn(..)))
+            && self.wasm_ty(&ot) != self.wasm_ty(to)
+        {
+            return unsupported(format!(
+                "`{ot}` where `{to}` is expected (function value covariance)"
+            ));
+        }
+        self.operand(fx, s, o)?;
+        let from = match o {
+            Operand::Copy(p) if p.proj.is_empty() && matches!(p.base, mir::Base::Local(_)) => {
+                let mir::Base::Local(l) = p.base else {
+                    unreachable!()
+                };
+                fx.local_types[l.0 as usize]
+            }
+            o => {
+                let t = self.operand_ty(fx, o)?;
+                self.wasm_ty(&t)
+            }
+        };
+        self.coerce(s, from, self.wasm_ty(to));
+        Ok(())
+    }
+
+    /// Casts the reference on the stack (of wasm type `from`) to `to` when they differ.
+    fn coerce(&self, s: &mut InstructionSink, from: Option<ValType>, to: Option<ValType>) {
+        if let (Some(f), Some(ValType::Ref(t))) = (from, to)
+            && f != ValType::Ref(t)
+            && matches!(f, ValType::Ref(_))
+        {
+            s.ref_cast_nullable(t.heap_type);
+        }
+    }
+
     fn operand(&mut self, fx: &mut FnCx, s: &mut InstructionSink, o: &Operand) -> R<()> {
         match o {
             Operand::Copy(p) => self.load(fx, s, p, true),
@@ -1798,10 +2098,19 @@ impl<'p> Gen<'p> {
         s.i32_const(0);
         s.i32_const(msg.len() as i32);
         s.array_new_data(STR, d);
+        self.throw_panic(s, loc);
+    }
+
+    /// Panics with the message on the stack: it goes to the globals the glue (or a panic
+    /// guard) reads, and the `panic` tag is thrown (decision 268).
+    fn throw_panic(&self, s: &mut InstructionSink, loc: mir::Loc) {
+        let g = self.panic_global();
+        s.global_set(g);
         s.i32_const(loc.line as i32);
+        s.global_set(g + 1);
         s.i32_const(loc.col as i32);
-        s.call(import_index("panic"));
-        s.unreachable();
+        s.global_set(g + 2);
+        s.throw(0);
     }
 
     /// Pushes an rvalue (of type `t`); `Ok(None)` when it produces nothing.
@@ -1869,7 +2178,7 @@ impl<'p> Gen<'p> {
                         s.ref_null(RefType::ANYREF.heap_type);
                         continue;
                     }
-                    self.operand(fx, s, o)?;
+                    self.operand_to(fx, s, o, ft)?;
                 }
                 s.struct_new(idx);
             }
@@ -1977,7 +2286,7 @@ impl<'p> Gen<'p> {
                     if no_value(ft) {
                         s.ref_null(RefType::ANYREF.heap_type);
                     } else {
-                        self.operand(fx, s, o)?;
+                        self.operand_to(fx, s, o, ft)?;
                     }
                 }
                 s.struct_new(vt);
@@ -2039,10 +2348,10 @@ impl<'p> Gen<'p> {
             }
             Rvalue::Tuple(ty, ops) => match ty.erase() {
                 Ty::Fixed(elem, _) => {
-                    let e = self.ty_or_err(&elem)?.expect("a value");
+                    let e = self.elem_storage(&elem)?;
                     let raw = self.raw_type(e);
                     for o in ops {
-                        self.operand(fx, s, o)?;
+                        self.operand_to(fx, s, o, &elem)?;
                     }
                     s.array_new_fixed(raw, ops.len() as u32);
                 }
@@ -2052,7 +2361,7 @@ impl<'p> Gen<'p> {
                         if no_value(ft) {
                             s.ref_null(RefType::ANYREF.heap_type);
                         } else {
-                            self.operand(fx, s, o)?;
+                            self.operand_to(fx, s, o, ft)?;
                         }
                     }
                     s.struct_new(idx);
@@ -2070,7 +2379,7 @@ impl<'p> Gen<'p> {
                 s.array_new(raw);
             }
             Rvalue::ArrayNew(elem, ops) => {
-                let e = self.ty_or_err(elem)?.expect("a value");
+                let e = self.elem_storage(elem)?;
                 let raw = self.raw_type(e);
                 let grow = heap_index(
                     self.wasm_ty(&Ty::Array(Box::new(elem.clone())))
@@ -2078,7 +2387,11 @@ impl<'p> Gen<'p> {
                 )
                 .expect("a ref");
                 for o in ops {
-                    self.operand(fx, s, o)?;
+                    if no_value(elem) {
+                        s.ref_null(RefType::ANYREF.heap_type);
+                    } else {
+                        self.operand_to(fx, s, o, elem)?;
+                    }
                 }
                 s.array_new_fixed(raw, ops.len() as u32);
                 s.i32_const(ops.len() as i32);
@@ -2166,6 +2479,41 @@ impl<'p> Gen<'p> {
                 self.operand(fx, s, b)?;
                 self.add_overflows(fx, s, it, false)?;
             }
+            Rvalue::Hash(o) => {
+                let ot = self.operand_ty(fx, o)?;
+                self.operand(fx, s, o)?;
+                match ot.erase() {
+                    Ty::Str => {
+                        let f = self.hash_fn("str");
+                        s.call(f);
+                    }
+                    t => {
+                        match t {
+                            Ty::Int(it) if wide(it) => {}
+                            Ty::Int(it) => self.extend(s, it),
+                            Ty::Float(FloatTy::F32) => {
+                                s.f64_promote_f32();
+                                s.i64_reinterpret_f64();
+                            }
+                            Ty::Float(_) => {
+                                s.i64_reinterpret_f64();
+                            }
+                            Ty::Bool | Ty::Char => {
+                                s.i64_extend_i32_u();
+                            }
+                            t => return unsupported(format!("hashing `{t}`")),
+                        }
+                        let f = self.hash_fn("u64");
+                        s.call(f);
+                    }
+                }
+            }
+            Rvalue::HashCombine(a, b) => {
+                self.operand(fx, s, a)?;
+                self.operand(fx, s, b)?;
+                let f = self.hash_fn("combine");
+                s.call(f);
+            }
             Rvalue::ExceptionPending => {
                 s.global_get(self.exc_global());
                 s.ref_is_null();
@@ -2174,15 +2522,10 @@ impl<'p> Gen<'p> {
             Rvalue::ExceptionTag => {
                 s.global_get(self.exc_global() + 1);
             }
-            Rvalue::TakeException(ty) => {
+            Rvalue::TakeException(_) => {
+                // (As `anyref`: see `local_types`.)
                 let g = self.exc_global();
                 s.global_get(g);
-                match self.ty_or_err(ty)? {
-                    Some(ValType::Ref(r)) => {
-                        s.ref_cast_nullable(r.heap_type);
-                    }
-                    _ => return unsupported(format!("exceptions of type `{ty}`")),
-                }
                 s.ref_null(RefType::ANYREF.heap_type);
                 s.global_set(g);
             }
@@ -3069,7 +3412,7 @@ impl<'p> Gen<'p> {
             }
             Ty::Array(elem) | Ty::Fixed(elem, _) => {
                 let elem = (**elem).clone();
-                let e = self.ty_or_err(&elem)?.expect("a value");
+                let e = self.elem_storage(&elem)?;
                 let raw = self.raw_type(e);
                 let grow = match &t {
                     Ty::Array(_) => Some(heap_index(vt).expect("a ref")),
@@ -3328,7 +3671,7 @@ impl<'p> Gen<'p> {
         let vt = self.ty_or_err(&t)?.expect("a value");
         let key = format!("assign {t}");
         if let Ty::Fixed(elem, _) = &t {
-            let e = self.ty_or_err(elem)?.expect("a value");
+            let e = self.elem_storage(elem)?;
             let raw = self.raw_type(e);
             return Ok(self.extra_fn(key, vec![vt, vt], vec![], move |_| {
                 let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
@@ -3439,7 +3782,7 @@ impl<'p> Gen<'p> {
             }
             Ty::Fixed(elem, _) => {
                 let elem = (**elem).clone();
-                let e = self.ty_or_err(&elem)?.expect("a value");
+                let e = self.elem_storage(&elem)?;
                 let raw = self.raw_type(e);
                 let c = cmp_of(self, &elem)?;
                 Ok(
@@ -3661,7 +4004,8 @@ impl<'p> Gen<'p> {
             }
             Terminator::Return(v) => {
                 if let Some(v) = v {
-                    self.operand(fx, s, v)?;
+                    let ret = fx.f.ret.clone();
+                    self.operand_to(fx, s, v, &ret)?;
                 }
                 s.return_();
             }
@@ -3679,10 +4023,11 @@ impl<'p> Gen<'p> {
                         }
                         let callee_fn = &self.p.fns[f.0 as usize];
                         for (a, p) in args.iter().zip(&callee_fn.params) {
-                            if no_value(callee_fn.local_ty(*p)) {
+                            let pt = callee_fn.local_ty(*p).clone();
+                            if no_value(&pt) {
                                 continue;
                             }
-                            self.operand(fx, s, a)?;
+                            self.operand_to(fx, s, a, &pt)?;
                         }
                         let Some(&idx) = self.fn_index.get(f) else {
                             return unsupported("a call of a dropped function");
@@ -3711,6 +4056,58 @@ impl<'p> Gen<'p> {
                     ) => {}
                     Callee::Builtin(Builtin::ClockMs) => {
                         s.call(import_index("clock_ms"));
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Int(IntTy::I64))?;
+                    }
+                    Callee::Builtin(Builtin::PanicTaken) => {
+                        s.global_get(self.panic_global());
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Str)?;
+                    }
+                    Callee::Builtin(Builtin::LoopWait) => {}
+                    Callee::Builtin(Builtin::GcStat) => {
+                        s.i64_const(0);
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Int(IntTy::I64))?;
+                    }
+                    Callee::Builtin(Builtin::GcDumpRoots) => {}
+                    Callee::Builtin(Builtin::WorkerOp) => {
+                        // No workers here: no messages, no live workers, not a worker.
+                        let op = match args.first() {
+                            Some(Operand::Const(Const::Int(op, _))) => *op,
+                            _ => -1,
+                        };
+                        match op {
+                            2 => s.i64_const(-1),
+                            // (Ops on a worker or a message can't happen without them.)
+                            _ => s.i64_const(0),
+                        };
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Int(IntTy::I64))?;
+                    }
+                    Callee::Builtin(Builtin::Io) => {
+                        let op = match args.first() {
+                            Some(Operand::Const(Const::Int(op, _))) => *op,
+                            _ => -1,
+                        };
+                        match op {
+                            // The loop is about to wait: the host waits instead.
+                            138 => {
+                                self.operand(fx, s, &args[1])?;
+                                s.global_set(self.wait_global());
+                                s.i64_const(1);
+                            }
+                            // No I/O jobs.
+                            100 => {
+                                s.i64_const(-1);
+                            }
+                            101 | 104 => {
+                                s.i64_const(0);
+                            }
+                            // Clocks (ns): the wall clock, or since the program started.
+                            133 => {
+                                self.operand(fx, s, &args[1])?;
+                                s.i32_wrap_i64();
+                                s.call(import_index("clock_ns"));
+                            }
+                            op => return unsupported(format!("I/O operation {op} (`__io`)")),
+                        }
                         self.call_result(fx, s, dest.as_ref(), &Ty::Int(IntTy::I64))?;
                     }
                     Callee::Builtin(b) => {
@@ -3816,16 +4213,29 @@ impl<'p> Gen<'p> {
             }
             Terminator::Panic { msg, loc } => {
                 self.operand(fx, s, msg)?;
-                s.i32_const(loc.line as i32);
-                s.i32_const(loc.col as i32);
-                s.call(import_index("panic"));
-                s.unreachable();
+                self.throw_panic(s, *loc);
             }
             Terminator::Unreachable => {
                 s.unreachable();
             }
-            Terminator::Guard { .. } | Terminator::Unguard(_) | Terminator::Resume => {
-                return unsupported("panic guards (`try`/`finally`)");
+            Terminator::Guard { body, handler } => {
+                // The handler goes on this frame's guard stack (see `function`).
+                let (stack, depth) = fx.guards.expect("a function with guards");
+                s.local_get(stack)
+                    .local_get(depth)
+                    .i32_const(handler.0 as i32);
+                s.array_set(self.raw_type(ValType::I32));
+                s.local_get(depth).i32_const(1).i32_add().local_set(depth);
+                self.goto(fx, s, *body, to_loop);
+            }
+            Terminator::Unguard(next) => {
+                let (_, depth) = fx.guards.expect("a function with guards");
+                s.local_get(depth).i32_const(1).i32_sub().local_set(depth);
+                self.goto(fx, s, *next, to_loop);
+            }
+            Terminator::Resume => {
+                // The panic goes on (its message is still in the globals).
+                s.throw(0);
             }
             Terminator::Uncaught { class, msg } => {
                 self.operand(fx, s, class)?;
@@ -3846,6 +4256,16 @@ impl<'p> Gen<'p> {
     ) -> R<()> {
         if no_value(ret) {
             return Ok(());
+        }
+        if let Some(d) = dest {
+            let to = match (&d.base, d.proj.is_empty()) {
+                (mir::Base::Local(l), true) => fx.local_types[l.0 as usize],
+                _ => {
+                    let dt = self.place_ty(fx, d)?;
+                    self.wasm_ty(&dt)
+                }
+            };
+            self.coerce(s, self.wasm_ty(ret), to);
         }
         match dest {
             Some(d) => {

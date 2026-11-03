@@ -743,9 +743,15 @@ pub fn target_skips(root: &Path, target: ppl_driver::Target) -> Vec<(String, Str
         ppl_driver::target::Os::Browser => "browser-skip.txt",
         _ => return Vec::new(),
     };
-    std::fs::read_to_string(root.join(file))
-        .unwrap_or_default()
-        .lines()
+    let mut text = std::fs::read_to_string(root.join(file)).unwrap_or_default();
+    // The WasmGC backend (`PPL_BACKEND=wasmgc`): what needs linear memory, too.
+    if target.os == ppl_driver::target::Os::Browser
+        && std::env::var("PPL_BACKEND").is_ok_and(|b| b == "wasmgc")
+    {
+        text.push('\n');
+        text.push_str(&std::fs::read_to_string(root.join("wasmgc-skip.txt")).unwrap_or_default());
+    }
+    text.lines()
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
         .filter_map(|l| {
             let mut it = l.splitn(2, char::is_whitespace);

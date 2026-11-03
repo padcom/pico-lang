@@ -261,22 +261,46 @@ export default async function init(options = {}) {
     },
     pow_f64: Math.pow,
     clock_ms: () => BigInt(Math.floor(performance.now())),
+    clock_ns: (which) =>
+      BigInt(Math.round((which === 1 ? performance.now() : performance.timeOrigin + performance.now()) * 1e6)),
   };
   const instance = await WebAssembly.instantiate(module, { ppl });
   ex = instance.exports;
-  let code = 0;
-  try {
-    ex.start();
-  } catch (e) {
-    if (!(e instanceof Exit)) {
+  let resolveDone, rejectDone;
+  const done = new Promise((res, rej) => {
+    resolveDone = res;
+    rejectDone = rej;
+  });
+  /** Runs `f` in the module; a panic or an exit ends the program, a wait schedules `resume`. */
+  const enter = (f) => {
+    try {
+      f();
+    } catch (e) {
       out.flush();
-      throw e;
+      if (e instanceof Exit) {
+        err.flush();
+        resolveDone(e.code);
+        return;
+      }
+      if (e instanceof WebAssembly.Exception && e.is(ex.panic)) {
+        const line = ex.panic_line.value;
+        err.put(`panic: ${str(ex.panic_msg.value)}\n` + (line ? `  at ${FILE}:${line}:${ex.panic_col.value}\n` : ""));
+        err.flush();
+        resolveDone(101);
+        return;
+      }
+      err.flush();
+      rejectDone(e);
+      return;
     }
-    code = e.code;
-  }
-  out.flush();
-  err.flush();
-  return { instance, done: Promise.resolve(code) };
+    out.flush();
+    err.flush();
+    const wait = Number(ex.pending());
+    if (wait >= 0) setTimeout(() => enter(() => ex.resume()), wait);
+    else resolveDone(0);
+  };
+  enter(() => ex.start());
+  return { instance, done };
 }
 
 // (Real paths: the module's is resolved, `argv[1]` may go through a symlink, as macOS's

@@ -752,9 +752,11 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 #### P8.7d Errors and the event loop
 - **Do**: exceptions and panic guards through Wasm exception handling, generators, async and the
   event loop on browser timers, `@export("js")`, `std/js`.
+- **Done (decision 268)**: without `@export("js")`/`std/js` on WasmGC (moved to P8.7e);
+  `tests/wasmgc-skip.txt` for what needs linear memory.
 
 #### P8.7e Coverage and comparison
-- **Do**: the remaining core library builtins (`__io` ops that make sense in a browser, math,
+- **Do**: `@export("js")` and `std/js` on WasmGC, the remaining core library builtins (`__io` ops that make sense in a browser, math,
   crypto through WebCrypto or a port), then the size/perf comparison with the linear-memory
   build.
 

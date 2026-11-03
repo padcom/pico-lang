@@ -107,7 +107,7 @@ fn wasmgc() {
     ]
     .map(|(n, w, c)| (n, w.to_string(), c))
     .into_iter()
-    // (P8.7b–c: arrays, strings, format specs, objects; their expectations are the fixtures'.)
+    // (P8.7b–d: arrays, strings, format specs, objects, async, errors; the fixtures' expectations.)
     .chain(
         [
             "arrays",
@@ -119,6 +119,10 @@ fn wasmgc() {
             "interfaces",
             "unions",
             "to_string",
+            "async/basics",
+            "async/timers",
+            "errors/exceptions",
+            "errors/throwables",
         ]
         .map(|n| {
             let text = std::fs::read_to_string(root.join(format!("{n}.ppl"))).unwrap();
@@ -130,13 +134,18 @@ fn wasmgc() {
                 })
                 .map(|l| format!("{l}\n"))
                 .collect();
-            (n, want, 0)
+            let code = text
+                .lines()
+                .find_map(|l| l.strip_prefix("// exit: ")?.trim().parse().ok())
+                .unwrap_or(0);
+            (n, want, code)
         }),
     ) {
         let checked = ppl_driver::check_file(&root.join(format!("{name}.ppl"))).unwrap();
-        ppl_driver::build_wasmgc(&checked, &out.join(name)).unwrap();
+        let flat = name.replace('/', "_");
+        ppl_driver::build_wasmgc(&checked, &out.join(&flat)).unwrap();
         let run = std::process::Command::new("node")
-            .arg(out.join(format!("{name}.js")))
+            .arg(out.join(format!("{flat}.js")))
             .output()
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&run.stdout), want, "{name}");
