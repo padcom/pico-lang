@@ -1060,3 +1060,35 @@ fn lint_warnings() {
             .contains("unknown rule `speed`")
     );
 }
+
+#[test]
+fn definition_of_an_implementation_goes_to_the_interface() {
+    let text = "interface Speakable {\n  speak(): string\n}\ninterface Named {\n  speak(): string\n}\nclass Person implements Speakable, Named {\n  public speak(): string { \"hi\" }\n}\nclass Loud extends Person {\n  public override speak(): string { \"HI\" }\n}\nclass Plain {\n  public speak(): string { \"\" }\n}\nconst p = new Person()\nprintln(p.speak() + new Plain().speak())\n";
+    let dir = tmp("def_super");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let d = |id, n| at(id, "textDocument/definition", &uri, text, "speak", n, 0);
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        d(2, 2),
+        d(3, 3),
+        d(4, 4),
+        d(5, 5),
+    ]);
+    // `Person.speak` implements both interfaces' `speak`.
+    let r = response(&out, 2)
+        .as_array()
+        .unwrap_or_else(|| panic!("{out:#?}"))
+        .clone();
+    let lines: Vec<u64> = r
+        .iter()
+        .map(|l| l["range"]["start"]["line"].as_u64().unwrap())
+        .collect();
+    assert_eq!(lines, [1, 4]);
+    // An override: what it overrides.
+    assert_eq!(def_line(&out, 3).1, 7);
+    // A method that implements nothing: itself.
+    assert_eq!(def_line(&out, 4).1, 13);
+    // A call: the implementation that runs.
+    assert_eq!(def_line(&out, 5).1, 7);
+}

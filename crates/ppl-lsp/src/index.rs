@@ -43,6 +43,53 @@ pub struct Index {
     /// Methods that override or implement each other, by any member's name span: all the
     /// members' name spans (renamed together).
     pub families: HashMap<Span, Vec<Span>>,
+    /// For a method that implements or overrides others: their name spans (the nearest ones
+    /// up `extends`/`implements`), where go-to-definition on its declaration leads.
+    pub supers: HashMap<Span, Vec<Span>>,
+}
+
+/// For each method declared by a type, the nearest same-named methods up its `extends` and
+/// `implements` (breadth first; all of the nearest level, e.g. two interfaces' methods).
+fn super_methods(p: &Program) -> HashMap<Span, Vec<Span>> {
+    let mut out = HashMap::new();
+    for (i, s) in p.structs.iter().enumerate() {
+        let sid = StructId(i as u32);
+        let up = |s: StructId| {
+            let d = &p.structs[s.0 as usize];
+            d.base
+                .into_iter()
+                .chain(d.implements.iter().copied())
+                .collect::<Vec<_>>()
+        };
+        for (name, f) in &s.methods {
+            let func = &p.fns[f.0 as usize];
+            // (Inherited methods are their declaring type's.)
+            if func.this.map(|t| t.1).or(func.owner) != Some(sid) {
+                continue;
+            }
+            let mut level = up(sid);
+            let mut seen = HashSet::from([sid]);
+            while !level.is_empty() {
+                let found: Vec<Span> = level
+                    .iter()
+                    .filter_map(|t| p.structs[t.0 as usize].method(name))
+                    .map(|g| p.fns[g.0 as usize].name_span)
+                    .filter(|s| *s != func.name_span)
+                    .collect();
+                if !found.is_empty() {
+                    out.insert(func.name_span, found);
+                    break;
+                }
+                let next: Vec<StructId> = level
+                    .iter()
+                    .flat_map(|t| up(*t))
+                    .filter(|t| seen.insert(*t))
+                    .collect();
+                level = next;
+            }
+        }
+    }
+    out
 }
 
 /// Groups the methods of a name along `extends`/`implements` edges where both types have
@@ -183,6 +230,7 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
     let decls = std::mem::take(&mut b.decls);
     let shorthand = b.shorthand.iter().copied().collect();
     let families = method_families(program);
+    let supers = super_methods(program);
     Index {
         sm,
         file,
@@ -192,6 +240,7 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
         links,
         shorthand,
         families,
+        supers,
     }
 }
 

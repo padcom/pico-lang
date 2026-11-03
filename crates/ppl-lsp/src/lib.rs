@@ -212,10 +212,27 @@ impl Server {
                             "end": position(idx.sm.file(idx.file), r.end),
                         },
                     }),
-                    Some((idx, r)) => match file_uri(&idx.sm, r.def.file) {
-                        Some(u) => json!({ "uri": u, "range": range(&idx.sm, r.def) }),
-                        None => Value::Null,
-                    },
+                    Some((idx, r)) => {
+                        // On a method's own declaration: the methods it implements or
+                        // overrides (elsewhere: the declaration).
+                        let at_decl = r.def.file == idx.file && r.def.start == r.start;
+                        let targets = match idx.supers.get(&r.def) {
+                            Some(s) if at_decl => s.clone(),
+                            _ => vec![r.def],
+                        };
+                        let locations: Vec<Value> = targets
+                            .iter()
+                            .filter_map(|d| {
+                                let u = file_uri(&idx.sm, d.file)?;
+                                Some(json!({ "uri": u, "range": range(&idx.sm, *d) }))
+                            })
+                            .collect();
+                        match locations.len() {
+                            0 => Value::Null,
+                            1 => locations.into_iter().next().expect("one"),
+                            _ => json!(locations),
+                        }
+                    }
                 };
                 send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
             }
