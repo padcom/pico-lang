@@ -891,6 +891,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Do**: the index format (`scope/name.json`), sparse HTTPS fetching, `ppl publish` (tag + PR via
   `gh`), and registry override.
 - **Done when**: publishing to a test index repo, then installing from it, works.
+- **Deferred** (the author, 2026-11-03): git dependencies (also over SSH, with the system git's
+  credentials) cover sharing libraries for now; the registry comes later.
 
 ### P10.5 Incremental compilation
 - **Spec**: 14 §14.6

@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.4: Registry** (see PLAN; P10.3 is done; the author should try F5 and Run Build Task on a project with `entry` in VS Code (`scripts/vscode-package.sh --install`); Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.7: REPL and JIT** (see PLAN; P10.3 is done, P10.4 deferred by the author; the author should try F5 and Run Build Task on a project with `entry` in VS Code (`scripts/vscode-package.sh --install`); Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
@@ -315,7 +315,7 @@ Notes:
 - [x] P10.3a Manifest, package imports, workspaces, `entry`
 - [x] P10.3b Git dependencies, the lockfile, offline builds
 - [x] P10.3c Commands
-- [ ] P10.4 Registry
+- [ ] P10.4 Registry (deferred)
 - [ ] P10.7 REPL and JIT
 - [ ] P10.9 Documentation tooling
 - [ ] P10.10 Release packaging
@@ -501,3 +501,4 @@ Notes:
 | 2026-11-03 | P10.3a | `ppl_driver::semver` (Cargo-style ranges, `compat_key`), `ppl_driver::packages` (manifest parsing and validation, `resolve`: the importing file's package → dependency → workspace member by name and range → its `index.ppl`; errors for sub-paths, no `index.ppl`, unsatisfied ranges, non-dependencies, devDependencies outside tests; `entry_of`). Loader: package specifiers, `dev_root` (a test entry's package sees its devDependencies). `ppl build`/`ppl run` without a file build `entry`. VS Code: F5 debugs the nearest project's `entry`, Run Build Task `ppl: build`, `ppl dap` takes a project directory; import completion for packages. Git dependencies report "P10.3b". |
 | 2026-11-03 | P10.3b | Git dependencies: `git.rs` (a mirror per URL and a checkout per commit in the cache, `content_hash` sha256 via `sha2`), `project.lock` (`Lock`, ids `name@version`, git ref + commit + hash, path members), `prepare`/`prepare_with` (reuse locked entries, verify hashes, resolve new ones when fetching is allowed, one copy per major, majors coexist), the loader resolving git imports through `Prepared`, `ppl fetch`; CLI commands may fetch, the language server doesn't. Checked by hand: app → workspace lib → git package, offline after removing the repository, tampering detected. Tests: offline build from the lockfile, tampering, out-of-date lockfile, majors unify/coexist. |
 | 2026-11-03 | P10.3c | `ppl init [name] [--lib]`, `ppl add <git-url> [--tag/--branch/--rev] [--dev]` (name from the package's manifest; default pin: the newest release tag, else the default branch; registry names → P10.4), `ppl remove <name>`; manifests rewritten keeping key order (`preserve_order`), the lockfile updated. Test drives init → add → run → remove on a scratch project with a local git repository. P10.3 done. |
+| 2026-11-03 | plan | P10.4 (registry) deferred by the author: git dependencies, also over SSH (the system git's keys), cover sharing libraries for now. |
