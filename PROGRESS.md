@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.5c: wasm32-wasip2: components, sockets and http** (pending CI; see the log), then P8.6. The author asked to pause after P8.5c until after 4:51am (a resume is scheduled).
+**P8.6: wasm32-browser (linear memory)** (see [PLAN.md](PLAN.md#p86-wasm32-browser-linear-memory)). Builds on the wasm32 work (pointer-size layouts, wasm-ld, setjmp over Wasm EH, the stub pthreads); the browser has no WASI, so the runtime needs a JS-imports flavour of its I/O. P8.7 (a WasmGC backend) is a whole second backend: plan it in slices.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -267,7 +267,7 @@ Notes:
 - [x] P8.4 macOS cross builds
 - [x] P8.5a wasm32: core programs under wasmtime
 - [x] P8.5b wasm32: files, clocks and the event loop
-- [ ] P8.5c wasm32-wasip2: components, sockets and http
+- [x] P8.5c wasm32-wasip2: components, sockets and http
 - [ ] P8.6 wasm32-browser (linear memory)
 - [ ] P8.7 WasmGC backend
 - [ ] P8.8 JS imports from .d.ts
@@ -417,3 +417,4 @@ Notes:
 | 2026-11-03 | P8.5b (part) | WASI files, clocks and the loop, pending CI: POSIX file code shared with WASI (synchronous jobs), `--dir=.`, the tz database embedded with `#embed` on Windows and WASI. Only `fs/watch` (needs a thread), process, workers, net and http are skipped on WASI. Decision 256. |
 | 2026-11-03 | P8.5b | Done: CI green on all 13 jobs. |
 | 2026-11-03 | P8.5c (part) | Preview 2 components (`wit-component` + the preview 1 adapter, `third_party/wasi`), wit-bindgen C bindings (`runtime/wasi`, `ppl-wasi-bindgen`), WASI sockets as pollable state machines on the event loop, TLS stepped and non-blocking, `exit-with-code`. Every WASI-available golden test passes under wasmtime (only watch, process and workers skipped). Fixes: handles of pointers past 2 GiB, GC blocks from `memory.grow`. Decision 257. |
+| 2026-11-03 | P8.5c | Done: CI run 41566424212 green on all 13 jobs (the adapter had been ignored as `*.wasm`; now vendored). P8.5 complete: every golden test available on WASI passes under wasmtime. |
