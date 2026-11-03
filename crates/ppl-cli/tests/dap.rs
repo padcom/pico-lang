@@ -241,6 +241,18 @@ fn debugs_a_ppl_program() {
         .unwrap_or_else(|| panic!("{fields:#?}"))
         .clone();
     assert_eq!(name["value"], "\"Ann\"", "{fields:#?}");
+    // Watch expressions: the same values as the variables.
+    for (expr, want) in [
+        ("greeting", "\"hello\""),
+        ("who.name", "\"Ann\""),
+        ("names", "length=2"),
+    ] {
+        let r = s.request(
+            "evaluate",
+            json!({ "expression": expr, "frameId": top["id"], "context": "watch" }),
+        );
+        assert_eq!(r["body"]["result"], want, "{expr}: {r:#?}");
+    }
     s.request("disconnect", json!({ "terminateDebuggee": true }));
     let _ = s.child.wait();
 

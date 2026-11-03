@@ -45,7 +45,8 @@ pub fn run() -> ExitCode {
     let mut from = BufReader::new(child.stdout.take().expect("piped"));
     let to_client = out.clone();
     let pump = std::thread::spawn(move || {
-        while let Ok(Some(msg)) = ppl_lsp::read_message(&mut from) {
+        while let Ok(Some(mut msg)) = ppl_lsp::read_message(&mut from) {
+            tidy_values(&mut msg);
             let mut o = to_client.lock().expect("stdout");
             if ppl_lsp::write_message(&mut *o, &msg).is_err() {
                 break;
@@ -85,6 +86,43 @@ pub fn run() -> ExitCode {
     match status {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         _ => ExitCode::FAILURE,
+    }
+}
+
+/// In `evaluate` and `variables` responses, a reference with a summary shows the summary alone:
+/// lldb-dap writes pointers as `0x… "Ann"`, which is an implementation detail for a ppl string,
+/// array, map or set (watch expressions such as `who.name` evaluate the raw field).
+fn tidy_values(msg: &mut Value) {
+    if msg["type"] != "response" {
+        return;
+    }
+    let tidy = |value: &mut Value, ty: &Value| {
+        let is_ref = ty.as_str().is_some_and(|t| t.ends_with(" *"));
+        if let Some(v) = value.as_str()
+            && is_ref
+            && let Some((addr, summary)) = v.split_once(' ')
+            && addr.starts_with("0x")
+            && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+            && !summary.is_empty()
+        {
+            *value = json!(summary);
+        }
+    };
+    match msg["command"].as_str() {
+        Some("evaluate") => {
+            let body = &mut msg["body"];
+            let ty = body["type"].clone();
+            tidy(&mut body["result"], &ty);
+        }
+        Some("variables") => {
+            if let Some(vars) = msg["body"]["variables"].as_array_mut() {
+                for v in vars {
+                    let ty = v["type"].clone();
+                    tidy(&mut v["value"], &ty);
+                }
+            }
+        }
+        _ => {}
     }
 }
 

@@ -296,6 +296,10 @@ def __lldb_init_module(debugger, _dict):
     run('type synthetic add -w ppl -l ppl_lldb.MapProvider -x "^Map<.*>( \\*)?$"')
     run('type summary add -w ppl -v -F ppl_lldb.set_summary -x "^Set<.*>$"')
     run('type synthetic add -w ppl -l ppl_lldb.SetProvider -x "^Set<.*>( \\*)?$"')
+    # References to them (fields, elements, watch expressions such as `who.name`) show no
+    # address either (`void`: no value, the summary alone; `null` when there's none).
+    for pattern in ["^string \\*$", "\\[\\] \\*$", "^Map<.*> \\*$", "^Set<.*> \\*$"]:
+        run('type format add -w ppl -f void -x "%s"' % pattern)
     run(
         "type synthetic add -w ppl -l ppl_lldb.ObjectProvider "
         "--recognizer-function ppl_lldb.is_object_with_refs"
