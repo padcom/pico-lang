@@ -975,6 +975,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Do**: parameters and locals as DWARF variables with their types (integers, floats, `bool`,
   `char`, strings, arrays, structs, classes, enums, nullables) and scopes.
 - **Done when**: an lldb batch test shows the variables of a frame with their values.
+- **Done (decision 281)**: `declare_variables`, `di_type` in `ppl-codegen`; test `variables` in
+  `crates/ppl-driver/tests/debug_info.rs`.
 
 #### P10.8c Debugging in VS Code
 - **Do**: lldb formatters (Python) that show ppl values (strings, arrays, maps, enums,

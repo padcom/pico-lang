@@ -325,6 +325,12 @@ struct Dbg<'ctx> {
     /// The function being emitted: its subprogram and the file its locations are in.
     sub: Option<(inkwell::debug_info::DISubprogram<'ctx>, u32)>,
     loc: Option<inkwell::debug_info::DILocation<'ctx>>,
+    /// The function's first line (its variables are declared there).
+    line: u32,
+    /// Debug types by ppl type, and those being described (a recursive type refers to a
+    /// declaration of itself).
+    types: HashMap<Ty, inkwell::debug_info::DIType<'ctx>>,
+    building: std::collections::HashSet<Ty>,
 }
 
 impl<'ctx> Dbg<'ctx> {
@@ -378,6 +384,9 @@ impl<'ctx> Dbg<'ctx> {
             files,
             sub: None,
             loc: None,
+            line: 0,
+            types: HashMap::new(),
+            building: Default::default(),
         }
     }
 }
@@ -1234,6 +1243,7 @@ impl<'ctx> Gen<'ctx, '_> {
             }
         }
         self.safepoint(llfn);
+        self.declare_variables(func, &locals, entry);
         self.b.build_unconditional_branch(blocks[0]).unwrap();
         let mut fx = FnCx {
             func,
@@ -1306,10 +1316,336 @@ impl<'ctx> Gen<'ctx, '_> {
         );
         llfn.set_subprogram(sub);
         d.sub = Some((sub, span.file.0));
+        d.line = line;
+        // The entry code (slots, parameter stores) is line 0, compiler-generated: a breakpoint
+        // on the first line stops after it, with the parameters in place.
+        let _ = col;
         let loc =
-            d.di.create_debug_location(self.cx, line, col, sub.as_debug_info_scope(), None);
+            d.di.create_debug_location(self.cx, 0, 0, sub.as_debug_info_scope(), None);
         self.b.set_current_debug_location(loc);
         d.loc = Some(loc);
+    }
+
+    /// Debug variables for `func`'s named locals and parameters, at their storage (a stack slot,
+    /// or the collector's frame for references), declared in the entry block.
+    fn declare_variables(
+        &mut self,
+        func: &ppl_mir::mir::Function,
+        locals: &[Option<PointerValue<'ctx>>],
+        entry: BasicBlock<'ctx>,
+    ) {
+        let Some((sub, file, loc, line)) = self.dbg.as_ref().and_then(|d| {
+            let (sub, file) = d.sub?;
+            Some((sub, file, d.loc?, d.line))
+        }) else {
+            return;
+        };
+        for (i, l) in func.locals.iter().enumerate() {
+            let (Some(name), Some(slot)) = (&l.name, locals[i]) else {
+                continue;
+            };
+            // (Hidden locals of desugaring: `<item>`, `$tmp`.)
+            if !name.starts_with(|c: char| c.is_alphabetic() || c == '_') {
+                continue;
+            }
+            let Some(ty) = self.di_type(&l.ty) else {
+                continue;
+            };
+            let d = self.dbg.as_ref().expect("debug info");
+            let f = d.files[file as usize];
+            let scope = sub.as_debug_info_scope();
+            let param = func.params.iter().position(|p| p.0 as usize == i);
+            let flags = DIFlagsConstants::ZERO;
+            let var = match param {
+                Some(n) => d.di.create_parameter_variable(
+                    scope,
+                    name,
+                    n as u32 + 1,
+                    f,
+                    line,
+                    ty,
+                    true,
+                    flags,
+                ),
+                None => {
+                    d.di.create_auto_variable(scope, name, f, line, ty, true, flags, 0)
+                }
+            };
+            // (inkwell's `insert_declare_at_end` takes LLVM 23's debug record for an
+            // instruction and asserts; the C API inserts the record.)
+            let expr = d.di.create_expression(Vec::new());
+            unsafe {
+                inkwell::llvm_sys::debuginfo::LLVMDIBuilderInsertDeclareRecordAtEnd(
+                    d.di.as_mut_ptr(),
+                    inkwell::values::AsValueRef::as_value_ref(&slot),
+                    var.as_mut_ptr(),
+                    expr.as_mut_ptr(),
+                    loc.as_mut_ptr(),
+                    entry.as_mut_ptr(),
+                );
+            }
+        }
+    }
+
+    /// The debug type of a ppl type: basic types, strings and arrays as pointers to their
+    /// runtime structs, structs with their fields, objects as pointers to them, enums as their
+    /// tag and payload. `None` for what isn't described yet (generic structs, tuples, closures).
+    // (`create_array_type` takes one range per dimension: these arrays have one.)
+    #[allow(clippy::single_range_in_vec_init)]
+    fn di_type(&mut self, t: &Ty) -> Option<inkwell::debug_info::DIType<'ctx>> {
+        use inkwell::debug_info::AsDIScope as _;
+        let d = self.dbg.as_ref()?;
+        if let Some(t) = d.types.get(t) {
+            return Some(*t);
+        }
+        let file = *d.files.first()?;
+        let flags = DIFlagsConstants::ZERO;
+        let basic = |d: &Dbg<'ctx>, name: &str, bits: u64, enc: u32| {
+            d.di.create_basic_type(name, bits, enc, flags)
+                .ok()
+                .map(|b| b.as_type())
+        };
+        // DW_ATE_*
+        const BOOLEAN: u32 = 0x02;
+        const FLOAT: u32 = 0x04;
+        const SIGNED: u32 = 0x05;
+        const UNSIGNED: u32 = 0x08;
+        const UTF: u32 = 0x10;
+        let ptr_bits = self.ptr * 8;
+        let i64t = basic(d, "i64", 64, SIGNED)?;
+        let made = match t {
+            Ty::Int(it) => {
+                let enc = if it.signed() { SIGNED } else { UNSIGNED };
+                basic(d, it.name(), u64::from(it.bits()), enc)?
+            }
+            Ty::Float(f) => basic(d, f.name(), if f.name() == "f32" { 32 } else { 64 }, FLOAT)?,
+            Ty::Bool => basic(d, "bool", 8, BOOLEAN)?,
+            Ty::Char => basic(d, "char", 32, UTF)?,
+            Ty::Str => {
+                // `PplStr`: its lengths, then the UTF-8 bytes.
+                let byte = basic(d, "u8", 8, UNSIGNED)?;
+                let bytes = d.di.create_array_type(byte, 0, 8, &[0..0]).as_type();
+                let scope = file.as_debug_info_scope();
+                let fields: Vec<inkwell::debug_info::DIType> = [
+                    ("byte_len", i64t, 64, 0),
+                    ("char_len", i64t, 64, 64),
+                    ("cache_char", i64t, 64, 128),
+                    ("cache_byte", i64t, 64, 192),
+                    ("data", bytes, 0, 256),
+                ]
+                .iter()
+                .map(|(n, ty, bits, off)| {
+                    d.di.create_member_type(scope, n, file, 0, *bits, 8, *off, flags, *ty)
+                        .as_type()
+                })
+                .collect();
+                let st =
+                    d.di.create_struct_type(
+                        scope,
+                        "string",
+                        file,
+                        0,
+                        256,
+                        64,
+                        flags,
+                        None,
+                        &fields,
+                        0,
+                        None,
+                        "ppl.string",
+                    )
+                    .as_type();
+                d.di.create_pointer_type("string", st, ptr_bits, 64, AddressSpace::default())
+                    .as_type()
+            }
+            Ty::Array(elem) => {
+                // `PplArray`: `len`, `cap`, then the elements.
+                let elem = (**elem).clone();
+                let e = self.di_type(&elem);
+                let d = self.dbg.as_ref()?;
+                let any = basic(d, "u8", 8, UNSIGNED)?;
+                let e = e.unwrap_or(any);
+                let data =
+                    d.di.create_pointer_type("", e, ptr_bits, 64, AddressSpace::default())
+                        .as_type();
+                let scope = file.as_debug_info_scope();
+                let fields: Vec<inkwell::debug_info::DIType> =
+                    [("len", i64t, 0), ("cap", i64t, 64), ("data", data, 128)]
+                        .iter()
+                        .map(|(n, ty, off)| {
+                            d.di.create_member_type(scope, n, file, 0, 64, 64, *off, flags, *ty)
+                                .as_type()
+                        })
+                        .collect();
+                let name = format!("{t}");
+                let st =
+                    d.di.create_struct_type(
+                        scope,
+                        &name,
+                        file,
+                        0,
+                        256,
+                        64,
+                        flags,
+                        None,
+                        &fields,
+                        0,
+                        None,
+                        &format!("ppl.{name}"),
+                    )
+                    .as_type();
+                d.di.create_pointer_type(&name, st, ptr_bits, 64, AddressSpace::default())
+                    .as_type()
+            }
+            Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) if args.is_empty() => {
+                let class = matches!(t, Ty::Class(..));
+                let layout = self.p.layout(*sid).clone();
+                let name = layout.name.clone();
+                let d = self.dbg.as_mut()?;
+                if !d.building.insert(t.clone()) {
+                    // (Recursive: a declaration of the type being described.)
+                    let decl =
+                        d.di.create_struct_type(
+                            file.as_debug_info_scope(),
+                            &name,
+                            file,
+                            0,
+                            0,
+                            0,
+                            inkwell::debug_info::DIFlags::FWD_DECL,
+                            None,
+                            &[],
+                            0,
+                            None,
+                            &format!("ppl.{name}"),
+                        )
+                        .as_type();
+                    return Some(if class {
+                        d.di.create_pointer_type(&name, decl, ptr_bits, 64, AddressSpace::default())
+                            .as_type()
+                    } else {
+                        decl
+                    });
+                }
+                let mut parts: Vec<(u64, u64)> = Vec::new();
+                if class {
+                    parts.push((self.ptr, self.ptr));
+                }
+                let mut fields = Vec::new();
+                for (n, ft) in &layout.fields {
+                    if self.ty(ft).is_none() {
+                        continue;
+                    }
+                    parts.push(self.size_align(ft));
+                    fields.push((n.clone(), ft.clone()));
+                }
+                let offsets = Self::part_offsets(&parts);
+                let (size, align) = struct_layout(&parts);
+                let skip = usize::from(class);
+                let mut members = Vec::new();
+                for (k, (n, ft)) in fields.iter().enumerate() {
+                    let (sz, al) = self.size_align(ft);
+                    let Some(mt) = self.di_type(ft) else {
+                        continue;
+                    };
+                    let d = self.dbg.as_ref()?;
+                    members.push(
+                        d.di.create_member_type(
+                            file.as_debug_info_scope(),
+                            n,
+                            file,
+                            0,
+                            sz * 8,
+                            (al * 8) as u32,
+                            offsets[k + skip] * 8,
+                            flags,
+                            mt,
+                        )
+                        .as_type(),
+                    );
+                }
+                let d = self.dbg.as_mut()?;
+                d.building.remove(t);
+                let st =
+                    d.di.create_struct_type(
+                        file.as_debug_info_scope(),
+                        &name,
+                        file,
+                        0,
+                        size * 8,
+                        (align * 8) as u32,
+                        flags,
+                        None,
+                        &members,
+                        0,
+                        None,
+                        &format!("ppl.{name}"),
+                    )
+                    .as_type();
+                if class {
+                    d.di.create_pointer_type(&name, st, ptr_bits, 64, AddressSpace::default())
+                        .as_type()
+                } else {
+                    st
+                }
+            }
+            // A nullable reference is the reference (null when absent).
+            Ty::Nullable(inner) if matches!(**inner, Ty::Str | Ty::Array(_) | Ty::Class(..)) => {
+                let inner = (**inner).clone();
+                self.di_type(&inner)?
+            }
+            Ty::Enum(eid, name) => {
+                // `{ i32 tag, [k x i64] payload }`.
+                let (size, _) = self.size_align(t);
+                let _ = eid;
+                let d = self.dbg.as_ref()?;
+                let tag = basic(d, "i32", 32, SIGNED)?;
+                let scope = file.as_debug_info_scope();
+                let mut members = vec![
+                    d.di.create_member_type(scope, "tag", file, 0, 32, 32, 0, flags, tag)
+                        .as_type(),
+                ];
+                if size > 8 {
+                    let words = (size - 8) / 8;
+                    let payload =
+                        d.di.create_array_type(i64t, words * 64, 64, &[0..words as i64])
+                            .as_type();
+                    members.push(
+                        d.di.create_member_type(
+                            scope,
+                            "payload",
+                            file,
+                            0,
+                            words * 64,
+                            64,
+                            64,
+                            flags,
+                            payload,
+                        )
+                        .as_type(),
+                    );
+                }
+                d.di.create_struct_type(
+                    scope,
+                    name,
+                    file,
+                    0,
+                    size * 8,
+                    64,
+                    flags,
+                    None,
+                    &members,
+                    0,
+                    None,
+                    &format!("ppl.enum.{name}"),
+                )
+                .as_type()
+            }
+            _ => return None,
+        };
+        let d = self.dbg.as_mut()?;
+        d.types.insert(t.clone(), made);
+        Some(made)
     }
 
     /// The source location of what's emitted next (spans in another file than the function's,
