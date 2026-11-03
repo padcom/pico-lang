@@ -1062,15 +1062,16 @@ Vue-like reactive state (the author, 2026-11-03): `reactive` declarations of `Re
   or `{ get, set }`) returning a `Reactive<T>`; `watchEffect`; dependency tracking, caching and
   invalidation; a spec chapter. The author's answers (decisions 288–293):
   - **Access** is transparent: `reactive n = 1`, read as `n + 1`, written as `n = 2`.
-  - **Scope**: local and module-level bindings. (Fields: still to settle.)
+  - **Scope**: local and module-level bindings, and class fields (`reactive count = 0`).
   - **Depth**: deep: mutating what a reactive holds (`xs.push(1)`, `user.name = …`,
     `map.set(…)`) triggers updates, as reassigning does.
-  - **Timing**: effects run synchronously, during the write that triggers them.
+  - **Timing**: `computed` is lazy: a write marks it dirty, it's recomputed when read and
+    cached until a dependency changes; `watchEffect` (which nothing reads) runs synchronously
+    during the write that triggers it.
   - **Workers**: `Reactive<T>` isn't `Sendable`: reactive state is never shared with workers.
   - **Cleanup**: `watchEffect` returns a `Disposable` handle that stops it, and effects stop
     when the scope that created them ends.
-- **Done when**: the spec chapter and its decisions are committed, fields settled with the
-  author.
+- **Done when**: the spec chapter and its decisions are committed.
 
 ### P11.2 Core runtime
 - **Do**: in the core library (ppl): the dependency graph, the stack of the effect being
