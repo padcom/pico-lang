@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P8.5a: wasm32: core programs under wasmtime** (see [PLAN.md](PLAN.md#p85a-wasm32-core-programs-under-wasmtime)); P8.5 split in three. wasmtime 50.0.1 is in `~/.local/bin` (official release, its GitHub build attestation verified); Zig 0.15.1's wasi-libc is preview 1, hence core modules first.
+**P8.5b: wasm32: files, clocks and the event loop** (see [PLAN.md](PLAN.md#p85b-wasm32-files-clocks-and-the-event-loop)). wasi-libc has the POSIX file API over preopens: share `ppl_io.c`'s POSIX file code with WASI (jobs run at once, no threads), `watch` by polling, the bundled tz database on WASI too (`ppl_tzdata.c`), and the harness passes `--dir=.`. Run the wasm suite with `PPL_TEST_TARGET=wasm32-wasi cargo test -p ppl-tests --test golden`.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -265,7 +265,7 @@ Notes:
 - [x] P8.3c2 Windows sockets and TLS
 - [x] P8.3d Bundled IANA tz database
 - [x] P8.4 macOS cross builds
-- [ ] P8.5a wasm32: core programs under wasmtime
+- [x] P8.5a wasm32: core programs under wasmtime
 - [ ] P8.5b wasm32: files, clocks and the event loop
 - [ ] P8.5c wasm32-wasip2: components, sockets and http
 - [ ] P8.6 wasm32-browser (linear memory)
@@ -413,3 +413,4 @@ Notes:
 | 2026-11-03 | P8.4 (part) | macOS cross builds, pending CI: `ld64.lld` in `ppl-lld`; `link_macos` against Zig 0.15.1's `libSystem.tbd` (SDK 15.5, min 13.0; Zig tarball's minisign signature checked with openssl, earlier vendored files match it); macOS headers pruned to 235 (`scripts/prune-macos-headers.sh`); arm64 ad-hoc signed by lld. `tests/cross.rs` checks Mach-O headers; CI builds both targets' golden programs on Linux (130 each) and runs them on macos-latest (x64 under Rosetta). macOS hosts still link with `cc`. Decision 254. |
 | 2026-11-03 | P8.4 | Done: CI run 41544297530 green on all 12 jobs (macOS programs built on Linux pass on macos-latest, x64 under Rosetta). P8.5 split into P8.5a/b/c; wasmtime 50.0.1 installed user-local (author's choice). |
 | 2026-11-03 | P8.5a (part) | wasm32-wasi core programs, pending CI: wasi-libc from Zig (`wasi.rs`, `third_party/zig-libc/wasi`), lld wasm driver, pointer-size layouts, setjmp over Wasm EH (`ppl_wasm_sjlj.c`), stub pthreads (`runtime/wasm/pthread.h`), WASI args/env/exit. `PPL_TEST_TARGET=wasm32-wasi` runs fixtures under wasmtime (`-W exceptions=y`): all pass but the 26 in `tests/wasi-skip.txt` (fs, time zones, process, net, http, workers). Fixes found: GC block-table shift (nothing marked on wasm32), `ppl_panic_taken` wrongly `noreturn`, 32-bit GEP indices, lld resetting LLVM options. CI runs the wasm golden suite. Decision 255. |
+| 2026-11-03 | P8.5a | Done: CI run 41557799525 green on all 13 jobs (the new golden wasm32-wasi job included). |
