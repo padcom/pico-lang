@@ -873,6 +873,9 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   when nothing changed; `--force`; C/JS imports and browser builds always build.
 - **Done when**: a no-op rebuild of a 50-module project takes < 200 ms (measured), and tests show
   that changing a module, an option or the output rebuilds.
+- **Done**: `crates/ppl-driver/src/fingerprint.rs`, `ppl build --force`, `comptime::take_files_read`;
+  test `crates/ppl-driver/tests/fingerprint.rs`. Measured on a generated 50-module project:
+  no-op rebuild 2 ms (full build 190 ms, release 250 ms).
 
 #### P10.5b Cached code generation
 - **Do**: emit the core library and each module as object files of their own, cached by content

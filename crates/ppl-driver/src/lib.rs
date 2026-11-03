@@ -15,6 +15,7 @@ mod cheader;
 mod clib;
 mod decorators;
 mod dts;
+pub mod fingerprint;
 mod glibc;
 mod link;
 mod mingw;
@@ -81,6 +82,8 @@ pub struct Checked {
     pub diags: Vec<Diagnostic>,
     /// What `comptime` code printed (the compile-time log).
     pub comptime_output: String,
+    /// Files `comptime.readFile` read (inputs of the build besides the sources).
+    pub files_read: Vec<PathBuf>,
 }
 
 impl Checked {
@@ -174,6 +177,8 @@ impl Timings {
 
 fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bool) -> Checked {
     let mut t = Timings::new();
+    // (Forget reads of an earlier check on this thread.)
+    ppl_interp::comptime::take_files_read();
     let mut sm = SourceMap::new();
     let file = sm.add(name, text);
     let (mut module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
@@ -258,6 +263,7 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
         mir,
         diags,
         comptime_output,
+        files_read: ppl_interp::comptime::take_files_read(),
     }
 }
 

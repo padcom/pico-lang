@@ -155,6 +155,17 @@ impl Interp<'_, '_> {
     }
 }
 
+thread_local! {
+    /// The files `comptime.readFile` read on this thread (inputs of the build, spec §14.6).
+    static FILES_READ: std::cell::RefCell<Vec<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The files `comptime.readFile` read on this thread since the last call (and forgets them).
+pub fn take_files_read() -> Vec<std::path::PathBuf> {
+    FILES_READ.with(|f| std::mem::take(&mut *f.borrow_mut()))
+}
+
 /// `comptime.readFile(path)`: only relative paths that stay inside the package root.
 fn read_file(root: &Path, path: &str) -> Result<String, String> {
     let rel = Path::new(path);
@@ -166,8 +177,9 @@ fn read_file(root: &Path, path: &str) -> Result<String, String> {
             "comptime.readFile(\"{path}\"): the path must be relative and stay inside the package root"
         ));
     }
-    std::fs::read_to_string(root.join(rel))
-        .map_err(|e| format!("comptime.readFile(\"{path}\"): {e}"))
+    let full = root.join(rel);
+    FILES_READ.with(|f| f.borrow_mut().push(full.clone()));
+    std::fs::read_to_string(full).map_err(|e| format!("comptime.readFile(\"{path}\"): {e}"))
 }
 
 /// One `comptime` expression in the MIR.

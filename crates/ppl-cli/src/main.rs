@@ -34,6 +34,9 @@ enum Command {
         /// `@export("c")` functions, and a header next to it.
         #[arg(long, value_name = "KIND", value_parser = parse_lib)]
         lib: Option<ppl_driver::LibKind>,
+        /// Build even if nothing changed since the last build (spec §14.6).
+        #[arg(long)]
+        force: bool,
     },
     /// Compile and run a program.
     Run {
@@ -120,6 +123,7 @@ fn main() -> ExitCode {
             emit,
             target,
             lib: Some(kind),
+            ..
         }) if emit.is_none() => build_lib(
             &file,
             output,
@@ -132,12 +136,14 @@ fn main() -> ExitCode {
             release,
             emit,
             target,
+            force,
             ..
         }) => build(
             &file,
             output,
             ppl_driver::BuildOptions { release, target },
             emit.as_deref(),
+            force,
         ),
         Some(Command::Fmt { paths, check }) => fmt(&paths, check),
         Some(Command::Lint { paths }) => lint(&paths),
@@ -671,7 +677,16 @@ fn build(
     output: Option<PathBuf>,
     opts: ppl_driver::BuildOptions,
     emit: Option<&str>,
+    force: bool,
 ) -> ExitCode {
+    let exe = output
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(path.file_stem().unwrap_or_default()));
+    // Nothing changed since the last build: done (spec §14.6).
+    if emit.is_none() && !force && ppl_driver::fingerprint::up_to_date(path, &exe, &opts) {
+        eprintln!("{} is up to date", exe.display());
+        return ExitCode::SUCCESS;
+    }
     let checked = match checked_or_report(path, opts) {
         Ok(c) => c,
         Err(code) => return code,
@@ -709,16 +724,17 @@ fn build(
             eprintln!("error: unknown --emit form `{other}` (expected `mir` or `llvm-ir`)");
             ExitCode::from(2)
         }
-        None => {
-            let exe = output.unwrap_or_else(|| PathBuf::from(path.file_stem().unwrap_or_default()));
-            match ppl_driver::build_native(&checked, &exe, opts) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    ExitCode::FAILURE
-                }
+        None => match ppl_driver::build_native(&checked, &exe, opts) {
+            Ok(()) => {
+                ppl_driver::fingerprint::record(&checked, path, &exe, &opts);
+                ExitCode::SUCCESS
             }
-        }
+            Err(e) => {
+                ppl_driver::fingerprint::forget(&exe);
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        },
     }
 }
 
