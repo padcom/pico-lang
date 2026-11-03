@@ -1092,3 +1092,65 @@ fn definition_of_an_implementation_goes_to_the_interface() {
     // A call: the implementation that runs.
     assert_eq!(def_line(&out, 5).1, 7);
 }
+
+#[test]
+fn implementations_across_the_project() {
+    let dir = tmp("impls");
+    let shapes = "/** A shape. */\nexport interface Shape {\n  area(): f64\n}\n";
+    let circle = "import { Shape } from \"./shapes\"\nexport class Circle implements Shape {\n  constructor(public r: f64) {}\n  public area(): f64 { 3.14 * r * r }\n}\n";
+    let square = "import { Shape } from \"./shapes\"\nexport class Square implements Shape {\n  constructor(public s: f64) {}\n  public area(): f64 { s * s }\n}\nexport class Tile extends Square {\n  public override area(): f64 { 1.0 }\n}\n";
+    for (f, t) in [
+        ("shapes.ppl", shapes),
+        ("circle.ppl", circle),
+        ("square.ppl", square),
+        ("project.json", "{}"),
+    ] {
+        std::fs::write(dir.join(f), t).unwrap();
+    }
+    // (`main.ppl` imports neither implementation.)
+    let main = "import { Shape } from \"./shapes\"\nclass Res implements Disposable {\n  public dispose() {}\n}\nfunction total(s: Shape): f64 { s.area() }\nusing r = new Res()\n";
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let i = |id, needle, n| at(id, "textDocument/implementation", &uri, main, needle, n, 0);
+    let out = session(vec![
+        init(),
+        open(&uri, main),
+        i(2, "Shape", 1),      // the interface
+        i(3, "area", 0),       // a method through an interface value
+        i(4, "Disposable", 0), // a core library interface
+        i(5, "total", 0),      // a function: nothing
+    ]);
+    let found = |id| -> Vec<(String, u64)> {
+        let mut v: Vec<(String, u64)> = response(&out, id)
+            .as_array()
+            .unwrap_or_else(|| panic!("{id}: {out:#?}"))
+            .iter()
+            .map(|l| {
+                let p = uri_to_path(l["uri"].as_str().unwrap()).unwrap();
+                (
+                    p.file_name().unwrap().to_string_lossy().to_string(),
+                    l["range"]["start"]["line"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    };
+    assert_eq!(
+        found(2),
+        [
+            ("circle.ppl".into(), 1),
+            ("square.ppl".into(), 1),
+            ("square.ppl".into(), 5)
+        ]
+    );
+    assert_eq!(
+        found(3),
+        [
+            ("circle.ppl".into(), 3),
+            ("square.ppl".into(), 3),
+            ("square.ppl".into(), 6)
+        ]
+    );
+    assert_eq!(found(4), [("main.ppl".into(), 1)]);
+    assert!(response(&out, 5).is_null());
+}

@@ -46,6 +46,62 @@ pub struct Index {
     /// For a method that implements or overrides others: their name spans (the nearest ones
     /// up `extends`/`implements`), where go-to-definition on its declaration leads.
     pub supers: HashMap<Span, Vec<Span>>,
+    /// For a type: the name spans of the types below it (that extend or implement it,
+    /// directly or not). For a method: those of the methods that override or implement it.
+    pub implementations: HashMap<Span, Vec<Span>>,
+}
+
+/// Each type's subtypes (transitively) and each method's implementations and overrides in
+/// them (the methods those types declare themselves), by name span.
+fn implementations(p: &Program) -> HashMap<Span, Vec<Span>> {
+    let n = p.structs.len();
+    // Direct subtypes.
+    let mut below: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, s) in p.structs.iter().enumerate() {
+        for u in s.base.iter().chain(&s.implements) {
+            below[u.0 as usize].push(i);
+        }
+    }
+    let mut out: HashMap<Span, Vec<Span>> = HashMap::new();
+    for (i, s) in p.structs.iter().enumerate() {
+        // All types below `i`, breadth first.
+        let mut all = Vec::new();
+        let mut queue: std::collections::VecDeque<usize> = below[i].iter().copied().collect();
+        let mut seen = HashSet::from([i]);
+        while let Some(t) = queue.pop_front() {
+            if seen.insert(t) {
+                all.push(t);
+                queue.extend(below[t].iter().copied());
+            }
+        }
+        if all.is_empty() {
+            continue;
+        }
+        out.insert(
+            s.name_span,
+            all.iter().map(|t| p.structs[*t].name_span).collect(),
+        );
+        for (name, f) in &s.methods {
+            let mine = p.fns[f.0 as usize].name_span;
+            let impls: Vec<Span> = all
+                .iter()
+                .filter_map(|t| {
+                    let g = p.structs[*t].method(name)?;
+                    let func = &p.fns[g.0 as usize];
+                    // (Only the types' own methods: inherited ones are their declarer's.)
+                    let own = func.this.map(|x| x.1).or(func.owner) == Some(StructId(*t as u32));
+                    (own && func.name_span != mine).then_some(func.name_span)
+                })
+                .collect();
+            if !impls.is_empty() {
+                out.entry(mine).or_default().extend(impls);
+            }
+        }
+    }
+    for v in out.values_mut() {
+        v.dedup();
+    }
+    out
 }
 
 /// For each method declared by a type, the nearest same-named methods up its `extends` and
@@ -231,6 +287,7 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
     let shorthand = b.shorthand.iter().copied().collect();
     let families = method_families(program);
     let supers = super_methods(program);
+    let implementations = implementations(program);
     Index {
         sm,
         file,
@@ -241,6 +298,7 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
         shorthand,
         families,
         supers,
+        implementations,
     }
 }
 

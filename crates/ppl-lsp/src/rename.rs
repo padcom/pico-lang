@@ -1,4 +1,5 @@
-//! Rename (PLAN P10.6d2): every use of a declaration in the project's modules.
+//! Project-wide requests: rename (PLAN P10.6d2), every use of a declaration in the project's
+//! modules, and implementations, the types and methods below a type or method.
 //!
 //! The project is the nearest directory up from the document with a `project.json` (else the
 //! document's directory). Each of its `.ppl` files is checked as an entry (open documents with
@@ -58,29 +59,7 @@ pub fn rename(
         return Err(format!("`{new_name}` is a keyword"));
     }
     let (_, target) = target(idx, offset)?;
-    let doc_path = uri_to_path(uri).ok_or("the document isn't a file")?;
-    // Open documents by path, for their unsaved text and their URIs.
-    let open: HashMap<PathBuf, (&String, &String)> = docs
-        .iter()
-        .filter_map(|(u, t)| Some((canonical(&uri_to_path(u)?), (u, t))))
-        .collect();
-    let mut files = ppl_driver::project_files(&ppl_driver::project_root(&doc_path));
-    let doc_canon = canonical(&doc_path);
-    if !files.iter().any(|f| canonical(f) == doc_canon) {
-        files.push(doc_path.clone());
-    }
-    let indexes: Vec<(String, Index)> = files
-        .iter()
-        .filter_map(|f| {
-            let c = canonical(f);
-            let (u, text) = match open.get(&c) {
-                Some((u, t)) => ((*u).clone(), (*t).clone()),
-                None => (path_to_uri(f), std::fs::read_to_string(f).ok()?),
-            };
-            let (_, index) = check(&u, &text);
-            Some((u, index?))
-        })
-        .collect();
+    let indexes = project_indexes(docs, uri)?;
     // The declarations renamed together: the target, and its method family.
     let mut targets: HashSet<Decl> = HashSet::from([target.clone()]);
     for (_, i) in &indexes {
@@ -127,6 +106,92 @@ pub fn rename(
         return Err("no uses of this name were found".into());
     }
     Ok(json!({ "changes": changes }))
+}
+
+/// Every file of the project around document `uri` checked as an entry and indexed (open
+/// documents with their unsaved text), by URI.
+pub fn project_indexes(
+    docs: &HashMap<String, String>,
+    uri: &str,
+) -> Result<Vec<(String, Index)>, String> {
+    let doc_path = uri_to_path(uri).ok_or("the document isn't a file")?;
+    // Open documents by path, for their unsaved text and their URIs.
+    let open: HashMap<PathBuf, (&String, &String)> = docs
+        .iter()
+        .filter_map(|(u, t)| Some((canonical(&uri_to_path(u)?), (u, t))))
+        .collect();
+    let mut files = ppl_driver::project_files(&ppl_driver::project_root(&doc_path));
+    let doc_canon = canonical(&doc_path);
+    if !files.iter().any(|f| canonical(f) == doc_canon) {
+        files.push(doc_path.clone());
+    }
+    Ok(files
+        .iter()
+        .filter_map(|f| {
+            let c = canonical(f);
+            let (u, text) = match open.get(&c) {
+                Some((u, t)) => ((*u).clone(), (*t).clone()),
+                None => (path_to_uri(f), std::fs::read_to_string(f).ok()?),
+            };
+            let (_, index) = check(&u, &text);
+            Some((u, index?))
+        })
+        .collect())
+}
+
+/// A declaration of any file (the core library's too), independent of the check: its file
+/// (canonical path, or name for embedded files) and offset.
+fn identity(i: &Index, def: Span) -> (String, u32) {
+    let name = &i.sm.file(def.file).name;
+    let p = Path::new(name);
+    let file = if p.is_absolute() {
+        canonical(p).display().to_string()
+    } else {
+        name.clone()
+    };
+    (file, def.start)
+}
+
+/// The implementations of the type or method named at `offset` of document `uri`: the types
+/// below it, or the methods that implement or override it, in the whole project (`null` when
+/// there are none).
+pub fn implementations(
+    docs: &HashMap<String, String>,
+    uri: &str,
+    idx: &Index,
+    offset: u32,
+) -> Result<Value, String> {
+    let r = idx.at(offset).ok_or("nothing here")?;
+    let target = identity(idx, r.def);
+    // (The document's own index first: most answers are there.)
+    let mut all = vec![(uri.to_string(), None)];
+    all.extend(
+        project_indexes(docs, uri)?
+            .into_iter()
+            .map(|(u, i)| (u, Some(i))),
+    );
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for (_, i) in &all {
+        let i = i.as_ref().unwrap_or(idx);
+        for (decl, impls) in &i.implementations {
+            if identity(i, *decl) != target {
+                continue;
+            }
+            for s in impls {
+                if seen.insert(identity(i, *s))
+                    && let Some(u) = crate::file_uri(&i.sm, s.file)
+                {
+                    out.push(json!({ "uri": u, "range": range(&i.sm, *s) }));
+                }
+            }
+        }
+    }
+    Ok(if out.is_empty() {
+        Value::Null
+    } else {
+        json!(out)
+    })
 }
 
 /// Whether `def` (in `i`'s program) declares a field (its hover says so).

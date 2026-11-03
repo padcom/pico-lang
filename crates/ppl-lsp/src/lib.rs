@@ -149,6 +149,7 @@ impl Server {
                         "completionProvider": { "triggerCharacters": ["."] },
                         "renameProvider": { "prepareProvider": true },
                         "documentSymbolProvider": true,
+                        "implementationProvider": true,
                     },
                     "serverInfo": { "name": "ppl", "version": env!("CARGO_PKG_VERSION") },
                 },
@@ -265,6 +266,19 @@ impl Server {
                         "error": { "code": -32803, "message": message } }),
                 });
             }
+            ("textDocument/implementation", Some(id)) => {
+                let uri = params["textDocument"]["uri"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                if self.dirty.contains(&uri) {
+                    self.check_dirty(send);
+                }
+                let result = self
+                    .implementations(&uri, &params["position"])
+                    .unwrap_or(Value::Null);
+                send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+            }
             ("textDocument/documentSymbol", Some(id)) => {
                 let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
                 let result = self
@@ -323,6 +337,12 @@ impl Server {
             return None;
         }
         Some((idx, r))
+    }
+
+    /// `textDocument/implementation` at a position.
+    fn implementations(&self, uri: &str, pos: &Value) -> Result<Value, String> {
+        let (idx, r) = self.ref_at(uri, pos).ok_or("nothing here")?;
+        rename::implementations(&self.docs, uri, idx, r.start)
     }
 
     /// `prepareRename` (no `new_name`: the name's range and text) or `rename` (the edit).
