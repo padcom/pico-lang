@@ -114,7 +114,7 @@ const html = app.render({ count: 1 })  // @export("js") functions
 await app.done                         // the exit code, once nothing is pending
 ```
 
-Until the WasmGC backend (P8.7), the module uses linear memory with the ppl GC: handles keep
+By default (the WasmGC backend is opt-in with `PPL_BACKEND=wasmgc` until it's optimised and covers this interop: decision 269), the module uses linear memory with the ppl GC: handles keep
 their object alive until `free()` (or `[Symbol.dispose]`, or until the handle is collected).
 Numbers, `bool`, `string`, structs and classes cross so far (64-bit integers as JS numbers);
 arrays, enums, nullable types and throwing, generic or async functions can't be exported yet

@@ -231,6 +231,9 @@ export default async function init(options = {}) {
     },
   };
   const showing = new Set();
+  let badAt = 0;
+  const ids = new WeakMap();
+  let nextId = 0;
   const ppl = {
     ...fmtSpec,
     print_str: (r) => out.put(str(r)),
@@ -258,6 +261,69 @@ export default async function init(options = {}) {
     show_enter: (o) => (showing.has(o) ? 0 : (showing.add(o), 1)),
     show_leave: (o) => {
       showing.delete(o);
+    },
+    decode_utf8(arr, off, len, fatal) {
+      const b = new Uint8Array(len);
+      for (let i = 0; i < len; i++) b[i] = ex.str_byte(arr, off + i);
+      try {
+        return mk(new TextDecoder("utf-8", { fatal: fatal !== 0, ignoreBOM: true }).decode(b));
+      } catch {
+        // Where the first bad sequence starts.
+        badAt = 0;
+        for (let k = 1; k <= len; k++) {
+          try {
+            new TextDecoder("utf-8", { fatal: true }).decode(b.subarray(0, k), { stream: true });
+            badAt = k;
+          } catch {
+            break;
+          }
+        }
+        return null;
+      }
+    },
+    decode_bad_at: () => BigInt(badAt),
+    fill_random(arr) {
+      const n = ex.str_len(arr);
+      const b = new Uint8Array(n);
+      for (let off = 0; off < n; off += 65536) crypto.getRandomValues(b.subarray(off, Math.min(n, off + 65536)));
+      for (let i = 0; i < n; i++) ex.str_put(arr, i, b[i]);
+    },
+    parse_f64(r) {
+      // As C's `strtod` over the whole text (`ppl_parse_f64`).
+      const t = str(r);
+      if (t.length === 0 || t.length >= 128) return NaN;
+      const m = /^[\t\n\v\f\r ]*([+-]?)(?:(inf(?:inity)?)|(nan)|((?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?))$/i.exec(t);
+      if (!m) return NaN;
+      if (m[2]) return m[1] === "-" ? -Infinity : Infinity;
+      if (m[3]) return NaN;
+      return Number(m[1] + m[4]);
+    },
+    ref_id(o) {
+      let id = ids.get(o);
+      if (id === undefined) ids.set(o, (id = BigInt(++nextId)));
+      return id;
+    },
+    math(op, x, y) {
+      const f = [
+        Math.sqrt, Math.sin, Math.cos, Math.tan, Math.asin, Math.acos, Math.atan, Math.atan2,
+        Math.exp, Math.log, Math.log2, Math.log10, Math.pow, Math.floor, Math.ceil, Math.trunc,
+        Math.cbrt, Math.hypot, Math.sinh, Math.cosh, Math.tanh, Math.asinh, Math.acosh, Math.atanh,
+        Math.expm1, Math.log1p, (a, b) => a % b, Math.fround,
+      ][op];
+      if (f) return f(x, y);
+      const v = new DataView(new ArrayBuffer(8));
+      switch (op) {
+        case 28: // the double whose high and low 32 bits are x and y
+          v.setUint32(0, y >>> 0, true);
+          v.setUint32(4, x >>> 0, true);
+          return v.getFloat64(0, true);
+        case 29:
+        case 30:
+          v.setFloat64(0, x, true);
+          return op === 29 ? v.getUint32(4, true) : v.getUint32(0, true);
+        default:
+          return NaN;
+      }
     },
     pow_f64: Math.pow,
     clock_ms: () => BigInt(Math.floor(performance.now())),

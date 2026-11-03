@@ -756,9 +756,17 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   `tests/wasmgc-skip.txt` for what needs linear memory.
 
 #### P8.7e Coverage and comparison
-- **Do**: `@export("js")` and `std/js` on WasmGC, the remaining core library builtins (`__io` ops that make sense in a browser, math,
+- **Do**: the remaining core library builtins (`__io` ops that make sense in a browser, math,
   crypto through WebCrypto or a port), then the size/perf comparison with the linear-memory
   build.
+- **Done (decision 269)**: 193 of the suite pass on WasmGC, none fail, the rest is skip-listed
+  (crypto stays on Mbed TLS, linear memory only); `scripts/wasm-compare.sh`.
+
+#### P8.7f JavaScript interop on WasmGC
+- **Do**: `@export("js")` (references passed to JavaScript as they are, numbers and strings
+  converted by the glue) and `std/js` (`JsValue` handles, `js:` imports, callbacks into ppl)
+  on the WasmGC build.
+- **Done when**: `examples/browser` and `examples/browser-dom` work with `PPL_BACKEND=wasmgc`.
 
 ### P8.8 JS imports from .d.ts
 - **Spec**: 12 §12.3

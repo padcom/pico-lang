@@ -93,7 +93,8 @@ pub fn wasmgc_selected() -> bool {
 /// The module from the WasmGC backend, and its glue.
 pub fn build_gc(mir: &Program, out: &Path) -> Result<(), String> {
     let f = files(out);
-    let bytes = ppl_codegen::wasmgc::emit(mir)?;
+    let tz = std::fs::read(ppl_runtime::tzdata_dir().join("tzdata.bin")).unwrap_or_default();
+    let bytes = ppl_codegen::wasmgc::emit(mir, &tz)?;
     std::fs::write(&f.wasm, bytes)
         .map_err(|e| format!("cannot write {}: {e}", f.wasm.display()))?;
     let wasm = f.wasm.file_name().unwrap_or_default().to_string_lossy();

@@ -1,0 +1,22 @@
+// Allocation-heavy: objects, arrays and strings, mostly short-lived (scripts/wasm-compare.sh).
+class Node {
+  constructor(public value: int, public next: Node?) {}
+}
+let total = 0
+for (let round = 0; round < 40; round++) {
+  let list: Node? = null
+  for (let i = 0; i < 20000; i++) {
+    list = new Node(i, list)
+  }
+  let n = list
+  while (n != null) {
+    total += n.value % 7
+    n = n.next
+  }
+  const parts: string[] = []
+  for (let i = 0; i < 2000; i++) {
+    parts.push(`item ${i}`)
+  }
+  total += parts.join(",").length
+}
+println(total)

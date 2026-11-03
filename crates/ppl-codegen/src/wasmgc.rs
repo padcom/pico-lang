@@ -46,7 +46,8 @@ const ANYREF: ValType = ValType::Ref(RefType::ANYREF);
 
 /// Globals after the program's: the pending exception and its tag, the panic's message, line
 /// and column, the event loop's wait.
-const FIXED_GLOBALS: usize = 6;
+/// Then a synchronous `__io` job's results (`r`, `r2`, text) and the `ArrayBuffer` table.
+const FIXED_GLOBALS: usize = 10;
 
 /// The string type's index (the first type of the rec group).
 const STR: u32 = 0;
@@ -70,6 +71,16 @@ const IMPORTS: &[(&str, &[ValT], &[ValT])] = &[
     ("pow_f64", &[ValT::F64, ValT::F64], &[ValT::F64]),
     ("clock_ms", &[], &[ValT::I64]),
     ("clock_ns", &[ValT::I32], &[ValT::I64]),
+    (
+        "decode_utf8",
+        &[ValT::Str, ValT::I32, ValT::I32, ValT::I32],
+        &[ValT::Str],
+    ),
+    ("decode_bad_at", &[], &[ValT::I64]),
+    ("fill_random", &[ValT::Str], &[]),
+    ("parse_f64", &[ValT::Str], &[ValT::F64]),
+    ("ref_id", &[ValT::Any], &[ValT::I64]),
+    ("math", &[ValT::I32, ValT::F64, ValT::F64], &[ValT::F64]),
     // Format specs (`${x:08.2f}`): the value, then the spec's eight fields (as `ppl_rt.h`'s
     // `PplFmt`: fill, align, sign, alternate, zero, width, precision, kind).
     (
@@ -155,7 +166,9 @@ fn val(v: ValT) -> ValType {
 }
 
 /// Emits the module for `p`.
-pub fn emit(p: &Program) -> R<Vec<u8>> {
+/// `tzdata` is the bundled tz database (`third_party/tzdata/tzdata.bin`), embedded when the
+/// program can look zones up.
+pub fn emit(p: &Program, tzdata: &[u8]) -> R<Vec<u8>> {
     let live = mir::live_functions(p);
     let mut g = Gen {
         p,
@@ -169,6 +182,7 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
         itable_base: Vec::new(),
         vt_globals: Vec::new(),
         refd: Vec::new(),
+        tzdata: tzdata.to_vec(),
     };
     let mut next = (IMPORTS.len() + HELPERS.len()) as u32;
     for (i, l) in live.iter().enumerate() {
@@ -248,6 +262,8 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
     global_types.push(ANYREF);
     global_types.push(ValType::I32);
     global_types.extend([str_ref(), ValType::I32, ValType::I32, ValType::I64]);
+    let buffers = g.buffer_table();
+    global_types.extend([ValType::I64, ValType::I64, str_ref(), ref_to(buffers)]);
     global_types.extend(g.vt_globals.iter().map(|_| ref_to(vt)));
     // The rec group: strings, then the registry's types. Struct fields can register more, so
     // they're resolved until nothing new comes.
@@ -454,6 +470,9 @@ enum Def {
         is_final: bool,
         /// A class: a vtable field comes first.
         class: bool,
+        /// Per field: stored as `anyref` (a generic class's field whose type comes from a type
+        /// parameter and is a reference: instances that differ only there share the type).
+        erased: Vec<bool>,
     },
     /// A GC array of `E`: a fixed array, or a growable array's storage.
     Raw(ValType),
@@ -487,6 +506,7 @@ enum Key {
     Iface,
     Vt,
     Clo(u32),
+    Gen(StructId, Vec<Option<ValType>>),
 }
 
 /// The GC types registered so far; `defs[i]` is type `i + 1`.
@@ -524,6 +544,8 @@ struct Gen<'p> {
     vt_globals: Vec<StructId>,
     /// Functions `ref.func` names (declared in an element segment).
     refd: Vec<u32>,
+    /// The bundled tz database (a data segment once a zone lookup needs it).
+    tzdata: Vec<u8>,
 }
 
 /// Where a MIR local lives.
@@ -601,6 +623,17 @@ impl<'p> Gen<'p> {
         i
     }
 
+    /// Whether wasm field `i` of struct type `idx` is erased to `anyref`.
+    fn erased_field(&self, idx: u32, i: u32) -> bool {
+        let r = self.reg.borrow();
+        match r.defs.get(idx as usize - 1) {
+            Some(Def::Struct { erased, class, .. }) => (i as usize)
+                .checked_sub(*class as usize)
+                .is_some_and(|k| erased.get(k).copied().unwrap_or(false)),
+            _ => false,
+        }
+    }
+
     /// The type index of a struct, class, tuple or range type.
     fn struct_type(&self, t: &Ty) -> u32 {
         let t = t.erase();
@@ -615,8 +648,38 @@ impl<'p> Gen<'p> {
                     .map(|(_, ft)| ft.subst(owner, args))
                     .collect();
                 let base = layout.meta.base.filter(|_| is_class);
-                self.register(Key::Ty(t.clone()), |g| Def::Struct {
+                // A generic class: fields typed by its parameters, when references, are erased
+                // to `anyref`, and the type is keyed by that layout (so `Promise<int, never>`
+                // fits where `Promise<int, Error>` is expected).
+                let generic = is_class && !args.is_empty();
+                let erased: Vec<bool> = layout
+                    .fields
+                    .iter()
+                    .zip(&fields)
+                    .map(|((_, declared), ft)| {
+                        generic
+                            && declared != ft
+                            && !matches!(
+                                ft.erase(),
+                                Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char
+                            )
+                    })
+                    .collect();
+                let key = if generic {
+                    Key::Gen(
+                        *sid,
+                        fields
+                            .iter()
+                            .zip(&erased)
+                            .map(|(ft, e)| if *e { None } else { self.wasm_ty(ft) })
+                            .collect(),
+                    )
+                } else {
+                    Key::Ty(t.clone())
+                };
+                self.register(key, |g| Def::Struct {
                     fields,
+                    erased,
                     class: is_class,
                     base: base.map(|b| {
                         g.struct_type(&Ty::Class(
@@ -629,12 +692,14 @@ impl<'p> Gen<'p> {
                 })
             }
             Ty::Tuple(ts) => self.register(Key::Ty(t.clone()), |_| Def::Struct {
+                erased: vec![false; ts.len()],
                 fields: ts.clone(),
                 base: None,
                 is_final: true,
                 class: false,
             }),
             Ty::Range(it) => self.register(Key::Ty(t.clone()), |_| Def::Struct {
+                erased: vec![false; 3],
                 fields: vec![Ty::Int(*it); 3],
                 base: None,
                 is_final: true,
@@ -737,6 +802,427 @@ impl<'p> Gen<'p> {
         self.p.globals.len() as u32 + 5
     }
 
+    /// A synchronous `__io` job's `r`, `r2` and text (there's one job at a time: ops answer
+    /// at once, the job id is always 1).
+    fn job_global(&self) -> u32 {
+        self.p.globals.len() as u32 + 6
+    }
+
+    /// `ArrayBuffer` memory: a table of byte arrays (handle `index + 1 << 32`, so a handle
+    /// plus an offset still says both; decision 269).
+    fn buffers_global(&self) -> u32 {
+        self.p.globals.len() as u32 + 9
+    }
+
+    /// The buffer table's type (a growable array of byte arrays).
+    fn buffer_table(&self) -> u32 {
+        self.wasm_ty(&Ty::Array(Box::new(Ty::Str)))
+            .and_then(heap_index)
+            .expect("an array")
+    }
+
+    /// `ppl_buf_op` on the buffer table: 1 allocate `a` bytes (a handle), 2 free `a`, 3 a copy
+    /// of `c` bytes of `a` from `b`, 11–18 read and 21–28 write a little-endian integer at
+    /// `a + b`.
+    fn buf_fn(&mut self) -> R<u32> {
+        use ValType::*;
+        let table_ty = Ty::Array(Box::new(Ty::Str));
+        let grow = self.buffer_table();
+        let raw = self.raw_type(str_ref());
+        let push = self.array_fn(&table_ty, "push")?;
+        let g = self.buffers_global();
+        Ok(self.extra_fn(
+            "buf op".into(),
+            vec![I64, I64, I64, I64],
+            vec![I64],
+            move |_| {
+                // locals: 4 table, 5 bytes, 6 index, 7 position, 8 i, 9 x, 10 copy
+                let mut f = Function::new_with_locals_types(vec![
+                    ref_to(grow),
+                    str_ref(),
+                    I32,
+                    I32,
+                    I32,
+                    I64,
+                    str_ref(),
+                ]);
+                let mut s = f.instructions();
+                s.global_get(g).ref_is_null();
+                s.if_(BlockType::Empty);
+                s.array_new_fixed(raw, 0)
+                    .i32_const(0)
+                    .struct_new(grow)
+                    .global_set(g);
+                s.end();
+                s.global_get(g).local_set(4);
+                // A new handle for the bytes in local 10.
+                let add = |s: &mut InstructionSink| {
+                    s.local_get(4).local_get(10).call(push);
+                    s.local_get(4)
+                        .struct_get(grow, 1)
+                        .i64_extend_i32_u()
+                        .i64_const(32)
+                        .i64_shl();
+                    s.return_();
+                };
+                s.local_get(0).i64_const(1).i64_eq();
+                s.if_(BlockType::Empty);
+                s.local_get(1)
+                    .i32_wrap_i64()
+                    .array_new_default(STR)
+                    .local_set(10);
+                add(&mut s);
+                s.end();
+                s.local_get(1)
+                    .i64_const(32)
+                    .i64_shr_u()
+                    .i32_wrap_i64()
+                    .i32_const(1)
+                    .i32_sub()
+                    .local_set(6);
+                s.local_get(4)
+                    .struct_get(grow, 0)
+                    .local_get(6)
+                    .array_get(raw)
+                    .local_set(5);
+                s.local_get(1)
+                    .i32_wrap_i64()
+                    .local_get(2)
+                    .i32_wrap_i64()
+                    .i32_add()
+                    .local_set(7);
+                s.local_get(0).i64_const(2).i64_eq();
+                s.if_(BlockType::Empty);
+                s.local_get(4)
+                    .struct_get(grow, 0)
+                    .local_get(6)
+                    .ref_null(HeapType::Concrete(STR))
+                    .array_set(raw);
+                s.i64_const(0).return_();
+                s.end();
+                s.local_get(0).i64_const(3).i64_eq();
+                s.if_(BlockType::Empty);
+                s.local_get(3)
+                    .i32_wrap_i64()
+                    .array_new_default(STR)
+                    .local_set(10);
+                s.local_get(10)
+                    .i32_const(0)
+                    .local_get(5)
+                    .local_get(7)
+                    .local_get(3)
+                    .i32_wrap_i64();
+                s.array_copy(STR, STR);
+                add(&mut s);
+                s.end();
+                // Reads: bytes k-1 … 0 (k = op - 10).
+                s.local_get(0)
+                    .i64_const(11)
+                    .i64_ge_s()
+                    .local_get(0)
+                    .i64_const(18)
+                    .i64_le_s()
+                    .i32_and();
+                s.if_(BlockType::Empty);
+                s.local_get(0)
+                    .i32_wrap_i64()
+                    .i32_const(11)
+                    .i32_sub()
+                    .local_set(8);
+                s.block(BlockType::Empty).loop_(BlockType::Empty);
+                s.local_get(8).i32_const(0).i32_lt_s().br_if(1);
+                s.local_get(9).i64_const(8).i64_shl();
+                s.local_get(5)
+                    .local_get(7)
+                    .local_get(8)
+                    .i32_add()
+                    .array_get_u(STR)
+                    .i64_extend_i32_u();
+                s.i64_or().local_set(9);
+                s.local_get(8).i32_const(1).i32_sub().local_set(8);
+                s.br(0).end().end();
+                s.local_get(9).return_();
+                s.end();
+                // Writes: bytes 0 … k-1 (k = op - 20).
+                s.local_get(0)
+                    .i32_wrap_i64()
+                    .i32_const(20)
+                    .i32_sub()
+                    .local_set(8);
+                s.block(BlockType::Empty).loop_(BlockType::Empty);
+                s.local_get(8).i32_eqz().br_if(1);
+                s.local_get(8).i32_const(1).i32_sub().local_set(8);
+                s.local_get(5).local_get(7).local_get(8).i32_add();
+                s.local_get(3)
+                    .local_get(8)
+                    .i64_extend_i32_u()
+                    .i64_const(8)
+                    .i64_mul()
+                    .i64_shr_u();
+                s.i32_wrap_i64().array_set(STR);
+                s.br(0).end().end();
+                s.i64_const(0).end();
+                f
+            },
+        ))
+    }
+
+    /// A synchronous `__io` job: its results go to the job globals.
+    fn io_job(
+        &mut self,
+        fx: &mut FnCx,
+        s: &mut InstructionSink,
+        op: i128,
+        args: &[Operand],
+    ) -> R<()> {
+        let j = self.job_global();
+        let set_text = |g: &mut Self, s: &mut InstructionSink, text: &str| {
+            let d = g.string_data(text);
+            s.i32_const(0)
+                .i32_const(text.len() as i32)
+                .array_new_data(STR, d);
+            s.global_set(j + 2);
+        };
+        match op {
+            // TextEncoder: the string's bytes in a new buffer (r, r2: its handle and length).
+            130 => {
+                let buf = self.buf_fn()?;
+                let bytes = self.buf_bytes_fn();
+                let str_tmp = fx.tmp(4_000_000, str_ref());
+                self.operand(fx, s, &args[4])?;
+                s.local_tee(str_tmp)
+                    .array_len()
+                    .i64_extend_i32_u()
+                    .global_set(j + 1);
+                s.i64_const(1)
+                    .global_get(j + 1)
+                    .i64_const(0)
+                    .i64_const(0)
+                    .call(buf)
+                    .global_set(j);
+                s.global_get(j)
+                    .call(bytes)
+                    .i32_const(0)
+                    .local_get(str_tmp)
+                    .i32_const(0);
+                s.global_get(j + 1).i32_wrap_i64().array_copy(STR, STR);
+            }
+            // TextDecoder: `c` bytes at `b` as text (`a`: fatal), through the glue.
+            131 => {
+                let bytes = self.buf_bytes_fn();
+                let text = fx.tmp(4_000_001, str_ref());
+                self.operand(fx, s, &args[2])?;
+                s.call(bytes);
+                self.operand(fx, s, &args[2])?;
+                s.i32_wrap_i64();
+                self.operand(fx, s, &args[3])?;
+                s.i32_wrap_i64();
+                self.operand(fx, s, &args[1])?;
+                s.i32_wrap_i64();
+                s.call(import_index("decode_utf8"))
+                    .local_tee(text)
+                    .ref_is_null();
+                s.if_(BlockType::Empty);
+                s.i64_const(-7).global_set(j);
+                s.call(import_index("decode_bad_at")).global_set(j + 1);
+                set_text(self, s, "");
+                s.else_();
+                s.i64_const(0)
+                    .global_set(j)
+                    .local_get(text)
+                    .global_set(j + 2);
+                s.end();
+            }
+            // The bundled tz database's zone `s` (r: a buffer, or -1; r2: its size).
+            136 => {
+                let f = self.tz_fn()?;
+                self.operand(fx, s, &args[4])?;
+                s.call(f).global_set(j);
+            }
+            // `a` random bytes in a new buffer.
+            132 => {
+                let buf = self.buf_fn()?;
+                let bytes = self.buf_bytes_fn();
+                s.i64_const(1);
+                self.operand(fx, s, &args[1])?;
+                s.i64_const(0).i64_const(0).call(buf).global_set(j);
+                s.global_get(j)
+                    .call(bytes)
+                    .call(import_index("fill_random"));
+            }
+            // The working directory: the root (there's no file system).
+            105 => set_text(self, s, "/"),
+            // No environment variables, files, links or local zone here.
+            114 | 135 | 137 => {
+                s.i64_const(0).global_set(j);
+                set_text(self, s, "");
+            }
+            _ => {
+                s.i64_const(-1).global_set(j);
+                s.i64_const(0).global_set(j + 1);
+            }
+        }
+        Ok(())
+    }
+
+    /// Looks a zone up in the bundled tz database (`ppl_tzdata.c`'s format): a buffer handle
+    /// with its TZif bytes (the size in `r2`), or -1.
+    fn tz_fn(&mut self) -> R<u32> {
+        use ValType::*;
+        let blob = self.tzdata.clone();
+        let d = self
+            .data
+            .iter()
+            .position(|x| *x == blob)
+            .unwrap_or_else(|| {
+                self.data.push(blob.clone());
+                self.data.len() - 1
+            }) as u32;
+        let size = blob.len() as i32;
+        let buf = self.buf_fn()?;
+        let bytes = self.buf_bytes_fn();
+        let j = self.job_global();
+        let u = self.extra_fn("u32le".into(), vec![str_ref(), I32], vec![I32], |_| {
+            let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+            let mut s = f.instructions();
+            for k in 0..4 {
+                s.local_get(0)
+                    .local_get(1)
+                    .i32_const(k)
+                    .i32_add()
+                    .array_get_u(STR);
+                if k > 0 {
+                    s.i32_const(8 * k).i32_shl().i32_or();
+                }
+            }
+            s.end();
+            f
+        });
+        Ok(
+            self.extra_fn("tz bundled".into(), vec![str_ref()], vec![I64], move |_| {
+                // locals: 1 blob, 2 count, 3 entry, 4 name length here, 5 i, 6 k, 7 n, 8 size
+                let mut f = Function::new_with_locals_types(vec![
+                    str_ref(),
+                    I32,
+                    I32,
+                    I32,
+                    I32,
+                    I32,
+                    I32,
+                    I32,
+                ]);
+                let mut s = f.instructions();
+                s.i32_const(0)
+                    .i32_const(size)
+                    .array_new_data(STR, d)
+                    .local_set(1);
+                s.local_get(1).array_len().i32_const(12).i32_lt_u();
+                s.if_(BlockType::Empty).i64_const(-1).return_().end();
+                s.local_get(1).i32_const(8).call(u).local_set(2);
+                s.i32_const(12).local_set(3);
+                s.local_get(0).array_len().local_set(7);
+                s.block(BlockType::Empty).loop_(BlockType::Empty);
+                s.local_get(5).local_get(2).i32_ge_u().br_if(1);
+                // nl = u16 at e
+                s.local_get(1).local_get(3).array_get_u(STR);
+                s.local_get(1)
+                    .local_get(3)
+                    .i32_const(1)
+                    .i32_add()
+                    .array_get_u(STR)
+                    .i32_const(8)
+                    .i32_shl()
+                    .i32_or();
+                s.local_set(4);
+                s.local_get(4).local_get(7).i32_eq();
+                s.if_(BlockType::Empty);
+                s.i32_const(0).local_set(6);
+                s.block(BlockType::Empty).loop_(BlockType::Empty);
+                s.local_get(6).local_get(7).i32_ge_u().br_if(1);
+                s.local_get(1)
+                    .local_get(3)
+                    .i32_const(2)
+                    .i32_add()
+                    .local_get(6)
+                    .i32_add()
+                    .array_get_u(STR);
+                s.local_get(0)
+                    .local_get(6)
+                    .array_get_u(STR)
+                    .i32_ne()
+                    .br_if(1);
+                s.local_get(6).i32_const(1).i32_add().local_set(6);
+                s.br(0).end().end();
+                // All bytes equal: copy the zone into a new buffer.
+                s.local_get(6).local_get(7).i32_eq();
+                s.if_(BlockType::Empty);
+                s.local_get(1)
+                    .local_get(3)
+                    .i32_const(6)
+                    .i32_add()
+                    .local_get(4)
+                    .i32_add()
+                    .call(u)
+                    .local_set(8);
+                s.local_get(8).i64_extend_i32_u().global_set(j + 1);
+                s.i64_const(1)
+                    .local_get(8)
+                    .i64_extend_i32_u()
+                    .i64_const(0)
+                    .i64_const(0)
+                    .call(buf);
+                s.global_set(j);
+                s.global_get(j).call(bytes).i32_const(0).local_get(1);
+                s.local_get(1)
+                    .local_get(3)
+                    .i32_const(2)
+                    .i32_add()
+                    .local_get(4)
+                    .i32_add()
+                    .call(u);
+                s.local_get(8).array_copy(STR, STR);
+                s.global_get(j).return_();
+                s.end();
+                s.end();
+                s.local_get(3)
+                    .i32_const(10)
+                    .i32_add()
+                    .local_get(4)
+                    .i32_add()
+                    .local_set(3);
+                s.local_get(5).i32_const(1).i32_add().local_set(5);
+                s.br(0).end().end();
+                s.i64_const(-1).end();
+                f
+            }),
+        )
+    }
+
+    /// The byte array of a buffer handle (an offset in its low bits is ignored).
+    fn buf_bytes_fn(&mut self) -> u32 {
+        let grow = self.buffer_table();
+        let raw = self.raw_type(str_ref());
+        let g = self.buffers_global();
+        self.extra_fn(
+            "buf bytes".into(),
+            vec![ValType::I64],
+            vec![str_ref()],
+            move |_| {
+                let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                let mut s = f.instructions();
+                s.global_get(g).struct_get(grow, 0);
+                s.local_get(0)
+                    .i64_const(32)
+                    .i64_shr_u()
+                    .i32_wrap_i64()
+                    .i32_const(1)
+                    .i32_sub();
+                s.array_get(raw).end();
+                f
+            },
+        )
+    }
+
     /// The pending exception (`anyref`, null when none) and its tag (`i32`): globals right
     /// after the program's (decision 267).
     fn exc_global(&self) -> u32 {
@@ -766,17 +1252,24 @@ impl<'p> Gen<'p> {
         let structure =
             |fs: Vec<FieldType>| CompositeInnerType::Struct(StructType { fields: fs.into() });
         match def {
-            Def::Struct { fields, class, .. } => {
+            Def::Struct {
+                fields,
+                class,
+                erased,
+                ..
+            } => {
                 let mut fs = Vec::new();
                 if *class {
                     fs.push(field(ref_to(self.vt_type())));
                 }
                 // (A `void` field is an `anyref` placeholder, so indices stay MIR's.)
-                fs.extend(
-                    fields
-                        .iter()
-                        .map(|t| field(self.wasm_ty(t).unwrap_or(ANYREF))),
-                );
+                fs.extend(fields.iter().zip(erased).map(|(t, e)| {
+                    field(if *e {
+                        ANYREF
+                    } else {
+                        self.wasm_ty(t).unwrap_or(ANYREF)
+                    })
+                }));
                 structure(fs)
             }
             Def::Raw(e) => CompositeInnerType::Array(wasm_encoder::ArrayType(field(*e))),
@@ -1017,6 +1510,19 @@ impl<'p> Gen<'p> {
             return unsupported(format!("fields of `{t}`"));
         }
         let i = self.struct_type(&t);
+        // (This type's own field types: instances of a generic class may share the struct.)
+        if let Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) = &t {
+            let owner = Ty::type_owner(*sid);
+            return Ok((
+                i,
+                self.p
+                    .layout(*sid)
+                    .fields
+                    .iter()
+                    .map(|(_, ft)| ft.subst(owner, args))
+                    .collect(),
+            ));
+        }
         let r = self.reg.borrow();
         match &r.defs[i as usize - 1] {
             Def::Struct { fields, .. } => Ok((i, fields.clone())),
@@ -1764,6 +2270,12 @@ impl<'p> Gen<'p> {
             match self.proj_prefix(fx, s, &cur, pr)? {
                 Access::Field(idx, i) => {
                     s.struct_get(idx, i);
+                    // An erased field: back to its type (this access's: instances share it).
+                    if self.erased_field(idx, i)
+                        && let Some(ValType::Ref(r)) = self.wasm_ty(&self.proj_ty(&cur, pr)?)
+                    {
+                        s.ref_cast_nullable(r.heap_type);
+                    }
                 }
                 Access::Elem(raw) => {
                     s.array_get(raw);
@@ -1973,6 +2485,7 @@ impl<'p> Gen<'p> {
         if let (Ty::Class(a, _, aa), Ty::Class(b, _, ba)) = (ot.erase(), to.erase())
             && a == b
             && aa != ba
+            && self.wasm_ty(&ot) != self.wasm_ty(to)
         {
             return unsupported(format!(
                 "`{ot}` where `{to}` is expected (generic class covariance)"
@@ -2054,6 +2567,21 @@ impl<'p> Gen<'p> {
                 s.i32_const(text.len() as i32);
                 s.array_new_data(STR, d);
             }
+            // Any value of a value aggregate is a fresh default one: a callee may assign into it
+            // through a reference (a defaulted parameter).
+            Const::Undef(t) if Self::is_value_aggregate(t) => {
+                let v = self.ty_or_err(t)?.expect("a value");
+                let idx = heap_index(v).expect("a ref");
+                match t.erase() {
+                    Ty::Fixed(_, n) => {
+                        s.i32_const(n as i32);
+                        s.array_new_default(idx);
+                    }
+                    _ => {
+                        s.struct_new_default(idx);
+                    }
+                }
+            }
             Const::Null(t) | Const::Undef(t) => {
                 if no_value(t) {
                     return Ok(());
@@ -2065,6 +2593,14 @@ impl<'p> Gen<'p> {
                     // (Into a placeholder: see `ANYREF`.)
                     None if matches!(t, Ty::Nullable(_)) => {
                         s.ref_null(RefType::ANYREF.heap_type);
+                    }
+                    // A `null` (or an omitted argument) of a type left generic: the bottom
+                    // reference fits any reference slot.
+                    None => {
+                        s.ref_null(HeapType::Abstract {
+                            shared: false,
+                            ty: wasm_encoder::AbstractHeapType::None,
+                        });
                     }
                     Some(ValType::I32) => {
                         s.i32_const(0);
@@ -4106,8 +4642,73 @@ impl<'p> Gen<'p> {
                                 s.i32_wrap_i64();
                                 s.call(import_index("clock_ns"));
                             }
+                            // A job's results (always job 1: see `job_global`).
+                            102 | 103 => {
+                                s.global_get(self.job_global() + (op - 102) as u32);
+                            }
+                            130 | 131 | 132 | 105 | 114 | 134 | 135 | 136 | 137 => {
+                                self.io_job(fx, s, op, args)?;
+                                s.i64_const(1);
+                            }
                             op => return unsupported(format!("I/O operation {op} (`__io`)")),
                         }
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Int(IntTy::I64))?;
+                    }
+                    Callee::Builtin(Builtin::IoText) => {
+                        s.global_get(self.job_global() + 2);
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Str)?;
+                    }
+                    Callee::Builtin(Builtin::BufOp) => {
+                        let f = self.buf_fn()?;
+                        for a in args.iter().take(4) {
+                            self.operand(fx, s, a)?;
+                        }
+                        s.call(f);
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Int(IntTy::I64))?;
+                    }
+                    Callee::Builtin(Builtin::Math) => {
+                        // `__math(op, x, y)`: the runtime's op table (`ppl_math`), mostly in
+                        // wasm, the rest through JavaScript's `Math`.
+                        let op = match args.first() {
+                            Some(Operand::Const(Const::Int(op, _))) => Some(*op),
+                            _ => None,
+                        };
+                        let native = |s: &mut InstructionSink, op: i128| {
+                            match op {
+                                0 => s.f64_sqrt(),
+                                13 => s.f64_floor(),
+                                14 => s.f64_ceil(),
+                                _ => s.f64_trunc(),
+                            };
+                        };
+                        self.operand(fx, s, &args[1])?;
+                        match op {
+                            Some(o) if matches!(o, 0 | 13 | 14 | 15) => {
+                                native(s, o);
+                            }
+                            Some(27) => {
+                                s.f32_demote_f64().f64_promote_f32();
+                            }
+                            _ => {
+                                let tmp = fx.scratch(ValType::F64);
+                                s.local_set(tmp);
+                                self.operand(fx, s, &args[0])?;
+                                s.i32_wrap_i64();
+                                s.local_get(tmp);
+                                self.operand(fx, s, &args[2])?;
+                                s.call(import_index("math"));
+                            }
+                        }
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Float(FloatTy::F64))?;
+                    }
+                    Callee::Builtin(Builtin::ParseF64) => {
+                        self.operand(fx, s, &args[0])?;
+                        s.call(import_index("parse_f64"));
+                        self.call_result(fx, s, dest.as_ref(), &Ty::Float(FloatTy::F64))?;
+                    }
+                    Callee::Builtin(Builtin::RefId) => {
+                        self.operand(fx, s, &args[0])?;
+                        s.call(import_index("ref_id"));
                         self.call_result(fx, s, dest.as_ref(), &Ty::Int(IntTy::I64))?;
                     }
                     Callee::Builtin(b) => {
