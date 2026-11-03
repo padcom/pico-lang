@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.2: Lint** (see PLAN; Phase 10 order: P10.2 → P10.5 → P10.8 → …). The author should try rename (F2) and the outline in VS Code (`scripts/vscode-package.sh --install`, reload), and hover/definition in files with errors (P10.6c2). Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.2: Lint** (see PLAN; Phase 10 order: P10.2 → P10.5 → P10.8 → …). The author should try rename (F2) and the outline in VS Code (`scripts/vscode-package.sh --install`, reload), and hover/definition in files with errors (P10.6c2); completion is checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -300,7 +300,7 @@ Notes:
 - [x] P10.6b `ppl lsp`: diagnostics and formatting
 - [x] P10.6c1 Symbol index, hover and go-to-definition
 - [x] P10.6c2 Error recovery for the language server (manual check in VS Code pending)
-- [x] P10.6d1 Completion (manual check in VS Code pending)
+- [x] P10.6d1 Completion
 - [x] P10.6d2 Rename and document symbols (manual check in VS Code pending)
 - [ ] P10.2 Lint
 - [ ] P10.5 Incremental compilation
@@ -466,3 +466,5 @@ Notes:
 | 2026-11-03 | P10.6d1 | `textDocument/completion` (`complete.rs`): placeholder at the cursor + recovering check; members (fields, getters, methods with privacy; built-in types' extension and checker methods; statics, enum variants), names in scope nearest first (block-aware locals, top-level, imports, core library, built-ins, keywords), exported names inside `import { … }` (also `std/`). Protocol tests. Decision 274. |
 | 2026-11-03 | P10.6d1 | Fix (found by the author in VS Code): with a name right after the cursor (`x.‸speak()`), the placeholder was glued to it and nothing was offered; the whole word is replaced now. Test `completes_members_before_an_existing_name`. |
 | 2026-11-03 | P10.6d2 | Rename (`rename.rs`: each project file checked as an entry, uses matched by declaration file+offset, method families, shorthand fields expanded, `prepareRename` refusals) and document symbols (`symbols.rs`, from the syntax tree). Interface calls now indexed (hover/definition too). Protocol tests apply the edits. Decision 275. |
+| 2026-11-03 | P10.6d1 | Fix (asked by the author): completion inside `import { … }` only read double-quoted paths; `from './x'` works too. |
+| 2026-11-03 | P10.6d1 | Manual check: completion confirmed by the author in VS Code. Fix: completion showed `print`/`println` as variadic (`...values`); they take 1 and 0–1 values, as the checker enforces (`println(1, 2, 3)` is an error by design). |

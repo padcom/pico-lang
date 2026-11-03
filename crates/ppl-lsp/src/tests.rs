@@ -679,6 +679,10 @@ fn completes_names_in_scope() {
         "The dot product."
     );
     assert_eq!(item(&items, "geo")["kind"], 9);
+    assert_eq!(
+        item(&items, "println")["detail"],
+        "function println(value?): void"
+    );
     assert_eq!(item(&items, "Error")["kind"], 7);
 }
 
@@ -696,6 +700,14 @@ fn completes_imported_names() {
         "function dot(a: Vec2, b: Vec2): i32 { a.x * b.x }"
     );
     assert_eq!(item(&items, "Vec2")["kind"], 22);
+    let person = "export class Person {\n  constructor(public name: string) {}\n}\n";
+    let (l, items) = complete_at(
+        "imports_single",
+        "import { ‸ } from './person'\n",
+        &[("person.ppl", person)],
+    );
+    assert_eq!(l, ["Person"]);
+    assert_eq!(item(&items, "Person")["kind"], 7);
     let (l, _) = complete_at("imports_std", "import { ‸ } from \"std/path\"\n", &[]);
     assert!(l.iter().any(|x| x == "join"), "{l:?}");
 }

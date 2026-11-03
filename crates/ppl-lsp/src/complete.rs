@@ -41,10 +41,11 @@ const BUILTIN_TYPES: &[&str] = &[
     "number", "bool", "char", "string", "void", "never",
 ];
 
-/// Built-in functions (those with ppl declarations come from the core library).
+/// Built-in functions (those with ppl declarations come from the core library), with the
+/// arities the type checker enforces (`Checker::builtin`): any printable value.
 const BUILTIN_FNS: &[(&str, &str)] = &[
-    ("print", "function print(...values): void"),
-    ("println", "function println(...values): void"),
+    ("print", "function print(value): void"),
+    ("println", "function println(value?): void"),
     (
         "assert",
         "function assert(cond: bool, message?: string): void",
@@ -505,7 +506,9 @@ fn import_names(text: &str, at: usize, dir: &Path) -> Option<Vec<Value>> {
         .trim_start()
         .strip_prefix("from")?
         .trim_start();
-    let spec = tail.strip_prefix('"')?.split('"').next()?;
+    // (Either quote: `from "./x"` or `from './x'`.)
+    let quote = tail.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+    let spec = tail[1..].split(quote).next()?;
     let path = module_path(spec, dir)?;
     let src = std::fs::read_to_string(&path).ok()?;
     let (m, _) = ppl_syntax::parse_module(FileId(0), &src);
