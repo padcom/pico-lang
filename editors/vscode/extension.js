@@ -2,6 +2,8 @@
 // files and restarts it on request or when its settings change.
 "use strict";
 const vscode = require("vscode");
+const fs = require("fs");
+const path = require("path");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 
 /** @type {LanguageClient | undefined} */
@@ -45,6 +47,35 @@ async function stop() {
   }
 }
 
+/**
+ * The project around `dir`: the nearest directory with a project.json, and its `entry` (the
+ * application's main file, spec §8.3) as an absolute path when it has one.
+ * @param {string} dir
+ * @returns {{ dir: string, entry?: string } | undefined}
+ */
+function projectOf(dir) {
+  for (let d = dir; ; d = path.dirname(d)) {
+    const manifest = path.join(d, "project.json");
+    if (fs.existsSync(manifest)) {
+      try {
+        const json = JSON.parse(fs.readFileSync(manifest, "utf8"));
+        return { dir: d, entry: typeof json.entry === "string" ? path.join(d, json.entry) : undefined };
+      } catch {
+        return { dir: d };
+      }
+    }
+    if (path.dirname(d) === d) return undefined;
+  }
+}
+
+/** The directory to start looking for the project in: the active file's, else the workspace's. */
+function startDir() {
+  const editor = vscode.window.activeTextEditor;
+  if (editor && editor.document.uri.scheme === "file") return path.dirname(editor.document.uri.fsPath);
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  return folder ? folder.uri.fsPath : undefined;
+}
+
 /** @param {vscode.ExtensionContext} context */
 async function activate(context) {
   // The debugger (spec §14.5): `ppl dap` builds the program and runs lldb-dap.
@@ -57,15 +88,46 @@ async function activate(context) {
       },
     }),
     vscode.debug.registerDebugConfigurationProvider("ppl", {
-      // F5 without a launch.json: debug the current file.
+      // F5 without a launch.json: the project's `entry` (its main file), else the current
+      // file.
       resolveDebugConfiguration(_folder, config) {
         if (!config.type && !config.request && !config.name) {
+          const dir = startDir();
+          const project = dir ? projectOf(dir) : undefined;
+          if (project?.entry) {
+            return { type: "ppl", request: "launch", name: "Debug the project", program: project.entry, cwd: project.dir };
+          }
           const editor = vscode.window.activeTextEditor;
           if (editor && editor.document.languageId === "ppl") {
             return { type: "ppl", request: "launch", name: "Debug the current ppl file", program: "${file}" };
           }
         }
         return config;
+      },
+    }),
+  );
+  // Run Build Task: `ppl build` in the project's directory (it builds the `entry`).
+  context.subscriptions.push(
+    vscode.tasks.registerTaskProvider("ppl", {
+      provideTasks() {
+        const dir = startDir();
+        const project = dir ? projectOf(dir) : undefined;
+        if (!project?.entry) return [];
+        const { command, args } = serverOptions();
+        const definition = { type: "ppl", command: "build" };
+        const task = new vscode.Task(
+          definition,
+          vscode.TaskScope.Workspace,
+          "build",
+          "ppl",
+          new vscode.ProcessExecution(command, [...args.slice(0, -1), "build"], { cwd: project.dir }),
+          [],
+        );
+        task.group = vscode.TaskGroup.Build;
+        return [task];
+      },
+      resolveTask(task) {
+        return task;
       },
     }),
   );

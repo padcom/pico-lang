@@ -16,7 +16,8 @@
   "activationEvents": [
     "onLanguage:ppl",
     "onDebugResolve:ppl",
-    "onDebugDynamicConfigurations:ppl"
+    "onDebugDynamicConfigurations:ppl",
+    "onCommand:workbench.action.tasks.runTask"
   ],
   "contributes": {
     "languages": [
@@ -103,7 +104,7 @@
             "properties": {
               "program": {
                 "type": "string",
-                "description": "The `.ppl` file to build and debug (or an executable).",
+                "description": "The `.ppl` file to build and debug, a project directory (its `entry`), or an executable.",
                 "default": "${file}"
               },
               "args": {
@@ -139,8 +140,8 @@
           {
             "type": "ppl",
             "request": "launch",
-            "name": "Debug the current ppl file",
-            "program": "${file}"
+            "name": "Debug the project",
+            "program": "${workspaceFolder}"
           }
         ],
         "configurationSnippets": [
@@ -155,6 +156,23 @@
             }
           }
         ]
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "ppl",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "build"
+            ],
+            "description": "The ppl command (`build`: the project's `entry`)."
+          }
+        }
       }
     ]
   },

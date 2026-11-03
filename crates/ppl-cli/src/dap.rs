@@ -177,6 +177,13 @@ fn write_formatters() -> std::io::Result<PathBuf> {
 /// Builds a `.ppl` `program` and points the launch at the executable; adds the formatters.
 fn prepare_launch(args: &mut Value, formatters: &Path) -> Result<(), String> {
     let cwd = args["cwd"].as_str().map(PathBuf::from);
+    // A directory (a project): its `entry` (spec §8.3).
+    if let Some(program) = args["program"].as_str()
+        && Path::new(program).is_dir()
+    {
+        let entry = ppl_driver::packages::entry_of(Path::new(program))?;
+        args["program"] = json!(entry.display().to_string());
+    }
     if let Some(program) = args["program"].as_str()
         && program.ends_with(".ppl")
     {

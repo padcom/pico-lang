@@ -38,6 +38,9 @@ struct Loader<'s> {
     js_names: Option<BTreeMap<String, BTreeSet<String>>>,
     /// The target's `target.os`.
     os: String,
+    /// When the entry is a test (`*.test.ppl`, `*.bench.ppl`): its package's directory, whose
+    /// files see its `devDependencies` (spec §8.3).
+    dev_root: Option<PathBuf>,
 }
 
 /// Loads the modules the entry (already parsed, in `dir`) imports.
@@ -82,7 +85,14 @@ fn load_pass(
         js_requests: BTreeMap::new(),
         js_names,
         os: os.to_string(),
+        dev_root: None,
     };
+    let name = file_name(l.sm, entry);
+    if name.ends_with(".test.ppl") || name.ends_with(".bench.ppl") {
+        l.dev_root = crate::packages::package_of(dir)
+            .and_then(|m| m.ok())
+            .map(|m| m.dir);
+    }
     l.modules.entry = Some(entry);
     if let Ok(p) = dir.join(file_name(l.sm, entry)).canonicalize() {
         l.by_path.insert(p, entry);
@@ -313,15 +323,18 @@ impl Loader<'_> {
         } else if let Some(rest) = spec.strip_prefix("std/") {
             stdlib_dir().join(rest)
         } else {
-            self.diags.push(
-                Diagnostic::error(
-                    codes::UNKNOWN_MODULE,
-                    format!("cannot find module `{spec}`"),
-                )
-                .primary(span, "not a relative path or `std/…`")
-                .note("packages from `project.json` aren't supported yet"),
-            );
-            return None;
+            // A package (spec §8.3): the dependency's root `index.ppl`.
+            match crate::packages::resolve(spec, &self.dirs[&from], self.dev_root.as_deref()) {
+                Ok(index) => index,
+                Err(why) => {
+                    self.diags.push(
+                        Diagnostic::error(codes::UNKNOWN_MODULE, format!("cannot import `{spec}`"))
+                            .primary(span, "not found")
+                            .note(why),
+                    );
+                    return None;
+                }
+            }
         };
         // `a/./b/../c` → `a/c`, for readable names in messages.
         let mut clean = PathBuf::new();

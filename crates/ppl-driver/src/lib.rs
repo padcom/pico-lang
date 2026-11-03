@@ -21,6 +21,8 @@ mod link;
 mod mingw;
 mod modules;
 mod musl;
+pub mod packages;
+pub mod semver;
 pub mod target;
 pub use ppl_codegen::export_symbol;
 /// What the WasmGC backend's "not supported yet" errors say (P8.7).

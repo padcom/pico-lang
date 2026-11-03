@@ -15,8 +15,11 @@
 
 ## Debugging
 
-Press F5 in a `.ppl` file (or add a `ppl` launch configuration: `program` is the `.ppl` file,
-also `args`, `cwd`, `env`, `stopOnEntry`). The extension starts `ppl dap`, which builds the
+Press F5: it debugs the `entry` of the `project.json` nearest the open file (an application's
+main file, `"entry": "src/main.ppl"`), or the open file when there's no project. A `ppl` launch
+configuration's `program` is a `.ppl` file, a project directory (its `entry`) or an executable
+(also `args`, `cwd`, `env`, `stopOnEntry`). Run Build Task offers `ppl: build`, which builds the
+project's `entry`. The extension starts `ppl dap`, which builds the
 program (a debug build, cached while nothing changes) and runs it under lldb-dap, so lldb must
 be installed (`lldb-dap`, or a versioned `lldb-dap-23` as apt.llvm.org installs it; Xcode's on
 macOS; `PPL_LLDB_DAP` names another). Breakpoints, stepping, the call stack and variables work;

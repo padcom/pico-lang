@@ -865,6 +865,10 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   debugger building the nearest project's `entry`.
 - **Done when**: a two-member workspace (an application using a library by name) builds and
   runs; tests for ranges, errors (no `index.ppl`, a sub-path, an unsatisfied range).
+- **Done**: `crates/ppl-driver/src/semver.rs`, `packages.rs` (manifest, `resolve`, `entry_of`),
+  the loader's package specifiers and `dev_root`; `ppl build`/`ppl run` without a file; the
+  extension's F5 and build task, `ppl dap` with a directory; tests
+  `crates/ppl-driver/tests/packages.rs`.
 
 #### P10.3b Git dependencies, the lockfile, offline builds
 - **Do**: git sources (tag/branch/rev) cloned by commit into the cache, `project.lock` (sources,

@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.3a: Manifest, package imports, workspaces, `entry`** (see PLAN; P10.3 is split into a–c; Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.3b: Git dependencies, the lockfile, offline builds** (see PLAN; P10.3 is split into a–c; the author should try F5 and Run Build Task on a project with `entry` in VS Code (`scripts/vscode-package.sh --install`); Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
@@ -312,7 +312,7 @@ Notes:
 - [x] P10.8b Variables
 - [x] P10.8c Debugging in VS Code
 - [x] P10.8d `ppl symbolize`
-- [ ] P10.3a Manifest, package imports, workspaces, `entry`
+- [x] P10.3a Manifest, package imports, workspaces, `entry`
 - [ ] P10.3b Git dependencies, the lockfile, offline builds
 - [ ] P10.3c Commands
 - [ ] P10.4 Registry
@@ -498,3 +498,4 @@ Notes:
 | 2026-11-03 | P10.8d | Release builds: DWARF split off (`link_split`: `app.dbg` + stripped `app`, same `--build-id`; macOS `dsymutil` + `strip -S`); runtime release traces `app+0xOFF` under `stack trace (build ID; …)` (`find_build_id`); `ppl symbolize trace [--debug]` (`symbolize.rs`, addr2line + object): build-ID check, inlined frames, ppl frames only, debug-build names. Test builds, runs, symbolizes, and rejects another build's debug file. Decision 283. |
 | 2026-11-03 | P10.8d | CI (macOS): the release trace named `<main>` (macOS executables keep a symbol table, `strip -S` too) and lost the inlined frames; release builds now define `ppl_release_trace` (the runtime's weak default is 0), so ppl frames print as offsets there as well. Cross builds for macOS: the runtime declares the Mach-O layouts it reads (no `<mach-o/…>` headers there). |
 | 2026-11-03 | spec | Packages (§8.3, decisions 284–286, the author's answers): imports only by name (`scope/name` → its `index.ppl`), manifest with `entry` (build/run/VS Code), git sources by commit in the cache, JSON lockfile with sha256 hashes, unification by major, offline builds, workspaces, `devDependencies` for tests, `ppl init/add/remove/fetch`. P10.3 split into a–c. |
+| 2026-11-03 | P10.3a | `ppl_driver::semver` (Cargo-style ranges, `compat_key`), `ppl_driver::packages` (manifest parsing and validation, `resolve`: the importing file's package → dependency → workspace member by name and range → its `index.ppl`; errors for sub-paths, no `index.ppl`, unsatisfied ranges, non-dependencies, devDependencies outside tests; `entry_of`). Loader: package specifiers, `dev_root` (a test entry's package sees its devDependencies). `ppl build`/`ppl run` without a file build `entry`. VS Code: F5 debugs the nearest project's `entry`, Run Build Task `ppl: build`, `ppl dap` takes a project directory; import completion for packages. Git dependencies report "P10.3b". |

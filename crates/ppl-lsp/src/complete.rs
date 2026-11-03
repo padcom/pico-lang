@@ -563,6 +563,10 @@ fn module_path(spec: &str, dir: &Path) -> Option<std::path::PathBuf> {
         ppl_driver::stdlib_dir().join(rest)
     } else if spec.starts_with("./") || spec.starts_with("../") {
         dir.join(spec)
+    } else if ppl_driver::packages::is_package_name(spec) {
+        // A package: its `index.ppl` (spec §8.3).
+        let index = ppl_driver::packages::resolve(spec, dir, None).ok()?;
+        return Some(index.with_extension("ppl")).filter(|p| p.is_file());
     } else {
         return None;
     };

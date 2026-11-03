@@ -19,8 +19,8 @@ struct Cli {
 enum Command {
     /// Compile a program to a native executable.
     Build {
-        /// The entry `.ppl` file.
-        file: PathBuf,
+        /// The entry `.ppl` file (default: the project's `entry`, from `project.json`).
+        file: Option<PathBuf>,
         /// Where to write the executable (default: the file name without `.ppl`).
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -43,8 +43,8 @@ enum Command {
     },
     /// Compile and run a program.
     Run {
-        /// The entry `.ppl` file.
-        file: PathBuf,
+        /// The entry `.ppl` file (default: the project's `entry`, from `project.json`).
+        file: Option<PathBuf>,
         /// Run in the MIR interpreter instead of building a native binary.
         #[arg(long)]
         interp: bool,
@@ -139,12 +139,14 @@ fn main() -> ExitCode {
             target,
             lib: Some(kind),
             ..
-        }) if emit.is_none() => build_lib(
-            &file,
-            output,
-            ppl_driver::BuildOptions { release, target },
-            kind,
-        ),
+        }) if emit.is_none() => with_entry(file, |file| {
+            build_lib(
+                &file,
+                output,
+                ppl_driver::BuildOptions { release, target },
+                kind,
+            )
+        }),
         Some(Command::Build {
             file,
             output,
@@ -153,13 +155,15 @@ fn main() -> ExitCode {
             target,
             force,
             ..
-        }) => build(
-            &file,
-            output,
-            ppl_driver::BuildOptions { release, target },
-            emit.as_deref(),
-            force,
-        ),
+        }) => with_entry(file, |file| {
+            build(
+                &file,
+                output,
+                ppl_driver::BuildOptions { release, target },
+                emit.as_deref(),
+                force,
+            )
+        }),
         Some(Command::Fmt { paths, check }) => fmt(&paths, check),
         Some(Command::Lint { paths }) => lint(&paths),
         Some(Command::Dap) => dap::run(),
@@ -176,15 +180,17 @@ fn main() -> ExitCode {
             interp,
             release,
             args,
-        }) => run(
-            &file,
-            interp,
-            ppl_driver::BuildOptions {
-                release,
-                ..Default::default()
-            },
-            &args,
-        ),
+        }) => with_entry(file, |file| {
+            run(
+                &file,
+                interp,
+                ppl_driver::BuildOptions {
+                    release,
+                    ..Default::default()
+                },
+                &args,
+            )
+        }),
         Some(Command::Test {
             paths,
             filter,
@@ -577,6 +583,23 @@ fn fmt(paths: &[PathBuf], check: bool) -> ExitCode {
         println!("formatted {unformatted} of {} file(s)", files.len());
     }
     ExitCode::SUCCESS
+}
+
+/// Runs `f` on the file given, or else on the project's `entry` (spec §8.3).
+fn with_entry(file: Option<PathBuf>, f: impl FnOnce(PathBuf) -> ExitCode) -> ExitCode {
+    match file {
+        Some(file) => f(file),
+        None => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            match ppl_driver::packages::entry_of(&cwd) {
+                Ok(entry) => f(entry),
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+    }
 }
 
 fn lint(paths: &[PathBuf]) -> ExitCode {
