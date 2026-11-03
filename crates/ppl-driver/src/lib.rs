@@ -133,7 +133,47 @@ pub fn check_source_recovering(
     check(name.into(), text.into(), dir, opts, true)
 }
 
+/// With `PPL_TIMINGS=1`: how long each front-end stage takes, on stderr.
+struct Timings {
+    on: bool,
+    last: std::time::Instant,
+    start: std::time::Instant,
+}
+
+impl Timings {
+    fn new() -> Timings {
+        let now = std::time::Instant::now();
+        Timings {
+            on: std::env::var_os("PPL_TIMINGS").is_some_and(|v| v == "1"),
+            last: now,
+            start: now,
+        }
+    }
+
+    fn stage(&mut self, name: &str) {
+        if self.on {
+            let now = std::time::Instant::now();
+            eprintln!(
+                "[timings] {name:<10} {:>8.1} ms",
+                (now - self.last).as_secs_f64() * 1000.0
+            );
+            self.last = now;
+        }
+    }
+
+    fn total(&self) {
+        if self.on {
+            eprintln!(
+                "[timings] {:<10} {:>8.1} ms",
+                "total",
+                self.start.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+    }
+}
+
 fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bool) -> Checked {
+    let mut t = Timings::new();
     let mut sm = SourceMap::new();
     let file = sm.add(name, text);
     let (mut module, mut diags) = ppl_syntax::parse_module(file, &sm.file(file).text);
@@ -148,6 +188,7 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
         diags.append(&mut d);
         stmts.extend(prelude.stmts);
     }
+    t.stage("parse");
     let span = module.span;
     let entry = std::mem::replace(
         &mut module,
@@ -163,6 +204,7 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
     module.stmts = stmts;
     let mut modules = loaded.modules;
     modules.prelude = prelude_files;
+    t.stage("imports");
     let mut hir = None;
     let mut types = None;
     let mut mir = None;
@@ -175,15 +217,19 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
         diags.append(&mut expansion.diags);
         comptime_output = std::mem::take(&mut expansion.log);
     }
+    t.stage("decorators");
     if recover || !diags.iter().any(Diagnostic::is_error) {
         let (program, mut d) = ppl_sema::resolve_modules(&module, file, &modules);
         diags.append(&mut d);
+        t.stage("resolve");
         if recover || !diags.iter().any(Diagnostic::is_error) {
-            let (t, mut d) = ppl_sema::check(&program);
+            let (ty, mut d) = ppl_sema::check(&program);
             diags.append(&mut d);
+            t.stage("typecheck");
             if !recover && !diags.iter().any(Diagnostic::is_error) {
-                let (mut m, mut d) = ppl_mir::lower(&program, &t, sm.file(file), file);
+                let (mut m, mut d) = ppl_mir::lower(&program, &ty, sm.file(file), file);
                 diags.append(&mut d);
+                t.stage("mir");
                 if !diags.iter().any(Diagnostic::is_error) {
                     let (mut d, out) = ppl_interp::comptime::run(&mut m, &cfg);
                     diags.append(&mut d);
@@ -192,13 +238,15 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
                     if !diags.iter().any(Diagnostic::is_error) {
                         diags.append(&mut ppl_mir::fold::fold_program(&mut m));
                     }
+                    t.stage("comptime");
                 }
                 mir = Some(m);
             }
-            types = Some(t);
+            types = Some(ty);
         }
         hir = Some(program);
     }
+    t.total();
     expansion.annotate(&mut diags);
     // Report in source order, whichever pass found each problem.
     diags.sort_by_key(|d| d.main_span().map(|s| (s.file, s.start)));

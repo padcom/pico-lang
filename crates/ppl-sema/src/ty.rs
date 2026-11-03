@@ -307,8 +307,32 @@ impl Ty {
         }
     }
 
+    /// Whether [`Ty::subst`] would change this type: a parameter of `owner` occurs where it
+    /// substitutes (unlike [`Ty::has_params`], also under `immutable`).
+    fn substitutes(&self, owner: u32) -> bool {
+        match self {
+            Ty::Param(o, _, _) => *o == owner,
+            Ty::Array(t) | Ty::Fixed(t, _) | Ty::Nullable(t) | Ty::Ref(t) | Ty::Immutable(t) => {
+                t.substitutes(owner)
+            }
+            Ty::FixedN(t, n) => t.substitutes(owner) || n.substitutes(owner),
+            Ty::Tuple(ts) => ts.iter().any(|t| t.substitutes(owner)),
+            Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) => {
+                a.iter().any(|t| t.substitutes(owner))
+            }
+            Ty::Fn(ps, r, ts) => {
+                ps.iter().chain(ts.iter()).any(|t| t.substitutes(owner)) || r.substitutes(owner)
+            }
+            _ => false,
+        }
+    }
+
     /// Replaces the type parameters of `owner` with `args`.
     pub fn subst(&self, owner: u32, args: &[Ty]) -> Ty {
+        // (Most types have none: cloning shares their `Arc`s instead of rebuilding them.)
+        if !self.substitutes(owner) {
+            return self.clone();
+        }
         let s = |t: &Ty| t.subst(owner, args);
         match self {
             Ty::Param(o, i, _) if *o == owner => {

@@ -22,7 +22,7 @@ pub fn lower(
 ) -> (mir::Program, Vec<Diagnostic>) {
     let mut cx = Cx {
         program,
-        types: std::borrow::Cow::Borrowed(types),
+        types: TypesRef::Borrowed(types),
         file,
         file_id,
         diags: Vec::new(),
@@ -92,21 +92,32 @@ pub fn lower(
     // Monomorphization: each instance is the generic body seen through substituted types.
     // Show functions may need more instances and the other way round.
     let mut next = 0;
+    let mut substituted: Vec<(Subst, std::rc::Rc<Types>)> = Vec::new();
     let mut synth_fns: Vec<mir::Function> = Vec::new();
     while next < cx.instances.len() || synth_fns.len() < cx.synths.len() {
         if next == cx.instances.len() {
-            cx.types = std::borrow::Cow::Borrowed(types);
+            cx.types = TypesRef::Borrowed(types);
             cx.cur_subst = Vec::new();
             let (what, id) = cx.synths[synth_fns.len()].clone();
             synth_fns.push(cx.synth_function(&what, id));
             continue;
         }
         let (id, subst) = cx.instances[next].clone();
-        let mut t = types.clone();
-        for (owner, args) in &subst {
-            t = t.substituted(*owner, args);
-        }
-        cx.types = std::borrow::Cow::Owned(t);
+        // Instances with the same substitution (the methods of `Map<string, i64>`) share the
+        // substituted tables: building them is most of lowering's time otherwise.
+        let shared = match substituted.iter().find(|(s, _)| *s == subst) {
+            Some((_, t)) => t.clone(),
+            None => {
+                let mut t = types.clone();
+                for (owner, args) in &subst {
+                    t = t.substituted(*owner, args);
+                }
+                let t = std::rc::Rc::new(t);
+                substituted.push((subst.clone(), t.clone()));
+                t
+            }
+        };
+        cx.types = TypesRef::Shared(shared);
         cx.cur_subst = subst.clone();
         cx.cur_mir = FnId((program.fns.len() + next) as u32);
         let mut f = cx.function(id);
@@ -132,7 +143,7 @@ pub fn lower(
         fns.push(f);
         next += 1;
     }
-    cx.types = std::borrow::Cow::Borrowed(types);
+    cx.types = TypesRef::Borrowed(types);
     cx.cur_subst = Vec::new();
     let mut worker_entries: Vec<FnId> = (0..worker_fns.len())
         .map(|i| FnId((fns.len() + i) as u32))
@@ -623,11 +634,29 @@ fn in_generic_context(program: &hir::Program, id: FnId) -> bool {
 /// Type arguments for owners of type parameters (`Ty::Param`'s first field).
 type Subst = Vec<(u32, Vec<Ty>)>;
 
+/// The type tables lowering reads: the program's, or a generic instance's substituted copy
+/// (shared by the instances with the same substitution).
+enum TypesRef<'a> {
+    Borrowed(&'a Types),
+    Shared(std::rc::Rc<Types>),
+}
+
+impl std::ops::Deref for TypesRef<'_> {
+    type Target = Types;
+
+    fn deref(&self) -> &Types {
+        match self {
+            TypesRef::Borrowed(t) => t,
+            TypesRef::Shared(t) => t,
+        }
+    }
+}
+
 struct Cx<'a> {
     program: &'a hir::Program,
     /// The type checker's results; while lowering a generic instance, a copy with its type
     /// arguments substituted.
-    types: std::borrow::Cow<'a, Types>,
+    types: TypesRef<'a>,
     /// Generic instances: a function and the substitutions it's seen through (its own type
     /// parameters, and its type's for methods of generic types); instance `i` is MIR
     /// function `program.fns.len() + i`.
