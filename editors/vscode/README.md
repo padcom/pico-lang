@@ -7,7 +7,8 @@
 - **The language server** (`ppl lsp`): errors and warnings as you type (also those in imported
   modules), Format Document (the `ppl fmt` formatter with `project.json`'s options), hover
   (the type or signature and the doc comment) and Go to Definition (also into imported modules
-  and the core library), also in code with errors; completion and rename follow (PLAN P10.6d).
+  and the core library), also in code with errors, and completion (names in scope, members
+  after `.`, the names a module exports inside `import { … }`). Rename follows (PLAN P10.6d2).
 
 ## Settings
 

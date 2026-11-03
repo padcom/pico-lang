@@ -33,6 +33,8 @@ pub struct Index {
     pub text: String,
     /// Sorted by start; the innermost name wins where they nest.
     pub refs: Vec<Ref>,
+    /// The hover text of every declaration the program has (all files), by its name span.
+    pub decls: HashMap<Span, String>,
 }
 
 impl Index {
@@ -103,11 +105,13 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
         }
     }
     refs.sort_by_key(|r| (r.start, r.end));
+    let decls = std::mem::take(&mut b.decls);
     Index {
         sm,
         file,
         text,
         refs,
+        decls,
     }
 }
 
@@ -216,68 +220,8 @@ impl Builder<'_> {
         }
     }
 
-    /// `function name(a: A, b: B): R`, or `Class.name(…)` for methods.
     fn fn_sig(&self, fid: hir::FnId) -> String {
-        let f = &self.p.fns[fid.0 as usize];
-        let sig = self.t.sigs.get(fid.0 as usize);
-        let mut params: Vec<String> = f
-            .params
-            .iter()
-            .enumerate()
-            .map(|(i, l)| {
-                let name = &f.local(*l).name;
-                let rest = if f.rest && i + 1 == f.params.len() {
-                    "..."
-                } else {
-                    ""
-                };
-                match sig.and_then(|s| s.params.get(i)) {
-                    Some(t) => format!("{rest}{name}: {t}"),
-                    None => format!("{rest}{name}"),
-                }
-            })
-            .collect();
-        let mut name = f.name.clone();
-        let mut prefix = "function ";
-        // Methods of built-in types written in ppl: `__Array_map(self, f)` is `Array.map(f)`.
-        if let Some((ty, m)) = f
-            .name
-            .strip_prefix("__")
-            .and_then(|r| r.split_once('_'))
-            .filter(|(ty, m)| {
-                self.p
-                    .extensions
-                    .contains_key(&(ty.to_string(), m.to_string()))
-            })
-        {
-            name = format!("{ty}.{m}");
-            prefix = "(method) ";
-            if !params.is_empty() {
-                params.remove(0);
-            }
-        } else if let Some(sid) = f.this.map(|(_, s)| s).or(f.owner) {
-            let owner = &self.p.structs[sid.0 as usize].name;
-            if !name.starts_with(&format!("{owner}.")) {
-                name = format!("{owner}.{name}");
-            }
-            prefix = "(method) ";
-        }
-        let mut s = format!("{prefix}{name}");
-        if !f.generics.is_empty() {
-            let g: Vec<&str> = f.generics.iter().map(|g| g.name.as_str()).collect();
-            s.push_str(&format!("<{}>", g.join(", ")));
-        }
-        s.push_str(&format!("({})", params.join(", ")));
-        if let Some(sig) = sig {
-            s.push_str(&format!(": {}", sig.ret));
-        }
-        if let Some(ts) = self.t.fn_throws.get(fid.0 as usize)
-            && !ts.is_empty()
-        {
-            let ts: Vec<String> = ts.iter().map(Ty::to_string).collect();
-            s.push_str(&format!(" throws {}", ts.join(" | ")));
-        }
-        s
+        fn_sig(self.p, self.t, fid)
     }
 
     fn fn_span(&self, f: hir::FnId) -> Span {
@@ -391,6 +335,66 @@ impl Builder<'_> {
     }
 }
 
+/// `function name(a: A, b: B): R`, or `Class.name(…)` for methods.
+pub(crate) fn fn_sig(p: &Program, t: &Types, fid: hir::FnId) -> String {
+    let f = &p.fns[fid.0 as usize];
+    let sig = t.sigs.get(fid.0 as usize);
+    let mut params: Vec<String> = f
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let name = &f.local(*l).name;
+            let rest = if f.rest && i + 1 == f.params.len() {
+                "..."
+            } else {
+                ""
+            };
+            match sig.and_then(|s| s.params.get(i)) {
+                Some(t) => format!("{rest}{name}: {t}"),
+                None => format!("{rest}{name}"),
+            }
+        })
+        .collect();
+    let mut name = f.name.clone();
+    let mut prefix = "function ";
+    // Methods of built-in types written in ppl: `__Array_map(self, f)` is `Array.map(f)`.
+    if let Some((ty, m)) = f
+        .name
+        .strip_prefix("__")
+        .and_then(|r| r.split_once('_'))
+        .filter(|(ty, m)| p.extensions.contains_key(&(ty.to_string(), m.to_string())))
+    {
+        name = format!("{ty}.{m}");
+        prefix = "(method) ";
+        if !params.is_empty() {
+            params.remove(0);
+        }
+    } else if let Some(sid) = f.this.map(|(_, s)| s).or(f.owner) {
+        let owner = &p.structs[sid.0 as usize].name;
+        if !name.starts_with(&format!("{owner}.")) {
+            name = format!("{owner}.{name}");
+        }
+        prefix = "(method) ";
+    }
+    let mut s = format!("{prefix}{name}");
+    if !f.generics.is_empty() {
+        let g: Vec<&str> = f.generics.iter().map(|g| g.name.as_str()).collect();
+        s.push_str(&format!("<{}>", g.join(", ")));
+    }
+    s.push_str(&format!("({})", params.join(", ")));
+    if let Some(sig) = sig {
+        s.push_str(&format!(": {}", sig.ret));
+    }
+    if let Some(ts) = t.fn_throws.get(fid.0 as usize)
+        && !ts.is_empty()
+    {
+        let ts: Vec<String> = ts.iter().map(Ty::to_string).collect();
+        s.push_str(&format!(" throws {}", ts.join(" | ")));
+    }
+    s
+}
+
 /// A use's text names its declaration: the same name, or a built-in type's method written
 /// in ppl (`xs.map` → `__Array_map`).
 fn same_name(at: &str, decl: &str) -> bool {
@@ -410,7 +414,7 @@ fn binding(kind: &str, name: &str, ty: Option<&Ty>) -> String {
 
 /// The struct, class or interface a value of type `t` is (through `?`, `immutable` and
 /// references).
-fn struct_of(t: &Ty) -> Option<StructId> {
+pub(crate) fn struct_of(t: &Ty) -> Option<StructId> {
     match t {
         Ty::Struct(s, ..) | Ty::Class(s, ..) | Ty::Iface(s, ..) => Some(*s),
         Ty::Nullable(t) | Ty::Immutable(t) | Ty::Ref(t) => struct_of(t),

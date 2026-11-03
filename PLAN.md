@@ -910,6 +910,7 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   with its kind and signature. Completion runs the recovering front end on the text with a
   placeholder name at the cursor.
 - **Done when**: protocol tests, and a manual check in VS Code.
+- **Done (decision 274)**: `crates/ppl-lsp/src/complete.rs`.
 
 #### P10.6d2 Rename and document symbols
 - **Do**: rename (all uses of a local, a member or a top-level declaration, across the

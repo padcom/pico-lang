@@ -9,8 +9,10 @@
 //! index ([`index`]), built by each check: when errors stop the normal check before types, a
 //! recovering pass (`ppl_driver::check_source_recovering`) indexes what it makes of the code
 //! (only the normal check's diagnostics are shown). If that pass fails too, the document keeps
-//! its last index.
+//! its last index. Completion ([`complete`]) checks the text again with a placeholder name at
+//! the cursor.
 
+mod complete;
 mod index;
 mod uri;
 
@@ -141,6 +143,7 @@ impl Server {
                         "documentFormattingProvider": true,
                         "hoverProvider": true,
                         "definitionProvider": true,
+                        "completionProvider": { "triggerCharacters": ["."] },
                     },
                     "serverInfo": { "name": "ppl", "version": env!("CARGO_PKG_VERSION") },
                 },
@@ -209,6 +212,19 @@ impl Server {
                         None => Value::Null,
                     },
                 };
+                send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+            }
+            ("textDocument/completion", Some(id)) => {
+                let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+                let pos = &params["position"];
+                let items = self.docs.get(uri).and_then(|text| {
+                    let line = pos["line"].as_u64()? as usize;
+                    let character = pos["character"].as_u64()? as usize;
+                    let offset = offset_of(text, line, character)? as usize;
+                    let path = uri_to_path(uri).unwrap_or_else(|| PathBuf::from("untitled.ppl"));
+                    Some(complete::complete(&path, text, offset))
+                });
+                let result = json!({ "isIncomplete": false, "items": items.unwrap_or_default() });
                 send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
             }
             (_, Some(id)) if !method.is_empty() => send(json!({

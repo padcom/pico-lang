@@ -42,7 +42,7 @@ fn initialize_and_shutdown() {
     let out = session(vec![
         init(),
         json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-        json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {} }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": {} }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "shutdown" }),
         json!({ "jsonrpc": "2.0", "method": "exit" }),
     ]);
@@ -555,4 +555,147 @@ fn recovery_never_panics() {
             cut += 151;
         }
     }
+}
+
+/// Completion at `‸` in `text` (the marker is removed): the items' labels, and the items.
+fn complete_at(name: &str, text: &str, files: &[(&str, &str)]) -> (Vec<String>, Vec<Value>) {
+    let dir = tmp(name);
+    for (f, t) in files {
+        std::fs::write(dir.join(f), t).unwrap();
+    }
+    let at = text.find('‸').expect("a cursor");
+    let text = text.replace('‸', "");
+    let line = text[..at].matches('\n').count();
+    let character: usize = text[text[..at].rfind('\n').map_or(0, |i| i + 1)..at]
+        .chars()
+        .map(char::len_utf16)
+        .sum();
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let out = session(vec![
+        init(),
+        open(&uri, &text),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {
+            "textDocument": { "uri": uri }, "position": { "line": line, "character": character } } }),
+    ]);
+    let r = response(&out, 2);
+    assert_eq!(r["isIncomplete"], false);
+    let items = r["items"].as_array().unwrap().clone();
+    let labels = items
+        .iter()
+        .map(|i| i["label"].as_str().unwrap().to_string())
+        .collect();
+    (labels, items)
+}
+
+fn item<'a>(items: &'a [Value], label: &str) -> &'a Value {
+    items
+        .iter()
+        .find(|i| i["label"] == label)
+        .unwrap_or_else(|| panic!("no {label}: {items:#?}"))
+}
+
+const CLASSES: &str = "struct Point {\n  x: i32\n  /// The vertical position.\n  y: i32\n}\n\nclass Counter {\n  private secret = 1\n  public static zero(): Counter { new Counter() }\n  public get double(): i64 { secret * 2 }\n  public bump(by: i64): i64 {\n    secret += by\n    secret\n  }\n}\n\nenum Color { Red, Green }\n\nconst p = Point { x: 1, y: 2 }\nconst c = new Counter()\nconst xs = [1, 2]\nconst s = \"hi\"\n";
+
+#[test]
+fn completes_members() {
+    let (l, items) = complete_at("members1", &format!("{CLASSES}p.‸\nprintln(1)\n"), &[]);
+    assert_eq!(l, ["x", "y"]);
+    let y = item(&items, "y");
+    assert_eq!(y["kind"], 5);
+    assert_eq!(y["detail"], "(field) Point.y: i32");
+    assert_eq!(y["documentation"]["value"], "The vertical position.");
+
+    // A partly typed name: the client filters, the server lists them all.
+    let (l, items) = complete_at("members2", &format!("{CLASSES}println(c.bu‸)\n"), &[]);
+    assert_eq!(
+        l,
+        ["double", "bump"],
+        "private members aren't offered outside the class"
+    );
+    assert_eq!(item(&items, "bump")["kind"], 2);
+    assert_eq!(
+        item(&items, "bump")["detail"],
+        "(method) Counter.bump(by: i64): i64"
+    );
+    assert_eq!(item(&items, "double")["kind"], 10);
+
+    let inside = CLASSES.replace("    secret += by\n", "    this.‸\n    secret += by\n");
+    let (l, _) = complete_at("members3", &inside, &[]);
+    assert!(l.contains(&"secret".to_string()), "{l:?}");
+
+    let (l, items) = complete_at("members4", &format!("{CLASSES}xs.‸\n"), &[]);
+    for m in ["length", "push", "pop", "map", "filter"] {
+        assert!(l.contains(&m.to_string()), "{m}: {l:?}");
+    }
+    assert!(
+        item(&items, "map")["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("(method) Array.map")
+    );
+    let (l, _) = complete_at("members5", &format!("{CLASSES}s.‸\n"), &[]);
+    for m in ["length", "slice", "includes", "toString"] {
+        assert!(l.contains(&m.to_string()), "{m}: {l:?}");
+    }
+}
+
+#[test]
+fn completes_statics_and_variants() {
+    let (l, _) = complete_at("statics", &format!("{CLASSES}Counter.‸\n"), &[]);
+    assert_eq!(l, ["zero"]);
+    let (l, items) = complete_at("variants", &format!("{CLASSES}const k = Color.‸\n"), &[]);
+    assert_eq!(l, ["Red", "Green"]);
+    assert_eq!(item(&items, "Red")["kind"], 20);
+}
+
+#[test]
+fn completes_names_in_scope() {
+    let geo = "export struct Vec2 {\n  x: i32\n  y: i32\n}\n/// The dot product.\nexport function dot(a: Vec2, b: Vec2): i32 { a.x * b.x + a.y * b.y }\n";
+    let text = "import { dot } from \"./geo\"\nimport * as geo from \"./geo\"\n\n/** Doubles. */\nfunction twice(n: i32): i32 { n * 2 }\n\nfunction f(n: i32): i32 {\n  const before = n\n  if (n > 0) {\n    const inner = 1\n  }\n  ‸\n  const after = 2\n  before\n}\nconst top = 1\n";
+    let (l, items) = complete_at("scope", text, &[("geo.ppl", geo)]);
+    let has = |n: &str| l.iter().any(|x| x == n);
+    for n in [
+        "n", "before", "twice", "f", "top", "dot", "geo", "Error", "println", "i32", "const",
+        "return",
+    ] {
+        assert!(has(n), "{n}: {l:?}");
+    }
+    for n in ["inner", "after", "__ppl_cursor"] {
+        assert!(!has(n), "{n} isn't in scope: {l:?}");
+    }
+    assert!(!l.iter().any(|x| x.starts_with("__")), "{l:?}");
+    // Nearest first: the locals come before the file's declarations.
+    let pos = |n: &str| l.iter().position(|x| x == n).unwrap();
+    assert!(pos("before") < pos("twice") && pos("twice") < pos("Error"));
+    assert_eq!(item(&items, "before")["kind"], 21);
+    assert_eq!(item(&items, "n")["kind"], 6);
+    assert_eq!(
+        item(&items, "twice")["detail"],
+        "function twice(n: i32): i32"
+    );
+    assert_eq!(item(&items, "twice")["documentation"]["value"], "Doubles.");
+    assert_eq!(
+        item(&items, "dot")["documentation"]["value"],
+        "The dot product."
+    );
+    assert_eq!(item(&items, "geo")["kind"], 9);
+    assert_eq!(item(&items, "Error")["kind"], 7);
+}
+
+#[test]
+fn completes_imported_names() {
+    let geo = "export struct Vec2 {\n  x: i32\n  y: i32\n}\nexport function dot(a: Vec2, b: Vec2): i32 { a.x * b.x }\nfunction helper(): i32 { 1 }\nexport const ORIGIN = 0\n";
+    let (l, items) = complete_at(
+        "imports",
+        "import { d‸ } from \"./geo\"\n",
+        &[("geo.ppl", geo)],
+    );
+    assert_eq!(l, ["Vec2", "dot", "ORIGIN"]);
+    assert_eq!(
+        item(&items, "dot")["detail"],
+        "function dot(a: Vec2, b: Vec2): i32 { a.x * b.x }"
+    );
+    assert_eq!(item(&items, "Vec2")["kind"], 22);
+    let (l, _) = complete_at("imports_std", "import { ‸ } from \"std/path\"\n", &[]);
+    assert!(l.iter().any(|x| x == "join"), "{l:?}");
 }
