@@ -822,7 +822,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 **Order** (the author's, 2026-11-03): first what leads to the VS Code integration, then debugging
 (which adds debugging in VS Code), then the rest, release packaging last:
-P10.6a → P10.6b → P10.6c1 → P10.6c2 → P10.6d → P10.2 → P10.5 → P10.8 → P10.3 → P10.4 → P10.7 → P10.9 →
+P10.6a → P10.6b → P10.6c1 → P10.6c2 → P10.6d1 → P10.6d2 → P10.2 → P10.5 → P10.8 → P10.3 → P10.4 → P10.7 → P10.9 →
 P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 
 ### P10.1 Formatter
@@ -900,9 +900,21 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   the normal check stops before types; the compiler's pipeline is unchanged.
 
 #### P10.6d Completion and rename
-- **Do**: completion (scope names, members after `.`, imports' names, keywords), rename (all
-  uses of a local, a member or a top-level declaration, across the project's modules),
-  document symbols.
+- Split into two slices:
+
+#### P10.6d1 Completion
+- **Do**: `textDocument/completion` (trigger `.`): names in scope at the cursor (locals,
+  parameters, the file's top-level declarations, imported names, the core library, built-in
+  types and functions, keywords), members after `.` (fields, methods, getters; the methods of
+  built-in types), and the exported names of the module inside `import { … } from "…"`; each
+  with its kind and signature. Completion runs the recovering front end on the text with a
+  placeholder name at the cursor.
+- **Done when**: protocol tests, and a manual check in VS Code.
+
+#### P10.6d2 Rename and document symbols
+- **Do**: rename (all uses of a local, a member or a top-level declaration, across the
+  project's modules, also those that import the renamed one; `prepareRename` refuses the core
+  library and built-ins; the new name must be an identifier), document symbols (the outline).
 - **Done when**: protocol tests, and a manual check in VS Code.
 
 ### P10.7 REPL and JIT

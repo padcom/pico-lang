@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.6d: Completion and rename** (see PLAN). The author should try hover and Go to Definition in a file with errors in VS Code (`scripts/vscode-package.sh --install`, reload). Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.6d1: Completion** (see PLAN; P10.6d is split into d1 and d2). The author should try hover and Go to Definition in a file with errors in VS Code (`scripts/vscode-package.sh --install`, reload). Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -300,7 +300,8 @@ Notes:
 - [x] P10.6b `ppl lsp`: diagnostics and formatting
 - [x] P10.6c1 Symbol index, hover and go-to-definition
 - [x] P10.6c2 Error recovery for the language server (manual check in VS Code pending)
-- [ ] P10.6d Completion and rename
+- [ ] P10.6d1 Completion
+- [ ] P10.6d2 Rename and document symbols
 - [ ] P10.2 Lint
 - [ ] P10.5 Incremental compilation
 - [ ] P10.8 Debugging
@@ -461,3 +462,4 @@ Notes:
 | 2026-11-03 | P10.6c1 | Symbol index in `ppl-lsp` (`index.rs`) from the HIR, `Types` and the resolver's new `Program::name_refs`; `textDocument/hover` (signature + doc comment) and `textDocument/definition` (across modules; the core library opens the bundled stdlib file or a read-only temp copy); a document with errors keeps its last index. Protocol tests: hover, definition, modules and prelude, stale index, UTF-16, embedded copies. Decision 272. |
 | 2026-11-03 | P10.6c1 | Manual check: hover and Go to Definition confirmed by the author in VS Code. |
 | 2026-11-03 | P10.6c2 | `check_source_recovering` (resolve and type check past errors, no MIR) feeds the index when the normal check stops early; diagnostics unchanged. Fuzzed ~6000 truncated/cut fixtures: no panics. Constructors' hidden `this` no longer indexed; unresolved types show as `unknown`. Protocol tests with syntax, name and type errors; `recovery_never_panics`. Decision 273. |
+| 2026-11-03 | plan | P10.6d split into d1 (completion) and d2 (rename, document symbols). |
