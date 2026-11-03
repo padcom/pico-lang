@@ -97,7 +97,141 @@ export default async function init(options = {}) {
     }
     return String(x);
   };
+  // Format specs: `ppl_rt.c`'s `ppl_fmt_*` (spec fields as `PplFmt`).
+  const spec = (fill, align, sign, alt, zero, width, prec, kind) => ({ fill, align, sign, alt, zero, width, prec, kind });
+  /** Shortest round-tripping digits of `a` > 0 and its decimal exponent `n` (a = 0.d… × 10^n). */
+  const shortest = (a, isF32) => {
+    let x = a;
+    if (isF32) {
+      for (let k = 1; k <= 9; k++) {
+        const t = Number(a.toPrecision(k));
+        if (Math.fround(t) === a) {
+          x = t;
+          break;
+        }
+      }
+    }
+    const [m, e] = x.toExponential().split("e");
+    return { digits: m.replace(".", ""), n: Number(e) + 1 };
+  };
+  const shortestFixed = (a, isF32) => {
+    if (a === 0) return "0";
+    const { digits, n } = shortest(a, isF32);
+    const k = digits.length;
+    if (n <= 0) return "0." + "0".repeat(-n) + digits;
+    if (n >= k) return digits + "0".repeat(n - k);
+    return digits.slice(0, n) + "." + digits.slice(n);
+  };
+  /** `toFixed` as C's `%.*f`: an exact tie rounds to even (JavaScript rounds it up). */
+  const fixed = (a, p) => {
+    const s = a.toFixed(p);
+    if (p > 80) return s;
+    const longer = a.toFixed(Math.min(100, p + 20));
+    const tail = longer.slice(longer.length - 20);
+    if (tail[0] !== "5" || !/^50*$/.test(tail)) return s;
+    // A tie: the digits kept are `longer` cut before the 5; round up only if the last is odd.
+    const kept = longer.slice(0, longer.length - 20).replace(/\.$/, "");
+    const last = kept.replace(".", "").slice(-1);
+    return Number(last) % 2 === 0 ? kept : s;
+  };
+  const expForm = (s) => {
+    const [m, e] = s.split("e");
+    return [m, Number(e)];
+  };
+  const floatBody = (a, isF32, f) => {
+    const p = f.prec;
+    switch (f.kind) {
+      case 8:
+        return p >= 0 ? fixed(a, p) : shortestFixed(a, isF32);
+      case 6:
+      case 7: {
+        const E = f.kind === 7 ? "E" : "e";
+        if (p >= 0) {
+          const [m, e] = expForm(a.toExponential(p));
+          return `${m}${E}${e}`;
+        }
+        if (a === 0) return `0${E}0`;
+        const { digits, n } = shortest(a, isF32);
+        const m = digits.length > 1 ? `${digits[0]}.${digits.slice(1)}` : digits;
+        return `${m}${E}${n - 1}`;
+      }
+      case 9: {
+        const y = a * 100;
+        return (p >= 0 ? fixed(y, p) : shortestFixed(y, false)) + "%";
+      }
+      default:
+        return p >= 0 ? fixed(a, p) : isF32 ? f32(a) : String(a);
+    }
+  };
+  const pad = (neg, prefix, body, numeric, f) => {
+    const sign = neg ? "-" : numeric && f.sign === 1 ? "+" : numeric && f.sign === 2 ? " " : "";
+    const len = sign.length + prefix.length + [...body].length;
+    const width = f.width < 0 ? 0 : f.width;
+    if (len >= width) return sign + prefix + body;
+    if (f.zero && numeric) return sign + prefix + "0".repeat(width - len) + body;
+    const align = f.align || (numeric ? 2 : 1);
+    const missing = width - len;
+    const left = align === 1 ? 0 : align === 2 ? missing : Math.floor(missing / 2);
+    const fill = String.fromCodePoint(f.fill);
+    return fill.repeat(left) + sign + prefix + body + fill.repeat(missing - left);
+  };
+  const fmtInt = (neg, mag, f, asFloat) => {
+    if (f.kind >= 6 && f.kind <= 9) return pad(asFloat < 0, "", floatBody(Math.abs(asFloat), false, f), true, f);
+    let body, prefix = "";
+    switch (f.kind) {
+      case 2: body = mag.toString(16); if (f.alt) prefix = "0x"; break;
+      case 3: body = mag.toString(16).toUpperCase(); if (f.alt) prefix = "0x"; break;
+      case 4: body = mag.toString(8); if (f.alt) prefix = "0o"; break;
+      case 5: body = mag.toString(2); if (f.alt) prefix = "0b"; break;
+      default: body = mag.toString();
+    }
+    return pad(neg, prefix, body, true, f);
+  };
+  const quoted = (s, q) => {
+    let out = q;
+    for (const ch of s) {
+      const c = ch.codePointAt(0);
+      if (ch === "\\") out += "\\\\";
+      else if (ch === "\n") out += "\\n";
+      else if (ch === "\r") out += "\\r";
+      else if (ch === "\t") out += "\\t";
+      else if (c === 0) out += "\\0";
+      else if (ch === q) out += "\\" + q;
+      else if (c < 0x20 || c === 0x7f) out += `\\u{${c.toString(16)}}`;
+      else out += ch;
+    }
+    return out + q;
+  };
+  const fmtSpec = {
+    fmt_spec_i64(v, unsigned, ...a) {
+      const f = spec(...a);
+      if (unsigned) return mk(fmtInt(false, BigInt.asUintN(64, v), f, Number(BigInt.asUintN(64, v))));
+      return mk(fmtInt(v < 0n, v < 0n ? -v : v, f, Number(v)));
+    },
+    fmt_spec_f64(v, isF32, ...a) {
+      const f = spec(...a);
+      if (Number.isNaN(v)) return mk(pad(false, "", "NaN", true, f));
+      const body = Number.isFinite(v) ? floatBody(Math.abs(v), isF32 !== 0, f) : "Infinity";
+      return mk(pad(v < 0, "", body, true, f));
+    },
+    fmt_spec_str(r, ...a) {
+      const f = spec(...a);
+      const t = str(r);
+      const cps = [...t];
+      const body = f.kind === 10 ? quoted(t, '"') : f.prec >= 0 && f.prec < cps.length ? cps.slice(0, f.prec).join("") : t;
+      return mk(pad(false, "", body, false, f));
+    },
+    fmt_spec_char(c, ...a) {
+      const f = spec(...a);
+      const ch = String.fromCodePoint(c);
+      return mk(pad(false, "", f.kind === 10 ? quoted(ch, "'") : ch, false, f));
+    },
+    fmt_spec_bool(b, ...a) {
+      return mk(pad(false, "", b ? "true" : "false", false, spec(...a)));
+    },
+  };
   const ppl = {
+    ...fmtSpec,
     print_str: (r) => out.put(str(r)),
     print_i64: (v, u) => out.put(int(v, u)),
     print_f64: (x) => out.put(String(x)),

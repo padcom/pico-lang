@@ -742,6 +742,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 #### P8.7b Strings and arrays
 - **Do**: string indexing/slicing and the core library's string code, growable and fixed arrays,
   ranges, tuples, format specs, `T?` of values.
+- **Done (decision 266)**: 39 run fixtures pass on the WasmGC backend, none fail.
 
 #### P8.7c Objects
 - **Do**: virtual dispatch (vtables in class structs), interfaces (itables), closures (funcrefs

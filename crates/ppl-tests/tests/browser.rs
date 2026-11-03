@@ -104,7 +104,22 @@ fn wasmgc() {
         ("fib", "55\n6765\n", 0),
         ("hello", "Hello, world!\n", 0),
         ("overflow_panic", "255\n", 101),
-    ] {
+    ]
+    .map(|(n, w, c)| (n, w.to_string(), c))
+    .into_iter()
+    // (P8.7b: arrays, strings and format specs; their expectations are the fixtures'.)
+    .chain(["arrays", "format_specs", "chars"].map(|n| {
+        let text = std::fs::read_to_string(root.join(format!("{n}.ppl"))).unwrap();
+        let want: String = text
+            .lines()
+            .filter_map(|l| {
+                l.strip_prefix("// expect: ")
+                    .or_else(|| (l == "// expect:").then_some(""))
+            })
+            .map(|l| format!("{l}\n"))
+            .collect();
+        (n, want, 0)
+    })) {
         let checked = ppl_driver::check_file(&root.join(format!("{name}.ppl"))).unwrap();
         ppl_driver::build_wasmgc(&checked, &out.join(name)).unwrap();
         let run = std::process::Command::new("node")

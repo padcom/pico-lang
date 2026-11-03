@@ -21,6 +21,7 @@ use ppl_mir::mir::{
 };
 use ppl_sema::hir::{Builtin, FnId, StructId};
 use ppl_sema::{FloatTy, IntTy, Ty};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use wasm_encoder::{
     BlockType, CodeSection, CompositeInnerType, CompositeType, ConstExpr, DataCountSection,
@@ -59,7 +60,36 @@ const IMPORTS: &[(&str, &[ValT], &[ValT])] = &[
     ("panic", &[ValT::Str, ValT::I32, ValT::I32], &[]),
     ("pow_f64", &[ValT::F64, ValT::F64], &[ValT::F64]),
     ("clock_ms", &[], &[ValT::I64]),
+    // Format specs (`${x:08.2f}`): the value, then the spec's eight fields (as `ppl_rt.h`'s
+    // `PplFmt`: fill, align, sign, alternate, zero, width, precision, kind).
+    (
+        "fmt_spec_i64",
+        &[ValT::I64, ValT::I32, I, I, I, I, I, I, I, I],
+        &[ValT::Str],
+    ),
+    (
+        "fmt_spec_f64",
+        &[ValT::F64, ValT::I32, I, I, I, I, I, I, I, I],
+        &[ValT::Str],
+    ),
+    (
+        "fmt_spec_str",
+        &[ValT::Str, I, I, I, I, I, I, I, I],
+        &[ValT::Str],
+    ),
+    (
+        "fmt_spec_char",
+        &[ValT::I32, I, I, I, I, I, I, I, I],
+        &[ValT::Str],
+    ),
+    (
+        "fmt_spec_bool",
+        &[ValT::I32, I, I, I, I, I, I, I, I],
+        &[ValT::Str],
+    ),
 ];
+
+const I: ValT = ValT::I32;
 
 /// The module's own helpers (after the imports), with their exports.
 const HELPERS: &[&str] = &[
@@ -70,6 +100,7 @@ const HELPERS: &[&str] = &[
     "str_concat",
     "str_eq",
     "str_chars",
+    "str_cmp",
     "mul_ovf_s",
     "mul_ovf_u",
 ];
@@ -116,24 +147,13 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
     let live = mir::live_functions(p);
     let mut g = Gen {
         p,
-        structs: Vec::new(),
-        struct_index: HashMap::new(),
+        reg: RefCell::new(Registry::default()),
         data: Vec::new(),
         fn_index: HashMap::new(),
+        extra: Vec::new(),
+        extra_keys: HashMap::new(),
+        first_extra: 0,
     };
-    // Every struct/class type the live code uses, with their fields' types.
-    for (i, f) in p.fns.iter().enumerate() {
-        if !live[i] {
-            continue;
-        }
-        for l in &f.locals {
-            g.collect(&l.ty)?;
-        }
-        g.collect(&f.ret)?;
-    }
-    for gl in &p.globals {
-        let _ = g.collect(&gl.ty);
-    }
     let mut next = (IMPORTS.len() + HELPERS.len()) as u32;
     for (i, l) in live.iter().enumerate() {
         if *l {
@@ -141,6 +161,7 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
             next += 1;
         }
     }
+    g.first_extra = next;
     let mut code = CodeSection::new();
     g.helpers(&mut code);
     let mut func_types = Vec::new();
@@ -155,7 +176,69 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
             .map_err(|e| format!("{e} (in `{}`)", f.name))?;
         code.function(&body);
     }
-    // Types: the rec group (strings, structs), then function types.
+    // On-demand helpers (array operations, copies), after the program's functions.
+    let extra = std::mem::take(&mut g.extra);
+    for (_, _, body) in &extra {
+        code.function(body.as_ref().expect("built"));
+    }
+    // Globals' types first: they may register more types.
+    let global_types: Vec<ValType> = p
+        .globals
+        .iter()
+        .map(|gl| g.wasm_ty(&gl.ty).unwrap_or(ANYREF))
+        .collect();
+    // Types: the rec group (strings, then the registry's), then function types. Struct fields
+    // can register more types, so they're resolved until nothing new comes.
+    let mut resolved: Vec<CompositeInnerType> = Vec::new();
+    let mut k = 0;
+    loop {
+        let def = {
+            let r = g.reg.borrow();
+            match r.defs.get(k) {
+                Some(d) => d.clone(),
+                None => break,
+            }
+        };
+        let inner = match &def {
+            Def::Struct { fields, .. } => {
+                // (A `void` field is an `anyref` placeholder, so indices stay MIR's.)
+                let fs: Vec<FieldType> = fields
+                    .iter()
+                    .map(|t| FieldType {
+                        element_type: StorageType::Val(g.wasm_ty(t).unwrap_or(ANYREF)),
+                        mutable: true,
+                    })
+                    .collect();
+                CompositeInnerType::Struct(StructType { fields: fs.into() })
+            }
+            Def::Raw(e) => CompositeInnerType::Array(wasm_encoder::ArrayType(FieldType {
+                element_type: StorageType::Val(*e),
+                mutable: true,
+            })),
+            Def::Grow(raw) => CompositeInnerType::Struct(StructType {
+                fields: vec![
+                    FieldType {
+                        element_type: StorageType::Val(ref_to(*raw)),
+                        mutable: true,
+                    },
+                    FieldType {
+                        element_type: StorageType::Val(ValType::I32),
+                        mutable: true,
+                    },
+                ]
+                .into(),
+            }),
+            Def::Opt(v) => CompositeInnerType::Struct(StructType {
+                fields: vec![FieldType {
+                    element_type: StorageType::Val(*v),
+                    mutable: true,
+                }]
+                .into(),
+            }),
+        };
+        resolved.push(inner);
+        k += 1;
+    }
     let mut types = TypeSection::new();
     let mut group = vec![SubType {
         is_final: true,
@@ -170,22 +253,16 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
             describes: None,
         },
     }];
-    for s in &g.structs {
-        let fields: Vec<FieldType> = s
-            .fields
-            .iter()
-            .map(|t| FieldType {
-                element_type: StorageType::Val(g.wasm_ty(t).unwrap_or(ANYREF)),
-                mutable: true,
-            })
-            .collect();
+    for (def, inner) in g.reg.borrow().defs.iter().zip(resolved) {
+        let (is_final, base) = match def {
+            Def::Struct { base, is_final, .. } => (*is_final, *base),
+            _ => (true, None),
+        };
         group.push(SubType {
-            is_final: s.base.is_none() && !s.is_class,
-            supertype_idxs: s.base.into_iter().collect(),
+            is_final,
+            supertype_idxs: base.into_iter().collect(),
             composite_type: CompositeType {
-                inner: CompositeInnerType::Struct(StructType {
-                    fields: fields.into(),
-                }),
+                inner,
                 shared: false,
                 descriptor: None,
                 describes: None,
@@ -221,11 +298,13 @@ pub fn emit(p: &Program) -> R<Vec<u8>> {
     for sig in func_types {
         functions.function(sig_index(sig, &mut types));
     }
+    for (ps, rs, _) in extra {
+        functions.function(sig_index((ps, rs), &mut types));
+    }
     let mut globals = GlobalSection::new();
-    for gl in &p.globals {
-        // (A global of a type this backend can't hold yet is an `anyref` placeholder: only
-        // `null` goes in.)
-        let t = g.wasm_ty(&gl.ty).unwrap_or(ANYREF);
+    // (A global of a type this backend can't hold yet is an `anyref` placeholder: only `null`
+    // goes in.)
+    for t in global_types {
         globals.global(
             GlobalType {
                 val_type: t,
@@ -280,27 +359,64 @@ fn helper_sig(name: &str) -> (Vec<ValType>, Vec<ValType>) {
         "str_concat" => (vec![s, s], vec![s]),
         "str_eq" => (vec![s, s], vec![I32]),
         "str_chars" => (vec![s], vec![I64]),
+        "str_cmp" => (vec![s, s], vec![I32]),
         "mul_ovf_s" | "mul_ovf_u" => (vec![I64, I64], vec![I32]),
         _ => unreachable!("helper {name}"),
     }
 }
 
-/// A struct or class type as a WasmGC struct.
-struct GcStruct {
-    fields: Vec<Ty>,
-    /// The base class's struct type index (a class's fields start with its base's).
-    base: Option<u32>,
-    is_class: bool,
+/// A GC type the module defines (after the string type).
+#[derive(Clone)]
+enum Def {
+    /// A struct, class, tuple or range: its fields' ppl types (a class's start with its base
+    /// class's, whose struct is its supertype).
+    Struct {
+        fields: Vec<Ty>,
+        base: Option<u32>,
+        is_final: bool,
+    },
+    /// A GC array of `E`: a fixed array, or a growable array's storage.
+    Raw(ValType),
+    /// A growable array: `{ data: (ref null raw), len: i32 }`.
+    Grow(u32),
+    /// A `T?` of a value type: a box `{ value }` (`null` is a null reference).
+    Opt(ValType),
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Key {
+    Ty(Ty),
+    Raw(ValType),
+    Opt(ValType),
+}
+
+/// The GC types registered so far; `defs[i]` is type `i + 1`.
+#[derive(Default)]
+struct Registry {
+    defs: Vec<Def>,
+    index: HashMap<Key, u32>,
+}
+
+/// A helper function made on demand: its signature and body (`None` while it's built).
+type Extra = (Vec<ValType>, Vec<ValType>, Option<Function>);
+
+fn ref_to(idx: u32) -> ValType {
+    ValType::Ref(RefType {
+        nullable: true,
+        heap_type: HeapType::Concrete(idx),
+    })
 }
 
 struct Gen<'p> {
     p: &'p Program,
-    structs: Vec<GcStruct>,
-    /// Struct/class type → its type index.
-    struct_index: HashMap<Ty, u32>,
+    reg: RefCell<Registry>,
     /// Passive data segments (string constants).
     data: Vec<Vec<u8>>,
     fn_index: HashMap<FnId, u32>,
+    extra: Vec<Extra>,
+    extra_keys: HashMap<String, u32>,
+    /// The function index of the first on-demand helper.
+    first_extra: u32,
 }
 
 /// Where a MIR local lives.
@@ -349,55 +465,69 @@ fn wide(it: IntTy) -> bool {
 }
 
 impl<'p> Gen<'p> {
-    /// Notes the struct types `t` needs.
-    fn collect(&mut self, t: &Ty) -> R<()> {
-        match t {
+    /// Registers a GC type under `key` (`make` builds its definition; it may register the
+    /// types it refers to first, which keeps supertypes before their subtypes).
+    fn register(&self, key: Key, make: impl FnOnce(&Self) -> Def) -> u32 {
+        if let Some(&i) = self.reg.borrow().index.get(&key) {
+            return i;
+        }
+        let def = make(self);
+        let mut r = self.reg.borrow_mut();
+        if let Some(&i) = r.index.get(&key) {
+            return i;
+        }
+        r.defs.push(def);
+        let i = r.defs.len() as u32;
+        r.index.insert(key, i);
+        i
+    }
+
+    /// The type index of a struct, class, tuple or range type.
+    fn struct_type(&self, t: &Ty) -> u32 {
+        let t = t.erase();
+        match &t {
             Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
-                if self.struct_index.contains_key(t) {
-                    return Ok(());
-                }
+                let is_class = matches!(t, Ty::Class(..));
                 let layout = self.p.layout(*sid);
                 let owner = Ty::type_owner(*sid);
-                let is_class = matches!(t, Ty::Class(..));
-                // The base class first (its type is the supertype).
-                let base = match (is_class, layout.meta.base) {
-                    (true, Some(b)) => {
-                        let bt =
-                            Ty::Class(b, self.p.layout(b).name.as_str().into(), Vec::new().into());
-                        self.collect(&bt)?;
-                        self.struct_index.get(&bt).copied()
-                    }
-                    _ => None,
-                };
-                let idx = 1 + self.structs.len() as u32;
-                self.struct_index.insert(t.clone(), idx);
                 let fields: Vec<Ty> = layout
                     .fields
                     .iter()
                     .map(|(_, ft)| ft.subst(owner, args))
                     .collect();
-                self.structs.push(GcStruct {
-                    fields: fields.clone(),
-                    base,
-                    is_class,
-                });
-                for f in &fields {
-                    // (Fields of types this backend can't hold yet are `anyref` placeholders:
-                    // using them is what's unsupported.)
-                    let _ = self.collect(f);
-                }
-                Ok(())
+                let base = layout.meta.base.filter(|_| is_class);
+                self.register(Key::Ty(t.clone()), |g| Def::Struct {
+                    fields,
+                    base: base.map(|b| {
+                        g.struct_type(&Ty::Class(
+                            b,
+                            g.p.layout(b).name.as_str().into(),
+                            Vec::new().into(),
+                        ))
+                    }),
+                    is_final: !is_class,
+                })
             }
-            Ty::Ref(inner) => match &**inner {
-                Ty::Struct(..) => self.collect(inner),
-                _ => Ok(()),
-            },
-            Ty::Nullable(inner) => self.collect(inner),
-            _ => Ok(()),
+            Ty::Tuple(ts) => self.register(Key::Ty(t.clone()), |_| Def::Struct {
+                fields: ts.clone(),
+                base: None,
+                is_final: true,
+            }),
+            Ty::Range(it) => self.register(Key::Ty(t.clone()), |_| Def::Struct {
+                fields: vec![Ty::Int(*it); 3],
+                base: None,
+                is_final: true,
+            }),
+            _ => unreachable!("struct_type of {t}"),
         }
     }
 
-    /// A ppl type's wasm type (`None`: no value, or unsupported).
+    fn raw_type(&self, e: ValType) -> u32 {
+        self.register(Key::Raw(e), |_| Def::Raw(e))
+    }
+
+    /// A ppl type's wasm type (`None`: no value, or unsupported). Registers the GC types it
+    /// needs.
     fn wasm_ty(&self, t: &Ty) -> Option<ValType> {
         Some(match t.erase() {
             Ty::Int(it) => {
@@ -411,16 +541,36 @@ impl<'p> Gen<'p> {
             Ty::Float(FloatTy::F32) => ValType::F32,
             Ty::Float(_) => ValType::F64,
             Ty::Str => str_ref(),
-            Ty::Struct(..) | Ty::Class(..) => ValType::Ref(RefType {
-                nullable: true,
-                heap_type: HeapType::Concrete(*self.struct_index.get(&t.erase())?),
-            }),
+            t @ (Ty::Struct(..) | Ty::Class(..) | Ty::Tuple(_) | Ty::Range(_)) => {
+                ref_to(self.struct_type(&t))
+            }
+            Ty::Fixed(elem, _) => {
+                let e = self.wasm_ty(&elem)?;
+                ref_to(self.raw_type(e))
+            }
+            t @ Ty::Array(_) => {
+                let Ty::Array(elem) = &t else { unreachable!() };
+                let e = self.wasm_ty(elem)?;
+                let raw = self.raw_type(e);
+                ref_to(self.register(Key::Ty(t.clone()), |_| Def::Grow(raw)))
+            }
             Ty::Ref(inner) if matches!(*inner, Ty::Struct(..)) => self.wasm_ty(&inner)?,
-            Ty::Nullable(inner) if matches!(*inner, Ty::Str | Ty::Struct(..) | Ty::Class(..)) => {
-                self.wasm_ty(&inner)?
+            Ty::Nullable(inner) => {
+                if is_ref_like(&inner) {
+                    self.wasm_ty(&inner)?
+                } else {
+                    let v = self.wasm_ty(&inner)?;
+                    ref_to(self.register(Key::Opt(v), |_| Def::Opt(v)))
+                }
             }
             _ => return None,
         })
+    }
+
+    /// The box type of a `T?` of a value type.
+    fn opt_type(&self, inner: &Ty) -> R<u32> {
+        let v = self.ty_or_err(inner)?.expect("a value");
+        Ok(self.register(Key::Opt(v), |_| Def::Opt(v)))
     }
 
     fn ty_or_err(&self, t: &Ty) -> R<Option<ValType>> {
@@ -444,16 +594,312 @@ impl<'p> Gen<'p> {
         Ok((ps, rs))
     }
 
-    fn struct_of(&self, t: &Ty) -> R<(u32, &GcStruct)> {
+    /// A struct, class, tuple or range type's index and its fields' types (through a
+    /// reference or a `T?`).
+    fn struct_of(&self, t: &Ty) -> R<(u32, Vec<Ty>)> {
         let t = match t.erase() {
             Ty::Ref(inner) => *inner,
             Ty::Nullable(inner) => *inner,
             t => t,
         };
-        match self.struct_index.get(&t) {
-            Some(&i) => Ok((i, &self.structs[i as usize - 1])),
-            None => unsupported(format!("fields of `{t}`")),
+        if !matches!(
+            t,
+            Ty::Struct(..) | Ty::Class(..) | Ty::Tuple(_) | Ty::Range(_)
+        ) {
+            return unsupported(format!("fields of `{t}`"));
         }
+        let i = self.struct_type(&t);
+        let r = self.reg.borrow();
+        match &r.defs[i as usize - 1] {
+            Def::Struct { fields, .. } => Ok((i, fields.clone())),
+            _ => unreachable!(),
+        }
+    }
+
+    /// A growable array's operation (`push`, `pop`, `slice`) for array type `at`.
+    fn array_fn(&mut self, at: &Ty, op: &str) -> R<u32> {
+        let Ty::Array(elem) = at.erase() else {
+            return unsupported(format!("`{op}` on `{at}`"));
+        };
+        let e = self.ty_or_err(&elem)?.expect("a value");
+        let raw = self.raw_type(e);
+        let gv = self.wasm_ty(at).expect("an array");
+        let grow = heap_index(gv).expect("a ref");
+        let key = format!("array {op} {at}");
+        use ValType::*;
+        Ok(match op {
+            "push" => self.extra_fn(key, vec![gv, e], vec![], |_| {
+                // locals: 2 data, 3 len, 4 the new storage
+                let mut f = Function::new_with_locals_types(vec![ref_to(raw), I32, ref_to(raw)]);
+                let mut s = f.instructions();
+                s.local_get(0).struct_get(grow, 0).local_set(2);
+                s.local_get(0).struct_get(grow, 1).local_set(3);
+                // Full (or no storage yet): twice the room.
+                s.local_get(2).ref_is_null();
+                s.if_(BlockType::Result(I32)).i32_const(1).else_();
+                s.local_get(3).local_get(2).array_len().i32_ge_u().end();
+                s.if_(BlockType::Empty);
+                // (`select` takes its first operand when the condition holds: 4 below 2.)
+                s.i32_const(4)
+                    .local_get(3)
+                    .i32_const(1)
+                    .i32_shl()
+                    .local_get(3)
+                    .i32_const(2)
+                    .i32_lt_u();
+                s.select().array_new_default(raw).local_set(4);
+                s.local_get(2).ref_is_null().i32_eqz();
+                s.if_(BlockType::Empty);
+                s.local_get(4)
+                    .i32_const(0)
+                    .local_get(2)
+                    .i32_const(0)
+                    .local_get(3)
+                    .array_copy(raw, raw);
+                s.end();
+                s.local_get(0).local_get(4).struct_set(grow, 0);
+                s.local_get(4).local_set(2);
+                s.end();
+                s.local_get(2).local_get(3).local_get(1).array_set(raw);
+                s.local_get(0)
+                    .local_get(3)
+                    .i32_const(1)
+                    .i32_add()
+                    .struct_set(grow, 1);
+                s.end();
+                f
+            }),
+            "pop" => {
+                let boxed = !is_ref_like(&elem);
+                let opt = if boxed {
+                    Some(self.opt_type(&elem)?)
+                } else {
+                    None
+                };
+                let rt = match opt {
+                    Some(b) => ref_to(b),
+                    None => e,
+                };
+                self.extra_fn(key, vec![gv], vec![rt], |_| {
+                    // locals: 1 len
+                    let mut f = Function::new_with_locals_types(vec![I32]);
+                    let mut s = f.instructions();
+                    s.local_get(0).struct_get(grow, 1).local_tee(1).i32_eqz();
+                    s.if_(BlockType::Empty);
+                    s.ref_null(HeapType::Concrete(heap_index(rt).expect("a ref")))
+                        .return_();
+                    s.end();
+                    s.local_get(0)
+                        .local_get(1)
+                        .i32_const(1)
+                        .i32_sub()
+                        .local_tee(1)
+                        .struct_set(grow, 1);
+                    s.local_get(0)
+                        .struct_get(grow, 0)
+                        .local_get(1)
+                        .array_get(raw);
+                    if let Some(b) = opt {
+                        s.struct_new(b);
+                    }
+                    s.end();
+                    f
+                })
+            }
+            _ => self.extra_fn(key, vec![gv, I64, I64], vec![gv], |_| {
+                // `[from, to)` clamped to the array. locals: 3 from, 4 to, 5 n, 6 storage
+                let mut f = Function::new_with_locals_types(vec![I32, I32, I32, ref_to(raw)]);
+                let mut s = f.instructions();
+                s.local_get(0).struct_get(grow, 1).local_set(5);
+                for (arg, local) in [(1u32, 3u32), (2, 4)] {
+                    // Clamped to [0, n].
+                    s.local_get(arg).i64_const(0).i64_lt_s();
+                    s.if_(BlockType::Empty).i64_const(0).local_set(arg).end();
+                    s.local_get(arg).local_get(5).i64_extend_i32_u().i64_gt_s();
+                    s.if_(BlockType::Empty)
+                        .local_get(5)
+                        .i64_extend_i32_u()
+                        .local_set(arg)
+                        .end();
+                    s.local_get(arg).i32_wrap_i64().local_set(local);
+                }
+                s.local_get(4)
+                    .local_get(3)
+                    .i32_sub()
+                    .i32_const(0)
+                    .local_get(4)
+                    .local_get(3)
+                    .i32_gt_s()
+                    .select()
+                    .local_set(5);
+                s.local_get(5).array_new_default(raw).local_set(6);
+                s.local_get(6)
+                    .i32_const(0)
+                    .local_get(0)
+                    .struct_get(grow, 0)
+                    .local_get(3)
+                    .local_get(5)
+                    .array_copy(raw, raw);
+                s.local_get(6).local_get(5).struct_new(grow).end();
+                f
+            }),
+        })
+    }
+
+    /// A string helper (`char_at`: the code point at a code-point index, or -1; `slice`:
+    /// JavaScript's `slice` on code points).
+    fn str_fn(&mut self, op: &str) -> u32 {
+        use ValType::*;
+        let sr = str_ref();
+        // The byte offset of code point `c` (the length past the end).
+        let off = self.extra_fn("str off".into(), vec![sr, I32], vec![I32], |_| {
+            // locals: 2 i, 3 count, 4 len
+            let mut f = Function::new_with_locals_types(vec![I32, I32, I32]);
+            let mut s = f.instructions();
+            s.local_get(0).array_len().local_set(4);
+            s.block(BlockType::Empty).loop_(BlockType::Empty);
+            s.local_get(2).local_get(4).i32_ge_u().br_if(1);
+            s.local_get(0)
+                .local_get(2)
+                .array_get_u(STR)
+                .i32_const(0xc0)
+                .i32_and()
+                .i32_const(0x80)
+                .i32_ne();
+            s.if_(BlockType::Empty);
+            s.local_get(3)
+                .local_get(1)
+                .i32_eq()
+                .if_(BlockType::Empty)
+                .local_get(2)
+                .return_()
+                .end();
+            s.local_get(3).i32_const(1).i32_add().local_set(3);
+            s.end();
+            s.local_get(2).i32_const(1).i32_add().local_set(2);
+            s.br(0).end().end();
+            s.local_get(4).end();
+            f
+        });
+        let chars = helper_index("str_chars");
+        match op {
+            "char_at" => self.extra_fn("str char_at".into(), vec![sr, I64], vec![I32], |_| {
+                // locals: 2 offset, 3 the first byte, 4 code point
+                let mut f = Function::new_with_locals_types(vec![I32, I32, I32]);
+                let mut s = f.instructions();
+                s.local_get(1).i64_const(0).i64_lt_s();
+                s.local_get(1).local_get(0).call(chars).i64_ge_s().i32_or();
+                s.if_(BlockType::Empty).i32_const(-1).return_().end();
+                s.local_get(0)
+                    .local_get(1)
+                    .i32_wrap_i64()
+                    .call(off)
+                    .local_set(2);
+                s.local_get(0).local_get(2).array_get_u(STR).local_tee(3);
+                s.i32_const(0x80)
+                    .i32_lt_u()
+                    .if_(BlockType::Empty)
+                    .local_get(3)
+                    .return_()
+                    .end();
+                // Continuation bytes: 1 (0xC0..), 2 (0xE0..) or 3 (0xF0..).
+                let cont = |s: &mut InstructionSink, k: i32| {
+                    s.local_get(4).i32_const(6).i32_shl();
+                    s.local_get(0)
+                        .local_get(2)
+                        .i32_const(k)
+                        .i32_add()
+                        .array_get_u(STR);
+                    s.i32_const(0x3f).i32_and().i32_or().local_set(4);
+                };
+                s.local_get(3).i32_const(0xe0).i32_lt_u();
+                s.if_(BlockType::Empty);
+                s.local_get(3).i32_const(0x1f).i32_and().local_set(4);
+                cont(&mut s, 1);
+                s.local_get(4).return_();
+                s.end();
+                s.local_get(3).i32_const(0xf0).i32_lt_u();
+                s.if_(BlockType::Empty);
+                s.local_get(3).i32_const(0x0f).i32_and().local_set(4);
+                cont(&mut s, 1);
+                cont(&mut s, 2);
+                s.local_get(4).return_();
+                s.end();
+                s.local_get(3).i32_const(0x07).i32_and().local_set(4);
+                cont(&mut s, 1);
+                cont(&mut s, 2);
+                cont(&mut s, 3);
+                s.local_get(4).end();
+                f
+            }),
+            _ => self.extra_fn("str slice".into(), vec![sr, I64, I64], vec![sr], |_| {
+                // locals: 3 n, 4 from (bytes), 5 to (bytes), 6 the copy
+                let mut f = Function::new_with_locals_types(vec![I64, I32, I32, sr]);
+                let mut s = f.instructions();
+                s.local_get(0).call(chars).local_set(3);
+                // Each index: negative counts from the end; clamped to [0, n].
+                for arg in [1u32, 2] {
+                    s.local_get(arg).i64_const(0).i64_lt_s();
+                    s.if_(BlockType::Empty)
+                        .local_get(arg)
+                        .local_get(3)
+                        .i64_add()
+                        .local_set(arg)
+                        .end();
+                    s.local_get(arg).i64_const(0).i64_lt_s();
+                    s.if_(BlockType::Empty).i64_const(0).local_set(arg).end();
+                    s.local_get(arg).local_get(3).i64_gt_s();
+                    s.if_(BlockType::Empty).local_get(3).local_set(arg).end();
+                }
+                s.local_get(2).local_get(1).i64_lt_s();
+                s.if_(BlockType::Empty).local_get(1).local_set(2).end();
+                s.local_get(0)
+                    .local_get(1)
+                    .i32_wrap_i64()
+                    .call(off)
+                    .local_set(4);
+                s.local_get(0)
+                    .local_get(2)
+                    .i32_wrap_i64()
+                    .call(off)
+                    .local_set(5);
+                s.local_get(5)
+                    .local_get(4)
+                    .i32_sub()
+                    .array_new_default(STR)
+                    .local_set(6);
+                s.local_get(6)
+                    .i32_const(0)
+                    .local_get(0)
+                    .local_get(4)
+                    .local_get(5)
+                    .local_get(4)
+                    .i32_sub();
+                s.array_copy(STR, STR);
+                s.local_get(6).end();
+                f
+            }),
+        }
+    }
+
+    /// A helper function made once per `key`: its index (built by `build` the first time).
+    fn extra_fn(
+        &mut self,
+        key: String,
+        params: Vec<ValType>,
+        results: Vec<ValType>,
+        build: impl FnOnce(&mut Self) -> Function,
+    ) -> u32 {
+        if let Some(&i) = self.extra_keys.get(&key) {
+            return i;
+        }
+        let k = self.extra.len();
+        let i = self.first_extra + k as u32;
+        self.extra_keys.insert(key, i);
+        self.extra.push((params, results, None));
+        let f = build(self);
+        self.extra[k].2 = Some(f);
+        i
     }
 
     /// A string constant's data segment.
@@ -542,7 +988,19 @@ impl<'p> Gen<'p> {
             // (Nothing to store: a `void` value.)
             return match &st.rvalue {
                 Rvalue::Use(o) if no_value(&self.operand_ty(fx, o)?) => Ok(()),
-                other => unsupported(format!("a `void` result of {other:?}")),
+                Rvalue::ArrayPush(a, v) => {
+                    let at = self.operand_ty(fx, a)?;
+                    let f = self.array_fn(&at, "push")?;
+                    self.operand(fx, s, a)?;
+                    self.operand(fx, s, v)?;
+                    s.call(f);
+                    Ok(())
+                }
+                other => {
+                    let name = format!("{other:?}");
+                    let name = name.split(['(', ' ']).next().unwrap_or("").to_string();
+                    unsupported(format!("`{name}` (in MIR)"))
+                }
             };
         }
         self.store(fx, s, &st.place, |g, fx, s| {
@@ -561,15 +1019,60 @@ impl<'p> Gen<'p> {
             },
         };
         for pr in &p.proj {
-            match pr {
-                Proj::Field(i) => {
-                    let (_, s) = self.struct_of(&t)?;
-                    t = s.fields[*i as usize].clone();
-                }
-                _ => return unsupported("this kind of place (array elements, payloads)"),
-            }
+            t = self.proj_ty(&t, pr)?;
         }
         Ok(t)
+    }
+
+    /// The type one projection leads to.
+    fn proj_ty(&self, t: &Ty, pr: &Proj) -> R<Ty> {
+        Ok(match (pr, t.erase()) {
+            (Proj::Field(i), _) => self.struct_of(t)?.1[*i as usize].clone(),
+            (Proj::Index(_), Ty::Array(elem) | Ty::Fixed(elem, _)) => *elem,
+            (Proj::Payload, Ty::Nullable(inner)) => *inner,
+            (pr, t) => return unsupported(format!("the place `{pr:?}` of `{t}`")),
+        })
+    }
+
+    /// Pushes what is needed under the value of one projection of the (pushed) `t`: the
+    /// struct for a field, the storage and the index for an element; returns how to finish a
+    /// get or a set.
+    fn proj_prefix(&mut self, fx: &FnCx, s: &mut InstructionSink, t: &Ty, pr: &Proj) -> R<Access> {
+        Ok(match (pr, t.erase()) {
+            (Proj::Field(i), _) => Access::Field(self.struct_of(t)?.0, *i),
+            (Proj::Index(l), Ty::Array(elem)) => {
+                let e = self.ty_or_err(&elem)?.expect("a value");
+                let raw = self.raw_type(e);
+                let grow = self.wasm_ty(t).and_then(heap_index).expect("an array");
+                s.struct_get(grow, 0);
+                self.index_local(fx, s, *l);
+                Access::Elem(raw)
+            }
+            (Proj::Index(l), Ty::Fixed(elem, _)) => {
+                let e = self.ty_or_err(&elem)?.expect("a value");
+                let raw = self.raw_type(e);
+                self.index_local(fx, s, *l);
+                Access::Elem(raw)
+            }
+            (Proj::Payload, Ty::Nullable(inner)) => {
+                if is_ref_like(&inner) {
+                    Access::Same
+                } else {
+                    Access::Field(self.opt_type(&inner)?, 0)
+                }
+            }
+            (pr, t) => return unsupported(format!("the place `{pr:?}` of `{t}`")),
+        })
+    }
+
+    /// An index held in a local (`int`) as an `i32`.
+    fn index_local(&self, fx: &FnCx, s: &mut InstructionSink, l: mir::Local) {
+        if let Some(slot) = fx.locals[l.0 as usize] {
+            s.local_get(slot.index);
+            if !matches!(fx.f.local_ty(l).erase(), Ty::Int(it) if !wide(it)) {
+                s.i32_wrap_i64();
+            }
+        }
     }
 
     /// Pushes the base of a place (a local's or global's value; a dereferenced struct
@@ -589,7 +1092,7 @@ impl<'p> Gen<'p> {
     }
 
     /// Pushes a place's value (structs are copied: they're values).
-    fn load(&self, fx: &mut FnCx, s: &mut InstructionSink, p: &Place, copy: bool) -> R<()> {
+    fn load(&mut self, fx: &mut FnCx, s: &mut InstructionSink, p: &Place, copy: bool) -> R<()> {
         let t = self.place_ty(fx, p)?;
         if no_value(&t) {
             return Ok(());
@@ -602,48 +1105,119 @@ impl<'p> Gen<'p> {
             mir::Base::Deref(l) => fx.f.local_ty(l).clone(),
         };
         for pr in &p.proj {
-            let Proj::Field(i) = pr else {
-                unreachable!("checked")
-            };
-            let (idx, st) = self.struct_of(&cur)?;
-            cur = st.fields[*i as usize].clone();
-            s.struct_get(idx, *i);
+            match self.proj_prefix(fx, s, &cur, pr)? {
+                Access::Field(idx, i) => {
+                    s.struct_get(idx, i);
+                }
+                Access::Elem(raw) => {
+                    s.array_get(raw);
+                }
+                Access::Same => {}
+            }
+            cur = self.proj_ty(&cur, pr)?;
         }
-        if copy && matches!(t.erase(), Ty::Struct(..)) && !matches!(p.base, mir::Base::Deref(_)) {
+        if copy
+            && Self::is_value_aggregate(&t)
+            && !(p.proj.is_empty() && matches!(p.base, mir::Base::Deref(_)))
+        {
             self.clone_struct(fx, s, &t)?;
         }
         Ok(())
     }
 
-    /// Copies the struct on the stack (fields that are structs too).
-    fn clone_struct(&self, fx: &mut FnCx, s: &mut InstructionSink, t: &Ty) -> R<()> {
-        let (idx, st) = self.struct_of(t)?;
-        let fields = st.fields.clone();
-        let tmp = self.ref_scratch(fx, idx);
-        s.local_set(tmp);
-        // (A null struct stays null: `T?` of a struct.)
-        s.local_get(tmp);
-        s.ref_is_null();
-        s.if_(BlockType::Result(ValType::Ref(RefType {
-            nullable: true,
-            heap_type: HeapType::Concrete(idx),
-        })));
-        s.ref_null(HeapType::Concrete(idx));
-        s.else_();
-        for (i, ft) in fields.iter().enumerate() {
-            if no_value(ft) {
-                continue;
-            }
-            s.local_get(tmp);
-            s.struct_get(idx, i as u32);
-            if matches!(ft.erase(), Ty::Struct(..)) {
-                self.clone_struct(fx, s, ft)?;
-                // (The nested copy used the scratch: restore it.)
-            }
-        }
-        s.struct_new(idx);
-        s.end();
+    /// Copies the value aggregate on the stack (a struct, tuple, range or fixed array; what
+    /// they hold of those too), so it keeps value semantics.
+    fn clone_struct(&mut self, _fx: &mut FnCx, s: &mut InstructionSink, t: &Ty) -> R<()> {
+        let f = self.clone_fn(t)?;
+        s.call(f);
         Ok(())
+    }
+
+    /// Whether values of `t` are copied when read from a place.
+    fn is_value_aggregate(t: &Ty) -> bool {
+        matches!(
+            t.erase(),
+            Ty::Struct(..) | Ty::Tuple(_) | Ty::Range(_) | Ty::Fixed(..)
+        )
+    }
+
+    /// The copy function of a value aggregate type (null stays null).
+    fn clone_fn(&mut self, t: &Ty) -> R<u32> {
+        let t = t.erase();
+        let vt = self.ty_or_err(&t)?.expect("a value");
+        let key = format!("clone {t}");
+        if let Ty::Fixed(elem, _) = &t {
+            let elem = (**elem).clone();
+            let e = self.ty_or_err(&elem)?.expect("a value");
+            let raw = self.raw_type(e);
+            let inner = if Self::is_value_aggregate(&elem) {
+                Some(self.clone_fn(&elem)?)
+            } else {
+                None
+            };
+            return Ok(self.extra_fn(key, vec![vt], vec![vt], |_| {
+                // locals: 1 the copy, 2 i, 3 n
+                let mut f = Function::new_with_locals_types(vec![vt, ValType::I32, ValType::I32]);
+                let mut s = f.instructions();
+                s.local_get(0).ref_is_null();
+                s.if_(BlockType::Empty)
+                    .ref_null(HeapType::Concrete(raw))
+                    .return_()
+                    .end();
+                s.local_get(0)
+                    .array_len()
+                    .local_tee(3)
+                    .array_new_default(raw)
+                    .local_set(1);
+                match inner {
+                    None => {
+                        s.local_get(1)
+                            .i32_const(0)
+                            .local_get(0)
+                            .i32_const(0)
+                            .local_get(3);
+                        s.array_copy(raw, raw);
+                    }
+                    Some(c) => {
+                        s.block(BlockType::Empty).loop_(BlockType::Empty);
+                        s.local_get(2).local_get(3).i32_ge_u().br_if(1);
+                        s.local_get(1).local_get(2);
+                        s.local_get(0).local_get(2).array_get(raw).call(c);
+                        s.array_set(raw);
+                        s.local_get(2).i32_const(1).i32_add().local_set(2);
+                        s.br(0).end().end();
+                    }
+                }
+                s.local_get(1).end();
+                f
+            }));
+        }
+        let (idx, fields) = self.struct_of(&t)?;
+        let mut inner: Vec<Option<u32>> = Vec::new();
+        for ft in &fields {
+            inner.push(if Self::is_value_aggregate(ft) {
+                Some(self.clone_fn(ft)?)
+            } else {
+                None
+            });
+        }
+        Ok(self.extra_fn(key, vec![vt], vec![vt], |_| {
+            let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+            let mut s = f.instructions();
+            s.local_get(0).ref_is_null();
+            s.if_(BlockType::Empty)
+                .ref_null(HeapType::Concrete(idx))
+                .return_()
+                .end();
+            for (i, c) in inner.iter().enumerate() {
+                s.local_get(0).struct_get(idx, i as u32);
+                if let Some(c) = c {
+                    s.call(*c);
+                }
+            }
+            s.struct_new(idx).end();
+            f
+        }))
     }
 
     /// A scratch local holding a reference to struct type `idx` (one per type, per depth of
@@ -695,13 +1269,25 @@ impl<'p> Gen<'p> {
             proj: p.proj[..p.proj.len() - 1].to_vec(),
         };
         let parent_ty = self.place_ty(fx, &parent)?;
-        let Proj::Field(i) = p.proj[p.proj.len() - 1] else {
-            return unsupported("this kind of place");
-        };
-        let (idx, _) = self.struct_of(&parent_ty)?;
+        let last = &p.proj[p.proj.len() - 1];
+        if matches!(last, Proj::Payload)
+            && matches!(parent_ty.erase(), Ty::Nullable(ref i) if is_ref_like(i))
+        {
+            // (The payload of a nullable reference is the reference itself.)
+            return self.store(fx, s, &parent, value);
+        }
         self.load(fx, s, &parent, false)?;
-        value(self, fx, s)?;
-        s.struct_set(idx, i);
+        match self.proj_prefix(fx, s, &parent_ty, last)? {
+            Access::Field(idx, i) => {
+                value(self, fx, s)?;
+                s.struct_set(idx, i);
+            }
+            Access::Elem(raw) => {
+                value(self, fx, s)?;
+                s.array_set(raw);
+            }
+            Access::Same => unreachable!("handled above"),
+        }
         Ok(())
     }
 
@@ -855,9 +1441,10 @@ impl<'p> Gen<'p> {
             }
             Rvalue::Aggregate(ty, ops) => {
                 let (idx, st) = self.struct_of(ty)?;
-                let fields = st.fields.clone();
+                let fields = st.clone();
                 for (o, ft) in ops.iter().zip(&fields) {
                     if no_value(ft) {
+                        s.ref_null(RefType::ANYREF.heap_type);
                         continue;
                     }
                     self.operand(fx, s, o)?;
@@ -878,17 +1465,139 @@ impl<'p> Gen<'p> {
             }
             Rvalue::WrapSome(o, _) => {
                 let ot = self.operand_ty(fx, o)?;
-                if !matches!(ot.erase(), Ty::Str | Ty::Struct(..) | Ty::Class(..)) {
-                    return unsupported(format!("`{ot}?`"));
-                }
                 self.operand(fx, s, o)?;
+                if !is_ref_like(&ot) {
+                    let b = self.opt_type(&ot)?;
+                    s.struct_new(b);
+                }
             }
             Rvalue::IsNull(o) => {
                 self.operand(fx, s, o)?;
                 s.ref_is_null();
             }
             Rvalue::Unwrap(o) => {
+                let ot = self.operand_ty(fx, o)?;
                 self.operand(fx, s, o)?;
+                if let Ty::Nullable(inner) = ot.erase()
+                    && !is_ref_like(&inner)
+                {
+                    let b = self.opt_type(&inner)?;
+                    s.struct_get(b, 0);
+                }
+            }
+            Rvalue::Tuple(ty, ops) => match ty.erase() {
+                Ty::Fixed(elem, _) => {
+                    let e = self.ty_or_err(&elem)?.expect("a value");
+                    let raw = self.raw_type(e);
+                    for o in ops {
+                        self.operand(fx, s, o)?;
+                    }
+                    s.array_new_fixed(raw, ops.len() as u32);
+                }
+                _ => {
+                    let (idx, fields) = self.struct_of(ty)?;
+                    for (o, ft) in ops.iter().zip(&fields) {
+                        if no_value(ft) {
+                            s.ref_null(RefType::ANYREF.heap_type);
+                        } else {
+                            self.operand(fx, s, o)?;
+                        }
+                    }
+                    s.struct_new(idx);
+                }
+            },
+            Rvalue::Repeat(o, n) => {
+                let ot = self.operand_ty(fx, o)?;
+                if Self::is_value_aggregate(&ot) {
+                    return unsupported("`[value; n]` of structs");
+                }
+                let e = self.ty_or_err(&ot)?.expect("a value");
+                let raw = self.raw_type(e);
+                self.operand(fx, s, o)?;
+                s.i32_const(*n as i32);
+                s.array_new(raw);
+            }
+            Rvalue::ArrayNew(elem, ops) => {
+                let e = self.ty_or_err(elem)?.expect("a value");
+                let raw = self.raw_type(e);
+                let grow = heap_index(
+                    self.wasm_ty(&Ty::Array(Box::new(elem.clone())))
+                        .expect("an array"),
+                )
+                .expect("a ref");
+                for o in ops {
+                    self.operand(fx, s, o)?;
+                }
+                s.array_new_fixed(raw, ops.len() as u32);
+                s.i32_const(ops.len() as i32);
+                s.struct_new(grow);
+            }
+            Rvalue::ArrayLen(a) => {
+                let at = self.operand_ty(fx, a)?;
+                self.operand(fx, s, a)?;
+                match at.erase() {
+                    Ty::Fixed(..) => {
+                        s.array_len();
+                    }
+                    _ => {
+                        let grow = self.wasm_ty(&at).and_then(heap_index).expect("an array");
+                        s.struct_get(grow, 1);
+                    }
+                }
+                s.i64_extend_i32_u();
+            }
+            Rvalue::ArrayPop(a) => {
+                let at = self.operand_ty(fx, a)?;
+                let f = self.array_fn(&at, "pop")?;
+                self.operand(fx, s, a)?;
+                s.call(f);
+            }
+            Rvalue::ArraySlice(a, from, to) => {
+                let at = self.operand_ty(fx, a)?;
+                let f = self.array_fn(&at, "slice")?;
+                self.operand(fx, s, a)?;
+                self.operand(fx, s, from)?;
+                self.operand(fx, s, to)?;
+                s.call(f);
+            }
+            Rvalue::Format(o, spec) => {
+                let ot = self.operand_ty(fx, o)?;
+                self.operand(fx, s, o)?;
+                use ppl_sema::format::Kind;
+                let compound = ppl_sema::format::is_compound(&ot)
+                    || (matches!(ot.erase(), Ty::Nullable(_)) && spec.kind == Kind::Debug);
+                if compound {
+                    // The debug text, then width, fill and alignment on the whole of it.
+                    let f = self.debug_fn(&ot)?;
+                    s.call(f);
+                    let outer = ppl_sema::format::FormatSpec {
+                        kind: Kind::Default,
+                        ..*spec
+                    };
+                    spec_args(s, &outer);
+                    s.call(import_index("fmt_spec_str"));
+                } else {
+                    self.format_prim(s, &ot, spec)?;
+                }
+            }
+            Rvalue::StrCharAt(a, i) => {
+                let f = self.str_fn("char_at");
+                self.operand(fx, s, a)?;
+                self.operand(fx, s, i)?;
+                s.call(f);
+                let v = fx.scratch(ValType::I32);
+                s.local_tee(v);
+                s.i32_const(0);
+                s.i32_lt_s();
+                self.check(s, ppl_mir::mir::panics::INDEX, loc);
+                s.local_get(v);
+            }
+            Rvalue::StrSlice(a, from, to) => {
+                let f = self.str_fn("slice");
+                self.operand(fx, s, a)?;
+                self.operand(fx, s, from)?;
+                self.operand(fx, s, to)?;
+                s.call(f);
             }
             Rvalue::InBounds(i, n) => {
                 // 0 <= i < n, both `int`.
@@ -1156,7 +1865,31 @@ impl<'p> Gen<'p> {
                         s.call(helper_index("str_eq"));
                         s.i32_eqz();
                     }
+                    Lt | Le | Gt | Ge => {
+                        s.call(helper_index("str_cmp"));
+                        s.i32_const(0);
+                        match op {
+                            Lt => s.i32_lt_s(),
+                            Le => s.i32_le_s(),
+                            Gt => s.i32_gt_s(),
+                            _ => s.i32_ge_s(),
+                        };
+                    }
                     _ => return unsupported(format!("`{op:?}` on strings")),
+                }
+                Ok(())
+            }
+            t2 @ (Ty::Nullable(_)
+            | Ty::Struct(..)
+            | Ty::Tuple(_)
+            | Ty::Range(_)
+            | Ty::Fixed(..))
+                if matches!(op, Eq | Ne) =>
+            {
+                let f = self.eq_fn(&t2)?;
+                s.call(f);
+                if op == Ne {
+                    s.i32_eqz();
                 }
                 Ok(())
             }
@@ -1605,6 +2338,478 @@ impl<'p> Gen<'p> {
         }
     }
 
+    /// A primitive on the stack formatted with a spec.
+    fn format_prim(
+        &mut self,
+        s: &mut InstructionSink,
+        t: &Ty,
+        spec: &ppl_sema::format::FormatSpec,
+    ) -> R<()> {
+        match t.erase() {
+            Ty::Int(it) => {
+                if !wide(it) {
+                    self.extend(s, it);
+                }
+                s.i32_const(!it.signed() as i32);
+                spec_args(s, spec);
+                s.call(import_index("fmt_spec_i64"));
+            }
+            Ty::Float(ft) => {
+                if ft == FloatTy::F32 {
+                    s.f64_promote_f32();
+                }
+                s.i32_const((ft == FloatTy::F32) as i32);
+                spec_args(s, spec);
+                s.call(import_index("fmt_spec_f64"));
+            }
+            Ty::Str => {
+                spec_args(s, spec);
+                s.call(import_index("fmt_spec_str"));
+            }
+            Ty::Char => {
+                spec_args(s, spec);
+                s.call(import_index("fmt_spec_char"));
+            }
+            Ty::Bool => {
+                spec_args(s, spec);
+                s.call(import_index("fmt_spec_bool"));
+            }
+            t => return unsupported(format!("a format spec on `{t}`")),
+        }
+        Ok(())
+    }
+
+    /// The debug text function of a type (`${x:?}`): `(value) -> string`.
+    fn debug_fn(&mut self, t: &Ty) -> R<u32> {
+        use ppl_sema::format::{FormatSpec, Kind};
+        let t = t.erase();
+        let vt = self.ty_or_err(&t)?.expect("a value");
+        let key = format!("debug {t}");
+        if let Some(&i) = self.extra_keys.get(&key) {
+            return Ok(i);
+        }
+        let debug = FormatSpec {
+            kind: Kind::Debug,
+            ..FormatSpec::default()
+        };
+        // What the parts need first (so the closure only emits).
+        enum Part {
+            Lit(u32, usize),
+            /// A value at a field (struct index, field) or element, and its text function.
+            Field(u32, u32, Ty),
+        }
+        match &t {
+            Ty::Class(sid, ..) => {
+                let name = format!("<{}>", self.p.layout(*sid).name);
+                let d = self.string_data(&name);
+                return Ok(self.extra_fn(key, vec![vt], vec![str_ref()], move |_| {
+                    let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                    let mut s = f.instructions();
+                    s.i32_const(0)
+                        .i32_const(name.len() as i32)
+                        .array_new_data(STR, d)
+                        .end();
+                    f
+                }));
+            }
+            Ty::Nullable(inner) => {
+                let inner = (**inner).clone();
+                let inner_fn = self.part_fn(&inner)?;
+                let d = self.string_data("null");
+                let unbox = if is_ref_like(&inner) {
+                    None
+                } else {
+                    Some(self.opt_type(&inner)?)
+                };
+                return Ok(self.extra_fn(key, vec![vt], vec![str_ref()], move |_| {
+                    let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                    let mut s = f.instructions();
+                    s.local_get(0).ref_is_null();
+                    s.if_(BlockType::Result(str_ref()));
+                    s.i32_const(0).i32_const(4).array_new_data(STR, d);
+                    s.else_().local_get(0);
+                    if let Some(b) = unbox {
+                        s.struct_get(b, 0);
+                    }
+                    s.call(inner_fn).end().end();
+                    f
+                }));
+            }
+            Ty::Struct(..) | Ty::Tuple(_) => {
+                let (idx, fields) = self.struct_of(&t)?;
+                let names: Vec<String> = match &t {
+                    Ty::Struct(sid2, ..) => self
+                        .p
+                        .layout(*sid2)
+                        .fields
+                        .iter()
+                        .map(|(n, _)| n.clone())
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let tuple = matches!(t, Ty::Tuple(_));
+                let mut parts = Vec::new();
+                let lit = |g: &mut Self, text: String, parts: &mut Vec<Part>| {
+                    let d = g.string_data(&text);
+                    parts.push(Part::Lit(d, text.len()));
+                };
+                let sname = match &t {
+                    Ty::Struct(sid2, ..) => self.p.layout(*sid2).name.clone(),
+                    _ => String::new(),
+                };
+                if tuple {
+                    lit(self, "[".into(), &mut parts);
+                } else if fields.is_empty() {
+                    lit(self, format!("{sname} {{}}"), &mut parts);
+                } else {
+                    lit(self, format!("{sname} {{ "), &mut parts);
+                }
+                for (i, ft) in fields.iter().enumerate() {
+                    let sep = match (tuple, i) {
+                        (true, 0) => String::new(),
+                        (true, _) => ", ".into(),
+                        (false, 0) => format!("{}: ", names[i]),
+                        (false, _) => format!(", {}: ", names[i]),
+                    };
+                    if !sep.is_empty() {
+                        lit(self, sep, &mut parts);
+                    }
+                    if !no_value(ft) {
+                        parts.push(Part::Field(idx, i as u32, ft.clone()));
+                    }
+                }
+                if tuple {
+                    lit(self, "]".into(), &mut parts);
+                } else if !fields.is_empty() {
+                    lit(self, " }".into(), &mut parts);
+                }
+                let mut fns = Vec::new();
+                for p in &parts {
+                    if let Part::Field(_, _, ft) = p {
+                        fns.push(self.part_fn(ft)?);
+                    }
+                }
+                let concat = helper_index("str_concat");
+                return Ok(self.extra_fn(key, vec![vt], vec![str_ref()], move |_| {
+                    let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                    let mut s = f.instructions();
+                    let mut first = true;
+                    let mut k = 0;
+                    for p in &parts {
+                        match p {
+                            Part::Lit(d, n) => {
+                                s.i32_const(0).i32_const(*n as i32).array_new_data(STR, *d);
+                            }
+                            Part::Field(idx, i, _) => {
+                                s.local_get(0).struct_get(*idx, *i).call(fns[k]);
+                                k += 1;
+                            }
+                        }
+                        if !first {
+                            s.call(concat);
+                        }
+                        first = false;
+                    }
+                    s.end();
+                    f
+                }));
+            }
+            Ty::Array(elem) | Ty::Fixed(elem, _) => {
+                let elem = (**elem).clone();
+                let e = self.ty_or_err(&elem)?.expect("a value");
+                let raw = self.raw_type(e);
+                let grow = match &t {
+                    Ty::Array(_) => Some(heap_index(vt).expect("a ref")),
+                    _ => None,
+                };
+                let ef = self.part_fn(&elem)?;
+                let open = self.string_data("[");
+                let close = self.string_data("]");
+                let comma = self.string_data(", ");
+                let concat = helper_index("str_concat");
+                return Ok(self.extra_fn(key, vec![vt], vec![str_ref()], move |_| {
+                    // locals: 1 data, 2 n, 3 i, 4 text
+                    let mut f = Function::new_with_locals_types(vec![
+                        ref_to(raw),
+                        ValType::I32,
+                        ValType::I32,
+                        str_ref(),
+                    ]);
+                    let mut s = f.instructions();
+                    match grow {
+                        Some(g) => {
+                            s.local_get(0).struct_get(g, 0).local_set(1);
+                            s.local_get(0).struct_get(g, 1).local_set(2);
+                        }
+                        None => {
+                            s.local_get(0).local_set(1);
+                            s.local_get(0).array_len().local_set(2);
+                        }
+                    }
+                    s.i32_const(0)
+                        .i32_const(1)
+                        .array_new_data(STR, open)
+                        .local_set(4);
+                    s.block(BlockType::Empty).loop_(BlockType::Empty);
+                    s.local_get(3).local_get(2).i32_ge_u().br_if(1);
+                    s.local_get(3).if_(BlockType::Empty);
+                    s.local_get(4)
+                        .i32_const(0)
+                        .i32_const(2)
+                        .array_new_data(STR, comma)
+                        .call(concat)
+                        .local_set(4);
+                    s.end();
+                    s.local_get(4)
+                        .local_get(1)
+                        .local_get(3)
+                        .array_get(raw)
+                        .call(ef)
+                        .call(concat)
+                        .local_set(4);
+                    s.local_get(3).i32_const(1).i32_add().local_set(3);
+                    s.br(0).end().end();
+                    s.local_get(4)
+                        .i32_const(0)
+                        .i32_const(1)
+                        .array_new_data(STR, close)
+                        .call(concat)
+                        .end();
+                    f
+                }));
+            }
+            Ty::Range(it) => {
+                let it = *it;
+                let idx = self.struct_type(&t);
+                let dots = self.string_data("..");
+                let open = self.string_data("(");
+                let mid = self.string_data(").step(");
+                let close = self.string_data(")");
+                let concat = helper_index("str_concat");
+                let w = wide(it);
+                return Ok(self.extra_fn(key, vec![vt], vec![str_ref()], move |_| {
+                    let mut f = Function::new_with_locals_types(vec![str_ref()]);
+                    let mut s = f.instructions();
+                    let part = |s: &mut InstructionSink, i: u32| {
+                        s.local_get(0).struct_get(idx, i);
+                        if !w {
+                            if it.signed() {
+                                s.i64_extend_i32_s();
+                            } else {
+                                s.i64_extend_i32_u();
+                            }
+                        }
+                        s.i32_const(!it.signed() as i32)
+                            .call(import_index("fmt_i64"));
+                    };
+                    part(&mut s, 0);
+                    s.i32_const(0)
+                        .i32_const(2)
+                        .array_new_data(STR, dots)
+                        .call(concat);
+                    part(&mut s, 1);
+                    s.call(concat).local_set(1);
+                    // A step other than 1: `(a..b).step(s)`.
+                    s.local_get(0).struct_get(idx, 2);
+                    if w {
+                        s.i64_const(1).i64_eq();
+                    } else {
+                        s.i32_const(1).i32_eq();
+                    }
+                    s.if_(BlockType::Result(str_ref()));
+                    s.local_get(1);
+                    s.else_();
+                    s.i32_const(0)
+                        .i32_const(1)
+                        .array_new_data(STR, open)
+                        .local_get(1)
+                        .call(concat);
+                    s.i32_const(0)
+                        .i32_const(7)
+                        .array_new_data(STR, mid)
+                        .call(concat);
+                    part(&mut s, 2);
+                    s.call(concat);
+                    s.i32_const(0)
+                        .i32_const(1)
+                        .array_new_data(STR, close)
+                        .call(concat);
+                    s.end().end();
+                    f
+                }));
+            }
+            _ => {}
+        }
+        // A primitive: its debug format.
+        let _ = &debug;
+        let prim = t.clone();
+        match prim {
+            Ty::Int(_) | Ty::Float(_) | Ty::Str | Ty::Char | Ty::Bool => {}
+            t => return unsupported(format!("the debug form of `{t}`")),
+        }
+        let mut body = Vec::new();
+        {
+            let mut sink = InstructionSink::new(&mut body);
+            sink.local_get(0);
+            self.format_prim(&mut sink, &prim, &debug)?;
+            sink.end();
+        }
+        Ok(self.extra_fn(key, vec![vt], vec![str_ref()], move |_| {
+            let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+            f.raw(body);
+            f
+        }))
+    }
+
+    /// Value equality (`==`) of a type: `(a, b) -> i32`.
+    fn eq_fn(&mut self, t: &Ty) -> R<u32> {
+        let t = t.erase();
+        let vt = self.ty_or_err(&t)?.expect("a value");
+        let key = format!("eq {t}");
+        if let Some(&i) = self.extra_keys.get(&key) {
+            return Ok(i);
+        }
+        // How two parts compare: an instruction or a function.
+        #[derive(Clone, Copy)]
+        enum Cmp {
+            I32,
+            I64,
+            F32,
+            F64,
+            Ref,
+            Call(u32),
+        }
+        let cmp_of = |g: &mut Self, part: &Ty| -> R<Cmp> {
+            Ok(match part.erase() {
+                Ty::Int(it) if wide(it) => Cmp::I64,
+                Ty::Int(_) | Ty::Bool | Ty::Char => Cmp::I32,
+                Ty::Float(FloatTy::F32) => Cmp::F32,
+                Ty::Float(_) => Cmp::F64,
+                Ty::Str => Cmp::Call(helper_index("str_eq")),
+                Ty::Class(..) => Cmp::Ref,
+                p => Cmp::Call(g.eq_fn(&p)?),
+            })
+        };
+        let emit_cmp = |s: &mut InstructionSink, c: Cmp| {
+            match c {
+                Cmp::I32 => s.i32_eq(),
+                Cmp::I64 => s.i64_eq(),
+                Cmp::F32 => s.f32_eq(),
+                Cmp::F64 => s.f64_eq(),
+                Cmp::Ref => s.ref_eq(),
+                Cmp::Call(f) => s.call(f),
+            };
+        };
+        match &t {
+            Ty::Nullable(inner) => {
+                let inner = (**inner).clone();
+                let c = cmp_of(self, &inner)?;
+                let unbox = if is_ref_like(&inner) {
+                    None
+                } else {
+                    Some(self.opt_type(&inner)?)
+                };
+                Ok(
+                    self.extra_fn(key, vec![vt, vt], vec![ValType::I32], move |_| {
+                        let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                        let mut s = f.instructions();
+                        // Both null: equal; one null: not.
+                        s.local_get(0)
+                            .ref_is_null()
+                            .local_get(1)
+                            .ref_is_null()
+                            .i32_or();
+                        s.if_(BlockType::Empty);
+                        s.local_get(0)
+                            .ref_is_null()
+                            .local_get(1)
+                            .ref_is_null()
+                            .i32_and()
+                            .return_();
+                        s.end();
+                        for i in 0..2 {
+                            s.local_get(i);
+                            if let Some(b) = unbox {
+                                s.struct_get(b, 0);
+                            }
+                        }
+                        emit_cmp(&mut s, c);
+                        s.end();
+                        f
+                    }),
+                )
+            }
+            Ty::Fixed(elem, _) => {
+                let elem = (**elem).clone();
+                let e = self.ty_or_err(&elem)?.expect("a value");
+                let raw = self.raw_type(e);
+                let c = cmp_of(self, &elem)?;
+                Ok(
+                    self.extra_fn(key, vec![vt, vt], vec![ValType::I32], move |_| {
+                        // locals: 2 i, 3 n
+                        let mut f =
+                            Function::new_with_locals_types(vec![ValType::I32, ValType::I32]);
+                        let mut s = f.instructions();
+                        s.local_get(0)
+                            .array_len()
+                            .local_tee(3)
+                            .local_get(1)
+                            .array_len()
+                            .i32_ne();
+                        s.if_(BlockType::Empty).i32_const(0).return_().end();
+                        s.block(BlockType::Empty).loop_(BlockType::Empty);
+                        s.local_get(2).local_get(3).i32_ge_u().br_if(1);
+                        s.local_get(0).local_get(2).array_get(raw);
+                        s.local_get(1).local_get(2).array_get(raw);
+                        emit_cmp(&mut s, c);
+                        s.i32_eqz()
+                            .if_(BlockType::Empty)
+                            .i32_const(0)
+                            .return_()
+                            .end();
+                        s.local_get(2).i32_const(1).i32_add().local_set(2);
+                        s.br(0).end().end();
+                        s.i32_const(1).end();
+                        f
+                    }),
+                )
+            }
+            Ty::Struct(..) | Ty::Tuple(_) | Ty::Range(_) => {
+                let (idx, fields) = self.struct_of(&t)?;
+                let mut cmps = Vec::new();
+                for (i, ft) in fields.iter().enumerate() {
+                    if !no_value(ft) {
+                        cmps.push((i as u32, cmp_of(self, ft)?));
+                    }
+                }
+                Ok(
+                    self.extra_fn(key, vec![vt, vt], vec![ValType::I32], move |_| {
+                        let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+                        let mut s = f.instructions();
+                        for (i, c) in &cmps {
+                            s.local_get(0).struct_get(idx, *i);
+                            s.local_get(1).struct_get(idx, *i);
+                            emit_cmp(&mut s, *c);
+                            s.i32_eqz()
+                                .if_(BlockType::Empty)
+                                .i32_const(0)
+                                .return_()
+                                .end();
+                        }
+                        s.i32_const(1).end();
+                        f
+                    }),
+                )
+            }
+            t => unsupported(format!("`==` on `{t}`")),
+        }
+    }
+
+    /// The text function of a part of a compound value in its debug form.
+    fn part_fn(&mut self, t: &Ty) -> R<u32> {
+        self.debug_fn(t)
+    }
+
     /// The string form of a primitive on the stack.
     fn string_form(&mut self, s: &mut InstructionSink, t: &Ty) -> R<()> {
         match t.erase() {
@@ -1850,6 +3055,7 @@ impl<'p> Gen<'p> {
                 "str_concat" => vec![str_ref(), I32, I32],
                 "str_eq" => vec![I32, I32],
                 "str_chars" => vec![I32, I64, I32],
+                "str_cmp" => vec![I32, I32, I32],
                 _ => vec![],
             });
             let mut s = f.instructions();
@@ -1919,6 +3125,45 @@ impl<'p> Gen<'p> {
                     s.br(0).end().end();
                     s.local_get(2);
                 }
+                "str_cmp" => {
+                    // Byte order is code point order in UTF-8: -1, 0 or 1. locals: 2 i, 3 n
+                    s.local_get(0).array_len().local_get(1).array_len();
+                    s.local_get(0)
+                        .array_len()
+                        .local_get(1)
+                        .array_len()
+                        .i32_lt_u()
+                        .select()
+                        .local_set(3);
+                    s.block(BlockType::Empty).loop_(BlockType::Empty);
+                    s.local_get(2).local_get(3).i32_ge_u().br_if(1);
+                    s.local_get(0).local_get(2).array_get_u(STR);
+                    s.local_get(1).local_get(2).array_get_u(STR);
+                    s.i32_sub().local_tee(4).if_(BlockType::Empty);
+                    s.i32_const(-1)
+                        .i32_const(1)
+                        .local_get(4)
+                        .i32_const(0)
+                        .i32_lt_s()
+                        .select()
+                        .return_();
+                    s.end();
+                    s.local_get(2).i32_const(1).i32_add().local_set(2);
+                    s.br(0).end().end();
+                    s.local_get(0)
+                        .array_len()
+                        .local_get(1)
+                        .array_len()
+                        .i32_sub();
+                    s.local_tee(4).i32_const(0).i32_ne();
+                    s.i32_const(-1)
+                        .i32_const(1)
+                        .local_get(4)
+                        .i32_const(0)
+                        .i32_lt_s()
+                        .select();
+                    s.i32_mul();
+                }
                 "mul_ovf_s" => {
                     // a == 0: no; a == -1: b == MIN; else (a * b) / a != b.
                     s.local_get(0).i64_eqz();
@@ -1953,6 +3198,78 @@ impl<'p> Gen<'p> {
             code.function(&f);
         }
     }
+}
+
+/// Pushes a format spec's eight fields (see the `fmt_spec_*` imports).
+fn spec_args(s: &mut InstructionSink, spec: &ppl_sema::format::FormatSpec) {
+    use ppl_sema::format::{Align, Kind, Sign};
+    let fields = [
+        spec.fill as i32,
+        match spec.align {
+            None => 0,
+            Some(Align::Left) => 1,
+            Some(Align::Right) => 2,
+            Some(Align::Center) => 3,
+        },
+        match spec.sign {
+            Sign::Minus => 0,
+            Sign::Plus => 1,
+            Sign::Space => 2,
+        },
+        spec.alternate as i32,
+        spec.zero as i32,
+        spec.width.map_or(-1, |w| w as i32),
+        spec.precision.map_or(-1, |p| p as i32),
+        match spec.kind {
+            Kind::Default => 0,
+            Kind::Dec => 1,
+            Kind::Hex => 2,
+            Kind::HexUpper => 3,
+            Kind::Oct => 4,
+            Kind::Bin => 5,
+            Kind::Exp => 6,
+            Kind::ExpUpper => 7,
+            Kind::Fixed => 8,
+            Kind::Percent => 9,
+            Kind::Debug => 10,
+        },
+    ];
+    for v in fields {
+        s.i32_const(v);
+    }
+}
+
+/// How a projection ends: a struct field, an array element, or nothing (a nullable
+/// reference's payload is the reference).
+enum Access {
+    Field(u32, u32),
+    Elem(u32),
+    Same,
+}
+
+/// The type index of a concrete reference type.
+fn heap_index(v: ValType) -> Option<u32> {
+    match v {
+        ValType::Ref(RefType {
+            heap_type: HeapType::Concrete(i),
+            ..
+        }) => Some(i),
+        _ => None,
+    }
+}
+
+/// Types held by reference here, whose `T?` is a nullable reference (not a box).
+fn is_ref_like(t: &Ty) -> bool {
+    matches!(
+        t.erase(),
+        Ty::Str
+            | Ty::Struct(..)
+            | Ty::Class(..)
+            | Ty::Array(_)
+            | Ty::Fixed(..)
+            | Ty::Tuple(_)
+            | Ty::Range(_)
+    )
 }
 
 /// Types without a value (nothing to store or pass).
