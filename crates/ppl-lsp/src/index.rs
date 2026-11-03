@@ -23,6 +23,8 @@ pub struct Ref {
     pub def: Span,
     /// Markdown: the declaration's signature in a `ppl` block, then its doc comment.
     pub hover: String,
+    /// A built-in function (`println`): no declaration to go to or rename.
+    pub builtin: bool,
 }
 
 /// The index of one document (file `file` of `sm`).
@@ -228,6 +230,7 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
         decls: HashMap::new(),
         uses: Vec::new(),
         shorthand: Vec::new(),
+        builtins: Vec::new(),
     };
     b.declarations();
     b.inherit_docs();
@@ -272,6 +275,7 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
                 name: sm.snippet(at).to_string(),
                 def: at,
                 hover,
+                builtin: false,
             });
         }
     }
@@ -300,8 +304,26 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
                 name: sm.snippet(at).to_string(),
                 def,
                 hover: hover.clone(),
+                builtin: false,
             });
         }
+    }
+    // Calls of built-in functions: their documentation.
+    for (at, b) in std::mem::take(&mut b.builtins) {
+        let Some((sig, docs)) = b.docs() else {
+            continue;
+        };
+        if at.file != file || sm.snippet(at) != b.name() || !seen.insert((at.start, at.end)) {
+            continue;
+        }
+        refs.push(Ref {
+            start: at.start,
+            end: at.end,
+            name: b.name().to_string(),
+            def: at,
+            hover: format!("```ppl\n{sig}\n```\n\n{docs}"),
+            builtin: true,
+        });
     }
     refs.sort_by_key(|r| (r.start, r.end));
     let decls = std::mem::take(&mut b.decls);
@@ -333,6 +355,8 @@ struct Builder<'a> {
     uses: Vec<(Span, Span)>,
     /// See [`Index::shorthand`].
     shorthand: Vec<Span>,
+    /// Built-in functions where they're named.
+    builtins: Vec<(Span, hir::Builtin)>,
 }
 
 impl Builder<'_> {
@@ -549,6 +573,7 @@ impl Builder<'_> {
                 let def = self.var_span(fid, *v);
                 self.uses.push((self.last_part(e.span), def));
             }
+            ExprKind::Builtin(b) => self.builtins.push((e.span, *b)),
             ExprKind::Fn(f) | ExprKind::FnAddr(f) => {
                 self.uses.push((self.last_part(e.span), self.fn_span(*f)));
             }

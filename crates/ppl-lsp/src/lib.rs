@@ -213,6 +213,8 @@ impl Server {
                             "end": position(idx.sm.file(idx.file), r.end),
                         },
                     }),
+                    // (Built-in functions have no declaration.)
+                    Some((_, r)) if r.builtin => Value::Null,
                     Some((idx, r)) => {
                         // On a method's own declaration: the methods it implements or
                         // overrides (elsewhere: the declaration).

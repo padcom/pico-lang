@@ -902,7 +902,7 @@ fn refuses_what_cant_be_renamed() {
     let err = |needle, new| rename_at("rename_refuse", main, &[], needle, new).unwrap_err();
     assert!(err(("Error", 0, 0), "Oops").contains("core library"));
     assert!(err(("message", 0, 0), "msg").contains("core library"));
-    assert!(err(("println", 0, 0), "p").contains("nothing to rename"));
+    assert!(err(("println", 0, 0), "p").contains("built in"));
     assert!(err(("n = 1", 0, 0), "while").contains("keyword"));
     assert!(err(("n = 1", 0, 0), "1x").contains("isn't a name"));
     // `prepareRename`: the name's range and text.
@@ -1225,4 +1225,43 @@ fn hover_exported_aliases_and_decorators() {
         .flat_map(|m| m["params"]["diagnostics"].as_array().unwrap())
         .collect();
     assert!(diags.is_empty(), "{diags:#?}");
+}
+
+/// Built-in functions (`println`, …) have hovers with their documentation, and no declaration.
+#[test]
+fn builtin_functions_have_docs() {
+    let dir = tmp("builtins");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let text =
+        "print(1)\nprintln(\"a\")\nassert(true, \"x\")\nfunction f(): never { panic(\"no\") }\n";
+    let h = |id, needle| at(id, "textDocument/hover", &uri, text, needle, 0, 0);
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        h(2, "print("),
+        h(3, "println"),
+        h(4, "assert"),
+        h(5, "panic"),
+        at(6, "textDocument/definition", &uri, text, "println", 0, 0),
+    ]);
+    let t = |id| hover_text(&out, id);
+    assert!(
+        t(2).starts_with(
+            "```ppl\nfunction print(value): void\n```\n\nWrites `value`'s string form"
+        ),
+        "{}",
+        t(2)
+    );
+    assert!(
+        t(3).starts_with("```ppl\nfunction println(value?): void\n```\n\nWrites"),
+        "{}",
+        t(3)
+    );
+    assert!(t(4).contains("Panics when `cond` is false"), "{}", t(4));
+    assert!(
+        t(5).starts_with("```ppl\nfunction panic(message: string): never\n```"),
+        "{}",
+        t(5)
+    );
+    assert_eq!(response(&out, 6), &Value::Null);
 }

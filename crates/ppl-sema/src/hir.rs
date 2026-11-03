@@ -662,7 +662,55 @@ pub enum Builtin {
     MetaEmit,
 }
 
+/// The global built-in functions a program can call (implemented by the compiler, so they
+/// have no ppl declaration): name, signature and documentation (Markdown), for the language
+/// server and `ppl doc`.
+pub const BUILTIN_DOCS: &[(&str, &str, &str)] = &[
+    (
+        "print",
+        "function print(value): void",
+        "Writes `value`'s string form to standard output, without a newline.\n\n\
+Anything with a string form can be printed: numbers, `bool`, `char`, strings, class instances \
+(their `toString()`, or `Name (field = value, …)`) and nullable ones of these (`null`). For other \
+values, build the text first: `print(xs.join(\", \"))`, `` print(`${p.x}, ${p.y}`) ``.",
+    ),
+    (
+        "println",
+        "function println(value?): void",
+        "Writes `value`'s string form and a newline to standard output; without an argument, just \
+the newline.\n\n\
+Anything with a string form can be printed: numbers, `bool`, `char`, strings, class instances \
+(their `toString()`, or `Name (field = value, …)`) and nullable ones of these (`null`). To print \
+several values, use a template: `` println(`${a} ${b}`) ``.",
+    ),
+    (
+        "assert",
+        "function assert(cond: bool, message?: string): void",
+        "Panics when `cond` is false, with `message` (or `assertion failed`) and where the \
+assertion is.\n\n\
+A panic means a bug: it can't be caught, runs `finally` blocks while unwinding, and on the main \
+thread ends the process (exit code 101) with the message and a stack trace. For failures a \
+caller should handle, throw an error instead.",
+    ),
+    (
+        "panic",
+        "function panic(message: string): never",
+        "Stops the current thread with `message`: a bug, not an error to handle.\n\n\
+A panic can't be caught, runs `finally` blocks while unwinding, and on the main thread ends the \
+process (exit code 101) with the message and a stack trace; in a worker, the parent gets a \
+`WorkerPanicked` error. For failures a caller should handle, throw an error instead.",
+    ),
+];
+
 impl Builtin {
+    /// [`BUILTIN_DOCS`]' entry for a built-in a program can call.
+    pub fn docs(self) -> Option<(&'static str, &'static str)> {
+        BUILTIN_DOCS
+            .iter()
+            .find(|(n, ..)| *n == self.name())
+            .map(|&(_, sig, docs)| (sig, docs))
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Builtin::Print => "print",

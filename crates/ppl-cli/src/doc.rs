@@ -124,6 +124,16 @@ fn std_pages() -> Vec<Page> {
             None => {}
         }
     }
+    // The functions the compiler implements (`println`, …).
+    for (name, sig, docs) in ppl_sema::hir::BUILTIN_DOCS {
+        core.push(Item {
+            name: name.to_string(),
+            kind: "function",
+            signature: sig.to_string(),
+            docs: docs.to_string(),
+            members: Vec::new(),
+        });
+    }
     core.sort_by(|a, b| a.name.cmp(&b.name));
     pages.insert(
         0,

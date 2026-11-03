@@ -20,6 +20,9 @@ type Decl = (PathBuf, u32);
 /// The renameable name at `offset` of the document's index: its span and declaration.
 pub fn target(idx: &Index, offset: u32) -> Result<(Span, Decl), String> {
     let r = idx.at(offset).ok_or("nothing to rename here")?;
+    if r.builtin {
+        return Err(format!("`{}` is built in and can't be renamed", r.name));
+    }
     let at = Span::new(idx.file, r.start, r.end);
     Ok((at, decl_of(idx, r.def)?))
 }

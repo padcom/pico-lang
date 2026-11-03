@@ -58,6 +58,10 @@ fn standard_library() {
         "{path}"
     );
     assert!(path.contains("href=\"index.html\""), "{path}");
+    // The functions the compiler implements, on the core library's page.
+    let core = read(&site.join("core.html"));
+    assert!(core.contains("<h2 id=\"println\">"), "{core}");
+    assert!(core.contains("function println(value?): void"), "{core}");
     // A built-in type's methods (from the core library's `__Array_map(xs, f)`), the receiver
     // dropped, and type names linked to their pages.
     let array = read(&site.join("type-Array.html"));

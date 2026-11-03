@@ -488,6 +488,7 @@ dependencies = [
  "ppl-lint",
  "ppl-lsp",
  "ppl-mir",
+ "ppl-sema",
  "ppl-syntax",
  "pulldown-cmark",
  "serde_json",

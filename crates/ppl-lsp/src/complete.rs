@@ -41,18 +41,6 @@ const BUILTIN_TYPES: &[&str] = &[
     "number", "bool", "char", "string", "void", "never",
 ];
 
-/// Built-in functions (those with ppl declarations come from the core library), with the
-/// arities the type checker enforces (`Checker::builtin`): any printable value.
-const BUILTIN_FNS: &[(&str, &str)] = &[
-    ("print", "function print(value): void"),
-    ("println", "function println(value?): void"),
-    (
-        "assert",
-        "function assert(cond: bool, message?: string): void",
-    ),
-    ("panic", "function panic(message: string): never"),
-];
-
 /// Methods the type checker implements itself (the rest are ppl extensions).
 const BUILTIN_MEMBERS: &[(&str, &str, &str)] = &[
     ("Array", "length", "(property) length: i64"),
@@ -421,8 +409,13 @@ fn scope(items: &mut Items, idx: &Index, p: &Program, at: u32) {
             }
         }
     }
-    for (name, sig) in BUILTIN_FNS {
-        items.add(name, kind::FUNCTION, Some(&format!("```ppl\n{sig}\n```")));
+    // Built-in functions (those with ppl declarations come from the core library).
+    for (name, sig, docs) in ppl_sema::hir::BUILTIN_DOCS {
+        items.add(
+            name,
+            kind::FUNCTION,
+            Some(&format!("```ppl\n{sig}\n```\n\n{docs}")),
+        );
     }
     for t in BUILTIN_TYPES {
         items.add(t, kind::KEYWORD, None);
