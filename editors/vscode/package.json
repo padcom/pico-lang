@@ -1,0 +1,38 @@
+{
+  "name": "ppl",
+  "displayName": "ppl",
+  "description": "The padcom programming language: syntax highlighting (the language server follows: PLAN P10.6b).",
+  "version": "0.1.0",
+  "publisher": "padcom",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ppl",
+        "aliases": ["ppl", "PPL"],
+        "extensions": [".ppl"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ppl",
+        "scopeName": "source.ppl",
+        "path": "./syntaxes/ppl.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.ppl.codeblock",
+        "path": "./syntaxes/ppl.markdown.tmLanguage.json",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": {
+          "meta.embedded.block.ppl": "ppl"
+        }
+      }
+    ]
+  }
+}

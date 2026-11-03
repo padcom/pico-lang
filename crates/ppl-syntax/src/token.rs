@@ -11,6 +11,9 @@ macro_rules! keywords {
         pub enum Kw { $($name,)* }
 
         impl Kw {
+            /// Every keyword (the VS Code grammar's test checks it has them all).
+            pub const ALL: &'static [Kw] = &[$(Kw::$name,)*];
+
             pub fn as_str(self) -> &'static str {
                 match self { $(Kw::$name => $text,)* }
             }

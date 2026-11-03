@@ -13,3 +13,6 @@ ppl-syntax.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+serde_json = "1"

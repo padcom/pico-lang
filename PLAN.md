@@ -866,6 +866,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   (comments, brackets, auto-closing, indentation).
 - **Done when**: a test keeps the grammar in sync with the lexer's keywords and its patterns
   valid, and a manual check in VS Code.
+- **Done**: the grammar is generated (`syntaxes/generate.py`); checked with `vscode-textmate`
+  on sample files during development; the manual check in VS Code is the author's.
 
 #### P10.6b `ppl lsp`: diagnostics and formatting
 - **Do**: a stdio JSON-RPC server (initialize, text sync of open documents, shutdown),

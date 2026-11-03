@@ -443,6 +443,7 @@ dependencies = [
  "ppl-diag",
  "ppl-driver",
  "ppl-syntax",
+ "serde_json",
 ]
 
 [[package]]
