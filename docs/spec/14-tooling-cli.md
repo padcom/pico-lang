@@ -17,7 +17,7 @@ Everything ships in a single static `ppl` binary.
 | `ppl add pkg[@ver]` / `ppl remove pkg` | manage dependencies |
 | `ppl publish` | publish to the registry |
 | `ppl lsp` | language server (stdio), used by the VS Code extension |
-| `ppl doc` | generate API docs from `/** */` comments |
+| `ppl doc` | generate HTML API docs from doc comments: the package's `index.ppl` (`--std`: the standard and core libraries; `--out dir`, default `target/doc`; decision 294) |
 
 ## 14.2 Diagnostics
 Errors are Elm/Rust-style: the error code, a snippet with the source span marked, an explanation

@@ -1,6 +1,7 @@
 //! The `ppl` command-line tool.
 
 mod dap;
+mod doc;
 mod symbolize;
 
 use clap::{Parser, Subcommand};
@@ -130,6 +131,16 @@ enum Command {
         /// The package's name, `scope/name`.
         name: String,
     },
+    /// Generate HTML API docs from doc comments: the project's package (its `index.ppl`), or
+    /// with `--std` the standard and core libraries.
+    Doc {
+        /// Document the standard and core libraries.
+        #[arg(long)]
+        std: bool,
+        /// Where to write the pages (default: `target/doc`).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Explain an error or lint code: what it means, an example, the fix (`ppl explain E0308`).
     Explain {
         /// The code: `E0308`, `308`, `W0001`.
@@ -211,6 +222,7 @@ fn main() -> ExitCode {
         Some(Command::Lint { paths }) => lint(&paths),
         Some(Command::Dap) => dap::run(),
         Some(Command::Fetch) => fetch(),
+        Some(Command::Doc { std, out }) => doc::run(std, out.as_deref()),
         Some(Command::Explain { code }) => {
             match ppl_diag::codes::parse(&code)
                 .and_then(|c| Some((c, ppl_diag::codes::explain(c)?)))

@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.9b: `ppl doc`** (see PLAN; P10.9 is split into a (`explain`) and b (`doc`); P10.3 is done, P10.4 deferred, P10.7 split into a/b and moved to Phase 11 by the author; the author should try F5 and Run Build Task on a project with `entry` in VS Code (`scripts/vscode-package.sh --install`); Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.10: Release packaging** (see PLAN; the last of Phase 10, then Phase 11 Reactivity starting with the P11.1 spec chapter; P10.3 is done, P10.4 deferred, P10.7 split into a/b and moved to Phase 11 by the author; the author should try F5 and Run Build Task on a project with `entry` in VS Code (`scripts/vscode-package.sh --install`); Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
@@ -317,7 +317,7 @@ Notes:
 - [x] P10.3c Commands
 - [ ] P10.4 Registry (deferred)
 - [x] P10.9a `ppl explain`
-- [ ] P10.9b `ppl doc`
+- [x] P10.9b `ppl doc`
 - [ ] P10.10 Release packaging
 
 ### Phase 11: Later
@@ -512,6 +512,7 @@ Notes:
 | 2026-11-03 | plan | P10.7 split into P10.7a (JIT `ppl run`) and P10.7b (REPL) and moved to Phase 11 by the author. Next: P10.9, then P10.10. |
 | 2026-11-03 | plan | P10.9 split into a (`ppl explain`, verified examples per code) and b (`ppl doc`). |
 | 2026-11-03 | P10.9a | 88 explanations (`docs/errors/`, 83 error + 5 lint codes; written with three subagents, each example checked by `tests/explain.rs`), `ppl explain`, the CLI's hint. Found while writing them: E0009 (`INVALID_MULTILINE`) is never emitted; exported top-level functions still infer `throws` (the resolver's interim rule); a `const` isn't accepted as a `comptime` argument (E0353); an overloaded function as a value is E0900; `tailcall` inside an `if` expression is rejected (E0331). |
+| 2026-11-03 | P10.9b | `ppl doc [--std] [--out dir]` (`crates/ppl-cli/src/doc.rs`, decision 294): an index and a page per module (std: 18 modules, core, `Array` and `String` from the `__Array_*`/`__String_*` functions), signatures as written with type names linked, doc comments as Markdown (pulldown-cmark), public members. Much of the stdlib (core, std/math, std/time, std/test) has no doc comments yet. |
 | 2026-11-03 | plan | New Phase 11: Reactivity (the author's: `reactive`/`Reactive<T>`, `computed`, `watchEffect`; P11.1 spec with open questions on access, scope, depth, timing, workers, cleanup; P11.2 runtime; P11.3 compiler; P11.4 event loop; P11.5 tooling). "Later" becomes Phase 12 (P12.1–P12.5, with P10.7a/b). |
 | 2026-11-03 | decisions | Reactivity (decisions 288–293, the author's answers): transparent access (`reactive n = 1`, `n + 1`, `n = 2`), local and module-level bindings (fields open), deep reactivity, synchronous effects, not `Sendable` (no sharing with workers), `watchEffect` returns a `Disposable` and effects end with their scope. |
 | 2026-11-03 | decisions | The author revised 289 and 291: reactive class fields are allowed; `computed` is lazy (dirty on write, recomputed on read), `watchEffect` stays synchronous. |
