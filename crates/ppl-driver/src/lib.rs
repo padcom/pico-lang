@@ -245,6 +245,7 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
                     }
                     t.stage("comptime");
                 }
+                m.sources = debug_sources(&sm);
                 mir = Some(m);
             }
             types = Some(ty);
@@ -265,6 +266,45 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
         comptime_output,
         files_read: ppl_interp::comptime::take_files_read(),
     }
+}
+
+/// On macOS the linker leaves the DWARF in the object file (the executable only points to it):
+/// `dsymutil` copies it into `exe.dSYM` before the object goes, so lldb finds it (spec §14.5).
+fn keep_macos_debug_info(exe: &Path) {
+    if let Ok(out) = std::process::Command::new("dsymutil").arg(exe).output()
+        && !out.status.success()
+    {
+        eprintln!(
+            "warning: dsymutil failed, the debugger won't see ppl's source lines:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+/// The source files for debug info, by `FileId`: their paths (the core library's at the bundled
+/// stdlib's copy, where the debugger can show it) and line starts.
+fn debug_sources(sm: &SourceMap) -> Vec<ppl_mir::mir::Source> {
+    sm.ids()
+        .map(|id| {
+            let f = sm.file(id);
+            let path = if let Some(rest) = f.name.strip_prefix("<core>/") {
+                let p = stdlib_dir().join("core").join(rest);
+                p.canonicalize().unwrap_or(p).display().to_string()
+            } else if f.name.starts_with('<') {
+                f.name.clone()
+            } else {
+                let p = Path::new(&f.name);
+                p.canonicalize()
+                    .unwrap_or_else(|_| p.to_path_buf())
+                    .display()
+                    .to_string()
+            };
+            ppl_mir::mir::Source {
+                path,
+                line_starts: (0..f.line_count()).map(|l| f.line_start(l)).collect(),
+            }
+        })
+        .collect()
 }
 
 /// Declarations every program sees: the core library, written in ppl (`stdlib/core`).
@@ -470,6 +510,8 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
             &obj,
             ppl_codegen::Options {
                 optimize: opts.release,
+                // (Native debug builds; wasm's DWARF isn't wired to a debugger yet.)
+                debug: !opts.release && target.arch != target::Arch::Wasm32,
                 triple: (!target.is_host()).then(|| target.clang_triple()),
             },
         )?;
@@ -486,6 +528,9 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         } else {
             link::link_linux(target, &obj, exe, !opts.release, &mir.links)
         };
+        if r.is_ok() && target.os == target::Os::Macos && !opts.release {
+            keep_macos_debug_info(exe);
+        }
         let _ = std::fs::remove_file(&obj);
         return r;
     }
@@ -503,6 +548,9 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     let out = cmd
         .output()
         .map_err(|e| format!("cannot run the linker (`cc`): {e}"))?;
+    if out.status.success() && !opts.release {
+        keep_macos_debug_info(exe);
+    }
     let _ = std::fs::remove_file(&obj);
     if !out.status.success() {
         return Err(format!(
@@ -638,6 +686,7 @@ pub fn build_library(
         &obj,
         ppl_codegen::Options {
             optimize: opts.release,
+            debug: !opts.release && target.arch != target::Arch::Wasm32,
             triple: (!target.is_host()).then(|| target.clang_triple()),
         },
     )?;

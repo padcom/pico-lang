@@ -95,7 +95,9 @@ commas and brackets, blank lines and quotes; it doesn't break long lines or chan
 yet, and skips files with syntax errors. Decision 265.
 
 ## 14.5 Debugging
-Debug builds emit DWARF (CodeView on Windows). `ppl dap` is a Debug Adapter Protocol server
+Debug builds (`ppl build` without `--release`) emit DWARF (CodeView on Windows): a line table
+for every ppl source, the core library's too, so breakpoints by file and line and backtraces
+work in lldb and gdb; on macOS the DWARF goes into `program.dSYM`. `ppl dap` is a Debug Adapter Protocol server
 (on top of lldb) that the VS Code extension uses for breakpoints, stepping, watches and
 pretty-printing of ppl values (strings, arrays, maps, enums).
 

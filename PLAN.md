@@ -967,6 +967,9 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   carry the file); `ppl build` emits them unless `--release`.
 - **Done when**: an lldb batch test (skipped without lldb) stops at a breakpoint set by
   `file:line` and its backtrace shows the ppl functions with their files and lines.
+- **Done (decision 280)**: `Dbg`/`begin_debug`/`debug_loc` in `ppl-codegen`, `mir::Program::sources`
+  (filled by the driver), `Options::debug`, `dsymutil` on macOS; test
+  `crates/ppl-driver/tests/debug_info.rs`.
 
 #### P10.8b Variables
 - **Do**: parameters and locals as DWARF variables with their types (integers, floats, `bool`,

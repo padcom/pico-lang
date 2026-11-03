@@ -14,6 +14,7 @@ pub mod wasmgc;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
+use inkwell::debug_info::{AsDIScope, DIFlagsConstants};
 use inkwell::intrinsics::Intrinsic;
 use inkwell::module::{Linkage, Module};
 use inkwell::targets::{
@@ -41,6 +42,8 @@ mod gc;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Options {
     pub optimize: bool,
+    /// Emit DWARF debug info: line tables (spec §14.5).
+    pub debug: bool,
     /// The LLVM triple to compile for; `None` is the host (tuned for its CPU).
     pub triple: Option<&'static str>,
 }
@@ -48,7 +51,7 @@ pub struct Options {
 /// The textual LLVM IR for `program` (`ppl build --emit llvm-ir`).
 pub fn emit_llvm_ir(program: &Program) -> String {
     let cx = Context::create();
-    let m = generate(&cx, program, Setjmp::Posix, 8);
+    let m = generate(&cx, program, Setjmp::Posix, 8, false);
     m.print_to_string().to_string()
 }
 
@@ -137,7 +140,7 @@ fn with_module<R>(
         Setjmp::Mingw
     };
     let ptr = if t.starts_with("wasm32") { 4 } else { 8 };
-    let m = generate(&cx, program, setjmp, ptr);
+    let m = generate(&cx, program, setjmp, ptr, opts.debug);
     // Frame pointers let a panic walk the stack; debug builds also export ppl's functions, so
     // the trace can name every frame (`dladdr`).
     let mut f = m.get_first_function();
@@ -213,8 +216,15 @@ enum Setjmp {
 }
 
 /// `ptr`: the target's pointer size in bytes.
-fn generate<'ctx>(cx: &'ctx Context, program: &Program, setjmp: Setjmp, ptr: u64) -> Module<'ctx> {
+fn generate<'ctx>(
+    cx: &'ctx Context,
+    program: &Program,
+    setjmp: Setjmp,
+    ptr: u64,
+    debug: bool,
+) -> Module<'ctx> {
     let m = cx.create_module(&program.file);
+    let dbg = (debug && !program.sources.is_empty()).then(|| Dbg::new(&m, program));
     let mut g = Gen {
         cx,
         m,
@@ -235,6 +245,7 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program, setjmp: Setjmp, ptr: u64
         layouts: Default::default(),
         setjmp,
         ptr,
+        dbg,
     };
     // Struct types first (named, so they can refer to each other), then their bodies.
     g.structs = program
@@ -296,7 +307,79 @@ fn generate<'ctx>(cx: &'ctx Context, program: &Program, setjmp: Setjmp, ptr: u64
     }
     g.register_gc_globals();
     g.worker_main();
+    if let Some(d) = &g.dbg {
+        d.di.finalize();
+        let flag = |v: u64| cx.i32_type().const_int(v, false);
+        let warn = inkwell::module::FlagBehavior::Warning;
+        g.m.add_basic_value_flag("Debug Info Version", warn, flag(3));
+        g.m.add_basic_value_flag("Dwarf Version", warn, flag(4));
+    }
     g.m
+}
+
+/// Debug info being built (spec §14.5): the compile unit, a file per source, and the function
+/// being emitted with its current location.
+struct Dbg<'ctx> {
+    di: inkwell::debug_info::DebugInfoBuilder<'ctx>,
+    files: Vec<inkwell::debug_info::DIFile<'ctx>>,
+    /// The function being emitted: its subprogram and the file its locations are in.
+    sub: Option<(inkwell::debug_info::DISubprogram<'ctx>, u32)>,
+    loc: Option<inkwell::debug_info::DILocation<'ctx>>,
+}
+
+impl<'ctx> Dbg<'ctx> {
+    fn new(m: &Module<'ctx>, p: &Program) -> Dbg<'ctx> {
+        let split = |path: &str| {
+            let p = Path::new(path);
+            let dir = p
+                .parent()
+                .map(|d| d.display().to_string())
+                .unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            (name, dir)
+        };
+        let entry = p
+            .sources
+            .first()
+            .map(|s| s.path.as_str())
+            .unwrap_or(&p.file);
+        let (name, dir) = split(entry);
+        let (di, _cu) = m.create_debug_info_builder(
+            true,
+            // (lldb knows C: its expressions and formatters work on ppl's C-like layouts.)
+            inkwell::debug_info::DWARFSourceLanguage::C,
+            &name,
+            &dir,
+            concat!("ppl ", env!("CARGO_PKG_VERSION")),
+            false,
+            "",
+            0,
+            "",
+            inkwell::debug_info::DWARFEmissionKind::Full,
+            0,
+            false,
+            false,
+            "",
+            "",
+        );
+        let files = p
+            .sources
+            .iter()
+            .map(|s| {
+                let (name, dir) = split(&s.path);
+                di.create_file(&name, &dir)
+            })
+            .collect();
+        Dbg {
+            di,
+            files,
+            sub: None,
+            loc: None,
+        }
+    }
 }
 
 struct Gen<'ctx, 'p> {
@@ -329,6 +412,8 @@ struct Gen<'ctx, 'p> {
     itables: Vec<GlobalValue<'ctx>>,
     /// `PplLayout` constants by type (`true`: a class's objects).
     layouts: std::cell::RefCell<HashMap<(Ty, bool), PointerValue<'ctx>>>,
+    /// Debug info, in debug builds.
+    dbg: Option<Dbg<'ctx>>,
 }
 
 /// A variant's name, fields and whether it was declared with parentheses.
@@ -1097,6 +1182,7 @@ impl<'ctx> Gen<'ctx, '_> {
             .collect();
         let entry = self.cx.prepend_basic_block(blocks[0], "start");
         self.b.position_at_end(entry);
+        self.begin_debug(func, llfn);
         // A C caller's thread may not have run the program's top-level code yet (spec §12.4).
         if self
             .p
@@ -1163,13 +1249,116 @@ impl<'ctx> Gen<'ctx, '_> {
                 self.safepoint(llfn);
             }
             for s in &bb.stmts {
+                self.debug_loc(s.loc);
                 let v = self.rvalue(&mut fx, &s.rvalue, s.loc);
                 if let Some(v) = v {
                     self.store(&fx, &s.place, v);
                 }
             }
+            if let Terminator::Call { loc, .. }
+            | Terminator::TailCall { loc, .. }
+            | Terminator::Panic { loc, .. } = &bb.term
+            {
+                self.debug_loc(*loc);
+            }
             self.terminator(&mut fx, &bb.term);
         }
+        self.end_debug();
+    }
+
+    /// Starts `func`'s debug info: a subprogram at its first source location (functions with
+    /// none, generated ones, get none).
+    fn begin_debug(&mut self, func: &ppl_mir::mir::Function, llfn: FunctionValue<'ctx>) {
+        let Some(d) = &mut self.dbg else {
+            return;
+        };
+        let first = func.blocks.iter().find_map(|b| {
+            b.stmts.iter().find_map(|s| s.loc.span).or(match &b.term {
+                Terminator::Call { loc, .. }
+                | Terminator::TailCall { loc, .. }
+                | Terminator::Panic { loc, .. } => loc.span,
+                _ => None,
+            })
+        });
+        let Some(span) = first else {
+            return;
+        };
+        let Some(src) = self.p.sources.get(span.file.0 as usize) else {
+            return;
+        };
+        let file = d.files[span.file.0 as usize];
+        let (line, col) = src.line_col(span.start);
+        let ty =
+            d.di.create_subroutine_type(file, None, &[], inkwell::debug_info::DIFlags::ZERO);
+        let name = llfn.get_name().to_string_lossy().to_string();
+        let sub = d.di.create_function(
+            file.as_debug_info_scope(),
+            &func.name,
+            Some(&name),
+            file,
+            line,
+            ty,
+            true,
+            true,
+            line,
+            inkwell::debug_info::DIFlags::ZERO,
+            false,
+        );
+        llfn.set_subprogram(sub);
+        d.sub = Some((sub, span.file.0));
+        let loc =
+            d.di.create_debug_location(self.cx, line, col, sub.as_debug_info_scope(), None);
+        self.b.set_current_debug_location(loc);
+        d.loc = Some(loc);
+    }
+
+    /// The source location of what's emitted next (spans in another file than the function's,
+    /// such as inlined library code, keep the previous one).
+    fn debug_loc(&mut self, loc: Loc) {
+        let Some(d) = &mut self.dbg else {
+            return;
+        };
+        let (Some((sub, file)), Some(span)) = (d.sub, loc.span) else {
+            return;
+        };
+        if span.file.0 != file {
+            return;
+        }
+        let Some(src) = self.p.sources.get(file as usize) else {
+            return;
+        };
+        let (line, col) = src.line_col(span.start);
+        let l =
+            d.di.create_debug_location(self.cx, line, col, sub.as_debug_info_scope(), None);
+        self.b.set_current_debug_location(l);
+        d.loc = Some(l);
+    }
+
+    fn end_debug(&mut self) {
+        if let Some(d) = &mut self.dbg {
+            d.sub = None;
+            d.loc = None;
+            self.b.unset_current_debug_location();
+        }
+    }
+
+    /// Runs `f` (which emits a helper function) without the current function's location, then
+    /// restores it: a location belongs to its own function.
+    fn without_debug_loc<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let saved = self.dbg.as_ref().and_then(|d| d.loc);
+        if saved.is_some() {
+            self.b.unset_current_debug_location();
+        }
+        let sub = self.dbg.as_mut().and_then(|d| d.sub.take());
+        let r = f(self);
+        if let Some(d) = &mut self.dbg {
+            d.sub = sub;
+            d.loc = saved;
+        }
+        if let Some(l) = saved {
+            self.b.set_current_debug_location(l);
+        }
+        r
     }
 
     /// A pointer to a place: the base's storage, then one GEP per field.
@@ -2136,6 +2325,10 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// `ppl.eq.<Name>(ptr, ptr) -> i1`: same variant and equal payload fields.
     fn enum_eq_fn(&mut self, eid: ppl_sema::ty::EnumId) -> FunctionValue<'ctx> {
+        self.without_debug_loc(|g| g.enum_eq_fn_body(eid))
+    }
+
+    fn enum_eq_fn_body(&mut self, eid: ppl_sema::ty::EnumId) -> FunctionValue<'ctx> {
         if let Some(f) = self.eq_fns.get(&eid.0) {
             return *f;
         }
@@ -2363,6 +2556,10 @@ impl<'ctx> Gen<'ctx, '_> {
     /// `ppl.debug.<n>(ptr) -> PplStr*` for a struct, tuple, array or range: the same text as
     /// the interpreter's `debug_value`.
     fn debug_fn(&mut self, t: &Ty) -> FunctionValue<'ctx> {
+        self.without_debug_loc(|g| g.debug_fn_body(t))
+    }
+
+    fn debug_fn_body(&mut self, t: &Ty) -> FunctionValue<'ctx> {
         if let Some(f) = self.debug_fns.get(t) {
             return *f;
         }

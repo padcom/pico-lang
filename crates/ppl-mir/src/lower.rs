@@ -255,6 +255,7 @@ pub fn lower(
         structs,
         enums,
         itables,
+        sources: Vec::new(),
     };
     erase_program(&mut mir);
     drop_unused_exit_hook(&mut mir);

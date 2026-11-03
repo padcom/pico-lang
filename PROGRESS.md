@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.8a: Line tables** (see PLAN; P10.8 is split into a–d; Phase 10 order: … P10.5a → P10.8 → P10.3 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.8b: Variables** (see PLAN; P10.8 is split into a–d; Phase 10 order: … P10.5a → P10.8 → P10.3 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
@@ -308,7 +308,7 @@ Notes:
 - [x] P10.2b Optional lint rules: complexity, blank lines, docs
 - [x] P10.5a Build fingerprints
 - [ ] P10.5b Cached code generation
-- [ ] P10.8a Line tables
+- [x] P10.8a Line tables
 - [ ] P10.8b Variables
 - [ ] P10.8c Debugging in VS Code
 - [ ] P10.8d `ppl symbolize`
@@ -486,3 +486,4 @@ Notes:
 | 2026-11-03 | plan | P10.5 split (decision 279, agreed with the author): a, build fingerprints (no-op rebuilds); b, cached code generation per module, measured on a large program. Spec §14.6 updated. |
 | 2026-11-03 | P10.5a | Build fingerprints (`ppl_driver::fingerprint`: `up_to_date`, `record`, `forget`; records in the user's cache dir, `PPL_CACHE_DIR` overrides): compiler identity, options, target, `PPL_BACKEND`/`PPL_STDLIB`, the compiled text of every source (entry, modules, std), `comptime.readFile` files (`comptime::take_files_read`, `Checked::files_read`), each `project.json` up the tree (or its absence), the output's size and mtime. `ppl build` skips when up to date, `--force` builds; C/JS imports and browser builds always build. Generated 50-module project: no-op rebuild 2 ms (full 190 ms). Bug found while measuring: module paths relative to the cwd weren't recorded (fixed). |
 | 2026-11-03 | plan | P10.8 split into a (line tables), b (variables), c (VS Code: formatters, `ppl dap`, debugger), d (`ppl symbolize`). |
+| 2026-11-03 | P10.8a | DWARF line tables in native debug builds (`ppl-codegen`: `Dbg`, `begin_debug`, `debug_loc`, `without_debug_loc`; `mir::Source`, `debug_sources` in the driver; `dsymutil` on macOS). lldb: `breakpoint set -f util.ppl -l 2` stops in an imported module, `bt` shows ppl functions with files and lines, through the core library. Golden suite green with debug info in every native build. Decision 280. |

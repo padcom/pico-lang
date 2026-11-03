@@ -67,6 +67,24 @@ pub struct Program {
     pub externs: Vec<(FnId, String)>,
     /// `@link` libraries.
     pub links: Vec<String>,
+    /// The source files by `FileId` (empty unless the driver filled it in): for debug info.
+    pub sources: Vec<Source>,
+}
+
+/// A source file, for debug info: where a debugger finds it, and where its lines start.
+#[derive(Clone, Debug, Default)]
+pub struct Source {
+    pub path: String,
+    pub line_starts: Vec<u32>,
+}
+
+impl Source {
+    /// The 1-based line and column of byte `offset`.
+    pub fn line_col(&self, offset: u32) -> (u32, u32) {
+        let line = self.line_starts.partition_point(|&s| s <= offset).max(1);
+        let start = self.line_starts.get(line - 1).copied().unwrap_or(0);
+        (line as u32, offset - start + 1)
+    }
 }
 
 /// An `@export`ed function, as the outside sees it.
