@@ -1,6 +1,6 @@
 //! `ppl explain` (spec §14.2, PLAN P10.9a): every error and lint code has an explanation in
-//! `docs/errors/<code>.md`, and its examples are real: the first ```` ```ppl ```` block reports
-//! the code, the second (the fix) doesn't. Blocks marked ```` ```ppl ignore ```` (examples
+//! `docs/errors/<code>.md`, and its examples are real: the first ```` ```ts ```` block (docs' fence for ppl) reports
+//! the code, the second (the fix) doesn't. Blocks marked ```` ```ts ignore ```` (examples
 //! that need several files or another target) aren't checked.
 //!
 //! `EXPLAIN_ONLY=E03` checks only the codes starting so; `EXPLAIN_PARTIAL=1` skips the check
@@ -15,7 +15,7 @@ fn blocks(md: &str) -> Vec<(bool, String)> {
     for line in md.lines() {
         match &mut cur {
             None => {
-                if let Some(info) = line.strip_prefix("```ppl") {
+                if let Some(info) = line.strip_prefix("```ts") {
                     cur = Some((info.trim() != "ignore", String::new()));
                 }
             }
@@ -96,7 +96,7 @@ fn every_code_is_explained_with_real_examples() {
         let bs = blocks(md);
         let checked: Vec<&String> = bs.iter().filter(|(c, _)| *c).map(|(_, t)| t).collect();
         if bs.is_empty() {
-            problems.push(format!("{code}: no ```ppl example"));
+            problems.push(format!("{code}: no ```ts example"));
             continue;
         }
         if let Some(bad) = checked.first() {
