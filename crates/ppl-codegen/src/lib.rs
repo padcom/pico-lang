@@ -1245,7 +1245,8 @@ impl<'ctx> Gen<'ctx, '_> {
             })
             .collect();
         // Locals holding references live in the shadow-stack frame.
-        let frame = self.gc_frame(func, &mut locals);
+        let mut frame_offsets = Vec::new();
+        let frame = self.gc_frame(func, &mut locals, &mut frame_offsets);
         let mut arg = 0;
         for p in &func.params {
             if let Some(slot) = locals[p.0 as usize] {
@@ -1255,7 +1256,7 @@ impl<'ctx> Gen<'ctx, '_> {
             }
         }
         self.safepoint(llfn);
-        self.declare_variables(func, &locals, entry);
+        self.declare_variables(func, &locals, frame.map(|f| (f.0, frame_offsets)), entry);
         self.b.build_unconditional_branch(blocks[0]).unwrap();
         let mut fx = FnCx {
             func,
@@ -1449,6 +1450,7 @@ impl<'ctx> Gen<'ctx, '_> {
         &mut self,
         func: &ppl_mir::mir::Function,
         locals: &[Option<PointerValue<'ctx>>],
+        frame: Option<(PointerValue<'ctx>, Vec<(usize, u64)>)>,
         entry: BasicBlock<'ctx>,
     ) {
         let Some((sub, file, loc, line)) = self.dbg.as_ref().and_then(|d| {
@@ -1490,9 +1492,21 @@ impl<'ctx> Gen<'ctx, '_> {
             };
             // (inkwell's `insert_declare_at_end` takes LLVM 23's debug record for an
             // instruction and asserts; the C API inserts the record.)
+            // A local in the collector's frame is declared on the frame's slot plus its offset
+            // (a declaration on the address inside it gets no location on some targets).
+            let mut ops = Vec::new();
+            let mut slot = slot;
+            if let Some((f, offsets)) = &frame
+                && let Some((_, off)) = offsets.iter().find(|(l, _)| *l == i)
+            {
+                slot = *f;
+                ops.extend([0x23, *off as i64]); // DW_OP_plus_uconst
+            }
             // (DW_OP_deref: the slot holds the reference.)
-            let expr =
-                d.di.create_expression(if deref { vec![0x06] } else { Vec::new() });
+            if deref {
+                ops.push(0x06);
+            }
+            let expr = d.di.create_expression(ops);
             unsafe {
                 inkwell::llvm_sys::debuginfo::LLVMDIBuilderInsertDeclareRecordAtEnd(
                     d.di.as_mut_ptr(),

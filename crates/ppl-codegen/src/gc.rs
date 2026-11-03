@@ -197,6 +197,7 @@ impl<'ctx> Gen<'ctx, '_> {
         &self,
         func: &ppl_mir::mir::Function,
         locals: &mut [Option<PointerValue<'ctx>>],
+        offsets_out: &mut Vec<(usize, u64)>,
     ) -> Option<(PointerValue<'ctx>, inkwell::types::StructType<'ctx>)> {
         let rooted: Vec<usize> = func
             .locals
@@ -250,6 +251,8 @@ impl<'ctx> Gen<'ctx, '_> {
         g.set_constant(true);
         g.set_initializer(&map);
         for (k, i) in rooted.iter().enumerate() {
+            // (For debug info: where in the frame each one is.)
+            offsets_out.push((*i, offsets[2 + k]));
             locals[*i] = Some(
                 self.b
                     .build_struct_gep(frame_ty, frame, 2 + k as u32, "")

@@ -6,6 +6,8 @@
 # `string` is `PplStr` (`byte_len` at 0, the UTF-8 bytes at 32), `T[]` is `PplArray` (`len`,
 # `cap`, `data`), `Map<K, V>` and `Set<T>` are the core library's classes (stdlib/core/map.ppl).
 
+import re
+
 import lldb
 
 MAX_CHILDREN = 10000
@@ -231,6 +233,55 @@ def set_summary(valobj, _dict):
     return "size=%d" % _field(_field(valobj, "map"), "count").GetValueAsUnsigned(0)
 
 
+# Types with providers of their own (their fields are the runtime's).
+_COLLECTION = re.compile(r"^(string|.*\[\]|Map<.*>|Set<.*>)$")
+
+
+def _struct(t):
+    if t.IsPointerType():
+        t = t.GetPointeeType()
+    return t if t.GetTypeClass() == lldb.eTypeClassStruct else None
+
+
+def is_object_with_refs(sbtype, _dict):
+    """A ppl struct or object with reference fields (strings, arrays, objects): its fields are
+    shown through `ObjectProvider`."""
+    t = _struct(sbtype)
+    if t is None or _COLLECTION.match(t.GetName() or ""):
+        return False
+    for i in range(t.GetNumberOfFields()):
+        if _struct(t.GetFieldAtIndex(i).GetType()) is not None and t.GetFieldAtIndex(i).GetType().IsPointerType():
+            return True
+    return False
+
+
+class ObjectProvider:
+    """An object's fields, references shown as their objects (`"Ann"`, not an address)."""
+
+    def __init__(self, valobj, _dict):
+        self.v = valobj
+        self.update()
+
+    def update(self):
+        self.raw = None if _null(self.v) else _target(self.v)
+        return False
+
+    def num_children(self):
+        return self.raw.GetNumChildren() if self.raw else 0
+
+    def get_child_index(self, name):
+        return self.raw.GetIndexOfChildWithName(name) if self.raw else -1
+
+    def get_child_at_index(self, i):
+        if not self.raw or i < 0 or i >= self.raw.GetNumChildren():
+            return None
+        c = self.raw.GetChildAtIndex(i)
+        return _object(c.GetName(), c)
+
+    def has_children(self):
+        return True
+
+
 def __lldb_init_module(debugger, _dict):
     run = debugger.HandleCommand
     run("type category define ppl")
@@ -245,4 +296,8 @@ def __lldb_init_module(debugger, _dict):
     run('type synthetic add -w ppl -l ppl_lldb.MapProvider -x "^Map<.*>( \\*)?$"')
     run('type summary add -w ppl -v -F ppl_lldb.set_summary -x "^Set<.*>$"')
     run('type synthetic add -w ppl -l ppl_lldb.SetProvider -x "^Set<.*>( \\*)?$"')
+    run(
+        "type synthetic add -w ppl -l ppl_lldb.ObjectProvider "
+        "--recognizer-function ppl_lldb.is_object_with_refs"
+    )
     run("type category enable ppl")

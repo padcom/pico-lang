@@ -130,7 +130,7 @@ fn debugs_a_ppl_program() {
     let main = dir.join("main.ppl");
     std::fs::write(
         &main,
-        "function show(m: Map<string, i64>, names: string[], greeting: string) {\n  println(`${m.size} ${names.length} ${greeting}`)\n}\nconst TITLE = \"report\"\nconst m = new Map<string, i64>()\nm.set(\"a\", 1)\nm.set(\"b\", 2)\nshow(m, [\"x\", \"y\"], \"hello\")\n",
+        "class Person {\n  constructor(public name: string) {}\n}\nfunction show(m: Map<string, i64>, names: string[], greeting: string, who: Person) {\n  println(`${m.size} ${names.length} ${greeting} ${who.name}`)\n}\nconst TITLE = \"report\"\nconst m = new Map<string, i64>()\nm.set(\"a\", 1)\nm.set(\"b\", 2)\nshow(m, [\"x\", \"y\"], \"hello\", new Person(\"Ann\"))\n",
     )
     .unwrap();
     let mut s = Session::start(&dir.join("cache"));
@@ -143,7 +143,7 @@ fn debugs_a_ppl_program() {
     s.event("initialized");
     let r = s.request(
         "setBreakpoints",
-        json!({ "source": { "path": main.display().to_string() }, "breakpoints": [{ "line": 2 }] }),
+        json!({ "source": { "path": main.display().to_string() }, "breakpoints": [{ "line": 5 }] }),
     );
     assert_eq!(r["body"]["breakpoints"][0]["verified"], true, "{r:#?}");
     s.request("configurationDone", json!({}));
@@ -156,7 +156,7 @@ fn debugs_a_ppl_program() {
     let st = s.request("stackTrace", json!({ "threadId": thread, "levels": 5 }));
     let top = &st["body"]["stackFrames"][0];
     assert!(top["name"].as_str().unwrap().starts_with("show"), "{st:#?}");
-    assert_eq!(top["line"], 2, "{st:#?}");
+    assert_eq!(top["line"], 5, "{st:#?}");
     assert!(
         top["source"]["path"]
             .as_str()
@@ -227,6 +227,20 @@ fn debugs_a_ppl_program() {
         .unwrap_or_else(|| panic!("{g:#?}"))
         .clone();
     assert_eq!(title["value"], "\"report\"", "{g:#?}");
+    // An object's string field: the text, not an address.
+    let who = var("who");
+    let fields = s.request(
+        "variables",
+        json!({ "variablesReference": who["variablesReference"] }),
+    );
+    let name = fields["body"]["variables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "name")
+        .unwrap_or_else(|| panic!("{fields:#?}"))
+        .clone();
+    assert_eq!(name["value"], "\"Ann\"", "{fields:#?}");
     s.request("disconnect", json!({ "terminateDebuggee": true }));
     let _ = s.child.wait();
 

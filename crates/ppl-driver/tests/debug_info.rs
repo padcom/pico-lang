@@ -47,22 +47,38 @@ fn breakpoints_and_backtraces() {
     ppl_driver::build_native(&checked, &exe, BuildOptions::default()).unwrap();
     let out = Command::new(lldb)
         .args(["-b", "-o", "breakpoint set -f util.ppl -l 2", "-o", "run"])
-        .args(["-o", "bt", "-o", "continue", "-o", "bt", "-o", "kill"])
+        .args([
+            "-o",
+            "bt",
+            "-o",
+            "frame variable n",
+            "-o",
+            "continue",
+            "-o",
+            "bt",
+            "-o",
+            "kill",
+        ])
         .arg(&exe)
         .output()
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     // (Frames read `app`twice(n=21) at util.ppl:2`.)
-    let frame = |f: &str, at: &str| {
-        text.lines()
-            .any(|l| l.contains(&format!("`{f}")) && l.contains(at))
+    // (lldb on macOS names frames by their symbols: `ppl.show`, `ppl_entry` for `<main>`.)
+    let frame = |names: &[&str], at: &str| {
+        text.lines().any(|l| {
+            names
+                .iter()
+                .any(|f| l.contains(&format!("`{f}")) || l.contains(&format!("`ppl.{f}")))
+                && l.contains(at)
+        })
     };
     // The breakpoint resolved to the ppl source line, after the parameters are in place.
-    assert!(frame("twice", "at util.ppl:2"), "{text}");
-    assert!(text.contains("twice(n=21)"), "{text}");
+    assert!(frame(&["twice"], "at util.ppl:2"), "{text}");
+    assert!(text.contains("n = 21"), "{text}");
     // The first stop: called from `show` in main.ppl, line 4, from the top-level code.
-    assert!(frame("show", "at main.ppl:4"), "{text}");
-    assert!(frame("<main>", "at main.ppl:6"), "{text}");
+    assert!(frame(&["show"], "at main.ppl:4"), "{text}");
+    assert!(frame(&["<main>", "ppl_entry"], "at main.ppl:6"), "{text}");
     // The second: from the closure, through the core library's `map`.
     assert!(text.contains("array.ppl:"), "{text}");
 }
