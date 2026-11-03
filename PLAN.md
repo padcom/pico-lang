@@ -864,9 +864,21 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 
 ### P10.5 Incremental compilation
 - **Spec**: 14 §14.6
-- **Do**: content-hash caching per module (parsed, checked, MIR) and per monomorphized instance, with
-  invalidation by dependency signature.
-- **Done when**: a no-op rebuild of a 50-module project takes < 200 ms (measured).
+- Split into two slices (decision 279: measured, parse + resolve + typecheck take ~20 ms of a
+  check, and the whole-program checker can't cache per module cheaply):
+
+#### P10.5a Build fingerprints
+- **Do**: `ppl build` records each output's inputs (compiler, options, target, the content of
+  the entry, imported and std modules, comptime-read files, `project.json`) and skips the build
+  when nothing changed; `--force`; C/JS imports and browser builds always build.
+- **Done when**: a no-op rebuild of a 50-module project takes < 200 ms (measured), and tests show
+  that changing a module, an option or the output rebuilds.
+
+#### P10.5b Cached code generation
+- **Do**: emit the core library and each module as object files of their own, cached by content
+  (and the instances they need), so a change rebuilds only its module's code.
+- **Done when**: measured on a large program (to be chosen): a one-module change rebuilds faster
+  than a full build.
 
 ### P10.6 LSP and VS Code extension
 - **Do**: `ppl lsp` (diagnostics, hover, go-to-definition, completion, rename, format), plus a

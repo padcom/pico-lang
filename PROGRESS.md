@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.5: Incremental compilation** (see PLAN; Phase 10 order: … P10.2 → P10.5 → P10.8 → …). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.5a: Build fingerprints** (see PLAN; P10.5 is split into a and b; Phase 10 order: … P10.2 → P10.5 → P10.8 → …). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
@@ -306,7 +306,8 @@ Notes:
 - [x] P10.6d2 Rename and document symbols
 - [x] P10.2a `ppl lint`: command, configuration, naming, unused code
 - [x] P10.2b Optional lint rules: complexity, blank lines, docs
-- [ ] P10.5 Incremental compilation
+- [ ] P10.5a Build fingerprints
+- [ ] P10.5b Cached code generation
 - [ ] P10.8 Debugging
 - [ ] P10.3 Package manager
 - [ ] P10.4 Registry
@@ -479,3 +480,4 @@ Notes:
 | 2026-11-03 | perf | Measured the front end (`PPL_TIMINGS=1` prints each stage of a check): ~90% was MIR lowering of generic instances, each cloning and substituting all of `Types` (28k expressions × ~290 instances, mostly the core library's). Instances now share substituted tables per distinct substitution (`TypesRef`, ~65 of them), and `Ty::subst` returns types without the owner's parameters unchanged (`substitutes`). A check of a small program: 375 → 118 ms release, 1.3 s → 0.41 s debug; builds, runs and tests gain too. |
 | 2026-11-03 | P10.6c1 | Author's request: go-to-definition on a method's own declaration leads to the methods it implements or overrides (nearest level up `extends`/`implements`, several for several interfaces; `Index::supers`); on a call it still leads to the implementation. Test `definition_of_an_implementation_goes_to_the_interface`. |
 | 2026-11-03 | P10.6d2 | Author's request: `textDocument/implementation` (Go to Implementations): the types below an interface or class (transitively) and the methods implementing or overriding a method, also through an interface value's call, across the project (`rename::project_indexes`, shared with rename; `Index::implementations`; declarations identified by file and offset, so core library interfaces work too). Test `implementations_across_the_project`. |
+| 2026-11-03 | plan | P10.5 split (decision 279, agreed with the author): a, build fingerprints (no-op rebuilds); b, cached code generation per module, measured on a large program. Spec §14.6 updated. |

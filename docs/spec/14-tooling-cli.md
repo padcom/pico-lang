@@ -100,8 +100,13 @@ Debug builds emit DWARF (CodeView on Windows). `ppl dap` is a Debug Adapter Prot
 pretty-printing of ppl values (strings, arrays, maps, enums).
 
 ## 14.6 Builds
-- **Incremental**: per-module caching of parsed, type-checked and lowered IR, keyed by content
-  hash. Monomorphized instances are cached per instantiation.
+- **Incremental**: `ppl build` keeps a fingerprint of each output: the compiler, the options and
+  target, and the content of every input (the entry, the modules it imports, the standard
+  library modules it uses, files read by `comptime` code, `project.json`). When none changed and
+  the output is still the one it built, the build does nothing (`--force` builds anyway).
+  Programs that import C headers or JavaScript modules, and browser builds, always build.
+  Planned: code generation per module (the core library and each module as object files of
+  their own), cached by content. Decision 279.
 - **Single binary**: the `ppl` executable bundles LLVM, lld, libclang (for `c:` imports), the
   runtime and the stdlib sources.
 
