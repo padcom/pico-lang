@@ -3,7 +3,9 @@
 // `import { self } from "std/worker"`, then `self.onmessage = (job: Job) => { … }` and
 // `self.postMessage(result)`.
 
+/// The worker's side of its channel to the parent: `self` is the one instance.
 export class WorkerSelf {
+  /// A handle on the current worker's channel; use `self` rather than making another.
   constructor() {}
 
   /// Sends a copy of `message` to the parent (nothing in the main thread);
@@ -73,6 +75,7 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
     }
   }
 
+  /// The number of workers (`size`, at least 1).
   public get size(): int {
     this.workers.length
   }
@@ -91,6 +94,7 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
     p
   }
 
+  /// Stops every worker; jobs still waiting for an answer never settle.
   public terminate(): void {
     for (const w of this.workers) {
       w.terminate()

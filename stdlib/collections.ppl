@@ -10,19 +10,24 @@ export class Deque<T> {
   front: T[] = []
   back: T[] = []
 
+  /// A deque holding `items`, front to back.
   constructor(items: T[] = []) {
     for (const x of items) this.back.push(x)
   }
 
+  /// The number of elements.
   public get length(): int { this.front.length + this.back.length }
+  /// Whether there are no elements.
   public get isEmpty(): bool { this.front.length == 0 && this.back.length == 0 }
 
   /// Adds `x` at the back (also `push`).
   public pushBack(x: T): void { this.back.push(x) }
+  /// Adds `x` at the back (the same as `pushBack`).
   public push(x: T): void { this.back.push(x) }
 
   /// Adds `x` at the front (also `unshift`).
   public pushFront(x: T): void { this.front.push(x) }
+  /// Adds `x` at the front (the same as `pushFront`).
   public unshift(x: T): void { this.front.push(x) }
 
   /// Moves half of one side over when the other runs out.
@@ -56,6 +61,7 @@ export class Deque<T> {
     if (this.back.length == 0) return null
     this.back.pop()
   }
+  /// Removes and returns the last element, or `null` when empty (the same as `popBack`).
   public pop(): T? { this.popBack() }
 
   /// Removes and returns the first element (`null` when empty; also `shift`).
@@ -64,6 +70,7 @@ export class Deque<T> {
     if (this.front.length == 0) return null
     this.front.pop()
   }
+  /// Removes and returns the first element, or `null` when empty (the same as `popFront`).
   public shift(): T? { this.popFront() }
 
   /// The element at `i` (negative counts from the back), or `null` out of range.
@@ -74,9 +81,12 @@ export class Deque<T> {
     if (k < this.front.length) this.front[this.front.length - 1 - k] else this.back[k - this.front.length]
   }
 
+  /// The first element without removing it, or `null` when empty.
   public peekFront(): T? { this.at(0) }
+  /// The last element without removing it, or `null` when empty.
   public peekBack(): T? { this.at(-1) }
 
+  /// Removes every element.
   public clear(): void {
     this.front = []
     this.back = []
@@ -94,6 +104,7 @@ export class Deque<T> {
     r
   }
 
+  /// `for (const x of deque)`: front to back, over a snapshot (changes during the loop don't show).
   public iterator(): Iterator<T> { this.toArray().iterator() }
 }
 
@@ -103,14 +114,18 @@ export class PriorityQueue<T> {
   heap: T[] = []
   compare: (a: T, b: T) => int
 
+  /// A queue ordered by `compare` (negative when `a` comes first), holding `items`.
   constructor(compare: (a: T, b: T) => int, items: T[] = []) {
     this.compare = compare
     for (const x of items) this.push(x)
   }
 
+  /// The number of elements.
   public get size(): int { this.heap.length }
+  /// Whether there are no elements.
   public get isEmpty(): bool { this.heap.length == 0 }
 
+  /// Adds `x` in O(log n).
   public push(x: T): void {
     this.heap.push(x)
     let i = this.heap.length - 1
@@ -161,6 +176,7 @@ export class PriorityQueue<T> {
     }
   }
 
+  /// Removes every element.
   public clear(): void { this.heap = [] }
 
   /// The elements in priority order (the queue is unchanged).
@@ -206,9 +222,12 @@ export class SortedMap<K extends Comparable<K>, V> {
   ks: K[] = []
   vs: V[] = []
 
+  /// An empty map.
   constructor() {}
 
+  /// The number of entries.
   public get size(): int { this.ks.length }
+  /// Whether there are no entries.
   public get isEmpty(): bool { this.ks.length == 0 }
 
   /// The first index whose key is `>= k`.
@@ -224,13 +243,17 @@ export class SortedMap<K extends Comparable<K>, V> {
 
   found(i: int, k: K): bool { i < this.ks.length && this.ks[i].compareTo(k) == 0 }
 
+  /// The value for `k`, or `null` if there's none. O(log n).
   public get(k: K): V? {
     const i = this.lowerBound(k)
     if (this.found(i, k)) this.vs[i] else null
   }
 
+  /// Whether the map has an entry for `k`. O(log n).
   public has(k: K): bool { this.found(this.lowerBound(k), k) }
 
+  /// Sets `k`'s value to `v` (replacing an existing one in O(log n), inserting in O(n)); the map
+  /// itself, for chaining.
   public set(k: K, v: V): SortedMap<K, V> {
     const i = this.lowerBound(k)
     if (this.found(i, k)) {
@@ -242,6 +265,7 @@ export class SortedMap<K extends Comparable<K>, V> {
     this
   }
 
+  /// Removes `k`'s entry (O(n)); whether there was one.
   public delete(k: K): bool {
     const i = this.lowerBound(k)
     if (!this.found(i, k)) return false
@@ -250,12 +274,15 @@ export class SortedMap<K extends Comparable<K>, V> {
     true
   }
 
+  /// Removes every entry.
   public clear(): void {
     this.ks = []
     this.vs = []
   }
 
+  /// The smallest key, or `null` when empty.
   public firstKey(): K? { if (this.ks.length == 0) null else this.ks[0] }
+  /// The largest key, or `null` when empty.
   public lastKey(): K? { if (this.ks.length == 0) null else this.ks[this.ks.length - 1] }
 
   /// The largest key `<= k`, or `null`.
@@ -282,15 +309,19 @@ export class SortedMap<K extends Comparable<K>, V> {
     r
   }
 
+  /// The keys in order (a copy).
   public keys(): K[] { this.ks.slice(0) }
+  /// The values in key order (a copy).
   public values(): V[] { this.vs.slice(0) }
 
+  /// The `[key, value]` pairs in key order.
   public entries(): [K, V][] {
     const r: [K, V][] = []
     for (let i = 0; i < this.ks.length; i++) r.push([this.ks[i], this.vs[i]])
     r
   }
 
+  /// Calls `f(value, key)` for each entry in key order.
   public forEach(f: (value: V, key: K) => void): void {
     for (let i = 0; i < this.ks.length; i++) f(this.vs[i], this.ks[i])
   }
@@ -304,6 +335,7 @@ export class BitSet {
   /// 32 bits per word.
   words: int[] = []
 
+  /// A set with the bits in `bits` set (a negative one panics).
   constructor(bits: int[] = []) {
     for (const b of bits) this.add(b)
   }
@@ -312,6 +344,7 @@ export class BitSet {
     if (i < 0) panic(`BitSet: negative index ${i}`)
   }
 
+  /// Whether bit `i` is set (`false` beyond the highest one; a negative `i` panics).
   public has(i: int): bool {
     BitSet.__check(i)
     const w = i >> 5
@@ -344,8 +377,10 @@ export class BitSet {
     }
   }
 
+  /// Toggles bit `i` (a negative `i` panics).
   public flip(i: int): void { this.set(i, !this.has(i)) }
 
+  /// Clears every bit.
   public clear(): void { this.words = [] }
 
   /// The number of set bits.
@@ -361,6 +396,7 @@ export class BitSet {
     n
   }
 
+  /// Whether no bit is set.
   public get isEmpty(): bool { this.size == 0 }
 
   /// One more than the highest set bit (0 when empty).
@@ -389,10 +425,13 @@ export class BitSet {
     r
   }
 
-  /// New sets: the bits in both, either, exactly one, or this one but not `o`.
+  /// A new set: the bits in both this set and `o`.
   public and(o: BitSet): BitSet { BitSet.__combine(this, o, 0) }
+  /// A new set: the bits in either this set or `o`.
   public or(o: BitSet): BitSet { BitSet.__combine(this, o, 1) }
+  /// A new set: the bits in exactly one of this set and `o`.
   public xor(o: BitSet): BitSet { BitSet.__combine(this, o, 2) }
+  /// A new set: the bits in this set but not in `o`.
   public andNot(o: BitSet): BitSet { BitSet.__combine(this, o, 3) }
 
   /// The same bits set (trailing zero words don't matter).
@@ -419,6 +458,7 @@ export class BitSet {
     r
   }
 
+  /// `for (const i of bits)`: the set bits, ascending.
   public iterator(): Iterator<int> { this.toArray().iterator() }
 
   /// `{1, 5, 64}`

@@ -1,4 +1,5 @@
 // A tiny standard-library module (`import { greet } from "std/greeting"`).
+/// A greeting for `who` (a tiny module for the toolchain's tests).
 export function greet(who: string): string {
   `${who} say hi`
 }

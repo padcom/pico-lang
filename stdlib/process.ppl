@@ -25,8 +25,12 @@ function __what(r: int, errno: int): string {
 /// program, a message and a portable kind (as `IoError`'s: `"NotFound"`, `"PermissionDenied"`,
 /// `"InvalidData"`, `"Other"`, …).
 export class ProcessError extends Error {
+  /// The program that was to run.
   public command: string
+  /// The portable kind, as `IoError`'s (`"NotFound"`, `"PermissionDenied"`, `"InvalidData"`,
+  /// `"Other"`, …).
   public kind: string
+  /// An error for `command` with `message` and `kind`.
   constructor(command: string, message: string, kind: string) {
     super(message)
     this.command = command
@@ -82,14 +86,17 @@ export class Env {
     if (found) value else null
   }
 
+  /// Whether the variable is set (to anything, `""` too).
   public has(name: string): bool {
     this.get(name) != null
   }
 
+  /// Sets the variable to `value` for this process and the commands it starts later.
   public set(name: string, value: string): void {
     __io(115, 0, 0, 0, name, value);
   }
 
+  /// Unsets the variable (nothing happens if it isn't set).
   public delete(name: string): void {
     __io(116, 0, 0, 0, name, "");
   }
@@ -107,6 +114,7 @@ export class Env {
   }
 }
 
+/// This process's environment variables.
 export const env = new Env()
 
 /// A finished job's results.
@@ -141,12 +149,15 @@ function __bytesOf(data: Uint8Array): ArrayBuffer {
 /// of bytes with `read`, `for await`, or everything at once with `text()`. One read at a time.
 export class Reader {
   fd: int
+  /// The stream's name (`"stdin"`, `"stdout"` or `"stderr"`), used in panics and as the `path` of
+  /// its `IoError`s.
   public readonly name: string
   piped: bool
   done: bool = false
   reading: bool = false
   rs: ReadableStream<Uint8Array>? = null
 
+  /// A reader of descriptor `fd` (reading panics unless `piped`); `Command` and `stdin` make these.
   constructor(fd: int, name: string, piped: bool) {
     this.fd = fd
     this.name = name
@@ -209,6 +220,7 @@ export class Reader {
     read()
   }
 
+  /// `for await` uses the reader itself.
   public asyncIterator(): Reader {
     this
   }
@@ -262,6 +274,8 @@ struct __Write {
 /// happen in the order they're made; `close()` (after them) ends the child's input.
 export class Writer {
   fd: int
+  /// The stream's name (`"stdin"`, `"stdout"` or `"stderr"`), used in panics and as the `path` of
+  /// its `IoError`s.
   public readonly name: string
   piped: bool
   queue: __Write[] = []
@@ -271,6 +285,8 @@ export class Writer {
   closed: bool = false
   ws: WritableStream<Uint8Array>? = null
 
+  /// A writer to descriptor `fd` (writing panics unless `piped`); `Command`, `stdout` and `stderr`
+  /// make these.
   constructor(fd: int, name: string, piped: bool) {
     this.fd = fd
     this.name = name
@@ -365,9 +381,11 @@ export class Writer {
   }
 }
 
-/// This process's standard input, output and error.
+/// This process's standard input.
 export const stdin = new Reader(0, "stdin", true)
+/// This process's standard output: writes are in order with `print`.
 export const stdout = new Writer(1, "stdout", true)
+/// This process's standard error: writes are in order with `print`.
 export const stderr = new Writer(2, "stderr", true)
 
 /// What a child's standard stream is connected to: this process's (`"inherit"`), a pipe to
@@ -381,17 +399,25 @@ function __mode(s: Stdio): int {
 /// How a child ended: `code` is its exit code (128 + the signal's number when a signal
 /// ended it, as shells report it).
 export struct ExitStatus {
+  /// Whether it exited with code 0 (and no signal ended it).
   success: bool
+  /// The exit code (128 + the signal's number when a signal ended it).
   code: i32
+  /// The number of the signal that ended it (on Windows, the one `kill` was given), or `null`.
   signal: i32?
 }
 
 /// A finished child's status and everything it wrote (as UTF-8 text).
 export struct Output {
+  /// Whether it exited with code 0 (and no signal ended it).
   success: bool
+  /// The exit code (128 + the signal's number when a signal ended it).
   code: i32
+  /// The number of the signal that ended it (on Windows, the one `kill` was given), or `null`.
   signal: i32?
+  /// Everything it wrote to its standard output (`""` when that wasn't piped).
   stdout: string
+  /// Everything it wrote to its standard error (`""` when that wasn't piped).
   stderr: string
 }
 
@@ -399,14 +425,19 @@ export struct Output {
 export class Child {
   /// 0 when it couldn't be started.
   public readonly pid: int
+  /// Its standard input, when spawned with `stdin: "pipe"` (writing to it otherwise panics).
   public readonly stdin: Writer
+  /// Its standard output, when spawned with `stdout: "pipe"` (reading it otherwise panics).
   public readonly stdout: Reader
+  /// Its standard error, when spawned with `stderr: "pipe"` (reading it otherwise panics).
   public readonly stderr: Reader
   program: string
   error: ProcessError?
   waited: Promise<ExitStatus, ProcessError>? = null
   exited: bool = false
 
+  /// A child with process id `pid` (0 and an `error` when it couldn't start); `Command.spawn` makes
+  /// these.
   constructor(pid: int, program: string, error: ProcessError?, stdin: Writer, stdout: Reader, stderr: Reader) {
     this.pid = pid
     this.program = program
@@ -479,7 +510,9 @@ export class Child {
 /// `clearEnv` it's all there is) and standard streams. `spawn()` starts it; `output()` and
 /// `status()` start it and wait.
 export class Command {
+  /// The program to run: a path, or a name looked up in `PATH`.
   public readonly program: string
+  /// The arguments after the program.
   public readonly args: string[]
   dir: string?
   vars: Map<string, string>?
@@ -490,6 +523,10 @@ export class Command {
   /// Windows: the arguments go on the command line as they are, unquoted (`shell`).
   verbatim: bool = false
 
+  /// A command running `program` with `args`, in `cwd` (a relative one is resolved against the
+  /// working directory; this process's by default), with `env` added to (or, with `clearEnv`,
+  /// instead of) this process's variables, and each standard stream `"inherit"`ed, `"pipe"`d or
+  /// `"null"`. Nothing runs until `spawn`, `output` or `status`.
   constructor(program: string, args: string[] = [], cwd: string? = null,
     env: Map<string, string>? = null, clearEnv: bool = false, stdin: Stdio = "inherit",
     stdout: Stdio = "inherit", stderr: Stdio = "inherit") {

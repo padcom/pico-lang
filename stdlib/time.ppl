@@ -13,34 +13,54 @@ const NS_PER_DAY = 86400000000000
 
 /// The parts of a duration or of a calendar change (`plus({ months: 1, days: 2 })`).
 export struct DurationParts {
+  /// Calendar years (12 months each; `Duration.of` panics on them).
   years?: int
+  /// Calendar months (the day is clamped to the month's end; `Duration.of` panics on them).
   months?: int
+  /// Weeks: 7 calendar days in `DateTime.plus`, 7 × 24 hours in `Duration.of`.
   weeks?: int
+  /// Days: calendar days keeping the wall-clock time in `DateTime.plus`, 24 hours in `Duration.of`.
   days?: int
+  /// Exact hours.
   hours?: int
+  /// Exact minutes.
   minutes?: int
+  /// Exact seconds.
   seconds?: int
+  /// Exact milliseconds.
   milliseconds?: int
+  /// Exact microseconds.
   microseconds?: int
+  /// Exact nanoseconds.
   nanoseconds?: int
 }
 
 /// An exact length of time in nanoseconds (negative ones too). A day is 24 hours here;
 /// calendar days (which can be 23 or 25 hours long) are `DateTime.plus({ days })`.
 export class Duration {
+  /// The length in nanoseconds (negative for a negative duration).
   public readonly nanoseconds: int
 
+  /// A duration of `nanoseconds` nanoseconds.
   constructor(nanoseconds: int) {
     this.nanoseconds = nanoseconds
   }
 
+  /// The zero-length duration.
   public static zero(): Duration { new Duration(0) }
+  /// `n` nanoseconds.
   public static ofNanoseconds(n: int): Duration { new Duration(n) }
+  /// `n` microseconds (panics on `int` overflow, as do the other `of…` factories).
   public static ofMicroseconds(n: int): Duration { new Duration(n * NS_PER_US) }
+  /// `n` milliseconds.
   public static ofMilliseconds(n: int): Duration { new Duration(n * NS_PER_MS) }
+  /// `n` seconds (at most about 292 years either way).
   public static ofSeconds(n: int): Duration { new Duration(n * NS_PER_S) }
+  /// `n` minutes.
   public static ofMinutes(n: int): Duration { new Duration(n * NS_PER_MIN) }
+  /// `n` hours.
   public static ofHours(n: int): Duration { new Duration(n * NS_PER_H) }
+  /// `n` days of exactly 24 hours.
   public static ofDays(n: int): Duration { new Duration(n * NS_PER_DAY) }
 
   /// The sum of `parts` (weeks are 7 days, days 24 hours; years and months panic: they
@@ -59,26 +79,39 @@ export class Duration {
     d
   }
 
+  /// -1, 0 or 1 as `a` is shorter than, as long as or longer than `b` (for `sort`).
   public static compare(a: Duration, b: Duration): int {
     if (a.nanoseconds < b.nanoseconds) -1 else if (a.nanoseconds > b.nanoseconds) 1 else 0
   }
 
+  /// This duration plus `d` (panics on `int` overflow).
   public plus(d: Duration): Duration { new Duration(this.nanoseconds + d.nanoseconds) }
+  /// This duration minus `d`.
   public minus(d: Duration): Duration { new Duration(this.nanoseconds - d.nanoseconds) }
+  /// This duration `k` times over (panics on `int` overflow).
   public times(k: int): Duration { new Duration(this.nanoseconds * k) }
   /// Divided by `k`, truncated towards zero.
   public dividedBy(k: int): Duration { new Duration(this.nanoseconds / k) }
+  /// The duration with the opposite sign.
   public negated(): Duration { new Duration(-this.nanoseconds) }
+  /// The duration without its sign.
   public abs(): Duration { if (this.nanoseconds < 0) this.negated() else this }
+  /// -1, 0 or 1 as the duration is negative, zero or positive.
   public get sign(): int { if (this.nanoseconds < 0) -1 else if (this.nanoseconds > 0) 1 else 0 }
+  /// Whether the duration is zero.
   public get isZero(): bool { this.nanoseconds == 0 }
+  /// Whether `d` is exactly as long.
   public equals(d: Duration): bool { this.nanoseconds == d.nanoseconds }
 
   /// Whole milliseconds (truncated), and totals with a fraction.
   public toMilliseconds(): int { this.nanoseconds / NS_PER_MS }
+  /// The length in milliseconds, with a fraction.
   public totalMilliseconds(): number { (this.nanoseconds as f64) / 1000000.0 }
+  /// The length in seconds, with a fraction (`PT1.5S` is `1.5`).
   public totalSeconds(): number { (this.nanoseconds as f64) / 1000000000.0 }
+  /// The length in minutes, with a fraction.
   public totalMinutes(): number { (this.nanoseconds as f64) / 60000000000.0 }
+  /// The length in hours, with a fraction.
   public totalHours(): number { (this.nanoseconds as f64) / 3600000000000.0 }
 
   /// ISO 8601: `PT1H30M`, `PT0.5S`, `-PT2M`, `PT0S` (hours are the largest unit).
@@ -170,16 +203,22 @@ function __parseDuration(s: string): Duration? {
 
 /// A point on the UTC time line, in nanoseconds since 1970-01-01T00:00Z.
 export class Instant {
+  /// Nanoseconds since 1970-01-01T00:00Z (negative before).
   public readonly epochNanoseconds: int
 
+  /// The instant `epochNanoseconds` nanoseconds after 1970-01-01T00:00Z.
   constructor(epochNanoseconds: int) {
     this.epochNanoseconds = epochNanoseconds
   }
 
   /// The wall clock's current instant.
   public static now(): Instant { new Instant(__wallNanos()) }
+  /// The instant `s` seconds after 1970-01-01T00:00Z (panics on `int` overflow, beyond
+  /// 1678–2262).
   public static fromEpochSeconds(s: int): Instant { new Instant(s * NS_PER_S) }
+  /// The instant `ms` milliseconds after 1970-01-01T00:00Z (panics on `int` overflow).
   public static fromEpochMilliseconds(ms: int): Instant { new Instant(ms * NS_PER_MS) }
+  /// The instant `ns` nanoseconds after 1970-01-01T00:00Z.
   public static fromEpochNanoseconds(ns: int): Instant { new Instant(ns) }
 
   /// A `Date`'s instant (panics on an invalid date).
@@ -196,22 +235,29 @@ export class Instant {
     new Instant(__wallSeconds(f) * NS_PER_S + f.nano - f.offset * NS_PER_S)
   }
 
+  /// -1, 0 or 1 as `a` is before, at or after `b` (for `sort`).
   public static compare(a: Instant, b: Instant): int {
     if (a.epochNanoseconds < b.epochNanoseconds) -1 else if (a.epochNanoseconds > b.epochNanoseconds) 1 else 0
   }
 
   /// Whole seconds and milliseconds since 1970 (rounded down).
   public get epochSeconds(): int { __floorDiv(this.epochNanoseconds, NS_PER_S) }
+  /// Whole milliseconds since 1970 (rounded down: -1 ns is -1 ms).
   public get epochMilliseconds(): int { __floorDiv(this.epochNanoseconds, NS_PER_MS) }
 
+  /// The instant `d` later (earlier for a negative `d`).
   public plus(d: Duration): Instant { new Instant(this.epochNanoseconds + d.nanoseconds) }
+  /// The instant `d` earlier.
   public minus(d: Duration): Instant { new Instant(this.epochNanoseconds - d.nanoseconds) }
   /// The time from `other` to this instant (negative if `other` is later).
   public since(other: Instant): Duration { new Duration(this.epochNanoseconds - other.epochNanoseconds) }
   /// The time from this instant to `other`.
   public until(other: Instant): Duration { new Duration(other.epochNanoseconds - this.epochNanoseconds) }
+  /// Whether `o` is the same instant.
   public equals(o: Instant): bool { this.epochNanoseconds == o.epochNanoseconds }
+  /// Whether this instant is before `o`.
   public isBefore(o: Instant): bool { this.epochNanoseconds < o.epochNanoseconds }
+  /// Whether this instant is after `o`.
   public isAfter(o: Instant): bool { this.epochNanoseconds > o.epochNanoseconds }
 
   /// This instant in a zone (a `TimeZone` or an id: panics on an unknown one).
@@ -219,6 +265,7 @@ export class Instant {
     new DateTime(this, __zoneArg(zone))
   }
 
+  /// A `Date` at this instant (to the millisecond, rounded down).
   public toDate(): Date { new Date(this.epochMilliseconds as f64) }
 
   /// ISO 8601 in UTC: `2024-03-10T12:30:00.005Z` (fraction digits as needed).
@@ -236,10 +283,12 @@ function __wallSeconds(f: __IsoFields): int {
 export class TimeZone {
   public readonly __zone: __Zone
 
+  /// A time zone over internal zone rules; use `of`, `utc`, `local` or `fixed` instead.
   constructor(zone: __Zone) {
     this.__zone = zone
   }
 
+  /// UTC (id `UTC`; `of("UTC")`, `of("Etc/UTC")` and `of("Z")` give the same zone).
   public static utc(): TimeZone { new TimeZone(__Zone.fixed("UTC", 0, "UTC")) }
 
   /// The system's zone (`TZ`, else `/etc/localtime`).
@@ -258,6 +307,7 @@ export class TimeZone {
     new TimeZone(__Zone.fixed(id, offsetSeconds, id))
   }
 
+  /// The zone's id: an IANA id (`Europe/Berlin`), `UTC`, or an offset (`+05:30`).
   public get id(): string { this.__zone.id }
 
   /// The offset from UTC at `at`, in seconds (`3600` for `+01:00`).
@@ -266,8 +316,11 @@ export class TimeZone {
   public offsetAt(at: Instant): string { __offsetText(this.offsetSecondsAt(at)) }
   /// The zone's abbreviation at `at` (`CET`, `CEST`).
   public abbreviationAt(at: Instant): string { this.__zone.nameAt(__floorDiv(at.epochNanoseconds, NS_PER_S)) }
+  /// Whether daylight saving time is in force at `at`.
   public isDstAt(at: Instant): bool { this.__zone.isDstAt(__floorDiv(at.epochNanoseconds, NS_PER_S)) }
+  /// Whether `o` has the same id (so `fixed(0)`, id `+00:00`, isn't `utc()`).
   public equals(o: TimeZone): bool { this.id == o.id }
+  /// The zone's id.
   public toString(): string { this.id }
 }
 
@@ -305,12 +358,19 @@ function __zoneArg(zone: TimeZone | string): TimeZone {
 
 /// `DateTime.with` fields: those given replace the date-time's own.
 export struct DateTimeFields {
+  /// The year.
   year?: int
+  /// The month, 1–12.
   month?: int
+  /// The day of the month.
   day?: int
+  /// The hour, 0–23.
   hour?: int
+  /// The minute, 0–59.
   minute?: int
+  /// The second, 0–59.
   second?: int
+  /// The nanosecond within the second, 0–999999999.
   nanosecond?: int
 }
 
@@ -325,20 +385,30 @@ const __monthLong = ["January", "February", "March", "April", "May", "June", "Ju
 /// An instant in a time zone, with its calendar fields (ISO calendar; months 1–12, ISO
 /// weekdays 1 = Monday … 7 = Sunday).
 export class DateTime implements Formattable {
+  /// The instant on the UTC time line.
   public readonly instant: Instant
+  /// The zone the calendar fields are in.
   public readonly zone: TimeZone
+  /// The year, as ISO 8601 counts (0 is 1 BCE, -1 is 2 BCE).
   public readonly year: int
+  /// The month, 1–12.
   public readonly month: int
+  /// The day of the month, 1–31.
   public readonly day: int
+  /// The hour, 0–23.
   public readonly hour: int
+  /// The minute, 0–59.
   public readonly minute: int
+  /// The second, 0–59 (no leap seconds).
   public readonly second: int
+  /// The nanosecond within the second, 0–999999999.
   public readonly nanosecond: int
   /// Seconds east of UTC in force at this instant.
   public readonly offsetSeconds: int
   /// Days since 1970-01-01 of the local date.
   public readonly __epochDay: int
 
+  /// `instant` seen in `zone`.
   constructor(instant: Instant, zone: TimeZone) {
     this.instant = instant
     this.zone = zone
@@ -421,8 +491,10 @@ export class DateTime implements Formattable {
     DateTime.__resolve(f.year, f.month, day, hour, f.minute, f.second, f.nano, z, "compatible")
   }
 
+  /// -1, 0 or 1 as `a`'s instant is before, at or after `b`'s (zones are ignored).
   public static compare(a: DateTime, b: DateTime): int { Instant.compare(a.instant, b.instant) }
 
+  /// The millisecond within the second, 0–999.
   public get millisecond(): int { this.nanosecond / NS_PER_MS }
   /// ISO weekday: 1 = Monday … 7 = Sunday.
   public get dayOfWeek(): int {
@@ -431,8 +503,11 @@ export class DateTime implements Formattable {
   }
   /// 1 … 366.
   public get dayOfYear(): int { this.__epochDay - __daysFromCivil(this.year, 1, 1) + 1 }
+  /// The number of days in this month (28–31).
   public get daysInMonth(): int { __daysInMonth(this.year, this.month) }
+  /// 365, or 366 in a leap year.
   public get daysInYear(): int { if (__isLeapYear(this.year)) 366 else 365 }
+  /// Whether the year is a leap year (Gregorian rules).
   public get inLeapYear(): bool { __isLeapYear(this.year) }
   /// The ISO 8601 week number (1 … 53; the week with the year's first Thursday is 1).
   public get weekOfYear(): int {
@@ -440,7 +515,9 @@ export class DateTime implements Formattable {
     const y = __civilFromDays(thursday)[0]
     (thursday - __daysFromCivil(y, 1, 1)) / 7 + 1
   }
+  /// The offset from UTC as text (`+01:00`; `+05:30:15` when it has seconds).
   public get offset(): string { __offsetText(this.offsetSeconds) }
+  /// Whole milliseconds since 1970 (rounded down).
   public get epochMilliseconds(): int { this.instant.epochMilliseconds }
 
   /// Adds calendar units then exact time: years and months keep the day (clamped to the
@@ -453,6 +530,7 @@ export class DateTime implements Formattable {
     }
   }
 
+  /// Subtracts like `plus` with every part negated (`dt.minus({ months: 1 })`).
   public minus(d: Duration | DurationParts): DateTime {
     match (d) {
       x: Duration => new DateTime(this.instant.minus(x), this.zone)
@@ -488,12 +566,20 @@ export class DateTime implements Formattable {
     DateTime.__resolve(this.year, this.month, this.day, 0, 0, 0, 0, this.zone, "compatible")
   }
 
+  /// The exact time from `o` to this date-time (negative if `o` is later).
   public since(o: DateTime): Duration { this.instant.since(o.instant) }
+  /// The exact time from this date-time to `o`.
   public until(o: DateTime): Duration { this.instant.until(o.instant) }
+  /// Whether `o` is the same instant in the same zone (by id; `isBefore`, `isAfter` and `compare`
+  /// ignore zones).
   public equals(o: DateTime): bool { this.instant.equals(o.instant) && this.zone.equals(o.zone) }
+  /// Whether this date-time's instant is before `o`'s.
   public isBefore(o: DateTime): bool { this.instant.isBefore(o.instant) }
+  /// Whether this date-time's instant is after `o`'s.
   public isAfter(o: DateTime): bool { this.instant.isAfter(o.instant) }
+  /// The instant (the same as `instant`).
   public toInstant(): Instant { this.instant }
+  /// A `Date` at this instant (to the millisecond, rounded down).
   public toDate(): Date { this.instant.toDate() }
 
   /// `2024-03-10T13:30:00+01:00`, then `[zone]` unless the zone is just an offset (or, with
@@ -514,11 +600,12 @@ export class DateTime implements Formattable {
   /// ISO 8601 without the zone's name: `2024-03-10T13:30:00+01:00`.
   public toIsoString(): string { this.__iso(false, false) }
 
-  /// Formats with a pattern (also `${dt:yyyy-MM-dd}` in templates): `yyyy` `yy` (year), `M` `MM` `MMM` `MMMM` (month), `d` `dd`,
-  /// `E` `EEE` (Mon) `EEEE` (Monday), `H` `HH` (0–23), `h` `hh` (1–12), `a` (AM/PM), `m` `mm`,
-  /// `s` `ss`, `S`… (fraction digits), `D` (day of year), `w` (ISO week), `X` (`Z`/`+01`),
-  /// `XX` (`+0100`), `XXX` (`+01:00`), `Z` (`+0100`), `z` (`CET`), `VV` (the zone's id);
-  /// `'text'` is literal (`''` is a quote), and other non-letters are kept.
+  /// Formats with a pattern (also `${dt:yyyy-MM-dd}` in templates): `yyyy` `yy` (year), `M`
+  /// `MM` `MMM` `MMMM` (month), `d` `dd`, `E` `EEE` (Mon) `EEEE` (Monday), `H` `HH` (0–23), `h`
+  /// `hh` (1–12), `a` (AM/PM), `m` `mm`, `s` `ss`, `S`… (fraction digits), `D` (day of year),
+  /// `w` (ISO week), `X` (`Z`/`+01`), `XX` (`+0100`), `XXX` (`+01:00`), `Z` (`+0100`), `z`
+  /// (`CET`), `VV` (the zone's id); `'text'` is literal (`''` is a quote), and other non-letters
+  /// are kept. Any other letter panics; an empty pattern gives `toString()`.
   public format(pattern: string): string {
     // (`${dt}` in a template is `format("")`: the ISO form.)
     if (pattern.length == 0) return this.toString()

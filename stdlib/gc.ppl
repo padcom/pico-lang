@@ -3,31 +3,43 @@
 // `import { gc } from "std/gc"`, then `gc.collect()`, `gc.stats()` and so on. The interpreter
 // has no collector of its own: there the calls do nothing and the statistics are zero.
 
-// A snapshot of the collector's counters. Sizes are in bytes, pauses in nanoseconds.
+/// A snapshot of the current thread's collector counters (each thread has its own heap). Sizes
+/// are in bytes, pauses in nanoseconds; all are 0 in the interpreter.
 export struct GcStats {
-  // Memory the heap holds from the system.
+  /// Memory the heap holds from the system (its blocks and large objects).
   heapSize: int
-  // Bytes in objects that are live or not yet collected.
+  /// Bytes in objects that are live or not yet collected.
   usedBytes: int
-  // Bytes allocated since the program started.
+  /// Bytes allocated since the program started (arena allocations included).
   allocatedBytes: int
-  // Full collections (the whole heap).
+  /// Finished full collections (the whole heap): `gc.collect()` calls and completed
+  /// incremental cycles.
   collections: int
-  // Nursery-only collections.
+  /// Nursery-only collections.
   youngCollections: int
+  /// The most recent pause: an explicit collection, or the collector's work at a safepoint.
   lastPause: int
+  /// The longest pause since the start or the last `gc.resetStats()`.
   maxPause: int
+  /// All pauses added up since the start or the last `gc.resetStats()`.
   totalPause: int
 }
 
+/// The collector's controls, as static methods: `gc.collect()`, `gc.pause()`, `gc.stats()`, ….
+/// In the interpreter they do nothing.
 export class gc {
-  // A full collection now.
+  /// A full collection now (also while paused); clears every weak reference whose target is
+  /// unreachable.
   public static collect() { __gc_collect() }
-  // Collects the nursery only.
+  /// Collects the nursery only.
   public static collectYoung() { __gc_collect_young() }
-  // No automatic collections until the matching `resume()` (calls nest).
+  /// No automatic collections until the matching `resume()` (calls nest). Explicit
+  /// `collect()` and `collectYoung()` still run.
   public static pause() { __gc_pause() }
+  /// Ends one `pause()`; after the outermost one, automatic collections resume at the next
+  /// safepoint. Extra calls do nothing.
   public static resume() { __gc_resume() }
+  /// The current counters.
   public static stats(): GcStats {
     GcStats {
       heapSize: __gc_stat(0),
@@ -40,10 +52,10 @@ export class gc {
       totalPause: __gc_stat(7),
     }
   }
-  // Restarts the pause statistics (`lastPause`, `maxPause`, `totalPause`), e.g. after
-  // loading, to measure a frame loop.
+  /// Restarts the pause statistics (`lastPause`, `maxPause`, `totalPause`), e.g. after
+  /// loading, to measure a frame loop.
   public static resetStats() { __gc_stat(-1) }
-  // Debugging: prints the GC roots that hold references (named locals per active function,
-  // innermost first, then globals).
+  /// Debugging: prints the GC roots that hold references to standard output (named locals per
+  /// active function, innermost first, then globals).
   public static dumpRoots() { __gc_dump_roots() }
 }

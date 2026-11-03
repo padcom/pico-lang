@@ -69,8 +69,12 @@ export function writeBytes(path: string, data: Uint8Array, append: bool = false)
 
 /// What `stat` tells about a path.
 export struct FileInfo {
+  /// Whether it's a regular file.
   isFile: bool
+  /// Whether it's a directory.
   isDirectory: bool
+  /// Whether it's a symbolic link (only with `followLinks: false`; otherwise the link's target is
+  /// described).
   isSymlink: bool
   /// In bytes.
   size: int
@@ -125,9 +129,14 @@ export function rename(from: string, to: string): Promise<void, IoError> {
 
 /// An entry of a directory.
 export struct DirEntry {
+  /// The entry's name (not a path).
   name: string
+  /// Whether it's a regular file.
   isFile: bool
+  /// Whether it's a directory.
   isDirectory: bool
+  /// Whether it's a symbolic link (not followed: a link to a directory is neither `isFile` nor
+  /// `isDirectory`).
   isSymlink: bool
 }
 
@@ -153,9 +162,11 @@ export async function* readDir(path: string): AsyncIterator<DirEntry> throws IoE
 /// An open file: `read`, `write` and `seek` (from the start), then `close` (or `await using`).
 export class File implements AsyncDisposable {
   fd: int
+  /// The path the file was opened with.
   public readonly path: string
   closed: bool = false
 
+  /// Wraps the open descriptor `fd`; `open` makes these.
   constructor(fd: int, path: string) {
     this.fd = fd
     this.path = path
@@ -193,6 +204,7 @@ export class File implements AsyncDisposable {
     __job<int>(14, fd, position, 0, "", "", path, (res: __IoResult) => res.r)
   }
 
+  /// Closes the file (twice is fine: the second call resolves at once). Using it afterwards panics.
   public close(): Promise<void, IoError> {
     if (closed) {
       const done = new Promise<void, IoError>()
@@ -203,6 +215,7 @@ export class File implements AsyncDisposable {
     __job<void>(13, fd, 0, 0, "", "", path, __unit)
   }
 
+  /// `await using`: closes the file, ignoring a failure.
   public async disposeAsync(): Promise<void> {
     try {
       await close()
@@ -232,7 +245,10 @@ const __sep = comptime if (target.os == "windows") "\\" else "/"
 /// changed) or `"remove"`; `path` is the watched path joined with the changed entry's path
 /// (the watched path itself when watching a file). A rename is a remove and a create.
 export struct WatchEvent {
+  /// `"create"`, `"modify"` or `"remove"`.
   kind: string
+  /// The watched path joined with the changed entry's path (the watched path itself when watching a
+  /// file).
   path: string
 }
 
@@ -242,6 +258,7 @@ export struct WatchEvent {
 /// created and changed in between is one `create`, and one created and removed is nothing.
 export class Watcher implements Disposable {
   id: int
+  /// The path being watched, as given to `watch`.
   public readonly path: string
   queued: WatchEvent[] = []
   head: int = 0
@@ -251,6 +268,7 @@ export class Watcher implements Disposable {
   waiting: bool = false
   closed: bool = false
 
+  /// Wraps the runtime's watch `id`; `watch` makes these.
   constructor(id: int, path: string) {
     this.id = id
     this.path = path
@@ -279,6 +297,7 @@ export class Watcher implements Disposable {
     serve()
   }
 
+  /// `using`: the same as `close()`.
   public dispose(): void {
     close()
   }

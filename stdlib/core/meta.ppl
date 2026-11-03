@@ -4,6 +4,7 @@
 
 /// The `${}`-spliceable arguments of a wrapped function's call.
 class __Args {
+  /// Made by the compiler for `wrapBody`. `names`: the parameters' names, in order.
   constructor(public names: string[]) {}
 
   /// The arguments as an argument list: `a, b`.
@@ -22,13 +23,19 @@ class __Args {
 
 /// A decorated class or struct.
 class __ClassDecl {
+  /// Made by the compiler for each use of a decorator; a decorator receives it.
   constructor(
+    /// Which declaration this is (for the compiler).
     public id: int,
+    /// The type's name, without type parameters.
     public name: string,
     /// `"class"` or `"struct"`.
     public kind: string,
+    /// The instance fields' names, in declaration order (parameter properties included).
     public fieldNames: string[],
+    /// The instance fields' types as written (`""` where a field has no annotation).
     public fieldTypes: string[],
+    /// The instance methods' names (not getters, setters or static methods).
     public methodNames: string[],
     /// The type parameters' names (`["T"]` for `Box<T>`).
     public typeParams: string[],
@@ -39,6 +46,7 @@ class __ClassDecl {
     if (this.typeParams.length == 0) this.name else `${this.name}<${this.typeParams.join(", ")}>`
   }
 
+  /// The instance fields, in declaration order: each one's name and type as written.
   public get fields(): FieldInfo[] {
     const out: FieldInfo[] = []
     for (const i of 0..this.fieldNames.length) {
@@ -47,10 +55,12 @@ class __ClassDecl {
     out
   }
 
+  /// Whether the type declares an instance field called `name`.
   public hasField(name: string): bool {
     this.fieldNames.includes(name)
   }
 
+  /// Whether the type declares an instance method called `name` (before any the decorators add).
   public hasMethod(name: string): bool {
     this.methodNames.includes(name)
   }
@@ -83,10 +93,12 @@ class __ClassDecl {
     __meta_emit(this.id, "error", message, "")
   }
 
+  /// A compile warning at the decorated declaration (the build goes on).
   public warn(message: string): void {
     __meta_emit(this.id, "warn", message, "")
   }
 
+  /// A note (information, not a problem) at the decorated declaration.
   public note(message: string): void {
     __meta_emit(this.id, "note", message, "")
   }
@@ -94,16 +106,23 @@ class __ClassDecl {
 
 /// A decorated function.
 class __FunctionDecl {
+  /// Made by the compiler for each use of a decorator; a decorator receives it.
   constructor(
+    /// Which declaration this is (for the compiler).
     public id: int,
+    /// The function's name.
     public name: string,
+    /// The parameters' names, in order.
     public paramNames: string[],
+    /// The parameters' types as written (`""` where a parameter has no annotation).
     public paramTypes: string[],
     /// The return type as written (`"void"` if it isn't).
     public returnType: string,
+    /// Whether it's an `async function`.
     public isAsync: bool,
   ) {}
 
+  /// The parameters, in order: each one's name and type as written.
   public get params(): FieldInfo[] {
     const out: FieldInfo[] = []
     for (const i of 0..this.paramNames.length) {
@@ -127,14 +146,17 @@ class __FunctionDecl {
     n
   }
 
+  /// A compile error at the decorated declaration.
   public error(message: string): void {
     __meta_emit(this.id, "error", message, "")
   }
 
+  /// A compile warning at the decorated declaration (the build goes on).
   public warn(message: string): void {
     __meta_emit(this.id, "warn", message, "")
   }
 
+  /// A note (information, not a problem) at the decorated declaration.
   public note(message: string): void {
     __meta_emit(this.id, "note", message, "")
   }
@@ -159,10 +181,12 @@ class __ast {
     out + "\""
   }
 
+  /// An integer literal: `ast.int(42)` is `42`.
   public static int(n: i64): string {
     `${n}`
   }
 
+  /// A boolean literal: `true` or `false`.
   public static bool(b: bool): string {
     if (b) "true" else "false"
   }

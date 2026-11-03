@@ -11,14 +11,29 @@ class __reflect {}
 
 /// A type, as the type of a field or an implemented interface shows it.
 class __Type {
-  constructor(public name: string, public kind: string) {}
+  /// Made by the compiler's reflection metadata.
+  constructor(
+    /// As messages show it: `string`, `Point`, `i64[]`.
+    public name: string,
+    /// `"struct"`, `"class"`, `"interface"`, `"enum"`, `"primitive"`, `"array"`, … (as
+    /// `TypeInfo.kind`).
+    public kind: string,
+  ) {}
+  /// Its `name`.
   public toString(): string { name }
 }
 
 /// A decorator on a declaration: its name and each argument's source text
 /// (`@json.name("id")` → `json.name`, `["\"id\""]`).
 class __DecoratorInfo {
-  constructor(public name: string, public args: string[]) {}
+  /// Made by the compiler's reflection metadata.
+  constructor(
+    /// The decorator's name as written: `json.name`.
+    public name: string,
+    /// Each argument's source text: `["\"id\""]`.
+    public args: string[],
+  ) {}
+  /// As written: `@json.name("id")`, `@sealed`.
   public toString(): string {
     if (args.length == 0) `@${name}` else `@${name}(${args.join(", ")})`
   }
@@ -27,6 +42,7 @@ class __DecoratorInfo {
 /// A type described at runtime. `T` is the type it was asked about: for a class value, the
 /// description is of the value's runtime class (`T` or a subclass).
 class __TypeInfo<T> {
+  /// Made by the compiler's reflection metadata (`reflect.typeOf`).
   constructor(
     /// As messages show it: `Point`, `Box<i64>`, `i64[]`.
     public name: string,
@@ -40,22 +56,29 @@ class __TypeInfo<T> {
     public interfaces: __Type[],
     /// The base class.
     public base: __TypeInfo<T>?,
+    /// The decorators on its declaration, in order.
     public decorators: __DecoratorInfo[],
   ) {}
 
   /// The field called `name`.
   public field(name: string): __Field<T>? { fields.find((f: __Field<T>) => f.name == name) }
 
+  /// Its `name`.
   public toString(): string { name }
 }
 
 /// A field of a `T` (or of the runtime class described). `get` and `set` name the field's type
 /// and panic if it's another one (or if the object isn't of the class the field belongs to).
 class __Field<T> {
+  /// Made by the compiler's reflection metadata.
   constructor(
+    /// The field's name.
     public name: string,
+    /// The field's declared type.
     public type: __Type,
+    /// The decorators on the field, in order.
     public decorators: __DecoratorInfo[],
+    /// Whether it's `readonly` (`set` panics for it).
     public isReadonly: bool,
     private id: int,
   ) {}
@@ -70,6 +93,7 @@ class __Field<T> {
   /// The field's value in `obj` as a string, as a class's default string form shows it.
   public show(obj: T): string { __reflectShow<T>(obj, id) }
 
+  /// As declared: `age: int`.
   public toString(): string { `${name}: ${type.name}` }
 }
 

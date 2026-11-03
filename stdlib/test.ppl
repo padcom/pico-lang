@@ -129,7 +129,11 @@ export function test(name: string, fn: () => Promise<void, Error>): void {
   __register(name, null, fn, false, false)
 }
 
+/// A test (the same as `test`): `fn` runs after the file's top level; a failed expectation, a panic
+/// or an uncaught exception fails it.
 export function it(name: string, fn: () => void throws Error): void { test(name, fn) }
+/// An async test (the same as `test`): an `async function` passed by name; its promise is awaited,
+/// and a rejection fails the test.
 export function it(name: string, fn: () => Promise<void, Error>): void { test(name, fn) }
 
 /// A test that's reported as skipped.
@@ -142,6 +146,8 @@ export function only(name: string, fn: () => void throws Error): void {
   __register(name, fn, null, false, true)
 }
 
+/// An async `only` test: an `async function` passed by name (its promise is awaited). When any test
+/// is `only`, the others are skipped.
 export function only(name: string, fn: () => Promise<void, Error>): void {
   __register(name, null, fn, false, true)
 }
@@ -151,9 +157,21 @@ export function todo(name: string): void {
   __register(name, null, null, true, false)
 }
 
+/// Runs `fn` before each test of the enclosing `describe` (at the top level: of the file), outer
+/// suites' hooks first; skipped tests don't run it. A failure or panic in it fails the test, which
+/// then doesn't run (its `afterEach` hooks still do).
 export function beforeEach(fn: () => void): void { __currentSuite().beforeEach.push(fn) }
+/// Runs `fn` after each test of the enclosing `describe` (at the top level: of the file), even a
+/// failed one; inner suites' hooks first, skipped tests don't run it. A failure or panic in it
+/// fails the test.
 export function afterEach(fn: () => void): void { __currentSuite().afterEach.push(fn) }
+/// Runs `fn` once, before the first test of the enclosing `describe` (at the top level: of the
+/// file) that isn't skipped. A failure or panic in it fails that first test only; the later ones
+/// still run.
 export function beforeAll(fn: () => void): void { __currentSuite().beforeAll.push(fn) }
+/// Runs `fn` once, after the last test of the enclosing `describe` (at the top level: of the file),
+/// when `beforeAll` ran (some test of the suite wasn't skipped). A failure or panic in it is
+/// reported as a failed `suite > afterAll` entry of its own.
 export function afterAll(fn: () => void): void { __currentSuite().afterAll.push(fn) }
 
 function __currentSuite(): __Suite {
@@ -354,9 +372,12 @@ function __show<T>(v: T): string {
 /// Expectations on any value: `toBe`/`toEqual` compare string forms (fields for structs,
 /// elements for arrays, `toString` or fields for classes).
 export class Expect<T> {
+  /// The value under test.
   public readonly actual: T
+  /// Whether the matchers are negated (by `.not`).
   public readonly negated: bool
 
+  /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
   constructor(actual: T, negated: bool = false) {
     this.actual = actual
     this.negated = negated
@@ -371,9 +392,17 @@ export class Expect<T> {
     }
   }
 
+  /// Passes when `actual` and `expected` have the same string form (their debug form, or a class's
+  /// `toString`), so it doesn't test identity; fails with `expected <actual> to be <expected>`.
   public toBe(expected: T): void { this.__check(__show(this.actual) == __show(expected), `to be ${__show(expected)}`) }
+  /// The same comparison as `toBe` (equal string forms); fails with `expected <actual> to equal
+  /// <expected>`.
   public toEqual(expected: T): void { this.__check(__show(this.actual) == __show(expected), `to equal ${__show(expected)}`) }
+  /// Passes when `actual` is `null` (its string form is `null`): `expect(map.get(k)).toBeNull()`.
+  /// Fails with `expected <actual> to be null`.
   public toBeNull(): void { this.__check(__show(this.actual) == "null", "to be null") }
+  /// Passes when `actual` isn't `null`; fails with `expected a value, got null` (negated: `expected
+  /// <actual> to be null`).
   public toBeDefined(): void {
     if ((__show(this.actual) != "null") == this.negated) {
       __fail(if (this.negated) `expected ${__show(this.actual)} to be null` else "expected a value, got null")
@@ -383,50 +412,74 @@ export class Expect<T> {
 
 /// Expectations on integers.
 export class IntExpect {
+  /// The value under test.
   public readonly actual: int
+  /// Whether the matchers are negated (by `.not`).
   public readonly negated: bool
 
+  /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
   constructor(actual: int, negated: bool = false) {
     this.actual = actual
     this.negated = negated
   }
 
+  /// The opposite expectation: each matcher on it passes where it would fail
+  /// (`expect(x).not.toBe(y)`).
   public get not(): IntExpect { new IntExpect(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
     if (ok == this.negated) __fail(`expected ${this.actual} ${if (this.negated) "not " else ""}${what}`)
   }
 
+  /// Passes when `actual == expected`; fails with `expected <actual> to be <expected>`.
   public toBe(expected: int): void { this.__check(this.actual == expected, `to be ${expected}`) }
+  /// The same as `toBe` (`actual == expected`); fails with `expected <actual> to equal <expected>`.
   public toEqual(expected: int): void { this.__check(this.actual == expected, `to equal ${expected}`) }
+  /// Passes when `actual > n`; fails with `expected <actual> to be greater than <n>`.
   public toBeGreaterThan(n: int): void { this.__check(this.actual > n, `to be greater than ${n}`) }
+  /// Passes when `actual >= n`; fails with `expected <actual> to be at least <n>`.
   public toBeGreaterThanOrEqual(n: int): void { this.__check(this.actual >= n, `to be at least ${n}`) }
+  /// Passes when `actual < n`; fails with `expected <actual> to be less than <n>`.
   public toBeLessThan(n: int): void { this.__check(this.actual < n, `to be less than ${n}`) }
+  /// Passes when `actual <= n`; fails with `expected <actual> to be at most <n>`.
   public toBeLessThanOrEqual(n: int): void { this.__check(this.actual <= n, `to be at most ${n}`) }
 }
 
 /// Expectations on numbers.
 export class NumberExpect {
+  /// The value under test.
   public readonly actual: number
+  /// Whether the matchers are negated (by `.not`).
   public readonly negated: bool
 
+  /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
   constructor(actual: number, negated: bool = false) {
     this.actual = actual
     this.negated = negated
   }
 
+  /// The opposite expectation: each matcher on it passes where it would fail
+  /// (`expect(x).not.toBe(y)`).
   public get not(): NumberExpect { new NumberExpect(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
     if (ok == this.negated) __fail(`expected ${this.actual} ${if (this.negated) "not " else ""}${what}`)
   }
 
+  /// Passes when `actual == expected` (so `NaN` never passes, and `-0.0` equals `0.0`; for rounding
+  /// errors use `toBeCloseTo`); fails with `expected <actual> to be <expected>`.
   public toBe(expected: number): void { this.__check(this.actual == expected, `to be ${expected}`) }
+  /// The same as `toBe` (`actual == expected`); fails with `expected <actual> to equal <expected>`.
   public toEqual(expected: number): void { this.__check(this.actual == expected, `to equal ${expected}`) }
+  /// Passes when `actual > n`; fails with `expected <actual> to be greater than <n>`.
   public toBeGreaterThan(n: number): void { this.__check(this.actual > n, `to be greater than ${n}`) }
+  /// Passes when `actual >= n`; fails with `expected <actual> to be at least <n>`.
   public toBeGreaterThanOrEqual(n: number): void { this.__check(this.actual >= n, `to be at least ${n}`) }
+  /// Passes when `actual < n`; fails with `expected <actual> to be less than <n>`.
   public toBeLessThan(n: number): void { this.__check(this.actual < n, `to be less than ${n}`) }
+  /// Passes when `actual <= n`; fails with `expected <actual> to be at most <n>`.
   public toBeLessThanOrEqual(n: number): void { this.__check(this.actual <= n, `to be at most ${n}`) }
+  /// Passes when `actual` is `NaN`; fails with `expected <actual> to be NaN`.
   public toBeNaN(): void { this.__check(this.actual != this.actual, "to be NaN") }
 
   /// Within half of 10^-digits (Vitest's rule).
@@ -438,69 +491,105 @@ export class NumberExpect {
 
 /// Expectations on strings.
 export class StringExpect {
+  /// The value under test.
   public readonly actual: string
+  /// Whether the matchers are negated (by `.not`).
   public readonly negated: bool
 
+  /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
   constructor(actual: string, negated: bool = false) {
     this.actual = actual
     this.negated = negated
   }
 
+  /// The opposite expectation: each matcher on it passes where it would fail
+  /// (`expect(x).not.toBe(y)`).
   public get not(): StringExpect { new StringExpect(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
     if (ok == this.negated) __fail(`expected ${this.actual:?} ${if (this.negated) "not " else ""}${what}`)
   }
 
+  /// Passes when `actual == expected`; fails with `expected "<actual>" to be "<expected>"` (both
+  /// quoted).
   public toBe(expected: string): void { this.__check(this.actual == expected, `to be ${expected:?}`) }
+  /// The same as `toBe` (`actual == expected`); fails with `expected "<actual>" to equal
+  /// "<expected>"`.
   public toEqual(expected: string): void { this.__check(this.actual == expected, `to equal ${expected:?}`) }
+  /// Passes when `actual` contains `part` (any string contains `""`); fails with `expected
+  /// "<actual>" to contain "<part>"`.
   public toContain(part: string): void { this.__check(this.actual.includes(part), `to contain ${part:?}`) }
+  /// Passes when `re` matches somewhere in `actual` (`re.test`; anchor it with `^…$` for a full
+  /// match): `expect(id).toMatch(/^[a-z]+$/)`. Fails with `expected "<actual>" to match <re>`.
   public toMatch(re: RegExp): void { this.__check(re.test(this.actual), `to match ${re}`) }
+  /// Passes when `actual.length == n`; fails with `expected "<actual>" to have length <n> (it's
+  /// <length>)`.
   public toHaveLength(n: int): void { this.__check(this.actual.length == n, `to have length ${n} (it's ${this.actual.length})`) }
 }
 
 /// Expectations on `bool`s.
 export class BoolExpect {
+  /// The value under test.
   public readonly actual: bool
+  /// Whether the matchers are negated (by `.not`).
   public readonly negated: bool
 
+  /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
   constructor(actual: bool, negated: bool = false) {
     this.actual = actual
     this.negated = negated
   }
 
+  /// The opposite expectation: each matcher on it passes where it would fail
+  /// (`expect(x).not.toBe(y)`).
   public get not(): BoolExpect { new BoolExpect(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
     if (ok == this.negated) __fail(`expected ${this.actual} ${if (this.negated) "not " else ""}${what}`)
   }
 
+  /// Passes when `actual == expected`; fails with `expected <actual> to be <expected>`.
   public toBe(expected: bool): void { this.__check(this.actual == expected, `to be ${expected}`) }
+  /// The same as `toBe`.
   public toEqual(expected: bool): void { this.toBe(expected) }
+  /// Passes when `actual` is `true` (there's no other truthiness: `actual` is a `bool`); fails with
+  /// `expected false to be true`.
   public toBeTruthy(): void { this.__check(this.actual, "to be true") }
+  /// Passes when `actual` is `false`; fails with `expected true to be false`.
   public toBeFalsy(): void { this.__check(!this.actual, "to be false") }
 }
 
 /// Expectations on arrays: `toEqual` compares elements' string forms.
 export class ArrayExpect<T> {
+  /// The array under test.
   public readonly actual: T[]
+  /// Whether the matchers are negated (by `.not`).
   public readonly negated: bool
 
+  /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
   constructor(actual: T[], negated: bool = false) {
     this.actual = actual
     this.negated = negated
   }
 
+  /// The opposite expectation: each matcher on it passes where it would fail
+  /// (`expect(x).not.toBe(y)`).
   public get not(): ArrayExpect<T> { new ArrayExpect<T>(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
     if (ok == this.negated) __fail(`expected ${__show(this.actual)} ${if (this.negated) "not " else ""}${what}`)
   }
 
+  /// The same as `toEqual` (equal elements, not the same array).
   public toBe(expected: T[]): void { this.toEqual(expected) }
+  /// Passes when both arrays have the same string form (their elements' debug forms, in order):
+  /// `expect(xs).toEqual([1, 2])`. Fails with `expected <actual> to equal <expected>`.
   public toEqual(expected: T[]): void { this.__check(__show(this.actual) == __show(expected), `to equal ${__show(expected)}`) }
+  /// Passes when `actual.length == n`: `expect(xs).toHaveLength(3)`. Fails with `expected <actual>
+  /// to have length <n> (it's <length>)`.
   public toHaveLength(n: int): void { this.__check(this.actual.length == n, `to have length ${n} (it's ${this.actual.length})`) }
 
+  /// Passes when some element has `x`'s string form; fails with `expected <actual> to contain <x>`.
   public toContain(x: T): void {
     const want = __show(x)
     this.__check(this.actual.some((e) => __show(e) == want), `to contain ${want}`)
@@ -509,14 +598,19 @@ export class ArrayExpect<T> {
 
 /// Expectations on a function call: it throws, or it panics.
 export class FnExpect {
+  /// The function under test (`toThrow` and `toPanic` call it).
   public readonly f: () => void throws Error
+  /// Whether the matchers are negated (by `.not`).
   public readonly negated: bool
 
+  /// Expectations on calling `f` (`expect(f)` makes one); negated when `negated` is `true`.
   constructor(f: () => void throws Error, negated: bool = false) {
     this.f = f
     this.negated = negated
   }
 
+  /// The opposite expectation: `expect(f).not.toThrow()` passes when the call returns (a panic
+  /// still fails `toThrow`, negated or not).
   public get not(): FnExpect { new FnExpect(this.f, !this.negated) }
 
   /// It throws (an error whose message contains `message`, when given).
@@ -569,19 +663,27 @@ export class FnExpect {
 /// Expectations on a promise: `await expect(p).resolves.toBe(v)`,
 /// `await expect(p).rejects.toThrow("…")`.
 export class PromiseExpect<T, E extends Error> {
+  /// The promise under test.
   public readonly p: Promise<T, E>
 
+  /// Expectations on `p` (`expect(p)` makes one).
   constructor(p: Promise<T, E>) {
     this.p = p
   }
 
+  /// Matchers on the value the promise resolves to: `await expect(p).resolves.toBe(v)`.
   public get resolves(): Resolves<T, E> { new Resolves<T, E>(this.p) }
+  /// Matchers on the promise's rejection: `await expect(p).rejects.toThrow("not found")`.
   public get rejects(): Rejects<T, E> { new Rejects<T, E>(this.p) }
 }
 
+/// Expectations on what a promise resolves to (`expect(p).resolves`); await the matchers. There's
+/// no `.not`.
 export class Resolves<T, E extends Error> {
+  /// The promise under test.
   public readonly p: Promise<T, E>
 
+  /// Expectations on the value `p` resolves to (`expect(p).resolves` makes one).
   constructor(p: Promise<T, E>) {
     this.p = p
   }
@@ -596,14 +698,19 @@ export class Resolves<T, E extends Error> {
     }
   }
 
+  /// The same as `toBe` (equal string forms).
   public async toEqual(expected: T): Promise<void> {
     await this.toBe(expected)
   }
 }
 
+/// Expectations on a promise's rejection (`expect(p).rejects`); await the matcher. There's no
+/// `.not`.
 export class Rejects<T, E extends Error> {
+  /// The promise under test.
   public readonly p: Promise<T, E>
 
+  /// Expectations on `p` rejecting (`expect(p).rejects` makes one).
   constructor(p: Promise<T, E>) {
     this.p = p
   }
@@ -619,11 +726,22 @@ export class Rejects<T, E extends Error> {
   }
 }
 
+/// Expectations on an `int`: `expect(xs.length).toBe(3)`. `expect` picks its matchers by the
+/// value's type; this overload adds the comparisons (`toBeGreaterThan`, …).
 export function expect(actual: int): IntExpect { new IntExpect(actual) }
+/// Expectations on a `number`: comparisons, `toBeCloseTo` and `toBeNaN` (`expect(0.1 +
+/// 0.2).toBeCloseTo(0.3)`).
 export function expect(actual: number): NumberExpect { new NumberExpect(actual) }
+/// Expectations on a `string`: `toBe`, `toContain`, `toMatch` and `toHaveLength`.
 export function expect(actual: string): StringExpect { new StringExpect(actual) }
+/// Expectations on a `bool`: `toBe`, `toBeTruthy` and `toBeFalsy`.
 export function expect(actual: bool): BoolExpect { new BoolExpect(actual) }
+/// Expectations on an array: `toEqual` (element-wise), `toContain` and `toHaveLength`.
 export function expect<T>(actual: T[]): ArrayExpect<T> { new ArrayExpect<T>(actual) }
+/// Expectations on calling a function: `expect(() => parse("x")).toThrow("bad")`, `toPanic`.
 export function expect(f: () => void throws Error): FnExpect { new FnExpect(f) }
+/// Expectations on a promise, through `resolves` and `rejects`: `await expect(p).resolves.toBe(v)`.
 export function expect<T, E extends Error>(p: Promise<T, E>): PromiseExpect<T, E> { new PromiseExpect<T, E>(p) }
+/// Expectations on any other value (structs, classes, nullable values, …): `toBe`/`toEqual` compare
+/// string forms; `toBeNull` and `toBeDefined`.
 export function expect<T>(actual: T): Expect<T> { new Expect<T>(actual) }

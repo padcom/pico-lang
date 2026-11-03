@@ -9,6 +9,7 @@
 
 /// A parsed format spec.
 export class FormatSpec {
+  /// The padding character (a space by default).
   public fill: string = " "
   /// `<`, `>`, `^`, or "" (the type's default: numbers right, text left).
   public align: string = ""
@@ -20,10 +21,12 @@ export class FormatSpec {
   public zero: bool = false
   /// -1 when not given.
   public width: int = -1
+  /// Digits after the point for floats, or the maximum length for strings; -1 when not given.
   public precision: int = -1
   /// One of `d x X o b e E f % ?`, or "".
   public kind: string = ""
 
+  /// An empty spec (as `FormatSpec.parse("")`): no width, default alignment and sign.
   constructor() {}
 
   /// The spec, or `null` when `spec` doesn't follow the grammar.
@@ -247,6 +250,8 @@ export function formatString(s: string, spec: string = ""): string {
   f.pad(t, false)
 }
 
+/// `true` or `false` formatted with `spec`, as a string (`formatString`): `formatBool(ok, ">6")` →
+/// `  true`.
 export function formatBool(b: bool, spec: string = ""): string {
   formatString(if (b) "true" else "false", spec)
 }

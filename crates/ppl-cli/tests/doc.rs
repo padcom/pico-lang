@@ -95,6 +95,13 @@ fn standard_library() {
     assert!(meta.contains("<h2 id=\"ClassDecl\">"), "{meta}");
     assert!(meta.contains("class ClassDecl"), "{meta}");
     assert!(meta.contains("<h3 id=\"addMethod\">"), "{meta}");
+    // Constructor parameter properties are fields, with their doc comments.
+    assert!(
+        meta.contains(
+            "<pre class=\"sig\">public fieldNames: string[]</pre>\n<p>The instance fields"
+        ),
+        "{meta}"
+    );
     assert!(!meta.contains("__ClassDecl"), "{meta}");
     let _ = std::fs::remove_dir_all(&dir);
 }

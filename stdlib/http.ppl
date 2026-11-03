@@ -9,9 +9,13 @@ import { Conn, Listener, NetError, Addr } from "std/net"
 /// `"0.0.0.0"` for every interface). With `cert` (a PEM certificate chain) and `key` (its
 /// PEM private key), as in Deno, the server speaks HTTPS.
 export struct ServeOptions {
+  /// The port (8000 by default; 0 picks a free one, which `HttpServer.addr` tells).
   port?: int
+  /// The address to listen on (`"127.0.0.1"` by default; `"0.0.0.0"` for every interface).
   hostname?: string
+  /// The PEM certificate chain for HTTPS (needs `key` too, or `serve` throws a `NetError`).
   cert?: string
+  /// The PEM private key for `cert`.
   key?: string
 }
 
@@ -19,6 +23,7 @@ export struct ServeOptions {
 export class HttpServer {
   public __listener: Listener
   public __handler: (req: Request) => Promise<Response, Error>
+  /// The address it listens on (with the actual port when 0 was asked for).
   public readonly addr: Addr
   /// Connections waiting for their next request (closed by `shutdown`).
   public __idle: Conn[] = []
@@ -30,6 +35,7 @@ export class HttpServer {
   public __cert: string = ""
   public __key: string = ""
 
+  /// A server for `listener`'s connections; `serve` makes these (and starts accepting).
   constructor(listener: Listener, handler: (req: Request) => Promise<Response, Error>) {
     this.__listener = listener
     this.__handler = handler
@@ -200,7 +206,9 @@ export async function serve(options: ServeOptions,
 /// What `upgradeWebSocket` gives: the server's end of the socket, and the response to return
 /// from the handler.
 export struct WebSocketUpgrade {
+  /// The server's end of the connection, usable once `response` has been sent.
   socket: WebSocket
+  /// The `101 Switching Protocols` response to return from the handler.
   response: Response
 }
 

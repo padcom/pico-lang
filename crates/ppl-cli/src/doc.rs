@@ -384,7 +384,11 @@ fn decl_item(text: &str, d: &ast::Decl) -> Option<Item> {
     };
     let members = members
         .iter()
-        .filter_map(|m| member_item(text, m, vis))
+        .flat_map(|m| {
+            let mut items = parameter_properties(text, m, vis);
+            items.extend(member_item(text, m, vis));
+            items
+        })
         .collect();
     Some(Item {
         name,
@@ -408,6 +412,36 @@ fn header(text: &str, d: &ast::Decl) -> String {
     let head = s.split('{').next().unwrap_or(s);
     let head = head.trim().strip_prefix("export ").unwrap_or(head.trim());
     head.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// A constructor's parameter properties (`constructor(public name: string)`): fields, shown
+/// with the same visibility rules (`public` in a class), each with its own doc comment.
+fn parameter_properties(text: &str, m: &ast::Member, vis: Vis) -> Vec<Item> {
+    let MemberKind::Constructor(f) = &m.kind else {
+        return Vec::new();
+    };
+    f.params
+        .iter()
+        .filter(|p| match (vis, p.mods.visibility) {
+            (_, None) if p.mods.is_empty() => false,
+            (Vis::Public, v) => v == Some(Visibility::Public),
+            (_, v) => v != Some(Visibility::Private),
+        })
+        .filter_map(|p| {
+            let ast::PatternKind::Ident(n) = &p.pat.kind else {
+                return None;
+            };
+            let end = p.default.as_ref().map_or(p.span.end, |d| d.span.start);
+            let sig = signature(text, p.span.start, Some(end), p.span.end);
+            Some(Item {
+                name: n.name.clone(),
+                kind: "field",
+                signature: sig.trim_end_matches('=').trim().to_string(),
+                docs: doc_comment(text, p.span.start),
+                members: Vec::new(),
+            })
+        })
+        .collect()
 }
 
 fn member_item(text: &str, m: &ast::Member, vis: Vis) -> Option<Item> {

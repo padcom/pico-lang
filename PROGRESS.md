@@ -21,6 +21,15 @@ Notes:
   `tagLength`; `ArrayBuffer.slice` doesn't count negative indices from the end; `RegExp`'s
   `toString` doesn't escape `/`; fetch drops a stream body on 307/308 and ignores `init` for a
   `Request` input; `Base64`/`Hex.encode` are quadratic.
+  From the std modules: `Random.int` hangs for a range over 2^62 and overflows past `int`'s;
+  `PriorityQueue.pop` corrupts the heap when the last element is `null` (nullable `T`);
+  `Writer.close()` on `stdout`/`stderr` makes later writes panic; `std/test`: a failing
+  `beforeAll` fails only the suite's first test, `expect(f).not.toThrow()` on a panic says
+  "expected a throw", no `skip` overload for async tests; spec §14.3's `rejects.toThrow(IoError)`
+  example takes a type (the code takes a message) and uses an async lambda (not implemented);
+  `WorkerPool.terminate()` leaves pending `run` promises unsettled; `Duration.parse` accepts
+  `P1DT` and repeated units; `TimeZone.equals` compares ids (`fixed(0)` ≠ `utc()`);
+  `Mat4.lookAt` with `up` parallel to the view direction is silently degenerate.
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
   `run_interp` and `build_native` run it. New features touch: resolver (`ppl-sema/src/resolve.rs`,
@@ -531,6 +540,7 @@ Notes:
 | 2026-11-03 | P10.6 fix | Hovers for `std/meta`/`std/reflect` (the author's report): names imported under another name than their declaration's (`export { __ClassDecl as ClassDecl }`) had no hover (the index required the same spelling; the resolver's links are now trusted), hovers show the public names (`Program::public_names`), static members (`ast.string`) and `reflect.typeOf` link, and the language server keeps decorator functions as ordinary functions (`check_source_for_editor`) so their code has hovers. |
 | 2026-11-03 | docs | The core library is fully documented (the author's request): docs for the built-ins `print`/`println`/`assert`/`panic` and the type checker's members (`push`, `pop`, `length`, `String.slice`) in `hir::BUILTIN_DOCS`/`BUILTIN_MEMBER_DOCS` (hover, completion, `ppl doc`); every core global, `Array`/`String` method and public member (~400 doc comments, the members written with four subagents); `ppl doc` lists constructors without a modifier. Bugs found on the way are under Notes. |
 | 2026-11-03 | fix | Typed-array views check their offset and length against the buffer (they could read and write past it): a negative length, an offset outside the buffer or not a multiple of the element size, or a view past the end panics, as the Web API throws `RangeError` (`tests/run/buffers/`). |
+| 2026-11-03 | docs | The standard library is fully documented too (every `std/…` module's exports and public members; written with four subagents, `std/meta`, `std/reflect`, `std/js` and the small modules by hand; `std/gc`'s `//` comments became doc comments). `ppl doc` lists constructor parameter properties (`constructor(public name: string)`) as fields. Bugs found are under Notes. |
 | 2026-11-03 | plan | New Phase 11: Reactivity (the author's: `reactive`/`Reactive<T>`, `computed`, `watchEffect`; P11.1 spec with open questions on access, scope, depth, timing, workers, cleanup; P11.2 runtime; P11.3 compiler; P11.4 event loop; P11.5 tooling). "Later" becomes Phase 12 (P12.1–P12.5, with P10.7a/b). |
 | 2026-11-03 | decisions | Reactivity (decisions 288–293, the author's answers): transparent access (`reactive n = 1`, `n + 1`, `n = 2`), local and module-level bindings (fields open), deep reactivity, synchronous effects, not `Sendable` (no sharing with workers), `watchEffect` returns a `Disposable` and effects end with their scope. |
 | 2026-11-03 | decisions | The author revised 289 and 291: reactive class fields are allowed; `computed` is lazy (dirty on write, recomputed on read), `watchEffect` stays synchronous. |

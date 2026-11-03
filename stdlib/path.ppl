@@ -442,7 +442,11 @@ struct Win32Path {
   relative(from: string, to: string): string { __winRelative(from, to) }
 }
 
+/// POSIX paths (`/` separates, `:` delimits `PATH` lists) on any platform: `posix.join("a", "b")`
+/// is `a/b`.
 export const posix = PosixPath { sep: "/", delimiter: ":" }
+/// Windows paths (`\` separates, `/` is accepted too, `;` delimits `PATH` lists; drive letters and
+/// UNC prefixes) on any platform.
 export const win32 = Win32Path { sep: "\\", delimiter: ";" }
 
 // ---- the platform's paths ----

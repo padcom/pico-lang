@@ -44,6 +44,8 @@ export class Aead {
   alg: int
   key: Uint8Array
 
+  /// Use `Aead.aesGcm(key)` or `Aead.chacha20Poly1305(key)`, which check the key (`alg`: 1 AES-GCM,
+  /// 2 ChaCha20-Poly1305).
   constructor(alg: int, key: Uint8Array) {
     this.alg = alg
     this.key = key
@@ -61,6 +63,9 @@ export class Aead {
     new Aead(2, key.slice(0))
   }
 
+  /// The ciphertext of `plaintext` (a string is its UTF-8 bytes) followed by a 16-byte tag,
+  /// authenticating `aad` too. `nonce` must be unique per key: 12 bytes is standard (and the
+  /// only size ChaCha20-Poly1305 takes); a nonce of the wrong size throws `CryptoError`.
   public seal(nonce: Uint8Array, plaintext: Uint8Array | string, aad: Uint8Array = new Uint8Array(0)): Uint8Array throws CryptoError {
     __cryptoOp(500 + this.alg, [this.key, nonce, aad, __bytes(plaintext)])
   }
@@ -76,10 +81,14 @@ export class Aead {
 /// 32-byte RFC 7748 form) and the public key (an uncompressed point `04 ‖ x ‖ y`; for X25519
 /// 32 bytes).
 export class EcKeyPair {
+  /// The curve both keys belong to.
   public readonly curve: NamedCurve
+  /// The private key: a big-endian scalar (for X25519, the 32-byte RFC 7748 form). Keep it secret.
   public readonly privateKey: Uint8Array
+  /// The public key: an uncompressed point `04 ‖ x ‖ y` (for X25519, 32 bytes).
   public readonly publicKey: Uint8Array
 
+  /// A pair from its parts (not checked to match); a new one comes from the curve's key generation.
   constructor(curve: NamedCurve, privateKey: Uint8Array, publicKey: Uint8Array) {
     this.curve = curve
     this.privateKey = privateKey
