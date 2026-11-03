@@ -820,6 +820,11 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 ## Phase 10: Tooling and ecosystem
 
+**Order** (the author's, 2026-11-03): first what leads to the VS Code integration, then debugging
+(which adds debugging in VS Code), then the rest, release packaging last:
+P10.6a → P10.6b → P10.6c → P10.6d → P10.2 → P10.5 → P10.8 → P10.3 → P10.4 → P10.7 → P10.9 →
+P10.10. (Task ids stay as they were: decisions and the log refer to them.)
+
 ### P10.1 Formatter
 - **Spec**: 14 §14.4
 - **Do**: a lossless CST or trivia-preserving printer, the configured options, and `ppl fmt --check`.
@@ -852,6 +857,33 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Do**: `ppl lsp` (diagnostics, hover, go-to-definition, completion, rename, format), plus a
   minimal VS Code extension with a TextMate grammar.
 - **Done when**: a manual check in VS Code, plus LSP protocol tests.
+- Split into slices:
+
+#### P10.6a VS Code extension: syntax
+- **Do**: `editors/vscode`: a declarative extension (no code yet) with the `ppl` language
+  (`.ppl`), a TextMate grammar (keywords, built-in types, literals, template strings with
+  `${…}`, comments and doc comments, decorators, declarations) and the language configuration
+  (comments, brackets, auto-closing, indentation).
+- **Done when**: a test keeps the grammar in sync with the lexer's keywords and its patterns
+  valid, and a manual check in VS Code.
+
+#### P10.6b `ppl lsp`: diagnostics and formatting
+- **Do**: a stdio JSON-RPC server (initialize, text sync of open documents, shutdown),
+  diagnostics from `check_source` on open/change (debounced), `textDocument/formatting`
+  (P10.1), and the extension's language client starting `ppl lsp`.
+- **Done when**: LSP protocol tests (a scripted session over stdio) pass.
+
+#### P10.6c Hover and go-to-definition
+- **Do**: an index from source positions to resolved symbols (declarations, uses, types),
+  hover (type and `/** */` docs), go-to-definition across modules and the stdlib; the parser
+  and checker recover from errors well enough to keep answering in half-typed code.
+- **Done when**: protocol tests on fixtures with and without errors.
+
+#### P10.6d Completion and rename
+- **Do**: completion (scope names, members after `.`, imports' names, keywords), rename (all
+  uses of a local, a member or a top-level declaration, across the project's modules),
+  document symbols.
+- **Done when**: protocol tests, and a manual check in VS Code.
 
 ### P10.7 REPL and JIT
 - **Do**: `ppl run` through LLVM ORC JIT (no linking), and a REPL that keeps state between lines.

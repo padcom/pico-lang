@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.2: Lint** (see PLAN). Phase 8 is done (P8.7 WasmGC backend finished with P8.7f).
+**P10.6a: VS Code extension: syntax** (see PLAN). Phase 10 is reordered (the author's order, 2026-11-03): the VS Code integration first (P10.6a–d, then P10.2 lint and P10.5 incremental compilation), then P10.8 debugging, then the rest, P10.10 release packaging last.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -293,13 +293,17 @@ Notes:
 
 ### Phase 10: Tooling and ecosystem
 - [x] P10.1 Formatter
+(In the author's order: see PLAN.)
+- [ ] P10.6a VS Code extension: syntax
+- [ ] P10.6b `ppl lsp`: diagnostics and formatting
+- [ ] P10.6c Hover and go-to-definition
+- [ ] P10.6d Completion and rename
 - [ ] P10.2 Lint
+- [ ] P10.5 Incremental compilation
+- [ ] P10.8 Debugging
 - [ ] P10.3 Package manager
 - [ ] P10.4 Registry
-- [ ] P10.5 Incremental compilation
-- [ ] P10.6 LSP and VS Code extension
 - [ ] P10.7 REPL and JIT
-- [ ] P10.8 Debugging
 - [ ] P10.9 Documentation tooling
 - [ ] P10.10 Release packaging
 
@@ -445,3 +449,4 @@ Notes:
 | 2026-11-03 | P8.7e | WasmGC buffers, synchronous browser `__io` ops (text codecs, random, bundled tz), `__parse_f64`/`__ref_id`/`__math`, covariant generic class instances: 193 of the suite pass, none fail. Size/perf comparison (`scripts/wasm-compare.sh`): ~2 KiB vs ~2.1 MiB, 1.3–1.7× slower. P8.7f split off for JS interop. Decision 269. |
 | 2026-11-03 | P8.7f | `@export("js")` and `std/js` on WasmGC (exported functions with struct constructors/getters, `js_op`/`js_text` imports, nested calls in the glue); `tests/browser` on both backends, both browser examples work in headless Chromium. P8.7 and Phase 8 done. Decision 270. |
 | 2026-11-03 | P9.2 | Manual check: the SDL2 demo (`examples/sdl2`) builds, links libSDL2 and shows its window (Debian 13 arm64, confirmed by the author). |
+| 2026-11-03 | plan | Phase 10 reordered for the VS Code integration first (P10.6 split into a–d), then debugging, release packaging last. |
