@@ -10,10 +10,13 @@
 //! recovering pass (`ppl_driver::check_source_recovering`) indexes what it makes of the code
 //! (only the normal check's diagnostics are shown). If that pass fails too, the document keeps
 //! its last index. Completion ([`complete`]) checks the text again with a placeholder name at
-//! the cursor.
+//! the cursor. Rename ([`rename`]) checks every module of the project; the outline
+//! ([`symbols`]) comes from the syntax tree.
 
 mod complete;
 mod index;
+mod rename;
+mod symbols;
 mod uri;
 
 use ppl_diag::{Diagnostic, Severity, SourceMap};
@@ -144,6 +147,8 @@ impl Server {
                         "hoverProvider": true,
                         "definitionProvider": true,
                         "completionProvider": { "triggerCharacters": ["."] },
+                        "renameProvider": { "prepareProvider": true },
+                        "documentSymbolProvider": true,
                     },
                     "serverInfo": { "name": "ppl", "version": env!("CARGO_PKG_VERSION") },
                 },
@@ -227,6 +232,30 @@ impl Server {
                 let result = json!({ "isIncomplete": false, "items": items.unwrap_or_default() });
                 send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
             }
+            ("textDocument/prepareRename" | "textDocument/rename", Some(id)) => {
+                let uri = params["textDocument"]["uri"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                if self.dirty.contains(&uri) {
+                    self.check_dirty(send);
+                }
+                let result = self.rename(&uri, &params["position"], params["newName"].as_str());
+                send(match result {
+                    Ok(r) => json!({ "jsonrpc": "2.0", "id": id, "result": r }),
+                    // (RequestFailed: the client shows the message.)
+                    Err(message) => json!({ "jsonrpc": "2.0", "id": id,
+                        "error": { "code": -32803, "message": message } }),
+                });
+            }
+            ("textDocument/documentSymbol", Some(id)) => {
+                let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+                let result = self
+                    .docs
+                    .get(uri)
+                    .map_or(Value::Null, |t| json!(symbols::symbols(t)));
+                send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+            }
             (_, Some(id)) if !method.is_empty() => send(json!({
                 "jsonrpc": "2.0",
                 "id": id,
@@ -277,6 +306,28 @@ impl Server {
             return None;
         }
         Some((idx, r))
+    }
+
+    /// `prepareRename` (no `new_name`: the name's range and text) or `rename` (the edit).
+    fn rename(&self, uri: &str, pos: &Value, new_name: Option<&str>) -> Result<Value, String> {
+        let text = self.docs.get(uri).ok_or("the document isn't open")?;
+        let idx = self
+            .indexes
+            .get(uri)
+            .ok_or("the document isn't checked yet")?;
+        if *text != idx.text {
+            return Err("the document has errors that stop checking: fix them first".into());
+        }
+        let line = pos["line"].as_u64().ok_or("no position")? as usize;
+        let character = pos["character"].as_u64().ok_or("no position")? as usize;
+        let offset = offset_of(text, line, character).ok_or("no such position")?;
+        match new_name {
+            None => {
+                let (at, _) = rename::target(idx, offset)?;
+                Ok(json!({ "range": range(&idx.sm, at), "placeholder": idx.sm.snippet(at) }))
+            }
+            Some(n) => rename::rename(&self.docs, uri, idx, offset, n),
+        }
     }
 
     /// The document formatted, as one edit (`null` with syntax errors, as `ppl fmt`).

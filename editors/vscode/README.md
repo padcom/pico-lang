@@ -8,7 +8,9 @@
   modules), Format Document (the `ppl fmt` formatter with `project.json`'s options), hover
   (the type or signature and the doc comment) and Go to Definition (also into imported modules
   and the core library), also in code with errors, and completion (names in scope, members
-  after `.`, the names a module exports inside `import { … }`). Rename follows (PLAN P10.6d2).
+  after `.`, the names a module exports inside `import { … }`), Rename Symbol (F2: every use in
+  the project's modules, methods with their overrides and implementations) and the outline
+  (document symbols, also for Go to Symbol and breadcrumbs).
 
 ## Settings
 

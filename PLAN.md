@@ -917,6 +917,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   project's modules, also those that import the renamed one; `prepareRename` refuses the core
   library and built-ins; the new name must be an identifier), document symbols (the outline).
 - **Done when**: protocol tests, and a manual check in VS Code.
+- **Done (decision 275)**: `crates/ppl-lsp/src/rename.rs`, `symbols.rs`; links, shorthand
+  fields and method families in the index.
 
 ### P10.7 REPL and JIT
 - **Do**: `ppl run` through LLVM ORC JIT (no linking), and a REPL that keeps state between lines.

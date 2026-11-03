@@ -11,7 +11,7 @@
 use ppl_diag::{FileId, SourceMap, Span};
 use ppl_sema::hir::{self, ExprKind, Program, StructId, Target};
 use ppl_sema::{Ty, Types};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A name in the document: where it is, its declaration and its hover text.
 #[derive(Clone, Debug)]
@@ -35,6 +35,74 @@ pub struct Index {
     pub refs: Vec<Ref>,
     /// The hover text of every declaration the program has (all files), by its name span.
     pub decls: HashMap<Span, String>,
+    /// Every name of the document and the declaration it names, (use, declaration); a
+    /// declaration names itself. Unlike `refs`, a span may name two declarations.
+    pub links: Vec<(Span, Span)>,
+    /// Shorthand fields of struct literals (`S { x }`), which name a field and a variable.
+    pub shorthand: HashSet<Span>,
+    /// Methods that override or implement each other, by any member's name span: all the
+    /// members' name spans (renamed together).
+    pub families: HashMap<Span, Vec<Span>>,
+}
+
+/// Groups the methods of a name along `extends`/`implements` edges where both types have
+/// it (so an override and what it overrides, an implementation and its interface method).
+fn method_families(p: &Program) -> HashMap<Span, Vec<Span>> {
+    // Union-find over (type, method name).
+    let mut parent: HashMap<(u32, &str), (u32, &str)> = HashMap::new();
+    fn find<'a>(
+        parent: &mut HashMap<(u32, &'a str), (u32, &'a str)>,
+        k: (u32, &'a str),
+    ) -> (u32, &'a str) {
+        let mut k = k;
+        while let Some(&up) = parent.get(&k) {
+            if up == k {
+                break;
+            }
+            k = up;
+        }
+        k
+    }
+    for (i, s) in p.structs.iter().enumerate() {
+        for (m, _) in &s.methods {
+            parent
+                .entry((i as u32, m.as_str()))
+                .or_insert((i as u32, m.as_str()));
+        }
+    }
+    for (i, s) in p.structs.iter().enumerate() {
+        let near = s.base.iter().chain(&s.implements);
+        for n in near {
+            let other = &p.structs[n.0 as usize];
+            for (m, _) in &s.methods {
+                if other.method(m).is_some() {
+                    let a = find(&mut parent, (i as u32, m.as_str()));
+                    let b = find(&mut parent, (n.0, m.as_str()));
+                    if a != b {
+                        parent.insert(a, b);
+                    }
+                }
+            }
+        }
+    }
+    let mut groups: HashMap<(u32, &str), Vec<Span>> = HashMap::new();
+    for (i, s) in p.structs.iter().enumerate() {
+        for (m, f) in &s.methods {
+            let span = p.fns[f.0 as usize].name_span;
+            let root = find(&mut parent, (i as u32, m.as_str()));
+            let g = groups.entry(root).or_default();
+            if !g.contains(&span) {
+                g.push(span);
+            }
+        }
+    }
+    let mut out = HashMap::new();
+    for g in groups.into_values().filter(|g| g.len() > 1) {
+        for s in &g {
+            out.insert(*s, g.clone());
+        }
+    }
+    out
 }
 
 impl Index {
@@ -56,6 +124,7 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
         t: types,
         decls: HashMap::new(),
         uses: Vec::new(),
+        shorthand: Vec::new(),
     };
     b.declarations();
     for (i, f) in program.fns.iter().enumerate() {
@@ -87,6 +156,8 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
             });
         }
     }
+    let mut links: Vec<(Span, Span)> = refs.iter().map(|r| (r.def, r.def)).collect();
+    let mut linked: HashSet<(Span, Span)> = links.iter().copied().collect();
     for (at, def) in std::mem::take(&mut b.uses) {
         if at.file != file || at.is_empty() || !same_name(sm.snippet(at), sm.snippet(def)) {
             continue;
@@ -94,6 +165,9 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
         let Some(hover) = b.decls.get(&def) else {
             continue;
         };
+        if linked.insert((at, def)) {
+            links.push((at, def));
+        }
         if seen.insert((at.start, at.end)) {
             refs.push(Ref {
                 start: at.start,
@@ -106,12 +180,17 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
     }
     refs.sort_by_key(|r| (r.start, r.end));
     let decls = std::mem::take(&mut b.decls);
+    let shorthand = b.shorthand.iter().copied().collect();
+    let families = method_families(program);
     Index {
         sm,
         file,
         text,
         refs,
         decls,
+        links,
+        shorthand,
+        families,
     }
 }
 
@@ -123,6 +202,8 @@ struct Builder<'a> {
     decls: HashMap<Span, String>,
     /// Uses: (where, the declaration's name span).
     uses: Vec<(Span, Span)>,
+    /// See [`Index::shorthand`].
+    shorthand: Vec<Span>,
 }
 
 impl Builder<'_> {
@@ -299,6 +380,15 @@ impl Builder<'_> {
                     .or_else(|| self.t.extensions.get(&e.id))
                     .or_else(|| self.t.overloads.get(&e.id))
                     .copied();
+                // A call through an interface value: the interface's method.
+                let target = target.or_else(|| {
+                    self.t.iface_calls.get(&e.id)?;
+                    let ExprKind::Member { object, name, .. } = &callee.kind else {
+                        return None;
+                    };
+                    let sid = struct_of(self.t.exprs.get(object.id.0 as usize)?)?;
+                    self.p.structs.get(sid.0 as usize)?.method(name)
+                });
                 if let Some(f) = target {
                     let at = match &callee.kind {
                         ExprKind::Member { name_span, .. } => *name_span,
@@ -313,6 +403,10 @@ impl Builder<'_> {
                     for (fi, &idx) in fields.iter().zip(idxs) {
                         if let Some(fd) = def.fields.get(idx as usize) {
                             self.uses.push((fi.name_span, fd.span));
+                            // `S { x }`: the name is the field's and the variable's.
+                            if fi.value.span == fi.name_span {
+                                self.shorthand.push(fi.name_span);
+                            }
                         }
                     }
                 }

@@ -713,3 +713,254 @@ fn completes_members_before_an_existing_name() {
         );
     }
 }
+
+fn pos_of(text: &str, needle: &str, n: usize, skip: usize) -> Value {
+    let offset = text
+        .match_indices(needle)
+        .nth(n)
+        .unwrap_or_else(|| panic!("no {needle}"))
+        .0
+        + skip;
+    let line = text[..offset].matches('\n').count();
+    let character = offset - text[..offset].rfind('\n').map_or(0, |i| i + 1);
+    json!({ "line": line, "character": character })
+}
+
+/// Applies one file's text edits.
+fn apply(text: &str, edits: &Value) -> String {
+    let mut es: Vec<(usize, usize, String)> = edits
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            let o = |p: &Value| {
+                offset_of(
+                    text,
+                    p["line"].as_u64().unwrap() as usize,
+                    p["character"].as_u64().unwrap() as usize,
+                )
+                .unwrap() as usize
+            };
+            (
+                o(&e["range"]["start"]),
+                o(&e["range"]["end"]),
+                e["newText"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    es.sort_by_key(|a| std::cmp::Reverse(a.0));
+    let mut out = text.to_string();
+    for (s, e, t) in es {
+        out.replace_range(s..e, &t);
+    }
+    out
+}
+
+/// Renames at the `n`th `needle` (+`skip`) of `main.ppl` (open, the other `files` on disk):
+/// the edit by file name, or the error message.
+fn rename_at(
+    name: &str,
+    main: &str,
+    files: &[(&str, &str)],
+    needle: (&str, usize, usize),
+    new_name: &str,
+) -> Result<BTreeMap<String, String>, String> {
+    let dir = tmp(name);
+    for (f, t) in files {
+        let p = dir.join(f);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, t).unwrap();
+    }
+    std::fs::write(dir.join("main.ppl"), main).unwrap();
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let pos = pos_of(main, needle.0, needle.1, needle.2);
+    let out = session(vec![
+        init(),
+        open(&uri, main),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/rename", "params": {
+            "textDocument": { "uri": uri }, "position": pos, "newName": new_name } }),
+    ]);
+    let m = out.iter().find(|m| m["id"] == 2).unwrap();
+    if let Some(e) = m.get("error") {
+        return Err(e["message"].as_str().unwrap().to_string());
+    }
+    let canon = dir.canonicalize().unwrap();
+    let mut texts = BTreeMap::new();
+    for (u, edits) in m["result"]["changes"].as_object().unwrap() {
+        let p = uri_to_path(u).unwrap().canonicalize().unwrap();
+        let rel = p.strip_prefix(&canon).unwrap().display().to_string();
+        let before = if rel == "main.ppl" {
+            main.to_string()
+        } else {
+            std::fs::read_to_string(&p).unwrap()
+        };
+        texts.insert(rel, apply(&before, edits));
+    }
+    Ok(texts)
+}
+
+#[test]
+fn renames_locals_and_parameters() {
+    let main = "function f(n: i32): i32 {\n  let total = n\n  total += n\n  total\n}\nconst total = 1\nprintln(f(total))\n";
+    let r = rename_at("rename_local", main, &[], ("total", 1, 0), "sum").unwrap();
+    assert_eq!(
+        r["main.ppl"],
+        "function f(n: i32): i32 {\n  let sum = n\n  sum += n\n  sum\n}\nconst total = 1\nprintln(f(total))\n"
+    );
+    let r = rename_at("rename_param", main, &[], ("n: i32", 0, 0), "k").unwrap();
+    assert_eq!(
+        r["main.ppl"],
+        "function f(k: i32): i32 {\n  let total = k\n  total += k\n  total\n}\nconst total = 1\nprintln(f(total))\n"
+    );
+}
+
+#[test]
+fn renames_across_the_projects_modules() {
+    let geo = "export struct Vec2 {\n  x: i32\n  y: i32\n}\nexport function dot(a: Vec2, b: Vec2): i32 { a.x * b.x + a.y * b.y }\n";
+    // (`lib/other.ppl` imports `geo` too, but isn't imported by `main.ppl`.)
+    let other =
+        "import { dot, Vec2 } from \"../geo\"\nconst v = Vec2 { x: 1, y: 1 }\nprintln(dot(v, v))\n";
+    let main = "import { dot, Vec2 } from \"./geo\"\nconst v = Vec2 { x: 2, y: 3 }\nprintln(dot(v, v) + v.x)\n";
+    let files = [
+        ("geo.ppl", geo),
+        ("lib/other.ppl", other),
+        ("project.json", "{}"),
+    ];
+    let r = rename_at("rename_modules", main, &files, ("dot(v", 0, 0), "inner").unwrap();
+    assert_eq!(r.len(), 3, "{r:#?}");
+    assert!(
+        r["geo.ppl"].contains("export function inner(a: Vec2"),
+        "{}",
+        r["geo.ppl"]
+    );
+    assert_eq!(r["main.ppl"], main.replace("dot", "inner"));
+    assert_eq!(r["lib/other.ppl"], other.replace("dot", "inner"));
+    // A field: its declaration, literals and member access, in every module.
+    let r = rename_at("rename_field", main, &files, ("v.x", 0, 2), "first").unwrap();
+    assert_eq!(
+        r["geo.ppl"],
+        geo.replace("  x: i32", "  first: i32")
+            .replace("a.x * b.x", "a.first * b.first")
+    );
+    assert_eq!(
+        r["main.ppl"],
+        main.replace("{ x: 2", "{ first: 2")
+            .replace("v.x", "v.first")
+    );
+    assert_eq!(r["lib/other.ppl"], other.replace("{ x: 1", "{ first: 1"));
+}
+
+#[test]
+fn renames_methods_with_their_family() {
+    let main = "interface Speakable { speak(s: string): string }\nclass Person implements Speakable {\n  public speak(s: string): string { s }\n}\nclass Loud extends Person {\n  public override speak(s: string): string { s }\n}\nclass Other {\n  public speak(): string { \"\" }\n}\nconst x: Speakable = new Person()\nprintln(x.speak(\"a\") + new Loud().speak(\"b\") + new Other().speak())\n";
+    let r = rename_at("rename_method", main, &[], ("speak", 1, 0), "say").unwrap();
+    assert_eq!(
+        r["main.ppl"],
+        main.replacen("speak", "say", 3)
+            .replace("x.speak", "x.say")
+            .replace("Loud().speak", "Loud().say"),
+        "`Other.speak` isn't related"
+    );
+}
+
+#[test]
+fn renames_shorthand_fields() {
+    let main = "struct P {\n  x: i32\n}\nconst x = 1\nconst p = P { x }\nprintln(p.x + x)\n";
+    let r = rename_at("rename_short1", main, &[], ("p.x", 0, 2), "px").unwrap();
+    assert_eq!(
+        r["main.ppl"],
+        "struct P {\n  px: i32\n}\nconst x = 1\nconst p = P { px: x }\nprintln(p.px + x)\n"
+    );
+    let r = rename_at("rename_short2", main, &[], ("+ x", 0, 2), "v").unwrap();
+    assert_eq!(
+        r["main.ppl"],
+        "struct P {\n  x: i32\n}\nconst v = 1\nconst p = P { x: v }\nprintln(p.x + v)\n"
+    );
+}
+
+#[test]
+fn refuses_what_cant_be_renamed() {
+    let main = "const e = new Error(\"x\")\nprintln(e.message)\nconst n = 1\n";
+    let err = |needle, new| rename_at("rename_refuse", main, &[], needle, new).unwrap_err();
+    assert!(err(("Error", 0, 0), "Oops").contains("core library"));
+    assert!(err(("message", 0, 0), "msg").contains("core library"));
+    assert!(err(("println", 0, 0), "p").contains("nothing to rename"));
+    assert!(err(("n = 1", 0, 0), "while").contains("keyword"));
+    assert!(err(("n = 1", 0, 0), "1x").contains("isn't a name"));
+    // `prepareRename`: the name's range and text.
+    let dir = tmp("prepare");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let out = session(vec![
+        init(),
+        open(&uri, main),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/prepareRename", "params": {
+            "textDocument": { "uri": uri }, "position": pos_of(main, "e.message", 0, 0) } }),
+    ]);
+    let r = response(&out, 2);
+    assert_eq!(r["placeholder"], "e");
+    assert_eq!(r["range"]["start"], json!({ "line": 1, "character": 8 }));
+}
+
+#[test]
+fn document_symbols() {
+    let text = "struct Point {\n  x: i32\n  y: i32\n}\nclass Counter {\n  count = 0\n  constructor() {}\n  public get double(): i64 { count * 2 }\n  public bump() { count++ }\n}\nenum Color { Red, Green }\ntype Meters = f64\nfunction f(): i32 { 1 }\nconst [a, b] = [1, 2]\nlet broken = \n";
+    let dir = tmp("symbols");
+    let uri = path_to_uri(&dir.join("main.ppl"));
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/documentSymbol", "params": {
+            "textDocument": { "uri": uri } } }),
+    ]);
+    let r = response(&out, 2).as_array().unwrap().clone();
+    let names: Vec<(&str, u64)> = r
+        .iter()
+        .map(|s| (s["name"].as_str().unwrap(), s["kind"].as_u64().unwrap()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("Point", 23),
+            ("Counter", 5),
+            ("Color", 10),
+            ("Meters", 26),
+            ("f", 12),
+            ("a", 14),
+            ("b", 14),
+            ("broken", 13)
+        ]
+    );
+    let kids = |i: usize| -> Vec<(String, u64)> {
+        r[i]["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (
+                    s["name"].as_str().unwrap().to_string(),
+                    s["kind"].as_u64().unwrap(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(kids(0), [("x".into(), 8), ("y".into(), 8)]);
+    assert_eq!(
+        kids(1),
+        [
+            ("count".into(), 8),
+            ("constructor".into(), 9),
+            ("double".into(), 7),
+            ("bump".into(), 6)
+        ]
+    );
+    assert_eq!(kids(2), [("Red".into(), 22), ("Green".into(), 22)]);
+    // Ranges: the declaration; the selection: its name.
+    assert_eq!(
+        r[4]["selectionRange"]["start"],
+        json!({ "line": 12, "character": 9 })
+    );
+    assert_eq!(
+        r[4]["range"]["start"],
+        json!({ "line": 12, "character": 0 })
+    );
+}
