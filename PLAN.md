@@ -856,6 +856,26 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Do**: the `project.json` schema, `ppl init`/`add`/`remove`, git dependencies, semver resolution
   (majors coexist), `project.lock` with hashes, and workspaces.
 - **Done when**: a two-package workspace with one git dependency builds offline from the lockfile.
+- Split into slices (decisions 284–286):
+
+#### P10.3a Manifest, package imports, workspaces, `entry`
+- **Do**: the manifest (validated), `import … from "scope/name"` → the package's `index.ppl`
+  (sub-paths an error), workspace members as dependencies by name and semver range, semver
+  parsing and matching, `ppl build`/`ppl run` without a file building `entry`, and VS Code's
+  debugger building the nearest project's `entry`.
+- **Done when**: a two-member workspace (an application using a library by name) builds and
+  runs; tests for ranges, errors (no `index.ppl`, a sub-path, an unsatisfied range).
+
+#### P10.3b Git dependencies, the lockfile, offline builds
+- **Do**: git sources (tag/branch/rev) cloned by commit into the cache, `project.lock` (sources,
+  commits, `sha256:` hashes), unification by major (majors coexist), offline builds from the
+  lockfile and cache (hash checks), `ppl fetch`, `devDependencies` for tests.
+- **Done when**: a two-package workspace with one git dependency builds offline from the lockfile.
+
+#### P10.3c Commands
+- **Do**: `ppl init [name] [--lib]`, `ppl add <git-url> [--tag/--branch/--rev] [--dev]`,
+  `ppl remove <name>`.
+- **Done when**: tests drive the commands on a scratch project (manifest and lockfile after each).
 
 ### P10.4 Registry
 - **Do**: the index format (`scope/name.json`), sparse HTTPS fetching, `ppl publish` (tag + PR via
