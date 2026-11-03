@@ -334,7 +334,8 @@ fn run_native(checked: &ppl_driver::Checked, gc_stress: bool) -> Result<Run, Str
         // A WASI module runs under wasmtime, with Wasm exception handling (`try`, panics);
         // it sees no environment variables but those passed in.
         let mut c = std::process::Command::new("wasmtime");
-        c.args(["run", "-W", "exceptions=y"]);
+        // The run's directory is preopened as the working directory (`--dir=.`).
+        c.args(["run", "-W", "exceptions=y", "--dir=."]);
         if gc_stress {
             c.args(["--env", "PPL_GC_STRESS=1"]);
         }

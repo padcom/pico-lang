@@ -38,7 +38,13 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #elif defined(__wasi__)
+/* (wasi-libc's POSIX file API over preopened directories; no processes or sockets.) */
+#include <dirent.h>
+#include <fcntl.h>
 #include <sys/random.h> /* getentropy */
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 #endif
 
 void *ppl_loop_waker(void);
@@ -636,8 +642,9 @@ static void watch_close(int64_t id) {
     }
 }
 
-#if PPL_IO_POSIX
-/* ---- the POSIX operations (files, processes, sockets) ---- */
+#if PPL_IO_POSIX || defined(__wasi__)
+/* ---- the POSIX operations (files, processes, sockets; files only on WASI, where jobs run
+ * at once: there are no threads) ---- */
 
 
 /* The whole file at `path` (malloc'd), or NULL with errno set. */
@@ -751,7 +758,9 @@ static int remove_all(const char *path) {
 }
 
 static void watch_open(Job *j);
+#if PPL_IO_POSIX
 static void child_wait(Job *j);
+#endif
 static void net_run(Job *j);
 
 static void run(Job *j) {
@@ -899,7 +908,10 @@ static void run(Job *j) {
         return;
     }
     case 11:   /* read: a = fd, b = at most this many bytes; r = handle, r2 = count */
-    case 20: { /* (the same from a pipe) */
+#if PPL_IO_POSIX
+    case 20: /* (the same from a pipe) */
+#endif
+    {
         size_t n = j->b > 0 ? (size_t)j->b : 1;
         char *b = calloc(n, 1);
         if (!b) abort();
@@ -920,7 +932,9 @@ static void run(Job *j) {
         return;
     }
     case 12: /* write: a = fd, t = bytes */
+#if PPL_IO_POSIX
     case 21: /* (the same to a pipe) */
+#endif
         if (write_all((int)j->a, j->t, j->tlen) < 0) {
             fail(j);
             return;
@@ -940,8 +954,15 @@ static void run(Job *j) {
         return;
     }
     case 15: /* watch: s = path, a = recursive; r = the watcher's id */
+#if defined(__wasi__)
+        /* (A watcher waits on a thread of its own.) */
+        errno = ENOSYS;
+        fail(j);
+#else
         watch_open(j);
+#endif
         return;
+#if PPL_IO_POSIX
     case 22: { /* read a pipe to its end as text (UTF-8) */
         size_t cap = 4096, n = 0;
         char *buf = malloc(cap);
@@ -995,6 +1016,7 @@ static void run(Job *j) {
     case 33:
     case 34:
     case 35: net_run(j); return;
+#endif
     default: j->r = -K_OTHER; j->r2 = EINVAL; return;
     }
 }
@@ -1045,6 +1067,13 @@ static void dir_close(DirIter *it) {
     free(it);
 }
 
+#if defined(__wasi__)
+/* (Watchers need threads: `watch` fails on WASI.) */
+static void wake_open(Watcher *w) { (void)w; }
+static void wake_signal(Watcher *w) { (void)w; }
+static void wake_close(Watcher *w) { (void)w; }
+static void wait_os(Watcher *w, int ms) { (void)w, (void)ms; }
+#else
 static void wake_open(Watcher *w) {
     int p[2];
     if (pipe(p) < 0) abort();
@@ -1130,6 +1159,9 @@ static void wait_os(Watcher *w, int ms) {
 }
 #endif
 
+#endif
+
+#if PPL_IO_POSIX
 /* ---- `std/process` (spec §13.3) ---- */
 
 static char *cstr(const PplStr *s, size_t *len);
@@ -1383,6 +1415,61 @@ static void sock_close(int64_t s) { close((int)s); }
 
 /* Not inherited by children. */
 static void sock_private(int64_t s) { fcntl((int)s, F_SETFD, FD_CLOEXEC); }
+#endif
+
+#if defined(__wasi__)
+extern int ppl_argc;
+extern char **ppl_argv;
+extern char **environ;
+
+/* This process on WASI (spec §13.3's availability table: args, env and exit; no Command). */
+static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s,
+                          const PplStr *t) {
+    (void)b, (void)c;
+    switch (op) {
+    case 113: { /* the arguments, each followed by a NUL */
+        Job *j = result_job(q);
+        text_add(j, "", 0);
+        for (int i = 1; i < ppl_argc; i++) text_add(j, ppl_argv[i], strlen(ppl_argv[i]) + 1);
+        return j->id;
+    }
+    case 114: { /* getenv(s): r = 1 when set, text = its value */
+        Job *j = result_job(q);
+        char *name = cstr(s, NULL);
+        const char *v = getenv(name);
+        free(name);
+        j->r = v != NULL;
+        if (v) text_add(j, v, strlen(v));
+        return j->id;
+    }
+    case 115: { /* setenv(s, t) */
+        char *name = cstr(s, NULL), *value = cstr(t, NULL);
+        int r = setenv(name, value, 1);
+        free(name);
+        free(value);
+        return r;
+    }
+    case 116: { /* unsetenv(s) */
+        char *name = cstr(s, NULL);
+        int r = unsetenv(name);
+        free(name);
+        return r;
+    }
+    case 117: { /* every variable: "NAME=value\0" each */
+        Job *j = result_job(q);
+        text_add(j, "", 0);
+        for (char **e = environ; e && *e; e++) text_add(j, *e, strlen(*e) + 1);
+        return j->id;
+    }
+    case 118: /* exit(a) */
+        fflush(stdout);
+        fflush(stderr);
+        exit((int)a);
+    case 119: return 1; /* (WASI has no process ids) */
+    default: return -1;
+    }
+}
+#endif
 
 /* Starts job `j` (op < 100), which reports to its queue when it's done. */
 static void os_submit(Job *j) {
@@ -1391,6 +1478,12 @@ static void os_submit(Job *j) {
         watch_next(j);
         return;
     }
+#if defined(__wasi__)
+    /* No threads: the job runs now, and is polled on the loop's next turn. */
+    run(j);
+    finish(j);
+    return;
+#endif
     if ((op >= 20 && op <= 23) || (op >= 30 && op <= 36)) {
         run_solo(j);
         return;
@@ -1456,12 +1549,14 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
         if (k > 0) text_add(j, buf, (size_t)k);
         return j->id;
     }
+#if PPL_IO_POSIX
     case 120: /* shutdown socket a: b = 0 reading, 1 writing, 2 both (TLS: close_notify first) */
         if (b != 0) ppl_tls_close_notify((int)a);
         return shutdown((int)a, b == 0 ? SHUT_RD : b == 1 ? SHUT_WR : SHUT_RDWR) < 0 ? -1 : 0;
     case 121: /* close socket a (and its TLS session) */
         ppl_tls_free((int)a);
         return close((int)a) < 0 ? -1 : 0;
+#endif
     case 105: { /* the working directory, as a polled job's text */
         Job *j = calloc(1, sizeof *j);
         if (!j) abort();
@@ -2651,103 +2746,6 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     case 117:
     case 118:
     case 119: return process_op(q, op, a, b, c, s, t);
-    default: return -1;
-    }
-}
-#elif defined(__wasi__)
-/* ---- wasm32-wasi: no I/O yet (P8.5b: files, clocks and the loop; P8.5c: sockets). Jobs end
- * at once with ENOSYS. ---- */
-
-static void fail_with(Job *j, int en) {
-    errno = en;
-    fail(j);
-}
-
-static int fs_info(const char *path, int follow, Info *out) {
-    (void)path, (void)follow, (void)out;
-    errno = ENOSYS;
-    return -1;
-}
-
-struct DirIter {
-    int unused;
-};
-
-static DirIter *dir_open(const char *path) {
-    (void)path;
-    errno = ENOSYS;
-    return NULL;
-}
-
-static const char *dir_next(DirIter *d) {
-    (void)d;
-    return NULL;
-}
-
-static void dir_close(DirIter *d) { (void)d; }
-
-static void wake_open(Watcher *w) { (void)w; }
-static void wake_signal(Watcher *w) { (void)w; }
-static void wake_close(Watcher *w) { (void)w; }
-static void wait_os(Watcher *w, int ms) { (void)w, (void)ms; }
-
-static void run(Job *j) { fail_with(j, ENOSYS); }
-
-static void net_run(Job *j) { fail_with(j, ENOSYS); }
-
-static void os_submit(Job *j) {
-    fail_with(j, ENOSYS);
-    finish(j);
-}
-
-extern int ppl_argc;
-extern char **ppl_argv;
-extern char **environ;
-
-/* This process (spec §13.3's availability table: args, env and exit work on WASI). */
-static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PplStr *s,
-                     const PplStr *t) {
-    (void)b, (void)c;
-    switch (op) {
-    case 113: { /* the arguments, each followed by a NUL */
-        Job *j = result_job(q);
-        text_add(j, "", 0);
-        for (int i = 1; i < ppl_argc; i++) text_add(j, ppl_argv[i], strlen(ppl_argv[i]) + 1);
-        return j->id;
-    }
-    case 114: { /* getenv(s): r = 1 when set, text = its value */
-        Job *j = result_job(q);
-        char *name = cstr(s, NULL);
-        const char *v = getenv(name);
-        free(name);
-        j->r = v != NULL;
-        if (v) text_add(j, v, strlen(v));
-        return j->id;
-    }
-    case 115: { /* setenv(s, t) */
-        char *name = cstr(s, NULL), *value = cstr(t, NULL);
-        int r = setenv(name, value, 1);
-        free(name);
-        free(value);
-        return r;
-    }
-    case 116: { /* unsetenv(s) */
-        char *name = cstr(s, NULL);
-        int r = unsetenv(name);
-        free(name);
-        return r;
-    }
-    case 117: { /* every variable: "NAME=value\0" each */
-        Job *j = result_job(q);
-        text_add(j, "", 0);
-        for (char **e = environ; e && *e; e++) text_add(j, *e, strlen(*e) + 1);
-        return j->id;
-    }
-    case 118: /* exit(a) */
-        fflush(stdout);
-        fflush(stderr);
-        exit((int)a);
-    case 119: return 1; /* (WASI has no process ids) */
     default: return -1;
     }
 }
