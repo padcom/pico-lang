@@ -100,6 +100,8 @@ pub fn link_wasi(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
         wasi.start.display().to_string(),
         obj.display().to_string(),
     ];
+    // (`main` eagerly: wasi-libc's `__main_void` has a weak `__main_argc_argv` of its own.)
+    args.extend(paths(&main_object(&runtime)));
     for group in [&runtime.lazy, &wasi.lib, &builtins] {
         args.push("--start-lib".into());
         args.extend(paths(group));
@@ -126,12 +128,106 @@ pub fn link_browser(t: Target, obj: &Path, wasm: &Path) -> Result<(), String> {
         wasm.display().to_string(),
         obj.display().to_string(),
     ];
+    args.extend(paths(&main_object(&runtime)));
     for group in [&runtime.lazy, &wasi.lib, &builtins] {
         args.push("--start-lib".into());
         args.extend(paths(group));
         args.push("--end-lib".into());
     }
     ppl_lld::link_wasm(&args).map_err(|e| format!("linking failed:\n{e}"))
+}
+
+/// The runtime's `main` (`ppl_main.c`), for links that must take it whatever else is lazy.
+fn main_object(runtime: &RuntimeObjects) -> Vec<PathBuf> {
+    runtime
+        .lazy
+        .iter()
+        .filter(|p| p.file_name().is_some_and(|n| n == "ppl_main.o"))
+        .cloned()
+        .collect()
+}
+
+/// A library for C programs (`ppl build --lib`, spec §12.4): linux-gnu only so far.
+fn library_runtime(t: Target) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
+    if !(t.os == crate::target::Os::Linux && t.env == Env::Gnu) {
+        return Err(format!(
+            "`--lib` isn't supported for {t} yet (only linux-gnu)"
+        ));
+    }
+    let cc = clang()?;
+    let runtime = runtime_objects(t, &gnu_libc(t, cc)?)?;
+    // (No `main`: the C program has its own.)
+    let objs = runtime
+        .lazy
+        .into_iter()
+        .filter(|p| p.file_name().is_none_or(|n| n != "ppl_main.o"))
+        .collect();
+    Ok((objs, crate::builtins::objects(t, cc)?))
+}
+
+/// A static library: the program's object, the runtime's and compiler-rt's, archived with
+/// LLVM's `llvm-ar` (next to clang), so a C linker takes only what's used.
+pub fn link_static_lib(t: Target, obj: &Path, out: &Path) -> Result<(), String> {
+    let (runtime, builtins) = library_runtime(t)?;
+    let cc = clang()?;
+    let ar = cc
+        .exe
+        .parent()
+        .map(|d| d.join("llvm-ar"))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| "llvm-ar".into());
+    let _ = std::fs::remove_file(out);
+    let res = Command::new(&ar)
+        .arg("rcsD")
+        .arg(out)
+        .arg(obj)
+        .args(&runtime)
+        .args(&builtins)
+        .output()
+        .map_err(|e| format!("cannot run {}: {e}", ar.display()))?;
+    if !res.status.success() {
+        return Err(format!(
+            "archiving failed:\n{}",
+            String::from_utf8_lossy(&res.stderr)
+        ));
+    }
+    Ok(())
+}
+
+/// A shared library exporting only `exports` (a version script hides the runtime's symbols),
+/// against the glibc stubs like an executable.
+pub fn link_shared_lib(
+    t: Target,
+    obj: &Path,
+    out: &Path,
+    exports: &[String],
+    links: &[String],
+) -> Result<(), String> {
+    let (runtime, builtins) = library_runtime(t)?;
+    let cc = clang()?;
+    let stubs = crate::glibc::stubs(t, &cc.exe)?;
+    let script = out.with_extension("ppl-version");
+    let globals: String = exports.iter().map(|e| format!("{e}; ")).collect();
+    std::fs::write(&script, format!("{{ global: {globals}local: *; }};\n"))
+        .map_err(|e| format!("cannot write {}: {e}", script.display()))?;
+    let soname = out
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut args = common_args(t);
+    args.extend(["-shared".to_string(), "-soname".into(), soname]);
+    args.push(format!("--version-script={}", script.display()));
+    args.push("-o".into());
+    args.push(out.display().to_string());
+    args.push(obj.display().to_string());
+    lazy(&mut args, &runtime);
+    lazy(&mut args, &builtins);
+    args.push("--as-needed".into());
+    args.extend(paths(&stubs));
+    args.extend(system_libs(t, links, &stubs));
+    let r = ppl_lld::link_elf(&args).map_err(|e| format!("linking failed:\n{e}"));
+    let _ = std::fs::remove_file(&script);
+    r
 }
 
 /// Links `obj` with the runtime into the executable `exe` for a Linux target.

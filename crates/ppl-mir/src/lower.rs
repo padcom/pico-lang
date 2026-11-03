@@ -322,6 +322,18 @@ fn export_wrappers(cx: &mut Cx, fns: &mut Vec<mir::Function>) -> Vec<mir::Export
         if !f.throws.is_empty() {
             bad.push("it throws: an exported function has to catch its errors".to_string());
         }
+        if e.abi == hir::ExportAbi::C {
+            // C (spec §12.4): numbers, `bool` and pointers (structs by pointer for now).
+            for t in sig.params.iter().chain(std::iter::once(&sig.ret)) {
+                let ok = matches!(t, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Ref(_))
+                    || (*t == Ty::Void && std::ptr::eq(t, &sig.ret));
+                if !ok {
+                    bad.push(format!(
+                        "`{t}` can't cross to C (numbers, `bool` and pointers can)"
+                    ));
+                }
+            }
+        }
         if e.abi == hir::ExportAbi::Js {
             for t in sig
                 .params
@@ -344,7 +356,8 @@ fn export_wrappers(cx: &mut Cx, fns: &mut Vec<mir::Function>) -> Vec<mir::Export
             );
             continue;
         }
-        let by_ptr = |t: &Ty| matches!(t, Ty::Struct(..));
+        let js = e.abi == hir::ExportAbi::Js;
+        let by_ptr = |t: &Ty| js && matches!(t, Ty::Struct(..));
         let mut locals = Vec::new();
         let out_param = by_ptr(&sig.ret).then(|| {
             locals.push(LocalDecl {

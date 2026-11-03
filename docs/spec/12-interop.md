@@ -131,6 +131,11 @@ export function ppl_hash(data: ptr<u8>, len: usize): u64 { … }
 Exported signatures may only use FFI-compatible types. A thread calling in from C gets its own
 heap, initialized lazily.
 
+That first call runs the program's top-level code on the calling thread (its module instance).
+Exported signatures take numbers, `bool` and pointers (`ptr<S>` of a `@pod` struct puts the
+struct's definition in the header). So far libraries are built for linux-gnu; a static one is
+linked with `-lm -lpthread`. Decision 263.
+
 ## 12.5 WASI
 `wasm32-wasi` uses WASI preview 2 for fs, clocks, sockets and random. The `std/*` modules are
 implemented on top of it. Programs are preview 2 components (`wasm32-wasip2`): wasi-libc's

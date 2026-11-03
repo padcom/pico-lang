@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P9.3: Export to C** (see [PLAN.md](PLAN.md#p93-export-to-c)). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
+**P8.7: WasmGC backend** (deferred from Phase 8; plan it in slices in PLAN.md first), then **P10.1: Formatter**. Before that, the author should run the SDL2 demo by hand (P9.2's manual check, `examples/sdl2`). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Libraries for C (P9.3, decision 263)**: `ppl_driver::build_library` (`LibKind`), `link_static_lib`/`link_shared_lib` in `link.rs` (linux-gnu only), `clib.rs` (the header), CLI `ppl build --lib static|shared`, runtime `ppl_lib_enter`/`ppl_runtime_start` (`ppl_rt.c`) and `ppl_main.c`; codegen calls `ppl_lib_enter` first in C export wrappers (and extends `bool`/narrow integers). Test: `tests/c/export` via `crates/ppl-tests/tests/c_headers.rs`. Not yet: `.dylib`/`.dll`, musl/static-pie, strings and structs by value in exported signatures, unloading (a thread's module instance lives until the process ends).
 - **C headers (P9.2, decision 262)**: `crates/ppl-driver/src/cheader.rs` (`config` reads `project.json`/pkg-config, `generate` runs clang, `Gen` maps), `c_module` in `modules.rs`. Tests: `tests/run/ffi/c_math.ppl`, `tests/run/ffi/local_header/`, `tests/c/zlib` (run by `crates/ppl-tests/tests/c_headers.rs` where zlib is installed), unit tests in `cheader.rs`. **Manual check for the author**: `examples/sdl2` (install SDL2's development package and pkg-config, then `ppl run examples/sdl2/main.ppl`: a window with a square for 5 s). Not yet: structs/unions by value, bit-fields, function-like macros, a header-per-target sysroot (host headers are used for every target), caching of generated modules (clang runs at every build).
 - **extern "C" (P9.1, decision 261)**: resolver `extern_block` (`Extern`, `extern_cfns`, `links`; bodies are a panic for the interpreter), `ExprKind::FnAddr`/`Rvalue::FnAddr` (callbacks), `check_externs` in `lower.rs` (E0355), codegen `extern_body` (C declaration with zeroext/signext, `ppl_cstr_new`/`ppl_cstr_free`, size_t narrowing on wasm32), `system_libs` in `link.rs` (`@link`), core `ppl_str_from_c` (`string.fromC`), C type names in `ty.rs`, `as` between pointer types. Not yet: `@pod` structs by value (C ABI lowering), calling C function pointers from ppl, variadic C functions (`printf`), `@link` for Windows/macOS cross builds, null pointers (`ptr<T>` has no null literal).
 - **Platform files and availability (P8.9, decision 260)**: candidates in `modules.rs` `module()` (`x.<os>.ppl`, `x.wasm.ppl`, `x.ppl`, `x/index.ppl`), checks in `Loader::unavailable`/`unavailable_on` (E0356), the loader takes `target.os` (`modules::load(…, os)`). Golden fail fixtures: `// target: <triple>`. `Worker` on WASI/browser isn't a compile error yet.
@@ -281,7 +282,7 @@ Notes:
 ### Phase 9: C interop
 - [x] P9.1 extern "C"
 - [x] P9.2 C header import (SDL2 demo: manual check pending)
-- [ ] P9.3 Export to C
+- [x] P9.3 Export to C
 
 ### Phase 10: Tooling and ecosystem
 - [ ] P10.1 Formatter
@@ -428,3 +429,4 @@ Notes:
 | 2026-11-03 | P8.9 | Platform files (`x.<os>.ppl`, `x.wasm.ppl`) and §13.3 availability errors at imports (E0356): std/fs/net/process in the browser, `Command` on WASI, std/js and `js:` off the browser. Decision 260. |
 | 2026-11-03 | P9.1 | `extern "C"` blocks: libc calls with string conversion, ppl functions as C callbacks (`qsort`), `string.fromC`, `@link`, unsafe pointer calls (E0342), C type names, pointer casts; passes natively on Linux (gnu, musl, x64 under qemu), WASI and the browser. Decision 261. |
 | 2026-11-03 | P9.2 | `c:` header imports through clang's JSON AST: functions, `@pod` structs, enum and literal-macro constants, `project.json` include/link/pkg-config; `c:math.h`, a local header and zlib tested; SDL2 demo written, manual window check pending (no SDL2 here). Decision 262. |
+| 2026-11-03 | P9.3 | `ppl build --lib static|shared`: archives (llvm-ar) and shared objects (lld, version script) with a generated header; `@export("c")` wrappers start the calling thread's module instance lazily; `main` moved to `ppl_main.c`. A C program calls a ppl static and shared library from two threads. Decision 263. Phase 9 done (P9.2's SDL2 window still to be checked by hand). |

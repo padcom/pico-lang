@@ -624,6 +624,34 @@ impl<'ctx> Gen<'ctx, '_> {
                 (format!("ppl.{}", f.name), Linkage::Internal)
             };
             let func = self.m.add_function(&name, fn_ty, Some(linkage));
+            if let Some(e) = self.p.exports.iter().find(|e| e.wrapper.0 as usize == i)
+                && e.abi == ppl_sema::hir::ExportAbi::C
+            {
+                // C passes `bool` and narrow integers extended, as for extern calls.
+                let ext = |t: &Ty| match t {
+                    Ty::Bool => Some("zeroext"),
+                    Ty::Int(it) if it.bits() < 32 => {
+                        Some(if it.signed() { "signext" } else { "zeroext" })
+                    }
+                    _ => None,
+                };
+                for (k, l) in f.params.iter().enumerate() {
+                    if let Some(a) = ext(f.local_ty(*l)) {
+                        let kind = inkwell::attributes::Attribute::get_named_enum_kind_id(a);
+                        func.add_attribute(
+                            inkwell::attributes::AttributeLoc::Param(k as u32),
+                            self.cx.create_enum_attribute(kind, 0),
+                        );
+                    }
+                }
+                if let Some(a) = ext(&f.ret) {
+                    let kind = inkwell::attributes::Attribute::get_named_enum_kind_id(a);
+                    func.add_attribute(
+                        inkwell::attributes::AttributeLoc::Return,
+                        self.cx.create_enum_attribute(kind, 0),
+                    );
+                }
+            }
             if linkage == Linkage::External && name.starts_with("ppl_js_") {
                 // (A wasm export of the browser's module.)
                 let attr = self.cx.create_string_attribute("wasm-export-name", &name);
@@ -738,6 +766,7 @@ impl<'ctx> Gen<'ctx, '_> {
             "ppl_print_bool" | "ppl_print_char" => void.fn_type(&[i32t.into()], false),
             "ppl_print_string" => void.fn_type(&[ptr.into()], false),
             "ppl_cstr_new" => ptr.fn_type(&[ptr.into()], false),
+            "ppl_lib_enter" => void.fn_type(&[], false),
             "ppl_cstr_free" => void.fn_type(&[ptr.into()], false),
             "ppl_print_newline" => void.fn_type(&[], false),
             "ppl_panic" => void.fn_type(
@@ -1067,6 +1096,17 @@ impl<'ctx> Gen<'ctx, '_> {
             .collect();
         let entry = self.cx.prepend_basic_block(blocks[0], "start");
         self.b.position_at_end(entry);
+        // A C caller's thread may not have run the program's top-level code yet (spec §12.4).
+        if self
+            .p
+            .exports
+            .iter()
+            .any(|e| e.wrapper.0 as usize == index && e.abi == ppl_sema::hir::ExportAbi::C)
+        {
+            self.b
+                .build_call(self.rt("ppl_lib_enter"), &[], "")
+                .unwrap();
+        }
         // After a `longjmp` to a panic guard, values the optimizer kept in registers would be
         // stale: functions with guards aren't optimized.
         if func

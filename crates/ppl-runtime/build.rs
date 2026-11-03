@@ -15,6 +15,7 @@ fn main() {
     }
     build
         .file(root.join("src/ppl_rt.c"))
+        .file(root.join("src/ppl_main.c"))
         .file(root.join("src/ppl_gc.c"))
         .file(root.join("src/ppl_loop.c"))
         .file(root.join("src/ppl_worker.c"))

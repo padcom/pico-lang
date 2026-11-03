@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 mod browser;
 mod builtins;
 mod cheader;
+mod clib;
 mod decorators;
 mod dts;
 mod glibc;
@@ -446,6 +447,64 @@ fn js_packages(sm: &ppl_diag::SourceMap) -> Vec<String> {
                 .map(str::to_string)
         })
         .collect()
+}
+
+/// `ppl build --lib static|shared` (spec §12.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibKind {
+    Static,
+    Shared,
+}
+
+/// Builds a library for C programs at `out` (`libx.a` or `libx.so`) and its header (`out`
+/// with `.h`): the `@export("c")` functions, each starting the calling thread's module
+/// instance the first time (spec §12.4, decision 263). Returns the header's path.
+pub fn build_library(
+    checked: &Checked,
+    out: &Path,
+    opts: BuildOptions,
+    kind: LibKind,
+) -> Result<PathBuf, String> {
+    let mir = checked.mir.as_ref().ok_or("the program has errors")?;
+    let target = opts.target.unwrap_or_else(Target::host);
+    let exports: Vec<String> = mir
+        .exports
+        .iter()
+        .filter(|e| e.abi == ppl_sema::hir::ExportAbi::C)
+        .map(|e| e.name.clone())
+        .collect();
+    if exports.is_empty() {
+        return Err("a library needs `@export(\"c\")` functions".into());
+    }
+    if let Some(dir) = out.parent()
+        && !dir.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    }
+    let obj = out.with_extension("o");
+    ppl_codegen::emit_object(
+        mir,
+        &obj,
+        ppl_codegen::Options {
+            optimize: opts.release,
+            triple: (!target.is_host()).then(|| target.clang_triple()),
+        },
+    )?;
+    let r = match kind {
+        LibKind::Static => link::link_static_lib(target, &obj, out),
+        LibKind::Shared => link::link_shared_lib(target, &obj, out, &exports, &mir.links),
+    };
+    let _ = std::fs::remove_file(&obj);
+    r?;
+    let header = out.with_extension("h");
+    let guard = header
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_uppercase())
+        .unwrap_or_default();
+    std::fs::write(&header, clib::header(mir, &guard))
+        .map_err(|e| format!("cannot write {}: {e}", header.display()))?;
+    Ok(header)
 }
 
 /// Where `ppl run` puts the executable for a source file: a cache directory keyed by the

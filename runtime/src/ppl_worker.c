@@ -329,6 +329,8 @@ static Thread *thread_of(int64_t h) {
 static void *thread_main(void *arg) {
     Thread *t = arg;
     self_thread = t;
+    extern void ppl_lib_ready(void);
+    ppl_lib_ready(); /* (its module instance is the worker's own) */
     t->waker = ppl_loop_waker();
     atomic_store(&t->requested, &ppl_gc_requested);
     atomic_store(&t->started, 1);

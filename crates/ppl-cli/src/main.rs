@@ -30,6 +30,10 @@ enum Command {
         /// The target: an LLVM triple or an alias such as `linux-x64` (default: the host).
         #[arg(long, value_name = "TARGET", value_parser = ppl_driver::Target::parse)]
         target: Option<ppl_driver::Target>,
+        /// Build a library for C programs instead (`static` or `shared`; spec §12.4): its
+        /// `@export("c")` functions, and a header next to it.
+        #[arg(long, value_name = "KIND", value_parser = parse_lib)]
+        lib: Option<ppl_driver::LibKind>,
     },
     /// Compile and run a program.
     Run {
@@ -95,6 +99,20 @@ fn main() -> ExitCode {
             release,
             emit,
             target,
+            lib: Some(kind),
+        }) if emit.is_none() => build_lib(
+            &file,
+            output,
+            ppl_driver::BuildOptions { release, target },
+            kind,
+        ),
+        Some(Command::Build {
+            file,
+            output,
+            release,
+            emit,
+            target,
+            ..
         }) => build(
             &file,
             output,
@@ -447,6 +465,45 @@ fn run(path: &Path, interp: bool, opts: ppl_driver::BuildOptions, args: &[String
         Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8),
         Err(e) => {
             eprintln!("error: cannot run {}: {e}", exe.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn parse_lib(s: &str) -> Result<ppl_driver::LibKind, String> {
+    match s {
+        "static" => Ok(ppl_driver::LibKind::Static),
+        "shared" => Ok(ppl_driver::LibKind::Shared),
+        _ => Err(format!("`{s}`: expected `static` or `shared`")),
+    }
+}
+
+/// `ppl build --lib static|shared`: `lib<name>.a`/`.so` and `lib<name>.h` by default.
+fn build_lib(
+    path: &Path,
+    output: Option<PathBuf>,
+    opts: ppl_driver::BuildOptions,
+    kind: ppl_driver::LibKind,
+) -> ExitCode {
+    let checked = match checked_or_report(path, opts) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let out = output.unwrap_or_else(|| {
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        let ext = match kind {
+            ppl_driver::LibKind::Static => "a",
+            ppl_driver::LibKind::Shared => "so",
+        };
+        PathBuf::from(format!("lib{stem}.{ext}"))
+    });
+    match ppl_driver::build_library(&checked, &out, opts, kind) {
+        Ok(header) => {
+            println!("built {} and {}", out.display(), header.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
             ExitCode::FAILURE
         }
     }

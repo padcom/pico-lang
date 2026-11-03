@@ -1,0 +1,8 @@
+// error: E0355
+// error: E0355
+// Spec §12.4: exported C signatures take numbers, `bool` and pointers.
+@export("c")
+export function greet(name: string): int { name.length }
+
+@export("c")
+export function list(): int[] { [1, 2] }

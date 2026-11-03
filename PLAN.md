@@ -774,6 +774,8 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Do**: `@export("c")`, `--lib shared|static`, `.h` generation, and lazy heap initialization for
   threads calling in from C.
 - **Done when**: a C program links against a ppl static library and calls it.
+- **Done (decision 263)**: `tests/c/export` (static and shared, from two threads) in
+  `crates/ppl-tests/tests/c_headers.rs`; `.dylib`/`.dll` are left for later.
 
 ---
 

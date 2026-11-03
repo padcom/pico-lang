@@ -1007,7 +1007,14 @@ char **ppl_argv;
 /* When the program started (monotonic nanoseconds), for `performance.now()`. */
 int64_t ppl_start_ns;
 
-int main(int argc, char **argv) {
+/* A thread whose module instance exists (spec §10.2): the program's main thread, workers,
+ * and threads that called into a library (`ppl_lib_enter`). */
+static _Thread_local int lib_ready;
+
+/* The process-wide setup before the program's code runs (`main` is in ppl_main.c, so a
+ * library has none). */
+void ppl_runtime_start(int argc, char **argv) {
+    lib_ready = 1;
     ppl_argc = argc;
     ppl_argv = argv;
 #if defined(_WIN32)
@@ -1019,10 +1026,25 @@ int main(int argc, char **argv) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     ppl_start_ns = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+
+/* Called first by every `@export("c")` function (spec §12.4): a thread calling in from C
+ * gets its own heap and module instance the first time, by running the program's top-level
+ * code there. */
+void ppl_lib_enter(void) {
+    if (lib_ready) return;
+    lib_ready = 1;
+    if (!ppl_start_ns) {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        ppl_start_ns = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+    }
     ppl_entry();
     fflush(stdout);
-    return 0;
 }
+
+/* (A worker thread runs its own entry.) */
+void ppl_lib_ready(void) { lib_ready = 1; }
 
 #if defined(PPL_BROWSER)
 /* wasm32-browser (spec §12.3): there's no `_start`; the JavaScript glue (`app.js`) calls
