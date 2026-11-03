@@ -240,7 +240,7 @@ pub fn link_linux(
     links: &[String],
 ) -> Result<(), String> {
     match t.env {
-        Env::Musl => link_musl(t, obj, exe, links),
+        Env::Musl => link_musl(t, obj, exe, debug, links),
         _ => link_gnu(t, obj, exe, debug, links),
     }
 }
@@ -295,10 +295,12 @@ fn link_gnu(
     };
     let mut args = common_args(t);
     args.extend(["-pie", "-dynamic-linker", loader].map(String::from));
+    args.push(build_id(obj));
     if debug {
         // Panic traces name frames through the dynamic symbol table.
         args.push("-export-dynamic".into());
     }
+    let out_at = args.len() + 1;
     args.push("-o".into());
     args.push(exe.display().to_string());
     args.extend(paths(&runtime.start));
@@ -309,15 +311,54 @@ fn link_gnu(
     args.push("--as-needed".into());
     args.extend(paths(&stubs));
     args.extend(system_libs(t, links, &stubs));
+    link_split(args, out_at, exe, debug)
+}
+
+/// A build ID from the object's content (`--build-id=0x…`): both links of a release build
+/// (the debug file and the stripped executable) get the same, which `ppl symbolize` checks.
+fn build_id(obj: &Path) -> String {
+    use std::hash::{DefaultHasher, Hasher};
+    let mut h = DefaultHasher::new();
+    h.write(&std::fs::read(obj).unwrap_or_default());
+    let a = h.finish();
+    h.write_u8(1);
+    format!("--build-id=0x{a:016x}{:016x}", h.finish())
+}
+
+/// Links (`args[out_at]` is the output path); a release build links twice: `exe.dbg` with the
+/// debug info, then `exe` without it (same code and addresses, spec §7.1).
+fn link_split(mut args: Vec<String>, out_at: usize, exe: &Path, debug: bool) -> Result<(), String> {
+    if !debug {
+        args[out_at] = debug_file(exe).display().to_string();
+        ppl_lld::link_elf(&args).map_err(|e| format!("linking failed:\n{e}"))?;
+        args[out_at] = exe.display().to_string();
+        args.push("--strip-debug".into());
+    }
     ppl_lld::link_elf(&args).map_err(|e| format!("linking failed:\n{e}"))
 }
 
+/// The separate debug file of a release executable: `app.dbg`.
+pub fn debug_file(exe: &Path) -> PathBuf {
+    let mut name = exe.file_name().unwrap_or_default().to_os_string();
+    name.push(".dbg");
+    exe.with_file_name(name)
+}
+
 /// musl targets are fully static (spec §15.1): musl's `libc.a` objects are linked in.
-fn link_musl(t: Target, obj: &Path, exe: &Path, links: &[String]) -> Result<(), String> {
+fn link_musl(
+    t: Target,
+    obj: &Path,
+    exe: &Path,
+    debug: bool,
+    links: &[String],
+) -> Result<(), String> {
     let cc = clang()?;
     let musl = crate::musl::libc(t, cc)?;
     let runtime = runtime_objects(t, &crate::musl::runtime_libc(t, cc, &musl))?;
     let mut args = common_args(t);
+    args.push(build_id(obj));
+    // (After `-static` and `-o`.)
+    let out_at = args.len() + 2;
     args.extend(["-static", "-o"].map(String::from));
     args.push(exe.display().to_string());
     args.extend(paths(&musl.start));
@@ -328,7 +369,7 @@ fn link_musl(t: Target, obj: &Path, exe: &Path, links: &[String]) -> Result<(), 
     // (Static libraries built for musl, if the system has them.)
     args.extend(system_libs(t, links, &[]));
     args.extend(paths(&musl.end));
-    ppl_lld::link_elf(&args).map_err(|e| format!("linking failed:\n{e}"))
+    link_split(args, out_at, exe, debug)
 }
 
 /// Windows (MinGW): lld's COFF linker in MinGW mode, MinGW's CRT and import libraries.

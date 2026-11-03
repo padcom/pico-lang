@@ -269,15 +269,22 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, recover: bo
 }
 
 /// On macOS the linker leaves the DWARF in the object file (the executable only points to it):
-/// `dsymutil` copies it into `exe.dSYM` before the object goes, so lldb finds it (spec §14.5).
-fn keep_macos_debug_info(exe: &Path) {
-    if let Ok(out) = std::process::Command::new("dsymutil").arg(exe).output()
-        && !out.status.success()
-    {
-        eprintln!(
+/// `dsymutil` copies it into `exe.dSYM` before the object goes, so lldb finds it (spec §14.5),
+/// and so does `ppl symbolize` for a release build (whose executable is then stripped of the
+/// debug map, spec §7.1).
+fn keep_macos_debug_info(exe: &Path, release: bool) {
+    match std::process::Command::new("dsymutil").arg(exe).output() {
+        Ok(out) if !out.status.success() => eprintln!(
             "warning: dsymutil failed, the debugger won't see ppl's source lines:\n{}",
             String::from_utf8_lossy(&out.stderr)
-        );
+        ),
+        Ok(_) if release => {
+            let _ = std::process::Command::new("strip")
+                .arg("-S")
+                .arg(exe)
+                .output();
+        }
+        _ => {}
     }
 }
 
@@ -511,8 +518,11 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
             &obj,
             ppl_codegen::Options {
                 optimize: opts.release,
-                // (Native debug builds; wasm's DWARF isn't wired to a debugger yet.)
-                debug: !opts.release && target.arch != target::Arch::Wasm32,
+                // (Release builds too: their DWARF goes into the separate debug file that
+                // `ppl symbolize` reads; not on Windows yet, which would need a PDB. Wasm's
+                // isn't wired to a debugger yet.)
+                debug: target.arch != target::Arch::Wasm32
+                    && (!opts.release || target.os != target::Os::Windows),
                 triple: (!target.is_host()).then(|| target.clang_triple()),
             },
         )?;
@@ -529,8 +539,8 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         } else {
             link::link_linux(target, &obj, exe, !opts.release, &mir.links)
         };
-        if r.is_ok() && target.os == target::Os::Macos && !opts.release {
-            keep_macos_debug_info(exe);
+        if r.is_ok() && target.os == target::Os::Macos {
+            keep_macos_debug_info(exe, opts.release);
         }
         let _ = std::fs::remove_file(&obj);
         return r;
@@ -549,8 +559,8 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     let out = cmd
         .output()
         .map_err(|e| format!("cannot run the linker (`cc`): {e}"))?;
-    if out.status.success() && !opts.release {
-        keep_macos_debug_info(exe);
+    if out.status.success() {
+        keep_macos_debug_info(exe, opts.release);
     }
     let _ = std::fs::remove_file(&obj);
     if !out.status.success() {

@@ -990,6 +990,9 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Do**: release builds keep a separate debug file; `ppl symbolize` turns a release stack
   trace's addresses into functions, files and lines.
 - **Done when**: a test symbolizes a release program's panic trace.
+- **Done (decision 283)**: release builds link twice (`app.dbg` with DWARF, `app` stripped, one
+  build ID), `dsymutil` + `strip -S` on macOS; the runtime prints offsets and the build ID;
+  `crates/ppl-cli/src/symbolize.rs` (addr2line); test `crates/ppl-cli/tests/symbolize.rs`.
 
 ### P10.9 Documentation tooling
 - **Do**: `ppl doc` (HTML from `/** */`) and `ppl explain E####` for every error code.

@@ -1,6 +1,7 @@
 //! The `ppl` command-line tool.
 
 mod dap;
+mod symbolize;
 
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
@@ -98,6 +99,15 @@ enum Command {
         #[arg(long)]
         interp: bool,
     },
+    /// Resolve a release build's panic trace (its frames are offsets into the executable) to
+    /// ppl functions, files and lines, from the debug file the build wrote (spec §7.1).
+    Symbolize {
+        /// The trace (`-`: standard input).
+        trace: PathBuf,
+        /// The debug file (default: `<program>.dbg` or `<program>.dSYM` next to the trace).
+        #[arg(long)]
+        debug: Option<PathBuf>,
+    },
     /// The debug adapter (DAP over stdio, on lldb-dap; editors/vscode starts it): builds a
     /// `.ppl` program to debug and loads ppl's formatters into lldb (spec §14.5).
     Dap,
@@ -153,6 +163,7 @@ fn main() -> ExitCode {
         Some(Command::Fmt { paths, check }) => fmt(&paths, check),
         Some(Command::Lint { paths }) => lint(&paths),
         Some(Command::Dap) => dap::run(),
+        Some(Command::Symbolize { trace, debug }) => symbolize::run(&trace, debug.as_deref()),
         Some(Command::Lsp { .. }) => match ppl_lsp::run_stdio() {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

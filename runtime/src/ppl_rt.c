@@ -10,6 +10,9 @@
 #define PPL_BACKTRACE 1
 #include <dlfcn.h>
 #include <execinfo.h>
+#if !defined(__APPLE__)
+#include <link.h>
+#endif
 #endif
 #include <math.h>
 #include <stdio.h>
@@ -834,6 +837,66 @@ static const char *frame_name(void *addr) {
     return "";
 }
 
+#if PPL_BACKTRACE
+/* The executable's build ID in hex (`ppl symbolize` matches it with the debug file): the GNU
+ * build-ID note on Linux, the LC_UUID on macOS. "" when there's none. */
+static char build_id_hex[65];
+
+#if defined(__APPLE__)
+/* (Mach-O's layouts, declared here: cross builds don't have <mach-o/…>.) */
+struct ppl_mach_header_64 {
+    uint32_t magic, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, reserved;
+};
+struct ppl_load_command {
+    uint32_t cmd, cmdsize;
+};
+extern const void *_dyld_get_image_header(uint32_t image_index);
+
+static void find_build_id(void) {
+    const struct ppl_mach_header_64 *h = _dyld_get_image_header(0);
+    /* MH_MAGIC_64; LC_UUID is 0x1b, its 16 bytes after the command's header. */
+    if (!h || h->magic != 0xfeedfacfu) return;
+    const char *p = (const char *)(h + 1);
+    for (uint32_t i = 0; i < h->ncmds; i++) {
+        const struct ppl_load_command *lc = (const struct ppl_load_command *)p;
+        if (lc->cmd == 0x1b) {
+            const uint8_t *u = (const uint8_t *)(lc + 1);
+            for (int k = 0; k < 16; k++) sprintf(build_id_hex + 2 * k, "%02x", u[k]);
+            return;
+        }
+        p += lc->cmdsize;
+    }
+}
+#else
+static int build_id_note(struct dl_phdr_info *info, size_t size, void *data) {
+    (void)size;
+    (void)data;
+    /* (The first object is the executable.) */
+    for (int i = 0; i < info->dlpi_phnum; i++) {
+        const ElfW(Phdr) *ph = &info->dlpi_phdr[i];
+        if (ph->p_type != PT_NOTE) continue;
+        const char *p = (const char *)(info->dlpi_addr + ph->p_vaddr);
+        const char *end = p + ph->p_memsz;
+        while (p + sizeof(ElfW(Nhdr)) <= end) {
+            const ElfW(Nhdr) *n = (const ElfW(Nhdr) *)p;
+            const char *name = p + sizeof(*n);
+            const unsigned char *desc =
+                (const unsigned char *)name + ((n->n_namesz + 3) & ~3u);
+            if (n->n_type == NT_GNU_BUILD_ID && n->n_namesz == 4 && memcmp(name, "GNU", 4) == 0) {
+                size_t len = n->n_descsz > 32 ? 32 : n->n_descsz;
+                for (size_t k = 0; k < len; k++) sprintf(build_id_hex + 2 * k, "%02x", desc[k]);
+                return 1;
+            }
+            p = (const char *)desc + ((n->n_descsz + 3) & ~3u);
+        }
+    }
+    return 1;
+}
+
+static void find_build_id(void) { dl_iterate_phdr(build_id_note, NULL); }
+#endif
+#endif
+
 static _Noreturn void report_panic(void) {
     /* In a worker: it ends, and its parent's `onerror` gets the message. */
     ppl_worker_failed(panic_msg ? panic_msg : "", panic_msg_len);
@@ -848,17 +911,39 @@ static _Noreturn void report_panic(void) {
         fprintf(stderr, ":%d:%d\n", panic_line, panic_col);
     }
     if (panic_nframes > 0) {
-        fputs("stack trace:\n", stderr);
+        /* Release builds have no symbols: their frames are offsets into the executable, and the
+         * build ID finds the debug file (`ppl symbolize`, spec §7.1). */
+        int named = 0;
+        for (int i = 0; i < panic_nframes; i++) {
+            const char *n = frame_name(panic_frames[i]);
+            if (n && *n) named = 1;
+        }
+#if PPL_BACKTRACE
+        if (!named) find_build_id();
+        if (!named && build_id_hex[0]) {
+            fprintf(stderr, "stack trace (build %s; `ppl symbolize` resolves it):\n", build_id_hex);
+        } else
+#endif
+            fputs("stack trace:\n", stderr);
         int k = 0;
         for (int i = 0; i < panic_nframes; i++) {
             const char *n = frame_name(panic_frames[i]);
             if (!n) continue;
             if (*n) {
                 fprintf(stderr, "  %d: %s\n", k++, n);
-            } else {
-                /* No symbol (release builds): the raw address, for `ppl symbolize`. */
-                fprintf(stderr, "  %d: %p\n", k++, panic_frames[i]);
+                continue;
             }
+#if PPL_BACKTRACE
+            Dl_info info;
+            if (dladdr(panic_frames[i], &info) && info.dli_fname && info.dli_fbase) {
+                const char *base = strrchr(info.dli_fname, '/');
+                base = base ? base + 1 : info.dli_fname;
+                uintptr_t off = (uintptr_t)panic_frames[i] - (uintptr_t)info.dli_fbase;
+                fprintf(stderr, "  %d: %s+0x%" PRIxPTR "\n", k++, base, off);
+                continue;
+            }
+#endif
+            fprintf(stderr, "  %d: %p\n", k++, panic_frames[i]);
         }
     }
     fflush(stderr);

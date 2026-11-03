@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.8d: `ppl symbolize`** (see PLAN; P10.8 is split into a–d; Phase 10 order: … P10.5a → P10.8 → P10.3 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.3: Package manager** (see PLAN; Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `ppl lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - After Phase 10 the author wants to detail `ppl fmt` and `ppl lint` and their capabilities (e.g. `fmt` inserting `blankLines`' blank lines, `--fix`, suppressions).
@@ -311,7 +311,7 @@ Notes:
 - [x] P10.8a Line tables
 - [x] P10.8b Variables
 - [x] P10.8c Debugging in VS Code
-- [ ] P10.8d `ppl symbolize`
+- [x] P10.8d `ppl symbolize`
 - [ ] P10.3 Package manager
 - [ ] P10.4 Registry
 - [ ] P10.7 REPL and JIT
@@ -493,3 +493,4 @@ Notes:
 | 2026-11-03 | P10.8c | Author's report: string fields of objects showed an address. `ObjectProvider` (recognizer `is_object_with_refs`) shows reference fields as their objects (`name = "Ann"`, nested objects without addresses). CI (macOS): frame-resident variables had no location there (declared on a GEP into the frame): now on the frame slot with an offset; the lldb test accepts macOS's symbol frame names (`ppl.show`, `ppl_entry`). The `macos (macos-arm64)` failures of 2026-11-03 18:xx were GitHub's (no runner acquired). |
 | 2026-11-03 | P10.8c | Author's report: a watch expression on a string field (`who.name`) showed the address. `ppl dap` now rewrites `evaluate`/`variables` responses (`tidy_values`: a pointer value `0x… summary` → the summary); `void` format for references in lldb's console. The DAP test checks watches (`greeting`, `who.name`, `names`). |
 | 2026-11-03 | P10.8c | Manual check: debugging confirmed by the author in VS Code (start/stop, stepping, variables, object fields, globals, watches). |
+| 2026-11-03 | P10.8d | Release builds: DWARF split off (`link_split`: `app.dbg` + stripped `app`, same `--build-id`; macOS `dsymutil` + `strip -S`); runtime release traces `app+0xOFF` under `stack trace (build ID; …)` (`find_build_id`); `ppl symbolize trace [--debug]` (`symbolize.rs`, addr2line + object): build-ID check, inlined frames, ppl frames only, debug-build names. Test builds, runs, symbolizes, and rejects another build's debug file. Decision 283. |

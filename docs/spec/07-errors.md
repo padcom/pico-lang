@@ -33,9 +33,23 @@ function next(): Token throws ParseFail { … throw ParseFail.Eof }
 allocation and no stack capture, which suits hot parsing loops and `--no-gc` code.
 
 ### Symbolization
-Debug builds symbolize traces in-process. Release binaries print raw addresses plus a build ID,
-and `ppl symbolize trace.txt` resolves them from the separate debug file (`.dbg`, `.pdb`,
-`.dSYM`) that the release build produced next to the binary.
+Debug builds symbolize traces in-process. Release binaries print offsets into the executable
+plus a build ID, and `ppl symbolize trace.txt` resolves them from the separate debug file that
+the release build produced next to the binary (`app.dbg` on Linux, `app.dSYM` on macOS; `.pdb`
+on Windows is planned), checking the build ID:
+```
+stack trace (build 4c162639863f34213e87e7c053cfcff6; `ppl symbolize` resolves it):
+  0: app+0x1a560
+  1: app+0x1ce18
+```
+becomes the debug build's trace with locations (inlined calls are frames too):
+```
+stack trace:
+  0: inner at main.ppl:1:34
+  1: outer at main.ppl:2:25
+  2: <main> at main.ppl:3:9
+```
+Decision 283.
 
 ## 7.2 Checked `throws`
 A function that can throw must declare the errors it throws:
