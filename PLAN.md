@@ -833,8 +833,20 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   later.
 
 ### P10.2 Lint
-- **Do**: `ppl lint` covering naming conventions and unused variables/imports.
-- **Done when**: snapshot tests pass.
+- **Spec**: 14 §14.7
+- Split into two slices:
+
+#### P10.2a `ppl lint`: the command, configuration, naming and unused code
+- **Do**: `ppl lint` over the project's modules (W0xxx warnings, exit status 1 when there are
+  any), `project.json`'s `"lint"` (each rule `false`/`true`/options), the `naming` and `unused`
+  rules, and the language server publishing lint warnings with the diagnostics.
+- **Done when**: snapshot tests of the rules and the configuration pass.
+
+#### P10.2b Optional rules: complexity, blank lines, docs
+- **Do**: the `complexity` (default 4), `blankLines` (`before` list) and `docs` (exported
+  declarations and public members of exported types; inherited docs count) rules, off unless
+  enabled.
+- **Done when**: snapshot tests of each rule, enabled, disabled and with options, pass.
 
 ### P10.3 Package manager
 - **Spec**: 08 §8.3–8.4

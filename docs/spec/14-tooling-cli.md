@@ -12,7 +12,7 @@ Everything ships in a single static `ppl` binary.
 | `ppl bench [filter]` | run `bench()` cases in `*.bench.ppl` / `*.test.ppl` |
 | `ppl symbolize file` | resolve release stack traces using the debug file |
 | `ppl fmt [--check]` | format sources |
-| `ppl lint` | lints (naming conventions etc.) |
+| `ppl lint` | lints: naming, unused code, complexity, blank lines, docs (§14.7) |
 | `ppl init` | create `project.json` and `src/main.ppl` |
 | `ppl add pkg[@ver]` / `ppl remove pkg` | manage dependencies |
 | `ppl publish` | publish to the registry |
@@ -104,3 +104,29 @@ pretty-printing of ppl values (strings, arrays, maps, enums).
   hash. Monomorphized instances are cached per instantiation.
 - **Single binary**: the `ppl` executable bundles LLVM, lld, libclang (for `c:` imports), the
   runtime and the stdlib sources.
+
+## 14.7 Lint
+`ppl lint` checks the project's modules and reports **warnings** (as `W0xxx` diagnostics, like
+the compiler's errors); it exits with status 1 when there are any. The language server shows
+them in the editor too. Rules are set in `project.json`'s `"lint"`:
+```json
+{ "lint": { "naming": true, "unused": true, "complexity": 4, "blankLines": true, "docs": true } }
+```
+Each rule is off with `false`, on with its defaults with `true`, or on with options. `naming` and
+`unused` are on unless turned off; the other three are off unless turned on.
+
+| Rule | Checks |
+|------|--------|
+| `naming` | camelCase values and functions, PascalCase types, enum variants and type parameters (decision 39) |
+| `unused` | local variables, parameters, private members and imports that are never used (a name starting with `_` is exempt) |
+| `complexity` | the cyclomatic complexity of each function: at most `true` → 4, or the number given (`{ "max": n }` too) |
+| `blankLines` | a blank line before a statement `if` (not `else if`), `switch` and `match`, and before a function, method, constructor, getter or setter, unless it's the first in its block or type body; comments and decorators that belong to it go after the blank line. `{ "before": ["if", "function", …] }` picks the constructs |
+| `docs` | a doc comment (`/** … */` or `///`, with a description) on every exported declaration of a module, and on the public members (methods, getters, setters, fields) of exported types; a member that implements or overrides a documented member is documented by it |
+
+**Complexity** starts at 1 per function and adds 1 for each `if` and `else if`, loop (`for`,
+`for-of`, `while`, `do`, `loop`), `case` and `match` arm, `catch`, conditional expression, and
+each `&&`, `||` and `??`. A closure counts as a function of its own and adds nothing to the
+function around it.
+
+`if` and `match` in expression position (`const x = if (c) 1 else 2`) don't need a blank line.
+`ppl fmt` doesn't insert the blank lines. Decision 277.

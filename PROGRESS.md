@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.2: Lint** (see PLAN; Phase 10 order: P10.2 → P10.5 → P10.8 → …). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.2a: `ppl lint`: the command, configuration, naming and unused code** (see PLAN; P10.2 is split into a and b; Phase 10 order: P10.2 → P10.5 → P10.8 → …). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -302,7 +302,8 @@ Notes:
 - [x] P10.6c2 Error recovery for the language server (manual check in VS Code pending)
 - [x] P10.6d1 Completion
 - [x] P10.6d2 Rename and document symbols
-- [ ] P10.2 Lint
+- [ ] P10.2a `ppl lint`: command, configuration, naming, unused code
+- [ ] P10.2b Optional lint rules: complexity, blank lines, docs
 - [ ] P10.5 Incremental compilation
 - [ ] P10.8 Debugging
 - [ ] P10.3 Package manager
@@ -470,3 +471,4 @@ Notes:
 | 2026-11-03 | P10.6d1 | Manual check: completion confirmed by the author in VS Code. Fix: completion showed `print`/`println` as variadic (`...values`); they take 1 and 0–1 values, as the checker enforces (`println(1, 2, 3)` is an error by design). |
 | 2026-11-03 | P10.6d2 | Manual check: rename and the outline confirmed by the author in VS Code. Grammar (author's remark): plain identifiers had no scope, so expressions inside `${…}` took the string's color; now `variable.other.readwrite`/`object`/`property` like TypeScript's (`syntaxes/generate.py`, `identifiers`), checked with vscode-textmate. |
 | 2026-11-03 | P10.6c1 | Author's request: a method without a doc comment shows (hover, completion) the nearest documented same-named method up `extends`/`implements` (`Builder::inherit_docs`). Test `methods_inherit_doc_comments`. |
+| 2026-11-03 | spec | Lint (§14.7, decision 277): the author's three optional rules (complexity max 4, blank lines before if/switch/match/functions/members, docs on exports of every file that exports), configured in `project.json`'s `"lint"`; P10.2 split into a (command, config, naming, unused) and b (the optional rules). |
