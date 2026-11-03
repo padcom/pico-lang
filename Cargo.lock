@@ -372,6 +372,7 @@ dependencies = [
  "ppl-runtime",
  "ppl-sema",
  "ppl-syntax",
+ "serde_json",
  "wit-component 0.263.0",
  "wit-parser 0.263.0",
 ]

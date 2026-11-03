@@ -1,0 +1,6 @@
+// native-only: the interpreter can't call C
+// expect: 1.4142135623730951 2 true
+// Spec §12.2: a C header as a module (functions and `#define` constants).
+import * as m from "c:math.h"
+
+println(`${m.sqrt(2.0)} ${m.floor(2.7)} ${m.M_PI > 3.14 && m.M_PI < 3.15}`)

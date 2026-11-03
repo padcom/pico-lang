@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P9.2: C header import** (see [PLAN.md](PLAN.md#p92-c-header-import)). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
+**P9.3: Export to C** (see [PLAN.md](PLAN.md#p93-export-to-c)). P8.7 (the WasmGC backend, marked "later" in PLAN) is deferred until after P9.3 (author's go-ahead to accept the agent's recommendations, 2026-11-03): it's a whole second backend, to plan in slices.
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -38,6 +38,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **C headers (P9.2, decision 262)**: `crates/ppl-driver/src/cheader.rs` (`config` reads `project.json`/pkg-config, `generate` runs clang, `Gen` maps), `c_module` in `modules.rs`. Tests: `tests/run/ffi/c_math.ppl`, `tests/run/ffi/local_header/`, `tests/c/zlib` (run by `crates/ppl-tests/tests/c_headers.rs` where zlib is installed), unit tests in `cheader.rs`. **Manual check for the author**: `examples/sdl2` (install SDL2's development package and pkg-config, then `ppl run examples/sdl2/main.ppl`: a window with a square for 5 s). Not yet: structs/unions by value, bit-fields, function-like macros, a header-per-target sysroot (host headers are used for every target), caching of generated modules (clang runs at every build).
 - **extern "C" (P9.1, decision 261)**: resolver `extern_block` (`Extern`, `extern_cfns`, `links`; bodies are a panic for the interpreter), `ExprKind::FnAddr`/`Rvalue::FnAddr` (callbacks), `check_externs` in `lower.rs` (E0355), codegen `extern_body` (C declaration with zeroext/signext, `ppl_cstr_new`/`ppl_cstr_free`, size_t narrowing on wasm32), `system_libs` in `link.rs` (`@link`), core `ppl_str_from_c` (`string.fromC`), C type names in `ty.rs`, `as` between pointer types. Not yet: `@pod` structs by value (C ABI lowering), calling C function pointers from ppl, variadic C functions (`printf`), `@link` for Windows/macOS cross builds, null pointers (`ptr<T>` has no null literal).
 - **Platform files and availability (P8.9, decision 260)**: candidates in `modules.rs` `module()` (`x.<os>.ppl`, `x.wasm.ppl`, `x.ppl`, `x/index.ppl`), checks in `Loader::unavailable`/`unavailable_on` (E0356), the loader takes `target.os` (`modules::load(…, os)`). Golden fail fixtures: `// target: <triple>`. `Worker` on WASI/browser isn't a compile error yet.
 - **std/js and `js:` imports (P8.8, decision 259)**: `stdlib/js.ppl` (`JsValue`, `JsError`, `JsObject`, `JsArg`, `js`, `__jsCallback`, `__jsCallRest`), `__io` 150–168 (`js_op` in `ppl_io.c` over the `ppl_js` imports; the glue's value table in `browser/glue.js`), `__math` 28–30 (double bits). `crates/ppl-driver/src/dts.rs` (parser + generator, `DEPTH` = 1), the two-pass loader in `modules.rs` (`js_requests`/`js_names`, `js_module`, `js_declarations`), `third_party/typescript/lib.dom.d.ts` (5.9.3). Tests: `tests/browser/js_values.*`, `tests/fail/js/`, `dts` unit test; demo `examples/browser-dom` (headless Chromium). The glue imports `js:npm/<package>` packages with `await import("<package>")` before instantiating (an import map or bundler resolves it in a browser); there's no test with a real package yet. Known compiler bug found on the way: passing a subclass instance where a union holding its base class is expected miscompiles (the interpreter hits `unreachable!` casting the object to `f64`).
@@ -279,7 +280,7 @@ Notes:
 
 ### Phase 9: C interop
 - [x] P9.1 extern "C"
-- [ ] P9.2 C header import
+- [x] P9.2 C header import (SDL2 demo: manual check pending)
 - [ ] P9.3 Export to C
 
 ### Phase 10: Tooling and ecosystem
@@ -426,3 +427,4 @@ Notes:
 | 2026-11-03 | P8.8 | `std/js` (`JsValue` handles, `JsError`, callbacks) and `js:dom`/`js:npm/…` imports generated from `.d.ts` files (TypeScript's `lib.dom.d.ts` vendored); DOM demo `examples/browser-dom` checked in headless Chromium. Decision 259. |
 | 2026-11-03 | P8.9 | Platform files (`x.<os>.ppl`, `x.wasm.ppl`) and §13.3 availability errors at imports (E0356): std/fs/net/process in the browser, `Command` on WASI, std/js and `js:` off the browser. Decision 260. |
 | 2026-11-03 | P9.1 | `extern "C"` blocks: libc calls with string conversion, ppl functions as C callbacks (`qsort`), `string.fromC`, `@link`, unsafe pointer calls (E0342), C type names, pointer casts; passes natively on Linux (gnu, musl, x64 under qemu), WASI and the browser. Decision 261. |
+| 2026-11-03 | P9.2 | `c:` header imports through clang's JSON AST: functions, `@pod` structs, enum and literal-macro constants, `project.json` include/link/pkg-config; `c:math.h`, a local header and zlib tested; SDL2 demo written, manual window check pending (no SDL2 here). Decision 262. |

@@ -50,7 +50,13 @@ sdl.SDL_Init(sdl.SDL_INIT_VIDEO)
 The compiler parses the header with an embedded libclang and generates `extern`
 declarations, `@pod` structs, enums and `#define` constants that are simple literals.
 Function-like macros are skipped. Include paths and link flags come from `project.json`
-(`"c": { "include": [...], "link": [...] }`) or pkg-config.
+(`"c": { "include": [...], "link": [...], "pkgConfig": ["sdl2"] }`, found in the program's
+directory or above) or pkg-config. `c:./x.h` is a header next to the importing file.
+
+The compiler reads the header through clang's JSON AST (decision 262). Functions that are
+variadic or pass structs or unions by value are left out for now, as are bit-fields and unions;
+pointers to opaque types are `ptr<void>`, `char *` is `ptr<u8>` and a `const char *` parameter
+`string`. Enumerators are `c_int` constants.
 
 ## 12.3 JavaScript (wasm32-browser)
 ### Typed imports via `.d.ts`

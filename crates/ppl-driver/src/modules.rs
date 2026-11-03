@@ -147,6 +147,7 @@ fn declared_names(d: &ast::Decl) -> Vec<String> {
         DeclKind::Class(c) => one(&c.name),
         DeclKind::Interface(i) => one(&i.name),
         DeclKind::TypeAlias { name, .. } => one(name),
+        DeclKind::Extern { items, .. } => items.iter().flat_map(declared_names).collect(),
         DeclKind::Binding(st) => match &st.kind {
             StmtKind::Let { pat, .. } => {
                 let mut out = Vec::new();
@@ -304,6 +305,9 @@ impl Loader<'_> {
         if let Some(js) = spec.strip_prefix("js:") {
             return self.js_module(from, js, span);
         }
+        if let Some(header) = spec.strip_prefix("c:") {
+            return self.c_module(from, header, span);
+        }
         let base = if spec.starts_with("./") || spec.starts_with("../") {
             self.dirs[&from].join(spec)
         } else if let Some(rest) = spec.strip_prefix("std/") {
@@ -424,11 +428,10 @@ impl Loader<'_> {
     /// is unavailable (the import is then skipped).
     fn unavailable(&mut self, f: FileId, imp: &ast::ImportDecl) -> bool {
         // (A module's name is the specifier it was first loaded by.)
-        let lib = self
-            .modules
-            .names
-            .get(&f)
-            .is_some_and(|n| n.starts_with("std/") || n.starts_with("js:"));
+        let lib =
+            self.modules.names.get(&f).is_some_and(|n| {
+                n.starts_with("std/") || n.starts_with("js:") || n.starts_with("c:")
+            });
         if lib {
             return false;
         }
@@ -463,6 +466,48 @@ impl Loader<'_> {
             }
         }
         false
+    }
+
+    /// A `c:` module (spec §12.2): generated from the C header through clang, with the
+    /// include and link settings of `project.json` (decision 262).
+    fn c_module(&mut self, from: FileId, header: &str, span: Span) -> Option<FileId> {
+        let dir = self.dirs[&from].clone();
+        let key = if header.starts_with("./") || header.starts_with("../") {
+            PathBuf::from(format!("<c:{}>", dir.join(header).display()))
+        } else {
+            PathBuf::from(format!("<c:{header}>"))
+        };
+        if let Some(&f) = self.by_path.get(&key) {
+            return Some(f);
+        }
+        let entry_dir = self
+            .modules
+            .entry
+            .and_then(|e| self.dirs.get(&e))
+            .cloned()
+            .unwrap_or_default();
+        let text = crate::cheader::config(&entry_dir)
+            .and_then(|cfg| crate::cheader::generate(header, &dir, &cfg));
+        let text = match text {
+            Ok(t) => t,
+            Err(why) => {
+                self.diags.push(
+                    Diagnostic::error(codes::UNKNOWN_MODULE, format!("cannot import `c:{header}`"))
+                        .primary(span, "this C header")
+                        .note(why),
+                );
+                return None;
+            }
+        };
+        let f = self.sm.add(format!("<c:{header}>"), text);
+        self.by_path.insert(key, f);
+        let (m, mut d) = ppl_syntax::parse_module(f, &self.sm.file(f).text);
+        self.diags.append(&mut d);
+        self.parsed.insert(f, m);
+        self.dirs.insert(f, dir);
+        self.modules.names.insert(f, format!("c:{header}"));
+        self.visit(f);
+        Some(f)
     }
 
     /// A `js:` module (spec §12.3): generated from TypeScript declarations for every name the

@@ -18,6 +18,8 @@ ppl-syntax.workspace = true
 # Making WASI programs preview 2 components (decision 257).
 wit-component = "0.263"
 wit-parser = "0.263"
+# Reading clang's JSON AST of C headers (`c:` imports, decision 262).
+serde_json = "1"
 
 [dev-dependencies]
 ppl-lld.workspace = true

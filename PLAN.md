@@ -765,6 +765,9 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   enums, literal macros), and include/link settings from `project.json`/pkg-config.
 - **Done when**: `import * as m from "c:math.h"` works, and an SDL2 or raylib demo opens a window
   (manual check).
+- **Done (decision 262)**: through clang's JSON AST rather than libclang; `c:math.h` and a local
+  header in the golden suite, zlib in `crates/ppl-tests/tests/c_headers.rs`; the SDL2 demo
+  (`examples/sdl2`) awaits the manual check (no SDL2 on the development VM).
 
 ### P9.3 Export to C
 - **Spec**: 12 §12.4

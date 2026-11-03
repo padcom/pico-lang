@@ -1,0 +1,40 @@
+// SDL2 through its header (spec §12.2): `c:SDL2/SDL.h` becomes a module of extern functions,
+// structs and constants; project.json asks pkg-config for SDL2's flags. Opens a window for
+// five seconds (or until it's closed).
+//
+//   ppl run examples/sdl2/main.ppl      (needs SDL2's development files and pkg-config)
+import * as sdl from "c:SDL2/SDL.h"
+
+if (sdl.SDL_Init(sdl.SDL_INIT_VIDEO) != 0) {
+  panic("SDL_Init failed")
+}
+// An `SDL_Event` (a union, so raw bytes here): its first 4 bytes are the event type.
+const event: u8[] = []
+for (let i = 0; i < 64; i++) {
+  event.push(0 as u8)
+}
+unsafe {
+  const window = sdl.SDL_CreateWindow("ppl + SDL2", 100, 100, 640, 480, sdl.SDL_WINDOW_SHOWN as u32)
+  const renderer = sdl.SDL_CreateRenderer(window, -1, 0 as u32)
+  // A blue background, and a white square (an `SDL_Rect`, a `@pod` struct from the header).
+  sdl.SDL_SetRenderDrawColor(renderer, 40 as u8, 90 as u8, 160 as u8, 255 as u8)
+  sdl.SDL_RenderClear(renderer)
+  let square: sdl.SDL_Rect = { x: 270, y: 190, w: 100, h: 100 }
+  sdl.SDL_SetRenderDrawColor(renderer, 255 as u8, 255 as u8, 255 as u8, 255 as u8)
+  sdl.SDL_RenderFillRect(renderer, ptr.of(square))
+  sdl.SDL_RenderPresent(renderer)
+  let running = true
+  const start = sdl.SDL_GetTicks()
+  while (running && sdl.SDL_GetTicks() - start < 5000) {
+    while (sdl.SDL_PollEvent(ptr.of(event[0]) as ptr<void>) != 0) {
+      if ((ptr.of(event[0]) as ptr<u32>).read() == sdl.SDL_QUIT as u32) {
+        running = false
+      }
+    }
+    sdl.SDL_Delay(16)
+  }
+  sdl.SDL_DestroyRenderer(renderer)
+  sdl.SDL_DestroyWindow(window)
+}
+sdl.SDL_Quit()
+println("bye")

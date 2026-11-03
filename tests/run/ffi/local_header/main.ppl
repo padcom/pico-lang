@@ -1,0 +1,17 @@
+// native-only: the interpreter can't call C
+// expect: 42 0.5 16 hi
+// expect: 0 5 6
+// expect: 5
+// expect: 0 0 0
+// Spec §12.2: a local header (`c:./defs.h`): literal macros, enumerators, a `@pod` struct and
+// functions.
+import { ANSWER, RATIO, FLAGS, GREETING, RED, GREEN, BLUE, Pair, strlen, memset } from "c:./defs.h"
+
+println(`${ANSWER} ${RATIO} ${FLAGS} ${GREETING}`)
+println(`${RED} ${GREEN} ${BLUE}`)
+println(strlen("hello"))
+let p = Pair { a: 7, b: 1.5, tag: [1, 2, 3, 4] }
+unsafe {
+  memset(ptr.of(p) as ptr<void>, 0, 24 as usize)
+}
+println(`${p.a} ${p.b} ${p.tag[0]}`)

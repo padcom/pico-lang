@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 mod browser;
 mod builtins;
+mod cheader;
 mod decorators;
 mod dts;
 mod glibc;
