@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.6c: Hover and go-to-definition** (see PLAN). Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.6c1: Symbol index, hover and go-to-definition** (see PLAN; P10.6c is split into c1 and c2). Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
 
 Notes:
 - Pipeline: `ppl_driver::check_source` runs parse → resolve (HIR) → typecheck (`Types`) → MIR;
@@ -298,7 +298,8 @@ Notes:
 (In the author's order: see PLAN.)
 - [x] P10.6a VS Code extension: syntax
 - [x] P10.6b `ppl lsp`: diagnostics and formatting
-- [ ] P10.6c Hover and go-to-definition
+- [ ] P10.6c1 Symbol index, hover and go-to-definition
+- [ ] P10.6c2 Error recovery for the language server
 - [ ] P10.6d Completion and rename
 - [ ] P10.2 Lint
 - [ ] P10.5 Incremental compilation
@@ -456,3 +457,4 @@ Notes:
 | 2026-11-03 | P10.6a | Manual check: highlighting confirmed by the author in VS Code (installed as a `.vsix`). |
 | 2026-11-03 | P10.6b | `ppl lsp` (`crates/ppl-lsp`): JSON-RPC over stdio, full text sync, debounced diagnostics from the front end (imported modules' too, UTF-16 positions), formatting; the VS Code client on `vscode-languageclient` 11 (`extension.js`, bundled by `scripts/vscode-package.sh`). Decision 271. |
 | 2026-11-03 | P10.6b | Manual check: the author confirmed the language server in VS Code (start, diagnostics as you type and in imported modules, UTF-16 columns, Format Document, restart). |
+| 2026-11-03 | plan | P10.6c split into c1 (symbol index, hover, go-to-definition on clean code) and c2 (error recovery). |

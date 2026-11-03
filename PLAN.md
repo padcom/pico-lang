@@ -822,7 +822,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 **Order** (the author's, 2026-11-03): first what leads to the VS Code integration, then debugging
 (which adds debugging in VS Code), then the rest, release packaging last:
-P10.6a → P10.6b → P10.6c → P10.6d → P10.2 → P10.5 → P10.8 → P10.3 → P10.4 → P10.7 → P10.9 →
+P10.6a → P10.6b → P10.6c1 → P10.6c2 → P10.6d → P10.2 → P10.5 → P10.8 → P10.3 → P10.4 → P10.7 → P10.9 →
 P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 
 ### P10.1 Formatter
@@ -878,10 +878,22 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   `editors/vscode/extension.js`; also checked against `vscode-jsonrpc` during development.
 
 #### P10.6c Hover and go-to-definition
-- **Do**: an index from source positions to resolved symbols (declarations, uses, types),
-  hover (type and `/** */` docs), go-to-definition across modules and the stdlib; the parser
-  and checker recover from errors well enough to keep answering in half-typed code.
-- **Done when**: protocol tests on fixtures with and without errors.
+- Split into two slices:
+
+#### P10.6c1 Symbol index, hover and go-to-definition
+- **Do**: an index from source positions to resolved symbols (declarations, uses, types) built
+  from the HIR and `Types`; hover (type and `/** */` docs), go-to-definition across modules
+  and into the stdlib/prelude, on code that checks cleanly (the server keeps the last good
+  index of a document while it has errors).
+- **Done when**: protocol tests on error-free fixtures (locals, parameters, functions, types,
+  members, imported names, a prelude declaration).
+
+#### P10.6c2 Error recovery for the language server
+- **Do**: the driver keeps resolving and checking past errors (for the language server at
+  least), the resolver and checker accept `Error` nodes and unresolved names without cascades
+  of follow-up errors, so hover and go-to-definition keep answering in half-typed code.
+- **Done when**: protocol tests on fixtures with syntax and type errors, and `tests/fail`
+  still reports the same first errors.
 
 #### P10.6d Completion and rename
 - **Do**: completion (scope names, members after `.`, imports' names, keywords), rename (all
