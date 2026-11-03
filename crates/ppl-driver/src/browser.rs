@@ -15,6 +15,7 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 const GLUE: &str = include_str!("browser/glue.js");
+const GLUE_GC: &str = include_str!("browser/glue_gc.js");
 /// Pointers are 4 bytes on wasm32.
 const PTR: u64 = 4;
 
@@ -82,6 +83,26 @@ fn js_modules(packages: &[String]) -> String {
         );
     }
     out
+}
+
+/// `PPL_BACKEND=wasmgc`: the WasmGC backend (P8.7, decision 264) instead of LLVM.
+pub fn wasmgc_selected() -> bool {
+    std::env::var("PPL_BACKEND").is_ok_and(|b| b == "wasmgc")
+}
+
+/// The module from the WasmGC backend, and its glue.
+pub fn build_gc(mir: &Program, out: &Path) -> Result<(), String> {
+    let f = files(out);
+    let bytes = ppl_codegen::wasmgc::emit(mir)?;
+    std::fs::write(&f.wasm, bytes)
+        .map_err(|e| format!("cannot write {}: {e}", f.wasm.display()))?;
+    let wasm = f.wasm.file_name().unwrap_or_default().to_string_lossy();
+    let base = wasm.trim_end_matches(".wasm");
+    let glue = GLUE_GC
+        .replace("__PPL_WASM__", &wasm)
+        .replace("__PPL_BASE__", base)
+        .replace("__PPL_FILE__", &format!("{:?}", mir.file));
+    write(&f.js, &glue)
 }
 
 fn write(path: &Path, text: &str) -> Result<(), String> {

@@ -350,6 +350,7 @@ dependencies = [
  "inkwell",
  "ppl-mir",
  "ppl-sema",
+ "wasm-encoder 0.263.0",
 ]
 
 [[package]]

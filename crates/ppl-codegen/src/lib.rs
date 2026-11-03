@@ -10,6 +10,7 @@
 //!
 //! GC support (shadow-stack frames, type maps, safepoints, write barriers) is in [`gc`].
 
+pub mod wasmgc;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;

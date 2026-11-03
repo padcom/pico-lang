@@ -84,6 +84,13 @@ jobs:
           source scripts/env.sh
           PPL_TEST_TARGET=${{ matrix.target }} cargo test --quiet -p ppl-tests --test golden
 
+      # The WasmGC backend (P8.7): what it can't compile yet is pending.
+      - name: Golden tests on the WasmGC backend
+        if: matrix.target == 'wasm32-browser'
+        run: |
+          source scripts/env.sh
+          PPL_BACKEND=wasmgc PPL_TEST_TARGET=wasm32-browser cargo test --quiet -p ppl-tests --test golden
+
   # macOS programs built on Linux (P8.4: lld and the bundled libSystem.tbd), run on a Mac.
   macos-build:
     name: macos-build (${{ matrix.target }})

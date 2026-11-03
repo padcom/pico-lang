@@ -88,3 +88,31 @@ fn copy_dir(from: &Path, to: &Path) {
         }
     }
 }
+
+/// The WasmGC backend (P8.7a): a few golden fixtures it covers, run under Node.js.
+#[test]
+fn wasmgc() {
+    let node = std::process::Command::new("node").arg("--version").output();
+    if node.is_err() {
+        eprintln!("note: no Node.js: skipping the WasmGC backend test");
+        return;
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/run");
+    let out = std::env::temp_dir().join(format!("ppl-wasmgc-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    for (name, want, code) in [
+        ("fib", "55\n6765\n", 0),
+        ("hello", "Hello, world!\n", 0),
+        ("overflow_panic", "255\n", 101),
+    ] {
+        let checked = ppl_driver::check_file(&root.join(format!("{name}.ppl"))).unwrap();
+        ppl_driver::build_wasmgc(&checked, &out.join(name)).unwrap();
+        let run = std::process::Command::new("node")
+            .arg(out.join(format!("{name}.js")))
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&run.stdout), want, "{name}");
+        assert_eq!(run.status.code(), Some(code), "{name}");
+    }
+    let _ = std::fs::remove_dir_all(&out);
+}

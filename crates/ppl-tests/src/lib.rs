@@ -318,6 +318,10 @@ fn run_test(d: &Directives, checked: &ppl_driver::Checked) -> Outcome {
     }
     match run_native(checked, false) {
         Ok(native) => problems.extend(compare_run(d, &native, "native")),
+        // (`PPL_BACKEND=wasmgc`: what the WasmGC backend can't compile yet is pending.)
+        Err(e) if e.contains(ppl_driver::WASMGC_UNSUPPORTED) => {
+            return Outcome::Pending(e);
+        }
         Err(e) => problems.push(format!("[native] {e}")),
     }
     // Again with a collection at every safepoint, which finds missing GC roots.

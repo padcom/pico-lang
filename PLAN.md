@@ -726,10 +726,35 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Done (decision 258)**: linear memory, `@export("js")` for numbers, `bool`, `string`, structs
   and class handles; arrays, enums and nullable types at the boundary are left for later.
 
-### P8.7 WasmGC backend (later)
+### P8.7 WasmGC backend
 - **Do**: a separate wasm emitter from MIR that uses WasmGC types (LLVM can't do this), so ppl
   objects become browser-GC objects.
 - **Done when**: the golden tests pass on the WasmGC build, with a measured size/perf comparison.
+- Split into slices (`PPL_BACKEND=wasmgc` with `--target wasm32-browser`; what a slice can't
+  compile is pending in the golden suite):
+
+#### P8.7a Emitter skeleton
+- **Do**: `wasm-encoder` module from MIR: numbers with ppl's checks, `bool`, `char`, strings
+  (`(array i8)`), structs and classes as GC structs (no virtual calls), globals, calls, panics,
+  printing and number formatting through the glue.
+- **Done when**: the fixtures that use only that pass, the rest is pending, none fails.
+
+#### P8.7b Strings and arrays
+- **Do**: string indexing/slicing and the core library's string code, growable and fixed arrays,
+  ranges, tuples, format specs, `T?` of values.
+
+#### P8.7c Objects
+- **Do**: virtual dispatch (vtables in class structs), interfaces (itables), closures (funcrefs
+  and environments), enums and unions, `instanceof`, the string form of objects.
+
+#### P8.7d Errors and the event loop
+- **Do**: exceptions and panic guards through Wasm exception handling, generators, async and the
+  event loop on browser timers, `@export("js")`, `std/js`.
+
+#### P8.7e Coverage and comparison
+- **Do**: the remaining core library builtins (`__io` ops that make sense in a browser, math,
+  crypto through WebCrypto or a port), then the size/perf comparison with the linear-memory
+  build.
 
 ### P8.8 JS imports from .d.ts
 - **Spec**: 12 §12.3

@@ -22,6 +22,8 @@ mod modules;
 mod musl;
 pub mod target;
 pub use ppl_codegen::export_symbol;
+/// What the WasmGC backend's "not supported yet" errors say (P8.7).
+pub const WASMGC_UNSUPPORTED: &str = ppl_codegen::wasmgc::UNSUPPORTED;
 /// Whether this compiler links with lld (needed for every target but a macOS host's own).
 pub const LLD_AVAILABLE: bool = ppl_lld::AVAILABLE;
 mod wasi;
@@ -385,6 +387,9 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     if !lld && !target.is_host() {
         return Err(format!("building for {target} isn't supported yet"));
     }
+    if target.os == target::Os::Browser && browser::wasmgc_selected() {
+        return browser::build_gc(mir, exe);
+    }
     let obj = exe.with_extension("o");
     {
         // (wasm code generation sets LLVM options that a concurrent lld link would reset.)
@@ -447,6 +452,13 @@ fn js_packages(sm: &ppl_diag::SourceMap) -> Vec<String> {
                 .map(str::to_string)
         })
         .collect()
+}
+
+/// Builds `out` (`.wasm` and `.js` glue) with the WasmGC backend (P8.7, decision 264), as
+/// `PPL_BACKEND=wasmgc` does for `--target wasm32-browser`.
+pub fn build_wasmgc(checked: &Checked, out: &Path) -> Result<(), String> {
+    let mir = checked.mir.as_ref().ok_or("the program has errors")?;
+    browser::build_gc(mir, out)
 }
 
 /// `ppl build --lib static|shared` (spec §12.4).
@@ -521,6 +533,7 @@ pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
     }
     opts.release.hash(&mut h);
     opts.target.hash(&mut h);
+    std::env::var("PPL_BACKEND").ok().hash(&mut h);
     env!("CARGO_PKG_VERSION").hash(&mut h);
     // The compiler itself: a rebuilt compiler must not reuse old executables.
     if let Ok(meta) = std::env::current_exe().and_then(std::fs::metadata) {

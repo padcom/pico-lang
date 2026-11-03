@@ -7,6 +7,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# The WasmGC backend (P8.7, decision 264).
+wasm-encoder = "0.263"
 inkwell.workspace = true
 ppl-mir.workspace = true
 ppl-sema.workspace = true
