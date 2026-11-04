@@ -1,4 +1,4 @@
-# ppl for VS Code
+# PPL for VS Code
 
 - **Syntax highlighting** for `.ppl` files and ` ```ppl ` blocks in Markdown: keywords, built-in
   types, numbers with suffixes, strings and template strings with `${…}`, comments and doc
