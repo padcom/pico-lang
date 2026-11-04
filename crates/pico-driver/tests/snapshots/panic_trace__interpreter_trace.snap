@@ -1,0 +1,15 @@
+---
+source: crates/pico-driver/tests/panic_trace.rs
+expression: "format!(\"{}---\\n{}\", String::from_utf8_lossy(&out), p.report())"
+---
+start
+outer finally
+method finally
+---
+panic: index out of bounds
+  at trace.pi:3:3
+stack trace:
+  0: inner
+  1: outer
+  2: Box.run
+  3: <main>

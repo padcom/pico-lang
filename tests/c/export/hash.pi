@@ -1,0 +1,41 @@
+// A library for C programs (spec §12.4), called by main.c (crates/pico-tests/tests/c_headers.rs).
+@pod struct Stats {
+  count: u64
+  sum: u64
+}
+
+// Module state: each thread calling in gets its own instance.
+const salt: u64 = 7u64
+let calls = 0
+
+@export("c")
+export function pico_hash(data: ptr<u8>, len: usize): u64 {
+  calls += 1
+  let h: u64 = 0u64
+  unsafe {
+    for (let i = 0; i < len as int; i++) {
+      h = (h * 31u64 + ((data + i).read() as u64)) % 1000000007u64
+    }
+  }
+  h + salt
+}
+
+@export("c")
+export function pico_stats(xs: ptr<i32>, n: usize, out: ptr<Stats>): bool {
+  calls += 1
+  // Some garbage-collected work: an array and strings.
+  const parts: string[] = []
+  let sum: u64 = 0
+  unsafe {
+    for (let i = 0; i < n as int; i++) {
+      const x = (xs + i).read()
+      parts.push(`${x}`)
+      sum += x as u64
+    }
+    out.write(Stats { count: n as u64, sum: sum })
+  }
+  parts.join(",").length > 0
+}
+
+@export("c")
+export function pico_calls(): i32 { calls as i32 }

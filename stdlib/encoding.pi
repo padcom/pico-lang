@@ -1,0 +1,10 @@
+// `std/encoding`: bytes as text (spec §13.5): `base64` (RFC 4648, also the URL-safe alphabet)
+// and `hex`. The classes are in the core library (`<core>/encoding.pi`).
+
+export { Base64, Hex }
+
+/// Base64 (RFC 4648): `base64.encode(bytes)` and `base64.decode(text)`, the standard or the
+/// URL-safe alphabet.
+export const base64 = new Base64()
+/// Hexadecimal: `hex.encode(bytes)` (lowercase) and `hex.decode(text)`.
+export const hex = new Hex()

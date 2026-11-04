@@ -1,0 +1,31 @@
+// expect: true false true
+// expect: true false
+// expect: 2
+// expect: a:2 a:3 b:1
+// expect: true
+// `@derive` is a decorator written in pico (stdlib/core/derive.pi): `==` through the generated
+// `equals`, `<` and `sort` through `compareTo`, `Map` keys through `hashCode`.
+@derive(Eq, Hash, Ord)
+class Key {
+  constructor(public group: string, public n: i64) {}
+}
+
+const a = new Key("a", 2)
+println(`${a == new Key("a", 2)} ${a == new Key("a", 3)} ${a != new Key("b", 2)}`)
+println(`${new Key("a", 9) < new Key("b", 0)} ${new Key("a", 2) < new Key("a", 2)}`)
+
+const m = new Map<Key, string>()
+m.set(new Key("x", 1), "one")
+m.set(new Key("x", 1), "uno")
+m.set(new Key("y", 1), "other")
+println(m.size)
+
+const ks = [new Key("a", 3), new Key("b", 1), new Key("a", 2)]
+println(ks.sort().map(k => `${k.group}:${k.n}`).join(" "))
+
+// Structs have all three already; `@derive` on them changes nothing.
+@derive(Eq)
+struct P { x: i64 }
+const p: P = { x: 1 }
+const q: P = { x: 1 }
+println(p == q)

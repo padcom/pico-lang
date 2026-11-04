@@ -1,0 +1,14 @@
+//! Name resolution, type checking and typed HIR for pico.
+
+pub mod exhaust;
+pub mod format;
+pub mod hir;
+pub mod regex;
+pub mod resolve;
+pub mod throws;
+pub mod ty;
+pub mod typeck;
+
+pub use resolve::{Import, Modules, resolve, resolve_modules};
+pub use ty::{FloatTy, IntTy, LitVal, Ty};
+pub use typeck::{FnSig, Types, check};

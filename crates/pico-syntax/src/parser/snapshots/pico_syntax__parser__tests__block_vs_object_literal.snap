@@ -1,0 +1,11 @@
+---
+source: crates/pico-syntax/src/parser/tests.rs
+expression: "ok(r##\"\n{\n  const tmp = 1\n}\n{ x }\nconst area = {\n  const w = 3\n  w * h\n}\nconst empty = {}\nconst shorthand = { x }\nconst o = {\n  a: 1,\n  b: 2,\n}\nconst v = { log(\"hi\"); }\n\"##)"
+---
+(block (const tmp 1))
+(block x)
+(const area (block (const w 3) (* w h)))
+(const empty (object))
+(const shorthand (object x))
+(const o (object (a: 1) (b: 2)))
+(const v (block (; (call log "hi"))))

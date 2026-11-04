@@ -1,14 +1,14 @@
 # 8. Modules & packages
 
 ## 8.1 Modules
-Every `.ppl` file is a module. Declarations are private unless they're `export`ed.
+Every `.pi` file is a module. Declarations are private unless they're `export`ed.
 ```ts
-// geometry.ppl
+// geometry.pi
 export struct Vec2 { x: f32; y: f32 }
 export function dot(a: Vec2, b: Vec2): f32 { a.x * b.x + a.y * b.y }
 function helper() { … }                     // module-private
 
-// main.ppl
+// main.pi
 import { Vec2, dot } from "./geometry"
 import * as geo from "./geometry"
 import { dot as dotProduct } from "./geometry"
@@ -19,9 +19,9 @@ There's no `export default`. Everything is exported by name.
 ### Specifier resolution
 | Specifier | Resolves to |
 |-----------|-------------|
-| `./x`, `../x` | `x.ppl`, else `x/index.ppl` (extensionless, relative) |
+| `./x`, `../x` | `x.pi`, else `x/index.pi` (extensionless, relative) |
 | `std/fs` | standard library module |
-| `scope/name` | the dependency's `index.ppl` (§8.3; only the package's root: `scope/name/sub` is an error) |
+| `scope/name` | the dependency's `index.pi` (§8.3; only the package's root: `scope/name/sub` is an error) |
 | `c:SDL2/SDL.h` | C header import (§12) |
 | `js:module` | JS import in wasm targets (§12) |
 
@@ -46,16 +46,16 @@ A package is a directory containing a `project.json`:
 {
   "name": "padcom/http-router",
   "version": "0.3.1",
-  "entry": "src/main.ppl",
+  "entry": "src/main.pi",
   "dependencies": {
     "padcom/json-schema": "^1.2.0",
-    "sdl": { "git": "https://github.com/someone/ppl-sdl", "tag": "v2.0.0" }
+    "sdl": { "git": "https://github.com/someone/pico-sdl", "tag": "v2.0.0" }
   },
   "devDependencies": {},
   "targets": ["native", "wasm32-browser", "wasm32-wasi"]
 }
 ```
-- **Sources**: a central ppl registry (`ppl add http-router`) and git URLs (tag, branch or
+- **Sources**: a central pico registry (`pico add http-router`) and git URLs (tag, branch or
   commit).
 - **Versioning**: semver ranges, resolved into a lockfile (`project.lock`) that pins exact versions
   and content hashes.
@@ -73,13 +73,13 @@ A package is a directory containing a `project.json`:
 |-------|---|
 | `name` | `scope/name`; required for libraries and workspace members |
 | `version` | semver (`1.2.3`); what other packages' ranges match |
-| `entry` | an application's main file (`ppl init` writes `"src/main.ppl"`): what `ppl build` and `ppl run` without a file, and VS Code's debugger, build |
+| `entry` | an application's main file (`pico init` writes `"src/main.pi"`): what `pico build` and `pico run` without a file, and VS Code's debugger, build |
 | `dependencies` | name → a semver range (the registry, §8.4, or a workspace member) or `{ "git": url, "tag" \| "branch" \| "rev": … }` |
-| `devDependencies` | the same, visible only to `*.test.ppl` files (`ppl test`, `ppl bench`) |
+| `devDependencies` | the same, visible only to `*.test.pi` files (`pico test`, `pico bench`) |
 | `workspace` | in a root manifest: globs of member directories (`["packages/*"]`) |
 
-A package's API is its root `index.ppl`: `import { Router } from "padcom/http-router"` loads
-`index.ppl` of that package, and a package without one exports nothing. Imports reach only the
+A package's API is its root `index.pi`: `import { Router } from "padcom/http-router"` loads
+`index.pi` of that package, and a package without one exports nothing. Imports reach only the
 package's root, not its other files.
 
 ### Resolution and the lockfile
@@ -89,19 +89,19 @@ package's root, not its other files.
 - `project.lock` (JSON, at the package's or the workspace's root) pins every package: its
   name, version, source (a git URL and commit, or a workspace path) and content hash
   (`sha256:` over its files, sorted by path), and what each dependency resolved to.
-- A git dependency is cloned by commit into the cache (`~/.cache/ppl/git`, `PPL_CACHE_DIR`);
+- A git dependency is cloned by commit into the cache (`~/.cache/pico/git`, `PICO_CACHE_DIR`);
   a tag or branch is resolved to a commit once, when the lockfile records it.
 - Builds work offline: they read the lockfile and the cache, and fail if a cached package's
   content doesn't match its hash. A missing package is fetched (that needs the network);
-  `ppl fetch` gets them all ahead of time. A changed manifest updates the lockfile.
+  `pico fetch` gets them all ahead of time. A changed manifest updates the lockfile.
 
 ### Commands
 | Command | |
 |---------|---|
-| `ppl init [name] [--lib]` | a `project.json` and `src/main.ppl` (an application with `"entry": "src/main.ppl"`), or `index.ppl` with `--lib` |
-| `ppl add <git-url> [--tag t \| --branch b \| --rev c] [--dev]` | adds a git dependency (its name comes from its `project.json`); a registry name (`ppl add scope/name`) comes with §8.4 |
-| `ppl remove <name>` | removes a dependency |
-| `ppl fetch` | downloads every locked package into the cache |
+| `pico init [name] [--lib]` | a `project.json` and `src/main.pi` (an application with `"entry": "src/main.pi"`), or `index.pi` with `--lib` |
+| `pico add <git-url> [--tag t \| --branch b \| --rev c] [--dev]` | adds a git dependency (its name comes from its `project.json`); a registry name (`pico add scope/name`) comes with §8.4 |
+| `pico remove <name>` | removes a dependency |
+| `pico fetch` | downloads every locked package into the cache |
 
 Decisions 284–286.
 
@@ -109,8 +109,8 @@ Decisions 284–286.
 The registry is a **git-backed index hosted on GitHub**, similar to the crates.io index:
 - Each package has one index file, `<scope>/<name>.json`, listing its versions. Every version records
   a git URL, a tag, a commit SHA, a content hash and its dependencies.
-- `ppl publish` checks the package, tags the release and opens a pull request against the index
+- `pico publish` checks the package, tags the release and opens a pull request against the index
   (automated checks merge it).
-- `ppl add` fetches the index (sparse, over HTTPS), resolves versions and downloads sources from git.
+- `pico add` fetches the index (sparse, over HTTPS), resolves versions and downloads sources from git.
 - The index URL can be overridden in `project.json` (`"registry": "…"`) for mirrors and private
   registries.

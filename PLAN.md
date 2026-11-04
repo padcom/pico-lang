@@ -1,6 +1,6 @@
 # Implementation plan
 
-This plan breaks the ppl compiler into **small tasks**, each sized to fit in one working session.
+This plan breaks the pico compiler into **small tasks**, each sized to fit in one working session.
 Work through them in order. Live status is tracked in [PROGRESS.md](PROGRESS.md), the language
 definition is in [docs/spec/](docs/spec/), and the reasoning behind each design choice is in
 [docs/DECISIONS.md](docs/DECISIONS.md).
@@ -26,38 +26,38 @@ Ground rules that apply to every task:
 ## Architecture (bootstrap compiler)
 
 ```
- .ppl ──► ppl-syntax ──► ppl-sema ──────► ppl-mir ─────► ppl-codegen ──► .o ──► linker ──► exe/wasm
+ .pi ──► pico-syntax ──► pico-sema ──────► pico-mir ─────► pico-codegen ──► .o ──► linker ──► exe/wasm
           lexer          resolve names    monomorphize   LLVM (inkwell)          (cc now,
           parser → AST   type check       lower → CFG    debug info              bundled lld later)
-                         → typed HIR      ppl-interp ◄── used for comptime and `--interp` tests
+                         → typed HIR      pico-interp ◄── used for comptime and `--interp` tests
 ```
 
 | Crate | Responsibility |
 |-------|----------------|
-| `ppl-diag` | source map, spans, diagnostics rendering (Elm/Rust style), error codes |
-| `ppl-syntax` | tokens, lexer, newline rule, AST, parser, AST pretty-printer |
-| `ppl-sema` | name resolution, types, inference, narrowing, checked throws, typed HIR |
-| `ppl-mir` | mid-level IR (CFG of basic blocks), lowering from HIR, monomorphization, MIR dump |
-| `ppl-interp` | MIR interpreter: comptime, `ppl run --interp`, and a second test oracle |
-| `ppl-codegen` | MIR → LLVM IR via inkwell, object emission, target machine setup |
-| `ppl-runtime` | runtime in **C** (strings, alloc/GC, panics, unwinding, event loop), compiled per target with clang |
-| `ppl-driver` | the pipeline, caching, target selection, linking |
-| `ppl-cli` | the `ppl` binary (subcommands) |
-| `ppl-tests` | golden-test harness |
+| `pico-diag` | source map, spans, diagnostics rendering (Elm/Rust style), error codes |
+| `pico-syntax` | tokens, lexer, newline rule, AST, parser, AST pretty-printer |
+| `pico-sema` | name resolution, types, inference, narrowing, checked throws, typed HIR |
+| `pico-mir` | mid-level IR (CFG of basic blocks), lowering from HIR, monomorphization, MIR dump |
+| `pico-interp` | MIR interpreter: comptime, `pico run --interp`, and a second test oracle |
+| `pico-codegen` | MIR → LLVM IR via inkwell, object emission, target machine setup |
+| `pico-runtime` | runtime in **C** (strings, alloc/GC, panics, unwinding, event loop), compiled per target with clang |
+| `pico-driver` | the pipeline, caching, target selection, linking |
+| `pico-cli` | the `pico` binary (subcommands) |
+| `pico-tests` | golden-test harness |
 
 **Why the runtime is in C:** it's compiled with clang for every target (we bundle the same LLVM),
-it's easy to link into native and wasm, and it's simple to swap pieces for ppl code later.
+it's easy to link into native and wasm, and it's simple to swap pieces for pico code later.
 
 **Golden tests:**
-- `tests/run/**/*.ppl` hold `// expect:` lines (stdout), plus optional `// exit: N` and `// panic: msg`.
-  Each test runs through the interpreter and as a native binary (also with `PPL_GC_STRESS=1`,
+- `tests/run/**/*.pi` hold `// expect:` lines (stdout), plus optional `// exit: N` and `// panic: msg`.
+  Each test runs through the interpreter and as a native binary (also with `PICO_GC_STRESS=1`,
   from P4.2). All outputs must match.
-- `tests/fail/**/*.ppl` hold `// error: E0xxx` and `// at: line:col`. Compilation must fail with exactly
+- `tests/fail/**/*.pi` hold `// error: E0xxx` and `// at: line:col`. Compilation must fail with exactly
   those errors.
 - Diagnostics rendering is checked with `insta` snapshots.
 
 **Risks to keep in mind:**
-- **LLVM can't emit WasmGC.** `wasm32-browser` therefore starts on linear memory with the ppl GC
+- **LLVM can't emit WasmGC.** `wasm32-browser` therefore starts on linear memory with the pico GC
   (the same as WASI). A WasmGC backend is a separate, later emitter (P8.7).
 - Unwinding: native targets use LLVM Itanium/SEH exception handling and wasm uses the wasm
   exception-handling proposal. If that blocks progress, fall back to explicit error-return lowering
@@ -78,9 +78,9 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 
 ### P1.2 Workspace skeleton
 - **Goal**: an empty Cargo workspace with all the crates, plus the test script.
-- **Do**: create the crates from the table (empty libs), `ppl-cli` with `ppl --version`, and
+- **Do**: create the crates from the table (empty libs), `pico-cli` with `pico --version`, and
   `scripts/test.sh` (fmt check, clippy, `cargo test`). Add a `.gitignore` for `target/`.
-- **Done when**: `scripts/test.sh` passes and `cargo run -p ppl-cli -- --version` prints the version.
+- **Done when**: `scripts/test.sh` passes and `cargo run -p pico-cli -- --version` prints the version.
 
 ### P1.3 Diagnostics
 - **Spec**: 14 §14.2
@@ -113,7 +113,7 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 ### P1.7 AST and pretty-printer
 - **Spec**: skim 03, 04, 05
 - **Do**: AST node types for expressions, statements, declarations and types (cover the *whole*
-  language now, even though the parser fills it in gradually). Add a `ppl parse --dump file.ppl`
+  language now, even though the parser fills it in gradually). Add a `pico parse --dump file.pi`
   S-expression printer.
 - **Done when**: it compiles and the printer has unit tests on hand-built ASTs.
 
@@ -146,13 +146,13 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 ### P1.12 Parser error recovery
 - **Do**: sync points (statement start, `}`), "expected X, found Y" diagnostics with helpful
   suggestions, and several errors per file.
-- **Done when**: `tests/fail/parse/*.ppl` show sensible multi-error output (snapshots).
+- **Done when**: `tests/fail/parse/*.pi` show sensible multi-error output (snapshots).
 
 ### P1.13 Golden-test harness
-- **Do**: the `ppl-tests` crate that discovers `tests/run` and `tests/fail` and parses the `// expect:`,
+- **Do**: the `pico-tests` crate that discovers `tests/run` and `tests/fail` and parses the `// expect:`,
   `// error:`, `// exit:` and `// panic:` directives. For now it runs the stages that exist (parse only)
   and reports clear diffs.
-- **Done when**: `cargo test -p ppl-tests` runs the fixtures. One deliberately broken fixture shows a
+- **Done when**: `cargo test -p pico-tests` runs the fixtures. One deliberately broken fixture shows a
   readable failure, and is then fixed.
 
 ---
@@ -175,18 +175,18 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 
 ### P2.3 MIR design and lowering
 - **Do**: the MIR (functions → basic blocks → statements over typed locals; terminators: goto, branch,
-  return, call, panic), lowering of the P2.2 subset, and `ppl build --emit mir`.
+  return, call, panic), lowering of the P2.2 subset, and `pico build --emit mir`.
 - **Done when**: MIR dump snapshots exist for loops, `if` expressions and `loop`/`break value`.
 
 ### P2.4 MIR interpreter
-- **Do**: `ppl-interp` executes MIR. Integers trap on overflow, and `println` prints primitives and
-  string literals. Add `ppl run --interp`.
+- **Do**: `pico-interp` executes MIR. Integers trap on overflow, and `println` prints primitives and
+  string literals. Add `pico run --interp`.
 - **Done when**: the harness runs `tests/run` in interpreter mode and hello world passes.
 
 ### P2.5 C runtime v0
 - **Spec**: 07 §7.5
-- **Do**: `runtime/` C sources: `ppl_println_*`, `ppl_panic(msg, file, line)` (prints and exits 101),
-  `main` calling `ppl_entry`, overflow/bounds panic helpers, and a build via the `cc` crate for the host.
+- **Do**: `runtime/` C sources: `pico_println_*`, `pico_panic(msg, file, line)` (prints and exits 101),
+  `main` calling `pico_entry`, overflow/bounds panic helpers, and a build via the `cc` crate for the host.
 - **Done when**: a C unit test (or Rust test linking the runtime) shows the panic output format.
 
 ### P2.6 LLVM codegen v0
@@ -195,11 +195,11 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
   calls for printing. Emit `.o` for the host target.
 - **Done when**: `--emit llvm-ir` snapshots for simple functions match.
 
-### P2.7 `ppl build` / `ppl run` end to end
-- **Do**: the driver links object files with the system `cc` into an executable. `ppl run` builds to
+### P2.7 `pico build` / `pico run` end to end
+- **Do**: the driver links object files with the system `cc` into an executable. `pico run` builds to
   a cache directory and executes the result. The harness runs every `tests/run` test natively too and
   compares outputs.
-- **Done when**: `ppl run hello.ppl` prints `Hello, world!`, and the interpreter and native outputs
+- **Done when**: `pico run hello.pi` prints `Hello, world!`, and the interpreter and native outputs
   agree on all tests (fib, loops, overflow panic). **Milestone M1.**
 
 ---
@@ -208,7 +208,7 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 
 ### P3.1 Allocator v0 and string runtime
 - **Spec**: 02 §2.1 (string), 09 §9.1
-- **Do**: the `ppl_alloc` API (malloc-backed, nothing freed yet, but behind the API the GC will use)
+- **Do**: the `pico_alloc` API (malloc-backed, nothing freed yet, but behind the API the GC will use)
   and a UTF-8 string object (length in code points cached, plus byte length). Concatenation, `==`,
   `.length`, and `s[i]` (O(n) with a cached index) returning `char`.
 - **Done when**: run tests cover string ops and multibyte text (emoji, Polish diacritics).
@@ -315,7 +315,7 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 - **Spec**: 03 §3.3–3.4, 02 §2.7 (protocols)
 - **Do**: `operator` declarations (binary, unary, `[]`, `[]=`), derived compound assignment,
   `Equatable`/`Hashable`/`Comparable` with automatic derivation for structs, enums and tuples, and
-  a built-in `@derive(Eq, Hash, Ord)` for classes (reimplemented as a ppl decorator in P6.6).
+  a built-in `@derive(Eq, Hash, Ord)` for classes (reimplemented as a pico decorator in P6.6).
 - **Done when**: `Vec2` arithmetic and sorting structs by `compareTo` work.
 
 ### P3.18 Distinct types, aliases, immutability
@@ -358,8 +358,8 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 - **Spec**: 13 §13.1 (Map/Set/Array)
 - **Do**: `Map`/`Set` (hash tables built on `hashCode`/`equals`), Array methods (map, filter,
   reduce, find, some, every, sort, slice, join, includes, indexOf), and string methods (split, trim,
-  startsWith, includes, replace, toUpperCase, padStart, …), written in ppl where possible
-  (`stdlib/core/*.ppl`).
+  startsWith, includes, replace, toUpperCase, padStart, …), written in pico where possible
+  (`stdlib/core/*.pi`).
 - **Done when**: run tests cover the common APIs and throws propagation through `map`.
 
 ### P3.23 Iterators and generators
@@ -373,7 +373,7 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 - **Do**: multi-file compilation, extensionless resolution, `import`/`export` forms (named,
   `* as`, `as`, re-export), const-only library modules (`let` → error), initialization order,
   init-cycle detection, and `std/` path mapping to the bundled `stdlib/` directory.
-- **Done when**: multi-file fixtures (`tests/run/modules/<case>/main.ppl`) pass, and fail tests
+- **Done when**: multi-file fixtures (`tests/run/modules/<case>/main.pi`) pass, and fail tests
   cover a cycle and a library `let`.
 
 ### P3.25 Destructuring and spread
@@ -477,7 +477,7 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 
 ### P6.2a `comptime` evaluation
 - **Spec**: 11 §11.1
-- **Do**: `comptime const`, `comptime { }`, `comptime if` run via `ppl-interp`;
+- **Do**: `comptime const`, `comptime { }`, `comptime if` run via `pico-interp`;
   `target`/`build` info, `comptime.readFile`, and the 10M step limit with `@comptimeLimit`.
 - **Done when**: the CRC table example works, and a fail test covers an infinite loop hitting the
   step limit.
@@ -504,7 +504,7 @@ it's easy to link into native and wasm, and it's simple to swap pieces for ppl c
 - **Do**: backtick code templates parsed and type-checked during expansion, plus the `ast.*` builder.
 - **Done when**: a decorator that generates a `toString()` method passes.
 
-### P6.6 `@derive` in ppl
+### P6.6 `@derive` in pico
 - **Do**: reimplement `@derive(Eq, Hash, Ord)` as a stdlib decorator and remove the built-in.
 - **Done when**: the P3.17 tests still pass.
 
@@ -609,11 +609,11 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   number formatting helpers.
 - **Done when**: run tests pass.
 
-### P7.10 std/test and `ppl test`
+### P7.10 std/test and `pico test`
 - **Spec**: 14 §14.3
 - **Do**: `describe`/`test`/`expect` matchers (`toBe`, `toEqual`, `toThrow`, `toPanic`, `rejects`),
-  hooks, `*.test.ppl` discovery, one worker per file, `--watch`, and `bench` with `ppl bench`.
-- **Done when**: the stdlib's own tests are rewritten as `*.test.ppl` and run in CI.
+  hooks, `*.test.pi` discovery, one worker per file, `--watch`, and `bench` with `pico bench`.
+- **Done when**: the stdlib's own tests are rewritten as `*.test.pi` and run in CI.
 
 ---
 
@@ -623,8 +623,8 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Spec**: 15 §15.3
 - **Do**: make `scripts/test.sh` green on Linux arm64 (`aarch64-unknown-linux-gnu`), the new
   development host. The Linux branches of the runtime were written but never compiled: epoll in
-  `ppl_loop.c`, inotify in `ppl_io.c`, the TLS CA bundle paths in `ppl_tls.c`, and the `-lm` /
-  `-rdynamic` link flags in `ppl-driver`. Enable `panic_trace.rs` on Linux (glibc `dladdr`/
+  `pico_loop.c`, inotify in `pico_io.c`, the TLS CA bundle paths in `pico_tls.c`, and the `-lm` /
+  `-rdynamic` link flags in `pico-driver`. Enable `panic_trace.rs` on Linux (glibc `dladdr`/
   backtrace symbolization). Drop `continue-on-error` from the Linux CI job.
 - **Done when**: `scripts/test.sh` passes on the Linux VM and both CI jobs (macOS, Linux) are green.
 
@@ -654,7 +654,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 ### P8.3a Windows toolchain and runtime core
 - **Spec**: 15 §15.1, §15.2
-- **Do**: lld's COFF/MinGW driver in `ppl-lld`; MinGW from Zig's mingw-w64 (CRT start code,
+- **Do**: lld's COFF/MinGW driver in `pico-lld`; MinGW from Zig's mingw-w64 (CRT start code,
   import libraries generated from `.def` files, winpthreads), with the Windows headers pruned to
   what the runtime and Mbed TLS include (a script regenerates the set); codegen for
   `x86_64`/`aarch64-w64-windows-gnu` with CodeView debug info; the runtime core on Windows (GC
@@ -674,11 +674,11 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   `cmd.exe /c`, the environment, arguments, `exit`, `pid`; Mbed TLS and `std/crypto` on Windows;
   Windows process fixtures (the POSIX ones use `sh`, `cat` and friends).
 - **Done when**: `run/process/` (or its Windows counterparts), `run/crypto/` and
-  `run/test/runner.ppl` pass for `windows-x64` and `windows-arm64` in CI.
+  `run/test/runner.pi` pass for `windows-x64` and `windows-arm64` in CI.
 
 ### P8.3c2 Windows sockets and TLS
 - **Do**: std/net on Winsock (blocking calls on the job threads, as on POSIX; the loop already
-  waits on a completion port), `ppl_tls.c` on Winsock, and the Windows certificate store for
+  waits on a completion port), `pico_tls.c` on Winsock, and the Windows certificate store for
   `fetch`.
 - **Done when**: all golden tests pass for `windows-x64` and `windows-arm64` in CI, except
   those needing named time zones (no tz database on Windows yet).
@@ -701,7 +701,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 ### P8.5a wasm32: core programs under wasmtime
 - **Spec**: 12 §12.5
 - **Do**: target-dependent layouts (4-byte pointers: `Program::size_align`, the GC's type
-  maps), wasi-libc from Zig compiled by ppl (WASI preview 1 core modules for now), the runtime on
+  maps), wasi-libc from Zig compiled by pico (WASI preview 1 core modules for now), the runtime on
   wasm32 (no threads: `Worker` and `Command` are compile errors there; `try` and panics through
   Wasm exception handling), linking with lld's wasm driver.
 - **Done when**: the golden tests that need no I/O pass under wasmtime (installed user-local,
@@ -719,7 +719,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 ### P8.6 wasm32-browser (linear memory)
 - **Spec**: 12 §12.3
-- **Do**: wasm32-unknown-unknown with the ppl GC, ESM glue `app.js`, `@export("js")`, a generated
+- **Do**: wasm32-unknown-unknown with the pico GC, ESM glue `app.js`, `@export("js")`, a generated
   `.d.ts`, structs crossing as plain objects, classes as handles, and the event loop bridged to the
   browser.
 - **Done when**: golden tests run in node/deno through the glue, and a demo page works.
@@ -727,14 +727,14 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   and class handles; arrays, enums and nullable types at the boundary are left for later.
 
 ### P8.7 WasmGC backend
-- **Do**: a separate wasm emitter from MIR that uses WasmGC types (LLVM can't do this), so ppl
+- **Do**: a separate wasm emitter from MIR that uses WasmGC types (LLVM can't do this), so pico
   objects become browser-GC objects.
 - **Done when**: the golden tests pass on the WasmGC build, with a measured size/perf comparison.
-- Split into slices (`PPL_BACKEND=wasmgc` with `--target wasm32-browser`; what a slice can't
+- Split into slices (`PICO_BACKEND=wasmgc` with `--target wasm32-browser`; what a slice can't
   compile is pending in the golden suite):
 
 #### P8.7a Emitter skeleton
-- **Do**: `wasm-encoder` module from MIR: numbers with ppl's checks, `bool`, `char`, strings
+- **Do**: `wasm-encoder` module from MIR: numbers with pico's checks, `bool`, `char`, strings
   (`(array i8)`), structs and classes as GC structs (no virtual calls), globals, calls, panics,
   printing and number formatting through the glue.
 - **Done when**: the fixtures that use only that pass, the rest is pending, none fails.
@@ -764,9 +764,9 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 #### P8.7f JavaScript interop on WasmGC
 - **Do**: `@export("js")` (references passed to JavaScript as they are, numbers and strings
-  converted by the glue) and `std/js` (`JsValue` handles, `js:` imports, callbacks into ppl)
+  converted by the glue) and `std/js` (`JsValue` handles, `js:` imports, callbacks into pico)
   on the WasmGC build.
-- **Done when**: `examples/browser` and `examples/browser-dom` work with `PPL_BACKEND=wasmgc`.
+- **Done when**: `examples/browser` and `examples/browser-dom` work with `PICO_BACKEND=wasmgc`.
 - **Done (decision 270)**: `tests/browser` runs on both backends; `JsValue` handles aren't
   released on WasmGC yet (no weak references there).
 
@@ -780,7 +780,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 
 ### P8.9 Platform files and conditionals
 - **Spec**: 15 §15.4, 13 (matrix)
-- **Do**: `x.linux.ppl`/`x.wasm.ppl` resolution, `target.*` at comptime, and the stdlib availability
+- **Do**: `x.linux.pi`/`x.wasm.pi` resolution, `target.*` at comptime, and the stdlib availability
   matrix enforced with clear errors.
 - **Done when**: fail tests cover importing `std/fs` for the browser.
 - **Done (decision 260)**: `tests/fail/targets/`, `tests/run/modules/platform_files`.
@@ -795,7 +795,7 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   conversion, the safe/unsafe call rules, and callbacks.
 - **Done when**: calling libc `strlen`/`qsort` works, and a fail test covers a pointer call outside
   `unsafe`.
-- **Done (decision 261)**: `tests/run/ffi/libc.ppl`, `tests/fail/ffi/`; `@pod` structs by value
+- **Done (decision 261)**: `tests/run/ffi/libc.pi`, `tests/fail/ffi/`; `@pod` structs by value
   are left for later (by pointer works).
 
 ### P9.2 C header import
@@ -805,16 +805,16 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
 - **Done when**: `import * as m from "c:math.h"` works, and an SDL2 or raylib demo opens a window
   (manual check).
 - **Done (decision 262)**: through clang's JSON AST rather than libclang; `c:math.h` and a local
-  header in the golden suite, zlib in `crates/ppl-tests/tests/c_headers.rs`; the SDL2 demo
+  header in the golden suite, zlib in `crates/pico-tests/tests/c_headers.rs`; the SDL2 demo
   (`examples/sdl2`) checked by hand (window confirmed by the author, 2026-11-03).
 
 ### P9.3 Export to C
 - **Spec**: 12 §12.4
 - **Do**: `@export("c")`, `--lib shared|static`, `.h` generation, and lazy heap initialization for
   threads calling in from C.
-- **Done when**: a C program links against a ppl static library and calls it.
+- **Done when**: a C program links against a pico static library and calls it.
 - **Done (decision 263)**: `tests/c/export` (static and shared, from two threads) in
-  `crates/ppl-tests/tests/c_headers.rs`; `.dylib`/`.dll` are left for later.
+  `crates/pico-tests/tests/c_headers.rs`; `.dylib`/`.dll` are left for later.
 
 ---
 
@@ -827,7 +827,7 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 
 ### P10.1 Formatter
 - **Spec**: 14 §14.4
-- **Do**: a lossless CST or trivia-preserving printer, the configured options, and `ppl fmt --check`.
+- **Do**: a lossless CST or trivia-preserving printer, the configured options, and `pico fmt --check`.
 - **Done when**: formatting every fixture is idempotent and the fixtures are formatted in CI.
 - **Done (decision 265)**: token-based (lossless); breaking long lines (`lineWidth`) is left for
   later.
@@ -836,59 +836,59 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Spec**: 14 §14.7
 - Split into two slices:
 
-#### P10.2a `ppl lint`: the command, configuration, naming and unused code
-- **Do**: `ppl lint` over the project's modules (W0xxx warnings, exit status 1 when there are
+#### P10.2a `pico lint`: the command, configuration, naming and unused code
+- **Do**: `pico lint` over the project's modules (W0xxx warnings, exit status 1 when there are
   any), `project.json`'s `"lint"` (each rule `false`/`true`/options), the `naming` and `unused`
   rules, and the language server publishing lint warnings with the diagnostics.
 - **Done when**: snapshot tests of the rules and the configuration pass.
-- **Done (decision 278)**: `crates/ppl-lint` (`config`, `walk`, `naming`, `unused`), `ppl lint`,
-  warnings in `ppl-lsp`'s diagnostics; snapshots in `crates/ppl-lint/src/snapshots`.
+- **Done (decision 278)**: `crates/pico-lint` (`config`, `walk`, `naming`, `unused`), `pico lint`,
+  warnings in `pico-lsp`'s diagnostics; snapshots in `crates/pico-lint/src/snapshots`.
 
 #### P10.2b Optional rules: complexity, blank lines, docs
 - **Do**: the `complexity` (default 4), `blankLines` (`before` list) and `docs` (exported
   declarations and public members of exported types; inherited docs count) rules, off unless
   enabled.
 - **Done when**: snapshot tests of each rule, enabled, disabled and with options, pass.
-- **Done (decision 278)**: `complexity.rs`, `blank.rs`, `docs.rs` in `crates/ppl-lint`.
+- **Done (decision 278)**: `complexity.rs`, `blank.rs`, `docs.rs` in `crates/pico-lint`.
 
 ### P10.3 Package manager
 - **Spec**: 08 §8.3–8.4
-- **Do**: the `project.json` schema, `ppl init`/`add`/`remove`, git dependencies, semver resolution
+- **Do**: the `project.json` schema, `pico init`/`add`/`remove`, git dependencies, semver resolution
   (majors coexist), `project.lock` with hashes, and workspaces.
 - **Done when**: a two-package workspace with one git dependency builds offline from the lockfile.
 - Split into slices (decisions 284–286):
 
 #### P10.3a Manifest, package imports, workspaces, `entry`
-- **Do**: the manifest (validated), `import … from "scope/name"` → the package's `index.ppl`
+- **Do**: the manifest (validated), `import … from "scope/name"` → the package's `index.pi`
   (sub-paths an error), workspace members as dependencies by name and semver range, semver
-  parsing and matching, `ppl build`/`ppl run` without a file building `entry`, and VS Code's
+  parsing and matching, `pico build`/`pico run` without a file building `entry`, and VS Code's
   debugger building the nearest project's `entry`.
 - **Done when**: a two-member workspace (an application using a library by name) builds and
-  runs; tests for ranges, errors (no `index.ppl`, a sub-path, an unsatisfied range).
-- **Done**: `crates/ppl-driver/src/semver.rs`, `packages.rs` (manifest, `resolve`, `entry_of`),
-  the loader's package specifiers and `dev_root`; `ppl build`/`ppl run` without a file; the
-  extension's F5 and build task, `ppl dap` with a directory; tests
-  `crates/ppl-driver/tests/packages.rs`.
+  runs; tests for ranges, errors (no `index.pi`, a sub-path, an unsatisfied range).
+- **Done**: `crates/pico-driver/src/semver.rs`, `packages.rs` (manifest, `resolve`, `entry_of`),
+  the loader's package specifiers and `dev_root`; `pico build`/`pico run` without a file; the
+  extension's F5 and build task, `pico dap` with a directory; tests
+  `crates/pico-driver/tests/packages.rs`.
 
 #### P10.3b Git dependencies, the lockfile, offline builds
 - **Do**: git sources (tag/branch/rev) cloned by commit into the cache, `project.lock` (sources,
   commits, `sha256:` hashes), unification by major (majors coexist), offline builds from the
-  lockfile and cache (hash checks), `ppl fetch`, `devDependencies` for tests.
+  lockfile and cache (hash checks), `pico fetch`, `devDependencies` for tests.
 - **Done when**: a two-package workspace with one git dependency builds offline from the lockfile.
-- **Done**: `crates/ppl-driver/src/git.rs` (mirror, `resolve`, `checkout`, `content_hash`),
+- **Done**: `crates/pico-driver/src/git.rs` (mirror, `resolve`, `checkout`, `content_hash`),
   `packages::{Lock, prepare, Prepared}`, the loader resolving git dependencies through it,
-  `ppl fetch`; tests in `crates/ppl-driver/tests/packages.rs` (offline build, tampering, an
+  `pico fetch`; tests in `crates/pico-driver/tests/packages.rs` (offline build, tampering, an
   out-of-date lockfile, majors unifying or coexisting).
 
 #### P10.3c Commands
-- **Do**: `ppl init [name] [--lib]`, `ppl add <git-url> [--tag/--branch/--rev] [--dev]`,
-  `ppl remove <name>`.
+- **Do**: `pico init [name] [--lib]`, `pico add <git-url> [--tag/--branch/--rev] [--dev]`,
+  `pico remove <name>`.
 - **Done when**: tests drive the commands on a scratch project (manifest and lockfile after each).
-- **Done**: `packages::{init, add_git, remove}`, `git::tags`; `ppl init/add/remove` in the CLI;
-  test `crates/ppl-cli/tests/packages.rs`.
+- **Done**: `packages::{init, add_git, remove}`, `git::tags`; `pico init/add/remove` in the CLI;
+  test `crates/pico-cli/tests/packages.rs`.
 
 ### P10.4 Registry
-- **Do**: the index format (`scope/name.json`), sparse HTTPS fetching, `ppl publish` (tag + PR via
+- **Do**: the index format (`scope/name.json`), sparse HTTPS fetching, `pico publish` (tag + PR via
   `gh`), and registry override.
 - **Done when**: publishing to a test index repo, then installing from it, works.
 - **Deferred** (the author, 2026-11-03): git dependencies (also over SSH, with the system git's
@@ -900,13 +900,13 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   check, and the whole-program checker can't cache per module cheaply):
 
 #### P10.5a Build fingerprints
-- **Do**: `ppl build` records each output's inputs (compiler, options, target, the content of
+- **Do**: `pico build` records each output's inputs (compiler, options, target, the content of
   the entry, imported and std modules, comptime-read files, `project.json`) and skips the build
   when nothing changed; `--force`; C/JS imports and browser builds always build.
 - **Done when**: a no-op rebuild of a 50-module project takes < 200 ms (measured), and tests show
   that changing a module, an option or the output rebuilds.
-- **Done**: `crates/ppl-driver/src/fingerprint.rs`, `ppl build --force`, `comptime::take_files_read`;
-  test `crates/ppl-driver/tests/fingerprint.rs`. Measured on a generated 50-module project:
+- **Done**: `crates/pico-driver/src/fingerprint.rs`, `pico build --force`, `comptime::take_files_read`;
+  test `crates/pico-driver/tests/fingerprint.rs`. Measured on a generated 50-module project:
   no-op rebuild 2 ms (full build 190 ms, release 250 ms).
 
 #### P10.5b Cached code generation
@@ -916,14 +916,14 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   than a full build.
 
 ### P10.6 LSP and VS Code extension
-- **Do**: `ppl lsp` (diagnostics, hover, go-to-definition, completion, rename, format), plus a
+- **Do**: `pico lsp` (diagnostics, hover, go-to-definition, completion, rename, format), plus a
   minimal VS Code extension with a TextMate grammar.
 - **Done when**: a manual check in VS Code, plus LSP protocol tests.
 - Split into slices:
 
 #### P10.6a VS Code extension: syntax
-- **Do**: `editors/vscode`: a declarative extension (no code yet) with the `ppl` language
-  (`.ppl`), a TextMate grammar (keywords, built-in types, literals, template strings with
+- **Do**: `editors/vscode`: a declarative extension (no code yet) with the `pico` language
+  (`.pi`), a TextMate grammar (keywords, built-in types, literals, template strings with
   `${…}`, comments and doc comments, decorators, declarations) and the language configuration
   (comments, brackets, auto-closing, indentation).
 - **Done when**: a test keeps the grammar in sync with the lexer's keywords and its patterns
@@ -931,12 +931,12 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Done**: the grammar is generated (`syntaxes/generate.py`); checked with `vscode-textmate`
   on sample files during development; the manual check in VS Code is the author's.
 
-#### P10.6b `ppl lsp`: diagnostics and formatting
+#### P10.6b `pico lsp`: diagnostics and formatting
 - **Do**: a stdio JSON-RPC server (initialize, text sync of open documents, shutdown),
   diagnostics from `check_source` on open/change (debounced), `textDocument/formatting`
-  (P10.1), and the extension's language client starting `ppl lsp`.
+  (P10.1), and the extension's language client starting `pico lsp`.
 - **Done when**: LSP protocol tests (a scripted session over stdio) pass.
-- **Done (decision 271)**: `crates/ppl-lsp` (tests in `src/tests.rs`), the client in
+- **Done (decision 271)**: `crates/pico-lsp` (tests in `src/tests.rs`), the client in
   `editors/vscode/extension.js`; also checked against `vscode-jsonrpc` during development.
 
 #### P10.6c Hover and go-to-definition
@@ -949,8 +949,8 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   index of a document while it has errors).
 - **Done when**: protocol tests on error-free fixtures (locals, parameters, functions, types,
   members, imported names, a prelude declaration).
-- **Done (decision 272)**: `crates/ppl-lsp/src/index.rs`, `Program::name_refs` in the resolver;
-  protocol tests in `crates/ppl-lsp/src/tests.rs`.
+- **Done (decision 272)**: `crates/pico-lsp/src/index.rs`, `Program::name_refs` in the resolver;
+  protocol tests in `crates/pico-lsp/src/tests.rs`.
 
 #### P10.6c2 Error recovery for the language server
 - **Do**: the driver keeps resolving and checking past errors (for the language server at
@@ -958,7 +958,7 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   of follow-up errors, so hover and go-to-definition keep answering in half-typed code.
 - **Done when**: protocol tests on fixtures with syntax and type errors, and `tests/fail`
   still reports the same first errors.
-- **Done (decision 273)**: `ppl_driver::check_source_recovering`, used by the server only when
+- **Done (decision 273)**: `pico_driver::check_source_recovering`, used by the server only when
   the normal check stops before types; the compiler's pipeline is unchanged.
 
 #### P10.6d Completion and rename
@@ -972,83 +972,83 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
   with its kind and signature. Completion runs the recovering front end on the text with a
   placeholder name at the cursor.
 - **Done when**: protocol tests, and a manual check in VS Code.
-- **Done (decision 274)**: `crates/ppl-lsp/src/complete.rs`.
+- **Done (decision 274)**: `crates/pico-lsp/src/complete.rs`.
 
 #### P10.6d2 Rename and document symbols
 - **Do**: rename (all uses of a local, a member or a top-level declaration, across the
   project's modules, also those that import the renamed one; `prepareRename` refuses the core
   library and built-ins; the new name must be an identifier), document symbols (the outline).
 - **Done when**: protocol tests, and a manual check in VS Code.
-- **Done (decision 275)**: `crates/ppl-lsp/src/rename.rs`, `symbols.rs`; links, shorthand
+- **Done (decision 275)**: `crates/pico-lsp/src/rename.rs`, `symbols.rs`; links, shorthand
   fields and method families in the index.
 
 ### P10.8 Debugging
 - **Spec**: 14 §14.5
-- **Do**: DWARF/CodeView emission, `ppl dap` built on lldb-dap, pretty-printers for ppl values,
-  and `ppl symbolize` for release traces.
+- **Do**: DWARF/CodeView emission, `pico dap` built on lldb-dap, pretty-printers for pico values,
+  and `pico symbolize` for release traces.
 - **Done when**: breakpoints and value display work in VS Code (manual check).
 - Split into slices (lldb-23 and lldb-dap-23 are installed on the Linux host):
 
 #### P10.8a Line tables
 - **Do**: DWARF compile unit, files and a subprogram per function, and a source location for every
   statement and terminator, in every file (modules and the core library too: MIR locations
-  carry the file); `ppl build` emits them unless `--release`.
+  carry the file); `pico build` emits them unless `--release`.
 - **Done when**: an lldb batch test (skipped without lldb) stops at a breakpoint set by
-  `file:line` and its backtrace shows the ppl functions with their files and lines.
-- **Done (decision 280)**: `Dbg`/`begin_debug`/`debug_loc` in `ppl-codegen`, `mir::Program::sources`
+  `file:line` and its backtrace shows the pico functions with their files and lines.
+- **Done (decision 280)**: `Dbg`/`begin_debug`/`debug_loc` in `pico-codegen`, `mir::Program::sources`
   (filled by the driver), `Options::debug`, `dsymutil` on macOS; test
-  `crates/ppl-driver/tests/debug_info.rs`.
+  `crates/pico-driver/tests/debug_info.rs`.
 
 #### P10.8b Variables
 - **Do**: parameters and locals as DWARF variables with their types (integers, floats, `bool`,
   `char`, strings, arrays, structs, classes, enums, nullables) and scopes.
 - **Done when**: an lldb batch test shows the variables of a frame with their values.
-- **Done (decision 281)**: `declare_variables`, `di_type` in `ppl-codegen`; test `variables` in
-  `crates/ppl-driver/tests/debug_info.rs`.
+- **Done (decision 281)**: `declare_variables`, `di_type` in `pico-codegen`; test `variables` in
+  `crates/pico-driver/tests/debug_info.rs`.
 
 #### P10.8c Debugging in VS Code
-- **Do**: lldb formatters (Python) that show ppl values (strings, arrays, maps, enums,
-  nullables, objects' fields), `ppl dap` (lldb-dap with them loaded), and the extension's
-  debugger (a launch configuration that builds and debugs a `.ppl` program).
+- **Do**: lldb formatters (Python) that show pico values (strings, arrays, maps, enums,
+  nullables, objects' fields), `pico dap` (lldb-dap with them loaded), and the extension's
+  debugger (a launch configuration that builds and debugs a `.pi` program).
 - **Done when**: breakpoints, stepping and value display work in VS Code (manual check).
-- **Done (decision 282)**: `crates/ppl-cli/src/dap.rs`, `ppl_lldb.py`, the extension's debugger;
-  test `crates/ppl-cli/tests/dap.rs` (a scripted DAP session).
+- **Done (decision 282)**: `crates/pico-cli/src/dap.rs`, `pico_lldb.py`, the extension's debugger;
+  test `crates/pico-cli/tests/dap.rs` (a scripted DAP session).
 
-#### P10.8d `ppl symbolize`
-- **Do**: release builds keep a separate debug file; `ppl symbolize` turns a release stack
+#### P10.8d `pico symbolize`
+- **Do**: release builds keep a separate debug file; `pico symbolize` turns a release stack
   trace's addresses into functions, files and lines.
 - **Done when**: a test symbolizes a release program's panic trace.
 - **Done (decision 283)**: release builds link twice (`app.dbg` with DWARF, `app` stripped, one
   build ID), `dsymutil` + `strip -S` on macOS; the runtime prints offsets and the build ID;
-  `crates/ppl-cli/src/symbolize.rs` (addr2line); test `crates/ppl-cli/tests/symbolize.rs`.
+  `crates/pico-cli/src/symbolize.rs` (addr2line); test `crates/pico-cli/tests/symbolize.rs`.
 
 ### P10.9 Documentation tooling
-- **Do**: `ppl doc` (HTML from `/** */`) and `ppl explain E####` for every error code.
+- **Do**: `pico doc` (HTML from `/** */`) and `pico explain E####` for every error code.
 - **Done when**: stdlib docs are generated.
 - Split into two slices:
 
-#### P10.9a `ppl explain`
+#### P10.9a `pico explain`
 - **Do**: a long-form explanation for every error and lint code (`docs/errors/E0308.md`: what
-  it means, an erroneous example, the fix), embedded in `ppl`; `ppl explain E0308` prints it,
+  it means, an erroneous example, the fix), embedded in `pico`; `pico explain E0308` prints it,
   and the compiler's messages mention it.
 - **Done when**: a test checks every explanation exists and its examples are real: each
   erroneous example reports its code, each fixed one compiles.
 - **Done (decision 287)**: `docs/errors/*.md` (83 error and 5 lint codes), embedded by
-  `ppl-diag/build.rs` (`codes::explain`, `codes::parse`); `ppl explain`; the CLI's hint after
-  errors; test `crates/ppl-tests/tests/explain.rs`.
+  `pico-diag/build.rs` (`codes::explain`, `codes::parse`); `pico explain`; the CLI's hint after
+  errors; test `crates/pico-tests/tests/explain.rs`.
 
-#### P10.9b `ppl doc`
+#### P10.9b `pico doc`
 - **Do**: HTML from doc comments: an index and a page per module, each exported declaration's
   signature (as written) and its rendered Markdown, members of types, links between pages;
-  `ppl doc --std` for the standard library and the core library, `ppl doc` for the current
-  project's API (its `index.ppl`).
+  `pico doc --std` for the standard library and the core library, `pico doc` for the current
+  project's API (its `index.pi`).
 - **Done when**: stdlib docs are generated (and a test checks a page's declarations and links).
 
 ### P10.10 Release packaging
 - **Spec**: 14 §14.6
-- **Do**: a single static `ppl` binary (LLVM, lld and libclang statically linked) containing the
+- **Do**: a single static `pico` binary (LLVM, lld and libclang statically linked) containing the
   runtime sources/prebuilt libs, stubs and stdlib, plus release CI for all host platforms.
-- **Done when**: downloading the binary on a clean machine is enough to run `ppl build --target …`
+- **Done when**: downloading the binary on a clean machine is enough to run `pico build --target …`
   for every target.
 
 ---
@@ -1074,7 +1074,7 @@ Vue-like reactive state (the author, 2026-11-03): `reactive` declarations of `Re
 - **Done when**: the spec chapter and its decisions are committed.
 
 ### P11.2 Core runtime
-- **Do**: in the core library (ppl): the dependency graph, the stack of the effect being
+- **Do**: in the core library (pico): the dependency graph, the stack of the effect being
   tracked, lazy cached `computed` values with dirty marking, effect scheduling, cleanup through
   `Disposable`/`using`.
 - **Done when**: golden tests of tracking, caching, invalidation and cleanup pass.
@@ -1097,10 +1097,10 @@ Vue-like reactive state (the author, 2026-11-03): `reactive` declarations of `Re
 ---
 
 ## Phase 12: Later
-- **P10.7a** (moved from Phase 10 by the author): `ppl run` through LLVM's ORC JIT (no object
-  file, no linking; the C runtime available to the JIT). Done when `ppl run` on a script is
+- **P10.7a** (moved from Phase 10 by the author): `pico run` through LLVM's ORC JIT (no object
+  file, no linking; the C runtime available to the JIT). Done when `pico run` on a script is
   faster than an AOT build and run.
-- **P10.7b** (moved from Phase 10 by the author): a REPL (`ppl` with no arguments) that keeps
+- **P10.7b** (moved from Phase 10 by the author): a REPL (`pico` with no arguments) that keeps
   declarations and variables between inputs and continues incomplete statements on the next
   line. Done when it handles multi-line input and redefinitions.
 - **P12.1** `--no-gc` subset (`str`, `StrBuf<N>`, lightweight throwables only) and a bare-metal
@@ -1108,4 +1108,4 @@ Vue-like reactive state (the author, 2026-11-03): `reactive` declarations of `Re
 - **P12.2** riscv64.
 - **P12.3** Android (`aarch64-linux-android`).
 - **P12.4** iOS (`aarch64-apple-ios`).
-- **P12.5** Self-hosting investigation (rewrite parts of the compiler in ppl).
+- **P12.5** Self-hosting investigation (rewrite parts of the compiler in pico).

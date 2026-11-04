@@ -53,8 +53,8 @@ sudo apt-get install -y build-essential llvm-23-dev libpolly-23-dev libzstd-dev 
   liblld-23-dev libc6-amd64-cross qemu-user-static qemu-user-binfmt file
 ```
 
-`liblld-23-dev` is required: lld is linked into ppl (crate `ppl-lld`). Building for any
-`linux-gnu` target needs no glibc at all (ppl generates stubs, P8.2a); `libc6-amd64-cross` is
+`liblld-23-dev` is required: lld is linked into pico (crate `pico-lld`). Building for any
+`linux-gnu` target needs no glibc at all (pico generates stubs, P8.2a); `libc6-amd64-cross` is
 only there so qemu can run x86-64 programs (`QEMU_LD_PREFIX=/usr/x86_64-linux-gnu ./prog`).
 
 `source scripts/env.sh` then sets `LLVM_SYS_231_PREFIX=/usr/lib/llvm-23` and puts
@@ -83,30 +83,30 @@ links against libLLVM and prints module IR (checked during P1.1).
 ## Building and running programs
 
 ```sh
-cargo run -p ppl-cli -- run hello.ppl            # native (built into $TMPDIR/ppl-cache)
-cargo run -p ppl-cli -- run --interp hello.ppl   # MIR interpreter
-cargo run -p ppl-cli -- build hello.ppl -o hello --release
-cargo run -p ppl-cli -- build --emit mir hello.ppl     # or --emit llvm-ir
+cargo run -p pico-cli -- run hello.pi            # native (built into $TMPDIR/pico-cache)
+cargo run -p pico-cli -- run --interp hello.pi   # MIR interpreter
+cargo run -p pico-cli -- build hello.pi -o hello --release
+cargo run -p pico-cli -- build --emit mir hello.pi     # or --emit llvm-ir
 ```
 
 On Linux, native builds (host and `--target linux-x64` / `linux-arm64`) are linked by the lld
-inside ppl against generated glibc stubs (default glibc 2.31, `--target linux-x64.2.35` for
+inside pico against generated glibc stubs (default glibc 2.31, `--target linux-x64.2.35` for
 another). The C runtime and Mbed TLS are compiled for the target and glibc version by clang 23
 on first use, against Zig's glibc headers in `third_party/zig-libc`, and cached in
-`$TMPDIR/ppl-cache/runtime/<triple>-<hash>` (about 2 s); the stubs are cached in
-`$TMPDIR/ppl-cache/glibc/`. `--target linux-x64-musl` / `linux-arm64-musl` link fully
+`$TMPDIR/pico-cache/runtime/<triple>-<hash>` (about 2 s); the stubs are cached in
+`$TMPDIR/pico-cache/glibc/`. `--target linux-x64-musl` / `linux-arm64-musl` link fully
 statically with musl, compiled from `third_party/musl` on first use (about 5 s, cached in
-`$TMPDIR/ppl-cache/musl/`). Compiler builtins (compiler-rt, `third_party/compiler-rt`) are
+`$TMPDIR/pico-cache/musl/`). Compiler builtins (compiler-rt, `third_party/compiler-rt`) are
 compiled per target the same way and linked into every program, like libgcc. On macOS, builds still link
-with the system `cc` until P8.4; lld is optional there (`PPL_LLD_PREFIX` names an lld
+with the system `cc` until P8.4; lld is optional there (`PICO_LLD_PREFIX` names an lld
 installation with `lib/liblldELF.a`). The interpreter's copy of the runtime is compiled by
-`ppl-runtime`'s build script (with `-mmacosx-version-min=13.0` on macOS).
+`pico-runtime`'s build script (with `-mmacosx-version-min=13.0` on macOS).
 
 ```sh
-cargo run -p ppl-cli -- build --target linux-x64 hello.ppl -o hello-x64
+cargo run -p pico-cli -- build --target linux-x64 hello.pi -o hello-x64
 QEMU_LD_PREFIX=/usr/x86_64-linux-gnu ./hello-x64
-PPL_TEST_TARGET=linux-x64 cargo test -p ppl-tests --test golden   # all golden tests, ~4 min
-PPL_TEST_TARGET=linux-arm64-musl cargo test -p ppl-tests --test golden
+PICO_TEST_TARGET=linux-x64 cargo test -p pico-tests --test golden   # all golden tests, ~4 min
+PICO_TEST_TARGET=linux-arm64-musl cargo test -p pico-tests --test golden
 ```
 
 A fixture qemu-user can't run faithfully gets `// not-under-qemu: why` (it's then pending in
@@ -117,10 +117,10 @@ such runs).
 These come with the tasks that need them (ask before installing):
 
 - **lld on macOS**: Homebrew's `llvm@23` doesn't ship it (the separate `lld` formula, pointed to
-  by `PPL_LLD_PREFIX`). Needed by P8.4 at the latest.
+  by `PICO_LLD_PREFIX`). Needed by P8.4 at the latest.
 - **wasmtime** 50.0.1 (P8.5a), for running `wasm32-wasi` programs: the official release binary in
   `~/.local/bin` (no root; its GitHub build attestation checked with
   `gh attestation verify <tarball> --repo bytecodealliance/wasmtime`). CI installs the same
   version. Programs need Wasm exception handling: `wasmtime run -W exceptions=y prog.wasm`
-  (`PPL_TEST_TARGET=wasm32-wasi cargo test -p ppl-tests --test golden` runs them that way).
+  (`PICO_TEST_TARGET=wasm32-wasi cargo test -p pico-tests --test golden` runs them that way).
 - **Wine**: optional, for running Windows test binaries (P8.3).

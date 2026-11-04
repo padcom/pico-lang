@@ -1,0 +1,276 @@
+//! `pico dap` (spec §14.5, PLAN P10.8c): the debug adapter VS Code talks to. It runs lldb-dap
+//! and passes the Debug Adapter Protocol through, with two changes to `launch`: a `program`
+//! that is a `.pi` file is built first (a debug build in the cache directory, skipped when
+//! nothing changed) and replaced by the executable, and lldb loads pico's formatters
+//! (`pico_lldb.py`: strings, arrays, maps, sets). A build that fails fails the `launch`, with
+//! the compiler's messages.
+
+use serde_json::{Value, json};
+use std::io::{BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode, Stdio};
+use std::sync::{Arc, Mutex};
+
+/// The formatters (`command script import`ed into lldb).
+const FORMATTERS: &str = include_str!("pico_lldb.py");
+
+pub fn run() -> ExitCode {
+    let Some(adapter) = lldb_dap() else {
+        eprintln!(
+            "error: lldb-dap not found (install LLVM's lldb, or set PICO_LLDB_DAP to its path)"
+        );
+        return ExitCode::FAILURE;
+    };
+    let formatters = match write_formatters() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: cannot write the lldb formatters: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut child = match Command::new(&adapter)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: cannot run {}: {e}", adapter.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let out = Arc::new(Mutex::new(std::io::stdout()));
+    // lldb-dap → the client, message by message (our own responses interleave).
+    let mut from = BufReader::new(child.stdout.take().expect("piped"));
+    let to_client = out.clone();
+    let pump = std::thread::spawn(move || {
+        while let Ok(Some(mut msg)) = pico_lsp::read_message(&mut from) {
+            tidy_values(&mut msg);
+            let mut o = to_client.lock().expect("stdout");
+            if pico_lsp::write_message(&mut *o, &msg).is_err() {
+                break;
+            }
+        }
+    });
+    let mut to_adapter = child.stdin.take().expect("piped");
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    let mut seq = 1_000_000;
+    while let Ok(Some(mut msg)) = pico_lsp::read_message(&mut input) {
+        if msg["type"] == "request"
+            && msg["command"] == "launch"
+            && let Err(message) = prepare_launch(&mut msg["arguments"], &formatters)
+        {
+            seq += 1;
+            let reply = json!({
+                "seq": seq,
+                "type": "response",
+                "request_seq": msg["seq"],
+                "success": false,
+                "command": "launch",
+                "message": message,
+                "body": { "error": { "id": 1, "format": message, "showUser": true } },
+            });
+            let mut o = out.lock().expect("stdout");
+            let _ = pico_lsp::write_message(&mut *o, &reply);
+            continue;
+        }
+        if pico_lsp::write_message(&mut to_adapter, &msg).is_err() {
+            break;
+        }
+    }
+    drop(to_adapter);
+    let status = child.wait();
+    let _ = pump.join();
+    match status {
+        Ok(s) if s.success() => ExitCode::SUCCESS,
+        _ => ExitCode::FAILURE,
+    }
+}
+
+/// In `evaluate` and `variables` responses, a reference with a summary shows the summary alone:
+/// lldb-dap writes pointers as `0x… "Ann"`, which is an implementation detail for a pico string,
+/// array, map or set (watch expressions such as `who.name` evaluate the raw field).
+fn tidy_values(msg: &mut Value) {
+    if msg["type"] != "response" {
+        return;
+    }
+    let tidy = |value: &mut Value, ty: &Value| {
+        let is_ref = ty.as_str().is_some_and(|t| t.ends_with(" *"));
+        if let Some(v) = value.as_str()
+            && is_ref
+            && let Some((addr, summary)) = v.split_once(' ')
+            && addr.starts_with("0x")
+            && addr[2..].chars().all(|c| c.is_ascii_hexdigit())
+            && !summary.is_empty()
+        {
+            *value = json!(summary);
+        }
+    };
+    match msg["command"].as_str() {
+        Some("evaluate") => {
+            let body = &mut msg["body"];
+            let ty = body["type"].clone();
+            tidy(&mut body["result"], &ty);
+        }
+        Some("variables") => {
+            if let Some(vars) = msg["body"]["variables"].as_array_mut() {
+                for v in vars {
+                    let ty = v["type"].clone();
+                    tidy(&mut v["value"], &ty);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// lldb-dap: `PICO_LLDB_DAP`, or on PATH (also versioned, as apt.llvm.org installs it), or
+/// Xcode's on macOS.
+fn lldb_dap() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("PICO_LLDB_DAP").filter(|p| !p.is_empty()) {
+        return Some(PathBuf::from(p));
+    }
+    let works = |name: &str| {
+        Command::new(name)
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok()
+    };
+    let names = ["lldb-dap".to_string()]
+        .into_iter()
+        .chain((18..=30).rev().map(|v| format!("lldb-dap-{v}")))
+        .chain(["lldb-vscode".to_string()]);
+    for n in names {
+        if works(&n) {
+            return Some(PathBuf::from(n));
+        }
+    }
+    if cfg!(target_os = "macos") {
+        let out = Command::new("xcrun")
+            .args(["-f", "lldb-dap"])
+            .output()
+            .ok()?;
+        let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        return (out.status.success() && !p.is_empty()).then(|| PathBuf::from(p));
+    }
+    None
+}
+
+/// Writes `pico_lldb.py` to the cache directory (the module's name is the file's).
+fn write_formatters() -> std::io::Result<PathBuf> {
+    let dir = pico_driver::fingerprint::cache_dir()
+        .join("pico")
+        .join("lldb")
+        .join(env!("CARGO_PKG_VERSION"));
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("pico_lldb.py");
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(FORMATTERS) {
+        std::fs::write(&path, FORMATTERS)?;
+    }
+    Ok(path)
+}
+
+/// Builds a `.pi` `program` and points the launch at the executable; adds the formatters.
+fn prepare_launch(args: &mut Value, formatters: &Path) -> Result<(), String> {
+    let cwd = args["cwd"].as_str().map(PathBuf::from);
+    // A directory (a project): its `entry` (spec §8.3).
+    if let Some(program) = args["program"].as_str()
+        && Path::new(program).is_dir()
+    {
+        let entry = pico_driver::packages::entry_of(Path::new(program))?;
+        args["program"] = json!(entry.display().to_string());
+    }
+    if let Some(program) = args["program"].as_str()
+        && program.ends_with(".pi")
+    {
+        let mut path = PathBuf::from(program);
+        if path.is_relative()
+            && let Some(c) = &cwd
+        {
+            path = c.join(path);
+        }
+        let exe = build(&path)?;
+        args["program"] = json!(exe.display().to_string());
+        if cwd.is_none()
+            && let Some(dir) = path.parent()
+        {
+            args["cwd"] = json!(dir.display().to_string());
+        }
+    }
+    let mut init = vec![json!(format!(
+        "command script import \"{}\"",
+        formatters.display()
+    ))];
+    if let Some(more) = args["initCommands"].as_array() {
+        init.extend(more.iter().cloned());
+    }
+    args["initCommands"] = json!(init);
+    Ok(())
+}
+
+/// A debug build of `entry` in the cache directory (kept while nothing changes).
+fn build(entry: &Path) -> Result<PathBuf, String> {
+    let text = std::fs::read_to_string(entry)
+        .map_err(|e| format!("cannot read {}: {e}", entry.display()))?;
+    let canon = entry.canonicalize().unwrap_or_else(|_| entry.to_path_buf());
+    let key = {
+        use std::hash::{DefaultHasher, Hasher};
+        let mut h = DefaultHasher::new();
+        h.write(canon.display().to_string().as_bytes());
+        format!("{:016x}", h.finish())
+    };
+    let stem = entry
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let dir = pico_driver::fingerprint::cache_dir()
+        .join("pico")
+        .join("debug")
+        .join(key);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let exe = dir.join(if cfg!(windows) {
+        format!("{stem}.exe")
+    } else {
+        stem
+    });
+    let opts = pico_driver::BuildOptions::default();
+    if pico_driver::fingerprint::up_to_date(entry, &exe, &opts) {
+        return Ok(exe);
+    }
+    let dir_of = entry.parent().unwrap_or(Path::new("."));
+    let checked = pico_driver::check_source_with(entry.display().to_string(), text, dir_of, opts);
+    if checked.diags.iter().any(|d| d.is_error()) {
+        return Err(format!(
+            "{} doesn't compile:\n{}",
+            entry.display(),
+            strip_ansi(&checked.render_diagnostics())
+        ));
+    }
+    pico_driver::build_native(&checked, &exe, opts)?;
+    pico_driver::fingerprint::record(&checked, entry, &exe, &opts);
+    let _ = std::io::stderr().flush();
+    Ok(exe)
+}
+
+/// The rendered diagnostics without terminal colors (for the editor's message).
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for d in chars.by_ref() {
+                if d.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}

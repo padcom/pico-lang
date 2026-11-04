@@ -1,0 +1,92 @@
+// `std/test`: matchers, groups and hooks, panics and async tests; a failing file exits with 1.
+// exit: 1
+// expect:   ✓ add > adds numbers
+// expect:   ✓ add > overflow panics
+// expect:   ✗ add > fails
+// expect:       expected 3 to be 4
+// expect:     (afterAll after 3 tests)
+// expect:   ✓ async works
+// expect:   ✓ strings and arrays
+// expect:   ✗ panics fail the test
+// expect:       panic: index out of bounds
+// expect:   - later (skipped)
+// expect: no throw
+// expect: no panic
+// expect:   ✓ structs, classes and negation
+// expect:   ✗ messages
+// expect:       expected the call to panic, but it threw Error: nope
+// expect:   ✗ more messages
+// expect:       expected [1, 2] to have length 3 (it's 2)
+// expect:   - write this (skipped)
+// expect: pico-test: 5 passed, 4 failed, 2 skipped
+import { env } from "std/process"
+import { describe, test, expect, beforeEach, afterAll, skip, only, todo } from "std/test"
+
+function add(a: int, b: int): int { a + b }
+async function load(x: string): Promise<int> throws TypeError {
+  if (x == "bad") throw new TypeError("no such thing")
+  x.length
+}
+
+let calls = 0
+describe("add", () => {
+  beforeEach(() => { calls += 1 })
+  afterAll(() => println(`    (afterAll after ${calls} tests)`))
+  test("adds numbers", () => {
+    expect(add(1, 2)).toBe(3)
+    expect(add(1, 2)).not.toBe(4)
+  })
+  test("overflow panics", () => {
+    expect(() => add(9223372036854775807, 1)).toPanic("overflow")
+  })
+  test("fails", () => {
+    expect(add(1, 2)).toBe(4)
+    println("not reached")
+  })
+})
+
+async function asyncWorks(): Promise<void> throws Error {
+  await expect(load("bad")).rejects.toThrow("no such")
+  await expect(load("abc")).resolves.toBe(3)
+  expect(await load("ab")).toBe(2)
+}
+test("async works", asyncWorks)
+test("strings and arrays", () => {
+  expect("hello").toContain("ell")
+  expect("hello").toMatch(/^h.*o$/)
+  expect([1, 2, 3]).toEqual([1, 2, 3])
+  expect([1, 2, 3]).toContain(2)
+  expect(0.1 + 0.2).toBeCloseTo(0.3)
+  expect(() => { throw new RangeError("out") }).toThrow("out")
+  const p: int? = null
+  expect(p).toBeNull()
+})
+test("panics fail the test", () => {
+  const xs: int[] = []
+  println(`${xs[3]}`)
+})
+skip("later", () => {})
+env.set("PICO_TEST_TIMES", "0")
+struct P { x: int; y: int }
+class Box {
+  public v: int
+  constructor(v: int) { this.v = v }
+}
+test("structs, classes and negation", () => {
+  expect(P { x: 1, y: 2 }).toEqual(P { x: 1, y: 2 })
+  expect(P { x: 1, y: 2 }).not.toEqual(P { x: 2, y: 2 })
+  expect(new Box(3)).toEqual(new Box(3))
+  expect("a").not.toBe("b")
+  expect(true).toBeTruthy()
+  expect(() => println("no throw")).not.toThrow()
+  expect(() => println("no panic")).not.toPanic()
+  const q: int? = 4
+  expect(q).toBeDefined()
+})
+test("messages", () => {
+  expect(() => { throw new TypeError("nope") }).toPanic()
+})
+test("more messages", () => {
+  expect([1, 2]).toHaveLength(3)
+})
+todo("write this")

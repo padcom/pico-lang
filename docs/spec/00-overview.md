@@ -1,16 +1,16 @@
 # 0. Overview
 
-padcom programming language (ppl) is a statically and nominally typed language that uses a
+The Pico Programming Language (pico) is a statically and nominally typed language that uses a
 garbage collector and borrows its syntax from TypeScript. Programs are compiled ahead of time
 through LLVM to native executables or WebAssembly modules.
 
 ## Design principles
-1. **Familiar first.** If TypeScript already has a sensible spelling for something, ppl uses it.
+1. **Familiar first.** If TypeScript already has a sensible spelling for something, pico uses it.
 2. **Sound.** No `any`, no `undefined`, no implicit lossy conversions, checked exceptions.
 3. **Native performance.** Sized numbers, inline `struct`s, monomorphized generics, and integer
    overflow that traps instead of silently wrapping.
 4. **No domain bias.** CLI tools, servers, games and the browser are all first-class.
-5. **One tool.** `ppl` builds, runs, tests, formats and manages packages.
+5. **One tool.** `pico` builds, runs, tests, formats and manages packages.
 
 ## A taste
 ```ts

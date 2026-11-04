@@ -1,0 +1,15 @@
+// `std/net`: TCP (`listen`, `connect`), UDP (`bind`) and DNS (`resolve`), spec §13.4. The
+// implementation is in the core library (`<core>/net.pi`), which `fetch` uses too.
+
+export {
+  __netListen as listen,
+  __netConnect as connect,
+  __netBind as bind,
+  __netResolve as resolve,
+  NetError,
+  Addr,
+  Conn,
+  Listener,
+  Datagram,
+  UdpSocket,
+}

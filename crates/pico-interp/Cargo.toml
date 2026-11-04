@@ -1,0 +1,16 @@
+[package]
+name = "pico-interp"
+description = "MIR interpreter for pico (comptime and --interp)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+pico-diag.workspace = true
+pico-mir.workspace = true
+pico-sema.workspace = true
+pico-runtime.workspace = true
+
+[lints]
+workspace = true

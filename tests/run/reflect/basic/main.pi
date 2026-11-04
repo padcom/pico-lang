@@ -1,0 +1,58 @@
+// Runtime reflection (spec §11.3).
+// expect: User (class)
+// expect: id: i64 = 7
+// expect: name: string = "Ann"
+// expect: age: i64 = 31
+// expect: methods: label
+// expect: interfaces: Named
+// expect: decorators: @table("users")
+// expect: in users.pi: id, name, age, secret
+// expect: 31
+// expect: User (id = 7, name = "Ann", age = 32, secret = "pw")
+// expect: id is readonly: true
+// expect: Admin, base User, fields id: i64, name: string, age: i64, level: i32
+// expect: level 3
+// expect: x: f64, y: f64
+// expect: 2
+// expect: Point
+// expect: primitive i64
+// expect: array string[]
+// expect: x
+import { reflect } from "std/reflect"
+import { User, Admin, fieldNamesHere } from "./users"
+
+struct Point { x: f64; y: f64 }
+
+const user = new User(7, "Ann", 31, "pw")
+const t = reflect.typeOf(user)
+println(`${t.name} (${t.kind})`)
+// Private fields only show in the declaring module.
+for (const f of t.fields) println(`${f.name}: ${f.type.name} = ${f.show(user)}`)
+println(`methods: ${t.methods.map((m: MethodInfo) => m.name).join(", ")}`)
+println(`interfaces: ${t.interfaces.join(", ")}`)
+println(`decorators: ${t.decorators.join(" ")}`)
+println(`in users.pi: ${fieldNamesHere(user)}`)
+
+// Typed access.
+const age = t.field("age")!
+println(age.get<int>(user))
+age.set<int>(user, 32)
+println(user)
+println(`id is readonly: ${t.field("id")!.isReadonly}`)
+
+// The runtime class.
+const u: User = new Admin("Bob", 3)
+const ta = reflect.typeOf(u)
+println(`${ta.name}, base ${ta.base}, fields ${ta.fields.join(", ")}`)
+println(`level ${ta.field("level")!.get<i32>(u)}`)
+
+// Structs, `typeOf<T>()` and other types.
+println(reflect.typeOf<Point>().fields.join(", "))
+const p: Point = { x: 1, y: 2 }
+const tp = reflect.typeOf(p)
+println(tp.fields[1].get<f64>(p))
+println(tp.name)
+println(`${reflect.typeOf<int>().kind} ${reflect.typeOf(3).name}`)
+const words = ["a"]
+println(`${reflect.typeOf(words).kind} ${reflect.typeOf(words).name}`)
+println(reflect.typeOf<Point>().field("x")!.name)

@@ -1,0 +1,242 @@
+// The event loop (spec §10.1), as in JavaScript: microtasks (`queueMicrotask`, promise
+// reactions) run before the next timer; timers run in order of due time, then of creation.
+// The loop runs after the entry module's top-level code and ends when nothing is pending.
+
+class __Timer {
+  public id: int
+  public due: int
+  /// Ties between timers due at the same time go to the older one.
+  public seq: int
+  public callback: () => void
+  /// `setInterval`'s period, or -1.
+  public period: int
+
+  constructor(id: int, due: int, seq: int, callback: () => void, period: int) {
+    this.id = id
+    this.due = due
+    this.seq = seq
+    this.callback = callback
+    this.period = period
+  }
+}
+
+class __Loop {
+  public timers: __Timer[] = []
+  public microtasks: (() => void)[] = []
+  /// The next microtask to run (the queue is compacted when it's drained).
+  public head: int = 0
+  public nextId: int = 1
+  public seq: int = 0
+  /// Rejected promises that nothing handled yet: their error while that's still so.
+  public rejected: (() => Error?)[] = []
+  /// Worker channels (spec §10.2): what handles the next message from a worker (by its
+  /// handle), or from the parent (0, in a worker thread).
+  public channels: Map<int, () => void> = new Map<int, () => void>()
+  /// In a worker: `self.onmessage` is set, so the thread waits for messages.
+  public listening: bool = false
+  /// File-system jobs (`std/fs`): what handles each one's result, by job id.
+  public io: Map<int, () => void> = new Map<int, () => void>()
+  /// A top-level `await` is waiting: the loop waits here even in the browser (where it
+  /// otherwise hands its waits to the host).
+  public blocking: bool = false
+
+  constructor() {}
+
+  public addTimer(f: () => void, ms: int, period: int): int {
+    const id = this.nextId
+    this.nextId += 1
+    this.seq += 1
+    const delay = if (ms > 0) ms else 0
+    this.timers.push(new __Timer(id, __clock_ms() + delay, this.seq, f, period))
+    id
+  }
+
+  public clear(id: int): void {
+    const kept: __Timer[] = []
+    for (const t of this.timers) {
+      if (t.id != id) {
+        kept.push(t)
+      }
+    }
+    this.timers = kept
+  }
+
+  /// Runs the next microtask, if there is one.
+  public microtask(): bool {
+    if (this.head >= this.microtasks.length) {
+      if (this.head > 0) {
+        this.microtasks = []
+        this.head = 0
+      }
+      return false
+    }
+    const f = this.microtasks[this.head]
+    this.head += 1
+    f()
+    true
+  }
+
+  /// A rejection nothing handled once the microtasks are done ends the program, like an
+  /// exception escaping the top level.
+  public checkRejections(): void {
+    if (this.rejected.length == 0) {
+      return
+    }
+    const all = this.rejected
+    this.rejected = []
+    for (const f of all) {
+      const e = f()
+      if (e != null) {
+        __exit_uncaught(e)
+      }
+    }
+  }
+
+  /// The timer to run next (the earliest due, then the oldest), or -1.
+  public earliest(): int {
+    let best = -1
+    let i = 0
+    while (i < this.timers.length) {
+      const t = this.timers[i]
+      if (best < 0) {
+        best = i
+      } else {
+        const b = this.timers[best]
+        if (t.due < b.due || (t.due == b.due && t.seq < b.seq)) {
+          best = i
+        }
+      }
+      i += 1
+    }
+    best
+  }
+
+  /// One step: the next microtask, else the next timer (waiting for it). False when nothing
+  /// is pending.
+  public step(): bool {
+    if (this.microtask()) {
+      return true
+    }
+    this.checkRejections()
+    // A finished file-system job.
+    if (this.io.size > 0) {
+      const j = __io(100, 0, 0, 0, "", "")
+      if (j >= 0) {
+        const done = this.io.get(j)
+        this.io.delete(j)
+        if (done != null) {
+          done()
+        }
+        __io(104, j, 0, 0, "", "");
+        return true
+      }
+    }
+    // A message from a worker (or the parent).
+    const h = __worker_op(2, 0)
+    if (h >= 0) {
+      const deliver = this.channels.get(h)
+      if (deliver != null) {
+        deliver()
+      } else {
+        __worker_op(5, h);
+      }
+      return true
+    }
+    const waiting = this.listening || __worker_op(6, 0) > 0 || this.io.size > 0
+    const i = this.earliest()
+    if (i < 0) {
+      if (waiting) {
+        // Until a message (or a worker ending) wakes this thread.
+        __loop_wait(-1)
+        return true
+      }
+      return false
+    }
+    const t = this.timers[i]
+    const now = __clock_ms()
+    if (t.due > now) {
+      // (The browser: the host waits and resumes the loop; spec §12.3.)
+      if (!this.blocking && __io(138, t.due - now, 0, 0, "", "") > 0) {
+        return false
+      }
+      __loop_wait(t.due - now)
+      // (Woken early by a message: that first.)
+      if (__clock_ms() < t.due) {
+        return true
+      }
+    }
+    if (t.period >= 0) {
+      this.seq += 1
+      t.seq = this.seq
+      t.due = __clock_ms() + t.period
+    } else {
+      this.clear(t.id)
+    }
+    const f = t.callback
+    f()
+    true
+  }
+}
+
+/// Created by the first timer or microtask.
+let __loop: __Loop? = null
+
+function __theLoop(): __Loop {
+  const l = __loop
+  if (l != null) {
+    return l
+  }
+  const made = new __Loop()
+  __loop = made
+  made
+}
+
+/// Calls `f` after `ms` milliseconds (at the earliest); the id cancels it.
+function setTimeout(f: () => void, ms: int = 0): int {
+  __theLoop().addTimer(f, ms, -1)
+}
+
+/// Calls `f` every `ms` milliseconds until cleared.
+function setInterval(f: () => void, ms: int = 0): int {
+  const period = if (ms > 0) ms else 1
+  __theLoop().addTimer(f, period, period)
+}
+
+/// Cancels the `setTimeout` call whose id is `id` (nothing happens if it already ran or was
+/// cleared).
+function clearTimeout(id: int): void {
+  __theLoop().clear(id)
+}
+
+/// Stops the `setInterval` calls whose id is `id`.
+function clearInterval(id: int): void {
+  __theLoop().clear(id)
+}
+
+/// Runs `f` once the current task (and the microtasks before it) has finished.
+function queueMicrotask(f: () => void): void {
+  __theLoop().microtasks.push(f)
+}
+
+/// Runs after the entry module's top-level code: the event loop until nothing is pending,
+/// then the due finalization callbacks (which may schedule more work).
+function __runEventLoop(): void {
+  loop {
+    const l = __loop
+    if (l != null) {
+      while (l.step()) {}
+    }
+    if (!__runFinalizers()) {
+      break
+    }
+  }
+}
+
+/// Submits file-system job `op` (see `pico_io`); `done(job)` runs on the loop once it's
+/// finished, and can read its results (`__io(102, job, …)`, `__io_text(job)`).
+function __ioSubmit(op: int, a: int, b: int, c: int, s: string, t: string, done: (job: int) => void): void {
+  const job = __io(op, a, b, c, s, t)
+  __theLoop().io.set(job, () => {
+    done(job)
+  })
+}

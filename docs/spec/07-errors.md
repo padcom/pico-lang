@@ -1,6 +1,6 @@
 # 7. Errors
 
-ppl has two failure mechanisms:
+pico has two failure mechanisms:
 
 | | Exceptions | Panics |
 |---|---|---|
@@ -34,20 +34,20 @@ allocation and no stack capture, which suits hot parsing loops and `--no-gc` cod
 
 ### Symbolization
 Debug builds symbolize traces in-process. Release binaries print offsets into the executable
-plus a build ID, and `ppl symbolize trace.txt` resolves them from the separate debug file that
+plus a build ID, and `pico symbolize trace.txt` resolves them from the separate debug file that
 the release build produced next to the binary (`app.dbg` on Linux, `app.dSYM` on macOS; `.pdb`
 on Windows is planned), checking the build ID:
 ```
-stack trace (build 4c162639863f34213e87e7c053cfcff6; `ppl symbolize` resolves it):
+stack trace (build 4c162639863f34213e87e7c053cfcff6; `pico symbolize` resolves it):
   0: app+0x1a560
   1: app+0x1ce18
 ```
 becomes the debug build's trace with locations (inlined calls are frames too):
 ```
 stack trace:
-  0: inner at main.ppl:1:34
-  1: outer at main.ppl:2:25
-  2: <main> at main.ppl:3:9
+  0: inner at main.pi:1:34
+  1: outer at main.pi:2:25
+  2: <main> at main.pi:3:9
 ```
 Decision 283.
 
@@ -125,7 +125,7 @@ A panic means a bug. Overflow, out-of-bounds indexing, division by zero, `x!` on
 The report on the main thread (decision 199):
 ```
 panic: index out of bounds
-  at src/main.ppl:3:3
+  at src/main.pi:3:3
 stack trace:
   0: inner
   1: outer

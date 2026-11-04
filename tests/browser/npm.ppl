@@ -1,7 +1,0 @@
-// `js:npm/<package>`: typed from the package's declarations in node_modules (decision 259).
-import { greet, Counter, version } from "js:npm/greeter"
-
-println(greet("ppl", true))
-println(greet("world"))
-const c = Counter.create(40.0)
-println(`${c.add(1.0).add(1.0).count} ${version}`)

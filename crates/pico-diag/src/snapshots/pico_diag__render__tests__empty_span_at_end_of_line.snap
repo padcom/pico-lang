@@ -1,0 +1,9 @@
+---
+source: crates/pico-diag/src/render.rs
+expression: "render(&d, &sm)"
+---
+error[E0001]: unterminated string literal
+  ┌─ e.pi:1:11
+  │
+1 │ const s = "abc
+  │           ^^^^ string starts here

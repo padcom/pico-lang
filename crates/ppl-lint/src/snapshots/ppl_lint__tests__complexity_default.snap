@@ -1,6 +1,0 @@
----
-source: crates/ppl-lint/src/tests.rs
-expression: "run(\"cx1\", r#\"{ \"naming\": false, \"unused\": false, \"complexity\": true }\"#,\nCOMPLEX, &[])"
----
-3:10 W0003 `branches` has a cyclomatic complexity of 7 (the maximum is 4) (split it into smaller functions)
-16:3 W0003 the constructor has a cyclomatic complexity of 5 (the maximum is 4) (split it into smaller functions)

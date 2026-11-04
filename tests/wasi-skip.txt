@@ -1,5 +1,5 @@
 # Golden fixtures (name prefixes) that wasm32-wasi can't run yet, with the task that makes them
-# work or why they never will. `PPL_TEST_TARGET=wasm32-wasi` reports them as pending.
+# work or why they never will. `PICO_TEST_TARGET=wasm32-wasi` reports them as pending.
 run/fs/watch         a watcher needs a thread of its own (none on WASI)
 run/process/         Command isn't available on WASI (spec §13.3)
 run/workers/         no threads on WASI (spec §13.3)

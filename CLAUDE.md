@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This repo is **ppl**, the padcom programming language. It has TypeScript-based syntax and compiles
+This repo is **pico**, the Pico Programming Language (source files `.pi`, the `pico` tool). It has TypeScript-based syntax and compiles
 through LLVM to native code (Linux, macOS, Windows) and WebAssembly. The compiler is written in Rust
 and the runtime in C.
 
@@ -26,15 +26,15 @@ and the runtime in C.
 3. Commit (code and PROGRESS.md together).
 
 ## Conventions
-- Every feature needs tests: golden tests in `tests/run/**/*.ppl` (`// expect:` output, run both
-  interpreted and native) and `tests/fail/**/*.ppl` (`// error: E0xxx`), or Rust unit tests and
+- Every feature needs tests: golden tests in `tests/run/**/*.pi` (`// expect:` output, run both
+  interpreted and native) and `tests/fail/**/*.pi` (`// error: E0xxx`), or Rust unit tests and
   `insta` snapshots.
 - A task that's too big gets split in PLAN.md (`P3.7a`, `P3.7b`), and the split is noted in
   PROGRESS.md.
 - If implementation exposes a gap or contradiction in the spec, ask the user. Record the answer in
   `docs/DECISIONS.md` (next free number) and in the relevant spec chapter, then commit.
 - Ask before installing system software (rustup, LLVM, wasmtime, …).
-- `.ppl` code blocks in docs use the `ts` fence for highlighting.
+- `.pi` code blocks in docs use the `ts` fence for highlighting.
 
 ## Map
 | Path | Contents |

@@ -1,43 +1,43 @@
 # 14. Tooling & CLI
 
-Everything ships in a single static `ppl` binary.
+Everything ships in a single static `pico` binary.
 
 ## 14.1 Commands
 | Command | Purpose |
 |---------|---------|
-| `ppl run file.ppl [args]` | compile with the LLVM JIT and run (script mode) |
-| `ppl` (no args) | REPL |
-| `ppl build [--target t] [--release]` | ahead-of-time build to native or wasm |
-| `ppl test [filter]` | run `*.test.ppl` |
-| `ppl bench [filter]` | run `bench()` cases in `*.bench.ppl` / `*.test.ppl` |
-| `ppl symbolize file` | resolve release stack traces using the debug file |
-| `ppl fmt [--check]` | format sources |
-| `ppl lint` | lints: naming, unused code, complexity, blank lines, docs (§14.7) |
-| `ppl init` | create `project.json` and `src/main.ppl` |
-| `ppl add pkg[@ver]` / `ppl remove pkg` | manage dependencies |
-| `ppl publish` | publish to the registry |
-| `ppl lsp` | language server (stdio), used by the VS Code extension |
-| `ppl doc` | generate HTML API docs from doc comments: the package's `index.ppl` (`--std`: the standard and core libraries; `--out dir`, default `target/doc`; decision 294) |
+| `pico run file.pi [args]` | compile with the LLVM JIT and run (script mode) |
+| `pico` (no args) | REPL |
+| `pico build [--target t] [--release]` | ahead-of-time build to native or wasm |
+| `pico test [filter]` | run `*.test.pi` |
+| `pico bench [filter]` | run `bench()` cases in `*.bench.pi` / `*.test.pi` |
+| `pico symbolize file` | resolve release stack traces using the debug file |
+| `pico fmt [--check]` | format sources |
+| `pico lint` | lints: naming, unused code, complexity, blank lines, docs (§14.7) |
+| `pico init` | create `project.json` and `src/main.pi` |
+| `pico add pkg[@ver]` / `pico remove pkg` | manage dependencies |
+| `pico publish` | publish to the registry |
+| `pico lsp` | language server (stdio), used by the VS Code extension |
+| `pico doc` | generate HTML API docs from doc comments: the package's `index.pi` (`--std`: the standard and core libraries; `--out dir`, default `target/doc`; decision 294) |
 
 ## 14.2 Diagnostics
 Errors are Elm/Rust-style: the error code, a snippet with the source span marked, an explanation
 and a suggested fix.
 ```
 error[E0308]: mismatched types
-  ┌─ src/main.ppl:4:19
+  ┌─ src/main.pi:4:19
   │
 4 │ const m: Meters = new Feet(3)
   │          ------   ^^^^^^^^^^^ expected `Meters`, found `Feet`
   │          │
   │          expected because of this annotation
   │
-  = note: `Meters` and `Feet` have the same shape, but ppl types are nominal
+  = note: `Meters` and `Feet` have the same shape, but pico types are nominal
   = help: convert explicitly: `Meters.fromFeet(new Feet(3))`
 ```
-`ppl explain E0308` prints the long-form explanation.
+`pico explain E0308` prints the long-form explanation.
 
 ## 14.3 Testing
-Tests live in `*.test.ppl` files and use a Vitest-like API:
+Tests live in `*.test.pi` files and use a Vitest-like API:
 ```ts
 import { describe, test, expect, beforeEach } from "std/test"
 import { add } from "./math"
@@ -54,15 +54,15 @@ describe("add", () => {
   })
 })
 ```
-Tests run in parallel, one isolated process per file (`ppl test [paths] [-t filter] [--interp]
-[--watch] [-j jobs]`; it finds `*.test.ppl` files under the paths). Coverage is planned.
+Tests run in parallel, one isolated process per file (`pico test [paths] [-t filter] [--interp]
+[--watch] [-j jobs]`; it finds `*.test.pi` files under the paths). Coverage is planned.
 
 - Registering: `describe(name, fn)` (nesting; names show as `group > test`), `test`/`it(name,
   fn)` with a function or an `async function` (passed by name: there are no async lambdas yet),
   `skip`, `only` and `todo`, and the hooks `beforeEach`, `afterEach`, `beforeAll`, `afterAll`.
   The tests run once the file's top level is done, in order; the file prints one line per test
-  and `ppl-test: N passed, M failed, K skipped`, and exits with 1 when any failed. So
-  `ppl run x.test.ppl` runs a single file too.
+  and `pico-test: N passed, M failed, K skipped`, and exits with 1 when any failed. So
+  `pico run x.test.pi` runs a single file too.
 - `expect(v)` picks matchers by type: numbers and `int`s (`toBe`, `toEqual`, `toBeGreaterThan`,
   `toBeLessThan`, `…OrEqual`, `toBeCloseTo(x, digits)`, `toBeNaN`), strings (`toContain`,
   `toMatch(re)`, `toHaveLength`), `bool`s (`toBeTruthy`, `toBeFalsy`), arrays (`toEqual`,
@@ -72,49 +72,49 @@ Tests run in parallel, one isolated process per file (`ppl test [paths] [-t filt
   their debug form (a class by its string form), so `toBe` doesn't test identity.
 - A failed expectation stops the test (in an async test, after an `await`, it's recorded and the
   test continues). A panic or an exception escaping the test fails it, and the file goes on.
-- Environment: `PPL_TEST_FILTER`, `PPL_TEST_MODE=bench` and `PPL_TEST_TIMES=0` (no durations).
+- Environment: `PICO_TEST_FILTER`, `PICO_TEST_MODE=bench` and `PICO_TEST_TIMES=0` (no durations).
 
 ### Benchmarks
 ```ts
 import { bench } from "std/test"
 bench("sort 10k", () => data.slice().sort())    // warmup + adaptive iterations; mean/median/stddev
 ```
-`ppl bench [paths]` runs the benchmarks in `*.bench.ppl` and `*.test.ppl` files, one file at a
+`pico bench [paths]` runs the benchmarks in `*.bench.pi` and `*.test.pi` files, one file at a
 time and optimized: a warm-up that doubles the iterations until a batch takes 20 ms, then 20
 samples of about 25 ms; it prints mean, median and standard deviation per iteration.
-`ppl test` and `ppl run` skip benchmarks.
+`pico test` and `pico run` skip benchmarks.
 
 ## 14.4 Formatter
 A Prettier-like style with **a few options**, set in `project.json`:
 ```json
 { "fmt": { "indent": 2, "lineWidth": 100, "quotes": "double", "semicolons": false } }
 ```
-`ppl fmt --check` lists the files that aren't formatted and fails if there are any. The formatter
+`pico fmt --check` lists the files that aren't formatted and fails if there are any. The formatter
 rewrites only the whitespace between tokens (comments are kept): indentation, spacing around
 commas and brackets, blank lines and quotes; it doesn't break long lines or change semicolons
 yet, and skips files with syntax errors. Decision 265.
 
 ## 14.5 Debugging
-Debug builds (`ppl build` without `--release`) emit DWARF (CodeView on Windows): a line table
-for every ppl source, the core library's too, so breakpoints by file and line and backtraces
-work in lldb and gdb; on macOS the DWARF goes into `program.dSYM`. `ppl dap` is a Debug Adapter Protocol server
+Debug builds (`pico build` without `--release`) emit DWARF (CodeView on Windows): a line table
+for every pico source, the core library's too, so breakpoints by file and line and backtraces
+work in lldb and gdb; on macOS the DWARF goes into `program.dSYM`. `pico dap` is a Debug Adapter Protocol server
 (on top of lldb-dap) that the VS Code extension uses for breakpoints, stepping, watches and
-pretty-printing of ppl values (strings, arrays, maps, sets, enums): a `launch` whose `program`
-is a `.ppl` file builds it first, and lldb loads ppl's formatters. Decisions 280–282.
+pretty-printing of pico values (strings, arrays, maps, sets, enums): a `launch` whose `program`
+is a `.pi` file builds it first, and lldb loads pico's formatters. Decisions 280–282.
 
 ## 14.6 Builds
-- **Incremental**: `ppl build` keeps a fingerprint of each output: the compiler, the options and
+- **Incremental**: `pico build` keeps a fingerprint of each output: the compiler, the options and
   target, and the content of every input (the entry, the modules it imports, the standard
   library modules it uses, files read by `comptime` code, `project.json`). When none changed and
   the output is still the one it built, the build does nothing (`--force` builds anyway).
   Programs that import C headers or JavaScript modules, and browser builds, always build.
   Planned: code generation per module (the core library and each module as object files of
   their own), cached by content. Decision 279.
-- **Single binary**: the `ppl` executable bundles LLVM, lld, libclang (for `c:` imports), the
+- **Single binary**: the `pico` executable bundles LLVM, lld, libclang (for `c:` imports), the
   runtime and the stdlib sources.
 
 ## 14.7 Lint
-`ppl lint` checks the project's modules and reports **warnings** (as `W0xxx` diagnostics, like
+`pico lint` checks the project's modules and reports **warnings** (as `W0xxx` diagnostics, like
 the compiler's errors); it exits with status 1 when there are any. The language server shows
 them in the editor too. Rules are set in `project.json`'s `"lint"`:
 ```json
@@ -137,4 +137,4 @@ each `&&`, `||` and `??`. A closure counts as a function of its own and adds not
 function around it.
 
 `if` and `match` in expression position (`const x = if (c) 1 else 2`) don't need a blank line.
-`ppl fmt` doesn't insert the blank lines. Decision 277.
+`pico fmt` doesn't insert the blank lines. Decision 277.

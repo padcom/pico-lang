@@ -39,13 +39,13 @@ Threads are **strictly isolated**: each worker has its own heap and its own modu
 and workers share nothing. The API is the same as Web Workers, so code runs unchanged in the
 browser.
 ```ts
-// main.ppl
+// main.pi
 const w = new Worker<Job, Result>("./job")
 w.onmessage = (r: Result) => println(`done: ${r.value}`)
 w.onerror = (e: WorkerPanicked) => println(`worker died: ${e.message}`)
 w.postMessage(Job { id: 1, data: [1, 2, 3] })
 
-// job.ppl
+// job.pi
 import { self } from "std/worker"
 self.onmessage = (job: Job) => {
   self.postMessage(Result { value: job.data.sum() })
@@ -128,7 +128,7 @@ const res = await fetch(url, { signal: ac.signal })    // throws HttpError | Abo
 - `AbortController` (`signal`, `abort(reason?: Error)`), `AbortSignal` (`aborted`, `reason`,
   `onabort`, `addEventListener("abort", f)`, `throwIfAborted()`, static `abort(reason?)` and
   `timeout(ms)`) and `AbortError` are globals. The `reason` is always an `AbortError`; the
-  reason passed to `abort` becomes its `cause` (Web code may abort with any value; ppl keeps the
+  reason passed to `abort` becomes its `cause` (Web code may abort with any value; pico keeps the
   thrown type precise instead).
 - Timers: `import { delay } from "std/timers"`; `delay(ms, signal?)` is a
   `Promise<void, AbortError>` that rejects (and clears its timer) when the signal aborts, at once

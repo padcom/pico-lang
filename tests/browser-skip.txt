@@ -1,5 +1,5 @@
 # Golden fixtures (name prefixes) that wasm32-browser can't run, with why (spec §12.3, §13.3).
-# `PPL_TEST_TARGET=wasm32-browser` reports them as pending; they run under Node.js through the
+# `PICO_TEST_TARGET=wasm32-browser` reports them as pending; they run under Node.js through the
 # generated glue.
 run/fs/              no file system in the browser
 run/process/         Command isn't available in the browser (spec §13.3)

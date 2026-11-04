@@ -4,19 +4,19 @@
 # Values that are already set in the environment are kept.
 
 if command -v brew >/dev/null 2>&1; then
-  _ppl_brew="$(brew --prefix)"
-  : "${PPL_RUSTUP_BIN:=$_ppl_brew/opt/rustup/bin}"
-  : "${LLVM_SYS_231_PREFIX:=$_ppl_brew/opt/llvm@23}"
-  unset _ppl_brew
+  _pico_brew="$(brew --prefix)"
+  : "${PICO_RUSTUP_BIN:=$_pico_brew/opt/rustup/bin}"
+  : "${LLVM_SYS_231_PREFIX:=$_pico_brew/opt/llvm@23}"
+  unset _pico_brew
 elif [ -d /usr/lib/llvm-23 ]; then
   : "${LLVM_SYS_231_PREFIX:=/usr/lib/llvm-23}"
 fi
-if [ -z "${PPL_RUSTUP_BIN:-}" ] && [ -d "$HOME/.cargo/bin" ]; then
-  PPL_RUSTUP_BIN="$HOME/.cargo/bin"
+if [ -z "${PICO_RUSTUP_BIN:-}" ] && [ -d "$HOME/.cargo/bin" ]; then
+  PICO_RUSTUP_BIN="$HOME/.cargo/bin"
 fi
 
-if [ -n "${PPL_RUSTUP_BIN:-}" ] && [ -d "$PPL_RUSTUP_BIN" ]; then
-  case ":$PATH:" in *":$PPL_RUSTUP_BIN:"*) ;; *) PATH="$PPL_RUSTUP_BIN:$PATH" ;; esac
+if [ -n "${PICO_RUSTUP_BIN:-}" ] && [ -d "$PICO_RUSTUP_BIN" ]; then
+  case ":$PATH:" in *":$PICO_RUSTUP_BIN:"*) ;; *) PATH="$PICO_RUSTUP_BIN:$PATH" ;; esac
 fi
 if [ -n "${LLVM_SYS_231_PREFIX:-}" ] && [ -d "$LLVM_SYS_231_PREFIX/bin" ]; then
   case ":$PATH:" in *":$LLVM_SYS_231_PREFIX/bin:"*) ;; *) PATH="$LLVM_SYS_231_PREFIX/bin:$PATH" ;; esac

@@ -1,4 +1,4 @@
-# A tour of ppl
+# A tour of pico
 
 One example (or a few) for every language feature, in the order of the spec chapters. It's meant
 to be read top to bottom, to show how the language looks and feels. The rules themselves live in
@@ -110,11 +110,11 @@ backtick form interpolates.
 
 ````ts
 const help = """
-    Usage: ppl <command>
+    Usage: pico <command>
       build   compile the project
       run     build and run
     """
-// "Usage: ppl <command>\n  build   compile the project\n  run     build and run"
+// "Usage: pico <command>\n  build   compile the project\n  run     build and run"
 
 const page = ```
     <h1>${title}</h1>
@@ -148,7 +148,7 @@ const bad = `${x:.2q}`            // error: invalid format spec
 // line comment
 /* block comment (not nested) */
 
-/** Doc comment, picked up by `ppl doc`. */
+/** Doc comment, picked up by `pico doc`. */
 function documented() {}
 ```
 
@@ -622,12 +622,12 @@ const later = 1
 
 ### Top-level code
 ```ts
-// main.ppl (entry module): behaves like the body of main()
+// main.pi (entry module): behaves like the body of main()
 let verbose = false               // `let` is allowed here
 function log(msg: string) { if (verbose) println(msg) }   // functions can use it
 verbose = args.includes("-v")
 
-// util.ppl (library module): only `const`
+// util.pi (library module): only `const`
 const cache = new Map<string, i32>()   // ok: per thread, each worker gets its own
 let counter = 0                        // error: module-level `let` in a library module
 ```
@@ -1025,7 +1025,7 @@ Panics unwind and run `finally` blocks, but `catch` can't catch them. On the mai
 the process with the message and a stack trace:
 ```
 panic: index out of bounds: the length is 3 but the index is 5
-  at main (src/main.ppl:4:1)
+  at main (src/main.pi:4:1)
 ```
 
 ---
@@ -1034,14 +1034,14 @@ panic: index out of bounds: the length is 3 but the index is 5
 [Spec 08](spec/08-modules-packages.md)
 
 ```ts
-// geometry.ppl
+// geometry.pi
 export struct Vec2 { x: f32; y: f32 }
 export function dot(a: Vec2, b: Vec2): f32 { a.x * b.x + a.y * b.y }
 export const ORIGIN = Vec2 { x: 0, y: 0 }
 function helper() { … }                   // module-private
 
-// main.ppl
-import { Vec2, dot } from "./geometry"    // extensionless: ./geometry.ppl or ./geometry/index.ppl
+// main.pi
+import { Vec2, dot } from "./geometry"    // extensionless: ./geometry.pi or ./geometry/index.pi
 import * as geo from "./geometry"
 import { dot as dotProduct } from "./geometry"
 import { readText } from "std/fs"         // standard library
@@ -1055,10 +1055,10 @@ There's no `export default`.
 
 Initialization cycles across modules are a compile error:
 ```ts
-// a.ppl
+// a.pi
 import { B } from "./b"
 export const A = B + 1                    // error: initialization cycle a -> b -> a
-// b.ppl
+// b.pi
 import { A } from "./a"
 export const B = A + 1
 ```
@@ -1071,10 +1071,10 @@ Globals that need no import: `print`, `println`, `assert`, `panic`, `Math`, `JSO
 {
   "name": "padcom/http-router",
   "version": "0.3.1",
-  "entry": "src/main.ppl",
+  "entry": "src/main.pi",
   "dependencies": {
     "padcom/json-schema": "^1.2.0",
-    "sdl": { "git": "https://github.com/someone/ppl-sdl", "tag": "v2.0.0" }
+    "sdl": { "git": "https://github.com/someone/pico-sdl", "tag": "v2.0.0" }
   },
   "devDependencies": {},
   "targets": ["native", "wasm32-browser", "wasm32-wasi"]
@@ -1087,9 +1087,9 @@ A workspace:
 ```
 
 ```sh
-ppl add padcom/json-schema@^1.2   # registry
-ppl remove padcom/json-schema
-ppl publish                       # tag + PR against the GitHub index
+pico add padcom/json-schema@^1.2   # registry
+pico remove padcom/json-schema
+pico publish                       # tag + PR against the GitHub index
 ```
 
 ---
@@ -1172,7 +1172,7 @@ ptr.of(x)                                 // error: pointers need `unsafe`
 
 ### `--no-gc`
 ```ts
-// ppl build --no-gc
+// pico build --no-gc
 struct Sensor { id: u8; value: f32 }
 
 function report(s: Sensor): StrBuf<64> {
@@ -1219,7 +1219,7 @@ queueMicrotask(() => println("soon"))
 
 ### Workers
 ```ts
-// main.ppl
+// main.pi
 struct Job { id: i32; data: i64[] }
 struct Result { value: i64 }
 
@@ -1229,7 +1229,7 @@ w.onerror = (e: WorkerPanicked) => println(`worker died: ${e.message}`)
 w.postMessage(Job { id: 1, data: [1, 2, 3] })   // deep-copied into the worker's heap
 w.terminate()
 
-// job.ppl
+// job.pi
 import { self } from "std/worker"
 self.onmessage = (job: Job) => {
   self.postMessage(Result { value: job.data.sum() })
@@ -1429,7 +1429,7 @@ SDL_Delay(16)
 
 unsafe {
   const win = SDL_CreateWindow("game", 0, 0, 800, 600, 0)   // returns ptr<T>: needs unsafe
-  const err = string.fromC(SDL_GetError())                  // copy a C string into a ppl string
+  const err = string.fromC(SDL_GetError())                  // copy a C string into a pico string
 }
 
 SDL_CreateWindow("x", 0, 0, 1, 1, 0)      // error: pointer-returning FFI call outside unsafe
@@ -1450,11 +1450,11 @@ println(m.cbrt(27.0))
 ### Export to C
 ```ts
 @export("c")
-export function ppl_hash(data: ptr<u8>, len: usize): u64 { … }
+export function pico_hash(data: ptr<u8>, len: usize): u64 { … }
 ```
 ```sh
-ppl build --lib static            # libfoo.a + foo.h
-ppl build --lib shared            # .so / .dylib / .dll + foo.h
+pico build --lib static            # libfoo.a + foo.h
+pico build --lib shared            # .so / .dylib / .dll + foo.h
 ```
 
 ### JavaScript (wasm32-browser)
@@ -1474,7 +1474,7 @@ const n = v.as<f64>()                         // throws JsError on mismatch
 export function render(state: AppState): string { … }
 ```
 ```sh
-ppl build --target wasm32-browser # app.wasm, app.js (ESM glue), app.d.ts
+pico build --target wasm32-browser # app.wasm, app.js (ESM glue), app.d.ts
 ```
 ```js
 // in JavaScript
@@ -1497,7 +1497,7 @@ const res = await fetch("https://api.example.com/users", {
 })
 const users = await res.json<User[]>()   // typed, generated like JSON.parse<T>
 
-const url = new URL("https://x.dev/search?q=ppl")
+const url = new URL("https://x.dev/search?q=pico")
 println(url.searchParams.get("q"))
 
 const bytes = new TextEncoder().encode("żółw")
@@ -1517,7 +1517,7 @@ import { args, env, exit, cwd, Command } from "std/process"
 await mkdir(join(cwd(), "out"))
 await writeText("out/hello.txt", "hi")
 for await (const entry of readDir(".")) {
-  if (extname(entry.name) == ".ppl") println(basename(entry.name))
+  if (extname(entry.name) == ".pi") println(basename(entry.name))
 }
 
 await using f = await open("data.bin")
@@ -1579,7 +1579,7 @@ const q = new PriorityQueue<Task>((a, b) => a.priority - b.priority)
 const model = Mat4.translation(Vec3 { x: 1, y: 0, z: 0 }) * Mat4.rotation(Quat.identity())
 
 const words = "  a,b ,c  ".trim().split(",").map(s => s.trim())
-println("ppl".padStart(5, "*"), "abc".toUpperCase(), "abc".includes("b"))
+println("pico".padStart(5, "*"), "abc".toUpperCase(), "abc".includes("b"))
 
 const nums = [5, 3, 8]
 nums.sort()
@@ -1605,25 +1605,25 @@ println(`${Money { cents: 1234 }}`)     // $12.34
 [Spec 14](spec/14-tooling-cli.md)
 
 ```sh
-ppl                               # REPL
-ppl run script.ppl arg1           # JIT and run
-ppl build --release               # native executable
-ppl build --target wasm32-wasi
-ppl test                          # every *.test.ppl
-ppl test parser --watch
-ppl bench sort
-ppl fmt --check
-ppl lint
-ppl init
-ppl doc
-ppl lsp                           # used by the VS Code extension
-ppl explain E0308
-ppl symbolize crash.txt           # resolve a release stack trace
+pico                               # REPL
+pico run script.pi arg1           # JIT and run
+pico build --release               # native executable
+pico build --target wasm32-wasi
+pico test                          # every *.test.pi
+pico test parser --watch
+pico bench sort
+pico fmt --check
+pico lint
+pico init
+pico doc
+pico lsp                           # used by the VS Code extension
+pico explain E0308
+pico symbolize crash.txt           # resolve a release stack trace
 ```
 
 ### Tests and benchmarks
 ```ts
-// math.test.ppl
+// math.test.pi
 import { describe, test, expect, beforeEach, bench } from "std/test"
 import { add, load } from "./math"
 
@@ -1651,14 +1651,14 @@ bench("sort 10k", () => data.slice().sort())
 ### Diagnostics
 ```
 error[E0308]: mismatched types
-  ┌─ src/main.ppl:4:19
+  ┌─ src/main.pi:4:19
   │
 4 │ const m: Meters = new Feet(3)
   │          ------   ^^^^^^^^^^^ expected `Meters`, found `Feet`
   │          │
   │          expected because of this annotation
   │
-  = note: `Meters` and `Feet` have the same shape, but ppl types are nominal
+  = note: `Meters` and `Feet` have the same shape, but pico types are nominal
   = help: convert explicitly: `Meters.fromFeet(new Feet(3))`
 ```
 
@@ -1673,13 +1673,13 @@ error[E0308]: mismatched types
 [Spec 15](spec/15-targets.md)
 
 ```sh
-ppl build --target linux-x64              # x86_64-unknown-linux-gnu, glibc 2.31 stubs
-ppl build --target x86_64-unknown-linux-gnu.2.35   # pick the glibc version
-ppl build --target linux-arm64-musl       # fully static
-ppl build --target macos-x64
-ppl build --target windows-x64            # MinGW ABI, from any host
-ppl build --target wasm32-browser
-ppl build --target wasm32-wasi
+pico build --target linux-x64              # x86_64-unknown-linux-gnu, glibc 2.31 stubs
+pico build --target x86_64-unknown-linux-gnu.2.35   # pick the glibc version
+pico build --target linux-arm64-musl       # fully static
+pico build --target macos-x64
+pico build --target windows-x64            # MinGW ABI, from any host
+pico build --target wasm32-browser
+pico build --target wasm32-wasi
 ```
 
 ### Platform-specific code
@@ -1689,10 +1689,10 @@ const sep = comptime if (target.os == "windows") "\\" else "/"
 println(`built for ${target.triple} (${build.mode})`)
 ```
 ```
-storage.ppl          # default
-storage.linux.ppl    # used on Linux
-storage.windows.ppl  # used on Windows
-storage.wasm.ppl     # used on wasm targets
+storage.pi          # default
+storage.linux.pi    # used on Linux
+storage.windows.pi  # used on Windows
+storage.wasm.pi     # used on wasm targets
 ```
 ```ts
 import { save } from "./storage"          // picks the right file for the target

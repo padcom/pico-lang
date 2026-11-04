@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Rebuilds third_party/zig-libc/include/any-macos-any as the subset of Zig's macOS headers
-# that ppl compiles against (the runtime and Mbed TLS), for macos-x64 and macos-arm64.
+# that pico compiles against (the runtime and Mbed TLS), for macos-x64 and macos-arm64.
 #
 #   scripts/prune-macos-headers.sh <zig-source-dir>
 #
@@ -17,16 +17,16 @@ dest=third_party/zig-libc/include/any-macos-any
 rm -rf "$dest" && cp -r "$full" "$dest"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-export TMPDIR="$work" PPL_DEPFILES=1
-printf 'println("hello")\n' > "$work/hello.ppl"
-cargo build -q -p ppl-cli
+export TMPDIR="$work" PICO_DEPFILES=1
+printf 'println("hello")\n' > "$work/hello.pi"
+cargo build -q -p pico-cli
 for t in macos-x64 macos-arm64; do
-  ./target/debug/ppl build --target "$t" "$work/hello.ppl" -o "$work/hello-$t"
+  ./target/debug/pico build --target "$t" "$work/hello.pi" -o "$work/hello-$t"
 done
 
 # Every header a dependency file names, relative to the header directory.
 abs=$(cd "$dest" && pwd)
-find "$work/ppl-cache" -name '*.d' -print0 | xargs -0 cat | tr ' \\' '\n\n' \
+find "$work/pico-cache" -name '*.d' -print0 | xargs -0 cat | tr ' \\' '\n\n' \
   | grep -F "any-macos-any/" | sed "s|.*any-macos-any/||" | sort -u > "$work/keep"
 [ -s "$work/keep" ] || { echo "no dependencies recorded" >&2; exit 1; }
 (cd "$abs" && find . -type f | sed 's|^\./||' | sort) > "$work/all"

@@ -1,0 +1,149 @@
+---
+source: crates/pico-driver/tests/mir.rs
+expression: "mir(r#\"\nfunction sum(n: i64): i64 {\n  let total = 0\n  for (let i = 0; i < n; i++) {\n    if (i % 2 == 0) continue\n    total += i\n  }\n  while (total > 100) total -= 1\n  do { total += 1 } while (total < 5)\n  total\n}\nfor (const i of 0..3) println(i)\n\"#)"
+---
+global @g0: () => bool[]? // __finalizationRegistries
+global @g1: __Loop? // __loop
+global @g2: FinalizationRegistry<i64>? // __buffers
+global @g3: Map<string, __Zone>? // __zoneCache
+global @g4: Performance // performance
+global @g5: __Xoshiro128? // __mathRng
+global @g6: Crypto // crypto
+global @g7: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g8: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g9: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g10: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g11: i64 // Float64Array.BYTES_PER_ELEMENT
+
+fn sum(_0: i64) -> i64 {
+    let _1: i64 // total
+    let _2: i64 // i
+    let _3: bool
+    let _4: i64
+    let _5: bool
+    let _6: i64
+    let _7: i64
+    let _8: bool
+    let _9: bool
+  bb0:
+    _1 = const 0_i64
+    _2 = const 0_i64
+    goto bb1
+  bb1:
+    _3 = Lt(_2, _0)
+    branch _3 -> [true: bb2, false: bb4]
+  bb2:
+    _4 = Rem(_2, const 2_i64)
+    _5 = Eq(_4, const 0_i64)
+    branch _5 -> [true: bb5, false: bb6]
+  bb3:
+    _6 = _2
+    _7 = Add(_6, const 1_i64)
+    _2 = _7
+    goto bb1
+  bb4:
+    goto bb9
+  bb5:
+    goto bb3
+  bb6:
+    goto bb7
+  bb7:
+    _1 = Add(_1, _2)
+    goto bb3
+  bb8:
+    unreachable
+  bb9:
+    _8 = Gt(_1, const 100_i64)
+    branch _8 -> [true: bb10, false: bb11]
+  bb10:
+    _1 = Sub(_1, const 1_i64)
+    goto bb9
+  bb11:
+    goto bb13
+  bb12:
+    _9 = Lt(_1, const 5_i64)
+    branch _9 -> [true: bb13, false: bb14]
+  bb13:
+    _1 = Add(_1, const 1_i64)
+    goto bb12
+  bb14:
+    return _1
+}
+
+fn Uint8Array.<static>() -> void {
+  bb0:
+    @g7 = const 1_i64
+    return
+}
+
+fn Int32Array.<static>() -> void {
+  bb0:
+    @g8 = const 4_i64
+    return
+}
+
+fn Uint32Array.<static>() -> void {
+  bb0:
+    @g9 = const 4_i64
+    return
+}
+
+fn Float32Array.<static>() -> void {
+  bb0:
+    @g10 = const 4_i64
+    return
+}
+
+fn Float64Array.<static>() -> void {
+  bb0:
+    @g11 = const 8_i64
+    return
+}
+
+fn <main>() -> void {
+    let _0: i64 // i
+    let _1: Performance
+    let _2: SubtleCrypto
+    let _3: Crypto
+    let _4: i64
+    let _5: i64
+    let _6: bool
+  bb0:
+    call Uint8Array.<static>() -> bb1
+  bb1:
+    call Int32Array.<static>() -> bb2
+  bb2:
+    call Uint32Array.<static>() -> bb3
+  bb3:
+    call Float32Array.<static>() -> bb4
+  bb4:
+    call Float64Array.<static>() -> bb5
+  bb5:
+    @g0 = const null<() => bool[]?>
+    @g1 = const null<__Loop?>
+    @g2 = const null<FinalizationRegistry<i64>?>
+    @g3 = const null<Map<string, __Zone>?>
+    _1 = struct#112{}
+    @g4 = _1
+    @g5 = const null<__Xoshiro128?>
+    _2 = struct#123{}
+    _3 = struct#124{_2}
+    @g6 = _3
+    _5 = const 0_i64
+    goto bb6
+  bb6:
+    _6 = Lt(_5, const 3_i64)
+    branch _6 -> [true: bb7, false: bb9]
+  bb7:
+    _0 = _5
+    call builtin println(_0) -> bb10
+  bb8:
+    _5 = Add(_5, const 1_i64)
+    goto bb6
+  bb9:
+    goto bb11
+  bb10:
+    goto bb8
+  bb11:
+    return
+}

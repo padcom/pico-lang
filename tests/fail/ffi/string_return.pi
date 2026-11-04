@@ -1,0 +1,5 @@
+// error: E0355
+// Spec §12.1: C can't return a pico `string`: it returns `ptr<u8>`, copied with `string.fromC`.
+extern "C" {
+  function getenv(name: string): string
+}

@@ -476,54 +476,54 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "ppl-cli"
+name = "pico-cli"
 version = "0.1.0"
 dependencies = [
  "addr2line",
  "clap",
  "object",
- "ppl-codegen",
- "ppl-diag",
- "ppl-driver",
- "ppl-lint",
- "ppl-lsp",
- "ppl-mir",
- "ppl-sema",
- "ppl-syntax",
+ "pico-codegen",
+ "pico-diag",
+ "pico-driver",
+ "pico-lint",
+ "pico-lsp",
+ "pico-mir",
+ "pico-sema",
+ "pico-syntax",
  "pulldown-cmark",
  "serde_json",
 ]
 
 [[package]]
-name = "ppl-codegen"
+name = "pico-codegen"
 version = "0.1.0"
 dependencies = [
  "inkwell",
- "ppl-mir",
- "ppl-sema",
+ "pico-mir",
+ "pico-sema",
  "wasm-encoder 0.263.0",
 ]
 
 [[package]]
-name = "ppl-diag"
+name = "pico-diag"
 version = "0.1.0"
 dependencies = [
  "insta",
 ]
 
 [[package]]
-name = "ppl-driver"
+name = "pico-driver"
 version = "0.1.0"
 dependencies = [
  "insta",
- "ppl-codegen",
- "ppl-diag",
- "ppl-interp",
- "ppl-lld",
- "ppl-mir",
- "ppl-runtime",
- "ppl-sema",
- "ppl-syntax",
+ "pico-codegen",
+ "pico-diag",
+ "pico-interp",
+ "pico-lld",
+ "pico-mir",
+ "pico-runtime",
+ "pico-sema",
+ "pico-syntax",
  "serde_json",
  "sha2",
  "wit-component 0.263.0",
@@ -531,33 +531,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "ppl-golden-run"
+name = "pico-golden-run"
 version = "0.1.0"
 
 [[package]]
-name = "ppl-interp"
+name = "pico-interp"
 version = "0.1.0"
 dependencies = [
- "ppl-diag",
- "ppl-mir",
- "ppl-runtime",
- "ppl-sema",
+ "pico-diag",
+ "pico-mir",
+ "pico-runtime",
+ "pico-sema",
 ]
 
 [[package]]
-name = "ppl-lint"
+name = "pico-lint"
 version = "0.1.0"
 dependencies = [
  "insta",
- "ppl-diag",
- "ppl-driver",
- "ppl-sema",
- "ppl-syntax",
+ "pico-diag",
+ "pico-driver",
+ "pico-sema",
+ "pico-syntax",
  "serde_json",
 ]
 
 [[package]]
-name = "ppl-lld"
+name = "pico-lld"
 version = "0.1.0"
 dependencies = [
  "cc",
@@ -565,66 +565,66 @@ dependencies = [
 ]
 
 [[package]]
-name = "ppl-lsp"
+name = "pico-lsp"
 version = "0.1.0"
 dependencies = [
- "ppl-diag",
- "ppl-driver",
- "ppl-lint",
- "ppl-sema",
- "ppl-syntax",
+ "pico-diag",
+ "pico-driver",
+ "pico-lint",
+ "pico-sema",
+ "pico-syntax",
  "serde_json",
 ]
 
 [[package]]
-name = "ppl-mir"
+name = "pico-mir"
 version = "0.1.0"
 dependencies = [
  "insta",
- "ppl-diag",
- "ppl-sema",
- "ppl-syntax",
+ "pico-diag",
+ "pico-sema",
+ "pico-syntax",
 ]
 
 [[package]]
-name = "ppl-runtime"
+name = "pico-runtime"
 version = "0.1.0"
 dependencies = [
  "cc",
- "ppl-interp",
+ "pico-interp",
 ]
 
 [[package]]
-name = "ppl-sema"
+name = "pico-sema"
 version = "0.1.0"
 dependencies = [
  "insta",
- "ppl-diag",
- "ppl-syntax",
+ "pico-diag",
+ "pico-syntax",
 ]
 
 [[package]]
-name = "ppl-syntax"
+name = "pico-syntax"
 version = "0.1.0"
 dependencies = [
  "insta",
- "ppl-diag",
+ "pico-diag",
  "unicode-ident",
 ]
 
 [[package]]
-name = "ppl-tests"
+name = "pico-tests"
 version = "0.1.0"
 dependencies = [
- "ppl-diag",
- "ppl-driver",
- "ppl-lint",
- "ppl-syntax",
+ "pico-diag",
+ "pico-driver",
+ "pico-lint",
+ "pico-syntax",
  "serde_json",
 ]
 
 [[package]]
-name = "ppl-wasi-bindgen"
+name = "pico-wasi-bindgen"
 version = "0.1.0"
 dependencies = [
  "anyhow",

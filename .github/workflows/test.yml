@@ -82,14 +82,14 @@ jobs:
       - name: Golden tests for ${{ matrix.target }}
         run: |
           source scripts/env.sh
-          PPL_TEST_TARGET=${{ matrix.target }} cargo test --quiet -p ppl-tests --test golden
+          PICO_TEST_TARGET=${{ matrix.target }} cargo test --quiet -p pico-tests --test golden
 
       # The WasmGC backend (P8.7): what it can't compile yet is pending.
       - name: Golden tests on the WasmGC backend
         if: matrix.target == 'wasm32-browser'
         run: |
           source scripts/env.sh
-          PPL_BACKEND=wasmgc PPL_TEST_TARGET=wasm32-browser cargo test --quiet -p ppl-tests --test golden
+          PICO_BACKEND=wasmgc PICO_TEST_TARGET=wasm32-browser cargo test --quiet -p pico-tests --test golden
 
   # macOS programs built on Linux (P8.4: lld and the bundled libSystem.tbd), run on a Mac.
   macos-build:
@@ -113,8 +113,8 @@ jobs:
       - name: Build the golden tests for ${{ matrix.target }}
         run: |
           source scripts/env.sh
-          PPL_TEST_TARGET=${{ matrix.target }} PPL_TEST_EXPORT=$PWD/golden-${{ matrix.target }} \
-            cargo test --quiet -p ppl-tests --test golden -- export
+          PICO_TEST_TARGET=${{ matrix.target }} PICO_TEST_EXPORT=$PWD/golden-${{ matrix.target }} \
+            cargo test --quiet -p pico-tests --test golden -- export
 
       - uses: actions/upload-artifact@v4
         with:
@@ -149,7 +149,7 @@ jobs:
       - name: Run the golden tests
         run: |
           chmod +x golden-${{ matrix.target }}/* || true
-          cargo run --quiet --release -p ppl-golden-run -- golden-${{ matrix.target }}
+          cargo run --quiet --release -p pico-golden-run -- golden-${{ matrix.target }}
 
   # Windows programs are built on Linux and run on Windows (decision 248).
   windows-build:
@@ -173,8 +173,8 @@ jobs:
       - name: Build the golden tests for ${{ matrix.target }}
         run: |
           source scripts/env.sh
-          PPL_TEST_TARGET=${{ matrix.target }} PPL_TEST_EXPORT=$PWD/golden-${{ matrix.target }} \
-            cargo test --quiet -p ppl-tests --test golden -- export
+          PICO_TEST_TARGET=${{ matrix.target }} PICO_TEST_EXPORT=$PWD/golden-${{ matrix.target }} \
+            cargo test --quiet -p pico-tests --test golden -- export
 
       - uses: actions/upload-artifact@v4
         with:
@@ -213,4 +213,4 @@ jobs:
           $tools = "C:\Program Files\Git\usr\bin"
           if (-not (Test-Path "$tools\cat.exe")) { throw "no POSIX tools at $tools" }
           $env:PATH = "$env:PATH;$tools"
-          cargo run --quiet --release -p ppl-golden-run -- golden-${{ matrix.target }}
+          cargo run --quiet --release -p pico-golden-run -- golden-${{ matrix.target }}

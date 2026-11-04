@@ -1,4 +1,4 @@
-# mingw-w64 sources ppl compiles into libmingw32, per section, from Zig 0.15.1's
+# mingw-w64 sources pico compiles into libmingw32, per section, from Zig 0.15.1's
 # src/libs/mingw.zig (mingw32_*_src). [x86] is for x86-64 (Zig's x86_32 list isn't used),
 # [arm] and [arm64] are for aarch64. Paths are relative to mingw/.
 

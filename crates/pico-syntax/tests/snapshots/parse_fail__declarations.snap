@@ -1,0 +1,23 @@
+---
+source: crates/pico-syntax/tests/parse_fail.rs
+expression: "render_all(&diags, &sm)"
+---
+error[E0100]: expected a property name, found integer literal
+  ┌─ parse/declarations.pi:7:10
+  │
+7 │   public 42
+  │          ^^ expected a property name
+
+error[E0100]: expected `:`, `=` or `(` after the member name, found newline
+   ┌─ parse/declarations.pi:13:4
+   │
+13 │   y
+   │    ^ expected `:`, `=` or `(` after the member name here
+
+error[E0100]: expected `)`, found identifier `h`
+   ┌─ parse/declarations.pi:19:15
+   │
+19 │   Rect(w: f64 h: f64),
+   │       -       ^ expected `)`
+   │       │
+   │       to close this

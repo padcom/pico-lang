@@ -12,7 +12,7 @@ _start:
     pushq %rax                      /* keep the stack 16-byte aligned */
     pushq %rsp                      /* stack_end */
     xorl %r8d, %r8d                 /* fini: ld.so runs .fini_array itself */
-    leaq ppl_glibc_init(%rip), %rcx /* init */
+    leaq pico_glibc_init(%rip), %rcx /* init */
     movq main@GOTPCREL(%rip), %rdi
     call *__libc_start_main@GOTPCREL(%rip)
     hlt

@@ -1,0 +1,17 @@
+[package]
+name = "pico-sema"
+description = "Name resolution, type checking and typed HIR for pico"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+pico-diag.workspace = true
+pico-syntax.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
+[lints]
+workspace = true

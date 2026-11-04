@@ -2,8 +2,8 @@
  * threads. Locks do nothing, waiting on a condition can't succeed (nothing else could signal
  * it), and starting a thread fails, so `Worker` and the I/O threads aren't available there.
  * Only the runtime's wasm builds see this header (`-isystem runtime/wasm`). */
-#ifndef PPL_WASM_PTHREAD_H
-#define PPL_WASM_PTHREAD_H
+#ifndef PICO_WASM_PTHREAD_H
+#define PICO_WASM_PTHREAD_H
 
 #include <errno.h>
 #include <stddef.h>

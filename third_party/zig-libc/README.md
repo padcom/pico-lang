@@ -2,7 +2,7 @@
 
 Files copied unmodified from Zig 0.15.1 (`https://github.com/ziglang/zig`, tag `0.15.1`; the
 release tarball `zig-0.15.1.tar.xz` checks against Zig's minisign key
-`RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U`), so ppl can link `linux-gnu`,
+`RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U`), so pico can link `linux-gnu`,
 Windows and macOS programs without a system C library or SDK (decisions 245, 248, 254; spec
 §15.2):
 
@@ -13,10 +13,10 @@ Windows and macOS programs without a system C library or SDK (decisions 245, 248
 | `include/{x86,aarch64}-linux-gnu` | same | glibc's architecture-specific headers |
 | `include/{x86,aarch64}-linux-any` | same | Linux UAPI headers, architecture-specific |
 | `include/any-linux-any` | same | Linux UAPI headers, generic |
-| `include/any-windows-any` | same, **pruned** | mingw-w64's Windows headers: only the 229 of 1,610 that ppl compiles against (`scripts/prune-windows-headers.sh <zig source>` regenerates the set) |
+| `include/any-windows-any` | same, **pruned** | mingw-w64's Windows headers: only the 229 of 1,610 that pico compiles against (`scripts/prune-windows-headers.sh <zig source>` regenerates the set) |
 | `mingw/` | `lib/libc/mingw` without `lib32/`, `libarm32/`, `libsrc/` | mingw-w64's CRT and winpthreads sources and the `.def` files for import libraries |
 | `mingw/sources.txt` | generated from `src/libs/mingw.zig` | which sources make up libmingw32, per architecture |
-| `include/any-macos-any` | same, **pruned** | the macOS SDK's C headers: only the 235 of 542 that ppl compiles against (`scripts/prune-macos-headers.sh <zig source>` regenerates the set) |
+| `include/any-macos-any` | same, **pruned** | the macOS SDK's C headers: only the 235 of 542 that pico compiles against (`scripts/prune-macos-headers.sh <zig source>` regenerates the set) |
 | `wasi/` | `lib/libc/wasi` | wasi-libc's sources (WASI preview 1), with emmalloc |
 | `wasi/sources.txt` | generated from `src/libs/wasi_libc.zig` | which sources make up wasi-libc, plus the musl files Zig supplies from its own code instead (string functions, `sin`/`cos`/`tan`, …); `musl/...` paths are in `third_party/musl` (identical to Zig's copy but for `iconv.c`, left out) |
 | `include/wasm-wasi-musl`, `include/generic-musl` | same | wasi-libc's installed headers |
@@ -27,10 +27,10 @@ Include order (as Zig's `LibCDirs.zig`): `<arch>-linux-gnu`, `generic-glibc`, `<
 
 Licenses: Zig's own work is MIT (`LICENSE`). mingw-w64 is ZPL 2.1 except parts marked
 public domain, BSD or LGPL (`mingw/COPYING`); winpthreads is MIT-style (its file headers).
-Unlike glibc's, mingw-w64's CRT code is linked into the Windows programs ppl builds, and
+Unlike glibc's, mingw-w64's CRT code is linked into the Windows programs pico builds, and
 ZPL 2.1 asks binary redistributions to reproduce its notice. The glibc headers are glibc's (LGPL-2.1+, notices in
 `glibc/LICENSES`) and Linux's UAPI headers (GPL-2.0 WITH Linux-syscall-note). Only headers and
-symbol lists are used: no glibc code ends up in ppl programs, which link against glibc
+symbol lists are used: no glibc code ends up in pico programs, which link against glibc
 dynamically.
 
 To update: copy the same paths from a newer Zig release and run `scripts/test.sh`.

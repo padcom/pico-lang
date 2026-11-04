@@ -24,10 +24,10 @@
   (innermost first) its named locals, then the globals. `GcStats` has `heapSize`, `usedBytes`,
   `allocatedBytes`, `collections`, `youngCollections`, and `lastPause`/`maxPause`/`totalPause` in
   nanoseconds. The interpreter has no collector: its statistics are zero.
-- **Web**: `wasm32-browser` uses **WasmGC**, so the browser's collector manages ppl objects and they
-  can be handed to JS without copying. WASI and native targets use the ppl collector.
-  *Interim:* LLVM can't emit WasmGC, so until ppl's own WasmGC backend exists, `wasm32-browser`
-  builds use linear memory with the ppl collector (as on WASI). Values then cross to JS as copies
+- **Web**: `wasm32-browser` uses **WasmGC**, so the browser's collector manages pico objects and they
+  can be handed to JS without copying. WASI and native targets use the pico collector.
+  *Interim:* LLVM can't emit WasmGC, so until pico's own WasmGC backend exists, `wasm32-browser`
+  builds use linear memory with the pico collector (as on WASI). Values then cross to JS as copies
   or handles instead of shared GC objects.
 
 ## 9.3 Weak references & finalization
@@ -48,7 +48,7 @@ registry.unregister(owner)
   `WeakRef<T extends object>` (`deref(): T?`), `WeakMap<K extends object, V>` (`has`, `get`
   (`V?`), `set`, `delete`), `WeakSet<T extends object>` (`has`, `add`, `delete`).
   `FinalizationRegistry<T>(callback)` has `register(target, held)`,
-  `registerWithToken(target, held, token)` (ppl has no method overloading yet) and
+  `registerWithToken(target, held, token)` (pico has no method overloading yet) and
   `unregister(token): bool`.
 - A weak reference is cleared when a collection finds its target unreachable (a nursery
   collection for young targets, the end of a major marking for old ones); `gc.collect()`

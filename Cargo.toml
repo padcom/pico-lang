@@ -8,18 +8,18 @@ edition = "2024"
 rust-version = "1.99"
 
 [workspace.dependencies]
-ppl-diag = { path = "crates/ppl-diag" }
-ppl-syntax = { path = "crates/ppl-syntax" }
-ppl-sema = { path = "crates/ppl-sema" }
-ppl-mir = { path = "crates/ppl-mir" }
-ppl-interp = { path = "crates/ppl-interp" }
-ppl-codegen = { path = "crates/ppl-codegen" }
-ppl-runtime = { path = "crates/ppl-runtime" }
-ppl-driver = { path = "crates/ppl-driver" }
-ppl-lsp = { path = "crates/ppl-lsp" }
-ppl-lint = { path = "crates/ppl-lint" }
-ppl-lld = { path = "crates/ppl-lld" }
-ppl-tests = { path = "crates/ppl-tests" }
+pico-diag = { path = "crates/pico-diag" }
+pico-syntax = { path = "crates/pico-syntax" }
+pico-sema = { path = "crates/pico-sema" }
+pico-mir = { path = "crates/pico-mir" }
+pico-interp = { path = "crates/pico-interp" }
+pico-codegen = { path = "crates/pico-codegen" }
+pico-runtime = { path = "crates/pico-runtime" }
+pico-driver = { path = "crates/pico-driver" }
+pico-lsp = { path = "crates/pico-lsp" }
+pico-lint = { path = "crates/pico-lint" }
+pico-lld = { path = "crates/pico-lld" }
+pico-tests = { path = "crates/pico-tests" }
 clap = { version = "4.6", features = ["derive"] }
 cc = "1.2"
 inkwell = { version = "0.11", features = ["llvm23-1"] }

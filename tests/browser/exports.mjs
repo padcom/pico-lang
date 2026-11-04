@@ -1,4 +1,4 @@
-// Drives exports.ppl's `@export("js")` functions through the generated glue.
+// Drives exports.pi's `@export("js")` functions through the generated glue.
 import init from "./exports.js";
 
 const app = await init();

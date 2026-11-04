@@ -14,20 +14,20 @@ Targets are named by **LLVM triples**, with short aliases for convenience:
 | `x86_64-w64-windows-gnu` | `windows-x64` | MinGW ABI |
 | `aarch64-w64-windows-gnu` | `windows-arm64` | MinGW ABI |
 | `wasm32-unknown-unknown` | `wasm32-browser` | WasmGC + JS glue + `.d.ts` |
-| `wasm32-wasip2` | `wasm32-wasi` | WASI preview 2, ppl GC |
+| `wasm32-wasip2` | `wasm32-wasi` | WASI preview 2, pico GC |
 | `aarch64-linux-android` | `android-arm64` | after v1 |
 | `aarch64-apple-ios` | `ios-arm64` | after v1 |
 | `riscv64…` / bare metal | later | `--no-gc` subset |
 
 ```
-ppl build --target x86_64-w64-windows-gnu
-ppl build --target windows-x64          # same thing
+pico build --target x86_64-w64-windows-gnu
+pico build --target windows-x64          # same thing
 ```
 
 ## 15.2 Linking
 - **Dynamic system libc** on every platform: glibc on Linux, libSystem on macOS, msvcrt/UCRT
   through MinGW on Windows.
-- **Cross-compiling from any host** with no SDK installed: `ppl` bundles lld plus the linking
+- **Cross-compiling from any host** with no SDK installed: `pico` bundles lld plus the linking
   stubs it needs (glibc version stubs, macOS `.tbd` files, MinGW import libraries), the same way
   Zig does.
 - Windows uses the **MinGW (GNU) ABI**. C libraries built for MSVC may not link and need MinGW
@@ -47,8 +47,8 @@ Newer facilities can be used where they exist (io_uring on Linux, for example).
 
 ## 15.4 Platform conditionals
 At comptime: `target.os` (`"linux" | "macos" | "windows" | "wasi" | "browser"`), `target.arch`,
-`target.triple`. Modules can also be platform-specific by file name: `fs.linux.ppl`,
-`fs.windows.ppl`, `fs.wasm.ppl`.
+`target.triple`. Modules can also be platform-specific by file name: `fs.linux.pi`,
+`fs.windows.pi`, `fs.wasm.pi`.
 
-`import … from "./fs"` picks `fs.<os>.ppl` (`target.os`) first, then `fs.wasm.ppl` on
-`wasm32-wasi` and `wasm32-browser`, then `fs.ppl`, then `fs/index.ppl` (decision 260).
+`import … from "./fs"` picks `fs.<os>.pi` (`target.os`) first, then `fs.wasm.pi` on
+`wasm32-wasi` and `wasm32-browser`, then `fs.pi`, then `fs/index.pi` (decision 260).

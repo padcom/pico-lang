@@ -1,0 +1,19 @@
+[package]
+name = "pico-tests"
+description = "Golden-test harness for pico"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+pico-diag.workspace = true
+pico-driver.workspace = true
+pico-syntax.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+pico-lint.workspace = true
+serde_json = "1"

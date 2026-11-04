@@ -1,0 +1,375 @@
+// Cryptography (spec §13.1 `crypto`, §13.2 `std/crypto`) over the runtime's Mbed TLS layer
+// (`runtime/src/pico_crypto.c`, `__io` 140): the `crypto` global (`getRandomValues`,
+// `randomUUID`, Web Crypto's `subtle`) and the synchronous primitives `std/crypto` exports.
+
+/// A failed cryptographic operation: a bad key or argument, or data that doesn't
+/// authenticate. `kind` is `"InvalidArgument"`, `"AuthenticationFailed"` or `"Internal"`.
+class CryptoError extends Error {
+  /// `"InvalidArgument"`, `"AuthenticationFailed"` or `"Internal"`.
+  public kind: string
+
+  /// An error of `kind` with `message`.
+  constructor(kind: string, message: string) {
+    super(message)
+    this.kind = kind
+  }
+}
+
+/// Runs crypto operation `op` on `fields` (packed as 4-byte lengths and bytes).
+function __cryptoOp(op: int, fields: Uint8Array[]): Uint8Array throws CryptoError {
+  let n = 0
+  for (const f of fields) n += 4 + f.length
+  const packed = new Uint8Array(n)
+  let at = 0
+  for (const f of fields) {
+    const len = f.length
+    packed.set(at, len & 255)
+    packed.set(at + 1, (len >> 8) & 255)
+    packed.set(at + 2, (len >> 16) & 255)
+    packed.set(at + 3, (len >> 24) & 255)
+    at += 4
+    for (let i = 0; i < len; i++) packed.set(at + i, f.get(i))
+    at += len
+  }
+  const job = __io(140, op, packed.buffer.__handle, n, "", "")
+  const h = __io(102, job, 0, 0, "", "")
+  const r2 = __io(103, job, 0, 0, "", "")
+  __io(104, job, 0, 0, "", "");
+  if (h == -1) {
+    if (r2 == -2) throw new CryptoError("AuthenticationFailed", "the data doesn't authenticate (wrong key, nonce or data)")
+    if (r2 == -1) throw new CryptoError("InvalidArgument", "invalid key, nonce or argument")
+    throw new CryptoError("Internal", "the crypto library failed")
+  }
+  new Uint8Array(new ArrayBuffer(h, r2, true), 0, r2)
+}
+
+/// A 4-byte little-endian field.
+function __u32(n: int): Uint8Array {
+  Uint8Array.from([n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >> 24) & 255])
+}
+
+/// The bytes of a string (UTF-8) or the bytes themselves.
+function __bytes(d: Uint8Array | string): Uint8Array {
+  match (d) {
+    b: Uint8Array => b
+    s: string => new TextEncoder().encode(s)
+  }
+}
+
+/// The hash algorithms, by Web Crypto name.
+type HashAlgorithm = "SHA-1" | "SHA-224" | "SHA-256" | "SHA-384" | "SHA-512" | "SHA3-256" | "SHA3-384" | "SHA3-512"
+
+function __hashId(a: string): int {
+  if (a == "SHA-1") return 1
+  if (a == "SHA-256") return 2
+  if (a == "SHA-384") return 3
+  if (a == "SHA-512") return 4
+  if (a == "SHA3-256") return 5
+  if (a == "SHA3-384") return 6
+  if (a == "SHA3-512") return 7
+  if (a == "SHA-224") return 8
+  0
+}
+
+/// The named curves: `P-256`, `P-384` (ECDSA and ECDH) and `X25519` (ECDH).
+type NamedCurve = "P-256" | "P-384" | "X25519"
+
+function __curveId(c: string): int {
+  if (c == "P-256") 1 else if (c == "P-384") 2 else if (c == "X25519") 3 else 0
+}
+
+function __digest(alg: HashAlgorithm, data: Uint8Array): Uint8Array {
+  try! __cryptoOp(100 + __hashId(alg), [data])
+}
+
+function __hmac(alg: HashAlgorithm, key: Uint8Array, data: Uint8Array): Uint8Array {
+  try! __cryptoOp(200 + __hashId(alg), [key, data])
+}
+
+// ---- Web Crypto ----
+
+/// A key for `crypto.subtle` (Web Crypto): its algorithm, usages and bytes (raw secret
+/// bytes, a private scalar, or an uncompressed public point).
+class CryptoKey {
+  /// `"secret"`, `"private"` or `"public"`.
+  public readonly type: string
+  /// Whether `exportKey` may export a non-public key's bytes.
+  public readonly extractable: bool
+  /// The algorithm the key is for, with its hash, curve or length.
+  public readonly algorithm: KeyAlgorithm
+  /// What the key may be used for (`"sign"`, `"encrypt"`, …), as given; not enforced.
+  public readonly usages: string[]
+  public readonly __bytes: Uint8Array
+
+  /// A key from its parts; `crypto.subtle`'s `generateKey` and `importKey` make them.
+  constructor(type: string, extractable: bool, algorithm: KeyAlgorithm, usages: string[], bytes: Uint8Array) {
+    this.type = type
+    this.extractable = extractable
+    this.algorithm = algorithm
+    this.usages = usages
+    this.__bytes = bytes
+  }
+}
+
+/// A key's algorithm: `name` (`"HMAC"`, `"AES-GCM"`, `"ECDSA"`, `"ECDH"`, `"HKDF"`,
+/// `"PBKDF2"`), and its `hash`, `namedCurve` or `length` (bits).
+struct KeyAlgorithm {
+  /// The algorithm's name (`"HMAC"`, `"AES-GCM"`, …).
+  name: string
+  /// The hash (`"SHA-256"`, …), for HMAC keys.
+  hash?: string
+  /// The curve (`"P-256"`, `"P-384"`, `"X25519"`), for ECDSA and ECDH keys.
+  namedCurve?: string
+  /// The key's length in bits, for secret keys.
+  length?: int
+}
+
+/// Web Crypto algorithm parameters, one struct for all of them (fields as the spec names
+/// them): `{ name: "AES-GCM", iv }`, `{ name: "HMAC", hash: "SHA-256" }`,
+/// `{ name: "ECDSA", hash: "SHA-256" }`, `{ name: "ECDSA", namedCurve: "P-256" }`,
+/// `{ name: "ECDH", public: key }`, `{ name: "HKDF", hash, salt, info }`,
+/// `{ name: "PBKDF2", hash, salt, iterations }`, `{ name: "AES-GCM", length: 256 }`.
+struct Algorithm {
+  /// The algorithm's name (`"AES-GCM"`, `"HMAC"`, `"ECDSA"`, `"ECDH"`, `"HKDF"`, `"PBKDF2"`; any
+  /// case), or, for `digest`, the hash's.
+  name: string
+  /// The hash (`"SHA-256"`, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.
+  hash?: string
+  /// The curve for `generateKey` and `importKey` of ECDSA (`"P-256"`, `"P-384"`) and ECDH keys
+  /// (also `"X25519"`).
+  namedCurve?: string
+  /// The key length in bits for `generateKey` (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).
+  length?: int
+  /// AES-GCM's nonce (required; 12 bytes is usual).
+  iv?: Uint8Array
+  /// AES-GCM's authenticated, unencrypted data (none unless given).
+  additionalData?: Uint8Array
+  /// AES-GCM's tag length in bits: only 128 (the default) is supported.
+  tagLength?: int
+  /// ECDH's peer public key, for `deriveBits`.
+  public?: CryptoKey
+  /// The HKDF or PBKDF2 salt (empty unless given).
+  salt?: Uint8Array
+  /// HKDF's context info (empty unless given).
+  info?: Uint8Array
+  /// PBKDF2's iteration count.
+  iterations?: int
+}
+
+/// `generateKey`'s result for key-pair algorithms.
+struct CryptoKeyPair {
+  /// The public key (always extractable).
+  publicKey: CryptoKey
+  /// The private key (extractable as `generateKey` was told).
+  privateKey: CryptoKey
+}
+
+function __algName(a: Algorithm | string): string {
+  match (a) {
+    s: string => s.toUpperCase()
+    x: Algorithm => x.name.toUpperCase()
+  }
+}
+
+function __need(cond: bool, what: string): void throws CryptoError {
+  if (!cond) throw new CryptoError("InvalidArgument", what)
+}
+
+function __hashOf(a: Algorithm, key: CryptoKey?): HashAlgorithm throws CryptoError {
+  const h = a.hash ?? (if (key != null) key.algorithm.hash ?? "" else "")
+  match (h) {
+    "SHA-1" => "SHA-1"
+    "SHA-224" => "SHA-224"
+    "SHA-256" => "SHA-256"
+    "SHA-384" => "SHA-384"
+    "SHA-512" => "SHA-512"
+    "SHA3-256" => "SHA3-256"
+    "SHA3-384" => "SHA3-384"
+    "SHA3-512" => "SHA3-512"
+    _ => throw new CryptoError("InvalidArgument", `unsupported hash ${h:?}`)
+  }
+}
+
+/// Web Crypto's `SubtleCrypto` (`crypto.subtle`): `digest`, `generateKey`, `importKey` and
+/// `exportKey` (`"raw"`), `sign`/`verify` (HMAC, ECDSA), `encrypt`/`decrypt` (AES-GCM) and
+/// `deriveBits` (ECDH, HKDF, PBKDF2). Results are `Uint8Array`s (Web Crypto's are
+/// `ArrayBuffer`s); failures reject with `CryptoError`.
+struct SubtleCrypto {
+  /// The hash of `data` with `algorithm` (`"SHA-256"` or `{ name: "SHA-256" }`; the SHA-1, SHA-2
+  /// and SHA-3 hashes).
+  async digest(algorithm: Algorithm | string, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
+    const h = __hashOf(Algorithm { name: "", hash: match (algorithm) { s: string => s
+      x: Algorithm => x.name } }, null)
+    __digest(h, data)
+  }
+
+  /// A key from raw bytes (`format` must be `"raw"`): a secret key for HMAC (needs `hash`), AES-GCM
+  /// (16, 24 or 32 bytes), HKDF or PBKDF2, or, for ECDSA/ECDH (needs `namedCurve`), a public key
+  /// (an uncompressed point; always extractable, and not checked here).
+  async importKey(format: string, keyData: Uint8Array, algorithm: Algorithm | string, extractable: bool, usages: string[]): Promise<CryptoKey> throws CryptoError {
+    __need(format == "raw", `unsupported key format ${format:?} (only "raw")`)
+    const name = __algName(algorithm)
+    const a = match (algorithm) {
+      s: string => Algorithm { name: s }
+      x: Algorithm => x
+    }
+    if (name == "ECDSA" || name == "ECDH") {
+      const curve = a.namedCurve ?? ""
+      __need(__curveId(curve) > 0, `unsupported curve ${curve:?}`)
+      // A raw EC key is a public point; check it by deriving nothing from it.
+      return new CryptoKey("public", true, KeyAlgorithm { name: name, namedCurve: curve }, usages, keyData)
+    }
+    __need(name == "HMAC" || name == "AES-GCM" || name == "HKDF" || name == "PBKDF2", `unsupported algorithm ${name:?}`)
+    if (name == "AES-GCM") __need(keyData.length == 16 || keyData.length == 24 || keyData.length == 32, "AES keys are 16, 24 or 32 bytes")
+    const hash = if (name == "HMAC") __hashOf(a, null) as string else null
+    new CryptoKey("secret", extractable, KeyAlgorithm { name: name, hash: hash, length: keyData.length * 8 }, usages, keyData.slice(0))
+  }
+
+  /// A copy of `key`'s bytes (`format` must be `"raw"`); rejects for a key that is neither
+  /// extractable nor public.
+  async exportKey(format: string, key: CryptoKey): Promise<Uint8Array> throws CryptoError {
+    __need(format == "raw", `unsupported key format ${format:?} (only "raw")`)
+    __need(key.extractable || key.type == "public", "the key isn't extractable")
+    key.__bytes.slice(0)
+  }
+
+  /// A secret key (`HMAC`, `AES-GCM`) or, for `ECDSA`/`ECDH`, a key pair.
+  async generateKey(algorithm: Algorithm, extractable: bool, usages: string[]): Promise<CryptoKey | CryptoKeyPair> throws CryptoError {
+    const name = algorithm.name.toUpperCase()
+    if (name == "ECDSA" || name == "ECDH") {
+      const curve = algorithm.namedCurve ?? ""
+      const id = __curveId(curve)
+      __need(id > 0 && (name == "ECDH" || id < 3), `unsupported curve ${curve:?}`)
+      const pair = __unpack(__cryptoOp(700 + id, []))
+      const ka = KeyAlgorithm { name: name, namedCurve: curve }
+      return CryptoKeyPair {
+        publicKey: new CryptoKey("public", true, ka, usages, pair[1]),
+        privateKey: new CryptoKey("private", extractable, ka, usages, pair[0]),
+      }
+    }
+    const bits = if (name == "HMAC") algorithm.length ?? 256 else algorithm.length ?? 0
+    __need(name == "HMAC" || (name == "AES-GCM" && (bits == 128 || bits == 192 || bits == 256)), `can't generate a ${name} key of ${bits} bits`)
+    const hash = if (name == "HMAC") __hashOf(algorithm, null) as string else null
+    new CryptoKey("secret", extractable, KeyAlgorithm { name: name, hash: hash, length: bits }, usages, __randomBytes(bits / 8))
+  }
+
+  /// An HMAC tag, or an ECDSA signature (`r ‖ s`, as Web Crypto gives it).
+  async sign(algorithm: Algorithm | string, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
+    const name = __algName(algorithm)
+    const a = match (algorithm) {
+      s: string => Algorithm { name: s }
+      x: Algorithm => x
+    }
+    if (name == "HMAC") {
+      __need(key.algorithm.name == "HMAC", "not an HMAC key")
+      return __hmac(__hashOf(a, key), key.__bytes, data)
+    }
+    __need(name == "ECDSA" && key.type == "private", "ECDSA signing needs a private ECDSA key")
+    __cryptoOp(900 + __curveId(key.algorithm.namedCurve ?? ""), [__u32(__hashId(__hashOf(a, null))), key.__bytes, data])
+  }
+
+  /// Whether `signature` is `data`'s HMAC tag (compared in constant time) or its ECDSA signature
+  /// (`r ‖ s`, with a public key).
+  async verify(algorithm: Algorithm | string, key: CryptoKey, signature: Uint8Array, data: Uint8Array): Promise<bool> throws CryptoError {
+    const name = __algName(algorithm)
+    const a = match (algorithm) {
+      s: string => Algorithm { name: s }
+      x: Algorithm => x
+    }
+    if (name == "HMAC") {
+      __need(key.algorithm.name == "HMAC", "not an HMAC key")
+      return __timingSafeEqual(__hmac(__hashOf(a, key), key.__bytes, data), signature)
+    }
+    __need(name == "ECDSA" && key.type == "public", "ECDSA verification needs a public ECDSA key")
+    const r = __cryptoOp(1000 + __curveId(key.algorithm.namedCurve ?? ""), [__u32(__hashId(__hashOf(a, null))), key.__bytes, data, signature])
+    r.get(0) == 1
+  }
+
+  /// AES-GCM (`{ name: "AES-GCM", iv, additionalData? }`): ciphertext ‖ 16-byte tag.
+  async encrypt(algorithm: Algorithm, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
+    __need(algorithm.name.toUpperCase() == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM is supported")
+    __need((algorithm.tagLength ?? 128) == 128, "only 128-bit tags are supported")
+    const iv = algorithm.iv
+    __need(iv != null, "AES-GCM needs an iv")
+    __cryptoOp(501, [key.__bytes, iv ?? new Uint8Array(0), algorithm.additionalData ?? new Uint8Array(0), data])
+  }
+
+  /// AES-GCM: the plaintext of `data` (ciphertext ‖ 16-byte tag); rejects with
+  /// `"AuthenticationFailed"` if the key, `iv`, `additionalData` or data are wrong.
+  async decrypt(algorithm: Algorithm, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
+    __need(algorithm.name.toUpperCase() == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM is supported")
+    const iv = algorithm.iv
+    __need(iv != null, "AES-GCM needs an iv")
+    __cryptoOp(601, [key.__bytes, iv ?? new Uint8Array(0), algorithm.additionalData ?? new Uint8Array(0), data])
+  }
+
+  /// `length` bits from ECDH (`{ name: "ECDH", public }`, a private key), HKDF or PBKDF2
+  /// (a raw key imported for them).
+  async deriveBits(algorithm: Algorithm, key: CryptoKey, length: int? = null): Promise<Uint8Array> throws CryptoError {
+    const name = algorithm.name.toUpperCase()
+    if (name == "ECDH") {
+      const peer = algorithm.public
+      __need(peer != null && key.type == "private", "ECDH needs a private key and `public`")
+      const p: CryptoKey = peer ?? key
+      const secret = __cryptoOp(1100 + __curveId(key.algorithm.namedCurve ?? ""), [key.__bytes, p.__bytes])
+      if (length == null) return secret
+      __need(length % 8 == 0 && length / 8 <= secret.length, "ECDH: length too long")
+      return secret.slice(0, length / 8)
+    }
+    __need(length != null && length > 0 && length % 8 == 0, "deriveBits needs a length in whole bytes")
+    const bytes = (length ?? 0) / 8
+    const h = __hashId(__hashOf(algorithm, null))
+    if (name == "HKDF") {
+      return __cryptoOp(300 + h, [key.__bytes, algorithm.salt ?? new Uint8Array(0), algorithm.info ?? new Uint8Array(0), __u32(bytes)])
+    }
+    __need(name == "PBKDF2", `unsupported algorithm ${name:?}`)
+    __cryptoOp(400 + h, [key.__bytes, algorithm.salt ?? new Uint8Array(0), __u32(algorithm.iterations ?? 0), __u32(bytes)])
+  }
+}
+
+/// The fields of a packed result.
+function __unpack(b: Uint8Array): Uint8Array[] {
+  const out: Uint8Array[] = []
+  let at = 0
+  while (at + 4 <= b.length) {
+    const n = b.get(at) | (b.get(at + 1) << 8) | (b.get(at + 2) << 16) | (b.get(at + 3) << 24)
+    out.push(b.slice(at + 4, at + 4 + n))
+    at += 4 + n
+  }
+  out
+}
+
+/// Whether `a` and `b` hold the same bytes, in time that depends only on their length.
+function __timingSafeEqual(a: Uint8Array, b: Uint8Array): bool {
+  if (a.length != b.length) return false
+  let d = 0
+  for (let i = 0; i < a.length; i++) d = d | (a.get(i) ^ b.get(i))
+  d == 0
+}
+
+/// The `crypto` global (Web Crypto): random values, UUIDs and `subtle`. A struct, so it
+/// costs programs that don't use it nothing.
+struct Crypto {
+  /// Web Crypto's asynchronous operations (keys, signatures, encryption, derivation).
+  subtle: SubtleCrypto
+
+  /// Fills `array` with random bytes from the system and returns it (at most 65536 bytes,
+  /// as on the Web).
+  getRandomValues(array: Uint8Array): Uint8Array {
+    if (array.length > 65536) panic("crypto.getRandomValues: more than 65536 bytes")
+    const r = __randomBytes(array.length)
+    for (let i = 0; i < array.length; i++) array.set(i, r.get(i))
+    array
+  }
+
+  /// A random version-4 UUID (`"1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"`).
+  randomUUID(): string {
+    const b = __randomBytes(16)
+    b.set(6, (b.get(6) & 0x0F) | 0x40)
+    b.set(8, (b.get(8) & 0x3F) | 0x80)
+    const h = new Hex().encode(b)
+    `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+  }
+}
+
+const crypto = Crypto { subtle: SubtleCrypto {} }

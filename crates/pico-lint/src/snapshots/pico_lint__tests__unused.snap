@@ -1,0 +1,12 @@
+---
+source: crates/pico-lint/src/tests.rs
+expression: "run(\"unused\", r#\"{ \"naming\": false }\"#, text, &[(\"geo.pi\", geo)])"
+---
+1:15 W0002 import `cross` is never used (remove it from the import)
+2:13 W0002 import `geo` is never used (remove it from the import)
+4:7 W0002 constant `unusedTop` is never used (remove it, export it, or start its name with `_`)
+7:20 W0002 parameter `b` is never used (remove it, or start its name with `_`)
+7:28 W0002 parameter `c` is never used (remove it, or start its name with `_`)
+8:7 W0002 variable `written` is never used (remove it, or start its name with `_`)
+21:11 W0002 private method `helper` is never used (remove it, or start its name with `_`)
+26:14 W0002 variable `item` is never used (remove it, or start its name with `_`)

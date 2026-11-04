@@ -20,7 +20,7 @@ comptime {
 
 const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl
 ```
-- Comptime code is ordinary ppl, run by an interpreter inside the compiler. It can't do I/O,
+- Comptime code is ordinary pico, run by an interpreter inside the compiler. It can't do I/O,
   except reading files under the package root (`comptime.readFile`, only inside `comptime`
   code; relative paths that stay inside the root). The clock, the event loop and workers aren't
   available either.

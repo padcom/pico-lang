@@ -1,28 +1,28 @@
-# PPL for VS Code
+# Pico for VS Code
 
-- **Syntax highlighting** for `.ppl` files and ` ```ppl ` blocks in Markdown: keywords, built-in
+- **Syntax highlighting** for `.pi` files and ` ```pico ` blocks in Markdown: keywords, built-in
   types, numbers with suffixes, strings and template strings with `${…}`, comments and doc
   comments (`/** */`, `///`), decorators and declarations. Comment toggling, bracket matching,
   auto-closing pairs and `/** */` continuation come from the language configuration.
-- **The language server** (`ppl lsp`): errors and warnings as you type (also those in imported
-  modules), Format Document (the `ppl fmt` formatter with `project.json`'s options), hover
+- **The language server** (`pico lsp`): errors and warnings as you type (also those in imported
+  modules), Format Document (the `pico fmt` formatter with `project.json`'s options), hover
   (the type or signature and the doc comment) and Go to Definition (also into imported modules
   and the core library), also in code with errors, and completion (names in scope, members
   after `.`, the names a module exports inside `import { … }`), Go to Implementations (Ctrl+F12: the types implementing an interface or extending a class, the methods implementing or overriding a method, in the whole project), Rename Symbol (F2: every use in
   the project's modules, methods with their overrides and implementations) and the outline
-  (document symbols, also for Go to Symbol and breadcrumbs). Lint warnings (`ppl lint`'s, spec
+  (document symbols, also for Go to Symbol and breadcrumbs). Lint warnings (`pico lint`'s, spec
   §14.7, configured in `project.json`'s `"lint"`) appear with the errors.
 
 ## Debugging
 
 Press F5: it debugs the `entry` of the `project.json` nearest the open file (an application's
-main file, `"entry": "src/main.ppl"`), or the open file when there's no project. A `ppl` launch
-configuration's `program` is a `.ppl` file, a project directory (its `entry`) or an executable
-(also `args`, `cwd`, `env`, `stopOnEntry`). Run Build Task offers `ppl: build`, which builds the
-project's `entry`. The extension starts `ppl dap`, which builds the
+main file, `"entry": "src/main.pico"`), or the open file when there's no project. A `pico` launch
+configuration's `program` is a `.pi` file, a project directory (its `entry`) or an executable
+(also `args`, `cwd`, `env`, `stopOnEntry`). Run Build Task offers `pico: build`, which builds the
+project's `entry`. The extension starts `pico dap`, which builds the
 program (a debug build, cached while nothing changes) and runs it under lldb-dap, so lldb must
 be installed (`lldb-dap`, or a versioned `lldb-dap-23` as apt.llvm.org installs it; Xcode's on
-macOS; `PPL_LLDB_DAP` names another). Breakpoints, stepping, the call stack and variables work;
+macOS; `PICO_LLDB_DAP` names another). Breakpoints, stepping, the call stack and variables work;
 strings show as text, arrays and maps and sets with their elements, enums by variant; the
 Globals scope has the program's top-level bindings (the main thread's values). A program
 that doesn't compile shows the compiler's errors instead of starting.
@@ -31,16 +31,16 @@ that doesn't compile shows the compiler's errors instead of starting.
 
 | Setting | Default | |
 |---------|---------|---|
-| `ppl.server.path` | `ppl` | the ppl binary (looked up on PATH: VS Code started from a desktop launcher may not have your shell's PATH, so set an absolute path if the server doesn't start) |
-| `ppl.server.args` | `[]` | arguments before `lsp` |
-| `ppl.trace.server` | `off` | `messages`/`verbose`: the protocol in the "ppl language server" output |
+| `pico.server.path` | `pico` | the pico binary (looked up on PATH: VS Code started from a desktop launcher may not have your shell's PATH, so set an absolute path if the server doesn't start) |
+| `pico.server.args` | `[]` | arguments before `lsp` |
+| `pico.trace.server` | `off` | `messages`/`verbose`: the protocol in the "pico language server" output |
 
-The command **ppl: Restart Language Server** restarts it (after rebuilding `ppl`, say).
+The command **pico: Restart Language Server** restarts it (after rebuilding `pico`, say).
 
 ## Install from the repository
 
 ```sh
-scripts/vscode-package.sh --install    # builds target/vscode/ppl-<version>.vsix, installs it
+scripts/vscode-package.sh --install    # builds target/vscode/pico-<version>.vsix, installs it
 ```
 
 then reload VS Code (Developer: Reload Window). Run it again after changing the extension. It
@@ -52,7 +52,7 @@ in its `extensions.json` and marks unknown folders obsolete.) To work on the ext
 
 ## Editing the grammar
 
-`syntaxes/ppl.tmLanguage.json` is generated: edit `syntaxes/generate.py`, then run
+`syntaxes/pico.tmLanguage.json` is generated: edit `syntaxes/generate.py`, then run
 `python3 editors/vscode/syntaxes/generate.py` from the repository root.
-`crates/ppl-tests/tests/vscode.rs` checks that the grammar has every keyword the lexer knows
+`crates/pico-tests/tests/vscode.rs` checks that the grammar has every keyword the lexer knows
 and that its regular expressions compile.

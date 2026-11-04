@@ -1,0 +1,44 @@
+// The wasm32-browser demo (spec §12.3): pico keeps the state and renders it; index.html calls
+// the `@export("js")` functions through the generated glue (app.js, app.d.ts).
+//
+//   pico build --target wasm32-browser examples/browser/app.pi -o examples/browser/app
+//   python3 -m http.server -d examples/browser    # then open http://localhost:8000
+
+struct AppState {
+  count: int
+  step: int
+  title: string
+}
+
+class History {
+  public entries: string[] = []
+  constructor() {}
+}
+
+@export("js")
+export function initial(): AppState {
+  const s: AppState = { count: 0, step: 1, title: "pico in the browser" }
+  s
+}
+
+@export("js")
+export function increment(state: AppState, log: History): AppState {
+  const next: AppState = { count: state.count + state.step, step: state.step, title: state.title }
+  log.entries.push(`${state.count} → ${next.count}`)
+  next
+}
+
+@export("js")
+export function newHistory(): History { new History() }
+
+@export("js")
+export function render(state: AppState, log: History): string {
+  let items = ""
+  for (const e of log.entries) {
+    items = `${items}<li>${e}</li>`
+  }
+  `<h1>${state.title}</h1><p id="count">count: ${state.count}</p><ul>${items}</ul>`
+}
+
+println("pico: module started")
+setTimeout(() => { println("pico: a timer fired on the browser's event loop") }, 100)

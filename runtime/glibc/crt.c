@@ -1,4 +1,4 @@
-/* What glibc's Scrt1.o and libc_nonshared.a give a program, written for ppl (decision 245):
+/* What glibc's Scrt1.o and libc_nonshared.a give a program, written for pico (decision 245):
  * linked into every linux-gnu executable, compiled against the target's glibc version. */
 #define _GNU_SOURCE
 #include <stddef.h>
@@ -17,7 +17,7 @@ extern void (*__init_array_end[])(int, char **, char **) __attribute__((visibili
 
 /* `__libc_start_main`'s init argument: the program's constructors. Before glibc 2.34 the
  * program ran them itself (`__libc_csu_init`); 2.34+ still calls an init it's given. */
-__attribute__((visibility("hidden"))) void ppl_glibc_init(int argc, char **argv, char **envp) {
+__attribute__((visibility("hidden"))) void pico_glibc_init(int argc, char **argv, char **envp) {
     size_t n = (size_t)(__preinit_array_end - __preinit_array_start);
     for (size_t i = 0; i < n; i++) __preinit_array_start[i](argc, argv, envp);
     n = (size_t)(__init_array_end - __init_array_start);

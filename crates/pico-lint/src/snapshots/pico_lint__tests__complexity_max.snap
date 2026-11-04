@@ -1,0 +1,5 @@
+---
+source: crates/pico-lint/src/tests.rs
+expression: "run(\"cx2\",\nr#\"{ \"naming\": false, \"unused\": false, \"complexity\": { \"max\": 6 } }\"#,\nCOMPLEX, &[])"
+---
+3:10 W0003 `branches` has a cyclomatic complexity of 7 (the maximum is 6) (split it into smaller functions)

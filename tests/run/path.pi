@@ -1,0 +1,51 @@
+// expect: b/c
+// expect: /a/b
+// expect: .
+// expect: a/c/
+// expect: ../../x
+// expect: /x
+// expect: /a/b
+// expect: .
+// expect: /
+// expect: /a
+// expect: b.txt
+// expect: b
+// expect: b
+// expect: .gz
+// expect:
+// expect: .
+// expect:
+// expect: /x/z
+// expect: /y
+// expect: ../../c
+// expect:
+// expect: true
+// expect: /
+// expect: true
+// `std/path` (spec §13.4): POSIX paths, as Node's `path.posix` (the same on every platform;
+// `path_win32.pi` has Windows paths).
+import { posix, join, resolve } from "std/path"
+println(posix.join("a", "../b", "c"))
+println(posix.join("/a/", "b", ""))
+println(posix.join())
+println(posix.normalize("a//b/../c/"))
+println(posix.normalize("../../x"))
+println(posix.normalize("/../x"))
+println(posix.dirname("/a/b/c"))
+println(posix.dirname("a"))
+println(posix.dirname("/a"))
+println(posix.dirname("/a/b/"))
+println(posix.basename("/a/b.txt"))
+println(posix.basename("/a/b.txt", ".txt"))
+println(posix.basename("/a/b/"))
+println(posix.extname("a.tar.gz"))
+println(posix.extname(".bashrc"))
+println(posix.extname("a."))
+println(posix.extname("noext"))
+println(posix.resolve("/x", "y", "../z"))
+println(posix.resolve("/x", "/y"))
+println(posix.relative("/data/a/b", "/data/c"))
+println(posix.relative("/a", "/a"))
+println(posix.isAbsolute("/a") && !posix.isAbsolute("a"))
+println(posix.sep)
+println(resolve("q") == join(resolve("."), "q"))

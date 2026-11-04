@@ -1,2 +1,2 @@
 # Golden fixtures (name prefixes, as in reports) that Windows can't run yet, with the task that
-# makes them work. PPL_TEST_EXPORT skips them; delete lines as the tasks land.
+# makes them work. PICO_TEST_EXPORT skips them; delete lines as the tasks land.

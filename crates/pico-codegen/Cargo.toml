@@ -1,0 +1,17 @@
+[package]
+name = "pico-codegen"
+description = "LLVM code generation for pico"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+# The WasmGC backend (P8.7, decision 264).
+wasm-encoder = "0.263"
+inkwell.workspace = true
+pico-mir.workspace = true
+pico-sema.workspace = true
+
+[lints]
+workspace = true

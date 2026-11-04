@@ -1,4 +1,4 @@
-// The ppl extension's code: starts the language server (`ppl lsp`, PLAN P10.6b) for `.ppl`
+// The pico extension's code: starts the language server (`pico lsp`, PLAN P10.6b) for `.pi`
 // files and restarts it on request or when its settings change.
 "use strict";
 const vscode = require("vscode");
@@ -10,18 +10,18 @@ const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 let client;
 
 function serverOptions() {
-  const conf = vscode.workspace.getConfiguration("ppl");
-  const command = conf.get("server.path") || "ppl";
+  const conf = vscode.workspace.getConfiguration("pico");
+  const command = conf.get("server.path") || "pico";
   const args = [...(conf.get("server.args") || []), "lsp"];
   return { command, args, transport: TransportKind.stdio };
 }
 
 async function start(context) {
-  client = new LanguageClient("ppl", "ppl language server", serverOptions(), {
-    documentSelector: [{ language: "ppl" }],
+  client = new LanguageClient("pico", "pico language server", serverOptions(), {
+    documentSelector: [{ language: "pico" }],
     synchronize: {
       // (Other modules change on disk: the server re-checks open documents on save.)
-      fileEvents: vscode.workspace.createFileSystemWatcher("**/{*.ppl,project.json}"),
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/{*.pi,project.json}"),
     },
   });
   try {
@@ -29,8 +29,8 @@ async function start(context) {
   } catch (e) {
     const path = serverOptions().command;
     vscode.window.showErrorMessage(
-      `ppl: cannot start the language server (\`${path} lsp\`): ${e?.message ?? e}. ` +
-        "Set `ppl.server.path` to the ppl binary.",
+      `pico: cannot start the language server (\`${path} lsp\`): ${e?.message ?? e}. ` +
+        "Set `pico.server.path` to the pico binary.",
     );
   }
 }
@@ -78,16 +78,16 @@ function startDir() {
 
 /** @param {vscode.ExtensionContext} context */
 async function activate(context) {
-  // The debugger (spec §14.5): `ppl dap` builds the program and runs lldb-dap.
+  // The debugger (spec §14.5): `pico dap` builds the program and runs lldb-dap.
   context.subscriptions.push(
-    vscode.debug.registerDebugAdapterDescriptorFactory("ppl", {
+    vscode.debug.registerDebugAdapterDescriptorFactory("pico", {
       createDebugAdapterDescriptor() {
         const { command, args } = serverOptions();
         // (`serverOptions` ends with `lsp`: the same binary and arguments, then `dap`.)
         return new vscode.DebugAdapterExecutable(command, [...args.slice(0, -1), "dap"]);
       },
     }),
-    vscode.debug.registerDebugConfigurationProvider("ppl", {
+    vscode.debug.registerDebugConfigurationProvider("pico", {
       // F5 without a launch.json: the project's `entry` (its main file), else the current
       // file.
       resolveDebugConfiguration(_folder, config) {
@@ -95,31 +95,31 @@ async function activate(context) {
           const dir = startDir();
           const project = dir ? projectOf(dir) : undefined;
           if (project?.entry) {
-            return { type: "ppl", request: "launch", name: "Debug the project", program: project.entry, cwd: project.dir };
+            return { type: "pico", request: "launch", name: "Debug the project", program: project.entry, cwd: project.dir };
           }
           const editor = vscode.window.activeTextEditor;
-          if (editor && editor.document.languageId === "ppl") {
-            return { type: "ppl", request: "launch", name: "Debug the current ppl file", program: "${file}" };
+          if (editor && editor.document.languageId === "pi") {
+            return { type: "pico", request: "launch", name: "Debug the current pico file", program: "${file}" };
           }
         }
         return config;
       },
     }),
   );
-  // Run Build Task: `ppl build` in the project's directory (it builds the `entry`).
+  // Run Build Task: `pico build` in the project's directory (it builds the `entry`).
   context.subscriptions.push(
-    vscode.tasks.registerTaskProvider("ppl", {
+    vscode.tasks.registerTaskProvider("pico", {
       provideTasks() {
         const dir = startDir();
         const project = dir ? projectOf(dir) : undefined;
         if (!project?.entry) return [];
         const { command, args } = serverOptions();
-        const definition = { type: "ppl", command: "build" };
+        const definition = { type: "pico", command: "build" };
         const task = new vscode.Task(
           definition,
           vscode.TaskScope.Workspace,
           "build",
-          "ppl",
+          "pico",
           new vscode.ProcessExecution(command, [...args.slice(0, -1), "build"], { cwd: project.dir }),
           [],
         );
@@ -132,12 +132,12 @@ async function activate(context) {
     }),
   );
   context.subscriptions.push(
-    vscode.commands.registerCommand("ppl.restartServer", async () => {
+    vscode.commands.registerCommand("pico.restartServer", async () => {
       await stop();
       await start(context);
     }),
     vscode.workspace.onDidChangeConfiguration(async (e) => {
-      if (e.affectsConfiguration("ppl.server")) {
+      if (e.affectsConfiguration("pico.server")) {
         await stop();
         await start(context);
       }

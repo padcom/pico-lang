@@ -1,0 +1,145 @@
+---
+source: crates/pico-driver/tests/mir.rs
+expression: "mir(r#\"\nfunction grade(score: i32): i32 {\n  const g: i32 = if (score > 90) 1 else if (score > 75) 2 else 3\n  const small: i64 = if (score < 0) score else 0\n  g\n}\nfunction both(a: bool, b: bool): bool { a && !b || b }\n\"#)"
+---
+global @g0: () => bool[]? // __finalizationRegistries
+global @g1: __Loop? // __loop
+global @g2: FinalizationRegistry<i64>? // __buffers
+global @g3: Map<string, __Zone>? // __zoneCache
+global @g4: Performance // performance
+global @g5: __Xoshiro128? // __mathRng
+global @g6: Crypto // crypto
+global @g7: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g8: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g9: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g10: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g11: i64 // Float64Array.BYTES_PER_ELEMENT
+
+fn grade(_0: i32) -> i32 {
+    let _1: i32 // g
+    let _2: i64 // small
+    let _3: bool
+    let _4: i32
+    let _5: bool
+    let _6: i32
+    let _7: bool
+    let _8: i64
+    let _9: i64
+  bb0:
+    _3 = Gt(_0, const 90_i32)
+    branch _3 -> [true: bb1, false: bb2]
+  bb1:
+    _4 = const 1_i32
+    goto bb3
+  bb2:
+    _5 = Gt(_0, const 75_i32)
+    branch _5 -> [true: bb4, false: bb5]
+  bb3:
+    _1 = _4
+    _7 = Lt(_0, const 0_i32)
+    branch _7 -> [true: bb7, false: bb8]
+  bb4:
+    _6 = const 2_i32
+    goto bb6
+  bb5:
+    _6 = const 3_i32
+    goto bb6
+  bb6:
+    _4 = _6
+    goto bb3
+  bb7:
+    _9 = _0 as i64
+    _8 = _9
+    goto bb9
+  bb8:
+    _8 = const 0_i64
+    goto bb9
+  bb9:
+    _2 = _8
+    return _1
+}
+
+fn both(_0: bool, _1: bool) -> bool {
+    let _2: bool
+    let _3: bool
+    let _4: bool
+  bb0:
+    branch _0 -> [true: bb1, false: bb2]
+  bb1:
+    _4 = Not(_1)
+    _3 = _4
+    goto bb3
+  bb2:
+    _3 = const false
+    goto bb3
+  bb3:
+    branch _3 -> [true: bb5, false: bb4]
+  bb4:
+    _2 = _1
+    goto bb6
+  bb5:
+    _2 = const true
+    goto bb6
+  bb6:
+    return _2
+}
+
+fn Uint8Array.<static>() -> void {
+  bb0:
+    @g7 = const 1_i64
+    return
+}
+
+fn Int32Array.<static>() -> void {
+  bb0:
+    @g8 = const 4_i64
+    return
+}
+
+fn Uint32Array.<static>() -> void {
+  bb0:
+    @g9 = const 4_i64
+    return
+}
+
+fn Float32Array.<static>() -> void {
+  bb0:
+    @g10 = const 4_i64
+    return
+}
+
+fn Float64Array.<static>() -> void {
+  bb0:
+    @g11 = const 8_i64
+    return
+}
+
+fn <main>() -> void {
+    let _0: Performance
+    let _1: SubtleCrypto
+    let _2: Crypto
+  bb0:
+    call Uint8Array.<static>() -> bb1
+  bb1:
+    call Int32Array.<static>() -> bb2
+  bb2:
+    call Uint32Array.<static>() -> bb3
+  bb3:
+    call Float32Array.<static>() -> bb4
+  bb4:
+    call Float64Array.<static>() -> bb5
+  bb5:
+    @g0 = const null<() => bool[]?>
+    @g1 = const null<__Loop?>
+    @g2 = const null<FinalizationRegistry<i64>?>
+    @g3 = const null<Map<string, __Zone>?>
+    _0 = struct#112{}
+    @g4 = _0
+    @g5 = const null<__Xoshiro128?>
+    _1 = struct#123{}
+    _2 = struct#124{_1}
+    @g6 = _2
+    goto bb6
+  bb6:
+    return
+}

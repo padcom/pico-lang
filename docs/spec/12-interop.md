@@ -19,10 +19,10 @@ extern "C" {
 ### Strings
 A `string` parameter in an `extern` declaration is **converted automatically** to a temporary
 NUL-terminated UTF-8 copy that stays valid for the duration of the call. A returned `cstr` is copied
-into a ppl `string` with `string.fromC(p)`, inside `unsafe`.
+into a pico `string` with `string.fromC(p)`, inside `unsafe`.
 
 ### Type mapping
-| C | ppl |
+| C | pico |
 |---|-----|
 | `int8_t … uint64_t`, `int`, `long` (target-sized) | `i8 … u64`, `c_int`, `c_long` |
 | `float`, `double` | `f32`, `f64` |
@@ -70,7 +70,7 @@ el.textContent = marked.parse("# Hello")
 `.d.ts` mapping is **best effort**:
 - TS interfaces and classes become nominal `extern class` handles that wrap a JS object.
 - Simple object shapes used as **values** (only primitives, arrays and other simple shapes) are
-  converted to and from ppl structs when they cross the boundary.
+  converted to and from pico structs when they cross the boundary.
 - `number` becomes `f64`, `string` becomes `string`, `boolean` becomes `bool`, `T | undefined` and
   `T | null` become `T?`, and `Promise<T>` becomes `Promise<T> throws JsError`.
 - `any` and constructs that can't be mapped (conditional/mapped types, overloads that can't be
@@ -85,7 +85,7 @@ const n = v.as<f64>()          // throws JsError on type mismatch
 ```
 `get`, `set`, `call`, `invoke`, `construct` and `at` work on any value; `asNumber()`,
 `asString()` and `asBool()` convert (or throw `JsError`); `JsValue.fn(f)` makes a JavaScript
-function that calls the ppl closure `f` with its arguments array (event listeners:
+function that calls the pico closure `f` with its arguments array (event listeners:
 `button.addEventListener("click", JsValue.fn((args) => …))`). A `JsValue` keeps its JavaScript
 value alive until it's collected.
 
@@ -102,7 +102,7 @@ Decision 259.
 @export("js")
 export function render(state: AppState): string { … }
 ```
-`ppl build --target wasm32-browser` produces `app.wasm`, `app.js` (ESM glue) and `app.d.ts` for
+`pico build --target wasm32-browser` produces `app.wasm`, `app.js` (ESM glue) and `app.d.ts` for
 the exported API. Structs and enums cross the boundary as **plain JS object copies**
 (`{ x, y }`, `{ kind: "Circle", r }`), while classes are exposed as JS handle classes wrapping
 WasmGC references.
@@ -114,7 +114,7 @@ const html = app.render({ count: 1 })  // @export("js") functions
 await app.done                         // the exit code, once nothing is pending
 ```
 
-By default (the WasmGC backend is opt-in with `PPL_BACKEND=wasmgc` until it's optimised: decisions 269 and 270; it passes class instances as GC references), the module uses linear memory with the ppl GC: handles keep
+By default (the WasmGC backend is opt-in with `PICO_BACKEND=wasmgc` until it's optimised: decisions 269 and 270; it passes class instances as GC references), the module uses linear memory with the pico GC: handles keep
 their object alive until `free()` (or `[Symbol.dispose]`, or until the handle is collected).
 Numbers, `bool`, `string`, structs and classes cross so far (64-bit integers as JS numbers);
 arrays, enums, nullable types and throwing, generic or async functions can't be exported yet
@@ -125,9 +125,9 @@ runs the program like an executable. Decision 258.
 ## 12.4 Exporting to C
 ```ts
 @export("c")
-export function ppl_hash(data: ptr<u8>, len: usize): u64 { … }
+export function pico_hash(data: ptr<u8>, len: usize): u64 { … }
 ```
-`ppl build --lib shared|static` produces `.so`/`.dylib`/`.dll` or `.a`, plus a generated `.h`.
+`pico build --lib shared|static` produces `.so`/`.dylib`/`.dll` or `.a`, plus a generated `.h`.
 Exported signatures may only use FFI-compatible types. A thread calling in from C gets its own
 heap, initialized lazily.
 

@@ -1,0 +1,31 @@
+[package]
+name = "pico-driver"
+description = "Compilation pipeline, caching, targets and linking for pico"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+pico-codegen.workspace = true
+pico-diag.workspace = true
+pico-interp.workspace = true
+pico-lld.workspace = true
+pico-mir.workspace = true
+pico-runtime.workspace = true
+pico-sema.workspace = true
+pico-syntax.workspace = true
+# Making WASI programs preview 2 components (decision 257).
+wit-component = "0.263"
+wit-parser = "0.263"
+# Reading clang's JSON AST of C headers (`c:` imports, decision 262).
+# (`preserve_order`: `pico add`/`remove` keep a manifest's key order.)
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+pico-lld.workspace = true
+insta.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,30 @@
+---
+source: crates/pico-syntax/src/parser/tests.rs
+expression: "ok(r##\"\nmatch (v) {\n  42 => \"lit\",\n  -1 => \"neg\",\n  \"north\" | \"south\" => \"or\",\n  0..10 => \"range\",\n  true => \"bool\",\n  null => \"null\",\n  _ => \"wild\",\n  n => \"bind\",\n  Shape.Circle => \"path\",\n  Circle(r) => \"positional\",\n  Circle { r } if r > 10 => \"guard\",\n  Point { x: 0, y } => \"nested literal\",\n  c as Rect { w, h } => \"as\",\n  [] => \"empty\",\n  [only] => \"one\",\n  [first, ...rest] => \"rest\",\n  [x, 0] | [0, x] => \"tuple or\",\n  s: string => \"type test\",\n  n: i64 if n < 0 => \"typed guard\",\n  Rect(w, h) if w == h => \"square\",\n  (Circle(_) | Empty) => \"grouped\",\n}\nconst k = match (code) {\n  200 | 201 | 204 => \"ok\"\n  300..400 => \"redirect\"\n  _ => \"other\"\n}\n\"##)"
+---
+(match
+  v
+  (=> 42 "lit")
+  (=> -1 "neg")
+  (=> (| "north" "south") "or")
+  (=> (.. 0 10) "range")
+  (=> true "bool")
+  (=> null "null")
+  (=> _ "wild")
+  (=> n "bind")
+  (=> Shape.Circle "path")
+  (=> (variant Circle r) "positional")
+  (=> (struct-pat Circle r) (if (> r 10)) "guard")
+  (=> (struct-pat Point (x: 0) y) "nested literal")
+  (=> (as c (struct-pat Rect w h)) "as")
+  (=> (array-pat) "empty")
+  (=> (array-pat only) "one")
+  (=> (array-pat first (... rest)) "rest")
+  (=> (| (array-pat x 0) (array-pat 0 x)) "tuple or")
+  (=> (typed s string) "type test")
+  (=> (typed n i64) (if (< n 0)) "typed guard")
+  (=> (variant Rect w h) (if (== w h)) "square")
+  (=> (| (variant Circle _) Empty) "grouped"))
+(const
+  k
+  (match code (=> (| 200 201 204) "ok") (=> (.. 300 400) "redirect") (=> _ "other")))

@@ -14,7 +14,7 @@ string without leading digits panics, since `int` has no `NaN`). Integer arrays 
 
 APIs that mirror a Web standard take that standard's **options object**, as a struct built from
 an object literal (`fetch(url, { method: "POST", headers })`, `postMessage(m, { transfer })`).
-ppl's own APIs take options as named arguments (`new Command("git", args, cwd: repo)`).
+pico's own APIs take options as named arguments (`new Command("git", args, cwd: repo)`).
 
 ```ts
 const res = await fetch("https://api.example.com/users")
@@ -47,7 +47,7 @@ const users = await res.json<User[]>()        // typed, generated like JSON.pars
 
 ## 13.3 Target availability
 `std/fs`, `std/net` and `std/process` aren't available on `wasm32-browser`, and importing them there
-is a **compile error**. Use platform-specific files (`storage.wasm.ppl` / `storage.ppl`) to provide
+is a **compile error**. Use platform-specific files (`storage.wasm.pi` / `storage.pi`) to provide
 alternatives.
 
 A JS-compatible `Date` global is kept so ported code works, but new code should use `std/time`.
@@ -252,7 +252,7 @@ for await (const chunk of conn.readable) handle(chunk)   // without a reader
 Sources, sinks and transformers are structs of callbacks (`UnderlyingSource<T>`: `start`,
 `pull`, `cancel`; `UnderlyingSink<T>`: `start`, `write`, `close`, `abort`; `Transformer<I, O>`:
 `start`, `transform`, `flush`). Callbacks finish when they return; work that finishes later is
-given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transformAsync` (ppl has
+given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transformAsync` (pico has
 no async lambdas yet). Strategies are `{ highWaterMark }` (default 1; a transform's readable
 side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel })` writes each chunk after
 the last one was taken; `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
@@ -282,7 +282,7 @@ or `"manual"`, `"error"`; 303, and 301/302 after a POST, become a GET) and rejec
 TLS) and checks the server's certificate and name against the system's roots (`SSL_CERT_FILE`/
 `SSL_CERT_DIR`, else the usual bundles such as `/etc/ssl/cert.pem`); a failure is a `NetError`
 of kind `TlsError` (`TLS: certificate verification failed: …`). `RequestInit` is `{ method,
-headers, body, redirect, caCerts }` (`caCerts`, a ppl extension: extra PEM certificates to
+headers, body, redirect, caCerts }` (`caCerts`, a pico extension: extra PEM certificates to
 trust), `ResponseInit` `{ status,
 statusText, headers }`; a body (`BodyInit`) is a `string` (`text/plain;charset=UTF-8`), a
 `Uint8Array`, a `ReadableStream<Uint8Array>` (sent chunked) or `URLSearchParams` (form
@@ -314,7 +314,7 @@ it serves HTTPS; a client that fails the handshake is disconnected.
 
 ### `WebSocket`
 A global, as WHATWG WebSockets (RFC 6455): `new WebSocket(url, protocols = [], options = {})`
-(`ws:` or `wss:`; `options.caCerts`, a ppl extension, as for `fetch`) connects in the background. `readyState` (`CONNECTING`
+(`ws:` or `wss:`; `options.caCerts`, a pico extension, as for `fetch`) connects in the background. `readyState` (`CONNECTING`
 0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`; callbacks `onopen(Event)`,
 `onmessage(MessageEvent)` (`data: string | Uint8Array`: text or binary; fragments are joined),
 `onerror(Event)` and `onclose(CloseEvent)` (`code`, `reason`, `wasClean`; 1006 when the
@@ -344,7 +344,7 @@ repeated group are reset at each repetition and an iteration that matches nothin
 loop, as in JavaScript. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
 (`^`/`$` at line ends), `s` (`.` matches line ends), `y` (sticky), `u`, `v`, `d` (accepted).
 Matching is by code point, as if `u` were always on (`.` is one character), and indices count
-code points, as ppl strings do.
+code points, as pico strings do.
 
 A regex literal (`/\d+/g`) is checked at compile time (E0010, with JavaScript's message:
 `Invalid regular expression: /(abc/: Unterminated group`) and can't fail at runtime;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Packages editors/vscode as a .vsix (its npm dependencies installed first, from the lockfile)
 # and, with --install, installs it with VS Code's CLI (`code`, or $CODE).
-# Usage: scripts/vscode-package.sh [--install]   → target/vscode/ppl-<version>.vsix
+# Usage: scripts/vscode-package.sh [--install]   → target/vscode/pico-<version>.vsix
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=target/vscode

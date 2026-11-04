@@ -12,8 +12,8 @@ _start:
     mov x6, sp                      /* stack_end */
     adrp x0, :got:main
     ldr x0, [x0, :got_lo12:main]
-    adrp x3, ppl_glibc_init         /* init */
-    add x3, x3, :lo12:ppl_glibc_init
+    adrp x3, pico_glibc_init         /* init */
+    add x3, x3, :lo12:pico_glibc_init
     mov x4, #0                      /* fini: ld.so runs .fini_array itself */
     bl __libc_start_main
     bl abort

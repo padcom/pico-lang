@@ -1,0 +1,124 @@
+// expect: big circle | circle 2 | rect 2x3 (6) | nothing
+// expect: ok ok redirect other
+// expect: building | building | running main.pi | usage
+// expect: 3
+// expect: hello has 5 chars
+// expect: job 1 job 2 done
+// expect: origin | on an axis: 5 | on an axis: 7 | 1, 2
+// expect: empty | one: 4 | 1 and 2 more | first 1, last 3
+// expect: string hi | negative | int 5 | nothing
+// expect: lower upper digit other
+// expect: true false
+// expect: [2, 3] [] 9
+// expect: small
+enum Shape {
+  Circle(r: f64),
+  Rect(w: f64, h: f64),
+  Empty,
+}
+function area(s: Shape): f64 {
+  match (s) { Circle(r) => 3 * r * r, Rect(w, h) => w * h, Empty => 0 }
+}
+
+// §3.5: guards, struct-style variant patterns, `as` bindings.
+function describe(shape: Shape): string {
+  match (shape) {
+    Circle { r } if r > 10 => "big circle",
+    Circle { r } => `circle ${r}`,
+    c as Rect { w, h } => `rect ${w}x${h} (${area(c)})`,
+    Empty => "nothing",
+  }
+}
+println(`${describe(Shape.Circle(r: 20))} | ${describe(Shape.Circle(2))} | ${describe(Shape.Rect(2, 3))} | ${describe(Shape.Empty)}`)
+
+// Or-patterns and ranges.
+function kind(code: i32): string {
+  match (code) {
+    200 | 201 | 204 => "ok",
+    300..400 => "redirect",
+    _ => "other",
+  }
+}
+println(`${kind(200)} ${kind(204)} ${kind(302)} ${kind(404)}`)
+
+// The modernized switch: no fallthrough, patterns in cases.
+enum Command { Build, Run(file: string), Help }
+function dispatch(cmd: string): string {
+  switch (cmd) {
+    case "build" | "b": return "building"
+    default: return "usage"
+  }
+}
+function exec(c: Command): string {
+  let out = "usage"
+  switch (c) {
+    case Build: out = "building"
+    case Run { file }: out = `running ${file}`
+  }
+  out
+}
+println(`${dispatch("build")} | ${dispatch("b")} | ${exec(Command.Run("main.pi"))} | ${exec(Command.Help)}`)
+
+// `is` patterns: bindings where the test holds, and narrowing.
+const shape = Shape.Circle(r: 3)
+if (shape is Circle { r }) println(r)
+function shout(x: string?): string {
+  if (!(x is string)) return "nothing"
+  `${x} has ${x.length} chars`
+}
+println(shout("hello"))
+struct Job { id: i32 }
+const jobs: Job[] = [Job { id: 2 }, Job { id: 1 }]
+function next(): Job? { jobs.pop() }
+let log = ""
+while (next() is Job { id }) log += `job ${id} `
+println(`${log}done`)
+
+// Tuple patterns.
+function axis(pair: [i32, i32]): string {
+  match (pair) {
+    [0, 0] => "origin",
+    [x, 0] | [0, x] => `on an axis: ${x}`,
+    [x, y] => `${x}, ${y}`,
+  }
+}
+println(`${axis([0, 0])} | ${axis([5, 0])} | ${axis([0, 7])} | ${axis([1, 2])}`)
+
+// Array patterns with rest.
+function list(xs: i32[]): string {
+  match (xs) {
+    [] => "empty",
+    [only] => `one: ${only}`,
+    [first, ...rest] if rest.length == 2 => `${first} and ${rest.length} more`,
+    [first, ..., last] => `first ${first}, last ${last}`,
+  }
+}
+println(`${list([])} | ${list([4])} | ${list([1, 2, 3])} | ${list([1, 2, 2, 3])}`)
+
+// Type-test patterns (on nullable values until unions arrive).
+function what(u: string?, n: i64?): string {
+  match (u) {
+    s: string => `string ${s}`,
+    null => match (n) {
+      n: i64 if n < 0 => "negative",
+      n: i64 => `int ${n}`,
+      _ => "nothing",
+    },
+  }
+}
+println(`${what("hi", null)} | ${what(null, -1)} | ${what(null, 5)} | ${what(null, null)}`)
+
+// Char ranges.
+function charClass(c: char): string {
+  match (c) { "a".."{" => "lower", "A".."[" => "upper", "0".."9" | "9" => "digit", _ => "other" }
+}
+println(`${charClass("q")} ${charClass("Q")} ${charClass("7")} ${charClass("-")}`)
+
+const p: [i32, i32] = [1, 2]
+println(`${p is [1, _]} ${p is [_, 1]}`)
+const [h] = [1]
+const tail: int[] = match ([1, 2, 3]) { [_, ...t] => t, _ => [] }
+const none: int[] = match ([1]) { [_, ...t] => t, _ => [] }
+println(`${tail:?} ${none:?} ${h + 8}`)
+const size = match (3u8) { 0..10 => "small", _ => "big" }
+println(size)

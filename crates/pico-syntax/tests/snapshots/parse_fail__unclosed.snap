@@ -1,0 +1,12 @@
+---
+source: crates/pico-syntax/tests/parse_fail.rs
+expression: "render_all(&diags, &sm)"
+---
+error[E0101]: expected `}`, found end of file
+  ┌─ parse/unclosed.pi:7:1
+  │
+3 │   if (x) {
+  │          - to close this
+  ·
+7 │
+  │ ^ expected `}`

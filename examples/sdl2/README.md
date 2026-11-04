@@ -2,7 +2,7 @@
 
 ```sh
 sudo apt install libsdl2-dev pkg-config     # or your system's SDL2 development package
-ppl run examples/sdl2/main.ppl
+pico run examples/sdl2/main.pi
 ```
 
 `import * as sdl from "c:SDL2/SDL.h"` generates bindings from SDL2's header (functions,

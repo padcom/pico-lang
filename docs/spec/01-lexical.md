@@ -1,11 +1,11 @@
 # 1. Lexical structure
 
 ## 1.1 Source text
-- Source files are UTF-8 and use the `.ppl` extension.
+- Source files are UTF-8 and use the `.pi` extension.
 - Identifiers follow the TS/JS rules (Unicode ID_Start / ID_Continue, `$`, `_`).
 
 ## 1.2 Statement termination
-Semicolons are optional. ppl does **not** use JavaScript's automatic semicolon insertion rules.
+Semicolons are optional. pico does **not** use JavaScript's automatic semicolon insertion rules.
 It uses a simpler newline rule:
 
 > A newline ends a statement **unless** the newline is inside `(` `)` or `[` `]`, the line ends
@@ -71,9 +71,9 @@ Leading whitespace common to all lines is removed, as are the first and last lin
 backtick form interpolates:
 ````ts
 const help = """
-    Usage: ppl <command>
+    Usage: pico <command>
       build   compile the project
-    """                        // "Usage: ppl <command>\n  build   compile the project"
+    """                        // "Usage: pico <command>\n  build   compile the project"
 
 const page = ```
     <h1>${title}</h1>

@@ -1,0 +1,1347 @@
+// `RegExp` (ECMAScript regular expressions, spec §13.7), a global also exported by
+// `std/regex`. A pattern is parsed into a tree, compiled to a small program and run by a
+// backtracking matcher with an explicit stack, so the semantics are JavaScript's: ordered
+// alternation, greedy and lazy quantifiers, captures reset at each repetition, backreferences,
+// lookahead and lookbehind. Strings are matched by code point (as if every pattern had the
+// `u` flag: `.` is a whole character), and indices count code points, as pico strings do.
+// Regex literals are checked by the compiler (`pico-sema/src/regex.rs`) with the same rules.
+
+/// A pattern that isn't valid (`new RegExp("(")`): `Invalid regular expression: /(/: …`.
+class SyntaxError extends Error {
+  /// A `SyntaxError` with `message`.
+  constructor(message: string) { super(message) }
+}
+
+// Node kinds.
+// 0 char (c), 1 any, 2 class (cls), 3 sequence (kids), 4 alternation (kids), 5 group (idx:
+// capture index or -1, kids[0]), 6 repeat (min, max (-1: no limit), greedy, kids[0]), 7 line
+// start, 8 line end, 9 word boundary, 10 not a word boundary, 11 backreference (idx), 12
+// lookaround (neg, behind, kids[0]), 13 empty.
+class __RNode {
+  public kind: int
+  public c: int = 0
+  public cls: __RClass? = null
+  public kids: __RNode[] = []
+  public min: int = 0
+  public max: int = 0
+  public greedy: bool = true
+  public idx: int = -1
+  public neg: bool = false
+  public behind: bool = false
+  /// Capture groups inside (first and last index + 1), for clearing at each repetition.
+  public capFrom: int = 0
+  public capTo: int = 0
+  /// A named backreference resolved after parsing.
+  public name: string = ""
+
+  constructor(kind: int) {
+    this.kind = kind
+  }
+}
+
+/// A character class: ranges of code points (inclusive), possibly negated.
+class __RClass {
+  public los: int[] = []
+  public his: int[] = []
+  public neg: bool = false
+
+  constructor() {}
+
+  public add(lo: int, hi: int): void {
+    this.los.push(lo)
+    this.his.push(hi)
+  }
+
+  public addDigits(): void {
+    this.add(48, 57)
+  }
+
+  public addWord(): void {
+    this.add(48, 57)
+    this.add(65, 90)
+    this.add(95, 95)
+    this.add(97, 122)
+  }
+
+  public addSpace(): void {
+    this.add(9, 13)
+    this.add(32, 32)
+    this.add(0xA0, 0xA0)
+    this.add(0x1680, 0x1680)
+    this.add(0x2000, 0x200A)
+    this.add(0x2028, 0x2029)
+    this.add(0x202F, 0x202F)
+    this.add(0x205F, 0x205F)
+    this.add(0x3000, 0x3000)
+    this.add(0xFEFF, 0xFEFF)
+  }
+
+  /// The complement of the ranges added so far (for `\D`, `\W`, `\S` inside a class).
+  public complementOf(other: __RClass): void {
+    // Sort the other's ranges, then add the gaps.
+    const n = other.los.length
+    const idx: int[] = []
+    for (let i = 0; i < n; i++) {
+      idx.push(i)
+    }
+    for (let i = 1; i < n; i++) {
+      const x = idx[i]
+      let j = i - 1
+      while (j >= 0 && other.los[idx[j]] > other.los[x]) {
+        idx[j + 1] = idx[j]
+        j -= 1
+      }
+      idx[j + 1] = x
+    }
+    let next = 0
+    for (const i of idx) {
+      if (other.los[i] > next) {
+        this.add(next, other.los[i] - 1)
+      }
+      if (other.his[i] + 1 > next) {
+        next = other.his[i] + 1
+      }
+    }
+    if (next <= 0x10FFFF) {
+      this.add(next, 0x10FFFF)
+    }
+  }
+
+  public has(c: int): bool {
+    let found = false
+    for (let i = 0; i < this.los.length; i++) {
+      if (c >= this.los[i] && c <= this.his[i]) {
+        found = true
+        break
+      }
+    }
+    found != this.neg
+  }
+}
+
+function __rIsWord(c: int): bool {
+  (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || c == 95 || (c >= 97 && c <= 122)
+}
+
+function __rIsLineEnd(c: int): bool {
+  c == 10 || c == 13 || c == 0x2028 || c == 0x2029
+}
+
+/// The lowercase form of code point `c` (one code point; others stay).
+function __rLower(c: int): int {
+  if (c >= 65 && c <= 90) {
+    return c + 32
+  }
+  if (c < 128) {
+    return c
+  }
+  const s = `${c as u32 as char}`.toLowerCase()
+  if (s.length == 1) (s[0] as u32 as int) else c
+}
+
+function __rUpper(c: int): int {
+  if (c >= 97 && c <= 122) {
+    return c - 32
+  }
+  if (c < 128) {
+    return c
+  }
+  const s = `${c as u32 as char}`.toUpperCase()
+  if (s.length == 1) (s[0] as u32 as int) else c
+}
+
+/// Parses a pattern (code points) into a tree; failures throw `SyntaxError`.
+class __RParser {
+  p: int[]
+  i: int = 0
+  public groups: int = 0
+  public names: string[] = []
+  public nameIdx: int[] = []
+  public refs: __RNode[] = []
+  public maxBackref: int = 0
+  source: string
+  flags: string
+
+  constructor(source: string, flags: string) {
+    this.source = source
+    this.flags = flags
+    const p: int[] = []
+    for (const c of source) {
+      p.push(c as u32 as int)
+    }
+    this.p = p
+  }
+
+  fail(msg: string): void throws SyntaxError {
+    throw new SyntaxError(`Invalid regular expression: /${this.source}/${this.flags}: ${msg}`)
+  }
+
+  peek(): int {
+    if (this.i < this.p.length) this.p[this.i] else -1
+  }
+
+  eat(c: int): bool {
+    if (this.peek() == c) {
+      this.i += 1
+      return true
+    }
+    false
+  }
+
+  public parse(): __RNode throws SyntaxError {
+    const n = this.alternation()
+    if (this.i < this.p.length) {
+      // (Only an unmatched `)` stops an alternation early.)
+      this.fail("Unmatched ')'")
+    }
+    for (const r of this.refs) {
+      let found = -1
+      for (let k = 0; k < this.names.length; k++) {
+        if (this.names[k] == r.name) {
+          found = this.nameIdx[k]
+        }
+      }
+      if (found < 0) {
+        this.fail("Invalid named capture referenced")
+      }
+      r.idx = found
+    }
+    if (this.maxBackref > this.groups) {
+      this.fail("Invalid escape")
+    }
+    n
+  }
+
+  alternation(): __RNode throws SyntaxError {
+    const first = this.sequence()
+    if (this.peek() != 124) {
+      return first
+    }
+    const alt = new __RNode(4)
+    alt.kids.push(first)
+    while (this.eat(124)) {
+      alt.kids.push(this.sequence())
+    }
+    alt
+  }
+
+  sequence(): __RNode throws SyntaxError {
+    const seq = new __RNode(3)
+    while (this.i < this.p.length && this.peek() != 124 && this.peek() != 41) {
+      seq.kids.push(this.quantified())
+    }
+    if (seq.kids.length == 1) seq.kids[0] else seq
+  }
+
+  /// `{n}`, `{n,}` or `{n,m}` at the current position: (min, max), or null if it isn't one.
+  braces(): [int, int]? {
+    const save = this.i
+    if (!this.eat(123)) {
+      return null
+    }
+    let min = -1
+    let max = -1
+    let n = 0
+    let digits = 0
+    while (this.peek() >= 48 && this.peek() <= 57) {
+      n = n * 10 + (this.peek() - 48)
+      if (n > 100000000) {
+        n = 100000000
+      }
+      this.i += 1
+      digits += 1
+    }
+    if (digits == 0) {
+      this.i = save
+      return null
+    }
+    min = n
+    if (this.eat(44)) {
+      n = 0
+      digits = 0
+      while (this.peek() >= 48 && this.peek() <= 57) {
+        n = n * 10 + (this.peek() - 48)
+        if (n > 100000000) {
+          n = 100000000
+        }
+        this.i += 1
+        digits += 1
+      }
+      max = if (digits == 0) -1 else n
+    } else {
+      max = min
+    }
+    if (!this.eat(125)) {
+      this.i = save
+      return null
+    }
+    [min, max]
+  }
+
+  quantified(): __RNode throws SyntaxError {
+    const start = this.groups
+    const atom = this.atom()
+    const c = this.peek()
+    let min = -1
+    let max = -1
+    if (c == 42) {
+      this.i += 1
+      min = 0
+    } else if (c == 43) {
+      this.i += 1
+      min = 1
+    } else if (c == 63) {
+      this.i += 1
+      min = 0
+      max = 1
+    } else if (c == 123) {
+      const b = this.braces()
+      if (b != null) {
+        min = b[0]
+        max = b[1]
+        if (max >= 0 && max < min) {
+          this.fail("numbers out of order in {} quantifier")
+        }
+      }
+    }
+    if (min < 0) {
+      return atom
+    }
+    const k = atom.kind
+    if (k == 7 || k == 8 || k == 9 || k == 10 || (k == 12 && atom.behind) || k == 13) {
+      this.fail("Nothing to repeat")
+    }
+    const r = new __RNode(6)
+    r.min = min
+    r.max = max
+    r.greedy = !this.eat(63)
+    r.kids.push(atom)
+    r.capFrom = start
+    r.capTo = this.groups
+    r
+  }
+
+  atom(): __RNode throws SyntaxError {
+    const c = this.peek()
+    this.i += 1
+    if (c == 46) {
+      return new __RNode(1)
+    }
+    if (c == 94) {
+      return new __RNode(7)
+    }
+    if (c == 36) {
+      return new __RNode(8)
+    }
+    if (c == 42 || c == 43 || c == 63) {
+      this.fail("Nothing to repeat")
+    }
+    if (c == 123) {
+      this.i -= 1
+      if (this.braces() != null) {
+        this.fail("Nothing to repeat")
+      }
+      this.i += 1
+      return this.lit(c)
+    }
+    if (c == 40) {
+      return this.group()
+    }
+    if (c == 91) {
+      return this.charClass()
+    }
+    if (c == 92) {
+      return this.escape()
+    }
+    this.lit(c)
+  }
+
+  lit(c: int): __RNode {
+    const n = new __RNode(0)
+    n.c = c
+    n
+  }
+
+  group(): __RNode throws SyntaxError {
+    if (this.eat(63)) {
+      const c = this.peek()
+      this.i += 1
+      if (c == 58) {
+        const g = new __RNode(5)
+        g.kids.push(this.alternation())
+        this.close()
+        return g
+      }
+      if (c == 61 || c == 33) {
+        return this.look(c == 33, false)
+      }
+      if (c == 60) {
+        if (this.eat(61)) {
+          return this.look(false, true)
+        }
+        if (this.eat(33)) {
+          return this.look(true, true)
+        }
+        const name = this.groupName()
+        for (const n of this.names) {
+          if (n == name) {
+            this.fail("Duplicate capture group name")
+          }
+        }
+        this.groups += 1
+        const g = new __RNode(5)
+        g.idx = this.groups
+        this.names.push(name)
+        this.nameIdx.push(g.idx)
+        g.kids.push(this.alternation())
+        this.close()
+        return g
+      }
+      this.fail("Invalid group")
+    }
+    this.groups += 1
+    const g = new __RNode(5)
+    g.idx = this.groups
+    g.kids.push(this.alternation())
+    this.close()
+    g
+  }
+
+  close(): void throws SyntaxError {
+    if (!this.eat(41)) {
+      this.fail("Unterminated group")
+    }
+  }
+
+  look(neg: bool, behind: bool): __RNode throws SyntaxError {
+    const g = new __RNode(12)
+    g.neg = neg
+    g.behind = behind
+    g.kids.push(this.alternation())
+    this.close()
+    g
+  }
+
+  /// `name>` after `(?<` or `\k<`.
+  groupName(): string throws SyntaxError {
+    let name = ""
+    while (true) {
+      const c = this.peek()
+      if (c < 0) {
+        this.fail("Invalid capture group name")
+      }
+      this.i += 1
+      if (c == 62) {
+        break
+      }
+      const ok = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 || c == 36 ||
+        (c >= 48 && c <= 57 && name.length > 0) || c > 127
+      if (!ok) {
+        this.fail("Invalid capture group name")
+      }
+      name = `${name}${c as u32 as char}`
+    }
+    if (name.length == 0) {
+      this.fail("Invalid capture group name")
+    }
+    name
+  }
+
+  hex(count: int): int throws SyntaxError {
+    let v = 0
+    for (let k = 0; k < count; k++) {
+      const d = __hexValue(this.peek() as u32 as char)
+      if (this.peek() < 0 || d < 0) {
+        this.fail("Invalid Unicode escape")
+      }
+      v = v * 16 + d
+      this.i += 1
+    }
+    v
+  }
+
+  /// A character escape's code point (after `\`), or -1 for a class escape (`\d`, …) that
+  /// `cls` received.
+  escapeChar(cls: __RClass?, inClass: bool): int throws SyntaxError {
+    const c = this.peek()
+    if (c < 0) {
+      this.fail("\\ at end of pattern")
+    }
+    this.i += 1
+    if (c == 100 || c == 68 || c == 119 || c == 87 || c == 115 || c == 83) {
+      const k = cls
+      if (k != null) {
+        const base = new __RClass()
+        if (c == 100 || c == 68) base.addDigits() else if (c == 119 || c == 87) base.addWord() else base.addSpace()
+        if (c == 100 || c == 119 || c == 115) {
+          for (let j = 0; j < base.los.length; j++) {
+            k.add(base.los[j], base.his[j])
+          }
+        } else {
+          k.complementOf(base)
+        }
+      }
+      return -1
+    }
+    if (c == 110) return 10
+    if (c == 114) return 13
+    if (c == 116) return 9
+    if (c == 118) return 11
+    if (c == 102) return 12
+    if (c == 98 && inClass) return 8
+    if (c == 48 && !(this.peek() >= 48 && this.peek() <= 57)) return 0
+    if (c == 120) return this.hex(2)
+    if (c == 117) {
+      if (this.eat(123)) {
+        let v = 0
+        let digits = 0
+        while (this.peek() != 125) {
+          const d = __hexValue(this.peek() as u32 as char)
+          if (this.peek() < 0 || d < 0) {
+            this.fail("Invalid Unicode escape")
+          }
+          v = v * 16 + d
+          digits += 1
+          this.i += 1
+          if (v > 0x10FFFF) {
+            this.fail("Invalid Unicode escape")
+          }
+        }
+        this.i += 1
+        if (digits == 0) {
+          this.fail("Invalid Unicode escape")
+        }
+        return v
+      }
+      return this.hex(4)
+    }
+    if (c == 99) {
+      const l = this.peek()
+      if ((l >= 65 && l <= 90) || (l >= 97 && l <= 122)) {
+        this.i += 1
+        return l % 32
+      }
+      this.fail("Invalid unicode escape")
+    }
+    // Syntax characters (and `/`, `-` in a class) stand for themselves.
+    const syntax = c == 94 || c == 36 || c == 92 || c == 46 || c == 42 || c == 43 || c == 63 ||
+      c == 40 || c == 41 || c == 91 || c == 93 || c == 123 || c == 125 || c == 124 || c == 47
+    if (syntax || (inClass && c == 45)) {
+      return c
+    }
+    this.fail("Invalid escape")
+    -1
+  }
+
+  escape(): __RNode throws SyntaxError {
+    const c = this.peek()
+    if (c == 98) {
+      this.i += 1
+      return new __RNode(9)
+    }
+    if (c == 66) {
+      this.i += 1
+      return new __RNode(10)
+    }
+    if (c >= 49 && c <= 57) {
+      let n = 0
+      while (this.peek() >= 48 && this.peek() <= 57) {
+        n = n * 10 + (this.peek() - 48)
+        this.i += 1
+      }
+      const r = new __RNode(11)
+      r.idx = n
+      if (n > this.maxBackref) {
+        this.maxBackref = n
+      }
+      return r
+    }
+    if (c == 107) {
+      this.i += 1
+      if (!this.eat(60)) {
+        this.fail("Invalid named reference")
+      }
+      const r = new __RNode(11)
+      r.name = this.groupName()
+      this.refs.push(r)
+      return r
+    }
+    const cls = new __RClass()
+    const v = this.escapeChar(cls, false)
+    if (v < 0) {
+      const n = new __RNode(2)
+      n.cls = cls
+      return n
+    }
+    this.lit(v)
+  }
+
+  charClass(): __RNode throws SyntaxError {
+    const cls = new __RClass()
+    cls.neg = this.eat(94)
+    while (true) {
+      const c = this.peek()
+      if (c < 0) {
+        this.fail("Unterminated character class")
+      }
+      if (c == 93) {
+        this.i += 1
+        break
+      }
+      const lo = this.classAtom(cls)
+      if (this.peek() == 45 && this.i + 1 < this.p.length && this.p[this.i + 1] != 93) {
+        this.i += 1
+        const hi = this.classAtom(cls)
+        if (lo < 0 || hi < 0) {
+          this.fail("Invalid character class")
+        }
+        if (hi < lo) {
+          this.fail("Range out of order in character class")
+        }
+        cls.add(lo, hi)
+      } else if (lo >= 0) {
+        cls.add(lo, lo)
+      }
+    }
+    const n = new __RNode(2)
+    n.cls = cls
+    n
+  }
+
+  /// One class member: its code point, or -1 for a class escape added to `cls`.
+  classAtom(cls: __RClass): int throws SyntaxError {
+    const c = this.peek()
+    this.i += 1
+    if (c == 92) {
+      return this.escapeChar(cls, true)
+    }
+    c
+  }
+}
+
+// Instructions: 0 char a, 1 any (a: dotAll), 2 class a, 3 split (try a, then b), 4 jump a,
+// 5 save slot a, 6 line start (a: multiline), 7 line end (a: multiline), 8 word boundary, 9 not
+// one, 10 backreference a, 11 lookaround (a: 1 negative + 2 behind; b: the instruction after
+// its body), 12 match, 13 mark register a, 14 fail unless past register a's position, 15 clear
+// slots a..b.
+class __RProgram {
+  public op: int[] = []
+  public a: int[] = []
+  public b: int[] = []
+  public classes: __RClass[] = []
+  public regs: int = 0
+  public icase: bool
+  public dotAll: bool
+  public multiline: bool
+
+  constructor(icase: bool, dotAll: bool, multiline: bool) {
+    this.icase = icase
+    this.dotAll = dotAll
+    this.multiline = multiline
+  }
+
+  public emit(op: int, a: int, b: int): int {
+    this.op.push(op)
+    this.a.push(a)
+    this.b.push(b)
+    if (this.op.length > 200000) {
+      panic("regular expression too large")
+    }
+    this.op.length - 1
+  }
+
+  public compile(n: __RNode): void {
+    const k = n.kind
+    if (k == 0) {
+      this.emit(0, if (this.icase) __rLower(n.c) else n.c, 0);
+    } else if (k == 1) {
+      this.emit(1, if (this.dotAll) 1 else 0, 0);
+    } else if (k == 2) {
+      const c = n.cls
+      if (c != null) {
+        this.classes.push(c)
+        this.emit(2, this.classes.length - 1, 0);
+      }
+    } else if (k == 3) {
+      for (const kid of n.kids) {
+        this.compile(kid);
+      }
+    } else if (k == 4) {
+      const jumps: int[] = []
+      for (let i = 0; i < n.kids.length; i++) {
+        if (i < n.kids.length - 1) {
+          const split = this.emit(3, 0, 0)
+          this.a[split] = split + 1
+          this.compile(n.kids[i]);
+          jumps.push(this.emit(4, 0, 0))
+          this.b[split] = this.op.length
+        } else {
+          this.compile(n.kids[i]);
+        }
+      }
+      for (const j of jumps) {
+        this.a[j] = this.op.length
+      }
+    } else if (k == 5) {
+      if (n.idx >= 0) {
+        this.emit(5, n.idx * 2, 0);
+        this.compile(n.kids[0]);
+        this.emit(5, n.idx * 2 + 1, 0);
+      } else {
+        this.compile(n.kids[0]);
+      }
+    } else if (k == 6) {
+      this.repeat(n);
+    } else if (k == 7) {
+      this.emit(6, if (this.multiline) 1 else 0, 0);
+    } else if (k == 8) {
+      this.emit(7, if (this.multiline) 1 else 0, 0);
+    } else if (k == 9) {
+      this.emit(8, 0, 0);
+    } else if (k == 10) {
+      this.emit(9, 0, 0);
+    } else if (k == 11) {
+      this.emit(10, n.idx, 0);
+    } else if (k == 12) {
+      const look = this.emit(11, (if (n.neg) 1 else 0) + (if (n.behind) 2 else 0), 0)
+      this.compile(n.kids[0]);
+      this.emit(12, 0, 0);
+      this.b[look] = this.op.length
+    }
+  }
+
+  /// One iteration of a repeat's body (captures inside cleared first).
+  body(n: __RNode): void {
+    if (n.capTo > n.capFrom) {
+      this.emit(15, (n.capFrom + 1) * 2, n.capTo * 2 + 1);
+    }
+    this.compile(n.kids[0]);
+  }
+
+  repeat(n: __RNode): void {
+    for (let i = 0; i < n.min; i++) {
+      this.body(n);
+    }
+    if (n.max < 0) {
+      // loop: split body, end; body: mark r; …; check r; jump loop
+      const r = this.regs
+      this.regs += 1
+      const top = this.emit(3, 0, 0)
+      this.emit(13, r, 0);
+      this.body(n);
+      this.emit(14, r, 0);
+      this.emit(4, top, 0);
+      const end = this.op.length
+      if (n.greedy) {
+        this.a[top] = top + 1
+        this.b[top] = end
+      } else {
+        this.a[top] = end
+        this.b[top] = top + 1
+      }
+      return
+    }
+    const splits: int[] = []
+    for (let i = n.min; i < n.max; i++) {
+      const s = this.emit(3, 0, 0)
+      splits.push(s)
+      this.body(n);
+    }
+    const end = this.op.length
+    for (const s of splits) {
+      if (n.greedy) {
+        this.a[s] = s + 1
+        this.b[s] = end
+      } else {
+        this.a[s] = end
+        this.b[s] = s + 1
+      }
+    }
+  }
+}
+
+/// Runs a program over an input (code points) with an explicit backtracking stack.
+class __RMachine {
+  prog: __RProgram
+  input: int[]
+  folded: int[]
+  public caps: int[]
+  regs: int[]
+  /// Where the last successful run ended.
+  public end: int = 0
+  // The stack: kind (0 a thread at pc/sp, 1 restore capture slot, 2 restore register), x, y.
+  sk: int[] = []
+  sx: int[] = []
+  sy: int[] = []
+
+  constructor(prog: __RProgram, input: int[], groups: int) {
+    this.prog = prog
+    this.input = input
+    const f: int[] = []
+    if (prog.icase) {
+      for (const c of input) {
+        f.push(__rLower(c))
+      }
+    }
+    this.folded = f
+    const caps: int[] = []
+    for (let i = 0; i < (groups + 1) * 2; i++) {
+      caps.push(-1)
+    }
+    this.caps = caps
+    const regs: int[] = []
+    for (let i = 0; i < prog.regs; i++) {
+      regs.push(-1)
+    }
+    this.regs = regs
+  }
+
+  push(k: int, x: int, y: int): void {
+    this.sk.push(k)
+    this.sx.push(x)
+    this.sy.push(y)
+  }
+
+  wordAt(i: int): bool {
+    i >= 0 && i < this.input.length && __rIsWord(this.input[i])
+  }
+
+  classHas(cls: __RClass, c: int): bool {
+    if (cls.has(c)) {
+      return true
+    }
+    if (this.prog.icase) {
+      const lo = __rLower(c)
+      const up = __rUpper(c)
+      return (lo != c && cls.has(lo)) || (up != c && cls.has(up))
+    }
+    false
+  }
+
+  /// Whether the program from `pc` matches at `sp` (ending at `this.end`); captures keep
+  /// what the successful path set.
+  public run(pc0: int, sp0: int): bool {
+    const base = this.sk.length
+    this.push(0, pc0, sp0)
+    const p = this.prog
+    const n = this.input.length
+    let matched = false
+    while (this.sk.length > base) {
+      const top = this.sk.length - 1
+      const kind = this.sk[top]
+      const x = this.sx[top]
+      const y = this.sy[top]
+      this.sk.pop()
+      this.sx.pop()
+      this.sy.pop()
+      if (kind == 1) {
+        this.caps[x] = y
+        continue
+      }
+      if (kind == 2) {
+        this.regs[x] = y
+        continue
+      }
+      let pc = x
+      let sp = y
+      let alive = true
+      while (alive) {
+        const op = p.op[pc]
+        if (op == 0) {
+          if (sp < n && (if (p.icase) this.folded[sp] else this.input[sp]) == p.a[pc]) {
+            sp += 1
+            pc += 1
+          } else {
+            alive = false
+          }
+        } else if (op == 1) {
+          if (sp < n && (p.a[pc] == 1 || !__rIsLineEnd(this.input[sp]))) {
+            sp += 1
+            pc += 1
+          } else {
+            alive = false
+          }
+        } else if (op == 2) {
+          if (sp < n && this.classHas(p.classes[p.a[pc]], this.input[sp])) {
+            sp += 1
+            pc += 1
+          } else {
+            alive = false
+          }
+        } else if (op == 3) {
+          this.push(0, p.b[pc], sp)
+          pc = p.a[pc]
+        } else if (op == 4) {
+          pc = p.a[pc]
+        } else if (op == 5) {
+          this.push(1, p.a[pc], this.caps[p.a[pc]])
+          this.caps[p.a[pc]] = sp
+          pc += 1
+        } else if (op == 6) {
+          if (sp == 0 || (p.a[pc] == 1 && __rIsLineEnd(this.input[sp - 1]))) pc += 1 else alive = false
+        } else if (op == 7) {
+          if (sp == n || (p.a[pc] == 1 && __rIsLineEnd(this.input[sp]))) pc += 1 else alive = false
+        } else if (op == 8 || op == 9) {
+          const at = this.wordAt(sp - 1) != this.wordAt(sp)
+          if (at == (op == 8)) pc += 1 else alive = false
+        } else if (op == 10) {
+          const g = p.a[pc]
+          const s = if (g * 2 + 1 < this.caps.length) this.caps[g * 2] else -1
+          const e = if (g * 2 + 1 < this.caps.length) this.caps[g * 2 + 1] else -1
+          if (s < 0 || e < 0) {
+            pc += 1
+          } else {
+            const len = e - s
+            let ok = sp + len <= n
+            let k = 0
+            while (ok && k < len) {
+              const a = this.input[s + k]
+              const b = this.input[sp + k]
+              ok = a == b || (p.icase && __rLower(a) == __rLower(b))
+              k += 1
+            }
+            if (ok) {
+              sp += len
+              pc += 1
+            } else {
+              alive = false
+            }
+          }
+        } else if (op == 11) {
+          const neg = (p.a[pc] & 1) != 0
+          const behind = (p.a[pc] & 2) != 0
+          const saved: int[] = []
+          for (const c of this.caps) {
+            saved.push(c)
+          }
+          let found = false
+          if (behind) {
+            // The body must end exactly here: try each start, the longest first.
+            for (let j = 0; j <= sp && !found; j++) {
+              if (this.run(pc + 1, j) && this.end == sp) {
+                found = true
+              } else {
+                for (let i = 0; i < saved.length; i++) {
+                  this.caps[i] = saved[i]
+                }
+              }
+            }
+          } else {
+            found = this.run(pc + 1, sp)
+          }
+          if (found == neg) {
+            for (let i = 0; i < saved.length; i++) {
+              this.caps[i] = saved[i]
+            }
+            alive = false
+          } else {
+            if (neg) {
+              for (let i = 0; i < saved.length; i++) {
+                this.caps[i] = saved[i]
+              }
+            } else {
+              // Captures from inside stay, and are undone if we backtrack past here.
+              for (let i = 0; i < saved.length; i++) {
+                if (saved[i] != this.caps[i]) {
+                  this.push(1, i, saved[i])
+                }
+              }
+            }
+            pc = p.b[pc]
+          }
+        } else if (op == 12) {
+          this.end = sp
+          matched = true
+          alive = false
+        } else if (op == 13) {
+          this.push(2, p.a[pc], this.regs[p.a[pc]])
+          this.regs[p.a[pc]] = sp
+          pc += 1
+        } else if (op == 14) {
+          // An iteration that matched nothing ends the top (as JavaScript's).
+          if (sp == this.regs[p.a[pc]]) alive = false else pc += 1
+        } else if (op == 15) {
+          for (let s = p.a[pc]; s <= p.b[pc] && s < this.caps.length; s++) {
+            this.push(1, s, this.caps[s])
+            this.caps[s] = -1
+          }
+          pc += 1
+        } else {
+          alive = false
+        }
+      }
+      if (matched) {
+        // Drop what's left of this run's stack (restores included: the captures stand).
+        while (this.sk.length > base) {
+          this.sk.pop()
+          this.sx.pop()
+          this.sy.pop()
+        }
+        return true
+      }
+    }
+    false
+  }
+}
+
+/// A match: element 0 is the matched text, then each capture group's (`null` when it didn't
+/// take part); `index` is where it starts and `groups` holds named groups. With the `g`
+/// flag, `string.match` gives every match's text as the elements instead (`index` -1).
+class RegExpMatch {
+  public __items: (string?)[]
+  /// Where the match starts in `input`, in code points (-1 for a `g`-flag `string.match` result).
+  public readonly index: int
+  /// The string that was searched.
+  public readonly input: string
+  /// The named groups' texts by name (`null` for one that didn't take part), or `null` when the
+  /// pattern has no named groups.
+  public readonly groups: Map<string, string?>?
+
+  /// A match of `items` (the elements) at `index` in `input`, with named `groups`.
+  constructor(items: (string?)[], index: int, input: string, groups: Map<string, string?>?) {
+    this.__items = items
+    this.index = index
+    this.input = input
+    this.groups = groups
+  }
+
+  /// The count of elements: 1 plus the count of capture groups.
+  public get length(): int {
+    this.__items.length
+  }
+
+  operator [](i: int): string? {
+    if (i < 0 || i >= this.__items.length) null else this.__items[i]
+  }
+
+  /// The elements as an array.
+  public toArray(): (string?)[] {
+    this.__items
+  }
+
+  /// `for (const s of m)`.
+  public iterator(): Iterator<string?> {
+    __Array_iterator(this.__items)
+  }
+}
+
+/// A regular expression: `/pattern/flags` or `new RegExp(pattern, flags)` (flags `d`, `g`,
+/// `i`, `m`, `s`, `u`, `v`, `y`).
+class RegExp {
+  /// The pattern's text (`"(?:)"` for an empty pattern).
+  public readonly source: string
+  /// The flags, in canonical order (`"dgimsuvy"`).
+  public readonly flags: string
+  /// Where the next `exec` or `test` starts with the `g` or `y` flag, in code points; other regexes
+  /// ignore it.
+  public lastIndex: int = 0
+  prog: __RProgram
+  ngroups: int
+  names: string[]
+  nameIdx: int[]
+
+  /// Throws a `SyntaxError` for an invalid pattern or flags.
+  constructor(pattern: string, flags: string = "") throws SyntaxError {
+    let canon = ""
+    for (const f of "dgimsuvy") {
+      let count = 0
+      for (const c of flags) {
+        if (c == f) {
+          count += 1
+        }
+      }
+      if (count > 1) {
+        throw new SyntaxError(`Invalid flags supplied to RegExp constructor '${flags}'`)
+      }
+      if (count == 1) {
+        canon = `${canon}${f}`
+      }
+    }
+    if (canon.length != flags.length) {
+      throw new SyntaxError(`Invalid flags supplied to RegExp constructor '${flags}'`)
+    }
+    const src = if (pattern.length == 0) "(?:)" else pattern
+    const parser = new __RParser(src, flags)
+    const tree = parser.parse()
+    const prog = new __RProgram(canon.includes("i"), canon.includes("s"), canon.includes("m"))
+    prog.emit(5, 0, 0)
+    prog.compile(tree)
+    prog.emit(5, 1, 0)
+    prog.emit(12, 0, 0)
+    this.source = src
+    this.flags = canon
+    this.prog = prog
+    this.ngroups = parser.groups
+    this.names = parser.names
+    this.nameIdx = parser.nameIdx
+  }
+
+  /// A regex literal (checked by the compiler, so it can't fail).
+  public static __literal(pattern: string, flags: string): RegExp {
+    try {
+      return new RegExp(pattern, flags)
+    } catch (e: SyntaxError) {
+      panic(e.message)
+    }
+    panic("unreachable")
+  }
+
+  /// Whether the `g` flag is set (find every match).
+  public get global(): bool { this.flags.includes("g") }
+  /// Whether the `i` flag is set (case-insensitive).
+  public get ignoreCase(): bool { this.flags.includes("i") }
+  /// Whether the `m` flag is set (`^` and `$` also match at line breaks).
+  public get multiline(): bool { this.flags.includes("m") }
+  /// Whether the `s` flag is set (`.` also matches line breaks).
+  public get dotAll(): bool { this.flags.includes("s") }
+  /// Whether the `u` flag is set.
+  public get unicode(): bool { this.flags.includes("u") }
+  /// Whether the `y` flag is set (a match only at `lastIndex`).
+  public get sticky(): bool { this.flags.includes("y") }
+  /// Whether the `d` flag is set.
+  public get hasIndices(): bool { this.flags.includes("d") }
+
+  /// The first match in `cs` at or after `from` (only at `from` when `sticky`): the capture
+  /// positions, or null.
+  public __search(cs: int[], from: int, sticky: bool): int[]? {
+    if (from > cs.length) {
+      return null
+    }
+    const m = new __RMachine(this.prog, cs, this.ngroups)
+    const last = if (sticky) from else cs.length
+    for (let start = from; start <= last; start++) {
+      for (let i = 0; i < m.caps.length; i++) {
+        m.caps[i] = -1
+      }
+      if (m.run(0, start)) {
+        return m.caps
+      }
+    }
+    null
+  }
+
+  /// A match from capture positions.
+  public __match(s: string, caps: int[]): RegExpMatch {
+    const items: (string?)[] = []
+    for (let g = 0; g <= this.ngroups; g++) {
+      const a = caps[g * 2]
+      const b = caps[g * 2 + 1]
+      items.push(if (a >= 0 && b >= 0) s.slice(a, b) else null)
+    }
+    let groups: Map<string, string?>? = null
+    if (this.names.length > 0) {
+      const gm = new Map<string, string?>()
+      for (let k = 0; k < this.names.length; k++) {
+        gm.set(this.names[k], items[this.nameIdx[k]])
+      }
+      groups = gm
+    }
+    new RegExpMatch(items, caps[0], s, groups)
+  }
+
+  /// The next match in `s` (from `lastIndex` with `g` or `y`, which it then moves past the
+  /// match, or back to 0 when there's none).
+  public exec(s: string): RegExpMatch? {
+    const cs = __rChars(s)
+    const keep = this.global || this.sticky
+    const from = if (keep) this.lastIndex else 0
+    const caps = this.__search(cs, from, this.sticky)
+    if (caps == null) {
+      if (keep) {
+        this.lastIndex = 0
+      }
+      return null
+    }
+    if (keep) {
+      this.lastIndex = caps[1]
+    }
+    this.__match(s, caps)
+  }
+
+  /// Whether `s` has a match (moving `lastIndex` as `exec` does).
+  public test(s: string): bool {
+    this.exec(s) != null
+  }
+
+  /// `/source/flags`.
+  public toString(): string {
+    `/${this.source}/${this.flags}`
+  }
+}
+
+/// The code points of `s`.
+function __rChars(s: string): int[] {
+  const cs: int[] = []
+  for (const c of s) {
+    cs.push(c as u32 as int)
+  }
+  cs
+}
+
+/// `replacement` with `$&`, `$1`…`$99`, `$<name>`, `` $` ``, `$'` and `$$` filled in.
+function __rExpand(replacement: string, m: RegExpMatch, s: string): string {
+  if (!replacement.includes("$")) {
+    return replacement
+  }
+  const r = __rChars(replacement)
+  const whole = m[0]
+  const matched = if (whole != null) whole else ""
+  let out = ""
+  let i = 0
+  while (i < r.length) {
+    const c = r[i]
+    if (c != 36 || i + 1 >= r.length) {
+      out = `${out}${c as u32 as char}`
+      i += 1
+      continue
+    }
+    const d = r[i + 1]
+    if (d == 36) {
+      out = out + "$"
+      i += 2
+    } else if (d == 38) {
+      out = out + matched
+      i += 2
+    } else if (d == 96) {
+      out = out + s.slice(0, m.index)
+      i += 2
+    } else if (d == 39) {
+      out = out + s.slice(m.index + matched.length)
+      i += 2
+    } else if (d >= 48 && d <= 57) {
+      let n = d - 48
+      let used = 2
+      if (i + 2 < r.length && r[i + 2] >= 48 && r[i + 2] <= 57 && n * 10 + (r[i + 2] - 48) < m.length) {
+        n = n * 10 + (r[i + 2] - 48)
+        used = 3
+      }
+      if (n >= 1 && n < m.length) {
+        const g = m[n]
+        out = out + (if (g != null) g else "")
+        i += used
+      } else {
+        out = out + "$"
+        i += 1
+      }
+    } else if (d == 60 && m.groups != null) {
+      let k = i + 2
+      let name = ""
+      while (k < r.length && r[k] != 62) {
+        name = `${name}${r[k] as u32 as char}`
+        k += 1
+      }
+      if (k < r.length) {
+        const gs = m.groups
+        if (gs != null) {
+          const v = gs.get(name)
+          if (v != null) {
+            out = out + (if (v != null) v else "")
+          }
+        }
+        i = k + 1
+      } else {
+        out = out + "$"
+        i += 1
+      }
+    } else {
+      out = out + "$"
+      i += 1
+    }
+  }
+  out
+}
+
+/// A function giving a match's replacement.
+type __ReplaceFn = (m: RegExpMatch) => string
+
+/// What replaces a match: a pattern string (`$1`, …) or a function of the match.
+type __Replacement = string | __ReplaceFn
+
+function __rReplaceWith(rep: __Replacement, m: RegExpMatch, s: string): string {
+  match (rep) {
+    t: string => __rExpand(t, m, s),
+    f: __ReplaceFn => f(m),
+  }
+}
+
+/// Replaces the first match of `re` (every match with the `g` flag).
+function __rReplace(s: string, re: RegExp, rep: __Replacement, all: bool): string {
+  const cs = __rChars(s)
+  let out = ""
+  let last = 0
+  let from = if (re.sticky) re.lastIndex else 0
+  while (from <= cs.length) {
+    const caps = re.__search(cs, from, re.sticky)
+    if (caps == null) {
+      break
+    }
+    const m = re.__match(s, caps)
+    out = out + s.slice(last, caps[0]) + __rReplaceWith(rep, m, s)
+    last = caps[1]
+    if (!all) {
+      break
+    }
+    from = if (caps[1] == caps[0]) caps[1] + 1 else caps[1]
+  }
+  if (re.global || re.sticky) {
+    re.lastIndex = 0
+  }
+  out + s.slice(last)
+}
+
+/// Every match of `re` in `s`.
+function __rMatchAll(s: string, re: RegExp): RegExpMatch[] {
+  const cs = __rChars(s)
+  const out: RegExpMatch[] = []
+  let from = 0
+  while (from <= cs.length) {
+    const caps = re.__search(cs, from, re.sticky)
+    if (caps == null) {
+      break
+    }
+    out.push(re.__match(s, caps))
+    from = if (caps[1] == caps[0]) caps[1] + 1 else caps[1]
+  }
+  out
+}
+
+/// `s.split(re)`: the pieces between matches, with captured groups spliced in.
+function __rSplit(s: string, re: RegExp, limit: int): string[] {
+  const cs = __rChars(s)
+  const out: string[] = []
+  if (cs.length == 0) {
+    if (re.__search(cs, 0, true) == null) {
+      out.push("")
+    }
+    return out
+  }
+  let last = 0
+  let q = 0
+  while (q < cs.length) {
+    const caps = re.__search(cs, q, true)
+    if (caps == null || caps[1] == last) {
+      q += 1
+      continue
+    }
+    const e = caps[1]
+    if (e > cs.length) {
+      break
+    }
+    out.push(s.slice(last, q))
+    if (limit >= 0 && out.length >= limit) {
+      return out
+    }
+    for (let g = 1; g * 2 + 1 < caps.length; g++) {
+      const a = caps[g * 2]
+      const b = caps[g * 2 + 1]
+      out.push(if (a >= 0 && b >= 0) s.slice(a, b) else "")
+      if (limit >= 0 && out.length >= limit) {
+        return out
+      }
+    }
+    last = e
+    q = if (e == q) q + 1 else e
+  }
+  out.push(s.slice(last))
+  out
+}

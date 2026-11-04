@@ -1,0 +1,52 @@
+// expect: args: 0
+// expect: pid ok: true
+// expect: PATH set: true
+// expect: PICO_TEST_X: null
+// expect: set: 42
+// expect: child sees 42
+// expect: child sees C
+// expect: cleared: <>
+// expect: in sub: true
+// expect: cwd absolute: true
+// expect: written to stdout
+// expect: 18 bytes
+// expect: deleted: false
+// expect: in order
+// exit: 7
+// `std/process` for this process: arguments, environment (seen by children), working
+// directory, stdout, and `exit` (which skips `finally`).
+import { args, env, exit, cwd, pid, stdout, Command } from "std/process"
+import { mkdir } from "std/fs"
+import { isAbsolute, sep } from "std/path"
+
+// The shell is `cmd.exe` on Windows (its `echo` ends lines with CRLF, hence the `trim`s).
+const windows = comptime (target.os == "windows")
+
+println(`args: ${args.length}`)
+println(`pid ok: ${pid > 0}`)
+println(`PATH set: ${env.has("PATH")}`)
+println(`PICO_TEST_X: ${env.get("PICO_TEST_X")}`)
+env.set("PICO_TEST_X", "42")
+println(`set: ${env.get("PICO_TEST_X")}`)
+println((await Command.shell(if (windows) "echo child sees %PICO_TEST_X%" else "echo child sees $PICO_TEST_X").output()).stdout.trim())
+const vars = new Map<string, string>()
+vars.set("LANG", "C")
+println((await Command.shell(if (windows) "echo child sees %LANG%" else "echo child sees $LANG", env: vars).output()).stdout.trim())
+const bare = await (if (windows) Command.shell("if defined PATH (echo PATH=%PATH%) else (echo.)", clearEnv: true) else new Command("/usr/bin/env", clearEnv: true)).output()
+println(`cleared: <${bare.stdout.trim()}>`)
+await mkdir("sub")
+const sub = await (if (windows) Command.shell("cd", cwd: "sub") else new Command("pwd", cwd: "sub")).output()
+println(`in sub: ${sub.stdout.trim().endsWith(`${sep}sub`)}`)
+println(`cwd absolute: ${isAbsolute(cwd())}`)
+const n = await stdout.writeText("written to stdout\n")
+println(`${n} bytes`)
+env.delete("PICO_TEST_X")
+println(`deleted: ${env.has("PICO_TEST_X")}`)
+stdout.writeText("in ")
+print("order\n")
+try {
+  exit(7)
+} finally {
+  println("not printed")
+}
+println("not reached")

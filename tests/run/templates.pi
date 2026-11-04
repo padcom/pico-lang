@@ -1,0 +1,42 @@
+// expect: Hello, Ann! You have 3 messages.
+// expect: 0 1 2
+// expect: pi ≈ 3.14159, ok = true, initial = ż
+// expect: zażółć
+// expect: nested: [outer [inner 42]]
+// expect: $5
+// expect: 1e+21 / 0.1 / -7
+// expect: 255 as text has 3 chars
+// expect: Usage: pico <command>
+// expect:   build   compile the project
+// expect: <h1>Title</h1>
+// expect: <p>Body</p>
+const name = "Ann"
+const count = 3
+println(`Hello, ${name}! You have ${count} messages.`)
+let line = ""
+for (let i = 0; i < 3; i++) {
+  line = if (i == 0) `${i}` else `${line} ${i}`
+}
+println(line)
+const pl = "zażółć"
+println(`pi ≈ ${3.14159}, ok = ${1 < 2}, initial = ${pl[2]}`)
+let acc = ""
+for (let i = 0; i < 6; i++) acc = acc + `${pl[i]}`
+println(acc)
+println(`nested: [outer ${`[inner ${40 + 2}]`}]`)
+println(`$${5}`)
+println(`${1e21} / ${0.1f32} / ${-7i8}`)
+const t = 255u8.toString()
+println(`${t} as text has ${t.length} chars`)
+const help = """
+    Usage: pico <command>
+      build   compile the project
+    """
+println(help)
+const title = "Title"
+const body = "Body"
+const page = ```
+    <h1>${title}</h1>
+    <p>${body}</p>
+    ```
+println(page)

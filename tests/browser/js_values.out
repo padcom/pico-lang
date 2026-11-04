@@ -6,7 +6,7 @@ nullish true
 sum 6
 caught true
 caught expected a number, got string
-{"x":42,"name":"ppl"}
+{"x":42,"name":"pico"}
 console.log 1.5 true
 timer from JavaScript
 exit 0

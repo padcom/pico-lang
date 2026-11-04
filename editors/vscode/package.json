@@ -1,11 +1,11 @@
 {
-  "name": "ppl",
-  "displayName": "PPL",
-  "description": "The padcom programming language: syntax highlighting, diagnostics and formatting (ppl lsp).",
+  "name": "pico",
+  "displayName": "Pico",
+  "description": "The Pico Programming Language: syntax highlighting, diagnostics and formatting (pico lsp).",
   "version": "0.2.0",
   "publisher": "padcom",
   "license": "MIT",
-  "icon": "images/ppl-icon.png",
+  "icon": "images/pico-icon.png",
   "private": true,
   "engines": {
     "vscode": "^1.91.0"
@@ -15,61 +15,61 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:ppl",
-    "onDebugResolve:ppl",
-    "onDebugDynamicConfigurations:ppl",
+    "onLanguage:pico",
+    "onDebugResolve:pico",
+    "onDebugDynamicConfigurations:pico",
     "onCommand:workbench.action.tasks.runTask"
   ],
   "contributes": {
     "languages": [
       {
-        "id": "ppl",
+        "id": "pico",
         "aliases": [
-          "ppl",
-          "PPL"
+          "pico",
+          "Pico"
         ],
         "extensions": [
-          ".ppl"
+          ".pi"
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./images/ppl-icon.svg",
-          "dark": "./images/ppl-icon-white.svg"
+          "light": "./images/pico-icon.svg",
+          "dark": "./images/pico-icon-white.svg"
         }
       }
     ],
     "grammars": [
       {
-        "language": "ppl",
-        "scopeName": "source.ppl",
-        "path": "./syntaxes/ppl.tmLanguage.json"
+        "language": "pico",
+        "scopeName": "source.pico",
+        "path": "./syntaxes/pico.tmLanguage.json"
       },
       {
-        "scopeName": "markdown.ppl.codeblock",
-        "path": "./syntaxes/ppl.markdown.tmLanguage.json",
+        "scopeName": "markdown.pico.codeblock",
+        "path": "./syntaxes/pico.markdown.tmLanguage.json",
         "injectTo": [
           "text.html.markdown"
         ],
         "embeddedLanguages": {
-          "meta.embedded.block.ppl": "ppl"
+          "meta.embedded.block.pico": "pico"
         }
       }
     ],
     "commands": [
       {
-        "command": "ppl.restartServer",
-        "title": "ppl: Restart Language Server"
+        "command": "pico.restartServer",
+        "title": "pico: Restart Language Server"
       }
     ],
     "configuration": {
-      "title": "ppl",
+      "title": "pico",
       "properties": {
-        "ppl.server.path": {
+        "pico.server.path": {
           "type": "string",
-          "default": "ppl",
-          "description": "The ppl binary that runs the language server (`ppl lsp`); `ppl` is looked up on PATH."
+          "default": "pico",
+          "description": "The pico binary that runs the language server (`pico lsp`); `pico` is looked up on PATH."
         },
-        "ppl.server.args": {
+        "pico.server.args": {
           "type": "array",
           "items": {
             "type": "string"
@@ -77,7 +77,7 @@
           "default": [],
           "description": "Arguments before `lsp`."
         },
-        "ppl.trace.server": {
+        "pico.trace.server": {
           "type": "string",
           "enum": [
             "off",
@@ -85,21 +85,21 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Traces the communication with the language server (the \"ppl language server\" output)."
+          "description": "Traces the communication with the language server (the \"pico language server\" output)."
         }
       }
     },
     "breakpoints": [
       {
-        "language": "ppl"
+        "language": "pico"
       }
     ],
     "debuggers": [
       {
-        "type": "ppl",
-        "label": "ppl",
+        "type": "pico",
+        "label": "pico",
         "languages": [
-          "ppl"
+          "pico"
         ],
         "configurationAttributes": {
           "launch": {
@@ -109,7 +109,7 @@
             "properties": {
               "program": {
                 "type": "string",
-                "description": "The `.ppl` file to build and debug, a project directory (its `entry`), or an executable.",
+                "description": "The `.pi` file to build and debug, a project directory (its `entry`), or an executable.",
                 "default": "${file}"
               },
               "args": {
@@ -143,7 +143,7 @@
         },
         "initialConfigurations": [
           {
-            "type": "ppl",
+            "type": "pico",
             "request": "launch",
             "name": "Debug the project",
             "program": "${workspaceFolder}"
@@ -151,13 +151,13 @@
         ],
         "configurationSnippets": [
           {
-            "label": "ppl: Launch",
-            "description": "Build and debug a ppl program.",
+            "label": "pico: Launch",
+            "description": "Build and debug a pico program.",
             "body": {
-              "type": "ppl",
+              "type": "pico",
               "request": "launch",
-              "name": "Debug ${1:main.ppl}",
-              "program": "^\"\\${workspaceFolder}/${1:main.ppl}\""
+              "name": "Debug ${1:main.pico}",
+              "program": "^\"\\${workspaceFolder}/${1:main.pico}\""
             }
           }
         ]
@@ -165,7 +165,7 @@
     ],
     "taskDefinitions": [
       {
-        "type": "ppl",
+        "type": "pico",
         "required": [
           "command"
         ],
@@ -175,7 +175,7 @@
             "enum": [
               "build"
             ],
-            "description": "The ppl command (`build`: the project's `entry`)."
+            "description": "The pico command (`build`: the project's `entry`)."
           }
         }
       }

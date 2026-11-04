@@ -1,0 +1,353 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "pico",
+  "scopeName": "source.pico",
+  "fileTypes": [
+    "pi"
+  ],
+  "patterns": [
+    {
+      "include": "#code"
+    }
+  ],
+  "repository": {
+    "code": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#decorators"
+        },
+        {
+          "include": "#declarations"
+        },
+        {
+          "include": "#keywords"
+        },
+        {
+          "include": "#constants"
+        },
+        {
+          "include": "#types"
+        },
+        {
+          "include": "#numbers"
+        },
+        {
+          "include": "#calls"
+        },
+        {
+          "include": "#operators"
+        },
+        {
+          "include": "#braces"
+        },
+        {
+          "include": "#identifiers"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.documentation.pico",
+          "begin": "/\\*\\*(?!/)",
+          "end": "\\*/",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.pico"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.pico"
+            }
+          }
+        },
+        {
+          "name": "comment.block.pico",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.pico"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.pico"
+            }
+          }
+        },
+        {
+          "name": "comment.line.documentation.pico",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.pico",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.pico",
+          "begin": "\"",
+          "end": "\"|$",
+          "patterns": [
+            {
+              "name": "constant.character.escape.pico",
+              "match": "\\\\(x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]+\\}|.)"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.pico",
+          "begin": "'",
+          "end": "'|$",
+          "patterns": [
+            {
+              "name": "constant.character.escape.pico",
+              "match": "\\\\(x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]+\\}|.)"
+            }
+          ]
+        },
+        {
+          "name": "string.template.pico",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            {
+              "name": "constant.character.escape.pico",
+              "match": "\\\\(x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]+\\}|.)"
+            },
+            {
+              "include": "#interpolation"
+            }
+          ]
+        }
+      ]
+    },
+    "interpolation": {
+      "name": "meta.template.expression.pico",
+      "contentName": "meta.embedded.line.pico",
+      "begin": "\\$\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.template-expression.begin.pico"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.template-expression.end.pico"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#code"
+        }
+      ]
+    },
+    "braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        {
+          "include": "#code"
+        }
+      ]
+    },
+    "decorators": {
+      "match": "(@)([A-Za-z_$][A-Za-z0-9_$]*)",
+      "captures": {
+        "1": {
+          "name": "punctuation.decorator.pico"
+        },
+        "2": {
+          "name": "entity.name.function.decorator.pico"
+        }
+      }
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "(?<![\\w$])(class|interface|struct|enum|decorator)\\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.pico"
+            },
+            "2": {
+              "name": "entity.name.type.pico"
+            }
+          }
+        },
+        {
+          "match": "(?<![\\w$])(type)\\s+([A-Za-z_$][A-Za-z0-9_$]*)(?=\\s*(<[^=]*>)?\\s*=)",
+          "captures": {
+            "1": {
+              "name": "storage.type.pico"
+            },
+            "2": {
+              "name": "entity.name.type.alias.pico"
+            }
+          }
+        },
+        {
+          "match": "(?<![\\w$])(function)(\\s*\\*)?\\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.function.pico"
+            },
+            "2": {
+              "name": "keyword.generator.asterisk.pico"
+            },
+            "3": {
+              "name": "entity.name.function.pico"
+            }
+          }
+        },
+        {
+          "match": "(?<![\\w$])(const|let)\\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.pico"
+            },
+            "2": {
+              "name": "variable.other.declaration.pico"
+            }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.pico",
+          "match": "(?<![\\w$.])(await|break|case|catch|continue|default|do|else|finally|for|if|loop|match|return|switch|tailcall|throw|try|while|yield)(?![\\w$])"
+        },
+        {
+          "name": "keyword.control.import.pico",
+          "match": "(?<![\\w$.])(import|export)(?![\\w$])"
+        },
+        {
+          "name": "storage.type.pico",
+          "match": "(?<![\\w$.])(class|const|decorator|enum|extern|function|interface|let|struct|get|set)(?![\\w$])"
+        },
+        {
+          "name": "storage.modifier.pico",
+          "match": "(?<![\\w$.])(abstract|async|comptime|distinct|final|immutable|override|private|protected|public|readonly|static|throws|unsafe|using|virtual)(?![\\w$])"
+        },
+        {
+          "name": "keyword.operator.expression.pico",
+          "match": "(?<![\\w$.])(as|extends|implements|in|instanceof|is|new|operator|typeof|where)(?![\\w$])"
+        },
+        {
+          "name": "keyword.control.pico",
+          "match": "(?<=\\s)of(?=\\s)"
+        },
+        {
+          "name": "keyword.control.import.pico",
+          "match": "(?<![\\w$.])from(?=\\s*[\\\"'])"
+        },
+        {
+          "name": "keyword.control.pico",
+          "match": "(?<![\\w$.])arena(?=\\s*\\{)"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.pico",
+          "match": "(?<![\\w$.])(true|false|null)(?![\\w$])"
+        },
+        {
+          "name": "variable.language.pico",
+          "match": "(?<![\\w$.])(this|super)(?![\\w$])"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.pico",
+          "match": "(?<![\\w$.])(int|number|i8|i16|i32|i64|u8|u16|u32|u64|isize|usize|f32|f64|bool|char|string|void|never|object|c_char|c_schar|c_uchar|c_short|c_ushort|c_int|c_uint|c_long|c_ulong|c_longlong|c_ulonglong|c_float|c_double)(?![\\w$])"
+        },
+        {
+          "name": "entity.name.type.pico",
+          "match": "(?<![\\w$])[A-Z][A-Za-z0-9_$]*(?![\\w$])"
+        }
+      ]
+    },
+    "numbers": {
+      "name": "constant.numeric.pico",
+      "match": "(?<![\\w$])(0[xX][0-9A-Fa-f_]+|0[oO][0-7_]+|0[bB][01_]+|[0-9][0-9_]*(\\.[0-9][0-9_]*)?([eE][+-]?[0-9]+)?)(i8|i16|i32|i64|u8|u16|u32|u64|isize|usize|f32|f64)?(?![\\w$])"
+    },
+    "calls": {
+      "match": "([A-Za-z_$][A-Za-z0-9_$]*)(?=\\s*(<[A-Za-z0-9_$<>,\\s\\[\\]?|]*>)?\\()",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.pico"
+        }
+      }
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.property.pico",
+          "match": "(?<=[^.]\\.)[A-Za-z_$][A-Za-z0-9_$]*(?![\\w$])"
+        },
+        {
+          "name": "variable.other.object.pico",
+          "match": "[A-Za-z_$][A-Za-z0-9_$]*(?=\\s*\\??\\.(?!\\.))"
+        },
+        {
+          "name": "variable.other.readwrite.pico",
+          "match": "[A-Za-z_$][A-Za-z0-9_$]*"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "storage.type.function.arrow.pico",
+          "match": "=>"
+        },
+        {
+          "name": "keyword.operator.spread.pico",
+          "match": "\\.\\.\\.|\\.\\."
+        },
+        {
+          "name": "keyword.operator.optional.pico",
+          "match": "\\?\\?=?|\\?\\."
+        },
+        {
+          "name": "keyword.operator.comparison.pico",
+          "match": "===?|!==?|<=|>="
+        },
+        {
+          "name": "keyword.operator.logical.pico",
+          "match": "&&=?|\\|\\|=?|!"
+        },
+        {
+          "name": "keyword.operator.assignment.pico",
+          "match": "(\\*\\*|<<|>>>|>>|[-+*/%&|^])?="
+        },
+        {
+          "name": "keyword.operator.arithmetic.pico",
+          "match": "\\+\\+|--|\\*\\*|[-+*/%]"
+        },
+        {
+          "name": "keyword.operator.bitwise.pico",
+          "match": "<<|>>>|>>|[&|^~]"
+        }
+      ]
+    }
+  }
+}

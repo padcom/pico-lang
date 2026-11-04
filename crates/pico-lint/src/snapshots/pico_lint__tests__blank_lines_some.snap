@@ -1,0 +1,6 @@
+---
+source: crates/pico-lint/src/tests.rs
+expression: some
+---
+5:3 W0004 a blank line is needed before this `if`
+23:3 W0004 a blank line is needed before this constructor

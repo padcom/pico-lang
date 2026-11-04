@@ -1,0 +1,162 @@
+// Workers (spec §10.2–10.3): threads with their own heap and module instances that share
+// nothing; messages are deep-copied. The runtime side is `runtime/src/pico_worker.c`.
+
+/// A worker ended by a panic or an uncaught error (`Worker.onerror`).
+class WorkerPanicked extends Error {
+  /// A `WorkerPanicked` with the panic's or the uncaught error's `message`.
+  constructor(message: string) {
+    super(message)
+  }
+}
+
+/// A call of an inline worker's function, and its result (`values`: one, unless it threw).
+struct __Call<T> {
+  id: int
+  arg: T
+}
+
+struct __Reply<T> {
+  id: int
+  values: T[]
+  error: Error?
+}
+
+/// A worker thread running a module: `new Worker<In, Out>("./job")` (the compiler turns the
+/// path into the module's id). It receives `In`s and sends `Out`s. An inline worker,
+/// `new Worker(f)`, runs a capture-free function: `await w.call(x)` is `f(x)`, computed in
+/// the worker (throwing what `f` throws, `E`).
+class Worker<In extends Sendable, Out extends Sendable, E extends Error = never> {
+  handle: int
+  /// Called with each message the worker sends (inline workers' replies settle `call`'s promises
+  /// instead).
+  public onmessage: ((message: Out) => void)? = null
+  /// Called when the worker ends by a panic or an uncaught error; without it, the error ends the
+  /// program like an uncaught one.
+  public onerror: ((error: WorkerPanicked) => void)? = null
+  inline: bool = false
+  /// Inline workers: the calls not answered yet.
+  pending: Map<int, Promise<Out, E>> = new Map<int, Promise<Out, E>>()
+  nextCall: int = 1
+
+  /// (`new Worker("./job")`: `module` is the module's id; `kind` is 0.)
+  constructor(module: int, kind: int) {
+    this.handle = __worker_op(1, module)
+    __theLoop().channels.set(this.handle, () => this.__deliver())
+  }
+
+  /// `new Worker(f)`: an inline worker that serves `call`s with `f`, a capture-free function copied
+  /// to the worker. While no call is pending it doesn't keep the program running.
+  constructor(f: (input: In) => Out throws E) {
+    this.inline = true
+    this.handle = __worker_op(8, 0)
+    // (Idle, it doesn't keep the program running.)
+    __worker_op(9, this.handle)
+    __theLoop().channels.set(this.handle, () => this.__deliver())
+    // The worker gets this (a copy: `f` captures nothing) and serves the calls with it.
+    const setup = () => {
+      __workerOnMessage<__Call<In>>((c: __Call<In>) => {
+        try {
+          const v = f(c.arg)
+          __worker_post(0, __Reply<Out> { id: c.id, values: [v], error: null })
+        } catch (e) {
+          __worker_post(0, __Reply<Out> { id: c.id, values: [], error: e })
+        }
+      })
+    }
+    __worker_post(this.handle, setup)
+  }
+
+  /// An inline worker's `f(input)`, computed in the worker.
+  public call(input: In): Promise<Out, E> {
+    const p = new Promise<Out, E>()
+    const id = this.nextCall
+    this.nextCall += 1
+    this.pending.set(id, p)
+    __worker_op(10, this.handle)
+    __worker_post(this.handle, __Call<In> { id: id, arg: input })
+    p
+  }
+
+  /// Sends a copy of `message` to the worker (`options.transfer`: buffers moved instead).
+  public postMessage(message: In, options: TransferOptions? = null): void {
+    __worker_post(this.handle, message, __transfer(options))
+    __detachAll(options)
+  }
+
+  /// Stops the worker (right away: at its next safepoint).
+  public terminate(): void {
+    __worker_op(4, this.handle)
+    __theLoop().channels.delete(this.handle)
+  }
+
+  __deliver(): void {
+    const kind = __worker_op(3, this.handle)
+    if (kind == 0 && this.inline) {
+      const r = __worker_take<__Reply<Out>>(this.handle)
+      const p = this.pending.get(r.id)
+      this.pending.delete(r.id)
+      if (this.pending.size == 0) {
+        __worker_op(9, this.handle)
+      }
+      if (p != null) {
+        const e = r.error
+        if (e != null) {
+          p.__reject(e)
+        } else {
+          p.__resolve(r.values[0])
+        }
+      }
+    } else if (kind == 0) {
+      const m = __worker_take<Out>(this.handle)
+      const f = this.onmessage
+      if (f != null) {
+        f(m)
+      }
+    } else if (kind == 1) {
+      const text = __worker_error(this.handle)
+      __theLoop().channels.delete(this.handle)
+      const e = new WorkerPanicked(text)
+      const f = this.onerror
+      if (f != null) {
+        f(e)
+      } else {
+        __exit_uncaught(e)
+      }
+    } else {
+      // It ended by itself.
+      __worker_op(5, this.handle)
+      __theLoop().channels.delete(this.handle);
+    }
+  }
+}
+
+/// `self.onmessage = f` in a worker module: `f` gets the parent's messages, as `T`s.
+function __workerOnMessage<T extends Sendable>(f: (message: T) => void): void {
+  const l = __theLoop()
+  l.listening = true
+  l.channels.set(0, () => {
+    if (__worker_op(3, 0) == 0) {
+      f(__worker_take<T>(0))
+    } else {
+      __worker_op(5, 0);
+    }
+  })
+}
+
+/// An inline worker's thread, after the library modules' code: takes the function to serve
+/// (the parent's first message), which starts listening for calls.
+function __inlineWorkerMain(): void {
+  while (__worker_op(3, 0) != 0) {
+    __loop_wait(-1)
+  }
+  const setup = __worker_take<() => void>(0)
+  setup()
+}
+
+/// What the machine offers (`navigator.hardwareConcurrency`, as on the Web).
+class navigator {
+  /// The number of processors.
+  public static get hardwareConcurrency(): int {
+    __worker_op(11, 0)
+  }
+}

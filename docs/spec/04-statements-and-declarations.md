@@ -16,7 +16,7 @@ can be referenced from anywhere in the module.
 A program's root module runs top to bottom. Top-level statements in imported modules run once,
 in dependency order, before the importer's own code.
 
-**Entry module.** The top-level code of the module passed to `ppl run`/`ppl build` behaves like the
+**Entry module.** The top-level code of the module passed to `pico run`/`pico build` behaves like the
 body of `main()`. `let` is allowed there. Those bindings can't be exported, but every function in the entry file
 (named `function`s included) can use them as closures, just as in a JS script.
 
