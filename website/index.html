@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pico Programming Language</title>
+  <meta name="description" content="Pico: a statically typed, garbage-collected language with TypeScript-based syntax that compiles to native code and WebAssembly.">
+  <link rel="icon" href="media/pico-icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <script>document.documentElement.classList.add("js")</script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Pico home">
+      <img src="media/pico-icon.svg" alt="" class="brand-icon light-only" width="28" height="28">
+      <img src="media/pico-icon-white.svg" alt="" class="brand-icon dark-only" width="28" height="28">
+      <span>Pico</span>
+    </a>
+    <nav class="topnav">
+      <a href="#basics">Basics</a>
+      <a href="#features">Features</a>
+      <a href="#tooling">Tooling</a>
+      <a href="https://github.com/padcom/pico-lang">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-text">
+        <div class="hero-mark">
+          <img src="media/pico-icon.svg" alt="" class="light-only" width="72" height="72">
+          <img src="media/pico-icon-white.svg" alt="" class="dark-only" width="72" height="72">
+          <span>Pico</span>
+        </div>
+        <h1>The syntax you know.<br><em>Native speed.</em></h1>
+        <p class="lede">
+          Pico is a statically typed, garbage-collected language with TypeScript-based syntax.
+          It compiles ahead of time through LLVM to native code on Linux, macOS and Windows,
+          and to WebAssembly for the browser and WASI.
+        </p>
+        <div class="cta">
+          <a class="button primary" href="#features">Take the tour</a>
+          <a class="button" href="https://github.com/padcom/pico-lang">View on GitHub</a>
+        </div>
+      </div>
+      <div class="hero-code">
+        <div class="window">
+          <div class="window-bar"><span></span><span></span><span></span><b>hello.pi</b></div>
+<pre class="code"><code>import { readText } from "std/fs"
+
+const text = await readText("notes.txt")
+let count = 0
+for (const line of text.split("\n")) {
+  if (line.startsWith("#")) count++
+}
+println(`${count} headings`)</code></pre>
+          <div class="window-term"><span class="prompt">$</span> pico run hello.pi<br><span class="out">12 headings</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Basics -->
+    <section id="basics" class="basics">
+      <h2 class="section-title">The basics</h2>
+      <p class="section-lede">Familiar where it can be, stricter where it matters.</p>
+      <div class="cards">
+        <article class="card">
+          <h3>TypeScript look and feel</h3>
+          <p>Classes, interfaces, generics, arrow functions, template literals and <code>async</code>/<code>await</code>, written the way you already write them.</p>
+        </article>
+        <article class="card">
+          <h3>Sound, nominal types</h3>
+          <p>No <code>any</code>, no <code>undefined</code>, and a single <code>null</code> that has to be declared. Types are compared by name, not by shape.</p>
+        </article>
+        <article class="card">
+          <h3>Built for speed</h3>
+          <p>Sized numbers (<code>i8</code> to <code>u64</code>, <code>f32</code>, <code>f64</code>), <code>struct</code> value types, monomorphized generics and an LLVM backend.</p>
+        </article>
+        <article class="card">
+          <h3>Everything is an expression</h3>
+          <p><code>if</code>, <code>match</code>, blocks and loops produce values. A function's last expression is its result.</p>
+        </article>
+        <article class="card">
+          <h3>Native and the web</h3>
+          <p>One codebase for x86_64 and arm64 executables, WASI modules and the browser, with C and JavaScript interop.</p>
+        </article>
+        <article class="card">
+          <h3>One tool</h3>
+          <p><code>pico</code> builds, runs, tests, formats and lints, manages packages, and runs the REPL, the debugger and the language server.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Features: scroll to switch -->
+    <section id="features" class="features">
+      <h2 class="section-title">A tour in ten features</h2>
+      <p class="section-lede">Scroll down: the code on the right follows along.</p>
+
+      <div class="tour">
+        <ol class="tour-rail" aria-label="Features"></ol>
+
+        <div class="steps">
+          <article class="step" id="f-variables" data-title="Variables">
+            <span class="step-num">01</span>
+            <h3>Variables</h3>
+            <p><code>let</code> declares a binding you can reassign. Types are inferred, or written after a colon. Nullable types are opt-in with <code>?</code>, and the compiler narrows them after a check.</p>
+<pre class="code"><code>let count = 0                    // inferred: int (i64)
+let ratio: f32 = 0.5
+let name: string = "Ann"
+
+count += 1
+name = `${name} Smith`
+
+let nick: string? = null         // string? is string | null
+println(nick?.length ?? 0)       // 0
+
+if (nick != null) {
+  println(nick.toUpperCase())    // narrowed to string
+}</code></pre>
+          </article>
+
+          <article class="step" id="f-constants" data-title="Constants">
+            <span class="step-num">02</span>
+            <h3>Constants</h3>
+            <p><code>const</code> bindings can't be reassigned. Constant expressions are folded by the compiler, and overflow is caught at compile time. For deep read-only access, use <code>readonly</code> fields and <code>immutable</code> views.</p>
+<pre class="code"><code>const MAX_USERS = 1_000
+const KB = 1 &lt;&lt; 10                 // folded at compile time
+const BAD = 255u8 + 1u8          // error: overflow in a constant
+
+const list = [1, 2]
+list = []                        // error: const binding
+list.push(3)                     // ok: the binding is const, not the list
+
+function render(scene: immutable Scene) {
+  println(scene.count())         // ok: a readonly method
+  scene.nodes.push(node)         // error: mutation through immutable
+}</code></pre>
+          </article>
+
+          <article class="step" id="f-lists" data-title="Lists">
+            <span class="step-num">03</span>
+            <h3>Lists</h3>
+            <p>Arrays grow, are bounds-checked and come with the methods you expect. Destructuring and <code>for…of</code> work as usual. Fixed-size arrays and tuples are value types stored inline.</p>
+<pre class="code"><code>const xs: i32[] = [5, 3, 8]
+xs.push(1)
+xs.sort()
+println(xs)                                   // [1, 3, 5, 8]
+println(xs.map(n => n * 2).filter(n => n > 4)) // [6, 10, 16]
+
+const [head, ...tail] = xs
+for (const [i, x] of xs.enumerate()) println(`${i}: ${x}`)
+
+const grid: [u8; 16] = [0; 16]     // fixed-size, inline
+const pair: [string, i32] = ["age", 42]   // tuple
+xs[10]                             // panic: index out of bounds</code></pre>
+          </article>
+
+          <article class="step" id="f-maps" data-title="Maps">
+            <span class="step-num">04</span>
+            <h3>Maps</h3>
+            <p><code>Map</code> and <code>Set</code> are generic built-ins. An object literal typed as a <code>Map</code> becomes a map literal, and iterating gives you key/value tuples.</p>
+<pre class="code"><code>const ages = new Map&lt;string, i32&gt;()
+ages.set("Ann", 31)
+ages.set("Bob", 27)
+
+const env: Map&lt;string, string&gt; = {   // a map literal
+  "LANG": "C",
+  HOME: "/home/ann",
+}
+
+for (const [name, age] of ages) println(`${name}: ${age}`)
+for (const key of env.keys()) println(key)
+
+const tags = new Set&lt;string&gt;(["new", "sale"])</code></pre>
+          </article>
+
+          <article class="step" id="f-classes" data-title="Classes">
+            <span class="step-num">05</span>
+            <h3>Classes</h3>
+            <p>Parameter properties, getters, setters and overloaded constructors. Methods are final unless they're marked <code>virtual</code>, and overriding requires <code>override</code>. Inside a class, <code>this.</code> is optional.</p>
+<pre class="code"><code>class Animal {
+  constructor(public name: string, protected age: i32) {}
+
+  public get description(): string { `${name} (${age})` }
+  public virtual speak(): string { "..." }
+  public describe(): string { `${name} says ${speak()}` }
+}
+
+class Dog extends Animal {
+  constructor(name: string) { super(name, 3) }
+  public override speak(): string { "Woof" }
+}
+
+const d: Animal = new Dog("Rex")
+println(d.describe())            // Rex says Woof
+println(d.description)           // Rex (3)</code></pre>
+          </article>
+
+          <article class="step" id="f-interfaces" data-title="Interfaces">
+            <span class="step-num">06</span>
+            <h3>Interfaces</h3>
+            <p>Interfaces are nominal: a class implements one only when it says so. They can carry default methods, extend each other, and be implemented by structs and enums too.</p>
+<pre class="code"><code>interface Shape {
+  area(): f64
+  describe(): string { `area ${area():.2f}` }   // default method
+}
+
+class Circle implements Shape {
+  constructor(public r: f64) {}
+  public area(): f64 { Math.PI * r * r }
+}
+
+class Blob {                     // the same shape, but no `implements`
+  public area(): f64 { 1 }
+}
+
+const c: Shape = new Circle(2)
+println(c.describe())            // area 12.57
+const b: Shape = new Blob()      // error: interfaces are nominal</code></pre>
+          </article>
+
+          <article class="step" id="f-lambdas" data-title="Lambdas">
+            <span class="step-num">07</span>
+            <h3>Lambdas</h3>
+            <p>Arrow functions are first-class values with typed signatures. They capture <code>let</code> bindings by reference, <code>const</code> bindings by value, and <code>this</code> lexically.</p>
+<pre class="code"><code>type Predicate&lt;T&gt; = (x: T) => bool
+
+function keep&lt;T&gt;(xs: T[], test: Predicate&lt;T&gt;): T[] { xs.filter(test) }
+
+const evens = keep([1, 2, 3, 4], n => n % 2 == 0)   // [2, 4]
+
+function makeCounter(): () => int {
+  let n = 0
+  () => ++n                      // the last expression is the result
+}
+
+const next = makeCounter()
+next(); next()
+println(next())                  // 3
+
+const sum = [1, 2, 3].reduce((a, b) => a + b, 0)</code></pre>
+          </article>
+
+          <article class="step" id="f-match" data-title="Match">
+            <span class="step-num">08</span>
+            <h3>The match operator</h3>
+            <p><code>match</code> is an expression. It destructures enums, structs, arrays and tuples, and supports guards, or-patterns, ranges and type tests. A match that misses a case is a compile error.</p>
+<pre class="code"><code>enum Shape {
+  Circle(r: f64),
+  Rect(w: f64, h: f64),
+  Empty,
+}
+
+const desc = match (shape) {
+  Circle { r } if r > 10 => "big circle",
+  Circle { r }           => `circle ${r}`,
+  Rect(w, h) if w == h   => "square",
+  Rect { w, h }          => `rect ${w}x${h}`,
+  Empty                  => "nothing",
+}
+
+const kind = match (status) {
+  200 | 201 | 204 => "ok",
+  300..400        => "redirect",
+  _               => "other",
+}</code></pre>
+          </article>
+
+          <article class="step" id="f-comptime" data-title="Comptime">
+            <span class="step-num">09</span>
+            <h3>Comptime</h3>
+            <p>Ordinary Pico code can run inside the compiler. Use it to build lookup tables, read files at build time, take compile-time parameters, or pick an implementation per target.</p>
+<pre class="code"><code>function buildCrcTable(): [u32; 256] {
+  const t: [u32; 256] = [0; 256]
+  for (const i of 0..256) {
+    let c = i as u32
+    for (const _ of 0..8) c = if ((c & 1) != 0) 0xEDB88320 ^ (c >>> 1) else c >>> 1
+    t[i] = c
+  }
+  t
+}
+comptime const CRC_TABLE = buildCrcTable()   // runs in the compiler
+
+function zeros&lt;comptime N: i32&gt;(): [f32; N] { [0; N] }
+const v = zeros&lt;4&gt;()
+
+const VERSION = comptime comptime.readFile("VERSION").trim()
+const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl</code></pre>
+          </article>
+
+          <article class="step" id="f-decorators" data-title="Decorators">
+            <span class="step-num">10</span>
+            <h3>Decorators</h3>
+            <p>Decorators are comptime functions that inspect and rewrite declarations. They can add members, wrap bodies with type-checked templates, and report errors. The standard library brings <code>@derive</code>.</p>
+<pre class="code"><code>import { FunctionDecl } from "std/meta"
+
+export decorator function memoize(fn: FunctionDecl): FunctionDecl {
+  const cache = fn.addStatic("cache",
+    `new Map&lt;u64, ${fn.returnType}&gt;()`)          // a hidden static
+  fn.wrapBody((args, call) => `
+    const key = ${args.hashKey()}
+    const hit = ${cache}.get(key)
+    if (hit != null) return hit
+    const v = ${call}
+    ${cache}.set(key, v)
+    v
+  `)
+  fn
+}
+
+@memoize
+function fib(n: i64): i64 { if (n &lt; 2) n else fib(n - 1) + fib(n - 2) }
+
+@derive(Eq, Hash)
+class User { constructor(public id: i64, public name: string) {} }</code></pre>
+          </article>
+        </div>
+
+        <aside class="stage" aria-hidden="true">
+          <div class="window">
+            <div class="window-bar"><span></span><span></span><span></span><b class="stage-title">example.pi</b></div>
+            <div class="stage-panels"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Tooling -->
+    <section id="tooling" class="tooling">
+      <h2 class="section-title">One tool for the whole workflow</h2>
+      <p class="section-lede">No separate build system, formatter, test runner or package manager to set up.</p>
+      <div class="tooling-grid">
+<pre class="code term"><code>pico run script.pi            # compile and run
+pico build --release          # native executable
+pico build --target wasm32-wasi
+pico test --watch             # every *.test.pi
+pico fmt --check
+pico lint
+pico doc
+pico explain E0308            # long-form error help</code></pre>
+        <ul class="tooling-list">
+          <li><strong>Language server</strong> for diagnostics, formatting and navigation in VS Code.</li>
+          <li><strong>Debugger</strong> through <code>pico dap</code> and lldb.</li>
+          <li><strong>Packages</strong> come straight from git, pinned by <code>project.json</code>.</li>
+          <li><strong>Targets</strong>: Linux, macOS and Windows on x86_64 and arm64, WASI and the browser.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Pico Programming Language · MIT licensed · <a href="https://github.com/padcom/pico-lang">github.com/padcom/pico-lang</a></p>
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
