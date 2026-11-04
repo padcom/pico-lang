@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/ppl-logo-dark.svg">
+    <img src="docs/media/ppl-logo.svg" alt="PPL" width="360">
+  </picture>
+</p>
+
 # padcom programming language (`.ppl`)
 
 A statically typed, garbage-collected language with **TypeScript-based syntax** that compiles
