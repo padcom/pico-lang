@@ -5,6 +5,7 @@
   "version": "0.2.0",
   "publisher": "padcom",
   "license": "MIT",
+  "icon": "images/ppl-icon.png",
   "private": true,
   "engines": {
     "vscode": "^1.91.0"
@@ -30,7 +31,11 @@
         "extensions": [
           ".ppl"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./images/ppl-icon.svg",
+          "dark": "./images/ppl-icon-white.svg"
+        }
       }
     ],
     "grammars": [
