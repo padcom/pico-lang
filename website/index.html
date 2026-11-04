@@ -97,7 +97,7 @@ println(`${count} headings`)</code></pre>
 
     <!-- Features: scroll to switch -->
     <section id="features" class="features">
-      <h2 class="section-title">A tour in ten features</h2>
+      <h2 class="section-title">A tour in sixteen features</h2>
       <p class="section-lede">Scroll down: the code on the right follows along.</p>
 
       <div class="tour">
@@ -133,7 +133,7 @@ const BAD = 255u8 + 1u8          // error: overflow in a constant
 
 const list = [1, 2]
 list = []                        // error: const binding
-list.push(3)                     // ok: the binding is const, not the list
+list.push(3)                     // ok: only the binding is const
 
 function render(scene: immutable Scene) {
   println(scene.count())         // ok: a readonly method
@@ -245,8 +245,33 @@ println(next())                  // 3
 const sum = [1, 2, 3].reduce((a, b) => a + b, 0)</code></pre>
           </article>
 
-          <article class="step" id="f-match" data-title="Match">
+          <article class="step" id="f-generators" data-title="Generators">
             <span class="step-num">08</span>
+            <h3>Generators</h3>
+            <p><code>function*</code> and <code>yield</code> produce lazy iterators. Ranges and iterator adapters are lazy too, and any class becomes iterable by implementing <code>Iterable&lt;T&gt;</code>. Async generators work with <code>for await</code>.</p>
+<pre class="code"><code>function* fib(): Iterator&lt;i64&gt; {
+  let [a, b] = [0, 1]
+  loop { yield a; [a, b] = [b, a + b] }
+}
+
+for (const n of fib().take(10)) println(n)   // 0 1 1 2 3 5 8 13 21 34
+
+const squares = (0..100).filter(n =&gt; n % 2 == 0).map(n =&gt; n * n)
+
+class Countdown implements Iterable&lt;i32&gt; {
+  constructor(private from: i32) {}
+  public *iterator(): Iterator&lt;i32&gt; {
+    for (let i = from; i &gt; 0; i--) yield i
+  }
+}
+for (const n of new Countdown(3)) println(n)  // 3 2 1
+
+async function* lines(path: string): AsyncIterator&lt;string&gt; { … }
+for await (const line of lines("log.txt")) println(line)</code></pre>
+          </article>
+
+          <article class="step" id="f-match" data-title="Match">
+            <span class="step-num">09</span>
             <h3>The match operator</h3>
             <p><code>match</code> is an expression. It destructures enums, structs, arrays and tuples, and supports guards, or-patterns, ranges and type tests. A match that misses a case is a compile error.</p>
 <pre class="code"><code>enum Shape {
@@ -270,15 +295,97 @@ const kind = match (status) {
 }</code></pre>
           </article>
 
+          <article class="step" id="f-exceptions" data-title="Exceptions">
+            <span class="step-num">10</span>
+            <h3>Exceptions</h3>
+            <p>Exceptions are checked: a function lists what it can throw, and the compiler makes callers handle or declare it. <code>try</code> is an expression, a <code>catch</code> clause can destructure the error, and <code>try?</code> turns an error into <code>null</code>.</p>
+<pre class="code"><code>class IoError extends Error {
+  constructor(public path: string, msg: string) { super(msg) }
+}
+
+function readConfig(path: string): Config throws IoError | ParseError {
+  parseConfig(readText(path))
+}
+
+const config = try {
+  readConfig("app.json")
+} catch (e: IoError { path }) {       // destructures the error
+  println(`cannot read ${path}`)
+  Config.default()
+} catch (e: ParseError) {
+  throw new ConfigError("bad config", cause: e)
+} finally {
+  log.flush()
+}
+
+const port = try parsePort(s) catch (e: ParseError) 8080
+const maybe = try? parsePort(s)       // u16?: an error becomes null
+readConfig("x.json")                  // error: errors not handled</code></pre>
+          </article>
+
+          <article class="step" id="f-modules" data-title="Modules">
+            <span class="step-num">11</span>
+            <h3>Modules</h3>
+            <p>Every file is a module and everything in it is private until it's exported. Imports cover local files, the standard library, git dependencies from <code>project.json</code>, C headers and, in the browser, JavaScript.</p>
+<pre class="code"><code>// geometry.pi
+export struct Vec2 { x: f32; y: f32 }
+export function dot(a: Vec2, b: Vec2): f32 { a.x * b.x + a.y * b.y }
+export const ORIGIN = Vec2 { x: 0, y: 0 }
+function helper() { … }                   // module-private
+
+// main.pi
+import { Vec2, dot } from "./geometry"    // .pi or /index.pi
+import * as geo from "./geometry"
+import { dot as dotProduct } from "./geometry"
+import { readText } from "std/fs"         // standard library
+import { Router } from "padcom/router"    // from project.json
+import * as m from "c:math.h"             // a C header
+import { document } from "js:dom"         // browser target only
+
+export { Vec2 } from "./geometry"         // re-export
+
+println(dot(Vec2 { x: 1, y: 2 }, geo.ORIGIN))</code></pre>
+          </article>
+
+          <article class="step" id="f-workers" data-title="Workers">
+            <span class="step-num">12</span>
+            <h3>Workers</h3>
+            <p>Workers run in parallel, each on its own thread with its own heap. Messages must be <code>Sendable</code> and are copied, or moved when you transfer them. An inline worker takes a capture-free function, and <code>parallelMap</code> spreads work over a pool.</p>
+<pre class="code"><code>// main.pi
+import { Job, Result } from "./types"
+
+const w = new Worker&lt;Job, Result&gt;("./job")
+w.onmessage = (r: Result) =&gt; println(`done: ${r.value}`)
+w.onerror = (e: WorkerPanicked) =&gt; println(`worker died: ${e.message}`)
+w.postMessage(Job { id: 1, data: [1, 2, 3] })   // copied, not shared
+
+// job.pi
+import { self } from "std/worker"
+import { Job, Result } from "./types"
+self.onmessage = (job: Job) =&gt; {
+  self.postMessage(Result { value: job.data.sum() })
+}
+
+// Inline workers: no separate file, no captured variables
+const fibWorker = new Worker((n: i64): i64 =&gt; fib(n))
+const r = await fibWorker.call(40)
+
+import { parallelMap } from "std/worker"
+const hashes = await parallelMap(files, (f: string) =&gt; sha256File(f),
+  workers: 8)</code></pre>
+          </article>
+
           <article class="step" id="f-comptime" data-title="Comptime">
-            <span class="step-num">09</span>
+            <span class="step-num">13</span>
             <h3>Comptime</h3>
             <p>Ordinary Pico code can run inside the compiler. Use it to build lookup tables, read files at build time, take compile-time parameters, or pick an implementation per target.</p>
 <pre class="code"><code>function buildCrcTable(): [u32; 256] {
   const t: [u32; 256] = [0; 256]
   for (const i of 0..256) {
     let c = i as u32
-    for (const _ of 0..8) c = if ((c & 1) != 0) 0xEDB88320 ^ (c >>> 1) else c >>> 1
+    for (const _ of 0..8) {
+      c = if ((c &amp; 1) != 0) 0xEDB88320 ^ (c &gt;&gt;&gt; 1) else c &gt;&gt;&gt; 1
+    }
     t[i] = c
   }
   t
@@ -289,11 +396,12 @@ function zeros&lt;comptime N: i32&gt;(): [f32; N] { [0; N] }
 const v = zeros&lt;4&gt;()
 
 const VERSION = comptime comptime.readFile("VERSION").trim()
-const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl</code></pre>
+const impl = comptime if (target.arch == "wasm32") wasmImpl
+                      else nativeImpl</code></pre>
           </article>
 
           <article class="step" id="f-decorators" data-title="Decorators">
-            <span class="step-num">10</span>
+            <span class="step-num">14</span>
             <h3>Decorators</h3>
             <p>Decorators are comptime functions that inspect and rewrite declarations. They can add members, wrap bodies with type-checked templates, and report errors. The standard library brings <code>@derive</code>.</p>
 <pre class="code"><code>import { FunctionDecl } from "std/meta"
@@ -317,6 +425,60 @@ function fib(n: i64): i64 { if (n &lt; 2) n else fib(n - 1) + fib(n - 2) }
 
 @derive(Eq, Hash)
 class User { constructor(public id: i64, public name: string) {} }</code></pre>
+          </article>
+
+          <article class="step" id="f-reflection" data-title="Reflection">
+            <span class="step-num">15</span>
+            <h3>Reflection</h3>
+            <p><code>std/reflect</code> describes types at run time: fields, methods, interfaces and decorators, with typed getters and setters. Metadata is only emitted for types that can reach a reflection call, so programs that don't use it pay nothing.</p>
+<pre class="code"><code>import { reflect } from "std/reflect"
+
+@derive(Eq, Hash)
+class User {
+  constructor(public id: i64, public name: string, public age: int) {}
+  public greet(): string { `Hi, ${name}` }
+}
+
+const user = new User(1, "Ann", 31)
+const t = reflect.typeOf(user)
+println(t.name)                           // User
+for (const f of t.fields) {
+  println(`${f.name}: ${f.type.name} = ${f.show(user)}`)
+}
+const age = t.field("age")!.get&lt;int&gt;(user)   // typed access
+println(t.methods.map(m =&gt; m.name))       // ["greet"]
+println(t.decorators.map(d =&gt; d.name))    // ["derive"]
+
+reflect.typeOf&lt;User&gt;().field("name")!.set&lt;string&gt;(user, "Annie")</code></pre>
+          </article>
+
+          <article class="step" id="f-using" data-title="Using">
+            <span class="step-num">16</span>
+            <h3><code>using</code></h3>
+            <p>A <code>using</code> binding is disposed automatically when its scope ends, in reverse order, including when an exception leaves the scope. <code>await using</code> does the same for async resources such as files and sockets.</p>
+<pre class="code"><code>import { open } from "std/fs"
+
+async function copy(source: string, target: string) {
+  await using src = await open(source)
+  await using dst = await open(target, write: true, create: true)
+  loop {
+    const chunk = await src.read(64 * 1024) ?? break
+    await dst.write(chunk)
+  }
+}                     // closes dst, then src, even on an exception
+
+class Timer implements Disposable {
+  private start = performance.now()
+  constructor(private label: string) {}
+  public dispose() {
+    println(`${label}: ${performance.now() - start:.1f} ms`)
+  }
+}
+
+function build() {
+  using t = new Timer("build")
+  compileAll()
+}                     // prints "build: 812.4 ms" on the way out</code></pre>
           </article>
         </div>
 

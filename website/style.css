@@ -210,11 +210,11 @@ pre.code code { font-size: inherit; }
 .card p { margin: 0; color: var(--muted); font-size: 15px; }
 
 /* Features: scroll-driven tour */
-.features { border-top: 1px solid var(--border); }
+.features { border-top: 1px solid var(--border); max-width: 1280px !important; }
 .tour {
   display: grid;
-  grid-template-columns: 120px minmax(0, .85fr) minmax(0, 1.4fr);
-  gap: 36px;
+  grid-template-columns: 110px minmax(0, .8fr) minmax(0, 1.55fr);
+  gap: 32px;
 }
 .tour-rail {
   list-style: none; margin: 0; padding: 0;
@@ -253,7 +253,7 @@ pre.code code { font-size: inherit; }
   position: sticky; top: max(88px, calc(50vh - var(--stage-h, 520px) / 2 + 30px)); align-self: start;
 }
 .stage-panels { position: relative; min-height: 470px; }
-.stage-panels pre.code { font-size: 13px; }
+.stage-panels pre.code { font-size: clamp(11.5px, .95vw, 13px); padding: 20px 18px; }
 .stage-panels pre.code {
   position: absolute; inset: 0;
   opacity: 0;
@@ -306,6 +306,13 @@ html:not(.js) .step { opacity: 1; min-height: 0; padding: 32px 0; }
 @media (max-width: 1080px) {
   .tour { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
   .tour-rail { display: none; }
+}
+/* Below ~1000px the samples don't fit beside the text: stack them under each step instead. */
+@media (max-width: 1000px) {
+  .tour { grid-template-columns: minmax(0, 1fr); }
+  .stage { display: none; }
+  .step, .step:last-child { min-height: 0; opacity: 1; padding: 28px 0; }
+  .js .step pre.code { display: block; }
 }
 @media (max-width: 860px) {
   main > section { padding: 64px 16px; }

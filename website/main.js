@@ -134,14 +134,25 @@ function activate(index) {
   stageTitle.textContent = `${steps[index].id.slice(2)}.pi`;
 }
 
-// A step is active while it crosses the middle band of the viewport.
-const observer = new IntersectionObserver(
-  (entries) => {
-    for (const e of entries) {
-      if (e.isIntersecting) activate(steps.indexOf(e.target));
-    }
-  },
-  { rootMargin: "-45% 0px -45% 0px" },
-);
-steps.forEach((s) => observer.observe(s));
-activate(0);
+// The active step is the last one whose top has passed the middle of the viewport. It's
+// recomputed from the layout on every scroll, so fast jumps (the rail, the scrollbar thumb, a
+// link with a #hash) always land on the right sample.
+let pending = false;
+function update() {
+  pending = false;
+  const middle = innerHeight / 2;
+  let index = 0;
+  steps.forEach((s, i) => {
+    if (s.getBoundingClientRect().top <= middle) index = i;
+  });
+  activate(index);
+}
+function schedule() {
+  if (!pending) {
+    pending = true;
+    requestAnimationFrame(update);
+  }
+}
+addEventListener("scroll", schedule, { passive: true, capture: true });
+addEventListener("resize", schedule);
+update();
