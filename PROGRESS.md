@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.10b: Single binary** (see PLAN). First, run `.github/workflows/release.yml` by hand on GitHub (Actions → release → Run workflow) to check P10.10a's archives on clean runners; it has never run yet. Then Phase 11 Reactivity, starting with the P11.1 spec chapter. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
+**P10.10b: Single binary** (see PLAN). P10.10a's release workflow is verified (run 41933559672). To publish the first release: add a LICENSE, then tag `v0.1.0`. After P10.10b, Phase 11 Reactivity, starting with the P11.1 spec chapter. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -343,7 +343,7 @@ Notes:
 - [x] P10.9a `pico explain`
 - [x] P10.9b `pico doc`
 - [ ] P10.10 Release packaging (split)
-  - [x] P10.10a Release archives (the workflow's first run on GitHub is still to do)
+  - [x] P10.10a Release archives
   - [ ] P10.10b Single binary
 
 ### Phase 11: Later
@@ -549,3 +549,4 @@ Notes:
 | 2026-11-03 | decisions | The author revised 289 and 291: reactive class fields are allowed; `computed` is lazy (dirty on write, recomputed on read), `watchEffect` stays synchronous. |
 | 2026-11-04 | rename | The language is now the **Pico Programming Language** (decision 295, the author's): the tool `pico`, source files `.pi`, crates `pico-*`, runtime symbols `pico_*`, env vars `PICO_*`, VS Code extension `pico` (display name Pico; icon and README logo). The tzdata blob keeps its `PPLTZ` magic. |
 | 2026-11-05 | P10.10a | Split P10.10 into a (archives) and b (single binary). An installed pico finds `share/pico` next to `bin/` or `PICO_HOME` (decision 296), clang through `PICO_CLANG` or PATH too; `scripts/package.sh --check` builds and tries `dist/pico-<version>-<host>.tar.gz` (checked on macOS arm64: host run from the extracted archive; wasm skipped there without lld); `release.yml` builds macOS arm64 and Linux x64/arm64, tries them on runners with only LLVM, and publishes on a `v*` tag. |
+| 2026-11-05 | P10.10a | The release workflow passes by hand (run 41933559672): archives for macos-arm64, linux-x64 and linux-arm64 built and tried on runners with only LLVM (host run, `--interp`, `wasm32-wasi`, musl on Linux). macOS builds lld 23's static libraries with `scripts/build-lld.sh` (cached per LLVM version; about 3 minutes); Homebrew's `lld` is shared-only. |
