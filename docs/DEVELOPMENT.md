@@ -112,6 +112,19 @@ PICO_TEST_TARGET=linux-arm64-musl cargo test -p pico-tests --test golden
 A fixture qemu-user can't run faithfully gets `// not-under-qemu: why` (it's then pending in
 such runs).
 
+## Releases
+`scripts/package.sh` builds `dist/pico-<version>-<host>.tar.gz` for this host (`--check` also
+extracts it and builds a program with it): `bin/pico` and `share/pico/` (`runtime/`,
+`third_party/`, `stdlib/`, `lib/` with the host runtime libraries). An installed pico finds
+`share/pico` next to its `bin/`, or in `PICO_HOME`; clang comes from `PICO_CLANG`, the LLVM it was
+built with, or `clang-23`/`clang` on PATH (decision 296). Users still need LLVM 23.
+
+To publish: set `version` in `Cargo.toml`, commit, then `git tag v<version> && git push --tags`.
+`.github/workflows/release.yml` builds the macOS arm64 and Linux x64/arm64 archives, tries each
+on a runner with only LLVM installed, and creates the GitHub release (a tag with a `-`, like
+`v0.2.0-rc.1`, makes a prerelease). Run it by hand (Actions → release → Run workflow) to build and
+try the archives without publishing.
+
 ## Not installed yet
 
 These come with the tasks that need them (ask before installing):

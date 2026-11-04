@@ -1045,9 +1045,23 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Done when**: stdlib docs are generated (and a test checks a page's declarations and links).
 
 ### P10.10 Release packaging
+Split (2026-11-05): P10.10a releases archives that need an LLVM installation; P10.10b is the
+single binary.
+
+#### P10.10a Release archives
+- **Spec**: 14 §14.6
+- **Do**: the compiler finds its resources next to the executable (`share/pico`) or in
+  `PICO_HOME`; `scripts/package.sh` builds `pico-<version>-<host>.tar.gz`; a release workflow
+  builds macOS arm64 and Linux x64/arm64 archives on a tag, tries them on clean runners and
+  publishes a GitHub release.
+- **Done when**: on a runner with only LLVM 23 installed, the extracted archive builds and runs
+  a host program and a `wasm32-wasi` one (decision 296).
+
+#### P10.10b Single binary
 - **Spec**: 14 §14.6
 - **Do**: a single static `pico` binary (LLVM, lld and libclang statically linked) containing the
-  runtime sources/prebuilt libs, stubs and stdlib, plus release CI for all host platforms.
+  runtime sources/prebuilt libs, stubs and stdlib, plus release CI for all host platforms
+  (Windows and macOS x64 hosts too; z3/zstd linked statically or left out; the mingw ZPL notice).
 - **Done when**: downloading the binary on a clean machine is enough to run `pico build --target …`
   for every target.
 

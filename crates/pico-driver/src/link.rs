@@ -505,9 +505,17 @@ pub(crate) fn clang() -> Result<&'static Clang, String> {
     static CLANG: OnceLock<Result<Clang, String>> = OnceLock::new();
     CLANG
         .get_or_init(|| {
-            let exe = option_env!("LLVM_SYS_231_PREFIX")
-                .map(|p| Path::new(p).join("bin/clang"))
-                .filter(|p| p.is_file())
+            // `PICO_CLANG`, then the LLVM pico was built with, then a versioned or plain clang
+            // on PATH.
+            let exe = std::env::var_os("PICO_CLANG")
+                .filter(|c| !c.is_empty())
+                .map(PathBuf::from)
+                .or_else(|| {
+                    option_env!("LLVM_SYS_231_PREFIX")
+                        .map(|p| Path::new(p).join("bin/clang"))
+                        .filter(|p| p.is_file())
+                })
+                .or_else(|| on_path("clang-23"))
                 .unwrap_or_else(|| "clang".into());
             let ask = |arg: &str| -> Result<String, String> {
                 let out = Command::new(&exe)
@@ -524,6 +532,13 @@ pub(crate) fn clang() -> Result<&'static Clang, String> {
         })
         .as_ref()
         .map_err(Clone::clone)
+}
+
+/// `name` found on PATH.
+fn on_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|d| d.join(name))
+        .find(|p| p.is_file())
 }
 
 /// The runtime compiled for a target.

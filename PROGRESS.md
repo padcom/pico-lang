@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.10: Release packaging** (see PLAN; the last of Phase 10, then Phase 11 Reactivity starting with the P11.1 spec chapter; P10.3 is done, P10.4 deferred, P10.7 split into a/b and moved to Phase 11 by the author; the author should try F5 and Run Build Task on a project with `entry` in VS Code (`scripts/vscode-package.sh --install`); Phase 10 order: … P10.5a → P10.8 → P10.3 → P10.4 → …; P10.5b waits for a large program to measure on). The author should try `pico lint` and the warnings in VS Code (restart the language server). The author should still try hover/definition in files with errors in VS Code (P10.6c2); completion, rename and the outline are checked. Phase 10 runs in the author's order (VS Code integration first, then P10.8 debugging, P10.10 release packaging last).
+**P10.10b: Single binary** (see PLAN). First, run `.github/workflows/release.yml` by hand on GitHub (Actions → release → Run workflow) to check P10.10a's archives on clean runners; it has never run yet. Then Phase 11 Reactivity, starting with the P11.1 spec chapter. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -50,7 +50,7 @@ Notes:
 | Spec | ✅ 16 chapters, 249 decisions, no open questions |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23 (Homebrew `llvm@23` 23.1.3 on macOS, apt.llvm.org 23.1.5 on Linux), inkwell 0.11 `llvm23-1` |
-| Last green `scripts/test.sh` | 2026-11-02 (P8.0, Linux arm64) |
+| Last green `scripts/test.sh` | 2026-11-05 (P10.10a, macOS arm64) |
 | Host | Linux arm64 VM from P8.0 on (macOS arm64 before); CI: macOS + Linux arm64 |
 
 ## Session protocol
@@ -62,6 +62,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Release archives (P10.10a, decision 296)**: `pico_runtime::home()` (`PICO_HOME` or `../share/pico` next to the executable), `lib_dir`, `installed_stdlib` (used by `modules::stdlib_dir`), clang lookup `PICO_CLANG` → build-time LLVM → `clang-23`/`clang` (`link.rs` `clang`, `on_path`). `scripts/package.sh [--check]`, `.github/workflows/release.yml` (build → try on clean runners → publish on a `v*` tag). The archive is ~80 MB (the binary ~200 MB unpacked, `third_party` 54 MB). Not yet: Windows and macOS x64 hosts; z3/zstd are linked dynamically (from Homebrew on macOS); the Homebrew `lld` formula tracks the newest LLVM, so the macOS release build breaks when it moves past 23 (pin or build lld then). The repository has no LICENSE file yet: decide one before the first public release. The mingw ZPL notice (below) is for P10.10b.
 - **Lint (P10.2a/b, decisions 277–278)**: `crates/pico-lint` (`lint`, `lint_file`, `entry_file`; `config.rs` `Config::for_dir`/`from_json`; `walk.rs` `Visit`; rules `naming.rs`, `unused.rs`, `complexity.rs`, `blank.rs`, `docs.rs`), `pico lint [paths]` in `pico-cli`, warnings in `pico-lsp`'s `check`. Not yet: `pico fmt` inserting blank lines, `--fix`, per-line suppression comments, unused private fields (see decision 278).
 - **Language server (P10.6b, decision 271)**: `crates/pico-lsp` (`serve` loop with debounce, `Server::handle`, `check` → per-file diagnostics, `to_lsp`, `position` in UTF-16, `uri.rs`), `pico lsp [--stdio]`; client `editors/vscode/extension.js` (`pico.server.path`, `pico.restartServer`). Not yet: unsaved buffers of other open modules (imports read the disk), incremental sync, cancellation. `npm audit` reports a moderate ReDoS in minimatch (a dependency of vscode-languageclient 11, used for document selector globs): no fix without downgrading; revisit when the client updates. Hover/definition (P10.6c1, decision 272): `index.rs` (`build`, `Builder::declarations`/`expr`, `same_name`, `doc_comment`), `Server::ref_at`, `file_uri` (core library → bundled stdlib or a read-only temp copy), `Program::name_refs` (resolver: `resolve_type`/`type_decl`, `new`, struct literals, imports via `top_level_decl`). Not indexed yet: built-ins without a pico declaration (`push`, `length`, `println`), `ns.Type`/`ns.f` through `* as` namespaces, enum variant uses, type parameters, `this`. Recovery (P10.6c2, decision 273): `pico_driver::check_source_recovering` (the `recover` flag of `check` in `pico-driver/src/lib.rs`), run by `pico-lsp`'s `check` when the normal check has no types; its diagnostics are dropped. Completion (P10.6d1, decision 274): `complete.rs` (`complete`, `members`/`type_members`, `scope`, `let_blocks`, `import_names`/`module_path`), `index::fn_sig`/`struct_of` shared, `Index::decls` (hover text of every declaration). Not yet: `ns.` members through `* as`, type parameters, snippets. Rename/outline (P10.6d2, decision 275): `rename.rs` (`target`, `rename`, `project_root`/`project_files`), `symbols.rs`, `Index::links`/`shorthand`/`families` (`method_families`). Not renamed yet: destructuring patterns, `export { a }` lists.
 - **VS Code extension (P10.6a)**: `editors/vscode` (declarative: `package.json`, `language-configuration.json`, `syntaxes/`); the grammar is generated by `syntaxes/generate.py` (edit that, not the JSON); `Kw::ALL` feeds `crates/pico-tests/tests/vscode.rs`. Contextual words (`of`, `from`, `arena`, `type`) are matched by position. P10.6b adds the language client (needs `vscode-languageclient` from npm and a build step: ask before adding Node tooling to the repo/CI).
@@ -341,7 +342,9 @@ Notes:
 - [ ] P10.4 Registry (deferred)
 - [x] P10.9a `pico explain`
 - [x] P10.9b `pico doc`
-- [ ] P10.10 Release packaging
+- [ ] P10.10 Release packaging (split)
+  - [x] P10.10a Release archives (the workflow's first run on GitHub is still to do)
+  - [ ] P10.10b Single binary
 
 ### Phase 11: Later
 - [ ] P11.1 Reactivity: spec (open questions first)
@@ -545,3 +548,4 @@ Notes:
 | 2026-11-03 | decisions | Reactivity (decisions 288–293, the author's answers): transparent access (`reactive n = 1`, `n + 1`, `n = 2`), local and module-level bindings (fields open), deep reactivity, synchronous effects, not `Sendable` (no sharing with workers), `watchEffect` returns a `Disposable` and effects end with their scope. |
 | 2026-11-03 | decisions | The author revised 289 and 291: reactive class fields are allowed; `computed` is lazy (dirty on write, recomputed on read), `watchEffect` stays synchronous. |
 | 2026-11-04 | rename | The language is now the **Pico Programming Language** (decision 295, the author's): the tool `pico`, source files `.pi`, crates `pico-*`, runtime symbols `pico_*`, env vars `PICO_*`, VS Code extension `pico` (display name Pico; icon and README logo). The tzdata blob keeps its `PPLTZ` magic. |
+| 2026-11-05 | P10.10a | Split P10.10 into a (archives) and b (single binary). An installed pico finds `share/pico` next to `bin/` or `PICO_HOME` (decision 296), clang through `PICO_CLANG` or PATH too; `scripts/package.sh --check` builds and tries `dist/pico-<version>-<host>.tar.gz` (checked on macOS arm64: host run from the extracted archive; wasm skipped there without lld); `release.yml` builds macOS arm64 and Linux x64/arm64, tries them on runners with only LLVM, and publishes on a `v*` tag. |

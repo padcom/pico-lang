@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 pub fn stdlib_dir() -> PathBuf {
     match std::env::var_os("PICO_STDLIB") {
         Some(d) => PathBuf::from(d),
-        None => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../stdlib"),
+        None => pico_runtime::installed_stdlib()
+            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../stdlib")),
     }
 }
 

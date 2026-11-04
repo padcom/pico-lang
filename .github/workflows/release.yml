@@ -1,0 +1,117 @@
+name: release
+
+# Pushing a tag `v<version>` (matching Cargo.toml's version) builds an archive per host
+# (scripts/package.sh, P10.10a), tries each one on a fresh runner that has only LLVM installed,
+# and publishes a GitHub release with them. A manual run builds and tries them without publishing.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.host }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { host: macos-arm64, os: macos-latest }
+          - { host: linux-x64, os: ubuntu-24.04 }
+          - { host: linux-arm64, os: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag against Cargo.toml
+        if: github.ref_type == 'tag'
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "tag $GITHUB_REF_NAME, Cargo.toml $v"; exit 1; }
+
+      # lld (a separate formula on Homebrew) lets the macOS pico link the other targets.
+      - name: Install LLVM 23 and lld (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm@23 lld
+          echo "PICO_LLD_PREFIX=$(brew --prefix lld)" >> "$GITHUB_ENV"
+
+      - name: Install LLVM 23 (Linux)
+        if: runner.os == 'Linux'
+        run: scripts/ci-install-linux.sh
+
+      - name: Package
+        run: scripts/package.sh --check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pico-${{ matrix.host }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  # On a runner without the repository: the archive and LLVM are all a user has.
+  try:
+    name: try (${{ matrix.host }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { host: macos-arm64, os: macos-latest }
+          - { host: linux-x64, os: ubuntu-24.04 }
+          - { host: linux-arm64, os: ubuntu-24.04-arm }
+    steps:
+      - name: Install LLVM 23 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm@23
+
+      - name: Install LLVM 23 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget --tries=5 --waitretry=15 -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash /tmp/llvm.sh 23
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pico-${{ matrix.host }}
+
+      - name: Build and run a program
+        run: |
+          mkdir try && tar -C try -xzf pico-*.tar.gz
+          export PATH="$(echo "$PWD"/try/pico-*/bin):$PATH"
+          cd try
+          pico --version
+          printf 'import { join } from "std/path"\nconst xs = [1, 2, 3]\nprintln(`${join("a", "b")} ${xs[0] + xs[1] + xs[2]}`)\n' > hello.pi
+          [ "$(pico run hello.pi)" = "a/b 6" ]
+          [ "$(pico run --interp hello.pi)" = "a/b 6" ]
+          pico build --target wasm32-wasi hello.pi -o hello.wasm
+          test -s hello.wasm
+          if [ "$RUNNER_OS" = Linux ]; then
+            pico build --target linux-x64-musl hello.pi -o hello-musl
+            file hello-musl | grep -q 'statically linked'
+          fi
+
+  publish:
+    needs: try
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz --repo "$GITHUB_REPOSITORY" \
+            --title "pico ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag "${flags[@]}"
