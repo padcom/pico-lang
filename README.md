@@ -31,3 +31,6 @@ Specification complete: all 16 chapters are written and every open question is r
 const name = "world"
 println(`Hello, ${name}!`)
 ```
+
+## License
+MIT (see [LICENSE](LICENSE)). The vendored sources in `third_party/` keep their own licenses.

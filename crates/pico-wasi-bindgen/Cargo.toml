@@ -3,6 +3,7 @@ name = "pico-wasi-bindgen"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "MIT"
 description = "Regenerates runtime/wasi: C bindings for the WASI interfaces pico's runtime imports (third_party/wasi/wit/pico.wit)."
 
 [dependencies]

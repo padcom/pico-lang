@@ -4,6 +4,7 @@ description = "Runs golden-test executables exported by pico-tests (PICO_TEST_EX
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish = false
 
 # No dependencies: it's built on machines without LLVM (the Windows CI runners).

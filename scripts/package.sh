@@ -47,6 +47,7 @@ out="dist/$name"
 rm -rf "$out" "dist/$name.tar.gz"
 mkdir -p "$out/bin" "$out/share/pico/lib"
 cp target/release/pico "$out/bin/"
+cp LICENSE "$out/"
 cp "$lib"/libpico_rt.a "$lib"/libpico_crypto.a "$lib"/libpico_mbedtls.a "$out/share/pico/lib/"
 # (Copied as they are in the repository: the compiler finds third_party/ from runtime/include.)
 cp -R runtime third_party stdlib "$out/share/pico/"
@@ -55,6 +56,9 @@ cat > "$out/README.md" <<EOF
 
 The Pico Programming Language compiler. Put \`bin/\` on your PATH (keep \`share/\` next to it,
 or set \`PICO_HOME\` to \`share/pico\`).
+
+pico is MIT-licensed (\`LICENSE\`). The vendored sources in \`share/pico/third_party\` keep
+their own licenses (the license files in each directory).
 
 Requirements:
 - LLVM 23's clang: Homebrew \`brew install llvm@23\` on macOS, apt.llvm.org on Linux
