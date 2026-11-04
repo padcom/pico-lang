@@ -129,8 +129,10 @@ try the archives without publishing.
 
 These come with the tasks that need them (ask before installing):
 
-- **lld on macOS**: Homebrew's `llvm@23` doesn't ship it (the separate `lld` formula, pointed to
-  by `PICO_LLD_PREFIX`). Needed by P8.4 at the latest.
+- **lld on macOS**: Homebrew's `llvm@23` doesn't ship it, and the separate `lld` formula has
+  only shared libraries (for its newest `llvm`). `scripts/build-lld.sh <prefix>` builds the static
+  ones for llvm@23 (about 10 minutes); then `export PICO_LLD_PREFIX=<prefix>`. The release workflow
+  does this.
 - **wasmtime** 50.0.1 (P8.5a), for running `wasm32-wasi` programs: the official release binary in
   `~/.local/bin` (no root; its GitHub build attestation checked with
   `gh attestation verify <tarball> --repo bytecodealliance/wasmtime`). CI installs the same

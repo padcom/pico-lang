@@ -32,12 +32,29 @@ jobs:
           v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "tag $GITHUB_REF_NAME, Cargo.toml $v"; exit 1; }
 
-      # lld (a separate formula on Homebrew) lets the macOS pico link the other targets.
-      - name: Install LLVM 23 and lld (macOS)
+      # lld's static libraries let the macOS pico link the other targets. Homebrew's `lld` has
+      # only shared ones (built against its newest `llvm`), so they're built for llvm@23 once
+      # per LLVM version and cached.
+      - name: Install LLVM 23 (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install llvm@23 lld
-          echo "PICO_LLD_PREFIX=$(brew --prefix lld)" >> "$GITHUB_ENV"
+          brew install llvm@23
+          source scripts/env.sh
+          echo "LLVM_VERSION=$(llvm-config --version)" >> "$GITHUB_ENV"
+          echo "PICO_LLD_PREFIX=$RUNNER_TEMP/lld" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        if: runner.os == 'macOS'
+        id: lld
+        with:
+          path: ${{ runner.temp }}/lld
+          key: lld-${{ runner.os }}-${{ runner.arch }}-${{ env.LLVM_VERSION }}
+
+      - name: Build lld (macOS)
+        if: runner.os == 'macOS' && steps.lld.outputs.cache-hit != 'true'
+        run: |
+          source scripts/env.sh
+          scripts/build-lld.sh "$PICO_LLD_PREFIX"
 
       - name: Install LLVM 23 (Linux)
         if: runner.os == 'Linux'
