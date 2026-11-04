@@ -1,6 +1,6 @@
 {
   "name": "ppl",
-  "displayName": "ppl",
+  "displayName": "PPL",
   "description": "The padcom programming language: syntax highlighting, diagnostics and formatting (ppl lsp).",
   "version": "0.2.0",
   "publisher": "padcom",
