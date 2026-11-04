@@ -98,7 +98,7 @@ async function activate(context) {
             return { type: "pico", request: "launch", name: "Debug the project", program: project.entry, cwd: project.dir };
           }
           const editor = vscode.window.activeTextEditor;
-          if (editor && editor.document.languageId === "pi") {
+          if (editor && editor.document.languageId === "pico") {
             return { type: "pico", request: "launch", name: "Debug the current pico file", program: "${file}" };
           }
         }

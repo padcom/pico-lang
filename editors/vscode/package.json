@@ -156,8 +156,8 @@
             "body": {
               "type": "pico",
               "request": "launch",
-              "name": "Debug ${1:main.pico}",
-              "program": "^\"\\${workspaceFolder}/${1:main.pico}\""
+              "name": "Debug ${1:main.pi}",
+              "program": "^\"\\${workspaceFolder}/${1:main.pi}\""
             }
           }
         ]
