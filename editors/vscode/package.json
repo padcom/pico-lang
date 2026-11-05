@@ -2,7 +2,7 @@
   "name": "pico",
   "displayName": "Pico",
   "description": "The Pico Programming Language: syntax highlighting, diagnostics and formatting (pico lsp).",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "padcom",
   "license": "MIT",
   "icon": "images/pico-icon.png",

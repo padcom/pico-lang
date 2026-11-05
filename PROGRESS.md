@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**Phase 12** (see PLAN; v0.3.0 is released for macOS arm64, Linux x64/arm64 and Windows x64/arm64: map literals, struct spreads, `splice`). Reviewed 2026-11-05: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 stays open (MinGW for now); 311 accepted for now, to be revisited with the author later; 313 confirmed. Pushing: SSH signing failed in this session; pushes went over HTTPS through `gh` (the token now has the `workflow` scope).
+**Phase 12** (see PLAN; v0.4.0 is released for macOS arm64, Linux x64/arm64 and Windows x64/arm64: `fetch` headers as maps). Reviewed 2026-11-05: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 stays open (MinGW for now); 311 accepted for now, to be revisited with the author later; 313 confirmed. Pushing: SSH signing failed in this session; pushes went over HTTPS through `gh` (the token now has the `workflow` scope).
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -582,3 +582,4 @@ Notes:
 | 2026-11-05 | P10.6c2 | Author's check in VS Code: `const q = p.` followed by `function f…` reported its error at `f` (the newline rule made it `p.function`). Now a `.`/`?.` ending a line before a statement keyword (not `match`, a method name) is an unfinished member access reported at the dot (`Parser::dangling_dot`); `p.function` on one line is still a property. Tests: parser snapshots `dangling_dot_*`, LSP `an_unfinished_member_access_before_a_statement` (hover and completion still work). |
 | 2026-11-05 | release | The author confirmed P10.6c2 and P11.5 in VS Code (error recovery, reactive hover and debugger). Version 0.3.0 (Cargo, the VS Code extension, the website's download commands); tagged `v0.3.0`. |
 | 2026-11-05 | P7.11 | Headers from maps (decision 315, for v0.4.0): `HeadersInit` in `stdlib/core/fetch.pi` (`Headers` constructor, `RequestInit`/`ResponseInit.headers`, `__headersCopy`); `typeck::wanted_map` looks inside a nullable union. TOUR's fetch example uses a plain map literal. Test: run/http/map_headers (fetch to a local serve, Request, Headers, Response.json). Also: `build.sh` sources `env.sh` with `.` (dash). |
+| 2026-11-05 | release | Version 0.4.0 (Cargo, the VS Code extension, the website's download commands): Headers from maps (P7.11); tagged `v0.4.0`. |
