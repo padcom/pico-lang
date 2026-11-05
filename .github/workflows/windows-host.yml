@@ -1,0 +1,66 @@
+name: windows-host
+
+# The port of the compiler to Windows hosts (P10.10b3): a MinGW build of pico (Rust's
+# `*-pc-windows-gnullvm`) against MSYS2's LLVM 23 (clang64 / clangarm64 environments, static
+# libraries). Run by hand while the port is in progress.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.host }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { host: windows-x64, os: windows-latest, msystem: CLANG64, prefix: clang64, arch: clang-x86_64, rust: x86_64-pc-windows-gnullvm }
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-${{ matrix.arch }}-llvm
+            mingw-w64-${{ matrix.arch }}-llvm-tools
+            mingw-w64-${{ matrix.arch }}-clang
+            mingw-w64-${{ matrix.arch }}-lld
+            mingw-w64-${{ matrix.arch }}-zstd
+            mingw-w64-${{ matrix.arch }}-zlib
+            mingw-w64-${{ matrix.arch }}-libxml2
+            mingw-w64-${{ matrix.arch }}-libffi
+
+      - name: What MSYS2's LLVM has
+        run: |
+          llvm-config --version --system-libs --link-static --has-rtti --cxxflags
+          for p in llvm clang clang-libs lld; do
+            pacman -Ql mingw-w64-${{ matrix.arch }}-$p 2>/dev/null \
+              | grep -E 'libLLVMCore\.a|libclangDriver\.a|liblldELF\.a|clang/[0-9]+/include/stddef\.h|llvm-config' || true
+          done
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install 1.99.0-${{ matrix.rust }} --profile minimal
+          echo "RUSTUP_TOOLCHAIN=1.99.0-${{ matrix.rust }}" >> "$GITHUB_ENV"
+
+      - name: Build pico
+        run: |
+          export LLVM_SYS_231_PREFIX="$(cygpath -m /${{ matrix.prefix }})"
+          export CC=clang CXX=clang++
+          rustc -vV
+          set -o pipefail
+          cargo build --release -p pico-cli 2>&1 | tail -80
+
+      - name: Try it
+        run: |
+          ./target/release/pico.exe --version
+          printf 'println("hello from windows")\n' > hello.pi
+          ./target/release/pico.exe run --interp hello.pi
+          ./target/release/pico.exe run hello.pi
