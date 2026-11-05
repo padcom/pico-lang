@@ -3,15 +3,25 @@
 // (`Content-Length`, chunked, or up to the end of the connection) before `fetch` resolves or a
 // handler runs; a `ReadableStream` body is sent chunked. Only `http:` for now (TLS: P7.5b).
 
+/// What header fields can be given as: name/value pairs, a map (`{ "Content-Type": "text/html" }`
+/// where a `HeadersInit` is expected), or other headers.
+type HeadersInit = [string, string][] | Map<string, string> | Headers
+
 /// HTTP header fields: names are case-insensitive (kept lowercase), values trimmed.
 class Headers {
   list: [string, string][] = []
 
-  /// From name/value pairs, or a copy of other headers.
-  constructor(init: [string, string][] | Headers = []) {
+  /// From name/value pairs, a map (`new Headers({ "Accept": "text/html" })`), or a copy of
+  /// other headers.
+  constructor(init: HeadersInit = []) {
     match (init) {
       pairs: [string, string][] => {
         for (const [k, v] of pairs) {
+          this.append(k, v)
+        }
+      },
+      m: Map<string, string> => {
+        for (const [k, v] of m) {
           this.append(k, v)
         }
       },
@@ -124,7 +134,7 @@ class Headers {
 type BodyInit = string | Uint8Array | ReadableStream<Uint8Array> | URLSearchParams
 
 /// A copy of `h` (or new headers).
-function __headersCopy(h: Headers?): Headers {
+function __headersCopy(h: HeadersInit?): Headers {
   if (h != null) new Headers(h) else new Headers()
 }
 
@@ -251,8 +261,9 @@ class __Body {
 struct RequestInit {
   /// The method (uppercased; `"GET"` by default).
   method?: string
-  /// The header fields (copied).
-  headers?: Headers
+  /// The header fields (copied): pairs, a map (`{ "Content-Type": "application/json" }`) or
+  /// `Headers`.
+  headers?: HeadersInit
   /// The body; a `GET` or `HEAD` request can't have one.
   body?: BodyInit
   /// `"follow"` (the default: up to 20 redirects), `"manual"` (the 3xx response) or `"error"`.
@@ -298,8 +309,8 @@ struct ResponseInit {
   status?: int
   /// The reason phrase (by default the usual one for `status`, or "").
   statusText?: string
-  /// The header fields (copied).
-  headers?: Headers
+  /// The header fields (copied): pairs, a map or `Headers`.
+  headers?: HeadersInit
 }
 
 /// The reason phrase of common status codes.

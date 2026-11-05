@@ -302,7 +302,7 @@ Notes:
   - [x] P7.9b std/collections
   - [x] P7.9c std/fmt
 - [x] P7.10 std/test and `pico test`
-- [ ] P7.11 Headers from maps (for v0.4.0)
+- [x] P7.11 Headers from maps (for v0.4.0)
 
 ### Phase 8: Targets
 - [x] P8.0 Linux host bring-up
@@ -581,3 +581,4 @@ Notes:
 | 2026-11-05 | review | The author's review: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 open; 311 to be revisited. Asked for `splice` (decision 314): `__Array_splice` in `stdlib/core/array.pi`, a reactivity trigger like `sort`; built-in method picking through rest parameters; generic functions' rest parameters (`typeck::call_inferring` packs extra arguments as `Slot::Rest`, `...array` as `RestSpread`; lowering substitutes the instance's element type). Tests: run/collections/splice, run/generic_rest, fail/types/generic_rest. |
 | 2026-11-05 | P10.6c2 | Author's check in VS Code: `const q = p.` followed by `function f…` reported its error at `f` (the newline rule made it `p.function`). Now a `.`/`?.` ending a line before a statement keyword (not `match`, a method name) is an unfinished member access reported at the dot (`Parser::dangling_dot`); `p.function` on one line is still a property. Tests: parser snapshots `dangling_dot_*`, LSP `an_unfinished_member_access_before_a_statement` (hover and completion still work). |
 | 2026-11-05 | release | The author confirmed P10.6c2 and P11.5 in VS Code (error recovery, reactive hover and debugger). Version 0.3.0 (Cargo, the VS Code extension, the website's download commands); tagged `v0.3.0`. |
+| 2026-11-05 | P7.11 | Headers from maps (decision 315, for v0.4.0): `HeadersInit` in `stdlib/core/fetch.pi` (`Headers` constructor, `RequestInit`/`ResponseInit.headers`, `__headersCopy`); `typeck::wanted_map` looks inside a nullable union. TOUR's fetch example uses a plain map literal. Test: run/http/map_headers (fetch to a local serve, Request, Headers, Response.json). Also: `build.sh` sources `env.sh` with `.` (dash). |

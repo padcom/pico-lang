@@ -1,0 +1,45 @@
+// Header fields as a map (P7.11): `headers: { … }` in `fetch`, `Request`, `Response` and
+// `new Headers(…)`, beside pairs and `Headers`.
+// expect: got: application/json Bearer t0k3n pico
+// expect: 201 text/plain;charset=UTF-8 yes
+// expect: req: post put
+// expect: copy: 1 2 3
+// expect: json: application/json 1
+import { serve } from "std/http"
+
+async function handle(req: Request): Promise<Response> throws Error {
+  const h = req.headers
+  new Response(`got: ${h.get("content-type")} ${h.get("authorization")} ${h.get("x-client")}`, {
+    status: 201,
+    headers: { "X-Seen": "yes" },
+  })
+}
+
+const server = await serve({ port: 0 }, handle)
+const base = `http://127.0.0.1:${server.addr.port}`
+
+// The JS way: a map literal, names in any case.
+const token = "t0k3n"
+const res = await fetch(`${base}/`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ["X-" + "Client"]: "pico" },
+  body: "{}",
+})
+println(await res.text())
+println(`${res.status} ${res.headers.get("content-type")} ${res.headers.get("x-seen")}`)
+
+// `Request` and `Headers` take maps too; a `Map` variable works as well.
+const extra: Map<string, string> = { "X-Method": "put" }
+const req = new Request(`${base}/`, { method: "POST", headers: { ...extra, "X-Kind": "post" } })
+println(`req: ${req.headers.get("x-kind")} ${req.headers.get("x-method")}`)
+const h = new Headers({ a: "1", b: "2" })
+const copy = new Headers(h)
+copy.append("c", "3")
+println(`copy: ${copy.get("a")} ${copy.get("b")} ${copy.get("c")}`)
+
+// `Response.json` with map headers.
+const j = Response.json<int[]>([1], { headers: { "X-Count": "1" } })
+println(`json: ${j.headers.get("content-type")} ${j.headers.get("x-count")}`)
+
+await server.shutdown()
+await server.finished

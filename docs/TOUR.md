@@ -1495,7 +1495,7 @@ document.body.innerHTML = render({ count: 1 })   // structs cross as plain objec
 // Web APIs take their standard options object (a struct built from an object literal)
 const res = await fetch("https://api.example.com/users", {
   method: "POST",
-  headers: new Headers({ "content-type": "application/json" }),   // Map literal
+  headers: { "Content-Type": "application/json" },   // a HeadersInit: pairs, a map or Headers
   body: JSON.stringify(newUser),
 })
 const users = await res.json<User[]>()   // typed, generated like JSON.parse<T>

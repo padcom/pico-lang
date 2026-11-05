@@ -4341,15 +4341,15 @@ impl<'p> Checker<'p> {
     }
 
     /// The `Map<K, V>` an object literal builds when `want` is one (or `Map<K, V>?`, or a union
-    /// with one).
+    /// with one, possibly nullable: `headers?: HeadersInit`).
     fn wanted_map(&self, want: Option<&Expect>) -> Option<Ty> {
         let is_map = |t: &Ty| matches!(t, Ty::Class(sid, _, _) if self.is_core_map(sid));
-        let t = want?.ty.strip_immutable();
+        let mut t = want?.ty.strip_immutable();
+        if let Ty::Nullable(inner) = &t {
+            t = inner.strip_immutable();
+        }
         match &t {
             t if is_map(t) => Some(t.clone()),
-            Ty::Nullable(inner) if is_map(&inner.strip_immutable()) => {
-                Some(inner.strip_immutable())
-            }
             Ty::Union(_, ms) => ms.iter().map(|m| m.strip_immutable()).find(|m| is_map(m)),
             _ => None,
         }

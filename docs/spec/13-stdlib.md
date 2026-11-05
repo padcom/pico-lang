@@ -289,7 +289,10 @@ statusText, headers }`; a body (`BodyInit`) is a `string` (`text/plain;charset=U
 encoded). Bodies have `body` (a stream), `bodyUsed`, `bytes()`, `arrayBuffer()`, `text()` and
 `json<T>()` (as `JSON.parse<T>`), each readable once. `Response.json<T>(data, init)` and
 `Response.redirect(url, status = 302)` build responses; `ok`, `status`, `statusText`, `url`,
-`redirected`. `Headers(init: [string, string][] | Headers)` keeps names lowercase; `get` joins
+`redirected`. Header fields are a `HeadersInit = [string, string][] | Map<string, string> |
+Headers`, so a map literal works where they're expected, as in JS: `fetch(url, { headers: {
+"Content-Type": "application/json" } })` (`RequestInit.headers`, `ResponseInit.headers`,
+`new Headers(init)`). `Headers` keeps names lowercase; `get` joins
 repeated values with `, ` (`getSetCookie()` keeps cookies apart); iteration is sorted by name.
 Bodies are read whole before `fetch` resolves (and before a handler runs).
 

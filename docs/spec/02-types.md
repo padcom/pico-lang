@@ -49,7 +49,8 @@ const m: Meters = new Feet(3)   // error: Feet is not Meters
 Object type literals (`{ x: f64, y: f64 }`) are anonymous types. A plain `{ x, y }` literal is
 accepted when the expected type is a named struct/class/record type, and it constructs that type.
 
-When the expected type is `Map<K, V>` (also `Map<K, V>?`, or a union with one map member), an
+When the expected type is `Map<K, V>` (also `Map<K, V>?`, or a union with one map member, nullable
+or not), an
 object literal builds that map, entries in source order (decisions 175, 311):
 ```ts
 const env: Map<string, string> = { "LANG": "C", PATH: p, home }   // identifier, string, shorthand keys
