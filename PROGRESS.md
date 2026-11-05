@@ -302,6 +302,7 @@ Notes:
   - [x] P7.9b std/collections
   - [x] P7.9c std/fmt
 - [x] P7.10 std/test and `pico test`
+- [ ] P7.11 Headers from maps (for v0.4.0)
 
 ### Phase 8: Targets
 - [x] P8.0 Linux host bring-up

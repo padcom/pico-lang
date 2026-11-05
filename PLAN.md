@@ -640,6 +640,17 @@ Split into P7.9a (`Math` and `std/math`), P7.9b (`std/collections`) and P7.9c (`
   hooks, `*.test.pi` discovery, one worker per file, `--watch`, and `bench` with `pico bench`.
 - **Done when**: the stdlib's own tests are rewritten as `*.test.pi` and run in CI.
 
+### P7.11 Headers from maps (for v0.4.0)
+Added 2026-11-05 by the author: `fetch` used the way it's used in JS.
+- **Spec**: 13 §13.1 (`fetch`, `Headers`)
+- **Do**: `type HeadersInit = [string, string][] | Map<string, string> | Headers`, taken by
+  `new Headers(init)` and by `RequestInit.headers` / `ResponseInit.headers`, so a map literal
+  works directly: `fetch(url, { headers: { "Content-Type": "application/json" } })`. The
+  compiler builds a map literal where the expected type is a nullable union with a map member
+  (`headers?: HeadersInit`).
+- **Done when**: golden tests send map headers through `fetch` to a local `serve` and build
+  `Response`s with them (interpreted and native); the TOUR example compiles.
+
 ---
 
 ## Phase 8: Targets
