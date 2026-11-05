@@ -5721,6 +5721,11 @@ impl FnBuilder<'_, '_> {
                 pico_sema::typeck::Slot::Arg(i) => self.expr(value(&args[*i])),
                 pico_sema::typeck::Slot::Default => Operand::Const(Const::Undef(pt.clone())),
                 pico_sema::typeck::Slot::Rest(is) => {
+                    // A generic function's `T[]`: this call's element type.
+                    let pt = match self.cx.types.instances.get(&e.id) {
+                        Some(targs) => self.mono(&pt.subst(f.0, targs)),
+                        None => pt.clone(),
+                    };
                     let elem = match &pt {
                         Ty::Array(t) => (**t).clone(),
                         _ => Ty::Error,
@@ -6792,12 +6797,46 @@ impl FnBuilder<'_, '_> {
             let recv = self.expr(object);
             let rt = self.ty_of(object).clone();
             let fname = self.cx.program.func(id).name.clone();
-            let mutates = matches!(fname.as_str(), "__Array_sort" | "__Array_reverse");
+            let mutates = matches!(
+                fname.as_str(),
+                "__Array_sort" | "__Array_reverse" | "__Array_splice"
+            );
             if !mutates {
                 self.object_hook("__trackObject", recv.clone(), &rt, e.span);
             }
             let mut ops = vec![recv.clone()];
-            ops.extend(args.iter().map(|a| self.expr(a)));
+            match self.cx.types.arg_slots.get(&e.id).cloned() {
+                // A rest parameter: its arguments packed into an array (slot indices count the
+                // receiver).
+                Some(slots)
+                    if slots
+                        .iter()
+                        .any(|s| matches!(s, pico_sema::typeck::Slot::Rest(_))) =>
+                {
+                    let sig = self.cx.types.sigs[id.0 as usize].clone();
+                    for (k, slot) in slots.iter().enumerate().skip(1) {
+                        let op = match slot {
+                            pico_sema::typeck::Slot::Arg(i) => self.expr(&args[*i - 1]),
+                            pico_sema::typeck::Slot::Rest(is) => {
+                                let pt = match self.cx.types.instances.get(&e.id) {
+                                    Some(targs) => self.mono(&sig.params[k].subst(id.0, targs)),
+                                    None => sig.params[k].clone(),
+                                };
+                                let elem = match &pt {
+                                    Ty::Array(t) => (**t).clone(),
+                                    _ => Ty::Error,
+                                };
+                                let vals: Vec<Operand> =
+                                    is.iter().map(|i| self.expr(&args[*i - 1])).collect();
+                                self.rvalue_to_temp(Rvalue::ArrayNew(elem, vals), pt, e.span)
+                            }
+                            _ => unreachable!("extension calls take positional arguments"),
+                        };
+                        ops.push(op);
+                    }
+                }
+                _ => ops.extend(args.iter().map(|a| self.expr(a))),
+            }
             let given = ops.len();
             let sig = self.cx.types.sigs[id.0 as usize].clone();
             let defaults: Vec<bool> = self

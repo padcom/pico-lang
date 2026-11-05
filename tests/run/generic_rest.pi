@@ -1,0 +1,20 @@
+// Rest parameters of generic functions: each extra argument is an element (checked against
+// `T`), or `...array` passes an array.
+// expect: 3 0 2 0 b
+// expect: 6
+function count<T>(...xs: T[]): int {
+  xs.length
+}
+function firstOr<T>(d: T, ...xs: T[]): T {
+  if (xs.length > 0) xs[0] else d
+}
+function sum<T>(f: (x: T) => int, ...xs: T[]): int {
+  let s = 0
+  for (const x of xs) {
+    s += f(x)
+  }
+  s
+}
+const arr = [4, 5]
+println(`${count(1, 2, 3)} ${count<string>()} ${count(...arr)} ${firstOr(0)} ${firstOr("a", "b", "c")}`)
+println(`${sum((s: string) => s.length, "a", "bb", "ccc")}`)

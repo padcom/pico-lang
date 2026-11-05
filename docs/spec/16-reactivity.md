@@ -167,7 +167,7 @@ println(left)          // 0
   reactive state are such reads, and so is any other object read there (decision 309).
 - **Mutating** a reactive object triggers what depends on it, through whichever reference it's
   done: assigning a field or an element (also `+=`, `++`); the arrays' mutating methods (`push`,
-  `pop`, `sort`, `reverse`); `Map`'s `set`, `delete` and `clear` (and so `Set`'s `add`,
+  `pop`, `splice`, `sort`, `reverse`); `Map`'s `set`, `delete` and `clear` (and so `Set`'s `add`,
   `delete` and `clear`, which use a map).
 - The granularity is the object: reading any field depends on all of it, and mutating any field
   triggers everything that read it.

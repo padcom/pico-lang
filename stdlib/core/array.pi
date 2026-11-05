@@ -150,6 +150,32 @@ function __Array_slice<T>(xs: T[], start: int, end: int): T[] {
   out
 }
 
+/// Removes the elements from index `start` to the end (in place) and returns them. A negative
+/// `start` counts from the end; it's clamped to the array.
+function __Array_splice<T>(xs: T[], start: int): T[] {
+  __Array_splice(xs, start, xs.length)
+}
+
+/// Removes `deleteCount` elements from index `start`, inserts `items` there (in place), and
+/// returns the removed elements. A negative `start` counts from the end; `start` and the count
+/// are clamped to the array.
+function __Array_splice<T>(xs: T[], start: int, deleteCount: int, ...items: T[]): T[] {
+  const s = __clampIndex(start, xs.length)
+  const d = if (deleteCount < 0) 0 else if (deleteCount > xs.length - s) xs.length - s else deleteCount
+  const removed = __Array_slice(xs, s, s + d)
+  const tail = __Array_slice(xs, s + d)
+  while (xs.length > s) {
+    xs.pop()
+  }
+  for (const x of items) {
+    xs.push(x)
+  }
+  for (const x of tail) {
+    xs.push(x)
+  }
+  removed
+}
+
 /// A new array of this array's elements followed by `other`'s.
 function __Array_concat<T>(xs: T[], other: T[]): T[] {
   const out: T[] = []

@@ -1,0 +1,7 @@
+// error: E0308
+// at: 7:19
+// A generic rest parameter's elements all have its element type.
+function firstOr<T>(d: T, ...xs: T[]): T {
+  if (xs.length > 0) xs[0] else d
+}
+const x = firstOr(1, "s")

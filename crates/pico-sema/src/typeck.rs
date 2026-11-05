@@ -6283,6 +6283,13 @@ impl<'p> Checker<'p> {
         let id = *ids
             .iter()
             .find(|f| self.program.func(**f).params.len() == args.len() + 1)
+            // A rest parameter takes the rest (`xs.splice(1, 0, a, b)`).
+            .or_else(|| {
+                ids.iter().find(|f| {
+                    let f = self.program.func(**f);
+                    f.rest && args.len() + 1 >= f.params.len() - 1
+                })
+            })
             .or(ids.first())?;
         let mut all: Vec<&Expr> = vec![object];
         all.extend(args.iter());
@@ -6724,6 +6731,47 @@ impl<'p> Checker<'p> {
                 .collect();
             self.types.arg_slots.insert(e.id, slots);
             sig.params.truncate(args.len());
+        }
+        // `f(a, ...xs)` for `f<T>(a: A, ...rest: T[])`: the array is the rest parameter.
+        let unspread;
+        if f.rest
+            && args.len() == sig.params.len()
+            && !self.types.arg_slots.contains_key(&e.id)
+            && matches!(args.last().map(|a| &a.kind), Some(ExprKind::Spread(_)))
+            && !args[..args.len() - 1]
+                .iter()
+                .any(|a| matches!(a.kind, ExprKind::NamedArg { .. } | ExprKind::Spread(_)))
+        {
+            let last = args.len() - 1;
+            let mut slots: Vec<Slot> = (0..last).map(Slot::Arg).collect();
+            slots.push(Slot::RestSpread(last));
+            self.types.arg_slots.insert(e.id, slots);
+            unspread = args
+                .iter()
+                .map(|a| Self::arg_value(a))
+                .collect::<Vec<&Expr>>();
+            args = &unspread;
+        }
+        // A rest parameter (`...items: T[]`): the arguments after the fixed ones are its
+        // elements, each checked against `T` (lowering packs them into an array).
+        if f.rest
+            && !sig.params.is_empty()
+            && args.len() + 1 >= sig.params.len()
+            && !self.types.arg_slots.contains_key(&e.id)
+            && !args
+                .iter()
+                .any(|a| matches!(a.kind, ExprKind::NamedArg { .. } | ExprKind::Spread(_)))
+        {
+            let fixed = sig.params.len() - 1;
+            let elem = match sig.params[fixed].clone() {
+                Ty::Array(t) => *t,
+                t => t,
+            };
+            let mut slots: Vec<Slot> = (0..fixed).map(Slot::Arg).collect();
+            slots.push(Slot::Rest((fixed..args.len()).collect()));
+            self.types.arg_slots.insert(e.id, slots);
+            sig.params.truncate(fixed);
+            sig.params.resize(args.len(), elem);
         }
         if args.len() != sig.params.len() {
             self.diags.push(
