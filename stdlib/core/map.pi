@@ -185,6 +185,16 @@ class Map<K extends Hashable<K>, V> {
       }
     }
   }
+
+  /// Sets each of `other`'s entries, in its order (`{ ...other }` in a map literal).
+  __setAll(other: Map<K, V>): void {
+    if (__reactivity_on()) __trackObject(other)
+    for (const e of other.items) {
+      if (e.live) {
+        this.set(e.key, e.value)
+      }
+    }
+  }
 }
 
 /// A set of distinct values, iterated in insertion order like JavaScript's (spec §13.1). Values are

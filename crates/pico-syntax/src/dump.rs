@@ -269,6 +269,9 @@ pub fn expr_s(e: &Expr) -> S {
                     }
                     ObjField::Shorthand(i) => atom(i.name.clone()),
                     ObjField::Spread(e) => list("...", vec![expr_s(e)]),
+                    ObjField::Computed { key, value } => {
+                        list("[]:", vec![expr_s(key), expr_s(value)])
+                    }
                 });
             }
             list("object", items)

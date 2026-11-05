@@ -429,6 +429,20 @@ impl Program {
             || d.base.is_some_and(|b| self.implements(b, iface))
     }
 
+    /// Whether `sid` is the core library's `Map`.
+    pub fn is_core_map(&self, sid: StructId) -> bool {
+        let d = &self.structs[sid.0 as usize];
+        d.name == "Map" && self.prelude_files.contains(&d.name_span.file)
+    }
+
+    /// `K` and `V` when `t` is a core `Map<K, V>`.
+    pub fn map_args<'a>(&self, t: &'a Ty) -> Option<(&'a Ty, &'a Ty)> {
+        match t {
+            Ty::Class(sid, _, args) if self.is_core_map(*sid) => Some((&args[0], &args[1])),
+            _ => None,
+        }
+    }
+
     /// Whether class `sub` is `sup` or inherits from it.
     pub fn is_subclass(&self, mut sub: StructId, sup: StructId) -> bool {
         loop {
@@ -869,9 +883,36 @@ pub enum Target {
 
 #[derive(Debug)]
 pub struct FieldInit {
+    /// The field name, or a map literal's constant key (empty for computed keys and spreads).
     pub name: String,
+    /// The name or key; the whole `[key]` or `...m` for the other kinds.
     pub name_span: Span,
     pub value: Expr,
+    pub key: InitKey,
+}
+
+/// How an object literal entry names its key.
+#[derive(Debug)]
+pub enum InitKey {
+    /// `x: v` or `x`: a struct field, or a `string` key of a map literal.
+    Name,
+    /// `"x": v`: only map literals.
+    Str,
+    /// `[k]: v`: only map literals.
+    Computed(Expr),
+    /// `...m` (`value` is `m`): only map literals.
+    Spread,
+}
+
+impl FieldInit {
+    /// The entry's expressions in evaluation order (key first).
+    pub fn exprs(&self) -> impl Iterator<Item = &Expr> {
+        let key = match &self.key {
+            InitKey::Computed(k) => Some(k),
+            _ => None,
+        };
+        key.into_iter().chain(std::iter::once(&self.value))
+    }
 }
 
 /// An argument of a variant constructor: `Circle(r: 1)` or `Rect(2, 3)`.
@@ -1321,7 +1362,7 @@ impl Expr {
                 f(value);
             }
             ExprKind::IncDec { target: t, .. } => target(t, f),
-            ExprKind::Object { fields, .. } => fields.iter().for_each(|x| f(&x.value)),
+            ExprKind::Object { fields, .. } => fields.iter().flat_map(|x| x.exprs()).for_each(f),
             ExprKind::New { args, .. }
             | ExprKind::CtorCall { args, .. }
             | ExprKind::SuperCall { args, .. } => args.iter().for_each(&mut *f),

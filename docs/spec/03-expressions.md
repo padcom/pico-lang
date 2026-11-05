@@ -26,8 +26,8 @@ const p = Point { x: 1, y: 2 }   // explicit type
 const q: Point = { x: 1, y: 2 }  // expected type known
 ```
 A `{` at the start of a statement always opens a block. Elsewhere, `{` opens an **object
-literal** if it's `{}`, starts with `...`, `name:`, `"key":` or `name,`, or is exactly `{ name }`;
-otherwise it opens a block (`const area = { const w = 3; w * h }`).
+literal** if it's `{}`, starts with `...`, `name:`, `"key":`, `name,` or `[…]:` (a computed
+map key, §2.3), or is exactly `{ name }`; otherwise it opens a block (`const area = { const w = 3; w * h }`).
 
 `Name {` (or `Name<A, B> {`) directly after a dotted name, on the same line, is a struct or class
 literal.

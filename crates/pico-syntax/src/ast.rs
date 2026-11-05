@@ -214,9 +214,17 @@ pub enum PropKey {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ObjField {
-    KeyValue { key: PropKey, value: Expr },
+    KeyValue {
+        key: PropKey,
+        value: Expr,
+    },
     Shorthand(Ident),
     Spread(Expr),
+    /// `[key]: value` (map literals).
+    Computed {
+        key: Expr,
+        value: Expr,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]

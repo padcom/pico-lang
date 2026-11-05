@@ -158,6 +158,10 @@ pub fn walk_expr<'a, V: Visit<'a> + ?Sized>(v: &mut V, e: &'a Expr) {
                 match f {
                     ObjField::KeyValue { value, .. } | ObjField::Spread(value) => v.expr(value),
                     ObjField::Shorthand(_) => {}
+                    ObjField::Computed { key, value } => {
+                        v.expr(key);
+                        v.expr(value);
+                    }
                 }
             }
         }

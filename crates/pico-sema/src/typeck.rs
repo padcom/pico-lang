@@ -39,6 +39,8 @@ pub struct Types {
     pub fields: HashMap<ExprId, u32>,
     /// For each struct literal, the field index of each initializer, in source order.
     pub objects: HashMap<ExprId, (StructId, Vec<u32>)>,
+    /// Map literals (`{ a: 1, [k]: v, ...m }` where a `Map<K, V>` is expected): the map type.
+    pub map_literals: HashMap<ExprId, Ty>,
     /// Method calls: the call expression and the method it calls.
     pub methods: HashMap<ExprId, FnId>,
     /// Variable reads of a `T?` binding that narrowing typed as `T` (lowering unwraps them).
@@ -177,6 +179,7 @@ impl Types {
             formats: self.formats.clone(),
             fields: self.fields.clone(),
             objects: self.objects.clone(),
+            map_literals: self.map_literals.clone(),
             methods: self.methods.clone(),
             narrowed: self.narrowed.clone(),
             variants: self.variants.clone(),
@@ -246,6 +249,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             formats: HashMap::new(),
             fields: HashMap::new(),
             objects: HashMap::new(),
+            map_literals: HashMap::new(),
             methods: HashMap::new(),
             narrowed: HashSet::new(),
             variants: HashMap::new(),
@@ -633,6 +637,13 @@ pub fn json_ok(p: &Program, t: &Ty, seen: &mut Vec<Ty>) -> Result<(), Ty> {
     match t {
         Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Error => Ok(()),
         Ty::Nullable(e) | Ty::Array(e) => json_ok(p, e, seen),
+        // `Map<string, V>` is a JSON object.
+        t if let Some((k, v)) = p.map_args(t) => {
+            if *k != Ty::Str {
+                return Err(t.clone());
+            }
+            json_ok(p, v, seen)
+        }
         Ty::Struct(..) | Ty::Class(..) if seen.contains(t) => Ok(()),
         Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
             seen.push(t.clone());
@@ -658,7 +669,7 @@ pub fn json_error(t: &Ty, bad: &Ty, span: Span) -> Diagnostic {
         format!("{what} can't be converted to or from JSON"),
     )
     .primary(span, "no JSON form")
-    .note("JSON supports numbers, `bool`, `char`, `string`, arrays, nullable values, structs and classes")
+    .note("JSON supports numbers, `bool`, `char`, `string`, arrays, nullable values, `Map<string, V>`, structs and classes")
 }
 
 /// Whether an argument of type `t` can instantiate generic parameter type `p` by shape:
@@ -802,6 +813,17 @@ impl<'p> Checker<'p> {
                         (t, d) => t == d,
                     })
                 })
+            }
+            // The same class: each pair of type arguments the same, or both classes or `never`
+            // (lenient, as before: `Promise<T, never>` and `Promise<T, Error>` mix); not
+            // `Map<string, string>` where `Map<string, int>` is expected.
+            (Ty::Class(a, _, xs), Ty::Class(b, _, ys)) if a == b => {
+                let loose = |t: &Ty| matches!(t, Ty::Class(..) | Ty::Never);
+                xs.len() == ys.len()
+                    && xs
+                        .iter()
+                        .zip(ys.iter())
+                        .all(|(x, y)| x == y || loose(x) && loose(y))
             }
             (Ty::Class(a, _, _), Ty::Class(b, _, _)) => self.program.is_subclass(*a, *b),
             // To an interface the type implements (nominally).
@@ -4311,6 +4333,70 @@ impl<'p> Checker<'p> {
     }
 
     /// A struct literal: every field exactly once.
+    fn is_core_map(&self, sid: &StructId) -> bool {
+        self.program.is_core_map(*sid)
+    }
+
+    /// The `Map<K, V>` an object literal builds when `want` is one (or `Map<K, V>?`, or a union
+    /// with one).
+    fn wanted_map(&self, want: Option<&Expect>) -> Option<Ty> {
+        let is_map = |t: &Ty| matches!(t, Ty::Class(sid, _, _) if self.is_core_map(sid));
+        let t = want?.ty.strip_immutable();
+        match &t {
+            t if is_map(t) => Some(t.clone()),
+            Ty::Nullable(inner) if is_map(&inner.strip_immutable()) => {
+                Some(inner.strip_immutable())
+            }
+            Ty::Union(_, ms) => ms.iter().map(|m| m.strip_immutable()).find(|m| is_map(m)),
+            _ => None,
+        }
+    }
+
+    /// `{ a: 1, "b": 2, [k]: v, ...m }` building `map` (`Map<K, V>`).
+    fn map_literal(&mut self, e: &Expr, map: Ty, fields: &[FieldInit]) -> Ty {
+        let Ty::Class(_, _, args) = &map else {
+            unreachable!("a map type")
+        };
+        let (k, v) = (args[0].clone(), args[1].clone());
+        let mut seen: HashMap<&str, Span> = HashMap::new();
+        for f in fields {
+            match &f.key {
+                InitKey::Name | InitKey::Str => {
+                    if !k.is_error() && k.strip_immutable() != Ty::Str {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::MISMATCHED_TYPES,
+                                format!("a `{map}` literal can't have the key `{}`", f.name),
+                            )
+                            .primary(f.name_span, format!("a string, but the keys are `{k}`"))
+                            .help("write a computed key: `[key]: value`"),
+                        );
+                    }
+                    if let Some(prev) = seen.insert(&f.name, f.name_span) {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::DUPLICATE_FIELD,
+                                format!("key `{}` is given twice", f.name),
+                            )
+                            .primary(f.name_span, "given again here")
+                            .secondary(prev, "first given here"),
+                        );
+                    }
+                    self.check(&f.value, &Expect::new(v.clone()));
+                }
+                InitKey::Computed(key) => {
+                    self.check(key, &Expect::new(k.clone()));
+                    self.check(&f.value, &Expect::new(v.clone()));
+                }
+                InitKey::Spread => {
+                    self.check(&f.value, &Expect::new(map.clone()));
+                }
+            }
+        }
+        self.types.map_literals.insert(e.id, map.clone());
+        map
+    }
+
     fn object(
         &mut self,
         e: &Expr,
@@ -4319,6 +4405,34 @@ impl<'p> Checker<'p> {
         type_args: &[Ty],
         want: Option<&Expect>,
     ) -> Ty {
+        if ty.is_none()
+            && let Some(map) = self.wanted_map(want)
+        {
+            return self.map_literal(e, map, fields);
+        }
+        if let Some(f) = fields.iter().find(|f| !matches!(f.key, InitKey::Name)) {
+            for f in fields {
+                f.exprs().for_each(|x| {
+                    self.infer(x);
+                });
+            }
+            let what = match f.key {
+                InitKey::Str => "string keys",
+                InitKey::Computed(_) => "computed keys",
+                _ => "spreads",
+            };
+            self.diags.push(
+                Diagnostic::error(
+                    codes::UNKNOWN_OBJECT_TYPE,
+                    format!("{what} only appear in map literals"),
+                )
+                .primary(f.name_span, "needs a `Map` to build")
+                .help(
+                    "annotate the binding with the map type: `const m: Map<string, int> = { … }`",
+                ),
+            );
+            return Ty::Error;
+        }
         if ty.is_none()
             && let Some(Ty::Enum(eid, ename)) = want.map(|w| &w.ty)
             && let crate::hir::EnumOrigin::Discriminated(disc) = &self.program.enum_def(*eid).origin
@@ -5700,6 +5814,7 @@ impl<'p> Checker<'p> {
             (ExprKind::Null, Ty::Nullable(_)) => true,
             (ExprKind::Array(xs), Ty::Array(_)) if xs.is_empty() => true,
             (ExprKind::Object { .. }, Ty::Struct(..) | Ty::Enum(..)) => true,
+            (ExprKind::Object { ty: None, .. }, Ty::Class(sid, _, _)) => self.is_core_map(&sid),
             (_, Ty::Param(..)) => true,
             _ => false,
         }

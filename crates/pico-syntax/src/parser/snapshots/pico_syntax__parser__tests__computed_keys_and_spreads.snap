@@ -1,0 +1,7 @@
+---
+source: crates/pico-syntax/src/parser/tests.rs
+expression: "ok(r##\"\nconst m = { [k]: 1, \"s\": 2, ...rest, [f(x)[0]]: 3 }\nconst multi = {\n  [a + b]:\n    c,\n}\n{\n  [a, b] = [b, a]\n}\n\"##)"
+---
+(const m (object ([]: k 1) ("s": 2) (... rest) ([]: (index (call f x) 0) 3)))
+(const multi (object ([]: (+ a b) c)))
+(block (= (array a b) (array b a)))

@@ -3090,6 +3090,9 @@ impl FnBuilder<'_, '_> {
                 self.call_fn_value(ctor, ops, Ty::Void, e.span);
                 obj
             }
+            ExprKind::Object { fields, .. } if self.cx.types.map_literals.contains_key(&e.id) => {
+                self.map_literal(fields, ty, e.span)
+            }
             ExprKind::Object { fields, .. }
                 if self.cx.types.object_variants.contains_key(&e.id) =>
             {
@@ -5056,6 +5059,34 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(done);
                 arr
             }
+            // `Map<string, V>`: an object with any keys, in order.
+            t if let Some((_, vt)) = self.cx.program.map_args(t) => {
+                let vt = vt.clone();
+                let map = self.new_map(t, span);
+                let set = self.map_method(t, "set");
+                self.core_call(R, "beginObject", vec![rd(), tn], Ty::Bool, span);
+                let (head, body, done) = (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(head);
+                let key = self.core_call(R, "nextKey", vec![rd()], Ty::Str.nullable(), span);
+                let end = self.rvalue_to_temp(Rvalue::IsNull(key.clone()), Ty::Bool, span);
+                self.terminate(Terminator::Branch {
+                    cond: end,
+                    then: done,
+                    else_: body,
+                });
+                self.switch_to(body);
+                let k = self.rvalue_to_temp(Rvalue::Unwrap(key), Ty::Str, span);
+                self.core_call(R, "pushField", vec![rd(), k.clone()], Ty::Void, span);
+                let f = self.cx.synth(Synth::JsonRead(vt.clone()));
+                let v = Place::local(self.temp(vt));
+                self.call_into(f, vec![rd()], v.clone(), span);
+                self.core_call(R, "pop", vec![rd()], Ty::Void, span);
+                self.call_fn_value(set, vec![map.clone(), k, Operand::Copy(v)], t.clone(), span);
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(done);
+                map
+            }
             Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
                 let program = self.cx.program;
                 let def = program.struct_def(*sid);
@@ -5271,6 +5302,93 @@ impl FnBuilder<'_, '_> {
                 self.terminate(Terminator::Goto(head));
                 self.switch_to(done);
                 raw(self, lit("]"));
+            }
+            // `Map<string, V>`: an object in insertion order.
+            t if let Some((kt, vt)) = self.cx.program.map_args(t) => {
+                let (kt, vt) = (kt.clone(), vt.clone());
+                let keys_f = self.map_method(t, "keys");
+                let values_f = self.map_method(t, "values");
+                let (ka, va) = (
+                    Ty::Array(Box::new(kt.clone())),
+                    Ty::Array(Box::new(vt.clone())),
+                );
+                let keys = self.temp(ka.clone());
+                let values = self.temp(va.clone());
+                let r = self.call_fn_value(keys_f, vec![val()], ka, span);
+                self.assign(Place::local(keys), Rvalue::Use(r), span);
+                let r = self.call_fn_value(values_f, vec![val()], va, span);
+                self.assign(Place::local(values), Rvalue::Use(r), span);
+                raw(self, lit("{"));
+                let n = self.rvalue_to_temp(
+                    Rvalue::ArrayLen(Operand::Copy(Place::local(keys))),
+                    Ty::INT,
+                    span,
+                );
+                let i = self.temp(Ty::INT);
+                self.assign(
+                    Place::local(i),
+                    Rvalue::Use(Operand::Const(Const::Int(0, IntTy::I64))),
+                    span,
+                );
+                let (head, body, done) = (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(head);
+                let more = self.rvalue_to_temp(
+                    Rvalue::Binary(mir::BinOp::Lt, Operand::Copy(Place::local(i)), n),
+                    Ty::Bool,
+                    span,
+                );
+                self.terminate(Terminator::Branch {
+                    cond: more,
+                    then: body,
+                    else_: done,
+                });
+                self.switch_to(body);
+                let first = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Eq,
+                        Operand::Copy(Place::local(i)),
+                        Operand::Const(Const::Int(0, IntTy::I64)),
+                    ),
+                    Ty::Bool,
+                    span,
+                );
+                let (comma, go) = (self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: first,
+                    then: go,
+                    else_: comma,
+                });
+                self.switch_to(comma);
+                raw(self, lit(","));
+                self.terminate(Terminator::Goto(go));
+                self.switch_to(go);
+                let k = self.rvalue_to_temp(
+                    Rvalue::Use(Operand::Copy(Place::local(keys).index(i))),
+                    kt,
+                    span,
+                );
+                self.core_call("__JsonWriter", "str", vec![wr(), k], Ty::Void, span);
+                raw(self, lit(":"));
+                let x = self.rvalue_to_temp(
+                    Rvalue::Use(Operand::Copy(Place::local(values).index(i))),
+                    vt.clone(),
+                    span,
+                );
+                let f = self.cx.synth(Synth::JsonWrite(vt));
+                self.json_call(f, wr(), x, span);
+                self.assign(
+                    Place::local(i),
+                    Rvalue::Binary(
+                        mir::BinOp::Add,
+                        Operand::Copy(Place::local(i)),
+                        Operand::Const(Const::Int(1, IntTy::I64)),
+                    ),
+                    span,
+                );
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(done);
+                raw(self, lit("}"));
             }
             Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
                 let def = self.cx.program.struct_def(*sid);
@@ -5637,6 +5755,74 @@ impl FnBuilder<'_, '_> {
                 .instance(m, vec![(Ty::type_owner(sid), args.to_vec())]),
             _ => m,
         }
+    }
+
+    /// `{ a: 1, [k]: v, ...m }` building a `Map<K, V>` (`ty`): `new Map`, then a `set` per entry
+    /// (`__setAll` per spread) in source order.
+    fn map_literal(&mut self, fields: &[hir::FieldInit], ty: Ty, span: Span) -> Operand {
+        let Ty::Class(sid, _, args) = &ty else {
+            unreachable!("a map type: {ty}")
+        };
+        let _ = (sid, args);
+        let set = self.map_method(&ty, "set");
+        let set_all = self.map_method(&ty, "__setAll");
+        let map = self.new_map(&ty, span);
+        for f in fields {
+            match &f.key {
+                hir::InitKey::Name | hir::InitKey::Str => {
+                    let v = self.expr(&f.value);
+                    let k = Operand::Const(Const::Str(f.name.clone()));
+                    self.call_fn_value(set, vec![map.clone(), k, v], ty.clone(), f.value.span);
+                }
+                hir::InitKey::Computed(key) => {
+                    let k = self.expr(key);
+                    let v = self.expr(&f.value);
+                    self.call_fn_value(set, vec![map.clone(), k, v], ty.clone(), f.value.span);
+                }
+                hir::InitKey::Spread => {
+                    let other = self.expr(&f.value);
+                    self.call_fn_value(set_all, vec![map.clone(), other], Ty::Void, f.value.span);
+                }
+            }
+        }
+        map
+    }
+
+    /// Method `name` of core map type `ty` (`Map<K, V>`), instantiated.
+    fn map_method(&mut self, ty: &Ty, name: &str) -> FnId {
+        let Ty::Class(sid, _, args) = ty else {
+            unreachable!("a map type: {ty}")
+        };
+        let m = self
+            .cx
+            .program
+            .struct_def(*sid)
+            .method(name)
+            .unwrap_or_else(|| panic!("Map.{name}"));
+        self.cx
+            .instance(m, vec![(Ty::type_owner(*sid), args.to_vec())])
+    }
+
+    /// A new empty map of core map type `ty`.
+    fn new_map(&mut self, ty: &Ty, span: Span) -> Operand {
+        let Ty::Class(sid, _, args) = ty else {
+            unreachable!("a map type: {ty}")
+        };
+        let ctor = self
+            .cx
+            .program
+            .struct_def(*sid)
+            .ctors
+            .iter()
+            .find(|(_, ps)| ps.is_empty())
+            .map(|(f, _)| *f)
+            .expect("Map's constructor");
+        let ctor = self
+            .cx
+            .instance(ctor, vec![(Ty::type_owner(*sid), args.to_vec())]);
+        let map = self.rvalue_to_temp(Rvalue::New(ty.clone()), ty.clone(), span);
+        self.call_fn_value(ctor, vec![map.clone()], Ty::Void, span);
+        map
     }
 
     fn method_target(&mut self, e: &Expr, m: FnId) -> FnId {

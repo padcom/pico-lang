@@ -328,6 +328,8 @@ const [label, value] = pair
 const ages = new Map<string, i32>()
 ages.set("Ann", 31)
 const env: Map<string, string> = { "LANG": "C", HOME: "/home/ann" }   // Map literal
+const byAge: Map<i32, string> = { [31]: "Ann", [pair[1]]: "Bob" }     // computed keys
+const merged: Map<string, string> = { ...env, LANG: "en_US" }          // spread
 const tags = new Set<string>(["a", "b"])
 ```
 

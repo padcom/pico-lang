@@ -1,0 +1,35 @@
+// error: E0308
+// at: 26:31
+// error: E0312
+// at: 27:37
+// error: E0308
+// at: 28:34
+// error: E0308
+// at: 29:32
+// error: E0308
+// at: 31:34
+// error: E0313
+// at: 32:20
+// error: E0313
+// at: 33:14
+// error: E0313
+// at: 34:22
+// error: E0313
+// at: 35:13
+//
+// Map literals: constant keys need `string` keys, keys are given once, keys and values have the
+// map's types, spreads are maps of the same type; string keys, computed keys and spreads build
+// only maps.
+
+struct Point { x: int; y: int }
+
+const a: Map<int, string> = { one: "1" }
+const b: Map<string, int> = { x: 1, "x": 2 }
+const c: Map<string, int> = { x: "no" }
+const d: Map<string, int> = { [1]: 1 }
+const o: Map<string, string> = {}
+const e: Map<string, int> = { ...o }
+const p: Point = { "x": 1, y: 2 }
+const q = { [1]: 2 }
+const r = Point { ...p }
+const s = { "k": 1 }

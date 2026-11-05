@@ -183,6 +183,20 @@ const v = { log("hi"); }
 }
 
 #[test]
+fn computed_keys_and_spreads() {
+    insta::assert_snapshot!(ok(r##"
+const m = { [k]: 1, "s": 2, ...rest, [f(x)[0]]: 3 }
+const multi = {
+  [a + b]:
+    c,
+}
+{
+  [a, b] = [b, a]
+}
+"##));
+}
+
+#[test]
 fn if_and_else_across_lines() {
     insta::assert_snapshot!(ok(r##"
 if (x)

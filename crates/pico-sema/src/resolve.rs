@@ -6696,6 +6696,7 @@ impl Resolver {
                         name: k.name.clone(),
                         name_span: k.span,
                         value,
+                        key: InitKey::Name,
                     });
                 }
                 ast::ObjField::Shorthand(k) => {
@@ -6708,14 +6709,39 @@ impl Resolver {
                         name: k.name.clone(),
                         name_span: k.span,
                         value,
+                        key: InitKey::Name,
                     });
                 }
                 ast::ObjField::KeyValue {
-                    key: ast::PropKey::Str(_, s),
-                    ..
-                } => self.not_implemented(*s, "string keys in object literals"),
+                    key: ast::PropKey::Str(k, s),
+                    value,
+                } => {
+                    let value = self.lower_expr(value);
+                    inits.push(FieldInit {
+                        name: k.clone(),
+                        name_span: *s,
+                        value,
+                        key: InitKey::Str,
+                    });
+                }
+                ast::ObjField::Computed { key, value } => {
+                    let k = self.lower_expr(key);
+                    let value = self.lower_expr(value);
+                    inits.push(FieldInit {
+                        name: String::new(),
+                        name_span: key.span,
+                        value,
+                        key: InitKey::Computed(k),
+                    });
+                }
                 ast::ObjField::Spread(e) => {
-                    self.not_implemented(e.span, "spread in object literals")
+                    let value = self.lower_expr(e);
+                    inits.push(FieldInit {
+                        name: String::new(),
+                        name_span: e.span,
+                        value,
+                        key: InitKey::Spread,
+                    });
                 }
             }
         }

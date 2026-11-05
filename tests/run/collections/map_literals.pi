@@ -1,0 +1,96 @@
+// Map literals (decision 175, spec §2.3): an object literal where a `Map<K, V>` is expected.
+// expect: a=1 b c=2 Ann=name
+// expect: z xy
+// expect: 1: uno, 2: two, 3: three
+// expect: 0 3
+// expect: 4 7 2 8
+// expect: 2 -1 -2
+// expect: 5 false
+// expect: 30
+// expect: k1=x k2=y k3=z
+// expect: first second
+struct Point { x: int; y: int }
+
+// Identifier, string and shorthand keys (`K` is `string`), in source order.
+const name = "Ann"
+const m: Map<string, int> = { a: 1, "b c": 2 }
+const named: Map<string, string> = { [name]: "name" }
+let line = ""
+for (const [k, v] of m) {
+  line += `${k}=${v} `
+}
+for (const [k, v] of named) {
+  line += `${k}=${v}`
+}
+println(line)
+
+// Shorthand and computed keys.
+const ages: Map<string, string> = { name, ["x" + "y"]: "z" }
+println(`${ages.get("xy")!} ${ages.keys()[1]}`)
+
+// Any key type with computed keys; spreads copy entries in order, later keys replace values in
+// place.
+const byId: Map<int, string> = { [1]: "one", [2]: "two" }
+const more: Map<int, string> = { ...byId, [3]: "three", [1]: "uno" }
+const parts: string[] = []
+more.forEach((v, k) => parts.push(`${k}: ${v}`))
+println(parts.join(", "))
+
+// Empty, and `Map<K, V>?` (a parameter left out is null).
+function count(env?: Map<string, string>): int {
+  env?.size ?? -1
+}
+const empty: Map<string, int> = {}
+println(`${empty.size} ${count({ LANG: "C", LC_ALL: "C", ...{ HOME: "/" } })}`)
+
+// Struct literals and maps as values; in arrays and returns.
+const pts: Map<string, Point> = { a: { x: 1, y: 2 }, b: Point { x: 3, y: 4 } }
+const nested: Map<string, Map<string, int>> = { outer: { inner: 7 } }
+const list: Map<string, int>[] = [{ a: 1 }, { b: 2, c: 3 }]
+function make(n: int): Map<string, int> {
+  return { n, twice: n * 2 }
+}
+println(`${pts.get("b")!.y} ${nested.get("outer")!.get("inner")!} ${list[1].size} ${make(4).get("twice")!}`)
+
+// A union with a map member.
+function size(u: Map<string, int> | string | int): int {
+  match (u) {
+    s: string => -1,
+    i: int => -2,
+    m: Map<string, int> => m.size,
+  }
+}
+println(`${size({ y: 1, z: 2 })} ${size("s")} ${size(3)}`)
+
+// Generic contexts and `immutable`.
+function lookup<V>(m: Map<string, V>, k: string): V? {
+  m.get(k)
+}
+const frozen: immutable Map<string, int> = { k: 1 }
+println(`${lookup<int>({ q: 5 }, "q")!} ${frozen == null}`)
+
+// Reactivity: a map literal read inside `computed`.
+reactive n = 0
+const total = computed(() => {
+  const r: Map<string, int> = { c: n }
+  r.get("c")! * 10
+})
+n = 3
+println(`${total}`)
+
+// Evaluation order: keys and values left to right.
+let i = 0
+function next(): string {
+  i += 1
+  `k${i}`
+}
+const ordered: Map<string, string> = { [next()]: "x", [next()]: "y", [next()]: "z" }
+println(ordered.entries().map((e) => `${e[0]}=${e[1]}`).join(" "))
+
+// Inside a block, `{ [a, b] = … }` is still a block.
+let a = "second"
+let b = "first"
+{
+  [a, b] = [b, a]
+}
+println(`${a} ${b}`)

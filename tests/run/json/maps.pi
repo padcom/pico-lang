@@ -1,0 +1,28 @@
+// JSON and `Map<string, V>` (P3.27b): a JSON object with any keys, written in insertion order.
+// expect: / 2 true
+// expect: {"name":"app","env":{"LANG":"C","HOME":"/"},"limits":null}
+// expect: {"a":[1,2],"b\"q":[]}
+// expect: 2
+// expect: {"x":{"y":true},"z":{}}
+// expect: field 'env.LANG': expected string, got 3
+// expect: expected Map<string, i64>, got an array
+struct Config { name: string; env: Map<string, string>; limits: Map<string, int>? }
+const c = JSON.parse<Config>(`{"name": "app", "env": {"LANG": "C", "HOME": "/"}, "limits": null}`)
+println(`${c.env.get("HOME")!} ${c.env.size} ${c.limits == null}`)
+println(JSON.stringify(c))
+const m: Map<string, int[]> = { a: [1, 2], "b\"q": [] }
+println(JSON.stringify(m))
+const back = JSON.parse<Map<string, int[]>>(JSON.stringify(m))
+println(`${back.get("a")![1]}`)
+const deep = JSON.parse<Map<string, Map<string, bool>>>(`{"x": {"y": true}, "z": {}}`)
+println(JSON.stringify(deep))
+try {
+  const x = JSON.parse<Config>(`{"name": "app", "env": {"LANG": 3}}`)
+} catch (e) {
+  println(e.message)
+}
+try {
+  const x = JSON.parse<Map<string, int>>(`[1]`)
+} catch (e) {
+  println(e.message)
+}

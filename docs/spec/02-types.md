@@ -49,8 +49,18 @@ const m: Meters = new Feet(3)   // error: Feet is not Meters
 Object type literals (`{ x: f64, y: f64 }`) are anonymous types. A plain `{ x, y }` literal is
 accepted when the expected type is a named struct/class/record type, and it constructs that type.
 
-When the expected type is `Map<string, V>`, an object literal with identifier or string keys
-builds that map: `env: { "LANG": "C", PATH: p }`.
+When the expected type is `Map<K, V>` (also `Map<K, V>?`, or a union with one map member), an
+object literal builds that map, entries in source order (decisions 175, 311):
+```ts
+const env: Map<string, string> = { "LANG": "C", PATH: p, home }   // identifier, string, shorthand keys
+const byId: Map<int, string> = { [1]: "one", [id]: name }          // computed keys: any `K`
+const all: Map<string, string> = { ...env, LANG: "en_US" }         // spreads copy a `Map<K, V>`
+```
+Identifier, string and shorthand keys need `K = string`, and each may appear only once (E0312).
+Computed keys `[k]` are any expression of type `K`. A spread `...m` takes a `Map<K, V>` of the
+same type and sets its entries in its order; a later key replaces an earlier value and keeps its
+place, as `set` does. Keys and values are evaluated left to right. Without an expected map type,
+string keys, computed keys and spreads are errors (E0313).
 
 ## 2.4 Nullability
 `T | null` is the only optional type, and `T?` is shorthand for it (`string?`). Narrowing works with `!= null`,

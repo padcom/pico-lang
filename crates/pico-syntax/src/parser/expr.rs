@@ -723,6 +723,32 @@ impl Parser {
         }
         match self.peek_nth(i) {
             TokenKind::Punct(Punct::RBrace | Punct::Ellipsis) => true,
+            // `{ [key]: value }`: the bracket's match is followed by `:`.
+            TokenKind::Punct(Punct::LBracket) => {
+                let mut depth = 0usize;
+                let mut j = i;
+                loop {
+                    match self.peek_nth(j) {
+                        TokenKind::Punct(Punct::LBracket | Punct::LParen | Punct::LBrace) => {
+                            depth += 1
+                        }
+                        TokenKind::Punct(Punct::RBracket | Punct::RParen | Punct::RBrace) => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        TokenKind::Eof => return false,
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                j += 1;
+                while matches!(self.peek_nth(j), TokenKind::Newline) {
+                    j += 1;
+                }
+                self.peek_nth(j).is_punct(Punct::Colon)
+            }
             TokenKind::Ident(_) | TokenKind::Str(_) | TokenKind::Kw(_) => {
                 let mut j = i + 1;
                 while matches!(self.peek_nth(j), TokenKind::Newline) {
@@ -751,6 +777,18 @@ impl Parser {
             }
             if self.eat(Punct::Ellipsis) {
                 fields.push(ObjField::Spread(self.expr()));
+            } else if self.at(Punct::LBracket) {
+                let open = self.bump().span;
+                self.skip_newlines();
+                let key = self.expr();
+                self.skip_newlines();
+                self.expect_close(Punct::RBracket, open);
+                self.expect(Punct::Colon);
+                self.skip_newlines();
+                fields.push(ObjField::Computed {
+                    key,
+                    value: self.expr(),
+                });
             } else {
                 let key = match self.peek().clone() {
                     TokenKind::Str(s) => {
