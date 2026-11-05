@@ -98,7 +98,7 @@ fn load_pass(
             .map(|m| m.dir);
     }
     l.modules.entry = Some(entry);
-    if let Ok(p) = dir.join(file_name(l.sm, entry)).canonicalize() {
+    if let Ok(p) = pico_runtime::canonical(&dir.join(file_name(l.sm, entry))) {
         l.by_path.insert(p, entry);
     }
     l.parsed.insert(entry, module);
@@ -391,7 +391,7 @@ impl Loader<'_> {
             );
             return None;
         };
-        let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
+        let canon = pico_runtime::canonical(&path).unwrap_or_else(|_| path.clone());
         if let Some(&f) = self.by_path.get(&canon) {
             // Already loaded (or being loaded: an import cycle, which is fine for declarations).
             return Some(f);
@@ -594,7 +594,7 @@ fn js_declarations(js: &str, dir: &Path) -> Result<String, String> {
         pico_runtime::typescript_dir().join("lib.dom.d.ts")
     } else if let Some(pkg) = js.strip_prefix("npm/") {
         let mut found = None;
-        let mut d = Some(dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()));
+        let mut d = Some(pico_runtime::canonical(dir).unwrap_or_else(|_| dir.to_path_buf()));
         while let Some(cur) = d {
             let p = cur.join("node_modules").join(pkg);
             if p.is_dir() {

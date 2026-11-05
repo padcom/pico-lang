@@ -33,7 +33,7 @@ pub struct CConfig {
 /// or above it, with each pkg-config package's flags added.
 pub fn config(dir: &Path) -> Result<CConfig, String> {
     let mut cfg = CConfig::default();
-    let mut d = Some(dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()));
+    let mut d = Some(pico_runtime::canonical(dir).unwrap_or_else(|_| dir.to_path_buf()));
     let mut found = None;
     while let Some(cur) = d {
         let p = cur.join("project.json");
@@ -106,9 +106,8 @@ pub fn generate(header: &str, dir: &Path, cfg: &CConfig) -> Result<String, Strin
     let cc = crate::link::clang()?;
     let include = if header.starts_with("./") || header.starts_with("../") {
         let p = dir.join(header);
-        let p = p
-            .canonicalize()
-            .map_err(|e| format!("cannot find {}: {e}", p.display()))?;
+        let p =
+            pico_runtime::canonical(&p).map_err(|e| format!("cannot find {}: {e}", p.display()))?;
         format!("#include \"{}\"\n", p.display())
     } else {
         format!("#include <{header}>\n")

@@ -737,13 +737,12 @@ fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
     }
     common.push("-DMBEDTLS_USER_CONFIG_FILE=\"pico_mbedtls_config.h\"".into());
     // The bundled tz database (pico_tzdata.c embeds it on Windows).
-    let tz = pico_runtime::tzdata_dir()
-        .canonicalize()
+    let tz = pico_runtime::canonical(&pico_runtime::tzdata_dir())
         .map_err(|e| format!("cannot find the bundled tz database: {e}"))?;
-    common.push(format!("-I{}", tz.display()));
+    common.push(format!("-I{}", clang_path(&tz)));
     common.push(format!(
         "-DPICO_TZDATA_BIN=\"{}\"",
-        tz.join("tzdata.bin").display()
+        clang_path(&tz.join("tzdata.bin"))
     ));
     let mut jobs = Vec::new();
     let mut dirs = vec![
@@ -832,5 +831,16 @@ fn compile_all(clang: &Clang, what: &str, jobs: &[Job], out: &Path) -> Result<()
     match errors.first() {
         None => Ok(()),
         Some(e) => Err(e.clone()),
+    }
+}
+
+/// A path as clang takes it in flags and C string literals: on Windows without the verbatim
+/// prefix `canonicalize` adds (`\\?\`), and with `/` (a `\` in a string literal escapes).
+pub(crate) fn clang_path(p: &Path) -> String {
+    let s = p.display().to_string();
+    if cfg!(windows) {
+        s.strip_prefix(r"\\?\").unwrap_or(&s).replace('\\', "/")
+    } else {
+        s
     }
 }

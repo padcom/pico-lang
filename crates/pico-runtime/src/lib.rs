@@ -20,7 +20,7 @@ pub fn home() -> Option<&'static Path> {
     HOME.get_or_init(|| {
         let exe = std::env::current_exe()
             .ok()
-            .and_then(|e| e.canonicalize().ok());
+            .and_then(|e| canonical(&e).ok());
         home_from(std::env::var_os("PICO_HOME"), exe).or_else(embedded)
     })
     .as_deref()
@@ -93,6 +93,22 @@ fn unpack_once(gz: &[u8], dir: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// `p` made absolute and resolved, as `canonicalize` does, but on Windows without its verbatim
+/// prefix (`\\?\D:\…`), which clang and messages don't take.
+pub fn canonical(p: &Path) -> std::io::Result<PathBuf> {
+    let c = p.canonicalize()?;
+    #[cfg(windows)]
+    {
+        let s = c.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\")
+            && !rest.starts_with("UNC\\")
+        {
+            return Ok(PathBuf::from(rest));
+        }
+    }
+    Ok(c)
 }
 
 /// The directory of the host runtime libraries (`libpico_rt.a` and the crypto libraries).

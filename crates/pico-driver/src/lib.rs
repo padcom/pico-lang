@@ -649,7 +649,7 @@ pub fn project_files(root: &Path) -> Vec<PathBuf> {
 /// in `dir` or above, over the defaults.
 pub fn fmt_options(dir: &Path) -> pico_syntax::fmt::FmtOptions {
     let mut o = pico_syntax::fmt::FmtOptions::default();
-    let mut d = dir.canonicalize().ok();
+    let mut d = pico_runtime::canonical(dir).ok();
     while let Some(cur) = d {
         let p = cur.join("project.json");
         if let Ok(text) = std::fs::read_to_string(&p) {
