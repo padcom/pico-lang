@@ -87,7 +87,8 @@ pub fn libc(t: Target, cc: &Clang) -> Result<Musl, String> {
             .strip_prefix(&src)
             .unwrap()
             .to_string_lossy()
-            .into_owned();
+            // (`/` on Windows hosts too: object names and the paths musl's flags look at.)
+            .replace('\\', "/");
         let mut args = common.clone();
         // musl's Makefile optimizes these for speed, everything else for size.
         let hot = ["src/internal/", "src/malloc/", "src/string/"]
@@ -312,7 +313,8 @@ pub fn libm(t: Target) -> Result<Vec<PathBuf>, String> {
             .strip_prefix(&src)
             .unwrap()
             .to_string_lossy()
-            .into_owned();
+            // (`/` on Windows hosts too: object names and the paths musl's flags look at.)
+            .replace('\\', "/");
         jobs.push(Job {
             obj: format!("{}.o", rel.replace('/', "_")),
             src: file,

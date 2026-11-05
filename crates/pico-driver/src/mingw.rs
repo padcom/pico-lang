@@ -147,7 +147,8 @@ pub fn libc(t: Target, cc: &Clang) -> Result<Mingw, String> {
             .strip_prefix(dir())
             .unwrap()
             .to_string_lossy()
-            .into_owned();
+            // (`/` on Windows hosts too: object names and the paths musl's flags look at.)
+            .replace('\\', "/");
         jobs.push(Job {
             obj: format!("{}.o", rel.replace('/', "_")),
             src,
