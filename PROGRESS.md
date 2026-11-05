@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.10b2: No LLVM installation** (see PLAN: clang in process through a shim like pico-lld's, its resource headers bundled, z3/zstd/libxml2 static or dropped). Then P10.10b3 (Windows and macOS x64 hosts), then Phase 11 Reactivity, starting with the P11.1 spec chapter. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
+**P10.10b3: More hosts** (see PLAN: Windows x64/arm64 and macOS x64 in the release workflow; the mingw-w64 ZPL notice for Windows programs). Then Phase 11 Reactivity, starting with the P11.1 spec chapter. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -62,6 +62,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **clang in the compiler (P10.10b2, decision 298)**: `crates/pico-clang` (`build.rs` `LIBS`, merged into `libpico_clang_libs.a` on Linux; `src/shim.cpp` `pico_clang_main`/`pico_write_archive`; `src/frontend.cpp` the reduced `ExecuteCompilerInvocation`; `vendor/` clang's driver sources, update them with the LLVM version: see `vendor/README.md`). `pico clang`/`pico ar` are handled at the top of `pico-cli`'s `main` (`clang_resource_dir`); the driver's `Clang::command()` (`link.rs`, `use_own_clang`/`OWN_CLANG`). Test binaries still use the installed clang; `crates/pico-cli/tests/own_clang.rs` covers pico's own. Release builds: `target/package` with RUSTFLAGS for static zstd (and on Linux libffi, libxml2, ICU, liblzma; `ci-install-linux.sh` installs them) and dropped dylibs; the binary is ~280 MB (the archive ~75 MB). Not supported by pico's clang: the static analyzer, rewriters, plugins, ExtractAPI, crash reproducers.
 - **Embedded resources (P10.10b1, decision 297)**: `pico-cli`/`pico-runtime` feature `embed` (only `scripts/package.sh` turns it on; `scripts/test.sh` doesn't build it, the release workflow does); `pico-runtime/build.rs` `embed`/`collect`, `src/bundle.rs` (`pack`/`unpack`, shared with the build script by `#[path]`), `lib.rs` `embedded`/`unpack_once`. Old unpacked versions stay in `$TMPDIR/pico-cache/home/` (nothing removes them).
 - **Release archives (P10.10a, decision 296)**: `pico_runtime::home()` (`PICO_HOME` or `../share/pico` next to the executable), `lib_dir`, `installed_stdlib` (used by `modules::stdlib_dir`), clang lookup `PICO_CLANG` → build-time LLVM → `clang-23`/`clang` (`link.rs` `clang`, `on_path`). `scripts/package.sh [--check]`, `.github/workflows/release.yml` (build → try on clean runners → publish on a `v*` tag). The archive is ~80 MB (the binary ~200 MB unpacked, `third_party` 54 MB). Not yet: Windows and macOS x64 hosts; z3/zstd are linked dynamically (from Homebrew on macOS); macOS release builds get lld from `scripts/build-lld.sh` (static libraries for the LLVM on PATH, from the matching llvm-project release; Homebrew's `lld` is shared-only and tracks the newest LLVM). pico is MIT-licensed (`LICENSE`, the author's; in the archives too). The mingw ZPL notice (below) is for P10.10b.
 - **Lint (P10.2a/b, decisions 277–278)**: `crates/pico-lint` (`lint`, `lint_file`, `entry_file`; `config.rs` `Config::for_dir`/`from_json`; `walk.rs` `Visit`; rules `naming.rs`, `unused.rs`, `complexity.rs`, `blank.rs`, `docs.rs`), `pico lint [paths]` in `pico-cli`, warnings in `pico-lsp`'s `check`. Not yet: `pico fmt` inserting blank lines, `--fix`, per-line suppression comments, unused private fields (see decision 278).
@@ -347,7 +348,7 @@ Notes:
   - [x] P10.10a Release archives
   - [ ] P10.10b Single binary (split)
     - [x] P10.10b1 Embedded resources
-    - [ ] P10.10b2 No LLVM installation
+    - [x] P10.10b2 No LLVM installation
     - [ ] P10.10b3 More hosts
 
 ### Phase 11: Later
@@ -555,3 +556,4 @@ Notes:
 | 2026-11-05 | P10.10a | Split P10.10 into a (archives) and b (single binary). An installed pico finds `share/pico` next to `bin/` or `PICO_HOME` (decision 296), clang through `PICO_CLANG` or PATH too; `scripts/package.sh --check` builds and tries `dist/pico-<version>-<host>.tar.gz` (checked on macOS arm64: host run from the extracted archive; wasm skipped there without lld); `release.yml` builds macOS arm64 and Linux x64/arm64, tries them on runners with only LLVM, and publishes on a `v*` tag. |
 | 2026-11-05 | P10.10a | The release workflow passes by hand (run 41933559672): archives for macos-arm64, linux-x64 and linux-arm64 built and tried on runners with only LLVM (host run, `--interp`, `wasm32-wasi`, musl on Linux). macOS builds lld 23's static libraries with `scripts/build-lld.sh` (cached per LLVM version; about 3 minutes); Homebrew's `lld` is shared-only. |
 | 2026-11-05 | P10.10b1 | Split P10.10b into b1 (embedded resources), b2 (no LLVM installation) and b3 (more hosts). Release builds bundle the runtime, `third_party`, stdlib and host libraries (~8 MB gzipped) and unpack them into `$TMPDIR/pico-cache/home/` on first use (decision 297); the archive is `bin/pico` + `LICENSE` + `licenses/`. Checked: the lone binary with an empty cache runs a `std/path` program, natively and interpreted, from the unpacked stdlib. |
+| 2026-11-05 | P10.10b2 | clang linked into pico (`pico-clang`, decision 298): `pico clang`/`pico ar` run in-process, the driver uses them from the `pico` executable, clang's headers are bundled; release builds link LLVM's dependencies statically (zstd; Linux: libffi, libxml2 + ICU, liblzma) and drop z3, checked by `package.sh`. Release workflow run 41945140822: every archive passes on runners without LLVM (`pico clang`, host run, `--interp`, `wasm32-wasi`, Linux musl). |
