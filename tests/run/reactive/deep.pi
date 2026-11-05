@@ -1,0 +1,65 @@
+// Spec §16.6: mutating what reactive state holds triggers what read it, through any
+// reference: fields, elements, `push`, maps, nested objects; a struct held by a reactive
+// binding is written back whole.
+// expect: 0
+// expect: 1
+// expect: 0
+// expect: city London
+// expect: city Paris
+// expect: ada 0
+// expect: ada 3
+// expect: p 1,2
+// expect: p 5,2
+// expect: plain Rome
+// expect: plain Oslo
+// expect: sorted 1 2 3
+// expect: popped 2
+class Todo {
+  constructor(public title: string, public done: bool) {}
+}
+reactive todos: Todo[] = []
+const left = computed(() => todos.filter(t => !t.done).length)
+function add(list: Todo[], title: string) {
+  list.push(new Todo(title, false))
+}
+println(left)
+add(todos, "write")
+println(left)
+todos[0].done = true
+println(left)
+class User {
+  constructor(public name: string, public address: Address) {}
+}
+class Address {
+  constructor(public city: string) {}
+}
+reactive user = new User("ada", new Address("London"))
+watchEffect(() => println(`city ${user.address.city}`))
+const a = user.address
+a.city = "Paris"
+reactive scores = new Map<string, int>()
+watchEffect(() => println(`ada ${scores.get("ada") ?? 0}`))
+scores.set("ada", 3)
+struct Point { x: int; y: int }
+reactive p = Point { x: 1, y: 2 }
+watchEffect(() => println(`p ${p.x},${p.y}`))
+p.x = 5
+const plain = new Address("Rome")
+watchEffect(() => println(`plain ${plain.city}`))
+plain.city = "Oslo"
+reactive nums = [3, 1, 2]
+const first = computed(() => nums[0])
+const sorted = watchEffect(() => {
+  if (first == 1) {
+    println(`sorted ${nums[0]} ${nums[1]} ${nums[2]}`)
+  }
+})
+nums.sort()
+sorted.dispose()
+const sizes = computed(() => nums.length)
+watchEffect(() => {
+  if (sizes == 2) {
+    println(`popped ${sizes}`)
+  }
+})
+nums.pop()

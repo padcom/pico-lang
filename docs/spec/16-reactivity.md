@@ -1,7 +1,7 @@
 # 16. Reactivity
 
 Reactive state in the style of Vue: values that know who reads them, values computed from them,
-and effects that run again when they change. Decisions 288–293 and 299–308.
+and effects that run again when they change. Decisions 288–293 and 299–309.
 
 ```ts
 reactive price = 10
@@ -158,21 +158,20 @@ println(left)          // 1
 todos[0].done = true   // a field of an element triggers too
 println(left)          // 0
 ```
-- A tracked read of a reactive binding whose value is an object (a class instance), an array, a
-  `Map` or a `Set` makes that value a **reactive object**, and so does a tracked read of a field,
-  element or entry of a reactive object. Reading anything of a reactive object while tracking
-  records a dependency on the object.
+- Reading an object (a class instance), an array or a `Map` while tracking (in a computed
+  getter or an effect: a field, an element, `length`, a `Map` lookup, iterating it, an array
+  method) makes it a **reactive object** and records a dependency on it. Values read through
+  reactive state are such reads, and so is any other object read there (decision 309).
 - **Mutating** a reactive object triggers what depends on it, through whichever reference it's
-  done: assigning a field (skipped when identical) or an element; the arrays' mutating methods
-  (`push`, `pop`, `shift`, `unshift`, `splice`, `sort`, `reverse`, `fill`, `copyWithin`, setting
-  `length`); `Map`'s `set`, `delete` and `clear`; `Set`'s `add`, `delete` and `clear`.
+  done: assigning a field or an element (also `+=`, `++`); the arrays' mutating methods (`push`,
+  `pop`, `sort`, `reverse`); `Map`'s `set`, `delete` and `clear` (and so `Set`'s `add`,
+  `delete` and `clear`, which use a map).
 - The granularity is the object: reading any field depends on all of it, and mutating any field
   triggers everything that read it.
 - Structs are values: assigning a field of a struct held by a reactive binding (`point.x = 1`)
   writes the binding.
-- An object stays reactive once it is. Mutations of objects that aren't reactive cost a flag test.
-- Reads of objects that weren't reached through reactive state aren't tracked: an effect that
-  reads a plain module-level object doesn't run again when it changes.
+- Only programs whose own code uses reactive state pay for this: there, reads and mutations of
+  objects test a flag (about half a nanosecond each); other programs don't (decision 309).
 
 ## 16.7 Effect scopes
 Effects and computeds stop when the **effect scope** that created them is disposed (decisions

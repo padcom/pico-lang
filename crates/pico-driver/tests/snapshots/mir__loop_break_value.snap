@@ -4,17 +4,19 @@ expression: "mir(r#\"\nfunction first(limit: i64): i64 {\n  let i = 0\n  const f
 ---
 global @g0: () => bool[]? // __finalizationRegistries
 global @g1: __Reactivity? // __reactivity
-global @g2: __Loop? // __loop
-global @g3: FinalizationRegistry<i64>? // __buffers
-global @g4: Map<string, __Zone>? // __zoneCache
-global @g5: Performance // performance
-global @g6: __Xoshiro128? // __mathRng
-global @g7: Crypto // crypto
-global @g8: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g9: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g10: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g11: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g12: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g2: bool // __tracking
+global @g3: i64 // __reactiveObjects
+global @g4: __Loop? // __loop
+global @g5: FinalizationRegistry<i64>? // __buffers
+global @g6: Map<string, __Zone>? // __zoneCache
+global @g7: Performance // performance
+global @g8: __Xoshiro128? // __mathRng
+global @g9: Crypto // crypto
+global @g10: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g11: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g12: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g13: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g14: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn first(_0: i64) -> i64 {
     let _1: i64 // i
@@ -57,31 +59,31 @@ fn never() -> never {
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g8 = const 1_i64
+    @g10 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g9 = const 4_i64
+    @g11 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g10 = const 4_i64
+    @g12 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g11 = const 4_i64
+    @g13 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g12 = const 8_i64
+    @g14 = const 8_i64
     return
 }
 
@@ -104,15 +106,17 @@ fn <main>() -> void {
   bb5:
     @g0 = const null<() => bool[]?>
     @g1 = const null<__Reactivity?>
-    @g2 = const null<__Loop?>
-    @g3 = const null<FinalizationRegistry<i64>?>
-    @g4 = const null<Map<string, __Zone>?>
+    @g2 = const false
+    @g3 = const 0_i64
+    @g4 = const null<__Loop?>
+    @g5 = const null<FinalizationRegistry<i64>?>
+    @g6 = const null<Map<string, __Zone>?>
     _0 = struct#119{}
-    @g5 = _0
-    @g6 = const null<__Xoshiro128?>
+    @g7 = _0
+    @g8 = const null<__Xoshiro128?>
     _1 = struct#130{}
     _2 = struct#131{_1}
-    @g7 = _2
+    @g9 = _2
     _3 = call first(const 10_i64) -> bb6
   bb6:
     _4 = Eq(_3, const 4_i64)

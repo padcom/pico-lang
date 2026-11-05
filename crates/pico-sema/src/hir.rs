@@ -627,6 +627,9 @@ pub enum Builtin {
     /// same reference for classes, arrays, maps and functions, the same value for primitives and
     /// strings, field by field for structs. Never calls `equals`. Lowered to comparisons.
     Identical,
+    /// `__reactivity_on()`: whether the program's own code uses reactive state (spec §16.6),
+    /// a constant: the core library's deep-reactivity hooks are folded away without it.
+    ReactivityOn,
     /// Opening and closing a scoped arena (lowering emits them around `arena { … }`).
     ArenaEnter,
     ArenaExit,
@@ -779,6 +782,7 @@ impl Builtin {
             Builtin::GcStat => "__gc_stat",
             Builtin::RefId => "__ref_id",
             Builtin::Identical => "__identical",
+            Builtin::ReactivityOn => "__reactivity_on",
             Builtin::ArenaEnter => "<arena enter>",
             Builtin::ArenaExit => "<arena exit>",
             Builtin::ArenaExitRescue => "<arena exit, rescuing the exception>",
@@ -816,6 +820,7 @@ impl Builtin {
             "__gc_stat" => Builtin::GcStat,
             "__ref_id" => Builtin::RefId,
             "__identical" => Builtin::Identical,
+            "__reactivity_on" => Builtin::ReactivityOn,
             "__raw_arena_new" => Builtin::RawArenaNew,
             "__raw_arena_free" => Builtin::RawArenaFree,
             "__clock_ms" => Builtin::ClockMs,

@@ -845,6 +845,28 @@ impl Cx<'_> {
     }
 
     /// A core-library class (by its name there, like `__TypeInfo`).
+    /// A core library global by name.
+    fn core_global(&self, name: &str) -> hir::GlobalId {
+        let i = self
+            .program
+            .globals
+            .iter()
+            .position(|g| g.name == name && self.program.prelude_files.contains(&g.span.file))
+            .unwrap_or_else(|| panic!("core global `{name}`"));
+        hir::GlobalId(i as u32)
+    }
+
+    /// A core library function by name (the first one declared, for overloads).
+    fn core_fn(&self, name: &str) -> FnId {
+        let i = self
+            .program
+            .fns
+            .iter()
+            .position(|f| f.name == name && self.program.prelude_files.contains(&f.span.file))
+            .unwrap_or_else(|| panic!("core function `{name}`"));
+        FnId(i as u32)
+    }
+
     fn core_struct(&self, name: &str) -> StructId {
         let i = self
             .program
@@ -2355,6 +2377,19 @@ impl FnBuilder<'_, '_> {
     /// Like [`Self::place_of`], but leaves the bounds checks in `checks` (an assignment checks
     /// after evaluating its value, which might change the array).
     fn place_deferred(&mut self, e: &Expr, checks: &mut Vec<Check>) -> Place {
+        if let Some(cell_ty) = self.cx.types.cell_reads.get(&e.id).cloned() {
+            // A reactive binding's value (spec §16.2), not the cell.
+            let cell = self.place_deferred_raw(e, checks);
+            let v = self.cell_get(Operand::Copy(cell), &cell_ty, e.span);
+            let p = Place::local(self.temp(self.ty(e)));
+            self.assign(p.clone(), Rvalue::Use(v), e.span);
+            return p;
+        }
+        self.place_deferred_raw(e, checks)
+    }
+
+    /// The place of `e` itself (a reactive binding's cell).
+    fn place_deferred_raw(&mut self, e: &Expr, checks: &mut Vec<Check>) -> Place {
         match &e.kind {
             ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => {
                 self.narrowed_place(*v, &self.ty(e))
@@ -2530,6 +2565,13 @@ impl FnBuilder<'_, '_> {
         let mut v = self.expr_inner(e);
         if let Some(cell) = self.cx.types.cell_reads.get(&e.id).cloned() {
             v = self.cell_get(v, &cell, e.span);
+            let t = self.reactive_arg(&cell).expect("a cell");
+            if self.deep_object(&t) {
+                let p = Place::local(self.temp(t.clone()));
+                self.assign(p.clone(), Rvalue::Use(v), e.span);
+                v = Operand::Copy(p);
+                self.object_hook("__trackObject", v.clone(), &t, e.span);
+            }
         }
         match self.cx.types.coercions.get(&e.id).cloned() {
             Some(to) => {
@@ -2912,75 +2954,45 @@ impl FnBuilder<'_, '_> {
                 self.call_fn_value(setter, vec![recv, v], Ty::Void, e.span);
                 Operand::Const(Const::Void)
             }
+            ExprKind::Assign {
+                op,
+                target: hir::Target::Field { id, object, .. },
+                value,
+            } if self.cx.types.cell_reads.contains_key(&object.id)
+                && matches!(self.ty_of(object), Ty::Struct(..)) =>
+            {
+                // `point.x = v` with `point` reactive: the struct is a value, so the whole
+                // value is written back (spec §16.6).
+                let cell_ty = self.cx.types.cell_reads[&object.id].clone();
+                let st = self.ty_of(object).clone();
+                let cell = self.expr_inner(object);
+                let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
+                let tmp = Place::local(self.temp(st));
+                self.assign(tmp.clone(), Rvalue::Use(cur), e.span);
+                let field = tmp.field(self.cx.types.fields[id]);
+                let v = match op {
+                    None => self.expr(value),
+                    Some(op) => {
+                        let rhs = self.expr(value);
+                        let ft = self.place_ty(&field);
+                        self.rvalue_to_temp(
+                            Rvalue::Binary(bin_op(*op), Operand::Copy(field.clone()), rhs),
+                            ft,
+                            e.span,
+                        )
+                    }
+                };
+                self.assign(field, Rvalue::Use(v), e.span);
+                self.cell_set(cell, &cell_ty, Operand::Copy(tmp), e.span);
+                Operand::Const(Const::Void)
+            }
             ExprKind::Assign { op, target, value } => {
                 let mut checks = Vec::new();
                 let place = self.target_place(target, &mut checks);
-                match op {
-                    None => {
-                        let v = self.expr(value);
-                        self.emit_checks(&checks);
-                        self.assign(place, Rvalue::Use(v), e.span);
-                    }
-                    Some(ast::BinOp::Nullish) => {
-                        // `x ??= v`: assign only if `x` is null.
-                        self.emit_checks(&checks);
-                        let assign_bb = self.new_block();
-                        let join = self.new_block();
-                        let is_null = self.rvalue_to_temp(
-                            Rvalue::IsNull(Operand::Copy(place.clone())),
-                            Ty::Bool,
-                            e.span,
-                        );
-                        self.terminate(Terminator::Branch {
-                            cond: is_null,
-                            then: assign_bb,
-                            else_: join,
-                        });
-                        self.switch_to(assign_bb);
-                        let v = self.expr(value);
-                        self.emit_checks(&checks);
-                        self.assign(place.clone(), Rvalue::Use(v), e.span);
-                        self.terminate(Terminator::Goto(join));
-                        self.switch_to(join);
-                    }
-                    Some(op @ (ast::BinOp::And | ast::BinOp::Or)) => {
-                        // `x &&= v`: assign only if `x` is true (`||=`: if false).
-                        self.emit_checks(&checks);
-                        let assign_bb = self.new_block();
-                        let join = self.new_block();
-                        let cur = Operand::Copy(place.clone());
-                        let (t, f) = if *op == ast::BinOp::And {
-                            (assign_bb, join)
-                        } else {
-                            (join, assign_bb)
-                        };
-                        self.terminate(Terminator::Branch {
-                            cond: cur,
-                            then: t,
-                            else_: f,
-                        });
-                        self.switch_to(assign_bb);
-                        let v = self.expr(value);
-                        self.emit_checks(&checks);
-                        self.assign(place.clone(), Rvalue::Use(v), e.span);
-                        self.terminate(Terminator::Goto(join));
-                        self.switch_to(join);
-                    }
-                    Some(op) => {
-                        let mut v = self.expr(value);
-                        if *op == ast::BinOp::Add && self.place_ty(&place).erase() == Ty::Str {
-                            let vt = self.cx.types.final_ty(value.id).clone();
-                            v = self.stringify(v, &vt, value.span);
-                        }
-                        self.emit_checks(&checks);
-                        self.assign(
-                            place.clone(),
-                            Rvalue::Binary(bin_op(*op), Operand::Copy(place), v),
-                            e.span,
-                        );
-                    }
-                }
-                Operand::Const(Const::Void)
+                let hook_place = place.clone();
+                let result = self.assign_to(e, op, value, place, checks);
+                self.place_hook("__triggerObject", &hook_place, e.span);
+                result
             }
             ExprKind::IncDec {
                 target,
@@ -3009,7 +3021,8 @@ impl FnBuilder<'_, '_> {
                     vt,
                     e.span,
                 );
-                self.assign(place, Rvalue::Use(new.clone()), e.span);
+                self.assign(place.clone(), Rvalue::Use(new.clone()), e.span);
+                self.place_hook("__triggerObject", &place, e.span);
                 if *prefix { new } else { old }
             }
             ExprKind::Call { callee, args, .. } => self.call(e, callee, args, ty),
@@ -3019,6 +3032,8 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Array(_)) => {
                 let a = self.expr(object);
+                let at = self.ty_of(object).clone();
+                self.object_hook("__trackObject", a.clone(), &at, e.span);
                 self.rvalue_to_temp(Rvalue::ArrayLen(a), ty, e.span)
             }
             ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Fixed(..)) => {
@@ -3036,8 +3051,13 @@ impl FnBuilder<'_, '_> {
                 self.call_fn_value(g, vec![recv], ty, e.span)
             }
             ExprKind::Member { .. } => {
-                let place = self.place_of(e);
-                self.read_place(place, e.span)
+                // (The cell itself for a reactive field: `expr` reads it.)
+                let mut checks = Vec::new();
+                let place = self.place_deferred_raw(e, &mut checks);
+                self.emit_checks(&checks);
+                let v = self.read_place(place.clone(), e.span);
+                self.place_hook("__trackObject", &place, e.span);
+                v
             }
             ExprKind::CtorCall { args, .. } => {
                 let hctor = self.cx.types.ctor_calls[&e.id];
@@ -3130,7 +3150,9 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Index { .. } => {
                 let place = self.place_of(e);
-                self.read_place(place, e.span)
+                let v = self.read_place(place.clone(), e.span);
+                self.place_hook("__trackObject", &place, e.span);
+                v
             }
             ExprKind::Array(elems) => {
                 let ops: Vec<Operand> = elems.iter().map(|x| self.expr(x)).collect();
@@ -3591,6 +3613,12 @@ impl FnBuilder<'_, '_> {
             None => {
                 let v = self.expr(iter);
                 self.assign(src.clone(), Rvalue::Use(v), iter.span);
+                self.object_hook(
+                    "__trackObject",
+                    Operand::Copy(src.clone()),
+                    &it_ty,
+                    iter.span,
+                );
                 match &it_ty {
                     Ty::Range(_) => Operand::Copy(src.field(0)),
                     _ => Operand::Const(Const::Int(0, IntTy::I64)),
@@ -3715,11 +3743,16 @@ impl FnBuilder<'_, '_> {
                     let t = self.temp(Ty::Void);
                     self.assign(Place::local(t), Rvalue::ArrayPush(a.clone(), v), e.span);
                 }
+                let at = self.ty_of(object).clone();
+                self.object_hook("__triggerObject", a, &at, e.span);
                 Operand::Const(Const::Void)
             }
             "pop" => {
                 let a = self.expr(object);
-                self.rvalue_to_temp(Rvalue::ArrayPop(a), ty, e.span)
+                let v = self.rvalue_to_temp(Rvalue::ArrayPop(a.clone()), ty, e.span);
+                let at = self.ty_of(object).clone();
+                self.object_hook("__triggerObject", a, &at, e.span);
+                v
             }
             "step" => {
                 let r = self.place_of(object);
@@ -5868,6 +5901,83 @@ impl FnBuilder<'_, '_> {
         acc
     }
 
+    /// The store of an assignment (after the target's place is known).
+    fn assign_to(
+        &mut self,
+        e: &Expr,
+        op: &Option<ast::BinOp>,
+        value: &Expr,
+        place: Place,
+        checks: Vec<Check>,
+    ) -> Operand {
+        match op {
+            None => {
+                let v = self.expr(value);
+                self.emit_checks(&checks);
+                self.assign(place, Rvalue::Use(v), e.span);
+            }
+            Some(ast::BinOp::Nullish) => {
+                // `x ??= v`: assign only if `x` is null.
+                self.emit_checks(&checks);
+                let assign_bb = self.new_block();
+                let join = self.new_block();
+                let is_null = self.rvalue_to_temp(
+                    Rvalue::IsNull(Operand::Copy(place.clone())),
+                    Ty::Bool,
+                    e.span,
+                );
+                self.terminate(Terminator::Branch {
+                    cond: is_null,
+                    then: assign_bb,
+                    else_: join,
+                });
+                self.switch_to(assign_bb);
+                let v = self.expr(value);
+                self.emit_checks(&checks);
+                self.assign(place.clone(), Rvalue::Use(v), e.span);
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(join);
+            }
+            Some(op @ (ast::BinOp::And | ast::BinOp::Or)) => {
+                // `x &&= v`: assign only if `x` is true (`||=`: if false).
+                self.emit_checks(&checks);
+                let assign_bb = self.new_block();
+                let join = self.new_block();
+                let cur = Operand::Copy(place.clone());
+                let (t, f) = if *op == ast::BinOp::And {
+                    (assign_bb, join)
+                } else {
+                    (join, assign_bb)
+                };
+                self.terminate(Terminator::Branch {
+                    cond: cur,
+                    then: t,
+                    else_: f,
+                });
+                self.switch_to(assign_bb);
+                let v = self.expr(value);
+                self.emit_checks(&checks);
+                self.assign(place.clone(), Rvalue::Use(v), e.span);
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(join);
+            }
+            Some(op) => {
+                let mut v = self.expr(value);
+                if *op == ast::BinOp::Add && self.place_ty(&place).erase() == Ty::Str {
+                    let vt = self.cx.types.final_ty(value.id).clone();
+                    v = self.stringify(v, &vt, value.span);
+                }
+                self.emit_checks(&checks);
+                self.assign(
+                    place.clone(),
+                    Rvalue::Binary(bin_op(*op), Operand::Copy(place), v),
+                    e.span,
+                );
+            }
+        }
+        Operand::Const(Const::Void)
+    }
+
     /// `T` for a `Reactive<T>` (spec §16).
     fn reactive_arg(&self, t: &Ty) -> Option<Ty> {
         match t {
@@ -5900,6 +6010,86 @@ impl FnBuilder<'_, '_> {
             .expect("Reactive's methods");
         let m = self.method_of(m, cell);
         self.call_fn_value(m, args, ret, span)
+    }
+
+    /// Deep reactivity (spec §16.6): hooks only in programs whose own code uses reactive
+    /// state, and not in the core library (whose collections call them themselves).
+    fn hooks_on(&self) -> bool {
+        self.cx.types.uses_reactivity
+            && !self
+                .cx
+                .program
+                .prelude_files
+                .contains(&self.hir_fn.span.file)
+    }
+
+    /// Objects deep reactivity follows: class instances (not cells) and arrays.
+    fn deep_object(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Array(_) => true,
+            Ty::Class(sid, _, _) => {
+                Some(*sid) != self.cx.program.reactive_class
+                    && self.cx.program.struct_def(*sid).is_class
+            }
+            _ => false,
+        }
+    }
+
+    /// `__trackObject(o)` (a read) or `__triggerObject(o)` (a mutation) of an object, behind
+    /// their fast-path test inlined here (`__tracking`, `__reactiveObjects > 0`): code that
+    /// runs outside effects, on objects nothing depends on, only loads a flag.
+    fn object_hook(&mut self, name: &str, o: Operand, t: &Ty, span: Span) {
+        if !self.hooks_on() || !self.deep_object(t) {
+            return;
+        }
+        let (flag, slow) = if name == "__trackObject" {
+            ("__tracking", "__trackObjectSlow")
+        } else {
+            ("__reactiveObjects", "__triggerObjectSlow")
+        };
+        let g = self.cx.core_global(flag);
+        let v = Operand::Copy(Place {
+            base: mir::Base::Global(g),
+            proj: Vec::new(),
+        });
+        let cond = if flag == "__tracking" {
+            v
+        } else {
+            self.rvalue_to_temp(
+                Rvalue::Binary(mir::BinOp::Gt, v, Operand::Const(Const::Int(0, IntTy::I64))),
+                Ty::Bool,
+                span,
+            )
+        };
+        let call_bb = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::Branch {
+            cond,
+            then: call_bb,
+            else_: join,
+        });
+        self.switch_to(call_bb);
+        let f = self.cx.core_fn(slow);
+        let f = self.cx.instance(f, vec![(f.0, vec![t.clone()])]);
+        self.call_fn_value(f, vec![o], Ty::Void, span);
+        self.terminate(Terminator::Goto(join));
+        self.switch_to(join);
+    }
+
+    /// The hook for the object a field or element place belongs to.
+    fn place_hook(&mut self, name: &str, place: &Place, span: Span) {
+        if !self.hooks_on() {
+            return;
+        }
+        let mut parent = place.clone();
+        if !matches!(
+            parent.proj.pop(),
+            Some(mir::Proj::Field(_) | mir::Proj::Index(_))
+        ) {
+            return;
+        }
+        let t = self.place_ty(&parent);
+        self.object_hook(name, Operand::Copy(parent), &t, span);
     }
 
     /// A tracked read of a reactive cell.
@@ -6404,7 +6594,14 @@ impl FnBuilder<'_, '_> {
         {
             // A pico extension of a built-in type: the receiver is the first argument (and
             // defaulted parameters get their flags, as in any call).
-            let mut ops = vec![self.expr(object)];
+            let recv = self.expr(object);
+            let rt = self.ty_of(object).clone();
+            let fname = self.cx.program.func(id).name.clone();
+            let mutates = matches!(fname.as_str(), "__Array_sort" | "__Array_reverse");
+            if !mutates {
+                self.object_hook("__trackObject", recv.clone(), &rt, e.span);
+            }
+            let mut ops = vec![recv.clone()];
             ops.extend(args.iter().map(|a| self.expr(a)));
             let given = ops.len();
             let sig = self.cx.types.sigs[id.0 as usize].clone();
@@ -6428,7 +6625,11 @@ impl FnBuilder<'_, '_> {
                 Some(targs) => self.cx.instance(id, vec![(id.0, targs)]),
                 None => id,
             };
-            return self.call_fn_value(id, ops, ty, e.span);
+            let r = self.call_fn_value(id, ops, ty, e.span);
+            if mutates {
+                self.object_hook("__triggerObject", recv, &rt, e.span);
+            }
+            return r;
         }
         match &callee.kind {
             ExprKind::Member { object, .. } if self.cx.types.derived.contains_key(&e.id) => {
@@ -6711,6 +6912,9 @@ impl FnBuilder<'_, '_> {
                 });
                 self.switch_to(next);
                 Operand::Const(Const::Void)
+            }
+            ExprKind::Builtin(Builtin::ReactivityOn) => {
+                Operand::Const(Const::Bool(self.cx.types.uses_reactivity))
             }
             ExprKind::Builtin(Builtin::Identical) => {
                 let t = self.ty_of(&args[0]).clone();

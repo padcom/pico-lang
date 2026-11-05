@@ -85,6 +85,9 @@ pub struct Types {
     /// expression's type is the value's, and lowering reads the cell with `__get`. (Other
     /// expressions of type `Reactive<T>` where a `T` is expected are coercions.)
     pub cell_reads: HashMap<ExprId, Ty>,
+    /// The program's own code (outside the core library) reads or writes reactive state:
+    /// lowering emits the deep-reactivity hooks (spec §16.6) and `__reactivity_on()` is true.
+    pub uses_reactivity: bool,
     /// Operators and protocol uses that call a user method (`operator +`, `equals`,
     /// `compareTo`, `[]`, `[]=`), by the operator/assignment expression.
     pub op_calls: HashMap<ExprId, FnId>,
@@ -207,6 +210,7 @@ impl Types {
             overloads: self.overloads.clone(),
             reactive_writes: self.reactive_writes.clone(),
             cell_reads: self.cell_reads.iter().map(|(k, t)| (*k, s(t))).collect(),
+            uses_reactivity: self.uses_reactivity,
             op_calls: self.op_calls.clone(),
             derived: self.derived.clone(),
         }
@@ -262,6 +266,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             overloads: HashMap::new(),
             reactive_writes: HashSet::new(),
             cell_reads: HashMap::new(),
+            uses_reactivity: false,
             op_calls: HashMap::new(),
             derived: HashMap::new(),
             param_calls: HashMap::new(),
@@ -846,6 +851,7 @@ impl<'p> Checker<'p> {
             && self.reactive_arg(&want.ty, e.span).is_none()
             && (inner == want.ty || inner.widens_to(&want.ty) || self.upcasts(&inner, &want.ty))
         {
+            self.types.uses_reactivity = true;
             self.types.coercions.insert(e.id, want.ty.clone());
             return want.ty.clone();
         }
@@ -1664,6 +1670,7 @@ impl<'p> Checker<'p> {
             return t;
         }
         self.types.cell_reads.insert(e.id, t);
+        self.types.uses_reactivity = true;
         self.types.exprs[e.id.0 as usize] = inner.clone();
         inner
     }
@@ -4054,6 +4061,7 @@ impl<'p> Checker<'p> {
     fn write_cell(&mut self, e: &Expr, target: &Target) {
         self.target_ty(target);
         self.types.reactive_writes.insert(e.id);
+        self.types.uses_reactivity = true;
         if let Target::Var(v) = target
             && self.readonly_cells.contains(v)
         {
@@ -6886,6 +6894,7 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[1]), Ty::INT)
             }
+            Builtin::ReactivityOn => (arity(&[0]), Ty::Bool),
             Builtin::Identical => {
                 if let [a, b] = args {
                     let t = self.infer(a);
@@ -6920,7 +6929,7 @@ impl<'p> Checker<'p> {
                 Builtin::BufOp | Builtin::MetaEmit => "4 arguments",
                 Builtin::Io => "6 arguments",
                 Builtin::IoText => "1 argument",
-                Builtin::ClockMs => "no arguments",
+                Builtin::ClockMs | Builtin::ReactivityOn => "no arguments",
                 Builtin::ArenaEnter | Builtin::ArenaExit | Builtin::ArenaExitRescue => {
                     "no arguments"
                 }

@@ -68,16 +68,19 @@ class Map<K extends Hashable<K>, V> {
 
   /// How many entries the map has.
   public get size(): int {
+    if (__reactivity_on()) __trackObject(this)
     this.count
   }
 
   /// Whether the map has an entry for `key`.
   public has(key: K): bool {
+    if (__reactivity_on()) __trackObject(this)
     this.find(key) >= 0
   }
 
   /// The value for `key`, or `null` if there's none.
   public get(key: K): V? {
+    if (__reactivity_on()) __trackObject(this)
     const i = this.find(key)
     if (i < 0) {
       return null
@@ -91,6 +94,7 @@ class Map<K extends Hashable<K>, V> {
     const i = this.find(key)
     if (i >= 0) {
       this.items[i].value = value
+      if (__reactivity_on()) __triggerObject(this)
       return this
     }
     if (this.items.length >= this.buckets.length) {
@@ -99,6 +103,7 @@ class Map<K extends Hashable<K>, V> {
     this.items.push(new __MapEntry(key, value))
     this.buckets[this.bucket(key)].push(this.items.length - 1)
     this.count += 1
+    if (__reactivity_on()) __triggerObject(this)
     this
   }
 
@@ -118,6 +123,7 @@ class Map<K extends Hashable<K>, V> {
     }
     this.buckets[b] = rest
     this.count -= 1
+    if (__reactivity_on()) __triggerObject(this)
     true
   }
 
@@ -126,10 +132,12 @@ class Map<K extends Hashable<K>, V> {
     this.items = []
     this.buckets = []
     this.count = 0
+    if (__reactivity_on()) __triggerObject(this)
   }
 
   /// The keys, in insertion order (a new array).
   public keys(): K[] {
+    if (__reactivity_on()) __trackObject(this)
     const out: K[] = []
     for (const e of this.items) {
       if (e.live) {
@@ -141,6 +149,7 @@ class Map<K extends Hashable<K>, V> {
 
   /// The values, in insertion order (a new array).
   public values(): V[] {
+    if (__reactivity_on()) __trackObject(this)
     const out: V[] = []
     for (const e of this.items) {
       if (e.live) {
@@ -152,6 +161,7 @@ class Map<K extends Hashable<K>, V> {
 
   /// The entries as `[key, value]` pairs, in insertion order (a new array).
   public entries(): [K, V][] {
+    if (__reactivity_on()) __trackObject(this)
     const out: [K, V][] = []
     for (const e of this.items) {
       if (e.live) {
@@ -163,6 +173,7 @@ class Map<K extends Hashable<K>, V> {
 
   /// `for (const [k, v] of map)`: the entries in insertion order.
   public iterator(): Iterator<[K, V]> {
+    if (__reactivity_on()) __trackObject(this)
     __Array_iterator(this.entries())
   }
 

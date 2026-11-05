@@ -719,7 +719,11 @@ impl Interp<'_, '_> {
             Builtin::GcCollect | Builtin::GcCollectYoung | Builtin::GcPause | Builtin::GcResume => {
                 Ok(())
             }
-            Builtin::Assert | Builtin::Panic | Builtin::CatchPanic | Builtin::Identical => {
+            Builtin::Assert
+            | Builtin::Panic
+            | Builtin::CatchPanic
+            | Builtin::Identical
+            | Builtin::ReactivityOn => {
                 unreachable!("lowered to control flow")
             }
             Builtin::ComptimeInfo | Builtin::ComptimeReadFile | Builtin::MetaEmit => {

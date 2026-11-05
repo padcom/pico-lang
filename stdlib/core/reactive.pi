@@ -61,11 +61,29 @@ class __Reactivity {
   public running: int = 0
   public flushId: int = 0
   public nextId: int = 0
+  /// Reactive objects (spec §16.6): what depends on each, by identity. An object is reactive
+  /// once a tracked read reached it; entries nothing depends on any more are pruned.
+  public objects: Map<int, __Dep> = new Map<int, __Dep>()
+  public pruneAt: int = 64
+  /// Inside `__trackObject`/`__triggerObject` (the registry is a `Map`, whose own methods
+  /// call them).
+  public hooking: bool = false
 
   constructor() {}
 }
 
 let __reactivity: __Reactivity? = null
+/// Something is being tracked (`__reactivity.current != null`): the deep-reactivity hooks'
+/// fast path (spec §16.6).
+let __tracking = false
+/// How many objects are reactive (`__reactivity.objects.size`): mutations of others cost a test.
+let __reactiveObjects = 0
+
+/// Sets the observer being tracked.
+function __setCurrent(r: __Reactivity, o: __Observer?): void {
+  r.current = o
+  __tracking = o != null
+}
 
 function __theReactivity(): __Reactivity {
   const r = __reactivity
@@ -235,14 +253,14 @@ function __runEffect(e: __Observer): void {
   const r = __theReactivity()
   __unsubscribe(e)
   const prev = r.current
-  r.current = e
+  __setCurrent(r, e)
   e.running = true
   r.running += 1
   const run = e.run
   try {
     run()
   } finally {
-    r.current = prev
+    __setCurrent(r, prev)
     e.running = false
     r.running -= 1
     if (e.disposed) {
@@ -260,6 +278,70 @@ function __dispose(o: __Observer): void {
   if (!o.running) {
     __unsubscribe(o)
   }
+}
+
+/// A tracked read of object `o` (spec §16.6): what's running depends on it. Called by the
+/// compiler's hooks and by `Map`'s methods, only in programs that use reactive state.
+function __trackObject<T extends object>(o: T): void {
+  if (__tracking) {
+    __trackObjectSlow(o)
+  }
+}
+
+/// `o` was mutated (spec §16.6): what read it runs again or becomes dirty.
+function __triggerObject<T extends object>(o: T): void {
+  if (__reactiveObjects > 0) {
+    __triggerObjectSlow(o)
+  }
+}
+
+function __trackObjectSlow<T extends object>(o: T): void {
+  const r = __reactivity
+  if (r == null || r.current == null || r.hooking) {
+    return
+  }
+  r.hooking = true
+  const id = __ref_id(o)
+  let d = r.objects.get(id)
+  if (d == null) {
+    if (r.objects.size >= r.pruneAt) {
+      __pruneObjects(r)
+    }
+    const made = new __Dep()
+    r.objects.set(id, made)
+    __reactiveObjects = r.objects.size
+    d = made
+  }
+  r.hooking = false
+  if (d != null) {
+    __track(d)
+  }
+}
+
+function __triggerObjectSlow<T extends object>(o: T): void {
+  const r = __reactivity
+  if (r == null || r.hooking || r.objects.size == 0) {
+    return
+  }
+  r.hooking = true
+  const d = r.objects.get(__ref_id(o))
+  r.hooking = false
+  if (d != null) {
+    __trigger(d)
+  }
+}
+
+/// Drops the objects nothing depends on (and so the ids of collected objects, eventually).
+function __pruneObjects(r: __Reactivity): void {
+  const kept = new Map<int, __Dep>()
+  for (const [id, d] of r.objects) {
+    if (d.subs.length > 0) {
+      kept.set(id, d)
+    }
+  }
+  r.objects = kept
+  __reactiveObjects = kept.size
+  r.pruneAt = if (kept.size * 2 > 64) kept.size * 2 else 64
 }
 
 /// A reactive cell (spec §16.1): what a `reactive` declaration holds and `computed` returns.
@@ -284,17 +366,23 @@ class Reactive<T> {
         // A stopped computed: its getter at every read, untracked and uncached (spec §16.7).
         const r = __theReactivity()
         const prev = r.current
-        r.current = null
+        __setCurrent(r, null)
         try {
           return getter()
         } finally {
-          r.current = prev
+          __setCurrent(r, prev)
         }
       }
       this.__refresh()
     }
     __track(this.dep)
     this.cache[0]
+  }
+
+  /// `__get()` of a cell holding an object: also a tracked read of the object (spec §16.6).
+  public __getObject<U extends object>(v: U): U {
+    __trackObject(v)
+    v
   }
 
   /// Writes the value (a computed's setter), and triggers unless it's identical to the old one.
@@ -338,13 +426,13 @@ class Reactive<T> {
     const r = __theReactivity()
     __unsubscribe(o)
     const prev = r.current
-    r.current = o
+    __setCurrent(r, o)
     o.running = true
     let v: T[] = []
     try {
       v.push(getter())
     } finally {
-      r.current = prev
+      __setCurrent(r, prev)
       o.running = false
     }
     o.dirty = false
