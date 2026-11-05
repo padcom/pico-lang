@@ -5814,6 +5814,60 @@ impl FnBuilder<'_, '_> {
         acc
     }
 
+    /// `__identical(a, b)` (spec §16.2): structs field by field, anything else with the raw
+    /// comparison (`equals` is dispatched before lowering, so classes compare by reference).
+    fn identical_values(&mut self, a: Operand, b: Operand, t: &Ty, span: Span) -> Operand {
+        if matches!(t, Ty::Fn(..)) {
+            // (Function values have no identity to compare: never the same.)
+            return Operand::Const(Const::Bool(false));
+        }
+        if matches!(t, Ty::Array(_)) {
+            // (Growable arrays have no `==`: their addresses.)
+            let ia = self.ref_id(a, span);
+            let ib = self.ref_id(b, span);
+            return self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Eq, ia, ib), Ty::Bool, span);
+        }
+        let Ty::Class(sid, _, args) = t else {
+            return self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Eq, a, b), Ty::Bool, span);
+        };
+        let def = self.cx.program.struct_def(*sid);
+        if def.is_class || def.is_interface {
+            return self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Eq, a, b), Ty::Bool, span);
+        }
+        let owner = Ty::type_owner(*sid);
+        let fields: Vec<Ty> = def.fields.iter().map(|f| f.ty.subst(owner, args)).collect();
+        let pa = self.in_place(a, t, span);
+        let pb = self.in_place(b, t, span);
+        let mut acc = Operand::Const(Const::Bool(true));
+        for (i, ft) in fields.iter().enumerate() {
+            let x = Operand::Copy(pa.field(i as u32));
+            let y = Operand::Copy(pb.field(i as u32));
+            let same = self.identical_values(x, y, ft, span);
+            acc = self.rvalue_to_temp(
+                Rvalue::Binary(mir::BinOp::BitAnd, acc, same),
+                Ty::Bool,
+                span,
+            );
+        }
+        acc
+    }
+
+    /// `__ref_id(x)`: an object's or array's identity.
+    fn ref_id(&mut self, x: Operand, span: Span) -> Operand {
+        let dest = Place::local(self.temp(Ty::INT));
+        let next = self.new_block();
+        let loc = self.loc(span);
+        self.terminate(Terminator::Call {
+            callee: Callee::Builtin(Builtin::RefId),
+            args: vec![x],
+            dest: Some(dest.clone()),
+            next,
+            loc,
+        });
+        self.switch_to(next);
+        Operand::Copy(dest)
+    }
+
     /// Stores an operand in a fresh place (so its parts can be projected).
     fn in_place(&mut self, v: Operand, t: &Ty, span: Span) -> Place {
         if let Operand::Copy(p) = &v {
@@ -6532,6 +6586,12 @@ impl FnBuilder<'_, '_> {
                 });
                 self.switch_to(next);
                 Operand::Const(Const::Void)
+            }
+            ExprKind::Builtin(Builtin::Identical) => {
+                let t = self.ty_of(&args[0]).clone();
+                let a = self.expr(&args[0]);
+                let b = self.expr(&args[1]);
+                self.identical_values(a, b, &t, e.span)
             }
             ExprKind::Builtin(Builtin::CatchPanic) => {
                 // Guard { call f; Unguard → null } with a handler that stops the panic and

@@ -1151,7 +1151,18 @@ fn implementations_across_the_project() {
             ("square.pi".into(), 6)
         ]
     );
-    assert_eq!(found(4), [("main.pi".into(), 1)]);
+    // (The core library's own implementations are listed too: `WatchHandle`, `EffectScope`.)
+    let disposables = found(4);
+    assert!(
+        disposables.contains(&("main.pi".into(), 1)),
+        "{disposables:?}"
+    );
+    assert!(
+        disposables
+            .iter()
+            .all(|(f, _)| f == "main.pi" || f == "reactive.pi"),
+        "{disposables:?}"
+    );
     assert!(response(&out, 5).is_null());
 }
 

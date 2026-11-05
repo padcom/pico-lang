@@ -1,0 +1,45 @@
+// Spec §16.4, §16.7: disposing an effect stops it (also with `using`), and an effect scope
+// stops the effects, computeds and scopes created while it ran.
+// expect: e 0
+// expect: e 1
+// expect: u 1
+// expect: u 2
+// expect: scoped 2
+// expect: inner 2
+// expect: scoped 3
+// expect: inner 3
+// expect: doubled 8
+// expect: getter runs 2
+// expect: done
+const n = __reactive(0)
+const h = watchEffect(() => println(`e ${n.__get()}`))
+n.__set(1)
+h.dispose()
+h.dispose()
+{
+  using u = watchEffect(() => println(`u ${n.__get()}`))
+  n.__set(2)
+}
+let getterRuns = 0
+let doubled: Reactive<int>? = null
+const scope = effectScope(() => {
+  watchEffect(() => println(`scoped ${n.__get()}`))
+  effectScope(() => {
+    watchEffect(() => println(`inner ${n.__get()}`))
+  })
+  doubled = computed(() => {
+    getterRuns += 1
+    n.__get() * 2
+  })
+})
+n.__set(3)
+scope.dispose()
+n.__set(4)
+// A stopped computed runs its getter at every read, uncached.
+const d = doubled
+if (d != null) {
+  println(`doubled ${d.__get()}`)
+  d.__get()
+}
+println(`getter runs ${getterRuns}`)
+println("done")

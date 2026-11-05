@@ -6685,6 +6685,13 @@ impl<'p> Checker<'p> {
                 }
                 (arity(&[1]), Ty::INT)
             }
+            Builtin::Identical => {
+                if let [a, b] = args {
+                    let t = self.infer(a);
+                    self.check(b, &Expect::new(t));
+                }
+                (arity(&[2]), Ty::Bool)
+            }
             Builtin::GcCollect
             | Builtin::GcCollectYoung
             | Builtin::GcPause
@@ -6704,7 +6711,7 @@ impl<'p> Checker<'p> {
                 | Builtin::WorkerError
                 | Builtin::ComptimeInfo
                 | Builtin::ComptimeReadFile => "1 argument",
-                Builtin::WorkerOp => "2 arguments",
+                Builtin::WorkerOp | Builtin::Identical => "2 arguments",
                 Builtin::Math => "3 arguments",
                 Builtin::CatchPanic => "1 argument",
                 Builtin::PanicTaken => "no arguments",

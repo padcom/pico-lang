@@ -1,0 +1,8 @@
+// Spec §16.4: an effect can't throw; it catches what it calls itself.
+// error: E0336
+const n = __reactive(0)
+watchEffect(() => {
+  if (n.__get() > 1) {
+    throw new Error("too big")
+  }
+})

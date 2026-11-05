@@ -1,0 +1,454 @@
+// Reactivity (spec §16): reactive cells, lazy computed values and synchronous effects. The
+// compiler turns reads of a reactive binding into `__get()` and writes into `__set(v)`
+// (P11.3); deep reactivity hooks objects into the same graph (`__Dep`s per object, P11.3).
+//
+// The graph: a `__Dep` is something reads depend on (a cell, a computed's value), with the
+// observers that read it in their last run. An observer is an effect or a computed. A write
+// bumps the dep's version and notifies its observers: a computed only becomes dirty (and
+// notifies its own readers in turn), an effect is queued. The queue runs (a flush) before the
+// outermost write returns, in creation order.
+
+/// Something reads depend on: a reactive cell or a computed's value.
+class __Dep {
+  /// The observers that read it in their last run.
+  public subs: __Observer[] = []
+  /// Bumped at every change, so an effect can tell whether a computed it read really changed.
+  public version: int = 0
+  /// The computed whose value this is, if any.
+  public computed: __Observer? = null
+
+  constructor() {}
+}
+
+/// An effect (`kind` 0) or a computed (`kind` 1).
+class __Observer {
+  public kind: int
+  /// Creation order: queued effects run in it.
+  public id: int
+  /// What it read in its last run, and the version of each when it was read.
+  public deps: __Dep[] = []
+  public seen: int[] = []
+  /// An effect's callback; a computed's recomputation (when it's dirty).
+  public run: () => void
+  /// A computed whose value is out of date.
+  public dirty: bool = true
+  /// An effect queued by a change of something it read itself (not only through computeds).
+  public direct: bool = false
+  public queued: bool = false
+  public running: bool = false
+  public disposed: bool = false
+  /// How often it ran in the flush `flushId` (the runaway guard).
+  public flushId: int = -1
+  public flushRuns: int = 0
+  /// A computed's value.
+  public own: __Dep? = null
+
+  constructor(kind: int, id: int, run: () => void) {
+    this.kind = kind
+    this.id = id
+    this.run = run
+  }
+}
+
+class __Reactivity {
+  /// The observer whose reads are being tracked.
+  public current: __Observer? = null
+  /// The effect scope new effects and computeds belong to.
+  public scope: EffectScope? = null
+  public queue: __Observer[] = []
+  public flushing: bool = false
+  /// Effects running: writes they make queue what they trigger, and the flush comes after.
+  public running: int = 0
+  public flushId: int = 0
+  public nextId: int = 0
+
+  constructor() {}
+}
+
+let __reactivity: __Reactivity? = null
+
+function __theReactivity(): __Reactivity {
+  const r = __reactivity
+  if (r != null) {
+    return r
+  }
+  const made = new __Reactivity()
+  __reactivity = made
+  made
+}
+
+/// A new observer, in the current effect scope.
+function __observer(kind: int, run: () => void): __Observer {
+  const r = __theReactivity()
+  const o = new __Observer(kind, r.nextId, run)
+  r.nextId += 1
+  const s = r.scope
+  if (s != null) {
+    s.observers.push(o)
+  }
+  o
+}
+
+/// Records that the running observer (if any) read `dep`.
+function __track(dep: __Dep): void {
+  const o = __theReactivity().current
+  if (o == null) {
+    return
+  }
+  for (let i = 0; i < o.deps.length; i++) {
+    if (__identical(o.deps[i], dep)) {
+      o.seen[i] = dep.version
+      return
+    }
+  }
+  o.deps.push(dep)
+  o.seen.push(dep.version)
+  dep.subs.push(o)
+}
+
+/// Forgets what `o` read (before it runs again, or once it's disposed).
+function __unsubscribe(o: __Observer): void {
+  for (const d of o.deps) {
+    const kept: __Observer[] = []
+    for (const s of d.subs) {
+      if (!__identical(s, o)) {
+        kept.push(s)
+      }
+    }
+    d.subs = kept
+  }
+  o.deps = []
+  o.seen = []
+}
+
+/// `dep` changed: notifies what read it, then runs the effects that queued (unless a flush or an
+/// effect is running: they join that flush, or the one after the effect).
+function __trigger(dep: __Dep): void {
+  dep.version += 1
+  for (const s of dep.subs.slice(0)) {
+    __notify(s, true)
+  }
+  __flush()
+}
+
+/// Something `o` read changed (`direct`), or a computed it read became dirty.
+function __notify(o: __Observer, direct: bool): void {
+  if (o.disposed) {
+    return
+  }
+  if (o.kind == 1) {
+    if (o.dirty) {
+      return
+    }
+    o.dirty = true
+    const own = o.own
+    if (own != null) {
+      for (const s of own.subs.slice(0)) {
+        __notify(s, false)
+      }
+    }
+    return
+  }
+  // An effect isn't triggered by its own writes.
+  if (o.running) {
+    return
+  }
+  if (direct) {
+    o.direct = true
+  }
+  if (!o.queued) {
+    o.queued = true
+    __theReactivity().queue.push(o)
+  }
+}
+
+/// Whether a computed `e` read (and nothing else) really changed: brings each up to date and
+/// compares versions.
+function __changed(e: __Observer): bool {
+  for (let i = 0; i < e.deps.length; i++) {
+    const d = e.deps[i]
+    const c = d.computed
+    if (c != null) {
+      const refresh = c.run
+      refresh()
+    }
+    if (d.version != e.seen[i]) {
+      return true
+    }
+  }
+  false
+}
+
+/// Runs the queued effects, oldest first (spec §16.5). Effects an exception leaves queued run
+/// at the next flush.
+function __flush(): void {
+  const r = __theReactivity()
+  if (r.flushing || r.running > 0) {
+    return
+  }
+  r.flushing = true
+  r.flushId += 1
+  try {
+    while (r.queue.length > 0) {
+      let best = 0
+      for (let i = 1; i < r.queue.length; i++) {
+        if (r.queue[i].id < r.queue[best].id) {
+          best = i
+        }
+      }
+      const e = r.queue[best]
+      const rest: __Observer[] = []
+      for (let i = 0; i < r.queue.length; i++) {
+        if (i != best) {
+          rest.push(r.queue[i])
+        }
+      }
+      r.queue = rest
+      e.queued = false
+      if (e.disposed) {
+        continue
+      }
+      const direct = e.direct
+      e.direct = false
+      if (!direct && !__changed(e)) {
+        continue
+      }
+      if (e.flushId != r.flushId) {
+        e.flushId = r.flushId
+        e.flushRuns = 0
+      }
+      e.flushRuns += 1
+      // (Spec §16.5: an effect running more often than this in one flush.)
+      if (e.flushRuns > 100) {
+        r.queue = []
+        panic("reactive effects didn't settle")
+      }
+      __runEffect(e)
+    }
+  } finally {
+    r.flushing = false
+  }
+}
+
+/// Runs an effect, tracking what it reads (what it read before an exception stays tracked).
+function __runEffect(e: __Observer): void {
+  const r = __theReactivity()
+  __unsubscribe(e)
+  const prev = r.current
+  r.current = e
+  e.running = true
+  r.running += 1
+  const run = e.run
+  try {
+    run()
+  } finally {
+    r.current = prev
+    e.running = false
+    r.running -= 1
+    if (e.disposed) {
+      __unsubscribe(e)
+    }
+  }
+}
+
+/// Stops an effect or a computed.
+function __dispose(o: __Observer): void {
+  if (o.disposed) {
+    return
+  }
+  o.disposed = true
+  if (!o.running) {
+    __unsubscribe(o)
+  }
+}
+
+/// A reactive cell (spec §16.1): what a `reactive` declaration holds and `computed` returns.
+/// Reads and writes of a reactive binding go through `__get` and `__set`.
+class Reactive<T> {
+  /// The value (none yet for a computed that never ran).
+  public cache: T[] = []
+  public dep: __Dep = new __Dep()
+  /// A computed's getter, setter and observer.
+  public getter: (() => T)? = null
+  public setter: ((v: T) => void)? = null
+  public obs: __Observer? = null
+
+  constructor() {}
+
+  /// The value; tracked inside a computed or an effect.
+  public __get(): T {
+    const o = this.obs
+    const getter = this.getter
+    if (o != null && getter != null) {
+      if (o.disposed) {
+        // A stopped computed: its getter at every read, untracked and uncached (spec §16.7).
+        const r = __theReactivity()
+        const prev = r.current
+        r.current = null
+        try {
+          return getter()
+        } finally {
+          r.current = prev
+        }
+      }
+      this.__refresh()
+    }
+    __track(this.dep)
+    this.cache[0]
+  }
+
+  /// Writes the value (a computed's setter), and triggers unless it's identical to the old one.
+  public __set(v: T): void {
+    const c = __theReactivity().current
+    if (c != null && c.kind == 1) {
+      panic("a computed getter wrote reactive state")
+    }
+    if (this.obs != null) {
+      const setter = this.setter
+      if (setter == null) {
+        panic("this computed is read-only")
+      }
+      setter(v)
+      return
+    }
+    if (this.cache.length > 0 && __identical(this.cache[0], v)) {
+      return
+    }
+    if (this.cache.length == 0) {
+      this.cache.push(v)
+    } else {
+      this.cache[0] = v
+    }
+    __trigger(this.dep)
+  }
+
+  /// A computed: runs the getter if the value is out of date (spec §16.3).
+  public __refresh(): void {
+    const o = this.obs
+    const getter = this.getter
+    if (o == null || getter == null || o.disposed) {
+      return
+    }
+    if (!o.dirty && this.cache.length > 0) {
+      return
+    }
+    if (o.running) {
+      panic("a computed read itself while computing")
+    }
+    const r = __theReactivity()
+    __unsubscribe(o)
+    const prev = r.current
+    r.current = o
+    o.running = true
+    let v: T[] = []
+    try {
+      v.push(getter())
+    } finally {
+      r.current = prev
+      o.running = false
+    }
+    o.dirty = false
+    if (this.cache.length == 0) {
+      this.cache.push(v[0])
+      this.dep.version += 1
+    } else if (!__identical(this.cache[0], v[0])) {
+      this.cache[0] = v[0]
+      this.dep.version += 1
+    }
+  }
+}
+
+/// A reactive cell holding `v` (what `reactive x = v` declares).
+function __reactive<T>(v: T): Reactive<T> {
+  const c = new Reactive<T>()
+  c.cache.push(v)
+  c
+}
+
+function __computed<T>(getter: () => T, setter: ((v: T) => void)?): Reactive<T> {
+  const c = new Reactive<T>()
+  c.getter = getter
+  c.setter = setter
+  const o = __observer(1, () => c.__refresh())
+  o.own = c.dep
+  c.dep.computed = o
+  c.obs = o
+  c
+}
+
+/// A value computed from reactive state (spec §16.3): `getter` runs when the value is read and
+/// something it read changed since; otherwise the cached value is returned. Read-only.
+function computed<T>(getter: () => T): Reactive<T> {
+  __computed(getter, null)
+}
+
+/// A computed value that can be written: writing it calls `setter`.
+function __writableComputed<T>(getter: () => T, setter: (v: T) => void): Reactive<T> {
+  __computed(getter, setter)
+}
+
+/// Stops an effect (spec §16.4).
+class WatchHandle implements Disposable {
+  obs: __Observer
+
+  constructor(obs: __Observer) {
+    this.obs = obs
+  }
+
+  /// Stops the effect; disposing it again does nothing.
+  public dispose(): void {
+    __dispose(this.obs)
+  }
+}
+
+/// Runs `fn` now, and again (synchronously) after every change of the reactive state it read
+/// (spec §16.4).
+function watchEffect(fn: () => void): WatchHandle {
+  const o = __observer(0, fn)
+  const h = new WatchHandle(o)
+  __runEffect(o)
+  // What its first run wrote.
+  __flush()
+  h
+}
+
+/// The effects and computeds created while a function ran, stopped together (spec §16.7).
+class EffectScope implements Disposable {
+  public observers: __Observer[] = []
+  public children: EffectScope[] = []
+  disposed: bool = false
+
+  constructor() {}
+
+  /// Stops every effect and computed of the scope, and of the scopes created in it.
+  public dispose(): void {
+    if (this.disposed) {
+      return
+    }
+    this.disposed = true
+    for (const o of this.observers) {
+      __dispose(o)
+    }
+    for (const c of this.children) {
+      c.dispose()
+    }
+  }
+}
+
+/// Runs `fn` now; the effects, computeds and effect scopes it creates belong to the returned
+/// scope (spec §16.7).
+function effectScope(fn: () => void): EffectScope {
+  const r = __theReactivity()
+  const s = new EffectScope()
+  const parent = r.scope
+  if (parent != null) {
+    parent.children.push(s)
+  }
+  r.scope = s
+  try {
+    fn()
+  } finally {
+    r.scope = parent
+  }
+  s
+}

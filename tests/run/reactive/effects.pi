@@ -1,0 +1,78 @@
+// Spec §16.4–16.5: effects run at once and again, synchronously, after the writes that
+// trigger them; in creation order; not for identical values, nor for their own writes; and an
+// effect that reads a computed runs only when its value changes.
+// expect: a: 0
+// expect: b: 0
+// expect: write 1
+// expect: a: 1
+// expect: b: 1
+// expect: after write 1
+// expect: same value: nothing
+// expect: parity: even
+// expect: parity: odd
+// expect: parity runs 2
+// expect: count 5
+// expect: same object: nothing
+// expect: new object
+// expect: diamond 2
+// expect: diamond 4
+const n = __reactive(0)
+watchEffect(() => println(`a: ${n.__get()}`))
+watchEffect(() => println(`b: ${n.__get()}`))
+println("write 1")
+n.__set(1)
+println("after write 1")
+n.__set(1)
+println("same value: nothing")
+
+// `parity` changes only on some writes: the effect runs only then.
+const m = __reactive(0)
+const parity = computed(() => if (m.__get() % 2 == 0) "even" else "odd")
+let parityRuns = 0
+watchEffect(() => {
+  parityRuns += 1
+  println(`parity: ${parity.__get()}`)
+})
+m.__set(2)
+m.__set(3)
+println(`parity runs ${parityRuns}`)
+
+// An effect's own writes don't trigger it again.
+const count = __reactive(0)
+watchEffect(() => {
+  if (count.__get() < 5) {
+    count.__set(5)
+  }
+})
+println(`count ${count.__get()}`)
+
+class Thing {
+  constructor(public name: string) {}
+}
+const thing = __reactive(new Thing("x"))
+const t0 = thing.__get()
+watchEffect(() => {
+  thing.__get()
+})
+thing.__set(t0)
+println("same object: nothing")
+let runsT = 0
+const wt = watchEffect(() => {
+  thing.__get()
+  runsT += 1
+})
+thing.__set(new Thing("y"))
+println(if (runsT == 2) "new object" else `runs ${runsT}`)
+wt.dispose()
+
+// A diamond: the effect runs once per write, with both sides up to date.
+const base = __reactive(1)
+const left = computed(() => base.__get() * 2)
+const right = computed(() => base.__get() * 2)
+watchEffect(() => {
+  if (left.__get() != right.__get()) {
+    println("glitch")
+  }
+  println(`diamond ${left.__get()}`)
+})
+base.__set(2)

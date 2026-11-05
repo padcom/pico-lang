@@ -10,6 +10,7 @@ source_filename = "test.pi"
 %pico.SubtleCrypto = type {}
 
 @pico.global.__finalizationRegistries = internal thread_local global ptr null
+@pico.global.__reactivity = internal thread_local global ptr null
 @pico.global.__loop = internal thread_local global ptr null
 @pico.global.__buffers = internal thread_local global ptr null
 @pico.global.__zoneCache = internal thread_local global ptr null
@@ -23,14 +24,15 @@ source_filename = "test.pi"
 @pico.global.Float64Array.BYTES_PER_ELEMENT = internal thread_local global i64 0
 @pico_gc_requested = external thread_local global i32
 @pico.cstr = private unnamed_addr constant [16 x i8] c"integer overflow"
-@pico.cstr.40 = private unnamed_addr constant [7 x i8] c"test.pi"
-@pico.cstr.41 = private unnamed_addr constant [16 x i8] c"division by zero"
+@pico.cstr.41 = private unnamed_addr constant [7 x i8] c"test.pi"
+@pico.cstr.42 = private unnamed_addr constant [16 x i8] c"division by zero"
 @pico.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@pico.layout.42 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 @pico.layout.43 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 @pico.layout.44 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 @pico.layout.45 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
-@pico.gc_globals = internal thread_local global { i64, [5 x { ptr, ptr, ptr }] } zeroinitializer
+@pico.layout.46 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@pico.layout.47 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
+@pico.gc_globals = internal thread_local global { i64, [6 x { ptr, ptr, ptr }] } zeroinitializer
 
 define internal i32 @pico.add(i32 %0, i32 %1) {
 start:
@@ -59,7 +61,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb0
-  call void @pico_panic(ptr @pico.cstr, i64 16, ptr @pico.cstr.40, i64 7, i32 2, i32 37)
+  call void @pico_panic(ptr @pico.cstr, i64 16, ptr @pico.cstr.41, i64 7, i32 2, i32 37)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -89,7 +91,7 @@ gc.continue:                                      ; preds = %gc.collect, %start
   br label %bb0
 
 panic:                                            ; preds = %bb0
-  call void @pico_panic(ptr @pico.cstr.41, i64 16, ptr @pico.cstr.40, i64 7, i32 3, i32 30)
+  call void @pico_panic(ptr @pico.cstr.42, i64 16, ptr @pico.cstr.41, i64 7, i32 3, i32 30)
   unreachable
 
 ok:                                               ; preds = %bb0
@@ -219,22 +221,25 @@ gc.continue:                                      ; preds = %gc.collect, %start
 
 define void @pico_entry() {
 start:
-  store i64 5, ptr @pico.gc_globals, align 4
-  store ptr null, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 0, i32 0), align 8
-  store ptr @pico.layout, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 0, i32 1), align 8
-  store ptr @pico.global.__finalizationRegistries, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 0, i32 2), align 8
-  store ptr null, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 1, i32 0), align 8
-  store ptr @pico.layout.42, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 1, i32 1), align 8
-  store ptr @pico.global.__loop, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 1, i32 2), align 8
-  store ptr null, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 2, i32 0), align 8
-  store ptr @pico.layout.43, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 2, i32 1), align 8
-  store ptr @pico.global.__buffers, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 2, i32 2), align 8
-  store ptr null, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 3, i32 0), align 8
-  store ptr @pico.layout.44, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 3, i32 1), align 8
-  store ptr @pico.global.__zoneCache, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 3, i32 2), align 8
-  store ptr null, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 4, i32 0), align 8
-  store ptr @pico.layout.45, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 4, i32 1), align 8
-  store ptr @pico.global.__mathRng, ptr getelementptr ({ i64, [5 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 4, i32 2), align 8
+  store i64 6, ptr @pico.gc_globals, align 4
+  store ptr null, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 0, i32 0), align 8
+  store ptr @pico.layout, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 0, i32 1), align 8
+  store ptr @pico.global.__finalizationRegistries, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 0, i32 2), align 8
+  store ptr null, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 1, i32 0), align 8
+  store ptr @pico.layout.43, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 1, i32 1), align 8
+  store ptr @pico.global.__reactivity, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 1, i32 2), align 8
+  store ptr null, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 2, i32 0), align 8
+  store ptr @pico.layout.44, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 2, i32 1), align 8
+  store ptr @pico.global.__loop, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 2, i32 2), align 8
+  store ptr null, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 3, i32 0), align 8
+  store ptr @pico.layout.45, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 3, i32 1), align 8
+  store ptr @pico.global.__buffers, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 3, i32 2), align 8
+  store ptr null, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 4, i32 0), align 8
+  store ptr @pico.layout.46, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 4, i32 1), align 8
+  store ptr @pico.global.__zoneCache, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 4, i32 2), align 8
+  store ptr null, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 5, i32 0), align 8
+  store ptr @pico.layout.47, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 5, i32 1), align 8
+  store ptr @pico.global.__mathRng, ptr getelementptr ({ i64, [6 x { ptr, ptr, ptr }] }, ptr @pico.gc_globals, i32 0, i32 1, i32 5, i32 2), align 8
   call void @pico_gc_set_globals(ptr @pico.gc_globals)
   %t0 = alloca %pico.Performance, align 8
   %t1 = alloca %pico.SubtleCrypto, align 8
@@ -265,6 +270,7 @@ bb4:                                              ; preds = %bb3
 
 bb5:                                              ; preds = %bb4
   store ptr null, ptr @pico.global.__finalizationRegistries, align 8
+  store ptr null, ptr @pico.global.__reactivity, align 8
   store ptr null, ptr @pico.global.__loop, align 8
   store ptr null, ptr @pico.global.__buffers, align 8
   store ptr null, ptr @pico.global.__zoneCache, align 8

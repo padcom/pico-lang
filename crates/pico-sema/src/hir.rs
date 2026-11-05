@@ -617,6 +617,10 @@ pub enum Builtin {
     /// `__ref_id(x)`: an object's (or array's) identity as an int (its address natively), for
     /// `WeakMap`. Unique among live objects.
     RefId,
+    /// `__identical(a, b)`: whether two values of a type are the same value (spec §16.2): the
+    /// same reference for classes, arrays, maps and functions, the same value for primitives and
+    /// strings, field by field for structs. Never calls `equals`. Lowered to comparisons.
+    Identical,
     /// Opening and closing a scoped arena (lowering emits them around `arena { … }`).
     ArenaEnter,
     ArenaExit,
@@ -768,6 +772,7 @@ impl Builtin {
             Builtin::GcDumpRoots => "__gc_dump_roots",
             Builtin::GcStat => "__gc_stat",
             Builtin::RefId => "__ref_id",
+            Builtin::Identical => "__identical",
             Builtin::ArenaEnter => "<arena enter>",
             Builtin::ArenaExit => "<arena exit>",
             Builtin::ArenaExitRescue => "<arena exit, rescuing the exception>",
@@ -804,6 +809,7 @@ impl Builtin {
             "__gc_dump_roots" => Builtin::GcDumpRoots,
             "__gc_stat" => Builtin::GcStat,
             "__ref_id" => Builtin::RefId,
+            "__identical" => Builtin::Identical,
             "__raw_arena_new" => Builtin::RawArenaNew,
             "__raw_arena_free" => Builtin::RawArenaFree,
             "__clock_ms" => Builtin::ClockMs,

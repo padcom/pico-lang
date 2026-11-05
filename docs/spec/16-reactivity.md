@@ -1,7 +1,7 @@
 # 16. Reactivity
 
 Reactive state in the style of Vue: values that know who reads them, values computed from them,
-and effects that run again when they change. Decisions 288–293 and 299–306.
+and effects that run again when they change. Decisions 288–293 and 299–307.
 
 ```ts
 reactive price = 10
@@ -43,8 +43,9 @@ is `Reactive<T>` (such as the result of `computed`). Access is **transparent** (
 - **Assigning** writes its value: `count = 2`, `count += 1`, `count++`. Assignment to a reactive
   binding always writes the cell and never rebinds it, even for a `const`.
 - A write stores the value and then **triggers** what depends on the binding, unless the new
-  value is identical (`===`: the same primitive value or the same reference) to the old one
-  (decision 302).
+  value is **identical** to the old one (decision 302): the same reference for classes, arrays,
+  maps and sets; the same value for primitives and strings; identical fields for structs (never
+  through `equals`). Function values are never identical, so writing one always triggers.
 - Where the **expected type** is `Reactive<T>`, naming a reactive binding gives the cell itself
   instead of its value (decision 301). That's how reactive state is passed to and returned from
   functions:
@@ -96,8 +97,8 @@ name = "Grace Hopper"                                 // calls set
   with the value; `set`'s own writes trigger as usual.
 - A getter must not write reactive state: a write during a getter panics. A computed that reads
   itself while it's computing (directly or through others) panics.
-- An exception from the getter propagates to the read; the computed stays dirty, so the next
-  read runs the getter again.
+- Getters and setters can't throw (decision 307): their types have no `throws` (§7.2), so a
+  getter that calls something throwing catches it itself (E0336 otherwise).
 
 ## 16.4 `watchEffect`
 ```ts
@@ -119,22 +120,24 @@ count = 2                     // nothing
   not in a microtask.
 - An effect that depends on a computed runs only when the computed's value changes: when the
   computed becomes dirty, it's recomputed first, and the effect runs only if the new value isn't
-  identical to the old one.
+  identical to the old one (§16.2).
 - `fn` is synchronous. An `async` function can be passed, but only what it reads before its
   first `await` is tracked.
+- `fn` can't throw (decision 307): an effect runs during whichever write triggers it, where no
+  `throws` could be checked, so it catches what it calls itself (E0336 otherwise).
 
 ## 16.5 Tracking and triggering
 - **Tracking**: a read is tracked while a computed getter or an effect runs, including in the
   functions it calls. Reads anywhere else aren't tracked.
 - **Flush**: a write that triggers effects (directly, or through computeds that become dirty)
   queues them. The queue runs before the outermost write completes, in the order the effects were
-  created; an effect runs at most once per write that queued it. Writes made by effects during a
-  flush join it: the effects they trigger are queued and run in the same flush.
+  created; an effect runs at most once per write that queued it. Writes made while an effect runs
+  queue what they trigger: in a flush they join it, and during an effect's first run they're
+  flushed right after that run, before `watchEffect` returns.
 - An effect isn't triggered by its own writes. Effects that keep triggering each other panic once
   one has run 100 times in a single flush (`reactive effects didn't settle`).
-- **Errors**: an exception thrown by an effect propagates out of the write that started the flush
-  (or out of `watchEffect` for the first run). The effects still queued stay queued and run at the
-  next flush. A failed run keeps the dependencies it read before throwing.
+- A **panic** in an effect or a getter ends the program, as anywhere (§7); effects and getters
+  can't throw exceptions (§16.3, §16.4).
 
 ## 16.6 Deep reactivity
 Reactivity is **deep** (decision 290): mutating what reactive state holds triggers what depends

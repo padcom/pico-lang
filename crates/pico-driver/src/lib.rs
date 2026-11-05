@@ -392,6 +392,10 @@ const PRELUDE: &[(&str, &str)] = &[
         include_str!("../../../stdlib/core/weak.pi"),
     ),
     (
+        "<core>/reactive.pi",
+        include_str!("../../../stdlib/core/reactive.pi"),
+    ),
+    (
         "<core>/event.pi",
         include_str!("../../../stdlib/core/event.pi"),
     ),

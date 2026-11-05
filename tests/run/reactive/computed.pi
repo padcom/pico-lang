@@ -1,0 +1,50 @@
+// Spec §16.3: computed values are lazy, cached, and depend on what their last run read.
+// (Reads and writes are explicit until the compiler supports `reactive`, P11.3.)
+// expect: 20 20 runs=1
+// expect: runs=1
+// expect: 30 runs=2
+// expect: big: 30
+// expect: runs=2
+// expect: small: 1
+// expect: picks=2
+// expect: Ada Lovelace
+// expect: Grace Hopper Grace
+const price = __reactive(10)
+const qty = __reactive(2)
+let runs = 0
+const total = computed(() => {
+  runs += 1
+  price.__get() * qty.__get()
+})
+println(`${total.__get()} ${total.__get()} runs=${runs}`)
+qty.__set(3)
+println(`runs=${runs}`)
+println(`${total.__get()} runs=${runs}`)
+
+// Dependencies come from the last run: `small` isn't read while `useBig` is true.
+const useBig = __reactive(true)
+const small = __reactive(1)
+let picks = 0
+const pick = computed(() => {
+  picks += 1
+  if (useBig.__get()) `big: ${total.__get()}` else `small: ${small.__get()}`
+})
+println(pick.__get())
+small.__set(2)
+println(`runs=${runs}`)
+useBig.__set(false)
+small.__set(1)
+println(pick.__get())
+println(`picks=${picks}`)
+
+// Writable computed.
+const first = __reactive("Ada")
+const last = __reactive("Lovelace")
+const full = __writableComputed(() => `${first.__get()} ${last.__get()}`, (v: string) => {
+  const parts = v.split(" ")
+  first.__set(parts[0])
+  last.__set(parts[1])
+})
+println(full.__get())
+full.__set("Grace Hopper")
+println(`${full.__get()} ${first.__get()}`)
