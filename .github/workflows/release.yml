@@ -177,10 +177,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      # The VS Code extension (the website links to pico-<version>.vsix).
+      - name: Package the VS Code extension
+        run: |
+          vsix=$(scripts/vscode-package.sh | tail -1)
+          test "$(basename "$vsix")" = "pico-${GITHUB_REF_NAME#v}.vsix" || {
+            echo "editors/vscode/package.json's version doesn't match $GITHUB_REF_NAME" >&2; exit 1; }
+          cp "$vsix" dist/
 
       - name: Create the release
         env:
@@ -188,5 +198,5 @@ jobs:
         run: |
           flags=()
           case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip --repo "$GITHUB_REPOSITORY" \
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip dist/*.vsix --repo "$GITHUB_REPOSITORY" \
             --title "pico ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag "${flags[@]}"
