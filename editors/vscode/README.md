@@ -1,58 +1,70 @@
 # Pico for VS Code
 
-- **Syntax highlighting** for `.pi` files and ` ```pico ` blocks in Markdown: keywords, built-in
-  types, numbers with suffixes, strings and template strings with `${…}`, comments and doc
-  comments (`/** */`, `///`), decorators and declarations. Comment toggling, bracket matching,
-  auto-closing pairs and `/** */` continuation come from the language configuration.
-- **The language server** (`pico lsp`): errors and warnings as you type (also those in imported
-  modules), Format Document (the `pico fmt` formatter with `project.json`'s options), hover
-  (the type or signature and the doc comment) and Go to Definition (also into imported modules
-  and the core library), also in code with errors, and completion (names in scope, members
-  after `.`, the names a module exports inside `import { … }`), Go to Implementations (Ctrl+F12: the types implementing an interface or extending a class, the methods implementing or overriding a method, in the whole project), Rename Symbol (F2: every use in
-  the project's modules, methods with their overrides and implementations) and the outline
-  (document symbols, also for Go to Symbol and breadcrumbs). Lint warnings (`pico lint`'s, spec
-  §14.7, configured in `project.json`'s `"lint"`) appear with the errors.
+Support for the [Pico Programming Language](https://padcom.github.io/pico-lang/): TypeScript-style
+syntax, compiled through LLVM to native code and WebAssembly.
+
+```ts
+reactive count = 0
+const doubled = computed(() => count * 2)
+
+const res = await fetch("https://api.example.com/users", {
+  headers: { "Accept": "application/json" },
+})
+```
+
+## Requirements
+
+The extension runs the `pico` compiler, which isn't bundled: install a release from the
+[downloads](https://github.com/padcom/pico-lang/releases/latest) (macOS, Linux and Windows) and put
+its `bin` directory on your PATH, or point `pico.server.path` at it. Debugging also needs lldb
+(`lldb-dap`; Xcode's on macOS).
+
+## Features
+
+- **Syntax highlighting** for `.pi` files and ` ```pico ` blocks in Markdown, with comment toggling,
+  bracket matching, auto-closing pairs and `/** */` continuation.
+- **Errors and lint warnings as you type**, also those in imported modules.
+- **Completion**: names in scope, members after `.`, the names a module exports inside
+  `import { … }`.
+- **Hover** with the type or signature and the doc comment, also in code that has errors.
+- **Go to Definition** (into imported modules and the core library), **Go to Implementations**
+  (Ctrl+F12) and **Rename Symbol** (F2: every use in the project, methods with their overrides).
+- **Format Document** with the `pico fmt` formatter (options from `project.json`).
+- **Outline**, breadcrumbs and Go to Symbol.
 
 ## Debugging
 
-Press F5: it debugs the `entry` of the `project.json` nearest the open file (an application's
-main file, `"entry": "src/main.pico"`), or the open file when there's no project. A `pico` launch
-configuration's `program` is a `.pi` file, a project directory (its `entry`) or an executable
-(also `args`, `cwd`, `env`, `stopOnEntry`). Run Build Task offers `pico: build`, which builds the
-project's `entry`. The extension starts `pico dap`, which builds the
-program (a debug build, cached while nothing changes) and runs it under lldb-dap, so lldb must
-be installed (`lldb-dap`, or a versioned `lldb-dap-23` as apt.llvm.org installs it; Xcode's on
-macOS; `PICO_LLDB_DAP` names another). Breakpoints, stepping, the call stack and variables work;
-strings show as text, arrays and maps and sets with their elements, enums by variant; the
-Globals scope has the program's top-level bindings (the main thread's values). A program
-that doesn't compile shows the compiler's errors instead of starting.
+Press F5: it debugs the `entry` of the nearest `project.json`, or the open file when there's no
+project. The program is built in debug mode (cached while nothing changes) and runs under
+lldb-dap. Breakpoints, stepping, the call stack, watches and variables work: strings as text,
+arrays, maps and sets with their elements, enums by variant, reactive values with their current
+value, and the program's globals. A program that doesn't compile shows the compiler's errors
+instead. Run Build Task offers `pico: build`.
+
+A `pico` launch configuration takes `program` (a `.pi` file, a project directory or an
+executable), `args`, `cwd`, `env` and `stopOnEntry`.
 
 ## Settings
 
 | Setting | Default | |
 |---------|---------|---|
-| `pico.server.path` | `pico` | the pico binary (looked up on PATH: VS Code started from a desktop launcher may not have your shell's PATH, so set an absolute path if the server doesn't start) |
+| `pico.server.path` | `pico` | the `pico` binary. VS Code started from a desktop launcher may not have your shell's PATH: set an absolute path if the server doesn't start |
 | `pico.server.args` | `[]` | arguments before `lsp` |
 | `pico.trace.server` | `off` | `messages`/`verbose`: the protocol in the "pico language server" output |
 
-The command **pico: Restart Language Server** restarts it (after rebuilding `pico`, say).
+The command **pico: Restart Language Server** restarts it, after updating `pico` for example.
 
-## Install from the repository
+## Links
 
-```sh
-scripts/vscode-package.sh --install    # builds target/vscode/pico-<version>.vsix, installs it
-```
+[Website](https://padcom.github.io/pico-lang/) ·
+[Language tour](https://github.com/padcom/pico-lang/blob/main/docs/TOUR.md) ·
+[Specification](https://github.com/padcom/pico-lang/tree/main/docs/spec) ·
+[Issues](https://github.com/padcom/pico-lang/issues)
 
-then reload VS Code (Developer: Reload Window). Run it again after changing the extension. It
-installs the npm dependencies (`vscode-languageclient`) from `package-lock.json` first, so it
-needs Node.js and npm.
-(A symlink into `~/.vscode/extensions` isn't enough: VS Code only loads extensions registered
-in its `extensions.json` and marks unknown folders obsolete.) To work on the extension, open
-`editors/vscode` in VS Code and press F5 (an Extension Development Host).
+## Working on the extension
 
-## Editing the grammar
-
-`syntaxes/pico.tmLanguage.json` is generated: edit `syntaxes/generate.py`, then run
-`python3 editors/vscode/syntaxes/generate.py` from the repository root.
-`crates/pico-tests/tests/vscode.rs` checks that the grammar has every keyword the lexer knows
-and that its regular expressions compile.
+From the repository: `scripts/vscode-package.sh --install` builds and installs
+`target/vscode/pico-<version>.vsix` (it needs Node.js and npm), then reload the window. To debug
+the extension itself, open `editors/vscode` and press F5. `syntaxes/pico.tmLanguage.json` is
+generated: edit `syntaxes/generate.py` and run `python3 editors/vscode/syntaxes/generate.py`
+from the repository root (`crates/pico-tests/tests/vscode.rs` checks it against the lexer).
