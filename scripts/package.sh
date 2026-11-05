@@ -50,12 +50,14 @@ if [ "$os" = macos ]; then
   wanted=(zstd)
   extra=(-C link-arg=-Wl,-dead_strip_dylibs)
 elif [ "$os" = windows ]; then
-  # Everything but the system's DLLs statically (`-static`): MSYS2's libc++, libunwind,
-  # winpthreads, and LLVM's zstd, libxml2 (with libiconv, liblzma), libffi and zlib. `llvm-config`
-  # names zstd's import library (`-lzstd.dll`), so a static copy takes that name too.
-  wanted=(zstd xml2 iconv lzma ffi z)
-  extra=(-C link-arg=-static -C link-arg=-Wl,--as-needed)
-  for l in iconv lzma z; do extra+=(-C "link-arg=-l$l"); done
+  # Everything but the system's DLLs statically: MSYS2's libc++, libunwind, winpthreads, and
+  # LLVM's zstd, libxml2 (with libiconv, liblzma), libffi and zlib. (`-static` doesn't help:
+  # rustc's `-Bdynamic` comes first. lld takes the first search directory with any form of a
+  # library, so their static archives in `$static`, searched first, win.) `llvm-config` names
+  # zstd's import library (`-lzstd.dll`), so a static copy takes that name too.
+  wanted=(zstd xml2 iconv lzma ffi z c++ unwind pthread winpthread)
+  extra=()
+  for l in iconv lzma z winpthread; do extra+=(-C "link-arg=-l$l"); done
 else
   wanted=(zstd ffi xml2 icuuc icudata lzma)
   extra=(-C link-arg=-Wl,--as-needed)

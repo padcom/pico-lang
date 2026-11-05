@@ -14,9 +14,10 @@
  * which MinGW's `_setjmp` names; on arm64 the UCRT's longjmp always unwinds (failing with
  * STATUS_BAD_FUNCTION_TABLE on frames without unwind tables), so it's MinGW's own. */
 #if defined(_WIN32) && defined(__aarch64__)
-/* (Declared by <setjmp.h> only in MinGW's non-SEH mode.) */
-int __mingw_setjmp(void *buf) __attribute__((__nothrow__, __returns_twice__));
-__attribute__((__noreturn__, __nothrow__)) void __mingw_longjmp(void *buf, int v);
+/* (Declared by some MinGW versions' <setjmp.h> too: the same types, so either way.) */
+#include <setjmp.h>
+int __mingw_setjmp(jmp_buf buf) __attribute__((__nothrow__, __returns_twice__));
+__attribute__((__noreturn__, __nothrow__)) void __mingw_longjmp(jmp_buf buf, int v);
 #define pico_setjmp(buf) __mingw_setjmp(buf)
 #define pico_longjmp(buf, v) __mingw_longjmp((buf), (v))
 #elif defined(_WIN32)
