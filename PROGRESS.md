@@ -9,9 +9,7 @@
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
   (typed-array views' bounds: fixed); a panic raised inside the core library reports its
-  location as `<user file>:0:0`; an untyped `catch (e)` catches only `Error`s (decision 203),
-  so a `Throwable` thrown at the top level ends the program as uncaught (by design; spec §7.3
-  doesn't say so: ask the author); `net.pi`: a failed `read`/`accept`/`send`/`receive` job leaves the busy
+  location as `<user file>:0:0`; `net.pi`: a failed `read`/`accept`/`send`/`receive` job leaves the busy
   flag set (the next call panics, the descriptor is never released); an inline `Worker` that
   panics leaves `call()` promises pending forever; `WebSocket.close()` during the handshake
   doesn't stop it (`onopen` can follow `onclose`); `TransformStreamDefaultController.terminate`

@@ -96,9 +96,13 @@ const config = try {
   `catch (e: IoError { path })`.
 - Catching narrows the error union. Uncaught types propagate and must be declared by the
   enclosing function.
+- `catch (e)` without a type means `catch (e: Error)`: it doesn't catch lightweight throwables
+  (§7.1), which are for control flow and must be caught by their own type. `catch (_)`, `try?`
+  and `try!` catch everything (decisions 203, 312).
 - `finally` always runs, and its value is ignored.
 - An exception that escapes the top level prints `uncaught <Class>: <message>` to stderr and
-  ends the program with exit code 1 (decision 197).
+  ends the program with exit code 1 (decision 197). That includes a throwable that isn't an
+  `Error`: it passes through every untyped `catch (e)` on its way.
 
 ### `try?` and `try!`
 ```ts
