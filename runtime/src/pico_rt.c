@@ -923,6 +923,7 @@ static _Noreturn void report_panic(void) {
             const char *n = frame_name(panic_frames[i]);
             if (n && *n && !release) named = 1;
         }
+        (void)named; /* (only read with backtraces) */
 #if PICO_BACKTRACE
         if (!named) find_build_id();
         if (!named && build_id_hex[0]) {
