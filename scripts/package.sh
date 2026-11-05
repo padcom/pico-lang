@@ -72,8 +72,11 @@ for l in "${wanted[@]}"; do
   [ -f "$static/lib$l.a" ] || { echo "lib$l.a not found (install its static library)" >&2; exit 1; }
 done
 [ "$os" = windows ] && cp "$static/libzstd.a" "$static/libzstd.dll.a"
-# (A target directory of its own: other RUSTFLAGS than development builds.)
-RUSTFLAGS="-L native=$static ${extra[*]}" \
+# (A target directory of its own: other RUSTFLAGS than development builds. On Windows, rustc
+# takes Windows paths, not MSYS2's.)
+static_flag=$static
+[ "$os" = windows ] && static_flag=$(cygpath -m "$static")
+RUSTFLAGS="-L native=$static_flag ${extra[*]}" \
   cargo build --release -p pico-cli --features embed --target-dir target/package
 bin=target/package/release/$exe
 
