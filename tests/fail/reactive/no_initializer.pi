@@ -1,0 +1,3 @@
+// Spec §16.1: a reactive binding needs an initial value.
+// error: E0357
+reactive count: int

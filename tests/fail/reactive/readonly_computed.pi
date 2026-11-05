@@ -1,0 +1,5 @@
+// Spec §16.3: a read-only computed can't be assigned.
+// error: E0357
+reactive n = 1
+const doubled = computed(() => n * 2)
+doubled = 4

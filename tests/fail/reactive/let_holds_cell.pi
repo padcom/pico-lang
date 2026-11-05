@@ -1,0 +1,4 @@
+// Spec §16.2: a `let` can't hold a `Reactive<T>` (assigning it would be ambiguous).
+// error: E0357
+reactive n = 1
+let r: Reactive<int> = n

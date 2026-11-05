@@ -19,13 +19,6 @@ const SKIP: &[(&str, usize, &str)] = &[
         4,
         "a method signature quoted out of its class body",
     ),
-    // `reactive` declarations parse from P11.3 on: remove these then.
-    ("16-reactivity.md", 1, "reactive declarations (P11.3)"),
-    ("16-reactivity.md", 2, "reactive declarations (P11.3)"),
-    ("16-reactivity.md", 3, "reactive declarations (P11.3)"),
-    ("16-reactivity.md", 4, "reactive declarations (P11.3)"),
-    ("16-reactivity.md", 5, "reactive declarations (P11.3)"),
-    ("16-reactivity.md", 6, "reactive declarations (P11.3)"),
 ];
 
 /// Tour blocks that intentionally contain syntax errors or syntax the spec doesn't define yet.

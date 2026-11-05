@@ -454,6 +454,8 @@ pub struct Block {
 pub enum BindingKind {
     Const,
     Let,
+    /// `reactive x = v` (spec §16.1): a `const` holding a `Reactive<T>` cell.
+    Reactive,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -640,6 +642,8 @@ pub struct Modifiers {
     pub abstract_: bool,
     pub final_: bool,
     pub is_async: bool,
+    /// `reactive count = 0` in a class body (spec §16.1).
+    pub reactive: bool,
 }
 
 impl Modifiers {

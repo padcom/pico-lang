@@ -1,0 +1,32 @@
+// Spec §16.1: reactive fields, instance and static, read and written like the others.
+// expect: count 0 doubled 0
+// expect: count 5 doubled 10
+// expect: count 1 doubled 2
+// expect: 1
+// expect: 2
+class Counter {
+  public reactive count = 0
+  private reactive step: int = 1
+  public static reactive instances = 0
+
+  constructor(step: int) {
+    this.step = step
+    Counter.instances++
+  }
+
+  public tick() {
+    count += step
+  }
+
+  public doubled(): Reactive<int> {
+    computed(() => count * 2)
+  }
+}
+const c = new Counter(5)
+const d = c.doubled()
+watchEffect(() => println(`count ${c.count} doubled ${d}`))
+c.tick()
+c.count = 1
+println(Counter.instances)
+new Counter(1)
+println(Counter.instances)

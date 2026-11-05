@@ -1,6 +1,10 @@
 // Spec §16.5: effects that keep triggering each other panic.
 // panic: reactive effects didn't settle
-const a = __reactive(0)
-const b = __reactive(0)
-watchEffect(() => b.__set(a.__get() + 1))
-watchEffect(() => a.__set(b.__get() + 1))
+reactive a = 0
+reactive b = 0
+watchEffect(() => {
+  b = a + 1
+})
+watchEffect(() => {
+  a = b + 1
+})

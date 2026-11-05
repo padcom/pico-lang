@@ -92,6 +92,7 @@ impl<'a> Visit<'a> for Naming<'_> {
                 let (case, what) = match kind {
                     BindingKind::Const => (Case::CamelOrUpper, "constant"),
                     BindingKind::Let => (Case::Camel, "variable"),
+                    BindingKind::Reactive => (Case::Camel, "variable"),
                 };
                 let mut names = Vec::new();
                 bound_names(pat, &mut names);

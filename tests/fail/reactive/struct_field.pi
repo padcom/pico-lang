@@ -1,0 +1,5 @@
+// Spec §16.1: structs are values, so their fields can't be reactive.
+// error: E0357
+struct Point {
+  reactive x: int
+}

@@ -117,6 +117,17 @@ impl Parser {
                         start,
                     ));
                 }
+                TokenKind::Ident(w)
+                    if w == "reactive" && matches!(self.peek_nth(1), TokenKind::Ident(_)) =>
+                {
+                    let s = self.stmt();
+                    return Some(self.finish(
+                        DeclKind::Binding(Box::new(s)),
+                        decorators,
+                        true,
+                        start,
+                    ));
+                }
                 TokenKind::Kw(Kw::Comptime) => {
                     let s = self.stmt();
                     return Some(self.finish(
@@ -351,6 +362,11 @@ impl Parser {
                     .primary(span, "already given"),
                 );
             }
+        }
+        // `reactive name` (contextual, after the other modifiers).
+        if !param && self.at_word("reactive") && matches!(self.peek_nth(1), TokenKind::Ident(_)) {
+            self.bump();
+            m.reactive = true;
         }
         m
     }

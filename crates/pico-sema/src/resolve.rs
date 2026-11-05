@@ -219,6 +219,7 @@ pub fn resolve_modules(
         outer_fns: Vec::new(),
         name_refs: Vec::new(),
         binding_decorators: modules.binding_decorators.clone(),
+        maybe_cells: HashSet::new(),
         type_decorators: modules.type_decorators.clone(),
         comptime_limit: None,
         comptime_depth: 0,
@@ -350,6 +351,9 @@ struct FnState {
 }
 
 struct Resolver {
+    /// Declarations (by name span) of `const`s initialized by a call: they may hold a
+    /// `Reactive<T>` (spec §16.2), so assigning them is left to the type checker.
+    maybe_cells: HashSet<Span>,
     /// See [`Modules::binding_decorators`].
     binding_decorators: HashMap<Span, Vec<ast::Decorator>>,
     /// See [`Modules::type_decorators`].
@@ -775,8 +779,11 @@ impl Resolver {
                     }
                     // A destructuring pattern's annotation types the whole value, so its
                     // names get their types from the initializer.
+                    // (A `reactive` binding's type comes from its `__reactive<T>(v)` cell.)
                     let ann = match &pat.kind {
-                        ast::PatternKind::Ident(_) => ty.as_ref(),
+                        ast::PatternKind::Ident(_) if *kind != ast::BindingKind::Reactive => {
+                            ty.as_ref()
+                        }
                         _ => None,
                     };
                     let mut names = Vec::new();
@@ -789,6 +796,14 @@ impl Resolver {
                         // Annotations are resolved once every type is declared.
                         if let Some(t) = ann {
                             pending_globals.push((id, t));
+                        }
+                        let call_init = matches!(&stmt.kind,
+                            ast::StmtKind::Let { init: Some(i), .. }
+                                if matches!(strip_parens(i).kind, ast::ExprKind::Call { .. }));
+                        if *kind == ast::BindingKind::Reactive
+                            || (*kind == ast::BindingKind::Const && call_init)
+                        {
+                            self.maybe_cells.insert(name.span);
                         }
                         self.globals.push(Binding {
                             name: name.name.clone(),
@@ -976,7 +991,30 @@ impl Resolver {
             generator: false,
         });
 
+        let reactive_class = self
+            .top_structs
+            .prelude()
+            .find(|(n, _)| *n == "Reactive")
+            .map(|(_, v)| v)
+            .copied();
+        // `computed(getter)`, not `computed({ get, set })`: the overload taking a function.
+        let readonly_computed = self
+            .top_fns
+            .prelude()
+            .find(|(n, _)| *n == "computed")
+            .and_then(|(_, ids)| {
+                ids.iter().copied().find(|id| {
+                    self.fns[id.0 as usize].as_ref().is_some_and(|f| {
+                        f.params
+                            .first()
+                            .is_some_and(|p| matches!(f.local(*p).ty, Some(Ty::Fn(..))))
+                    })
+                })
+            });
         Program {
+            reactive_class,
+            readonly_computed,
+            prelude_files: self.prelude_files.clone(),
             file: self.file,
             fns: self
                 .fns
@@ -1129,8 +1167,17 @@ impl Resolver {
             {
                 self.async_methods.insert(f.span);
             }
+            if m.mods.reactive {
+                self.error(
+                    codes::REACTIVE,
+                    m.span,
+                    "a struct's fields can't be `reactive`",
+                    "structs are values: use a class",
+                );
+            }
             let mods_ok = ast::Modifiers {
                 readonly: false,
+                reactive: false,
                 is_static: m.mods.is_static && !is_static,
                 is_async: m.mods.is_async && !matches!(m.kind, ast::MemberKind::Method(_)),
                 ..m.mods
@@ -1356,7 +1403,9 @@ impl Resolver {
         let mut tail = None;
         for (i, stmt) in stmts.iter().enumerate() {
             self.enter_module(stmt.span);
-            let rewritten = self.comptime_binding(stmt);
+            let rewritten = self
+                .comptime_binding(stmt)
+                .or_else(|| self.reactive_binding(stmt));
             let stmt = rewritten.as_ref().unwrap_or(stmt);
             match &stmt.kind {
                 ast::StmtKind::Let {
@@ -2257,6 +2306,7 @@ impl Resolver {
             methods: Vec::new(),
             field_inits: Vec::new(),
             static_inits: Vec::new(),
+            reactive_fields: HashMap::new(),
             static_blocks: Vec::new(),
         };
         let mut seen: HashMap<String, Span> = HashMap::new();
@@ -2386,6 +2436,28 @@ impl Resolver {
                     if *optional {
                         t = t.map(Ty::nullable);
                     }
+                    if m.mods.reactive {
+                        if !self.structs[sid.0 as usize].is_class {
+                            self.error(
+                                codes::REACTIVE,
+                                name.span,
+                                "a struct's fields can't be `reactive`",
+                                "structs are values: use a class",
+                            );
+                        } else if init.is_none() {
+                            self.error(
+                                codes::REACTIVE,
+                                name.span,
+                                format!(
+                                    "the reactive field `{}` needs an initial value",
+                                    name.name
+                                ),
+                                "add `= value`",
+                            );
+                        }
+                        t = t.map(|t| self.reactive_ty(t));
+                        info.reactive_fields.insert(name.name.clone(), ty.as_ref());
+                    }
                     if m.mods.is_static {
                         if init.is_none() && !matches!(t, Some(Ty::Nullable(_))) {
                             self.error(
@@ -2398,7 +2470,8 @@ impl Resolver {
                         let g = GlobalId(self.globals.len() as u32);
                         self.globals.push(Binding {
                             name: format!("{}.{}", cd.name.name, name.name),
-                            mutable: !m.mods.readonly,
+                            // (A reactive one holds its cell: writes go through it.)
+                            mutable: !m.mods.readonly && !m.mods.reactive,
                             ty: t,
                             span: name.span,
                             boxed: false,
@@ -2802,7 +2875,10 @@ impl Resolver {
             }
             for (name, init) in &c.field_inits {
                 let value = match init {
-                    Some(e) => self.lower_expr(e),
+                    Some(e) => match c.reactive_fields.get(&name.name) {
+                        Some(t) => self.lower_expr(&reactive_cell(e, *t)),
+                        None => self.lower_expr(e),
+                    },
                     None => {
                         let nullable = self.structs[sid.0 as usize]
                             .field(&name.name)
@@ -2929,7 +3005,10 @@ impl Resolver {
         let mut stmts = Vec::new();
         for (g, name, init) in &c.static_inits {
             let init = match init {
-                Some(e) => self.lower_expr(e),
+                Some(e) => match c.reactive_fields.get(&name.name) {
+                    Some(t) => self.lower_expr(&reactive_cell(e, *t)),
+                    None => self.lower_expr(e),
+                },
                 None => self.expr(ExprKind::Null, name.span),
             };
             stmts.push(Stmt::Let {
@@ -3841,22 +3920,98 @@ impl Resolver {
         }
     }
 
+    /// Assigning a `const` is an error, but assigning one that may hold a `Reactive<T>` (one
+    /// declared with that type, or initialized by a call) writes the cell (spec §16.2): only
+    /// its type tells, so the type checker decides (`check_assignable`).
     fn check_mutable(&mut self, var: Var, span: Span) {
         let b = match var {
             Var::Local(l) => &self.f.locals[l.0 as usize],
             Var::Global(g) => &self.globals[g.0 as usize],
         };
-        if !b.mutable {
-            let (name, decl) = (b.name.clone(), b.span);
-            self.diags.push(
-                Diagnostic::error(codes::ASSIGN_TO_CONST, format!("cannot assign to `{name}`"))
-                    .primary(span, "assignment to a constant")
-                    .secondary(decl, "declared with `const` here")
-                    .help(format!(
-                        "declare it with `let` to reassign it: `let {name} = …`"
-                    )),
+        let cell_type = matches!(&b.ty, Some(Ty::Class(_, name, _)) if &**name == "Reactive");
+        if b.mutable || cell_type || self.maybe_cells.contains(&b.span) {
+            return;
+        }
+        let (name, decl) = (b.name.clone(), b.span);
+        self.diags.push(
+            Diagnostic::error(codes::ASSIGN_TO_CONST, format!("cannot assign to `{name}`"))
+                .primary(span, "assignment to a constant")
+                .secondary(decl, "declared with `const` here")
+                .help(format!(
+                    "declare it with `let` to reassign it: `let {name} = …`"
+                )),
+        );
+    }
+
+    /// `Reactive<t>` (spec §16.1).
+    fn reactive_ty(&self, t: Ty) -> Ty {
+        match self
+            .top_structs
+            .prelude()
+            .find(|(n, _)| *n == "Reactive")
+            .map(|(_, v)| *v)
+        {
+            Some(sid) => Ty::Class(sid, "Reactive".into(), std::sync::Arc::from([t])),
+            None => Ty::Error,
+        }
+    }
+
+    /// `reactive x: T = v` (spec §16.1) as `const x: Reactive<T> = __reactive<T>(v)`.
+    fn reactive_binding(&mut self, s: &ast::Stmt) -> Option<ast::Stmt> {
+        let ast::StmtKind::Let {
+            kind: ast::BindingKind::Reactive,
+            pat,
+            ty,
+            init,
+            comptime,
+        } = &s.kind
+        else {
+            return None;
+        };
+        if !matches!(pat.kind, ast::PatternKind::Ident(_)) {
+            self.error(
+                codes::REACTIVE,
+                pat.span,
+                "a `reactive` binding can't be a destructuring pattern",
+                "not a name",
             );
         }
+        if *comptime {
+            self.error(
+                codes::REACTIVE,
+                s.span,
+                "a `reactive` binding can't be `comptime`",
+                "here",
+            );
+        }
+        let Some(init) = init else {
+            self.error(
+                codes::REACTIVE,
+                s.span,
+                "a `reactive` binding needs an initial value",
+                "no `= value`",
+            );
+            return Some(ast::Stmt {
+                kind: ast::StmtKind::Let {
+                    kind: ast::BindingKind::Const,
+                    pat: pat.clone(),
+                    ty: ty.as_ref().map(reactive_type),
+                    init: None,
+                    comptime: false,
+                },
+                span: s.span,
+            });
+        };
+        Some(ast::Stmt {
+            kind: ast::StmtKind::Let {
+                kind: ast::BindingKind::Const,
+                pat: pat.clone(),
+                ty: ty.as_ref().map(reactive_type),
+                init: Some(reactive_cell(init, ty.as_ref())),
+                comptime: false,
+            },
+            span: s.span,
+        })
     }
 
     // ------------------------------------------------------------ types
@@ -4600,6 +4755,14 @@ impl Resolver {
                 }
             }
             ast::StmtKind::Let {
+                kind: ast::BindingKind::Reactive,
+                ..
+            } => {
+                if let Some(st) = self.reactive_binding(s) {
+                    self.lower_stmt(&st, out, tail);
+                }
+            }
+            ast::StmtKind::Let {
                 kind,
                 pat,
                 ty,
@@ -4623,6 +4786,14 @@ impl Resolver {
                     }
                     return;
                 };
+                if *kind == ast::BindingKind::Const
+                    && matches!(
+                        init.as_ref().map(|e| &strip_parens(e).kind),
+                        Some(ast::ExprKind::Call { .. })
+                    )
+                {
+                    self.maybe_cells.insert(name.span);
+                }
                 let init = init.as_ref().map(|e| self.lower_expr(e));
                 let id = self.declare_block_local(name, *kind == ast::BindingKind::Let, ty);
                 // A local `comptime const`: later comptime code runs its thunk again.
@@ -6627,6 +6798,9 @@ struct ClassInfo<'a> {
     methods: Vec<(FnId, &'a ast::FnDecl, Option<StructId>, bool)>,
     field_inits: Vec<(&'a ast::Ident, Option<&'a ast::Expr>)>,
     static_inits: Vec<(GlobalId, &'a ast::Ident, Option<&'a ast::Expr>)>,
+    /// `reactive` fields (spec §16.1), with their annotated value type: their initializer
+    /// becomes `__reactive<T>(init)`.
+    reactive_fields: HashMap<String, Option<&'a ast::Type>>,
     static_blocks: Vec<&'a ast::Block>,
 }
 
@@ -7284,5 +7458,38 @@ impl Resolver {
             "not inside an `async function`",
         );
         ExprKind::Error
+    }
+}
+
+/// `Reactive<t>`.
+fn reactive_type(t: &ast::Type) -> ast::Type {
+    ast::Type {
+        kind: ast::TypeKind::Path {
+            path: vec![ast::Ident {
+                name: "Reactive".into(),
+                span: t.span,
+            }],
+            args: vec![t.clone()],
+        },
+        span: t.span,
+    }
+}
+
+/// `__reactive<t>(init)` (or `__reactive(init)`): a new reactive cell (spec §16.1).
+fn reactive_cell(init: &ast::Expr, t: Option<&ast::Type>) -> ast::Expr {
+    ast::Expr {
+        kind: ast::ExprKind::Call {
+            callee: Box::new(ast::Expr {
+                kind: ast::ExprKind::Ident("__reactive".into()),
+                span: init.span,
+            }),
+            type_args: t.into_iter().cloned().collect(),
+            args: vec![ast::Arg {
+                name: None,
+                spread: false,
+                value: init.clone(),
+            }],
+        },
+        span: init.span,
     }
 }

@@ -1,9 +1,9 @@
 // Spec §16.3: a computed getter can't throw.
 // error: E0336
-const n = __reactive(0)
-const c = computed(() => {
-  if (n.__get() < 0) {
+reactive n = 0
+const c = computed<int>(() => {
+  if (n < 0) {
     throw new Error("negative")
   }
-  n.__get()
+  n
 })

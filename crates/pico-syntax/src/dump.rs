@@ -479,6 +479,7 @@ pub fn stmt_s(s: &Stmt) -> S {
                 (BindingKind::Const, true) => "comptime-const",
                 (BindingKind::Let, false) => "let",
                 (BindingKind::Let, true) => "comptime-let",
+                (BindingKind::Reactive, _) => "reactive",
             };
             let mut items = vec![pat_s(pat)];
             if let Some(t) = ty {
@@ -523,7 +524,7 @@ pub fn stmt_s(s: &Stmt) -> S {
             if *is_await { "for-await-of" } else { "for-of" },
             vec![
                 atom(match kind {
-                    BindingKind::Const => "const",
+                    BindingKind::Const | BindingKind::Reactive => "const",
                     BindingKind::Let => "let",
                 }),
                 pat_s(pat),
@@ -566,6 +567,7 @@ fn mods_words(m: &Modifiers) -> Vec<S> {
         (m.override_, "override"),
         (m.readonly, "readonly"),
         (m.is_async, "async"),
+        (m.reactive, "reactive"),
     ] {
         if on {
             w.push(atom(name));

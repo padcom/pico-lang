@@ -95,6 +95,12 @@ impl Parser {
                 self.bump();
                 self.let_stmt(true)
             }
+            // `reactive name …` (spec §16.1; `reactive` is contextual).
+            TokenKind::Ident(w)
+                if w == "reactive" && matches!(self.peek_nth(1), TokenKind::Ident(_)) =>
+            {
+                self.let_stmt(false)
+            }
             TokenKind::Kw(Kw::Using) => self.using_stmt(false),
             TokenKind::Kw(Kw::Await) if self.peek_nth(1).is_kw(Kw::Using) => {
                 self.bump();
@@ -141,6 +147,8 @@ impl Parser {
     pub(super) fn let_stmt(&mut self, comptime: bool) -> StmtKind {
         let kind = if self.eat_kw(Kw::Const) {
             BindingKind::Const
+        } else if self.eat_word("reactive") {
+            BindingKind::Reactive
         } else {
             self.bump();
             BindingKind::Let

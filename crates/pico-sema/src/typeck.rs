@@ -78,6 +78,13 @@ pub struct Types {
     pub arg_slots: HashMap<ExprId, Vec<Slot>>,
     /// The overload each call of an overloaded name picked.
     pub overloads: HashMap<ExprId, FnId>,
+    /// Assignments and `++`/`--` that write a reactive cell (spec §16.2): lowering calls
+    /// `__set`.
+    pub reactive_writes: HashSet<ExprId>,
+    /// Names of reactive bindings read as their value (spec §16.2), with the cell's type: the
+    /// expression's type is the value's, and lowering reads the cell with `__get`. (Other
+    /// expressions of type `Reactive<T>` where a `T` is expected are coercions.)
+    pub cell_reads: HashMap<ExprId, Ty>,
     /// Operators and protocol uses that call a user method (`operator +`, `equals`,
     /// `compareTo`, `[]`, `[]=`), by the operator/assignment expression.
     pub op_calls: HashMap<ExprId, FnId>,
@@ -198,6 +205,8 @@ impl Types {
             formattables: self.formattables.clone(),
             arg_slots: self.arg_slots.clone(),
             overloads: self.overloads.clone(),
+            reactive_writes: self.reactive_writes.clone(),
+            cell_reads: self.cell_reads.iter().map(|(k, t)| (*k, s(t))).collect(),
             op_calls: self.op_calls.clone(),
             derived: self.derived.clone(),
         }
@@ -251,6 +260,8 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             recv_args: HashMap::new(),
             arg_slots: HashMap::new(),
             overloads: HashMap::new(),
+            reactive_writes: HashSet::new(),
+            cell_reads: HashMap::new(),
             op_calls: HashMap::new(),
             derived: HashMap::new(),
             param_calls: HashMap::new(),
@@ -260,6 +271,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             formattables: HashMap::new(),
         },
         narrow: Vec::new(),
+        readonly_cells: HashSet::new(),
         unsafe_depth: 0,
         inherit_unsafe: false,
         method_type_args: Vec::new(),
@@ -385,6 +397,8 @@ struct Checker<'p> {
     /// Flow-sensitive narrowing: scopes mapping variables to the type they're known to have
     /// (`T` for a `T?` binding after `x != null`).
     narrow: Vec<HashMap<Var, Ty>>,
+    /// `const`s initialized with a read-only `computed(getter)`: assigning them is E0357.
+    readonly_cells: HashSet<Var>,
     /// Inside `unsafe { }` blocks or an `unsafe function` (spec §9.5) when non-zero.
     unsafe_depth: u32,
     /// The next function checked is a closure (it inherits the unsafe context).
@@ -824,6 +838,14 @@ impl<'p> Checker<'p> {
             _ => false,
         };
         if found.widens_to(&want.ty) || self.upcasts(&found, &want.ty) || into_union {
+            self.types.coercions.insert(e.id, want.ty.clone());
+            return want.ty.clone();
+        }
+        // A cell where its value is expected: a read (then the value's own widening).
+        if let Some(inner) = self.reactive_arg(&found, e.span)
+            && self.reactive_arg(&want.ty, e.span).is_none()
+            && (inner == want.ty || inner.widens_to(&want.ty) || self.upcasts(&inner, &want.ty))
+        {
             self.types.coercions.insert(e.id, want.ty.clone());
             return want.ty.clone();
         }
@@ -1568,6 +1590,27 @@ impl<'p> Checker<'p> {
                 Ty::Error
             }
         };
+        if self.reactive_arg(&t, span).is_some() {
+            if b.mutable {
+                self.diags.push(
+                    Diagnostic::error(codes::REACTIVE, format!("a `let` can't hold a `{t}`"))
+                        .primary(b.span, "declared with `let`")
+                        .help("declare it with `const`: assigning it writes the cell (spec §16.2)"),
+                );
+            }
+            // `const c = computed(getter)`: assigning `c` would panic, so it's an error.
+            if let Some(init) = init
+                && let ExprKind::Call { callee, .. } = &init.kind
+            {
+                let f = match &callee.kind {
+                    ExprKind::Fn(id) => Some(*id),
+                    _ => self.types.overloads.get(&init.id).copied(),
+                };
+                if f.is_some() && f == self.program.readonly_computed {
+                    self.readonly_cells.insert(var);
+                }
+            }
+        }
         self.set_var_ty(var, t);
     }
 
@@ -1576,7 +1619,8 @@ impl<'p> Checker<'p> {
     fn infer_with(&mut self, e: &Expr, want: Option<&Expect>) -> Ty {
         if self.reuse == Some(e.id) {
             self.reuse = None;
-            return self.types.exprs[e.id.0 as usize].clone();
+            let t = self.types.exprs[e.id.0 as usize].clone();
+            return self.read_cell(e, t, want);
         }
         let t = self.expr_kind(e, want);
         // What's read through an `immutable` view is immutable too (deeply).
@@ -1588,7 +1632,40 @@ impl<'p> Checker<'p> {
             }
             _ => t,
         };
-        self.set(e, t)
+        let t = self.set(e, t);
+        self.read_cell(e, t, want)
+    }
+
+    /// `T` for a `Reactive<T>` (spec §16), outside the core library (where it's an ordinary
+    /// class).
+    fn reactive_arg(&self, t: &Ty, span: Span) -> Option<Ty> {
+        match t {
+            Ty::Class(sid, _, args)
+                if Some(*sid) == self.program.reactive_class
+                    && !self.program.prelude_files.contains(&span.file) =>
+            {
+                args.first().cloned()
+            }
+            _ => None,
+        }
+    }
+
+    /// Naming a reactive binding (a variable or a field holding a `Reactive<T>`) reads its
+    /// value, unless a `Reactive<T>` is expected (spec §16.2): lowering turns it into a
+    /// tracked `__get()`.
+    fn read_cell(&mut self, e: &Expr, t: Ty, want: Option<&Expect>) -> Ty {
+        if !matches!(e.kind, ExprKind::Var(_) | ExprKind::Member { .. }) {
+            return t;
+        }
+        let Some(inner) = self.reactive_arg(&t, e.span) else {
+            return t;
+        };
+        if want.is_some_and(|w| self.reactive_arg(&w.ty, e.span).is_some()) {
+            return t;
+        }
+        self.types.cell_reads.insert(e.id, t);
+        self.types.exprs[e.id.0 as usize] = inner.clone();
+        inner
     }
 
     /// `immutable t`, or just `t` when it holds no references (a copy can't reach anything).
@@ -2037,8 +2114,34 @@ impl<'p> Checker<'p> {
                 }
                 Ty::Void
             }
+            ExprKind::Assign { op, target, value }
+                if !self.creates_cell(value) && self.reactive_target(target, e.span).is_some() =>
+            {
+                let inner = self.reactive_target(target, e.span).expect("checked");
+                self.write_cell(e, target);
+                match op {
+                    None => {
+                        self.check(value, &Expect::new(inner));
+                    }
+                    Some(BinOp::And | BinOp::Or | BinOp::Nullish) => {
+                        self.infer(value);
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::NOT_IMPLEMENTED,
+                                "`&&=`, `||=` and `??=` on reactive state",
+                            )
+                            .primary(e.span, "not implemented yet"),
+                        );
+                    }
+                    Some(op) => {
+                        self.compound(e, *op, inner, value);
+                    }
+                }
+                Ty::Void
+            }
             ExprKind::Assign { op, target, value } => {
                 let (vt, origin) = self.target_ty(target);
+                self.check_assignable(target, e.span);
                 if !self.arenas.is_empty() && self.holds_refs(&vt) {
                     let root = match target {
                         Target::Var(v) => Some(*v),
@@ -2075,6 +2178,15 @@ impl<'p> Checker<'p> {
                 if let Target::Var(v) = target {
                     self.forget(*v);
                 }
+                if let Some(inner) = self.reactive_target(target, e.span) {
+                    self.write_cell(e, target);
+                    if !inner.is_int() && !inner.is_error() {
+                        self.invalid_operand(e.span, "`++`/`--`", &inner, "an integer");
+                        return Ty::Error;
+                    }
+                    return inner;
+                }
+                self.check_assignable(target, e.span);
                 let (t, _) = self.target_ty(target);
                 if !t.is_int() && !t.is_error() {
                     self.invalid_operand(e.span, "`++`/`--`", &t, "an integer");
@@ -3901,6 +4013,83 @@ impl<'p> Checker<'p> {
                 Ty::Error
             }
         }
+    }
+
+    /// `T` when an assignment target holds a reactive cell (a write, spec §16.2). Looks at
+    /// the target's type without checking it (`write_cell` and `target_ty` do).
+    fn reactive_target(&mut self, t: &Target, span: Span) -> Option<Ty> {
+        let ty = match t {
+            Target::Var(v) => {
+                let span = self.var_binding(*v).span;
+                self.var_ty(*v, span)
+            }
+            Target::Field { object, name, .. } => {
+                let ot = self.peek_type(object)?.strip_immutable();
+                let sid = match ot {
+                    Ty::Class(sid, _, _) | Ty::Struct(sid, _, _) => sid,
+                    _ => return None,
+                };
+                let def = self.program.struct_def(sid);
+                let (_, f) = def.field(name)?;
+                let args = ot.type_args().to_vec();
+                f.ty.subst(Ty::type_owner(sid), &args)
+            }
+            Target::Index { .. } => return None,
+        };
+        self.reactive_arg(&ty, span)
+    }
+
+    /// `__reactive(v)`: a field initializer storing a new cell (not a write of one).
+    fn creates_cell(&self, value: &Expr) -> bool {
+        let ExprKind::Call { callee, .. } = &value.kind else {
+            return false;
+        };
+        matches!(&callee.kind, ExprKind::Fn(id)
+            if self.program.func(*id).name == "__reactive"
+                && self.program.prelude_files.contains(&self.program.func(*id).span.file))
+    }
+
+    /// Records a write of a reactive cell, checking the target (and that it isn't a read-only
+    /// `computed`).
+    fn write_cell(&mut self, e: &Expr, target: &Target) {
+        self.target_ty(target);
+        self.types.reactive_writes.insert(e.id);
+        if let Target::Var(v) = target
+            && self.readonly_cells.contains(v)
+        {
+            let b = self.var_binding(*v);
+            let (name, decl) = (b.name.clone(), b.span);
+            self.diags.push(
+                Diagnostic::error(
+                    codes::REACTIVE,
+                    format!("`{name}` is a read-only `computed`"),
+                )
+                .primary(e.span, "can't be assigned")
+                .secondary(decl, "declared with `computed(getter)` here")
+                .help("pass `{ get, set }` to `computed` to make it writable"),
+            );
+        }
+    }
+
+    /// Assignments to a `const` binding (other than writes of a reactive cell, which the
+    /// resolver can't tell apart).
+    fn check_assignable(&mut self, t: &Target, span: Span) {
+        let Target::Var(v) = t else {
+            return;
+        };
+        let b = self.var_binding(*v);
+        if b.mutable {
+            return;
+        }
+        let (name, decl) = (b.name.clone(), b.span);
+        self.diags.push(
+            Diagnostic::error(codes::ASSIGN_TO_CONST, format!("cannot assign to `{name}`"))
+                .primary(span, "assignment to a constant")
+                .secondary(decl, "declared with `const` here")
+                .help(format!(
+                    "declare it with `let` to reassign it: `let {name} = …`"
+                )),
+        );
     }
 
     /// The type of an assignment target, and the span that declared it.
@@ -6364,6 +6553,18 @@ impl<'p> Checker<'p> {
                 } else {
                     let at = if lambda {
                         self.infer_with(a, Some(&Expect::new(known)))
+                    } else if let (
+                        ExprKind::Object {
+                            ty: None, fields, ..
+                        },
+                        Ty::Struct(sid, _, _),
+                    ) = (&a.kind, *p)
+                    {
+                        // `f({ get: …, set: … })` for `f<T>(o: Options<T>)`: the literal
+                        // builds the parameter's struct, its type arguments inferred from
+                        // the fields (as for `Options { … }`).
+                        let t = self.object(a, Some(*sid), fields, &[], None);
+                        self.set(a, t)
                     } else {
                         self.infer(a)
                     };

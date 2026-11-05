@@ -40,6 +40,12 @@ pub struct Program {
     pub error_class: Option<StructId>,
     /// The prelude's `Iterator<T>` class.
     pub iterator_class: Option<StructId>,
+    /// The prelude's `Reactive<T>` class (spec §16), and its `computed(getter)` function.
+    pub reactive_class: Option<StructId>,
+    pub readonly_computed: Option<FnId>,
+    /// The core library's files: reactive cells aren't transparent there (`Reactive<T>` is an
+    /// ordinary class in its own implementation).
+    pub prelude_files: std::collections::HashSet<pico_diag::FileId>,
     /// The prelude's `Throwable` interface.
     pub throwable_iface: Option<StructId>,
     /// Methods of built-in types written in pico: top-level functions `__Array_map`,

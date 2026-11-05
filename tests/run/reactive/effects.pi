@@ -16,63 +16,60 @@
 // expect: new object
 // expect: diamond 2
 // expect: diamond 4
-const n = __reactive(0)
-watchEffect(() => println(`a: ${n.__get()}`))
-watchEffect(() => println(`b: ${n.__get()}`))
+reactive n = 0
+watchEffect(() => println(`a: ${n}`))
+watchEffect(() => println(`b: ${n}`))
 println("write 1")
-n.__set(1)
+n = 1
 println("after write 1")
-n.__set(1)
+n = 1
 println("same value: nothing")
 
 // `parity` changes only on some writes: the effect runs only then.
-const m = __reactive(0)
-const parity = computed(() => if (m.__get() % 2 == 0) "even" else "odd")
+reactive m = 0
+const parity = computed(() => if (m % 2 == 0) "even" else "odd")
 let parityRuns = 0
 watchEffect(() => {
   parityRuns += 1
-  println(`parity: ${parity.__get()}`)
+  println(`parity: ${parity}`)
 })
-m.__set(2)
-m.__set(3)
+m = 2
+m = 3
 println(`parity runs ${parityRuns}`)
 
 // An effect's own writes don't trigger it again.
-const count = __reactive(0)
+reactive count = 0
 watchEffect(() => {
-  if (count.__get() < 5) {
-    count.__set(5)
+  if (count < 5) {
+    count = 5
   }
 })
-println(`count ${count.__get()}`)
+println(`count ${count}`)
 
 class Thing {
   constructor(public name: string) {}
 }
-const thing = __reactive(new Thing("x"))
-const t0 = thing.__get()
-watchEffect(() => {
-  thing.__get()
-})
-thing.__set(t0)
-println("same object: nothing")
+reactive thing = new Thing("x")
+const t0 = thing
 let runsT = 0
 const wt = watchEffect(() => {
-  thing.__get()
+  thing
   runsT += 1
 })
-thing.__set(new Thing("y"))
+thing = t0
+println(if (runsT == 1) "same object: nothing" else `runs ${runsT}`)
+thing = new Thing("y")
 println(if (runsT == 2) "new object" else `runs ${runsT}`)
 wt.dispose()
 
 // A diamond: the effect runs once per write, with both sides up to date.
-const base = __reactive(1)
-const left = computed(() => base.__get() * 2)
-const right = computed(() => base.__get() * 2)
+reactive base = 1
+const left = computed(() => base * 2)
+const right = computed(() => base * 2)
 watchEffect(() => {
-  if (left.__get() != right.__get()) {
+  if (left != right) {
     println("glitch")
   }
-  println(`diamond ${left.__get()}`)
+  println(`diamond ${left}`)
 })
-base.__set(2)
+base = 2

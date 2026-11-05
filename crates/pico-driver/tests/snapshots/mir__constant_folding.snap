@@ -103,11 +103,11 @@ fn <main>() -> void {
     @g2 = const null<__Loop?>
     @g3 = const null<FinalizationRegistry<i64>?>
     @g4 = const null<Map<string, __Zone>?>
-    _0 = struct#118{}
+    _0 = struct#119{}
     @g5 = _0
     @g6 = const null<__Xoshiro128?>
-    _1 = struct#129{}
-    _2 = struct#130{_1}
+    _1 = struct#130{}
+    _2 = struct#131{_1}
     @g7 = _2
     @g8 = const 1024_i64
     @g9 = const 1048576_i64

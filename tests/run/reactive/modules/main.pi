@@ -1,0 +1,8 @@
+// Spec §16.1: an exported reactive binding is the same cell in every module.
+// expect: count 0
+// expect: count 1
+// expect: count 10
+import { bump, count } from "./store"
+watchEffect(() => println(`count ${count}`))
+bump()
+count = 10

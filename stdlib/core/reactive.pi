@@ -382,9 +382,17 @@ function computed<T>(getter: () => T): Reactive<T> {
   __computed(getter, null)
 }
 
-/// A computed value that can be written: writing it calls `setter`.
-function __writableComputed<T>(getter: () => T, setter: (v: T) => void): Reactive<T> {
-  __computed(getter, setter)
+/// What `computed({ get, set })` takes: a getter and a setter (spec §16.3).
+struct ComputedOptions<T> {
+  /// Computes the value from reactive state.
+  get: () => T
+  /// Writing the computed value calls it.
+  set: (v: T) => void
+}
+
+/// A computed value that can be written: writing it calls `options.set` (spec §16.3).
+function computed<T>(options: ComputedOptions<T>): Reactive<T> {
+  __computed(options.get, options.set)
 }
 
 /// Stops an effect (spec §16.4).

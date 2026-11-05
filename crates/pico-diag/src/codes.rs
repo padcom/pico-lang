@@ -151,6 +151,7 @@ codes! {
     DECORATOR = 354: "an error reported by a decorator, or a decorator used wrongly",
     EXPORT_TYPE = 355: "an `@export`ed or `extern` function whose signature can't cross to JavaScript or C",
     UNAVAILABLE = 356: "a module or feature that isn't available on the target",
+    REACTIVE = 357: "reactive state used where it isn't allowed",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

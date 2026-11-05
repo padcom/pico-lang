@@ -1,9 +1,9 @@
 // Spec §16.3: a computed getter can't write reactive state.
 // panic: a computed getter wrote reactive state
-const n = __reactive(0)
-const log = __reactive(0)
+reactive n = 0
+reactive log = 0
 const c = computed(() => {
-  log.__set(1)
-  n.__get()
+  log = 1
+  n
 })
-println(c.__get())
+println(c)

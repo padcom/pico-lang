@@ -1,7 +1,7 @@
 # 16. Reactivity
 
 Reactive state in the style of Vue: values that know who reads them, values computed from them,
-and effects that run again when they change. Decisions 288–293 and 299–307.
+and effects that run again when they change. Decisions 288–293 and 299–308.
 
 ```ts
 reactive price = 10
@@ -29,8 +29,8 @@ class Counter {
 ```
 - `reactive` is a **contextual** keyword: it starts a declaration when it's followed by a name at
   the start of a statement or class member, and is an ordinary identifier everywhere else.
-- A reactive local or module-level binding needs an initializer. A reactive field follows the
-  rules for fields (§6.1): an initializer or definite assignment in every constructor.
+- A reactive binding needs an initial value, a reactive field too (E0357): its cell exists
+  before the constructor runs, so assigning it in the constructor is a write.
 - `T` comes from the type annotation or the initializer, as for `let` (§4). Reactive bindings
   can't be destructuring patterns, `comptime`, or fields of structs (structs are values, §2).
 
@@ -64,7 +64,7 @@ const alias: Reactive<int> = n                       // the same cell
   `Reactive<T>`) gives the cell; where a `T` is expected, it's read.
 - For now, `Reactive<T>` is allowed only as the type of a reactive binding (`const`, parameter,
   field) and as a function's return type: not in `let` bindings (rebinding and writing would be
-  ambiguous), array elements, type arguments, unions or nullables (compile errors).
+  ambiguous; E0357), array elements, type arguments, unions or nullables.
 - Reactive values don't cross into C, JavaScript (`@export`) or `comptime` code.
 
 ## 16.3 `computed`
@@ -88,13 +88,15 @@ const name = computed({
 })
 name = "Grace Hopper"                                 // calls set
 ```
-- `computed(get: () => T): Reactive<T>` and
-  `computed(options: { get: () => T, set: (v: T) => void }): Reactive<T>`.
+- `computed(getter: () => T): Reactive<T>` and `computed(options: ComputedOptions<T>):
+  Reactive<T>`, where `ComputedOptions<T>` is a struct `{ get: () => T, set: (v: T) => void }`
+  built from the object literal.
 - **Lazy** (decision 291): the getter first runs when the value is first read. Its result is
   cached until something it read changes, which only marks it **dirty**; the getter runs again at
   the next read. Its dependencies are the ones its last run read (they can differ between runs).
-- Assigning to a read-only computed is a compile error. Assigning to a writable one calls `set`
-  with the value; `set`'s own writes trigger as usual.
+- Assigning to a read-only computed is a compile error (E0357) where the binding is a `const`
+  initialized with `computed(getter)`; elsewhere (through a parameter, a field) it panics.
+  Assigning to a writable one calls `set` with the value; `set`'s own writes trigger as usual.
 - A getter must not write reactive state: a write during a getter panics. A computed that reads
   itself while it's computing (directly or through others) panics.
 - Getters and setters can't throw (decision 307): their types have no `throws` (§7.2), so a

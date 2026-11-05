@@ -1112,9 +1112,20 @@ Vue-like reactive state (the author, 2026-11-03): `reactive` declarations of `Re
 - **Done when**: golden tests of tracking, caching, invalidation and cleanup pass.
 
 ### P11.3 Compiler support
-- **Do**: the `reactive` keyword, and typing `Reactive<T>` reads and writes (transparent access
-  where the spec says so).
-- **Done when**: golden and fail tests of the syntax and typing pass.
+Split (2026-11-05) into:
+
+#### P11.3a Reactive bindings
+- **Do**: the `reactive` keyword (bindings, fields, exports), typing `Reactive<T>` reads and
+  writes (transparent access, cells passed where `Reactive<T>` is expected), `computed({ get,
+  set })`, E0357.
+- **Done when**: golden and fail tests of the syntax and typing pass (decision 308).
+
+#### P11.3b Deep reactivity
+- **Do**: object-level tracking (spec §16.6, decisions 299 and 306): a per-object dependency
+  for objects, arrays, maps and sets reached through tracked reads, a flag test on every field
+  write and collection mutation, and the triggers.
+- **Done when**: golden tests of §16.6 pass (interpreted and native), and a benchmark shows the
+  cost on code without reactivity.
 
 ### P11.4 Effects in the event loop
 - **Do**: batching, and when `watchEffect` runs again (synchronously or in a microtask, per the

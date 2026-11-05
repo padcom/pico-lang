@@ -1,0 +1,46 @@
+// Spec §16.1–16.2: reactive bindings are read and written transparently; a parameter or
+// return type `Reactive<T>` takes the cell itself, anything else its value.
+// expect: total: 20
+// expect: total: 30
+// expect: total: 40
+// expect: total: 50
+// expect: 50
+// expect: 4
+// expect: 2 20
+// expect: 20
+// expect: hi! 3
+// expect: 1.5
+reactive price = 10
+reactive qty = 2
+const total = computed(() => price * qty)
+const log = watchEffect(() => println(`total: ${total}`))
+qty = 3
+qty += 1
+qty++
+log.dispose()
+qty = 5
+println(total)
+
+function increment(c: Reactive<int>) {
+  c += 1
+}
+function useDouble(c: Reactive<int>): Reactive<int> {
+  computed(() => c * 2)
+}
+reactive n = 1
+increment(n)
+const d = useDouble(n)
+println(d)
+const snapshot = n
+n = 10
+println(`${snapshot} ${d}`)
+const alias: Reactive<int> = n
+alias = 20
+println(n)
+
+reactive greeting: string = "hi"
+greeting += "!"
+println(`${greeting} ${greeting.length}`)
+reactive ratio: f64 = 1
+ratio += 0.5
+println(ratio)

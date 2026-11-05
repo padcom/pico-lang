@@ -1,0 +1,7 @@
+/// A counter shared by the modules that import it.
+export reactive count = 0
+
+/// Adds one.
+export function bump() {
+  count++
+}

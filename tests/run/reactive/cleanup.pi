@@ -11,35 +11,36 @@
 // expect: doubled 8
 // expect: getter runs 2
 // expect: done
-const n = __reactive(0)
-const h = watchEffect(() => println(`e ${n.__get()}`))
-n.__set(1)
+reactive n = 0
+const h = watchEffect(() => println(`e ${n}`))
+n = 1
 h.dispose()
 h.dispose()
 {
-  using u = watchEffect(() => println(`u ${n.__get()}`))
-  n.__set(2)
+  using u = watchEffect(() => println(`u ${n}`))
+  n = 2
 }
 let getterRuns = 0
-let doubled: Reactive<int>? = null
+let doubled: (() => int)? = null
 const scope = effectScope(() => {
-  watchEffect(() => println(`scoped ${n.__get()}`))
+  watchEffect(() => println(`scoped ${n}`))
   effectScope(() => {
-    watchEffect(() => println(`inner ${n.__get()}`))
+    watchEffect(() => println(`inner ${n}`))
   })
-  doubled = computed(() => {
+  const d = computed(() => {
     getterRuns += 1
-    n.__get() * 2
+    n * 2
   })
+  doubled = () => d
 })
-n.__set(3)
+n = 3
 scope.dispose()
-n.__set(4)
+n = 4
 // A stopped computed runs its getter at every read, uncached.
-const d = doubled
-if (d != null) {
-  println(`doubled ${d.__get()}`)
-  d.__get()
+const read = doubled
+if (read != null) {
+  println(`doubled ${read()}`)
+  read()
 }
 println(`getter runs ${getterRuns}`)
 println("done")

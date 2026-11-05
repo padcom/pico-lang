@@ -2527,7 +2527,10 @@ impl FnBuilder<'_, '_> {
 
     /// Lowers `e` and applies its recorded coercion.
     fn expr(&mut self, e: &Expr) -> Operand {
-        let v = self.expr_inner(e);
+        let mut v = self.expr_inner(e);
+        if let Some(cell) = self.cx.types.cell_reads.get(&e.id).cloned() {
+            v = self.cell_get(v, &cell, e.span);
+        }
         match self.cx.types.coercions.get(&e.id).cloned() {
             Some(to) => {
                 let from = self.ty(e);
@@ -2540,6 +2543,14 @@ impl FnBuilder<'_, '_> {
     fn convert(&mut self, v: Operand, from: &Ty, to: &Ty, span: Span) -> Operand {
         if from == to || *from == Ty::Never {
             return v;
+        }
+        // A reactive cell read as its value (spec §16.2): `__get()`, then the value's own
+        // conversion.
+        if let Some(inner) = self.reactive_arg(from)
+            && self.reactive_arg(to).is_none()
+        {
+            let v = self.cell_get(v, from, span);
+            return self.convert(v, &inner, to, span);
         }
         if *from == Ty::Null {
             return Operand::Const(Const::Null(to.clone()));
@@ -2834,6 +2845,11 @@ impl FnBuilder<'_, '_> {
                 self.rvalue_to_temp(Rvalue::Unary(op, v), ty, e.span)
             }
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, ty),
+            ExprKind::Assign { .. } | ExprKind::IncDec { .. }
+                if self.cx.types.reactive_writes.contains(&e.id) =>
+            {
+                self.cell_write(e)
+            }
             ExprKind::Assign {
                 op: None,
                 target: hir::Target::Index { object, index },
@@ -5850,6 +5866,115 @@ impl FnBuilder<'_, '_> {
             );
         }
         acc
+    }
+
+    /// `T` for a `Reactive<T>` (spec §16).
+    fn reactive_arg(&self, t: &Ty) -> Option<Ty> {
+        match t {
+            Ty::Class(sid, _, args) if Some(*sid) == self.cx.program.reactive_class => {
+                args.first().cloned()
+            }
+            _ => None,
+        }
+    }
+
+    /// Calls the cell's `__get` or `__set` method.
+    fn cell_call(
+        &mut self,
+        name: &str,
+        args: Vec<Operand>,
+        cell: &Ty,
+        ret: Ty,
+        span: Span,
+    ) -> Operand {
+        let sid = self
+            .cx
+            .program
+            .reactive_class
+            .expect("the prelude's Reactive");
+        let m = self
+            .cx
+            .program
+            .struct_def(sid)
+            .method(name)
+            .expect("Reactive's methods");
+        let m = self.method_of(m, cell);
+        self.call_fn_value(m, args, ret, span)
+    }
+
+    /// A tracked read of a reactive cell.
+    fn cell_get(&mut self, cell: Operand, cell_ty: &Ty, span: Span) -> Operand {
+        let t = self.reactive_arg(cell_ty).expect("a cell");
+        self.cell_call("__get", vec![cell], cell_ty, t, span)
+    }
+
+    /// A write of a reactive cell (it triggers what depends on it).
+    fn cell_set(&mut self, cell: Operand, cell_ty: &Ty, v: Operand, span: Span) {
+        self.cell_call("__set", vec![cell, v], cell_ty, Ty::Void, span);
+    }
+
+    /// `x = v`, `x op= v` and `x++` where `x` holds a reactive cell (spec §16.2).
+    fn cell_write(&mut self, e: &Expr) -> Operand {
+        let (target, op, value, incdec) = match &e.kind {
+            ExprKind::Assign { op, target, value } => (target, *op, Some(&**value), None),
+            ExprKind::IncDec {
+                target,
+                inc,
+                prefix,
+            } => (target, None, None, Some((*inc, *prefix))),
+            _ => unreachable!("a write"),
+        };
+        let mut checks = Vec::new();
+        let place = self.target_place(target, &mut checks);
+        self.emit_checks(&checks);
+        let cell_ty = self.place_ty(&place);
+        let t = self.reactive_arg(&cell_ty).expect("a cell");
+        let cell = Place::local(self.temp(cell_ty.clone()));
+        self.assign(cell.clone(), Rvalue::Use(Operand::Copy(place)), e.span);
+        let cell = Operand::Copy(cell);
+        if let Some((inc, prefix)) = incdec {
+            let Ty::Int(it) = t else {
+                return Operand::Const(Const::Void);
+            };
+            let old = self.cell_get(cell.clone(), &cell_ty, e.span);
+            let old = self.rvalue_to_temp(Rvalue::Use(old), t.clone(), e.span);
+            let op = if inc {
+                mir::BinOp::Add
+            } else {
+                mir::BinOp::Sub
+            };
+            let new = self.rvalue_to_temp(
+                Rvalue::Binary(op, old.clone(), Operand::Const(Const::Int(1, it))),
+                t,
+                e.span,
+            );
+            self.cell_set(cell, &cell_ty, new.clone(), e.span);
+            return if prefix { new } else { old };
+        }
+        let value = value.expect("an assignment");
+        let v = match op {
+            None => self.expr(value),
+            Some(op) if self.cx.types.op_calls.contains_key(&e.id) => {
+                // `x += w` with `operator +`.
+                let _ = op;
+                let m = self.cx.types.op_calls[&e.id];
+                let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
+                let mut ops = vec![cur];
+                ops.extend(self.call_operands(e, m, std::slice::from_ref(value)));
+                self.call_fn_value(m, ops, t.clone(), e.span)
+            }
+            Some(op) => {
+                let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
+                let mut rhs = self.expr(value);
+                if op == ast::BinOp::Add && t.erase() == Ty::Str {
+                    let vt = self.cx.types.final_ty(value.id).clone();
+                    rhs = self.stringify(rhs, &vt, value.span);
+                }
+                self.rvalue_to_temp(Rvalue::Binary(bin_op(op), cur, rhs), t.clone(), e.span)
+            }
+        };
+        self.cell_set(cell, &cell_ty, v, e.span);
+        Operand::Const(Const::Void)
     }
 
     /// `__ref_id(x)`: an object's or array's identity.

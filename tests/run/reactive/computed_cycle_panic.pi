@@ -1,9 +1,9 @@
 // Spec §16.3: a computed that reads itself while computing panics.
 // panic: a computed read itself while computing
-let self: Reactive<int>? = null
+let self: (() => int)? = null
 const c = computed(() => {
   const s = self
-  if (s != null) s.__get() + 1 else 0
+  if (s != null) s() + 1 else 0
 })
-self = c
-println(c.__get())
+self = () => c
+println(c)

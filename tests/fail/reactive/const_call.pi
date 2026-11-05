@@ -1,0 +1,4 @@
+// A `const` initialized by a call is still a constant unless it holds a `Reactive<T>`.
+// error: E0204
+const m = Math.max(1, 2)
+m = 3
