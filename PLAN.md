@@ -1077,7 +1077,7 @@ Split (2026-11-05) into three:
 
 ##### P10.10b3 More hosts
 - **Spec**: 14 §14.6
-- **Do**: Windows x64/arm64 and macOS x64 hosts in the release workflow; how pico documents
+- **Do**: Windows x64/arm64 hosts in the release workflow; how pico documents
   the mingw-w64 ZPL notice for programs it builds for Windows.
 - **Done when**: every host archive passes the release workflow's try job.
 

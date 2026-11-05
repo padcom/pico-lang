@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.10b3: More hosts** (see PLAN: Windows x64/arm64 and macOS x64 in the release workflow; the mingw-w64 ZPL notice for Windows programs). Then Phase 11 Reactivity, starting with the P11.1 spec chapter. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
+**P10.10b3: More hosts** (see PLAN: Windows x64/arm64 in the release workflow; the mingw-w64 ZPL notice for Windows programs). Then Phase 11 Reactivity, starting with the P11.1 spec chapter. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
