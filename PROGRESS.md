@@ -255,6 +255,9 @@ Notes:
 - [x] P3.24 Modules
 - [x] P3.25 Destructuring and spread
 - [x] P3.26 `using` and Disposable
+- [ ] P3.27 Map literals (split)
+  - [ ] P3.27a Map literals: keys, computed keys, spreads
+  - [ ] P3.27b JSON and maps
 
 ### Phase 4: Memory management
 - [x] P4.1 Shadow stack and type maps

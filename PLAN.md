@@ -388,6 +388,31 @@ it's easy to link into native and wasm, and it's simple to swap pieces for pico 
   included. (`await using` comes in P5.3.)
 - **Done when**: run tests show the disposal order with and without exceptions.
 
+### P3.27 Map literals
+Added 2026-11-05 by the author (decision 175, spec §2.3): object literals that build `Map`s,
+including spreads, computed keys and JSON. Split into:
+
+#### P3.27a Map literals
+- **Spec**: 02 §2.3, 03 (object literals)
+- **Do**: when the expected type is `Map<K, V>` (also `Map<K, V>?` and unions containing one),
+  an object literal builds that map in source order: identifier and string keys (`K` must be
+  `string`), computed keys `[k]: v` (any `K`), shorthand `{ name }`, and spreads `...m` of a
+  `Map<K, V>`. Parser support for `[expr]: value`; resolver keeps string/computed keys and
+  spreads; typeck checks keys and values; lowering emits `new Map` plus `set` calls (interpreter
+  and native). Errors: duplicate constant keys, non-string `K` with constant keys, spreads or
+  computed keys in struct literals.
+- **Done when**: golden tests of every key form, spreads, nullable/union targets and
+  `Command`'s `env` pass interpreted and native; fail tests for the errors; the spec/TOUR
+  examples compile.
+
+#### P3.27b JSON and maps
+- **Spec**: 11 §11.4
+- **Do**: `JSON.parse<T>` reads a JSON object into `Map<string, V>` (any keys, values checked
+  with paths `field 'env.LANG'`), `JSON.stringify` writes `Map<string, V>` as an object in
+  insertion order; maps nested in structs, arrays and other maps.
+- **Done when**: golden tests of parse/stringify round trips and error messages pass
+  (interpreted and native).
+
 ---
 
 ## Phase 4: Memory management
