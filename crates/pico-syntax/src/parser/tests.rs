@@ -183,6 +183,22 @@ const v = { log("hi"); }
 }
 
 #[test]
+fn dangling_dot_before_a_statement() {
+    // On one line a keyword is a property name; after a line break that starts a statement, the
+    // member access is unfinished.
+    insta::assert_snapshot!(ok(r##"
+const a = o.function
+const b = s.
+  match(re)
+"##));
+}
+
+#[test]
+fn dangling_dot_error() {
+    insta::assert_snapshot!(parse("const q = p.\nfunction f() {}\n"));
+}
+
+#[test]
 fn computed_keys_and_spreads() {
     insta::assert_snapshot!(ok(r##"
 const m = { [k]: 1, "s": 2, ...rest, [f(x)[0]]: 3 }

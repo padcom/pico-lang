@@ -343,11 +343,40 @@ impl Parser {
         self.postfix(e)
     }
 
+    /// `p.` at the end of a line, with a statement keyword starting the next one (`function`,
+    /// `const`, …): an unfinished member access, reported at the dot, rather than a property
+    /// named after the keyword (which `p.function` on one line still is).
+    fn dangling_dot(&mut self, dot: Span) -> bool {
+        let next = &self.tokens[self.pos];
+        if !next.newline_before
+            || !super::starts_statement(&next.kind)
+            || matches!(next.kind, TokenKind::Kw(Kw::Match))
+        {
+            return false;
+        }
+        self.last_error_pos = Some(self.pos);
+        let found = next.kind.describe();
+        self.diags.push(
+            Diagnostic::error(
+                codes::UNEXPECTED_TOKEN,
+                "expected a property name after `.`",
+            )
+            .primary(dot, "the line ends here")
+            .note(format!(
+                "the next line starts with {found}, which begins a new statement"
+            )),
+        );
+        true
+    }
+
     fn postfix(&mut self, mut e: Expr) -> Expr {
         loop {
             match self.peek().clone() {
                 TokenKind::Punct(Punct::Dot) => {
-                    self.bump();
+                    let dot = self.bump().span;
+                    if self.dangling_dot(dot) {
+                        return e;
+                    }
                     let Some(prop) = self.property_name() else {
                         return e;
                     };
@@ -362,7 +391,10 @@ impl Parser {
                     );
                 }
                 TokenKind::Punct(Punct::QDot) => {
-                    self.bump();
+                    let dot = self.bump().span;
+                    if self.dangling_dot(dot) {
+                        return e;
+                    }
                     let Some(prop) = self.property_name() else {
                         return e;
                     };

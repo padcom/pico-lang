@@ -1,0 +1,15 @@
+---
+source: crates/pico-syntax/src/parser/tests.rs
+expression: "parse(\"const q = p.\\nfunction f() {}\\n\")"
+---
+(const q p)
+(function f (params) (block))
+
+--- diagnostics ---
+error[E0100]: expected a property name after `.`
+  ┌─ test.pi:1:12
+  │
+1 │ const q = p.
+  │            ^ the line ends here
+  │
+  = note: the next line starts with keyword `function`, which begins a new statement

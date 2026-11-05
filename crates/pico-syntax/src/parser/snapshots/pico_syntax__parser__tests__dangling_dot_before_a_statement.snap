@@ -1,0 +1,6 @@
+---
+source: crates/pico-syntax/src/parser/tests.rs
+expression: "ok(r##\"\nconst a = o.function\nconst b = s.\n  match(re)\n\"##)"
+---
+(const a (. o function))
+(const b (call (. s match) re))

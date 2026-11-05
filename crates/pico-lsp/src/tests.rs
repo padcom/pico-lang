@@ -519,6 +519,37 @@ fn answers_in_code_with_name_and_type_errors() {
 }
 
 #[test]
+fn an_unfinished_member_access_before_a_statement() {
+    // `p.` at a line end, `function` next: the error is at the dot (not at `f`, as when
+    // `p.function` was read as a member), and the rest is still indexed.
+    let text = "struct Point { x: int; y: int }\nconst p = Point { x: 1, y: 2 }\nconst q = p.\nfunction f(a: int): int {\n  a + p.x\n}\n";
+    let dir = tmp("dangling_dot");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        at(2, "textDocument/hover", &uri, text, "p.x", 0, 0),
+    ]);
+    let d = diags_for(&out, &uri);
+    let list = d.last().unwrap()["params"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(list.len(), 1, "{list:#?}");
+    assert_eq!(
+        list[0]["range"]["start"],
+        json!({ "line": 2, "character": 11 })
+    );
+    assert_eq!(hover_text(&out, 2), "```pico\nconst p: Point\n```");
+    let (l, _) = complete_at(
+        "dangling_dot_complete",
+        "struct Point { x: int; y: int }\nconst p = Point { x: 1, y: 2 }\nconst q = p.‸\nfunction f(a: int): int {\n  a\n}\n",
+        &[],
+    );
+    assert_eq!(l, ["x", "y"]);
+}
+
+#[test]
 fn constructors_this_is_not_a_name() {
     let text = "class Box {\n  constructor(public v: i32) {}\n}\nprintln(new Box(1).v)\n";
     let dir = tmp("this");
