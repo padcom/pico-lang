@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.10b3: More hosts** (see PLAN: Windows x64/arm64 in the release workflow; the mingw-w64 ZPL notice for Windows programs). Then Phase 11 Reactivity, starting with the P11.1 spec chapter. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
+**P11.1: Reactivity spec** (see PLAN). P10.10b3 (Windows x64/arm64 hosts: a port of the compiler, a MinGW build) was moved after Phase 11 by the author. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -557,3 +557,4 @@ Notes:
 | 2026-11-05 | P10.10a | The release workflow passes by hand (run 41933559672): archives for macos-arm64, linux-x64 and linux-arm64 built and tried on runners with only LLVM (host run, `--interp`, `wasm32-wasi`, musl on Linux). macOS builds lld 23's static libraries with `scripts/build-lld.sh` (cached per LLVM version; about 3 minutes); Homebrew's `lld` is shared-only. |
 | 2026-11-05 | P10.10b1 | Split P10.10b into b1 (embedded resources), b2 (no LLVM installation) and b3 (more hosts). Release builds bundle the runtime, `third_party`, stdlib and host libraries (~8 MB gzipped) and unpack them into `$TMPDIR/pico-cache/home/` on first use (decision 297); the archive is `bin/pico` + `LICENSE` + `licenses/`. Checked: the lone binary with an empty cache runs a `std/path` program, natively and interpreted, from the unpacked stdlib. |
 | 2026-11-05 | P10.10b2 | clang linked into pico (`pico-clang`, decision 298): `pico clang`/`pico ar` run in-process, the driver uses them from the `pico` executable, clang's headers are bundled; release builds link LLVM's dependencies statically (zstd; Linux: libffi, libxml2 + ICU, liblzma) and drop z3, checked by `package.sh`. Release workflow run 41945140822: every archive passes on runners without LLVM (`pico clang`, host run, `--interp`, `wasm32-wasi`, Linux musl). |
+| 2026-11-05 | plan | P10.10b3 is Windows hosts only (x64 and arm64), moved after Phase 11 by the author: pico has never run on Windows (the runtime needs MinGW: pthreads, weak symbols), so it's a port. Next: P11.1. |

@@ -1076,6 +1076,8 @@ Split (2026-11-05) into three:
   and a `wasm32-wasi` one (decision 298).
 
 ##### P10.10b3 More hosts
+Moved after Phase 11 by the author (2026-11-05): a port of the compiler to Windows hosts (a MinGW
+build, `*-pc-windows-gnullvm`, with LLVM 23's MinGW static libraries), for x64 and arm64.
 - **Spec**: 14 §14.6
 - **Do**: Windows x64/arm64 hosts in the release workflow; how pico documents
   the mingw-w64 ZPL notice for programs it builds for Windows.
