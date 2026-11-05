@@ -1,5 +1,5 @@
 {
-  "name": "pico",
+  "name": "pico-lang",
   "displayName": "Pico",
   "description": "The Pico Programming Language: highlighting, diagnostics, completion, hover, rename, formatting and debugging, through the pico language server.",
   "version": "0.4.0",

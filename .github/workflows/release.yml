@@ -184,11 +184,11 @@ jobs:
           path: dist
           merge-multiple: true
 
-      # The VS Code extension (the website links to pico-<version>.vsix).
+      # The VS Code extension (padcom.pico-lang, also on the Marketplace).
       - name: Package the VS Code extension
         run: |
           vsix=$(scripts/vscode-package.sh | tail -1)
-          test "$(basename "$vsix")" = "pico-${GITHUB_REF_NAME#v}.vsix" || {
+          test "$(basename "$vsix")" = "pico-lang-${GITHUB_REF_NAME#v}.vsix" || {
             echo "editors/vscode/package.json's version doesn't match $GITHUB_REF_NAME" >&2; exit 1; }
           cp "$vsix" dist/
 
