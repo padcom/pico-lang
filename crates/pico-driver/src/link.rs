@@ -166,25 +166,33 @@ fn library_runtime(t: Target) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
 }
 
 /// A static library: the program's object, the runtime's and compiler-rt's, archived with
-/// LLVM's `llvm-ar` (next to clang), so a C linker takes only what's used.
+/// LLVM's archive writer (`pico ar`, with pico's own clang) or `llvm-ar` (next to clang), so a C
+/// linker takes only what's used.
 pub fn link_static_lib(t: Target, obj: &Path, out: &Path) -> Result<(), String> {
     let (runtime, builtins) = library_runtime(t)?;
     let cc = clang()?;
-    let ar = cc
-        .exe
-        .parent()
-        .map(|d| d.join("llvm-ar"))
-        .filter(|p| p.is_file())
-        .unwrap_or_else(|| "llvm-ar".into());
+    let mut ar = if cc.pre.is_empty() {
+        Command::new(
+            cc.exe
+                .parent()
+                .map(|d| d.join("llvm-ar"))
+                .filter(|p| p.is_file())
+                .unwrap_or_else(|| "llvm-ar".into()),
+        )
+    } else {
+        let mut c = Command::new(&cc.exe);
+        c.arg("ar");
+        c
+    };
     let _ = std::fs::remove_file(out);
-    let res = Command::new(&ar)
+    let res = ar
         .arg("rcsD")
         .arg(out)
         .arg(obj)
         .args(&runtime)
         .args(&builtins)
         .output()
-        .map_err(|e| format!("cannot run {}: {e}", ar.display()))?;
+        .map_err(|e| format!("cannot run {}: {e}", ar.get_program().display()))?;
     if !res.status.success() {
         return Err(format!(
             "archiving failed:\n{}",
@@ -205,7 +213,7 @@ pub fn link_shared_lib(
 ) -> Result<(), String> {
     let (runtime, builtins) = library_runtime(t)?;
     let cc = clang()?;
-    let stubs = crate::glibc::stubs(t, &cc.exe)?;
+    let stubs = crate::glibc::stubs(t, cc)?;
     let script = out.with_extension("pico-version");
     let globals: String = exports.iter().map(|e| format!("{e}; ")).collect();
     std::fs::write(&script, format!("{{ global: {globals}local: *; }};\n"))
@@ -288,7 +296,7 @@ fn link_gnu(
 ) -> Result<(), String> {
     let cc = clang()?;
     let runtime = runtime_objects(t, &gnu_libc(t, cc)?)?;
-    let stubs = crate::glibc::stubs(t, &cc.exe)?;
+    let stubs = crate::glibc::stubs(t, cc)?;
     let loader = match t.arch {
         Arch::X86_64 => "/lib64/ld-linux-x86-64.so.2",
         _ => "/lib/ld-linux-aarch64.so.1",
@@ -493,40 +501,79 @@ fn gnu_libc(t: Target, cc: &Clang) -> Result<Libc, String> {
     })
 }
 
-/// clang from the LLVM installation pico was built with (or the one on `PATH`), its resource
+/// The clang pico compiles C with (decision 298): `PICO_CLANG`; else its own (`pico clang`,
+/// when the `pico` executable has one and said so through [`use_own_clang`]); else the one of
+/// the LLVM installation pico was built with, `clang-23` or `clang` on PATH. With its resource
 /// directory (for `stddef.h` and friends) and version.
 pub(crate) struct Clang {
     pub exe: PathBuf,
+    /// Arguments before clang's own (`clang` for `pico clang`).
+    pre: Vec<String>,
     pub resource_dir: String,
     version: String,
+}
+
+impl Clang {
+    /// A command running this clang (its arguments still to add).
+    pub fn command(&self) -> Command {
+        let mut c = Command::new(&self.exe);
+        c.args(&self.pre)
+            .arg("-resource-dir")
+            .arg(&self.resource_dir);
+        c
+    }
+}
+
+/// pico's own clang: `exe clang …`, with builtin headers in `resource_dir/include`.
+static OWN_CLANG: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
+
+/// Makes the driver compile C with `exe clang …` (the `pico` executable, built with
+/// `pico-clang`) rather than an installed clang. Called by `pico` before anything else.
+pub fn use_own_clang(exe: PathBuf, resource_dir: PathBuf) {
+    let _ = OWN_CLANG.set((exe, resource_dir));
 }
 
 pub(crate) fn clang() -> Result<&'static Clang, String> {
     static CLANG: OnceLock<Result<Clang, String>> = OnceLock::new();
     CLANG
         .get_or_init(|| {
-            // `PICO_CLANG`, then the LLVM pico was built with, then a versioned or plain clang
-            // on PATH.
-            let exe = std::env::var_os("PICO_CLANG")
+            let installed = std::env::var_os("PICO_CLANG")
                 .filter(|c| !c.is_empty())
-                .map(PathBuf::from)
-                .or_else(|| {
-                    option_env!("LLVM_SYS_231_PREFIX")
-                        .map(|p| Path::new(p).join("bin/clang"))
-                        .filter(|p| p.is_file())
-                })
-                .or_else(|| on_path("clang-23"))
-                .unwrap_or_else(|| "clang".into());
+                .map(PathBuf::from);
+            let (exe, pre, resource_dir) = match (installed, OWN_CLANG.get()) {
+                (None, Some((exe, rd))) => (
+                    exe.clone(),
+                    vec!["clang".to_string()],
+                    Some(rd.to_string_lossy().into_owned()),
+                ),
+                (installed, _) => {
+                    let exe = installed
+                        .or_else(|| {
+                            option_env!("LLVM_SYS_231_PREFIX")
+                                .map(|p| Path::new(p).join("bin/clang"))
+                                .filter(|p| p.is_file())
+                        })
+                        .or_else(|| on_path("clang-23"))
+                        .unwrap_or_else(|| "clang".into());
+                    (exe, Vec::new(), None)
+                }
+            };
             let ask = |arg: &str| -> Result<String, String> {
                 let out = Command::new(&exe)
+                    .args(&pre)
                     .arg(arg)
                     .output()
                     .map_err(|e| format!("cannot run {}: {e}", exe.display()))?;
                 Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
             };
+            let resource_dir = match resource_dir {
+                Some(rd) => rd,
+                None => ask("-print-resource-dir")?,
+            };
             Ok(Clang {
-                resource_dir: ask("-print-resource-dir")?,
                 version: ask("--version")?,
+                resource_dir,
+                pre,
                 exe,
             })
         })
@@ -624,7 +671,7 @@ pub(crate) fn cached_build(
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).map_err(|e| format!("cannot create {}: {e}", tmp.display()))?;
     prepare(&tmp)?;
-    compile_all(&cc.exe, kind, jobs, &tmp)?;
+    compile_all(cc, kind, jobs, &tmp)?;
     if std::fs::rename(&tmp, &dir).is_err() {
         // Another process got there first.
         let _ = std::fs::remove_dir_all(&tmp);
@@ -745,7 +792,7 @@ fn runtime_jobs(t: Target, libc: &Libc) -> Result<Vec<Job>, String> {
 }
 
 /// Runs the jobs on as many threads as there are CPUs.
-fn compile_all(clang: &Path, what: &str, jobs: &[Job], out: &Path) -> Result<(), String> {
+fn compile_all(clang: &Clang, what: &str, jobs: &[Job], out: &Path) -> Result<(), String> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let next = AtomicUsize::new(0);
     let errors = Mutex::new(Vec::new());
@@ -754,7 +801,7 @@ fn compile_all(clang: &Path, what: &str, jobs: &[Job], out: &Path) -> Result<(),
         for _ in 0..n {
             s.spawn(|| {
                 while let Some(j) = jobs.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    let mut cmd = Command::new(clang);
+                    let mut cmd = clang.command();
                     cmd.args(&j.args);
                     // For scripts/prune-windows-headers.sh: which headers each object used.
                     if std::env::var_os("PICO_DEPFILES").is_some() {
@@ -771,7 +818,7 @@ fn compile_all(clang: &Path, what: &str, jobs: &[Job], out: &Path) -> Result<(),
                     let failed = match r {
                         Ok(o) if o.status.success() => continue,
                         Ok(o) => String::from_utf8_lossy(&o.stderr).into_owned(),
-                        Err(e) => format!("cannot run {}: {e}", clang.display()),
+                        Err(e) => format!("cannot run {}: {e}", clang.exe.display()),
                     };
                     errors.lock().unwrap().push(format!(
                         "compiling the {what} ({}) failed:\n{failed}",

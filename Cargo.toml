@@ -20,6 +20,7 @@ pico-driver = { path = "crates/pico-driver" }
 pico-lsp = { path = "crates/pico-lsp" }
 pico-lint = { path = "crates/pico-lint" }
 pico-lld = { path = "crates/pico-lld" }
+pico-clang = { path = "crates/pico-clang" }
 pico-tests = { path = "crates/pico-tests" }
 clap = { version = "4.6", features = ["derive"] }
 cc = "1.2"

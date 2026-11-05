@@ -248,7 +248,8 @@ fn preprocess_def(t: Target, cc: &Clang, def: &Path, out: &Path) -> Result<(), S
             .map(|_| ())
             .map_err(|e| format!("cannot copy {}: {e}", def.display()));
     }
-    let r = std::process::Command::new(&cc.exe)
+    let r = cc
+        .command()
         .arg(format!("--target={}", t.llvm_triple()))
         .args(["-E", "-P", "-x", "c"])
         .arg(format!("-I{}", dir().join("def-include").display()))

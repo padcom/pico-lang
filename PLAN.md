@@ -1073,7 +1073,7 @@ Split (2026-11-05) into three:
   libc builds and `c:` imports, with its resource headers bundled; z3, zstd and libxml2 linked
   statically or left out of the LLVM build, so the binary needs only the system libraries.
 - **Done when**: on a runner without LLVM, the release archive builds and runs a host program
-  and a `wasm32-wasi` one.
+  and a `wasm32-wasi` one (decision 298).
 
 ##### P10.10b3 More hosts
 - **Spec**: 14 §14.6

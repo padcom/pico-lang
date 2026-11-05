@@ -117,9 +117,12 @@ such runs).
 extracts it and builds a program with it): `bin/pico`, built with `--features embed` so that it
 carries `runtime/`, `third_party/`, `stdlib/` and the host runtime libraries and unpacks them into
 `$TMPDIR/pico-cache/home/` on first use (decision 297), plus `LICENSE` and the vendored sources'
-licenses. `PICO_HOME` (or `share/pico` next to `bin/`) overrides the bundle; clang comes from
-`PICO_CLANG`, the LLVM pico was built with, or `clang-23`/`clang` on PATH (decision 296). Users
-still need LLVM 23 (until P10.10b2).
+licenses. `PICO_HOME` (or `share/pico` next to `bin/`) overrides the bundle. The `pico` executable
+compiles C with the clang linked into it (`pico clang …`, crate `pico-clang`, decision 298) when
+LLVM has clang's static libraries (Homebrew's `llvm@23` has them; apt: `libclang-23-dev`);
+`PICO_CLANG` names an installed clang instead. Test binaries run the driver in-process and use the
+LLVM installation's clang. Release archives need no LLVM installation and only system libraries
+(the script checks with `otool -L`/`readelf -d`; release builds go to `target/package`).
 
 To publish: set `version` in `Cargo.toml`, commit, then `git tag v<version> && git push --tags`.
 `.github/workflows/release.yml` builds the macOS arm64 and Linux x64/arm64 archives, tries each

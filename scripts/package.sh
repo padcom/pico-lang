@@ -3,8 +3,9 @@
 #   dist/pico-<version>-<host>.tar.gz  containing
 #   pico-<version>-<host>/bin/pico     (with the runtime, vendored C sources and stdlib inside)
 #   pico-<version>-<host>/LICENSE, README.md, licenses/ (the vendored sources' licenses)
-# The compiler unpacks its resources into $TMPDIR/pico-cache/home on first use. It still needs
-# LLVM 23's clang at run time (and, for host builds on macOS, the system `cc`).
+# The compiler unpacks its resources into $TMPDIR/pico-cache/home on first use, and compiles C
+# with the clang linked into it (decision 298): it needs no LLVM installation, only the system
+# libraries (and, for host builds on macOS, the Xcode command line tools' `cc`).
 #
 # Usage: scripts/package.sh [--version V] [--check]
 #   --check  extract the archive into a temporary directory and build and run a program with it
@@ -35,12 +36,38 @@ case "$(uname -m)" in
 esac
 name="pico-$version-$os-$arch"
 
-cargo build --release -p pico-cli --features embed
+# Only system libraries at run time: zstd linked statically (a search directory holding only
+# its static library, ahead of the others), and the libraries nothing uses (LLVM's z3) dropped.
+static="$PWD/target/package/static"
+rm -rf "$static" && mkdir -p "$static"
+for d in "$(brew --prefix 2>/dev/null)/lib" /usr/lib/"$(uname -m)"-linux-gnu /usr/lib /usr/local/lib; do
+  if [ -f "$d/libzstd.a" ]; then cp "$d/libzstd.a" "$static/"; break; fi
+done
+[ -f "$static/libzstd.a" ] || { echo "libzstd.a not found (install zstd's static library)" >&2; exit 1; }
+if [ "$os" = macos ]; then
+  drop=-Wl,-dead_strip_dylibs
+else
+  drop=-Wl,--as-needed
+fi
+# (A target directory of its own: other RUSTFLAGS than development builds.)
+RUSTFLAGS="-L native=$static -C link-arg=$drop" \
+  cargo build --release -p pico-cli --features embed --target-dir target/package
+bin=target/package/release/pico
+
+# The libraries it loads must all be the system's.
+if [ "$os" = macos ]; then
+  libs=$(otool -L "$bin" | tail -n +2 | awk '{print $1}')
+  bad=$(echo "$libs" | grep -v -E '^(/usr/lib/|/System/)' || true)
+else
+  libs=$(readelf -d "$bin" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
+  bad=$(echo "$libs" | grep -v -E '^(libc|libm|libdl|librt|libpthread|libgcc_s|libstdc\+\+|libz|ld-linux.*)\.so' || true)
+fi
+[ -z "$bad" ] || { echo "pico needs non-system libraries:" >&2; echo "$bad" >&2; exit 1; }
 
 out="dist/$name"
 rm -rf "$out" "dist/$name.tar.gz"
 mkdir -p "$out/bin"
-cp target/release/pico "$out/bin/"
+cp "$bin" "$out/bin/"
 cp LICENSE "$out/"
 # The vendored sources' license files, as licenses/<path in third_party>.
 (cd third_party && find . -maxdepth 3 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' \
@@ -48,21 +75,25 @@ cp LICENSE "$out/"
   mkdir -p "$out/licenses/$(dirname "$f")"
   cp "third_party/$f" "$out/licenses/$f"
 done
+# LLVM, lld and clang are linked into pico.
+mkdir -p "$out/licenses/llvm"
+cp crates/pico-clang/vendor/LICENSE.TXT "$out/licenses/llvm/LICENSE.TXT"
 cat > "$out/README.md" <<EOF
 # pico $version ($os-$arch)
 
 The Pico Programming Language compiler. Put \`bin/pico\` on your PATH. On first use it unpacks
-its runtime, C library sources and standard library into \`\$TMPDIR/pico-cache/home\`.
+its runtime, C library sources, clang's headers and the standard library into
+\`\$TMPDIR/pico-cache/home\`. It compiles C (the runtime, C libraries, \`c:\` imports) with the
+clang inside it: no LLVM installation is needed.
 
 pico is MIT-licensed (\`LICENSE\`). The vendored sources inside it keep their own licenses,
 in \`licenses/\`.
 
-Requirements:
-- LLVM 23's clang: Homebrew \`brew install llvm@23\` on macOS, apt.llvm.org on Linux
-  (\`sudo bash llvm.sh 23\`). Set \`PICO_CLANG\` if it's somewhere else.
 EOF
 if [ "$os" = macos ]; then
-  echo '- The Xcode command line tools (`xcode-select --install`), for linking macOS programs.' >> "$out/README.md"
+  echo 'Programs for macOS itself need the Xcode command line tools (`xcode-select --install`).' >> "$out/README.md"
+else
+  echo 'Linux: glibc 2.39 or later.' >> "$out/README.md"
 fi
 tar -C dist -czf "dist/$name.tar.gz" "$name"
 echo "dist/$name.tar.gz"
@@ -75,6 +106,8 @@ if [ "$check" = 1 ]; then
   export TMPDIR="$tmp/cache"
   mkdir -p "$TMPDIR"
   printf 'println("hello from pico")\n' > "$tmp/hello.pi"
+  # (No installed clang: the one inside pico.)
+  unset PICO_CLANG
   pico="$tmp/$name/bin/pico"
   got=$(cd "$tmp" && "$pico" run hello.pi)
   [ "$got" = "hello from pico" ] || { echo "check failed: got '$got'" >&2; exit 1; }

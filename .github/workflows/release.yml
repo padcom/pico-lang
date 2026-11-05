@@ -1,8 +1,8 @@
 name: release
 
 # Pushing a tag `v<version>` (matching Cargo.toml's version) builds an archive per host
-# (scripts/package.sh, P10.10a), tries each one on a fresh runner that has only LLVM installed,
-# and publishes a GitHub release with them. A manual run builds and tries them without publishing.
+# (scripts/package.sh, P10.10), tries each one on a fresh runner without LLVM, and publishes a
+# GitHub release with them. A manual run builds and tries them without publishing.
 
 on:
   push:
@@ -69,7 +69,7 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
-  # On a runner without the repository: the archive and LLVM are all a user has.
+  # On a runner without the repository or LLVM: the archive is all a user has.
   try:
     name: try (${{ matrix.host }})
     needs: build
@@ -82,15 +82,10 @@ jobs:
           - { host: linux-x64, os: ubuntu-24.04 }
           - { host: linux-arm64, os: ubuntu-24.04-arm }
     steps:
-      - name: Install LLVM 23 (macOS)
-        if: runner.os == 'macOS'
-        run: brew install llvm@23
-
-      - name: Install LLVM 23 (Linux)
-        if: runner.os == 'Linux'
+      - name: No LLVM
         run: |
-          wget --tries=5 --waitretry=15 -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-          sudo bash /tmp/llvm.sh 23
+          ! command -v llvm-config && ! command -v clang-23 && ! command -v ld.lld
+          [ ! -d /opt/homebrew/opt/llvm@23 ] && [ ! -d /usr/lib/llvm-23 ]
 
       - uses: actions/download-artifact@v4
         with:
@@ -102,6 +97,9 @@ jobs:
           export PATH="$(echo "$PWD"/try/pico-*/bin):$PATH"
           cd try
           pico --version
+          pico clang --version
+          printf '#include <stdint.h>\nuint64_t twice(uint64_t x) { return 2 * x; }\n' > f.c
+          pico clang --target=x86_64-linux-gnu -c f.c -o f.o
           printf 'import { join } from "std/path"\nconst xs = [1, 2, 3]\nprintln(`${join("a", "b")} ${xs[0] + xs[1] + xs[2]}`)\n' > hello.pi
           [ "$(pico run hello.pi)" = "a/b 6" ]
           [ "$(pico run --interp hello.pi)" = "a/b 6" ]

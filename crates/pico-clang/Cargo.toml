@@ -1,0 +1,20 @@
+[package]
+name = "pico-clang"
+description = "clang linked into pico, for compiling C without an LLVM installation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+# clang's static libraries need LLVM's, which llvm-sys (through inkwell) links: depending on it
+# puts clang first on the link line.
+inkwell.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[lints]
+workspace = true

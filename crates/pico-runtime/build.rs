@@ -100,6 +100,22 @@ fn embed(runtime: &std::path::Path) {
         println!("cargo:rerun-if-changed={}", repo.join(dir).display());
         collect(&repo, &repo.join(dir), &mut files);
     }
+    // clang's builtin headers (stddef.h, the intrinsics), for pico's own clang (decision 298):
+    // `lib/clang/<major>/include` of the LLVM pico is built with, as `clang/include`.
+    println!("cargo:rerun-if-env-changed=LLVM_SYS_231_PREFIX");
+    if let Ok(llvm) = std::env::var("LLVM_SYS_231_PREFIX") {
+        let clang = PathBuf::from(llvm).join("lib/clang");
+        let major = std::fs::read_dir(&clang).ok().and_then(|d| {
+            d.flatten()
+                .map(|e| e.path())
+                .find(|p| p.join("include").is_dir())
+        });
+        if let Some(dir) = major {
+            let mut headers = Vec::new();
+            collect(&dir, &dir.join("include"), &mut headers);
+            files.extend(headers.into_iter().map(|(p, d)| (format!("clang/{p}"), d)));
+        }
+    }
     for lib in ["libpico_rt.a", "libpico_crypto.a", "libpico_mbedtls.a"] {
         let data = std::fs::read(out.join(lib)).expect(lib);
         files.push((format!("lib/{lib}"), data));

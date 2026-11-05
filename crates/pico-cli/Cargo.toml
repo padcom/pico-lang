@@ -18,6 +18,7 @@ embed = ["pico-runtime/embed"]
 [dependencies]
 clap.workspace = true
 pico-runtime.workspace = true
+pico-clang.workspace = true
 pico-diag.workspace = true
 pico-codegen.workspace = true
 pico-driver.workspace = true

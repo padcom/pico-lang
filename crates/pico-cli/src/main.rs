@@ -177,7 +177,50 @@ enum Command {
     },
 }
 
+/// The resource directory of pico's own clang (its builtin headers in `include/`): bundled in
+/// release builds (`<home>/clang`), else the one of the LLVM pico was built with.
+fn clang_resource_dir() -> Option<std::path::PathBuf> {
+    pico_runtime::home()
+        .map(|h| h.join("clang"))
+        .filter(|d| d.join("include/stddef.h").is_file())
+        .or_else(|| pico_clang::build_resource_dir().map(Into::into))
+}
+
 fn main() -> ExitCode {
+    // pico's own clang and archiver (decision 298), run by the driver as `pico clang …` and
+    // `pico ar rcsD <out> <members>…`; not subcommands for users.
+    let args: Vec<String> = std::env::args().collect();
+    match args.get(1).map(String::as_str) {
+        Some("clang") if pico_clang::AVAILABLE => {
+            let mut cargs = args[2..].to_vec();
+            let cc1 = cargs.first().is_some_and(|a| a.starts_with("-cc1"));
+            if !cc1
+                && !cargs.iter().any(|a| a.starts_with("-resource-dir"))
+                && let Some(rd) = clang_resource_dir()
+            {
+                cargs.splice(0..0, ["-resource-dir".into(), rd.display().to_string()]);
+            }
+            std::process::exit(pico_clang::main(&cargs));
+        }
+        Some("ar") if pico_clang::AVAILABLE && args.len() >= 4 => {
+            let members: Vec<&std::path::Path> =
+                args[4..].iter().map(std::path::Path::new).collect();
+            return match pico_clang::write_archive(std::path::Path::new(&args[3]), &members) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        _ => {}
+    }
+    if pico_clang::AVAILABLE
+        && let Ok(exe) = std::env::current_exe()
+        && let Some(rd) = clang_resource_dir()
+    {
+        pico_driver::use_own_clang(exe, rd);
+    }
     let cli = Cli::parse();
     // Builds may fetch packages and update project.lock; the language server only reads them.
     if !matches!(cli.command, Some(Command::Lsp { .. })) {

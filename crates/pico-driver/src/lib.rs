@@ -32,6 +32,7 @@ pub const WASMGC_UNSUPPORTED: &str = pico_codegen::wasmgc::UNSUPPORTED;
 pub const LLD_AVAILABLE: bool = pico_lld::AVAILABLE;
 mod wasi;
 
+pub use link::use_own_clang;
 pub use modules::stdlib_dir;
 pub use target::Target;
 

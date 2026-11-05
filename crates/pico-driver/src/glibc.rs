@@ -6,7 +6,7 @@
 
 use crate::target::{Arch, Target};
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// glibc's libraries in link order: name, soname version, and the version that merged it into
 /// libc (2.34 for pthread, dl, rt and util).
@@ -253,7 +253,7 @@ fn emit(
 }
 
 /// The stub libraries for `t` in link order, built on first use and cached.
-pub fn stubs(t: Target, clang: &Path) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn stubs(t: Target, clang: &crate::link::Clang) -> Result<Vec<PathBuf>, String> {
     let abi = AbiLists::load()?;
     let (map, stubs) = stub_sources(&abi, t)?;
     let dir = {
@@ -282,14 +282,15 @@ pub fn stubs(t: Target, clang: &Path) -> Result<Vec<PathBuf>, String> {
         let asm = tmp.join(format!("{}.s", s.file));
         let obj = tmp.join(format!("{}.o", s.file));
         std::fs::write(&asm, &s.asm).map_err(|e| e.to_string())?;
-        let out = std::process::Command::new(clang)
+        let out = clang
+            .command()
             .arg(format!("--target={}", t.llvm_triple()))
             .arg("-c")
             .arg(&asm)
             .arg("-o")
             .arg(&obj)
             .output()
-            .map_err(|e| format!("cannot run {}: {e}", clang.display()))?;
+            .map_err(|e| format!("cannot run {}: {e}", clang.exe.display()))?;
         if !out.status.success() {
             return Err(format!(
                 "assembling the {} stub failed:\n{}",

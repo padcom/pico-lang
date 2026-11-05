@@ -126,7 +126,7 @@ pub fn generate(header: &str, dir: &Path, cfg: &CConfig) -> Result<String, Strin
         }
         c.args(&cfg.cflags);
     };
-    let mut ast = Command::new(&cc.exe);
+    let mut ast = cc.command();
     base(&mut ast);
     ast.args(["-fsyntax-only", "-Xclang", "-ast-dump=json"])
         .arg(&tmp);
@@ -140,7 +140,7 @@ pub fn generate(header: &str, dir: &Path, cfg: &CConfig) -> Result<String, Strin
     }
     let json: Value = serde_json::from_slice(&out.stdout)
         .map_err(|e| format!("clang's AST of `{header}`: {e}"))?;
-    let mut macros = Command::new(&cc.exe);
+    let mut macros = cc.command();
     base(&mut macros);
     macros.args(["-E", "-dM"]).arg(&tmp);
     let defs = macros
@@ -150,7 +150,7 @@ pub fn generate(header: &str, dir: &Path, cfg: &CConfig) -> Result<String, Strin
     // The compiler's own macros (`linux`, `__x86_64__`) aren't the header's.
     let empty = std::env::temp_dir().join(format!("pico-cheader-{}-empty.c", std::process::id()));
     let _ = std::fs::write(&empty, "");
-    let mut builtin = Command::new(&cc.exe);
+    let mut builtin = cc.command();
     base(&mut builtin);
     builtin.args(["-E", "-dM"]).arg(&empty);
     let predefined: BTreeSet<String> = builtin
