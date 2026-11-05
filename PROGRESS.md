@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P11.1: Reactivity spec** (see PLAN). P10.10b3 (Windows x64/arm64 hosts: a port of the compiler, a MinGW build) was moved after Phase 11 by the author. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
+**P11.2: Reactivity core runtime** (see PLAN; spec chapter 16, decisions 288–293 and 299–306; 303–306 are provisional, for the author to review). P10.10b3 (Windows x64/arm64 hosts: a port of the compiler, a MinGW build) was moved after Phase 11 by the author. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -47,7 +47,7 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 16 chapters, 249 decisions, no open questions |
+| Spec | ✅ 17 chapters (16: Reactivity), 306 decisions; 303–306 (reactivity details) provisional |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23 (Homebrew `llvm@23` 23.1.3 on macOS, apt.llvm.org 23.1.5 on Linux), inkwell 0.11 `llvm23-1` |
 | Last green `scripts/test.sh` | 2026-11-05 (P10.10a, macOS arm64) |
@@ -62,6 +62,7 @@ Notes:
 5. If a task is too large, split it in PLAN.md (`P3.7a`, `P3.7b`) and record that here.
 
 ## Known issues / notes for the next session
+- **Reactivity (P11.1, chapter 16)**: the author chose object-level deep tracking (299), effect scopes (300), cells passed by expected type (301), identity-skipped writes (302); 303–306 are provisional details. `crates/pico-syntax/tests/spec_samples.rs` skips chapter 16's blocks 1–6 until `reactive` parses (P11.3: remove them then). Deep tracking needs a "reactive" flag in object/array/map/set headers and a check on every mutation (P11.2/P11.3 decide where).
 - **clang in the compiler (P10.10b2, decision 298)**: `crates/pico-clang` (`build.rs` `LIBS`, merged into `libpico_clang_libs.a` on Linux; `src/shim.cpp` `pico_clang_main`/`pico_write_archive`; `src/frontend.cpp` the reduced `ExecuteCompilerInvocation`; `vendor/` clang's driver sources, update them with the LLVM version: see `vendor/README.md`). `pico clang`/`pico ar` are handled at the top of `pico-cli`'s `main` (`clang_resource_dir`); the driver's `Clang::command()` (`link.rs`, `use_own_clang`/`OWN_CLANG`). Test binaries still use the installed clang; `crates/pico-cli/tests/own_clang.rs` covers pico's own. Release builds: `target/package` with RUSTFLAGS for static zstd (and on Linux libffi, libxml2, ICU, liblzma; `ci-install-linux.sh` installs them) and dropped dylibs; the binary is ~280 MB (the archive ~75 MB). Not supported by pico's clang: the static analyzer, rewriters, plugins, ExtractAPI, crash reproducers.
 - **Embedded resources (P10.10b1, decision 297)**: `pico-cli`/`pico-runtime` feature `embed` (only `scripts/package.sh` turns it on; `scripts/test.sh` doesn't build it, the release workflow does); `pico-runtime/build.rs` `embed`/`collect`, `src/bundle.rs` (`pack`/`unpack`, shared with the build script by `#[path]`), `lib.rs` `embedded`/`unpack_once`. Old unpacked versions stay in `$TMPDIR/pico-cache/home/` (nothing removes them).
 - **Release archives (P10.10a, decision 296)**: `pico_runtime::home()` (`PICO_HOME` or `../share/pico` next to the executable), `lib_dir`, `installed_stdlib` (used by `modules::stdlib_dir`), clang lookup `PICO_CLANG` → build-time LLVM → `clang-23`/`clang` (`link.rs` `clang`, `on_path`). `scripts/package.sh [--check]`, `.github/workflows/release.yml` (build → try on clean runners → publish on a `v*` tag). The archive is ~80 MB (the binary ~200 MB unpacked, `third_party` 54 MB). Not yet: Windows hosts; z3/zstd are linked dynamically (from Homebrew on macOS); macOS release builds get lld from `scripts/build-lld.sh` (static libraries for the LLVM on PATH, from the matching llvm-project release; Homebrew's `lld` is shared-only and tracks the newest LLVM). pico is MIT-licensed (`LICENSE`, the author's; in the archives too). The mingw ZPL notice (below) is for P10.10b.
@@ -352,7 +353,7 @@ Notes:
     - [ ] P10.10b3 More hosts
 
 ### Phase 11: Later
-- [ ] P11.1 Reactivity: spec (open questions first)
+- [x] P11.1 Reactivity: spec (open questions first)
 - [ ] P11.2 Reactivity: core runtime
 - [ ] P11.3 Reactivity: compiler support
 - [ ] P11.4 Reactivity: effects in the event loop
@@ -558,3 +559,4 @@ Notes:
 | 2026-11-05 | P10.10b1 | Split P10.10b into b1 (embedded resources), b2 (no LLVM installation) and b3 (more hosts). Release builds bundle the runtime, `third_party`, stdlib and host libraries (~8 MB gzipped) and unpack them into `$TMPDIR/pico-cache/home/` on first use (decision 297); the archive is `bin/pico` + `LICENSE` + `licenses/`. Checked: the lone binary with an empty cache runs a `std/path` program, natively and interpreted, from the unpacked stdlib. |
 | 2026-11-05 | P10.10b2 | clang linked into pico (`pico-clang`, decision 298): `pico clang`/`pico ar` run in-process, the driver uses them from the `pico` executable, clang's headers are bundled; release builds link LLVM's dependencies statically (zstd; Linux: libffi, libxml2 + ICU, liblzma) and drop z3, checked by `package.sh`. Release workflow run 41945140822: every archive passes on runners without LLVM (`pico clang`, host run, `--interp`, `wasm32-wasi`, Linux musl). |
 | 2026-11-05 | plan | P10.10b3 is Windows hosts only (x64 and arm64), moved after Phase 11 by the author: pico has never run on Windows (the runtime needs MinGW: pthreads, weak symbols), so it's a port. Next: P11.1. |
+| 2026-11-05 | P11.1 | Spec chapter 16 (Reactivity): `reactive` declarations, transparent reads/writes, cells passed where `Reactive<T>` is expected, lazy `computed`, synchronous `watchEffect` with flushes, object-level deep tracking, effect scopes, workers; the author's decisions 299–302, provisional 303–306. |

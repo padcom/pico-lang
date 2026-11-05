@@ -71,8 +71,8 @@ is **Sendable**, meaning it's built only from:
 - classes whose fields are all Sendable (copied field by field, with the object graph preserved,
   cycles included).
 
-Closures, `Worker` handles, file/socket handles, `ptr<T>` and arena references are **not**
-Sendable. Sending one is a compile error. The check is the built-in bound `T extends Sendable`
+Closures, `Worker` handles, file/socket handles, `ptr<T>`, arena references and reactive state
+(`Reactive<T>`, §16.8) are **not** Sendable. Sending one is a compile error. The check is the built-in bound `T extends Sendable`
 (`Worker<In extends Sendable, Out extends Sendable>`, `self.postMessage<T extends Sendable>`);
 interface values aren't Sendable either, and weak references arrive cleared.
 

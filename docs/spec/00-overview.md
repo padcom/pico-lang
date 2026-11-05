@@ -60,3 +60,4 @@ println(`area = ${area(Shape.Circle(r: 2)):.2f}`)
 | 13 | [Standard library](13-stdlib.md) |
 | 14 | [Tooling & CLI](14-tooling-cli.md) |
 | 15 | [Targets](15-targets.md) |
+| 16 | [Reactivity](16-reactivity.md) |
