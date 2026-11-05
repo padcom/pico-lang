@@ -1,0 +1,62 @@
+// Spec §16.4–16.5 with the event loop (§10.1): effects run synchronously inside whatever
+// writes (a timer, a microtask, an async function after `await`), with no batching: two
+// writes run an effect twice. Microtasks an effect queues run after the write. An async
+// effect tracks only what it reads before its first `await`.
+// expect: effect 0
+// expect: effect 4
+// expect: effect 5
+// expect: script end
+// expect: after m = 1
+// expect: micro
+// expect: effect 2
+// expect: effect 3
+// expect: bump done
+// expect: micro after effect 1
+// expect: async effect a=0 b=1
+// expect: async effect a=1 b=1
+// expect: timer
+// expect: effect 1
+// expect: timer end
+reactive n = 0
+watchEffect(() => println(`effect ${n}`))
+setTimeout(() => {
+  println("timer")
+  n = 1
+  println("timer end")
+}, 0)
+queueMicrotask(() => {
+  println("micro")
+  n = 2
+})
+async function bump(): Promise<void> {
+  await Promise.resolve(0)
+  n = 3
+  println("bump done")
+}
+bump()
+n = 4
+n = 5
+println("script end")
+
+reactive m = 0
+watchEffect(() => {
+  const v = m
+  if (v > 0) {
+    queueMicrotask(() => println(`micro after effect ${v}`))
+  }
+})
+m = 1
+println("after m = 1")
+
+reactive a = 0
+reactive b = 0
+async function show(): Promise<void> {
+  const x = a
+  await Promise.resolve(0)
+  println(`async effect a=${x} b=${b}`)
+}
+watchEffect(() => {
+  show()
+})
+a = 1
+b = 1

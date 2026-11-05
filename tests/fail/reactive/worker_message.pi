@@ -1,0 +1,3 @@
+// Spec §16.8: reactive state isn't Sendable, so it can't be a worker's message type.
+// error: E0330
+const w = new Worker<Reactive<int>, int>(1, 0)

@@ -123,14 +123,17 @@ count = 2                     // nothing
 - An effect that depends on a computed runs only when the computed's value changes: when the
   computed becomes dirty, it's recomputed first, and the effect runs only if the new value isn't
   identical to the old one (§16.2).
-- `fn` is synchronous. An `async` function can be passed, but only what it reads before its
-  first `await` is tracked.
+- `fn` is synchronous. It can start an `async` function (`watchEffect(() => { load() })`),
+  but only what that reads before its first `await` is tracked.
 - `fn` can't throw (decision 307): an effect runs during whichever write triggers it, where no
   `throws` could be checked, so it catches what it calls itself (E0336 otherwise).
 
 ## 16.5 Tracking and triggering
 - **Tracking**: a read is tracked while a computed getter or an effect runs, including in the
   functions it calls. Reads anywhere else aren't tracked.
+- **No batching**: every write runs the effects it triggers before it completes, wherever it's
+  made (a timer, a microtask, an async function after `await`); two writes run an effect twice.
+  Microtasks an effect queues run after the write, in the event loop's order (§10.1).
 - **Flush**: a write that triggers effects (directly, or through computeds that become dirty)
   queues them. The queue runs before the outermost write completes, in the order the effects were
   created; an effect runs at most once per write that queued it. Writes made while an effect runs
@@ -196,7 +199,8 @@ using s = effectScope(() => setUpWidgets())       // or with using (§11.5)
 
 ## 16.8 Workers
 `Reactive<T>` isn't `Sendable` (§10.3, decision 292): reactive state can't be part of a message to
-or from a worker, or of what an inline worker captures. Each worker has its own reactive state,
+or from a worker, or of what an inline worker captures (E0330); `postMessage(n)` with a reactive `n` sends its
+value. Each worker has its own reactive state,
 and tracking never crosses threads. A reactive object sent to a worker arrives as a plain copy.
 
 ## 16.9 Library

@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P11.4: Effects in the event loop** (see PLAN; spec §16.4–16.5: effects are synchronous, so P11.4 is mostly checking batching/ordering against async code and timers; decisions 303–306, 308 and 309 are provisional, for the author to review). P10.10b3 (Windows x64/arm64 hosts: a port of the compiler, a MinGW build) was moved after Phase 11 by the author. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
+**P11.5: Reactivity tooling** (see PLAN: lldb formatters for reactive values, hover showing `Reactive<T>`, examples in TOUR; decisions 303–306, 308 and 309 are provisional, for the author to review). P10.10b3 (Windows x64/arm64 hosts: a port of the compiler, a MinGW build) was moved after Phase 11 by the author. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -361,7 +361,7 @@ Notes:
 - [ ] P11.3 Reactivity: compiler support (split)
   - [x] P11.3a Reactive bindings
   - [x] P11.3b Deep reactivity
-- [ ] P11.4 Reactivity: effects in the event loop
+- [x] P11.4 Reactivity: effects in the event loop
 - [ ] P11.5 Reactivity: tooling
 - [ ] P10.7a JIT `pico run` (moved to Phase 12)
 - [ ] P10.7b REPL (moved to Phase 12)
@@ -568,3 +568,4 @@ Notes:
 | 2026-11-05 | P11.2 | Reactivity runtime in the core library (`stdlib/core/reactive.pi`): cells, lazy cached computeds with dirty marking and versions, synchronous effects flushed in creation order (glitch-free through computeds, own writes ignored, runaway panic), effect scopes, `WatchHandle`/`EffectScope` disposal; builtin `__identical`. The author: effects, getters and setters can't throw (decision 307; spec §16.3–16.5 updated, and "identical" defined without `===`, which pico doesn't have). Golden tests `tests/run/reactive/` (computed, effects, cleanup, three panics), fail tests `tests/fail/reactive/`. |
 | 2026-11-05 | P11.3a | Split P11.3 into a (bindings) and b (deep reactivity). `reactive` bindings, fields (instance and static) and exports; transparent reads (`cell_reads`) and writes (`reactive_writes`, compound and `++`), cells passed where `Reactive<T>` is expected, `computed({ get, set })` (`ComputedOptions<T>`; generic struct parameters now infer from untyped object literals), E0357 (no value, struct fields, `let` holding a cell, read-only computed). The `const`-assignment check moved partly to the type checker. Tests: `tests/run/reactive/` rewritten with the syntax plus `bindings`, `fields`, `modules/`; `tests/fail/reactive/` (8 files); chapter 16 samples parse. |
 | 2026-11-05 | P11.3b | Deep reactivity: objects, arrays and maps read while tracking become reactive (by identity, registry in the core), and their mutations trigger through any reference (fields, elements, push/pop/sort/reverse, Map/Set); struct fields written through a reactive binding write it back. Hooks only in programs that use reactive state, with an inlined flag test: 0.36 s vs 0.83 s on a 200M-operation loop, nothing for other programs (decision 309; spec §16.6 now tracks any object read while tracking). Fixed on the way: a place through a reactive binding (`todos[0].done = …`) used the cell, not its value. Test: `tests/run/reactive/deep.pi`. |
+| 2026-11-05 | P11.4 | Effects with the event loop: no code changes needed (effects are synchronous, decision 291); golden test `tests/run/reactive/event_loop.pi` (writes in timers, microtasks and async functions after `await`, no batching, microtasks queued by effects, an async function started by an effect tracks only before `await`), fail test `worker_message.pi` (E0330). Spec §16.4/16.5/16.8 say so; async lambdas aren't implemented in pico, so the example starts a named async function. |
