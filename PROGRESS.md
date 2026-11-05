@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**Phase 12** (see PLAN; v0.2.0 is released for macOS arm64, Linux x64/arm64 and Windows x64/arm64, with reactivity). The author should check Phase 11 in VS Code. Reviewed 2026-11-05: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 stays open (MinGW for now); 311 accepted for now, to be revisited with the author later; 313 confirmed. Pushing: SSH signing failed in this session; pushes went over HTTPS through `gh` (the token now has the `workflow` scope).
+**Phase 12** (see PLAN; v0.3.0 is released for macOS arm64, Linux x64/arm64 and Windows x64/arm64: map literals, struct spreads, `splice`). Reviewed 2026-11-05: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 stays open (MinGW for now); 311 accepted for now, to be revisited with the author later; 313 confirmed. Pushing: SSH signing failed in this session; pushes went over HTTPS through `gh` (the token now has the `workflow` scope).
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -333,7 +333,7 @@ Notes:
 - [x] P10.6a VS Code extension: syntax
 - [x] P10.6b `pico lsp`: diagnostics and formatting
 - [x] P10.6c1 Symbol index, hover and go-to-definition
-- [x] P10.6c2 Error recovery for the language server (manual check in VS Code pending)
+- [x] P10.6c2 Error recovery for the language server
 - [x] P10.6d1 Completion
 - [x] P10.6d2 Rename and document symbols
 - [x] P10.2a `pico lint`: command, configuration, naming, unused code
@@ -364,7 +364,7 @@ Notes:
   - [x] P11.3a Reactive bindings
   - [x] P11.3b Deep reactivity
 - [x] P11.4 Reactivity: effects in the event loop
-- [x] P11.5 Reactivity: tooling (the author's manual check in VS Code is still to do)
+- [x] P11.5 Reactivity: tooling
 - [ ] P10.7a JIT `pico run` (moved to Phase 12)
 - [ ] P10.7b REPL (moved to Phase 12)
 - [ ] P12.1 `--no-gc` subset + bare metal
@@ -579,3 +579,4 @@ Notes:
 | 2026-11-05 | P3.27 follow-ups | The author's answers: duplicate map keys stay E0312; `catch (e)` catches only `Error`s, now in §7.3 (decision 312). Generic calls infer `K`/`V` from a map literal argument (`typeck::infer_map_literal`); struct spreads `Point { ...p, x: 1 }` (decision 313: own type only, later entries win; `SPREAD_SLOT` in `Types::objects`). Tests: run/struct_spread, fail/types/struct_spread, more in run/collections/map_literals. |
 | 2026-11-05 | review | The author's review: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 open; 311 to be revisited. Asked for `splice` (decision 314): `__Array_splice` in `stdlib/core/array.pi`, a reactivity trigger like `sort`; built-in method picking through rest parameters; generic functions' rest parameters (`typeck::call_inferring` packs extra arguments as `Slot::Rest`, `...array` as `RestSpread`; lowering substitutes the instance's element type). Tests: run/collections/splice, run/generic_rest, fail/types/generic_rest. |
 | 2026-11-05 | P10.6c2 | Author's check in VS Code: `const q = p.` followed by `function f…` reported its error at `f` (the newline rule made it `p.function`). Now a `.`/`?.` ending a line before a statement keyword (not `match`, a method name) is an unfinished member access reported at the dot (`Parser::dangling_dot`); `p.function` on one line is still a property. Tests: parser snapshots `dangling_dot_*`, LSP `an_unfinished_member_access_before_a_statement` (hover and completion still work). |
+| 2026-11-05 | release | The author confirmed P10.6c2 and P11.5 in VS Code (error recovery, reactive hover and debugger). Version 0.3.0 (Cargo, the VS Code extension, the website's download commands); tagged `v0.3.0`. |
