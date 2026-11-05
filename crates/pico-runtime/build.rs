@@ -3,6 +3,9 @@
 
 use std::path::PathBuf;
 
+#[path = "src/bundle.rs"]
+mod bundle;
+
 /// Spec §15.3: the oldest supported macOS. Must match `pico_runtime::MACOS_MIN`.
 const MACOS_MIN: &str = "13.0";
 
@@ -79,4 +82,58 @@ fn main() {
         "cargo:rustc-env=PICO_RUNTIME_INCLUDE={}",
         root.join("include").display()
     );
+    #[cfg(feature = "embed")]
+    embed(&root);
+}
+
+/// With feature `embed` (release builds, decision 297): the resources an installed pico needs
+/// (`runtime/`, `third_party/`, `stdlib/` and the host libraries in `lib/`) as one gzipped bundle
+/// in `OUT_DIR`, included by `lib.rs` and unpacked into the cache on first use.
+#[cfg(feature = "embed")]
+fn embed(runtime: &std::path::Path) {
+    use std::hash::{Hash, Hasher};
+    use std::io::Write;
+    let repo = runtime.join("..");
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let mut files = Vec::new();
+    for dir in ["runtime", "third_party", "stdlib"] {
+        println!("cargo:rerun-if-changed={}", repo.join(dir).display());
+        collect(&repo, &repo.join(dir), &mut files);
+    }
+    for lib in ["libpico_rt.a", "libpico_crypto.a", "libpico_mbedtls.a"] {
+        let data = std::fs::read(out.join(lib)).expect(lib);
+        files.push((format!("lib/{lib}"), data));
+    }
+    files.sort();
+    let raw = bundle::pack(&files);
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    raw.hash(&mut h);
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(&raw).unwrap();
+    std::fs::write(out.join("resources.gz"), gz.finish().unwrap()).unwrap();
+    println!("cargo:rustc-env=PICO_RESOURCES_HASH={:016x}", h.finish());
+}
+
+/// Every file under `dir`, as (path relative to `base` with `/`, contents).
+#[cfg(feature = "embed")]
+fn collect(base: &std::path::Path, dir: &std::path::Path, files: &mut Vec<(String, Vec<u8>)>) {
+    for e in std::fs::read_dir(dir)
+        .expect("resource directory")
+        .flatten()
+    {
+        let p = e.path();
+        let name = e.file_name();
+        if name == ".DS_Store" {
+            continue;
+        }
+        if p.is_dir() {
+            collect(base, &p, files);
+        } else {
+            let rel = p.strip_prefix(base).unwrap().components();
+            let rel: Vec<String> = rel
+                .map(|c| c.as_os_str().to_string_lossy().into())
+                .collect();
+            files.push((rel.join("/"), std::fs::read(&p).unwrap()));
+        }
+    }
 }

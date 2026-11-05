@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Builds a release archive for this host (P10.10a, decision 296):
+# Builds a release archive for this host (P10.10, decisions 296-297):
 #   dist/pico-<version>-<host>.tar.gz  containing
-#   pico-<version>-<host>/bin/pico
-#   pico-<version>-<host>/share/pico/{runtime,third_party,stdlib,lib}
-# The compiler finds its resources in share/pico next to bin/ (or in PICO_HOME). It still needs
+#   pico-<version>-<host>/bin/pico     (with the runtime, vendored C sources and stdlib inside)
+#   pico-<version>-<host>/LICENSE, README.md, licenses/ (the vendored sources' licenses)
+# The compiler unpacks its resources into $TMPDIR/pico-cache/home on first use. It still needs
 # LLVM 23's clang at run time (and, for host builds on macOS, the system `cc`).
 #
 # Usage: scripts/package.sh [--version V] [--check]
@@ -35,30 +35,27 @@ case "$(uname -m)" in
 esac
 name="pico-$version-$os-$arch"
 
-cargo build --release -p pico-cli
-
-# The host runtime libraries come from pico-runtime's build script (the newest build of it).
-lib=$(ls -td target/release/build/pico-runtime-*/out 2>/dev/null | while read -r d; do
-  [ -f "$d/libpico_rt.a" ] && { echo "$d"; break; }
-done)
-[ -n "$lib" ] || { echo "libpico_rt.a not found under target/release/build" >&2; exit 1; }
+cargo build --release -p pico-cli --features embed
 
 out="dist/$name"
 rm -rf "$out" "dist/$name.tar.gz"
-mkdir -p "$out/bin" "$out/share/pico/lib"
+mkdir -p "$out/bin"
 cp target/release/pico "$out/bin/"
 cp LICENSE "$out/"
-cp "$lib"/libpico_rt.a "$lib"/libpico_crypto.a "$lib"/libpico_mbedtls.a "$out/share/pico/lib/"
-# (Copied as they are in the repository: the compiler finds third_party/ from runtime/include.)
-cp -R runtime third_party stdlib "$out/share/pico/"
+# The vendored sources' license files, as licenses/<path in third_party>.
+(cd third_party && find . -maxdepth 3 -type f \( -iname 'licen[cs]e*' -o -iname 'copying*' \
+  -o -iname 'copyright*' -o -iname 'notice*' \)) | sed 's|^\./||' | while read -r f; do
+  mkdir -p "$out/licenses/$(dirname "$f")"
+  cp "third_party/$f" "$out/licenses/$f"
+done
 cat > "$out/README.md" <<EOF
 # pico $version ($os-$arch)
 
-The Pico Programming Language compiler. Put \`bin/\` on your PATH (keep \`share/\` next to it,
-or set \`PICO_HOME\` to \`share/pico\`).
+The Pico Programming Language compiler. Put \`bin/pico\` on your PATH. On first use it unpacks
+its runtime, C library sources and standard library into \`\$TMPDIR/pico-cache/home\`.
 
-pico is MIT-licensed (\`LICENSE\`). The vendored sources in \`share/pico/third_party\` keep
-their own licenses (the license files in each directory).
+pico is MIT-licensed (\`LICENSE\`). The vendored sources inside it keep their own licenses,
+in \`licenses/\`.
 
 Requirements:
 - LLVM 23's clang: Homebrew \`brew install llvm@23\` on macOS, apt.llvm.org on Linux
@@ -74,6 +71,9 @@ if [ "$check" = 1 ]; then
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
   tar -C "$tmp" -xzf "dist/$name.tar.gz"
+  # (A cache of its own: the check unpacks the bundled resources.)
+  export TMPDIR="$tmp/cache"
+  mkdir -p "$TMPDIR"
   printf 'println("hello from pico")\n' > "$tmp/hello.pi"
   pico="$tmp/$name/bin/pico"
   got=$(cd "$tmp" && "$pico" run hello.pi)
@@ -85,5 +85,6 @@ if [ "$check" = 1 ]; then
   else
     echo "check: skipped wasm32-wasi (built without lld; set PICO_LLD_PREFIX)"
   fi
+  ls -d "$TMPDIR"/pico-cache/home/*/stdlib >/dev/null || { echo "check failed: not unpacked" >&2; exit 1; }
   echo "check: ok"
 fi

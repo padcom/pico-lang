@@ -114,10 +114,12 @@ such runs).
 
 ## Releases
 `scripts/package.sh` builds `dist/pico-<version>-<host>.tar.gz` for this host (`--check` also
-extracts it and builds a program with it): `bin/pico` and `share/pico/` (`runtime/`,
-`third_party/`, `stdlib/`, `lib/` with the host runtime libraries). An installed pico finds
-`share/pico` next to its `bin/`, or in `PICO_HOME`; clang comes from `PICO_CLANG`, the LLVM it was
-built with, or `clang-23`/`clang` on PATH (decision 296). Users still need LLVM 23.
+extracts it and builds a program with it): `bin/pico`, built with `--features embed` so that it
+carries `runtime/`, `third_party/`, `stdlib/` and the host runtime libraries and unpacks them into
+`$TMPDIR/pico-cache/home/` on first use (decision 297), plus `LICENSE` and the vendored sources'
+licenses. `PICO_HOME` (or `share/pico` next to `bin/`) overrides the bundle; clang comes from
+`PICO_CLANG`, the LLVM pico was built with, or `clang-23`/`clang` on PATH (decision 296). Users
+still need LLVM 23 (until P10.10b2).
 
 To publish: set `version` in `Cargo.toml`, commit, then `git tag v<version> && git push --tags`.
 `.github/workflows/release.yml` builds the macOS arm64 and Linux x64/arm64 archives, tries each

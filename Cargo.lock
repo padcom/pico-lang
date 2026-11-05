@@ -488,6 +488,7 @@ dependencies = [
  "pico-lint",
  "pico-lsp",
  "pico-mir",
+ "pico-runtime",
  "pico-sema",
  "pico-syntax",
  "pulldown-cmark",
@@ -591,6 +592,7 @@ name = "pico-runtime"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "flate2",
  "pico-interp",
 ]
 

@@ -1058,12 +1058,28 @@ single binary.
   a host program and a `wasm32-wasi` one (decision 296).
 
 #### P10.10b Single binary
+Split (2026-11-05) into three:
+
+##### P10.10b1 Embedded resources
 - **Spec**: 14 §14.6
-- **Do**: a single static `pico` binary (LLVM, lld and libclang statically linked) containing the
-  runtime sources/prebuilt libs, stubs and stdlib, plus release CI for all host platforms
-  (Windows and macOS x64 hosts too; z3/zstd linked statically or left out; the mingw ZPL notice).
-- **Done when**: downloading the binary on a clean machine is enough to run `pico build --target …`
-  for every target.
+- **Do**: the runtime, vendored C sources, stdlib and host runtime libraries bundled into
+  `pico` (feature `embed`, used by release builds) and unpacked into the cache on first use; the
+  archive is `bin/pico` plus license files.
+- **Done when**: the binary alone, with an empty cache, builds and runs programs (decision 297).
+
+##### P10.10b2 No LLVM installation
+- **Spec**: 14 §14.6
+- **Do**: clang in process (its static libraries through a shim, like lld's) for the runtime,
+  libc builds and `c:` imports, with its resource headers bundled; z3, zstd and libxml2 linked
+  statically or left out of the LLVM build, so the binary needs only the system libraries.
+- **Done when**: on a runner without LLVM, the release archive builds and runs a host program
+  and a `wasm32-wasi` one.
+
+##### P10.10b3 More hosts
+- **Spec**: 14 §14.6
+- **Do**: Windows x64/arm64 and macOS x64 hosts in the release workflow; how pico documents
+  the mingw-w64 ZPL notice for programs it builds for Windows.
+- **Done when**: every host archive passes the release workflow's try job.
 
 ---
 

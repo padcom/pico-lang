@@ -11,8 +11,13 @@ publish = false
 name = "pico"
 path = "src/main.rs"
 
+[features]
+# A self-contained `pico`: the runtime, vendored C sources and stdlib inside (decision 297).
+embed = ["pico-runtime/embed"]
+
 [dependencies]
 clap.workspace = true
+pico-runtime.workspace = true
 pico-diag.workspace = true
 pico-codegen.workspace = true
 pico-driver.workspace = true
