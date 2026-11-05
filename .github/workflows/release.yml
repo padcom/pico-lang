@@ -99,7 +99,8 @@ jobs:
           pico --version
           pico clang --version
           printf '#include <stdint.h>\nuint64_t twice(uint64_t x) { return 2 * x; }\n' > f.c
-          pico clang --target=x86_64-linux-gnu -c f.c -o f.o
+          # (For the host: another target's C headers come with pico's own builds, not here.)
+          pico clang -c f.c -o f.o
           printf 'import { join } from "std/path"\nconst xs = [1, 2, 3]\nprintln(`${join("a", "b")} ${xs[0] + xs[1] + xs[2]}`)\n' > hello.pi
           [ "$(pico run hello.pi)" = "a/b 6" ]
           [ "$(pico run --interp hello.pi)" = "a/b 6" ]
