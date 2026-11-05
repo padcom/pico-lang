@@ -222,6 +222,17 @@
               "name": "variable.other.declaration.pico"
             }
           }
+        },
+        {
+          "match": "(?<![\\w$.])(reactive)\\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.pico"
+            },
+            "2": {
+              "name": "variable.other.declaration.pico"
+            }
+          }
         }
       ]
     },

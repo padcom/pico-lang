@@ -58,6 +58,10 @@ g = {
       {"match": r"(?<![\w$])(function)(\s*\*)?\s+(" + ID + ")",
        "captures": {"1": {"name": "storage.type.function.pico"}, "2": {"name": "keyword.generator.asterisk.pico"}, "3": {"name": "entity.name.function.pico"}}},
       {"match": r"(?<![\w$])(const|let)\s+(" + ID + ")",
+       "captures": {"1": {"name": "storage.type.pico"}, "2": {"name": "variable.other.declaration.pico"}}},
+      # `reactive count = 0`, also as a field (`private reactive step = 1`): contextual, a
+      # keyword only before the declared name (spec §16.1).
+      {"match": r"(?<![\w$.])(reactive)\s+(" + ID + ")",
        "captures": {"1": {"name": "storage.type.pico"}, "2": {"name": "variable.other.declaration.pico"}}}]},
     "keywords": {"patterns": [{"name": k, "match": words(v)} for k, v in KW.items()] + [
       # Contextual words (identifiers elsewhere): `for (x of xs)`, `import … from "m"`,
