@@ -105,6 +105,13 @@ fn main() {
         // (The driver asks Xcode's selection for the SDK.)
         println!("cargo:rustc-link-lib=dylib=xcselect");
     }
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        // The driver reads Visual Studio's file versions; MSYS2's LLVM uses libffi (its
+        // interpreter), which `llvm-config --system-libs` leaves out.
+        for l in ["version", "ffi"] {
+            println!("cargo:rustc-link-lib={l}");
+        }
+    }
     // The resource directory (builtin headers such as stddef.h) of this clang.
     let version = config("--version");
     let major = version.split('.').next().unwrap_or("23");

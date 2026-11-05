@@ -74,6 +74,13 @@ fn main() {
         .flag_if_supported("-Werror")
         .compile("pico_crypto");
     // (`compile` printed the link lines for both, glue first: the order static linking needs.)
+    // On Windows (MinGW) the runtime needs winpthreads, the certificate store and the system
+    // random source, for the interpreter's copy too.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        for l in ["pthread", "crypt32", "bcrypt"] {
+            println!("cargo:rustc-link-lib={l}");
+        }
+    }
     println!(
         "cargo:rustc-env=PICO_RUNTIME_DIR={}",
         std::env::var("OUT_DIR").unwrap()
