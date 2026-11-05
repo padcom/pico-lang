@@ -31,10 +31,13 @@ case "$(uname -s)" in
   MINGW*|MSYS*) os=windows ;;
   *) echo "unsupported host: $(uname -s)" >&2; exit 1 ;;
 esac
-case "$(uname -m)" in
+# (MSYS2's own tools are x86-64 even on arm64 Windows: its environment knows the target.)
+machine=$(uname -m)
+[ "$os" = windows ] && [ -n "${MSYSTEM_CARCH:-}" ] && machine=$MSYSTEM_CARCH
+case "$machine" in
   arm64|aarch64) arch=arm64 ;;
   x86_64|amd64) arch=x64 ;;
-  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+  *) echo "unsupported architecture: $machine" >&2; exit 1 ;;
 esac
 name="pico-$version-$os-$arch"
 exe=pico
