@@ -99,7 +99,7 @@ println(`${count} headings`)</code></pre>
 
     <!-- Features: scroll to switch -->
     <section id="features" class="features">
-      <h2 class="section-title">A tour in seventeen features</h2>
+      <h2 class="section-title">A tour in nineteen features</h2>
       <p class="section-lede">Scroll down: the code on the right follows along.</p>
 
       <div class="tour">
@@ -180,8 +180,49 @@ for (const key of env.keys()) println(key)
 const tags = new Set&lt;string&gt;(["new", "sale"])</code></pre>
           </article>
 
-          <article class="step" id="f-classes" data-title="Classes">
+          <article class="step" id="f-functions" data-title="Functions">
             <span class="step-num">05</span>
+            <h3>Functions</h3>
+            <p>Parameters have types; the last expression is the result. Parameters can have defaults (which may use earlier ones) or be optional with <code>?</code>, any argument can be passed by name, and overloads are resolved at compile time.</p>
+<pre class="code"><code>function add(a: int, b: int): int { a + b }          // the last expression is the result
+
+function greet(name: string, greeting = "Hello", suffix?: string): string {
+  `${greeting}, ${name}${suffix ?? ""}`
+}
+
+println(greet("Ann"))                     // Hello, Ann
+println(greet("Bob", suffix: "!"))        // named arguments: Hello, Bob!
+println(greet(greeting: "Hi", name: "Cy"))
+
+function area(w: f64, h: f64 = w): f64 { w * h }   // defaults can use earlier parameters
+println(area(3))                          // 9
+
+function len(s: string): int { s.length }           // overloads, picked statically
+function len&lt;T&gt;(a: T[]): int { a.length }
+println(`${len("pico")} ${len([1, 2, 3])}`)</code></pre>
+          </article>
+
+          <article class="step" id="f-spread" data-title="Spread">
+            <span class="step-num">06</span>
+            <h3>Rest and spread</h3>
+            <p>A rest parameter <code>...xs</code> collects the remaining arguments into an array. <code>...</code> spreads an array into a call or an array literal, a tuple into fixed parameters, and in a destructuring pattern collects the rest.</p>
+<pre class="code"><code>function sum(...xs: int[]): int { xs.reduce((a, b) =&gt; a + b, 0) }
+println(sum(1, 2, 3))                     // 6
+
+const numbers = [4, 5, 6]
+println(sum(...numbers))                  // 15: an array spread into the rest
+
+function move(x: int, y: int): string { `${x},${y}` }
+const pos: [int, int] = [3, 4]
+println(move(...pos))                     // a tuple spread into parameters
+
+const more = [0, ...numbers, 7]           // and into array literals
+const [first, ...rest] = more             // ...rest collects the remainder
+println(`${first} ${rest:?}`)</code></pre>
+          </article>
+
+          <article class="step" id="f-classes" data-title="Classes">
+            <span class="step-num">07</span>
             <h3>Classes</h3>
             <p>Parameter properties, getters, setters and overloaded constructors. Methods are final unless they're marked <code>virtual</code>, and overriding requires <code>override</code>. Inside a class, <code>this.</code> is optional.</p>
 <pre class="code"><code>class Animal {
@@ -203,7 +244,7 @@ println(d.description)           // Rex (3)</code></pre>
           </article>
 
           <article class="step" id="f-interfaces" data-title="Interfaces">
-            <span class="step-num">06</span>
+            <span class="step-num">08</span>
             <h3>Interfaces</h3>
             <p>Interfaces are nominal: a class implements one only when it says so. They can carry default methods, extend each other, and be implemented by structs and enums too.</p>
 <pre class="code"><code>interface Shape {
@@ -226,7 +267,7 @@ const b: Shape = new Blob()      // error: interfaces are nominal</code></pre>
           </article>
 
           <article class="step" id="f-lambdas" data-title="Lambdas">
-            <span class="step-num">07</span>
+            <span class="step-num">09</span>
             <h3>Lambdas</h3>
             <p>Arrow functions are first-class values with typed signatures. They capture <code>let</code> bindings by reference, <code>const</code> bindings by value, and <code>this</code> lexically.</p>
 <pre class="code"><code>type Predicate&lt;T&gt; = (x: T) => bool
@@ -248,7 +289,7 @@ const sum = [1, 2, 3].reduce((a, b) => a + b, 0)</code></pre>
           </article>
 
           <article class="step" id="f-generators" data-title="Generators">
-            <span class="step-num">08</span>
+            <span class="step-num">10</span>
             <h3>Generators</h3>
             <p><code>function*</code> and <code>yield</code> produce lazy iterators. Ranges and iterator adapters are lazy too, and any class becomes iterable by implementing <code>Iterable&lt;T&gt;</code>. Async generators work with <code>for await</code>.</p>
 <pre class="code"><code>function* fib(): Iterator&lt;i64&gt; {
@@ -273,7 +314,7 @@ for await (const line of lines("log.txt")) println(line)</code></pre>
           </article>
 
           <article class="step" id="f-match" data-title="Match">
-            <span class="step-num">09</span>
+            <span class="step-num">11</span>
             <h3>The match operator</h3>
             <p><code>match</code> is an expression. It destructures enums, structs, arrays and tuples, and supports guards, or-patterns, ranges and type tests. A match that misses a case is a compile error.</p>
 <pre class="code"><code>enum Shape {
@@ -298,7 +339,7 @@ const kind = match (status) {
           </article>
 
           <article class="step" id="f-exceptions" data-title="Exceptions">
-            <span class="step-num">10</span>
+            <span class="step-num">12</span>
             <h3>Exceptions</h3>
             <p>Exceptions are checked: a function lists what it can throw, and the compiler makes callers handle or declare it. <code>try</code> is an expression, a <code>catch</code> clause can destructure the error, and <code>try?</code> turns an error into <code>null</code>.</p>
 <pre class="code"><code>class IoError extends Error {
@@ -326,7 +367,7 @@ readConfig("x.json")                  // error: errors not handled</code></pre>
           </article>
 
           <article class="step" id="f-modules" data-title="Modules">
-            <span class="step-num">11</span>
+            <span class="step-num">13</span>
             <h3>Modules</h3>
             <p>Every file is a module and everything in it is private until it's exported. Imports cover local files, the standard library, git dependencies from <code>project.json</code>, C headers and, in the browser, JavaScript.</p>
 <pre class="code"><code>// geometry.pi
@@ -350,7 +391,7 @@ println(dot(Vec2 { x: 1, y: 2 }, geo.ORIGIN))</code></pre>
           </article>
 
           <article class="step" id="f-workers" data-title="Workers">
-            <span class="step-num">12</span>
+            <span class="step-num">14</span>
             <h3>Workers</h3>
             <p>Workers run in parallel, each on its own thread with its own heap. Messages must be <code>Sendable</code> and are copied, or moved when you transfer them. An inline worker takes a capture-free function, and <code>parallelMap</code> spreads work over a pool.</p>
 <pre class="code"><code>// main.pi
@@ -378,7 +419,7 @@ const hashes = await parallelMap(files, (f: string) =&gt; sha256File(f),
           </article>
 
           <article class="step" id="f-comptime" data-title="Comptime">
-            <span class="step-num">13</span>
+            <span class="step-num">15</span>
             <h3>Comptime</h3>
             <p>Ordinary Pico code can run inside the compiler. Use it to build lookup tables, read files at build time, take compile-time parameters, or pick an implementation per target.</p>
 <pre class="code"><code>function buildCrcTable(): [u32; 256] {
@@ -403,7 +444,7 @@ const impl = comptime if (target.arch == "wasm32") wasmImpl
           </article>
 
           <article class="step" id="f-decorators" data-title="Decorators">
-            <span class="step-num">14</span>
+            <span class="step-num">16</span>
             <h3>Decorators</h3>
             <p>Decorators are comptime functions that inspect and rewrite declarations. They can add members, wrap bodies with type-checked templates, and report errors. The standard library brings <code>@derive</code>.</p>
 <pre class="code"><code>import { FunctionDecl } from "std/meta"
@@ -430,7 +471,7 @@ class User { constructor(public id: i64, public name: string) {} }</code></pre>
           </article>
 
           <article class="step" id="f-reflection" data-title="Reflection">
-            <span class="step-num">15</span>
+            <span class="step-num">17</span>
             <h3>Reflection</h3>
             <p><code>std/reflect</code> describes types at run time: fields, methods, interfaces and decorators, with typed getters and setters. Metadata is only emitted for types that can reach a reflection call, so programs that don't use it pay nothing.</p>
 <pre class="code"><code>import { reflect } from "std/reflect"
@@ -455,7 +496,7 @@ reflect.typeOf&lt;User&gt;().field("name")!.set&lt;string&gt;(user, "Annie")</co
           </article>
 
           <article class="step" id="f-using" data-title="Using">
-            <span class="step-num">16</span>
+            <span class="step-num">18</span>
             <h3><code>using</code></h3>
             <p>A <code>using</code> binding is disposed automatically when its scope ends, in reverse order, including when an exception leaves the scope. <code>await using</code> does the same for async resources such as files and sockets.</p>
 <pre class="code"><code>import { open } from "std/fs"
@@ -484,7 +525,7 @@ function build() {
           </article>
 
           <article class="step" id="f-reactivity" data-title="Reactivity">
-            <span class="step-num">17</span>
+            <span class="step-num">19</span>
             <h3>Reactivity</h3>
             <p>A <code>reactive</code> binding knows who reads it. <code>computed</code> values are lazy and cached; <code>watchEffect</code> runs again, synchronously, whenever what it read changes. It's deep: mutating an array or an object held in reactive state counts too, through any reference.</p>
 <pre class="code"><code>reactive price = 10
