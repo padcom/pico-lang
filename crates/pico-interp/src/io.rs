@@ -476,12 +476,12 @@ impl Interp<'_, '_> {
             if op == 121 {
                 if let Some(Sock::Stream(st)) = net.socks.remove(&a) {
                     // SAFETY: frees the session of a descriptor that no job uses any more.
-                    unsafe { pico_tls_free(raw_fd(&*st)) };
+                    unsafe { pico_tls_free(raw_fd(&st)) };
                 }
             } else if let Some(Sock::Stream(st)) = net.socks.get(&a) {
                 if b != 0 {
                     // SAFETY: the descriptor is open (the stream is in the table).
-                    unsafe { pico_tls_close_notify(raw_fd(&**st)) };
+                    unsafe { pico_tls_close_notify(raw_fd(st)) };
                 }
                 let how = match b {
                     0 => std::net::Shutdown::Read,
@@ -1125,7 +1125,7 @@ impl Interp<'_, '_> {
                         let (p1, p2) = t_text.split_once('\0').unwrap_or((t_text.as_str(), ""));
                         let host = std::ffi::CString::new(s.clone()).unwrap_or_default();
                         let mut err = vec![0u8; 512];
-                        let fd = raw_fd(&*st);
+                        let fd = raw_fd(&st);
                         // SAFETY: valid pointers and lengths for the duration of the call.
                         let r = unsafe {
                             pico_tls_start(
@@ -1435,7 +1435,7 @@ struct TlsIo(Arc<TcpStream>);
 
 impl Read for TlsIo {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let fd = raw_fd(&*self.0);
+        let fd = raw_fd(&self.0);
         // SAFETY: `buf` is valid for writes of its length.
         let k = unsafe { pico_tls_read(fd, buf.as_mut_ptr(), buf.len()) };
         if k < 0 {
@@ -1448,7 +1448,7 @@ impl Read for TlsIo {
 
 impl Write for TlsIo {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let fd = raw_fd(&*self.0);
+        let fd = raw_fd(&self.0);
         // SAFETY: `buf` is valid for reads of its length.
         let k = unsafe { pico_tls_write(fd, buf.as_ptr(), buf.len()) };
         if k < 0 {

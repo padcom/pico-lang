@@ -333,3 +333,29 @@ html:not(.js) .step { opacity: 1; min-height: 0; padding: 32px 0; }
   html { scroll-behavior: auto; }
   .step, .stage-panels pre.code { transition: none; }
 }
+
+/* Get started */
+.start { border-top: 1px solid var(--border); }
+.start-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+.start-grid .card { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.start-grid h3 { margin: 0; }
+.start-grid h3 small { color: var(--muted); font-weight: 500; font-size: 14px; margin-left: 6px; }
+.start-grid p { margin: 0; color: var(--muted); font-size: 15px; }
+.start-grid pre.code { margin: 0; font-size: 12.5px; overflow-x: auto; }
+.start-try {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 32px;
+  align-items: start;
+}
+.start-try h3 { margin-top: 0; }
+.start-try p { color: var(--muted); }
+.start-try pre.code { margin: 0; border-radius: var(--radius); box-shadow: var(--shadow); }
+@media (max-width: 860px) {
+  .start-grid, .start-try { grid-template-columns: minmax(0, 1fr); }
+}

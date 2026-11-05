@@ -391,7 +391,7 @@ impl Loader<'_> {
             );
             return None;
         };
-        let canon = pico_runtime::canonical(&path).unwrap_or_else(|_| path.clone());
+        let canon = pico_runtime::canonical(path).unwrap_or_else(|_| path.clone());
         if let Some(&f) = self.by_path.get(&canon) {
             // Already loaded (or being loaded: an import cycle, which is fine for declarations).
             return Some(f);

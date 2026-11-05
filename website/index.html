@@ -23,7 +23,7 @@
       <a href="#basics">Basics</a>
       <a href="#features">Features</a>
       <a href="#tooling">Tooling</a>
-      <a href="https://github.com/padcom/pico-lang/releases/latest">Download</a>
+      <a href="#start">Get started</a>
       <a href="https://github.com/padcom/pico-lang">GitHub</a>
     </nav>
   </header>
@@ -45,7 +45,7 @@
         </p>
         <div class="cta">
           <a class="button primary" href="#features">Take the tour</a>
-          <a class="button" href="https://github.com/padcom/pico-lang/releases/latest">Download</a>
+          <a class="button" href="#start">Download</a>
           <a class="button" href="https://github.com/padcom/pico-lang">View on GitHub</a>
         </div>
       </div>
@@ -99,7 +99,7 @@ println(`${count} headings`)</code></pre>
 
     <!-- Features: scroll to switch -->
     <section id="features" class="features">
-      <h2 class="section-title">A tour in sixteen features</h2>
+      <h2 class="section-title">A tour in seventeen features</h2>
       <p class="section-lede">Scroll down: the code on the right follows along.</p>
 
       <div class="tour">
@@ -482,6 +482,20 @@ function build() {
   compileAll()
 }                     // prints "build: 812.4 ms" on the way out</code></pre>
           </article>
+
+          <article class="step" id="f-reactivity" data-title="Reactivity">
+            <span class="step-num">17</span>
+            <h3>Reactivity</h3>
+            <p>A <code>reactive</code> binding knows who reads it. <code>computed</code> values are lazy and cached; <code>watchEffect</code> runs again, synchronously, whenever what it read changes. It's deep: mutating an array or an object held in reactive state counts too, through any reference.</p>
+<pre class="code"><code>reactive price = 10
+reactive todos: string[] = []
+
+const total = computed(() => price * todos.length)
+watchEffect(() => println(`total: ${total}`))   // total: 0
+
+todos.push("ship it")                           // total: 10
+price = 12                                      // total: 12</code></pre>
+          </article>
         </div>
 
         <aside class="stage" aria-hidden="true">
@@ -512,6 +526,51 @@ pico explain E0308            # long-form error help</code></pre>
           <li><strong>Packages</strong> come straight from git, pinned by <code>project.json</code>.</li>
           <li><strong>Targets</strong>: Linux, macOS and Windows on x86_64 and arm64, WASI and the browser.</li>
         </ul>
+      </div>
+    </section>
+
+    <!-- Get started -->
+    <section id="start" class="start">
+      <h2 class="section-title">Get started</h2>
+      <p class="section-lede">One download, nothing else to install: the compiler, clang, lld, the runtime and the standard library are inside <code>pico</code>.</p>
+      <div class="start-grid">
+        <article class="card">
+          <h3>macOS <small>Apple silicon</small></h3>
+<pre class="code term"><code>curl -L https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0-macos-arm64.tar.gz | tar xz
+export PATH="$PWD/pico-0.2.0-macos-arm64/bin:$PATH"</code></pre>
+          <p>Programs for macOS itself also need the Xcode command line tools (<code>xcode-select --install</code>).</p>
+        </article>
+        <article class="card">
+          <h3>Linux <small>x86_64 · arm64</small></h3>
+<pre class="code term"><code>curl -L https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0-linux-x64.tar.gz | tar xz
+export PATH="$PWD/pico-0.2.0-linux-x64/bin:$PATH"</code></pre>
+          <p>For arm64, <code>linux-arm64</code>. Needs glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40).</p>
+        </article>
+        <article class="card">
+          <h3>Windows <small>x86_64 · arm64</small></h3>
+<pre class="code term"><code>curl.exe -LO https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0-windows-x64.zip
+tar -xf pico-0.2.0-windows-x64.zip
+$env:PATH = "$PWD\pico-0.2.0-windows-x64\bin;$env:PATH"</code></pre>
+          <p>In PowerShell, on Windows 10 or later. For arm64, <code>windows-arm64</code>.</p>
+        </article>
+      </div>
+      <div class="start-try">
+        <div>
+          <h3>Then play with reactivity</h3>
+          <p>Save this as <code>counter.pi</code> and run <code>pico run counter.pi</code>. Change it and run it again: <code>pico run --interp</code> skips the native build. Every release is on the <a href="https://github.com/padcom/pico-lang/releases/latest">releases page</a>, and the language is described in the <a href="https://github.com/padcom/pico-lang/blob/main/docs/TOUR.md">tour</a> and the <a href="https://github.com/padcom/pico-lang/tree/main/docs/spec">spec</a>.</p>
+        </div>
+<pre class="code"><code>class Todo {
+  constructor(public title: string, public done: bool) {}
+}
+
+reactive todos: Todo[] = []
+const left = computed(() => todos.filter(t => !t.done).length)
+
+watchEffect(() => println(`${left} of ${todos.length} left`))
+
+todos.push(new Todo("download pico", true))
+todos.push(new Todo("try reactivity", false))
+todos[1].done = true</code></pre>
       </div>
     </section>
   </main>

@@ -124,8 +124,10 @@ LLVM has clang's static libraries (Homebrew's `llvm@23` has them; apt: `libclang
 LLVM installation's clang. Release archives need no LLVM installation and only system libraries
 (the script checks with `otool -L`/`readelf -d`; release builds go to `target/package`).
 
-To publish: set `version` in `Cargo.toml`, commit, then `git tag v<version> && git push --tags`.
-`.github/workflows/release.yml` builds the macOS arm64 and Linux x64/arm64 archives, tries each
+To publish: set `version` in `Cargo.toml` and the download commands in `website/index.html`
+(section "Get started"), commit, then `git tag v<version> && git push --tags`.
+`.github/workflows/release.yml` builds the macOS arm64, Linux x64/arm64 and Windows x64/arm64
+archives (Windows in MSYS2's clang64/clangarm64 with Rust's gnullvm toolchain, decision 310), tries each
 on a runner with only LLVM installed, and creates the GitHub release (a tag with a `-`, like
 `v0.2.0-rc.1`, makes a prerelease). Run it by hand (Actions → release → Run workflow) to build and
 try the archives without publishing.

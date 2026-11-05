@@ -7,7 +7,7 @@ const KEYWORDS = new Set(`
   abstract as async await break case catch class comptime const constructor continue decorator
   default delete do else enum export extends false final finally for from function get if immutable
   implements import in instanceof interface is let loop match new null of override private protected
-  public readonly return set static struct super switch this throw throws true try type typeof using
+  public reactive readonly return set static struct super switch this throw throws true try type typeof using
   virtual void while yield
 `.split(/\s+/).filter(Boolean));
 

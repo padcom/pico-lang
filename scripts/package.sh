@@ -27,6 +27,8 @@ version=${version#v}
 case "$(uname -s)" in
   Darwin) os=macos ;;
   Linux) os=linux ;;
+  # (Windows: from an MSYS2 shell, clang64 or clangarm64, with MSYS2's LLVM 23.)
+  MINGW*|MSYS*) os=windows ;;
   *) echo "unsupported host: $(uname -s)" >&2; exit 1 ;;
 esac
 case "$(uname -m)" in
@@ -35,6 +37,8 @@ case "$(uname -m)" in
   *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 name="pico-$version-$os-$arch"
+exe=pico
+[ "$os" = windows ] && exe=pico.exe
 
 # Only system libraries at run time: LLVM's other dependencies linked statically (a search
 # directory holding only their static libraries, ahead of the others), and the libraries nothing
@@ -45,6 +49,13 @@ rm -rf "$static" && mkdir -p "$static"
 if [ "$os" = macos ]; then
   wanted=(zstd)
   extra=(-C link-arg=-Wl,-dead_strip_dylibs)
+elif [ "$os" = windows ]; then
+  # Everything but the system's DLLs statically (`-static`): MSYS2's libc++, libunwind,
+  # winpthreads, and LLVM's zstd, libxml2 (with libiconv, liblzma), libffi and zlib. `llvm-config`
+  # names zstd's import library (`-lzstd.dll`), so a static copy takes that name too.
+  wanted=(zstd xml2 iconv lzma ffi z)
+  extra=(-C link-arg=-static -C link-arg=-Wl,--as-needed)
+  for l in iconv lzma z; do extra+=(-C "link-arg=-l$l"); done
 else
   wanted=(zstd ffi xml2 icuuc icudata lzma)
   extra=(-C link-arg=-Wl,--as-needed)
@@ -52,20 +63,25 @@ else
   for l in icuuc icudata lzma; do extra+=(-C "link-arg=-l$l"); done
 fi
 for l in "${wanted[@]}"; do
-  for d in "$(brew --prefix 2>/dev/null)/lib" /usr/lib/"$(uname -m)"-linux-gnu /usr/lib /usr/local/lib; do
+  for d in "$(brew --prefix 2>/dev/null)/lib" /usr/lib/"$(uname -m)"-linux-gnu /usr/lib /usr/local/lib \
+    "${MINGW_PREFIX:-/nonexistent}/lib"; do
     if [ -f "$d/lib$l.a" ]; then cp "$d/lib$l.a" "$static/"; break; fi
   done
   [ -f "$static/lib$l.a" ] || { echo "lib$l.a not found (install its static library)" >&2; exit 1; }
 done
+[ "$os" = windows ] && cp "$static/libzstd.a" "$static/libzstd.dll.a"
 # (A target directory of its own: other RUSTFLAGS than development builds.)
 RUSTFLAGS="-L native=$static ${extra[*]}" \
   cargo build --release -p pico-cli --features embed --target-dir target/package
-bin=target/package/release/pico
+bin=target/package/release/$exe
 
 # The libraries it loads must all be the system's.
 if [ "$os" = macos ]; then
   libs=$(otool -L "$bin" | tail -n +2 | awk '{print $1}')
   bad=$(echo "$libs" | grep -v -E '^(/usr/lib/|/System/)' || true)
+elif [ "$os" = windows ]; then
+  libs=$(objdump -p "$bin" | sed -n 's/.*DLL Name: //p')
+  bad=$(echo "$libs" | grep -v -i -E '^(kernel32|kernelbase|ntdll|user32|advapi32|shell32|ole32|oleaut32|ws2_32|crypt32|bcrypt|bcryptprimitives|psapi|version|userenv|dbghelp|secur32|shlwapi|uuid|ucrtbase|msvcrt|api-ms-win-[a-z0-9-]+)\.dll$' || true)
 else
   libs=$(readelf -d "$bin" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
   bad=$(echo "$libs" | grep -v -E '^(libc|libm|libdl|librt|libpthread|libgcc_s|libstdc\+\+|libz|ld-linux.*)\.so' || true)
@@ -73,7 +89,7 @@ fi
 [ -z "$bad" ] || { echo "pico needs non-system libraries:" >&2; echo "$bad" >&2; exit 1; }
 
 out="dist/$name"
-rm -rf "$out" "dist/$name.tar.gz"
+rm -rf "$out" "dist/$name.tar.gz" "dist/$name.zip"
 mkdir -p "$out/bin"
 cp "$bin" "$out/bin/"
 cp LICENSE "$out/"
@@ -100,27 +116,45 @@ in \`licenses/\`.
 EOF
 if [ "$os" = macos ]; then
   echo 'Programs for macOS itself need the Xcode command line tools (`xcode-select --install`).' >> "$out/README.md"
+elif [ "$os" = windows ]; then
+  echo 'Windows 10 or later. The cache is in `%TEMP%\pico-cache`.' >> "$out/README.md"
 else
   echo 'Linux: glibc 2.39 or later.' >> "$out/README.md"
 fi
-tar -C dist -czf "dist/$name.tar.gz" "$name"
-echo "dist/$name.tar.gz"
+if [ "$os" = windows ]; then
+  # (Windows' own bsdtar writes zip files.)
+  (cd dist && "$(cygpath -u "$SYSTEMROOT")/System32/tar.exe" -a -cf "$name.zip" "$name")
+  archive="dist/$name.zip"
+else
+  tar -C dist -czf "dist/$name.tar.gz" "$name"
+  archive="dist/$name.tar.gz"
+fi
+echo "$archive"
 
 if [ "$check" = 1 ]; then
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
-  tar -C "$tmp" -xzf "dist/$name.tar.gz"
-  # (A cache of its own: the check unpacks the bundled resources.)
+  if [ "$os" = windows ]; then
+    zip_path=$(cygpath -w "$PWD/$archive")
+    (cd "$tmp" && "$(cygpath -u "$SYSTEMROOT")/System32/tar.exe" -xf "$zip_path")
+  else
+    tar -C "$tmp" -xzf "$archive"
+  fi
+  # (A cache of its own: the check unpacks the bundled resources; Windows asks TMP/TEMP.)
   export TMPDIR="$tmp/cache"
   mkdir -p "$TMPDIR"
+  if [ "$os" = windows ]; then
+    TMP=$(cygpath -w "$TMPDIR")
+    export TMP TEMP="$TMP"
+  fi
   printf 'println("hello from pico")\n' > "$tmp/hello.pi"
   # (No installed clang: the one inside pico.)
   unset PICO_CLANG
-  pico="$tmp/$name/bin/pico"
+  pico="$tmp/$name/bin/$exe"
   got=$(cd "$tmp" && "$pico" run hello.pi)
   [ "$got" = "hello from pico" ] || { echo "check failed: got '$got'" >&2; exit 1; }
   # (lld is optional when building on macOS: without it, pico can't link other targets.)
-  if [ "$os" = linux ] || [ -n "${PICO_LLD_PREFIX:-}" ]; then
+  if [ "$os" != macos ] || [ -n "${PICO_LLD_PREFIX:-}" ]; then
     (cd "$tmp" && "$pico" build --target wasm32-wasi hello.pi -o hello.wasm)
     [ -s "$tmp/hello.wasm" ] || { echo "check failed: no hello.wasm" >&2; exit 1; }
   else

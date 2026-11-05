@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**P10.10b3: More hosts** (Windows x64/arm64, moved after Phase 11 by the author: a port of the compiler, a MinGW build; see PLAN). Phase 11 (Reactivity) is done; the author should check it in VS Code (F5 on a program with `reactive` state: the variables show values, `(dirty)` and `not computed yet`; hover shows `reactive x: Reactive<T>`) and review decisions 303–306, 308 and 309 (provisional). P10.10b3 (Windows x64/arm64 hosts: a port of the compiler, a MinGW build) was moved after Phase 11 by the author. The single-binary archives aren't released yet (v0.1.0 has the first ones): tag v0.1.1 when the author wants them out. Still open from earlier: P10.4 is deferred and P10.5b waits for a large program; the author should try F5/Run Build Task with `entry`, `pico lint` warnings, and hover/definition in files with errors in VS Code.
+**Release v0.2.0** (macOS arm64, Linux x64/arm64, Windows x64/arm64, with reactivity): the release workflow's Windows jobs need the `workflow` token scope to be pushed (`gh auth refresh -h github.com -s workflow`; SSH signing failed in this session), then a manual run, then the tag. After that: Phase 12 (see PLAN). The author should check Phase 11 in VS Code and review decisions 303–306, 308–310.
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -354,7 +354,7 @@ Notes:
   - [ ] P10.10b Single binary (split)
     - [x] P10.10b1 Embedded resources
     - [x] P10.10b2 No LLVM installation
-    - [ ] P10.10b3 More hosts
+    - [x] P10.10b3 More hosts (Windows x64/arm64; their first release run is still to do)
 
 ### Phase 11: Later
 - [x] P11.1 Reactivity: spec (open questions first)
@@ -571,3 +571,4 @@ Notes:
 | 2026-11-05 | P11.3b | Deep reactivity: objects, arrays and maps read while tracking become reactive (by identity, registry in the core), and their mutations trigger through any reference (fields, elements, push/pop/sort/reverse, Map/Set); struct fields written through a reactive binding write it back. Hooks only in programs that use reactive state, with an inlined flag test: 0.36 s vs 0.83 s on a 200M-operation loop, nothing for other programs (decision 309; spec §16.6 now tracks any object read while tracking). Fixed on the way: a place through a reactive binding (`todos[0].done = …`) used the cell, not its value. Test: `tests/run/reactive/deep.pi`. |
 | 2026-11-05 | P11.4 | Effects with the event loop: no code changes needed (effects are synchronous, decision 291); golden test `tests/run/reactive/event_loop.pi` (writes in timers, microtasks and async functions after `await`, no batching, microtasks queued by effects, an async function started by an effect tracks only before `await`), fail test `worker_message.pi` (E0330). Spec §16.4/16.5/16.8 say so; async lambdas aren't implemented in pico, so the example starts a named async function. |
 | 2026-11-05 | P11.5 | Reactivity tooling: lldb formatter for `Reactive<T>` (value, `(dirty)`, `not computed yet`), checked by a new plain-lldb test; hover says `reactive x: Reactive<T>`; TOUR §18 (its examples run). Phase 11 done; next is P10.10b3 (Windows hosts). |
+| 2026-11-05 | P10.10b3 | Windows hosts (decision 310): pico builds and runs on Windows x64 in CI (`.github/workflows/windows-host.yml`: MSYS2 clang64, Rust gnullvm) after fixes: an unused variable without backtraces, socket handles for TLS, the link libraries, paths without `\\?\\` for clang, `/`-separated object names. Release packaging for Windows (`package.sh`: `-static`, DLL check, `.zip`) and the release workflow's Windows jobs written; version 0.2.0; the website gets a Get started section (downloads, a reactive program) and a Reactivity tour step. |
