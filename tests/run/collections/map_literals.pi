@@ -9,6 +9,7 @@
 // expect: 30
 // expect: k1=x k2=y k3=z
 // expect: first second
+// expect: 6 three true 2
 struct Point { x: int; y: int }
 
 // Identifier, string and shorthand keys (`K` is `string`), in source order.
@@ -94,3 +95,13 @@ let b = "first"
   [a, b] = [b, a]
 }
 println(`${a} ${b}`)
+
+// A generic function's type arguments from a map literal argument.
+function firstValue<K extends Hashable<K>, V>(m: Map<K, V>): V? {
+  m.values()[0]
+}
+function valueOf<V>(m: Map<string, V>, k: string): V? {
+  m.get(k)
+}
+const flags: Map<string, bool> = { on: true }
+println(`${valueOf({ q: 5, r: 6 }, "r")!} ${firstValue({ [3]: "three" })!} ${firstValue({ ...flags, off: false })!} ${valueOf({ x: [1, 2] }, "x")!.length}`)

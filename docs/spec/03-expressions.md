@@ -24,7 +24,11 @@ const bonus = if (vip) 100    // bonus: int?
 ```ts
 const p = Point { x: 1, y: 2 }   // explicit type
 const q: Point = { x: 1, y: 2 }  // expected type known
+const r = Point { ...p, y: 5 }   // spread: every field of `p`, then `y`
 ```
+A spread `...v` in a struct literal takes a value of the same struct type and sets every field;
+entries are evaluated left to right and later ones win (`{ x: 9, ...p }` keeps `p.x`), so no
+field is missing (decision 313). In a map literal it copies a map's entries (§2.3).
 A `{` at the start of a statement always opens a block. Elsewhere, `{` opens an **object
 literal** if it's `{}`, starts with `...`, `name:`, `"key":`, `name,` or `[…]:` (a computed
 map key, §2.3), or is exactly `{ name }`; otherwise it opens a block (`const area = { const w = 3; w * h }`).

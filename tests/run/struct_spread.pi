@@ -1,0 +1,32 @@
+// Spreads in struct literals (decision 313): a value of the literal's own type sets every field;
+// entries are evaluated left to right and later ones win.
+// expect: 10 2 p 1
+// expect: 3 c
+// expect: 7 1 null 1
+// expect: 1 2 inner
+struct Point { x: int; y: int; label?: string }
+struct Box<T> { value: T; tag: string }
+struct Wrap { p: Point; name: string }
+
+const p = Point { x: 1, y: 2, label: "p" }
+const q = Point { ...p, x: 10 }
+const r: Point = { x: 99, ...p }
+println(`${q.x} ${q.y} ${q.label} ${r.x}`)
+
+// Type arguments come from the spread.
+const b = Box { value: 3, tag: "a" }
+const c = Box { ...b, tag: "c" }
+println(`${c.value} ${c.tag}`)
+
+let n = 0
+function next(): Point {
+  n += 1
+  Point { x: n, y: n }
+}
+const s = Point { y: 0, ...next(), x: 7 }
+println(`${s.x} ${s.y} ${s.label} ${n}`)
+
+// Nested: a struct field copied from the spread value.
+const w = Wrap { p: Point { x: 1, y: 2 }, name: "outer" }
+const w2 = Wrap { ...w, name: "inner" }
+println(`${w2.p.x} ${w2.p.y} ${w2.name}`)

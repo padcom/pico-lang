@@ -552,6 +552,9 @@ fn untyped_lit(e: &Expr) -> bool {
 
 const NULL_HELP: &str = "the value may be null: check it first (`if (x != null) …`), give a default with `??`, or assert with `!`";
 
+/// In `Types::objects`' field order: a spread (`{ ...p }`), which sets every field.
+pub const SPREAD_SLOT: u32 = u32::MAX - 1;
+
 /// Expressions whose type comes from what's expected (literals, `[]`, `null`, `{ … }`):
 /// generic inference looks at the other arguments first.
 fn needs_context(e: &Expr) -> bool {
@@ -4352,8 +4355,58 @@ impl<'p> Checker<'p> {
         }
     }
 
+    /// A map literal passed for generic parameter type `p` (`Map<K, V>` with type parameters of
+    /// `owner`): infers the entries, unifies their types with `K` and `V`, then checks the
+    /// literal against the instance.
+    fn infer_map_literal(
+        &mut self,
+        e: &Expr,
+        fields: &[FieldInit],
+        owner: u32,
+        p: &Ty,
+        subst: &mut [Option<Ty>],
+    ) -> Ty {
+        let (kp, vp) = self.program.map_args(p).expect("a map type");
+        let (kp, vp) = (kp.clone(), vp.clone());
+        for f in fields {
+            match &f.key {
+                InitKey::Name | InitKey::Str => self.unify(owner, &kp, &Ty::Str, subst),
+                InitKey::Computed(k) => {
+                    let t = self.infer(k);
+                    self.unify(owner, &kp, &t, subst);
+                }
+                InitKey::Spread => {
+                    let t = self.infer(&f.value);
+                    self.unify(owner, p, &t, subst);
+                    continue;
+                }
+            }
+            let t = self.infer(&f.value);
+            self.unify(owner, &vp, &t, subst);
+        }
+        let args: Vec<Ty> = subst
+            .iter()
+            .map(|t| t.clone().unwrap_or(Ty::Error))
+            .collect();
+        let map = p.subst(owner, &args);
+        self.map_literal_with(e, map, fields, true)
+    }
+
     /// `{ a: 1, "b": 2, [k]: v, ...m }` building `map` (`Map<K, V>`).
     fn map_literal(&mut self, e: &Expr, map: Ty, fields: &[FieldInit]) -> Ty {
+        self.map_literal_with(e, map, fields, false)
+    }
+
+    /// `map_literal`, with the entries' expressions already inferred if `inferred`.
+    fn map_literal_with(&mut self, e: &Expr, map: Ty, fields: &[FieldInit], inferred: bool) -> Ty {
+        let fit = |this: &mut Self, x: &Expr, t: &Ty| {
+            if inferred {
+                let found = this.types.expr(x.id).clone();
+                this.coerce(x, found, &Expect::new(t.clone()));
+            } else {
+                this.check(x, &Expect::new(t.clone()));
+            }
+        };
         let Ty::Class(_, _, args) = &map else {
             unreachable!("a map type")
         };
@@ -4382,14 +4435,14 @@ impl<'p> Checker<'p> {
                             .secondary(prev, "first given here"),
                         );
                     }
-                    self.check(&f.value, &Expect::new(v.clone()));
+                    fit(self, &f.value, &v);
                 }
                 InitKey::Computed(key) => {
-                    self.check(key, &Expect::new(k.clone()));
-                    self.check(&f.value, &Expect::new(v.clone()));
+                    fit(self, key, &k);
+                    fit(self, &f.value, &v);
                 }
                 InitKey::Spread => {
-                    self.check(&f.value, &Expect::new(map.clone()));
+                    fit(self, &f.value, &map);
                 }
             }
         }
@@ -4410,27 +4463,45 @@ impl<'p> Checker<'p> {
         {
             return self.map_literal(e, map, fields);
         }
-        if let Some(f) = fields.iter().find(|f| !matches!(f.key, InitKey::Name)) {
+        let discriminated = ty.is_none()
+            && matches!(want.map(|w| &w.ty), Some(Ty::Enum(eid, _))
+                if matches!(self.program.enum_def(*eid).origin, crate::hir::EnumOrigin::Discriminated(_)));
+        if let Some(f) = fields.iter().find(|f| match f.key {
+            InitKey::Name => false,
+            // `Point { ...p, x: 1 }`: struct literals take spreads of their own type.
+            InitKey::Spread => discriminated,
+            _ => true,
+        }) {
             for f in fields {
                 f.exprs().for_each(|x| {
                     self.infer(x);
                 });
             }
-            let what = match f.key {
-                InitKey::Str => "string keys",
-                InitKey::Computed(_) => "computed keys",
-                _ => "spreads",
-            };
-            self.diags.push(
-                Diagnostic::error(
+            let d = match f.key {
+                InitKey::Str | InitKey::Computed(_) => {
+                    let what = if matches!(f.key, InitKey::Str) {
+                        "string keys"
+                    } else {
+                        "computed keys"
+                    };
+                    Diagnostic::error(
+                        codes::UNKNOWN_OBJECT_TYPE,
+                        format!("{what} only appear in map literals"),
+                    )
+                    .primary(f.name_span, "needs a `Map` to build")
+                    .help("annotate the binding with the map type: `const m: Map<string, int> = { … }`")
+                }
+                _ => Diagnostic::error(
                     codes::UNKNOWN_OBJECT_TYPE,
-                    format!("{what} only appear in map literals"),
+                    "a discriminated union's object literal can't spread",
                 )
-                .primary(f.name_span, "needs a `Map` to build")
-                .help(
-                    "annotate the binding with the map type: `const m: Map<string, int> = { … }`",
-                ),
-            );
+                .primary(
+                    f.name_span,
+                    "the variant is chosen by a literal discriminant",
+                )
+                .help("write every field"),
+            };
+            self.diags.push(d);
             return Ty::Error;
         }
         if ty.is_none()
@@ -4477,6 +4548,7 @@ impl<'p> Checker<'p> {
         let def = self.program.struct_def(sid);
         // A generic struct's type arguments: given, expected, or inferred from the fields.
         let owner = Ty::type_owner(sid);
+        let mut spreads_inferred = false;
         let targs: Vec<Ty> = if def.generics.is_empty() {
             Vec::new()
         } else if !type_args.is_empty() {
@@ -4487,8 +4559,22 @@ impl<'p> Checker<'p> {
             a.to_vec()
         } else {
             let mut subst: Vec<Option<Ty>> = vec![None; def.generics.len()];
+            // `Box { ...b }`: a spread of the same struct gives all of them.
+            spreads_inferred = true;
+            for f in fields.iter().filter(|f| matches!(f.key, InitKey::Spread)) {
+                if let Ty::Struct(s, _, a) = self.infer(&f.value).strip_immutable()
+                    && s == sid
+                {
+                    for (slot, t) in subst.iter_mut().zip(a.iter()) {
+                        slot.get_or_insert_with(|| t.clone());
+                    }
+                }
+            }
             for late in [false, true] {
                 for f in fields {
+                    if matches!(f.key, InitKey::Spread) {
+                        continue;
+                    }
                     if needs_context(&f.value) != late {
                         continue;
                     }
@@ -4525,7 +4611,21 @@ impl<'p> Checker<'p> {
         };
         let mut seen: Vec<Option<Span>> = vec![None; def.fields.len()];
         let mut order = Vec::new();
+        let mut spread = false;
         for f in fields {
+            if matches!(f.key, InitKey::Spread) {
+                // Every field, from a value of the literal's own type.
+                let me = def.ty_with(sid, targs.clone().into());
+                if spreads_inferred {
+                    let found = self.types.expr(f.value.id).clone();
+                    self.coerce(&f.value, found, &Expect::new(me));
+                } else {
+                    self.check(&f.value, &Expect::new(me));
+                }
+                spread = true;
+                order.push(SPREAD_SLOT);
+                continue;
+            }
             match def.field(&f.name) {
                 Some((i, fd)) => {
                     let fty = fd.ty.subst(owner, &targs);
@@ -4572,8 +4672,8 @@ impl<'p> Checker<'p> {
             .fields
             .iter()
             .zip(&seen)
-            // An optional struct field (`p?: T`) is `null` if left out.
-            .filter(|(f, s)| s.is_none() && !(f.preassigned && !def.is_class))
+            // An optional struct field (`p?: T`) is `null` if left out; a spread gives them all.
+            .filter(|(f, s)| s.is_none() && !(f.preassigned && !def.is_class) && !spread)
             .map(|(f, _)| f.name.as_str())
             .collect();
         if !missing.is_empty() {
@@ -6687,6 +6787,15 @@ impl<'p> Checker<'p> {
                         // builds the parameter's struct, its type arguments inferred from
                         // the fields (as for `Options { … }`).
                         let t = self.object(a, Some(*sid), fields, &[], None);
+                        self.set(a, t)
+                    } else if let ExprKind::Object {
+                        ty: None, fields, ..
+                    } = &a.kind
+                        && self.program.map_args(p).is_some()
+                    {
+                        // `f({ a: 1 })` for `f<V>(m: Map<string, V>)`: `K` and `V` from the
+                        // entries.
+                        let t = self.infer_map_literal(a, fields, owner, p, &mut subst);
                         self.set(a, t)
                     } else {
                         self.infer(a)

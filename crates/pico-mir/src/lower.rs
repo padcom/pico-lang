@@ -3122,9 +3122,18 @@ impl FnBuilder<'_, '_> {
                 let (sid, order) = self.cx.types.objects[&e.id].clone();
                 let nfields = self.cx.program.struct_def(sid).fields.len();
                 let mut ops: Vec<Option<Operand>> = vec![None; nfields.max(order.len())];
-                // Evaluate in source order, store in declaration order.
+                // Evaluate in source order, store in declaration order; a spread sets every
+                // field, and later entries win.
                 for (f, slot) in fields.iter().zip(&order) {
                     let v = self.expr(&f.value);
+                    if *slot == pico_sema::typeck::SPREAD_SLOT {
+                        let src = self.temp(ty.clone());
+                        self.assign(Place::local(src), Rvalue::Use(v), f.value.span);
+                        for (j, op) in ops.iter_mut().enumerate().take(nfields) {
+                            *op = Some(Operand::Copy(Place::local(src).field(j as u32)));
+                        }
+                        continue;
+                    }
                     ops[*slot as usize] = Some(v);
                 }
                 // Optional fields left out are `null`.

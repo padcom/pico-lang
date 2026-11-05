@@ -1,0 +1,15 @@
+// error: E0308
+// at: 13:22
+// error: E0308
+// at: 14:22
+// error: E0313
+// at: 15:20
+// A struct literal spreads only its own type, and a discriminated union's literal can't spread.
+struct Point { x: int; y: int }
+struct Other { x: int; y: int }
+type Ev = { kind: "a", n: int } | { kind: "b" }
+const o = Other { x: 1, y: 2 }
+const a: Ev = { kind: "a", n: 1 }
+const p = Point { ...o }
+const q = Point { ...o.x, y: 1 }
+const e: Ev = { ...a }
