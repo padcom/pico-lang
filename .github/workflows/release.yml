@@ -200,3 +200,15 @@ jobs:
           case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip dist/*.vsix --repo "$GITHUB_REPOSITORY" \
             --title "pico ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag "${flags[@]}"
+
+      # The extension on the VS Code Marketplace (padcom.pico-lang): needs the VSCE_PAT secret (an
+      # Azure DevOps token with Marketplace → Manage for all organizations); skipped without it
+      # and for prereleases.
+      - name: Publish the VS Code extension
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          case "$GITHUB_REF_NAME" in *-*) echo "prerelease: not published"; exit 0 ;; esac
+          if [ -z "$VSCE_PAT" ]; then echo "no VSCE_PAT secret: not published"; exit 0; fi
+          cd editors/vscode
+          npx --yes @vscode/vsce@3.9.2 publish --packagePath ../../dist/pico-lang-${GITHUB_REF_NAME#v}.vsix

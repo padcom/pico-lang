@@ -126,8 +126,13 @@ LLVM installation's clang. Release archives need no LLVM installation and only s
 
 To publish: set `version` in `Cargo.toml` and `editors/vscode/package.json`, and the download
 commands in `website/index.html` (section "Get started"), commit, then `git tag v<version> &&
-git push --tags`. The release also gets the VS Code extension (`pico-lang-<version>.vsix`, ID `padcom.pico-lang`, built by
-`scripts/vscode-package.sh` in the publish job, which checks that its version matches the tag).
+git push --tags`. The release also gets the VS Code extension (`pico-lang-<version>.vsix`, ID `padcom.pico-lang`, built with
+`vsce` by `scripts/vscode-package.sh` in the publish job, which checks that its version matches the tag),
+and publishes it to the VS Code Marketplace when the repository has a `VSCE_PAT` secret (an Azure
+DevOps token, organization "All accessible organizations", scope Marketplace → Manage).
+By hand: `VSCE_STORE=file npx @vscode/vsce login padcom`, then `npx @vscode/vsce publish
+--packagePath target/vscode/pico-lang-<version>.vsix` from `editors/vscode` (the file store,
+`~/.vsce`, because vsce's keyring module crashes on Node 26 here).
 `.github/workflows/release.yml` builds the macOS arm64, Linux x64/arm64 and Windows x64/arm64
 archives (Windows in MSYS2's clang64/clangarm64 with Rust's gnullvm toolchain, decision 310), tries each
 on a runner with only LLVM installed, and creates the GitHub release (a tag with a `-`, like
