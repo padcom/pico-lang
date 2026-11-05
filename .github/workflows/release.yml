@@ -23,6 +23,12 @@ jobs:
           - { host: macos-arm64, os: macos-latest }
           - { host: linux-x64, os: ubuntu-24.04 }
           - { host: linux-arm64, os: ubuntu-24.04-arm }
+          # Windows: a MinGW build (Rust's gnullvm) against MSYS2's LLVM 23 (P10.10b3).
+          - { host: windows-x64, os: windows-latest, msystem: CLANG64, msys: clang-x86_64, rust: x86_64-pc-windows-gnullvm }
+          - { host: windows-arm64, os: windows-11-arm, msystem: CLANGARM64, msys: clang-aarch64, rust: aarch64-pc-windows-gnullvm }
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -60,13 +66,45 @@ jobs:
         if: runner.os == 'Linux'
         run: scripts/ci-install-linux.sh
 
+      - name: Install LLVM 23 (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-${{ matrix.msys }}-llvm
+            mingw-w64-${{ matrix.msys }}-llvm-tools
+            mingw-w64-${{ matrix.msys }}-clang
+            mingw-w64-${{ matrix.msys }}-lld
+            mingw-w64-${{ matrix.msys }}-zstd
+            mingw-w64-${{ matrix.msys }}-zlib
+            mingw-w64-${{ matrix.msys }}-libxml2
+            mingw-w64-${{ matrix.msys }}-libiconv
+            mingw-w64-${{ matrix.msys }}-xz
+            mingw-w64-${{ matrix.msys }}-libffi
+
       - name: Package
+        if: runner.os != 'Windows'
         run: scripts/package.sh --check
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          rustup toolchain install 1.99.0-${{ matrix.rust }} --profile minimal
+          export RUSTUP_TOOLCHAIN=1.99.0-${{ matrix.rust }}
+          export LLVM_SYS_231_PREFIX="$(cygpath -m "$MINGW_PREFIX")"
+          export CC=clang CXX=clang++
+          scripts/package.sh --check
 
       - uses: actions/upload-artifact@v4
         with:
           name: pico-${{ matrix.host }}
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
           if-no-files-found: error
 
   # On a runner without the repository or LLVM: the archive is all a user has.
@@ -81,8 +119,15 @@ jobs:
           - { host: macos-arm64, os: macos-latest }
           - { host: linux-x64, os: ubuntu-24.04 }
           - { host: linux-arm64, os: ubuntu-24.04-arm }
+          - { host: windows-x64, os: windows-latest }
+          - { host: windows-arm64, os: windows-11-arm }
+    defaults:
+      run:
+        shell: bash
     steps:
+      # (Windows runners come with an LLVM in `C:\Program Files\LLVM`; pico uses its own.)
       - name: No LLVM
+        if: runner.os != 'Windows'
         run: |
           ! command -v llvm-config && ! command -v clang-23 && ! command -v ld.lld
           [ ! -d /opt/homebrew/opt/llvm@23 ] && [ ! -d /usr/lib/llvm-23 ]
@@ -91,19 +136,33 @@ jobs:
         with:
           name: pico-${{ matrix.host }}
 
+      - name: Unpack (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Expand-Archive -Path (Get-Item pico-*.zip).FullName -DestinationPath try
+
       - name: Build and run a program
         run: |
-          mkdir try && tar -C try -xzf pico-*.tar.gz
+          [ "$RUNNER_OS" = Windows ] || { mkdir try && tar -C try -xzf pico-*.tar.gz; }
           export PATH="$(echo "$PWD"/try/pico-*/bin):$PATH"
           cd try
           pico --version
           pico clang --version
           printf '#include <stdint.h>\nuint64_t twice(uint64_t x) { return 2 * x; }\n' > f.c
-          # (For the host: another target's C headers come with pico's own builds, not here.)
-          pico clang -c f.c -o f.o
+          # (For the host: another target's C headers come with pico's own builds, not here;
+          # on Windows there are none, so freestanding.)
+          if [ "$RUNNER_OS" = Windows ]; then
+            pico clang -ffreestanding -c f.c -o f.o
+          else
+            pico clang -c f.c -o f.o
+          fi
           printf 'import { join } from "std/path"\nconst xs = [1, 2, 3]\nprintln(`${join("a", "b")} ${xs[0] + xs[1] + xs[2]}`)\n' > hello.pi
-          [ "$(pico run hello.pi)" = "a/b 6" ]
-          [ "$(pico run --interp hello.pi)" = "a/b 6" ]
+          want="a/b 6"
+          [ "$RUNNER_OS" = Windows ] && want='a\b 6'
+          [ "$(pico run hello.pi | tr -d '\r')" = "$want" ]
+          [ "$(pico run --interp hello.pi | tr -d '\r')" = "$want" ]
+          printf 'reactive n = 1\nconst d = computed(() => n * 2)\nwatchEffect(() => println(`d ${d}`))\nn = 5\n' > r.pi
+          [ "$(pico run r.pi | tr -d '\r' | tr '\n' ' ')" = "d 2 d 10 " ]
           pico build --target wasm32-wasi hello.pi -o hello.wasm
           test -s hello.wasm
           if [ "$RUNNER_OS" = Linux ]; then
@@ -129,5 +188,5 @@ jobs:
         run: |
           flags=()
           case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz --repo "$GITHUB_REPOSITORY" \
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.zip --repo "$GITHUB_REPOSITORY" \
             --title "pico ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag "${flags[@]}"

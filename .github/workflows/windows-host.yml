@@ -16,6 +16,7 @@ jobs:
       matrix:
         include:
           - { host: windows-x64, os: windows-latest, msystem: CLANG64, prefix: clang64, arch: clang-x86_64, rust: x86_64-pc-windows-gnullvm }
+          - { host: windows-arm64, os: windows-11-arm, msystem: CLANGARM64, prefix: clangarm64, arch: clang-aarch64, rust: aarch64-pc-windows-gnullvm }
     defaults:
       run:
         shell: msys2 {0}
@@ -64,3 +65,7 @@ jobs:
           printf 'println("hello from windows")\n' > hello.pi
           ./target/release/pico.exe run --interp hello.pi
           ./target/release/pico.exe run hello.pi
+          printf 'reactive n = 1\nconst d = computed(() => n * 2)\nwatchEffect(() => println(`d ${d}`))\nn = 5\n' > r.pi
+          ./target/release/pico.exe run r.pi
+          ./target/release/pico.exe build --target wasm32-wasi hello.pi -o hello.wasm
+          ls -la hello.wasm
