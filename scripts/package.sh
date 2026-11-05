@@ -36,21 +36,29 @@ case "$(uname -m)" in
 esac
 name="pico-$version-$os-$arch"
 
-# Only system libraries at run time: zstd linked statically (a search directory holding only
-# its static library, ahead of the others), and the libraries nothing uses (LLVM's z3) dropped.
+# Only system libraries at run time: LLVM's other dependencies linked statically (a search
+# directory holding only their static libraries, ahead of the others), and the libraries nothing
+# uses (LLVM's z3) dropped. On Linux, libffi (LLVM's interpreter) and libxml2 (lld's Windows
+# manifests, with what it uses: ICU, liblzma) too; macOS has its own.
 static="$PWD/target/package/static"
 rm -rf "$static" && mkdir -p "$static"
-for d in "$(brew --prefix 2>/dev/null)/lib" /usr/lib/"$(uname -m)"-linux-gnu /usr/lib /usr/local/lib; do
-  if [ -f "$d/libzstd.a" ]; then cp "$d/libzstd.a" "$static/"; break; fi
-done
-[ -f "$static/libzstd.a" ] || { echo "libzstd.a not found (install zstd's static library)" >&2; exit 1; }
 if [ "$os" = macos ]; then
-  drop=-Wl,-dead_strip_dylibs
+  wanted=(zstd)
+  extra=(-C link-arg=-Wl,-dead_strip_dylibs)
 else
-  drop=-Wl,--as-needed
+  wanted=(zstd ffi xml2 icuuc icudata lzma)
+  extra=(-C link-arg=-Wl,--as-needed)
+  # (libxml2's own dependencies, after it on the link line.)
+  for l in icuuc icudata lzma; do extra+=(-C "link-arg=-l$l"); done
 fi
+for l in "${wanted[@]}"; do
+  for d in "$(brew --prefix 2>/dev/null)/lib" /usr/lib/"$(uname -m)"-linux-gnu /usr/lib /usr/local/lib; do
+    if [ -f "$d/lib$l.a" ]; then cp "$d/lib$l.a" "$static/"; break; fi
+  done
+  [ -f "$static/lib$l.a" ] || { echo "lib$l.a not found (install its static library)" >&2; exit 1; }
+done
 # (A target directory of its own: other RUSTFLAGS than development builds.)
-RUSTFLAGS="-L native=$static -C link-arg=$drop" \
+RUSTFLAGS="-L native=$static ${extra[*]}" \
   cargo build --release -p pico-cli --features embed --target-dir target/package
 bin=target/package/release/pico
 
