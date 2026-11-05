@@ -20,10 +20,10 @@
       <span>Pico</span>
     </a>
     <nav class="topnav">
+      <a href="#start">Get started</a>
       <a href="#basics">Basics</a>
       <a href="#features">Features</a>
       <a href="#tooling">Tooling</a>
-      <a href="#start">Get started</a>
       <a href="https://github.com/padcom/pico-lang/releases/latest">Download</a>
       <a href="https://github.com/padcom/pico-lang">GitHub</a>
     </nav>
@@ -63,6 +63,51 @@ for (const line of text.split("\n")) {
 println(`${count} headings`)</code></pre>
           <div class="window-term"><span class="prompt">$</span> pico run hello.pi<br><span class="out">12 headings</span></div>
         </div>
+      </div>
+    </section>
+
+    <!-- Get started -->
+    <section id="start" class="start">
+      <h2 class="section-title">Get started</h2>
+      <p class="section-lede">One download, nothing else to install: the compiler, clang, lld, the runtime and the standard library are inside <code>pico</code>.</p>
+      <div class="start-grid">
+        <article class="card">
+          <h3>macOS <small>Apple silicon</small></h3>
+<pre class="code term"><code>curl -L https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0-macos-arm64.tar.gz | tar xz
+export PATH="$PWD/pico-0.2.0-macos-arm64/bin:$PATH"</code></pre>
+          <p>Programs for macOS itself also need the Xcode command line tools (<code>xcode-select --install</code>).</p>
+        </article>
+        <article class="card">
+          <h3>Linux <small>x86_64 · arm64</small></h3>
+<pre class="code term"><code>curl -L https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0-linux-x64.tar.gz | tar xz
+export PATH="$PWD/pico-0.2.0-linux-x64/bin:$PATH"</code></pre>
+          <p>For arm64, <code>linux-arm64</code>. Needs glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40).</p>
+        </article>
+        <article class="card">
+          <h3>Windows <small>x86_64 · arm64</small></h3>
+<pre class="code term"><code>curl.exe -LO https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0-windows-x64.zip
+tar -xf pico-0.2.0-windows-x64.zip
+$env:PATH = "$PWD\pico-0.2.0-windows-x64\bin;$env:PATH"</code></pre>
+          <p>In PowerShell, on Windows 10 or later. For arm64, <code>windows-arm64</code>.</p>
+        </article>
+      </div>
+      <div class="start-try">
+        <div>
+          <h3>Then play with reactivity</h3>
+          <p>Save this as <code>counter.pi</code> and run <code>pico run counter.pi</code>. Change it and run it again: <code>pico run --interp</code> skips the native build. For VS Code, install <a href="https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0.vsix">the extension</a> with <code>code --install-extension pico-0.2.0.vsix</code>: highlighting, diagnostics, completion and debugging, through the <code>pico</code> on your PATH. Every release is on the <a href="https://github.com/padcom/pico-lang/releases/latest">releases page</a>, and the language is described in the <a href="https://github.com/padcom/pico-lang/blob/main/docs/TOUR.md">tour</a> and the <a href="https://github.com/padcom/pico-lang/tree/main/docs/spec">spec</a>.</p>
+        </div>
+<pre class="code"><code>class Todo {
+  constructor(public title: string, public done: bool) {}
+}
+
+reactive todos: Todo[] = []
+const left = computed(() => todos.filter(t => !t.done).length)
+
+watchEffect(() => println(`${left} of ${todos.length} left`))
+
+todos.push(new Todo("download pico", true))
+todos.push(new Todo("try reactivity", false))
+todos[1].done = true</code></pre>
       </div>
     </section>
 
@@ -571,50 +616,6 @@ pico explain E0308            # long-form error help</code></pre>
       </div>
     </section>
 
-    <!-- Get started -->
-    <section id="start" class="start">
-      <h2 class="section-title">Get started</h2>
-      <p class="section-lede">One download, nothing else to install: the compiler, clang, lld, the runtime and the standard library are inside <code>pico</code>.</p>
-      <div class="start-grid">
-        <article class="card">
-          <h3>macOS <small>Apple silicon</small></h3>
-<pre class="code term"><code>curl -L https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0-macos-arm64.tar.gz | tar xz
-export PATH="$PWD/pico-0.2.0-macos-arm64/bin:$PATH"</code></pre>
-          <p>Programs for macOS itself also need the Xcode command line tools (<code>xcode-select --install</code>).</p>
-        </article>
-        <article class="card">
-          <h3>Linux <small>x86_64 · arm64</small></h3>
-<pre class="code term"><code>curl -L https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0-linux-x64.tar.gz | tar xz
-export PATH="$PWD/pico-0.2.0-linux-x64/bin:$PATH"</code></pre>
-          <p>For arm64, <code>linux-arm64</code>. Needs glibc 2.39 or later (Ubuntu 24.04, Debian 13, Fedora 40).</p>
-        </article>
-        <article class="card">
-          <h3>Windows <small>x86_64 · arm64</small></h3>
-<pre class="code term"><code>curl.exe -LO https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0-windows-x64.zip
-tar -xf pico-0.2.0-windows-x64.zip
-$env:PATH = "$PWD\pico-0.2.0-windows-x64\bin;$env:PATH"</code></pre>
-          <p>In PowerShell, on Windows 10 or later. For arm64, <code>windows-arm64</code>.</p>
-        </article>
-      </div>
-      <div class="start-try">
-        <div>
-          <h3>Then play with reactivity</h3>
-          <p>Save this as <code>counter.pi</code> and run <code>pico run counter.pi</code>. Change it and run it again: <code>pico run --interp</code> skips the native build. For VS Code, install <a href="https://github.com/padcom/pico-lang/releases/download/v0.2.0/pico-0.2.0.vsix">the extension</a> with <code>code --install-extension pico-0.2.0.vsix</code>: highlighting, diagnostics, completion and debugging, through the <code>pico</code> on your PATH. Every release is on the <a href="https://github.com/padcom/pico-lang/releases/latest">releases page</a>, and the language is described in the <a href="https://github.com/padcom/pico-lang/blob/main/docs/TOUR.md">tour</a> and the <a href="https://github.com/padcom/pico-lang/tree/main/docs/spec">spec</a>.</p>
-        </div>
-<pre class="code"><code>class Todo {
-  constructor(public title: string, public done: bool) {}
-}
-
-reactive todos: Todo[] = []
-const left = computed(() => todos.filter(t => !t.done).length)
-
-watchEffect(() => println(`${left} of ${todos.length} left`))
-
-todos.push(new Todo("download pico", true))
-todos.push(new Todo("try reactivity", false))
-todos[1].done = true</code></pre>
-      </div>
-    </section>
   </main>
 
   <footer class="footer">
