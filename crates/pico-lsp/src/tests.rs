@@ -1286,3 +1286,41 @@ fn builtin_functions_have_docs() {
     assert!(t(8).contains("How many elements"), "{}", t(8));
     assert!(t(9).contains("How many code points"), "{}", t(9));
 }
+
+/// Spec §16: reactive bindings say so, with their cell type; their uses show the same.
+#[test]
+fn hover_on_reactive_bindings() {
+    let dir = tmp("reactive");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let text = "reactive count = 0\nconst doubled = computed(() => count * 2)\nclass Box {\n  public reactive size = 1\n  constructor() {}\n}\nfunction f(c: Reactive<int>) {\n  c += 1\n}\ncount = 2\n";
+    let h = |id, needle, n| at(id, "textDocument/hover", &uri, text, needle, n, 0);
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        h(2, "count", 0),
+        h(3, "doubled", 0),
+        h(4, "size", 0),
+        at(5, "textDocument/hover", &uri, text, "(c:", 0, 1),
+        h(6, "count", 2),
+    ]);
+    assert_eq!(
+        hover_text(&out, 2),
+        "```pico\nreactive count: Reactive<i64>\n```"
+    );
+    assert_eq!(
+        hover_text(&out, 3),
+        "```pico\nreactive doubled: Reactive<i64>\n```"
+    );
+    assert_eq!(
+        hover_text(&out, 4),
+        "```pico\n(field) Box.size: Reactive<i64>\n```"
+    );
+    assert_eq!(
+        hover_text(&out, 5),
+        "```pico\n(parameter) c: Reactive<i64>\n```"
+    );
+    assert_eq!(
+        hover_text(&out, 6),
+        "```pico\nreactive count: Reactive<i64>\n```"
+    );
+}

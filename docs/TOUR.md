@@ -11,7 +11,8 @@ Contents:
 [Classes & interfaces](#8-classes-and-interfaces) · [Errors](#9-errors-and-panics) ·
 [Modules](#10-modules-and-packages) · [Memory](#11-memory) · [Concurrency](#12-concurrency) ·
 [Comptime & metaprogramming](#13-comptime-decorators-reflection) · [Interop](#14-interop) ·
-[Stdlib](#15-standard-library) · [Tooling](#16-tooling) · [Targets](#17-targets)
+[Stdlib](#15-standard-library) · [Tooling](#16-tooling) · [Targets](#17-targets) ·
+[Reactivity](#18-reactivity)
 
 ---
 
@@ -1699,3 +1700,88 @@ import { save } from "./storage"          // picks the right file for the target
 
 import { readText } from "std/fs"         // error on wasm32-browser: std/fs isn't available there
 ```
+
+---
+
+## 18. Reactivity
+[Spec 16](spec/16-reactivity.md)
+
+```ts
+reactive price = 10                       // a reactive binding: read and written as usual
+reactive qty = 2
+const total = computed(() => price * qty) // lazy, cached until price or qty changes
+
+const log = watchEffect(() => println(`total: ${total}`))   // runs now: "total: 20"
+qty = 3                                   // runs again before the assignment completes
+qty++                                     // and again: "total: 40"
+log.dispose()                             // stops it (or `using log = watchEffect(…)`)
+```
+
+A computed value can be writable, and reactive state can live in fields:
+```ts
+reactive first = "Ada"
+reactive last = "Lovelace"
+const name = computed({
+  get: () => `${first} ${last}`,
+  set: (v: string) => {
+    const parts = v.split(" ")
+    first = parts[0]
+    last = parts[1]
+  },
+})
+name = "Grace Hopper"                     // calls set
+
+class Counter {
+  public reactive count = 0
+  public static reactive instances = 0
+
+  constructor() {
+    Counter.instances++
+  }
+
+  public tick() {
+    count += 1
+  }
+}
+```
+
+Functions take the cell itself where they ask for a `Reactive<T>`, and the value anywhere else:
+```ts
+function increment(c: Reactive<int>) {
+  c += 1                                  // writes the caller's cell
+}
+function useDouble(c: Reactive<int>): Reactive<int> {
+  computed(() => c * 2)
+}
+reactive n = 1
+increment(n)                              // n is 2
+const doubled = useDouble(n)              // follows n
+const snapshot = n                        // just the value: 2
+```
+
+Reactivity is deep: mutating what reactive state holds triggers too, through any reference:
+```ts
+class Todo {
+  constructor(public title: string, public done: bool) {}
+}
+reactive todos: Todo[] = []
+const left = computed(() => todos.filter(t => !t.done).length)
+
+function add(list: Todo[], title: string) {
+  list.push(new Todo(title, false))       // a plain array parameter: still triggers
+}
+add(todos, "write the tour")
+println(left)                             // 1
+todos[0].done = true
+println(left)                             // 0
+```
+
+Effects and computeds created in an effect scope stop together:
+```ts
+const scope = effectScope(() => {
+  watchEffect(() => println(`left: ${left}`))
+  watchEffect(() => println(`all: ${todos.length}`))
+})
+scope.dispose()
+```
+

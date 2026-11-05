@@ -437,8 +437,16 @@ impl Builder<'_> {
 
     fn declarations(&mut self) {
         let p = self.p;
+        // A `const` holding a reactive cell is a reactive binding (spec §16.2).
+        let cell = |t: Option<&Ty>| matches!(t, Some(Ty::Class(sid, _, _)) if Some(*sid) == p.reactive_class);
         for (g, b) in p.globals.iter().enumerate() {
-            let kind = if b.mutable { "let" } else { "const" };
+            let kind = if b.mutable {
+                "let"
+            } else if cell(self.t.globals.get(g)) {
+                "reactive"
+            } else {
+                "const"
+            };
             let sig = binding(kind, &b.name, self.t.globals.get(g));
             self.decl(b.span, sig, true);
         }
@@ -485,6 +493,8 @@ impl Builder<'_> {
                     "(parameter)"
                 } else if b.mutable {
                     "let"
+                } else if cell(ty) {
+                    "reactive"
                 } else {
                     "const"
                 };

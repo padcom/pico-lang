@@ -1,10 +1,12 @@
 # lldb formatters for pico programs (spec §14.5, PLAN P10.8c): strings as text, arrays with
-# their elements, maps and sets with their entries. `pico dap` loads this into lldb-dap; with
-# plain lldb: `command script import <this file>`.
+# their elements, maps and sets with their entries, reactive cells as their values. `pico dap`
+# loads this into lldb-dap; with plain lldb: `command script import <this file>`.
 #
 # The layouts are the runtime's (runtime/include/pico_rt.h) as debug info describes them:
 # `string` is `PicoStr` (`byte_len` at 0, the UTF-8 bytes at 32), `T[]` is `PicoArray` (`len`,
-# `cap`, `data`), `Map<K, V>` and `Set<T>` are the core library's classes (stdlib/core/map.pi).
+# `cap`, `data`), `Map<K, V>` and `Set<T>` are the core library's classes (stdlib/core/map.pi),
+# and so is `Reactive<T>` (stdlib/core/reactive.pi: the value in `cache[0]`, a computed's
+# observer in `obs`).
 
 import re
 
@@ -233,8 +235,58 @@ def set_summary(valobj, _dict):
     return "size=%d" % _field(_field(valobj, "map"), "count").GetValueAsUnsigned(0)
 
 
+def _cell_value(v):
+    """A reactive cell's value (`cache[0]`), or None before a computed's first run."""
+    cache = _field(v, "cache")
+    if not cache.IsValid() or _null(cache) or _field(cache, "len").GetValueAsUnsigned(0) == 0:
+        return None
+    data = _field(cache, "data")
+    return v.CreateValueFromAddress("value", data.GetValueAsUnsigned(0), data.GetType().GetPointeeType())
+
+
+def reactive_summary(valobj, _dict):
+    """`Reactive<T>` (spec §16): its value; a computed's also says when it's out of date."""
+    if _null(valobj):
+        return "null"
+    obs = _field(valobj, "obs")
+    computed = obs.IsValid() and not _null(obs)
+    value = _cell_value(valobj)
+    if value is None:
+        return "not computed yet" if computed else "?"
+    shown = _shown(_shown_value(value))
+    if computed and _field(obs, "dirty").GetValueAsUnsigned(0):
+        shown += " (dirty)"
+    return shown
+
+
+class ReactiveProvider:
+    """`Reactive<T>`: just its value (the dependency graph is the runtime's)."""
+
+    def __init__(self, valobj, _dict):
+        self.v = valobj
+        self.update()
+
+    def update(self):
+        self.value = None if _null(self.v) else _cell_value(self.v)
+        return False
+
+    def num_children(self):
+        return 1 if self.value is not None else 0
+
+    def get_child_index(self, name):
+        return 0 if name == "value" else -1
+
+    def get_child_at_index(self, i):
+        if i != 0 or self.value is None:
+            return None
+        return _object("value", self.value)
+
+    def has_children(self):
+        return self.value is not None
+
+
 # Types with providers of their own (their fields are the runtime's).
-_COLLECTION = re.compile(r"^(string|.*\[\]|Map<.*>|Set<.*>)$")
+_COLLECTION = re.compile(r"^(string|.*\[\]|Map<.*>|Set<.*>|Reactive<.*>)$")
 
 
 def _struct(t):
@@ -296,9 +348,11 @@ def __lldb_init_module(debugger, _dict):
     run('type synthetic add -w pico -l pico_lldb.MapProvider -x "^Map<.*>( \\*)?$"')
     run('type summary add -w pico -v -F pico_lldb.set_summary -x "^Set<.*>$"')
     run('type synthetic add -w pico -l pico_lldb.SetProvider -x "^Set<.*>( \\*)?$"')
+    run('type summary add -w pico -v -F pico_lldb.reactive_summary -x "^Reactive<.*>$"')
+    run('type synthetic add -w pico -l pico_lldb.ReactiveProvider -x "^Reactive<.*>( \\*)?$"')
     # References to them (fields, elements, watch expressions such as `who.name`) show no
     # address either (`void`: no value, the summary alone; `null` when there's none).
-    for pattern in ["^string \\*$", "\\[\\] \\*$", "^Map<.*> \\*$", "^Set<.*> \\*$"]:
+    for pattern in ["^string \\*$", "\\[\\] \\*$", "^Map<.*> \\*$", "^Set<.*> \\*$", "^Reactive<.*> \\*$"]:
         run('type format add -w pico -f void -x "%s"' % pattern)
     run(
         "type synthetic add -w pico -l pico_lldb.ObjectProvider "
