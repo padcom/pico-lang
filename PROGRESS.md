@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**Phase 12** (see PLAN; v0.2.0 is released for macOS arm64, Linux x64/arm64 and Windows x64/arm64, with reactivity). The author should check Phase 11 in VS Code. Reviewed 2026-11-05: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 stays open (MinGW for now); 311 accepted for now, to be revisited with the author later; 313 not reviewed yet. Pushing: SSH signing failed in this session; pushes went over HTTPS through `gh` (the token now has the `workflow` scope).
+**Phase 12** (see PLAN; v0.2.0 is released for macOS arm64, Linux x64/arm64 and Windows x64/arm64, with reactivity). The author should check Phase 11 in VS Code. Reviewed 2026-11-05: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 stays open (MinGW for now); 311 accepted for now, to be revisited with the author later; 313 confirmed. Pushing: SSH signing failed in this session; pushes went over HTTPS through `gh` (the token now has the `workflow` scope).
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
