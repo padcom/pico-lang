@@ -476,12 +476,12 @@ impl Interp<'_, '_> {
             if op == 121 {
                 if let Some(Sock::Stream(st)) = net.socks.remove(&a) {
                     // SAFETY: frees the session of a descriptor that no job uses any more.
-                    unsafe { pico_tls_free(std::os::fd::AsRawFd::as_raw_fd(&*st)) };
+                    unsafe { pico_tls_free(raw_fd(&*st)) };
                 }
             } else if let Some(Sock::Stream(st)) = net.socks.get(&a) {
                 if b != 0 {
                     // SAFETY: the descriptor is open (the stream is in the table).
-                    unsafe { pico_tls_close_notify(std::os::fd::AsRawFd::as_raw_fd(&**st)) };
+                    unsafe { pico_tls_close_notify(raw_fd(&**st)) };
                 }
                 let how = match b {
                     0 => std::net::Shutdown::Read,
@@ -1125,7 +1125,7 @@ impl Interp<'_, '_> {
                         let (p1, p2) = t_text.split_once('\0').unwrap_or((t_text.as_str(), ""));
                         let host = std::ffi::CString::new(s.clone()).unwrap_or_default();
                         let mut err = vec![0u8; 512];
-                        let fd = std::os::fd::AsRawFd::as_raw_fd(&*st);
+                        let fd = raw_fd(&*st);
                         // SAFETY: valid pointers and lengths for the duration of the call.
                         let r = unsafe {
                             pico_tls_start(
@@ -1412,9 +1412,22 @@ unsafe extern "C" {
     fn pico_tls_free(fd: i32);
 }
 
+/// The socket's handle, as the C runtime's TLS layer keys its sessions (a descriptor on Unix,
+/// a `SOCKET` on Windows, where they fit in 32 bits).
+fn raw_fd(st: &TcpStream) -> i32 {
+    #[cfg(unix)]
+    {
+        std::os::fd::AsRawFd::as_raw_fd(st)
+    }
+    #[cfg(windows)]
+    {
+        std::os::windows::io::AsRawSocket::as_raw_socket(st) as i32
+    }
+}
+
 fn tls_has(st: &TcpStream) -> bool {
     // SAFETY: only looks the descriptor up.
-    unsafe { pico_tls_has(std::os::fd::AsRawFd::as_raw_fd(st)) != 0 }
+    unsafe { pico_tls_has(raw_fd(st)) != 0 }
 }
 
 /// A TLS connection's reads and writes, through the C runtime's session for its socket.
@@ -1422,7 +1435,7 @@ struct TlsIo(Arc<TcpStream>);
 
 impl Read for TlsIo {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let fd = std::os::fd::AsRawFd::as_raw_fd(&*self.0);
+        let fd = raw_fd(&*self.0);
         // SAFETY: `buf` is valid for writes of its length.
         let k = unsafe { pico_tls_read(fd, buf.as_mut_ptr(), buf.len()) };
         if k < 0 {
@@ -1435,7 +1448,7 @@ impl Read for TlsIo {
 
 impl Write for TlsIo {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let fd = std::os::fd::AsRawFd::as_raw_fd(&*self.0);
+        let fd = raw_fd(&*self.0);
         // SAFETY: `buf` is valid for reads of its length.
         let k = unsafe { pico_tls_write(fd, buf.as_ptr(), buf.len()) };
         if k < 0 {
