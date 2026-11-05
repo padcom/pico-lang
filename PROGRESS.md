@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**Release v0.2.0** (macOS arm64, Linux x64/arm64, Windows x64/arm64, with reactivity): the release workflow's Windows jobs need the `workflow` token scope to be pushed (`gh auth refresh -h github.com -s workflow`; SSH signing failed in this session), then a manual run, then the tag. After that: Phase 12 (see PLAN). The author should check Phase 11 in VS Code and review decisions 303–306, 308–310.
+**Phase 12** (see PLAN; v0.2.0 is released for macOS arm64, Linux x64/arm64 and Windows x64/arm64, with reactivity). The author should check Phase 11 in VS Code and review decisions 303–306, 308–310. Pushing: SSH signing failed in this session; pushes went over HTTPS through `gh` (the token now has the `workflow` scope).
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -354,7 +354,7 @@ Notes:
   - [ ] P10.10b Single binary (split)
     - [x] P10.10b1 Embedded resources
     - [x] P10.10b2 No LLVM installation
-    - [x] P10.10b3 More hosts (Windows x64/arm64; their first release run is still to do)
+    - [x] P10.10b3 More hosts (Windows x64/arm64)
 
 ### Phase 11: Later
 - [x] P11.1 Reactivity: spec (open questions first)
@@ -572,3 +572,4 @@ Notes:
 | 2026-11-05 | P11.4 | Effects with the event loop: no code changes needed (effects are synchronous, decision 291); golden test `tests/run/reactive/event_loop.pi` (writes in timers, microtasks and async functions after `await`, no batching, microtasks queued by effects, an async function started by an effect tracks only before `await`), fail test `worker_message.pi` (E0330). Spec §16.4/16.5/16.8 say so; async lambdas aren't implemented in pico, so the example starts a named async function. |
 | 2026-11-05 | P11.5 | Reactivity tooling: lldb formatter for `Reactive<T>` (value, `(dirty)`, `not computed yet`), checked by a new plain-lldb test; hover says `reactive x: Reactive<T>`; TOUR §18 (its examples run). Phase 11 done; next is P10.10b3 (Windows hosts). |
 | 2026-11-05 | P10.10b3 | Windows hosts (decision 310): pico builds and runs on Windows x64 in CI (`.github/workflows/windows-host.yml`: MSYS2 clang64, Rust gnullvm) after fixes: an unused variable without backtraces, socket handles for TLS, the link libraries, paths without `\\?\\` for clang, `/`-separated object names. Release packaging for Windows (`package.sh`: `-static`, DLL check, `.zip`) and the release workflow's Windows jobs written; version 0.2.0; the website gets a Get started section (downloads, a reactive program) and a Reactivity tour step. |
+| 2026-11-05 | release | v0.2.0: the release workflow passes on all five hosts (run 42006203165: Windows needed static libraries ahead of the import libraries in a Windows-path search directory, generated `__imp_` pointers for LLVM's DLL-built objects, and MinGW's types for `__mingw_setjmp` on arm64); website: Get started (downloads, a reactive program), Functions, Rest/spread and Reactivity in the tour. |
