@@ -841,8 +841,8 @@ impl<'p> Gen<'p> {
     }
 
     /// `pico_buf_op` on the buffer table: 1 allocate `a` bytes (a handle), 2 free `a`, 3 a copy
-    /// of `c` bytes of `a` from `b`, 11–18 read and 21–28 write a little-endian integer at
-    /// `a + b`.
+    /// of `c` bytes of `a` from `b`, 4 move `c` bytes from address `b` to address `a` (a handle
+    /// plus an offset), 11–18 read and 21–28 write a little-endian integer at `a + b`.
     fn buf_fn(&mut self) -> R<u32> {
         use ValType::*;
         let table_ty = Ty::Array(Box::new(Ty::Str));
@@ -917,6 +917,25 @@ impl<'p> Gen<'p> {
                     .local_get(6)
                     .ref_null(HeapType::Concrete(STR))
                     .array_set(raw);
+                s.i64_const(0).return_();
+                s.end();
+                // 4: move `c` bytes from address `b` to address `a` (local 5 is `a`'s bytes);
+                // `array.copy` handles overlapping ranges.
+                s.local_get(0).i64_const(4).i64_eq();
+                s.if_(BlockType::Empty);
+                s.local_get(5).local_get(1).i32_wrap_i64();
+                s.local_get(4)
+                    .struct_get(grow, 0)
+                    .local_get(2)
+                    .i64_const(32)
+                    .i64_shr_u()
+                    .i32_wrap_i64()
+                    .i32_const(1)
+                    .i32_sub()
+                    .array_get(raw);
+                s.local_get(2).i32_wrap_i64();
+                s.local_get(3).i32_wrap_i64();
+                s.array_copy(STR, STR);
                 s.i64_const(0).return_();
                 s.end();
                 s.local_get(0).i64_const(3).i64_eq();

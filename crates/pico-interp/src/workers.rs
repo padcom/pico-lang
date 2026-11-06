@@ -263,6 +263,8 @@ pub struct IWorker {
 }
 
 /// `ArrayBuffer` memory (spec §10.3), shared by every thread so a transfer moves a handle.
+/// A handle is a buffer's number shifted left by 32, as in the WasmGC backend, so a handle plus
+/// a byte offset is an *address* (`__buf_op` 4) that [`Buffers::at`] splits again.
 #[derive(Default)]
 pub struct Buffers {
     pub mem: HashMap<i64, Vec<u8>>,
@@ -272,8 +274,14 @@ pub struct Buffers {
 impl Buffers {
     pub fn add(&mut self, bytes: Vec<u8>) -> i64 {
         self.next += 1;
-        self.mem.insert(self.next, bytes);
-        self.next
+        let handle = self.next << 32;
+        self.mem.insert(handle, bytes);
+        handle
+    }
+
+    /// An address's buffer handle and byte position.
+    fn at(address: i64) -> (i64, usize) {
+        (address & !0xffff_ffff, (address & 0xffff_ffff) as usize)
     }
 }
 
@@ -588,7 +596,8 @@ impl<'p, 'o> Interp<'p, 'o> {
 
 impl Interp<'_, '_> {
     /// `__buf_op` (see `pico_buf_op` in the runtime): 1 alloc, 2 free, 3 copy a range,
-    /// 11–18 read a little-endian unsigned integer of 1–8 bytes, 21–28 write one.
+    /// 4 move `c` bytes from address `b` to address `a` (overlap allowed), 11–18 read a
+    /// little-endian unsigned integer of 1–8 bytes, 21–28 write one.
     pub(crate) fn buf_op(&mut self, vals: &[Value]) -> Value {
         let n = |i: usize| match vals[i] {
             Value::Int(x) => x as i64,
@@ -610,6 +619,21 @@ impl Interp<'_, '_> {
                     .map(<[u8]>::to_vec)
                     .unwrap_or_default();
                 bufs.add(part)
+            }
+            4 => {
+                let ((dst, at), (src, from)) = (Buffers::at(a), Buffers::at(b));
+                let len = c.max(0) as usize;
+                let part = bufs
+                    .mem
+                    .get(&src)
+                    .and_then(|m| m.get(from..from + len))
+                    .map(<[u8]>::to_vec);
+                if let (Some(part), Some(mem)) = (part, bufs.mem.get_mut(&dst))
+                    && let Some(range) = mem.get_mut(at..at + len)
+                {
+                    range.copy_from_slice(&part);
+                }
+                0
             }
             11..=18 => {
                 let w = (op - 10) as usize;

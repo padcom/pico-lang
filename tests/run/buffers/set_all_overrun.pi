@@ -1,0 +1,5 @@
+// `setAll(source, offset)` checks that the source fits (the runtime copies without checks).
+// panic: Uint8Array.setAll: 3 bytes at offset 2 don't fit in 4
+const v = new Uint8Array(4)
+v.setAll(Uint8Array.from([1, 2, 3]), 2)
+println("not reached")

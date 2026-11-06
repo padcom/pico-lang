@@ -227,7 +227,10 @@ U+FFFD (the WHATWG "maximal subpart" rule) or, with `fatal`, throws `TypeError` 
 data was not valid utf-8 (at byte 1)`); a leading BOM is dropped unless `ignoreBOM`; with
 `stream`, an incomplete sequence at the end waits for the next call. `TypeError` and `RangeError`
 are core error classes. `Uint8Array` has `subarray(begin, end?)`, `slice(begin, end?)` (negative
-positions count from the end) and `Uint8Array.from(values: int[])`.
+positions count from the end; one copy), `setAll(source: Uint8Array, offset = 0)` (the Web's
+`set(source, offset)`: copies in one go, overlap allowed; panics if `source` doesn't fit; decision
+316), `copyWithin(target, start, end?)` (as on the Web; returns the view) and
+`Uint8Array.from(values: int[])`.
 
 ### `std/encoding`
 `base64.encode(data, url = false)` (RFC 4648; `url` uses `-`/`_` without padding) and

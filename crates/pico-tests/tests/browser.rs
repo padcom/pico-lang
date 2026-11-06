@@ -141,6 +141,7 @@ fn wasmgc() {
             "async/timers",
             "errors/exceptions",
             "errors/throwables",
+            "buffers/bulk_copy",
         ]
         .map(|n| {
             let text = std::fs::read_to_string(root.join(format!("{n}.pi"))).unwrap();

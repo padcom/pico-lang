@@ -33,11 +33,8 @@ class ArrayBuffer {
   public slice(begin: int, end: int): ArrayBuffer {
     const a = if (begin < 0) 0 else if (begin > this.byteLength) this.byteLength else begin
     const b = if (end < a) a else if (end > this.byteLength) this.byteLength else end
-    const out = new ArrayBuffer(b - a)
-    for (let i = a; i < b; i++) {
-      __buf_op(21, out.__handle, i - a, __buf_op(11, this.__handle, i, 0))
-    }
-    out
+    // One copy of the range (`__buf_op` 3); nothing to copy (or a detached buffer): a new one.
+    if (b == a) new ArrayBuffer(0) else new ArrayBuffer(__buf_op(3, this.__handle, a, b - a), b - a, true)
   }
 
   /// After a transfer: the bytes belong to the receiver now.
@@ -217,12 +214,42 @@ class Uint8Array {
 
   /// A copy of the bytes from `begin` to `end` (negative counts from the end).
   public slice(begin: int = 0, end: int? = null): Uint8Array {
-    const v = this.subarray(begin, end)
-    const out = new Uint8Array(v.length)
-    for (let i = 0; i < v.length; i++) {
-      out.set(i, v.get(i))
+    const a = this.clamp(begin)
+    const e = end
+    const b = if (e != null) this.clamp(e) else this.length
+    const n = if (b > a) b - a else 0
+    new Uint8Array(this.buffer.slice(this.byteOffset + a, this.byteOffset + a + n), 0)
+  }
+
+  /// Copies `source`'s bytes into this view from `offset`, as the Web's `set(source, offset)`
+  /// overload does: in one go, so `source` may overlap this view's bytes. Panics if they don't
+  /// fit. (Named `setAll` until methods can be overloaded: decision 316.)
+  public setAll(source: Uint8Array, offset: int = 0): void {
+    const n = source.length
+    if (offset < 0 || offset > this.length - n) {
+      panic(`Uint8Array.setAll: ${n} bytes at offset ${offset} don't fit in ${this.length}`)
     }
-    out
+    if (n > 0) {
+      const to = this.buffer.__handle + this.byteOffset + offset
+      __buf_op(4, to, source.buffer.__handle + source.byteOffset, n);
+    }
+  }
+
+  /// Copies the bytes from `start` to `end` (default: the end) to position `target`, as on the
+  /// Web: positions count from the end when negative, and the copy stops at the view's end. The
+  /// ranges may overlap. Returns this view.
+  public copyWithin(target: int, start: int, end: int? = null): Uint8Array {
+    const t = this.clamp(target)
+    const s = this.clamp(start)
+    const e = end
+    const f = if (e != null) this.clamp(e) else this.length
+    const room = this.length - t
+    const n = if (f - s < room) f - s else room
+    if (n > 0) {
+      const base = this.buffer.__handle + this.byteOffset
+      __buf_op(4, base + t, base + s, n);
+    }
+    this
   }
 
   /// The bytes of `values` (each taken modulo 256).

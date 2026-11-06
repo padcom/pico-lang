@@ -546,8 +546,9 @@ PicoStr *pico_worker_error(int64_t h) {
 /* ---------------------------------------------------------------- ArrayBuffer memory */
 
 /* 1 allocate `a` zeroed bytes (a handle), 2 free `a`, 3 a copy of `c` bytes of `a` from
- * offset `b`, 11–18 read a little-endian unsigned integer of 1–8 bytes at `a + b`, 21–28
- * write `c` as one. (Bounds are checked by the pico side.) */
+ * offset `b`, 4 move `c` bytes from address `b` to address `a` (an address is a handle plus
+ * an offset; the ranges may overlap), 11–18 read a little-endian unsigned integer of 1–8
+ * bytes at `a + b`, 21–28 write `c` as one. (Bounds are checked by the pico side.) */
 int64_t pico_buf_op(int64_t op, int64_t a, int64_t b, int64_t c) {
     char *p = (char *)(intptr_t)a;
     if (op == 1) {
@@ -564,6 +565,10 @@ int64_t pico_buf_op(int64_t op, int64_t a, int64_t b, int64_t c) {
         if (!m) abort();
         if (c > 0) memcpy(m, p + b, (size_t)c);
         return (int64_t)(uintptr_t)m;
+    }
+    if (op == 4) {
+        if (c > 0) memmove(p, (const char *)(intptr_t)b, (size_t)c);
+        return 0;
     }
     if (op >= 11 && op <= 18) {
         uint64_t x = 0;
