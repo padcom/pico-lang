@@ -2628,6 +2628,19 @@ impl FnBuilder<'_, '_> {
                 .position(|m| m == from)
                 .or_else(|| ms.iter().position(|m| from.widens_to(m)))
                 .or_else(|| ms.iter().position(|m| m.erase() == from.erase()))
+                // A subclass goes into its base class's member (#1), a class or struct into
+                // an interface it implements.
+                .or_else(|| {
+                    ms.iter().position(|m| match (from, m) {
+                        (Ty::Class(a, _, _), Ty::Class(b, _, _)) => {
+                            self.cx.program.is_subclass(*a, *b)
+                        }
+                        (Ty::Class(a, _, _) | Ty::Struct(a, _, _), Ty::Iface(i, _, _)) => {
+                            self.cx.program.implements(*a, *i)
+                        }
+                        _ => false,
+                    })
+                })
                 .unwrap_or(0);
             let member = ms[i].clone();
             let inner = self.convert(v, from, &member, span);

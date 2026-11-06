@@ -1693,7 +1693,9 @@ impl<'p> Gen<'p> {
                 f
             }),
             "pop" => {
-                let boxed = !is_ref_like(&elem);
+                // A nullable element is its own result (`null`: empty, or a `null` element;
+                // `T??` is `T?`), so it isn't boxed again.
+                let boxed = !is_ref_like(&elem) && !matches!(elem.erase(), Ty::Nullable(_));
                 let opt = if boxed {
                     Some(self.opt_type(&elem)?)
                 } else {

@@ -1,0 +1,32 @@
+// A subclass goes into the union member of its base class (issue #1).
+// expect: animal Rex
+// expect: number 1
+// expect: shape 4
+class Animal {
+  constructor(public name: string) {}
+}
+class Dog extends Animal {
+  constructor(name: string) { super(name) }
+}
+interface Shape {
+  area(): number
+}
+class Square implements Shape {
+  constructor(public side: number) {}
+  public area(): number { this.side * this.side }
+}
+function show(x: number | Animal): string {
+  return match (x) {
+    a: Animal => `animal ${a.name}`,
+    n: number => `number ${n}`,
+  }
+}
+function describe(x: string | Shape): string {
+  return match (x) {
+    s: Shape => `shape ${s.area()}`,
+    t: string => t,
+  }
+}
+println(show(new Dog("Rex")))
+println(show(1))
+println(describe(new Square(2)))

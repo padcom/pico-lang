@@ -3823,6 +3823,17 @@ impl<'p> Checker<'p> {
         };
         match lt {
             Ty::Nullable(inner) => {
+                // A literal outside `a`'s literal type: the base type (`mode ?? "none"` is a
+                // `string`, as in TypeScript).
+                if let Ty::Lits(base, _) = &*inner
+                    && let Some(c) = const_of(r)
+                    && !c.widens_to(&inner)
+                    && c.widens_to(base)
+                {
+                    let base = (**base).clone();
+                    self.infer_with(r, Some(&Expect::new(base.clone())));
+                    return base;
+                }
                 // `a ?? b` with a nullable `b` stays nullable.
                 let rt = self.infer_with(r, Some(&Expect::new((*inner).clone())));
                 if rt == *inner || rt == Ty::Never || rt.is_error() {
