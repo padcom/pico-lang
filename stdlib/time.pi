@@ -152,6 +152,11 @@ function __parseDuration(s: string): Duration? {
   let total = 0
   let inTime = false
   let any = false
+  // Units must come in order, each at most once (`rank` of the last one), a fraction only on the
+  // last component, and at least one component after `T`.
+  let rank = 0
+  let fraction = false
+  let timeAny = false
   while (i < s.length) {
     const c = s[i]
     if (c == 'T' || c == 't') {
@@ -160,6 +165,7 @@ function __parseDuration(s: string): Duration? {
       i += 1
       continue
     }
+    if (fraction) return null
     let whole = 0
     let digits = 0
     while (i < s.length && s[i] >= '0' && s[i] <= '9') {
@@ -171,6 +177,7 @@ function __parseDuration(s: string): Duration? {
     let scale = NS_PER_S / 10
     if (i < s.length && (s[i] == '.' || s[i] == ',')) {
       i += 1
+      fraction = true
       while (i < s.length && s[i] >= '0' && s[i] <= '9') {
         frac += (((s[i] as u32) as int) - 48) * scale
         scale /= 10
@@ -181,23 +188,27 @@ function __parseDuration(s: string): Duration? {
     const u = s[i]
     i += 1
     // `frac` is in billionths of the unit.
-    const unit = if (!inTime && (u == 'W' || u == 'w')) {
-      7 * NS_PER_DAY
+    const r = if (!inTime && (u == 'W' || u == 'w')) {
+      1
     } else if (!inTime && (u == 'D' || u == 'd')) {
-      NS_PER_DAY
+      2
     } else if (inTime && (u == 'H' || u == 'h')) {
-      NS_PER_H
+      3
     } else if (inTime && (u == 'M' || u == 'm')) {
-      NS_PER_MIN
+      4
     } else if (inTime && (u == 'S' || u == 's')) {
-      NS_PER_S
+      5
     } else {
       return null
     }
+    if (r <= rank) return null
+    rank = r
+    const unit = if (r == 1) 7 * NS_PER_DAY else if (r == 2) NS_PER_DAY else if (r == 3) NS_PER_H else if (r == 4) NS_PER_MIN else NS_PER_S
     total += whole * unit + frac * (unit / NS_PER_S)
     any = true
+    if (inTime) timeAny = true
   }
-  if (!any) return null
+  if (!any || (inTime && !timeAny)) return null
   new Duration(if (neg) -total else total)
 }
 
