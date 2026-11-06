@@ -116,7 +116,8 @@ unsafe {
   with `==` by address. `sizeof<T>()` / `alignof<T>()` are `usize`s (the native layout, also
   in the interpreter). `unsafe.cast<T>(x)` reinterprets the bits of a number as another number
   type of the same size.
-- An `unsafe function` may use all of this in its body; calling one needs `unsafe` too. A
+- An `unsafe function` may use all of this in its body; calling one, or using it as a
+  value (`const f = poke`, #4), needs `unsafe` too. A
   lambda inside `unsafe` code is unsafe code. Outside it, each operation is an error (E0342);
   `ptr<T>` values may still be stored and passed around.
 - Pointers aren't owners: a pointer into an array's storage doesn't keep it alive (pointers are

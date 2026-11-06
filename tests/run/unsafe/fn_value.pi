@@ -1,0 +1,7 @@
+// Inside `unsafe`, an `unsafe function` can be used as a value (issue #4).
+// expect: 42
+unsafe function poke(): i32 { 42 }
+unsafe {
+  const f = poke
+  println(f())
+}

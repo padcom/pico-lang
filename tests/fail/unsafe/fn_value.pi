@@ -1,0 +1,6 @@
+// An `unsafe function` used as a value needs `unsafe` too (issue #4).
+// error: E0342
+// at: 5:11
+unsafe function poke(): i32 { 42 }
+const f = poke
+println(f())

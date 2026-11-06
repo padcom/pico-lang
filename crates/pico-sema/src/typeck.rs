@@ -1977,7 +1977,11 @@ impl<'p> Checker<'p> {
                 self.var_ty(*v, e.span)
             }
             ExprKind::Fn(id) if self.program.func(*id).generics.is_empty() => {
-                // A named function used as a value.
+                // A named function used as a value. An `unsafe function`'s value could be
+                // called anywhere, so taking it needs `unsafe` too (#4).
+                if self.program.func(*id).is_unsafe {
+                    self.require_unsafe(e.span, "using an `unsafe function` as a value");
+                }
                 let g = self.program.func(*id);
                 if (g.ret.is_none() || g.infer_throws)
                     && self.state[id.0 as usize] == FnState::Unchecked
