@@ -50,12 +50,18 @@ class TextDecoder {
   /// Whether the next bytes start the stream (where a BOM is dropped).
   atStart: bool = true
 
-  /// A UTF-8 decoder. `label` is matched case-insensitively, ignoring surrounding whitespace;
-  /// anything but `"utf-8"`, `"utf8"` or `"unicode-1-1-utf-8"` panics.
-  constructor(label: string = "utf-8", options: TextDecoderOptions = {}) {
+  /// A UTF-8 decoder (replacing invalid bytes with U+FFFD, dropping a leading BOM).
+  constructor() {
+    this.fatal = false
+    this.ignoreBOM = false
+  }
+
+  /// A decoder for `label`, matched case-insensitively, ignoring surrounding whitespace; anything
+  /// but `"utf-8"`, `"utf8"` or `"unicode-1-1-utf-8"` throws a `RangeError`, as on the Web.
+  constructor(label: string, options: TextDecoderOptions = {}) throws RangeError {
     const l = label.trim().toLowerCase()
     if (l != "utf-8" && l != "utf8" && l != "unicode-1-1-utf-8") {
-      panic(`TextDecoder: unsupported encoding ${label} (only utf-8)`)
+      throw new RangeError(`TextDecoder: unsupported encoding ${label} (only utf-8)`)
     }
     this.fatal = options.fatal == true
     this.ignoreBOM = options.ignoreBOM == true

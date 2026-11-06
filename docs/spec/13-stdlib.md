@@ -221,7 +221,7 @@ once closed) and `close()`. Web Streams (`conn.readable`, `conn.writable`) come 
 ## 13.5 Streams and encoding
 ### `TextEncoder` and `TextDecoder`
 Globals, as WHATWG Encoding, UTF-8 only. `new TextEncoder().encode(text): Uint8Array`.
-`new TextDecoder(label = "utf-8", { fatal, ignoreBOM })` (another label panics);
+`new TextDecoder(label = "utf-8", { fatal, ignoreBOM })` (another label throws a `RangeError`);
 `decode(bytes = empty, { stream }): string throws TypeError`: each invalid sequence becomes
 U+FFFD (the WHATWG "maximal subpart" rule) or, with `fatal`, throws `TypeError` (`The encoded
 data was not valid utf-8 (at byte 1)`); a leading BOM is dropped unless `ignoreBOM`; with
