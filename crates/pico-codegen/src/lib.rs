@@ -2346,6 +2346,11 @@ impl<'ctx> Gen<'ctx, '_> {
                 let len = self.array_len(arr);
                 let p = self.array_elem(arr, &elem, len);
                 let v = self.b.build_load(self.elem_ty(&elem), p, "").unwrap();
+                if matches!(*elem, Ty::Nullable(_)) {
+                    // A nullable element is its own result (`T??` is `T?`): `null` when empty.
+                    let null = self.ty(&elem).expect("nullable").const_zero();
+                    return Some(self.b.build_select(popped, v, null, "").unwrap());
+                }
                 Some(self.wrap_flagged(&elem, popped, v))
             }
             Rvalue::Variant(eid, v, ops) => {

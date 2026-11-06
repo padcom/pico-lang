@@ -1,0 +1,20 @@
+// `pop()` on arrays of nullable elements (issue #13): `null` for a `null` element or when empty.
+// expect: 7
+// expect: true
+// expect: a
+// expect: none
+// expect: -1 -1
+const ys: i32?[] = [7]
+const v = ys.pop()
+println(v ?? -1)
+const zs: string?[] = []
+zs.push("a")
+zs.push(null)
+const p = zs.pop()
+println(p == null)
+const q = zs.pop()
+println(q ?? "none")
+println(zs.pop() ?? "none")
+const ws: i32?[] = [null]
+const w = ws.pop()
+println(`${w ?? -1} ${ws.pop() ?? -1}`)
