@@ -1,0 +1,9 @@
+// A match on `(A | B)?` still has to cover `null` (issue #2).
+// error: E0317
+function f(x: string | Uint8Array | null): string {
+  return match (x) {
+    s: string => s,
+    b: Uint8Array => "bytes",
+  }
+}
+println(f("a"))

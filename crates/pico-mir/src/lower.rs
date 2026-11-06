@@ -3991,6 +3991,17 @@ impl FnBuilder<'_, '_> {
     /// failure leaves some bindings set, which is harmless: they're only read after a match).
     fn match_pattern(&mut self, p: &hir::Pattern, place: &Place, fail: BlockId) {
         if let Some(&i) = self.cx.types.union_tests.get(&p.id) {
+            // On `(A | B)?`: not null, then the union inside (#2).
+            if matches!(self.place_ty(place), Ty::Nullable(_)) {
+                let n = self.rvalue_to_temp(
+                    Rvalue::IsNull(Operand::Copy(place.clone())),
+                    Ty::Bool,
+                    p.span,
+                );
+                let some = self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, n), Ty::Bool, p.span);
+                self.branch_unless(some, fail);
+                return self.match_pattern(p, &place.payload(), fail);
+            }
             // Which member the union holds, then the pattern on that member.
             let tag = self.rvalue_to_temp(
                 Rvalue::Tag(Operand::Copy(place.clone())),

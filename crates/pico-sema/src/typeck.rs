@@ -3087,6 +3087,11 @@ impl<'p> Checker<'p> {
     fn check_pattern(&mut self, p: &Pattern, ty: &Ty) {
         let union = match ty {
             Ty::Union(_, ms) => Some(ms.clone()),
+            // A non-null pattern on `(A | B)?` tests the union inside (#2).
+            Ty::Nullable(inner) if p.looks_inside(ty) => match &**inner {
+                Ty::Union(_, ms) => Some(ms.clone()),
+                _ => None,
+            },
             _ => None,
         };
         if let Some(ms) = union
@@ -3469,6 +3474,15 @@ impl<'p> Checker<'p> {
     /// of an or-pattern (expanded through nested patterns, capped).
     fn to_pat(&self, p: &Pattern, ty: &Ty) -> Vec<Pat> {
         const CAP: usize = 256;
+        if let (Some(_), Ty::Nullable(inner)) = (self.types.union_tests.get(&p.id), ty)
+            && matches!(**inner, Ty::Union(..))
+        {
+            return self
+                .to_pat(p, inner)
+                .into_iter()
+                .map(|x| Pat::Ctor(Ctor::NonNull, vec![x]))
+                .collect();
+        }
         if let (Some(i), Ty::Union(_, ms)) = (self.types.union_tests.get(&p.id), ty) {
             let m = &ms[*i as usize];
             return self

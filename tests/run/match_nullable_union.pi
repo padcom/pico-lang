@@ -1,0 +1,22 @@
+// Type tests in a `match` on a union that includes `null` (issue #2).
+// expect: string a
+// expect: bytes 3
+// expect: null
+// expect: int 4
+function f(x: string | Uint8Array | null): string {
+  return match (x) {
+    s: string => `string ${s}`,
+    b: Uint8Array => `bytes ${b.length}`,
+    null => "null",
+  }
+}
+function g(x: (int | string)?): string {
+  match (x) {
+    n: int => `int ${n}`,
+    _ => "other",
+  }
+}
+println(f("a"))
+println(f(new Uint8Array(3)))
+println(f(null))
+println(g(4))
