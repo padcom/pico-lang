@@ -6,7 +6,7 @@ ID = r"[A-Za-z_$][A-Za-z0-9_$]*"
 KW = {
   "keyword.control.pico": "await break case catch continue default do else finally for if loop match return switch tailcall throw try while yield",
   "keyword.control.import.pico": "import export",
-  "storage.type.pico": "class const decorator enum extern function interface let struct get set",
+  "storage.type.pico": "class const decorator enum extern function interface let struct",
   "storage.modifier.pico": "abstract async comptime distinct final immutable override private protected public readonly static throws unsafe using virtual",
   "keyword.operator.expression.pico": "as extends implements in instanceof is new operator typeof where",
 }
@@ -68,7 +68,9 @@ g = {
       # `arena { … }`.
       {"name": "keyword.control.pico", "match": r"(?<=\s)of(?=\s)"},
       {"name": "keyword.control.import.pico", "match": r"(?<![\w$.])from(?=\s*[\"'])"},
-      {"name": "keyword.control.pico", "match": r"(?<![\w$.])arena(?=\s*\{)"}]},
+      {"name": "keyword.control.pico", "match": r"(?<![\w$.])arena(?=\s*\{)"},
+      # `get size()` / `set size(v)`: a keyword only before a member name.
+      {"name": "storage.type.pico", "match": r"(?<![\w$.])(get|set)(?=\s+[A-Za-z_$#\[])"}]},
     "constants": {"patterns": [
       {"name": "constant.language.pico", "match": words("true false null")},
       {"name": "variable.language.pico", "match": words("this super")}]},

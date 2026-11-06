@@ -1,0 +1,18 @@
+// expect: P1DT: RangeError
+// expect: PT1H1H: RangeError
+// expect: PT1M1H: RangeError
+// expect: P1D1W: RangeError
+// expect: PT1.5H1M: RangeError
+// expect: PT: RangeError
+// expect: P1W1DT1H2M3.5S: PT193H2M3.5S
+// expect: PT1.5H: PT1H30M
+// ISO 8601 durations: units in order, each at most once, something after `T` (issue #42).
+import { Duration } from "std/time"
+
+for (const s of ["P1DT", "PT1H1H", "PT1M1H", "P1D1W", "PT1.5H1M", "PT", "P1W1DT1H2M3.5S", "PT1.5H"]) {
+  try {
+    println(`${s}: ${Duration.parse(s)}`)
+  } catch (e: RangeError) {
+    println(`${s}: RangeError`)
+  }
+}

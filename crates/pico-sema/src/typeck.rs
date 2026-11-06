@@ -709,6 +709,15 @@ fn shape_fits(p: &Ty, t: &Ty) -> bool {
 /// Overload ranking: whether parameter type `x` is at least as specific as `y` (equal, a
 /// widening, concrete over generic, or the same shape with more specific parts; a bare type
 /// parameter is the most general).
+/// Whether `t` is an integer type (or literals of one).
+fn is_integer(t: &Ty) -> bool {
+    match t {
+        Ty::Int(_) => true,
+        Ty::Lits(base, _) => is_integer(base),
+        _ => false,
+    }
+}
+
 fn at_least_as_specific(x: &Ty, y: &Ty) -> bool {
     if x == y || x.widens_to(y) {
         return true;
@@ -5869,6 +5878,11 @@ impl<'p> Checker<'p> {
                         .cloned()
                         .flatten()
                         .is_some_and(|l| *x == l && *y != l)
+                    // An integer argument prefers an integer parameter to a float one
+                    // (`expect(n)` with an `i32` takes `expect(int)`, not `expect(number)`).
+                    || (matches!(tys.get(i), Some(Some(t)) if is_integer(t))
+                        && is_integer(x)
+                        && matches!(y, Ty::Float(_)))
             })
         };
         let best: Vec<&(FnId, Vec<Ty>)> = ok

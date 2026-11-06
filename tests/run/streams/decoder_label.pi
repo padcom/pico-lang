@@ -1,0 +1,15 @@
+// expect: RangeError: TextDecoder: unsupported encoding nope (only utf-8)
+// expect: utf-8
+// expect: after
+// An unknown label throws a catchable `RangeError` (issue #26).
+try {
+  new TextDecoder("nope")
+} catch (e: RangeError) {
+  println(`RangeError: ${e.message}`)
+}
+try {
+  println(new TextDecoder(" UTF8 ").encoding)
+} catch (e: RangeError) {
+  println("unexpected")
+}
+println("after")

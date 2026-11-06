@@ -133,11 +133,13 @@ that delegate to their fields.
 
 ## 1.6 Reserved words (draft)
 `as async await break case catch class const continue default else enum export extends extern
-false finally for function get if implements import in instanceof interface let match new null
-operator private protected public readonly return set static struct super switch this throw
+false finally for function if implements import in instanceof interface let match new null
+operator private protected public readonly return static struct super switch this throw
 throws true try typeof unsafe where while yield comptime immutable tailcall virtual override
 abstract final loop using distinct decorator is do`
 
-`type`, `of`, `from`, `arena` and `reactive` are **contextual**: they're keywords only where the
-grammar expects them (`type X = …`, `for (x of …)`, `import … from`, `arena { … }`,
-`reactive x = …`, §16.1) and ordinary identifiers everywhere else.
+`type`, `of`, `from`, `arena`, `reactive`, `get` and `set` are **contextual**: they're keywords
+only where the grammar expects them (`type X = …`, `for (x of …)`, `import … from`,
+`arena { … }`, `reactive x = …`, §16.1, and `get`/`set` before a member name in a class,
+struct or interface body: `get size(): int`) and ordinary identifiers everywhere else
+(`const get = 1`).

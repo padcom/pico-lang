@@ -1,0 +1,19 @@
+// expect: a b null
+// expect: a,b,null
+// A `null` element in the heap's last slot (issue #36).
+import { PriorityQueue } from "std/collections"
+
+// null sorts last
+const q = new PriorityQueue<string?>((a, b) => {
+  if (a == null) return if (b == null) 0 else 1
+  if (b == null) return -1
+  return if (a < b) -1 else if (a > b) 1 else 0
+})
+q.push("a")
+q.push("b")
+q.push(null)
+const sorted = q.toSortedArray()
+let out = ""
+while (q.size > 0) out += `${q.pop() ?? "null"} `
+println(out.trimEnd())
+println(sorted.map((s) => s ?? "null").join(","))

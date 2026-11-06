@@ -1,0 +1,33 @@
+// expect: true
+// expect: true
+// expect: true
+// expect: true
+// Ranges wider than 2**62, and wider than `int` (issue #35).
+import { Random } from "std/math"
+
+const r = new Random(1)
+let ok = true
+for (let i = 0; i < 1000; i++) {
+  const v = r.int(0, 0x5000000000000000)
+  if (v < 0 || v >= 0x5000000000000000) ok = false
+}
+println(ok)
+ok = true
+let neg = false
+let pos = false
+for (let i = 0; i < 1000; i++) {
+  const v = r.int(-0x7000000000000000, 0x7000000000000000)
+  if (v < -0x7000000000000000 || v >= 0x7000000000000000) ok = false
+  if (v < 0) neg = true else pos = true
+}
+println(ok && neg && pos)
+const min = -9223372036854775807 - 1
+const max = 9223372036854775807
+ok = true
+for (let i = 0; i < 100; i++) {
+  if (r.int(min, max) == max) ok = false
+}
+println(ok)
+// Narrow ranges are unchanged.
+const v = r.int(10, 20)
+println(v >= 10 && v < 20)

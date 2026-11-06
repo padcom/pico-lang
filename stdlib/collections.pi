@@ -150,8 +150,10 @@ export class PriorityQueue<T> {
     const n = this.heap.length
     if (n == 0) return null
     const top = this.heap[0]
-    const last = this.heap.pop()
-    if (n > 1 && last != null) {
+    // Read the last element by index: with a nullable `T`, `pop()`'s `null` could be an element.
+    const last = this.heap[n - 1]
+    this.heap.pop()
+    if (n > 1) {
       this.heap[0] = last
       this.siftDown(0)
     }
@@ -185,8 +187,8 @@ export class PriorityQueue<T> {
     for (const x of this.heap) copy.heap.push(x)
     const r: T[] = []
     while (copy.heap.length > 0) {
-      const v = copy.pop()
-      if (v != null) r.push(v)
+      r.push(copy.heap[0])
+      copy.pop()
     }
     r
   }

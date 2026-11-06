@@ -1025,6 +1025,41 @@ class RegExpMatch {
   }
 }
 
+/// `pattern` as a regex literal's body, as JavaScript's `source` gives it: a `/` outside a class
+/// and line breaks are escaped, so `/${source}/${flags}` reads back as the same regex.
+function __escapeSource(pattern: string): string {
+  let out = ""
+  let start = 0
+  let i = 0
+  let inClass = false
+  let escaped = false
+  for (const c of pattern) {
+    let rep = ""
+    if (escaped) {
+      escaped = false
+      // An escaped line break (`\` + newline) becomes `\n`.
+      if (c == '\n') rep = "n" else if (c == '\r') rep = "r"
+    } else if (c == '\\') {
+      escaped = true
+    } else if (c == '[') {
+      inClass = true
+    } else if (c == ']') {
+      inClass = false
+    } else if (c == '/' && !inClass) {
+      rep = "\\/"
+    }
+    if (!escaped && rep.length == 0) {
+      if (c == '\n') rep = "\\n" else if (c == '\r') rep = "\\r" else if (c == "\u{2028}") rep = "\\u2028" else if (c == "\u{2029}") rep = "\\u2029"
+    }
+    if (rep.length > 0) {
+      out = `${out}${pattern.slice(start, i)}${rep}`
+      start = i + 1
+    }
+    i += 1
+  }
+  if (start == 0) pattern else `${out}${pattern.slice(start)}`
+}
+
 /// A regular expression: `/pattern/flags` or `new RegExp(pattern, flags)` (flags `d`, `g`,
 /// `i`, `m`, `s`, `u`, `v`, `y`).
 class RegExp {
@@ -1068,7 +1103,7 @@ class RegExp {
     prog.compile(tree)
     prog.emit(5, 1, 0)
     prog.emit(12, 0, 0)
-    this.source = src
+    this.source = __escapeSource(src)
     this.flags = canon
     this.prog = prog
     this.ngroups = parser.groups

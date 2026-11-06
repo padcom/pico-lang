@@ -1,0 +1,22 @@
+// `expect` with fixed-width integers picks `expect(int)` (issue #87), on every target (no runner,
+// so no `std/process`): the annotations fail to compile if another overload is chosen.
+// expect: ok
+import { expect, IntExpect, NumberExpect } from "std/test"
+
+const a: i32 = 3
+const b: u32 = 4
+const c: i16 = -5
+const d: u8 = 6
+const ea: IntExpect = expect(a)
+const eb: IntExpect = expect(b)
+const ec: IntExpect = expect(c)
+const ed: IntExpect = expect(d)
+const ef: NumberExpect = expect(2.5)
+const ei: IntExpect = expect(7)
+ea.toBe(3)
+eb.toBe(4)
+ec.toBe(-5)
+ed.toBe(6)
+ef.toBe(2.5)
+ei.toBe(7)
+println("ok")

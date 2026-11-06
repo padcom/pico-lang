@@ -443,11 +443,12 @@ impl Parser {
             self.fn_body(&mut f);
             return Some(MemberKind::Constructor(f));
         }
-        // get x() / set x(v)
-        if matches!(self.peek(), TokenKind::Kw(Kw::Get | Kw::Set))
+        // get x() / set x(v): `get`/`set` are contextual, keywords only before a member name
+        if (self.at_word("get") || self.at_word("set"))
             && matches!(self.peek_nth(1), TokenKind::Ident(_) | TokenKind::Kw(_))
         {
-            let getter = self.bump().kind.is_kw(Kw::Get);
+            let getter = self.at_word("get");
+            self.bump();
             let name = self.property_name();
             let mut f = self.fn_rest(name, fflags, start);
             self.fn_body(&mut f);

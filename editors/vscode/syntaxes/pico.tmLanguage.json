@@ -248,7 +248,7 @@
         },
         {
           "name": "storage.type.pico",
-          "match": "(?<![\\w$.])(class|const|decorator|enum|extern|function|interface|let|struct|get|set)(?![\\w$])"
+          "match": "(?<![\\w$.])(class|const|decorator|enum|extern|function|interface|let|struct)(?![\\w$])"
         },
         {
           "name": "storage.modifier.pico",
@@ -269,6 +269,10 @@
         {
           "name": "keyword.control.pico",
           "match": "(?<![\\w$.])arena(?=\\s*\\{)"
+        },
+        {
+          "name": "storage.type.pico",
+          "match": "(?<![\\w$.])(get|set)(?=\\s+[A-Za-z_$#\\[])"
         }
       ]
     },

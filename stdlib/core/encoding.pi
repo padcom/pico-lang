@@ -13,6 +13,25 @@ function __b64value(c: char): int {
   else -1
 }
 
+/// The character codes of ASCII text `s`.
+function __asciiCodes(s: string): int[] {
+  const codes: int[] = []
+  for (const c of s) {
+    codes.push(c as u32 as int)
+  }
+  codes
+}
+
+/// ASCII bytes as a string (decoded in one go).
+function __asciiText(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder().decode(bytes)
+  } catch (e: TypeError) {
+    panic("unreachable: ASCII is valid UTF-8")
+  }
+  panic("unreachable")
+}
+
 /// Base64 (RFC 4648 §4, or §5's URL-safe alphabet with `url`).
 class Base64 {
   /// A base64 codec (`std/encoding` exports one as `base64`).
@@ -21,28 +40,34 @@ class Base64 {
   /// `data` as base64; `url` uses `-` and `_` and leaves out the `=` padding.
   public encode(data: Uint8Array, url: bool = false): string {
     const alphabet = if (url) "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" else "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    const digits: char[] = []
-    for (const c of alphabet) {
-      digits.push(c)
-    }
-    let out = ""
+    const digits = __asciiCodes(alphabet)
     const n = data.length
+    const rest = n % 3
+    const size = n / 3 * 4 + (if (rest == 0) 0 else if (url) rest + 1 else 4)
+    // ASCII written into one buffer and decoded once: linear, not a string per step.
+    const out = new Uint8Array(size)
+    let k = 0
     let i = 0
     while (i + 2 < n) {
       const v = (data.get(i) << 16) | (data.get(i + 1) << 8) | data.get(i + 2)
-      out = `${out}${digits[(v >> 18) & 63]}${digits[(v >> 12) & 63]}${digits[(v >> 6) & 63]}${digits[v & 63]}`
+      out.set(k, digits[(v >> 18) & 63])
+      out.set(k + 1, digits[(v >> 12) & 63])
+      out.set(k + 2, digits[(v >> 6) & 63])
+      out.set(k + 3, digits[v & 63])
+      k += 4
       i += 3
     }
-    if (n - i == 1) {
-      const v = data.get(i) << 16
-      out = `${out}${digits[(v >> 18) & 63]}${digits[(v >> 12) & 63]}`
-      if (!url) out = `${out}==`
-    } else if (n - i == 2) {
-      const v = (data.get(i) << 16) | (data.get(i + 1) << 8)
-      out = `${out}${digits[(v >> 18) & 63]}${digits[(v >> 12) & 63]}${digits[(v >> 6) & 63]}`
-      if (!url) out = `${out}=`
+    if (rest > 0) {
+      const v = if (rest == 1) data.get(i) << 16 else (data.get(i) << 16) | (data.get(i + 1) << 8)
+      out.set(k, digits[(v >> 18) & 63])
+      out.set(k + 1, digits[(v >> 12) & 63])
+      if (rest == 2) out.set(k + 2, digits[(v >> 6) & 63])
+      if (!url) {
+        if (rest == 1) out.set(k + 2, 61)
+        out.set(k + 3, 61)
+      }
     }
-    out
+    __asciiText(out)
   }
 
   /// The bytes of base64 `text` (either alphabet, padding optional; whitespace is skipped).
@@ -99,16 +124,14 @@ class Hex {
 
   /// `data` as hexadecimal text: two lowercase digits per byte.
   public encode(data: Uint8Array): string {
-    const digits: char[] = []
-    for (const c of "0123456789abcdef") {
-      digits.push(c)
-    }
-    let out = ""
+    const digits = __asciiCodes("0123456789abcdef")
+    const out = new Uint8Array(data.length * 2)
     for (let i = 0; i < data.length; i++) {
       const b = data.get(i)
-      out = `${out}${digits[b >> 4]}${digits[b & 15]}`
+      out.set(2 * i, digits[b >> 4])
+      out.set(2 * i + 1, digits[b & 15])
     }
-    out
+    __asciiText(out)
   }
 
   /// The bytes of `text` (digits in either case); an odd length or another character throws

@@ -1,0 +1,20 @@
+// expect: ||0|
+// expect: AA AA== AA 00
+// expect: AAE AAE= AAE 0001
+// expect: AAEC AAEC AAEC 000102
+// expect: AAECAw AAECAw== AAECAw 00010203
+// expect: -_8 +/8= -_8 fbff
+// expect: 3000 4000 6000
+// `base64.encode` and `hex.encode` for every length mod 3, (linear time now) (#34).
+import { base64, hex } from "std/encoding"
+
+println(`${base64.encode(new Uint8Array(0), url: true)}|${base64.encode(new Uint8Array(0))}|${base64.decode("").length}|${hex.encode(new Uint8Array(0))}`)
+for (const n of [1, 2, 3, 4]) {
+  const d = new Uint8Array(n)
+  for (let i = 0; i < n; i++) d.set(i, i)
+  println(`${base64.encode(d, url: true)} ${base64.encode(d)} ${base64.encode(base64.decode(base64.encode(d)), url: true)} ${hex.encode(d)}`)
+}
+const fb = Uint8Array.from([0xFB, 0xFF])
+println(`${base64.encode(fb, url: true)} ${base64.encode(fb)} ${base64.encode(base64.decode("-_8"), url: true)} ${hex.encode(fb)}`)
+const big = new Uint8Array(3000)
+println(`${hex.decode(hex.encode(big)).length} ${base64.encode(big).length} ${hex.encode(big).length}`)

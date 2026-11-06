@@ -1,0 +1,15 @@
+// expect: /a\/b/g
+// expect: a\/b
+// expect: /[/]/
+// expect: /a\/b/
+// expect: /a\nb/
+// expect: /é\/ü/
+// expect: true
+// `source` escapes `/` outside a class and line breaks, as JavaScript does (issue #31).
+println(new RegExp("a/b", "g").toString())
+println(new RegExp("a/b").source)
+println(new RegExp("[/]").toString())
+println(new RegExp("a\\/b").toString())
+println(new RegExp("a\nb").toString())
+println(new RegExp("é/ü").toString())
+println(new RegExp("a/b").test("xa/b"))
