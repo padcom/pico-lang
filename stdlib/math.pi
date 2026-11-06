@@ -532,6 +532,14 @@ export class Random {
   /// An integer in `lo .. hi` (`hi` excluded), without bias.
   public int(lo: int, hi: int): int {
     if (hi <= lo) panic(`Random.int: empty range ${lo}..${hi}`)
+    // Wider than 2**62 (`hi - lo` may not even fit in an `int`): draw all 64 bits and keep a draw
+    // that falls in the range, which happens at least a quarter of the time.
+    const wide = if (lo >= 0) hi - lo > 0x4000000000000000 else hi > lo + 0x4000000000000000
+    if (wide) {
+      let r = (this.g.next() << 32) | this.g.next()
+      while (r < lo || r >= hi) r = (this.g.next() << 32) | this.g.next()
+      return r
+    }
     const range = hi - lo
     if (range <= 0x100000000) {
       // Rejection sampling over the largest multiple of `range` below 2**32.
