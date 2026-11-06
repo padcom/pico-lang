@@ -41,6 +41,8 @@ function connect({ host, port = 5432 }: DbOptions) { … }   // destructured par
 ## 5.4 Overloading
 Several functions or methods can share a name if their parameter lists differ. The compiler
 resolves the call statically from the argument types, and picks the most specific candidate.
+An integer argument prefers an integer parameter to a float one, so with `f(x: int)` and
+`f(x: number)`, `f(n)` for an `i32` `n` calls `f(int)` (decision 317).
 An ambiguous call is a compile error.
 ```ts
 function len(s: string): i64 { s.length }

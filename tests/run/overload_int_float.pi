@@ -1,0 +1,11 @@
+// An integer argument prefers an integer parameter to a float one (issue #87).
+// expect: int 3
+// expect: int 4
+// expect: number 2.5
+function show(x: int): string { `int ${x}` }
+function show(x: number): string { `number ${x}` }
+const a: i32 = 3
+const b: u16 = 4
+println(show(a))
+println(show(b))
+println(show(2.5))
