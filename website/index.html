@@ -145,7 +145,7 @@ todos[1].done = true</code></pre>
 
     <!-- Features: scroll to switch -->
     <section id="features" class="features">
-      <h2 class="section-title">A tour in twenty-one features</h2>
+      <h2 class="section-title">A tour in twenty features</h2>
       <p class="section-lede">Scroll down: the code on the right follows along.</p>
 
       <div class="tour">
@@ -604,35 +604,6 @@ println(t.methods.map(m =&gt; m.name))       // ["greet"]
 println(t.decorators.map(d =&gt; d.name))    // ["derive"]
 
 reflect.typeOf&lt;User&gt;().field("name")!.set&lt;string&gt;(user, "Annie")</code></pre>
-          </article>
-
-          <article class="step" id="f-embed" data-title="Embedded resources">
-            <span class="step-num">21</span>
-            <h3>Embedded resources</h3>
-            <p><code>comptime.readFile</code> reads a file under the package root while compiling, and its contents become a constant in the program. A web app can carry its pages, styles and scripts inside the executable: deploy one file, with nothing next to it. Changing an embedded file triggers a rebuild.</p>
-<pre class="code"><code>import { serve } from "std/http"
-
-// read while compiling, stored in the executable
-const VERSION = comptime comptime.readFile("VERSION").trim()
-const INDEX = comptime comptime.readFile("public/index.html")
-const CSS = comptime comptime.readFile("public/app.css")
-const JS = comptime comptime.readFile("public/app.js")
-
-function file(body: string, type: string): Response {
-  new Response(body, { headers: { "content-type": type } })
-}
-
-async function handle(req: Request): Promise&lt;Response&gt; throws Error {
-  match (new URL(req.url).pathname) {
-    "/" =&gt; file(INDEX, "text/html"),
-    "/app.css" =&gt; file(CSS, "text/css"),
-    "/app.js" =&gt; file(JS, "text/javascript"),
-    _ =&gt; new Response("not found", { status: 404 }),
-  }
-}
-
-const server = await serve({ port: 8080 }, handle)
-println(`v${VERSION} on http://localhost:${server.addr.port}`)</code></pre>
           </article>
         </div>
 
