@@ -609,25 +609,30 @@ reflect.typeOf&lt;User&gt;().field("name")!.set&lt;string&gt;(user, "Annie")</co
           <article class="step" id="f-embed" data-title="Embedded resources">
             <span class="step-num">21</span>
             <h3>Embedded resources</h3>
-            <p><code>comptime.readFile</code> reads a file under the package root while compiling, and its contents become a constant in the program. Certificates, templates and data ship inside the executable, with no files to deploy next to it. Comptime code can process them too, and a changed file triggers a rebuild.</p>
+            <p><code>comptime.readFile</code> reads a file under the package root while compiling, and its contents become a constant in the program. A web app can carry its pages, styles and scripts inside the executable: deploy one file, with nothing next to it. Changing an embedded file triggers a rebuild.</p>
 <pre class="code"><code>import { serve } from "std/http"
 
-// read at compile time, baked into the binary
-const CERT = comptime comptime.readFile("certs/server.pem")
-const KEY = comptime comptime.readFile("certs/server-key.pem")
-const PAGE = comptime comptime.readFile("static/index.html")
+// read while compiling, stored in the executable
+const VERSION = comptime comptime.readFile("VERSION").trim()
+const INDEX = comptime comptime.readFile("public/index.html")
+const CSS = comptime comptime.readFile("public/app.css")
+const JS = comptime comptime.readFile("public/app.js")
 
-// processed at compile time, too
-const WORDS = comptime comptime.readFile("data/words.txt")
-  .split("\n").filter(w =&gt; w.length &gt; 0)
-
-println(`${WORDS.length} words built in`)
-
-async function home(req: Request): Promise&lt;Response&gt; {
-  new Response(PAGE, { headers: { "content-type": "text/html" } })
+function file(body: string, type: string): Response {
+  new Response(body, { headers: { "content-type": type } })
 }
 
-await serve({ port: 8443, cert: CERT, key: KEY }, home)</code></pre>
+async function handle(req: Request): Promise&lt;Response&gt; throws Error {
+  match (new URL(req.url).pathname) {
+    "/" =&gt; file(INDEX, "text/html"),
+    "/app.css" =&gt; file(CSS, "text/css"),
+    "/app.js" =&gt; file(JS, "text/javascript"),
+    _ =&gt; new Response("not found", { status: 404 }),
+  }
+}
+
+const server = await serve({ port: 8080 }, handle)
+println(`v${VERSION} on http://localhost:${server.addr.port}`)</code></pre>
           </article>
         </div>
 
