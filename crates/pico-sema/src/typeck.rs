@@ -365,15 +365,16 @@ impl Expect {
 
 enum Ret {
     Declared(Ty, Option<Span>),
-    /// Return types seen so far, for inference.
-    Infer(Vec<(Ty, Span)>),
+    /// Return types seen so far, for inference (with the returned expression, which is
+    /// converted to the joined type).
+    Infer(Vec<(Ty, Span, Option<ExprId>)>),
 }
 
 struct LoopCtx {
     /// `loop { }` (can produce a value) as opposed to `while`/`for`.
     produces_value: bool,
     want: Option<Expect>,
-    breaks: Vec<(Ty, Span)>,
+    breaks: Vec<(Ty, Span, Option<ExprId>)>,
 }
 
 struct FnCtx {
@@ -1291,8 +1292,9 @@ impl<'p> Checker<'p> {
             rets.push((
                 body_ty,
                 f.body.tail.as_ref().map_or(f.body.span, |t| t.span),
+                f.body.tail.as_ref().map(|t| t.id),
             ));
-            let ret = self.unify_all(&rets, "the function returns values of different types");
+            let ret = self.join_values(&rets, "the function returns values of different types");
             self.types.sigs[id.0 as usize].ret = ret;
         }
         self.state[id.0 as usize] = FnState::Done;
@@ -1438,6 +1440,25 @@ impl<'p> Checker<'p> {
     }
 
     /// Joins several types: identical, or all widening to one of them. `never` disappears.
+    /// The join of returned or `break` values (`unify_all`), each value converted to it
+    /// (`return 1` and `return null`: both `int?`, #7).
+    fn join_values(&mut self, vals: &[(Ty, Span, Option<ExprId>)], msg: &str) -> Ty {
+        let tys: Vec<(Ty, Span)> = vals.iter().map(|(t, s, _)| (t.clone(), *s)).collect();
+        let joined = self.unify_all(&tys, msg);
+        if !joined.is_error() {
+            for (t, _, e) in vals {
+                if let Some(e) = e
+                    && *t != joined
+                    && *t != Ty::Never
+                    && !self.types.coercions.contains_key(e)
+                {
+                    self.types.coercions.insert(*e, joined.clone());
+                }
+            }
+        }
+        joined
+    }
+
     fn unify_all(&mut self, tys: &[(Ty, Span)], msg: &str) -> Ty {
         let live: Vec<&(Ty, Span)> = tys.iter().filter(|(t, _)| *t != Ty::Never).collect();
         let Some(first) = live.first() else {
@@ -2459,7 +2480,7 @@ impl<'p> Checker<'p> {
                     // Break values were already checked against the expectation.
                     return w.ty;
                 }
-                self.unify_all(&breaks, "`break` values have different types")
+                self.join_values(&breaks, "`break` values have different types")
             }
             ExprKind::While {
                 cond, body, update, ..
@@ -2492,8 +2513,11 @@ impl<'p> Checker<'p> {
                 if let Some(l) = self.ctx().loops.last_mut()
                     && l.produces_value
                 {
-                    l.breaks
-                        .push((t, value.as_ref().map_or(e.span, |v| v.span)));
+                    l.breaks.push((
+                        t,
+                        value.as_ref().map_or(e.span, |v| v.span),
+                        value.as_ref().map(|v| v.id),
+                    ));
                 }
                 Ty::Never
             }
@@ -5565,7 +5589,7 @@ impl<'p> Checker<'p> {
                     None => Ty::Void,
                 };
                 if let Ret::Infer(rets) = &mut self.ctx().ret {
-                    rets.push((t, v.map_or(e.span, |v| v.span)));
+                    rets.push((t, v.map_or(e.span, |v| v.span), v.map(|v| v.id)));
                 }
             }
         }

@@ -1,0 +1,31 @@
+// An inferred return type (and a `loop`'s `break` values) joins `T` and `null` into `T?` (issue #7).
+// expect: 1
+// expect: null
+// expect: a
+// expect: none
+// expect: null
+// expect: 3
+function f(b: bool) {
+  if (b) return 1
+  return null
+}
+function g(b: bool) {
+  if (!b) return null
+  "a"
+}
+const x = f(true)
+println(x)
+println(f(false))
+println(g(true) ?? "none")
+println(g(false) ?? "none")
+function h(n: int) {
+  let i = 0
+  const r = loop {
+    if (i == n) break null
+    if (i > 2) break i
+    i += 1
+  }
+  r
+}
+println(h(1))
+println(h(9))
