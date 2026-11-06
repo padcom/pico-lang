@@ -1,0 +1,32 @@
+// A string-literal union fits its optional type (issue #92).
+// expect: auto
+// expect: auto
+// expect: manual
+// expect: auto
+// expect: none
+// expect: auto
+type Mode = "manual" | "auto"
+
+function mode(s: string): Mode {
+  if (s == "auto") "auto" else "manual"
+}
+
+struct S {
+  mode: Mode?
+}
+
+const m: Mode? = "auto"
+println(m ?? "none")
+let a: Mode? = null
+a = mode("auto")
+println(a ?? "none")
+const raw: string? = "x"
+const b: Mode? = if (raw == null) null else mode(raw)
+println(b ?? "none")
+const s = S { mode: mode("auto") }
+println(s.mode ?? "none")
+const n: Mode? = null
+println(n ?? "none")
+// A literal in the set keeps the literal type.
+const k: Mode = m ?? "manual"
+println(k)

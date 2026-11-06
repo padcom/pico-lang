@@ -434,6 +434,8 @@ impl Ty {
             (Ty::Null, Ty::Nullable(_)) => true,
             // A literal type is a subset of another with the same base, and of its base.
             (Ty::Lits(a, xs), Ty::Lits(b, ys)) => a == b && xs.iter().all(|x| ys.contains(x)),
+            // `"a" | "b"` fits `("a" | "b")?` (#92): the nullable rule, before the base's.
+            (Ty::Lits(..), Ty::Nullable(inner)) if self.widens_to(inner) => true,
             (Ty::Lits(a, _), t) => a.widens_to(t),
             (Ty::Variant(e, _, _), Ty::Enum(f, _)) => e == f,
             // A mutable value can be viewed as immutable.
