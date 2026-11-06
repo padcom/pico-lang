@@ -90,7 +90,7 @@ fn keywords() {
         "keywords missing from the grammar: {missing:?}"
     );
     // Contextual keywords (spec §1.6): keywords only where the grammar expects them.
-    let contextual: Vec<&str> = ["type", "of", "from", "arena", "reactive"]
+    let contextual: Vec<&str> = ["type", "of", "from", "arena", "reactive", "get", "set"]
         .into_iter()
         .filter(|k| !words.contains(k))
         .collect();

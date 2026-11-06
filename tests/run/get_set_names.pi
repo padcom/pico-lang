@@ -1,0 +1,25 @@
+// `get` and `set` are contextual: keywords only before a member name (issue #12).
+// expect: 1 2
+// expect: 3
+// expect: 10 20
+// expect: 5
+// expect: 7
+const get = 1
+let set = 2
+println(`${get} ${set}`)
+function f(get: int, set: int): int { get + set }
+println(f(1, 2))
+
+class Box {
+  public v: int = 10
+  public get: int = 20
+  public get value(): int { this.v }
+  public set value(x: int) { this.v = x }
+  public set(x: int): void { this.v = x }
+}
+const b = new Box()
+println(`${b.value} ${b.get}`)
+b.value = 5
+println(b.value)
+b.set(7)
+println(b.v)

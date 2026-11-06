@@ -487,8 +487,8 @@ fn ask(
 
 #[test]
 fn answers_in_code_with_syntax_errors() {
-    // A half-written method: the rest of the class is still there.
-    let text = "class Box {\n  constructor(public v: i32) {}\n  public half(\n  public get(): i32 { v }\n}\nconst b = new Box(1)\nprintln(b.get())\n";
+    // A half-written method (no return type yet): the rest of the class is still there.
+    let text = "class Box {\n  constructor(public v: i32) {}\n  public half():\n  public get(): i32 { v }\n}\nconst b = new Box(1)\nprintln(b.get())\n";
     let (n, h, line) = ask("syntax1", text, ("b.get", 0, 2), ("get", 1));
     assert_eq!(n, 1, "only the parser's error is shown");
     assert_eq!(h, "```pico\n(method) Box.get(): i32\n```");
