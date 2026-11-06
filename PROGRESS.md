@@ -22,7 +22,7 @@ Notes:
   layout (inline values, field places) and make `Place` support fields.
 - Integer literals without context default to `int`; there are no inference variables, so
   `const g = if (c) 1 else 2` is `int` even if later returned as `i32` (by design, §1.3).
-- Commit only through a `scripts/test.sh` exit-status check. When editing files with scripts,
+- Commit only through a `scripts/test.sh` exit-status check. It also runs the golden suite on the WasmGC backend (CI's `golden (wasm32-browser)` job), so it needs `node` on PATH. When editing files with scripts,
   assert that anchors exist and slices are non-empty (an empty-slice replace once corrupted
   `pico_rt.c`; it was restored from git).
 
