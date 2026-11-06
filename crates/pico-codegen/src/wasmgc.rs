@@ -892,6 +892,11 @@ impl<'p> Gen<'p> {
                     .local_set(10);
                 add(&mut s);
                 s.end();
+                // 5: count adopted bytes toward the collector (the engine's GC does that here).
+                s.local_get(0).i64_const(5).i64_eq();
+                s.if_(BlockType::Empty);
+                s.i64_const(0).return_();
+                s.end();
                 s.local_get(1)
                     .i64_const(32)
                     .i64_shr_u()

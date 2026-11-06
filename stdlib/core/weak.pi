@@ -208,11 +208,20 @@ let __finalizationRegistries: (() => bool)[]? = null
 /// When the event loop has nothing left (spec §9.3): collects, then runs the finalization
 /// callbacks that are due; whether any ran (they may have scheduled more work).
 function __runFinalizers(): bool {
+  if (__finalizationRegistries == null) {
+    return false
+  }
+  __gc_collect()
+  __runDueFinalizers()
+}
+
+/// The callbacks of every target the collector has already found unreachable, without forcing a
+/// collection; whether any ran.
+function __runDueFinalizers(): bool {
   const all = __finalizationRegistries
   if (all == null) {
     return false
   }
-  __gc_collect()
   let ran = false
   for (const f of all) {
     if (f()) {
@@ -220,4 +229,25 @@ function __runFinalizers(): bool {
     }
   }
   ran
+}
+
+/// Collections counted when the due finalizers last ran, and loop steps since then.
+let __finalizedAtCycle = -1
+let __stepsSinceFinalizers = 0
+
+/// Between event-loop steps: the due finalization callbacks, once per collection (#90). A loop
+/// that's never idle (a server, a backend reading stdin) still gets its buffers' memory back. The
+/// interpreter has no collector counters (its targets go as soon as they're unreferenced), so
+/// there they run every 1024 steps.
+function __finalizeAfterCollections(): void {
+  if (__finalizationRegistries == null) {
+    return
+  }
+  __stepsSinceFinalizers += 1
+  const cycles = __gc_stat(3) + __gc_stat(4)
+  if (cycles != __finalizedAtCycle || (cycles == 0 && __stepsSinceFinalizers >= 1024)) {
+    __finalizedAtCycle = cycles
+    __stepsSinceFinalizers = 0
+    __runDueFinalizers()
+  }
 }

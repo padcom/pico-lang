@@ -121,6 +121,10 @@ static _Thread_local int64_t last_pause, max_pause, total_pause;
 #define CHUNK_BYTES ((int64_t)16 << 10)
 #define CARD_SHIFT 9
 static _Thread_local int64_t young_bytes, old_bytes, step_bytes;
+/* Off-heap memory owned by GC objects (`ArrayBuffer`s) allocated since the last major cycle
+ * started: it counts toward both triggers, else megabytes of dead buffers wait for a
+ * collection that only a little GC-heap allocation would start (#90). */
+static _Thread_local int64_t external_bytes;
 static _Thread_local int64_t major_threshold = MIN_MAJOR;
 enum { IDLE, MARKING, SWEEPING };
 static _Thread_local int phase = IDLE;
@@ -1150,6 +1154,7 @@ static void young_collection(void) {
 static void start_marking(void) {
     phase = MARKING;
     step_bytes = 0;
+    external_bytes = 0;
     color = color == F_COLOR_A ? F_COLOR_B : F_COLOR_A;
     scan_roots(visit_old);
 }
@@ -1227,7 +1232,7 @@ void pico_gc_safepoint(void) {
         young_collection();
         strcat(what, "young ");
     }
-    if (phase == IDLE && (old_bytes >= major_threshold || stress_mode)) {
+    if (phase == IDLE && (old_bytes + external_bytes >= major_threshold || stress_mode)) {
         start_marking();
         strcat(what, "start ");
     }
@@ -1249,6 +1254,17 @@ void pico_gc_collect_young(void) {
     int64_t start = now_ns();
     young_collection();
     record_pause(start, "collectYoung");
+}
+
+void pico_gc_external(int64_t bytes) {
+    if (bytes <= 0) return;
+    young_bytes += bytes;
+    external_bytes += bytes;
+    if (phase != IDLE) step_bytes += bytes;
+    if (!paused && (young_bytes >= NURSERY || step_bytes >= STEP_BYTES ||
+                    old_bytes + external_bytes >= major_threshold)) {
+        __atomic_store_n(&pico_gc_requested, 1, __ATOMIC_RELAXED);
+    }
 }
 
 void pico_gc_pause(void) { paused++; }

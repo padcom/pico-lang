@@ -10,6 +10,8 @@ source_filename = "test.pi"
 %pico.SubtleCrypto = type {}
 
 @pico.global.__finalizationRegistries = internal thread_local global ptr null
+@pico.global.__finalizedAtCycle = internal thread_local global i64 0
+@pico.global.__stepsSinceFinalizers = internal thread_local global i64 0
 @pico.global.__reactivity = internal thread_local global ptr null
 @pico.global.__tracking = internal thread_local global i1 false
 @pico.global.__reactiveObjects = internal thread_local global i64 0
@@ -272,6 +274,8 @@ bb4:                                              ; preds = %bb3
 
 bb5:                                              ; preds = %bb4
   store ptr null, ptr @pico.global.__finalizationRegistries, align 8
+  store i64 -1, ptr @pico.global.__finalizedAtCycle, align 4
+  store i64 0, ptr @pico.global.__stepsSinceFinalizers, align 4
   store ptr null, ptr @pico.global.__reactivity, align 8
   store i1 false, ptr @pico.global.__tracking, align 1
   store i64 0, ptr @pico.global.__reactiveObjects, align 4

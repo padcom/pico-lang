@@ -3,24 +3,26 @@ source: crates/pico-driver/tests/mir.rs
 expression: "mir(r#\"\nconst KB = 1 << 10\nconst MB = KB * 1024\nconst ratio = 1.5 * 2.0\nconst big = KB > 1000 && !false\nfunction scaled(x: i64): i64 { x * (2 + 3) - -KB }\nfunction narrow(): u8 { (KB / 8) as u8 }\nprintln(MB + scaled(1) + narrow() as i64)\nprintln(`${ratio} ${big}`)\n\"#)"
 ---
 global @g0: () => bool[]? // __finalizationRegistries
-global @g1: __Reactivity? // __reactivity
-global @g2: bool // __tracking
-global @g3: i64 // __reactiveObjects
-global @g4: __Loop? // __loop
-global @g5: FinalizationRegistry<i64>? // __buffers
-global @g6: Map<string, __Zone>? // __zoneCache
-global @g7: Performance // performance
-global @g8: __Xoshiro128? // __mathRng
-global @g9: Crypto // crypto
-global @g10: i64 // KB
-global @g11: i64 // MB
-global @g12: f64 // ratio
-global @g13: bool // big
-global @g14: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g15: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g16: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g17: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g18: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g1: i64 // __finalizedAtCycle
+global @g2: i64 // __stepsSinceFinalizers
+global @g3: __Reactivity? // __reactivity
+global @g4: bool // __tracking
+global @g5: i64 // __reactiveObjects
+global @g6: __Loop? // __loop
+global @g7: FinalizationRegistry<i64>? // __buffers
+global @g8: Map<string, __Zone>? // __zoneCache
+global @g9: Performance // performance
+global @g10: __Xoshiro128? // __mathRng
+global @g11: Crypto // crypto
+global @g12: i64 // KB
+global @g13: i64 // MB
+global @g14: f64 // ratio
+global @g15: bool // big
+global @g16: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g17: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g18: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g19: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g20: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn scaled(_0: i64) -> i64 {
     let _1: i64
@@ -42,31 +44,31 @@ fn narrow() -> u8 {
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g14 = const 1_i64
+    @g16 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g15 = const 4_i64
+    @g17 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g16 = const 4_i64
+    @g18 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g17 = const 4_i64
+    @g19 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g18 = const 8_i64
+    @g20 = const 8_i64
     return
 }
 
@@ -101,28 +103,30 @@ fn <main>() -> void {
     call Float64Array.<static>() -> bb5
   bb5:
     @g0 = const null<() => bool[]?>
-    @g1 = const null<__Reactivity?>
-    @g2 = const false
-    @g3 = const 0_i64
-    @g4 = const null<__Loop?>
-    @g5 = const null<FinalizationRegistry<i64>?>
-    @g6 = const null<Map<string, __Zone>?>
+    @g1 = const -1_i64
+    @g2 = const 0_i64
+    @g3 = const null<__Reactivity?>
+    @g4 = const false
+    @g5 = const 0_i64
+    @g6 = const null<__Loop?>
+    @g7 = const null<FinalizationRegistry<i64>?>
+    @g8 = const null<Map<string, __Zone>?>
     _0 = struct#119{}
-    @g7 = _0
-    @g8 = const null<__Xoshiro128?>
+    @g9 = _0
+    @g10 = const null<__Xoshiro128?>
     _1 = struct#130{}
     _2 = struct#131{_1}
-    @g9 = _2
-    @g10 = const 1024_i64
-    @g11 = const 1048576_i64
-    @g12 = const 3.0_f64
+    @g11 = _2
+    @g12 = const 1024_i64
+    @g13 = const 1048576_i64
+    @g14 = const 3.0_f64
     goto bb6
   bb6:
     goto bb8
   bb7:
     unreachable
   bb8:
-    @g13 = const true
+    @g15 = const true
     _9 = call scaled(const 1_i64) -> bb9
   bb9:
     _10 = Add(const 1048576_i64, _9)
