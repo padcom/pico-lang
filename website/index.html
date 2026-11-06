@@ -605,6 +605,18 @@ println(t.decorators.map(d =&gt; d.name))    // ["derive"]
 
 reflect.typeOf&lt;User&gt;().field("name")!.set&lt;string&gt;(user, "Annie")</code></pre>
           </article>
+
+          <article class="step" id="f-embed" data-title="Embedded resources">
+            <span class="step-num">20</span>
+            <h3>Embedded resources</h3>
+            <p>Release builds bundle the runtime, standard library and all dependencies into a single binary. The <code>embed</code> feature (enabled by <code>scripts/package.sh</code>) includes <code>runtime/</code>, <code>third_party/</code>, <code>stdlib/</code> and the host runtime libraries. This makes pico completely self-contained with no external dependencies.</p>
+<pre class="code"><code>// Release builds are self-contained
+// pico build --release --features embed
+
+// No need to install anything else
+// Just run the single binary anywhere
+// pico run hello.pi</code></pre>
+          </article>
         </div>
 
         <aside class="stage" aria-hidden="true">
