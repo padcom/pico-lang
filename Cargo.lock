@@ -477,7 +477,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "pico-clang"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cc",
  "inkwell",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "pico-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "addr2line",
  "clap",
@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "pico-codegen"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "inkwell",
  "pico-mir",
@@ -516,14 +516,14 @@ dependencies = [
 
 [[package]]
 name = "pico-diag"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
 ]
 
 [[package]]
 name = "pico-driver"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
  "pico-codegen",
@@ -542,11 +542,11 @@ dependencies = [
 
 [[package]]
 name = "pico-golden-run"
-version = "0.4.0"
+version = "0.4.1"
 
 [[package]]
 name = "pico-interp"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "pico-diag",
  "pico-mir",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "pico-lint"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
  "pico-diag",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "pico-lld"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cc",
  "inkwell",
@@ -576,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "pico-lsp"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "pico-diag",
  "pico-driver",
@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "pico-mir"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
  "pico-diag",
@@ -598,7 +598,7 @@ dependencies = [
 
 [[package]]
 name = "pico-runtime"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "cc",
  "flate2",
@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "pico-sema"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
  "pico-diag",
@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "pico-syntax"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "insta",
  "pico-diag",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "pico-tests"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "pico-diag",
  "pico-driver",

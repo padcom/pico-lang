@@ -4,7 +4,7 @@
 > enough. Or say it explicitly: *"Do the next task from PROGRESS.md."*
 
 ## Next task
-**Phase 12** (see PLAN; v0.4.0 is released for macOS arm64, Linux x64/arm64 and Windows x64/arm64: `fetch` headers as maps). Reviewed 2026-11-05: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 stays open (MinGW for now); 311 accepted for now, to be revisited with the author later; 313 confirmed. Pushing: SSH signing failed in this session; pushes went over HTTPS through `gh` (the token now has the `workflow` scope).
+**Phase 12** (see PLAN; v0.4.1 is released for macOS arm64, Linux x64/arm64 and Windows x64/arm64: the VS Code extension's new file icon; 0.4.0 brought `fetch` headers as maps). Reviewed 2026-11-05: 303–306, 308, 309 confirmed (306 rewritten to match 309); 310 stays open (MinGW for now); 311 accepted for now, to be revisited with the author later; 313 confirmed. Pushing: SSH signing failed in this session; pushes went over HTTPS through `gh` (the token now has the `workflow` scope).
 
 Notes:
 - Known issues found while documenting the core library (2026-11-03, not fixed yet):
@@ -585,3 +585,4 @@ Notes:
 | 2026-11-05 | release | Version 0.4.0 (Cargo, the VS Code extension, the website's download commands): Headers from maps (P7.11); tagged `v0.4.0`. |
 | 2026-11-05 | release | v0.4.0 published (run 42091149547, all five hosts). The release workflow never built the VS Code extension (v0.2.0's was uploaded by hand, v0.3.0 has none): `pico-0.4.0.vsix` uploaded to the release, and the publish job now packages it (checking its version against the tag). |
 | 2026-11-05 | release | The VS Code extension is on the Marketplace as `padcom.pico-lang` 0.4.0 (the author's choice of ID; the language ID stays `pico`): Marketplace metadata and a user-facing README; `scripts/vscode-package.sh` packages with `vsce`; the release workflow publishes it when the `VSCE_PAT` secret is set; the website installs it from the Marketplace. |
+| 2026-11-06 | release | Version 0.4.1 (Cargo, the VS Code extension, the website's download commands): the extension's `.pi` file icon is the author's `docs/media/pico-icon-file.svg` (`images/pico-file.svg`, and `pico-file-dark.svg` in white and lilac for dark themes; SVG works for language icons, only the Marketplace `icon` must be PNG). Fixed a missing `M` in that SVG's dashes path. Tagged `v0.4.1`. |
