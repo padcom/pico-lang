@@ -176,6 +176,13 @@ fn dependency(name: &str, v: &Value) -> Result<Source, String> {
 
 /// The manifest of the package `dir` is in: the nearest `project.json` in it or above.
 pub fn package_of(dir: &Path) -> Option<Result<Manifest, Vec<String>>> {
+    // A relative module's directory can be empty (`main.pi`'s, or `./app`'s from `./main.pi`):
+    // that's the working directory, and only an absolute path finds the workspace above it (#93).
+    let dir = if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    };
     let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     dir.ancestors().find_map(Manifest::read)
 }
