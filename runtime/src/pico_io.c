@@ -4106,12 +4106,14 @@ int64_t pico_io(int64_t op, int64_t a, int64_t b, int64_t c, const PicoStr *s, c
         j->owner = q;
         q->pending++;
         if (op == 25) {
-            /* Our own stdout/stderr: written now, in order with `print`. */
+            /* Our own stdout/stderr: written now, in order with `print`, and flushed, so a
+             * settled `write` means the OS has the bytes: stdout is a fully buffered FILE
+             * when it's a pipe, and a parent waiting for a reply would wait forever (#82).
+             * `print` itself stays buffered. */
             FILE *f = j->a == 2 ? stderr : stdout;
             if (j->a == 2) fflush(stdout);
-            if (fwrite(j->t, 1, j->tlen, f) < j->tlen) fail(j);
+            if (fwrite(j->t, 1, j->tlen, f) < j->tlen || fflush(f) != 0) fail(j);
             else j->r = (int64_t)j->tlen;
-            if (j->a == 2) fflush(stderr);
             finish(j);
         } else {
             os_submit(j);
