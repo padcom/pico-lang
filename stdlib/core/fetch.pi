@@ -706,12 +706,38 @@ async function __fetchOnce(req: Request): Promise<Response> throws Error {
   }
 }
 
+/// `r` with `init`'s fields in place of its own, as `new Request(r, init)` on the Web (`r` itself
+/// when `init` is empty).
+function __withInit(r: Request, init: RequestInit): Request throws TypeError {
+  if (init.method == null && init.headers == null && init.body == null && init.redirect == null && init.caCerts == null) {
+    return r
+  }
+  const method = init.method ?? r.method
+  const given = init.headers
+  const headers: HeadersInit = if (given != null) given else r.headers
+  const redirect = init.redirect ?? r.redirect
+  const caCerts = init.caCerts ?? r.__caCerts
+  const body = init.body
+  if (body != null) {
+    return new Request(r.url, { method: method, headers: headers, body: body, redirect: redirect, caCerts: caCerts })
+  }
+  const bytes = r.__bytes
+  if (bytes != null) {
+    return new Request(r.url, { method: method, headers: headers, body: bytes, redirect: redirect, caCerts: caCerts })
+  }
+  const stream = r.__stream
+  if (stream != null) {
+    return new Request(r.url, { method: method, headers: headers, body: stream, redirect: redirect, caCerts: caCerts })
+  }
+  new Request(r.url, { method: method, headers: headers, redirect: redirect, caCerts: caCerts })
+}
+
 /// Fetches `input` over HTTP/1.1, following redirects (see `RequestInit.redirect`).
 /// Network failures and unsupported URLs reject with a `TypeError` (its `cause` is the
 /// `NetError`); HTTP error statuses don't (check `ok`).
 async function fetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> throws Error {
   let req = match (input) {
-    r: Request => r,
+    r: Request => __withInit(r, init),
     s: string => new Request(s, init),
     u: URL => new Request(u, init),
   }

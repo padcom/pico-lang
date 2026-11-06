@@ -1,0 +1,19 @@
+// `fetch(request, init)`: `init`'s fields override the request's (issue #33).
+// expect: POST body=[from init] x=-
+// expect: PUT body=[kept] x=1
+// expect: GET body=[] x=2
+import { serve } from "std/http"
+
+async function handle(req: Request): Promise<Response> throws Error {
+  new Response(`${req.method} body=[${await req.text()}] x=${req.headers.get("x-n") ?? "-"}`)
+}
+
+const server = await serve({ port: 0 }, handle)
+const url = `http://127.0.0.1:${server.addr.port}/`
+const r1 = await fetch(new Request(url), { method: "POST", body: "from init" })
+println(await r1.text())
+const r2 = await fetch(new Request(url, { method: "POST", body: "kept" }), { method: "PUT", headers: { "X-N": "1" } })
+println(await r2.text())
+const r3 = await fetch(new Request(url, { headers: { "X-N": "2" } }))
+println(await r3.text())
+await server.shutdown()
