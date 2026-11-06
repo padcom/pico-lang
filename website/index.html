@@ -145,7 +145,7 @@ todos[1].done = true</code></pre>
 
     <!-- Features: scroll to switch -->
     <section id="features" class="features">
-      <h2 class="section-title">A tour in twenty features</h2>
+      <h2 class="section-title">A tour in twenty-one features</h2>
       <p class="section-lede">Scroll down: the code on the right follows along.</p>
 
       <div class="tour">
@@ -607,15 +607,27 @@ reflect.typeOf&lt;User&gt;().field("name")!.set&lt;string&gt;(user, "Annie")</co
           </article>
 
           <article class="step" id="f-embed" data-title="Embedded resources">
-            <span class="step-num">20</span>
+            <span class="step-num">21</span>
             <h3>Embedded resources</h3>
-            <p>Release builds bundle the runtime, standard library and all dependencies into a single binary. The <code>embed</code> feature (enabled by <code>scripts/package.sh</code>) includes <code>runtime/</code>, <code>third_party/</code>, <code>stdlib/</code> and the host runtime libraries. This makes pico completely self-contained with no external dependencies.</p>
-<pre class="code"><code>// Release builds are self-contained
-// pico build --release --features embed
+            <p><code>comptime.readFile</code> reads a file under the package root while compiling, and its contents become a constant in the program. Certificates, templates and data ship inside the executable, with no files to deploy next to it. Comptime code can process them too, and a changed file triggers a rebuild.</p>
+<pre class="code"><code>import { serve } from "std/http"
 
-// No need to install anything else
-// Just run the single binary anywhere
-// pico run hello.pi</code></pre>
+// read at compile time, baked into the binary
+const CERT = comptime comptime.readFile("certs/server.pem")
+const KEY = comptime comptime.readFile("certs/server-key.pem")
+const PAGE = comptime comptime.readFile("static/index.html")
+
+// processed at compile time, too
+const WORDS = comptime comptime.readFile("data/words.txt")
+  .split("\n").filter(w =&gt; w.length &gt; 0)
+
+println(`${WORDS.length} words built in`)
+
+async function home(req: Request): Promise&lt;Response&gt; {
+  new Response(PAGE, { headers: { "content-type": "text/html" } })
+}
+
+await serve({ port: 8443, cert: CERT, key: KEY }, home)</code></pre>
           </article>
         </div>
 
