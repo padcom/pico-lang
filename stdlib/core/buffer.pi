@@ -29,12 +29,23 @@ class ArrayBuffer {
     this.__handle == 0
   }
 
-  /// A copy of bytes `begin..end`.
-  public slice(begin: int, end: int): ArrayBuffer {
-    const a = if (begin < 0) 0 else if (begin > this.byteLength) this.byteLength else begin
-    const b = if (end < a) a else if (end > this.byteLength) this.byteLength else end
+  /// A copy of bytes `begin..end` (negative counts from the end; `end` defaults to the end).
+  public slice(begin: int = 0, end: int? = null): ArrayBuffer {
+    const a = this.clampIndex(begin)
+    const e = end
+    const z = if (e != null) this.clampIndex(e) else this.byteLength
+    const b = if (z < a) a else z
     // One copy of the range (`__buf_op` 3); nothing to copy (or a detached buffer): a new one.
     if (b == a) new ArrayBuffer(0) else new ArrayBuffer(__buf_op(3, this.__handle, a, b - a), b - a, true)
+  }
+
+  /// `i` clamped to `0..byteLength`, a negative one counted from the end.
+  private clampIndex(i: int): int {
+    if (i < 0) {
+      const j = this.byteLength + i
+      return if (j < 0) 0 else j
+    }
+    if (i > this.byteLength) this.byteLength else i
   }
 
   /// After a transfer: the bytes belong to the receiver now.

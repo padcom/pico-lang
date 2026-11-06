@@ -91,7 +91,7 @@ They live off the GC heap (malloc'd), so moving one only hands over a pointer.
 - Views: `Uint8Array`, `Int32Array`, `Uint32Array`, `Float32Array`, `Float64Array`, with
   `new View(length)`, `new View(buffer, byteOffset)`, `new View(buffer, byteOffset, length)`,
   `get`/`set`/`[]`, `length`, `byteLength`, `buffer`, `byteOffset`, `BYTES_PER_ELEMENT`.
-  `ArrayBuffer` has `byteLength`, `detached` and `slice(begin, end)`; its memory is freed by a
+  `ArrayBuffer` has `byteLength`, `detached` and `slice(begin?, end?)` (negative indices count from the end); its memory is freed by a
   finalizer once it's collected (not yet for buffers received from another thread).
 
 ## 10.4 Inline workers & pools

@@ -1,0 +1,14 @@
+// expect: 3
+// expect: 6
+// expect: 8
+// expect: 0
+// expect: 10
+// expect: 7
+const b = new ArrayBuffer(10)
+println(b.slice(-3, 10).byteLength)
+println(b.slice(2, -2).byteLength)
+println(b.slice(2).byteLength)
+println(b.slice(-2, -5).byteLength)
+println(b.slice(-20).byteLength)
+const u = new Uint8Array(b.slice(-7), 0)
+println(u.length)
