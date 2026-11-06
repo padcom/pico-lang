@@ -21,6 +21,7 @@ class ArrayBuffer {
   constructor(handle: int, byteLength: int, __adopt: bool) {
     this.__handle = handle
     this.byteLength = byteLength
+    __buf_op(5, byteLength, 0, 0);  // the collector counts it (#90)
     __bufferRegistry().registerWithToken(this, this.__handle, this)
   }
 

@@ -1,0 +1,70 @@
+// The event loop runs due finalization callbacks while it's busy, not only once it's idle (#90):
+// a long-running program (a server, a backend reading stdin) gets its buffers' memory back.
+// expect: finalized while busy: true
+// expect: buffers freed while busy: true
+import { delay } from "std/timers"
+import { exists, readText } from "std/fs"
+
+class Thing {
+  public n: int = 0
+}
+
+let finalized = 0
+const registry = new FinalizationRegistry<int>((held: int) => {
+  finalized += 1
+})
+
+function garbage(round: int): void {
+  for (let i = 0; i < 200; i++) {
+    const t = new Thing()
+    t.n = round
+    registry.register(t, i)
+  }
+  // Allocation pressure, so collections happen between the steps.
+  for (let i = 0; i < 2000; i++) {
+    const b = new Uint8Array(64)
+    b.set(0, i)
+  }
+}
+
+async function busy(): Promise<void> throws Error {
+  for (let round = 0; round < 3000 && finalized == 0; round++) {
+    garbage(round)
+    await delay(0)
+  }
+  println(`finalized while busy: ${finalized > 0}`)
+}
+
+/// Resident memory in kB where the system reports it (Linux), else 0.
+async function rssKb(): Promise<int> throws Error {
+  if (!(await exists("/proc/self/status"))) {
+    return 0
+  }
+  for (const line of (await readText("/proc/self/status")).split("\n")) {
+    if (line.startsWith("VmRSS:")) {
+      return parseInt(line.replace("VmRSS:", "").replace("kB", "").trim())
+    }
+  }
+  0
+}
+
+/// Buffers made and dropped across many loop steps: resident memory stops growing (before #90
+/// their malloc'd memory was only freed at exit: ~350 MB here). Measured where the system reports
+/// it (Linux); elsewhere this line passes without measuring.
+async function buffers(): Promise<void> throws Error {
+  let afterWarmUp = 0
+  for (let round = 0; round < 4000; round++) {
+    for (let i = 0; i < 100; i++) {
+      new Uint8Array(1024).set(0, i)
+    }
+    await delay(0)
+    if (round == 500) {
+      afterWarmUp = await rssKb()
+    }
+  }
+  const grew = (await rssKb()) - afterWarmUp
+  println(`buffers freed while busy: ${grew < 100 * 1024}`)
+}
+
+await busy()
+await buffers()

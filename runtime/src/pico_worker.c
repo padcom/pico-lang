@@ -547,13 +547,16 @@ PicoStr *pico_worker_error(int64_t h) {
 
 /* 1 allocate `a` zeroed bytes (a handle), 2 free `a`, 3 a copy of `c` bytes of `a` from
  * offset `b`, 4 move `c` bytes from address `b` to address `a` (an address is a handle plus
- * an offset; the ranges may overlap), 11–18 read a little-endian unsigned integer of 1–8
- * bytes at `a + b`, 21–28 write `c` as one. (Bounds are checked by the pico side.) */
+ * an offset; the ranges may overlap), 5 count `a` adopted bytes toward the collector's
+ * triggers, 11–18 read a little-endian unsigned integer of 1–8 bytes at `a + b`, 21–28 write
+ * `c` as one. (Bounds are checked by the pico side.) Allocations count toward the collector's
+ * triggers too (#90). */
 int64_t pico_buf_op(int64_t op, int64_t a, int64_t b, int64_t c) {
     char *p = (char *)(intptr_t)a;
     if (op == 1) {
         void *m = calloc(a > 0 ? (size_t)a : 1, 1);
         if (!m) abort();
+        pico_gc_external(a);
         return (int64_t)(uintptr_t)m;
     }
     if (op == 2) {
@@ -564,7 +567,12 @@ int64_t pico_buf_op(int64_t op, int64_t a, int64_t b, int64_t c) {
         char *m = malloc(c > 0 ? (size_t)c : 1);
         if (!m) abort();
         if (c > 0) memcpy(m, p + b, (size_t)c);
+        pico_gc_external(c);
         return (int64_t)(uintptr_t)m;
+    }
+    if (op == 5) {
+        pico_gc_external(a); /* an adopted buffer the runtime allocated (reads) */
+        return 0;
     }
     if (op == 4) {
         if (c > 0) memmove(p, (const char *)(intptr_t)b, (size_t)c);

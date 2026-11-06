@@ -158,6 +158,9 @@ void pico_worker_check(void);
 /* `std/gc`. */
 void pico_gc_collect(void);
 void pico_gc_collect_young(void);
+/* `bytes` of off-heap memory now owned by a GC object (an `ArrayBuffer`): counted toward the
+ * collection triggers like allocation (#90). */
+void pico_gc_external(int64_t bytes);
 void pico_gc_pause(void);
 void pico_gc_resume(void);
 void pico_gc_dump_roots(void);

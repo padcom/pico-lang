@@ -219,12 +219,15 @@ function queueMicrotask(f: () => void): void {
 }
 
 /// Runs after the entry module's top-level code: the event loop until nothing is pending,
-/// then the due finalization callbacks (which may schedule more work).
+/// then the due finalization callbacks (which may schedule more work). While the loop is busy,
+/// the callbacks of already collected targets run between steps after each collection.
 function __runEventLoop(): void {
   loop {
     const l = __loop
     if (l != null) {
-      while (l.step()) {}
+      while (l.step()) {
+        __finalizeAfterCollections()
+      }
     }
     if (!__runFinalizers()) {
       break

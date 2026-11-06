@@ -252,6 +252,7 @@ function __awaitTop<T, E extends Error>(p: Promise<T, E>): T throws E {
     if (!l.step()) {
       panic("top-level `await` on a promise that never settles")
     }
+    __finalizeAfterCollections()
   }
   l.blocking = outer
   p.__get()
