@@ -1,0 +1,46 @@
+// expect: 3
+// expect: 8
+// expect: true 1
+// expect: 6
+// A field named `target` inside async methods and arrows is the field, not the build constant;
+// the build constant in an async method doesn't capture `this` (#104).
+struct T { system: int }
+class W {
+  readonly target: T
+  constructor(x: T) {
+    this.target = x
+  }
+  public async run(): Promise<int> {
+    target.system
+  }
+}
+println(`${await new W({ system: 3 }).run()}`)
+
+class A {
+  public target: int = 7
+  public run(): int {
+    const f = () => target + 1
+    f()
+  }
+}
+println(`${new A().run()}`)
+
+class B {
+  public x: int = 1
+  public async run(): Promise<string> {
+    `${target.os.length > 0} ${x}`
+  }
+}
+println(await new B().run())
+
+class C {
+  public n: int = 5
+  public run(): int {
+    const f = () => {
+      const g = () => n + 1
+      g()
+    }
+    f()
+  }
+}
+println(`${new C().run()}`)
