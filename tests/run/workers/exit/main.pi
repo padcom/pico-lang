@@ -1,0 +1,10 @@
+// `exit(code)` in a worker ends the whole program with `code`, in both backends (decision 321,
+// issue #46).
+// exit: 3
+// expect: worker exits
+const w = new Worker<int, int>("./job")
+w.postMessage(1)
+setTimeout(() => {
+  println("main still running")
+  w.terminate()
+}, 2000)

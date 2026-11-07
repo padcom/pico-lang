@@ -123,7 +123,7 @@ reading makes writes reject (`Other`, os error 32) instead of ending the program
 This process: `args: string[]` (the arguments after the program), `pid`, `cwd()`, `env`
 (`get(name): string?`, `has`, `set`, `delete`, `toObject(): Map<string, string>`; children
 started later see changes), `exit(code = 0)` (ends the program at once: no `finally` blocks,
-pending promises dropped) and `stdin` (a `Reader`), `stdout`, `stderr` (`Writer`s whose writes
+pending promises dropped; called in a worker, it ends the whole program too, decision 321) and `stdin` (a `Reader`), `stdout`, `stderr` (`Writer`s whose writes
 are in order with `print`).
 
 ## 13.4 Async-only I/O

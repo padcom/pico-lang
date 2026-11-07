@@ -315,7 +315,7 @@ impl Interp<'_, '_> {
 
     fn call(&mut self, id: FnId, args: Vec<Value>, loc: Loc) -> Result<Value, Panic> {
         if self.terminated() {
-            return Err(workers::terminated_panic());
+            return Err(self.stop_panic());
         }
         if self.depth >= MAX_DEPTH {
             return Err(self.panic(panics::STACK_OVERFLOW, loc));

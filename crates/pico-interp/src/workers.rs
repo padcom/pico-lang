@@ -300,6 +300,8 @@ pub struct Shared {
     pub cwd: Option<std::path::PathBuf>,
     /// The program's arguments.
     pub args: Vec<String>,
+    /// `exit(code)` in some thread: the whole program ends with `code`, as natively (#46).
+    pub exit: Mutex<Option<i32>>,
 }
 
 impl Shared {
@@ -382,9 +384,25 @@ impl<'p, 'o> Interp<'p, 'o> {
     }
 
     pub(crate) fn terminated(&self) -> bool {
-        self.this_worker
-            .as_ref()
-            .is_some_and(|w| w.terminate.load(Ordering::SeqCst))
+        self.exiting().is_some()
+            || self
+                .this_worker
+                .as_ref()
+                .is_some_and(|w| w.terminate.load(Ordering::SeqCst))
+    }
+
+    /// The code some thread's `exit(code)` ends the program with.
+    pub(crate) fn exiting(&self) -> Option<i32> {
+        *self.shared.exit.lock().expect("exit")
+    }
+
+    /// How this thread's code stops: `exit(code)` from any thread, or a `terminate()`.
+    pub(crate) fn stop_panic(&self) -> Panic {
+        let mut p = terminated_panic();
+        if let Some(code) = self.exiting() {
+            p.exit = Some(code);
+        }
+        p
     }
 
     /// The channel messages from `h` arrive on (0: the parent).
@@ -436,7 +454,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             .stack_size(1 << 30)
             .spawn(move || {
                 let program: &Program = &program;
-                let mut it = Interp::new(program, None, shared, Some(w.clone()));
+                let mut it = Interp::new(program, None, shared.clone(), Some(w.clone()));
                 // (An interpreter bug in a worker reaches the parent as a failure.)
                 let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &w.entry {
                     Entry::Module(f) => it.call(*f, Vec::new(), Loc::default()),
@@ -446,7 +464,17 @@ impl<'p, 'o> Interp<'p, 'o> {
                     p.msg = "internal interpreter error in a worker".into();
                     Err(p)
                 });
+                // `exit(code)` in a worker ends the whole program (#46): every thread stops at
+                // its next call, and the main one returns the code.
+                if let Err(Panic {
+                    exit: Some(code), ..
+                }) = &r
+                {
+                    shared.exit.lock().expect("exit").get_or_insert(*code);
+                    w.parent_waker.wake();
+                }
                 let msg = match r {
+                    Err(p) if p.exit.is_some() => None,
                     Err(p) if p.msg.starts_with('\u{0}') => None,
                     Err(p) if p.uncaught => Some(IMsg::Error(format!("uncaught {}", p.msg))),
                     Err(p) => Some(IMsg::Error(p.msg)),
