@@ -1,0 +1,33 @@
+// expect: null true
+// expect: 7 9
+// expect: 1 null
+// expect: 2
+// `ptr<T>?` kept in a struct field, a class field and an array (#110): null and non-null pointers
+// survive being stored, copied and collected (GC stress runs this too), and compare as pointers.
+struct Slot {
+  p: ptr<i32>?
+  tag: int
+}
+class Holder {
+  public p: ptr<i32>? = null
+}
+const xs: i32[] = [7, 8, 9]
+const empty: Slot = { p: null, tag: 0 }
+const h = new Holder()
+println(`${if (empty.p == null) "null" else "set"} ${h.p == null}`)
+unsafe {
+  const a: Slot = { p: ptr.of(xs[0]), tag: 1 }
+  h.p = ptr.of(xs[2])
+  const copy = a
+  const pa = copy.p
+  const ph = h.p
+  if (pa != null && ph != null) println(`${pa.read()} ${ph.read()}`)
+  const ps: (ptr<i32>?)[] = [null, ptr.of(xs[1]), null]
+  let n = 0
+  for (const p of ps.slice(0)) {
+    if (p == null) n += 1
+  }
+  const first = ps[0]
+  println(`${a.tag} ${if (first == null) "null" else "set"}`)
+  println(n)
+}
