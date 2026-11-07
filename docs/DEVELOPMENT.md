@@ -89,6 +89,10 @@ cargo run -p pico-cli -- build hello.pi -o hello --release
 cargo run -p pico-cli -- build --emit mir hello.pi     # or --emit llvm-ir
 ```
 
+`pico run` keeps each built program in `$TMPDIR/pico-cache/<hash>/` (one per program and compiler
+build). A build evicts entries unused for 7 days, then the least recently used ones until the
+entries fit in `PICO_RUN_CACHE_MB` (default 1024); entries used in the last 10 minutes always stay.
+
 On Linux, native builds (host and `--target linux-x64` / `linux-arm64`) are linked by the lld
 inside pico against generated glibc stubs (default glibc 2.31, `--target linux-x64.2.35` for
 another). The C runtime and Mbed TLS are compiled for the target and glibc version by clang 23

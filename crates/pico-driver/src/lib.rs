@@ -23,6 +23,7 @@ mod mingw;
 mod modules;
 mod musl;
 pub mod packages;
+mod run_cache;
 pub mod semver;
 pub mod target;
 pub use pico_codegen::export_symbol;
@@ -782,11 +783,21 @@ pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
         .join(stem)
 }
 
-/// Builds (unless cached) and returns the executable for `pico run`.
+/// Builds (unless cached) and returns the executable for `pico run`. A build also evicts old
+/// cache entries (`run_cache`).
 pub fn build_cached(checked: &Checked, opts: BuildOptions) -> Result<PathBuf, String> {
     let exe = cached_executable(checked, opts);
-    if !exe.is_file() {
+    let now = std::time::SystemTime::now();
+    let built = !exe.is_file();
+    if built {
         build_native(checked, &exe, opts)?;
+    }
+    if let Some(dir) = exe.parent() {
+        run_cache::mark_used(dir, now);
+        // A new entry: drop old ones, so the cache doesn't grow without bound.
+        if built && let Some(cache) = dir.parent() {
+            run_cache::prune_throttled(cache, now, run_cache::limit());
+        }
     }
     Ok(exe)
 }
