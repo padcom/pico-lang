@@ -16,7 +16,8 @@ class __MapEntry<K, V> {
 /// classes or structs with a `hashCode(): u64` method (the `Hashable` protocol, spec §2.8).
 /// `for (const [k, v] of map)` walks the entries.
 class Map<K extends Hashable<K>, V> {
-  /// In insertion order; deleted entries stay (not `live`) until the next rehash.
+  /// In insertion order; deleted entries stay (not `live`) until the next rehash, which comes once
+  /// they outnumber the live ones.
   items: __MapEntry<K, V>[] = []
   /// Per bucket: indices into `items`.
   buckets: int[][] = []
@@ -98,7 +99,10 @@ class Map<K extends Hashable<K>, V> {
       return this
     }
     if (this.items.length >= this.buckets.length) {
-      this.rehash(if (this.buckets.length < 8) 8 else this.buckets.length * 2)
+      // More buckets only when the live entries need them; else this just drops the deleted ones
+      // (a map with churn but few entries stays small, #97).
+      const grow = this.buckets.length < 8 || this.count * 2 >= this.buckets.length
+      this.rehash(if (this.buckets.length < 8) 8 else if (grow) this.buckets.length * 2 else this.buckets.length)
     }
     this.items.push(new __MapEntry(key, value))
     this.buckets[this.bucket(key)].push(this.items.length - 1)
@@ -123,6 +127,13 @@ class Map<K extends Hashable<K>, V> {
     }
     this.buckets[b] = rest
     this.count -= 1
+    // Deleted entries keep their key and value until a rehash: drop them once they outnumber the
+    // live ones, so what was deleted becomes collectable (#97). (Iterations in progress keep the
+    // array they started with.)
+    const dead = this.items.length - this.count
+    if (dead > 32 && dead > this.count) {
+      this.rehash(this.buckets.length)
+    }
     if (__reactivity_on()) __triggerObject(this)
     true
   }
