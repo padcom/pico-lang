@@ -1,0 +1,34 @@
+// `ReadableStream.tee()` (#63): both branches get every chunk (one read ahead of the other
+// waits in its queue), the source is locked, and an error reaches both.
+// expect: a: 1 2 3
+// expect: b: 1 2 3
+// expect: locked true
+// expect: a failed: boom
+// expect: b failed: boom
+const src = ReadableStream.from([1, 2, 3])
+const [a, b] = src.tee()
+let outA = "a:"
+for await (const x of a) outA = `${outA} ${x}`
+let outB = "b:"
+for await (const x of b) outB = `${outB} ${x}`
+println(outA)
+println(outB)
+println(`locked ${src.locked}`)
+
+let n = 0
+const bad = new ReadableStream<int>({
+  pull: (c) => {
+    n += 1
+    if (n > 1) c.error(new Error("boom")) else c.enqueue(n)
+  },
+})
+const [x, y] = bad.tee()
+async function drain(name: string, s: ReadableStream<int>): Promise<void> {
+  try {
+    for await (const _ of s) {}
+  } catch (e) {
+    println(`${name} failed: ${e.message}`)
+  }
+}
+await drain("a", x)
+await drain("b", y)

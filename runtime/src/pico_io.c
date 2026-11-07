@@ -983,6 +983,64 @@ static void run(Job *j) {
     case 8: /* rename */
         if (rename(j->s, j->t) < 0) fail(j);
         return;
+    case 37: { /* copy file s to t (replacing it), keeping s's permissions (#64) */
+        int in = open(j->s, O_RDONLY | O_CLOEXEC);
+        if (in < 0) {
+            fail(j);
+            return;
+        }
+        struct stat st;
+        if (fstat(in, &st) < 0 || S_ISDIR(st.st_mode)) {
+            if (S_ISDIR(st.st_mode)) errno = EISDIR;
+            fail(j);
+            close(in);
+            return;
+        }
+        int out = open(j->t, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, st.st_mode & 07777);
+        if (out < 0) {
+            fail(j);
+            close(in);
+            return;
+        }
+        char buf[65536];
+        for (;;) {
+            ssize_t k = read(in, buf, sizeof buf);
+            if (k < 0 && errno == EINTR) continue;
+            if (k < 0) {
+                fail(j);
+                break;
+            }
+            if (k == 0) break;
+            if (write_all(out, buf, (size_t)k) < 0) {
+                fail(j);
+                break;
+            }
+        }
+        close(in);
+        if (close(out) < 0 && j->r == 0) fail(j);
+        return;
+    }
+    case 38: /* symlink at s pointing to t (#64) */
+        if (symlink(j->t, j->s) < 0) fail(j);
+        return;
+    case 39: { /* readlink(s): text = the link's target (#64) */
+        char buf[4096];
+        ssize_t k = readlink(j->s, buf, sizeof buf);
+        if (k < 0) {
+            fail(j);
+            return;
+        }
+        text_add(j, buf, (size_t)k);
+        return;
+    }
+    case 40: /* chmod(s, a) (#64) */
+#if defined(__wasi__)
+        errno = ENOTSUP;
+        fail(j);
+#else
+        if (chmod(j->s, (mode_t)j->a) < 0) fail(j);
+#endif
+        return;
     case 9: { /* readDir: "<kind> <name>\0" per entry, in name order */
         DIR *d = opendir(j->s);
         if (!d) {
@@ -3738,6 +3796,42 @@ static void run(Job *j) {
         BOOL ok = MoveFileExW(from, to, MOVEFILE_REPLACE_EXISTING);
         free(from);
         free(to);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
+    case 37: { /* copy file s to t (replacing it) (#64) */
+        wchar_t *from = wide(j->s), *to = wide(j->t);
+        BOOL ok = CopyFileW(from, to, FALSE);
+        free(from);
+        free(to);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
+    case 38: { /* symlink at s pointing to t (#64): needs Developer Mode or the privilege */
+        wchar_t *link = wide(j->s), *target = wide(j->t);
+        /* A directory link when the target (relative to the link's directory) is one. */
+        DWORD flags = 0x2; /* SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE */
+        DWORD attrs = GetFileAttributesW(target);
+        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) flags |= 0x1;
+        BOOL ok = CreateSymbolicLinkW(link, target, flags);
+        free(link);
+        free(target);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
+    case 39: /* readlink: not on Windows yet */
+        errno = ENOSYS;
+        fail(j);
+        return;
+    case 40: { /* chmod(s, a): Windows has only the read-only attribute (no owner write bit) */
+        wchar_t *path = wide(j->s);
+        DWORD attrs = GetFileAttributesW(path);
+        BOOL ok = attrs != INVALID_FILE_ATTRIBUTES;
+        if (ok) {
+            attrs = (j->a & 0200) ? (attrs & ~FILE_ATTRIBUTE_READONLY) : (attrs | FILE_ATTRIBUTE_READONLY);
+            ok = SetFileAttributesW(path, attrs);
+        }
+        free(path);
         if (!ok) win_fail(j, j->s);
         return;
     }

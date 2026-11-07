@@ -519,9 +519,14 @@ impl Interp<'_, '_> {
             return Value::Int(i128::from(id));
         }
         if op < 100 {
-            // (The second string is a path only for `rename`.)
+            // (The second string is a path only for `rename` and `copy`; a link's target stays
+            // as written.)
             let path = self.at(&s(4));
-            let other = if op == 8 { self.at(&s(5)) } else { s(5) };
+            let other = if op == 8 || op == 37 {
+                self.at(&s(5))
+            } else {
+                s(5)
+            };
             let (r, r2, text) = self.run_io(op, a, b, c, &path, &other);
             let st = &mut self.io;
             st.next_id += 1;
@@ -747,6 +752,47 @@ impl Interp<'_, '_> {
                 Err(e) => err(e),
             },
             8 => fs::rename(s, t).map_or_else(err, |()| ok),
+            // copy, symlink (at `s`, to `t`), readlink, chmod (#64)
+            37 => {
+                if fs::metadata(s).is_ok_and(|m| m.is_dir()) {
+                    return err(std::io::Error::from(ErrorKind::IsADirectory));
+                }
+                fs::copy(s, t).map_or_else(err, |_| ok)
+            }
+            38 => {
+                #[cfg(unix)]
+                let r = std::os::unix::fs::symlink(t, s);
+                #[cfg(windows)]
+                let r = {
+                    let target = std::path::Path::new(s)
+                        .parent()
+                        .map_or_else(|| std::path::PathBuf::from(t), |d| d.join(t));
+                    if target.is_dir() {
+                        std::os::windows::fs::symlink_dir(t, s)
+                    } else {
+                        std::os::windows::fs::symlink_file(t, s)
+                    }
+                };
+                r.map_or_else(err, |()| ok)
+            }
+            39 => match fs::read_link(s) {
+                Ok(p) => (0, 0, p.to_string_lossy().into_owned()),
+                Err(e) => err(e),
+            },
+            40 => {
+                #[cfg(unix)]
+                let r = {
+                    use std::os::unix::fs::PermissionsExt;
+                    fs::set_permissions(s, fs::Permissions::from_mode(a as u32))
+                };
+                #[cfg(not(unix))]
+                let r = fs::metadata(s).and_then(|m| {
+                    let mut p = m.permissions();
+                    p.set_readonly(a & 0o200 == 0);
+                    fs::set_permissions(s, p)
+                });
+                r.map_or_else(err, |()| ok)
+            }
             9 => match fs::read_dir(s) {
                 Ok(entries) => {
                     let mut names: Vec<(Vec<u8>, char)> = Vec::new();

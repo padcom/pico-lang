@@ -127,6 +127,29 @@ export function rename(from: string, to: string): Promise<void, IoError> {
   __job<void>(8, 0, 0, 0, from, to, from, __unit)
 }
 
+/// Copies file `from` to `to`, replacing a file there; the copy gets `from`'s permissions (#64).
+/// A directory rejects (`IsADirectory`).
+export function copy(from: string, to: string): Promise<void, IoError> {
+  __job<void>(37, 0, 0, 0, from, to, from, __unit)
+}
+
+/// Makes `path` a symbolic link to `target` (as written: a relative target is relative to the
+/// link's directory) (#64). On Windows this needs Developer Mode or the symlink privilege.
+export function symlink(target: string, path: string): Promise<void, IoError> {
+  __job<void>(38, 0, 0, 0, path, target, path, __unit)
+}
+
+/// The target of the symbolic link `path`, as it was written (#64). Not on Windows yet.
+export function readlink(path: string): Promise<string, IoError> {
+  __job<string>(39, 0, 0, 0, path, "", path, (res: __IoResult) => __io_text(res.job))
+}
+
+/// Sets `path`'s permission bits (`0o644`, `0o755`, …) (#64). On Windows only the owner's write
+/// bit counts (the read-only attribute); WASI has no permissions (it rejects).
+export function chmod(path: string, mode: int): Promise<void, IoError> {
+  __job<void>(40, mode, 0, 0, path, "", path, __unit)
+}
+
 /// An entry of a directory.
 export struct DirEntry {
   /// The entry's name (not a path).

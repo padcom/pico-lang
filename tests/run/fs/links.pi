@@ -1,0 +1,29 @@
+// `symlink`, `readlink` and `chmod` (#64): a link reads through to its target and `readlink` gives
+// the target as written; a read-only file can't be written.
+// expect: through the link: hello
+// expect: target: a.txt
+// expect: link true
+// expect: read-only: PermissionDenied
+// expect: writable again: bye
+// expect: not a link: Other
+import { symlink, readlink, chmod, readText, writeText, stat } from "std/fs"
+
+await writeText("a.txt", "hello")
+await symlink("a.txt", "link.txt")
+println(`through the link: ${await readText("link.txt")}`)
+println(`target: ${await readlink("link.txt")}`)
+println(`link ${(await stat("link.txt", followLinks: false)).isSymlink}`)
+await chmod("a.txt", 0o444)
+try {
+  await writeText("a.txt", "bye")
+} catch (e: IoError) {
+  println(`read-only: ${e.kind}`)
+}
+await chmod("a.txt", 0o644)
+await writeText("a.txt", "bye")
+println(`writable again: ${await readText("a.txt")}`)
+try {
+  println(await readlink("a.txt"))
+} catch (e: IoError) {
+  println(`not a link: ${e.kind}`)
+}
