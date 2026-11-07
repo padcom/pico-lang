@@ -217,119 +217,577 @@ function __removeAt<T>(xs: T[], i: int): void {
   xs.pop();
 }
 
-/// A map whose keys stay sorted (by `compareTo`): lookups in O(log n); inserting and
-/// deleting move later entries (O(n)), so it suits read-heavy maps and ordered queries
-/// (`floorKey`, `ceilingKey`, `range`).
+/// A node of `SortedMap`'s AVL tree.
+class __TreeNode<K, V> {
+  public key: K
+  public value: V
+  public left: __TreeNode<K, V>? = null
+  public right: __TreeNode<K, V>? = null
+  public height: int = 1
+  constructor(key: K, value: V) {
+    this.key = key
+    this.value = value
+  }
+}
+
+function __height<K, V>(n: __TreeNode<K, V>?): int { if (n == null) 0 else n.height }
+
+function __fix<K, V>(n: __TreeNode<K, V>): void {
+  const l = __height(n.left)
+  const r = __height(n.right)
+  n.height = (if (l > r) l else r) + 1
+}
+
+function __rotateRight<K, V>(n: __TreeNode<K, V>): __TreeNode<K, V> {
+  const l = n.left!
+  n.left = l.right
+  l.right = n
+  __fix(n)
+  __fix(l)
+  l
+}
+
+function __rotateLeft<K, V>(n: __TreeNode<K, V>): __TreeNode<K, V> {
+  const r = n.right!
+  n.right = r.left
+  r.left = n
+  __fix(n)
+  __fix(r)
+  r
+}
+
+/// `n` rebalanced after one of its subtrees changed height by one.
+function __balance<K, V>(n: __TreeNode<K, V>): __TreeNode<K, V> {
+  __fix(n)
+  const b = __height(n.left) - __height(n.right)
+  if (b > 1) {
+    const l = n.left!
+    if (__height(l.left) < __height(l.right)) n.left = __rotateLeft(l)
+    return __rotateRight(n)
+  }
+  if (b < -1) {
+    const r = n.right!
+    if (__height(r.right) < __height(r.left)) n.right = __rotateRight(r)
+    return __rotateLeft(n)
+  }
+  n
+}
+
+/// A map whose keys stay sorted (by `compareTo`), as a balanced (AVL) tree: lookups, inserts
+/// and deletes in O(log n) (#59), plus ordered queries (`floorKey`, `ceilingKey`, `range`).
 export class SortedMap<K extends Comparable<K>, V> {
-  ks: K[] = []
-  vs: V[] = []
+  root: __TreeNode<K, V>? = null
+  count: int = 0
 
   /// An empty map.
   constructor() {}
 
   /// The number of entries.
-  public get size(): int { this.ks.length }
+  public get size(): int { this.count }
   /// Whether there are no entries.
-  public get isEmpty(): bool { this.ks.length == 0 }
+  public get isEmpty(): bool { this.count == 0 }
 
-  /// The first index whose key is `>= k`.
-  lowerBound(k: K): int {
-    let lo = 0
-    let hi = this.ks.length
-    while (lo < hi) {
-      const mid = (lo + hi) / 2
-      if (this.ks[mid].compareTo(k) < 0) lo = mid + 1 else hi = mid
+  node(k: K): __TreeNode<K, V>? {
+    let n = this.root
+    while (n != null) {
+      const c = k.compareTo(n.key)
+      if (c == 0) return n
+      n = if (c < 0) n.left else n.right
     }
-    lo
+    null
   }
-
-  found(i: int, k: K): bool { i < this.ks.length && this.ks[i].compareTo(k) == 0 }
 
   /// The value for `k`, or `null` if there's none. O(log n).
   public get(k: K): V? {
-    const i = this.lowerBound(k)
-    if (this.found(i, k)) this.vs[i] else null
+    const n = this.node(k)
+    if (n == null) null else n.value
   }
 
   /// Whether the map has an entry for `k`. O(log n).
-  public has(k: K): bool { this.found(this.lowerBound(k), k) }
+  public has(k: K): bool { this.node(k) != null }
 
-  /// Sets `k`'s value to `v` (replacing an existing one in O(log n), inserting in O(n)); the map
-  /// itself, for chaining.
-  public set(k: K, v: V): SortedMap<K, V> {
-    const i = this.lowerBound(k)
-    if (this.found(i, k)) {
-      this.vs[i] = v
-      return this
+  insert(n: __TreeNode<K, V>?, k: K, v: V): __TreeNode<K, V> {
+    if (n == null) {
+      this.count += 1
+      return new __TreeNode<K, V>(k, v)
     }
-    __insertAt(this.ks, i, k)
-    __insertAt(this.vs, i, v)
+    const c = k.compareTo(n.key)
+    if (c == 0) {
+      n.value = v
+      return n
+    }
+    if (c < 0) n.left = this.insert(n.left, k, v) else n.right = this.insert(n.right, k, v)
+    __balance(n)
+  }
+
+  /// Sets `k`'s value to `v` (O(log n)); the map itself, for chaining.
+  public set(k: K, v: V): SortedMap<K, V> {
+    this.root = this.insert(this.root, k, v)
     this
   }
 
-  /// Removes `k`'s entry (O(n)); whether there was one.
+  /// `n` without its smallest node (which `min` then holds).
+  removeMin(n: __TreeNode<K, V>, min: __TreeNode<K, V>[]): __TreeNode<K, V>? {
+    const l = n.left
+    if (l == null) {
+      min.push(n)
+      return n.right
+    }
+    n.left = this.removeMin(l, min)
+    __balance(n)
+  }
+
+  remove(n: __TreeNode<K, V>?, k: K, found: bool[]): __TreeNode<K, V>? {
+    if (n == null) return null
+    const c = k.compareTo(n.key)
+    if (c < 0) {
+      n.left = this.remove(n.left, k, found)
+    } else if (c > 0) {
+      n.right = this.remove(n.right, k, found)
+    } else {
+      found.push(true)
+      const l = n.left
+      const r = n.right
+      if (l == null) return r
+      if (r == null) return l
+      // The next key takes its place.
+      const min: __TreeNode<K, V>[] = []
+      const rest = this.removeMin(r, min)
+      const m = min[0]
+      m.left = l
+      m.right = rest
+      return __balance(m)
+    }
+    __balance(n)
+  }
+
+  /// Removes `k`'s entry (O(log n)); whether there was one.
   public delete(k: K): bool {
-    const i = this.lowerBound(k)
-    if (!this.found(i, k)) return false
-    __removeAt(this.ks, i)
-    __removeAt(this.vs, i)
-    true
+    const found: bool[] = []
+    this.root = this.remove(this.root, k, found)
+    if (found.length > 0) this.count -= 1
+    found.length > 0
   }
 
   /// Removes every entry.
   public clear(): void {
-    this.ks = []
-    this.vs = []
+    this.root = null
+    this.count = 0
   }
 
   /// The smallest key, or `null` when empty.
-  public firstKey(): K? { if (this.ks.length == 0) null else this.ks[0] }
+  public firstKey(): K? {
+    const r = this.root
+    if (r == null) return null
+    let n: __TreeNode<K, V> = r
+    let next = n.left
+    while (next != null) {
+      n = next
+      next = n.left
+    }
+    n.key
+  }
+
   /// The largest key, or `null` when empty.
-  public lastKey(): K? { if (this.ks.length == 0) null else this.ks[this.ks.length - 1] }
+  public lastKey(): K? {
+    const r = this.root
+    if (r == null) return null
+    let n: __TreeNode<K, V> = r
+    let next = n.right
+    while (next != null) {
+      n = next
+      next = n.right
+    }
+    n.key
+  }
 
   /// The largest key `<= k`, or `null`.
   public floorKey(k: K): K? {
-    const i = this.lowerBound(k)
-    if (this.found(i, k)) return this.ks[i]
-    if (i == 0) null else this.ks[i - 1]
+    let n = this.root
+    let best: K? = null
+    while (n != null) {
+      const at: __TreeNode<K, V> = n
+      const c = k.compareTo(at.key)
+      if (c == 0) return at.key
+      if (c < 0) {
+        n = at.left
+      } else {
+        best = at.key
+        n = at.right
+      }
+    }
+    best
   }
 
   /// The smallest key `>= k`, or `null`.
   public ceilingKey(k: K): K? {
-    const i = this.lowerBound(k)
-    if (i < this.ks.length) this.ks[i] else null
+    let n = this.root
+    let best: K? = null
+    while (n != null) {
+      const at: __TreeNode<K, V> = n
+      const c = k.compareTo(at.key)
+      if (c == 0) return at.key
+      if (c > 0) {
+        n = at.right
+      } else {
+        best = at.key
+        n = at.left
+      }
+    }
+    best
+  }
+
+  /// The entries of `n` with `lo <= key < hi` (no bound when `null`), in order, onto `out`.
+  walk(n: __TreeNode<K, V>?, lo: K?, hi: K?, out: [K, V][]): void {
+    if (n == null) return
+    const aboveLo = lo == null || n.key.compareTo(lo) >= 0
+    const belowHi = hi == null || n.key.compareTo(hi) < 0
+    if (aboveLo) this.walk(n.left, lo, hi, out)
+    if (aboveLo && belowHi) out.push([n.key, n.value])
+    if (belowHi) this.walk(n.right, lo, hi, out)
   }
 
   /// The entries with `lo <= key < hi`, in order.
   public range(lo: K, hi: K): [K, V][] {
     const r: [K, V][] = []
-    let i = this.lowerBound(lo)
-    while (i < this.ks.length && this.ks[i].compareTo(hi) < 0) {
-      r.push([this.ks[i], this.vs[i]])
-      i += 1
-    }
+    this.walk(this.root, lo, hi, r)
     r
   }
-
-  /// The keys in order (a copy).
-  public keys(): K[] { this.ks.slice(0) }
-  /// The values in key order (a copy).
-  public values(): V[] { this.vs.slice(0) }
 
   /// The `[key, value]` pairs in key order.
   public entries(): [K, V][] {
     const r: [K, V][] = []
-    for (let i = 0; i < this.ks.length; i++) r.push([this.ks[i], this.vs[i]])
+    this.walk(this.root, null, null, r)
+    r
+  }
+
+  /// The keys in order (a new array).
+  public keys(): K[] {
+    const r: K[] = []
+    for (const [k, _] of this.entries()) r.push(k)
+    r
+  }
+
+  /// The values in key order (a new array).
+  public values(): V[] {
+    const r: V[] = []
+    for (const [_, v] of this.entries()) r.push(v)
     r
   }
 
   /// Calls `f(value, key)` for each entry in key order.
   public forEach(f: (value: V, key: K) => void): void {
-    for (let i = 0; i < this.ks.length; i++) f(this.vs[i], this.ks[i])
+    for (const [k, v] of this.entries()) f(v, k)
   }
 
   /// `for (const [k, v] of map)`: in key order.
   public iterator(): Iterator<[K, V]> { this.entries().iterator() }
+}
+
+/// A set whose values stay sorted (by `compareTo`): adds, deletes and lookups in O(log n), and
+/// the ordered queries of `SortedMap` (#59).
+export class SortedSet<T extends Comparable<T>> {
+  map: SortedMap<T, bool> = new SortedMap<T, bool>()
+
+  /// An empty set.
+  constructor() {}
+
+  /// How many values the set has.
+  public get size(): int { this.map.size }
+  /// Whether it's empty.
+  public get isEmpty(): bool { this.map.isEmpty }
+  /// Whether `v` is in the set.
+  public has(v: T): bool { this.map.has(v) }
+  /// Adds `v` (nothing changes if it's there); the set, for chaining.
+  public add(v: T): SortedSet<T> {
+    this.map.set(v, true)
+    this
+  }
+  /// Removes `v`; whether it was there.
+  public delete(v: T): bool { this.map.delete(v) }
+  /// Removes every value.
+  public clear(): void { this.map.clear() }
+  /// The smallest value, or `null` when empty.
+  public first(): T? { this.map.firstKey() }
+  /// The largest value, or `null` when empty.
+  public last(): T? { this.map.lastKey() }
+  /// The largest value `<= v`, or `null`.
+  public floor(v: T): T? { this.map.floorKey(v) }
+  /// The smallest value `>= v`, or `null`.
+  public ceiling(v: T): T? { this.map.ceilingKey(v) }
+  /// The values with `lo <= v < hi`, in order.
+  public range(lo: T, hi: T): T[] {
+    const r: T[] = []
+    for (const [k, _] of this.map.range(lo, hi)) r.push(k)
+    r
+  }
+  /// The values in order (a new array).
+  public values(): T[] { this.map.keys() }
+  /// `for (const v of set)`: in order.
+  public iterator(): Iterator<T> { this.map.keys().iterator() }
+}
+
+/// A map from each key to a list of values, in the order they were added (#59).
+export class MultiMap<K extends Hashable<K>, V> {
+  map: Map<K, V[]> = new Map<K, V[]>()
+  count: int = 0
+
+  /// An empty map.
+  constructor() {}
+
+  /// How many values there are, over all keys.
+  public get size(): int { this.count }
+  /// How many keys have values.
+  public get keyCount(): int { this.map.size }
+  /// Adds `v` to `k`'s values; the map, for chaining.
+  public add(k: K, v: V): MultiMap<K, V> {
+    const vs = this.map.get(k)
+    if (vs == null) {
+      this.map.set(k, [v]);
+    } else {
+      vs.push(v)
+    }
+    this.count += 1
+    this
+  }
+  /// `k`'s values (a new array; empty when there are none).
+  public get(k: K): V[] {
+    const vs = this.map.get(k)
+    if (vs == null) [] else vs.slice(0)
+  }
+  /// Whether `k` has any values.
+  public has(k: K): bool { this.map.has(k) }
+  /// Removes all of `k`'s values; how many there were.
+  public delete(k: K): int {
+    const vs = this.map.get(k)
+    if (vs == null) return 0
+    this.map.delete(k)
+    this.count -= vs.length
+    vs.length
+  }
+  /// Removes everything.
+  public clear(): void {
+    this.map.clear()
+    this.count = 0
+  }
+  /// The keys with values, in the order they first got one.
+  public keys(): K[] { this.map.keys() }
+  /// Every `[key, value]` pair, key by key.
+  public entries(): [K, V][] {
+    const r: [K, V][] = []
+    for (const [k, vs] of this.map) {
+      for (const v of vs) r.push([k, v])
+    }
+    r
+  }
+  /// `for (const [k, v] of multi)`: every pair, key by key.
+  public iterator(): Iterator<[K, V]> { this.entries().iterator() }
+}
+
+/// A node of `LinkedList` (and `LruCache`'s order).
+class __ListNode<T> {
+  public value: T
+  public prev: __ListNode<T>? = null
+  public next: __ListNode<T>? = null
+  constructor(value: T) { this.value = value }
+}
+
+/// A doubly linked list: adding and removing at either end in O(1) (#59). `Deque` is usually
+/// faster; this one never moves its elements.
+export class LinkedList<T> {
+  head: __ListNode<T>? = null
+  tail: __ListNode<T>? = null
+  count: int = 0
+
+  /// An empty list.
+  constructor() {}
+
+  /// How many elements it has.
+  public get size(): int { this.count }
+  /// Whether it's empty.
+  public get isEmpty(): bool { this.count == 0 }
+
+  /// Adds `v` at the end.
+  public push(v: T): void {
+    const n = new __ListNode<T>(v)
+    const t = this.tail
+    if (t == null) this.head = n else {
+      t.next = n
+      n.prev = t
+    }
+    this.tail = n
+    this.count += 1
+  }
+
+  /// Adds `v` at the start.
+  public unshift(v: T): void {
+    const n = new __ListNode<T>(v)
+    const h = this.head
+    if (h == null) this.tail = n else {
+      h.prev = n
+      n.next = h
+    }
+    this.head = n
+    this.count += 1
+  }
+
+  /// Removes the last element and returns it; `null` when empty.
+  public pop(): T? {
+    const t = this.tail
+    if (t == null) return null
+    this.tail = t.prev
+    const p = t.prev
+    if (p == null) this.head = null else p.next = null
+    this.count -= 1
+    t.value
+  }
+
+  /// Removes the first element and returns it; `null` when empty.
+  public shift(): T? {
+    const h = this.head
+    if (h == null) return null
+    this.head = h.next
+    const n = h.next
+    if (n == null) this.tail = null else n.prev = null
+    this.count -= 1
+    h.value
+  }
+
+  /// The first element, or `null` when empty.
+  public first(): T? {
+    const h = this.head
+    if (h == null) null else h.value
+  }
+
+  /// The last element, or `null` when empty.
+  public last(): T? {
+    const t = this.tail
+    if (t == null) null else t.value
+  }
+
+  /// Removes every element.
+  public clear(): void {
+    this.head = null
+    this.tail = null
+    this.count = 0
+  }
+
+  /// The elements in order (a new array).
+  public toArray(): T[] {
+    const r: T[] = []
+    let n = this.head
+    while (n != null) {
+      r.push(n.value)
+      n = n.next
+    }
+    r
+  }
+
+  /// `for (const v of list)`: in order.
+  public iterator(): Iterator<T> { this.toArray().iterator() }
+}
+
+/// A map that holds at most `capacity` entries, dropping the least recently used one (by `get`
+/// or `set`) when a new key would go past it (#59). Every operation is O(1).
+export class LruCache<K extends Hashable<K>, V> {
+  public readonly capacity: int
+  map: Map<K, __ListNode<[K, V]>> = new Map<K, __ListNode<[K, V]>>()
+  /// Most recently used first.
+  head: __ListNode<[K, V]>? = null
+  tail: __ListNode<[K, V]>? = null
+
+  /// An empty cache for at most `capacity` entries (at least 1).
+  constructor(capacity: int) {
+    if (capacity < 1) panic(`an LruCache needs a capacity of at least 1, got ${capacity}`)
+    this.capacity = capacity
+  }
+
+  /// How many entries it has.
+  public get size(): int { this.map.size }
+
+  unlink(n: __ListNode<[K, V]>): void {
+    const p = n.prev
+    const x = n.next
+    if (p == null) this.head = x else p.next = x
+    if (x == null) this.tail = p else x.prev = p
+    n.prev = null
+    n.next = null
+  }
+
+  front(n: __ListNode<[K, V]>): void {
+    const h = this.head
+    n.next = h
+    if (h == null) this.tail = n else h.prev = n
+    this.head = n
+  }
+
+  /// `k`'s value (now the most recently used), or `null`.
+  public get(k: K): V? {
+    const n = this.map.get(k)
+    if (n == null) return null
+    this.unlink(n)
+    this.front(n)
+    n.value[1]
+  }
+
+  /// `k`'s value without counting as a use, or `null`.
+  public peek(k: K): V? {
+    const n = this.map.get(k)
+    if (n == null) null else n.value[1]
+  }
+
+  /// Whether `k` has an entry (not counting as a use).
+  public has(k: K): bool { this.map.has(k) }
+
+  /// Sets `k`'s value (now the most recently used), dropping the least recently used entry when
+  /// the cache is full; the cache, for chaining.
+  public set(k: K, v: V): LruCache<K, V> {
+    const old = this.map.get(k)
+    if (old != null) {
+      old.value = [k, v]
+      this.unlink(old)
+      this.front(old)
+      return this
+    }
+    if (this.map.size >= this.capacity) {
+      const t = this.tail
+      if (t != null) {
+        this.unlink(t)
+        this.map.delete(t.value[0])
+      }
+    }
+    const n = new __ListNode<[K, V]>([k, v])
+    this.front(n)
+    this.map.set(k, n)
+    this
+  }
+
+  /// Removes `k`'s entry; whether there was one.
+  public delete(k: K): bool {
+    const n = this.map.get(k)
+    if (n == null) return false
+    this.unlink(n)
+    this.map.delete(k)
+    true
+  }
+
+  /// Removes every entry.
+  public clear(): void {
+    this.map.clear()
+    this.head = null
+    this.tail = null
+  }
+
+  /// The keys, most recently used first.
+  public keys(): K[] {
+    const r: K[] = []
+    let n = this.head
+    while (n != null) {
+      r.push(n.value[0])
+      n = n.next
+    }
+    r
+  }
 }
 
 /// A growable set of small non-negative integers, one bit each.

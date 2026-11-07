@@ -42,15 +42,15 @@ function __netError(address: string, r: int, errno: int): NetError {
 
 /// An IP address and a port.
 struct Addr {
-  /// The IP address (`"127.0.0.1"`, `"::1"`, without brackets).
+  /// The IP address (`"127.0.0.1"`, `"::1"`, without brackets), or a Unix-domain socket's path.
   hostname: string
-  /// The port number.
+  /// The port number; -1 for a Unix-domain socket.
   port: int
 }
 
-/// `host:port` (`[::1]:80` for IPv6).
+/// `host:port` (`[::1]:80` for IPv6), or a Unix-domain socket's path.
 function __netShow(hostname: string, port: int): string {
-  if (hostname.includes(":")) `[${hostname}]:${port}` else `${hostname}:${port}`
+  if (port < 0) hostname else if (hostname.includes(":")) `[${hostname}]:${port}` else `${hostname}:${port}`
 }
 
 /// An `Addr` from "host port" at `fields[i]`, `fields[i + 1]`.
@@ -382,6 +382,10 @@ class Listener {
     if (closed && !accepting && !released) {
       released = true
       __io(121, fd, 0, 0, "", "");
+      if (addr.port < 0) {
+        // A Unix-domain socket's file goes with it, as in Node.js.
+        __ioSubmit(7, 0, 0, 0, addr.hostname, "", (job: int) => {})
+      }
     }
   }
 
@@ -401,6 +405,9 @@ class Listener {
         __io(121, res.r, 0, 0, "", "");
         this.release()
         return null
+      }
+      if (this.addr.port < 0) {
+        return new Conn(res.r, this.addr, this.addr)
       }
       const f = __io_text(res.job).split(" ")
       new Conn(res.r, __netAddr(f, 0), __netAddr(f, 2))
@@ -429,7 +436,8 @@ class Listener {
     closed = true
     if (accepting) {
       // Wakes the accept up with a connection of our own.
-      __ioSubmit(32, addr.port, 0, 0, __netReach(addr), "", (job: int) => {
+      const unix = addr.port < 0
+      __ioSubmit(32, addr.port, 0, if (unix) 1 else 0, if (unix) addr.hostname else __netReach(addr), "", (job: int) => {
         const r = __io(102, job, 0, 0, "", "")
         if (r >= 0) {
           __io(121, r, 0, 0, "", "");
@@ -455,6 +463,23 @@ function __netConnect(port: int, hostname: string = "127.0.0.1"): Promise<Conn, 
   __netJob<Conn>(32, port, 0, 0, hostname, "", __netShow(hostname, port), (res: __NetResult) => {
     const f = __io_text(res.job).split(" ")
     new Conn(res.r, __netAddr(f, 0), __netAddr(f, 2))
+  })
+}
+
+/// Listens for connections on a Unix-domain socket at `path` (macOS, Linux and Windows 10 and
+/// later; not WASI) (#85). The socket file must not exist yet (`AddrInUse`); closing the
+/// listener removes it. `addr` is `{ hostname: path, port: -1 }`.
+function __netListenUnix(path: string): Promise<Listener, NetError> {
+  __netJob<Listener>(30, 0, 0, 1, path, "", path, (res: __NetResult) => {
+    new Listener(res.r, { hostname: path, port: -1 })
+  })
+}
+
+/// Connects to the Unix-domain socket at `path` (#85).
+function __netConnectUnix(path: string): Promise<Conn, NetError> {
+  __netJob<Conn>(32, 0, 0, 1, path, "", path, (res: __NetResult) => {
+    const a: Addr = { hostname: path, port: -1 }
+    new Conn(res.r, a, a)
   })
 }
 

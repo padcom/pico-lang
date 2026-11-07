@@ -163,6 +163,27 @@
                 "default": false
               }
             }
+          },
+          "attach": {
+            "properties": {
+              "pid": {
+                "type": [
+                  "number",
+                  "string"
+                ],
+                "description": "The process to attach to.",
+                "default": "${command:pickProcess}"
+              },
+              "program": {
+                "type": "string",
+                "description": "The executable. With `waitFor`, the next process started from it is attached to (for a program another one starts, such as a backend whose stdio its parent owns)."
+              },
+              "waitFor": {
+                "type": "boolean",
+                "description": "Wait for `program` to start, then attach.",
+                "default": false
+              }
+            }
           }
         },
         "initialConfigurations": [
@@ -182,6 +203,17 @@
               "request": "launch",
               "name": "Debug ${1:main.pi}",
               "program": "^\"\\${workspaceFolder}/${1:main.pi}\""
+            }
+          },
+          {
+            "label": "pico: Attach",
+            "description": "Attach to a pico program when it starts (one that another program launches).",
+            "body": {
+              "type": "pico",
+              "request": "attach",
+              "name": "Attach to ${1:program}",
+              "program": "^\"\\${workspaceFolder}/${1:program}\"",
+              "waitFor": true
             }
           }
         ]

@@ -3138,14 +3138,75 @@ impl<'p> Gen<'p> {
                 self.operand(fx, s, n)?;
                 s.i64_lt_u();
             }
-            Rvalue::AddOverflows(a, b) => {
+            Rvalue::Overflows(op, a, b) | Rvalue::Wrapping(op, a, b) => {
                 let at = self.operand_ty(fx, a)?;
                 let Ty::Int(it) = at.erase() else {
-                    return unsupported("AddOverflows");
+                    return unsupported("integer arithmetic on a non-integer");
                 };
-                self.operand(fx, s, a)?;
-                self.operand(fx, s, b)?;
-                self.add_overflows(fx, s, it, false)?;
+                let wrapping = matches!(rv, Rvalue::Wrapping(..));
+                if *op == BinOp::Add && !wrapping {
+                    self.operand(fx, s, a)?;
+                    self.operand(fx, s, b)?;
+                    self.add_overflows(fx, s, it, false)?;
+                } else if !wide(it) {
+                    // Exactly in 64 bits, then the type's range (or its low bits).
+                    self.operand(fx, s, a)?;
+                    self.extend(s, it);
+                    self.operand(fx, s, b)?;
+                    self.extend(s, it);
+                    match op {
+                        BinOp::Add => s.i64_add(),
+                        BinOp::Sub => s.i64_sub(),
+                        _ => s.i64_mul(),
+                    };
+                    if wrapping {
+                        s.i32_wrap_i64();
+                        self.normalize(s, it);
+                    } else {
+                        self.out_of_range(fx, s, it);
+                    }
+                } else if wrapping {
+                    self.operand(fx, s, a)?;
+                    self.operand(fx, s, b)?;
+                    match op {
+                        BinOp::Add => s.i64_add(),
+                        BinOp::Sub => s.i64_sub(),
+                        _ => s.i64_mul(),
+                    };
+                } else {
+                    let x = self.i64_tmp(fx, 6);
+                    let y = self.i64_tmp(fx, 7);
+                    self.operand(fx, s, a)?;
+                    s.local_set(x);
+                    self.operand(fx, s, b)?;
+                    s.local_set(y);
+                    match (op, it.signed()) {
+                        (BinOp::Sub, true) => {
+                            // ((a ^ b) & (a ^ (a - b))) < 0
+                            s.local_get(x);
+                            s.local_get(y);
+                            s.i64_xor();
+                            s.local_get(x);
+                            s.local_get(x);
+                            s.local_get(y);
+                            s.i64_sub();
+                            s.i64_xor();
+                            s.i64_and();
+                            s.i64_const(0);
+                            s.i64_lt_s();
+                        }
+                        (BinOp::Sub, false) => {
+                            s.local_get(x);
+                            s.local_get(y);
+                            s.i64_lt_u();
+                        }
+                        (_, signed) => {
+                            s.local_get(x);
+                            s.local_get(y);
+                            s.call(helper_index(if signed { "mul_ovf_s" } else { "mul_ovf_u" }));
+                        }
+                    };
+                }
             }
             Rvalue::Hash(o) => {
                 let ot = self.operand_ty(fx, o)?;

@@ -1,3 +1,4 @@
 # Golden fixtures (name prefixes, as in reports) that Windows can't run yet, with the task that
 # makes them work. PICO_TEST_EXPORT skips them; delete lines as the tasks land.
 run/process/spawn_order  cmd.exe's echo writes CRLF line endings, so the captured lines differ
+run/fs/links    symlinks need Developer Mode or a privilege, readlink isn't implemented, and chmod has only the read-only bit (#64)

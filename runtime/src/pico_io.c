@@ -247,6 +247,150 @@ static void fail(Job *j) {
     j->r2 = e;
 }
 
+/* Cancellable reads (job 20, #100). A read registers while it waits; `Reader.close()` cancels it
+ * by the owner's queue and job id (op 107), and the read then ends as at the end of the stream.
+ * POSIX: the read polls its descriptor and a wake pipe of its own, which a cancel writes to.
+ * Windows: a cancel interrupts the waiting thread's `ReadFile` (`CancelSynchronousIo`). A cancel
+ * that comes before the read registers waits for it here (`cancelled`, no thread yet). WASI has
+ * no threads: nothing to cancel. */
+#if !defined(__wasi__)
+typedef struct Cancel {
+    Queue *q;
+    int64_t id;
+    int cancelled;
+#if defined(_WIN32)
+    HANDLE thread;
+#elif PICO_IO_POSIX
+    int wake[2];
+#endif
+    struct Cancel *next;
+} Cancel;
+
+static pthread_mutex_t cancel_lock = PTHREAD_MUTEX_INITIALIZER;
+static Cancel *cancels;
+
+/* The entry for job `id` of queue `q` (under `cancel_lock`), or NULL. */
+static Cancel **cancel_find(Queue *q, int64_t id) {
+    for (Cancel **c = &cancels; *c; c = &(*c)->next)
+        if ((*c)->q == q && (*c)->id == id) return c;
+    return NULL;
+}
+
+/* Registers job `j` as waiting: its entry, or NULL when it was cancelled already. */
+static Cancel *cancel_register(Job *j) {
+    pthread_mutex_lock(&cancel_lock);
+    Cancel **found = cancel_find(j->owner, j->id);
+    if (found) {
+        /* Cancelled before it started. */
+        Cancel *c = *found;
+        *found = c->next;
+        pthread_mutex_unlock(&cancel_lock);
+        free(c);
+        return NULL;
+    }
+    Cancel *c = calloc(1, sizeof *c);
+    if (!c) abort();
+    c->q = j->owner;
+    c->id = j->id;
+#if defined(_WIN32)
+    if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &c->thread,
+                         0, FALSE, DUPLICATE_SAME_ACCESS))
+        c->thread = NULL;
+#elif PICO_IO_POSIX
+    if (pipe(c->wake) != 0) c->wake[0] = c->wake[1] = -1;
+    else {
+        fcntl(c->wake[0], F_SETFD, FD_CLOEXEC);
+        fcntl(c->wake[1], F_SETFD, FD_CLOEXEC);
+    }
+#endif
+    c->next = cancels;
+    cancels = c;
+    pthread_mutex_unlock(&cancel_lock);
+    return c;
+}
+
+/* Unregisters `c` (from `cancel_register`); whether it was cancelled. */
+static int cancel_unregister(Cancel *c) {
+    pthread_mutex_lock(&cancel_lock);
+    Cancel **at = cancel_find(c->q, c->id);
+    if (at) *at = c->next;
+    int cancelled = c->cancelled;
+    pthread_mutex_unlock(&cancel_lock);
+#if defined(_WIN32)
+    if (c->thread) CloseHandle(c->thread);
+#elif PICO_IO_POSIX
+    if (c->wake[0] >= 0) {
+        close(c->wake[0]);
+        close(c->wake[1]);
+    }
+#endif
+    free(c);
+    return cancelled;
+}
+#endif
+
+/* Op 107: cancels queue `q`'s read job `id` (one still running; a finished one is unaffected). */
+static void cancel_read(Queue *q, int64_t id) {
+#if defined(__wasi__)
+    (void)q;
+    (void)id;
+#else
+    pthread_mutex_lock(&cancel_lock);
+    Cancel **found = cancel_find(q, id);
+    if (found) {
+        Cancel *c = *found;
+        if (!c->cancelled) {
+            c->cancelled = 1;
+#if defined(_WIN32)
+            if (c->thread) CancelSynchronousIo(c->thread);
+#elif PICO_IO_POSIX
+            if (c->wake[1] >= 0) {
+                char b = 1;
+                ssize_t w;
+                do w = write(c->wake[1], &b, 1);
+                while (w < 0 && errno == EINTR);
+            }
+#endif
+        }
+    } else {
+        /* Not started yet: it finds this when it does. */
+        Cancel *c = calloc(1, sizeof *c);
+        if (!c) abort();
+        c->q = q;
+        c->id = id;
+        c->cancelled = 1;
+#if defined(_WIN32)
+        c->thread = NULL;
+#elif PICO_IO_POSIX
+        c->wake[0] = c->wake[1] = -1;
+#endif
+        c->next = cancels;
+        cancels = c;
+    }
+    pthread_mutex_unlock(&cancel_lock);
+#endif
+}
+
+#if PICO_IO_POSIX
+#include <poll.h>
+/* Waits until `fd` can be read (or is closed, or fails) for job `j`; 1 when the wait was cancelled
+ * instead (op 107). Without a wake pipe it doesn't wait, and the read blocks as before. */
+static int read_wait(int fd, Job *j) {
+    Cancel *c = cancel_register(j);
+    if (!c) return 1;
+    if (c->wake[0] >= 0) {
+        struct pollfd p[2] = {{fd, POLLIN, 0}, {c->wake[0], POLLIN, 0}};
+        for (;;) {
+            int k = poll(p, 2, -1);
+            if (k < 0 && errno == EINTR) continue;
+            /* (An error from poll itself: let the read report it.) */
+            if (k < 0 || p[0].revents || p[1].revents) break;
+        }
+    }
+    return cancel_unregister(c);
+}
+#endif
+
 /* ---- the platform's part (below) ---- */
 
 #if defined(_WIN32)
@@ -839,6 +983,64 @@ static void run(Job *j) {
     case 8: /* rename */
         if (rename(j->s, j->t) < 0) fail(j);
         return;
+    case 37: { /* copy file s to t (replacing it), keeping s's permissions (#64) */
+        int in = open(j->s, O_RDONLY | O_CLOEXEC);
+        if (in < 0) {
+            fail(j);
+            return;
+        }
+        struct stat st;
+        if (fstat(in, &st) < 0 || S_ISDIR(st.st_mode)) {
+            if (S_ISDIR(st.st_mode)) errno = EISDIR;
+            fail(j);
+            close(in);
+            return;
+        }
+        int out = open(j->t, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, st.st_mode & 07777);
+        if (out < 0) {
+            fail(j);
+            close(in);
+            return;
+        }
+        char buf[65536];
+        for (;;) {
+            ssize_t k = read(in, buf, sizeof buf);
+            if (k < 0 && errno == EINTR) continue;
+            if (k < 0) {
+                fail(j);
+                break;
+            }
+            if (k == 0) break;
+            if (write_all(out, buf, (size_t)k) < 0) {
+                fail(j);
+                break;
+            }
+        }
+        close(in);
+        if (close(out) < 0 && j->r == 0) fail(j);
+        return;
+    }
+    case 38: /* symlink at s pointing to t (#64) */
+        if (symlink(j->t, j->s) < 0) fail(j);
+        return;
+    case 39: { /* readlink(s): text = the link's target (#64) */
+        char buf[4096];
+        ssize_t k = readlink(j->s, buf, sizeof buf);
+        if (k < 0) {
+            fail(j);
+            return;
+        }
+        text_add(j, buf, (size_t)k);
+        return;
+    }
+    case 40: /* chmod(s, a) (#64) */
+#if defined(__wasi__)
+        errno = ENOTSUP;
+        fail(j);
+#else
+        if (chmod(j->s, (mode_t)j->a) < 0) fail(j);
+#endif
+        return;
     case 9: { /* readDir: "<kind> <name>\0" per entry, in name order */
         DIR *d = opendir(j->s);
         if (!d) {
@@ -918,6 +1120,14 @@ static void run(Job *j) {
         size_t n = j->b > 0 ? (size_t)j->b : 1;
         char *b = calloc(n, 1);
         if (!b) abort();
+#if PICO_IO_POSIX
+        if (j->op == 20 && !pico_tls_has((int)j->a) && read_wait((int)j->a, j)) {
+            /* Cancelled (`Reader.close()`): as at the end. */
+            j->r = (int64_t)(uintptr_t)b;
+            j->r2 = 0;
+            return;
+        }
+#endif
         ssize_t k = pico_tls_read((int)j->a, b, n);
         if (k == -2) {
             do k = read((int)j->a, b, n);
@@ -1912,6 +2122,12 @@ static int net_step(Job *j) {
         j->wasi = st;
     }
     wasi_io_poll_own_pollable_t p;
+    if ((j->op == 30 || j->op == 32) && j->c == 1) {
+        /* (No Unix-domain sockets on WASI.) */
+        errno = ENOTSUP;
+        fail(j);
+        return 1;
+    }
     switch (j->op) {
     case 30: { /* listen (b = 0) or bind a UDP socket (b = 1): s = host, a = port */
         if (st->phase == 0) {
@@ -2532,6 +2748,9 @@ static void os_submit(Job *j) {
 static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PicoStr *s,
                      const PicoStr *t) {
     switch (op) {
+    case 107: /* cancel read job a (job 20; `Reader.close()`, #100) */
+        cancel_read(q, a);
+        return 0;
     case 106: /* close watcher a */
         watch_close(a);
         return 0;
@@ -3328,10 +3547,16 @@ static void pipe_read(Job *j) {
         j->r2 = got;
         return;
     }
+    /* Cancellable (`Reader.close()`, #100): then it ends as at the end of the stream. (A cancel
+     * in the moment between registering and `ReadFile` starting is missed.) */
+    Cancel *c = cancel_register(j);
     DWORD k = 0;
-    if (!ReadFile(handle_of(j->a), b, n > 0x40000000 ? 0x40000000 : (DWORD)n, &k, NULL)) {
-        DWORD e = GetLastError();
-        if (e != ERROR_BROKEN_PIPE && e != ERROR_HANDLE_EOF) {
+    BOOL ok = c ? ReadFile(handle_of(j->a), b, n > 0x40000000 ? 0x40000000 : (DWORD)n, &k, NULL)
+                : FALSE;
+    DWORD e = ok ? 0 : c ? GetLastError() : ERROR_OPERATION_ABORTED;
+    int cancelled = c ? cancel_unregister(c) : 1;
+    if (!ok) {
+        if (e != ERROR_BROKEN_PIPE && e != ERROR_HANDLE_EOF && !cancelled) {
             free(b);
             win_errno(e, NULL);
             fail(j);
@@ -3580,6 +3805,42 @@ static void run(Job *j) {
         if (!ok) win_fail(j, j->s);
         return;
     }
+    case 37: { /* copy file s to t (replacing it) (#64) */
+        wchar_t *from = wide(j->s), *to = wide(j->t);
+        BOOL ok = CopyFileW(from, to, FALSE);
+        free(from);
+        free(to);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
+    case 38: { /* symlink at s pointing to t (#64): needs Developer Mode or the privilege */
+        wchar_t *link = wide(j->s), *target = wide(j->t);
+        /* A directory link when the target (relative to the link's directory) is one. */
+        DWORD flags = 0x2; /* SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE */
+        DWORD attrs = GetFileAttributesW(target);
+        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) flags |= 0x1;
+        BOOL ok = CreateSymbolicLinkW(link, target, flags);
+        free(link);
+        free(target);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
+    case 39: /* readlink: not on Windows yet */
+        errno = ENOSYS;
+        fail(j);
+        return;
+    case 40: { /* chmod(s, a): Windows has only the read-only attribute (no owner write bit) */
+        wchar_t *path = wide(j->s);
+        DWORD attrs = GetFileAttributesW(path);
+        BOOL ok = attrs != INVALID_FILE_ATTRIBUTES;
+        if (ok) {
+            attrs = (j->a & 0200) ? (attrs & ~FILE_ATTRIBUTE_READONLY) : (attrs | FILE_ATTRIBUTE_READONLY);
+            ok = SetFileAttributesW(path, attrs);
+        }
+        free(path);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
     case 9: { /* readDir: "<kind> <name>\0" per entry, in name order */
         DirIter *d = dir_open(j->s);
         if (!d) {
@@ -3737,6 +3998,9 @@ static void os_submit(Job *j) {
 static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PicoStr *s,
                      const PicoStr *t) {
     switch (op) {
+    case 107: /* cancel read job a (job 20; `Reader.close()`, #100) */
+        cancel_read(q, a);
+        return 0;
     case 106: /* close watcher a */
         watch_close(a);
         return 0;
@@ -3850,8 +4114,65 @@ static struct addrinfo *lookup(Job *j, const char *host, int port, int udp, int 
     return res;
 }
 
+/* A Unix-domain socket address for path `p` (#85; Windows 10 1803 and later have them too).
+ * Its length, or 0 (errno set) when the path doesn't fit. */
+typedef struct {
+    unsigned short family;
+    char path[108];
+} UnixAddr;
+
+static socklen_t unix_addr(UnixAddr *a, const char *p) {
+    memset(a, 0, sizeof *a);
+    a->family = AF_UNIX;
+    size_t n = strlen(p);
+    if (n == 0 || n >= sizeof a->path) {
+        errno = n == 0 ? ENOENT : ENAMETOOLONG;
+        return 0;
+    }
+    memcpy(a->path, p, n);
+    return (socklen_t)(offsetof(UnixAddr, path) + n + 1);
+}
+
+/* Ops 30 (listen) and 32 (connect) on a Unix-domain socket at path s (c = 1). */
+static void unix_run(Job *j) {
+    UnixAddr a;
+    socklen_t len = unix_addr(&a, j->s);
+    if (!len) {
+        fail(j);
+        return;
+    }
+    int64_t fd = (int64_t)socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd == SOCK_NONE) {
+        sock_failed();
+        fail(j);
+        return;
+    }
+    int r;
+    if (j->op == 30) {
+        r = bind((sock_t)fd, (struct sockaddr *)&a, len);
+        if (r == 0) r = listen((sock_t)fd, 128);
+    } else {
+        do r = connect((sock_t)fd, (struct sockaddr *)&a, len);
+        while (r < 0 && (sock_failed(), errno == EINTR));
+    }
+    if (r < 0) {
+        sock_failed();
+        int e = errno;
+        sock_close(fd);
+        errno = e;
+        fail(j);
+        return;
+    }
+    sock_private(fd);
+    j->r = fd;
+}
+
 static void net_run(Job *j) {
     net_init();
+    if ((j->op == 30 || j->op == 32) && j->c == 1) {
+        unix_run(j);
+        return;
+    }
     switch (j->op) {
     case 30: { /* listen (b = 0) or bind a UDP socket (b = 1): s = host, a = port */
         struct addrinfo *res = lookup(j, j->s, (int)j->a, (int)j->b, 1);

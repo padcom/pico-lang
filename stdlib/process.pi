@@ -155,6 +155,10 @@ export class Reader {
   piped: bool
   done: bool = false
   reading: bool = false
+  /// `close()` was called.
+  closed: bool = false
+  /// The pending read's job (while `reading`).
+  job: int = -1
   rs: ReadableStream<Uint8Array>? = null
 
   /// A reader of descriptor `fd` (reading panics unless `piped`); `Command` and `stdin` make these.
@@ -203,9 +207,10 @@ export class Reader {
       p.__resolve(null)
       return p
     }
-    __pjob<Uint8Array?>(20, fd, n, 0, "", name, (res: __PResult) => {
+    const p = __pjob<Uint8Array?>(20, fd, n, 0, "", name, (res: __PResult) => {
       this.reading = false
-      if (res.r2 == 0) {
+      if (res.r2 == 0 || this.closed) {
+        // The end, or closed while reading (what came in that moment is dropped).
         __buf_op(2, res.r, 0, 0);
         this.finish()
         null
@@ -213,6 +218,25 @@ export class Reader {
         new Uint8Array(new ArrayBuffer(res.r, res.r2, true), 0, res.r2)
       }
     })
+    this.job = __lastJob
+    p
+  }
+
+  /// Stops reading (#100): a pending `read()` settles with `null`, as at the end, and so do later
+  /// ones. The descriptor is closed once nothing reads it (this process's stdin stays open). Use
+  /// it for a pipe or device whose other end may never write or close (a child that keeps
+  /// running, a serial port, a pty).
+  public close(): void {
+    if (done || closed) {
+      return
+    }
+    closed = true
+    if (reading) {
+      // The read ends (and the callback above closes the descriptor).
+      __io(107, job, 0, 0, "", "");
+    } else {
+      finish()
+    }
   }
 
   /// `for await` reads chunks of bytes until the end.

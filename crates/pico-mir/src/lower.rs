@@ -1392,6 +1392,13 @@ impl Cx<'_> {
                 params.push(Local(p.0));
             }
         }
+        // `void` parameters a closure was given beyond its own (`() => …` as a `(v: void) => R`,
+        // #88): received and ignored.
+        if f.closure.is_some() {
+            for t in sig.params.iter().skip(f.params.len()) {
+                params.push(b.temp(t.clone()));
+            }
+        }
         // A flag per defaulted parameter: whether the caller gave it.
         let mut defaulted = Vec::new();
         for (k, d) in f.defaults.iter().enumerate() {
@@ -2573,6 +2580,101 @@ impl FnBuilder<'_, '_> {
             }
             hir::Target::Index { object, index } => self.index_place(object, index, checks),
         }
+    }
+
+    /// `a.wrappingAdd(b)`, `a.saturatingAdd(b)`, `a.checkedAdd(b)` and the same for `Sub`/`Mul`
+    /// (spec §2.2, #60), over `Wrapping` and `Overflows`.
+    fn int_arith(&mut self, object: &Expr, name: &str, arg: &Expr, ty: Ty, span: Span) -> Operand {
+        let op = if name.ends_with("Add") {
+            mir::BinOp::Add
+        } else if name.ends_with("Sub") {
+            mir::BinOp::Sub
+        } else {
+            mir::BinOp::Mul
+        };
+        let Ty::Int(it) = self.ty_of(object).erase() else {
+            unreachable!("integer arithmetic on an integer")
+        };
+        let t = Ty::Int(it);
+        let a = self.expr(object);
+        let a = self.rvalue_to_temp(Rvalue::Use(a), t.clone(), span);
+        let b = self.expr(arg);
+        let b = self.rvalue_to_temp(Rvalue::Use(b), t.clone(), span);
+        let wrapped = || Rvalue::Wrapping(op, a.clone(), b.clone());
+        if name.starts_with("wrapping") {
+            return self.rvalue_to_temp(wrapped(), t, span);
+        }
+        let over = self.rvalue_to_temp(Rvalue::Overflows(op, a.clone(), b.clone()), Ty::Bool, span);
+        let out = Place::local(self.temp(ty.clone()));
+        let (yes, no, done) = (self.new_block(), self.new_block(), self.new_block());
+        self.terminate(Terminator::Branch {
+            cond: over,
+            then: yes,
+            else_: no,
+        });
+        self.switch_to(no);
+        if name.starts_with("checked") {
+            let w = self.rvalue_to_temp(wrapped(), t.clone(), span);
+            self.assign(out.clone(), Rvalue::WrapSome(w, ty.clone()), span);
+        } else {
+            self.assign(out.clone(), wrapped(), span);
+        }
+        self.terminate(Terminator::Goto(done));
+        self.switch_to(yes);
+        let int = |v: i128| Operand::Const(Const::Int(v, it));
+        if name.starts_with("checked") {
+            self.assign(
+                out.clone(),
+                Rvalue::Use(Operand::Const(Const::Null(ty))),
+                span,
+            );
+        } else if !it.signed() {
+            // Unsigned: only past the top, or below 0 for `Sub`.
+            let v = if op == mir::BinOp::Sub { 0 } else { it.max() };
+            self.assign(out.clone(), Rvalue::Use(int(v)), span);
+        } else {
+            // Signed: the end the true result lies past. `Add`: `b`'s sign; `Sub`: the opposite
+            // of `b`'s; `Mul`: whether the signs differ.
+            let up = match op {
+                mir::BinOp::Add => self.rvalue_to_temp(
+                    Rvalue::Binary(mir::BinOp::Gt, b.clone(), int(0)),
+                    Ty::Bool,
+                    span,
+                ),
+                mir::BinOp::Sub => self.rvalue_to_temp(
+                    Rvalue::Binary(mir::BinOp::Lt, b.clone(), int(0)),
+                    Ty::Bool,
+                    span,
+                ),
+                _ => {
+                    let an = self.rvalue_to_temp(
+                        Rvalue::Binary(mir::BinOp::Lt, a.clone(), int(0)),
+                        Ty::Bool,
+                        span,
+                    );
+                    let bn = self.rvalue_to_temp(
+                        Rvalue::Binary(mir::BinOp::Lt, b.clone(), int(0)),
+                        Ty::Bool,
+                        span,
+                    );
+                    self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Eq, an, bn), Ty::Bool, span)
+                }
+            };
+            let (hi, lo) = (self.new_block(), self.new_block());
+            self.terminate(Terminator::Branch {
+                cond: up,
+                then: hi,
+                else_: lo,
+            });
+            self.switch_to(hi);
+            self.assign(out.clone(), Rvalue::Use(int(it.max())), span);
+            self.terminate(Terminator::Goto(done));
+            self.switch_to(lo);
+            self.assign(out.clone(), Rvalue::Use(int(it.min())), span);
+        }
+        self.terminate(Terminator::Goto(done));
+        self.switch_to(done);
+        Operand::Copy(out)
     }
 
     fn rvalue_to_temp(&mut self, rv: Rvalue, ty: Ty, span: Span) -> Operand {
@@ -3807,7 +3909,7 @@ impl FnBuilder<'_, '_> {
         if let (Ty::Range(_), None) = (&it_ty, &literal) {
             // Stop instead of overflowing past the type's maximum: `(0..255u8).step(10)`.
             let ov = self.rvalue_to_temp(
-                Rvalue::AddOverflows(Operand::Copy(i.clone()), step.clone()),
+                Rvalue::Overflows(mir::BinOp::Add, Operand::Copy(i.clone()), step.clone()),
                 Ty::Bool,
                 span,
             );
@@ -7308,6 +7410,10 @@ impl FnBuilder<'_, '_> {
                 if self.cx.types.param_calls.contains_key(&e.id) =>
             {
                 self.param_call(e, object, name, args, ty)
+            }
+            ExprKind::Member { object, .. } if self.cx.types.int_ariths.contains_key(&e.id) => {
+                let name = self.cx.types.int_ariths[&e.id].clone();
+                self.int_arith(object, &name, &args[0], ty, e.span)
             }
             ExprKind::Member { object, .. } if self.cx.types.iface_calls.contains_key(&e.id) => {
                 let slot = self.cx.types.iface_calls[&e.id];

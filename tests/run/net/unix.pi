@@ -1,0 +1,51 @@
+// Unix-domain sockets (#85): an echo server on a socket file; the listener's address is its
+// path, a second listener on the same path fails, closing removes the file, and connecting to a
+// missing socket fails.
+// expect: addr: echo.sock -1
+// expect: echo: hello, unix!
+// expect: busy: AddrInUse
+// expect: file gone: true
+// expect: missing: NotFound
+import { listenUnix, connectUnix, Conn, Listener, NetError } from "std/net"
+import { exists } from "std/fs"
+
+async function echo(conn: Conn): Promise<void> throws NetError {
+  for await (const chunk of conn) {
+    await conn.write(chunk)
+  }
+  conn.close()
+}
+
+async function serve(server: Listener): Promise<void> throws NetError {
+  for await (const conn of server) {
+    echo(conn)
+  }
+}
+
+const server = await listenUnix("echo.sock")
+println(`addr: ${server.addr.hostname} ${server.addr.port}`)
+serve(server)
+
+const client = await connectUnix("echo.sock")
+client.writeText("hello, ")
+client.writeText("unix!")
+client.closeWrite()
+println(`echo: ${await client.text()}`)
+
+try {
+  (await listenUnix("echo.sock")).close()
+} catch (e: NetError) {
+  println(`busy: ${e.kind}`)
+}
+server.close()
+// (The removal is a job of its own: give it a moment.)
+let gone = false
+for (let i = 0; i < 100 && !gone; i++) {
+  gone = !(await exists("echo.sock"))
+}
+println(`file gone: ${gone}`)
+try {
+  (await connectUnix("missing.sock")).close()
+} catch (e: NetError) {
+  println(`missing: ${e.kind}`)
+}

@@ -1,0 +1,5 @@
+// An arrow may leave out only trailing `void` parameters (#88, decision 323).
+// error: E0308
+// at: 5:14
+function call(f: (x: int) => int): int { f(1) }
+println(call(() => 2))

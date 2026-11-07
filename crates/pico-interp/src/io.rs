@@ -52,6 +52,9 @@ pub(crate) struct IoState {
     env: Option<BTreeMap<String, String>>,
     /// `std/net` sockets, shared with the threads that accept and connect.
     net: Arc<Mutex<Net>>,
+    /// Read jobs cancelled by `Reader.close()` (op 107, #100): they ended at once, so what their
+    /// threads finish with later is dropped.
+    cancelled: std::collections::HashSet<i64>,
 }
 
 /// Sockets by id (from 1 000 000, apart from pipes).
@@ -74,6 +77,11 @@ enum Sock {
     Listener(Arc<TcpListener>),
     Stream(Arc<TcpStream>),
     Udp(Arc<UdpSocket>),
+    /// Unix-domain sockets (#85).
+    #[cfg(unix)]
+    UnixListener(Arc<std::os::unix::net::UnixListener>),
+    #[cfg(unix)]
+    UnixStream(Arc<std::os::unix::net::UnixStream>),
 }
 
 /// "host port".
@@ -490,6 +498,16 @@ impl Interp<'_, '_> {
                 };
                 let _ = st.shutdown(how);
             }
+            #[cfg(unix)]
+            if op == 120
+                && let Some(Sock::UnixStream(st)) = net.socks.get(&a)
+            {
+                let _ = st.shutdown(match b {
+                    0 => std::net::Shutdown::Read,
+                    1 => std::net::Shutdown::Write,
+                    _ => std::net::Shutdown::Both,
+                });
+            }
             return Value::Int(0);
         }
         if (110..=119).contains(&op) {
@@ -516,9 +534,14 @@ impl Interp<'_, '_> {
             return Value::Int(i128::from(id));
         }
         if op < 100 {
-            // (The second string is a path only for `rename`.)
+            // (The second string is a path only for `rename` and `copy`; a link's target stays
+            // as written.)
             let path = self.at(&s(4));
-            let other = if op == 8 { self.at(&s(5)) } else { s(5) };
+            let other = if op == 8 || op == 37 {
+                self.at(&s(5))
+            } else {
+                s(5)
+            };
             let (r, r2, text) = self.run_io(op, a, b, c, &path, &other);
             let st = &mut self.io;
             st.next_id += 1;
@@ -532,9 +555,35 @@ impl Interp<'_, '_> {
             });
             return Value::Int(i128::from(id));
         }
+        if op == 107 {
+            // Cancel read job `a`: unless it finished already, it ends now as at the end of the
+            // stream. (Its thread stays blocked in the read; what it gets is dropped.)
+            let st = &mut self.io;
+            let finished = st.finished.lock().expect("jobs");
+            let known = a <= 0
+                || a > st.next_id
+                || finished.iter().any(|j| j.id == a)
+                || st.done.iter().any(|j| j.id == a)
+                || st.taken.iter().any(|j| j.id == a);
+            drop(finished);
+            if !known {
+                st.cancelled.insert(a);
+                let r = self.shared.buffers.lock().expect("buffers").add(Vec::new());
+                st.done.push_back(Job {
+                    id: a,
+                    r,
+                    ..Default::default()
+                });
+            }
+            return Value::Int(0);
+        }
         if op == 100 {
             let finished: Vec<Job> = self.io.finished.lock().expect("jobs").drain(..).collect();
             for mut j in finished {
+                // A cancelled job's own result (its stand-in went straight to `done`).
+                if self.io.cancelled.remove(&j.id) {
+                    continue;
+                }
                 if let Some(bytes) = j.bytes.take() {
                     j.r2 = bytes.len() as i64;
                     j.r = self.shared.buffers.lock().expect("buffers").add(bytes);
@@ -718,6 +767,47 @@ impl Interp<'_, '_> {
                 Err(e) => err(e),
             },
             8 => fs::rename(s, t).map_or_else(err, |()| ok),
+            // copy, symlink (at `s`, to `t`), readlink, chmod (#64)
+            37 => {
+                if fs::metadata(s).is_ok_and(|m| m.is_dir()) {
+                    return err(std::io::Error::from(ErrorKind::IsADirectory));
+                }
+                fs::copy(s, t).map_or_else(err, |_| ok)
+            }
+            38 => {
+                #[cfg(unix)]
+                let r = std::os::unix::fs::symlink(t, s);
+                #[cfg(windows)]
+                let r = {
+                    let target = std::path::Path::new(s)
+                        .parent()
+                        .map_or_else(|| std::path::PathBuf::from(t), |d| d.join(t));
+                    if target.is_dir() {
+                        std::os::windows::fs::symlink_dir(t, s)
+                    } else {
+                        std::os::windows::fs::symlink_file(t, s)
+                    }
+                };
+                r.map_or_else(err, |()| ok)
+            }
+            39 => match fs::read_link(s) {
+                Ok(p) => (0, 0, p.to_string_lossy().into_owned()),
+                Err(e) => err(e),
+            },
+            40 => {
+                #[cfg(unix)]
+                let r = {
+                    use std::os::unix::fs::PermissionsExt;
+                    fs::set_permissions(s, fs::Permissions::from_mode(a as u32))
+                };
+                #[cfg(not(unix))]
+                let r = fs::metadata(s).and_then(|m| {
+                    let mut p = m.permissions();
+                    p.set_readonly(a & 0o200 == 0);
+                    fs::set_permissions(s, p)
+                });
+                r.map_or_else(err, |()| ok)
+            }
             9 => match fs::read_dir(s) {
                 Ok(entries) => {
                     let mut names: Vec<(Vec<u8>, char)> = Vec::new();
@@ -933,6 +1023,14 @@ impl Interp<'_, '_> {
                         Pipe::Read(Arc::new(Mutex::new(Box::new(st) as Box<dyn Read + Send>)))
                     }
                 }),
+                #[cfg(unix)]
+                Some(Sock::UnixStream(st)) => st.try_clone().ok().map(|st| {
+                    if op == 21 {
+                        Pipe::Write(Arc::new(Mutex::new(Box::new(st) as Box<dyn Write + Send>)))
+                    } else {
+                        Pipe::Read(Arc::new(Mutex::new(Box::new(st) as Box<dyn Read + Send>)))
+                    }
+                }),
                 _ => None,
             },
         };
@@ -1077,6 +1175,28 @@ impl Interp<'_, '_> {
         };
         let sock = net.lock().expect("net").socks.get(&a).cloned();
         let work = move || -> Job {
+            if (op == 30 || op == 32) && c == 1 {
+                // A Unix-domain socket at path `s` (#85).
+                #[cfg(unix)]
+                {
+                    use std::os::unix::net::{UnixListener, UnixStream};
+                    let made = if op == 30 {
+                        UnixListener::bind(&s).map(|l| Sock::UnixListener(Arc::new(l)))
+                    } else {
+                        UnixStream::connect(&s).map(|st| Sock::UnixStream(Arc::new(st)))
+                    };
+                    return match made {
+                        Ok(sock) => Job {
+                            id,
+                            r: net.lock().expect("net").add(sock),
+                            ..Default::default()
+                        },
+                        Err(e) => fail(error(&e)),
+                    };
+                }
+                #[cfg(not(unix))]
+                return fail((-K_OTHER, 0));
+            }
             match op {
                 30 => {
                     let addrs = match lookup(&s, a) {
@@ -1105,6 +1225,15 @@ impl Interp<'_, '_> {
                     }
                 }
                 31 => match sock {
+                    #[cfg(unix)]
+                    Some(Sock::UnixListener(l)) => match l.accept() {
+                        Ok((st, _)) => Job {
+                            id,
+                            r: net.lock().expect("net").add(Sock::UnixStream(Arc::new(st))),
+                            ..Default::default()
+                        },
+                        Err(e) => fail(error(&e)),
+                    },
                     Some(Sock::Listener(l)) => match l.accept() {
                         Ok((st, _)) => {
                             let text = ends_text(&st);

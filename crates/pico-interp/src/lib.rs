@@ -1083,14 +1083,38 @@ impl Interp<'_, '_> {
                 }
                 v => unreachable!("showing {v:?}"),
             },
-            Rvalue::AddOverflows(a, b) => {
-                let Ty::Int(it) = self.operand_ty(frame, a) else {
-                    unreachable!("integer addition")
+            Rvalue::Overflows(op, a, b) | Rvalue::Wrapping(op, a, b) => {
+                let Ty::Int(it) = self.operand_ty(frame, a).erase() else {
+                    unreachable!("integer arithmetic")
                 };
-                match (self.operand(frame, a), self.operand(frame, b)) {
-                    (Value::Int(x), Value::Int(y)) => Ok(Value::Bool(!it.contains(x + y))),
-                    v => unreachable!("addition of {v:?}"),
+                let (Value::Int(x), Value::Int(y)) = (self.operand(frame, a), self.operand(frame, b))
+                else {
+                    unreachable!("integer arithmetic")
+                };
+                // (Exact in i128 for every integer type: 64 × 64 bits needs at most 128.)
+                let exact = match op {
+                    BinOp::Add => x.checked_add(y),
+                    BinOp::Sub => x.checked_sub(y),
+                    _ => x.checked_mul(y),
+                };
+                if matches!(rv, Rvalue::Overflows(..)) {
+                    return Ok(Value::Bool(!exact.is_some_and(|v| it.contains(v))));
                 }
+                // Wrapped: the low bits, sign-extended for signed types. (u64 × u64 can pass
+                // i128's range; wrapping multiplication of the bits is the same.)
+                let bits = it.bits();
+                let raw = match exact {
+                    Some(v) => v as u128,
+                    None => (x as u128).wrapping_mul(y as u128),
+                };
+                let mask = if bits == 128 { u128::MAX } else { (1u128 << bits) - 1 };
+                let low = raw & mask;
+                let v = if it.signed() && low >> (bits - 1) & 1 == 1 {
+                    (low | !mask) as i128
+                } else {
+                    low as i128
+                };
+                Ok(Value::Int(v))
             }
         }
     }

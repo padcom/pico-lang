@@ -7,7 +7,8 @@
 
 use crate::eval::{self, Prim, Scalar};
 use crate::mir::{
-    Base, BlockId, Const, Function, Local, Operand, Place, Program, Rvalue, Statement, Terminator,
+    Base, BinOp, BlockId, Const, Function, Local, Operand, Place, Program, Rvalue, Statement,
+    Terminator,
 };
 use pico_diag::{Diagnostic, Span, codes};
 use std::collections::{HashMap, HashSet};
@@ -56,7 +57,7 @@ impl Folder {
                     if let (Base::Local(l), true, Rvalue::Use(Operand::Const(c))) =
                         (st.place.base, st.place.proj.is_empty(), &st.rvalue)
                         && single.contains(&l)
-                        && scalar(c).is_some()
+                        && (scalar(c).is_some() || matches!(c, Const::Str(_)))
                     {
                         known.insert(l, c.clone());
                     }
@@ -99,6 +100,27 @@ impl Folder {
     fn statement(&mut self, st: &mut Statement, known: &HashMap<Local, Const>) {
         st.rvalue
             .for_each_operand(&mut |o| self.substitute(o, known));
+        // Strings (#55): `"a" + "b"`, and the string forms of integers, `bool`s and `char`s (as
+        // `println` shows them; floats are left to the runtime's formatting).
+        let text = match &st.rvalue {
+            Rvalue::Binary(
+                BinOp::Add,
+                Operand::Const(Const::Str(a)),
+                Operand::Const(Const::Str(b)),
+            ) => Some(format!("{a}{b}")),
+            Rvalue::ToStr(Operand::Const(c)) => match c {
+                Const::Int(v, _) => Some(v.to_string()),
+                Const::Bool(b) => Some(b.to_string()),
+                Const::Char(c) => Some(c.to_string()),
+                Const::Str(s) => Some(s.clone()),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(t) = text {
+            st.rvalue = Rvalue::Use(Operand::Const(Const::Str(t)));
+            return;
+        }
         let folded = match &st.rvalue {
             Rvalue::Binary(op, Operand::Const(a), Operand::Const(b)) => {
                 match (scalar(a), scalar(b), Prim::of(&a.ty())) {
@@ -213,7 +235,9 @@ fn constant_globals(p: &Program) -> HashMap<u32, Const> {
             for st in &b.stmts {
                 if let Base::Global(g) = st.place.base {
                     match (&st.rvalue, st.place.proj.is_empty()) {
-                        (Rvalue::Use(Operand::Const(c)), true) if scalar(c).is_some() => {
+                        (Rvalue::Use(Operand::Const(c)), true)
+                            if scalar(c).is_some() || matches!(c, Const::Str(_)) =>
+                        {
                             let e = value.entry(g.0).or_insert_with(|| Some(c.clone()));
                             if e.as_ref() != Some(c) {
                                 *e = None;

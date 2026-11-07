@@ -136,6 +136,55 @@ class ReadableStream<T> {
     })
   }
 
+  /// Two streams that each get every chunk of this one, which is locked from then on (#63). A
+  /// chunk is read when either branch wants one, and waits in the other branch's queue until
+  /// that one reads it. An error fails both; cancelling both cancels this stream.
+  public tee(): [ReadableStream<T>, ReadableStream<T>] {
+    if (this.__locked) {
+      panic("the stream is locked to a reader")
+    }
+    this.__locked = true
+    const src = this
+    const ctls: ReadableStreamDefaultController<T>[] = []
+    const live: bool[] = [true, true]
+    let reading = false
+    const pull = (): void => {
+      if (reading) {
+        return
+      }
+      reading = true
+      src.__read().then((v) => {
+        reading = false
+        for (let i = 0; i < ctls.length; i++) {
+          if (live[i]) {
+            if (v == null) ctls[i].close() else ctls[i].enqueue(v)
+          }
+        }
+      }).catch((e) => {
+        reading = false
+        for (let i = 0; i < ctls.length; i++) {
+          if (live[i]) ctls[i].error(e)
+        }
+      });
+    }
+    const branch = (i: int): ReadableStream<T> => {
+      const source: UnderlyingSource<T> = {
+        start: (c: ReadableStreamDefaultController<T>) => {
+          ctls.push(c)
+        },
+        pull: (c: ReadableStreamDefaultController<T>) => pull(),
+        cancel: (reason: Error?) => {
+          live[i] = false
+          if (!live[0] && !live[1]) {
+            src.cancel(reason);
+          }
+        },
+      }
+      new ReadableStream<T>(source)
+    }
+    [branch(0), branch(1)]
+  }
+
   /// Whether a reader (or a pipe) holds the stream.
   public get locked(): bool {
     this.__locked

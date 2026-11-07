@@ -25,7 +25,8 @@ the host's loop (browser) or WASI poll.
   must be written. Every `await` and reaction resumes one microtask after the promise settles,
   so the ordering matches JavaScript's. An error the body neither catches nor declares is an
   error (E0336); `await` outside an async function or the entry's top level is E0345.
-- Promises: `new Promise<T>((resolve, reject) => …)`, `then(f)`, `settled`,
+- Promises: `new Promise<T>((resolve, reject) => …)`, `then(f)`, `catch(f)` (a `Promise<T>` of
+  the value or of `f(error)`), `finally(f)` (settles like the promise, after `f` ran), `settled`,
   `Promise.resolve(v)`, `Promise.reject<T>(e)` (a `Promise<T, Error>`), `Promise.all`, `race`
   and `allSettled` (`Settled<T> { status, value, reason }`). A rejected promise that nothing
   awaits or reacts to by the time the microtasks are done ends the program like an uncaught

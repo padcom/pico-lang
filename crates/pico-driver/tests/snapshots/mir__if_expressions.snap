@@ -9,18 +9,19 @@ global @g3: __Reactivity? // __reactivity
 global @g4: bool // __tracking
 global @g5: i64 // __reactiveObjects
 global @g6: __Loop? // __loop
-global @g7: FinalizationRegistry<i64>? // __buffers
-global @g8: i64 // __reclaimedAtCycle
-global @g9: i64 // __bytesSinceReclaim
-global @g10: Map<string, __Zone>? // __zoneCache
-global @g11: Performance // performance
-global @g12: __Xoshiro128? // __mathRng
-global @g13: Crypto // crypto
-global @g14: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g15: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g16: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g17: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g18: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g7: i64 // __lastJob
+global @g8: FinalizationRegistry<i64>? // __buffers
+global @g9: i64 // __reclaimedAtCycle
+global @g10: i64 // __bytesSinceReclaim
+global @g11: Map<string, __Zone>? // __zoneCache
+global @g12: Performance // performance
+global @g13: __Xoshiro128? // __mathRng
+global @g14: Crypto // crypto
+global @g15: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g16: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g17: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g18: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g19: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn grade(_0: i32) -> i32 {
     let _1: i32 // g
@@ -93,31 +94,31 @@ fn both(_0: bool, _1: bool) -> bool {
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g14 = const 1_i64
+    @g15 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g15 = const 4_i64
+    @g16 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g16 = const 4_i64
+    @g17 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g17 = const 4_i64
+    @g18 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g18 = const 8_i64
+    @g19 = const 8_i64
     return
 }
 
@@ -143,16 +144,17 @@ fn <main>() -> void {
     @g4 = const false
     @g5 = const 0_i64
     @g6 = const null<__Loop?>
-    @g7 = const null<FinalizationRegistry<i64>?>
-    @g8 = const -1_i64
-    @g9 = const 0_i64
-    @g10 = const null<Map<string, __Zone>?>
+    @g7 = const -1_i64
+    @g8 = const null<FinalizationRegistry<i64>?>
+    @g9 = const -1_i64
+    @g10 = const 0_i64
+    @g11 = const null<Map<string, __Zone>?>
     _0 = struct#119{}
-    @g11 = _0
-    @g12 = const null<__Xoshiro128?>
+    @g12 = _0
+    @g13 = const null<__Xoshiro128?>
     _1 = struct#130{}
     _2 = struct#131{_1}
-    @g13 = _2
+    @g14 = _2
     goto bb6
   bb6:
     return
