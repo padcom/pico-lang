@@ -1,0 +1,38 @@
+// `cancel()` on an errored stream rejects with its error (#25); `terminate()` closes the readable
+// side, keeping what's queued, and fails only the writable side (#24).
+// expect: cancel rejected: broken
+// expect: read: first last
+// expect: write after terminate: the transform stream was terminated
+import { ReadableStream, TransformStream } from "std/streams"
+
+const s = new ReadableStream<string>({ start: (c) => c.error(new Error("broken")) })
+try {
+  await s.cancel()
+  println("cancel resolved")
+} catch (e) {
+  println(`cancel rejected: ${e.message}`)
+}
+
+const t = new TransformStream<string, string>({
+  transform: (x, c) => {
+    c.enqueue(x)
+    c.enqueue("last")
+    c.terminate()
+  },
+})
+const w = t.writable.getWriter()
+w.write("first")
+const r = t.readable.getReader()
+let line = ""
+while (true) {
+  const x = await r.read()
+  if (x.done) break
+  line = `${line} ${x.value}`
+}
+println(`read:${line}`)
+try {
+  await w.write("again")
+  println("write after terminate: ok")
+} catch (e) {
+  println(`write after terminate: ${e.message}`)
+}

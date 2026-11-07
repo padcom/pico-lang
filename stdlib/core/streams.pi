@@ -171,6 +171,13 @@ class ReadableStream<T> {
         f(reason)
       }
     }
+    // An errored stream: rejected with its error, as the Streams spec says (#25).
+    const e = this.err
+    if (this.state == 2 && e != null) {
+      const p = new Promise<void, Error>()
+      p.__reject(e)
+      return p
+    }
     __resolvedVoid()
   }
 
@@ -197,7 +204,8 @@ class ReadableStream<T> {
       if (options.preventAbort != true) {
         dest.__error(e)
       }
-      if (options.preventCancel != true) {
+      // (Only a source that's still readable is cancelled: an errored one already failed.)
+      if (options.preventCancel != true && this.state == 0) {
         this.cancel(e)
       }
       this.__locked = false
@@ -686,12 +694,12 @@ class WritableStream<T> {
   }
 
   written(p: Promise<void, Error>): void {
-    const e = this.err
-    if (this.state == 2 && e != null) {
-      p.__reject(e)
+    // The chunk was written even if the sink errored the stream meanwhile (`c.error`,
+    // `terminate`): as in the Streams spec, only later writes fail.
+    p.__resolve(__void())
+    if (this.state == 2) {
       return
     }
-    p.__resolve(__void())
     const r = this.readyP
     if (r != null && this.__desired() > 0) {
       this.readyP = null
@@ -806,11 +814,13 @@ class WritableStreamDefaultWriter<T> {
 class TransformStreamDefaultController<O> {
   rc: ReadableStreamDefaultController<O>
   fail: (e: Error) => void
+  failWritable: (e: Error) => void
 
   /// (Made by the transform stream, for its transformer.)
-  constructor(rc: ReadableStreamDefaultController<O>, fail: (e: Error) => void) {
+  constructor(rc: ReadableStreamDefaultController<O>, fail: (e: Error) => void, failWritable: (e: Error) => void) {
     this.rc = rc
     this.fail = fail
+    this.failWritable = failWritable
   }
 
   /// Room left on the readable side.
@@ -829,10 +839,11 @@ class TransformStreamDefaultController<O> {
     f(e)
   }
 
-  /// Ends the readable side (later writes fail).
+  /// Closes the readable side (what's already enqueued can still be read) and fails the
+  /// writable side, so later writes fail (#24).
   public terminate(): void {
     this.rc.close()
-    const f = this.fail
+    const f = this.failWritable
     f(new Error("the transform stream was terminated"))
   }
 }
@@ -870,6 +881,15 @@ class __Transform<I, O> {
     if (r != null) {
       r.error(e)
     }
+    const w = this.wc
+    if (w != null) {
+      w.error(e)
+    }
+    this.release()
+  }
+
+  /// Fails only the writable side (`terminate`).
+  public failWritable(e: Error): void {
     const w = this.wc
     if (w != null) {
       w.error(e)
@@ -939,7 +959,7 @@ class TransformStream<I, O> {
     this.readable = new ReadableStream<O>({
       start: (c) => {
         st.rc = c
-        st.tc = new TransformStreamDefaultController<O>(c, (e: Error) => st.fail(e))
+        st.tc = new TransformStreamDefaultController<O>(c, (e: Error) => st.fail(e), (e: Error) => st.failWritable(e))
       },
       pull: (c) => st.release(),
       cancel: (reason) => {
