@@ -560,6 +560,9 @@ PicoStr *pico_worker_error(int64_t h) {
  * triggers, 11–18 read a little-endian unsigned integer of 1–8 bytes at `a + b`, 21–28 write
  * `c` as one. (Bounds are checked by the pico side.) Allocations count toward the collector's
  * triggers too (#90). */
+/* `ptr.bytes(view)`: the address of a buffer's bytes as a pointer (#83). */
+uint8_t *pico_buf_ptr(int64_t address) { return (uint8_t *)(intptr_t)address; }
+
 int64_t pico_buf_op(int64_t op, int64_t a, int64_t b, int64_t c) {
     char *p = (char *)(intptr_t)a;
     if (op == 1) {

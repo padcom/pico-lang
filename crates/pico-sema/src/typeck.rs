@@ -1916,6 +1916,21 @@ impl<'p> Checker<'p> {
                 if t.is_error() {
                     return Ty::Error;
                 }
+                // A class value is a reference to a GC object: its address is never the data C
+                // wants (#83).
+                if let Ty::Class(_, name, _) = t.erase() {
+                    let bytes = matches!(&*name, "ArrayBuffer" | "Uint8Array");
+                    let mut d = Diagnostic::error(
+                        codes::MISMATCHED_TYPES,
+                        format!("`ptr.of` can't take a `{name}`: a class value is a reference to a managed object"),
+                    )
+                    .primary(inner.span, "a class reference");
+                    if bytes {
+                        d = d.help("`ptr.bytes(view)` points at a buffer's or a view's bytes");
+                    }
+                    self.diags.push(d);
+                    return Ty::Error;
+                }
                 Ty::Ref(Box::new(t.erase()))
             }
             ExprKind::SizeOf { align, .. } => {
@@ -2271,6 +2286,10 @@ impl<'p> Checker<'p> {
                         return Ty::Error;
                     };
                     self.types.overloads.insert(e.id, id);
+                    // (An overloaded or generic `unsafe function` needs `unsafe` too.)
+                    if self.program.func(id).is_unsafe {
+                        self.require_unsafe(e.span, "calling an `unsafe function`");
+                    }
                     if !self.program.func(id).generics.is_empty() {
                         return self.call_generic(e, id, args, type_args);
                     }
@@ -2280,6 +2299,9 @@ impl<'p> Checker<'p> {
                     && !self.program.func(id).generics.is_empty()
                 {
                     self.set(callee, Ty::Void);
+                    if self.program.func(id).is_unsafe {
+                        self.require_unsafe(e.span, "calling an `unsafe function`");
+                    }
                     return self.call_generic(e, id, args, type_args);
                 }
                 if !type_args.is_empty() && matches!(callee.kind, ExprKind::Member { .. }) {

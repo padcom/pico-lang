@@ -1,0 +1,7 @@
+// `ptr.of` on a class value is an error: it's a reference, never the bytes C wants (issue #83).
+// error: E0308
+// at: 6:20
+const b = new Uint8Array(64)
+unsafe {
+  const p = ptr.of(b.buffer)
+}

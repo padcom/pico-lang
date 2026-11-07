@@ -59,6 +59,22 @@ class ArrayBuffer {
   }
 }
 
+// `ptr.bytes(view)` (spec §12.1, #83): a pointer to the bytes, for C.
+extern "C" {
+  function pico_buf_ptr(address: int): ptr<u8>
+}
+
+/// `ptr.bytes(view)`: a pointer to the view's first byte (its `byteOffset` included), valid while
+/// the buffer is alive and not transferred. Native code only (the interpreter can't call C).
+unsafe function __ptrBytes(view: Uint8Array): ptr<u8> {
+  pico_buf_ptr(view.buffer.__handle + view.byteOffset)
+}
+
+/// `ptr.bytes(buffer)`: a pointer to the buffer's first byte.
+unsafe function __ptrBytes(buffer: ArrayBuffer): ptr<u8> {
+  pico_buf_ptr(buffer.__handle)
+}
+
 /// Frees buffers' memory once they're collected.
 let __buffers: FinalizationRegistry<int>? = null
 

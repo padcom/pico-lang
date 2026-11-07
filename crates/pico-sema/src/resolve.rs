@@ -5676,7 +5676,7 @@ impl Resolver {
             } if self.intrinsic(callee).is_some() => {
                 let which = self.intrinsic(callee).expect("checked");
                 let (want_types, want_args) = match which {
-                    "ptr.of" => (0, 1),
+                    "ptr.of" | "ptr.bytes" => (0, 1),
                     "unsafe.cast" => (1, 1),
                     "comptime.readFile" => (0, 1),
                     "__raw_arena_alloc" => (1, 2),
@@ -5698,6 +5698,18 @@ impl Resolver {
                     return self.error_expr(span);
                 }
                 let ty = type_args.first().map(|t| self.resolve_type(t));
+                if which == "ptr.bytes" {
+                    // `ptr.bytes(view)`: the core library's `unsafe` `__ptrBytes` (#83).
+                    let call = ast::Expr {
+                        kind: ast::ExprKind::Call {
+                            callee: Box::new(build::ident("__ptrBytes", span)),
+                            type_args: Vec::new(),
+                            args: args.clone(),
+                        },
+                        span,
+                    };
+                    return self.lower_expr(&call);
+                }
                 if which == "comptime.readFile" {
                     if self.comptime_depth == 0 {
                         self.error(
@@ -6027,6 +6039,9 @@ impl Resolver {
                 match (&object.kind, prop.name.as_str()) {
                     (ast::ExprKind::Ident(o), "of") if o == "ptr" && free(self, "ptr") => {
                         Some("ptr.of")
+                    }
+                    (ast::ExprKind::Ident(o), "bytes") if o == "ptr" && free(self, "ptr") => {
+                        Some("ptr.bytes")
                     }
                     (ast::ExprKind::Ident(o), "cast") if o == "unsafe" => Some("unsafe.cast"),
                     (ast::ExprKind::Ident(o), "readFile") if o == "comptime" => {
