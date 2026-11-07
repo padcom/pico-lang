@@ -162,3 +162,48 @@ function internal(): void {}
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&bare);
 }
+
+/// A package whose index.pi re-exports its modules (#107): named re-exports (renamed when
+/// aliased), `export *`, nested re-exports, and a re-export cycle, each documented once.
+#[test]
+fn project_api_through_reexports() {
+    let dir = temp("reexports");
+    std::fs::write(
+        dir.join("project.json"),
+        r#"{ "name": "acme/things", "version": "1.0.0" }"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(
+        dir.join("src/thing.pi"),
+        "/// A thing from a module.\nexport class Thing {\n  /// Its name.\n  public name: string = \"\"\n}\n\n/// Not re-exported by name.\nexport function hidden(): int { 1 }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("src/all.pi"),
+        "/// Everything else.\nexport class Other {\n}\nexport * from \"../index\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("index.pi"),
+        "/// Here.\nexport function here(): int { 1 }\nexport { Thing } from \"./src/thing\"\nexport { Thing as Renamed } from \"./src/thing\"\nexport * from \"./src/all\"\n",
+    )
+    .unwrap();
+    let out = pico(&["doc"], &dir);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("documented 4 declarations"),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let page = read(&dir.join("target/doc/index-api.html"));
+    for id in ["here", "Thing", "Renamed", "Other"] {
+        assert!(page.contains(&format!("id=\"{id}\"")), "{id}: {page}");
+    }
+    assert!(page.contains("<p>A thing from a module.</p>"), "{page}");
+    assert!(!page.contains("id=\"hidden\""), "{page}");
+}

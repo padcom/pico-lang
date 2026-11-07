@@ -10,7 +10,7 @@
 use pico_diag::FileId;
 use pico_syntax::ast::{self, DeclKind, MemberKind, StmtKind, Visibility};
 use pico_syntax::docs::doc_comment;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -251,14 +251,61 @@ enum Exports {
     Core,
 }
 
-/// The documented declarations of a file: its `export`ed ones and those an export list names
+/// The documented declarations of a file: its `export`ed ones, those an export list names
 /// (`export { a, __b as b }`: declared in the file or, for std modules, in the core library
-/// `core`; each renaming is added to `renames`).
+/// `core`; each renaming is added to `renames`), and what it re-exports from its own modules
+/// (`export { a } from "./x"`, `export * from "./x"`, followed recursively, #107).
 fn module_items(
     path: &Path,
     which: Exports,
     core: &BTreeMap<String, Item>,
     renames: &mut BTreeMap<String, String>,
+) -> Vec<Item> {
+    module_items_seen(path, which, core, renames, &mut HashMap::new())
+}
+
+/// The module a relative re-export names (`./x` is `x.pi` or `x/index.pi` next to `from`);
+/// None for a package or std import.
+fn reexported_module(from: &Path, spec: &str) -> Option<PathBuf> {
+    if !(spec.starts_with("./") || spec.starts_with("../")) {
+        return None;
+    }
+    let base = from.parent()?.join(spec);
+    let file = base.with_extension("pi");
+    if file.is_file() {
+        return Some(file);
+    }
+    let index = base.join("index.pi");
+    index.is_file().then_some(index)
+}
+
+/// `module_items`, with each module's items remembered (`None` while it's being read, which
+/// breaks re-export cycles).
+fn module_items_seen(
+    path: &Path,
+    which: Exports,
+    core: &BTreeMap<String, Item>,
+    renames: &mut BTreeMap<String, String>,
+    seen: &mut HashMap<PathBuf, Option<Vec<Item>>>,
+) -> Vec<Item> {
+    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    match seen.get(&key) {
+        Some(Some(items)) => return items.clone(),
+        Some(None) => return Vec::new(),
+        None => {}
+    }
+    seen.insert(key.clone(), None);
+    let items = read_module_items(path, which, core, renames, seen);
+    seen.insert(key, Some(items.clone()));
+    items
+}
+
+fn read_module_items(
+    path: &Path,
+    which: Exports,
+    core: &BTreeMap<String, Item>,
+    renames: &mut BTreeMap<String, String>,
+    seen: &mut HashMap<PathBuf, Option<Vec<Item>>>,
 ) -> Vec<Item> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
@@ -273,6 +320,36 @@ fn module_items(
         };
         if let DeclKind::ExportList { names, from: None } = &d.kind {
             lists.extend(names.iter().cloned());
+            continue;
+        }
+        if let DeclKind::ExportList {
+            names,
+            from: Some(spec),
+        } = &d.kind
+        {
+            if let Some(module) = reexported_module(path, spec) {
+                let theirs = module_items_seen(&module, Exports::Exported, core, renames, seen);
+                for n in names {
+                    if let Some(mut item) = theirs.iter().find(|i| i.name == n.name.name).cloned() {
+                        if let Some(alias) = &n.alias {
+                            item.name = alias.name.clone();
+                        }
+                        out.push(item);
+                    }
+                }
+            }
+            continue;
+        }
+        if let DeclKind::ExportAll { from: spec } = &d.kind {
+            if let Some(module) = reexported_module(path, spec) {
+                out.extend(module_items_seen(
+                    &module,
+                    Exports::Exported,
+                    core,
+                    renames,
+                    seen,
+                ));
+            }
             continue;
         }
         let Some(item) = decl_item(&text, d) else {
