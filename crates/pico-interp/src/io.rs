@@ -77,6 +77,11 @@ enum Sock {
     Listener(Arc<TcpListener>),
     Stream(Arc<TcpStream>),
     Udp(Arc<UdpSocket>),
+    /// Unix-domain sockets (#85).
+    #[cfg(unix)]
+    UnixListener(Arc<std::os::unix::net::UnixListener>),
+    #[cfg(unix)]
+    UnixStream(Arc<std::os::unix::net::UnixStream>),
 }
 
 /// "host port".
@@ -492,6 +497,16 @@ impl Interp<'_, '_> {
                     _ => std::net::Shutdown::Both,
                 };
                 let _ = st.shutdown(how);
+            }
+            #[cfg(unix)]
+            if op == 120
+                && let Some(Sock::UnixStream(st)) = net.socks.get(&a)
+            {
+                let _ = st.shutdown(match b {
+                    0 => std::net::Shutdown::Read,
+                    1 => std::net::Shutdown::Write,
+                    _ => std::net::Shutdown::Both,
+                });
             }
             return Value::Int(0);
         }
@@ -1008,6 +1023,14 @@ impl Interp<'_, '_> {
                         Pipe::Read(Arc::new(Mutex::new(Box::new(st) as Box<dyn Read + Send>)))
                     }
                 }),
+                #[cfg(unix)]
+                Some(Sock::UnixStream(st)) => st.try_clone().ok().map(|st| {
+                    if op == 21 {
+                        Pipe::Write(Arc::new(Mutex::new(Box::new(st) as Box<dyn Write + Send>)))
+                    } else {
+                        Pipe::Read(Arc::new(Mutex::new(Box::new(st) as Box<dyn Read + Send>)))
+                    }
+                }),
                 _ => None,
             },
         };
@@ -1152,6 +1175,28 @@ impl Interp<'_, '_> {
         };
         let sock = net.lock().expect("net").socks.get(&a).cloned();
         let work = move || -> Job {
+            if (op == 30 || op == 32) && c == 1 {
+                // A Unix-domain socket at path `s` (#85).
+                #[cfg(unix)]
+                {
+                    use std::os::unix::net::{UnixListener, UnixStream};
+                    let made = if op == 30 {
+                        UnixListener::bind(&s).map(|l| Sock::UnixListener(Arc::new(l)))
+                    } else {
+                        UnixStream::connect(&s).map(|st| Sock::UnixStream(Arc::new(st)))
+                    };
+                    return match made {
+                        Ok(sock) => Job {
+                            id,
+                            r: net.lock().expect("net").add(sock),
+                            ..Default::default()
+                        },
+                        Err(e) => fail(error(&e)),
+                    };
+                }
+                #[cfg(not(unix))]
+                return fail((-K_OTHER, 0));
+            }
             match op {
                 30 => {
                     let addrs = match lookup(&s, a) {
@@ -1180,6 +1225,15 @@ impl Interp<'_, '_> {
                     }
                 }
                 31 => match sock {
+                    #[cfg(unix)]
+                    Some(Sock::UnixListener(l)) => match l.accept() {
+                        Ok((st, _)) => Job {
+                            id,
+                            r: net.lock().expect("net").add(Sock::UnixStream(Arc::new(st))),
+                            ..Default::default()
+                        },
+                        Err(e) => fail(error(&e)),
+                    },
                     Some(Sock::Listener(l)) => match l.accept() {
                         Ok((st, _)) => {
                             let text = ends_text(&st);

@@ -28,7 +28,7 @@ const users = await res.json<User[]>()        // typed, generated like JSON.pars
 | `std/fs` | `readText`, `readBytes`, `writeText`, `writeBytes`, `open` (`File implements AsyncDisposable`), `readDir` (async iterator), `stat`, `mkdir`, `remove`, `rename`, `copy`, `symlink`, `readlink`, `chmod`, `watch` |
 | `std/path` | `join`, `resolve`, `dirname`, `basename`, `extname`, `relative`, `sep` |
 | `std/process` | `args`, `env`, `exit`, `cwd`, `spawn`/`Command` (async), `stdin`/`stdout`/`stderr` streams |
-| `std/net` | TCP/UDP sockets, `listen`, `connect`, DNS |
+| `std/net` | TCP/UDP and Unix-domain sockets, `listen`, `connect`, `listenUnix`, `connectUnix`, DNS |
 | `std/http` | `serve(handler)` on top of Web `Request`/`Response` (Deno.serve-like), WebSocket |
 | `std/streams` | Web Streams: `ReadableStream`, `WritableStream`, `TransformStream` |
 | `std/regex` | `RegExp` (also produced by regex literals) |
@@ -185,7 +185,7 @@ supported. On Windows, `std/fs` takes paths in either form and returns native on
 directory, `watch` events joined with `\`).
 
 ### `std/net`
-TCP, UDP and DNS. Every operation that can wait (accepting, connecting, reading, writing,
+TCP, Unix-domain sockets, UDP and DNS. Every operation that can wait (accepting, connecting, reading, writing,
 sending, receiving, resolving) runs on the runtime's I/O threads and settles its promise on the
 event loop. Failures reject with `NetError` (`address` as `host:port`, `message`, and a portable
 `kind`: `ConnectionRefused`, `ConnectionReset`, `AddrInUse`, `AddrNotAvailable`, `TimedOut`,
@@ -206,10 +206,14 @@ conn.close()
 ```text
 listen(port = 0, hostname = "127.0.0.1"): Promise<Listener, NetError>   // "0.0.0.0"/"::": every interface
 connect(port, hostname = "127.0.0.1"): Promise<Conn, NetError>          // tries each address in turn
+listenUnix(path): Promise<Listener, NetError>    // a Unix-domain socket; the file must not exist
+connectUnix(path): Promise<Conn, NetError>       // (macOS, Linux, Windows 10+; not WASI)
 bind(port = 0, hostname = "127.0.0.1"): Promise<UdpSocket, NetError>
 resolve(hostname): Promise<string[], NetError>                          // IP addresses, no repeats
 type Addr = { hostname: string, port: int }                             // hostname is an IP address
 ```
+A Unix-domain socket's `Addr` is `{ hostname: path, port: -1 }` for both ends, and `NetError`s
+name the path. Closing its listener removes the socket file, as in Node.js (decision 325).
 A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (one at a time; `null` once
 closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
 connections stay open). A `Conn` has `localAddr`, `remoteAddr`, `read(n = 65536):

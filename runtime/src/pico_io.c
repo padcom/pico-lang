@@ -2122,6 +2122,12 @@ static int net_step(Job *j) {
         j->wasi = st;
     }
     wasi_io_poll_own_pollable_t p;
+    if ((j->op == 30 || j->op == 32) && j->c == 1) {
+        /* (No Unix-domain sockets on WASI.) */
+        errno = ENOTSUP;
+        fail(j);
+        return 1;
+    }
     switch (j->op) {
     case 30: { /* listen (b = 0) or bind a UDP socket (b = 1): s = host, a = port */
         if (st->phase == 0) {
@@ -4108,8 +4114,65 @@ static struct addrinfo *lookup(Job *j, const char *host, int port, int udp, int 
     return res;
 }
 
+/* A Unix-domain socket address for path `p` (#85; Windows 10 1803 and later have them too).
+ * Its length, or 0 (errno set) when the path doesn't fit. */
+typedef struct {
+    unsigned short family;
+    char path[108];
+} UnixAddr;
+
+static socklen_t unix_addr(UnixAddr *a, const char *p) {
+    memset(a, 0, sizeof *a);
+    a->family = AF_UNIX;
+    size_t n = strlen(p);
+    if (n == 0 || n >= sizeof a->path) {
+        errno = n == 0 ? ENOENT : ENAMETOOLONG;
+        return 0;
+    }
+    memcpy(a->path, p, n);
+    return (socklen_t)(offsetof(UnixAddr, path) + n + 1);
+}
+
+/* Ops 30 (listen) and 32 (connect) on a Unix-domain socket at path s (c = 1). */
+static void unix_run(Job *j) {
+    UnixAddr a;
+    socklen_t len = unix_addr(&a, j->s);
+    if (!len) {
+        fail(j);
+        return;
+    }
+    int64_t fd = (int64_t)socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd == SOCK_NONE) {
+        sock_failed();
+        fail(j);
+        return;
+    }
+    int r;
+    if (j->op == 30) {
+        r = bind((sock_t)fd, (struct sockaddr *)&a, len);
+        if (r == 0) r = listen((sock_t)fd, 128);
+    } else {
+        do r = connect((sock_t)fd, (struct sockaddr *)&a, len);
+        while (r < 0 && (sock_failed(), errno == EINTR));
+    }
+    if (r < 0) {
+        sock_failed();
+        int e = errno;
+        sock_close(fd);
+        errno = e;
+        fail(j);
+        return;
+    }
+    sock_private(fd);
+    j->r = fd;
+}
+
 static void net_run(Job *j) {
     net_init();
+    if ((j->op == 30 || j->op == 32) && j->c == 1) {
+        unix_run(j);
+        return;
+    }
     switch (j->op) {
     case 30: { /* listen (b = 0) or bind a UDP socket (b = 1): s = host, a = port */
         struct addrinfo *res = lookup(j, j->s, (int)j->a, (int)j->b, 1);
