@@ -1,0 +1,29 @@
+// Explicit integer arithmetic (spec §2.2, #60): `wrapping…` wraps around the type, `saturating…`
+// stops at its ends, `checked…` gives `null` on overflow; none of them panic.
+// expect: -2147483648 2147483647 null
+// expect: 2147483647 -2147483648 null 5
+// expect: 0 255 null 88
+// expect: 255 0 null
+// expect: 0 1 -100
+// expect: -9223372036854775808 9223372036854775807 null 6
+// expect: 9223372036854775807 -9223372036854775808 9223372036854775807 -9223372036854775808
+// expect: 1 18446744073709551615 null 0
+// expect: 18446744073709551614 18446744073709551615 0
+// expect: -128 127 -2 -128
+const big: i32 = 2147483647
+const small: i32 = -2147483648
+println(`${big.wrappingAdd(1)} ${big.saturatingAdd(1)} ${big.checkedAdd(1)}`)
+println(`${small.wrappingSub(1)} ${small.saturatingSub(1)} ${small.checkedSub(1)} ${(2 as i32).checkedAdd(3)}`)
+const b: u8 = 200
+println(`${b.wrappingAdd(56)} ${b.saturatingAdd(100)} ${b.checkedMul(2)} ${b.wrappingMul(3)}`)
+println(`${(255 as u8).saturatingMul(3)} ${(3 as u8).saturatingSub(5)} ${(3 as u8).checkedSub(5)}`)
+println(`${(0 as u8).wrappingMul(9)} ${(1 as i16).saturatingMul(1)} ${(-10 as i8).wrappingMul(10)}`)
+const m: i64 = 9223372036854775807
+println(`${m.wrappingAdd(1)} ${m.saturatingAdd(5)} ${m.checkedMul(2)} ${(2 as i64).checkedMul(3)}`)
+const n: i64 = -9223372036854775807 - 1
+println(`${n.saturatingSub(1).saturatingAdd(-1).saturatingMul(-1)} ${m.saturatingMul(-2)} ${n.saturatingMul(n)} ${n.saturatingSub(m)}`)
+const u: u64 = 18446744073709551615
+println(`${u.wrappingAdd(2)} ${u.saturatingAdd(1)} ${u.checkedAdd(1)} ${(0 as u64).saturatingSub(1)}`)
+println(`${u.wrappingMul(2)} ${u.saturatingMul(u)} ${(5 as u64).saturatingSub(9)}`)
+const c: i8 = -128
+println(`${c.wrappingMul(-1)} ${c.saturatingMul(-1)} ${c.wrappingAdd(126)} ${c.checkedMul(1)}`)

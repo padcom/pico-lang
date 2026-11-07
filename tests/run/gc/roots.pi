@@ -44,7 +44,7 @@ function outer(): int {
 enum Token { Word(text: string), End }
 function hidden(): int {
   const t = Token.Word("x")
-  const name = "n"
+  const name = "n".repeat(1) // (not a constant, which would fold away)
   const f = (x: int) => x + name.length
   gc.dumpRoots()
   f(1)

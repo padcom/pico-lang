@@ -26,11 +26,13 @@ class JSON {
     v
   }
 
-  /// `value` as JSON text (no spaces). `NaN` and infinities become `null`.
-  public static stringify<T>(value: T): string {
+  /// `value` as JSON text: with no spaces, or with `indent` spaces per level and one member or
+  /// element per line, as `JSON.stringify(v, null, indent)` writes it in JavaScript (#58).
+  /// `NaN` and infinities become `null`.
+  public static stringify<T>(value: T, indent: int = 0): string {
     const w = new __JsonWriter()
     __jsonWrite<T>(w, value)
-    w.text()
+    if (indent > 0) __jsonPretty(w.text(), indent) else w.text()
   }
 }
 
@@ -557,4 +559,52 @@ function __jsonQuote(s: string): string {
       else `${c}`)
   }
   out + "\""
+}
+
+/// Compact JSON `text` (as the writer makes it) laid out with `indent` spaces per level: each
+/// member or element on a line of its own, `": "` after keys, and `[]`/`{}` kept as they are.
+function __jsonPretty(text: string, indent: int): string {
+  const out: string[] = []
+  const unit = " ".repeat(indent)
+  let depth = 0
+  let inString = false
+  let escaped = false
+  const n = text.length
+  for (let i = 0; i < n; i++) {
+    const c = text[i]
+    if (inString) {
+      out.push(`${c}`)
+      if (escaped) {
+        escaped = false
+      } else if (c == '\\') {
+        escaped = true
+      } else if (c == '"') {
+        inString = false
+      }
+      continue
+    }
+    if (c == '"') {
+      inString = true
+      out.push("\"")
+    } else if (c == '{' || c == '[') {
+      const close: char = if (c == '{') '}' else ']'
+      if (i + 1 < n && text[i + 1] == close) {
+        out.push(`${c}${close}`)
+        i += 1
+      } else {
+        depth += 1
+        out.push(`${c}\n${unit.repeat(depth)}`)
+      }
+    } else if (c == '}' || c == ']') {
+      depth -= 1
+      out.push(`\n${unit.repeat(depth)}${c}`)
+    } else if (c == ',') {
+      out.push(`,\n${unit.repeat(depth)}`)
+    } else if (c == ':') {
+      out.push(": ")
+    } else {
+      out.push(`${c}`)
+    }
+  }
+  out.join("")
 }

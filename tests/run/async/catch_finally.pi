@@ -1,0 +1,18 @@
+// `Promise.catch` and `Promise.finally` (#52): `catch` turns a rejection into a value (and passes
+// a value through), `finally` runs either way and settles like the promise.
+// expect: caught: nope
+// expect: 5
+// expect: finally ran
+// expect: v
+// expect: finally on rejection
+// expect: still rejects: nope
+const r = await Promise.reject<string>(new Error("nope")).catch((e) => `caught: ${e.message}`)
+println(r)
+println(await Promise.resolve(5).catch((e) => 0))
+println(await Promise.resolve("v").finally(() => println("finally ran")))
+try {
+  const t = await Promise.reject<string>(new Error("nope")).finally(() => println("finally on rejection"))
+  println(t)
+} catch (e) {
+  println(`still rejects: ${e.message}`)
+}
