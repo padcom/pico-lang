@@ -1,0 +1,36 @@
+// A failed job doesn't leave the socket busy or leak its descriptor (issue #20).
+// expect: fds after failed sends: +0
+// expect: receive after a failed send: ok
+import { bind, NetError } from "std/net"
+import { readDir, exists } from "std/fs"
+
+async function openFds(): Promise<int> throws IoError {
+  if (!(await exists("/proc/self/fd"))) return 0
+  let n = 0
+  for await (const e of readDir("/proc/self/fd")) n += 1
+  n
+}
+
+async function main(): Promise<void> throws IoError | NetError {
+  const before = await openFds()
+  for (let i = 0; i < 50; i++) {
+    const a = await bind()
+    try {
+      await a.sendText("x", 0, "127.0.0.1")
+    } catch (e: NetError) {}
+    a.close()
+  }
+  const grew = (await openFds()) - before
+  println(`fds after failed sends: +${if (grew < 5) 0 else grew}`)
+  const a = await bind()
+  try {
+    await a.sendText("x", 0, "127.0.0.1")
+  } catch (e: NetError) {}
+  const b = await bind()
+  await b.sendText("hi", a.addr.port)
+  const d = await a.receive()
+  println(`receive after a failed send: ${if (d != null) "ok" else "null"}`)
+  a.close()
+  b.close()
+}
+await main()

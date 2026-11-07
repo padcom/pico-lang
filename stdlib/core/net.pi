@@ -68,12 +68,17 @@ struct __NetResult {
 
 /// Runs job `op`; failures reject with a `NetError` about `address`.
 function __netJob<T>(op: int, a: int, b: int, c: int, s: string, t: string, address: string,
-  read: (res: __NetResult) => T): Promise<T, NetError> {
+  read: (res: __NetResult) => T, failed: (() => void)? = null): Promise<T, NetError> {
   const p = new Promise<T, NetError>()
   __ioSubmit(op, a, b, c, s, t, (job: int) => {
     const r = __io(102, job, 0, 0, "", "")
     const r2 = __io(103, job, 0, 0, "", "")
     if (r < 0) {
+      // The caller's busy state ends on failure too (#20): else the socket stays busy and
+      // `close()` never releases its descriptor.
+      if (failed != null) {
+        failed()
+      }
       p.__reject(__netError(address, r, r2))
     } else {
       p.__resolve(read({ r, r2, job }))
@@ -238,6 +243,9 @@ class Conn {
         this.release()
         __netBytes(res)
       }
+    }, () => {
+      this.reading = false
+      this.release()
     })
   }
 
@@ -263,6 +271,9 @@ class Conn {
       this.finishIfDone()
       this.release()
       __io_text(res.job)
+    }, () => {
+      this.reading = false
+      this.release()
     })
   }
 
@@ -393,6 +404,9 @@ class Listener {
       }
       const f = __io_text(res.job).split(" ")
       new Conn(res.r, __netAddr(f, 0), __netAddr(f, 2))
+    }, () => {
+      this.accepting = false
+      this.release()
     })
   }
 
@@ -485,6 +499,9 @@ class UdpSocket {
         this.sending -= 1
         this.release()
         res.r
+      }, () => {
+        this.sending -= 1
+        this.release()
       })
   }
 
@@ -518,6 +535,9 @@ class UdpSocket {
       const f = __io_text(res.job).split(" ")
       const d: Datagram = { data: __netBytes(res), addr: __netAddr(f, 0) }
       d
+    }, () => {
+      this.receiving = false
+      this.release()
     })
   }
 
