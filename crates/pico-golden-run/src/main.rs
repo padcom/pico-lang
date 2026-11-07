@@ -13,6 +13,10 @@ use std::time::{Duration, Instant};
 /// A program running longer than this fails (some fixtures use timers and workers).
 const TIMEOUT: Duration = Duration::from_secs(60);
 
+/// The environment variable every golden run gets: the same as `pico_tests::TEST_ENV` (this crate
+/// has no dependencies, so it's repeated here).
+const TEST_ENV: (&str, &str) = ("PICO_TEST_ENV", "1");
+
 struct Expect {
     exit: i32,
     panic: Option<String>,
@@ -41,6 +45,7 @@ fn parse(text: &str) -> Option<Expect> {
 fn run(exe: &Path, cwd: &Path) -> Result<(i32, String, String), String> {
     let mut child = Command::new(exe)
         .current_dir(cwd)
+        .env(TEST_ENV.0, TEST_ENV.1)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
