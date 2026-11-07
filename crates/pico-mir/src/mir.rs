@@ -789,6 +789,9 @@ pub enum Callee {
     /// A function value (the first argument): its function, given its environment and the
     /// rest of the arguments.
     Indirect,
+    /// A C function pointer (the first argument, a `ptr<(…) => R>`), called with the C ABI
+    /// like an extern (spec §12.1). The interpreter panics.
+    CPointer,
     /// An interface method: entry `slot` of the itable in the interface value (the first
     /// argument). `decl` is the interface's method (for its type).
     Iface {
@@ -972,6 +975,7 @@ fn callee_name(p: &Program, c: Callee) -> String {
         Callee::Virtual { slot, decl } => format!("virtual[{slot}] {}", p.func(decl).name),
         Callee::Iface { slot, decl } => format!("iface[{slot}] {}", p.func(decl).name),
         Callee::Indirect => "indirect".to_string(),
+        Callee::CPointer => "C pointer".to_string(),
     }
 }
 

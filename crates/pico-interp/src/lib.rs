@@ -545,6 +545,10 @@ impl Interp<'_, '_> {
                     let vals: Vec<Value> = args.iter().map(|a| self.operand(frame, a)).collect();
                     let r = match callee {
                         Callee::Fn(id) => self.call(*id, vals, *loc)?,
+                        Callee::CPointer => {
+                            return Err(self
+                                .panic("calling a C function pointer needs a native build", *loc));
+                        }
                         Callee::Indirect => {
                             let Value::Closure(c) = &vals[0] else {
                                 unreachable!("call of {:?}", vals[0])

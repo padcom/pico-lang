@@ -8,3 +8,5 @@ fail/reactive/worker_message  Worker is a compile error on WASI (E0356, spec §1
 run/fs/links         WASI has no permissions (chmod rejects)
 run/net/unix         no Unix-domain sockets on WASI (#85)
 run/ffi/null_pointers  WASI runs have no HOME (#119)
+run/ffi/fn_pointers  wasi-libc has no `signal` without its signal emulation (#112)
+run/ffi/fn_pointers_dlsym  no dlsym on WASI (#112)

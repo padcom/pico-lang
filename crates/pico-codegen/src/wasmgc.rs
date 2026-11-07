@@ -4958,6 +4958,7 @@ impl<'p> Gen<'p> {
                         }
                         self.call_result(fx, s, dest.as_ref(), &ret)?;
                     }
+                    Callee::CPointer => return unsupported("calling a C function pointer"),
                     Callee::Indirect => {
                         let ft = self.operand_ty(fx, &args[0])?;
                         let Ty::Fn(ps, ret, _) = ft.erase() else {

@@ -1115,13 +1115,41 @@ impl<'ctx> Gen<'ctx, '_> {
     // ------------------------------------------------------------ functions
 
     /// The body of an `extern "C"` function (spec §12.1, decision 261): a call of the C
-    /// symbol, with each `string` argument passed as a temporary NUL-terminated copy. A C
-    /// variadic function (`fixed` parameters, then the extra arguments) gets C's default
-    /// argument promotions for the extras: `bool` and narrower integers to `int`, `f32` to
-    /// `double`.
+    /// symbol (see [`Self::c_call`]).
     fn extern_body(&mut self, index: usize, symbol: &str, fixed: Option<usize>) {
         let func = &self.p.fns[index];
         let llfn = self.fns[index];
+        let params: Vec<Ty> = func
+            .params
+            .iter()
+            .map(|l| func.local_ty(*l).clone())
+            .collect();
+        let ret = func.ret.clone();
+        let entry = self.cx.append_basic_block(llfn, "start");
+        self.b.position_at_end(entry);
+        let vals: Vec<BasicValueEnum<'ctx>> = (0..params.len())
+            .map(|k| llfn.get_nth_param(k as u32).expect("parameter"))
+            .collect();
+        match self.c_call(CTarget::Symbol(symbol), &params, &ret, &vals, fixed) {
+            Some(r) => self.b.build_return(Some(&r)).unwrap(),
+            None => self.b.build_return(None).unwrap(),
+        };
+    }
+
+    /// A call with the C ABI of C function `target` taking `params` (`vals`) and returning
+    /// `ret`: each `string` argument is passed as a temporary NUL-terminated copy, `bool` and
+    /// integers narrower than an `int` are extended, `isize`/`usize` are 32 bits on wasm32.
+    /// A C variadic function (`fixed` parameters, then the extra arguments) gets C's default
+    /// argument promotions for the extras: `bool` and narrower integers to `int`, `f32` to
+    /// `double`. Returns the result as pico sees it.
+    fn c_call(
+        &mut self,
+        target: CTarget<'ctx, '_>,
+        params: &[Ty],
+        ret: &Ty,
+        vals: &[BasicValueEnum<'ctx>],
+        fixed: Option<usize>,
+    ) -> Option<BasicValueEnum<'ctx>> {
         let zeroext = inkwell::attributes::Attribute::get_named_enum_kind_id("zeroext");
         let signext = inkwell::attributes::Attribute::get_named_enum_kind_id("signext");
         // C wants arguments narrower than an `int` extended.
@@ -1130,11 +1158,6 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Int(it) if it.bits() < 32 => Some(if it.signed() { signext } else { zeroext }),
             _ => None,
         };
-        let params: Vec<Ty> = func
-            .params
-            .iter()
-            .map(|l| func.local_ty(*l).clone())
-            .collect();
         // `isize`/`usize` are C's `ptrdiff_t`/`size_t`: 32 bits on wasm32.
         let narrow = |t: &Ty| self.ptr == 4 && matches!(t, Ty::Int(IntTy::Isize | IntTy::Usize));
         let cty = |t: &Ty| -> Option<BasicTypeEnum<'ctx>> {
@@ -1145,42 +1168,42 @@ impl<'ctx> Gen<'ctx, '_> {
             }
         };
         let n_fixed = fixed.unwrap_or(params.len());
-        let cfn = match self.m.get_function(symbol) {
-            Some(f) => f,
-            None => {
-                let ps: Vec<BasicMetadataTypeEnum> = params[..n_fixed]
-                    .iter()
-                    .filter_map(cty)
-                    .map(Into::into)
-                    .collect();
-                let fn_ty = match cty(&func.ret) {
-                    Some(t) => t.fn_type(&ps, fixed.is_some()),
-                    None => self.cx.void_type().fn_type(&ps, fixed.is_some()),
-                };
-                let f = self.m.add_function(symbol, fn_ty, Some(Linkage::External));
-                for (k, t) in params[..n_fixed].iter().enumerate() {
-                    if let Some(kind) = ext(t) {
+        let ps: Vec<BasicMetadataTypeEnum> = params[..n_fixed]
+            .iter()
+            .filter_map(cty)
+            .map(Into::into)
+            .collect();
+        let fn_ty = match cty(ret) {
+            Some(t) => t.fn_type(&ps, fixed.is_some()),
+            None => self.cx.void_type().fn_type(&ps, fixed.is_some()),
+        };
+        let cfn = match target {
+            CTarget::Symbol(symbol) => Some(match self.m.get_function(symbol) {
+                Some(f) => f,
+                None => {
+                    let f = self.m.add_function(symbol, fn_ty, Some(Linkage::External));
+                    for (k, t) in params[..n_fixed].iter().enumerate() {
+                        if let Some(kind) = ext(t) {
+                            f.add_attribute(
+                                inkwell::attributes::AttributeLoc::Param(k as u32),
+                                self.cx.create_enum_attribute(kind, 0),
+                            );
+                        }
+                    }
+                    if let Some(kind) = ext(ret) {
                         f.add_attribute(
-                            inkwell::attributes::AttributeLoc::Param(k as u32),
+                            inkwell::attributes::AttributeLoc::Return,
                             self.cx.create_enum_attribute(kind, 0),
                         );
                     }
+                    f
                 }
-                if let Some(kind) = ext(&func.ret) {
-                    f.add_attribute(
-                        inkwell::attributes::AttributeLoc::Return,
-                        self.cx.create_enum_attribute(kind, 0),
-                    );
-                }
-                f
-            }
+            }),
+            CTarget::Pointer(_) => None,
         };
-        let entry = self.cx.append_basic_block(llfn, "start");
-        self.b.position_at_end(entry);
         let mut args: Vec<BasicMetadataValueEnum> = Vec::new();
         let mut temps = Vec::new();
-        for (k, t) in params.iter().enumerate() {
-            let v = llfn.get_nth_param(k as u32).expect("parameter");
+        for (k, (t, &v)) in params.iter().zip(vals).enumerate() {
             if *t == Ty::Str {
                 let c = basic(
                     self.b
@@ -1220,7 +1243,20 @@ impl<'ctx> Gen<'ctx, '_> {
                 args.push(v.into());
             }
         }
-        let call = self.b.build_call(cfn, &args, "r").unwrap();
+        let call = match (cfn, target) {
+            (Some(f), _) => self.b.build_call(f, &args, "r").unwrap(),
+            (None, CTarget::Pointer(fp)) => {
+                let call = self.b.build_indirect_call(fn_ty, fp, &args, "r").unwrap();
+                if let Some(kind) = ext(ret) {
+                    call.add_attribute(
+                        inkwell::attributes::AttributeLoc::Return,
+                        self.cx.create_enum_attribute(kind, 0),
+                    );
+                }
+                call
+            }
+            (None, CTarget::Symbol(_)) => unreachable!("declared above"),
+        };
         for (k, t) in params[..n_fixed].iter().enumerate() {
             if let Some(kind) = ext(t) {
                 call.add_attribute(
@@ -1235,8 +1271,8 @@ impl<'ctx> Gen<'ctx, '_> {
                 .unwrap();
         }
         match call.try_as_basic_value() {
-            inkwell::values::ValueKind::Basic(r) if narrow(&func.ret) => {
-                let wide = if matches!(func.ret, Ty::Int(IntTy::Isize)) {
+            inkwell::values::ValueKind::Basic(r) if narrow(ret) => {
+                let wide = if matches!(ret, Ty::Int(IntTy::Isize)) {
                     self.b
                         .build_int_s_extend(r.into_int_value(), self.i64(), "")
                 } else {
@@ -1244,13 +1280,11 @@ impl<'ctx> Gen<'ctx, '_> {
                         .build_int_z_extend(r.into_int_value(), self.i64(), "")
                 }
                 .unwrap();
-                self.b.build_return(Some(&wide)).unwrap()
+                Some(wide.into())
             }
-            inkwell::values::ValueKind::Basic(r) if self.ty(&func.ret).is_some() => {
-                self.b.build_return(Some(&r)).unwrap()
-            }
-            _ => self.b.build_return(None).unwrap(),
-        };
+            inkwell::values::ValueKind::Basic(r) if self.ty(ret).is_some() => Some(r),
+            _ => None,
+        }
     }
 
     fn function(&mut self, index: usize) {
@@ -4023,6 +4057,27 @@ impl<'ctx> Gen<'ctx, '_> {
                             self.store(fx, d, v);
                         }
                     }
+                    Callee::CPointer => {
+                        let ft = self.operand_ty(fx, &args[0]);
+                        let Ty::Ref(inner) = ft else {
+                            unreachable!("a C function pointer call of `{ft}`")
+                        };
+                        let Ty::Fn(ps, r, _) = *inner else {
+                            unreachable!("a C function pointer call")
+                        };
+                        let fp = self
+                            .operand(fx, &args[0])
+                            .expect("a pointer")
+                            .into_pointer_value();
+                        let vals: Vec<BasicValueEnum<'ctx>> = args[1..]
+                            .iter()
+                            .filter_map(|a| self.operand(fx, a))
+                            .collect();
+                        let res = self.c_call(CTarget::Pointer(fp), &ps, &r, &vals, None);
+                        if let (Some(d), Some(v)) = (dest, res) {
+                            self.store(fx, d, v);
+                        }
+                    }
                     Callee::Indirect => {
                         let Ty::Fn(ps, r, _) = self.operand_ty(fx, &args[0]) else {
                             unreachable!("indirect call of a non-function")
@@ -4503,4 +4558,11 @@ mod cpu_tests {
         assert_eq!(cpu, baseline_cpu(&triple.as_str().to_string_lossy()));
         assert_eq!(features, "");
     }
+}
+
+/// What [`Gen::c_call`] calls: a C symbol, or a C function pointer.
+#[derive(Clone, Copy)]
+enum CTarget<'ctx, 's> {
+    Symbol(&'s str),
+    Pointer(inkwell::values::PointerValue<'ctx>),
 }

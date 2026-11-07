@@ -5,3 +5,4 @@ run/fs/links    symlinks need Developer Mode or a privilege, readlink isn't impl
 run/net/unix_stale    the test makes its stale socket through POSIX libc
 run/net/unix    a busy socket path reports Other, not AddrInUse (#116)
 run/ffi/null_pointers  assumes HOME is set (#119)
+run/ffi/fn_pointers_dlsym  no dlsym on Windows (GetProcAddress instead) (#112)

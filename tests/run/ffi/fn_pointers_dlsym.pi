@@ -1,0 +1,28 @@
+// native-only: the interpreter can't call C
+// expect: abs 5
+// expect: strlen 6
+// expect: toupper A
+// Spec §12.1: C function pointers from `dlsym`, converted with `as` and called inside
+// `unsafe`: a `string` argument goes as a C string, a `u8` is extended as C expects.
+@link("dl")
+extern "C" {
+  function dlsym(handle: ptr<void>?, name: string): ptr<void>?
+}
+
+unsafe {
+  const a = dlsym(null, "abs")
+  if (a != null) {
+    const abs = a as extern "C" (x: c_int) => c_int
+    println(`abs ${abs(-5 as c_int)}`)
+  }
+  const s = dlsym(null, "strlen")
+  if (s != null) {
+    const strlen = s as extern "C" (s: string) => usize
+    println(`strlen ${strlen("héllo")}`)
+  }
+  const t = dlsym(null, "toupper")
+  if (t != null) {
+    const toupper = t as extern "C" (c: u8) => c_int
+    println(`toupper ${toupper(97 as u8) as u32 as char}`)
+  }
+}

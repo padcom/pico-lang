@@ -62,6 +62,25 @@ unsafe {
 `ptr<void>` (C's `void *`) has no pointee: `.read()`, `.write(v)` and pointer arithmetic on it
 are E0304; convert it first (`p as ptr<u8>`). Decision 326.
 
+### Function pointers
+A C function pointer is `extern "C" (…) => R` (a `ptr<(…) => R>` inside, so `as` converts
+other pointers to it, and a nullable one may be `NULL`). A top-level pico function passed
+where an extern takes one becomes its address (a callback, decision 261). Calling a C
+function pointer needs `unsafe`, takes exactly its parameters and uses the C ABI as an extern
+call does (`string` arguments as temporary C strings, narrow integers extended).
+```ts
+type Handler = extern "C" (sig: c_int) => void
+extern "C" {
+  function signal(sig: c_int, handler: Handler): Handler?
+}
+function onInterrupt(sig: c_int) {}
+unsafe {
+  const prev = signal(2 as c_int, onInterrupt)
+  if (prev != null) prev(2 as c_int)
+}
+```
+Decision 328.
+
 ### Variadic functions
 A C variadic function ends its parameter list with a bare `...` (only in `extern "C"`
 blocks: pico functions use rest parameters, E0355 otherwise).
