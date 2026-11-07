@@ -77,7 +77,8 @@ narrower than 32 bits are passed as `int`, `f32` as `double`. An unsuffixed inte
 there is a `c_int` when it fits (a 64-bit integer otherwise), as in C, so `%d` reads it; give
 other integers the type the format expects (`%ld` wants a `c_long`). Passing a pointer needs
 `unsafe`. C's stdio buffers its output apart from pico's: call `fflush` before mixing them.
-Decision 327.
+A variadic function is only called directly: not used as a function value (E0355) or with
+`tailcall` (E0331). Decision 327.
 
 ## 12.2 C: automatic header import
 ```ts

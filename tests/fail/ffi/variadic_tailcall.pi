@@ -1,0 +1,10 @@
+// error: E0331
+// at: 7:12
+// `tailcall` can't call a C variadic function (spec §12.1).
+extern "C" { function printf(fmt: string, ...): c_int }
+function say(fmt: string): c_int {
+  unsafe {
+    return tailcall printf(fmt, 1)
+  }
+}
+println(say("%d\n"))

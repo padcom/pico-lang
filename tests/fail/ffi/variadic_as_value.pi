@@ -1,0 +1,9 @@
+// error: E0355
+// at: 7:13
+// A C variadic function can't be a function value: calls through it couldn't pass C's `...`
+// arguments (spec §12.1).
+extern "C" { function printf(fmt: string, ...): c_int }
+unsafe {
+  const f = printf
+  f("hi\n")
+}

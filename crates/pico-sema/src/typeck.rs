@@ -2007,6 +2007,21 @@ impl<'p> Checker<'p> {
                 if self.program.func(*id).is_unsafe {
                     self.require_unsafe(e.span, "using an `unsafe function` as a value");
                 }
+                // A function value has a fixed parameter list: a call through it couldn't pass
+                // C's `...` arguments (spec §12.1).
+                if self.program.func(*id).c_variadic {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::EXPORT_TYPE,
+                            format!(
+                                "the C variadic function `{}` can't be used as a value",
+                                self.program.func(*id).name
+                            ),
+                        )
+                        .primary(e.span, "used as a value here")
+                        .help("call it directly, or wrap the call in a pico function"),
+                    );
+                }
                 let g = self.program.func(*id);
                 if (g.ret.is_none() || g.infer_throws)
                     && self.state[id.0 as usize] == FnState::Unchecked
@@ -3866,6 +3881,10 @@ impl<'p> Checker<'p> {
                 "`tailcall` must be the function's result (`return tailcall f(…)`)".to_string(),
             ),
             None => Some("`tailcall` needs a direct call of a named function".to_string()),
+            Some(id) if self.program.func(id).c_variadic => Some(format!(
+                "`{}` is a C variadic function: call it without `tailcall`",
+                self.program.func(id).name
+            )),
             Some(id) => {
                 let (a, b) = (
                     &self.types.sigs[id.0 as usize],
