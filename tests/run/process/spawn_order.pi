@@ -1,0 +1,12 @@
+// not-under-qemu: qemu-user runs posix_spawn's vfork as a fork
+// native-only: the interpreter runs in the test process here, so a child inheriting stdout writes past the captured output
+// What the program printed comes before an inheriting child's output, also when stdout is a
+// pipe (issue #14; golden runs capture stdout through a pipe).
+// expect: before child
+// expect: from child
+// expect: after child
+import { Command } from "std/process"
+
+println("before child")
+await Command.shell("echo from child").status()
+println("after child")

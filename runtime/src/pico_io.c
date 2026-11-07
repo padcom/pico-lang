@@ -1231,6 +1231,9 @@ static void child_wait(Job *j) {
  * (-1 where not piped). */
 static void spawn_child(Job *j, int64_t argc, int64_t envc, int64_t modes, const char *prog,
                         const char *t, size_t tlen) {
+    /* What the program printed comes before the child's output (#14). */
+    fflush(stdout);
+    fflush(stderr);
     static int sigpipe_ignored;
     if (!sigpipe_ignored) {
         /* A child that stops reading makes writes fail (EPIPE) instead of ending us. */
@@ -3124,6 +3127,9 @@ static HANDLE child_stream(int i, int mode, HANDLE *mine) {
  * command line verbatim (`Command.shell`'s `cmd.exe /s /c "…"`). */
 static void spawn_child(Job *j, int64_t argc, int64_t envc, int64_t modes, const char *prog,
                         const char *t, size_t tlen) {
+    /* What the program printed comes before the child's output (#14). */
+    fflush(stdout);
+    fflush(stderr);
     size_t nf = 1 + (size_t)argc + (size_t)envc;
     const char **fields = calloc(nf, sizeof *fields);
     if (!fields) abort();
