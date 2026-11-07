@@ -1,0 +1,7 @@
+// error: E0304
+// Spec §12.1: pointer arithmetic needs a sized pointee, so `ptr<void>` takes none.
+const xs: i32[] = [1]
+unsafe {
+  const v = ptr.of(xs[0]) as ptr<void>
+  const w = v + 1
+}

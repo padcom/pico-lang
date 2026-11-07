@@ -94,6 +94,8 @@ fn c_type(t: &Ty, structs: &mut Vec<StructId>) -> String {
             Ty::Fn(..) => "void *".into(),
             inner => format!("{} *", c_type(inner, structs)),
         },
+        // `ptr<T>?`: the same C pointer, which may be `NULL`.
+        Ty::Nullable(inner) if matches!(**inner, Ty::Ref(_)) => c_type(inner, structs),
         Ty::Struct(sid, name, _) => {
             if !structs.contains(sid) {
                 structs.push(*sid);

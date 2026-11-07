@@ -33,6 +33,7 @@ into a pico `string` with `string.fromC(p)`, inside `unsafe`.
 | `const char*` (param) | `string` (auto-converted) |
 | `size_t`, `ptrdiff_t` | `usize`, `isize` (pointer-sized at the boundary) |
 | `void*` | `ptr<void>` |
+| `T*` that may be `NULL` | `ptr<T>?` |
 
 C's other names: `c_char`, `c_uchar`, `c_short`, `c_ushort`, `c_uint`, `c_ulong`,
 `c_longlong`, `c_ulonglong`, `c_float`, `c_double` (`c_long` is pointer-sized: on Windows, where
@@ -40,6 +41,26 @@ C's `long` has 32 bits, declare `i32`). A callback parameter (`extern "C" (a: pt
 takes a top-level function by name, which mustn't throw. Pointers convert to other pointee
 types with `as`. Extern functions run only in native code (the interpreter panics), and
 structs cross by pointer until by-value C structs are implemented. Decision 261.
+
+### Null pointers
+A `ptr<T>` is never null. A C pointer that may be `NULL` is `ptr<T>?`: the same machine
+pointer, with `null` as address 0, so it crosses to C unchanged. Externs take and return it
+(and calling them needs `unsafe`, as with `ptr<T>`); `null` is passed for it, a `ptr<T>`
+converts to it implicitly, and `p != null` narrows it to `ptr<T>`. `as` converts between
+`ptr<T>?` types (null stays null) and from `ptr<T>` to `ptr<U>?`.
+```ts
+extern "C" {
+  function getenv(name: string): ptr<u8>?
+  function free(p: ptr<void>?): void
+}
+unsafe {
+  const home = getenv("HOME")
+  if (home != null) println(string.fromC(home))
+  free(null)
+}
+```
+`ptr<void>` (C's `void *`) has no pointee: `.read()`, `.write(v)` and pointer arithmetic on it
+are E0304; convert it first (`p as ptr<u8>`). Decision 326.
 
 ## 12.2 C: automatic header import
 ```ts

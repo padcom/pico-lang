@@ -399,7 +399,8 @@ impl Ty {
     /// Reference types are pointers at runtime, so `T?` is a nullable pointer; other types
     /// get a presence flag.
     pub fn is_ref(&self) -> bool {
-        matches!(self, Ty::Str | Ty::Array(_) | Ty::Class(..))
+        // (`ptr<T>?` is a C pointer that may be address 0: spec §12.1.)
+        matches!(self, Ty::Str | Ty::Array(_) | Ty::Class(..) | Ty::Ref(_))
     }
 
     /// The element type of an indexable collection (`T[]`, `[T; N]`).

@@ -1,0 +1,7 @@
+// error: E0304
+// Spec §12.1: `ptr<void>` has no pointee: convert it with `as ptr<T>` before reading.
+const xs: i32[] = [1]
+unsafe {
+  const v = ptr.of(xs[0]) as ptr<void>
+  v.read()
+}
