@@ -129,6 +129,36 @@ class Promise<T, E extends Error = never> {
     p
   }
 
+  /// A promise of this one's value, or of `f(error)` when it rejects (so it doesn't reject):
+  /// `load().catch((e) => fallback)` (#52).
+  public catch(f: (error: Error) => T): Promise<T> {
+    const p = new Promise<T>()
+    this.__onSettle(() => {
+      const e = this.error
+      if (this.state == 2 && e != null) {
+        p.__resolve(f(e))
+      } else {
+        p.__resolve(this.values[0])
+      }
+    })
+    p
+  }
+
+  /// A promise that settles like this one, after `f` ran (once it settled either way) (#52).
+  public finally(f: () => void): Promise<T, E> {
+    const p = new Promise<T, E>()
+    this.__onSettle(() => {
+      f()
+      const e = this.error
+      if (this.state == 2 && e != null) {
+        p.__reject(e)
+      } else {
+        p.__resolve(this.values[0])
+      }
+    })
+    p
+  }
+
   /// A promise already fulfilled with `value`.
   public static resolve<U>(value: U): Promise<U> {
     const p = new Promise<U>()

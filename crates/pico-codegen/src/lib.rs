@@ -2714,15 +2714,32 @@ impl<'ctx> Gen<'ctx, '_> {
                         .into(),
                 )
             }
-            Rvalue::AddOverflows(a, b) => {
-                let Ty::Int(it) = self.operand_ty(fx, a) else {
-                    unreachable!("integer addition")
+            Rvalue::Overflows(op, a, b) | Rvalue::Wrapping(op, a, b) => {
+                let Ty::Int(it) = self.operand_ty(fx, a).erase() else {
+                    unreachable!("integer arithmetic")
                 };
                 let x = self.operand(fx, a)?.into_int_value();
                 let y = self.operand(fx, b)?.into_int_value();
+                if let Rvalue::Wrapping(..) = rv {
+                    // Plain LLVM arithmetic wraps.
+                    return Some(
+                        match op {
+                            BinOp::Add => self.b.build_int_add(x, y, ""),
+                            BinOp::Sub => self.b.build_int_sub(x, y, ""),
+                            _ => self.b.build_int_mul(x, y, ""),
+                        }
+                        .unwrap()
+                        .into(),
+                    );
+                }
                 let name = format!(
-                    "llvm.{}add.with.overflow",
-                    if it.signed() { "s" } else { "u" }
+                    "llvm.{}{}.with.overflow",
+                    if it.signed() { "s" } else { "u" },
+                    match op {
+                        BinOp::Add => "add",
+                        BinOp::Sub => "sub",
+                        _ => "mul",
+                    }
                 );
                 let f = self.intrinsic(&name, &[x.get_type().into()]);
                 let r = basic(self.b.build_call(f, &[x.into(), y.into()], "").unwrap())

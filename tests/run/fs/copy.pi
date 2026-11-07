@@ -1,0 +1,25 @@
+// `copy` (#64): a file's bytes to a new path (replacing one there); a directory or a missing file
+// rejects.
+// expect: copied: hello
+// expect: replaced: hello
+// expect: NotFound
+// expect: IsADirectory
+import { copy, readText, writeText, mkdir } from "std/fs"
+
+await writeText("a.txt", "hello")
+await copy("a.txt", "b.txt")
+println(`copied: ${await readText("b.txt")}`)
+await writeText("c.txt", "old contents")
+await copy("a.txt", "c.txt")
+println(`replaced: ${await readText("c.txt")}`)
+try {
+  await copy("missing.txt", "d.txt")
+} catch (e: IoError) {
+  println(e.kind)
+}
+await mkdir("dir")
+try {
+  await copy("dir", "e")
+} catch (e: IoError) {
+  println(e.kind)
+}

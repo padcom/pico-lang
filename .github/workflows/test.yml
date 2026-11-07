@@ -38,6 +38,12 @@ jobs:
         with:
           shared-key: ${{ runner.os }}
 
+      # `pico dap`'s attach test attaches lldb to a process it didn't start, which Ubuntu's Yama
+      # default (ptrace_scope 1) forbids.
+      - name: Allow attaching debuggers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.yama.ptrace_scope=0
+
       - name: scripts/test.sh
         run: scripts/test.sh
 

@@ -983,6 +983,64 @@ static void run(Job *j) {
     case 8: /* rename */
         if (rename(j->s, j->t) < 0) fail(j);
         return;
+    case 37: { /* copy file s to t (replacing it), keeping s's permissions (#64) */
+        int in = open(j->s, O_RDONLY | O_CLOEXEC);
+        if (in < 0) {
+            fail(j);
+            return;
+        }
+        struct stat st;
+        if (fstat(in, &st) < 0 || S_ISDIR(st.st_mode)) {
+            if (S_ISDIR(st.st_mode)) errno = EISDIR;
+            fail(j);
+            close(in);
+            return;
+        }
+        int out = open(j->t, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, st.st_mode & 07777);
+        if (out < 0) {
+            fail(j);
+            close(in);
+            return;
+        }
+        char buf[65536];
+        for (;;) {
+            ssize_t k = read(in, buf, sizeof buf);
+            if (k < 0 && errno == EINTR) continue;
+            if (k < 0) {
+                fail(j);
+                break;
+            }
+            if (k == 0) break;
+            if (write_all(out, buf, (size_t)k) < 0) {
+                fail(j);
+                break;
+            }
+        }
+        close(in);
+        if (close(out) < 0 && j->r == 0) fail(j);
+        return;
+    }
+    case 38: /* symlink at s pointing to t (#64) */
+        if (symlink(j->t, j->s) < 0) fail(j);
+        return;
+    case 39: { /* readlink(s): text = the link's target (#64) */
+        char buf[4096];
+        ssize_t k = readlink(j->s, buf, sizeof buf);
+        if (k < 0) {
+            fail(j);
+            return;
+        }
+        text_add(j, buf, (size_t)k);
+        return;
+    }
+    case 40: /* chmod(s, a) (#64) */
+#if defined(__wasi__)
+        errno = ENOTSUP;
+        fail(j);
+#else
+        if (chmod(j->s, (mode_t)j->a) < 0) fail(j);
+#endif
+        return;
     case 9: { /* readDir: "<kind> <name>\0" per entry, in name order */
         DIR *d = opendir(j->s);
         if (!d) {
@@ -2064,6 +2122,12 @@ static int net_step(Job *j) {
         j->wasi = st;
     }
     wasi_io_poll_own_pollable_t p;
+    if ((j->op == 30 || j->op == 32) && j->c == 1) {
+        /* (No Unix-domain sockets on WASI.) */
+        errno = ENOTSUP;
+        fail(j);
+        return 1;
+    }
     switch (j->op) {
     case 30: { /* listen (b = 0) or bind a UDP socket (b = 1): s = host, a = port */
         if (st->phase == 0) {
@@ -3741,6 +3805,42 @@ static void run(Job *j) {
         if (!ok) win_fail(j, j->s);
         return;
     }
+    case 37: { /* copy file s to t (replacing it) (#64) */
+        wchar_t *from = wide(j->s), *to = wide(j->t);
+        BOOL ok = CopyFileW(from, to, FALSE);
+        free(from);
+        free(to);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
+    case 38: { /* symlink at s pointing to t (#64): needs Developer Mode or the privilege */
+        wchar_t *link = wide(j->s), *target = wide(j->t);
+        /* A directory link when the target (relative to the link's directory) is one. */
+        DWORD flags = 0x2; /* SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE */
+        DWORD attrs = GetFileAttributesW(target);
+        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) flags |= 0x1;
+        BOOL ok = CreateSymbolicLinkW(link, target, flags);
+        free(link);
+        free(target);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
+    case 39: /* readlink: not on Windows yet */
+        errno = ENOSYS;
+        fail(j);
+        return;
+    case 40: { /* chmod(s, a): Windows has only the read-only attribute (no owner write bit) */
+        wchar_t *path = wide(j->s);
+        DWORD attrs = GetFileAttributesW(path);
+        BOOL ok = attrs != INVALID_FILE_ATTRIBUTES;
+        if (ok) {
+            attrs = (j->a & 0200) ? (attrs & ~FILE_ATTRIBUTE_READONLY) : (attrs | FILE_ATTRIBUTE_READONLY);
+            ok = SetFileAttributesW(path, attrs);
+        }
+        free(path);
+        if (!ok) win_fail(j, j->s);
+        return;
+    }
     case 9: { /* readDir: "<kind> <name>\0" per entry, in name order */
         DirIter *d = dir_open(j->s);
         if (!d) {
@@ -4014,8 +4114,65 @@ static struct addrinfo *lookup(Job *j, const char *host, int port, int udp, int 
     return res;
 }
 
+/* A Unix-domain socket address for path `p` (#85; Windows 10 1803 and later have them too).
+ * Its length, or 0 (errno set) when the path doesn't fit. */
+typedef struct {
+    unsigned short family;
+    char path[108];
+} UnixAddr;
+
+static socklen_t unix_addr(UnixAddr *a, const char *p) {
+    memset(a, 0, sizeof *a);
+    a->family = AF_UNIX;
+    size_t n = strlen(p);
+    if (n == 0 || n >= sizeof a->path) {
+        errno = n == 0 ? ENOENT : ENAMETOOLONG;
+        return 0;
+    }
+    memcpy(a->path, p, n);
+    return (socklen_t)(offsetof(UnixAddr, path) + n + 1);
+}
+
+/* Ops 30 (listen) and 32 (connect) on a Unix-domain socket at path s (c = 1). */
+static void unix_run(Job *j) {
+    UnixAddr a;
+    socklen_t len = unix_addr(&a, j->s);
+    if (!len) {
+        fail(j);
+        return;
+    }
+    int64_t fd = (int64_t)socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd == SOCK_NONE) {
+        sock_failed();
+        fail(j);
+        return;
+    }
+    int r;
+    if (j->op == 30) {
+        r = bind((sock_t)fd, (struct sockaddr *)&a, len);
+        if (r == 0) r = listen((sock_t)fd, 128);
+    } else {
+        do r = connect((sock_t)fd, (struct sockaddr *)&a, len);
+        while (r < 0 && (sock_failed(), errno == EINTR));
+    }
+    if (r < 0) {
+        sock_failed();
+        int e = errno;
+        sock_close(fd);
+        errno = e;
+        fail(j);
+        return;
+    }
+    sock_private(fd);
+    j->r = fd;
+}
+
 static void net_run(Job *j) {
     net_init();
+    if ((j->op == 30 || j->op == 32) && j->c == 1) {
+        unix_run(j);
+        return;
+    }
     switch (j->op) {
     case 30: { /* listen (b = 0) or bind a UDP socket (b = 1): s = host, a = port */
         struct addrinfo *res = lookup(j, j->s, (int)j->a, (int)j->b, 1);

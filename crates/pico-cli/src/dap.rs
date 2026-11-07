@@ -3,7 +3,9 @@
 //! that is a `.pi` file is built first (a debug build in the cache directory, skipped when
 //! nothing changed) and replaced by the executable, and lldb loads pico's formatters
 //! (`pico_lldb.py`: strings, arrays, maps, sets). A build that fails fails the `launch`, with
-//! the compiler's messages.
+//! the compiler's messages. An `attach` (to a `pid`, or with `waitFor` to the next process
+//! started from `program`) gets the formatters too: for programs another one starts, such as
+//! a backend whose stdio its parent owns.
 
 use serde_json::{Value, json};
 use std::io::{BufReader, Write};
@@ -75,6 +77,9 @@ pub fn run() -> ExitCode {
             let mut o = out.lock().expect("stdout");
             let _ = pico_lsp::write_message(&mut *o, &reply);
             continue;
+        }
+        if msg["type"] == "request" && msg["command"] == "attach" {
+            add_formatters(&mut msg["arguments"], &formatters);
         }
         if pico_lsp::write_message(&mut to_adapter, &msg).is_err() {
             break;
@@ -201,6 +206,12 @@ fn prepare_launch(args: &mut Value, formatters: &Path) -> Result<(), String> {
             args["cwd"] = json!(dir.display().to_string());
         }
     }
+    add_formatters(args, formatters);
+    Ok(())
+}
+
+/// Has lldb import pico's formatters before the request's own `initCommands`.
+fn add_formatters(args: &mut Value, formatters: &Path) {
     let mut init = vec![json!(format!(
         "command script import \"{}\"",
         formatters.display()
@@ -209,7 +220,6 @@ fn prepare_launch(args: &mut Value, formatters: &Path) -> Result<(), String> {
         init.extend(more.iter().cloned());
     }
     args["initCommands"] = json!(init);
-    Ok(())
 }
 
 /// A debug build of `entry` in the cache directory (kept while nothing changes).

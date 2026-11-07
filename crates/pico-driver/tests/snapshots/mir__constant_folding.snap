@@ -143,9 +143,8 @@ fn <main>() -> void {
     call builtin println(_13) -> bb11
   bb11:
     _14 = ToStr(const 3.0_f64)
-    _15 = ToStr(const true)
     _16 = Add(_14, const " ")
-    _17 = Add(_16, _15)
+    _17 = Add(_16, const "true")
     call builtin println(_17) -> bb12
   bb12:
     goto bb13

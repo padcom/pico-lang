@@ -25,7 +25,8 @@ There is no `any` and no `undefined`.
   representable in the target.
 - Every other conversion needs `as`: `x as i32`. A float→int `as` that's out of range panics.
 - **Integer overflow always panics**, in debug and release builds alike. For other behavior there
-  are explicit methods: `a.wrappingAdd(b)`, `a.saturatingAdd(b)`, `a.checkedAdd(b): i32 | null`.
+  are explicit methods: `a.wrappingAdd(b)`, `a.saturatingAdd(b)`, `a.checkedAdd(b): i32 | null`,
+  and the same for `Sub` and `Mul`, on every integer type (`b` has `a`'s type).
 - Integer division by zero panics.
 
 ```ts

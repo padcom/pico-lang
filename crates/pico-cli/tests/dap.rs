@@ -266,3 +266,84 @@ fn debugs_a_pico_program() {
     );
     let _ = s.child.kill();
 }
+
+/// `attach` with `waitFor`: the program starts after the request (another program runs it, with
+/// its stdio), the breakpoint is hit, and the formatters are loaded (a string shows as text).
+#[test]
+fn attaches_to_a_program_when_it_starts() {
+    if !have_lldb_dap() {
+        eprintln!("note: no lldb-dap: skipping");
+        return;
+    }
+    // Linux's Yama only lets a debugger attach to its own children unless ptrace_scope is 0.
+    if std::fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope").is_ok_and(|s| s.trim() != "0")
+    {
+        eprintln!("note: kernel.yama.ptrace_scope isn't 0, so lldb can't attach: skipping");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("pico-dap-attach-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let main = dir.join("echoer.pi");
+    std::fs::write(
+        &main,
+        "import { stdin } from \"std/process\"\nfunction show(text: string) {\n  println(text)\n}\nfor await (const chunk of stdin) {\n  show(new TextDecoder().decode(chunk).trim())\n}\n",
+    )
+    .unwrap();
+    let exe = dir.join("echoer-attach");
+    let built = Command::new(env!("CARGO_BIN_EXE_pico"))
+        .args(["build", main.to_str().unwrap(), "-o", exe.to_str().unwrap()])
+        .env("PICO_CACHE_DIR", dir.join("cache"))
+        .status()
+        .unwrap();
+    assert!(built.success());
+    let mut s = Session::start(&dir.join("cache"));
+    let r = s.request("initialize", json!({ "adapterID": "pico", "linesStartAt1": true, "columnsStartAt1": true, "pathFormat": "path" }));
+    assert_eq!(r["success"], true, "{r:#?}");
+    let attach = s.send(
+        "attach",
+        json!({ "program": exe.display().to_string(), "waitFor": true }),
+    );
+    // Started by "another program" once the debugger waits, stdin a pipe the test owns.
+    std::thread::sleep(Duration::from_secs(1));
+    let mut program = Command::new(&exe)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    s.event("initialized");
+    let r = s.request(
+        "setBreakpoints",
+        json!({ "source": { "path": main.display().to_string() }, "breakpoints": [{ "line": 3 }] }),
+    );
+    // (Not necessarily verified yet: lldb may not have loaded the program's module when this
+    // arrives, as on Linux arm64. The stop below shows that it resolves.)
+    assert_eq!(r["success"], true, "{r:#?}");
+    s.request("configurationDone", json!({}));
+    let r = s.wait("attach", |m| {
+        m["type"] == "response" && m["request_seq"] == attach
+    });
+    assert_eq!(r["success"], true, "{r:#?}");
+    let stdin = program.stdin.as_mut().unwrap();
+    stdin.write_all(b"hello\n").unwrap();
+    stdin.flush().unwrap();
+    let stopped = s.event("stopped");
+    let st = s.request(
+        "stackTrace",
+        json!({ "threadId": stopped["body"]["threadId"], "levels": 3 }),
+    );
+    let top = &st["body"]["stackFrames"][0];
+    assert!(top["name"].as_str().unwrap().starts_with("show"), "{st:#?}");
+    assert_eq!(top["line"], 3, "{st:#?}");
+    let r = s.request(
+        "evaluate",
+        json!({ "expression": "text", "frameId": top["id"], "context": "watch" }),
+    );
+    assert_eq!(r["body"]["result"], "\"hello\"", "{r:#?}");
+    // Detached, the program goes on: it prints the line and ends with its input.
+    s.request("disconnect", json!({ "terminateDebuggee": false }));
+    let _ = s.child.wait();
+    drop(program.stdin.take());
+    let out = program.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "hello\n");
+}

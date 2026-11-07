@@ -1,0 +1,46 @@
+// std/collections (#59): `SortedMap` as a balanced tree (many inserts and deletes keep it in
+// order), `SortedSet`, `MultiMap`, `LinkedList` and `LruCache`.
+// expect: 1000 0 999 true false
+// expect: 500 [1, 3, 5] 1 999 null
+// expect: sorted true floor 41 ceiling 43 range [11]
+// expect: set 3 [1, 5, 9] first 1 last 9 floor 5 ceiling 9
+// expect: multi 3 2 [1, 2] [] 2 [["a", 1], ["a", 2], ["b", 3]]
+// expect: list [0, 1, 2] 3 0 2 [1] null 0
+// expect: lru ["c", "a"] null 1 3 ["d", "a"]
+import { SortedMap, SortedSet, MultiMap, LinkedList, LruCache } from "std/collections"
+
+const m = new SortedMap<int, int>()
+// Inserted in a scrambled order: 0..999.
+for (let i = 0; i < 1000; i++) m.set((i * 7919) % 1000, i)
+println(`${m.size} ${m.firstKey()} ${m.lastKey()} ${m.has(500)} ${m.has(1000)}`)
+for (let i = 0; i < 1000; i += 2) m.delete(i)
+const ks = m.keys()
+let sorted = true
+for (let i = 1; i < ks.length; i++) if (ks[i - 1] >= ks[i]) sorted = false
+println(`${m.size} ${ks.slice(0, 3):?} ${m.firstKey()} ${m.lastKey()} ${m.get(500)}`)
+const inRange: int[] = []
+for (const [k, _] of m.range(10, 13)) inRange.push(k)
+println(`sorted ${sorted} floor ${m.floorKey(42)} ceiling ${m.ceilingKey(42)} range ${inRange:?}`)
+
+const s = new SortedSet<int>()
+s.add(9).add(1).add(5).add(1)
+println(`set ${s.size} ${s.values():?} first ${s.first()} last ${s.last()} floor ${s.floor(6)} ceiling ${s.ceiling(6)}`)
+
+const mm = new MultiMap<string, int>()
+mm.add("a", 1).add("a", 2).add("b", 3)
+const removed = mm.delete("zzz")
+println(`multi ${mm.size} ${mm.keyCount} ${mm.get("a"):?} ${mm.get("c"):?} ${mm.keys().length} ${mm.entries():?}`)
+
+const l = new LinkedList<int>()
+l.push(1)
+l.push(2)
+l.unshift(0)
+const all = l.toArray()
+println(`list ${all:?} ${l.size} ${l.shift()} ${l.pop()} ${l.toArray():?} ${new LinkedList<int>().pop()} ${removed}`)
+
+const c = new LruCache<string, int>(2)
+c.set("a", 1).set("b", 2)
+c.get("a")
+c.set("c", 3)
+const before = c.keys()
+println(`lru ${before:?} ${c.get("b")} ${c.get("a")} ${c.peek("c")} ${c.set("d", 4).keys():?}`)

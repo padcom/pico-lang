@@ -25,10 +25,10 @@ const users = await res.json<User[]>()        // typed, generated like JSON.pars
 | Module | Contents (draft) |
 |--------|------------------|
 | `std/timers` | `delay(ms, signal?)`: a cancellable promise timer (§10.5) |
-| `std/fs` | `readText`, `readBytes`, `writeText`, `writeBytes`, `open` (`File implements AsyncDisposable`), `readDir` (async iterator), `stat`, `mkdir`, `remove`, `rename`, `watch` |
+| `std/fs` | `readText`, `readBytes`, `writeText`, `writeBytes`, `open` (`File implements AsyncDisposable`), `readDir` (async iterator), `stat`, `mkdir`, `remove`, `rename`, `copy`, `symlink`, `readlink`, `chmod`, `watch` |
 | `std/path` | `join`, `resolve`, `dirname`, `basename`, `extname`, `relative`, `sep` |
 | `std/process` | `args`, `env`, `exit`, `cwd`, `spawn`/`Command` (async), `stdin`/`stdout`/`stderr` streams |
-| `std/net` | TCP/UDP sockets, `listen`, `connect`, DNS |
+| `std/net` | TCP/UDP and Unix-domain sockets, `listen`, `connect`, `listenUnix`, `connectUnix`, DNS |
 | `std/http` | `serve(handler)` on top of Web `Request`/`Response` (Deno.serve-like), WebSocket |
 | `std/streams` | Web Streams: `ReadableStream`, `WritableStream`, `TransformStream` |
 | `std/regex` | `RegExp` (also produced by regex literals) |
@@ -41,7 +41,7 @@ const users = await res.json<User[]>()        // typed, generated like JSON.pars
 | `std/js` | `JsValue`, `js.global` (wasm32-browser) |
 | `std/test` | `describe`, `test`, `expect`, mocks (§14) |
 | `std/math` | vectors/matrices (`Vec2/3/4`, `Mat4`, `Quat` with operator overloads), bigint, random |
-| `std/collections` | `Deque`, `PriorityQueue`, `SortedMap`, `BitSet` |
+| `std/collections` | `Deque`, `PriorityQueue`, `SortedMap`, `SortedSet`, `MultiMap`, `LinkedList`, `LruCache`, `BitSet` |
 | `std/encoding` | base64, hex, utf-16, csv, toml |
 | `std/fmt` | `Formattable`, padding/number formatting helpers |
 
@@ -149,6 +149,9 @@ writeText(path, text, append = false), writeBytes(path, data: Uint8Array, append
 stat(path, followLinks = true): Promise<FileInfo, IoError>  // isFile, isDirectory, isSymlink, size, mtime (ms)
 exists(path): Promise<bool>
 mkdir(path, recursive = false), remove(path, recursive = false), rename(from, to)
+copy(from, to)                                         // a file; keeps its permissions
+symlink(target, path), readlink(path): Promise<string, IoError>  // target as written (not on Windows yet)
+chmod(path, mode)                                      // 0o644 …; Windows: the owner's write bit only
 readDir(path): AsyncIterator<DirEntry> throws IoError  // name, isFile, isDirectory, isSymlink; name order
 open(path, read = true, write = false, append = false, create = false, truncate = false,
      createNew = false): Promise<File, IoError>
@@ -182,7 +185,7 @@ supported. On Windows, `std/fs` takes paths in either form and returns native on
 directory, `watch` events joined with `\`).
 
 ### `std/net`
-TCP, UDP and DNS. Every operation that can wait (accepting, connecting, reading, writing,
+TCP, Unix-domain sockets, UDP and DNS. Every operation that can wait (accepting, connecting, reading, writing,
 sending, receiving, resolving) runs on the runtime's I/O threads and settles its promise on the
 event loop. Failures reject with `NetError` (`address` as `host:port`, `message`, and a portable
 `kind`: `ConnectionRefused`, `ConnectionReset`, `AddrInUse`, `AddrNotAvailable`, `TimedOut`,
@@ -203,10 +206,14 @@ conn.close()
 ```text
 listen(port = 0, hostname = "127.0.0.1"): Promise<Listener, NetError>   // "0.0.0.0"/"::": every interface
 connect(port, hostname = "127.0.0.1"): Promise<Conn, NetError>          // tries each address in turn
+listenUnix(path): Promise<Listener, NetError>    // a Unix-domain socket; the file must not exist
+connectUnix(path): Promise<Conn, NetError>       // (macOS, Linux, Windows 10+; not WASI)
 bind(port = 0, hostname = "127.0.0.1"): Promise<UdpSocket, NetError>
 resolve(hostname): Promise<string[], NetError>                          // IP addresses, no repeats
 type Addr = { hostname: string, port: int }                             // hostname is an IP address
 ```
+A Unix-domain socket's `Addr` is `{ hostname: path, port: -1 }` for both ends, and `NetError`s
+name the path. Closing its listener removes the socket file, as in Node.js (decision 325).
 A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (one at a time; `null` once
 closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
 connections stay open). A `Conn` has `localAddr`, `remoteAddr`, `read(n = 65536):
@@ -262,7 +269,8 @@ given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transfor
 no async lambdas yet). Strategies are `{ highWaterMark }` (default 1; a transform's readable
 side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel })` writes each chunk after
 the last one was taken; `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
-streams an array. `textEncoderStream()` and `textDecoderStream()` are transform streams from
+streams an array; `tee()` gives two streams that each get every chunk (the source is locked;
+an error fails both, and cancelling both cancels it). `textEncoderStream()` and `textDecoderStream()` are transform streams from
 strings to UTF-8 bytes and back. `std/net`'s `Conn` and `std/process`'s `Reader`/`Writer` have
 `readable`/`writable` streams of `Uint8Array` (closing a connection's writable finishes writing;
 once both directions are finished the connection closes itself).
@@ -439,9 +447,15 @@ seedable generator (`new Random(seed?)`: `float`, `int(lo, hi)` without bias, `b
 `compare(a, b): int`, smallest first: `push`, `pop`, `peek`, `size`, `toSortedArray`, `for-of`
 in priority order), `SortedMap<K extends Comparable<K>, V>` (`get`, `set`, `has`, `delete`,
 `firstKey`, `lastKey`, `floorKey`, `ceilingKey`, `range(lo, hi)` for `lo <= k < hi`, `keys`,
-`values`, `entries`, `for-of` in key order; binary search over sorted arrays, so inserting is
-O(n)) and `BitSet` (`add`, `delete`, `has`, `set(i, on)`, `flip`, `size` (set bits), `length`,
-`and`, `or`, `xor`, `andNot`, `equals`, `toArray`, `for-of` ascending). Iteration ends at the first
+`values`, `entries`, `for-of` in key order; an AVL tree, O(log n) per operation),
+`SortedSet<T extends Comparable<T>>` (`add`, `has`, `delete`, `first`, `last`, `floor`,
+`ceiling`, `range`, `values`, `for-of` in order), `MultiMap<K, V>` (`add(k, v)`, `get(k): V[]`,
+`has`, `delete(k)` (all of `k`'s values), `size` (values), `keyCount`, `keys`, `entries`),
+`LinkedList<T>` (`push`, `pop`, `unshift`, `shift`, `first`, `last`, `size`, `toArray`, `for-of`;
+O(1) at both ends), `LruCache<K, V>(capacity)` (`get` and `set` count as uses, `peek` and `has`
+don't; a new key past the capacity drops the least recently used entry; `delete`, `keys` most
+recent first) and `BitSet` (`add`, `delete`, `has`, `set(i, on)`, `flip`, `size` (set bits),
+`length`, `and`, `or`, `xor`, `andNot`, `equals`, `toArray`, `for-of` ascending). Iteration ends at the first
 `null` (§5.7), so collections of nullable elements are walked through `toArray()`.
 
 ## 13.11 Formatting
