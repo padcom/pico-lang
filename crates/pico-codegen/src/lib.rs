@@ -4131,6 +4131,15 @@ impl<'ctx> Gen<'ctx, '_> {
                         };
                         self.b.build_call(self.rt(name), &[], "").unwrap();
                     }
+                    // Comptime-only builtins reached at run time (`std/meta` helpers in a
+                    // function a decorator didn't run): the interpreter's panic (#6).
+                    Callee::Builtin(
+                        b @ (Builtin::MetaEmit | Builtin::ComptimeInfo | Builtin::ComptimeReadFile),
+                    ) => {
+                        let msg = format!("`{}` is only available at comptime", b.name());
+                        self.panic_here(&msg, *loc);
+                        return;
+                    }
                     Callee::Builtin(_) => unreachable!("lowered to control flow"),
                 }
                 self.b.build_unconditional_branch(next).unwrap();

@@ -1,0 +1,11 @@
+// `std/meta` helpers compile natively in functions that only run at comptime (issue #6); reached
+// at run time, the builtin panics.
+// expect: done
+// panic: `__meta_emit` is only available at comptime
+import { ClassDecl } from "std/meta"
+
+function f(c: ClassDecl) {
+  c.error("x")
+}
+println("done")
+__meta_emit(1, "error", "x", "")
