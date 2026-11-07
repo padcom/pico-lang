@@ -317,16 +317,30 @@ fn js_problem(p: &hir::Program, t: &Ty, seen: &mut Vec<StructId>) -> Option<Stri
 }
 
 /// What an `extern "C"` function may take and return (spec §12.1): numbers, `bool`, pointers
-/// (callbacks too) and, as parameters, `string` (a temporary C string). The core library's
-/// externs may return a pico `string` from the runtime.
+/// (callbacks too), `@pod` structs (by value, through a C shim; not with C's `...`) and, as
+/// parameters, `string` (a temporary C string). The core library's externs may return a pico
+/// `string` from the runtime.
 fn check_externs(cx: &mut Cx) {
     let p = cx.program;
     for e in &p.externs {
         let f = p.func(e.func);
         let sig = &cx.types.sigs[e.func.0 as usize];
         let core = f.span.file != cx.file_id && cx.program.func(e.func).name.starts_with("pico_");
+        let pod = |sid: &StructId| {
+            p.struct_def(*sid)
+                .decorators
+                .iter()
+                .any(|(d, _)| d == "pod")
+        };
+        // (A callback's own signature has no shim: structs go by pointer there.)
+        let by_value = |t: &Ty| matches!(t, Ty::Struct(..));
         let ok = |t: &Ty, ret: bool| match t {
-            Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Ref(_) => true,
+            Ty::Ref(inner) => match &**inner {
+                Ty::Fn(ps, r, _) => !ps.iter().any(by_value) && !by_value(r),
+                _ => true,
+            },
+            Ty::Int(_) | Ty::Float(_) | Ty::Bool => true,
+            Ty::Struct(sid, _, args) => args.is_empty() && pod(sid) && !f.c_variadic,
             Ty::Nullable(t) => matches!(**t, Ty::Ref(_)),
             Ty::Str => !ret || core,
             Ty::Void => ret,
@@ -340,8 +354,14 @@ fn check_externs(cx: &mut Cx) {
         if let Some(t) = bad {
             let hint = if *t == Ty::Str {
                 "return `ptr<u8>` and copy it with `string.fromC(p)`"
+            } else if matches!(t, Ty::Ref(_)) {
+                "a callback takes and returns structs by pointer (`ptr<T>`)"
+            } else if matches!(t, Ty::Struct(..)) && f.c_variadic {
+                "a C variadic function takes structs by pointer"
+            } else if matches!(t, Ty::Struct(..)) {
+                "a struct crosses to C by value when it's a `@pod struct`"
             } else {
-                "C takes numbers, `bool`, pointers and strings (structs by pointer for now)"
+                "C takes numbers, `bool`, pointers, strings and `@pod` structs"
             };
             cx.diags.push(
                 Diagnostic::error(

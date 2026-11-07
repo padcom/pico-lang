@@ -294,3 +294,96 @@ fn tempdir(tag: &str) -> std::path::PathBuf {
     std::fs::create_dir_all(&d).unwrap();
     d
 }
+
+/// `@pod` structs by value (spec §12.1, #114): `tests/c_structs` passes and returns one struct
+/// of each shape the targets' C ABIs treat differently. Built for every native target; run
+/// on the host, under qemu for linux-x64 (when set up) and under wasmtime for WASI.
+#[test]
+fn c_structs_by_value() {
+    if !pico_lld::AVAILABLE {
+        eprintln!("skipped: needs lld");
+        return;
+    }
+    let (Some(clang), Some(ar)) = (on_path("clang"), on_path("llvm-ar")) else {
+        eprintln!("skipped: needs clang and llvm-ar on PATH");
+        return;
+    };
+    const WANT: &str = "small 11 22\nmixed 4.5 21\nhfa3 7.75\nhfa4 2 4 6 8\nbig 100 104 505\n\
+                        tiny 3 2 1\nnested 5 6 0.5 true 9\n";
+    let here = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/c_structs");
+    let src = std::fs::read_to_string(here.join("main.pi")).unwrap();
+    let dir = tempdir("c-structs");
+    for (name, clang_triple) in [
+        ("host", None),
+        ("linux-x64", Some("x86_64-unknown-linux-gnu")),
+        ("windows-x64", Some("x86_64-w64-windows-gnu")),
+        ("windows-arm64", Some("aarch64-w64-windows-gnu")),
+        ("macos-arm64", Some("arm64-apple-macos11")),
+        ("macos-x64", Some("x86_64-apple-macos11")),
+        ("wasm32-wasi", Some("wasm32-wasip1")),
+    ] {
+        let sub = dir.join(name);
+        std::fs::create_dir_all(&sub).unwrap();
+        let mut cc = std::process::Command::new(&clang);
+        if let Some(t) = clang_triple {
+            cc.arg(format!("--target={t}"));
+        }
+        let obj = sub.join("structs.o");
+        assert!(
+            cc.args(["-c", "-o"])
+                .arg(&obj)
+                .arg(here.join("structs.c"))
+                .status()
+                .unwrap()
+                .success(),
+            "compiling structs.c for {name}"
+        );
+        assert!(
+            std::process::Command::new(&ar)
+                .arg("rcs")
+                .arg(sub.join("libstructs.a"))
+                .arg(&obj)
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::fs::write(
+            sub.join("project.json"),
+            "{ \"c\": { \"libDirs\": [\".\"] } }\n",
+        )
+        .unwrap();
+        let target = (name != "host").then(|| pico_driver::Target::parse(name).unwrap());
+        for release in [false, true] {
+            let opts = pico_driver::BuildOptions { release, target };
+            let checked = pico_driver::check_source_with("main.pi", src.as_str(), &sub, opts);
+            assert!(!checked.has_errors(), "{}", checked.render_diagnostics());
+            let exe =
+                pico_driver::build_cached(&checked, opts).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let out = match name {
+                "host" => std::process::Command::new(&exe).output().ok(),
+                "linux-x64"
+                    if cfg!(target_arch = "x86_64")
+                        || (Path::new("/proc/sys/fs/binfmt_misc/qemu-x86_64").exists()
+                            && Path::new(SYSROOT).is_dir()) =>
+                {
+                    std::process::Command::new(&exe)
+                        .env("QEMU_LD_PREFIX", SYSROOT)
+                        .output()
+                        .ok()
+                }
+                "wasm32-wasi" => on_path("wasmtime")
+                    .and_then(|w| std::process::Command::new(w).arg(&exe).output().ok()),
+                _ => None,
+            };
+            if let Some(out) = out {
+                assert_eq!(
+                    String::from_utf8_lossy(&out.stdout),
+                    WANT,
+                    "{name} (release: {release}): {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

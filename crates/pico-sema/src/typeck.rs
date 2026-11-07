@@ -6297,6 +6297,18 @@ impl<'p> Checker<'p> {
                     && let Ty::Fn(ps, r, _) = &**inner
                 {
                     self.require_unsafe(e.span, "calling a C function pointer");
+                    if ps.iter().chain([&**r]).any(|t| matches!(t, Ty::Struct(..))) {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::EXPORT_TYPE,
+                                format!(
+                                    "a C function pointer can't pass `{inner}`'s structs by value"
+                                ),
+                            )
+                            .primary(e.span, "called here")
+                            .help("declare it with `ptr<T>` parameters and results"),
+                        );
+                    }
                     if args.len() != ps.len() {
                         self.diags.push(
                             Diagnostic::error(

@@ -57,7 +57,18 @@ pub fn emit_llvm_ir(program: &Program) -> String {
 
 /// Compiles `program` to a native object file for the host or `opts.triple`.
 pub fn emit_object(program: &Program, path: &Path, opts: Options) -> Result<(), String> {
-    with_module(program, opts, |tm, m| {
+    emit_object_with(program, path, opts, None)
+}
+
+/// [`emit_object`], with LLVM bitcode linked into the module first: the C shims clang made
+/// for externs that pass structs by value (decision 330).
+pub fn emit_object_with(
+    program: &Program,
+    path: &Path,
+    opts: Options,
+    bitcode: Option<&Path>,
+) -> Result<(), String> {
+    with_module_and(program, opts, bitcode, |tm, m| {
         tm.write_to_file(m, FileType::Object, path)
             .map_err(|e| e.to_string())
     })
@@ -122,6 +133,15 @@ fn with_module<R>(
     opts: Options,
     then: impl FnOnce(&TargetMachine, &Module) -> Result<R, String>,
 ) -> Result<R, String> {
+    with_module_and(program, opts, None, then)
+}
+
+fn with_module_and<R>(
+    program: &Program,
+    opts: Options,
+    bitcode: Option<&Path>,
+    then: impl FnOnce(&TargetMachine, &Module) -> Result<R, String>,
+) -> Result<R, String> {
     let (triple, cpu, features) = machine_spec(opts.triple)?;
     let target = Target::from_triple(&triple).map_err(|e| e.to_string())?;
     let level = if opts.optimize {
@@ -155,6 +175,15 @@ fn with_module<R>(
     };
     let ptr = if t.starts_with("wasm32") { 4 } else { 8 };
     let m = generate(&cx, program, setjmp, ptr, opts.debug, opts.optimize);
+    if let Some(bc) = bitcode {
+        let other = Module::parse_bitcode_from_path(bc, &cx)
+            .map_err(|e| format!("cannot read {}: {e}", bc.display()))?;
+        // (The same target; clang's triple may be spelled differently.)
+        other.set_triple(&triple);
+        other.set_data_layout(&tm.get_target_data().get_data_layout());
+        m.link_in_module(other)
+            .map_err(|e| format!("linking the C shims failed: {e}"))?;
+    }
     // Frame pointers let a panic walk the stack; debug builds also export pico's functions, so
     // the trace can name every frame (`dladdr`).
     let mut f = m.get_first_function();
@@ -1130,6 +1159,54 @@ impl<'ctx> Gen<'ctx, '_> {
         let vals: Vec<BasicValueEnum<'ctx>> = (0..params.len())
             .map(|k| llfn.get_nth_param(k as u32).expect("parameter"))
             .collect();
+        if params
+            .iter()
+            .chain([&ret])
+            .any(|t| matches!(t, Ty::Struct(..)))
+        {
+            // `@pod` structs by value (decision 330): C's ABI for them is the shim's, which
+            // clang compiled (`__pico_shim_<symbol>`, see `pico_driver::cshim`): it takes
+            // pointers to copies, and stores a struct result through the first.
+            let mut cparams = Vec::new();
+            let mut cvals: Vec<BasicValueEnum<'ctx>> = Vec::new();
+            let out = match &ret {
+                Ty::Struct(..) => {
+                    let st = self.ty(&ret).expect("a struct type");
+                    let slot = self.entry_alloca(st, "out");
+                    cparams.push(Ty::Ref(Box::new(ret.clone())));
+                    cvals.push(slot.into());
+                    Some((slot, st))
+                }
+                _ => None,
+            };
+            for (t, v) in params.iter().zip(&vals) {
+                if matches!(t, Ty::Struct(..)) {
+                    let slot = self.entry_alloca(v.get_type(), "arg");
+                    self.b.build_store(slot, *v).unwrap();
+                    cparams.push(Ty::Ref(Box::new(t.clone())));
+                    cvals.push(slot.into());
+                } else {
+                    cparams.push(t.clone());
+                    cvals.push(*v);
+                }
+            }
+            let shim = format!("__pico_shim_{symbol}");
+            let cret = if out.is_some() { Ty::Void } else { ret.clone() };
+            let r = self.c_call(CTarget::Symbol(&shim), &cparams, &cret, &cvals, None);
+            match (out, r) {
+                (Some((slot, st)), _) => {
+                    let v = self.b.build_load(st, slot, "ret").unwrap();
+                    self.b.build_return(Some(&v)).unwrap();
+                }
+                (None, Some(r)) => {
+                    self.b.build_return(Some(&r)).unwrap();
+                }
+                (None, None) => {
+                    self.b.build_return(None).unwrap();
+                }
+            }
+            return;
+        }
         match self.c_call(CTarget::Symbol(symbol), &params, &ret, &vals, fixed) {
             Some(r) => self.b.build_return(Some(&r)).unwrap(),
             None => self.b.build_return(None).unwrap(),

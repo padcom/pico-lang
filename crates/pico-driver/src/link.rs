@@ -111,7 +111,13 @@ pub fn link_macos(
 /// Links `obj` with the runtime into the module `exe` for `wasm32-wasi` (P8.5a): wasi-libc's
 /// start file (it calls `main`), then the program, the runtime, wasi-libc and compiler-rt as
 /// needed. An 8 MiB stack: wasm's default 64 KiB is too little for deep recursion.
-pub fn link_wasi(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
+pub fn link_wasi(
+    t: Target,
+    obj: &Path,
+    exe: &Path,
+    links: &[String],
+    lib_dirs: &[PathBuf],
+) -> Result<(), String> {
     let cc = clang()?;
     let wasi = crate::wasi::libc(t, cc)?;
     let runtime = runtime_objects(t, &crate::wasi::runtime_libc(cc))?;
@@ -127,6 +133,7 @@ pub fn link_wasi(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
     ];
     // (`main` eagerly: wasi-libc's `__main_void` has a weak `__main_argc_argv` of its own.)
     args.extend(paths(&main_object(&runtime)));
+    args.extend(paths(&static_libs(t, links, lib_dirs)?));
     for group in [&runtime.lazy, &wasi.lib, &builtins] {
         args.push("--start-lib".into());
         args.extend(paths(group));
@@ -526,6 +533,30 @@ fn windows_libs(
                     ));
                 }
             },
+        }
+    }
+    Ok(out)
+}
+
+/// `@link` libraries as static archives, `libname.a` in `lib_dirs` (WASI, which has no
+/// shared libraries); the C library's parts are in wasi-libc already.
+fn static_libs(t: Target, links: &[String], lib_dirs: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    let libc = ["c", "m", "pthread", "dl", "rt", "util"];
+    let mut out = Vec::new();
+    for l in links.iter().filter(|l| !libc.contains(&l.as_str())) {
+        match lib_dirs
+            .iter()
+            .map(|d| d.join(format!("lib{l}.a")))
+            .find(|p| p.is_file())
+        {
+            Some(p) => out.push(p),
+            None => {
+                return Err(format!(
+                    "linking failed: can't find the library `{l}` for {} (`lib{l}.a`): {}",
+                    t.alias(),
+                    lib_dirs_hint(t)
+                ));
+            }
         }
     }
     Ok(out)

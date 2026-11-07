@@ -13,6 +13,7 @@ mod browser;
 mod builtins;
 mod cheader;
 mod clib;
+mod cshim;
 mod decorators;
 mod dts;
 pub mod fingerprint;
@@ -544,7 +545,8 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     {
         // (wasm code generation sets LLVM options that a concurrent lld link would reset.)
         let _no_links = (target.arch == target::Arch::Wasm32).then(pico_lld::lock);
-        pico_codegen::emit_object(
+        let shims = c_shims(mir, target, exe)?;
+        pico_codegen::emit_object_with(
             mir,
             &obj,
             pico_codegen::Options {
@@ -556,7 +558,11 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
                     && (!opts.release || target.os != target::Os::Windows),
                 triple: (!target.is_host()).then(|| target.clang_triple()),
             },
+            shims.as_deref(),
         )?;
+        if let Some(bc) = &shims {
+            let _ = std::fs::remove_file(bc);
+        }
     }
     if lld {
         let r = if target.os == target::Os::Windows {
@@ -571,7 +577,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
                 &checked.lib_dirs,
             )
         } else if target.os == target::Os::Wasi {
-            link::link_wasi(target, &obj, exe)
+            link::link_wasi(target, &obj, exe, &mir.links, &checked.lib_dirs)
         } else if target.os == target::Os::Browser {
             browser::build(mir, &obj, exe, &js_packages(&checked.sm))
         } else {
@@ -621,6 +627,17 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         ));
     }
     Ok(())
+}
+
+/// The C shims for externs that pass structs by value (decision 330), compiled to bitcode next
+/// to `out`, if there are any.
+fn c_shims(mir: &pico_mir::Program, target: Target, out: &Path) -> Result<Option<PathBuf>, String> {
+    let Some(src) = cshim::source(mir) else {
+        return Ok(None);
+    };
+    let bc = out.with_extension("shims.bc");
+    cshim::compile(&src, target, &bc)?;
+    Ok(Some(bc))
 }
 
 /// The npm packages a program's `js:npm/<package>` imports name (the glue imports them).
@@ -743,7 +760,8 @@ pub fn build_library(
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
     let obj = out.with_extension("o");
-    pico_codegen::emit_object(
+    let shims = c_shims(mir, target, out)?;
+    pico_codegen::emit_object_with(
         mir,
         &obj,
         pico_codegen::Options {
@@ -751,7 +769,11 @@ pub fn build_library(
             debug: !opts.release && target.arch != target::Arch::Wasm32,
             triple: (!target.is_host()).then(|| target.clang_triple()),
         },
+        shims.as_deref(),
     )?;
+    if let Some(bc) = &shims {
+        let _ = std::fs::remove_file(bc);
+    }
     let r = match kind {
         LibKind::Static => link::link_static_lib(target, &obj, out),
         LibKind::Shared => {

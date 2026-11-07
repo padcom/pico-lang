@@ -1,0 +1,20 @@
+// native-only: the interpreter can't call C
+// expect: div 3 2
+// expect: lldiv 3333333333 1
+// expect: neg -3 -2
+// Spec §12.1: `@pod` structs cross to C by value: libc's `div` and `lldiv` return theirs
+// (`div_t`, `lldiv_t`), as each target's C ABI says (pico calls a C shim clang compiled).
+@pod struct DivT { quot: c_int; rem: c_int }
+@pod struct LldivT { quot: c_longlong; rem: c_longlong }
+
+extern "C" {
+  function div(n: c_int, d: c_int): DivT
+  function lldiv(n: c_longlong, d: c_longlong): LldivT
+}
+
+const r = div(17 as c_int, 5 as c_int)
+println(`div ${r.quot} ${r.rem}`)
+const l = lldiv(10000000000 as c_longlong, 3 as c_longlong)
+println(`lldiv ${l.quot} ${l.rem}`)
+const n = div(-17 as c_int, 5 as c_int)
+println(`neg ${n.quot} ${n.rem}`)

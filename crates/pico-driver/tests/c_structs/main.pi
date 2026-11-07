@@ -1,0 +1,36 @@
+// The other side of structs.c (crates/pico-driver/tests/cross.rs, `c_structs_by_value`).
+@pod struct Small { x: i32; y: i32 }
+@pod struct Mixed { d: f64; i: i32 }
+@pod struct Hfa3 { a: f32; b: f32; c: f32 }
+@pod struct Hfa4 { x: f64; y: f64; z: f64; w: f64 }
+@pod struct Big { v: [i64; 5] }
+@pod struct Tiny { a: u8; b: u8; c: u8 }
+@pod struct Nested { s: Small; d: f64; ok: bool; name: ptr<u8> }
+
+@link("structs")
+extern "C" {
+  function small_add(p: Small, q: Small): Small
+  function mixed_scale(m: Mixed, k: i32): Mixed
+  function hfa3_sum(h: Hfa3): f32
+  function hfa4_twice(h: Hfa4): Hfa4
+  function big_fill(start: i64): Big
+  function big_sum(b: Big, extra: i8): i64
+  function tiny_rev(t: Tiny): Tiny
+  function nested_make(name: ptr<u8>, s: Small, d: f64, ok: bool): Nested
+  function nested_len(n: Nested): usize
+}
+
+const s = small_add(Small { x: 1, y: 2 }, Small { x: 10, y: 20 })
+println(`small ${s.x} ${s.y}`)
+const m = mixed_scale(Mixed { d: 1.5, i: 7 }, 3)
+println(`mixed ${m.d} ${m.i}`)
+println(`hfa3 ${hfa3_sum(Hfa3 { a: 1.25, b: 2.5, c: 4.0 })}`)
+const h = hfa4_twice(Hfa4 { x: 1.0, y: 2.0, z: 3.0, w: 4.0 })
+println(`hfa4 ${h.x} ${h.y} ${h.z} ${h.w}`)
+const b = big_fill(100)
+println(`big ${b.v[0]} ${b.v[4]} ${big_sum(b, -5 as i8)}`)
+const t = tiny_rev(Tiny { a: 1, b: 2, c: 3 })
+println(`tiny ${t.a} ${t.b} ${t.c}`)
+const pico: u8[] = [112, 105, 99, 111, 0]
+const n = unsafe { nested_make(ptr.of(pico[0]), Small { x: 5, y: 6 }, 0.5, true) }
+println(`nested ${n.s.x} ${n.s.y} ${n.d} ${n.ok} ${unsafe { nested_len(n) }}`)
