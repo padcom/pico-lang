@@ -4018,6 +4018,7 @@ impl Resolver {
 
     pub(crate) fn resolve_type(&mut self, t: &ast::Type) -> Ty {
         let ty = self.resolve_type_here(t);
+        self.reject_nested_reactive(t, &ty);
         if let ast::TypeKind::Path { path, .. } = &t.kind
             && let [name] = path.as_slice()
             && let Some(decl) = self.type_decl(&name.name)
@@ -4025,6 +4026,32 @@ impl Resolver {
             self.name_refs.push((name.span, decl));
         }
         ty
+    }
+
+    /// `Reactive<T>` is a binding's or a function result's type only (spec §16.1): not an
+    /// array element, a tuple element, a union member, a nullable or a type argument (#17).
+    fn reject_nested_reactive(&mut self, t: &ast::Type, ty: &Ty) {
+        if self.mods.cur == PRELUDE_MODULE {
+            return;
+        }
+        let is_cell = |t: &Ty| matches!(t, Ty::Class(_, n, _) if &**n == "Reactive");
+        let inner: Vec<&Ty> = match ty {
+            Ty::Array(e) | Ty::Fixed(e, _) | Ty::Nullable(e) => vec![&**e],
+            Ty::Tuple(ts) => ts.iter().collect(),
+            Ty::Union(_, ms) => ms.iter().collect(),
+            Ty::Class(_, n, args) | Ty::Struct(_, n, args) if &**n != "Reactive" => {
+                args.iter().collect()
+            }
+            _ => Vec::new(),
+        };
+        if inner.into_iter().any(is_cell) {
+            self.error(
+                codes::REACTIVE,
+                t.span,
+                format!("`Reactive<T>` can't be part of the type `{ty}`"),
+                "a reactive cell here",
+            );
+        }
     }
 
     /// Where the top-level `name` in scope is declared (after [`Resolver::program`]).

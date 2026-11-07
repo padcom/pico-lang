@@ -1,0 +1,10 @@
+// `Reactive<T>` can't be an array element, a nullable, a union member or a type argument
+// (issue #17).
+// error: E0357
+// at: 8:14
+// error: E0357
+// at: 9:14
+reactive n = 1
+const cells: Reactive<int>[] = [n]
+const maybe: Reactive<int>? = null
+println(cells.length)
