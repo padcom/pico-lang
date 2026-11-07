@@ -98,6 +98,9 @@ pub struct Types {
     pub derived: HashMap<ExprId, Derived>,
     /// Method calls on a value whose type is a type parameter: the method's name.
     pub param_calls: HashMap<ExprId, String>,
+    /// `a.wrappingAdd(b)` and the other explicit integer arithmetic methods (spec §2.2): the
+    /// method's name.
+    pub int_ariths: HashMap<ExprId, String>,
     /// What each function may throw: its `throws` clause, or what was inferred for it.
     pub fn_throws: Vec<Vec<Ty>>,
     /// Method calls on built-in types that call a pico extension function (`xs.map(f)` →
@@ -205,6 +208,7 @@ impl Types {
                 .map(|(k, ts)| (*k, ts.iter().map(s).collect()))
                 .collect(),
             param_calls: self.param_calls.clone(),
+            int_ariths: self.int_ariths.clone(),
             fn_throws: self.fn_throws.clone(),
             extensions: self.extensions.clone(),
             iterables: self.iterables.clone(),
@@ -274,6 +278,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             op_calls: HashMap::new(),
             derived: HashMap::new(),
             param_calls: HashMap::new(),
+            int_ariths: HashMap::new(),
             fn_throws: program.fns.iter().map(|f| f.throws.clone()).collect(),
             extensions: HashMap::new(),
             iterables: HashMap::new(),
@@ -6080,6 +6085,9 @@ impl<'p> Checker<'p> {
                 if let Some(r) = self.primitive_protocol(e, &t, name, args) {
                     return r;
                 }
+                if let Some(r) = self.int_arith(e, &t, name, args) {
+                    return r;
+                }
                 if let Ty::Param(..) = t {
                     if let Some(r) = self.param_method(e, &t, name, *name_span, args) {
                         return r;
@@ -7052,6 +7060,34 @@ impl<'p> Checker<'p> {
 
     /// `compareTo`, `equals` or `hashCode` on a number, `char`, `string` or `bool` that meets
     /// `Comparable`, `Equatable` or `Hashable`.
+    /// `a.wrappingAdd(b)`, `a.saturatingSub(b)`, `a.checkedMul(b)` (spec §2.2, #60): integer
+    /// arithmetic that wraps, clamps to the type's range or gives `null` instead of panicking.
+    fn int_arith(&mut self, e: &Expr, t: &Ty, name: &str, args: &[Expr]) -> Option<Ty> {
+        let Ty::Int(it) = t.erase() else {
+            return None;
+        };
+        let op = ["Add", "Sub", "Mul"].iter().find(|o| name.ends_with(*o))?;
+        let kind = &name[..name.len() - op.len()];
+        if !matches!(kind, "wrapping" | "saturating" | "checked") {
+            return None;
+        }
+        if args.len() != 1 {
+            self.diags.push(
+                Diagnostic::error(codes::WRONG_ARG_COUNT, format!("`{name}` takes 1 argument"))
+                    .primary(e.span, "wrong number of arguments"),
+            );
+        }
+        for a in args {
+            self.check(a, &Expect::new(Ty::Int(it)));
+        }
+        self.types.int_ariths.insert(e.id, name.to_string());
+        Some(if kind == "checked" {
+            Ty::Nullable(Box::new(Ty::Int(it)))
+        } else {
+            Ty::Int(it)
+        })
+    }
+
     fn primitive_protocol(&mut self, e: &Expr, t: &Ty, name: &str, args: &[Expr]) -> Option<Ty> {
         if !matches!(
             t.erase(),

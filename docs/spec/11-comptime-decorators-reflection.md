@@ -5,6 +5,8 @@ Two mechanisms work together:
 1. **Automatic constant folding.** Pure expressions over constants are evaluated at compile time
    without any annotation (`const KB = 1 << 10`).
    Constants flow through `const` bindings and through anything assigned only that constant.
+   That includes strings: `"a" + "b"` and the string forms of constant integers, `bool`s and
+   `char`s in templates fold too (floats are formatted at run time).
    An operation on constants that would panic at run time (overflow, division by zero, a shift
    out of range, an out-of-range `as`) is a compile error (E0347), even in code that never runs
    (decision 219).
@@ -168,7 +170,9 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
   object`, `an array`, `the end of the text`) and `missing field 'host'`. Text that isn't
   JSON gives `invalid JSON at <line>:<column>: <what>` (`expected ',' or '}'`, `unterminated
   string`, `unexpected text after the value`).
-- **`stringify`** writes compact JSON: keys in field order, `null` for null values (and for
+- **`stringify(value, indent = 0)`** writes compact JSON, or with `indent > 0` one member or
+  element per line indented by that many spaces per level, with `": "` after keys (as
+  JavaScript's `JSON.stringify(v, null, indent)`): keys in field order, `null` for null values (and for
   `NaN`/infinities), numbers as `println` shows them. Object graphs with cycles don't
   terminate (as in JS, where they throw).
 

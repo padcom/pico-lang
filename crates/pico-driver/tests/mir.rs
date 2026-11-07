@@ -79,3 +79,16 @@ println(MB + scaled(1) + narrow() as i64)
 println(`${ratio} ${big}`)
 "#));
 }
+
+/// Strings fold too (#55): concatenation of constants and the string forms of integers, `bool`s
+/// and `char`s, also through `const`s.
+#[test]
+fn string_folding() {
+    insta::assert_snapshot!(mir(r#"
+const name = "pico"
+function greet(): string { "hello, " + name + "!" }
+function tag(): string { `${1 + 2}-${true}-${'x'}` }
+println(greet())
+println(tag())
+"#));
+}

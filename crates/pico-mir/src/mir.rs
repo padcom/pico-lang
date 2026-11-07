@@ -574,8 +574,12 @@ pub enum Rvalue {
     ArrayPop(Operand),
     /// `0 <= index < len` (both `int`).
     InBounds(Operand, Operand),
-    /// Whether `a + b` overflows their integer type (range iteration).
-    AddOverflows(Operand, Operand),
+    /// Whether `a op b` (`Add`, `Sub` or `Mul`) overflows their integer type (range iteration,
+    /// `checkedAdd` and the like).
+    Overflows(BinOp, Operand, Operand),
+    /// `a op b` (`Add`, `Sub` or `Mul`) wrapped to their integer type, never panicking
+    /// (`wrappingAdd` and the like).
+    Wrapping(BinOp, Operand, Operand),
     /// `T` → `T?` (the type is the `T?`).
     WrapSome(Operand, Ty),
     /// Whether a `T?` is null.
@@ -654,12 +658,13 @@ macro_rules! rvalue_operands {
             | BoxNew(_, a)
             | Hash(a) => $f(a),
             Binary(_, a, b)
+            | Overflows(_, a, b)
+            | Wrapping(_, a, b)
             | PtrOffset(a, b, _)
             | RawArenaAlloc(_, a, b)
             | StrCharAt(a, b)
             | ArrayPush(a, b)
             | InBounds(a, b)
-            | AddOverflows(a, b)
             | HashCombine(a, b)
             | SetException(a, b) => {
                 $f(a);
@@ -923,7 +928,8 @@ impl fmt::Display for Rvalue {
             Rvalue::ArrayPush(a, v) => write!(f, "ArrayPush({a}, {v})"),
             Rvalue::ArrayPop(a) => write!(f, "ArrayPop({a})"),
             Rvalue::InBounds(i, n) => write!(f, "InBounds({i}, {n})"),
-            Rvalue::AddOverflows(a, b) => write!(f, "AddOverflows({a}, {b})"),
+            Rvalue::Overflows(op, a, b) => write!(f, "Overflows({op:?}, {a}, {b})"),
+            Rvalue::Wrapping(op, a, b) => write!(f, "Wrapping({op:?}, {a}, {b})"),
             Rvalue::WrapSome(a, t) => write!(f, "Some<{t}>({a})"),
             Rvalue::IsNull(a) => write!(f, "IsNull({a})"),
             Rvalue::ShowEnter(a) => write!(f, "ShowEnter({a})"),

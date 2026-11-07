@@ -1,0 +1,35 @@
+// `JSON.stringify(value, indent)` (#58): one member or element per line, `": "` after keys,
+// empty arrays and objects kept as they are, and strings left alone; as JavaScript writes it.
+// expect: {"x":1,"tags":["a","b,c"],"inner":{"a":true,"s":"q\"{:}"},"empty":[]}
+// expect: {
+// expect:   "x": 1,
+// expect:   "tags": [
+// expect:     "a",
+// expect:     "b,c"
+// expect:   ],
+// expect:   "inner": {
+// expect:     "a": true,
+// expect:     "s": "q\"{:}"
+// expect:   },
+// expect:   "empty": []
+// expect: }
+// expect: [
+// expect:     1,
+// expect:     2
+// expect: ]
+// expect: 5
+struct Inner {
+  a: bool
+  s: string
+}
+struct P {
+  x: int
+  tags: string[]
+  inner: Inner
+  empty: int[]
+}
+const p: P = { x: 1, tags: ["a", "b,c"], inner: { a: true, s: "q\"{:}" }, empty: [] }
+println(JSON.stringify(p))
+println(JSON.stringify(p, 2))
+println(JSON.stringify([1, 2], 4))
+println(JSON.stringify(5, 2))
