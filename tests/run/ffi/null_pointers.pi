@@ -1,0 +1,32 @@
+// native-only: the interpreter can't call C
+// expect: unset true
+// expect: HOME set true
+// expect: wrote 7
+// expect: cast null true
+// expect: narrowed 42
+// Spec §12.1: `ptr<T>?` is a C pointer that may be NULL (address 0): externs take and return
+// it, `null` is passed for it, `!= null` narrows it to `ptr<T>`, and `as` converts the pointee.
+extern "C" {
+  function getenv(name: string): ptr<u8>?
+  function malloc(n: usize): ptr<void>?
+  function free(p: ptr<void>?): void
+}
+
+unsafe {
+  println(`unset ${getenv("PICO_SURELY_NOT_SET_ANYWHERE") == null}`)
+  const home = getenv("HOME")
+  if (home != null) println(`HOME set ${string.fromC(home).length > 0}`)
+  free(null)
+  const m = malloc(16 as usize)
+  if (m != null) {
+    const b = m as ptr<u8>
+    b.write(7 as u8)
+    println(`wrote ${b.read()}`)
+    free(m)
+  }
+  const n: ptr<i32>? = null
+  println(`cast null ${(n as ptr<void>?) == null}`)
+  const xs: i32[] = [42]
+  const p: ptr<i32>? = ptr.of(xs[0])
+  if (p != null) println(`narrowed ${p.read()}`)
+}

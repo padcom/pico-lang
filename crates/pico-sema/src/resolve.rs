@@ -1737,7 +1737,11 @@ impl Resolver {
         // An extern function taking or returning pointers (callbacks too) is unsafe to call
         // (spec §12.1).
         let is_extern = self.extern_cfns.contains_key(&self.cur_fn) && f.body.is_none();
-        let raw = |t: &Option<Ty>| matches!(t, Some(Ty::Ref(_)));
+        let raw = |t: &Option<Ty>| match t {
+            Some(Ty::Ref(_)) => true,
+            Some(Ty::Nullable(t)) => matches!(**t, Ty::Ref(_)),
+            _ => false,
+        };
         let unsafe_extern =
             is_extern && (raw(&ret) || params.iter().any(|p| raw(&self.f.locals[p.0 as usize].ty)));
         Function {

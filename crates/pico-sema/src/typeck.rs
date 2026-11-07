@@ -2574,6 +2574,11 @@ impl<'p> Checker<'p> {
                     (Ty::Int(IntTy::U8 | IntTy::U32), Ty::Char) => true,
                     // Raw pointers to any other pointee (`ptr<void>` for C; spec §12.1).
                     (Ty::Ref(_), Ty::Ref(_)) => true,
+                    // Null pointers too (`ptr<T>?`, address 0).
+                    (Ty::Ref(_), Ty::Nullable(b)) => matches!(**b, Ty::Ref(_)),
+                    (Ty::Nullable(a), Ty::Nullable(b)) => {
+                        matches!(**a, Ty::Ref(_)) && matches!(**b, Ty::Ref(_))
+                    }
                     (Ty::Error, _) | (_, Ty::Error) => true,
                     _ => false,
                 };
@@ -5259,6 +5264,15 @@ impl<'p> Checker<'p> {
                 if !rt.is_int() && !rt.is_error() {
                     self.invalid_operand(r.span, "a pointer offset", &rt, "an integer");
                 }
+                if lt == Ty::Ref(Box::new(Ty::Void)) {
+                    let what = format!("`{}`", op.as_str());
+                    self.invalid_operand(
+                        l.span,
+                        &what,
+                        &lt,
+                        "a pointer to a sized type (convert it with `as ptr<u8>`)",
+                    );
+                }
                 return lt;
             }
             self.pre_inferred = Some(l.id);
@@ -6293,6 +6307,19 @@ impl<'p> Checker<'p> {
             return Some(ret);
         }
         let (arity_ok, expected, ret) = match (t, name) {
+            (Ty::Ref(elem), "read" | "write") if **elem == Ty::Void => {
+                // `void *` has no pointee to access: convert it first (spec §12.1).
+                for a in args {
+                    self.infer(a);
+                }
+                self.invalid_operand(
+                    e.span,
+                    &format!("`.{name}()`"),
+                    t,
+                    "a pointer to a type (convert it with `as ptr<T>`)",
+                );
+                return Some(Ty::Error);
+            }
             (Ty::Ref(elem), "read") => {
                 self.require_unsafe(e.span, "reading through a pointer");
                 for a in args {

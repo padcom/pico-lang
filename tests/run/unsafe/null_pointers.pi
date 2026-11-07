@@ -1,0 +1,16 @@
+// expect: true
+// expect: 2
+// expect: false
+// expect: true
+// Spec §12.1, §9.5: `ptr<T>?` without C — a pointer that may be null, narrowed by `!= null`.
+const xs: i32[] = [1, 2]
+let p: ptr<i32>? = null
+println(p == null)
+unsafe {
+  p = ptr.of(xs[1])
+  if (p != null) println(p.read())
+  const v = p as ptr<void>?
+  println(v == null)
+  const q: ptr<u8>? = v as ptr<u8>?
+  println(q == (ptr.of(xs[1]) as ptr<u8>))
+}

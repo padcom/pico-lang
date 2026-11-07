@@ -1,0 +1,7 @@
+// error: E0309
+// Spec §12.1: a `ptr<T>?` has to be narrowed (`!= null`) before it's read.
+const xs: i32[] = [1]
+unsafe {
+  const p: ptr<i32>? = ptr.of(xs[0])
+  p.read()
+}

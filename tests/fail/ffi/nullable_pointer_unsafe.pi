@@ -1,0 +1,6 @@
+// error: E0342
+// Spec §12.1: an extern taking or returning `ptr<T>?` is unsafe to call, like `ptr<T>`.
+extern "C" {
+  function getenv(name: string): ptr<u8>?
+}
+const p = getenv("HOME")

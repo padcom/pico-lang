@@ -306,6 +306,7 @@ fn check_externs(cx: &mut Cx) {
         let core = f.span.file != cx.file_id && cx.program.func(e.func).name.starts_with("pico_");
         let ok = |t: &Ty, ret: bool| match t {
             Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Ref(_) => true,
+            Ty::Nullable(t) => matches!(**t, Ty::Ref(_)),
             Ty::Str => !ret || core,
             Ty::Void => ret,
             _ => false,
@@ -349,6 +350,7 @@ fn export_wrappers(cx: &mut Cx, fns: &mut Vec<mir::Function>) -> Vec<mir::Export
             // C (spec §12.4): numbers, `bool` and pointers (structs by pointer for now).
             for t in sig.params.iter().chain(std::iter::once(&sig.ret)) {
                 let ok = matches!(t, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Ref(_))
+                    || matches!(t, Ty::Nullable(p) if matches!(**p, Ty::Ref(_)))
                     || (*t == Ty::Void && std::ptr::eq(t, &sig.ret));
                 if !ok {
                     bad.push(format!(
@@ -3685,8 +3687,14 @@ impl FnBuilder<'_, '_> {
                 {
                     return Operand::Const(Const::Int(*n, *it));
                 }
-                if matches!((&from, to), (Ty::Ref(_), Ty::Ref(_))) {
-                    // A pointer to another pointee: the same address.
+                let raw = |t: &Ty| match t {
+                    Ty::Ref(_) => true,
+                    Ty::Nullable(t) => matches!(**t, Ty::Ref(_)),
+                    _ => false,
+                };
+                if raw(&from) && raw(to) {
+                    // A pointer to another pointee: the same address (`ptr<T>?` is a pointer
+                    // that may be 0, so null stays null).
                     return self.rvalue_to_temp(Rvalue::Use(v), to.clone(), e.span);
                 }
                 self.rvalue_to_temp(Rvalue::Cast(v, to.clone()), to.clone(), e.span)
