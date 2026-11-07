@@ -39,19 +39,22 @@ error[E0308]: mismatched types
 ## 14.3 Testing
 Tests live in `*.test.pi` files and use a Vitest-like API:
 ```ts
-import { describe, test, expect, beforeEach } from "std/test"
-import { add } from "./math"
+import { describe, test, expect } from "std/test"
+import { add, load } from "./math"
+
+// An async test is an `async function` passed by name (there are no async lambdas yet).
+async function missingFilesReject(): Promise<void> {
+  await expect(load("no-such-file")).rejects.toThrow("no-such-file")
+}
 
 describe("add", () => {
   test("adds numbers", () => {
     expect(add(1, 2)).toBe(3)
   })
   test("overflow panics", () => {
-    expect(() => add(i64.MAX, 1)).toPanic()
+    expect(() => add(9223372036854775807, 1)).toPanic()
   })
-  test("async works", async () => {
-    await expect(load("x")).rejects.toThrow(IoError)
-  })
+  test("missing files reject", missingFilesReject)
 })
 ```
 Tests run in parallel, one isolated process per file (`pico test [paths] [-t filter] [--interp]
