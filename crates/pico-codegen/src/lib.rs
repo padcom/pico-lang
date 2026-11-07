@@ -44,7 +44,7 @@ pub struct Options {
     pub optimize: bool,
     /// Emit DWARF debug info: line tables (spec §14.5).
     pub debug: bool,
-    /// The LLVM triple to compile for; `None` is the host (tuned for its CPU).
+    /// The LLVM triple to compile for; `None` is the host's (for its architecture's baseline CPU).
     pub triple: Option<&'static str>,
 }
 
@@ -69,30 +69,34 @@ pub fn emit_llvm_ir_for(program: &Program, opts: Options) -> Result<String, Stri
     with_module(program, opts, |_, m| Ok(m.print_to_string().to_string()))
 }
 
-/// Builds `program`'s module for the host or `opts.triple` (verified, optimized when asked)
-/// and hands it to `f` with the target machine.
-fn with_module<R>(
-    program: &Program,
-    opts: Options,
-    then: impl FnOnce(&TargetMachine, &Module) -> Result<R, String>,
-) -> Result<R, String> {
-    let (triple, cpu, features) = match opts.triple {
+/// The CPU a binary for `triple` is compiled for: the architecture's baseline (`x86-64`, else
+/// LLVM's `generic`), so it runs on every machine of that architecture.
+fn baseline_cpu(triple: &str) -> &'static str {
+    if triple.starts_with("x86_64") {
+        "x86-64"
+    } else {
+        "generic"
+    }
+}
+
+/// The triple, CPU and features to compile for: `triple`, or the host's triple, always with the
+/// architecture's baseline CPU (never this machine's own: #117).
+fn machine_spec(
+    triple: Option<&'static str>,
+) -> Result<(inkwell::targets::TargetTriple, String, String), String> {
+    Ok(match triple {
         None => {
             Target::initialize_native(&InitializationConfig::default())?;
-            (
-                TargetMachine::get_default_triple(),
-                TargetMachine::get_host_cpu_name().to_string(),
-                TargetMachine::get_host_cpu_features().to_string(),
-            )
+            let triple = TargetMachine::get_default_triple();
+            // The architecture's baseline, not this machine's CPU: a binary built here must run
+            // on any machine of its triple (#117; with the host's features it could SIGILL).
+            let cpu = baseline_cpu(&triple.as_str().to_string_lossy());
+            (triple, cpu.to_string(), String::new())
         }
         Some(t) => {
             Target::initialize_all(&InitializationConfig::default());
             // The baseline CPU, so the binary runs on any machine of the architecture.
-            let cpu = if t.starts_with("x86_64") {
-                "x86-64"
-            } else {
-                "generic"
-            };
+            let cpu = baseline_cpu(t);
             // wasm: `try` and panics are setjmp/longjmp, lowered to Wasm exception handling
             // (the final, exnref form), as the runtime's C is.
             let features = if t.starts_with("wasm32") {
@@ -108,7 +112,17 @@ fn with_module<R>(
                 features.to_string(),
             )
         }
-    };
+    })
+}
+
+/// Builds `program`'s module for the host or `opts.triple` (verified, optimized when asked)
+/// and hands it to `f` with the target machine.
+fn with_module<R>(
+    program: &Program,
+    opts: Options,
+    then: impl FnOnce(&TargetMachine, &Module) -> Result<R, String>,
+) -> Result<R, String> {
+    let (triple, cpu, features) = machine_spec(opts.triple)?;
     let target = Target::from_triple(&triple).map_err(|e| e.to_string())?;
     let level = if opts.optimize {
         OptimizationLevel::Default
@@ -4530,4 +4544,25 @@ pub fn export_symbol(e: &pico_mir::mir::Export) -> String {
 enum CTarget<'ctx, 's> {
     Symbol(&'s str),
     Pointer(inkwell::values::PointerValue<'ctx>),
+}
+
+#[cfg(test)]
+mod cpu_tests {
+    use super::{baseline_cpu, machine_spec};
+
+    #[test]
+    fn baseline_cpus() {
+        assert_eq!(baseline_cpu("x86_64-unknown-linux-gnu"), "x86-64");
+        assert_eq!(baseline_cpu("aarch64-unknown-linux-gnu"), "generic");
+        assert_eq!(baseline_cpu("aarch64-apple-darwin"), "generic");
+    }
+
+    /// #117: a host build is for the architecture's baseline, not this machine's CPU and its
+    /// features (a binary built on one machine died with SIGILL on another of the same kind).
+    #[test]
+    fn host_builds_use_the_baseline_cpu() {
+        let (triple, cpu, features) = machine_spec(None).unwrap();
+        assert_eq!(cpu, baseline_cpu(&triple.as_str().to_string_lossy()));
+        assert_eq!(features, "");
+    }
 }
