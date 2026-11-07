@@ -1,0 +1,6 @@
+// error: E0355
+// Spec §12.1: C's `...` takes numbers, `bool`, pointers and strings: not arrays.
+extern "C" {
+  function printf(fmt: string, ...): c_int
+}
+printf("%d\n", [1, 2])

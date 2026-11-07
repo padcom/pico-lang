@@ -78,6 +78,9 @@ pub struct Types {
     pub recv_args: HashMap<ExprId, Vec<Ty>>,
     /// How each call's arguments fill the callee's parameters.
     pub arg_slots: HashMap<ExprId, Vec<Slot>>,
+    /// A call of a C variadic extern (spec §12.1): the indices of the arguments after the
+    /// fixed parameters (`printf(fmt, a, b)`: `[1, 2]`).
+    pub c_varargs: HashMap<ExprId, Vec<usize>>,
     /// The overload each call of an overloaded name picked.
     pub overloads: HashMap<ExprId, FnId>,
     /// Assignments and `++`/`--` that write a reactive cell (spec §16.2): lowering calls
@@ -214,6 +217,7 @@ impl Types {
             iterables: self.iterables.clone(),
             formattables: self.formattables.clone(),
             arg_slots: self.arg_slots.clone(),
+            c_varargs: self.c_varargs.clone(),
             overloads: self.overloads.clone(),
             reactive_writes: self.reactive_writes.clone(),
             cell_reads: self.cell_reads.iter().map(|(k, t)| (*k, s(t))).collect(),
@@ -271,6 +275,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             instances: HashMap::new(),
             recv_args: HashMap::new(),
             arg_slots: HashMap::new(),
+            c_varargs: HashMap::new(),
             overloads: HashMap::new(),
             reactive_writes: HashSet::new(),
             cell_reads: HashMap::new(),
@@ -5722,9 +5727,57 @@ impl<'p> Checker<'p> {
         let sig = self.types.sigs[id.0 as usize].clone();
         if let Some(slots) = self.map_args(e, id, &sig.params, args, false) {
             self.check_slots(id, &sig.params, args, &slots);
+            if self.program.func(id).c_variadic {
+                self.c_varargs(e, &slots, args);
+            }
             self.types.arg_slots.insert(e.id, slots);
         }
         sig.ret
+    }
+
+    /// The arguments a call of a C variadic function passes after its fixed parameters (spec
+    /// §12.1): numbers, `bool`, pointers and strings. An unsuffixed integer literal is a
+    /// `c_int` when it fits, as in C; passing a pointer needs `unsafe`.
+    fn c_varargs(&mut self, e: &Expr, slots: &[Slot], args: &[Expr]) {
+        let used: Vec<usize> = slots
+            .iter()
+            .filter_map(|s| match s {
+                Slot::Arg(i) => Some(*i),
+                _ => None,
+            })
+            .collect();
+        let extra: Vec<usize> = (0..args.len()).filter(|i| !used.contains(i)).collect();
+        for &i in &extra {
+            let a = &args[i];
+            // (One too big for an `int` is a 64-bit integer, as in C.)
+            let t = if matches!(a.kind, ExprKind::Int(v, None) if v <= i32::MAX as u64) {
+                self.check(a, &Expect::new(Ty::Int(IntTy::I32)))
+            } else {
+                self.infer(a)
+            };
+            let ptr = match &t {
+                Ty::Ref(_) => true,
+                Ty::Nullable(p) => matches!(**p, Ty::Ref(_)),
+                _ => false,
+            };
+            if ptr {
+                self.require_unsafe(a.span, "passing a pointer to a C function");
+            }
+            let ok = ptr
+                || t.is_error()
+                || matches!(t.erase(), Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Str);
+            if !ok {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::EXPORT_TYPE,
+                        format!("a `{t}` can't be passed to a C variadic function"),
+                    )
+                    .primary(a.span, format!("has type `{t}`"))
+                    .help("C's `...` takes numbers, `bool`, pointers and strings"),
+                );
+            }
+        }
+        self.types.c_varargs.insert(e.id, extra);
     }
 
     /// The expression an argument passes (inside `name: value` and `...value`).
@@ -5829,6 +5882,8 @@ impl<'p> Checker<'p> {
                     next += 1;
                 }
                 _ if f.rest => rest_args.push(i),
+                // C's `...`: checked by `c_varargs`.
+                _ if f.c_variadic => {}
                 _ => fail(
                     self,
                     e.span,

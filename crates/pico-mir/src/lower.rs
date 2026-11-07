@@ -157,8 +157,9 @@ pub fn lower(
         .then(|| worker_entries.pop().expect("pushed"));
     fns.extend(worker_fns);
     // The synthesized functions come last; calls of them get their real ids.
+    let first_synth = fns.len() as u32;
     if !synth_fns.is_empty() {
-        let first = fns.len() as u32;
+        let first = first_synth;
         fns.extend(synth_fns);
         for f in &mut fns {
             for b in &mut f.blocks {
@@ -243,13 +244,33 @@ pub fn lower(
         .collect();
     let exports = export_wrappers(&mut cx, &mut fns);
     check_externs(&mut cx);
+    // C variadic externs and the wrappers of their calls (`Synth::CVariadic`, which come
+    // last: `first_synth` on).
+    let mut c_variadic: Vec<(FnId, usize)> = Vec::new();
+    let mut externs: Vec<(FnId, String)> = Vec::new();
+    for e in &program.externs {
+        externs.push((e.func, e.symbol.clone()));
+        if program.func(e.func).c_variadic {
+            c_variadic.push((e.func, types.sigs[e.func.0 as usize].params.len()));
+        }
+    }
+    for (k, (what, _)) in cx.synths.iter().enumerate() {
+        if let Synth::CVariadic(f, _) = what {
+            let id = FnId(first_synth + k as u32);
+            let symbol = program
+                .externs
+                .iter()
+                .find(|e| e.func == *f)
+                .map(|e| e.symbol.clone())
+                .expect("an extern");
+            externs.push((id, symbol));
+            c_variadic.push((id, types.sigs[f.0 as usize].params.len()));
+        }
+    }
     let mut mir = mir::Program {
+        c_variadic,
         exports,
-        externs: program
-            .externs
-            .iter()
-            .map(|e| (e.func, e.symbol.clone()))
-            .collect(),
+        externs,
         links: program.links.clone(),
         file: file.name.clone(),
         files: cx
@@ -749,6 +770,9 @@ enum Synth {
     JsonRead(Ty),
     /// `(w: __JsonWriter, v: T)`: writes `v` as JSON.
     JsonWrite(Ty),
+    /// A call of C variadic extern `f` with extra arguments of these types: its parameters,
+    /// then the extras (native code calls the C function; the interpreter panics).
+    CVariadic(FnId, Vec<Ty>),
 }
 
 /// `s` as a JSON string literal (as `__jsonQuote` writes it).
@@ -950,6 +974,7 @@ impl Cx<'_> {
             | Synth::Debug(t) => t,
             Synth::Info { of, .. } => of,
             Synth::JsonRead(t) | Synth::JsonWrite(t) => t,
+            Synth::CVariadic(..) => &Ty::Void,
         };
         let span = match about {
             Ty::Struct(sid, _, _) | Ty::Class(sid, _, _) => self.program.struct_def(*sid).name_span,
@@ -1029,6 +1054,29 @@ impl Cx<'_> {
                 let fid = b.temp(Ty::INT);
                 b.access_body(t, Access::Show, obj, fid, None, span);
                 (format!("{t}.<show field>"), vec![obj, fid], Ty::Str, None)
+            }
+            Synth::CVariadic(f, extra) => {
+                let sig = b.cx.types.sigs[f.0 as usize].clone();
+                let name = b.cx.program.func(*f).name.clone();
+                let params: Vec<Local> = sig
+                    .params
+                    .iter()
+                    .chain(extra)
+                    .map(|t| b.temp(t.clone()))
+                    .collect();
+                let loc = b.loc(b.cx.program.func(*f).span);
+                let msg = format!("`{name}` is a C function: it needs a native build");
+                b.terminate(Terminator::Panic {
+                    msg: Operand::Const(Const::Str(msg)),
+                    loc,
+                });
+                let tys: Vec<String> = extra.iter().map(|t| t.to_string()).collect();
+                (
+                    format!("{name}<...{}>", tys.join(", ")),
+                    params,
+                    sig.ret,
+                    None,
+                )
             }
         };
         if let Some(v) = value {
@@ -7616,11 +7664,21 @@ impl FnBuilder<'_, '_> {
                     ExprKind::Fn(id) => *id,
                     _ => self.cx.types.overloads[&e.id],
                 };
-                let args: Vec<Operand> = self.call_operands(e, *id, args);
+                let mut ops: Vec<Operand> = self.call_operands(e, *id, args);
                 let id = match self.cx.types.instances.get(&e.id).cloned() {
                     Some(targs) => self.cx.instance(*id, vec![(id.0, targs)]),
+                    // C's `...` (spec §12.1): a wrapper taking the extra arguments too.
+                    None if let Some(extra) = self.cx.types.c_varargs.get(&e.id).cloned() => {
+                        let mut tys = Vec::new();
+                        for i in extra {
+                            tys.push(self.mono(self.ty_of(&args[i])));
+                            ops.push(self.expr(&args[i]));
+                        }
+                        self.cx.synth(Synth::CVariadic(*id, tys))
+                    }
                     None => *id,
                 };
+                let args = ops;
                 let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
                 let next = self.new_block();
                 self.terminate(Terminator::Call {

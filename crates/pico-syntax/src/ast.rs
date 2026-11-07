@@ -571,6 +571,8 @@ pub struct FnFlags {
     pub is_unsafe: bool,
     pub decorator: bool,
     pub arrow: bool,
+    /// A C variadic function (`function printf(fmt: string, ...): c_int`; extern only).
+    pub c_variadic: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

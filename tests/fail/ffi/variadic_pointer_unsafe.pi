@@ -1,0 +1,8 @@
+// error: E0342
+// Spec §12.1: passing a pointer to a C variadic function needs `unsafe`.
+extern "C" {
+  function printf(fmt: string, ...): c_int
+}
+const xs: i32[] = [1]
+const p: ptr<i32>? = null
+printf("%p\n", p)
