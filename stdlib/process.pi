@@ -312,7 +312,9 @@ export class Writer {
       panic(`${name} isn't piped`)
     }
     if (closing) {
-      panic(`${name} is closed`)
+      // A closed pipe: the write fails like one the system refused (#37).
+      w.p.__reject(new IoError(name, `write after close: ${name}`, "Other"))
+      return w.p
     }
     queue.push(w)
     pump()
@@ -332,6 +334,10 @@ export class Writer {
   /// Closes the pipe once earlier writes are done (twice is fine; for `stdout`/`stderr`
   /// nothing happens).
   public close(): void {
+    // The standard streams stay open (`println` writes to them too, #37).
+    if (fd >= 0 && fd <= 2) {
+      return
+    }
     closing = true
     pump()
   }
