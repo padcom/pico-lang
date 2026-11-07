@@ -1,0 +1,50 @@
+// expect: A 1 0
+// expect: after write 42
+// expect: A 7 | B zed
+// expect: nullable A 1
+// Fields of a subclass, read and written after `instanceof` narrows a base-typed variable (#102:
+// the compiler panicked looking the field up in the base class's layout).
+class Base {
+  public y: int = 0
+}
+class A extends Base {
+  public x: int = 1
+}
+function make(): Base { new A() }
+const m = make()
+if (m instanceof A) {
+  println(`A ${m.x} ${m.y}`)
+  m.x = 42
+}
+if (m instanceof A) {
+  println(`after write ${m.x}`)
+}
+
+abstract class Shape {
+  public abstract name(): string
+}
+class Sq extends Shape {
+  public x: int = 7
+  public override name(): string { "a" }
+}
+class Txt extends Shape {
+  public z: string = "zed"
+  public override name(): string { "b" }
+}
+function pick(i: int): Shape { if (i == 0) new Sq() else new Txt() }
+const seen: string[] = []
+for (const i of [0, 1]) {
+  const s = pick(i)
+  if (s instanceof Sq) {
+    seen.push(`A ${s.x}`)
+  } else if (s instanceof Txt) {
+    seen.push(`B ${s.z}`)
+  }
+}
+println(seen.join(" | "))
+
+function maybe(): Base? { new A() }
+const n = maybe()
+if (n != null && n instanceof A) {
+  println(`nullable A ${n.x}`)
+}

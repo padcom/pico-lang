@@ -2459,7 +2459,8 @@ impl FnBuilder<'_, '_> {
     fn place_deferred_raw(&mut self, e: &Expr, checks: &mut Vec<Check>) -> Place {
         match &e.kind {
             ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => {
-                self.narrowed_place(*v, &self.ty(e))
+                let t = self.ty(e);
+                self.narrowed_place(*v, &t, e.span)
             }
             ExprKind::Var(v) => self.place(*v),
             ExprKind::Member { object, .. }
@@ -2842,7 +2843,7 @@ impl FnBuilder<'_, '_> {
                 Operand::Copy(res)
             }
             ExprKind::Var(v) if self.cx.types.narrowed.contains(&e.id) => {
-                Operand::Copy(self.narrowed_place(*v, &ty))
+                Operand::Copy(self.narrowed_place(*v, &ty, e.span))
             }
             ExprKind::TypeOf(inner) => {
                 let t = self.ty_of(inner).clone();
@@ -5970,8 +5971,10 @@ impl FnBuilder<'_, '_> {
         self.call_fn_value(m, vec![recv, spec], Ty::Str, span)
     }
 
-    /// Where a narrowed variable's value is: inside the `T?`, or inside the union member.
-    fn narrowed_place(&self, v: Var, narrowed: &Ty) -> Place {
+    /// Where a narrowed variable's value is: inside the `T?`, inside the union member, or (an
+    /// object narrowed to a subclass by `instanceof`) the same reference in a temporary of the
+    /// subclass's type, so its fields are found in the subclass's layout (#102).
+    fn narrowed_place(&mut self, v: Var, narrowed: &Ty, span: Span) -> Place {
         let mut p = self.place(v);
         let mut declared = self.var_ty(v);
         if let Ty::Nullable(inner) = declared {
@@ -5982,6 +5985,15 @@ impl FnBuilder<'_, '_> {
             && let Some(i) = ms.iter().position(|m| m == narrowed)
         {
             p = p.variant_field(i as u32, 0);
+        }
+        if let (Ty::Class(from, ..), Ty::Class(to, ..)) = (&declared, narrowed)
+            && from != to
+        {
+            let o = self.rvalue_to_temp(Rvalue::Use(Operand::Copy(p)), narrowed.clone(), span);
+            let Operand::Copy(cast) = o else {
+                unreachable!("rvalue_to_temp gives a place")
+            };
+            return cast;
         }
         p
     }
