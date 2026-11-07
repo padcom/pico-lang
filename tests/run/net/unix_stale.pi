@@ -16,11 +16,13 @@ extern "C" {
 }
 
 const path = "stale.sock"
-// `struct sockaddr_un`: macOS starts with a length byte and a one-byte family, Linux with a
-// two-byte family (AF_UNIX = 1).
-const addr = new Uint8Array(110)
-if (comptime (target.os == "macos")) {
-  addr.set(0, 110)
+// `struct sockaddr_un`: on macOS 106 bytes, a length byte and a one-byte family first; on Linux
+// 110, a two-byte family first (AF_UNIX = 1). (A size past the struct's is EINVAL on macOS.)
+const macos = comptime (target.os == "macos")
+const size = if (macos) 106 else 110
+const addr = new Uint8Array(size)
+if (macos) {
+  addr.set(0, size as u8)
   addr.set(1, 1)
 } else {
   addr.set(0, 1)
@@ -28,7 +30,7 @@ if (comptime (target.os == "macos")) {
 for (let i = 0; i < path.length; i++) addr.set(2 + i, (path[i] as u32) as u8)
 unsafe {
   const fd = socket(1, 1, 0)
-  bind(fd, ptr.bytes(addr) as ptr<void>, 110 as u32)
+  bind(fd, ptr.bytes(addr) as ptr<void>, size as u32)
   close(fd)
 }
 println(`stale file: ${await exists(path)}`)
