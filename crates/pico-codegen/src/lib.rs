@@ -303,7 +303,14 @@ fn generate<'ctx>(
             continue;
         }
         match program.externs.iter().find(|(f, _)| f.0 as usize == i) {
-            Some((_, symbol)) => g.extern_body(i, symbol),
+            Some((_, symbol)) => {
+                let fixed = program
+                    .c_variadic
+                    .iter()
+                    .find(|(f, _)| f.0 as usize == i)
+                    .map(|(_, n)| *n);
+                g.extern_body(i, symbol, fixed)
+            }
             None => g.function(i),
         }
     }
@@ -1094,8 +1101,11 @@ impl<'ctx> Gen<'ctx, '_> {
     // ------------------------------------------------------------ functions
 
     /// The body of an `extern "C"` function (spec §12.1, decision 261): a call of the C
-    /// symbol, with each `string` argument passed as a temporary NUL-terminated copy.
-    fn extern_body(&mut self, index: usize, symbol: &str) {
+    /// symbol, with each `string` argument passed as a temporary NUL-terminated copy. A C
+    /// variadic function (`fixed` parameters, then the extra arguments) gets C's default
+    /// argument promotions for the extras: `bool` and narrower integers to `int`, `f32` to
+    /// `double`.
+    fn extern_body(&mut self, index: usize, symbol: &str, fixed: Option<usize>) {
         let func = &self.p.fns[index];
         let llfn = self.fns[index];
         let zeroext = inkwell::attributes::Attribute::get_named_enum_kind_id("zeroext");
@@ -1120,17 +1130,21 @@ impl<'ctx> Gen<'ctx, '_> {
                 self.ty(t)
             }
         };
+        let n_fixed = fixed.unwrap_or(params.len());
         let cfn = match self.m.get_function(symbol) {
             Some(f) => f,
             None => {
-                let ps: Vec<BasicMetadataTypeEnum> =
-                    params.iter().filter_map(cty).map(Into::into).collect();
+                let ps: Vec<BasicMetadataTypeEnum> = params[..n_fixed]
+                    .iter()
+                    .filter_map(cty)
+                    .map(Into::into)
+                    .collect();
                 let fn_ty = match cty(&func.ret) {
-                    Some(t) => t.fn_type(&ps, false),
-                    None => self.cx.void_type().fn_type(&ps, false),
+                    Some(t) => t.fn_type(&ps, fixed.is_some()),
+                    None => self.cx.void_type().fn_type(&ps, fixed.is_some()),
                 };
                 let f = self.m.add_function(symbol, fn_ty, Some(Linkage::External));
-                for (k, t) in params.iter().enumerate() {
+                for (k, t) in params[..n_fixed].iter().enumerate() {
                     if let Some(kind) = ext(t) {
                         f.add_attribute(
                             inkwell::attributes::AttributeLoc::Param(k as u32),
@@ -1167,12 +1181,33 @@ impl<'ctx> Gen<'ctx, '_> {
                     .build_int_truncate(v.into_int_value(), self.i32(), "")
                     .unwrap();
                 args.push(n.into());
+            } else if k >= n_fixed {
+                // C's default argument promotions.
+                let p = match t {
+                    Ty::Bool => self
+                        .b
+                        .build_int_z_extend(v.into_int_value(), self.i32(), "")
+                        .unwrap()
+                        .into(),
+                    Ty::Int(it) if it.bits() < 32 => self
+                        .b
+                        .build_int_cast_sign_flag(v.into_int_value(), self.i32(), it.signed(), "")
+                        .unwrap()
+                        .into(),
+                    Ty::Float(FloatTy::F32) => self
+                        .b
+                        .build_float_ext(v.into_float_value(), self.cx.f64_type(), "")
+                        .unwrap()
+                        .into(),
+                    _ => v,
+                };
+                args.push(p.into());
             } else {
                 args.push(v.into());
             }
         }
         let call = self.b.build_call(cfn, &args, "r").unwrap();
-        for (k, t) in params.iter().enumerate() {
+        for (k, t) in params[..n_fixed].iter().enumerate() {
             if let Some(kind) = ext(t) {
                 call.add_attribute(
                     inkwell::attributes::AttributeLoc::Param(k as u32),

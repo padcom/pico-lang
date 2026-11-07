@@ -510,6 +510,8 @@ pub struct Function {
     pub defaults: Vec<Option<Expr>>,
     /// The last parameter is a rest parameter (`...xs: T[]`).
     pub rest: bool,
+    /// A C variadic extern (`function printf(fmt: string, ...): c_int`, spec §12.1).
+    pub c_variadic: bool,
     /// The `throws` clause: the error classes the function may throw.
     pub throws: Vec<Ty>,
     /// No `throws` clause, and the function may leave it out: the type checker infers what

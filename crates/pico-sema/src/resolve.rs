@@ -993,6 +993,7 @@ impl Resolver {
             closure: None,
             defaults: Vec::new(),
             rest: false,
+            c_variadic: false,
             throws: Vec::new(),
             infer_throws: false,
             generator: false,
@@ -1744,6 +1745,14 @@ impl Resolver {
         };
         let unsafe_extern =
             is_extern && (raw(&ret) || params.iter().any(|p| raw(&self.f.locals[p.0 as usize].ty)));
+        if f.flags.c_variadic && !is_extern {
+            self.error(
+                codes::EXPORT_TYPE,
+                f.span,
+                "only an `extern \"C\"` function can end with C's `...`",
+                "use a rest parameter: `...xs: T[]`",
+            );
+        }
         Function {
             name: full_name,
             name_span: name.span,
@@ -1761,6 +1770,7 @@ impl Resolver {
             closure: None,
             defaults,
             rest,
+            c_variadic: is_extern && f.flags.c_variadic,
             throws,
             infer_throws,
             generator: false,
@@ -2945,6 +2955,7 @@ impl Resolver {
             closure: None,
             defaults,
             rest: has_rest,
+            c_variadic: false,
             throws,
             infer_throws: false,
             generator: false,
@@ -3054,6 +3065,7 @@ impl Resolver {
             closure: None,
             defaults: Vec::new(),
             rest: false,
+            c_variadic: false,
             throws: Vec::new(),
             infer_throws: false,
             generator: false,
@@ -3902,6 +3914,7 @@ impl Resolver {
             }),
             defaults: Vec::new(),
             rest: false,
+            c_variadic: false,
             throws: Vec::new(),
             infer_throws: true,
             generator: f.flags.generator,

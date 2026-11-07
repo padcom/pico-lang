@@ -212,7 +212,10 @@ impl Parser {
     /// Everything after the name: generics, parameters, return type, throws, where.
     fn fn_rest(&mut self, name: Option<Ident>, flags: FnFlags, start: Span) -> FnDecl {
         let generics = self.generics();
-        let params = self.params().unwrap_or_default();
+        let mut flags = flags;
+        let params = self
+            .params_with(Some(&mut flags.c_variadic))
+            .unwrap_or_default();
         let ret = if self.eat(Punct::Colon) {
             Some(self.ty())
         } else {
@@ -256,6 +259,12 @@ impl Parser {
     /// `(a: T, b = 1, c?: U, ...rest: V[], { x, y }: P)`. Returns `None` if the list is
     /// malformed (used by arrow-function speculation).
     pub(super) fn params(&mut self) -> Option<Vec<Param>> {
+        self.params_with(None)
+    }
+
+    /// [`Self::params`]; with `variadic`, a trailing bare `...` (C's variadic marker) is
+    /// accepted and sets it.
+    fn params_with(&mut self, mut variadic: Option<&mut bool>) -> Option<Vec<Param>> {
         let open = self.span();
         if !self.eat(Punct::LParen) {
             self.error_expected("`(`");
@@ -263,6 +272,14 @@ impl Parser {
         }
         let mut out = Vec::new();
         while !self.at(Punct::RParen) && !self.at_eof() {
+            if let Some(v) = variadic.as_deref_mut()
+                && self.at(Punct::Ellipsis)
+                && self.peek_nth(1).is_punct(Punct::RParen)
+            {
+                self.bump();
+                *v = true;
+                break;
+            }
             out.push(self.param()?);
             if !self.eat(Punct::Comma) {
                 break;

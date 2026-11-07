@@ -1,0 +1,4 @@
+// error: E0355
+// Spec §12.1: only an `extern "C"` function can end with C's `...` (pico has rest parameters).
+function f(a: int, ...): int { a }
+println(f(1))

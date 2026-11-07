@@ -645,6 +645,7 @@ fn fn_s(head: &str, f: &FnDecl) -> S {
         (f.flags.generator, "generator"),
         (f.flags.is_unsafe, "unsafe"),
         (f.flags.decorator, "decorator"),
+        (f.flags.c_variadic, "c-variadic"),
     ] {
         if on {
             items.push(atom(name));

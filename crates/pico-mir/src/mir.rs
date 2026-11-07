@@ -69,6 +69,10 @@ pub struct Program {
     /// Functions declared in `extern "C"` blocks: their bodies (a panic, for the
     /// interpreter) are replaced by calls of these C symbols in native code.
     pub externs: Vec<(FnId, String)>,
+    /// The externs among them that are C variadic functions, with their number of fixed
+    /// parameters: the extern itself and one wrapper per list of extra argument types (its
+    /// further parameters are the extra arguments, spec §12.1).
+    pub c_variadic: Vec<(FnId, usize)>,
     /// `@link` libraries.
     pub links: Vec<String>,
     /// The source files by `FileId` (empty unless the driver filled it in): for debug info.

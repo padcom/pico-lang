@@ -2,7 +2,7 @@
 //! embedded libclang, the compiler asks the clang it already uses for the header's AST as JSON
 //! (`-Xclang -ast-dump=json`) and its macros (`-E -dM`), and generates:
 //!
-//! - `extern "C"` declarations for its functions (not variadic ones, nor those taking or
+//! - `extern "C"` declarations for its functions, variadic ones too (not those taking or
 //!   returning structs by value: C ABI lowering for those doesn't exist yet),
 //! - `@pod` structs for complete structs whose fields all map,
 //! - constants for enumerators and for `#define`s that are plain number or string literals.
@@ -344,8 +344,11 @@ impl Gen {
     /// `(params): R` for a function, if its signature maps.
     fn function(&self, d: &Value) -> Option<String> {
         let ft = d["type"]["qualType"].as_str()?;
-        if ft.contains("...") {
-            return None; // variadic
+        // A C variadic function ends with `...` (spec §12.1); a variadic function pointer
+        // among the parameters doesn't map.
+        let variadic = d["variadic"] == true;
+        if !variadic && ft.contains("...") {
+            return None;
         }
         let known: BTreeSet<String> = self.structs.keys().cloned().collect();
         let ret_c = ft.split('(').next()?.trim().to_string();
@@ -375,6 +378,9 @@ impl Gen {
                 .map(pico_field)
                 .unwrap_or_else(|| format!("a{i}"));
             params.push(format!("{name}: {ty}"));
+        }
+        if variadic {
+            params.push("...".into());
         }
         Some(format!("({}): {ret}", params.join(", ")))
     }
@@ -427,7 +433,8 @@ impl Gen {
             };
         }
         if let Some(inner) = t.strip_suffix('*') {
-            let inner_raw = raw.trim_end().strip_suffix('*').unwrap_or(raw);
+            // (Qualifiers after the last `*` belong to the pointer: `const char *restrict`.)
+            let inner_raw = raw.rfind('*').map_or(raw, |i| &raw[..i]);
             let inner = inner.trim();
             if param && inner == "char" && inner_raw.contains("const") && !inner_raw.contains('*') {
                 return CTy::ConstStr;
@@ -810,6 +817,8 @@ mod tests {
         assert_eq!(m("const char *", true), CTy::ConstStr);
         assert_eq!(m("char *", true), CTy::Ty("ptr<u8>".into()));
         assert_eq!(m("const char *", false), CTy::Ty("ptr<u8>".into()));
+        assert_eq!(m("const char *restrict", true), CTy::ConstStr);
+        assert_eq!(m("char *const", true), CTy::Ty("ptr<u8>".into()));
         assert_eq!(m("unsigned long", false), CTy::Ty("usize".into()));
         assert_eq!(m("struct Rect *", false), CTy::Ty("ptr<Rect>".into()));
         assert_eq!(m("struct Opaque *", false), CTy::Ty("ptr<void>".into()));

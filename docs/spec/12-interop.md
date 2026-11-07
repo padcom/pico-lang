@@ -62,6 +62,23 @@ unsafe {
 `ptr<void>` (C's `void *`) has no pointee: `.read()`, `.write(v)` and pointer arithmetic on it
 are E0304; convert it first (`p as ptr<u8>`). Decision 326.
 
+### Variadic functions
+A C variadic function ends its parameter list with a bare `...` (only in `extern "C"`
+blocks: pico functions use rest parameters, E0355 otherwise).
+```ts
+extern "C" {
+  function printf(fmt: string, ...): c_int
+}
+printf("%d %s %.2f\n", 42, "pico", 3.14)
+```
+The extra arguments may be numbers, `bool`, `string` (converted like a `string` parameter)
+and pointers (E0355 otherwise). C's default argument promotions apply: `bool` and integers
+narrower than 32 bits are passed as `int`, `f32` as `double`. An unsuffixed integer literal
+there is a `c_int` when it fits (a 64-bit integer otherwise), as in C, so `%d` reads it; give
+other integers the type the format expects (`%ld` wants a `c_long`). Passing a pointer needs
+`unsafe`. C's stdio buffers its output apart from pico's: call `fflush` before mixing them.
+Decision 327.
+
 ## 12.2 C: automatic header import
 ```ts
 import * as sdl from "c:SDL2/SDL.h"
@@ -74,10 +91,11 @@ Function-like macros are skipped. Include paths and link flags come from `projec
 (`"c": { "include": [...], "link": [...], "pkgConfig": ["sdl2"] }`, found in the program's
 directory or above) or pkg-config. `c:./x.h` is a header next to the importing file.
 
-The compiler reads the header through clang's JSON AST (decision 262). Functions that are
-variadic or pass structs or unions by value are left out for now, as are bit-fields and unions;
+The compiler reads the header through clang's JSON AST (decision 262). Variadic functions end
+with `...`; functions that pass structs or unions by value are left out for now, as are
+bit-fields and unions;
 pointers to opaque types are `ptr<void>`, `char *` is `ptr<u8>` and a `const char *` parameter
-`string`. Enumerators are `c_int` constants.
+`string` (`const char *restrict` too). Enumerators are `c_int` constants.
 
 ## 12.3 JavaScript (wasm32-browser)
 ### Typed imports via `.d.ts`
