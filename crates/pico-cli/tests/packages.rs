@@ -130,3 +130,46 @@ fn init_add_run_remove() {
     let (ok, out) = pico(&["add", "ext/colors"], &app, &cache);
     assert!(!ok && out.contains("P10.4"), "{out}");
 }
+
+/// Relative paths inside a workspace member (#93): `pico build main.pi` and a module it imports
+/// relatively (whose directory is then empty) still find the workspace, and no lockfile appears
+/// in the member.
+#[test]
+fn relative_paths_in_a_workspace_member() {
+    let ws = std::env::temp_dir().join(format!("pico-cli-relative-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    let write = |path: &str, text: &str| {
+        let p = ws.join(path);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    write("project.json", r#"{ "workspace": ["lib", "apps/app"] }"#);
+    write(
+        "lib/project.json",
+        r#"{ "name": "me/lib", "version": "0.1.0" }"#,
+    );
+    write("lib/index.pi", "/** One. */\nexport const ONE: int = 1\n");
+    write(
+        "apps/app/project.json",
+        r#"{ "name": "me/app", "version": "0.1.0", "entry": "main.pi", "dependencies": { "me/lib": "0.1" } }"#,
+    );
+    write(
+        "apps/app/main.pi",
+        "import { two } from \"./two\"\nprintln(`${two()}`)\n",
+    );
+    write(
+        "apps/app/two.pi",
+        "import { ONE } from \"me/lib\"\nexport function two(): int { ONE + ONE }\n",
+    );
+    let app = ws.join("apps/app");
+    let cache = ws.join("cache");
+    for file in ["main.pi", "./main.pi"] {
+        let (ok, out) = pico(&["run", file], &app, &cache);
+        assert!(ok && out.contains('2'), "pico run {file}:\n{out}");
+    }
+    assert!(
+        !app.join("project.lock").exists(),
+        "a lockfile appeared in the member"
+    );
+    let _ = std::fs::remove_dir_all(&ws);
+}

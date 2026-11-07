@@ -763,6 +763,11 @@ async function fetch(input: string | URL | Request, init: RequestInit = {}): Pro
       req = new Request(next, { method: if (req.method == "HEAD") "HEAD" else "GET", headers: req.headers, redirect: req.redirect, caCerts: req.__caCerts })
     } else {
       const bb = req.__bytes
+      if (bb == null && req.__stream != null) {
+        // A streamed body was sent and can't be sent again (#32): a network error, as in the
+        // Fetch spec.
+        throw new TypeError(`fetch: can't follow a ${s} redirect with a streamed body`)
+      }
       if (bb != null) {
         req = new Request(next, { method: req.method, headers: req.headers, body: bb, redirect: req.redirect, caCerts: req.__caCerts })
       } else {

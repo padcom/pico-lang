@@ -1,0 +1,18 @@
+// Closing `stdout` leaves it open (as `println` sees it), and writing to a closed pipe rejects with
+// an `IoError` instead of panicking (issue #37).
+// expect: after close
+// expect: done
+// expect: Other: write after close: stdin
+import { Command, stdout } from "std/process"
+
+stdout.close()
+await stdout.writeText("after close\n")
+println("done")
+const cat = new Command("cat", stdin: "pipe", stdout: "pipe").spawn()
+cat.stdin.close()
+try {
+  await cat.stdin.writeText("late\n")
+} catch (e: IoError) {
+  println(`${e.kind}: ${e.message}`)
+}
+await cat.status()

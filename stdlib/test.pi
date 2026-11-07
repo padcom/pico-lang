@@ -48,6 +48,8 @@ class __Suite {
   public afterAll: (() => void)[] = []
   /// Whether `beforeAll` ran (it runs before the suite's first test).
   public started: bool = false
+  /// What failed in `beforeAll`: every test of the suite fails with it.
+  public setupFailures: string[] = []
   /// Tests left before `afterAll` runs.
   public remaining: int = 0
 
@@ -141,6 +143,11 @@ export function skip(name: string, fn: () => void throws Error): void {
   __register(name, fn, null, true, false)
 }
 
+/// An async test that's reported as skipped.
+export function skip(name: string, fn: () => Promise<void, Error>): void {
+  __register(name, null, fn, true, false)
+}
+
 /// When any test is `only`, the others are skipped.
 export function only(name: string, fn: () => void throws Error): void {
   __register(name, fn, null, false, true)
@@ -228,6 +235,10 @@ async function __runAll(): Promise<void> {
       if (!s.started) {
         s.started = true
         for (const h of s.beforeAll) __hook(r, h)
+        s.setupFailures = r.failures.slice(0)
+      } else {
+        // A failed `beforeAll` fails every test of its suite, not only the first (#38).
+        for (const f of s.setupFailures) r.failures.push(f)
       }
     }
     for (const s of t.suites) {
@@ -628,7 +639,7 @@ export class FnExpect {
     })
     if (p != null) {
       if (p == __STOP) panic(__STOP)
-      __fail(`expected a throw, but it panicked: ${p}`)
+      __fail(`expected ${if (this.negated) "no throw" else "a throw"}, but it panicked: ${p}`)
       return
     }
     const m = thrown

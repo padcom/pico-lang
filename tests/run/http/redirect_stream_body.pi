@@ -1,0 +1,25 @@
+// A 307/308 redirect with a streamed body fails the fetch (it can't be sent again); a buffered
+// body is sent again (issue #32).
+// expect: stream body after 307: TypeError
+// expect: string body after 307: POST body=[plain]
+import { serve } from "std/http"
+import { ReadableStream } from "std/streams"
+
+async function handle(req: Request): Promise<Response> throws Error {
+  if (req.url.endsWith("/old")) {
+    return new Response("", { status: 307, headers: { location: "/new" } })
+  }
+  new Response(`${req.method} body=[${await req.text()}]`)
+}
+
+const server = await serve({ port: 0 }, handle)
+const base = `http://127.0.0.1:${server.addr.port}`
+try {
+  const r1 = await fetch(`${base}/old`, { method: "POST", body: ReadableStream.from([new TextEncoder().encode("streamed")]) })
+  println(`stream body after 307: ${await r1.text()}`)
+} catch (e: TypeError) {
+  println("stream body after 307: TypeError")
+}
+const r2 = await fetch(`${base}/old`, { method: "POST", body: "plain" })
+println(`string body after 307: ${await r2.text()}`)
+await server.shutdown()

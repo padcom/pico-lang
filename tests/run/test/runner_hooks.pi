@@ -1,0 +1,30 @@
+// `std/test`: a failed `beforeAll` fails every test of its suite (#38), a negated `toThrow` on a
+// panic says what it expected (#39), and async tests can be skipped (#40).
+// exit: 1
+// expect:   ✗ suite > first
+// expect:       panic: setup failed
+// expect:   ✗ suite > second
+// expect:       panic: setup failed
+// expect:   ✓ other
+// expect:   ✗ no throw
+// expect:       expected no throw, but it panicked: kaboom
+// expect:   - async skipped (skipped)
+// expect: pico-test: 1 passed, 3 failed, 1 skipped
+import { env } from "std/process"
+import { describe, test, expect, beforeAll, skip } from "std/test"
+
+env.set("PICO_TEST_TIMES", "0")
+
+describe("suite", () => {
+  beforeAll(() => panic("setup failed"))
+  test("first", () => expect(1).toBe(1))
+  test("second", () => expect(1).toBe(1))
+})
+test("other", () => expect(1).toBe(1))
+test("no throw", () => {
+  expect(() => panic("kaboom")).not.toThrow()
+})
+async function slow(): Promise<void> {
+  expect(1).toBe(1)
+}
+skip("async skipped", slow)
