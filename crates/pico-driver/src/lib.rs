@@ -259,7 +259,7 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, mode: Mode)
             diags.append(&mut d);
             t.stage("typecheck");
             if !recover && !diags.iter().any(Diagnostic::is_error) {
-                let (mut m, mut d) = pico_mir::lower(&program, &ty, sm.file(file), file);
+                let (mut m, mut d) = pico_mir::lower(&program, &ty, &sm, file);
                 diags.append(&mut d);
                 t.stage("mir");
                 if !diags.iter().any(Diagnostic::is_error) {

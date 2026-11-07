@@ -2773,7 +2773,8 @@ impl<'p> Gen<'p> {
     fn throw_panic(&self, s: &mut InstructionSink, loc: mir::Loc) {
         let g = self.panic_global();
         s.global_set(g);
-        s.i32_const(loc.line as i32);
+        // The glue names only the entry file: no location elsewhere (rather than a wrong one).
+        s.i32_const(if loc.file == 0 { loc.line as i32 } else { 0 });
         s.global_set(g + 1);
         s.i32_const(loc.col as i32);
         s.global_set(g + 2);

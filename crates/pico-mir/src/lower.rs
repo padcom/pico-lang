@@ -7,24 +7,27 @@
 use crate::mir::{
     self, BlockId, Callee, Const, Loc, Local, LocalDecl, Operand, Place, Rvalue, Terminator, panics,
 };
-use pico_diag::{Diagnostic, SourceFile, Span, codes};
+use pico_diag::{Diagnostic, SourceMap, Span, codes};
 use pico_sema::hir::{self, Builtin, Expr, ExprKind, FnId, Stmt, Var};
 use pico_sema::ty::{LitVal, StructId};
 use pico_sema::{IntTy, Ty, Types};
 use pico_syntax::ast;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 pub fn lower(
     program: &hir::Program,
     types: &Types,
-    file: &SourceFile,
+    sources: &SourceMap,
     file_id: pico_diag::FileId,
 ) -> (mir::Program, Vec<Diagnostic>) {
+    let file = sources.file(file_id);
     let mut cx = Cx {
         program,
         types: TypesRef::Borrowed(types),
-        file,
         file_id,
+        sources,
+        loc_files: RefCell::new(vec![file_id]),
         diags: Vec::new(),
         reported: HashSet::new(),
         itables: Vec::new(),
@@ -248,6 +251,12 @@ pub fn lower(
             .collect(),
         links: program.links.clone(),
         file: file.name.clone(),
+        files: cx
+            .loc_files
+            .borrow()
+            .iter()
+            .map(|f| sources.file(*f).name.clone())
+            .collect(),
         fns,
         entry: program.entry,
         worker_entries,
@@ -667,9 +676,12 @@ struct Cx<'a> {
     cur_subst: Subst,
     /// Named functions used as values: (function, the adapter that takes an environment).
     fn_values: Vec<(FnId, FnId)>,
-    file: &'a SourceFile,
-    /// The program's file; spans elsewhere (the prelude) get no location.
+    /// The program's file (the entry module).
     file_id: pico_diag::FileId,
+    /// Every file, for panic locations in modules and the core library (#3).
+    sources: &'a SourceMap,
+    /// The files panic locations are in, by `Loc::file` (the entry file first).
+    loc_files: RefCell<Vec<pico_diag::FileId>>,
     diags: Vec<Diagnostic>,
     /// Spans already reported as not implemented (lowering has no such gaps right now).
     #[allow(dead_code)]
@@ -1524,16 +1536,22 @@ fn bin_op(op: ast::BinOp) -> mir::BinOp {
 
 impl FnBuilder<'_, '_> {
     fn loc(&self, span: Span) -> Loc {
-        if span.file != self.cx.file_id {
-            return Loc {
-                span: Some(span),
-                ..Loc::default()
-            };
-        }
-        let (line, col) = self.cx.file.line_col(span.start);
+        // The file's index in `Program::files` (added on first use).
+        let file = {
+            let mut files = self.cx.loc_files.borrow_mut();
+            match files.iter().position(|f| *f == span.file) {
+                Some(i) => i,
+                None => {
+                    files.push(span.file);
+                    files.len() - 1
+                }
+            }
+        };
+        let (line, col) = self.cx.sources.file(span.file).line_col(span.start);
         Loc {
             line: line as u32,
             col: col as u32,
+            file: file as u32,
             span: Some(span),
         }
     }

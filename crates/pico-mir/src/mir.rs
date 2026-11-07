@@ -34,12 +34,14 @@ pub struct Local(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlockId(pub u32);
 
-/// A source position, for panic messages (line and column in the entry file, 0 elsewhere),
-/// and the span of the code, for compile-time diagnostics (constant folding).
+/// A source position, for panic messages (line and column in file `file`, an index into
+/// `Program::files`: 0 is the entry file), and the span of the code, for compile-time
+/// diagnostics (constant folding).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct Loc {
     pub line: u32,
     pub col: u32,
+    pub file: u32,
     pub span: Option<pico_diag::Span>,
 }
 
@@ -47,6 +49,8 @@ pub struct Loc {
 pub struct Program {
     /// The source file name, used in panic locations.
     pub file: String,
+    /// The names of the files panic locations are in (`Loc::file`); the first is `file`.
+    pub files: Vec<String>,
     pub fns: Vec<Function>,
     pub entry: FnId,
     /// Per file-based worker (spec §10.2), in order of their ids (from 1): the function its

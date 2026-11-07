@@ -534,7 +534,7 @@ fn run_decorators(
     if diags.iter().any(Diagnostic::is_error) {
         return Err(diags);
     }
-    let (mut mir, mut d) = pico_mir::lower(&hir, &types, sm.file(entry), entry);
+    let (mut mir, mut d) = pico_mir::lower(&hir, &types, sm, entry);
     diags.append(&mut d);
     if diags.iter().any(Diagnostic::is_error) {
         return Err(diags);

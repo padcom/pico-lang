@@ -240,7 +240,7 @@ fn generate<'ctx>(
         fns: Vec::new(),
         globals: Vec::new(),
         cstrings: HashMap::new(),
-        file: None,
+        files: HashMap::new(),
         structs: Vec::new(),
         enums: Vec::new(),
         debug_fns: HashMap::new(),
@@ -418,7 +418,8 @@ struct Gen<'ctx, 'p> {
     fns: Vec<FunctionValue<'ctx>>,
     globals: Vec<Option<GlobalValue<'ctx>>>,
     cstrings: HashMap<String, GlobalValue<'ctx>>,
-    file: Option<GlobalValue<'ctx>>,
+    /// The panic location files' names, by `Loc::file`.
+    files: HashMap<u32, GlobalValue<'ctx>>,
     /// LLVM struct types, by `StructId`.
     structs: Vec<inkwell::types::StructType<'ctx>>,
     /// Generated `${v:?}` helpers, by type.
@@ -2016,21 +2017,22 @@ impl<'ctx> Gen<'ctx, '_> {
 
     // ------------------------------------------------------------ panics and checks
 
-    fn file_global(&mut self) -> GlobalValue<'ctx> {
-        if let Some(f) = self.file {
-            return f;
+    /// The name of file `i` of `Program::files` (0: the entry file), as a C string.
+    fn file_global(&mut self, i: u32) -> (GlobalValue<'ctx>, u64) {
+        let name = self.p.files.get(i as usize).unwrap_or(&self.p.file).clone();
+        if let Some(g) = self.files.get(&i) {
+            return (*g, name.len() as u64);
         }
-        let name = self.p.file.clone();
         let g = self.cstring(&name);
-        self.file = Some(g);
-        g
+        self.files.insert(i, g);
+        (g, name.len() as u64)
     }
 
     fn loc_args(&mut self, loc: Loc) -> [BasicMetadataValueEnum<'ctx>; 4] {
-        let file = self.file_global();
+        let (file, len) = self.file_global(loc.file);
         [
             file.as_pointer_value().into(),
-            self.i64().const_int(self.p.file.len() as u64, false).into(),
+            self.i64().const_int(len, false).into(),
             self.i32().const_int(loc.line as u64, false).into(),
             self.i32().const_int(loc.col as u64, false).into(),
         ]

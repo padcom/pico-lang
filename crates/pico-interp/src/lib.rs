@@ -300,7 +300,12 @@ impl Interp<'_, '_> {
     fn panic(&self, msg: &str, loc: Loc) -> Panic {
         Panic {
             msg: msg.to_string(),
-            file: self.p.file.clone(),
+            file: self
+                .p
+                .files
+                .get(loc.file as usize)
+                .unwrap_or(&self.p.file)
+                .clone(),
             loc,
             uncaught: false,
             trace: self.stack.iter().rev().cloned().collect(),
