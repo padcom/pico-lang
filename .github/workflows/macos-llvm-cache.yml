@@ -1,0 +1,30 @@
+name: macos-llvm-cache
+
+# Fills the cache of Homebrew's llvm@23 built for Intel Macs (.github/actions/macos-llvm, #127):
+# there's no bottle, so a release build would otherwise compile LLVM for about 5.3 h of its 6 h.
+# A cache saved from a tag run is scoped to that tag and invisible to the next one; saved from
+# main, release.yml's tag runs restore it. Weekly, so a new llvm@23 formula version is built
+# before a release needs it; and when the action changes. On a hit it takes a few minutes.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+  push:
+    branches: [main]
+    paths:
+      - .github/actions/macos-llvm/**
+      - .github/workflows/macos-llvm-cache.yml
+
+permissions:
+  contents: read
+
+jobs:
+  llvm:
+    name: llvm@23 (macos-x64)
+    runs-on: macos-15-intel
+    # A miss builds LLVM from source (about 5.3 h); 6 h is the limit.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/macos-llvm

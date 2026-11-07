@@ -16,6 +16,8 @@ jobs:
   build:
     name: build (${{ matrix.host }})
     runs-on: ${{ matrix.os }}
+    # macos-x64 builds LLVM from source when its cache misses (about 5.3 h, #127); 6 h is the limit.
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
@@ -40,18 +42,21 @@ jobs:
           v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "tag $GITHUB_REF_NAME, Cargo.toml $v"; exit 1; }
 
-      # lld's static libraries let the macOS pico link the other targets. Homebrew's `lld` has
-      # only shared ones (built against its newest `llvm`), so they're built for llvm@23 once
-      # per LLVM version and cached.
+      # (Intel Macs have no llvm@23 bottle: the action caches the keg it builds, #127.)
       - name: Install LLVM 23 (macOS)
         if: runner.os == 'macOS'
+        uses: ./.github/actions/macos-llvm
+
+      - name: LLVM 23's version (macOS)
+        if: runner.os == 'macOS'
         run: |
-          # (An image's Homebrew index can predate llvm@23, as the Intel one's did.)
-          brew install llvm@23 || { brew update && brew install llvm@23; }
           source scripts/env.sh
           echo "LLVM_VERSION=$(llvm-config --version)" >> "$GITHUB_ENV"
           echo "PICO_LLD_PREFIX=$RUNNER_TEMP/lld" >> "$GITHUB_ENV"
 
+      # lld's static libraries let the macOS pico link the other targets. Homebrew's `lld` has
+      # only shared ones (built against its newest `llvm`), so they're built for llvm@23 once
+      # per LLVM version and cached.
       - uses: actions/cache@v4
         if: runner.os == 'macOS'
         id: lld

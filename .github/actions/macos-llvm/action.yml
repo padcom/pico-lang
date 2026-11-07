@@ -1,0 +1,63 @@
+name: Homebrew llvm@23 (macOS)
+description: >-
+  Installs Homebrew's llvm@23 (keg-only; scripts/env.sh finds it under $(brew --prefix)/opt).
+  Intel Macs have no bottle for it, and LLVM's releases have no macOS x64 build, so there it's
+  compiled from source, about 5.3 h of the 6 h a job may take (#127). The built keg is cached,
+  keyed on the runner and the formula's version, and restored instead. Apple silicon installs
+  the bottle, as before, uncached.
+
+runs:
+  using: composite
+  steps:
+    # The key: the formula's version and revision, as the keg directory is named.
+    - name: llvm@23's formula version (Intel)
+      id: formula
+      if: runner.arch == 'X64'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: '1'
+      run: |
+        # (An image's Homebrew index can predate llvm@23, as the Intel one's did.)
+        brew info --json=v2 llvm@23 > /dev/null 2>&1 || brew update
+        info=$(brew info --json=v2 llvm@23)
+        version=$(jq -r '.formulae[0] | .versions.stable + (if .revision > 0 then "_\(.revision)" else "" end)' <<< "$info")
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "cellar=$(brew --cellar)/llvm@23" >> "$GITHUB_OUTPUT"
+        echo "opt=$(brew --prefix)/opt/llvm@23" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache/restore@v4
+      id: restore
+      if: runner.arch == 'X64'
+      with:
+        path: ${{ steps.formula.outputs.cellar }}
+        key: llvm@23-${{ runner.os }}-${{ runner.arch }}-${{ steps.formula.outputs.version }}
+
+    # A restored keg: its dependencies (bottles: z3, zstd, …) and the opt link brew would make.
+    - name: Use the cached llvm@23 (Intel)
+      if: runner.arch == 'X64' && steps.restore.outputs.cache-hit == 'true'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: '1'
+        KEG: ${{ steps.formula.outputs.cellar }}/${{ steps.formula.outputs.version }}
+        OPT: ${{ steps.formula.outputs.opt }}
+      run: |
+        [ -x "$KEG/bin/llvm-config" ] || { echo "the cached keg has no llvm-config: $KEG" >&2; exit 1; }
+        brew install --only-dependencies llvm@23
+        mkdir -p "$(dirname "$OPT")"
+        ln -sfn "$KEG" "$OPT"
+        "$OPT/bin/llvm-config" --version
+
+    - name: Install llvm@23
+      if: runner.arch != 'X64' || steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        # (An image's Homebrew index can predate llvm@23, as the Intel one's did.)
+        brew install llvm@23 || { brew update && brew install llvm@23; }
+
+    # Saved after a build. Only caches saved on main are visible to tag runs (a tag's own are
+    # scoped to it), so .github/workflows/macos-llvm-cache.yml fills it from main.
+    - uses: actions/cache/save@v4
+      if: runner.arch == 'X64' && steps.restore.outputs.cache-hit != 'true'
+      with:
+        path: ${{ steps.formula.outputs.cellar }}
+        key: llvm@23-${{ runner.os }}-${{ runner.arch }}-${{ steps.formula.outputs.version }}
