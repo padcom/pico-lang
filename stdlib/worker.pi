@@ -56,7 +56,7 @@ export function parallelMap<T extends Sendable, U extends Sendable, E extends Er
 export class WorkerPool<In extends Sendable, Out extends Sendable> {
   workers: Worker<In, Out>[] = []
   /// Per worker: the promises waiting for its answers, oldest first.
-  waiting: Promise<Out>[][] = []
+  waiting: Promise<Out, WorkerPanicked>[][] = []
 
   /// (`module` is the module's id: the compiler rewrites the path.)
   constructor(module: int, size: int) {
@@ -71,6 +71,8 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
           q[0].__resolve(m)
         }
       }
+      // A worker that dies fails the jobs it had (#22).
+      w.onerror = (e: WorkerPanicked) => this.fail(i, e)
       this.workers.push(w)
     }
   }
@@ -80,24 +82,36 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
     this.workers.length
   }
 
-  /// Sends `job` to the worker with the fewest jobs waiting.
-  public run(job: In): Promise<Out> {
+  /// Sends `job` to the worker with the fewest jobs waiting. Rejects with a `WorkerPanicked` if
+  /// that worker dies or the pool is terminated first.
+  public run(job: In): Promise<Out, WorkerPanicked> {
     let best = 0
     for (let i = 1; i < this.workers.length; i++) {
       if (this.waiting[i].length < this.waiting[best].length) {
         best = i
       }
     }
-    const p = new Promise<Out>()
+    const p = new Promise<Out, WorkerPanicked>()
     this.waiting[best].push(p)
     this.workers[best].postMessage(job)
     p
   }
 
-  /// Stops every worker; jobs still waiting for an answer never settle.
+  /// Stops every worker; jobs still waiting for an answer reject with a `WorkerPanicked`.
   public terminate(): void {
     for (const w of this.workers) {
       w.terminate()
+    }
+    for (let i = 0; i < this.workers.length; i++) {
+      this.fail(i, new WorkerPanicked("the pool was terminated"))
+    }
+  }
+
+  fail(i: int, e: WorkerPanicked): void {
+    const q = this.waiting[i]
+    this.waiting[i] = []
+    for (const p of q) {
+      p.__reject(e)
     }
   }
 }

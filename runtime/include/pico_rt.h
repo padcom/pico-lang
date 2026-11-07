@@ -161,6 +161,8 @@ void pico_gc_collect_young(void);
 /* `bytes` of off-heap memory now owned by a GC object (an `ArrayBuffer`): counted toward the
  * collection triggers like allocation (#90). */
 void pico_gc_external(int64_t bytes);
+/* An `ArrayBuffer` received in a message (#16): its `bytes` are freed when it dies. */
+void pico_gc_own_buffer(void *obj, int64_t bytes);
 void pico_gc_pause(void);
 void pico_gc_resume(void);
 void pico_gc_dump_roots(void);

@@ -310,7 +310,9 @@ fn attaches_to_a_program_when_it_starts() {
         "setBreakpoints",
         json!({ "source": { "path": main.display().to_string() }, "breakpoints": [{ "line": 3 }] }),
     );
-    assert_eq!(r["body"]["breakpoints"][0]["verified"], true, "{r:#?}");
+    // (Not necessarily verified yet: lldb may not have loaded the program's module when this
+    // arrives, as on Linux arm64. The stop below shows that it resolves.)
+    assert_eq!(r["success"], true, "{r:#?}");
     s.request("configurationDone", json!({}));
     let r = s.wait("attach", |m| {
         m["type"] == "response" && m["request_seq"] == attach

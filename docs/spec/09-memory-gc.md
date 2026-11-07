@@ -111,7 +111,10 @@ unsafe {
   (p + 4).write(0xFF as u8)
 }
 ```
-- `ptr.of(place)` points at a variable, a field or an element; `p.read()` and `p.write(v)`
+- `ptr.of(place)` points at a variable, a field or an element (not at a class value, which is
+  a reference to a managed object: E0308); `ptr.bytes(view)` is a `ptr<u8>` to a `Uint8Array`'s
+  or an `ArrayBuffer`'s bytes (`byteOffset` included), for C, valid while the buffer is alive
+  and not transferred (native code only); `p.read()` and `p.write(v)`
   access the value; `p + n` / `p - n` move by `n` elements (`n` any integer); pointers compare
   with `==` by address. `sizeof<T>()` / `alignof<T>()` are `usize`s (the native layout, also
   in the interpreter). `unsafe.cast<T>(x)` reinterprets the bits of a number as another number

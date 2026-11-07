@@ -147,6 +147,15 @@ class CloseEvent {
 
 /// A WebSocket connection. Assign `onopen`, `onmessage`, `onclose` and `onerror` right after
 /// creating it (they're called from the event loop); `send` text or bytes once it's open.
+/// `bytes` as UTF-8 text, or `null` if they aren't UTF-8.
+function __wsText(bytes: Uint8Array): string? {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+  } catch (e) {
+    return null
+  }
+}
+
 class WebSocket {
   // (Getters: static fields would be set up at every program's start.)
   /// `readyState` 0: the handshake hasn't finished yet.
@@ -209,6 +218,11 @@ class WebSocket {
     try {
       const port = if (u.port.length > 0) parseInt(u.port) else if (this.tls) 443 else 80
       const c = await __netConnect(port, __connectHost(u))
+      // `close()` while connecting ends the attempt (#23): no `onopen` after `onclose`.
+      if (this.closed) {
+        c.close()
+        return
+      }
       this.conn = c
       if (this.tls) {
         await c.__startTls(0, __connectHost(u), this.caCerts)
@@ -239,6 +253,10 @@ class WebSocket {
 
   /// Starts a socket on an upgraded connection (`r` may hold bytes already read).
   public __attach(c: Conn, r: __HttpReader): void {
+    if (this.closed) {
+      c.close()
+      return
+    }
     this.conn = c
     this.reader = r
     this.readyState = 1
@@ -275,6 +293,19 @@ class WebSocket {
     if (f != null) {
       f(new CloseEvent(code, reason, clean))
     }
+  }
+
+  /// Text that isn't UTF-8 fails the connection with code 1007 (RFC 6455 §8.1, #48): a close
+  /// frame says why, and the socket closes.
+  async failInvalidText(): Promise<void> throws NetError {
+    if (!this.sentClose) {
+      this.sentClose = true
+      const payload = new Uint8Array(2)
+      payload.set(0, 1007 >> 8)
+      payload.set(1, 1007 & 255)
+      await this.sendFrame(8, payload)
+    }
+    this.finish(1007, "", false)
   }
 
   /// Frames until the connection closes.
@@ -315,7 +346,12 @@ class WebSocket {
           let reason = ""
           if (len >= 2) {
             code = (payload[0] << 8) | payload[1]
-            reason = new TextDecoder().decode(payload.subarray(2))
+            const text = __wsText(payload.subarray(2))
+            if (text == null) {
+              await this.failInvalidText()
+              return
+            }
+            reason = text
           }
           if (!this.sentClose) {
             await this.sendFrame(8, payload)
@@ -341,7 +377,12 @@ class WebSocket {
           const f = this.onmessage
           if (f != null && this.readyState == 1) {
             if (messageOp == 1) {
-              f(new MessageEvent(new TextDecoder().decode(whole)))
+              const text = __wsText(whole)
+              if (text == null) {
+                await this.failInvalidText()
+                return
+              }
+              f(new MessageEvent(text))
             } else {
               f(new MessageEvent(whole))
             }

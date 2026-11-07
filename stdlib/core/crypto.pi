@@ -3,9 +3,10 @@
 // `randomUUID`, Web Crypto's `subtle`) and the synchronous primitives `std/crypto` exports.
 
 /// A failed cryptographic operation: a bad key or argument, or data that doesn't
-/// authenticate. `kind` is `"InvalidArgument"`, `"AuthenticationFailed"` or `"Internal"`.
+/// authenticate. `kind` is `"InvalidArgument"`, `"InvalidAccess"` (a key used for something its
+/// `usages` don't allow), `"AuthenticationFailed"` or `"Internal"`.
 class CryptoError extends Error {
-  /// `"InvalidArgument"`, `"AuthenticationFailed"` or `"Internal"`.
+  /// `"InvalidArgument"`, `"InvalidAccess"`, `"AuthenticationFailed"` or `"Internal"`.
   public kind: string
 
   /// An error of `kind` with `message`.
@@ -97,7 +98,8 @@ class CryptoKey {
   public readonly extractable: bool
   /// The algorithm the key is for, with its hash, curve or length.
   public readonly algorithm: KeyAlgorithm
-  /// What the key may be used for (`"sign"`, `"encrypt"`, …), as given; not enforced.
+  /// What the key may be used for (`"sign"`, `"verify"`, `"encrypt"`, `"decrypt"`,
+  /// `"deriveBits"`): another use rejects with an `"InvalidAccess"` `CryptoError`.
   public readonly usages: string[]
   public readonly __bytes: Uint8Array
 
@@ -175,6 +177,13 @@ function __need(cond: bool, what: string): void throws CryptoError {
   if (!cond) throw new CryptoError("InvalidArgument", what)
 }
 
+/// Rejects a use of `key` its `usages` don't list, as Web Crypto does (#27).
+function __usage(key: CryptoKey, usage: string): void throws CryptoError {
+  if (!key.usages.includes(usage)) {
+    throw new CryptoError("InvalidAccess", `the key's usages don't include ${usage:?}`)
+  }
+}
+
 function __hashOf(a: Algorithm, key: CryptoKey?): HashAlgorithm throws CryptoError {
   const h = a.hash ?? (if (key != null) key.algorithm.hash ?? "" else "")
   match (h) {
@@ -205,7 +214,7 @@ struct SubtleCrypto {
 
   /// A key from raw bytes (`format` must be `"raw"`): a secret key for HMAC (needs `hash`), AES-GCM
   /// (16, 24 or 32 bytes), HKDF or PBKDF2, or, for ECDSA/ECDH (needs `namedCurve`), a public key
-  /// (an uncompressed point; always extractable, and not checked here).
+  /// (an uncompressed point on the curve; always extractable).
   async importKey(format: string, keyData: Uint8Array, algorithm: Algorithm | string, extractable: bool, usages: string[]): Promise<CryptoKey> throws CryptoError {
     __need(format == "raw", `unsupported key format ${format:?} (only "raw")`)
     const name = __algName(algorithm)
@@ -216,7 +225,12 @@ struct SubtleCrypto {
     if (name == "ECDSA" || name == "ECDH") {
       const curve = a.namedCurve ?? ""
       __need(__curveId(curve) > 0, `unsupported curve ${curve:?}`)
-      // A raw EC key is a public point; check it by deriving nothing from it.
+      // A raw EC key is a public point: it has to be on the curve (#28).
+      try {
+        __cryptoOp(1200 + __curveId(curve), [keyData])
+      } catch (e: CryptoError) {
+        throw new CryptoError("InvalidArgument", `not a point on ${curve}`)
+      }
       return new CryptoKey("public", true, KeyAlgorithm { name: name, namedCurve: curve }, usages, keyData)
     }
     __need(name == "HMAC" || name == "AES-GCM" || name == "HKDF" || name == "PBKDF2", `unsupported algorithm ${name:?}`)
@@ -260,6 +274,7 @@ struct SubtleCrypto {
       s: string => Algorithm { name: s }
       x: Algorithm => x
     }
+    __usage(key, "sign")
     if (name == "HMAC") {
       __need(key.algorithm.name == "HMAC", "not an HMAC key")
       return __hmac(__hashOf(a, key), key.__bytes, data)
@@ -276,6 +291,7 @@ struct SubtleCrypto {
       s: string => Algorithm { name: s }
       x: Algorithm => x
     }
+    __usage(key, "verify")
     if (name == "HMAC") {
       __need(key.algorithm.name == "HMAC", "not an HMAC key")
       return __timingSafeEqual(__hmac(__hashOf(a, key), key.__bytes, data), signature)
@@ -289,6 +305,7 @@ struct SubtleCrypto {
   async encrypt(algorithm: Algorithm, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
     __need(algorithm.name.toUpperCase() == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM is supported")
     __need((algorithm.tagLength ?? 128) == 128, "only 128-bit tags are supported")
+    __usage(key, "encrypt")
     const iv = algorithm.iv
     __need(iv != null, "AES-GCM needs an iv")
     __cryptoOp(501, [key.__bytes, iv ?? new Uint8Array(0), algorithm.additionalData ?? new Uint8Array(0), data])
@@ -298,6 +315,9 @@ struct SubtleCrypto {
   /// `"AuthenticationFailed"` if the key, `iv`, `additionalData` or data are wrong.
   async decrypt(algorithm: Algorithm, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
     __need(algorithm.name.toUpperCase() == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM is supported")
+    // (The same tag lengths as `encrypt`, #29.)
+    __need((algorithm.tagLength ?? 128) == 128, "only 128-bit tags are supported")
+    __usage(key, "decrypt")
     const iv = algorithm.iv
     __need(iv != null, "AES-GCM needs an iv")
     __cryptoOp(601, [key.__bytes, iv ?? new Uint8Array(0), algorithm.additionalData ?? new Uint8Array(0), data])
@@ -306,6 +326,7 @@ struct SubtleCrypto {
   /// `length` bits from ECDH (`{ name: "ECDH", public }`, a private key), HKDF or PBKDF2
   /// (a raw key imported for them).
   async deriveBits(algorithm: Algorithm, key: CryptoKey, length: int? = null): Promise<Uint8Array> throws CryptoError {
+    __usage(key, "deriveBits")
     const name = algorithm.name.toUpperCase()
     if (name == "ECDH") {
       const peer = algorithm.public

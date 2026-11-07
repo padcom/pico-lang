@@ -1,0 +1,10 @@
+// `Mat4.lookAt` with `up` along the view direction panics instead of a degenerate matrix (#44).
+// expect: ok
+// panic: Mat4.lookAt: up is parallel to the view direction
+import { Mat4, Vec3 } from "std/math"
+
+const eye: Vec3 = { x: 0, y: 0, z: 0 }
+const target: Vec3 = { x: 0, y: 1, z: 0 }
+const m = Mat4.lookAt(eye, { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: 0 })
+println(if (m.get(3, 3) == 1.0) "ok" else "bad")
+Mat4.lookAt(eye, target, { x: 0, y: 1, z: 0 })

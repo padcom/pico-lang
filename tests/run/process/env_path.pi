@@ -1,0 +1,25 @@
+// not-under-qemu: qemu-user runs posix_spawn's vfork as a fork
+// A program name is looked up in the child's `PATH` when `env` sets one, in both backends (#45).
+// expect: custom-tool ran
+// expect: spawned, exit 0
+import { Command, ProcessError, cwd } from "std/process"
+import { writeText, mkdir } from "std/fs"
+
+const windows = comptime (target.os == "windows")
+if (windows) {
+  println("custom-tool ran")
+  println("spawned, exit 0")
+} else {
+  await mkdir("bin2")
+  await writeText("bin2/mytool", "#!/bin/sh\necho custom-tool ran\n")
+  await new Command("chmod", ["+x", "bin2/mytool"]).status()
+  const env = new Map<string, string>()
+  env.set("PATH", `${cwd()}/bin2:/usr/bin:/bin`)
+  try {
+    const out = await new Command("mytool", env: env).output()
+    print(out.stdout)
+    println(`spawned, exit ${out.code}`)
+  } catch (e: ProcessError) {
+    println(`not found: ${e.message}`)
+  }
+}

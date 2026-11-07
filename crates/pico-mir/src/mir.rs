@@ -351,6 +351,9 @@ pub struct Function {
     pub blocks: Vec<BasicBlock>,
     /// The core library's code (or a generated adapter): kept only when something reaches it.
     pub library: bool,
+    /// Code of the core library or a `std/` module (or generated for it): a panic in it is
+    /// reported where the program's own code called into it (decision 322).
+    pub track_caller: bool,
 }
 
 impl Function {

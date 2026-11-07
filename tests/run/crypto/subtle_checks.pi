@@ -1,0 +1,63 @@
+// Web Crypto checks: key usages are enforced (#27), raw EC public keys must be points on the curve
+// (#28), and `decrypt` honours `tagLength` (#29).
+// expect: decrypt with an encrypt-only key: InvalidAccess
+// expect: sign with a verify-only key: InvalidAccess
+// expect: bogus P-256 point: InvalidArgument
+// expect: real P-256 point: public
+// expect: decrypt with tagLength 96: InvalidArgument
+const enc = new TextEncoder()
+
+function secret(k: CryptoKey | CryptoKeyPair): CryptoKey {
+  match (k) {
+    s: CryptoKey => s
+    _ => panic("expected a key")
+  }
+}
+
+function pair(k: CryptoKey | CryptoKeyPair): CryptoKeyPair {
+  match (k) {
+    p: CryptoKeyPair => p
+    _ => panic("expected a key pair")
+  }
+}
+
+async function main(): Promise<void> throws CryptoError {
+  const s = crypto.subtle
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const encOnly = secret(await s.generateKey({ name: "AES-GCM", length: 128 }, true, ["encrypt"]))
+  const ct = await s.encrypt({ name: "AES-GCM", iv: iv }, encOnly, enc.encode("hello"))
+  try {
+    await s.decrypt({ name: "AES-GCM", iv: iv }, encOnly, ct)
+    println("decrypt with an encrypt-only key: accepted")
+  } catch (e: CryptoError) {
+    println(`decrypt with an encrypt-only key: ${e.kind}`)
+  }
+  const hk = await s.importKey("raw", enc.encode("k"), { name: "HMAC", hash: "SHA-256" }, false, ["verify"])
+  try {
+    await s.sign("HMAC", hk, enc.encode("x"))
+    println("sign with a verify-only key: accepted")
+  } catch (e: CryptoError) {
+    println(`sign with a verify-only key: ${e.kind}`)
+  }
+  const bogus = new Uint8Array(65)
+  bogus.set(0, 4)
+  try {
+    await s.importKey("raw", bogus, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"])
+    println("bogus P-256 point: accepted")
+  } catch (e: CryptoError) {
+    println(`bogus P-256 point: ${e.kind}`)
+  }
+  const ec = pair(await s.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]))
+  const raw = await s.exportKey("raw", ec.publicKey)
+  const back = await s.importKey("raw", raw, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"])
+  println(`real P-256 point: ${back.type}`)
+  const both = secret(await s.generateKey({ name: "AES-GCM", length: 128 }, true, ["encrypt", "decrypt"]))
+  const ct2 = await s.encrypt({ name: "AES-GCM", iv: iv }, both, enc.encode("hello"))
+  try {
+    await s.decrypt({ name: "AES-GCM", iv: iv, tagLength: 96 }, both, ct2)
+    println("decrypt with tagLength 96: accepted")
+  } catch (e: CryptoError) {
+    println(`decrypt with tagLength 96: ${e.kind}`)
+  }
+}
+await main()

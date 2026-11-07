@@ -8,7 +8,7 @@
 // expect: 3
 // expect: 2 1
 // expect: list 3 2 1
-// expect: <Animal>
+// expect: Animal { name: "Rex", age: 4, nick: "Rexy" }
 // expect: 10 20 0
 class Animal {
   static count: i32 = 0

@@ -95,7 +95,7 @@ They live off the GC heap (malloc'd), so moving one only hands over a pointer.
   `new View(length)`, `new View(buffer, byteOffset)`, `new View(buffer, byteOffset, length)`,
   `get`/`set`/`[]`, `length`, `byteLength`, `buffer`, `byteOffset`, `BYTES_PER_ELEMENT`.
   `ArrayBuffer` has `byteLength`, `detached` and `slice(begin?, end?)` (negative indices count from the end); its memory is freed by a
-  finalizer once it's collected (not yet for buffers received from another thread).
+  finalizer once it's collected.
 
 ## 10.4 Inline workers & pools
 ```ts
@@ -115,8 +115,10 @@ A worker built from a function supports **`await w.call(arg)`**, which returns t
   the program running only while calls are pending.
 - `parallelMap(items, f, workers: n)` (from `std/worker`) returns `Promise<U[], E>` with the
   results in order; its workers end when it settles. `new WorkerPool<In, Out>("./job", size: n)`
-  has `run(job): Promise<Out>` (to the least busy worker; each job must be answered by exactly
-  one message), `size` and `terminate()`. `navigator.hardwareConcurrency` is the number of
+  has `run(job): Promise<Out, WorkerPanicked>` (to the least busy worker; each job must be
+  answered by exactly one message; it rejects if that worker dies or the pool is terminated
+  first), `size` and `terminate()`. An inline worker's pending `call`s reject with the
+  `WorkerPanicked` when it dies or is terminated. `navigator.hardwareConcurrency` is the number of
   processors.
 
 ## 10.5 Cancellation

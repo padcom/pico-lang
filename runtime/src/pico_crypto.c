@@ -13,6 +13,7 @@
  *   9xx ECDSA sign [hash:u32, private, message] → r ‖ s    P-256/P-384, 32 bytes for X25519)
  *  10xx ECDSA verify [hash:u32, public, message, r ‖ s] → 1 byte (1 valid, 0 not)
  *  11xx ECDH [private, peer public] → shared secret
+ *  12xx check [public]: fails unless it's a point on the curve (`importKey`, #28)
  */
 #define _POSIX_C_SOURCE 200809L /* clock_gettime (WASI) */
 #include "pico_crypto.h"
@@ -388,6 +389,19 @@ int64_t pico_crypto_op(int64_t op, const uint8_t *in, size_t n, uint8_t **out, s
         mbedtls_mpi_free(&z);
         mbedtls_ecp_keypair_free(&mine);
         mbedtls_ecp_keypair_free(&peer);
+        return result;
+    }
+    case 12: {
+        mbedtls_ecp_group_id id = curve_of(alg);
+        if (id == MBEDTLS_ECP_DP_NONE || !fields(in, n, f, 1)) return -1;
+        mbedtls_ecp_keypair kp;
+        mbedtls_ecp_keypair_init(&kp);
+        int64_t result = read_public(id, &kp, f[0]) == 0 ? 0 : -1;
+        mbedtls_ecp_keypair_free(&kp);
+        if (result == 0) {
+            *out = alloc(1);
+            *out_len = 0;
+        }
         return result;
     }
     default: return -1;

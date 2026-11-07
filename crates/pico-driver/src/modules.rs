@@ -441,6 +441,8 @@ fn unavailable_on(os: &str, spec: &str, name: Option<&str>) -> bool {
     let browser = os == "browser";
     match (spec, name) {
         ("std/process", Some("Command")) => browser || os == "wasi",
+        // (No threads on WASI yet, #19.)
+        ("std/worker", _) => os == "wasi",
         ("std/fs" | "std/net" | "std/process", _) => browser,
         ("std/http", Some("serve" | "HttpServer" | "upgradeWebSocket")) => browser,
         ("std/js", _) => !browser,

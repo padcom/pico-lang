@@ -1,0 +1,7 @@
+import { self } from "std/worker"
+import { exit } from "std/process"
+
+self.onmessage = (n: int) => {
+  println("worker exits")
+  exit(3)
+}

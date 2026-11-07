@@ -1,0 +1,58 @@
+// A map with churn keeps only its live entries (#97): deleted entries and their values become
+// collectable, and the map doesn't grow with the number of entries it ever had. Order and
+// iteration while deleting still work.
+// expect: order: 3,5,7,9,11
+// expect: deleted while iterating: 0 left
+// expect: churn: size 0, bounded: true
+import { exists, readText } from "std/fs"
+
+/// Resident memory in kB where the system reports it (Linux), else 0.
+async function rssKb(): Promise<int> throws Error {
+  if (!(await exists("/proc/self/status"))) {
+    return 0
+  }
+  for (const line of (await readText("/proc/self/status")).split("\n")) {
+    if (line.startsWith("VmRSS:")) {
+      return parseInt(line.replace("VmRSS:", "").replace("kB", "").trim())
+    }
+  }
+  0
+}
+
+// Insertion order survives compactions.
+const order = new Map<int, int>()
+for (let i = 0; i < 100; i++) {
+  order.set(i, i)
+}
+for (let i = 0; i < 100; i++) {
+  if (i < 3 || i > 11 || i % 2 == 0) {
+    order.delete(i)
+  }
+}
+const kept: string[] = []
+order.forEach((v: int, k: int) => {
+  kept.push(`${k}`)
+})
+println(`order: ${kept.join(",")}`)
+
+// Deleting every entry from inside forEach (compactions happen meanwhile).
+const all = new Map<int, int>()
+for (let i = 0; i < 200; i++) {
+  all.set(i, i)
+}
+all.forEach((v: int, k: int) => {
+  all.delete(k)
+})
+println(`deleted while iterating: ${all.size} left`)
+
+// One live entry at a time, 20000 times, each value 64 KiB (1.3 GB in all): before the fix the
+// dead entries kept ~500 MB.
+const churn = new Map<int, Uint8Array>()
+const before = await rssKb()
+for (let i = 0; i < 20000; i++) {
+  churn.set(i, new Uint8Array(65536))
+  churn.delete(i)
+  await Promise.resolve<int>(0)  // a step, so collected buffers are freed (#90; #95 for synchronous code)
+}
+const after = await rssKb()
+println(`churn: size ${churn.size}, bounded: ${after - before < 150 * 1024}`)

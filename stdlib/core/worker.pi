@@ -83,10 +83,27 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
     __detachAll(options)
   }
 
-  /// Stops the worker (right away: at its next safepoint).
+  /// Stops the worker (right away: at its next safepoint). Pending `call`s reject with a
+  /// `WorkerPanicked`.
   public terminate(): void {
     __worker_op(4, this.handle)
     __theLoop().channels.delete(this.handle)
+    this.failPending(new WorkerPanicked("the worker was terminated"))
+  }
+
+  /// Rejects every call not answered yet: the worker won't answer them (#21).
+  failPending(e: WorkerPanicked): void {
+    if (this.pending.size == 0) {
+      return
+    }
+    const ps: Promise<Out, E>[] = []
+    this.pending.forEach((p: Promise<Out, E>, id: int) => {
+      ps.push(p)
+    })
+    this.pending = new Map<int, Promise<Out, E>>()
+    for (const p of ps) {
+      p.__reject(e)
+    }
   }
 
   __deliver(): void {
@@ -116,6 +133,7 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
       const text = __worker_error(this.handle)
       __theLoop().channels.delete(this.handle)
       const e = new WorkerPanicked(text)
+      this.failPending(e)
       const f = this.onerror
       if (f != null) {
         f(e)

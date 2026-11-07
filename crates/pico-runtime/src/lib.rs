@@ -48,7 +48,10 @@ fn embedded() -> Option<PathBuf> {
     );
     let dir = std::env::temp_dir().join("pico-cache/home").join(name);
     match unpack_once(BUNDLE, &dir) {
-        Ok(()) => Some(dir),
+        Ok(()) => {
+            mark_used_and_prune(&dir, std::time::SystemTime::now());
+            Some(dir)
+        }
         Err(e) => {
             eprintln!(
                 "warning: cannot unpack pico's resources into {}: {e}",
@@ -93,6 +96,44 @@ fn unpack_once(gz: &[u8], dir: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// How long an unpacked version can go unused before another version's runs remove it (#50).
+const UNUSED_FOR: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
+
+/// Marks `dir` (an unpacked version in `pico-cache/home`) as used `now`, at most once an hour,
+/// and then removes the sibling versions not used for `UNUSED_FOR` (#50). Versions used side by
+/// side all stay; failures are ignored (another compiler may be doing the same).
+#[cfg_attr(not(feature = "embed"), allow(dead_code))]
+fn mark_used_and_prune(dir: &Path, now: std::time::SystemTime) {
+    let marker = dir.join(".used");
+    let fresh = std::fs::metadata(&marker)
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| now.duration_since(t).is_ok_and(|d| d.as_secs() < 3600));
+    if fresh {
+        return;
+    }
+    if let Ok(f) = std::fs::File::create(&marker) {
+        let _ = f.set_modified(now);
+    }
+    let Some(parent) = dir.parent() else { return };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        let name = e.file_name().to_string_lossy().into_owned();
+        // Only other unpacked versions (`<version>-<hash>`), not partial ones (`.name-pid`).
+        if p == dir || name.starts_with('.') || !name.contains('-') || !p.is_dir() {
+            continue;
+        }
+        let last = std::fs::metadata(p.join(".used"))
+            .or_else(|_| std::fs::metadata(&p))
+            .and_then(|m| m.modified());
+        if last.is_ok_and(|t| now.duration_since(t).is_ok_and(|d| d > UNUSED_FOR)) {
+            let _ = std::fs::remove_dir_all(&p);
+        }
+    }
 }
 
 /// `p` made absolute and resolved, as `canonicalize` does, but on Windows without its verbatim
@@ -197,7 +238,42 @@ pub fn typescript_dir() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::home_from;
+    use super::{home_from, mark_used_and_prune};
+
+    #[test]
+    fn unused_versions_are_pruned() {
+        use std::time::{Duration, SystemTime};
+        let root = std::env::temp_dir().join(format!("pico-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let now = SystemTime::now();
+        let make = |name: &str, used: Option<SystemTime>| {
+            let d = root.join(name);
+            std::fs::create_dir_all(d.join("stdlib")).unwrap();
+            if let Some(t) = used {
+                std::fs::File::create(d.join(".used"))
+                    .unwrap()
+                    .set_modified(t)
+                    .unwrap();
+            }
+            d
+        };
+        let current = make("0.5.0-aaaa", None);
+        let recent = make("0.4.1-bbbb", Some(now - Duration::from_secs(3600 * 24)));
+        let old = make(
+            "0.4.0-cccc",
+            Some(now - Duration::from_secs(3600 * 24 * 60)),
+        );
+        let partial = make(
+            ".0.5.0-aaaa-123",
+            Some(now - Duration::from_secs(3600 * 24 * 60)),
+        );
+        mark_used_and_prune(&current, now);
+        assert!(current.join(".used").is_file());
+        assert!(recent.is_dir(), "a version used lately stays");
+        assert!(!old.exists(), "a version unused for 60 days goes");
+        assert!(partial.is_dir(), "another compiler's partial unpack stays");
+        let _ = std::fs::remove_dir_all(&root);
+    }
     use std::path::PathBuf;
 
     #[test]

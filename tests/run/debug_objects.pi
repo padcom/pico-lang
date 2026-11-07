@@ -1,0 +1,39 @@
+// Debug formats of objects, arrays of objects, maps and sets (issue #11).
+// expect: P (x = 1)
+// expect: P { x: 1 }
+// expect: [P { x: 1 }, P { x: 2 }]
+// expect: Map { "a" => 1 }
+// expect: Set { 1 }
+// expect: Map { "p" => P { x: 1 } }
+// expect: H { next: H { … }, n: 3 }
+// expect: Box { p: P { x: 1 }, q: null }
+// expect: |P { x: 1 }  |
+class P {
+  constructor(public x: i32) {}
+}
+class H {
+  public next: H? = null
+  constructor(public n: i32) {}
+}
+struct Box {
+  p: P
+  q: P?
+}
+const p = new P(1)
+println(`${p}`)
+println(`${p:?}`)
+println(`${[p, new P(2)]:?}`)
+const m = new Map<string, i32>()
+m.set("a", 1)
+println(`${m}`)
+const s = new Set<i32>()
+s.add(1)
+println(`${s}`)
+const mp = new Map<string, P>()
+mp.set("p", p)
+println(`${mp:?}`)
+const h = new H(3)
+h.next = h
+println(`${h:?}`)
+println(`${Box { p: p, q: null }:?}`)
+println(`|${p:<12?}|`)

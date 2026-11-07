@@ -119,6 +119,12 @@ double pico_parse_f64(const PicoStr *s) {
     return *end ? NAN : v;
 }
 
+/* Where the program's code last called into library code (decision 322): library code's panics
+ * report it (generated code stores it before such calls). */
+_Thread_local const char *pico_site_file;
+_Thread_local int64_t pico_site_file_len;
+_Thread_local int32_t pico_site_line, pico_site_col;
+
 static _Thread_local const void **showing;
 static _Thread_local int64_t showing_len, showing_cap;
 

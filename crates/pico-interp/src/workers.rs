@@ -138,7 +138,8 @@ pub fn encode(
 }
 
 /// The message as values of this thread.
-pub fn decode(g: &Graph) -> Value {
+/// The message's value, and the objects it made.
+pub fn decode_with_objects(g: &Graph) -> (Value, Vec<Rc<Obj>>) {
     let objs: Vec<Rc<Obj>> = g
         .objs
         .iter()
@@ -187,10 +188,11 @@ pub fn decode(g: &Graph) -> Value {
     for (c, v) in cells.iter().zip(&g.cells) {
         *c.borrow_mut() = val(v, &objs, &arrs, &cells);
     }
-    match &g.root {
+    let v = match &g.root {
         Some(r) => val(r, &objs, &arrs, &cells),
         None => Value::Uninit,
-    }
+    };
+    (v, objs)
 }
 
 /// Wakes a thread waiting in its event loop.
@@ -300,6 +302,8 @@ pub struct Shared {
     pub cwd: Option<std::path::PathBuf>,
     /// The program's arguments.
     pub args: Vec<String>,
+    /// `exit(code)` in some thread: the whole program ends with `code`, as natively (#46).
+    pub exit: Mutex<Option<i32>>,
 }
 
 impl Shared {
@@ -353,9 +357,11 @@ impl<'p, 'o> Interp<'p, 'o> {
             exception: None,
             exception_tag: 0,
             showing: Vec::new(),
+            owned_buffers: Vec::new(),
             io: Default::default(),
             stack: Vec::new(),
             frames: Vec::new(),
+            call_locs: Vec::new(),
             unwinding: Vec::new(),
             started: std::time::Instant::now(),
             comptime: None,
@@ -382,9 +388,25 @@ impl<'p, 'o> Interp<'p, 'o> {
     }
 
     pub(crate) fn terminated(&self) -> bool {
-        self.this_worker
-            .as_ref()
-            .is_some_and(|w| w.terminate.load(Ordering::SeqCst))
+        self.exiting().is_some()
+            || self
+                .this_worker
+                .as_ref()
+                .is_some_and(|w| w.terminate.load(Ordering::SeqCst))
+    }
+
+    /// The code some thread's `exit(code)` ends the program with.
+    pub(crate) fn exiting(&self) -> Option<i32> {
+        *self.shared.exit.lock().expect("exit")
+    }
+
+    /// How this thread's code stops: `exit(code)` from any thread, or a `terminate()`.
+    pub(crate) fn stop_panic(&self) -> Panic {
+        let mut p = terminated_panic();
+        if let Some(code) = self.exiting() {
+            p.exit = Some(code);
+        }
+        p
     }
 
     /// The channel messages from `h` arrive on (0: the parent).
@@ -436,7 +458,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             .stack_size(1 << 30)
             .spawn(move || {
                 let program: &Program = &program;
-                let mut it = Interp::new(program, None, shared, Some(w.clone()));
+                let mut it = Interp::new(program, None, shared.clone(), Some(w.clone()));
                 // (An interpreter bug in a worker reaches the parent as a failure.)
                 let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &w.entry {
                     Entry::Module(f) => it.call(*f, Vec::new(), Loc::default()),
@@ -446,7 +468,17 @@ impl<'p, 'o> Interp<'p, 'o> {
                     p.msg = "internal interpreter error in a worker".into();
                     Err(p)
                 });
+                // `exit(code)` in a worker ends the whole program (#46): every thread stops at
+                // its next call, and the main one returns the code.
+                if let Err(Panic {
+                    exit: Some(code), ..
+                }) = &r
+                {
+                    shared.exit.lock().expect("exit").get_or_insert(*code);
+                    w.parent_waker.wake();
+                }
                 let msg = match r {
+                    Err(p) if p.exit.is_some() => None,
                     Err(p) if p.msg.starts_with('\u{0}') => None,
                     Err(p) if p.uncaught => Some(IMsg::Error(format!("uncaught {}", p.msg))),
                     Err(p) => Some(IMsg::Error(p.msg)),
@@ -574,9 +606,44 @@ impl<'p, 'o> Interp<'p, 'o> {
             return Value::Uninit;
         };
         match self.with_inbox(h as i64, |q| q.pop_front()).flatten() {
-            Some(IMsg::Data(g)) => decode(&g),
+            Some(IMsg::Data(g)) => {
+                let (v, objs) = decode_with_objects(&g);
+                self.own_received_buffers(objs);
+                v
+            }
             _ => Value::Uninit,
         }
+    }
+
+    /// Received `ArrayBuffer`s aren't registered for finalization (#16): this thread keeps
+    /// them, and frees the bytes of those nothing else holds any more (their handle then: 0
+    /// if they were transferred on) whenever messages arrive.
+    fn own_received_buffers(&mut self, objs: Vec<Rc<Obj>>) {
+        let buffer_class = self
+            .p
+            .structs
+            .iter()
+            .position(|s| s.is_class && s.name == "ArrayBuffer")
+            .map(|i| i as u32);
+        let mut kept = Vec::new();
+        for o in std::mem::take(&mut self.owned_buffers) {
+            if Rc::strong_count(&o) > 1 {
+                kept.push(o);
+                continue;
+            }
+            if let Some(Value::Int(h)) = o.fields.borrow().first()
+                && *h != 0
+            {
+                self.shared
+                    .buffers
+                    .lock()
+                    .expect("buffers")
+                    .mem
+                    .remove(&(*h as i64));
+            }
+        }
+        kept.extend(objs.into_iter().filter(|o| Some(o.class) == buffer_class));
+        self.owned_buffers = kept;
     }
 
     pub(crate) fn worker_error(&mut self, h: &Value) -> Value {

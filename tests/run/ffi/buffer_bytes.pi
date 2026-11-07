@@ -1,0 +1,19 @@
+// native-only: the interpreter can't call C
+// `ptr.bytes(view)` points at a typed array's bytes, `byteOffset` included (issue #83).
+// expect: b[0] = 65, b[63] = 65, length = 64
+// expect: tail: 0 66 66 0
+extern "C" {
+  function memset(p: ptr<void>, c: c_int, n: usize): ptr<void>
+}
+
+const b = new Uint8Array(64)
+unsafe {
+  memset(ptr.bytes(b) as ptr<void>, 0x41, 64 as usize)
+}
+println(`b[0] = ${b.get(0)}, b[63] = ${b.get(63)}, length = ${b.length}`)
+const whole = new Uint8Array(8)
+const mid = whole.subarray(4, 6)
+unsafe {
+  memset(ptr.bytes(mid) as ptr<void>, 0x42, 2 as usize)
+}
+println(`tail: ${whole.get(3)} ${whole.get(4)} ${whole.get(5)} ${whole.get(6)}`)

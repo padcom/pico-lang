@@ -1,5 +1,6 @@
-//! A panic raised in an imported module or the core library is reported in that file (#3), by
-//! both backends. (Golden tests check only the message.)
+//! A panic raised in an imported module is reported in that file (#3); one raised in the core
+//! library or a `std/` module at the program's call into it (#47, decision 322). Both backends.
+//! (Golden tests check only the message.)
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -47,7 +48,24 @@ fn a_panic_in_an_imported_module_names_that_module() {
 }
 
 #[test]
-fn a_panic_in_the_core_library_names_the_core_file() {
+fn a_reflection_panic_names_the_call_site() {
+    let d = scratch("reflect");
+    std::fs::write(
+        d.join("main.pi"),
+        "import { reflect } from \"std/reflect\"\nclass Box { constructor(public n: int) {} }\nconst b = new Box(1)\nprintln(reflect.typeOf(b).fields[0].get<string>(b))\n",
+    )
+    .unwrap();
+    for interp in [true, false] {
+        let err = stderr_of(&d, interp);
+        assert!(
+            err.contains("  at main.pi:4:9\n"),
+            "interp={interp}:\n{err}"
+        );
+    }
+}
+
+#[test]
+fn a_panic_in_the_core_library_names_the_call_site() {
     let d = scratch("core");
     std::fs::write(
         d.join("main.pi"),
@@ -57,7 +75,7 @@ fn a_panic_in_the_core_library_names_the_core_file() {
     for interp in [true, false] {
         let err = stderr_of(&d, interp);
         assert!(
-            err.contains("  at <core>/buffer.pi:") && !err.contains("main.pi:0:0"),
+            err.contains("  at main.pi:2:11\n"),
             "interp={interp}:\n{err}"
         );
     }

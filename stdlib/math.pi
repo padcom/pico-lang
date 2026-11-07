@@ -393,10 +393,16 @@ export struct Mat4 {
     ])
   }
 
-  /// A view matrix: the camera at `eye` looking at `target`, `up` roughly up.
+  /// A view matrix: the camera at `eye` looking at `target`, `up` roughly up. Panics when `eye` is
+  /// `target`, or `up` is along the view direction (there is no side axis then).
   static lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4 {
-    const f = (target - eye).normalize()
-    const s = f.cross(up).normalize()
+    const d = target - eye
+    if (d.dot(d) == 0.0) panic("Mat4.lookAt: eye and target are the same point")
+    const f = d.normalize()
+    const side = f.cross(up)
+    // `up` along the view direction leaves no side axis: the matrix would be degenerate (#44).
+    if (side.dot(side) < 1e-12 * up.dot(up)) panic("Mat4.lookAt: up is parallel to the view direction")
+    const s = side.normalize()
     const u = s.cross(f)
     Mat4.fromRows([
       s.x, s.y, s.z, -s.dot(eye),

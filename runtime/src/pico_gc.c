@@ -660,6 +660,9 @@ static void push(Stack *st, Obj *o) {
 static _Thread_local Stack young_objects;
 /* The objects with weak words. */
 static _Thread_local Stack weak_objects;
+/* `ArrayBuffer`s received in messages (copied or transferred), which no finalization registry
+ * knows: their bytes are freed once they're found dead (#16). */
+static _Thread_local Stack owned_buffers;
 
 /* The block an object is in (blocks are aligned; a large object's header is in its first). */
 static Block *block_of(const Obj *o) { return (Block *)((uintptr_t)o & ~(uintptr_t)(BLOCK_SIZE - 1)); }
@@ -1084,6 +1087,30 @@ static int dead(const Obj *o, int major) {
     return !(o->flags & (F_OLD | F_MARK));
 }
 
+int64_t pico_buf_op(int64_t op, int64_t a, int64_t b, int64_t c);
+
+void pico_gc_own_buffer(void *obj, int64_t bytes) {
+    push(&owned_buffers, (Obj *)obj - 1);
+    pico_gc_external(bytes);
+}
+
+/* Frees the bytes of the received buffers that died (`{ class, handle, byteLength }`; a
+ * detached one has handle 0) and forgets them. */
+static void free_dead_buffers(int major) {
+    size_t k = 0;
+    for (size_t i = 0; i < owned_buffers.len; i++) {
+        Obj *o = owned_buffers.items[i];
+        if (!dead(o, major)) {
+            owned_buffers.items[k++] = o;
+            continue;
+        }
+        int64_t h;
+        memcpy(&h, (char *)(o + 1) + 8, sizeof h);
+        if (h) pico_buf_op(2, h, 0, 0);
+    }
+    owned_buffers.len = k;
+}
+
 /* Clears the weak words whose targets are dead, and forgets the dead weak objects. */
 static void clear_weak(int major) {
     size_t k = 0;
@@ -1146,6 +1173,7 @@ static void young_collection(void) {
     dirty.len = 0;
     while (young_stack.len > 0) scan_object(young_stack.items[--young_stack.len], visit_young);
     clear_weak(0);
+    free_dead_buffers(0);
     sweep_young();
     young_bytes = 0;
     nyoung++;
@@ -1190,6 +1218,7 @@ static void finish_marking(void) {
     scan_roots(visit_old);
     mark_some(0, 0);
     clear_weak(1);
+    free_dead_buffers(1);
     phase = SWEEPING;
     sweep_cursor = all_blocks;
 }

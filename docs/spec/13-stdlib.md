@@ -68,8 +68,9 @@ A JS-compatible `Date` global is kept so ported code works, but new code should 
 
 Using an unavailable feature is a **compile error** that names the target. `comptime if
 (target…)` or platform-specific files work around it. It's reported at the import (E0356): a module,
-or a name from one (`Command` on wasm32-wasi; `serve` in the browser). `Worker` isn't checked at
-compile time yet. Decision 260.
+or a name from one (`Command` on wasm32-wasi; `serve` in the browser). `Worker` is a global:
+`new Worker(…)` in the program's own code is E0356 on wasm32-wasi, as is importing `std/worker`
+there. Decision 260.
 
 ### External processes
 One cross-platform API runs wherever the platform supports processes, which is every native
@@ -123,7 +124,7 @@ reading makes writes reject (`Other`, os error 32) instead of ending the program
 This process: `args: string[]` (the arguments after the program), `pid`, `cwd()`, `env`
 (`get(name): string?`, `has`, `set`, `delete`, `toObject(): Map<string, string>`; children
 started later see changes), `exit(code = 0)` (ends the program at once: no `finally` blocks,
-pending promises dropped) and `stdin` (a `Reader`), `stdout`, `stderr` (`Writer`s whose writes
+pending promises dropped; called in a worker, it ends the whole program too, decision 321) and `stdin` (a `Reader`), `stdout`, `stderr` (`Writer`s whose writes
 are in order with `print`).
 
 ## 13.4 Async-only I/O
@@ -384,6 +385,9 @@ and `index` -1), `matchAll(re): RegExpMatch[]`, `search(re): int`. A replacement
   Windows, carry a bundled copy of the IANA database, 220 KB; each file's POSIX rule applies
   beyond its last transition) and offsets (`+05:30`), `fixed(seconds)`; it
   gives the offset, abbreviation and DST flag at an instant. An unknown id throws `RangeError`.
+  `equals` compares ids, as Temporal does: `fixed(0)` (id `+00:00`) isn't `utc()` (id `UTC`),
+  though their offsets agree; so `DateTime.equals` needs the same instant and the same zone id
+  (`compare`, `isBefore` and `isAfter` look at instants only). Decision 320.
 - `DateTime`: an instant in a zone with its ISO calendar fields (`year`, `month` 1–12, `day`,
   `hour`, …, `dayOfWeek` 1 = Monday, `dayOfYear`, `weekOfYear`, `offset`).
   `DateTime.of(y, m, d, h, mi, s, ns, zone, disambiguation)` resolves wall-clock times that a
@@ -456,7 +460,9 @@ and ECDH P-256/P-384/X25519 key pairs), `sign`/`verify` (HMAC; ECDSA with `r ‖
 `encrypt`/`decrypt` (AES-GCM, 128-bit tags) and `deriveBits` (ECDH, HKDF, PBKDF2). Algorithm
 parameters are one struct, `Algorithm`, built from object literals (`{ name: "AES-GCM", iv }`).
 Results are `Uint8Array`s, failures reject with `CryptoError` (`kind`: `InvalidArgument`,
-`AuthenticationFailed`, `Internal`), and `CryptoKey` holds its bytes.
+`InvalidAccess`, `AuthenticationFailed`, `Internal`), and `CryptoKey` holds its bytes. A key's
+`usages` are enforced (`sign`, `verify`, `encrypt`, `decrypt`, `deriveBits`; another use is
+`InvalidAccess`), and a raw ECDSA/ECDH public key must be a point on its curve.
 
 `std/crypto` is synchronous: `digest(alg, data)` and `hmac(alg, key, data)` (SHA-1, SHA-224,
 SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), `hkdf`, `pbkdf2`,

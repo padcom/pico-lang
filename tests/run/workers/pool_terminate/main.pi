@@ -1,0 +1,30 @@
+// `WorkerPool.terminate()` rejects the jobs still waiting (#22); an inline worker that panics
+// rejects its pending calls (#21).
+// expect: run rejected: the pool was terminated
+// expect: onerror: worker crashed
+// expect: call rejected: worker crashed
+import { WorkerPool } from "std/worker"
+import { Job, Result } from "./types"
+
+const pool = new WorkerPool<Job, Result>("./job", size: 1)
+const p = pool.run(Job { n: 3 })
+pool.terminate()
+try {
+  const r = await p
+  println(`resolved ${r.square}`)
+} catch (e: WorkerPanicked) {
+  println(`run rejected: ${e.message}`)
+}
+
+function crash(n: int): int {
+  if (n == 1) panic("worker crashed")
+  return n * 2
+}
+const w = new Worker(crash)
+w.onerror = (e: WorkerPanicked) => println(`onerror: ${e.message}`)
+try {
+  const r = await w.call(1)
+  println(`got ${r}`)
+} catch (e) {
+  println(`call rejected: ${e.message}`)
+}

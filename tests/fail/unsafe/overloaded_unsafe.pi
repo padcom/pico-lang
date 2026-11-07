@@ -1,0 +1,14 @@
+// Overloaded and generic `unsafe function`s need `unsafe` too, as does `ptr.bytes` (#83).
+// error: E0342
+// at: 9:11
+// error: E0342
+// at: 10:1
+// error: E0342
+// at: 11:1
+const b = new Uint8Array(4)
+const p = ptr.bytes(b)
+twice(1)
+same<int>(1)
+unsafe function twice(x: int): int { x * 2 }
+unsafe function twice(x: string): string { x + x }
+unsafe function same<T>(x: T): T { x }

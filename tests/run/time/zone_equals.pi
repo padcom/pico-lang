@@ -1,0 +1,11 @@
+// `TimeZone.equals` compares ids, as Temporal does (decision 320, issue #43).
+// expect: false true true
+// expect: false true
+import { TimeZone, Instant } from "std/time"
+
+const z0 = TimeZone.fixed(0)
+println(`${z0.equals(TimeZone.utc())} ${TimeZone.of("Z").equals(TimeZone.utc())} ${z0.equals(TimeZone.of("+00:00"))}`)
+const at = Instant.fromEpochMilliseconds(0)
+const a = at.inZone(z0)
+const b = at.inZone(TimeZone.utc())
+println(`${a.equals(b)} ${a.instant.equals(b.instant)}`)

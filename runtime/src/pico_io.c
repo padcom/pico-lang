@@ -1231,6 +1231,9 @@ static void child_wait(Job *j) {
  * (-1 where not piped). */
 static void spawn_child(Job *j, int64_t argc, int64_t envc, int64_t modes, const char *prog,
                         const char *t, size_t tlen) {
+    /* What the program printed comes before the child's output (#14). */
+    fflush(stdout);
+    fflush(stderr);
     static int sigpipe_ignored;
     if (!sigpipe_ignored) {
         /* A child that stops reading makes writes fail (EPIPE) instead of ending us. */
@@ -1305,7 +1308,41 @@ static void spawn_child(Job *j, int64_t argc, int64_t envc, int64_t modes, const
     posix_spawnattr_setsigdefault(&attr, &def);
     posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF);
     pid_t pid = 0;
-    if (!err) {
+    /* A bare name is looked up in the child's `PATH` when the environment gives it one, as
+     * Node (and the interpreter) do (#45); posix_spawnp would search ours. */
+    const char *child_path = NULL;
+    for (size_t i = 0; i < ne && !strchr(prog, '/'); i++) {
+        if (!strncmp(envp[i], "PATH=", 5)) child_path = envp[i] + 5;
+    }
+    char *found = NULL;
+    if (!err && child_path) {
+        size_t plen = strlen(prog);
+        for (const char *d = child_path;; d++) {
+            const char *end = strchr(d, ':');
+            size_t dlen = end ? (size_t)(end - d) : strlen(d);
+            char *cand = malloc(dlen + plen + 3);
+            if (!cand) abort();
+            if (dlen == 0) {
+                snprintf(cand, plen + 3, "./%s", prog);
+            } else {
+                memcpy(cand, d, dlen);
+                cand[dlen] = '/';
+                memcpy(cand + dlen + 1, prog, plen + 1);
+            }
+            if (access(cand, X_OK) == 0) {
+                found = cand;
+                break;
+            }
+            free(cand);
+            if (!end) break;
+            d = end;
+        }
+        if (!found) err = ENOENT;
+    }
+    if (!err && found) {
+        err = posix_spawn(&pid, found, &fa, &attr, argv, envp);
+        if (!err) live_add(pid);
+    } else if (!err) {
         err = posix_spawnp(&pid, prog, &fa, &attr, argv, envp);
         if (!err) live_add(pid);
     }
@@ -1318,6 +1355,7 @@ static void spawn_child(Job *j, int64_t argc, int64_t envc, int64_t modes, const
             mine[i] = -1;
         }
     }
+    free(found);
     free(envp);
     free(argv);
     free(fields);
@@ -3124,6 +3162,9 @@ static HANDLE child_stream(int i, int mode, HANDLE *mine) {
  * command line verbatim (`Command.shell`'s `cmd.exe /s /c "…"`). */
 static void spawn_child(Job *j, int64_t argc, int64_t envc, int64_t modes, const char *prog,
                         const char *t, size_t tlen) {
+    /* What the program printed comes before the child's output (#14). */
+    fflush(stdout);
+    fflush(stderr);
     size_t nf = 1 + (size_t)argc + (size_t)envc;
     const char **fields = calloc(nf, sizeof *fields);
     if (!fields) abort();
