@@ -1,6 +1,6 @@
 // native-only: the interpreter can't call C
 // expect: unset true
-// expect: HOME set true
+// expect: PICO_TEST_ENV set true
 // expect: wrote 7
 // expect: cast null true
 // expect: narrowed 42
@@ -14,8 +14,9 @@ extern "C" {
 
 unsafe {
   println(`unset ${getenv("PICO_SURELY_NOT_SET_ANYWHERE") == null}`)
-  const home = getenv("HOME")
-  if (home != null) println(`HOME set ${string.fromC(home).length > 0}`)
+  // A variable the test harness sets on every platform (WASI has no other, Windows no HOME).
+  const set = getenv("PICO_TEST_ENV")
+  if (set != null) println(`PICO_TEST_ENV set ${string.fromC(set).length > 0}`)
   free(null)
   const m = malloc(16 as usize)
   if (m != null) {

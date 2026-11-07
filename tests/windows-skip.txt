@@ -3,5 +3,4 @@
 run/process/spawn_order  cmd.exe's echo writes CRLF line endings, so the captured lines differ
 run/fs/links    symlinks need Developer Mode or a privilege, readlink isn't implemented, and chmod has only the read-only bit (#64)
 run/net/unix_stale    the test makes its stale socket through POSIX libc
-run/ffi/null_pointers  assumes HOME is set (#119)
 run/ffi/fn_pointers_dlsym  no dlsym on Windows (GetProcAddress instead) (#112)
