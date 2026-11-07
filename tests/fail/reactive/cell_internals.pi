@@ -1,0 +1,7 @@
+// A call returning `Reactive<T>` doesn't expose the cell's internals (issue #18).
+// error: E0319
+function useDouble(c: Reactive<int>): Reactive<int> {
+  return computed(() => c * 2)
+}
+reactive n = 1
+const c = useDouble(n).cache

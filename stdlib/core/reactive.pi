@@ -347,15 +347,36 @@ function __pruneObjects(r: __Reactivity): void {
 /// A reactive cell (spec §16.1): what a `reactive` declaration holds and `computed` returns.
 /// Reads and writes of a reactive binding go through `__get` and `__set`.
 class Reactive<T> {
+  // The state is private, so a cell's internals aren't reachable from user code (#18): the
+  // module's functions make cells through `__of` and `__computedOf`.
   /// The value (none yet for a computed that never ran).
-  public cache: T[] = []
-  public dep: __Dep = new __Dep()
+  cache: T[] = []
+  dep: __Dep = new __Dep()
   /// A computed's getter, setter and observer.
-  public getter: (() => T)? = null
-  public setter: ((v: T) => void)? = null
-  public obs: __Observer? = null
+  getter: (() => T)? = null
+  setter: ((v: T) => void)? = null
+  obs: __Observer? = null
 
   constructor() {}
+
+  /// A cell holding `v`.
+  public static __of<U>(v: U): Reactive<U> {
+    const c = new Reactive<U>()
+    c.cache.push(v)
+    c
+  }
+
+  /// A computed cell.
+  public static __computedOf<U>(getter: () => U, setter: ((v: U) => void)?): Reactive<U> {
+    const c = new Reactive<U>()
+    c.getter = getter
+    c.setter = setter
+    const o = __observer(1, () => c.__refresh())
+    o.own = c.dep
+    c.dep.computed = o
+    c.obs = o
+    c
+  }
 
   /// The value; tracked inside a computed or an effect.
   public __get(): T {
@@ -448,20 +469,11 @@ class Reactive<T> {
 
 /// A reactive cell holding `v` (what `reactive x = v` declares).
 function __reactive<T>(v: T): Reactive<T> {
-  const c = new Reactive<T>()
-  c.cache.push(v)
-  c
+  Reactive.__of<T>(v)
 }
 
 function __computed<T>(getter: () => T, setter: ((v: T) => void)?): Reactive<T> {
-  const c = new Reactive<T>()
-  c.getter = getter
-  c.setter = setter
-  const o = __observer(1, () => c.__refresh())
-  o.own = c.dep
-  c.dep.computed = o
-  c.obs = o
-  c
+  Reactive.__computedOf<T>(getter, setter)
 }
 
 /// A value computed from reactive state (spec §16.3): `getter` runs when the value is read and
