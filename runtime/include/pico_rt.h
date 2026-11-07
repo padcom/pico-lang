@@ -32,6 +32,10 @@ __attribute__((__noreturn__, __nothrow__)) void __mingw_longjmp(jmp_buf buf, int
 void pico_entry(void);
 /* Ends the program with `code`, its output flushed (pico_rt.c). */
 _Noreturn void pico_exit(int code);
+/* Runs once as the program ends (a return from the entry, `exit()`, a panic), before the exit:
+ * the runtime's cleanup (Unix-domain socket files, #85). NULL when there's none. */
+extern void (*pico_at_exit)(void);
+void pico_run_at_exit(void);
 
 /* A string: immutable UTF-8 with its byte length and its length in code points. `cache_*`
  * remember the last indexed position so sequential `s[i]` is O(1) (mutable even in literals,

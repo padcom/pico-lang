@@ -206,14 +206,18 @@ conn.close()
 ```text
 listen(port = 0, hostname = "127.0.0.1"): Promise<Listener, NetError>   // "0.0.0.0"/"::": every interface
 connect(port, hostname = "127.0.0.1"): Promise<Conn, NetError>          // tries each address in turn
-listenUnix(path): Promise<Listener, NetError>    // a Unix-domain socket; the file must not exist
+listenUnix(path): Promise<Listener, NetError>    // a Unix-domain socket (a stale socket file is replaced)
 connectUnix(path): Promise<Conn, NetError>       // (macOS, Linux, Windows 10+; not WASI)
 bind(port = 0, hostname = "127.0.0.1"): Promise<UdpSocket, NetError>
 resolve(hostname): Promise<string[], NetError>                          // IP addresses, no repeats
 type Addr = { hostname: string, port: int }                             // hostname is an IP address
 ```
 A Unix-domain socket's `Addr` is `{ hostname: path, port: -1 }` for both ends, and `NetError`s
-name the path. Closing its listener removes the socket file, as in Node.js (decision 325).
+name the path. Closing its listener removes the socket file, as in Node.js, and so does the
+program's end while it's open (a return, `exit()`, a panic, and natively SIGINT, SIGTERM, SIGHUP
+and crash signals whose action is the default; not SIGKILL). A socket file that
+nothing listens on (a server that crashed left it) is replaced; a live listener's, or a file
+that isn't a socket, gives `AddrInUse` (decision 325).
 A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (one at a time; `null` once
 closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
 connections stay open). A `Conn` has `localAddr`, `remoteAddr`, `read(n = 65536):

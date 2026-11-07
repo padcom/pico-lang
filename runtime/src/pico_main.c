@@ -9,6 +9,7 @@ void pico_runtime_start(int argc, char **argv);
 int main(int argc, char **argv) {
     pico_runtime_start(argc, argv);
     pico_entry();
+    pico_run_at_exit();
     fflush(stdout);
     return 0;
 }

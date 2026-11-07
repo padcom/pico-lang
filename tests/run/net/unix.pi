@@ -1,13 +1,16 @@
 // Unix-domain sockets (#85): an echo server on a socket file; the listener's address is its
-// path, a second listener on the same path fails, closing removes the file, and connecting to a
-// missing socket fails.
+// path, a second listener on the same path fails, closing removes the file, connecting to a
+// missing socket fails, and a file that isn't a socket is left alone. (Stale sockets:
+// run/net/unix_stale.)
 // expect: addr: echo.sock -1
 // expect: echo: hello, unix!
 // expect: busy: AddrInUse
 // expect: file gone: true
 // expect: missing: NotFound
+// expect: not a socket: AddrInUse
+// expect: kept: keep me
 import { listenUnix, connectUnix, Conn, Listener, NetError } from "std/net"
-import { exists } from "std/fs"
+import { exists, writeText, readText } from "std/fs"
 
 async function echo(conn: Conn): Promise<void> throws NetError {
   for await (const chunk of conn) {
@@ -49,3 +52,10 @@ try {
 } catch (e: NetError) {
   println(`missing: ${e.kind}`)
 }
+await writeText("plain.txt", "keep me")
+try {
+  (await listenUnix("plain.txt")).close()
+} catch (e: NetError) {
+  println(`not a socket: ${e.kind}`)
+}
+println(`kept: ${await readText("plain.txt")}`)

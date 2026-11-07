@@ -261,6 +261,20 @@ fn diff(a: &[Entry], b: &[Entry]) -> String {
 }
 
 impl IoState {
+    /// Removes the socket files of the Unix-domain listeners still open (the program ended
+    /// without closing them, #85).
+    pub(crate) fn remove_unix_files(&self) {
+        #[cfg(unix)]
+        for sock in self.net.lock().expect("net").socks.values() {
+            if let Sock::UnixListener(l) = sock
+                && let Ok(a) = l.local_addr()
+                && let Some(p) = a.as_pathname()
+            {
+                let _ = fs::remove_file(p);
+            }
+        }
+    }
+
     /// Whether a "next" job waits on a watcher (the loop then polls instead of sleeping).
     pub(crate) fn watching(&self) -> bool {
         self.watchers.values().any(|w| w.waiting.is_some())
@@ -355,7 +369,13 @@ impl Interp<'_, '_> {
             return Value::Int(i128::from(self.process_job(op, a, b, c, &s(5))));
         }
         if (30..=36).contains(&op) {
-            return Value::Int(i128::from(self.net_job(op, a, b, c, &s(4), &s(5))));
+            // (A Unix-domain socket's path is relative to the program's working directory.)
+            let host = if (op == 30 || op == 32) && c == 1 {
+                self.at(&s(4))
+            } else {
+                s(4)
+            };
+            return Value::Int(i128::from(self.net_job(op, a, b, c, &host, &s(5))));
         }
         if (150..=168).contains(&op) {
             // std/js: only in the browser.
@@ -1181,7 +1201,26 @@ impl Interp<'_, '_> {
                 {
                     use std::os::unix::net::{UnixListener, UnixStream};
                     let made = if op == 30 {
-                        UnixListener::bind(&s).map(|l| Sock::UnixListener(Arc::new(l)))
+                        UnixListener::bind(&s)
+                            .or_else(|e| {
+                                // A crashed server's socket file (nothing listens): replace it.
+                                use std::os::unix::fs::FileTypeExt;
+                                let sock_file = std::fs::symlink_metadata(&s)
+                                    .is_ok_and(|m| m.file_type().is_socket());
+                                let refused = sock_file
+                                    && UnixStream::connect(&s).is_err_and(|c| {
+                                        c.kind() == std::io::ErrorKind::ConnectionRefused
+                                    });
+                                if e.kind() == std::io::ErrorKind::AddrInUse
+                                    && refused
+                                    && std::fs::remove_file(&s).is_ok()
+                                {
+                                    UnixListener::bind(&s)
+                                } else {
+                                    Err(e)
+                                }
+                            })
+                            .map(|l| Sock::UnixListener(Arc::new(l)))
                     } else {
                         UnixStream::connect(&s).map(|st| Sock::UnixStream(Arc::new(st)))
                     };

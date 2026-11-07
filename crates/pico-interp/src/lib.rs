@@ -249,6 +249,8 @@ pub fn run_with(
         .map(|_| ());
     // The program ends: so do its workers.
     shared.stop_all();
+    // Socket files of Unix-domain listeners it didn't close go with it (#85).
+    it.io.remove_unix_files();
     it.flush_output();
     r
 }

@@ -11,6 +11,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <direct.h> /* _getcwd */
+#include <signal.h>
 #endif
 #include "pico_rt.h"
 #include "pico_crypto.h"
@@ -418,6 +420,9 @@ static void dir_close(DirIter *d);
 static void run(Job *j);
 /* Runs socket job `j` (30–35; `std/net` below). */
 static void net_run(Job *j);
+#if !defined(__wasi__)
+static void unix_forget(int64_t fd);
+#endif
 
 /* Appends to the job's text result. */
 static void text_add(Job *j, const char *p, size_t n) {
@@ -1635,6 +1640,7 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
         return j->id;
     }
     case 118: /* exit(a) */
+        pico_run_at_exit();
         fflush(stdout);
         fflush(stderr);
         exit((int)a);
@@ -2810,6 +2816,7 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
         return shutdown((int)a, b == 0 ? SHUT_RD : b == 1 ? SHUT_WR : SHUT_RDWR) < 0 ? -1 : 0;
     case 121: /* close socket a (and its TLS session) */
         pico_tls_free((int)a);
+        unix_forget(a);
         return close((int)a) < 0 ? -1 : 0;
 #endif
     case 105: { /* the working directory, as a polled job's text */
@@ -3718,6 +3725,7 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
         return j->id;
     }
     case 118: /* exit(a) */
+        pico_run_at_exit();
         fflush(stdout);
         fflush(stderr);
         exit((int)a);
@@ -3807,6 +3815,14 @@ static void run(Job *j) {
     }
     case 37: { /* copy file s to t (replacing it) (#64) */
         wchar_t *from = wide(j->s), *to = wide(j->t);
+        DWORD attrs = GetFileAttributesW(from);
+        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+            free(from);
+            free(to);
+            errno = EISDIR;
+            fail(j);
+            return;
+        }
         BOOL ok = CopyFileW(from, to, FALSE);
         free(from);
         free(to);
@@ -4038,6 +4054,7 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     }
     case 121: /* close socket a (and its TLS session) */
         pico_tls_free((int)a);
+        unix_forget(a);
         return closesocket((SOCKET)a) == 0 ? 0 : -1;
     case 110:
     case 111:
@@ -4133,6 +4150,120 @@ static socklen_t unix_addr(UnixAddr *a, const char *p) {
     return (socklen_t)(offsetof(UnixAddr, path) + n + 1);
 }
 
+/* The socket files of open Unix-domain listeners, removed when the program ends without closing
+ * them: at exit (a return, `exit()`, a panic) and on the signals that end it (#85). SIGKILL
+ * can't be caught; a later `listenUnix` replaces what it leaves. Slots are claimed under
+ * `unix_lock`; the signal handler only reads them. */
+#define UNIX_MAX 64
+static struct {
+    volatile int64_t fd; /* -1: free */
+    char path[4096];
+} unix_listeners[UNIX_MAX];
+static pthread_mutex_t unix_lock = PTHREAD_MUTEX_INITIALIZER;
+static int unix_hooked;
+
+static void unix_remove_all(void) {
+    for (int i = 0; i < UNIX_MAX; i++) {
+        if (unix_listeners[i].fd >= 0 && unix_listeners[i].path[0]) {
+#if defined(_WIN32)
+            remove(unix_listeners[i].path);
+#else
+            unlink(unix_listeners[i].path);
+#endif
+        }
+    }
+}
+
+static void unix_on_signal(int sig) {
+    unix_remove_all();
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+/* Remembers listener `fd`'s socket file (made absolute). */
+static void unix_remember(int64_t fd, const char *path) {
+    char full[4096];
+    full[0] = 0;
+#if defined(_WIN32)
+    int absolute = path[0] == '\\' || path[0] == '/' || (path[0] && path[1] == ':');
+#else
+    int absolute = path[0] == '/';
+#endif
+#if defined(_WIN32)
+    if (!absolute && _getcwd(full, (int)sizeof full - 2)) strcat(full, "\\");
+#else
+    if (!absolute && getcwd(full, sizeof full - 2)) strcat(full, "/");
+#endif
+    if (strlen(full) + strlen(path) >= sizeof full) return;
+    strcat(full, path);
+    pthread_mutex_lock(&unix_lock);
+    if (!unix_hooked) {
+        unix_hooked = 1;
+        for (int i = 0; i < UNIX_MAX; i++) unix_listeners[i].fd = -1;
+        pico_at_exit = unix_remove_all;
+        /* Only where the program keeps the default action (which ends it). */
+        int sigs[] = {SIGINT, SIGTERM, SIGSEGV, SIGABRT, SIGFPE,
+#if !defined(_WIN32)
+                      SIGHUP, SIGQUIT, SIGBUS,
+#endif
+        };
+        for (size_t i = 0; i < sizeof sigs / sizeof *sigs; i++) {
+            void (*old)(int) = signal(sigs[i], unix_on_signal);
+            if (old != SIG_DFL) signal(sigs[i], old);
+        }
+    }
+    for (int i = 0; i < UNIX_MAX; i++) {
+        if (unix_listeners[i].fd < 0) {
+            strcpy(unix_listeners[i].path, full);
+            unix_listeners[i].fd = fd;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&unix_lock);
+}
+
+/* A socket is being closed: if it's a listener's, its file is the program's to remove (or
+ * already removed) and no longer the exit hook's. */
+static void unix_forget(int64_t fd) {
+    if (!unix_hooked) return;
+    pthread_mutex_lock(&unix_lock);
+    for (int i = 0; i < UNIX_MAX; i++)
+        if (unix_listeners[i].fd == fd) unix_listeners[i].fd = -1;
+    pthread_mutex_unlock(&unix_lock);
+}
+
+/* Whether `path` is a socket file that nothing listens on (a server that ended without closing
+ * its listener left it); if so, it's removed. Other files are never touched. */
+static int unix_stale(const UnixAddr *a, socklen_t len, const char *path) {
+#if defined(_WIN32)
+    wchar_t *w = wide(path);
+    DWORD attrs = GetFileAttributesW(w);
+    /* (Windows' AF_UNIX socket files are reparse points.) */
+    int sock_file = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_REPARSE_POINT);
+#else
+    struct stat st;
+    int sock_file = lstat(path, &st) == 0 && S_ISSOCK(st.st_mode);
+#endif
+    int stale = 0;
+    if (sock_file) {
+        int64_t probe = (int64_t)socket(AF_UNIX, SOCK_STREAM, 0);
+        if (probe != SOCK_NONE) {
+            int r = connect((sock_t)probe, (const struct sockaddr *)a, len);
+            if (r < 0) sock_failed();
+            stale = r < 0 && errno == ECONNREFUSED;
+            sock_close(probe);
+        }
+    }
+#if defined(_WIN32)
+    if (stale) stale = DeleteFileW(w) != 0;
+    free(w);
+#else
+    if (stale) stale = unlink(path) == 0;
+#endif
+    if (!stale) errno = EADDRINUSE;
+    return stale;
+}
+
 /* Ops 30 (listen) and 32 (connect) on a Unix-domain socket at path s (c = 1). */
 static void unix_run(Job *j) {
     UnixAddr a;
@@ -4150,6 +4281,11 @@ static void unix_run(Job *j) {
     int r;
     if (j->op == 30) {
         r = bind((sock_t)fd, (struct sockaddr *)&a, len);
+        if (r < 0) sock_failed();
+        if (r < 0 && errno == EADDRINUSE && unix_stale(&a, len, j->s)) {
+            /* A crashed server's socket file (nothing listens): replace it. */
+            r = bind((sock_t)fd, (struct sockaddr *)&a, len);
+        }
         if (r == 0) r = listen((sock_t)fd, 128);
     } else {
         do r = connect((sock_t)fd, (struct sockaddr *)&a, len);
@@ -4159,11 +4295,23 @@ static void unix_run(Job *j) {
         sock_failed();
         int e = errno;
         sock_close(fd);
+        /* No socket file at all (Windows says refused): not found, as on POSIX. */
+        if (e == ECONNREFUSED && j->op == 32) {
+#if defined(_WIN32)
+            wchar_t *w = wide(j->s);
+            if (GetFileAttributesW(w) == INVALID_FILE_ATTRIBUTES) e = ENOENT;
+            free(w);
+#else
+            struct stat st;
+            if (lstat(j->s, &st) < 0) e = ENOENT;
+#endif
+        }
         errno = e;
         fail(j);
         return;
     }
     sock_private(fd);
+    if (j->op == 30) unix_remember(fd, j->s);
     j->r = fd;
 }
 

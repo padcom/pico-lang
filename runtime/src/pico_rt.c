@@ -1091,7 +1091,16 @@ uint64_t pico_ipow_u(uint64_t base, uint64_t exp, int32_t bits, int32_t *overflo
 
 /* Ends the program with `code`, its output flushed. On WASI a code other than 0 goes through
  * `wasi:cli/exit`'s `exit-with-code`: the preview 1 adapter would make every failure 1. */
+void (*pico_at_exit)(void);
+
+void pico_run_at_exit(void) {
+    void (*f)(void) = pico_at_exit;
+    pico_at_exit = NULL;
+    if (f) f();
+}
+
 _Noreturn void pico_exit(int code) {
+    pico_run_at_exit();
     fflush(stdout);
     fflush(stderr);
 #if defined(__wasi__) && !defined(PICO_BROWSER) /* (the glue's `proc_exit` keeps codes) */
