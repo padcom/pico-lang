@@ -2,6 +2,7 @@
 // expect: 8
 // expect: true 1
 // expect: 6
+// expect: 2 7
 // A field named `target` inside async methods and arrows is the field, not the build constant;
 // the build constant in an async method doesn't capture `this` (#104).
 struct T { system: int }
@@ -44,3 +45,16 @@ class C {
   }
 }
 println(`${new C().run()}`)
+
+// Assigning a member in an async method (this is captured first).
+class D {
+  public n: int = 0
+  public target: int = 0
+  public async bump(): Promise<string> {
+    n += 1
+    n = n + 1
+    target = 7
+    `${n} ${target}`
+  }
+}
+println(await new D().bump())

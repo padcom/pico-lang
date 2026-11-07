@@ -3532,6 +3532,8 @@ impl Resolver {
     /// The target of an assignment to a bare name (a variable, or an implicit member).
     fn resolve_target(&mut self, name: &str, span: Span) -> Option<Target> {
         if let Some(Found::Member(field)) = self.peek_member(name) {
+            // In an arrow (an async method's body), `this` is captured on first use (#104).
+            self.capture_this();
             let (this, _) = self.f.this.expect("member lookup implies a method");
             let object = self.expr(ExprKind::Var(Var::Local(this)), span);
             let id = self.expr(ExprKind::Error, span).id;
