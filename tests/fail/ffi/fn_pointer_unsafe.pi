@@ -1,0 +1,12 @@
+// error: E0342
+// Spec §12.1: calling a C function pointer needs `unsafe`.
+type Handler = extern "C" (sig: c_int) => void
+
+extern "C" {
+  function signal(sig: c_int, handler: extern "C" (sig: c_int) => void): Handler?
+}
+
+function quiet(sig: c_int) {}
+
+const prev = unsafe { signal(2 as c_int, quiet) }
+if (prev != null) prev(2 as c_int)

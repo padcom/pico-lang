@@ -1,0 +1,38 @@
+// native-only: the interpreter can't call C
+// expect: handler called with 15
+// expect: from a field: 7
+// expect: still null true
+// Spec §12.1: a C function pointer (`extern "C" (…) => R`, a `ptr<(…) => R>` inside) is called
+// like a function inside `unsafe`, with the C ABI. `signal` hands back the previous handler,
+// which here is a pico callback.
+type Handler = extern "C" (sig: c_int) => void
+
+extern "C" {
+  function signal(sig: c_int, handler: extern "C" (sig: c_int) => void): Handler?
+}
+
+struct Callbacks { onSignal: Handler }
+
+function onSignal(sig: c_int) {
+  println(`handler called with ${sig}`)
+}
+
+function fromField(sig: c_int) {
+  println(`from a field: ${sig}`)
+}
+
+function quiet(sig: c_int) {}
+
+unsafe {
+  signal(2 as c_int, onSignal)
+  const prev = signal(2 as c_int, fromField)
+  if (prev != null) prev(15 as c_int)
+  const again = signal(2 as c_int, quiet)
+  if (again != null) {
+    const cbs = Callbacks { onSignal: again }
+    const f = cbs.onSignal
+    f(7 as c_int)
+  }
+  const none: Handler? = null
+  println(`still null ${none == null}`)
+}

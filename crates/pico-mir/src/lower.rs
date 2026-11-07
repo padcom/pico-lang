@@ -7697,6 +7697,25 @@ impl FnBuilder<'_, '_> {
                     None => Operand::Const(Const::Void),
                 }
             }
+            _ if matches!(self.ty_of(callee), Ty::Ref(f) if matches!(**f, Ty::Fn(..))) => {
+                // A C function pointer (spec §12.1).
+                let mut ops = vec![self.expr(callee)];
+                ops.extend(args.iter().map(|a| self.expr(a)));
+                let dest = has_value(&ty).then(|| Place::local(self.temp(ty.clone())));
+                let next = self.new_block();
+                self.terminate(Terminator::Call {
+                    callee: Callee::CPointer,
+                    args: ops,
+                    dest: dest.clone(),
+                    next,
+                    loc,
+                });
+                self.switch_to(next);
+                match dest {
+                    Some(p) => Operand::Copy(p),
+                    None => Operand::Const(Const::Void),
+                }
+            }
             _ if matches!(self.ty_of(callee), Ty::Fn(..)) => {
                 let f = self.expr(callee);
                 let n = match self.ty_of(callee) {

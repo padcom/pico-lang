@@ -1,0 +1,7 @@
+// error: E0302
+// Spec §12.1: a C function pointer takes exactly its parameters.
+type Handler = extern "C" (sig: c_int) => void
+
+function call(h: Handler) {
+  unsafe { h() }
+}

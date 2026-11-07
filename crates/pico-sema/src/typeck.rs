@@ -6291,6 +6291,35 @@ impl<'p> Checker<'p> {
             }
             _ => {
                 let t = self.infer(callee);
+                // A C function pointer (`ptr<extern "C" (…) => R>`, spec §12.1): called inside
+                // `unsafe`, with C's argument rules.
+                if let Ty::Ref(inner) = &t
+                    && let Ty::Fn(ps, r, _) = &**inner
+                {
+                    self.require_unsafe(e.span, "calling a C function pointer");
+                    if args.len() != ps.len() {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::WRONG_ARG_COUNT,
+                                format!(
+                                    "this C function takes {} argument{}, but {} were given",
+                                    ps.len(),
+                                    if ps.len() == 1 { "" } else { "s" },
+                                    args.len()
+                                ),
+                            )
+                            .primary(e.span, "wrong number of arguments"),
+                        );
+                        for a in args {
+                            self.infer(a);
+                        }
+                        return (**r).clone();
+                    }
+                    for (a, p) in args.iter().zip(ps.iter()) {
+                        self.check(a, &Expect::new(p.clone()));
+                    }
+                    return (**r).clone();
+                }
                 if let Ty::Fn(ps, r, _) = &t {
                     // A function value. Trailing `void` parameters may be left out (as in
                     // TS: `resolve()` for a `Promise<void>`).
