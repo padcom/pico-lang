@@ -181,6 +181,12 @@ class FinalizationRegistry<T> {
     removed
   }
 
+  /// The runtime's: runs the callback for the targets already collected, now (the buffers' registry
+  /// during long synchronous code, #95); whether there were any.
+  public __cleanupDue(): bool {
+    cleanup()
+  }
+
   /// Calls the callback for the targets that have been collected; whether there were any.
   cleanup(): bool {
     const due: T[] = []

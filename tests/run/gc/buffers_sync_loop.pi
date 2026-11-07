@@ -1,0 +1,36 @@
+// Garbage buffers are freed during long synchronous code too, not only between event-loop steps
+// (#95): a loop that makes and drops 1 MiB buffers without ever awaiting keeps a small, steady
+// footprint (before the fix: ~2 GB peak for this loop on linux-arm64).
+// expect: bounded: true
+import { exists, readText } from "std/fs"
+
+/// Peak resident memory in kB where the system reports it (Linux), else 0.
+async function peakKb(): Promise<int> throws Error {
+  if (!(await exists("/proc/self/status"))) {
+    return 0
+  }
+  for (const line of (await readText("/proc/self/status")).split("\n")) {
+    if (line.startsWith("VmHWM:")) {
+      return parseInt(line.replace("VmHWM:", "").replace("kB", "").trim())
+    }
+  }
+  0
+}
+
+function churn(rounds: int): int {
+  let kept = 0
+  for (let i = 0; i < rounds; i++) {
+    const a = new Uint8Array(1024 * 1024)
+    a.set(0, i % 256)
+    kept += a.slice().get(0) as int
+  }
+  kept
+}
+
+// The peak after a warm-up, then after 1500 more buffers of 1 MiB (3 GB with the copies): it may
+// grow by a collection's worth, not by the garbage (the interpreter's own footprint is the base).
+const warm = churn(100)
+const before = await peakKb()
+const sum = warm + churn(1500)
+const after = await peakKb()
+println(`bounded: ${sum > 0 && after - before < 300 * 1024}`)

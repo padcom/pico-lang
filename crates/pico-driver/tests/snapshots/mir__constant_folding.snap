@@ -10,19 +10,21 @@ global @g4: bool // __tracking
 global @g5: i64 // __reactiveObjects
 global @g6: __Loop? // __loop
 global @g7: FinalizationRegistry<i64>? // __buffers
-global @g8: Map<string, __Zone>? // __zoneCache
-global @g9: Performance // performance
-global @g10: __Xoshiro128? // __mathRng
-global @g11: Crypto // crypto
-global @g12: i64 // KB
-global @g13: i64 // MB
-global @g14: f64 // ratio
-global @g15: bool // big
-global @g16: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g17: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g18: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g19: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g20: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g8: i64 // __reclaimedAtCycle
+global @g9: i64 // __bytesSinceReclaim
+global @g10: Map<string, __Zone>? // __zoneCache
+global @g11: Performance // performance
+global @g12: __Xoshiro128? // __mathRng
+global @g13: Crypto // crypto
+global @g14: i64 // KB
+global @g15: i64 // MB
+global @g16: f64 // ratio
+global @g17: bool // big
+global @g18: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g19: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g20: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g21: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g22: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn scaled(_0: i64) -> i64 {
     let _1: i64
@@ -44,31 +46,31 @@ fn narrow() -> u8 {
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g16 = const 1_i64
+    @g18 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g17 = const 4_i64
+    @g19 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g18 = const 4_i64
+    @g20 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g19 = const 4_i64
+    @g21 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g20 = const 8_i64
+    @g22 = const 8_i64
     return
 }
 
@@ -110,23 +112,25 @@ fn <main>() -> void {
     @g5 = const 0_i64
     @g6 = const null<__Loop?>
     @g7 = const null<FinalizationRegistry<i64>?>
-    @g8 = const null<Map<string, __Zone>?>
+    @g8 = const -1_i64
+    @g9 = const 0_i64
+    @g10 = const null<Map<string, __Zone>?>
     _0 = struct#119{}
-    @g9 = _0
-    @g10 = const null<__Xoshiro128?>
+    @g11 = _0
+    @g12 = const null<__Xoshiro128?>
     _1 = struct#130{}
     _2 = struct#131{_1}
-    @g11 = _2
-    @g12 = const 1024_i64
-    @g13 = const 1048576_i64
-    @g14 = const 3.0_f64
+    @g13 = _2
+    @g14 = const 1024_i64
+    @g15 = const 1048576_i64
+    @g16 = const 3.0_f64
     goto bb6
   bb6:
     goto bb8
   bb7:
     unreachable
   bb8:
-    @g15 = const true
+    @g17 = const true
     _9 = call scaled(const 1_i64) -> bb9
   bb9:
     _10 = Add(const 1048576_i64, _9)
