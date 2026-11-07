@@ -275,6 +275,12 @@ fn attaches_to_a_program_when_it_starts() {
         eprintln!("note: no lldb-dap: skipping");
         return;
     }
+    // Linux's Yama only lets a debugger attach to its own children unless ptrace_scope is 0.
+    if std::fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope").is_ok_and(|s| s.trim() != "0")
+    {
+        eprintln!("note: kernel.yama.ptrace_scope isn't 0, so lldb can't attach: skipping");
+        return;
+    }
     let dir = std::env::temp_dir().join(format!("pico-dap-attach-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
