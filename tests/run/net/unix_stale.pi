@@ -1,5 +1,4 @@
 // native-only: the interpreter can't call C
-// not-under-qemu: the stale socket made through libc behaves differently under qemu-user (#116)
 // A Unix-domain socket file that nothing listens on (a server that crashed left it) is replaced
 // by `listenUnix` (#85); one with a live listener isn't. The stale file is made through libc:
 // bound, then the descriptor closed without removing the file, as a crash does.
@@ -37,7 +36,12 @@ println(`stale file: ${await exists(path)}`)
 
 async function serve(server: Listener): Promise<void> throws NetError {
   for await (const conn of server) {
-    await conn.writeText("echo")
+    // The live-listener check below connects and hangs up at once (that's how `listenUnix` tells
+    // a live socket from a stale one): writing to it can fail, which mustn't end the server
+    // (#116; under qemu-user it usually did).
+    try {
+      await conn.writeText("echo")
+    } catch (e: NetError) {}
     conn.close()
   }
 }

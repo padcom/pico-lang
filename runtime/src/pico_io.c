@@ -4264,6 +4264,13 @@ static int unix_stale(const UnixAddr *a, socklen_t len, const char *path) {
     return stale;
 }
 
+/* `r`, a socket call's result; on failure errno says why, read at once (Winsock's last error
+ * belongs to the thread's latest call: the stale check's probe would replace it, #116). */
+static int sock_check(int r) {
+    if (r < 0) sock_failed();
+    return r;
+}
+
 /* Ops 30 (listen) and 32 (connect) on a Unix-domain socket at path s (c = 1). */
 static void unix_run(Job *j) {
     UnixAddr a;
@@ -4280,19 +4287,19 @@ static void unix_run(Job *j) {
     }
     int r;
     if (j->op == 30) {
-        r = bind((sock_t)fd, (struct sockaddr *)&a, len);
-        if (r < 0) sock_failed();
+        r = sock_check(bind((sock_t)fd, (struct sockaddr *)&a, len));
         if (r < 0 && errno == EADDRINUSE && unix_stale(&a, len, j->s)) {
             /* A crashed server's socket file (nothing listens): replace it. */
-            r = bind((sock_t)fd, (struct sockaddr *)&a, len);
+            r = sock_check(bind((sock_t)fd, (struct sockaddr *)&a, len));
         }
-        if (r == 0) r = listen((sock_t)fd, 128);
+        if (r == 0) r = sock_check(listen((sock_t)fd, 128));
     } else {
-        do r = connect((sock_t)fd, (struct sockaddr *)&a, len);
-        while (r < 0 && (sock_failed(), errno == EINTR));
+        do r = sock_check(connect((sock_t)fd, (struct sockaddr *)&a, len));
+        while (r < 0 && errno == EINTR);
     }
     if (r < 0) {
-        sock_failed();
+        /* errno is the failed call's (sock_check); asking Winsock again here would give the
+         * stale check's probe's instead, which made a busy path read Other on Windows (#116). */
         int e = errno;
         sock_close(fd);
         /* No socket file at all (Windows says refused): not found, as on POSIX. */

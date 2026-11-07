@@ -13,9 +13,13 @@ import { listenUnix, connectUnix, Conn, Listener, NetError } from "std/net"
 import { exists, writeText, readText } from "std/fs"
 
 async function echo(conn: Conn): Promise<void> throws NetError {
-  for await (const chunk of conn) {
-    await conn.write(chunk)
-  }
+  // The busy check below connects and hangs up at once (how `listenUnix` tells a live socket from
+  // a stale one): that connection can fail, which mustn't end the program (#116).
+  try {
+    for await (const chunk of conn) {
+      await conn.write(chunk)
+    }
+  } catch (e: NetError) {}
   conn.close()
 }
 
