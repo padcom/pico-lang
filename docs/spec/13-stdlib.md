@@ -384,6 +384,9 @@ and `index` -1), `matchAll(re): RegExpMatch[]`, `search(re): int`. A replacement
   Windows, carry a bundled copy of the IANA database, 220 KB; each file's POSIX rule applies
   beyond its last transition) and offsets (`+05:30`), `fixed(seconds)`; it
   gives the offset, abbreviation and DST flag at an instant. An unknown id throws `RangeError`.
+  `equals` compares ids, as Temporal does: `fixed(0)` (id `+00:00`) isn't `utc()` (id `UTC`),
+  though their offsets agree; so `DateTime.equals` needs the same instant and the same zone id
+  (`compare`, `isBefore` and `isAfter` look at instants only). Decision 320.
 - `DateTime`: an instant in a zone with its ISO calendar fields (`year`, `month` 1–12, `day`,
   `hour`, …, `dayOfWeek` 1 = Monday, `dayOfYear`, `weekOfYear`, `offset`).
   `DateTime.of(y, m, d, h, mi, s, ns, zone, disambiguation)` resolves wall-clock times that a
