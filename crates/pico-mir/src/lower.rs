@@ -1392,6 +1392,13 @@ impl Cx<'_> {
                 params.push(Local(p.0));
             }
         }
+        // `void` parameters a closure was given beyond its own (`() => …` as a `(v: void) => R`,
+        // #88): received and ignored.
+        if f.closure.is_some() {
+            for t in sig.params.iter().skip(f.params.len()) {
+                params.push(b.temp(t.clone()));
+            }
+        }
         // A flag per defaulted parameter: whether the caller gave it.
         let mut defaulted = Vec::new();
         for (k, d) in f.defaults.iter().enumerate() {

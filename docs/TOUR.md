@@ -470,7 +470,7 @@ i++; --i
 i += 5; i **= 2; i <<= 1
 flag &&= check(); name ||= "anon"; opt ??= fallback
 
-const big = i64.MAX
+let big: i64 = 9223372036854775807
 big++                             // panic: overflow
 ```
 
@@ -1628,7 +1628,7 @@ pico symbolize crash.txt           # resolve a release stack trace
 ```ts
 // math.test.pi
 import { describe, test, expect, beforeEach, bench } from "std/test"
-import { add, load } from "./math"
+import { add, load, parse } from "./math"
 
 describe("add", () => {
   beforeEach(() => reset())
@@ -1638,15 +1638,18 @@ describe("add", () => {
     expect([add(1, 1)]).toEqual([2])
   })
   test("overflow panics", () => {
-    expect(() => add(i64.MAX, 1)).toPanic()
+    expect(() => add(9223372036854775807, 1)).toPanic()
   })
   test("throws on bad input", () => {
-    expect(() => parseInt("x")).toThrow(ParseError)
+    expect(() => parse("x")).toThrow("bad")       // the error's message contains "bad"
   })
-  test("async works", async () => {
-    await expect(load("x")).rejects.toThrow(IoError)
-  })
+  test("missing files reject", missingFilesReject)
 })
+
+// Async tests are `async function`s passed by name (no async lambdas yet).
+async function missingFilesReject(): Promise<void> {
+  await expect(load("no-such-file")).rejects.toThrow("no-such-file")
+}
 
 bench("sort 10k", () => data.slice().sort())
 ```

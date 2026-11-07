@@ -237,8 +237,12 @@ function __runEventLoop(): void {
 
 /// Submits file-system job `op` (see `pico_io`); `done(job)` runs on the loop once it's
 /// finished, and can read its results (`__io(102, job, …)`, `__io_text(job)`).
+/// The id of the job `__ioSubmit` submitted last (`Reader.close()` cancels its read by it).
+let __lastJob = -1
+
 function __ioSubmit(op: int, a: int, b: int, c: int, s: string, t: string, done: (job: int) => void): void {
   const job = __io(op, a, b, c, s, t)
+  __lastJob = job
   __theLoop().io.set(job, () => {
     done(job)
   })

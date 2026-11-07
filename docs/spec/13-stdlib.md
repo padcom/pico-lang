@@ -116,7 +116,9 @@ isn't UTF-8 (`InvalidData`).
 
 A `Reader` reads chunks of bytes: `read(n = 65536): Promise<Uint8Array?, IoError>` (`null` at
 the end), `for await (const chunk of r)`, or `text()` for the rest as UTF-8; one read at a
-time (a second one while the first waits panics). A `Writer` has `write(data: Uint8Array)` and
+time (a second one while the first waits panics). `close()` stops reading: a pending read settles
+with `null`, as do later ones, and the descriptor is closed (this process's stdin stays open), so a
+program can stop reading a pipe or device whose other end never writes (decision 324). A `Writer` has `write(data: Uint8Array)` and
 `writeText(text)` (both `Promise<int, IoError>`, the bytes written), which happen in the order
 they're made, and `close()`, which ends the child's input after them. A child that stops
 reading makes writes reject (`Other`, os error 32) instead of ending the program.

@@ -1,0 +1,16 @@
+// A callback with no parameters where a function taking `void` is expected (#88), as in
+// TypeScript: `delay(n).then(() => …)` with `U` inferred or given, and capturing.
+// expect: 42
+// expect: done
+// expect: typed
+// expect: param
+import { delay } from "std/timers"
+
+const a = delay(1).then(() => "done")
+const b = delay(1).then<string>(() => "typed")
+const c = delay(1).then((v: void) => "param")
+const n = 41
+println(await delay(1).then(() => n + 1))
+println(await a)
+println(await b)
+println(await c)

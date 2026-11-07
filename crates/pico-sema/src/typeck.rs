@@ -3705,6 +3705,17 @@ impl<'p> Checker<'p> {
             Some(Ty::Fn(ps, r, ts)) if ps.len() == f.params.len() => {
                 Some((ps.clone(), r.clone(), ts.clone()))
             }
+            // Fewer parameters than expected, the rest `void` (`delay(1).then(() => …)`, #88):
+            // the closure takes them and ignores them.
+            Some(Ty::Fn(ps, r, ts))
+                if ps.len() > f.params.len()
+                    && ps[f.params.len()..].iter().all(|t| *t == Ty::Void) =>
+            {
+                self.types.sigs[id.0 as usize]
+                    .params
+                    .extend(ps[f.params.len()..].iter().cloned());
+                Some((ps.clone(), r.clone(), ts.clone()))
+            }
             // A union with one function member of this arity (`string | (m: M) => string`).
             Some(Ty::Union(_, ms)) => {
                 let fns: Vec<&Ty> = ms

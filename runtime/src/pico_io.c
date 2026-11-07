@@ -247,6 +247,150 @@ static void fail(Job *j) {
     j->r2 = e;
 }
 
+/* Cancellable reads (job 20, #100). A read registers while it waits; `Reader.close()` cancels it
+ * by the owner's queue and job id (op 107), and the read then ends as at the end of the stream.
+ * POSIX: the read polls its descriptor and a wake pipe of its own, which a cancel writes to.
+ * Windows: a cancel interrupts the waiting thread's `ReadFile` (`CancelSynchronousIo`). A cancel
+ * that comes before the read registers waits for it here (`cancelled`, no thread yet). WASI has
+ * no threads: nothing to cancel. */
+#if !defined(__wasi__)
+typedef struct Cancel {
+    Queue *q;
+    int64_t id;
+    int cancelled;
+#if defined(_WIN32)
+    HANDLE thread;
+#elif PICO_IO_POSIX
+    int wake[2];
+#endif
+    struct Cancel *next;
+} Cancel;
+
+static pthread_mutex_t cancel_lock = PTHREAD_MUTEX_INITIALIZER;
+static Cancel *cancels;
+
+/* The entry for job `id` of queue `q` (under `cancel_lock`), or NULL. */
+static Cancel **cancel_find(Queue *q, int64_t id) {
+    for (Cancel **c = &cancels; *c; c = &(*c)->next)
+        if ((*c)->q == q && (*c)->id == id) return c;
+    return NULL;
+}
+
+/* Registers job `j` as waiting: its entry, or NULL when it was cancelled already. */
+static Cancel *cancel_register(Job *j) {
+    pthread_mutex_lock(&cancel_lock);
+    Cancel **found = cancel_find(j->owner, j->id);
+    if (found) {
+        /* Cancelled before it started. */
+        Cancel *c = *found;
+        *found = c->next;
+        pthread_mutex_unlock(&cancel_lock);
+        free(c);
+        return NULL;
+    }
+    Cancel *c = calloc(1, sizeof *c);
+    if (!c) abort();
+    c->q = j->owner;
+    c->id = j->id;
+#if defined(_WIN32)
+    if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &c->thread,
+                         0, FALSE, DUPLICATE_SAME_ACCESS))
+        c->thread = NULL;
+#elif PICO_IO_POSIX
+    if (pipe(c->wake) != 0) c->wake[0] = c->wake[1] = -1;
+    else {
+        fcntl(c->wake[0], F_SETFD, FD_CLOEXEC);
+        fcntl(c->wake[1], F_SETFD, FD_CLOEXEC);
+    }
+#endif
+    c->next = cancels;
+    cancels = c;
+    pthread_mutex_unlock(&cancel_lock);
+    return c;
+}
+
+/* Unregisters `c` (from `cancel_register`); whether it was cancelled. */
+static int cancel_unregister(Cancel *c) {
+    pthread_mutex_lock(&cancel_lock);
+    Cancel **at = cancel_find(c->q, c->id);
+    if (at) *at = c->next;
+    int cancelled = c->cancelled;
+    pthread_mutex_unlock(&cancel_lock);
+#if defined(_WIN32)
+    if (c->thread) CloseHandle(c->thread);
+#elif PICO_IO_POSIX
+    if (c->wake[0] >= 0) {
+        close(c->wake[0]);
+        close(c->wake[1]);
+    }
+#endif
+    free(c);
+    return cancelled;
+}
+#endif
+
+/* Op 107: cancels queue `q`'s read job `id` (one still running; a finished one is unaffected). */
+static void cancel_read(Queue *q, int64_t id) {
+#if defined(__wasi__)
+    (void)q;
+    (void)id;
+#else
+    pthread_mutex_lock(&cancel_lock);
+    Cancel **found = cancel_find(q, id);
+    if (found) {
+        Cancel *c = *found;
+        if (!c->cancelled) {
+            c->cancelled = 1;
+#if defined(_WIN32)
+            if (c->thread) CancelSynchronousIo(c->thread);
+#elif PICO_IO_POSIX
+            if (c->wake[1] >= 0) {
+                char b = 1;
+                ssize_t w;
+                do w = write(c->wake[1], &b, 1);
+                while (w < 0 && errno == EINTR);
+            }
+#endif
+        }
+    } else {
+        /* Not started yet: it finds this when it does. */
+        Cancel *c = calloc(1, sizeof *c);
+        if (!c) abort();
+        c->q = q;
+        c->id = id;
+        c->cancelled = 1;
+#if defined(_WIN32)
+        c->thread = NULL;
+#elif PICO_IO_POSIX
+        c->wake[0] = c->wake[1] = -1;
+#endif
+        c->next = cancels;
+        cancels = c;
+    }
+    pthread_mutex_unlock(&cancel_lock);
+#endif
+}
+
+#if PICO_IO_POSIX
+#include <poll.h>
+/* Waits until `fd` can be read (or is closed, or fails) for job `j`; 1 when the wait was cancelled
+ * instead (op 107). Without a wake pipe it doesn't wait, and the read blocks as before. */
+static int read_wait(int fd, Job *j) {
+    Cancel *c = cancel_register(j);
+    if (!c) return 1;
+    if (c->wake[0] >= 0) {
+        struct pollfd p[2] = {{fd, POLLIN, 0}, {c->wake[0], POLLIN, 0}};
+        for (;;) {
+            int k = poll(p, 2, -1);
+            if (k < 0 && errno == EINTR) continue;
+            /* (An error from poll itself: let the read report it.) */
+            if (k < 0 || p[0].revents || p[1].revents) break;
+        }
+    }
+    return cancel_unregister(c);
+}
+#endif
+
 /* ---- the platform's part (below) ---- */
 
 #if defined(_WIN32)
@@ -918,6 +1062,14 @@ static void run(Job *j) {
         size_t n = j->b > 0 ? (size_t)j->b : 1;
         char *b = calloc(n, 1);
         if (!b) abort();
+#if PICO_IO_POSIX
+        if (j->op == 20 && !pico_tls_has((int)j->a) && read_wait((int)j->a, j)) {
+            /* Cancelled (`Reader.close()`): as at the end. */
+            j->r = (int64_t)(uintptr_t)b;
+            j->r2 = 0;
+            return;
+        }
+#endif
         ssize_t k = pico_tls_read((int)j->a, b, n);
         if (k == -2) {
             do k = read((int)j->a, b, n);
@@ -2532,6 +2684,9 @@ static void os_submit(Job *j) {
 static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PicoStr *s,
                      const PicoStr *t) {
     switch (op) {
+    case 107: /* cancel read job a (job 20; `Reader.close()`, #100) */
+        cancel_read(q, a);
+        return 0;
     case 106: /* close watcher a */
         watch_close(a);
         return 0;
@@ -3328,10 +3483,16 @@ static void pipe_read(Job *j) {
         j->r2 = got;
         return;
     }
+    /* Cancellable (`Reader.close()`, #100): then it ends as at the end of the stream. (A cancel
+     * in the moment between registering and `ReadFile` starting is missed.) */
+    Cancel *c = cancel_register(j);
     DWORD k = 0;
-    if (!ReadFile(handle_of(j->a), b, n > 0x40000000 ? 0x40000000 : (DWORD)n, &k, NULL)) {
-        DWORD e = GetLastError();
-        if (e != ERROR_BROKEN_PIPE && e != ERROR_HANDLE_EOF) {
+    BOOL ok = c ? ReadFile(handle_of(j->a), b, n > 0x40000000 ? 0x40000000 : (DWORD)n, &k, NULL)
+                : FALSE;
+    DWORD e = ok ? 0 : c ? GetLastError() : ERROR_OPERATION_ABORTED;
+    int cancelled = c ? cancel_unregister(c) : 1;
+    if (!ok) {
+        if (e != ERROR_BROKEN_PIPE && e != ERROR_HANDLE_EOF && !cancelled) {
             free(b);
             win_errno(e, NULL);
             fail(j);
@@ -3737,6 +3898,9 @@ static void os_submit(Job *j) {
 static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, const PicoStr *s,
                      const PicoStr *t) {
     switch (op) {
+    case 107: /* cancel read job a (job 20; `Reader.close()`, #100) */
+        cancel_read(q, a);
+        return 0;
     case 106: /* close watcher a */
         watch_close(a);
         return 0;

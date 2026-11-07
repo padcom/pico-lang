@@ -1,0 +1,21 @@
+// `Reader.close()` ends a read that is already waiting (#100): `cat` keeps running and never
+// writes, the pending read settles with `null` (as at the end), later reads too, and the program
+// can end. Without it the read never settled.
+// expect: waiting
+// expect: closed: null
+// expect: again: null
+// expect: done
+import { Command } from "std/process"
+import { delay } from "std/timers"
+
+const cat = new Command("cat", stdin: "pipe", stdout: "pipe").spawn()
+const pending = cat.stdout.read()
+await delay(100) // the read is blocking now
+println("waiting")
+cat.stdout.close()
+println(`closed: ${await pending}`)
+println(`again: ${await cat.stdout.read()}`)
+cat.stdout.close() // (twice is fine)
+cat.stdin.close()
+await cat.status()
+println("done")

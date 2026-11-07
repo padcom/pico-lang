@@ -52,6 +52,9 @@ pub(crate) struct IoState {
     env: Option<BTreeMap<String, String>>,
     /// `std/net` sockets, shared with the threads that accept and connect.
     net: Arc<Mutex<Net>>,
+    /// Read jobs cancelled by `Reader.close()` (op 107, #100): they ended at once, so what their
+    /// threads finish with later is dropped.
+    cancelled: std::collections::HashSet<i64>,
 }
 
 /// Sockets by id (from 1 000 000, apart from pipes).
@@ -532,9 +535,35 @@ impl Interp<'_, '_> {
             });
             return Value::Int(i128::from(id));
         }
+        if op == 107 {
+            // Cancel read job `a`: unless it finished already, it ends now as at the end of the
+            // stream. (Its thread stays blocked in the read; what it gets is dropped.)
+            let st = &mut self.io;
+            let finished = st.finished.lock().expect("jobs");
+            let known = a <= 0
+                || a > st.next_id
+                || finished.iter().any(|j| j.id == a)
+                || st.done.iter().any(|j| j.id == a)
+                || st.taken.iter().any(|j| j.id == a);
+            drop(finished);
+            if !known {
+                st.cancelled.insert(a);
+                let r = self.shared.buffers.lock().expect("buffers").add(Vec::new());
+                st.done.push_back(Job {
+                    id: a,
+                    r,
+                    ..Default::default()
+                });
+            }
+            return Value::Int(0);
+        }
         if op == 100 {
             let finished: Vec<Job> = self.io.finished.lock().expect("jobs").drain(..).collect();
             for mut j in finished {
+                // A cancelled job's own result (its stand-in went straight to `done`).
+                if self.io.cancelled.remove(&j.id) {
+                    continue;
+                }
                 if let Some(bytes) = j.bytes.take() {
                     j.r2 = bytes.len() as i64;
                     j.r = self.shared.buffers.lock().expect("buffers").add(bytes);
