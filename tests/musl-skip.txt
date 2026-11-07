@@ -1,0 +1,2 @@
+# Golden fixtures (name prefixes) that static *-linux-musl programs can't run, and why.
+run/ffi/fn_pointers_dlsym  a static musl program has no dynamic symbols for dlopen/dlsym

@@ -734,13 +734,17 @@ pub fn run_all(root: &Path, filter: Option<&str>) -> Report {
     report
 }
 
-/// What a target can't run yet: `tests/<os>-skip.txt` (`windows`, `wasi`) lists name prefixes,
+/// What a target can't run yet: `tests/<os>-skip.txt` (`windows`, `wasi`, `browser`, `musl`) lists name prefixes,
 /// each with the task or reason; (prefix, why).
 pub fn target_skips(root: &Path, target: pico_driver::Target) -> Vec<(String, String)> {
     let file = match target.os {
         pico_driver::target::Os::Windows => "windows-skip.txt",
         pico_driver::target::Os::Wasi => "wasi-skip.txt",
         pico_driver::target::Os::Browser => "browser-skip.txt",
+        // Static musl programs (no dynamic linker).
+        pico_driver::target::Os::Linux if target.env == pico_driver::target::Env::Musl => {
+            "musl-skip.txt"
+        }
         _ => return Vec::new(),
     };
     let mut text = std::fs::read_to_string(root.join(file)).unwrap_or_default();

@@ -6,21 +6,25 @@
 // `unsafe`: a `string` argument goes as a C string, a `u8` is extended as C expects.
 @link("dl")
 extern "C" {
+  function dlopen(path: ptr<u8>?, flags: c_int): ptr<void>?
   function dlsym(handle: ptr<void>?, name: string): ptr<void>?
 }
 
 unsafe {
-  const a = dlsym(null, "abs")
+  // The program's own handle (its global symbols, libc's included): portable, where a null
+  // handle means "every library" only on glibc (RTLD_DEFAULT is -2 on macOS). RTLD_NOW = 2.
+  const self = dlopen(null, 2 as c_int)
+  const a = dlsym(self, "abs")
   if (a != null) {
     const abs = a as extern "C" (x: c_int) => c_int
     println(`abs ${abs(-5 as c_int)}`)
   }
-  const s = dlsym(null, "strlen")
+  const s = dlsym(self, "strlen")
   if (s != null) {
     const strlen = s as extern "C" (s: string) => usize
     println(`strlen ${strlen("héllo")}`)
   }
-  const t = dlsym(null, "toupper")
+  const t = dlsym(self, "toupper")
   if (t != null) {
     const toupper = t as extern "C" (c: u8) => c_int
     println(`toupper ${toupper(97 as u8) as u32 as char}`)
