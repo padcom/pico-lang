@@ -15,7 +15,7 @@
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Where a header comes from and how to build against it.
@@ -98,6 +98,53 @@ pub fn config(dir: &Path) -> Result<CConfig, String> {
         }
     }
     Ok(cfg)
+}
+
+/// The library directories for `target` (spec §12.1): `-L`'s, then `project.json`'s
+/// `"c": { "libDirs": […] }` (found in `dir` or above), a list for every target or a map from
+/// target names (`windows-x64`, a triple, …) to lists. Relative paths are from the project.
+pub fn lib_dirs(dir: &Path, target: crate::Target) -> Vec<PathBuf> {
+    let mut out = crate::link::cli_lib_dirs();
+    let Some((root, json)) = project_json(dir) else {
+        return out;
+    };
+    let same = |name: &str| {
+        crate::Target::parse(name)
+            .is_ok_and(|t| (t.arch, t.os, t.env) == (target.arch, target.os, target.env))
+    };
+    let lists: Vec<&Value> = match json.get("c").and_then(|c| c.get("libDirs")) {
+        Some(Value::Array(_)) => vec![&json["c"]["libDirs"]],
+        Some(Value::Object(m)) => m.iter().filter(|(k, _)| same(k)).map(|(_, v)| v).collect(),
+        _ => Vec::new(),
+    };
+    for list in lists {
+        for d in list
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            let p = Path::new(d);
+            out.push(if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                root.join(p)
+            });
+        }
+    }
+    out
+}
+
+/// The nearest `project.json` at `dir` or above: its directory and contents (`None` if
+/// there's none or it isn't valid JSON).
+fn project_json(dir: &Path) -> Option<(PathBuf, Value)> {
+    let start = pico_runtime::canonical(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let root = start
+        .ancestors()
+        .find(|d| d.join("project.json").is_file())?
+        .to_path_buf();
+    let text = std::fs::read_to_string(root.join("project.json")).ok()?;
+    Some((root, serde_json::from_str(&text).ok()?))
 }
 
 /// The pico module for `c:<header>` (a system header like `math.h`, or `./x.h` relative to

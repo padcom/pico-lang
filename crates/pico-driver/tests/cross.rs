@@ -172,3 +172,125 @@ fn macos() {
         );
     }
 }
+
+/// `@link` with `project.json`'s `c.libDirs` (spec §12.1, #113): a static C library built for
+/// each target is found in the directory listed for that target, on Windows and macOS (pico's
+/// lld) as on Linux.
+#[test]
+fn link_libraries_from_lib_dirs() {
+    if !pico_lld::AVAILABLE {
+        eprintln!("skipped: needs lld");
+        return;
+    }
+    let (Some(clang), Some(ar)) = (on_path("clang"), on_path("llvm-ar")) else {
+        eprintln!("skipped: needs clang and llvm-ar on PATH");
+        return;
+    };
+    let dir = tempdir("libdirs");
+    std::fs::write(
+        dir.join("adder.c"),
+        "int add_numbers(int a, int b) { return a + b; }\n",
+    )
+    .unwrap();
+    let host = pico_driver::Target::host().to_string();
+    let targets = [
+        ("windows-x64", "x86_64-w64-windows-gnu"),
+        ("macos-arm64", "arm64-apple-macos11"),
+        ("host", host.as_str()),
+    ];
+    let mut map = Vec::new();
+    for (name, triple) in targets {
+        let sub = dir.join(name);
+        std::fs::create_dir_all(&sub).unwrap();
+        let obj = sub.join("adder.o");
+        let ok = std::process::Command::new(&clang)
+            .arg(format!("--target={triple}"))
+            .args(["-c", "-o"])
+            .arg(&obj)
+            .arg(dir.join("adder.c"))
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "compiling adder.c for {triple}");
+        let ok = std::process::Command::new(&ar)
+            .arg("rcs")
+            .arg(sub.join("libadder.a"))
+            .arg(&obj)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "archiving for {triple}");
+        let key = if name == "host" {
+            host.clone()
+        } else {
+            name.to_string()
+        };
+        map.push(format!("\"{key}\": [\"{name}\"]"));
+    }
+    std::fs::write(
+        dir.join("project.json"),
+        format!("{{ \"c\": {{ \"libDirs\": {{ {} }} }} }}", map.join(", ")),
+    )
+    .unwrap();
+    let src = "@link(\"adder\")\nextern \"C\" {\n  function add_numbers(a: c_int, b: c_int): c_int\n}\n\
+               println(add_numbers(2 as c_int, 3 as c_int))\n";
+    for (name, _) in targets {
+        let target = (name != "host").then(|| pico_driver::Target::parse(name).unwrap());
+        let opts = pico_driver::BuildOptions {
+            release: false,
+            target,
+        };
+        let checked = pico_driver::check_source_with("main.pi", src, &dir, opts);
+        assert!(!checked.has_errors(), "{}", checked.render_diagnostics());
+        let exe =
+            pico_driver::build_cached(&checked, opts).unwrap_or_else(|e| panic!("{name}: {e}"));
+        if name == "host" {
+            let out = std::process::Command::new(&exe).output().unwrap();
+            assert_eq!(String::from_utf8_lossy(&out.stdout), "5\n");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `@link` on Windows (#113): a system DLL gets an import library from MinGW's `.def` files;
+/// a library that's nowhere is an error naming it and saying where to put it.
+#[test]
+fn windows_link() {
+    if !pico_lld::AVAILABLE {
+        eprintln!("skipped: needs lld");
+        return;
+    }
+    let target = Some(pico_driver::Target::parse("windows-x64").unwrap());
+    let opts = pico_driver::BuildOptions {
+        release: false,
+        target,
+    };
+    let src = "@link(\"user32\")\nextern \"C\" {\n  function MessageBeep(kind: c_uint): i32\n}\n\
+               if (false) MessageBeep(0 as c_uint)\nprintln(\"hi\")\n";
+    let checked = pico_driver::check_source("user32.pi", src);
+    assert!(!checked.has_errors(), "{}", checked.render_diagnostics());
+    let exe = pico_driver::build_cached(&checked, opts).unwrap();
+    let bytes = std::fs::read(&exe).unwrap();
+    let has = |s: &[u8]| bytes.windows(s.len()).any(|w| w.eq_ignore_ascii_case(s));
+    assert!(has(b"user32.dll"), "imports user32.dll");
+    let missing = src.replace("user32", "nosuchlib");
+    let checked = pico_driver::check_source("missing.pi", missing);
+    let err = pico_driver::build_cached(&checked, opts).unwrap_err();
+    assert!(err.contains("can't find the library `nosuchlib`"), "{err}");
+    assert!(err.contains("-L"), "{err}");
+}
+
+fn on_path(name: &str) -> Option<std::path::PathBuf> {
+    std::env::var_os("PATH").and_then(|p| {
+        std::env::split_paths(&p)
+            .map(|d| d.join(name))
+            .find(|f| f.is_file())
+    })
+}
+
+fn tempdir(tag: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("pico-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}

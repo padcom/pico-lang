@@ -172,8 +172,17 @@ pub fn libc(t: Target, cc: &Clang) -> Result<Mingw, String> {
             .filter(|j| !j.start)
             .map(|j| built.join(&j.obj))
             .collect(),
-        imports: import_libs(t, cc)?,
+        imports: import_libs(t, cc, LIBS)?,
     })
+}
+
+/// The import library for system DLL `name` (`user32`, `ws2_32`, …) from MinGW's `.def`
+/// files, made on first use and cached; `None` if MinGW has no `.def` for it.
+pub fn system_import_lib(t: Target, cc: &Clang, name: &str) -> Result<Option<PathBuf>, String> {
+    if find_def(t, name).is_none() {
+        return Ok(None);
+    }
+    Ok(import_libs(t, cc, &[name])?.pop())
 }
 
 /// The `.def` for a DLL: the architecture's own (`lib64`, x86-64 only), else the common one,
@@ -189,9 +198,9 @@ fn find_def(t: Target, name: &str) -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.is_file())
 }
 
-/// The import libraries in [`LIBS`], made on first use and cached.
-fn import_libs(t: Target, cc: &Clang) -> Result<Vec<PathBuf>, String> {
-    let defs: Vec<(&str, PathBuf)> = LIBS
+/// The import libraries for `names` (DLLs with a MinGW `.def`), made on first use and cached.
+fn import_libs(t: Target, cc: &Clang, names: &[&str]) -> Result<Vec<PathBuf>, String> {
+    let defs: Vec<(&str, PathBuf)> = names
         .iter()
         .map(|n| {
             find_def(t, n)

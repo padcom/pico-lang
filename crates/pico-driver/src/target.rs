@@ -176,6 +176,15 @@ impl Target {
         format!("{arch}-linux-{env}")
     }
 
+    /// The short name (`linux-x64`, `windows-arm64`, …), or the triple if there's none.
+    pub fn alias(self) -> &'static str {
+        let triple = self.llvm_triple();
+        TARGETS
+            .iter()
+            .find(|(t, _)| *t == triple)
+            .map_or(triple, |(_, a)| a)
+    }
+
     pub fn is_host(self) -> bool {
         let h = Target::host();
         (self.arch, self.os, self.env) == (h.arch, h.os, h.env)

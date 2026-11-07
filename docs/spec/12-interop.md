@@ -42,6 +42,24 @@ takes a top-level function by name, which mustn't throw. Pointers convert to oth
 types with `as`. Extern functions run only in native code (the interpreter panics), and
 structs cross by pointer until by-value C structs are implemented. Decision 261.
 
+### Linking libraries
+`@link("name")` on an `extern` block links the C library `name` on every target. The C
+library's own parts (`m`, `pthread`, `dl`, …) are always there. The linker looks in the
+directories given with `pico build -L <dir>` (or `pico run -L`), then in `project.json`'s
+`c.libDirs`, then in the system's (Linux: the target's multiarch directories; a macOS host:
+`cc`'s).
+```json
+{ "c": { "libDirs": { "windows-x64": ["vendor/SDL2/lib/x64"], "macos-arm64": ["vendor/SDL2/macos"] } } }
+```
+`libDirs` is a list for every target, or a map from target names (aliases or triples) to
+lists; relative paths are from the project's directory.
+- **Windows**: `name.lib`, `libname.dll.a` or `libname.a` from those directories, else, for a
+  system DLL (`user32`, `gdi32`, `ws2_32`, `opengl32`, …), an import library made from
+  MinGW's `.def` files; otherwise the build fails, naming the library.
+- **macOS** (cross builds, pico's lld): libSystem's parts are linked already; other libraries
+  are `libname.tbd`, `.dylib` or `.a` in those directories (frameworks aren't supported
+  yet). Decision 329.
+
 ### Null pointers
 A `ptr<T>` is never null. A C pointer that may be `NULL` is `ptr<T>?`: the same machine
 pointer, with `null` as address 0, so it crosses to C unchanged. Externs take and return it
@@ -108,8 +126,8 @@ sdl.SDL_Init(sdl.SDL_INIT_VIDEO)
 The compiler parses the header with an embedded libclang and generates `extern`
 declarations, `@pod` structs, enums and `#define` constants that are simple literals.
 Function-like macros are skipped. Include paths and link flags come from `project.json`
-(`"c": { "include": [...], "link": [...], "pkgConfig": ["sdl2"] }`, found in the program's
-directory or above) or pkg-config. `c:./x.h` is a header next to the importing file.
+(`"c": { "include": [...], "link": [...], "libDirs": [...], "pkgConfig": ["sdl2"] }`, found in
+the program's directory or above) or pkg-config. `c:./x.h` is a header next to the importing file.
 
 The compiler reads the header through clang's JSON AST (decision 262). Variadic functions end
 with `...`; functions that pass structs or unions by value are left out for now, as are

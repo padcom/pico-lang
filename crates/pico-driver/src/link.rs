@@ -48,7 +48,14 @@ fn darwin_libc(cc: &Clang) -> Libc {
 /// Links `obj` with the runtime into the executable `exe` for macOS, against `libSystem`'s
 /// `.tbd` stubs (no SDK needed). dyld calls `main` (`LC_MAIN`), so there are no start files;
 /// `libSystem` re-exports compiler-rt. arm64 executables get lld's ad-hoc signature.
-pub fn link_macos(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), String> {
+pub fn link_macos(
+    t: Target,
+    obj: &Path,
+    exe: &Path,
+    debug: bool,
+    links: &[String],
+    lib_dirs: &[PathBuf],
+) -> Result<(), String> {
     let cc = clang()?;
     let runtime = runtime_objects(t, &darwin_libc(cc))?;
     let arch = match t.arch {
@@ -80,7 +87,25 @@ pub fn link_macos(t: Target, obj: &Path, exe: &Path, debug: bool) -> Result<(), 
             .display()
             .to_string(),
     );
-    pico_lld::link_macho(&args).map_err(|e| format!("linking failed:\n{e}"))
+    // `@link` libraries (spec §12.1): libSystem's parts are linked already; the others are
+    // found in `lib_dirs` (`.tbd`, `.dylib` or `.a`).
+    let libsystem = ["c", "m", "pthread", "dl", "System", "rt", "util", "resolv"];
+    let wanted: Vec<&String> = links
+        .iter()
+        .filter(|l| !libsystem.contains(&l.as_str()))
+        .collect();
+    if !wanted.is_empty() {
+        args.extend(lib_dirs.iter().map(|d| format!("-L{}", d.display())));
+        args.extend(wanted.iter().map(|l| format!("-l{l}")));
+    }
+    pico_lld::link_macho(&args).map_err(|e| {
+        let hint = if e.contains("library not found") {
+            format!("\n({})", lib_dirs_hint(t))
+        } else {
+            String::new()
+        };
+        format!("linking failed:\n{e}{hint}")
+    })
 }
 
 /// Links `obj` with the runtime into the module `exe` for `wasm32-wasi` (P8.5a): wasi-libc's
@@ -210,6 +235,7 @@ pub fn link_shared_lib(
     out: &Path,
     exports: &[String],
     links: &[String],
+    lib_dirs: &[PathBuf],
 ) -> Result<(), String> {
     let (runtime, builtins) = library_runtime(t)?;
     let cc = clang()?;
@@ -232,7 +258,7 @@ pub fn link_shared_lib(
     lazy(&mut args, &builtins);
     args.push("--as-needed".into());
     args.extend(paths(&stubs));
-    args.extend(system_libs(t, links, &stubs));
+    args.extend(system_libs(t, links, &stubs, lib_dirs));
     let r = pico_lld::link_elf(&args).map_err(|e| format!("linking failed:\n{e}"));
     let _ = std::fs::remove_file(&script);
     r
@@ -246,16 +272,47 @@ pub fn link_linux(
     exe: &Path,
     debug: bool,
     links: &[String],
+    lib_dirs: &[PathBuf],
 ) -> Result<(), String> {
     match t.env {
-        Env::Musl => link_musl(t, obj, exe, debug, links),
-        _ => link_gnu(t, obj, exe, debug, links),
+        Env::Musl => link_musl(t, obj, exe, debug, links, lib_dirs),
+        _ => link_gnu(t, obj, exe, debug, links, lib_dirs),
     }
 }
 
-/// `-l` arguments for `@link` libraries, with the system's library directories for the
-/// target (a library the generated glibc stubs already provide, like `m`, is left out).
-fn system_libs(t: Target, links: &[String], provided: &[PathBuf]) -> Vec<String> {
+/// Library directories from `pico build -L` (searched before `project.json`'s `c.libDirs`).
+static CLI_LIB_DIRS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Sets the directories `-L` gave (spec §12.1).
+pub fn set_cli_lib_dirs(dirs: Vec<PathBuf>) {
+    *CLI_LIB_DIRS.lock().unwrap_or_else(|e| e.into_inner()) = dirs;
+}
+
+pub fn cli_lib_dirs() -> Vec<PathBuf> {
+    CLI_LIB_DIRS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// The hint for a library the linker didn't find.
+fn lib_dirs_hint(t: Target) -> String {
+    format!(
+        "give the directory with `pico build -L <dir>`, or in project.json's \
+         `\"c\": {{ \"libDirs\": {{ \"{}\": [\"…\"] }} }}`",
+        t.alias()
+    )
+}
+
+/// `-l` arguments for `@link` libraries, with `lib_dirs` and the system's library
+/// directories for the target (a library the generated glibc stubs already provide, like `m`,
+/// is left out).
+fn system_libs(
+    t: Target,
+    links: &[String],
+    provided: &[PathBuf],
+    lib_dirs: &[PathBuf],
+) -> Vec<String> {
     let mut out = Vec::new();
     // (The C library's own parts: musl has them all in `libc.a`, glibc's are stubs.)
     let libc = ["c", "m", "pthread", "dl", "rt", "util"];
@@ -272,6 +329,7 @@ fn system_libs(t: Target, links: &[String], provided: &[PathBuf]) -> Vec<String>
     if wanted.is_empty() {
         return out;
     }
+    out.extend(lib_dirs.iter().map(|d| format!("-L{}", d.display())));
     let ma = t.multiarch();
     for d in [
         format!("/usr/lib/{ma}"),
@@ -293,6 +351,7 @@ fn link_gnu(
     exe: &Path,
     debug: bool,
     links: &[String],
+    lib_dirs: &[PathBuf],
 ) -> Result<(), String> {
     let cc = clang()?;
     let runtime = runtime_objects(t, &gnu_libc(t, cc)?)?;
@@ -318,7 +377,7 @@ fn link_gnu(
     // Only the libraries something refers to become dependencies (libdl, libutil, …).
     args.push("--as-needed".into());
     args.extend(paths(&stubs));
-    args.extend(system_libs(t, links, &stubs));
+    args.extend(system_libs(t, links, &stubs, lib_dirs));
     link_split(args, out_at, exe, debug)
 }
 
@@ -359,6 +418,7 @@ fn link_musl(
     exe: &Path,
     debug: bool,
     links: &[String],
+    lib_dirs: &[PathBuf],
 ) -> Result<(), String> {
     let cc = clang()?;
     let musl = crate::musl::libc(t, cc)?;
@@ -375,13 +435,19 @@ fn link_musl(
     lazy(&mut args, &musl.lib);
     lazy(&mut args, &crate::builtins::objects(t, cc)?);
     // (Static libraries built for musl, if the system has them.)
-    args.extend(system_libs(t, links, &[]));
+    args.extend(system_libs(t, links, &[], lib_dirs));
     args.extend(paths(&musl.end));
     link_split(args, out_at, exe, debug)
 }
 
 /// Windows (MinGW): lld's COFF linker in MinGW mode, MinGW's CRT and import libraries.
-pub fn link_windows(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
+pub fn link_windows(
+    t: Target,
+    obj: &Path,
+    exe: &Path,
+    links: &[String],
+    lib_dirs: &[PathBuf],
+) -> Result<(), String> {
     let cc = clang()?;
     let mingw = crate::mingw::libc(t, cc)?;
     let libc = Libc {
@@ -421,7 +487,48 @@ pub fn link_windows(t: Target, obj: &Path, exe: &Path) -> Result<(), String> {
         args.push("-end-lib".into());
     }
     args.extend(paths(&mingw.imports));
+    args.extend(paths(&windows_libs(t, cc, links, lib_dirs)?));
     pico_lld::link_coff(&args).map_err(|e| format!("linking failed:\n{e}"))
+}
+
+/// The libraries `@link` names for Windows (spec §12.1): `name.lib`, `libname.dll.a` or
+/// `libname.a` in `lib_dirs`, else a system DLL's import library made from MinGW's `.def`
+/// files (`user32`, `gdi32`, `ws2_32`, `opengl32`, …). The C library's parts (`m`,
+/// `pthread`, …) are there already.
+fn windows_libs(
+    t: Target,
+    cc: &Clang,
+    links: &[String],
+    lib_dirs: &[PathBuf],
+) -> Result<Vec<PathBuf>, String> {
+    let libc = ["c", "m", "pthread", "dl", "rt", "util"];
+    let mut out = Vec::new();
+    for l in links.iter().filter(|l| !libc.contains(&l.as_str())) {
+        let names = [
+            format!("{l}.lib"),
+            format!("lib{l}.dll.a"),
+            format!("lib{l}.a"),
+        ];
+        let found = lib_dirs
+            .iter()
+            .flat_map(|d| names.iter().map(move |n| d.join(n)))
+            .find(|p| p.is_file());
+        match found {
+            Some(p) => out.push(p),
+            None => match crate::mingw::system_import_lib(t, cc, l)? {
+                Some(p) => out.push(p),
+                None => {
+                    return Err(format!(
+                        "linking failed: can't find the library `{l}` for {} (`{l}.lib`, \
+                         `lib{l}.dll.a` or `lib{l}.a`): {}",
+                        t.alias(),
+                        lib_dirs_hint(t)
+                    ));
+                }
+            },
+        }
+    }
+    Ok(out)
 }
 
 fn common_args(t: Target) -> Vec<String> {

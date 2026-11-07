@@ -33,7 +33,7 @@ pub const WASMGC_UNSUPPORTED: &str = pico_codegen::wasmgc::UNSUPPORTED;
 pub const LLD_AVAILABLE: bool = pico_lld::AVAILABLE;
 mod wasi;
 
-pub use link::use_own_clang;
+pub use link::{set_cli_lib_dirs, use_own_clang};
 pub use modules::stdlib_dir;
 pub use target::Target;
 
@@ -89,6 +89,9 @@ pub struct Checked {
     pub comptime_output: String,
     /// Files `comptime.readFile` read (inputs of the build besides the sources).
     pub files_read: Vec<PathBuf>,
+    /// Where the linker looks for `@link` libraries besides the system's (`-L`, then
+    /// `project.json`'s `c.libDirs` for the target; spec §12.1).
+    pub lib_dirs: Vec<PathBuf>,
 }
 
 impl Checked {
@@ -300,6 +303,7 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, mode: Mode)
         diags,
         comptime_output,
         files_read: pico_interp::comptime::take_files_read(),
+        lib_dirs: cheader::lib_dirs(dir, opts.target.unwrap_or_else(Target::host)),
     }
 }
 
@@ -556,15 +560,29 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     }
     if lld {
         let r = if target.os == target::Os::Windows {
-            link::link_windows(target, &obj, exe)
+            link::link_windows(target, &obj, exe, &mir.links, &checked.lib_dirs)
         } else if target.os == target::Os::Macos {
-            link::link_macos(target, &obj, exe, !opts.release)
+            link::link_macos(
+                target,
+                &obj,
+                exe,
+                !opts.release,
+                &mir.links,
+                &checked.lib_dirs,
+            )
         } else if target.os == target::Os::Wasi {
             link::link_wasi(target, &obj, exe)
         } else if target.os == target::Os::Browser {
             browser::build(mir, &obj, exe, &js_packages(&checked.sm))
         } else {
-            link::link_linux(target, &obj, exe, !opts.release, &mir.links)
+            link::link_linux(
+                target,
+                &obj,
+                exe,
+                !opts.release,
+                &mir.links,
+                &checked.lib_dirs,
+            )
         };
         if r.is_ok() && target.os == target::Os::Macos {
             keep_macos_debug_info(exe, opts.release);
@@ -577,6 +595,12 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         .arg(pico_runtime::static_lib())
         .args(pico_runtime::crypto_libs())
         .args(pico_runtime::host_link_flags())
+        .args(
+            checked
+                .lib_dirs
+                .iter()
+                .map(|d| format!("-L{}", d.display())),
+        )
         .args(mir.links.iter().map(|l| format!("-l{l}")));
     if !opts.release {
         // Panic traces name frames through the dynamic symbol table.
@@ -730,7 +754,9 @@ pub fn build_library(
     )?;
     let r = match kind {
         LibKind::Static => link::link_static_lib(target, &obj, out),
-        LibKind::Shared => link::link_shared_lib(target, &obj, out, &exports, &mir.links),
+        LibKind::Shared => {
+            link::link_shared_lib(target, &obj, out, &exports, &mir.links, &checked.lib_dirs)
+        }
     };
     let _ = std::fs::remove_file(&obj);
     r?;
@@ -758,6 +784,7 @@ pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {
     }
     opts.release.hash(&mut h);
     opts.target.hash(&mut h);
+    checked.lib_dirs.hash(&mut h);
     std::env::var("PICO_BACKEND").ok().hash(&mut h);
     env!("CARGO_PKG_VERSION").hash(&mut h);
     // The compiler itself: a rebuilt compiler must not reuse old executables.
