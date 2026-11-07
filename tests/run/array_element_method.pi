@@ -1,0 +1,20 @@
+// A struct method called on an array element that grows the same array (issue #5): its writes
+// through `this` land in the element.
+// expect: 99 100001
+// expect: 7 0
+struct S {
+  v: i32
+  bump(arr: S[]): void {
+    for (let i: i32 = 0; i < 100000; i++) arr.push({ v: i })
+    this.v = 99
+  }
+  set(x: i32): void {
+    this.v = x
+  }
+}
+const arr: S[] = [{ v: 1 }]
+arr[0].bump(arr)
+println(`${arr[0].v} ${arr.length}`)
+const small: S[] = [{ v: 0 }, { v: 0 }]
+small[0].set(7)
+println(`${small[0].v} ${small[1].v}`)

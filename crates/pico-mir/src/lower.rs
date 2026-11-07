@@ -6045,6 +6045,65 @@ impl FnBuilder<'_, '_> {
         }
     }
 
+    /// A reference to a struct receiver at `place`. An element of a growable array is copied
+    /// first (the method may grow the array and move its storage, #5); the copy and the place
+    /// come back for `write_back` after the call.
+    fn struct_receiver(
+        &mut self,
+        place: Place,
+        t: &Ty,
+        span: Span,
+    ) -> (Operand, Option<(Place, Local)>) {
+        let rt = Ty::Ref(Box::new(t.clone()));
+        let in_array = (0..place.proj.len()).any(|k| {
+            matches!(place.proj[k], mir::Proj::Index(_))
+                && matches!(
+                    self.place_ty(&Place {
+                        base: place.base,
+                        proj: place.proj[..k].to_vec(),
+                    }),
+                    Ty::Array(_)
+                )
+        });
+        if !in_array {
+            return (self.rvalue_to_temp(Rvalue::Ref(place), rt, span), None);
+        }
+        let tmp = self.temp(t.clone());
+        self.assign(
+            Place::local(tmp),
+            Rvalue::Use(Operand::Copy(place.clone())),
+            span,
+        );
+        let r = self.rvalue_to_temp(Rvalue::Ref(Place::local(tmp)), rt, span);
+        (r, Some((place, tmp)))
+    }
+
+    /// After a call through `struct_receiver`'s copy: the copy goes back to its element (the
+    /// indices checked again: the call may have shrunk the array).
+    fn write_back(&mut self, back: Option<(Place, Local)>, span: Span) {
+        let Some((place, tmp)) = back else {
+            return;
+        };
+        let checks: Vec<Check> = place
+            .proj
+            .iter()
+            .enumerate()
+            .filter_map(|(k, p)| match p {
+                mir::Proj::Index(idx) => Some(Check {
+                    idx: *idx,
+                    base: Place {
+                        base: place.base,
+                        proj: place.proj[..k].to_vec(),
+                    },
+                    span,
+                }),
+                _ => None,
+            })
+            .collect();
+        self.emit_checks(&checks);
+        self.assign(place, Rvalue::Use(Operand::Copy(Place::local(tmp))), span);
+    }
+
     /// The receiver argument for a method of the type of `place`'s value: a reference for a
     /// struct, the object for a class.
     fn receiver(&mut self, place: &Place, t: &Ty, span: Span) -> Operand {
@@ -7003,8 +7062,7 @@ impl FnBuilder<'_, '_> {
                 let m = self.method_target(e, hm);
                 let recv_ty = self.ty_of(object).clone();
                 let recv = self.place_of(object);
-                let this =
-                    self.rvalue_to_temp(Rvalue::Ref(recv), Ty::Ref(Box::new(recv_ty)), e.span);
+                let (this, back) = self.struct_receiver(recv, &recv_ty, e.span);
                 let mut ops = vec![this];
                 let rest = self.call_operands(e, hm, args);
                 ops.extend(rest);
@@ -7018,6 +7076,7 @@ impl FnBuilder<'_, '_> {
                     loc,
                 });
                 self.switch_to(next);
+                self.write_back(back, e.span);
                 if ty == Ty::Never {
                     self.diverge(Terminator::Unreachable);
                 }
