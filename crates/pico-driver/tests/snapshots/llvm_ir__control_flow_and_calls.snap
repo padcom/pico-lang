@@ -17,6 +17,8 @@ source_filename = "test.pi"
 @pico.global.__reactiveObjects = internal thread_local global i64 0
 @pico.global.__loop = internal thread_local global ptr null
 @pico.global.__buffers = internal thread_local global ptr null
+@pico.global.__reclaimedAtCycle = internal thread_local global i64 0
+@pico.global.__bytesSinceReclaim = internal thread_local global i64 0
 @pico.global.__zoneCache = internal thread_local global ptr null
 @pico.global.performance = internal thread_local global %pico.Performance zeroinitializer
 @pico.global.__mathRng = internal thread_local global ptr null
@@ -280,6 +282,8 @@ bb5:                                              ; preds = %bb4
   store i64 0, ptr @pico.global.__reactiveObjects, align 4
   store ptr null, ptr @pico.global.__loop, align 8
   store ptr null, ptr @pico.global.__buffers, align 8
+  store i64 -1, ptr @pico.global.__reclaimedAtCycle, align 4
+  store i64 0, ptr @pico.global.__bytesSinceReclaim, align 4
   store ptr null, ptr @pico.global.__zoneCache, align 8
   store %pico.Performance undef, ptr %t0, align 1
   %1 = load %pico.Performance, ptr %t0, align 1

@@ -12,6 +12,7 @@ class ArrayBuffer {
   /// `byteLength` zeroed bytes (a negative length gives an empty buffer).
   constructor(byteLength: int) {
     const n = if (byteLength < 0) 0 else byteLength
+    __reclaimBuffers(n)
     this.__handle = __buf_op(1, n, 0, 0)
     this.byteLength = n
     __bufferRegistry().registerWithToken(this, this.__handle, this)
@@ -19,6 +20,7 @@ class ArrayBuffer {
 
   /// Takes over memory the runtime allocated (`std/fs` reads).
   constructor(handle: int, byteLength: int, __adopt: bool) {
+    __reclaimBuffers(byteLength)
     this.__handle = handle
     this.byteLength = byteLength
     __buf_op(5, byteLength, 0, 0);  // the collector counts it (#90)
@@ -70,6 +72,33 @@ function __bufferRegistry(): FinalizationRegistry<int> {
   })
   __buffers = made
   made
+}
+
+/// Collections counted when buffers were last reclaimed here, and buffer bytes made since then.
+let __reclaimedAtCycle = -1
+let __bytesSinceReclaim = 0
+
+/// Before `bytes` of buffer are made: frees the buffers a collection found unreachable, once 32 MiB
+/// of buffers were made since the last time and a collection ran since (#95). The event loop does
+/// that between steps (#90), but long synchronous code never reaches one, and its garbage buffers'
+/// memory would stay until it ends. Throttled by volume because cleaning up scans every
+/// registration (and allocates): once per collection was a scan per allocation for small buffers.
+/// The interpreter has no collector counters, so there the volume alone decides.
+function __reclaimBuffers(bytes: int): void {
+  const r = __buffers
+  if (r == null) {
+    return
+  }
+  __bytesSinceReclaim += bytes
+  if (__bytesSinceReclaim < 32 * 1024 * 1024) {
+    return
+  }
+  const cycles = __gc_stat(3) + __gc_stat(4)
+  if (cycles != __reclaimedAtCycle || cycles == 0) {
+    __reclaimedAtCycle = cycles
+    __bytesSinceReclaim = 0
+    r.__cleanupDue()
+  }
 }
 
 /// `postMessage(message, { transfer: [buffer] })`: the buffers to move instead of copy.
