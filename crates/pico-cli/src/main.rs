@@ -41,6 +41,10 @@ enum Command {
         /// Build even if nothing changed since the last build (spec §14.6).
         #[arg(long)]
         force: bool,
+        /// A directory to look for `@link` libraries in, before project.json's `c.libDirs`
+        /// and the system's (spec §12.1). May be given several times.
+        #[arg(short = 'L', long = "lib-dir", value_name = "DIR")]
+        lib_dirs: Vec<PathBuf>,
     },
     /// Compile and run a program.
     Run {
@@ -52,6 +56,9 @@ enum Command {
         /// Optimize.
         #[arg(long)]
         release: bool,
+        /// A directory to look for `@link` libraries in (as for `pico build`).
+        #[arg(short = 'L', long = "lib-dir", value_name = "DIR")]
+        lib_dirs: Vec<PathBuf>,
         /// Arguments for the program.
         #[arg(last = true)]
         args: Vec<String>,
@@ -235,8 +242,10 @@ fn main() -> ExitCode {
             emit,
             target,
             lib: Some(kind),
+            lib_dirs,
             ..
         }) if emit.is_none() => with_entry(file, |file| {
+            pico_driver::set_cli_lib_dirs(absolute(&lib_dirs));
             build_lib(
                 &file,
                 output,
@@ -251,8 +260,10 @@ fn main() -> ExitCode {
             emit,
             target,
             force,
+            lib_dirs,
             ..
         }) => with_entry(file, |file| {
+            pico_driver::set_cli_lib_dirs(absolute(&lib_dirs));
             build(
                 &file,
                 output,
@@ -359,8 +370,10 @@ fn main() -> ExitCode {
             file,
             interp,
             release,
+            lib_dirs,
             args,
         }) => with_entry(file, |file| {
+            pico_driver::set_cli_lib_dirs(absolute(&lib_dirs));
             run(
                 &file,
                 interp,
@@ -729,6 +742,13 @@ fn run(path: &Path, interp: bool, opts: pico_driver::BuildOptions, args: &[Strin
             ExitCode::FAILURE
         }
     }
+}
+
+/// `-L` directories, absolute (a build may run elsewhere than the current directory).
+fn absolute(dirs: &[PathBuf]) -> Vec<PathBuf> {
+    dirs.iter()
+        .map(|d| std::path::absolute(d).unwrap_or_else(|_| d.clone()))
+        .collect()
 }
 
 /// `pico fmt [--check] [paths…]`.

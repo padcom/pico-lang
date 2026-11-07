@@ -126,10 +126,11 @@ fn key(entry: &Path, exe: &Path, opts: &BuildOptions) -> String {
         .map(|v| format!("{v}={}", std::env::var(v).unwrap_or_default()))
         .collect();
     format!(
-        "{} | {compiler} | release={} target={} | {} | {} -> {}",
+        "{} | {compiler} | release={} target={} -L {:?} | {} | {} -> {}",
         env!("CARGO_PKG_VERSION"),
         opts.release,
         opts.target.unwrap_or_else(Target::host),
+        crate::link::cli_lib_dirs(),
         env.join(" "),
         canonical(entry).display(),
         canonical_output(exe).display(),

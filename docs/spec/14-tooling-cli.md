@@ -7,7 +7,7 @@ Everything ships in a single static `pico` binary.
 |---------|---------|
 | `pico run file.pi [args]` | compile with the LLVM JIT and run (script mode) |
 | `pico` (no args) | REPL |
-| `pico build [--target t] [--release]` | ahead-of-time build to native or wasm |
+| `pico build [--target t] [--release] [-L dir]` | ahead-of-time build to native or wasm (`-L`: where `@link` libraries are, §12.1) |
 | `pico test [filter]` | run `*.test.pi` |
 | `pico bench [filter]` | run `bench()` cases in `*.bench.pi` / `*.test.pi` |
 | `pico symbolize file` | resolve release stack traces using the debug file |
