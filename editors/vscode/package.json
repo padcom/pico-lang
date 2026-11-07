@@ -2,7 +2,7 @@
   "name": "pico-lang",
   "displayName": "Pico",
   "description": "The Pico Programming Language: highlighting, diagnostics, completion, hover, rename, formatting and debugging, through the pico language server.",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "padcom",
   "license": "MIT",
   "icon": "images/pico-icon.png",
