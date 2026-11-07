@@ -1,0 +1,13 @@
+// `compareTo`/`equals`/`hashCode` on strings, numbers and chars (issue #10).
+// expect: -1 1 0
+// expect: -1 1 0
+// expect: true false
+// expect: true
+// expect: -1
+println(`${"a".compareTo("b")} ${"b".compareTo("a")} ${"x".compareTo("x")}`)
+const n = 1
+println(`${n.compareTo(2)} ${(2.5).compareTo(1.0)} ${'c'.compareTo('c')}`)
+println(`${"a".equals("a")} ${n.equals(3)}`)
+println("abc".hashCode() == "abc".hashCode())
+const k: i32 = 4
+println(k.compareTo(5))

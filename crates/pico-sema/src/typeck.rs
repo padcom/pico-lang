@@ -6042,6 +6042,11 @@ impl<'p> Checker<'p> {
                 if let Some(r) = self.extension_call(e, object, &t, name, args) {
                     return r;
                 }
+                // `"a".compareTo("b")`, `(1).equals(2)`: the built-in protocols' methods on the
+                // primitives that meet them (#10), lowered as for a type parameter.
+                if let Some(r) = self.primitive_protocol(e, &t, name, args) {
+                    return r;
+                }
                 if let Ty::Param(..) = t {
                     if let Some(r) = self.param_method(e, &t, name, *name_span, args) {
                         return r;
@@ -7010,6 +7015,43 @@ impl<'p> Checker<'p> {
             }
         }
         (sig.ret.subst(owner, &args_ty), args_ty)
+    }
+
+    /// `compareTo`, `equals` or `hashCode` on a number, `char`, `string` or `bool` that meets
+    /// `Comparable`, `Equatable` or `Hashable`.
+    fn primitive_protocol(&mut self, e: &Expr, t: &Ty, name: &str, args: &[Expr]) -> Option<Ty> {
+        if !matches!(
+            t.erase(),
+            Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Bool
+        ) {
+            return None;
+        }
+        let (bound, ret, n) = match name {
+            "compareTo" => (Bound::Comparable, Ty::Int(IntTy::I32), 1),
+            "equals" => (Bound::Equatable, Ty::Bool, 1),
+            "hashCode" => (Bound::Hashable, Ty::Int(IntTy::U64), 0),
+            _ => return None,
+        };
+        if !self.satisfies(t, &bound) {
+            return None;
+        }
+        if args.len() != n {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::WRONG_ARG_COUNT,
+                    format!(
+                        "`{name}` takes {n} argument{}",
+                        if n == 1 { "" } else { "s" }
+                    ),
+                )
+                .primary(e.span, "wrong number of arguments"),
+            );
+        }
+        for a in args {
+            self.check(a, &Expect::new(t.clone()));
+        }
+        self.types.param_calls.insert(e.id, name.to_string());
+        Some(ret)
     }
 
     /// A method call on a value of a type parameter: `a.compareTo(b)` and the methods of
