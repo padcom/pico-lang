@@ -3404,8 +3404,20 @@ impl Resolver {
         if let Some(t) = self.const_param(name) {
             return Some(Found::Const(t));
         }
-        if self.f.this.is_none() && self.f.arrow {
-            self.capture_this();
+        // An arrow captures `this` only for a name that is a member: capturing it for any name
+        // made `comptime` code in a method (`target.os`) capture an unused `this` (#104).
+        if self.f.this.is_none()
+            && self.f.arrow
+            && let Some(sid) = self.this_struct()
+        {
+            let def = &self.structs[sid.0 as usize];
+            if def.field(name).is_some()
+                || def.method(name).is_some()
+                || def.getter(name).is_some()
+                || def.setter(name).is_some()
+            {
+                self.capture_this();
+            }
         }
         // Inside a method, `name` means `this.name` unless a local shadows it.
         if let Some((_, sid)) = self.f.this {
@@ -3520,6 +3532,8 @@ impl Resolver {
     /// The target of an assignment to a bare name (a variable, or an implicit member).
     fn resolve_target(&mut self, name: &str, span: Span) -> Option<Target> {
         if let Some(Found::Member(field)) = self.peek_member(name) {
+            // In an arrow (an async method's body), `this` is captured on first use (#104).
+            self.capture_this();
             let (this, _) = self.f.this.expect("member lookup implies a method");
             let object = self.expr(ExprKind::Var(Var::Local(this)), span);
             let id = self.expr(ExprKind::Error, span).id;
@@ -3901,10 +3915,33 @@ impl Resolver {
         {
             return None;
         }
-        let (_, sid) = self.f.this?;
+        let sid = self.this_struct()?;
         let def = &self.structs[sid.0 as usize];
         (def.field(name).is_some() || def.setter(name).is_some())
             .then(|| Found::Member(name.to_string()))
+    }
+
+    /// The class `this` is in the current function: its own, or (in an arrow, such as an async
+    /// method's body, which captures `this` only when it's used) the enclosing method's, found
+    /// the way `capture_this` finds it, without capturing (#104).
+    fn this_struct(&self) -> Option<StructId> {
+        if let Some((_, sid)) = self.f.this {
+            return Some(sid);
+        }
+        if !self.f.arrow {
+            return None;
+        }
+        let n = self.outer_fns.len();
+        for lvl in 1..=n {
+            let st = &self.outer_fns[n - lvl];
+            if let Some((_, sid)) = st.this {
+                return Some(sid);
+            }
+            if !(st.is_closure && st.arrow) {
+                return None;
+            }
+        }
+        None
     }
 
     fn resolve_var(&mut self, name: &str, span: Span) -> Option<Var> {
