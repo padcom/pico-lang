@@ -792,6 +792,15 @@ pub fn build_library(
     Ok(header)
 }
 
+/// A suffix for a cache directory being built (`<dir>.tmp<suffix>`, renamed when complete):
+/// unique to this build, also between threads of one process (tests build caches in parallel,
+/// and two builds sharing a temporary directory overwrote each other's files).
+pub(crate) fn tmp_suffix() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{}-{n}", std::process::id())
+}
+
 /// Where `pico run` puts the executable for a source file: a cache directory keyed by the
 /// file's path and contents, so unchanged programs aren't rebuilt.
 pub fn cached_executable(checked: &Checked, opts: BuildOptions) -> PathBuf {

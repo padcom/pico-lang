@@ -233,7 +233,7 @@ fn import_libs(t: Target, cc: &Clang, names: &[&str]) -> Result<Vec<PathBuf>, St
     if out.is_dir() {
         return Ok(libs);
     }
-    let tmp = out.with_extension(format!("tmp{}", std::process::id()));
+    let tmp = out.with_extension(format!("tmp{}", crate::tmp_suffix()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).map_err(|e| format!("cannot create {}: {e}", tmp.display()))?;
     for (n, def) in &defs {

@@ -223,7 +223,7 @@ fn headers(t: Target) -> Result<PathBuf, String> {
     if dir.is_dir() {
         return Ok(dir);
     }
-    let tmp = dir.with_extension(format!("tmp{}", std::process::id()));
+    let tmp = dir.with_extension(format!("tmp{}", crate::tmp_suffix()));
     let _ = std::fs::remove_dir_all(&tmp);
     for (name, text) in &files {
         let p = tmp.join(name);

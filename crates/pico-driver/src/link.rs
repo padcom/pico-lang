@@ -805,7 +805,7 @@ pub(crate) fn cached_build(
     if dir.is_dir() {
         return Ok(dir);
     }
-    let tmp = dir.with_extension(format!("tmp{}", std::process::id()));
+    let tmp = dir.with_extension(format!("tmp{}", crate::tmp_suffix()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).map_err(|e| format!("cannot create {}: {e}", tmp.display()))?;
     prepare(&tmp)?;

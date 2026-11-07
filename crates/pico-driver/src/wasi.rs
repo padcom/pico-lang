@@ -195,7 +195,7 @@ fn version_header() -> Result<PathBuf, String> {
 }
 
 fn write_atomically(path: &Path, text: &str) -> Result<(), String> {
-    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+    let tmp = path.with_extension(format!("tmp{}", crate::tmp_suffix()));
     std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
