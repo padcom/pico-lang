@@ -1,0 +1,8 @@
+import { self } from "std/worker"
+import { Job, Result } from "./types"
+
+self.onmessage = (j: Job) => {
+  const t0 = performance.now()
+  while (performance.now() - t0 < 300) {}
+  self.postMessage(Result { square: j.n * j.n })
+}
