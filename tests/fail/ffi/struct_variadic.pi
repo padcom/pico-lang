@@ -1,0 +1,7 @@
+// error: E0355
+// Spec §12.1: a C variadic function takes structs by pointer, not by value.
+@pod struct Pair { a: i32; b: i32 }
+
+extern "C" {
+  function logf(fmt: string, p: Pair, ...): c_int
+}

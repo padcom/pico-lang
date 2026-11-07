@@ -1,0 +1,7 @@
+// error: E0355
+// Spec §12.1: only a `@pod struct` crosses to C by value.
+struct Point { x: i32; y: i32 }
+
+extern "C" {
+  function point_len(p: Point): f64
+}

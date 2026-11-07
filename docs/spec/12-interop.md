@@ -39,8 +39,25 @@ C's other names: `c_char`, `c_uchar`, `c_short`, `c_ushort`, `c_uint`, `c_ulong`
 `c_longlong`, `c_ulonglong`, `c_float`, `c_double` (`c_long` is pointer-sized: on Windows, where
 C's `long` has 32 bits, declare `i32`). A callback parameter (`extern "C" (a: ptr<void>) => c_int`)
 takes a top-level function by name, which mustn't throw. Pointers convert to other pointee
-types with `as`. Extern functions run only in native code (the interpreter panics), and
-structs cross by pointer until by-value C structs are implemented. Decision 261.
+types with `as`. Extern functions run only in native code (the interpreter panics).
+Decision 261.
+
+### Structs by value
+A `@pod struct` (§9.5) crosses to C by value, as a parameter or a result, laid out like the
+C struct with the same fields in the same order (natural alignment); other structs are
+E0355. Every target passes them the way its C ABI does (in registers by size and kind,
+homogeneous float aggregates, by hidden reference, …): the compiler writes a small C shim
+for each such extern, which clang compiles for the target and which pico calls with
+pointers to copies. In a struct, `isize`/`usize` stay 64 bits (use `u32` for a 32-bit
+`size_t` field on wasm32). A C variadic function, a callback and a C function pointer take structs by pointer only.
+```ts
+@pod struct DivT { quot: c_int; rem: c_int }
+extern "C" {
+  function div(n: c_int, d: c_int): DivT
+}
+const r = div(17 as c_int, 5 as c_int)   // r.quot 3, r.rem 2
+```
+Decision 330.
 
 ### Linking libraries
 `@link("name")` on an `extern` block links the C library `name` on every target. The C
@@ -56,6 +73,7 @@ lists; relative paths are from the project's directory.
 - **Windows**: `name.lib`, `libname.dll.a` or `libname.a` from those directories, else, for a
   system DLL (`user32`, `gdi32`, `ws2_32`, `opengl32`, …), an import library made from
   MinGW's `.def` files; otherwise the build fails, naming the library.
+- **WASI**: `libname.a` from those directories.
 - **macOS** (cross builds, pico's lld): libSystem's parts are linked already; other libraries
   are `libname.tbd`, `.dylib` or `.a` in those directories (frameworks aren't supported
   yet). Decision 329.
