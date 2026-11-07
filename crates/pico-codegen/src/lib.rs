@@ -241,6 +241,7 @@ fn generate<'ctx>(
         globals: Vec::new(),
         cstrings: HashMap::new(),
         files: HashMap::new(),
+        track: false,
         structs: Vec::new(),
         enums: Vec::new(),
         debug_fns: HashMap::new(),
@@ -420,6 +421,9 @@ struct Gen<'ctx, 'p> {
     cstrings: HashMap<String, GlobalValue<'ctx>>,
     /// The panic location files' names, by `Loc::file`.
     files: HashMap<u32, GlobalValue<'ctx>>,
+    /// The function being generated is library code (`Function::track_caller`): its panics
+    /// report the call site the program's code stored (decision 322).
+    track: bool,
     /// LLVM struct types, by `StructId`.
     structs: Vec<inkwell::types::StructType<'ctx>>,
     /// Generated `${v:?}` helpers, by type.
@@ -1202,6 +1206,7 @@ impl<'ctx> Gen<'ctx, '_> {
 
     fn function(&mut self, index: usize) {
         let func = &self.p.fns[index];
+        self.track = func.track_caller;
         let llfn = self.fns[index];
         let blocks: Vec<BasicBlock> = (0..func.blocks.len())
             .map(|i| self.cx.append_basic_block(llfn, &format!("bb{i}")))
@@ -2030,12 +2035,68 @@ impl<'ctx> Gen<'ctx, '_> {
 
     fn loc_args(&mut self, loc: Loc) -> [BasicMetadataValueEnum<'ctx>; 4] {
         let (file, len) = self.file_global(loc.file);
-        [
+        let own: [BasicValueEnum<'ctx>; 4] = [
             file.as_pointer_value().into(),
             self.i64().const_int(len, false).into(),
             self.i32().const_int(loc.line as u64, false).into(),
             self.i32().const_int(loc.col as u64, false).into(),
+        ];
+        if !self.track {
+            return own.map(Into::into);
+        }
+        // Library code: the program's call into it, if it stored one (else its own location).
+        let site = self.site_globals();
+        let line = self
+            .b
+            .build_load(self.i32(), site[2], "")
+            .unwrap()
+            .into_int_value();
+        let set = self
+            .b
+            .build_int_compare(IntPredicate::NE, line, self.i32().const_zero(), "")
+            .unwrap();
+        let tys: [BasicTypeEnum<'ctx>; 4] = [
+            self.ptr().into(),
+            self.i64().into(),
+            self.i32().into(),
+            self.i32().into(),
+        ];
+        let mut out: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
+        for i in 0..4 {
+            let v = self.b.build_load(tys[i], site[i], "").unwrap();
+            out.push(self.b.build_select(set, v, own[i], "").unwrap().into());
+        }
+        [out[0], out[1], out[2], out[3]]
+    }
+
+    /// The runtime's call-site globals: file, file length, line, column (per thread).
+    fn site_globals(&self) -> [PointerValue<'ctx>; 4] {
+        [
+            self.runtime_global("pico_site_file", self.ptr().into()),
+            self.runtime_global("pico_site_file_len", self.i64().into()),
+            self.runtime_global("pico_site_line", self.i32().into()),
+            self.runtime_global("pico_site_col", self.i32().into()),
         ]
+    }
+
+    /// Before a call from the program's code into library code: stores the call's location for
+    /// the library's panics (decision 322).
+    fn store_site(&mut self, callee: Option<pico_sema::hir::FnId>, loc: Loc) {
+        let Some(id) = callee else { return };
+        if self.track || !self.p.fns[id.0 as usize].track_caller || loc.line == 0 {
+            return;
+        }
+        let (file, len) = self.file_global(loc.file);
+        let site = self.site_globals();
+        let vals: [BasicValueEnum<'ctx>; 4] = [
+            file.as_pointer_value().into(),
+            self.i64().const_int(len, false).into(),
+            self.i32().const_int(loc.line as u64, false).into(),
+            self.i32().const_int(loc.col as u64, false).into(),
+        ];
+        for (p, v) in site.iter().zip(vals) {
+            self.b.build_store(*p, v).unwrap();
+        }
     }
 
     /// Emits a call to `pico_panic` with a fixed message, then `unreachable`.
@@ -3872,6 +3933,13 @@ impl<'ctx> Gen<'ctx, '_> {
                 loc,
             } => {
                 let next = bb(next);
+                let target = match callee {
+                    Callee::Fn(id)
+                    | Callee::Virtual { decl: id, .. }
+                    | Callee::Iface { decl: id, .. } => Some(*id),
+                    _ => None,
+                };
+                self.store_site(target, *loc);
                 match callee {
                     Callee::Fn(id) => {
                         let vals: Vec<BasicMetadataValueEnum> = args
@@ -4217,7 +4285,8 @@ impl<'ctx> Gen<'ctx, '_> {
             Terminator::Unreachable => {
                 self.b.build_unreachable().unwrap();
             }
-            Terminator::TailCall { callee, args, .. } => {
+            Terminator::TailCall { callee, args, loc } => {
+                self.store_site(Some(*callee), *loc);
                 let vals: Vec<BasicMetadataValueEnum> = args
                     .iter()
                     .filter_map(|a| self.operand(fx, a))

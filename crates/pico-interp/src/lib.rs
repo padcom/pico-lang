@@ -279,6 +279,8 @@ struct Interp<'p, 'o> {
     unwinding: Vec<Panic>,
     /// The active functions' locals, innermost last (for `gc.dumpRoots()`).
     frames: Vec<(&'p mir::Function, Rc<Vec<Cell>>)>,
+    /// Where each frame of `frames` was called from (panic locations in library code).
+    call_locs: Vec<Loc>,
     /// The start of `__clock_ms()`.
     started: std::time::Instant,
     /// Evaluating `comptime` code inside the compiler.
@@ -300,6 +302,15 @@ impl Frame<'_> {
 
 impl Interp<'_, '_> {
     fn panic(&self, msg: &str, loc: Loc) -> Panic {
+        // In library code (core, `std/`): where the program's own code called into it
+        // (decision 322); library code no program code called keeps its own location.
+        let mut at = loc;
+        let mut i = self.frames.len();
+        while i > 0 && self.frames[i - 1].0.track_caller {
+            i -= 1;
+            at = self.call_locs[i];
+        }
+        let loc = if i > 0 { at } else { loc };
         Panic {
             msg: msg.to_string(),
             file: self
@@ -337,7 +348,9 @@ impl Interp<'_, '_> {
                 *frame.locals[p.0 as usize].borrow_mut() = a;
             }
             self.frames.push((f, frame.locals.clone()));
+            self.call_locs.push(loc);
             let r = self.exec(&mut frame);
+            self.call_locs.pop();
             self.frames.pop();
             match r {
                 Ok(Flow::Return(v)) => break Ok(v),

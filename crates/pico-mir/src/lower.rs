@@ -53,6 +53,7 @@ pub fn lower(
                 mir::Function {
                     name: program.func(id).name.clone(),
                     library: true,
+                    track_caller: false,
                     params: Vec::new(),
                     ret: Ty::Void,
                     locals: Vec::new(),
@@ -454,6 +455,7 @@ fn export_wrappers(cx: &mut Cx, fns: &mut Vec<mir::Function>) -> Vec<mir::Export
         let wrapper = FnId(fns.len() as u32);
         fns.push(mir::Function {
             library: false,
+            track_caller: false,
             name: format!("{}<export>", e.name),
             params,
             ret,
@@ -1004,6 +1006,7 @@ impl Cx<'_> {
         mir::Function {
             name,
             library: true,
+            track_caller: true,
             params,
             ret,
             locals: b.locals,
@@ -1095,6 +1098,7 @@ impl Cx<'_> {
             fns.push(mir::Function {
                 name: format!("{}<value>", self.program.func(f).name),
                 library: true,
+                track_caller: false,
                 params,
                 ret: sig.ret.clone(),
                 locals,
@@ -1254,6 +1258,7 @@ impl Cx<'_> {
         ];
         mir::Function {
             library: true,
+            track_caller: true,
             name: format!(
                 "{}.{}<{}>",
                 def.name,
@@ -1436,6 +1441,10 @@ impl Cx<'_> {
         mir::Function {
             name: f.name.clone(),
             library: f.span.file != b.cx.file_id,
+            // Core library and `std/` code: its panics are reported at the program's call
+            // into it (decision 322).
+            track_caller: b.cx.program.prelude_files.contains(&f.span.file)
+                || b.cx.program.std_files.contains(&f.span.file),
             // A method's `this` reference (or a closure's environment) comes first.
             params,
             ret,

@@ -193,6 +193,12 @@ pub fn resolve_modules(
         links: Vec::new(),
         mods: ModCtx::default(),
         prelude_files: modules.prelude.clone(),
+        std_files: modules
+            .names
+            .iter()
+            .filter(|(_, n)| n.starts_with("std/"))
+            .map(|(f, _)| *f)
+            .collect(),
         file_modules: modules.file_modules.clone(),
         file,
         diags: Vec::new(),
@@ -367,6 +373,7 @@ struct Resolver {
     /// The module being resolved and the import tables.
     mods: ModCtx,
     prelude_files: HashSet<FileId>,
+    std_files: HashSet<FileId>,
     /// See [`Modules::file_modules`].
     file_modules: HashMap<FileId, FileId>,
     file: FileId,
@@ -1015,6 +1022,7 @@ impl Resolver {
             reactive_class,
             readonly_computed,
             prelude_files: self.prelude_files.clone(),
+            std_files: self.std_files.clone(),
             file: self.file,
             fns: self
                 .fns

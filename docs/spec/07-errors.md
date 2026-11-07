@@ -126,6 +126,11 @@ A panic means a bug. Overflow, out-of-bounds indexing, division by zero, `x!` on
 - terminate the process when they happen on the main thread, printing the message and the stack trace;
 - in a worker, surface to the parent as a `WorkerPanicked` event/error (§10).
 
+The `at` line is where the panic happened. For a panic inside the core library or a `std/`
+module, it's where the program's own code called into it (as Rust's `#[track_caller]`;
+decision 322): `new Float64Array(-1)` reports the line of that `new`, not the library's check.
+A module of the program reports its own file. (The WasmGC backend names only the entry file.)
+
 The report on the main thread (decision 199):
 ```
 panic: index out of bounds

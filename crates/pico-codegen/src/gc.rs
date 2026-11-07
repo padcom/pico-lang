@@ -174,7 +174,7 @@ impl<'ctx> Gen<'ctx, '_> {
         g.as_pointer_value()
     }
 
-    fn runtime_global(&self, name: &str, t: BasicTypeEnum<'ctx>) -> PointerValue<'ctx> {
+    pub(crate) fn runtime_global(&self, name: &str, t: BasicTypeEnum<'ctx>) -> PointerValue<'ctx> {
         match self.m.get_global(name) {
             Some(g) => g.as_pointer_value(),
             None => {

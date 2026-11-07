@@ -46,6 +46,9 @@ pub struct Program {
     /// The core library's files: reactive cells aren't transparent there (`Reactive<T>` is an
     /// ordinary class in its own implementation).
     pub prelude_files: std::collections::HashSet<pico_diag::FileId>,
+    /// The `std/` modules' files: with the prelude's, library code whose panics are reported at
+    /// the program's call into it (decision 322).
+    pub std_files: std::collections::HashSet<pico_diag::FileId>,
     /// The prelude's `Throwable` interface.
     pub throwable_iface: Option<StructId>,
     /// Methods of built-in types written in pico: top-level functions `__Array_map`,

@@ -32,6 +32,10 @@ source_filename = "test.pi"
 @pico.cstr = private unnamed_addr constant [31 x i8] c"integer conversion out of range"
 @pico.cstr.46 = private unnamed_addr constant [7 x i8] c"test.pi"
 @pico.cstr.47 = private unnamed_addr constant [29 x i8] c"float conversion out of range"
+@pico_site_file = external thread_local global ptr
+@pico_site_file_len = external thread_local global i64
+@pico_site_line = external thread_local global i32
+@pico_site_col = external thread_local global i32
 @pico.layout = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 @pico.layout.48 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
 @pico.layout.49 = private constant { i64, i32, i32, [1 x i32] } { i64 8, i32 1, i32 0, [1 x i32] zeroinitializer }, align 8
@@ -255,22 +259,42 @@ start:
   br i1 %0, label %gc.collect, label %gc.continue
 
 bb0:                                              ; preds = %gc.continue
+  store ptr @pico.cstr.46, ptr @pico_site_file, align 8
+  store i64 7, ptr @pico_site_file_len, align 4
+  store i32 2, ptr @pico_site_line, align 4
+  store i32 1, ptr @pico_site_col, align 4
   call void @"pico.Uint8Array.<static>"()
   br label %bb1
 
 bb1:                                              ; preds = %bb0
+  store ptr @pico.cstr.46, ptr @pico_site_file, align 8
+  store i64 7, ptr @pico_site_file_len, align 4
+  store i32 2, ptr @pico_site_line, align 4
+  store i32 1, ptr @pico_site_col, align 4
   call void @"pico.Int32Array.<static>"()
   br label %bb2
 
 bb2:                                              ; preds = %bb1
+  store ptr @pico.cstr.46, ptr @pico_site_file, align 8
+  store i64 7, ptr @pico_site_file_len, align 4
+  store i32 2, ptr @pico_site_line, align 4
+  store i32 1, ptr @pico_site_col, align 4
   call void @"pico.Uint32Array.<static>"()
   br label %bb3
 
 bb3:                                              ; preds = %bb2
+  store ptr @pico.cstr.46, ptr @pico_site_file, align 8
+  store i64 7, ptr @pico_site_file_len, align 4
+  store i32 2, ptr @pico_site_line, align 4
+  store i32 1, ptr @pico_site_col, align 4
   call void @"pico.Float32Array.<static>"()
   br label %bb4
 
 bb4:                                              ; preds = %bb3
+  store ptr @pico.cstr.46, ptr @pico_site_file, align 8
+  store i64 7, ptr @pico_site_file_len, align 4
+  store i32 2, ptr @pico_site_line, align 4
+  store i32 1, ptr @pico_site_col, align 4
   call void @"pico.Float64Array.<static>"()
   br label %bb5
 

@@ -361,6 +361,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             io: Default::default(),
             stack: Vec::new(),
             frames: Vec::new(),
+            call_locs: Vec::new(),
             unwinding: Vec::new(),
             started: std::time::Instant::now(),
             comptime: None,
