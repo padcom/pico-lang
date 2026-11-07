@@ -68,8 +68,9 @@ A JS-compatible `Date` global is kept so ported code works, but new code should 
 
 Using an unavailable feature is a **compile error** that names the target. `comptime if
 (target…)` or platform-specific files work around it. It's reported at the import (E0356): a module,
-or a name from one (`Command` on wasm32-wasi; `serve` in the browser). `Worker` isn't checked at
-compile time yet. Decision 260.
+or a name from one (`Command` on wasm32-wasi; `serve` in the browser). `Worker` is a global:
+`new Worker(…)` in the program's own code is E0356 on wasm32-wasi, as is importing `std/worker`
+there. Decision 260.
 
 ### External processes
 One cross-platform API runs wherever the platform supports processes, which is every native

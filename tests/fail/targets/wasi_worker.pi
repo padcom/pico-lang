@@ -1,0 +1,7 @@
+// target: wasm32-wasi
+// error: E0356
+// at: 6:11
+// Spec §13.3: wasm32-wasi has no threads yet, so `new Worker(…)` is a compile error (#19).
+function double(n: int): int { n * 2 }
+const w = new Worker(double)
+println(await w.call(21))

@@ -3,3 +3,5 @@
 run/fs/watch         a watcher needs a thread of its own (none on WASI)
 run/process/         Command isn't available on WASI (spec §13.3)
 run/workers/         no threads on WASI (spec §13.3)
+fail/workers/        Worker is a compile error on WASI (E0356, spec §13.3)
+fail/reactive/worker_message  Worker is a compile error on WASI (E0356, spec §13.3)

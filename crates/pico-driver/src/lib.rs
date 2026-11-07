@@ -253,6 +253,7 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, mode: Mode)
     if recover || !diags.iter().any(Diagnostic::is_error) {
         let (program, mut d) = pico_sema::resolve_modules(&module, file, &modules);
         diags.append(&mut d);
+        diags.extend(workers_unavailable(&program, &modules, &sm, &target_os));
         t.stage("resolve");
         if recover || !diags.iter().any(Diagnostic::is_error) {
             let (ty, mut d) = pico_sema::check(&program);
@@ -788,6 +789,69 @@ pub fn build_cached(checked: &Checked, opts: BuildOptions) -> Result<PathBuf, St
         build_native(checked, &exe, opts)?;
     }
     Ok(exe)
+}
+
+/// `new Worker(…)` in the program's own code on wasm32-wasi, which has no threads yet (spec
+/// §13.3, #19): E0356, like an unavailable import. The standard library's code isn't checked.
+fn workers_unavailable(
+    program: &pico_sema::hir::Program,
+    modules: &pico_sema::Modules,
+    sm: &SourceMap,
+    os: &str,
+) -> Vec<Diagnostic> {
+    use pico_sema::hir::{Expr, ExprKind, Stmt};
+    if os != "wasi" {
+        return Vec::new();
+    }
+    let Some(worker) = program
+        .structs
+        .iter()
+        .position(|d| d.name == "Worker" && modules.prelude.contains(&d.name_span.file))
+    else {
+        return Vec::new();
+    };
+    fn walk(e: &Expr, worker: usize, out: &mut Vec<pico_diag::Span>) {
+        if let ExprKind::New { class, .. } = &e.kind
+            && class.0 as usize == worker
+        {
+            out.push(e.span);
+        }
+        e.for_each_child(&mut |c| walk(c, worker, out));
+    }
+    let mut spans = Vec::new();
+    for f in &program.fns {
+        let file = f.span.file;
+        let library = modules.prelude.contains(&file)
+            || sm.file(file).name.starts_with("<")
+            || modules
+                .names
+                .get(&file)
+                .is_some_and(|n| n.starts_with("std/"));
+        if library {
+            continue;
+        }
+        for s in &f.body.stmts {
+            match s {
+                Stmt::Let { init: Some(i), .. } => walk(i, worker, &mut spans),
+                Stmt::Expr(e) => walk(e, worker, &mut spans),
+                Stmt::Let { .. } => {}
+            }
+        }
+        if let Some(t) = &f.body.tail {
+            walk(t, worker, &mut spans);
+        }
+    }
+    spans
+        .into_iter()
+        .map(|span| {
+            Diagnostic::error(
+                pico_diag::codes::UNAVAILABLE,
+                "`Worker` isn't available on wasm32-wasi",
+            )
+            .primary(span, "not on wasm32-wasi (no threads there yet)")
+            .note("use a platform file (`x.wasm.pi`, `x.linux.pi`, …) or `comptime if (target.os == …)`")
+        })
+        .collect()
 }
 
 /// What comptime code sees of the build (`target`, `build`): the host, or `opts.target`.
