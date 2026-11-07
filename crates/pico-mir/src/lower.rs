@@ -739,6 +739,10 @@ enum Synth {
     Set(Ty, Ty),
     /// `(obj: T, id: int) -> string`: a reflected field's string form.
     FieldShow(Ty),
+    /// `(v: T) -> string`: the debug text (`{v:?}`) of a type with classes in it (#11): a
+    /// class's `toString`, or `Name { field: value, … }`; arrays, nullables, structs and tuples
+    /// of them as the backends show them.
+    Debug(Ty),
     /// `(r: __JsonReader) -> T`: reads a `T` from JSON (spec §11.4).
     JsonRead(Ty),
     /// `(w: __JsonWriter, v: T)`: writes `v` as JSON.
@@ -848,6 +852,30 @@ impl Cx<'_> {
         self.synth(Synth::Show(t.clone()))
     }
 
+    /// Whether `t` has a class value in it (through arrays, nullables, tuples and struct
+    /// fields): its debug text is then built in MIR (`Synth::Debug`).
+    fn contains_class(&self, t: &Ty, seen: &mut Vec<StructId>) -> bool {
+        match t {
+            Ty::Class(..) => true,
+            Ty::Array(e) | Ty::Fixed(e, _) | Ty::Nullable(e) => self.contains_class(e, seen),
+            Ty::Tuple(ts) => ts.iter().any(|t| self.contains_class(t, seen)),
+            Ty::Immutable(inner) | Ty::Distinct(_, _, inner) => self.contains_class(inner, seen),
+            Ty::Struct(sid, _, args) => {
+                if seen.contains(sid) {
+                    return false;
+                }
+                seen.push(*sid);
+                let owner = Ty::type_owner(*sid);
+                self.program
+                    .struct_def(*sid)
+                    .fields
+                    .iter()
+                    .any(|f| self.contains_class(&f.ty.subst(owner, args), seen))
+            }
+            _ => false,
+        }
+    }
+
     /// The id of synthesized function `what`, requesting it the first time.
     fn synth(&mut self, what: Synth) -> FnId {
         if let Some((_, f)) = self.synths.iter().find(|(x, _)| *x == what) {
@@ -913,7 +941,11 @@ impl Cx<'_> {
         let hir_fn = self.program.func(entry);
         // Messages point at the type's declaration.
         let about = match what {
-            Synth::Show(t) | Synth::Get(t, _) | Synth::Set(t, _) | Synth::FieldShow(t) => t,
+            Synth::Show(t)
+            | Synth::Get(t, _)
+            | Synth::Set(t, _)
+            | Synth::FieldShow(t)
+            | Synth::Debug(t) => t,
             Synth::Info { of, .. } => of,
             Synth::JsonRead(t) | Synth::JsonWrite(t) => t,
         };
@@ -984,6 +1016,11 @@ impl Cx<'_> {
                 b.json_write(w, v, t, span);
                 b.terminate(Terminator::Return(None));
                 (format!("{t}.<to json>"), vec![w, v], Ty::Void, None)
+            }
+            Synth::Debug(t) => {
+                let this = b.temp(t.clone());
+                let v = b.debug_body(this, t, span);
+                (format!("{t}.<debug>"), vec![this], Ty::Str, Some(v))
             }
             Synth::FieldShow(t) => {
                 let obj = b.temp(t.clone());
@@ -5624,6 +5661,237 @@ impl FnBuilder<'_, '_> {
         Operand::Copy(res)
     }
 
+    /// The debug text of `v`: built in MIR when `t` has classes in it (`Synth::Debug`, #11),
+    /// else the backends' `{:?}`.
+    fn debug_text(&mut self, v: Operand, t: &Ty, span: Span) -> Operand {
+        if !self.cx.contains_class(t, &mut Vec::new()) {
+            let spec = pico_sema::format::parse("?").expect("valid spec");
+            return self.rvalue_to_temp(Rvalue::Format(v, spec), Ty::Str, span);
+        }
+        let f = self.cx.synth(Synth::Debug(t.clone()));
+        let dest = Place::local(self.temp(Ty::Str));
+        let next = self.new_block();
+        let loc = self.loc(span);
+        self.terminate(Terminator::Call {
+            callee: Callee::Fn(f),
+            args: vec![v],
+            dest: Some(dest.clone()),
+            next,
+            loc,
+        });
+        self.switch_to(next);
+        Operand::Copy(dest)
+    }
+
+    /// `acc + piece`, as a new string temporary.
+    fn concat_str(&mut self, acc: Operand, piece: Operand, span: Span) -> Operand {
+        self.rvalue_to_temp(Rvalue::Binary(mir::BinOp::Add, acc, piece), Ty::Str, span)
+    }
+
+    /// The body of `Synth::Debug(t)`, `this` its parameter.
+    fn debug_body(&mut self, this: Local, t: &Ty, span: Span) -> Operand {
+        let val = || Operand::Copy(Place::local(this));
+        let lit = |s: &str| Operand::Const(Const::Str(s.to_string()));
+        match t {
+            Ty::Class(sid, name, args) => {
+                // Its own string form, if it has one (`Map`, `Set`, user classes).
+                if self.cx.to_string_method(*sid).is_some() {
+                    return self.show_value(val(), t, span, false);
+                }
+                let res = Place::local(self.temp(Ty::Str));
+                let done = self.new_block();
+                let entered = self.rvalue_to_temp(Rvalue::ShowEnter(val()), Ty::Bool, span);
+                let (fresh, cycle) = (self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: entered,
+                    then: fresh,
+                    else_: cycle,
+                });
+                self.switch_to(cycle);
+                self.assign(
+                    res.clone(),
+                    Rvalue::Use(lit(&format!("{name} {{ … }}"))),
+                    span,
+                );
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(fresh);
+                let owner = Ty::type_owner(*sid);
+                let fields: Vec<(String, Ty)> = self
+                    .cx
+                    .program
+                    .struct_def(*sid)
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.ty.subst(owner, args)))
+                    .collect();
+                let text = self.fields_debug(name, Place::local(this), &fields, span);
+                self.assign(res.clone(), Rvalue::Use(text), span);
+                self.rvalue_to_temp(Rvalue::ShowLeave(val()), Ty::Void, span);
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(done);
+                Operand::Copy(res)
+            }
+            Ty::Struct(sid, name, args) => {
+                let owner = Ty::type_owner(*sid);
+                let fields: Vec<(String, Ty)> = self
+                    .cx
+                    .program
+                    .struct_def(*sid)
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.ty.subst(owner, args)))
+                    .collect();
+                self.fields_debug(name, Place::local(this), &fields, span)
+            }
+            Ty::Nullable(inner) => {
+                let res = Place::local(self.temp(Ty::Str));
+                let is_null = self.rvalue_to_temp(Rvalue::IsNull(val()), Ty::Bool, span);
+                let (null_bb, some_bb, join) =
+                    (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: is_null,
+                    then: null_bb,
+                    else_: some_bb,
+                });
+                self.switch_to(null_bb);
+                self.assign(res.clone(), Rvalue::Use(lit("null")), span);
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(some_bb);
+                let inner_v = self.rvalue_to_temp(Rvalue::Unwrap(val()), (**inner).clone(), span);
+                let text = self.debug_text(inner_v, inner, span);
+                self.assign(res.clone(), Rvalue::Use(text), span);
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(join);
+                Operand::Copy(res)
+            }
+            Ty::Tuple(ts) => {
+                let mut acc = lit("[");
+                for (k, et) in ts.iter().enumerate() {
+                    if k > 0 {
+                        acc = self.concat_str(acc, lit(", "), span);
+                    }
+                    let x = self.rvalue_to_temp(
+                        Rvalue::Use(Operand::Copy(Place::local(this).field(k as u32))),
+                        et.clone(),
+                        span,
+                    );
+                    let text = self.debug_text(x, et, span);
+                    acc = self.concat_str(acc, text, span);
+                }
+                self.concat_str(acc, lit("]"), span)
+            }
+            Ty::Array(e) | Ty::Fixed(e, _) => {
+                let res = Place::local(self.temp(Ty::Str));
+                self.assign(res.clone(), Rvalue::Use(lit("[")), span);
+                let n = match t {
+                    Ty::Fixed(_, n) => Operand::Const(Const::Int(*n as i128, IntTy::I64)),
+                    _ => self.rvalue_to_temp(Rvalue::ArrayLen(val()), Ty::INT, span),
+                };
+                let i = self.temp(Ty::INT);
+                self.assign(
+                    Place::local(i),
+                    Rvalue::Use(Operand::Const(Const::Int(0, IntTy::I64))),
+                    span,
+                );
+                let (head, body, done) = (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(head);
+                let more = self.rvalue_to_temp(
+                    Rvalue::Binary(mir::BinOp::Lt, Operand::Copy(Place::local(i)), n),
+                    Ty::Bool,
+                    span,
+                );
+                self.terminate(Terminator::Branch {
+                    cond: more,
+                    then: body,
+                    else_: done,
+                });
+                self.switch_to(body);
+                let first = self.rvalue_to_temp(
+                    Rvalue::Binary(
+                        mir::BinOp::Eq,
+                        Operand::Copy(Place::local(i)),
+                        Operand::Const(Const::Int(0, IntTy::I64)),
+                    ),
+                    Ty::Bool,
+                    span,
+                );
+                let (comma, go) = (self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: first,
+                    then: go,
+                    else_: comma,
+                });
+                self.switch_to(comma);
+                let with = self.concat_str(Operand::Copy(res.clone()), lit(", "), span);
+                self.assign(res.clone(), Rvalue::Use(with), span);
+                self.terminate(Terminator::Goto(go));
+                self.switch_to(go);
+                let x = self.rvalue_to_temp(
+                    Rvalue::Use(Operand::Copy(Place::local(this).index(i))),
+                    (**e).clone(),
+                    span,
+                );
+                let text = self.debug_text(x, e, span);
+                let with = self.concat_str(Operand::Copy(res.clone()), text, span);
+                self.assign(res.clone(), Rvalue::Use(with), span);
+                self.assign(
+                    Place::local(i),
+                    Rvalue::Binary(
+                        mir::BinOp::Add,
+                        Operand::Copy(Place::local(i)),
+                        Operand::Const(Const::Int(1, IntTy::I64)),
+                    ),
+                    span,
+                );
+                self.terminate(Terminator::Goto(head));
+                self.switch_to(done);
+                self.concat_str(Operand::Copy(res), lit("]"), span)
+            }
+            Ty::Immutable(inner) | Ty::Distinct(_, _, inner) => {
+                let inner = (**inner).clone();
+                let x = self.rvalue_to_temp(Rvalue::Use(val()), inner.clone(), span);
+                self.debug_text(x, &inner, span)
+            }
+            _ => {
+                let spec = pico_sema::format::parse("?").expect("valid spec");
+                self.rvalue_to_temp(Rvalue::Format(val(), spec), Ty::Str, span)
+            }
+        }
+    }
+
+    /// `Name { a: …, b: … }` (or `Name {}`) for the fields of the value at `place`.
+    fn fields_debug(
+        &mut self,
+        name: &str,
+        place: Place,
+        fields: &[(String, Ty)],
+        span: Span,
+    ) -> Operand {
+        let lit = |s: &str| Operand::Const(Const::Str(s.to_string()));
+        let shown: Vec<(usize, &(String, Ty))> = fields
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, t))| has_value(t))
+            .collect();
+        if shown.is_empty() {
+            return lit(&format!("{name} {{}}"));
+        }
+        let mut acc = lit(&format!("{name} {{ "));
+        for (n, (i, (fname, fty))) in shown.into_iter().enumerate() {
+            let sep = if n == 0 { "" } else { ", " };
+            acc = self.concat_str(acc, lit(&format!("{sep}{fname}: ")), span);
+            let x = self.rvalue_to_temp(
+                Rvalue::Use(Operand::Copy(place.clone().field(i as u32))),
+                fty.clone(),
+                span,
+            );
+            let text = self.debug_text(x, fty, span);
+            acc = self.concat_str(acc, text, span);
+        }
+        self.concat_str(acc, lit(" }"), span)
+    }
+
     /// `` `a${x}b` `` → `"a" + ToStr(x) + "b"`, skipping empty pieces.
     fn template(&mut self, quasis: &[String], parts: &[hir::TemplatePart], span: Span) -> Operand {
         let mut pieces: Vec<Operand> = Vec::new();
@@ -5640,9 +5908,23 @@ impl FnBuilder<'_, '_> {
                     pieces.push(s);
                     continue;
                 }
-                match self.cx.types.formats.get(&p.expr.id) {
+                match self.cx.types.formats.get(&p.expr.id).copied() {
+                    Some(spec)
+                        if spec.kind == pico_sema::format::Kind::Debug
+                            && self.cx.contains_class(&t, &mut Vec::new()) =>
+                    {
+                        // Classes inside: the debug text from MIR, then width and fill (#11).
+                        let text = self.debug_text(v, &t, p.expr.span);
+                        let outer = pico_sema::format::FormatSpec {
+                            kind: pico_sema::format::Kind::Default,
+                            ..spec
+                        };
+                        let s =
+                            self.rvalue_to_temp(Rvalue::Format(text, outer), Ty::Str, p.expr.span);
+                        pieces.push(s);
+                    }
                     Some(spec) => {
-                        let s = self.rvalue_to_temp(Rvalue::Format(v, *spec), Ty::Str, p.expr.span);
+                        let s = self.rvalue_to_temp(Rvalue::Format(v, spec), Ty::Str, p.expr.span);
                         pieces.push(s);
                     }
                     None => pieces.push(self.stringify(v, &t, p.expr.span)),

@@ -197,6 +197,20 @@ class Map<K extends Hashable<K>, V> {
     }
   }
 
+  /// `Map { "a" => 1, "b" => 2 }`: the entries' debug forms, in insertion order (#11).
+  public toString(): string {
+    if (this.count == 0) return "Map {}"
+    let out = "Map { "
+    let first = true
+    for (const e of this.items) {
+      if (e.live) {
+        out = if (first) `${out}${e.key:?} => ${e.value:?}` else `${out}, ${e.key:?} => ${e.value:?}`
+        first = false
+      }
+    }
+    `${out} }`
+  }
+
   /// Sets each of `other`'s entries, in its order (`{ ...other }` in a map literal).
   __setAll(other: Map<K, V>): void {
     if (__reactivity_on()) __trackObject(other)
@@ -258,5 +272,16 @@ class Set<T extends Hashable<T>> {
     for (const v of this.map.keys()) {
       f(v)
     }
+  }
+
+  /// `Set { 1, 2 }`: the values' debug forms, in insertion order (#11).
+  public toString(): string {
+    const vs = this.map.keys()
+    if (vs.length == 0) return "Set {}"
+    let out = "Set { "
+    for (let i = 0; i < vs.length; i++) {
+      out = if (i == 0) `${out}${vs[i]:?}` else `${out}, ${vs[i]:?}`
+    }
+    `${out} }`
   }
 }

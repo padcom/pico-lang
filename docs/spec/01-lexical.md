@@ -120,8 +120,11 @@ Rules:
 - `?` shows strings and `char`s quoted, with `\\`, the quote, `\n`, `\r`, `\t`, `\0` and
   `\u{…}` escapes.
 
-A class instance shows its string form (§6.1: `toString()` or `Name (field = value, …)`); its
-debug form `${obj:?}` is still `<Name>`. A struct or class that implements the core interface
+A class instance shows its string form (§6.1: `toString()` or `Name (field = value, …)`). Its
+debug form `${obj:?}` is its `toString()` if it has one, else `Name { field: value, … }` with each
+field's debug form (`Name { … }` for an object already being shown), also inside arrays,
+nullables, structs and tuples (#11). `Map` and `Set` show their contents (`Map { "a" => 1 }`,
+`Set { 1 }`). A struct or class that implements the core interface
 `Formattable` (`format(spec: string): string`) formats itself: `${x}` calls `x.format("")` and
 `${x:spec}` calls `x.format("spec")` with the spec's text unchecked (any text up to the `}`, so
 `${date:yyyy-MM-dd}` works); `${x:?}` stays the debug form. `std/fmt` applies the standard
