@@ -44,6 +44,15 @@ instead. Run Build Task offers `pico: build`.
 A `pico` launch configuration takes `program` (a `.pi` file, a project directory or an
 executable), `args`, `cwd`, `env` and `stopOnEntry`.
 
+A program that another one starts can't be launched by the debugger: for example, a backend
+whose parent talks to it over its stdin and stdout. Attach to it instead. Use `pid`, or use
+`program` (the executable) with `waitFor: true`, which attaches to the next process started
+from it. The `pico: Attach` snippet writes the second form:
+
+```json
+{ "type": "pico", "request": "attach", "name": "Attach to the backend", "program": "${workspaceFolder}/build/backend", "waitFor": true }
+```
+
 ## Settings
 
 | Setting | Default | |
