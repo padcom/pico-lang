@@ -1,0 +1,59 @@
+// A text frame that isn't UTF-8 fails the connection with 1007 and isn't delivered (#48);
+// `close()` while connecting stops the handshake: no `onopen` after `onclose` (#23).
+// expect: close 1007
+// expect: messages 0
+// expect: onclose 1006
+// expect: readyState 3
+import { listen, Conn, NetError } from "std/net"
+import { digest } from "std/crypto"
+import { base64 } from "std/encoding"
+import { serve, upgradeWebSocket } from "std/http"
+import { delay } from "std/timers"
+
+/// A raw server: the handshake by hand, then one text frame with the bytes `ff fe`.
+async function rawServer(conn: Conn): Promise<void> throws Error {
+  let head = ""
+  while (!head.includes("\r\n\r\n")) {
+    const chunk = await conn.read()
+    if (chunk == null) return
+    head = head + new TextDecoder().decode(chunk)
+  }
+  let key = ""
+  for (const line of head.split("\r\n")) {
+    if (line.toLowerCase().startsWith("sec-websocket-key:")) key = line.slice(18).trim()
+  }
+  const accept = base64.encode(digest("SHA-1", key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+  await conn.writeText(`HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: Upgrade\r\nsec-websocket-accept: ${accept}\r\n\r\n`)
+  await conn.write(Uint8Array.from([0x81, 2, 0xFF, 0xFE]))
+  for await (const chunk of conn) {}
+}
+
+const raw = await listen()
+async function acceptOne(): Promise<void> throws Error {
+  const c = await raw.accept()
+  if (c != null) await rawServer(c)
+}
+acceptOne()
+let messages = 0
+const bad = new WebSocket(`ws://127.0.0.1:${raw.addr.port}/`)
+bad.onmessage = (e) => {
+  messages += 1
+}
+bad.onclose = (e) => println(`close ${e.code}`)
+await delay(300)
+println(`messages ${messages}`)
+raw.close()
+
+async function handle(req: Request): Promise<Response> throws Error {
+  await delay(200)
+  const up = upgradeWebSocket(req)!
+  up.response
+}
+const server = await serve({ port: 0 }, handle)
+const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+ws.onopen = (e) => println("onopen")
+ws.onclose = (e) => println(`onclose ${e.code}`)
+ws.close()
+await delay(600)
+println(`readyState ${ws.readyState}`)
+await server.shutdown()
