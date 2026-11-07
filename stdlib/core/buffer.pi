@@ -78,18 +78,23 @@ function __bufferRegistry(): FinalizationRegistry<int> {
 let __reclaimedAtCycle = -1
 let __bytesSinceReclaim = 0
 
-/// Before `bytes` of buffer are made: once per collection, frees the buffers it found unreachable
-/// (#95). The event loop does that between steps (#90), but long synchronous code never reaches
-/// one, and its garbage buffers' memory would stay until it ends. The interpreter has no collector
-/// counters (its targets go as soon as they're unreferenced), so there this runs every 64 MiB.
+/// Before `bytes` of buffer are made: frees the buffers a collection found unreachable, once 32 MiB
+/// of buffers were made since the last time and a collection ran since (#95). The event loop does
+/// that between steps (#90), but long synchronous code never reaches one, and its garbage buffers'
+/// memory would stay until it ends. Throttled by volume because cleaning up scans every
+/// registration (and allocates): once per collection was a scan per allocation for small buffers.
+/// The interpreter has no collector counters, so there the volume alone decides.
 function __reclaimBuffers(bytes: int): void {
   const r = __buffers
   if (r == null) {
     return
   }
   __bytesSinceReclaim += bytes
+  if (__bytesSinceReclaim < 32 * 1024 * 1024) {
+    return
+  }
   const cycles = __gc_stat(3) + __gc_stat(4)
-  if (cycles != __reclaimedAtCycle || (cycles == 0 && __bytesSinceReclaim >= 64 * 1024 * 1024)) {
+  if (cycles != __reclaimedAtCycle || cycles == 0) {
     __reclaimedAtCycle = cycles
     __bytesSinceReclaim = 0
     r.__cleanupDue()
