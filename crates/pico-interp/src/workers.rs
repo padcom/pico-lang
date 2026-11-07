@@ -138,7 +138,8 @@ pub fn encode(
 }
 
 /// The message as values of this thread.
-pub fn decode(g: &Graph) -> Value {
+/// The message's value, and the objects it made.
+pub fn decode_with_objects(g: &Graph) -> (Value, Vec<Rc<Obj>>) {
     let objs: Vec<Rc<Obj>> = g
         .objs
         .iter()
@@ -187,10 +188,11 @@ pub fn decode(g: &Graph) -> Value {
     for (c, v) in cells.iter().zip(&g.cells) {
         *c.borrow_mut() = val(v, &objs, &arrs, &cells);
     }
-    match &g.root {
+    let v = match &g.root {
         Some(r) => val(r, &objs, &arrs, &cells),
         None => Value::Uninit,
-    }
+    };
+    (v, objs)
 }
 
 /// Wakes a thread waiting in its event loop.
@@ -355,6 +357,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             exception: None,
             exception_tag: 0,
             showing: Vec::new(),
+            owned_buffers: Vec::new(),
             io: Default::default(),
             stack: Vec::new(),
             frames: Vec::new(),
@@ -602,9 +605,44 @@ impl<'p, 'o> Interp<'p, 'o> {
             return Value::Uninit;
         };
         match self.with_inbox(h as i64, |q| q.pop_front()).flatten() {
-            Some(IMsg::Data(g)) => decode(&g),
+            Some(IMsg::Data(g)) => {
+                let (v, objs) = decode_with_objects(&g);
+                self.own_received_buffers(objs);
+                v
+            }
             _ => Value::Uninit,
         }
+    }
+
+    /// Received `ArrayBuffer`s aren't registered for finalization (#16): this thread keeps
+    /// them, and frees the bytes of those nothing else holds any more (their handle then: 0
+    /// if they were transferred on) whenever messages arrive.
+    fn own_received_buffers(&mut self, objs: Vec<Rc<Obj>>) {
+        let buffer_class = self
+            .p
+            .structs
+            .iter()
+            .position(|s| s.is_class && s.name == "ArrayBuffer")
+            .map(|i| i as u32);
+        let mut kept = Vec::new();
+        for o in std::mem::take(&mut self.owned_buffers) {
+            if Rc::strong_count(&o) > 1 {
+                kept.push(o);
+                continue;
+            }
+            if let Some(Value::Int(h)) = o.fields.borrow().first()
+                && *h != 0
+            {
+                self.shared
+                    .buffers
+                    .lock()
+                    .expect("buffers")
+                    .mem
+                    .remove(&(*h as i64));
+            }
+        }
+        kept.extend(objs.into_iter().filter(|o| Some(o.class) == buffer_class));
+        self.owned_buffers = kept;
     }
 
     pub(crate) fn worker_error(&mut self, h: &Value) -> Value {

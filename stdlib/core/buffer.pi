@@ -2,7 +2,7 @@
 // moving one to a worker (`postMessage(m, { transfer: [buf] })`) only hands over the
 // pointer and detaches it here. Without a transfer, a message gets a copy of the bytes.
 
-/// Raw bytes, off the GC heap. (A received copy's memory isn't freed yet.)
+/// Raw bytes, off the GC heap.
 class ArrayBuffer {
   /// The memory (0: detached). The runtime knows this layout: `{ class, handle, byteLength }`.
   public __handle: int

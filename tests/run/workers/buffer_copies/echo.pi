@@ -1,0 +1,5 @@
+import { self } from "std/worker"
+import { Msg } from "./types"
+
+const big = new ArrayBuffer(1024 * 1024)
+self.onmessage = (m: Msg) => self.postMessage(Msg { buf: big })

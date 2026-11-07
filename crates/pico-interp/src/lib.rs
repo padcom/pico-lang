@@ -269,6 +269,8 @@ struct Interp<'p, 'o> {
     exception_tag: u32,
     /// The objects being shown in their default string form (to stop at cycles).
     showing: Vec<*const Obj>,
+    /// `ArrayBuffer`s received in messages (see `own_received_buffers`).
+    owned_buffers: Vec<Rc<Obj>>,
     /// File-system jobs (`std/fs`).
     io: io::IoState,
     /// The names of the active functions (for stack traces).

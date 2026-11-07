@@ -95,7 +95,7 @@ They live off the GC heap (malloc'd), so moving one only hands over a pointer.
   `new View(length)`, `new View(buffer, byteOffset)`, `new View(buffer, byteOffset, length)`,
   `get`/`set`/`[]`, `length`, `byteLength`, `buffer`, `byteOffset`, `BYTES_PER_ELEMENT`.
   `ArrayBuffer` has `byteLength`, `detached` and `slice(begin?, end?)` (negative indices count from the end); its memory is freed by a
-  finalizer once it's collected (not yet for buffers received from another thread).
+  finalizer once it's collected.
 
 ## 10.4 Inline workers & pools
 ```ts

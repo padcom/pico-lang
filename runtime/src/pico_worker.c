@@ -312,6 +312,15 @@ static void decode(const char *buf, void *slot, int64_t size, const PicoLayout *
         memcpy(&sz, srcs[k] - sizeof sz, sizeof sz);
         memcpy(objs[k], srcs[k], (size_t)sz);
         fix_values(objs[k], sz, l, objs);
+        const void *cls;
+        memcpy(&cls, objs[k], sizeof cls);
+        if (pico_arraybuffer_class && cls == pico_arraybuffer_class && sz >= 24) {
+            int64_t h, bytes;
+            memcpy(&h, objs[k] + 8, sizeof h);
+            memcpy(&bytes, objs[k] + 16, sizeof bytes);
+            /* No registry knows a received buffer: the collector frees it (#16). */
+            if (h) pico_gc_own_buffer(objs[k], bytes);
+        }
     }
     memcpy(slot, value, (size_t)size);
     fix_values(slot, size, layout, objs);
