@@ -35,7 +35,7 @@ class Dog extends Animal {
 - Every field must be definitely assigned by the end of each constructor.
 - **String form**: a class instance converts to a string silently in templates (`${p}`),
   `print`/`println`, `p.toString()` and `+` with a string (§3.3). It uses the class's
-  `toString(): string` (no parameters, no `throws`; any visibility; inherited ones count). Without
+  `toString(): string` (no parameters, or only defaulted ones; no `throws`; any visibility; inherited ones count). Without
   one, it's `Name (field = value, …)`: every field, inherited ones first, in declaration order.
   Strings and `char`s show quoted, compound values use the debug format, nested objects use
   their own string form, functions show as `<function>`. The **runtime** class decides, so a
