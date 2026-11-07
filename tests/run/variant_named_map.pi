@@ -1,0 +1,23 @@
+// An enum variant named like a core type (`Map`) in a struct-style pattern (issue #89).
+// expect: 1
+// expect: 2
+// expect: 0
+enum Value {
+  Map(entries: Map<string, i64>),
+  Array(items: i64[]),
+  Other,
+}
+
+function size(v: Value): i64 {
+  match (v) {
+    Map { entries } => entries.size,
+    Array { items } => items.length,
+    Other => 0,
+  }
+}
+
+const m = new Map<string, i64>()
+m.set("a", 1)
+println(size(Value.Map(m)))
+println(size(Value.Array([1, 2])))
+println(size(Value.Other))

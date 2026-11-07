@@ -6417,11 +6417,25 @@ impl Resolver {
                 ..
             } => {
                 let fields = self.field_patterns(fields, b);
+                // A core-library type (`Map`) gives way to an enum variant of that name (#89).
+                let core_type_shadowed = |r: &Self, n: &ast::Ident| {
+                    r.top_structs.get(&r.mods, &n.name).is_some_and(|sid| {
+                        let def = &r.structs[sid.0 as usize];
+                        r.module_of(def.name_span.file) == PRELUDE_MODULE
+                            && r.enums
+                                .iter()
+                                .any(|e| e.variants.iter().any(|v| v.name == n.name))
+                    })
+                };
                 match path.as_slice() {
-                    [n] if self.top_structs.contains_key(&self.mods, &n.name) => PatKind::Struct {
-                        sid: *self.top_structs.get(&self.mods, &n.name).expect("checked"),
-                        fields,
-                    },
+                    [n] if self.top_structs.contains_key(&self.mods, &n.name)
+                        && !core_type_shadowed(self, n) =>
+                    {
+                        PatKind::Struct {
+                            sid: *self.top_structs.get(&self.mods, &n.name).expect("checked"),
+                            fields,
+                        }
+                    }
                     _ => match self.variant_path(path) {
                         Some((enum_, v)) => PatKind::Variant {
                             enum_,
