@@ -21,6 +21,8 @@
 //! Run fixtures execute three times: interpreted, native, and native with `PICO_GC_STRESS=1`
 //! (a collection at every safepoint after an allocation, which shakes out missing GC roots).
 //! Each run's working directory is a fresh empty temp directory (`std/fs` tests write there).
+//! Native runs (WASI ones too, and `pico-golden-run`'s) see [`TEST_ENV`] in their environment, a
+//! variable fixtures can count on everywhere (WASI has no other environment, Windows no `HOME`).
 //!
 //! `PICO_TEST_TARGET=linux-x64` (any `--target` value) builds the native runs for that target
 //! and skips the interpreter. Executables for another architecture run through qemu-user's
@@ -336,6 +338,10 @@ fn run_test(d: &Directives, checked: &pico_driver::Checked) -> Outcome {
     }
 }
 
+/// The environment variable every native run gets (WASI and `pico-golden-run`'s runs too): one
+/// fixtures can count on everywhere. `pico-golden-run` repeats it.
+pub const TEST_ENV: (&str, &str) = ("PICO_TEST_ENV", "1");
+
 /// Builds the program (cached) and runs the executable, optionally collecting garbage at
 /// every safepoint.
 fn run_native(checked: &pico_driver::Checked, gc_stress: bool) -> Result<Run, String> {
@@ -366,6 +372,7 @@ fn run_native(checked: &pico_driver::Checked, gc_stress: bool) -> Result<Run, St
         if gc_stress {
             c.args(["--env", "PICO_GC_STRESS=1"]);
         }
+        c.args(["--env", &format!("{}={}", TEST_ENV.0, TEST_ENV.1)]);
         c.arg(&exe);
         c
     } else if browser {
@@ -386,6 +393,7 @@ fn run_native(checked: &pico_driver::Checked, gc_stress: bool) -> Result<Run, St
     if gc_stress {
         cmd.env("PICO_GC_STRESS", "1");
     }
+    cmd.env(TEST_ENV.0, TEST_ENV.1);
     let out = cmd
         .output()
         .map_err(|e| format!("cannot run {}: {e}", exe.display()))?;
