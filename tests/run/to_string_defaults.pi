@@ -1,0 +1,15 @@
+// A `toString` whose parameters all have defaults is a class's string form (issue #9).
+// expect: custom 10
+// expect: [custom 10]
+// expect: B 16
+class A {
+  public virtual toString(radix: i32 = 10): string { `custom ${radix}` }
+}
+class B extends A {
+  public override toString(radix: i32 = 16): string { `B ${radix}` }
+}
+const a = new A()
+println(`${a}`)
+println(`[${a}]`)
+const b: A = new B()
+println(`${b}`)

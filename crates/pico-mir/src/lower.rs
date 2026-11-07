@@ -877,12 +877,15 @@ impl Cx<'_> {
         StructId(i as u32)
     }
 
-    /// A class's own or inherited `toString(): string` (no parameters, doesn't throw).
+    /// A class's own or inherited `toString(): string` (callable without arguments: no
+    /// parameters, or only defaulted ones, #9; doesn't throw).
     fn to_string_method(&self, sid: StructId) -> Option<FnId> {
         let m = self.program.struct_def(sid).method("toString")?;
         let sig = &self.types.sigs[m.0 as usize];
         let f = self.program.func(m);
-        (sig.params.is_empty()
+        let defaulted = sig.params.len() == f.defaults.iter().filter(|d| d.is_some()).count();
+        (defaulted
+            && !f.rest
             && sig.ret.erase() == Ty::Str
             && f.generics.is_empty()
             && f.this.is_some()
@@ -5477,12 +5480,20 @@ impl FnBuilder<'_, '_> {
                 Some(slot) => Callee::Virtual { slot, decl: m },
                 None => Callee::Fn(self.method_of(m, t)),
             };
+            // Defaulted parameters: not given (the callee computes them).
+            let params = self.cx.types.sigs[m.0 as usize].params.clone();
+            let mut call_args = vec![obj()];
+            for p in &params {
+                let pt = self.mono(&p.subst(Ty::type_owner(*sid), args));
+                call_args.push(Operand::Const(Const::Undef(pt)));
+            }
+            call_args.extend(params.iter().map(|_| Operand::Const(Const::Bool(false))));
             let dest = Place::local(self.temp(Ty::Str));
             let next = self.new_block();
             let loc = self.loc(span);
             self.terminate(Terminator::Call {
                 callee,
-                args: vec![obj()],
+                args: call_args,
                 dest: Some(dest.clone()),
                 next,
                 loc,
