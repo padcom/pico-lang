@@ -137,7 +137,7 @@ DevOps token, organization "All accessible organizations", scope Marketplace →
 By hand: `VSCE_STORE=file npx @vscode/vsce login padcom`, then `npx @vscode/vsce publish
 --packagePath target/vscode/pico-lang-<version>.vsix` from `editors/vscode` (the file store,
 `~/.vsce`, because vsce's keyring module crashes on Node 26 here).
-`.github/workflows/release.yml` builds the macOS arm64, Linux x64/arm64 and Windows x64/arm64
+`.github/workflows/release.yml` builds the macOS arm64/x64 (x64 on an Intel runner, #86), Linux x64/arm64 and Windows x64/arm64
 archives (Windows in MSYS2's clang64/clangarm64 with Rust's gnullvm toolchain, decision 310), tries each
 on a runner with only LLVM installed, and creates the GitHub release (a tag with a `-`, like
 `v0.2.0-rc.1`, makes a prerelease). Run it by hand (Actions → release → Run workflow) to build and

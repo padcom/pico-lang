@@ -21,6 +21,8 @@ jobs:
       matrix:
         include:
           - { host: macos-arm64, os: macos-latest }
+          # (Intel Macs, #86: Homebrew's llvm@23 under /usr/local.)
+          - { host: macos-x64, os: macos-15-intel }
           - { host: linux-x64, os: ubuntu-24.04 }
           - { host: linux-arm64, os: ubuntu-24.04-arm }
           # Windows: a MinGW build (Rust's gnullvm) against MSYS2's LLVM 23 (P10.10b3).
@@ -117,6 +119,8 @@ jobs:
       matrix:
         include:
           - { host: macos-arm64, os: macos-latest }
+          # (Intel Macs, #86: Homebrew's llvm@23 under /usr/local.)
+          - { host: macos-x64, os: macos-15-intel }
           - { host: linux-x64, os: ubuntu-24.04 }
           - { host: linux-arm64, os: ubuntu-24.04-arm }
           - { host: windows-x64, os: windows-latest }
@@ -130,7 +134,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           ! command -v llvm-config && ! command -v clang-23 && ! command -v ld.lld
-          [ ! -d /opt/homebrew/opt/llvm@23 ] && [ ! -d /usr/lib/llvm-23 ]
+          [ ! -d /opt/homebrew/opt/llvm@23 ] && [ ! -d /usr/local/opt/llvm@23 ] && [ ! -d /usr/lib/llvm-23 ]
 
       - uses: actions/download-artifact@v4
         with:
