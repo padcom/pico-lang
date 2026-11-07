@@ -439,12 +439,16 @@ impl Interp<'_, '_> {
     /// Runs a frame; a panic inside a guarded region continues at the region's handler.
     fn exec(&mut self, frame: &mut Frame) -> Result<Flow, Panic> {
         let mut bb = mir::BlockId(0);
-        let mut guards: Vec<mir::BlockId> = Vec::new();
+        // Each guard's handler, and how many objects were being shown when it was entered.
+        let mut guards: Vec<(mir::BlockId, usize)> = Vec::new();
         loop {
             match self.run_blocks(frame, &mut bb, &mut guards) {
                 Err(p) if !guards.is_empty() && p.exit.is_none() => {
                     self.unwinding.push(p);
-                    bb = guards.pop().expect("checked");
+                    let (handler, shown) = guards.pop().expect("checked");
+                    // Objects whose show function the panic left (#8) aren't being shown.
+                    self.showing.truncate(shown);
+                    bb = handler;
                 }
                 r => return r,
             }
@@ -455,7 +459,7 @@ impl Interp<'_, '_> {
         &mut self,
         frame: &mut Frame,
         bb: &mut mir::BlockId,
-        guards: &mut Vec<mir::BlockId>,
+        guards: &mut Vec<(mir::BlockId, usize)>,
     ) -> Result<Flow, Panic> {
         loop {
             let block = frame.f.block(*bb);
@@ -562,7 +566,7 @@ impl Interp<'_, '_> {
                     return Err(self.panic(&m, *loc));
                 }
                 Terminator::Guard { body, handler } => {
-                    guards.push(*handler);
+                    guards.push((*handler, self.showing.len()));
                     *bb = *body;
                 }
                 Terminator::Unguard(next) => {

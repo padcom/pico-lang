@@ -788,6 +788,9 @@ static _Thread_local void *guards[PICO_MAX_GUARDS];
 /* The shadow-stack top when each guard was pushed, restored when a panic jumps to it. */
 static _Thread_local PicoFrame *guard_frames[PICO_MAX_GUARDS];
 static _Thread_local int32_t guard_arenas[PICO_MAX_GUARDS];
+/* How many objects were being shown when each guard was pushed (a panic that leaves show
+ * functions doesn't leave their objects marked, #8). */
+static _Thread_local int64_t guard_showing[PICO_MAX_GUARDS];
 static _Thread_local int nguards;
 static _Thread_local char *panic_msg;
 static _Thread_local int64_t panic_msg_len;
@@ -805,6 +808,7 @@ void pico_guard_push(void *buf) {
     }
     guard_frames[nguards] = pico_gc_top;
     guard_arenas[nguards] = pico_arena_level();
+    guard_showing[nguards] = showing_len;
     guards[nguards++] = buf;
 }
 
@@ -962,6 +966,7 @@ static _Noreturn void unwind(void) {
         pico_gc_top = guard_frames[nguards];
         /* (Arenas opened inside the guarded region are dropped unchecked.) */
         pico_arena_release(guard_arenas[nguards]);
+        if (showing_len > guard_showing[nguards]) showing_len = guard_showing[nguards];
         pico_longjmp(buf, 1);
     }
     report_panic();

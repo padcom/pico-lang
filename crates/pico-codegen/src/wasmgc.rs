@@ -123,6 +123,9 @@ const IMPORTS: &[(&str, &[ValT], &[ValT])] = &[
         &[ValT::I32, I, I, I, I, I, I, I, I],
         &[ValT::Str],
     ),
+    // How many objects are being shown, and dropping the ones past `n` (a caught panic, #8).
+    ("show_depth", &[], &[ValT::I32]),
+    ("show_reset", &[ValT::I32], &[]),
 ];
 
 const I: ValT = ValT::I32;
@@ -2115,7 +2118,7 @@ impl<'p> Gen<'p> {
                 let stack = fx.tmp(3_000_000, ref_to(raw));
                 let depth = fx.tmp(3_000_001, ValType::I32);
                 fx.guards = Some((stack, depth));
-                sink.i32_const(64).array_new_default(raw).local_set(stack);
+                sink.i32_const(128).array_new_default(raw).local_set(stack);
                 sink.loop_(BlockType::Empty); // retry
                 sink.block(BlockType::Empty); // caught
                 sink.try_table(
@@ -2150,7 +2153,19 @@ impl<'p> Gen<'p> {
                     .i32_const(1)
                     .i32_sub()
                     .local_set(depth);
-                sink.local_get(stack).local_get(depth);
+                // Two slots per guard: the handler, and the show depth when it was entered.
+                sink.local_get(stack)
+                    .local_get(depth)
+                    .i32_const(2)
+                    .i32_mul()
+                    .i32_const(1)
+                    .i32_add();
+                sink.array_get(self.raw_type(ValType::I32));
+                sink.call(import_index("show_reset"));
+                sink.local_get(stack)
+                    .local_get(depth)
+                    .i32_const(2)
+                    .i32_mul();
                 sink.array_get(self.raw_type(ValType::I32)).local_set(fx.pc);
                 sink.br(0); // retry
                 sink.end();
@@ -4954,7 +4969,17 @@ impl<'p> Gen<'p> {
                 let (stack, depth) = fx.guards.expect("a function with guards");
                 s.local_get(stack)
                     .local_get(depth)
+                    .i32_const(2)
+                    .i32_mul()
                     .i32_const(handler.0 as i32);
+                s.array_set(self.raw_type(ValType::I32));
+                s.local_get(stack)
+                    .local_get(depth)
+                    .i32_const(2)
+                    .i32_mul()
+                    .i32_const(1)
+                    .i32_add()
+                    .call(import_index("show_depth"));
                 s.array_set(self.raw_type(ValType::I32));
                 s.local_get(depth).i32_const(1).i32_add().local_set(depth);
                 self.goto(fx, s, *body, to_loop);

@@ -368,6 +368,14 @@ export default async function init(options = {}) {
     show_leave: (o) => {
       showing.delete(o);
     },
+    show_depth: () => showing.size,
+    show_reset(n) {
+      // (A Set keeps insertion order: the objects past `n` were entered after the guard.)
+      let i = 0;
+      for (const o of [...showing]) {
+        if (i++ >= n) showing.delete(o);
+      }
+    },
     decode_utf8(arr, off, len, fatal) {
       const b = new Uint8Array(len);
       for (let i = 0; i < len; i++) b[i] = ex.str_byte(arr, off + i);

@@ -1,0 +1,20 @@
+// A panic caught inside a `toString` doesn't leave the object marked as being shown (issue #8).
+// expect: caught: no
+// expect: Q (p = P(2))
+class P {
+  constructor(public n: i32) {}
+  public toString(): string {
+    if (this.n == 1) panic("no")
+    return `P(${this.n})`
+  }
+}
+class Q {
+  constructor(public p: P) {}
+}
+const q = new Q(new P(1))
+const r = __catch_panic(() => {
+  println(`${q}`)
+})
+println(`caught: ${r ?? "nothing"}`)
+q.p.n = 2
+println(`${q}`)
