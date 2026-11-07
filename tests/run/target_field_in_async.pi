@@ -3,6 +3,8 @@
 // expect: true 1
 // expect: 6
 // expect: 2 7
+// expect: 9 b
+// expect: 9 b 10
 // A field named `target` inside async methods and arrows is the field, not the build constant;
 // the build constant in an async method doesn't capture `this` (#104).
 struct T { system: int }
@@ -58,3 +60,19 @@ class D {
   }
 }
 println(await new D().bump())
+
+// Inherited members named `target` and `build` (a method, called bare), in sync, async and
+// arrow code.
+class Base {
+  public target: int = 9
+  public build(): string { "b" }
+}
+class Sub extends Base {
+  public sync(): string { `${target} ${build()}` }
+  public async run(): Promise<string> {
+    const f = () => target + 1
+    `${target} ${build()} ${f()}`
+  }
+}
+println(new Sub().sync())
+println(await new Sub().run())

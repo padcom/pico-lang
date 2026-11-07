@@ -3921,6 +3921,23 @@ impl Resolver {
             .then(|| Found::Member(name.to_string()))
     }
 
+    /// Whether `this`'s class has a method or getter `name` (its own or inherited), so a bare
+    /// `build()` in a method calls it rather than meaning the build constant (#104).
+    fn this_has_method(&self, name: &str) -> bool {
+        if self
+            .f
+            .scopes
+            .iter()
+            .any(|s| s.names.contains_key(name) || s.later.contains_key(name))
+        {
+            return false;
+        }
+        self.this_struct().is_some_and(|sid| {
+            let def = &self.structs[sid.0 as usize];
+            def.method(name).is_some() || def.getter(name).is_some()
+        })
+    }
+
     /// The class `this` is in the current function: its own, or (in an arrow, such as an async
     /// method's body, which captures `this` only when it's used) the enclosing method's, found
     /// the way `capture_this` finds it, without capturing (#104).
@@ -5228,7 +5245,8 @@ impl Resolver {
                 if (name == "target" || name == "build")
                     && !self.is_value_name(name)
                     && !self.top_fns.contains_key(&self.mods, name)
-                    && self.peek_member(name).is_none() =>
+                    && self.peek_member(name).is_none()
+                    && !self.this_has_method(name) =>
             {
                 let f = if name == "target" {
                     "__target"
