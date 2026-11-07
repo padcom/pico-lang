@@ -1,0 +1,27 @@
+// An async method of a short-lived struct runs on its own copy of `this` (issue #15).
+// expect: true
+// expect: sum = 42
+import { delay } from "std/timers"
+
+struct Acc {
+  a: int
+  b: int
+  async sum(): Promise<int> throws AbortError {
+    await delay(20)
+    this.a + this.b
+  }
+}
+
+function start(x: int): Promise<int, AbortError> {
+  const acc = Acc { a: x, b: x }
+  acc.sum()
+}
+
+function clobber(n: int): int {
+  const xs = [n, n, n, n, n, n, n, n]
+  if (n == 0) 0 else xs[0] + clobber(n - 1)
+}
+
+const p = start(21)
+println(clobber(50) > 0)
+println(`sum = ${try! await p}`)

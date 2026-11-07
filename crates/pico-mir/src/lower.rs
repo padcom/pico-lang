@@ -2861,6 +2861,9 @@ impl FnBuilder<'_, '_> {
                     .closure
                     .clone()
                     .expect("a closure");
+                // A generator's step (also an async method's body) can run after the caller's
+                // frame is gone: it gets its own copy of a struct `this` (#15).
+                let escapes = self.cx.program.func(*id).generator;
                 let caps: Vec<Operand> = info
                     .captures
                     .iter()
@@ -2872,6 +2875,21 @@ impl FnBuilder<'_, '_> {
                             let d = self.cx.program.struct_def(sid);
                             this == l && !d.is_class && !d.is_interface
                         });
+                        if struct_this && escapes {
+                            let this_ty = match self.locals[l.0 as usize].ty.clone() {
+                                Ty::Ref(t) => (*t).clone(),
+                                t => t,
+                            };
+                            let value = Operand::Copy(Place {
+                                base: mir::Base::Deref(Local(l.0)),
+                                proj: Vec::new(),
+                            });
+                            return self.rvalue_to_temp(
+                                Rvalue::BoxNew(this_ty.clone(), value),
+                                Ty::Ref(Box::new(this_ty)),
+                                e.span,
+                            );
+                        }
                         if c.by_ref || struct_this {
                             Operand::Copy(Place::local(Local(l.0)))
                         } else {

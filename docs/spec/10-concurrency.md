@@ -30,6 +30,9 @@ the host's loop (browser) or WASI poll.
   and `allSettled` (`Settled<T> { status, value, reason }`). A rejected promise that nothing
   awaits or reacts to by the time the microtasks are done ends the program like an uncaught
   exception (exit code 1).
+- An async (or generator) method of a **struct** runs on its own copy of `this`, taken when it's
+  called: it may resume after the struct's frame is gone, so its writes to `this` don't reach the
+  caller's struct (decision 319). Class methods share the object as usual.
 - Top-level `await` runs the event loop until the promise settles. A trailing `void`
   parameter may be left out when calling a function value (`resolve()`), and a lambda whose
   expected result is `void` discards its value, as in TS.
