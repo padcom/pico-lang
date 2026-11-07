@@ -9,3 +9,4 @@ run/http/            no sockets in the browser (fetch through the browser's own:
 run/time/date        reads the environment (std/process isn't available in the browser)
 run/gc/finalizers_busy_loop  measures resident memory through /proc (std/fs isn't available in the browser)
 run/test/runner      reads the environment (std/process isn't available in the browser)
+run/collections/map_churn  measures resident memory through /proc (std/fs isn't available in the browser)
