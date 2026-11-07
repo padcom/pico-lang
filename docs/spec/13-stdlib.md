@@ -459,7 +459,9 @@ and ECDH P-256/P-384/X25519 key pairs), `sign`/`verify` (HMAC; ECDSA with `r ‖
 `encrypt`/`decrypt` (AES-GCM, 128-bit tags) and `deriveBits` (ECDH, HKDF, PBKDF2). Algorithm
 parameters are one struct, `Algorithm`, built from object literals (`{ name: "AES-GCM", iv }`).
 Results are `Uint8Array`s, failures reject with `CryptoError` (`kind`: `InvalidArgument`,
-`AuthenticationFailed`, `Internal`), and `CryptoKey` holds its bytes.
+`InvalidAccess`, `AuthenticationFailed`, `Internal`), and `CryptoKey` holds its bytes. A key's
+`usages` are enforced (`sign`, `verify`, `encrypt`, `decrypt`, `deriveBits`; another use is
+`InvalidAccess`), and a raw ECDSA/ECDH public key must be a point on its curve.
 
 `std/crypto` is synchronous: `digest(alg, data)` and `hmac(alg, key, data)` (SHA-1, SHA-224,
 SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), `hkdf`, `pbkdf2`,
