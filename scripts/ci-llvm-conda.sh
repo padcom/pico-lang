@@ -14,16 +14,19 @@ prefix=$1
 conda="$(cd "$(dirname "$0")" && pwd)/conda"
 [ "$(uname -s)-$(uname -m)" = Darwin-x86_64 ] || { echo "$0: for Intel macOS" >&2; exit 1; }
 
-# micromamba, pinned (a single static binary).
-mm_version=2.9.0-0
-mm_sha256=1e71054bb3ac9a076e21f7ec48acfef536f9b3f1408f371a942784bf5ef83d8a
+# micromamba, pinned: conda-forge's package of it (the channel everything else comes from), a
+# single static binary.
+mm_pkg=micromamba-2.9.0-0.tar.bz2
+mm_sha256=0426ecdc41636d369f57b8fe6acbf4385a69eca45b56d9ee7d3a840a9965d44f
 tmp=${RUNNER_TEMP:-${TMPDIR:-/tmp}}
-mm="$tmp/micromamba-$mm_version"
+mm="$tmp/micromamba-${mm_pkg%.tar.bz2}/bin/micromamba"
 if [ ! -x "$mm" ]; then
-  curl -fsSL --retry 10 --retry-all-errors --retry-delay 10 -o "$mm.part" \
-    "https://github.com/mamba-org/micromamba-releases/releases/download/$mm_version/micromamba-osx-64"
-  echo "$mm_sha256  $mm.part" | shasum -a 256 -c - > /dev/null
-  chmod +x "$mm.part" && mv "$mm.part" "$mm"
+  curl -fsSL --retry 10 --retry-all-errors --retry-delay 10 -o "$tmp/$mm_pkg" \
+    "https://conda.anaconda.org/conda-forge/osx-64/$mm_pkg"
+  echo "$mm_sha256  $tmp/$mm_pkg" | shasum -a 256 -c - > /dev/null
+  mkdir -p "$tmp/micromamba-${mm_pkg%.tar.bz2}"
+  tar -xjf "$tmp/$mm_pkg" -C "$tmp/micromamba-${mm_pkg%.tar.bz2}" bin/micromamba
+  rm "$tmp/$mm_pkg"
 fi
 export MAMBA_ROOT_PREFIX="$tmp/mamba"
 
