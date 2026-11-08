@@ -1,0 +1,50 @@
+# conda-forge's LLVM 23.1.4 for the macos-x64 release build (#129), every package by URL and
+# md5: what scripts/ci-llvm-conda.sh installs. Solved from llvm-osx-64.in; to change it, edit
+# that and paste the output of `scripts/ci-llvm-conda.sh --relock <prefix>` (on an Intel Mac)
+# here. Move the whole set to 23.1.5 together once conda-forge has clangdev 23.1.5.
+@EXPLICIT
+https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.23-hbd8a1cb_0.conda#3fd02989038a1e1cee627c14c2d73f29
+https://conda.anaconda.org/conda-forge/osx-64/libcxx-23.1.5-h19cb2f5_0.conda#ce6f5df6b20cc6bc7228f38258df826b
+https://conda.anaconda.org/conda-forge/osx-64/icu-78.3-py313hbf1d544_2.conda#f13f4740c18b562bf2662d494bad6099
+https://conda.anaconda.org/conda-forge/osx-64/libiconv-1.18-h4ae439b_3.conda#9fd2f77288f43e462ccc6b0e5f018c89
+https://conda.anaconda.org/conda-forge/osx-64/liblzma-5.8.3-hbb4bfdb_1.conda#daf49067580fbfeae3ac7f9535400494
+https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_3.conda#7d3fa28263bb7f8ea32db11f570a5bb6
+https://conda.anaconda.org/conda-forge/osx-64/libxml2-16-2.15.4-h8376fb4_1.conda#ac2c520a6273ce223060ed8f51c207be
+https://conda.anaconda.org/conda-forge/osx-64/libxml2-2.15.4-hb56241c_1.conda#edd04dbc12bd4220029d8738e6f24097
+https://conda.anaconda.org/conda-forge/osx-64/zstd-1.5.7-hbc1a06c_7.conda#c1d11f04327e40537ffe6cad5b131019
+https://conda.anaconda.org/conda-forge/osx-64/libllvm23-23.1.4-hd11396f_1.conda#e697e71977772ecf436447d467befc39
+https://conda.anaconda.org/conda-forge/osx-64/openssl-3.6.5-h332eb6d_0.conda#615ac6cff316565b442cd1af8b94837f
+https://conda.anaconda.org/conda-forge/osx-64/libsigtool-0.1.3-h8c25ef7_1.conda#acc366a7706c83b5364f5f81e1b4857b
+https://conda.anaconda.org/conda-forge/osx-64/sigtool-codesign-0.1.3-h8c25ef7_1.conda#e7eb95a1f841fbbb8312dcd65963334f
+https://conda.anaconda.org/conda-forge/osx-64/ncurses-6.6-hcc0dc9a_1.conda#88a79390f87c8f3334b9999a892e78d4
+https://conda.anaconda.org/conda-forge/osx-64/tapi-1600.0.11.8-h44950e2_4.conda#a70697fe1077cb11e33b11d6f6610314
+https://conda.anaconda.org/conda-forge/osx-64/ld64_osx-64-956.6-llvm23_1_h484b24f_7.conda#769d4769a7f61f92e98444fd895c24fe
+https://conda.anaconda.org/conda-forge/osx-64/llvm-tools-23-23.1.4-h36529c3_1.conda#e3bcf4ed50818f2607cc1e0d581def02
+https://conda.anaconda.org/conda-forge/osx-64/llvm-tools-23.1.4-h8c1e6b9_1.conda#85188cf6bf1956bf46e7932eb9d8d477
+https://conda.anaconda.org/conda-forge/osx-64/cctools_impl_osx-64-1030.6.3-llvm23_1_h3bd330e_7.conda#90495bbedeb408a0ee5369f45e2a5dee
+https://conda.anaconda.org/conda-forge/osx-64/ld64-956.6-llvm23_1_h0b736ef_7.conda#74150d4fe25b41d05079a2591094a211
+https://conda.anaconda.org/conda-forge/osx-64/cctools-1030.6.3-llvm23_1_h254e556_7.conda#a5855ffc7ce00738d8ebbc796760294f
+https://conda.anaconda.org/conda-forge/noarch/compiler-rt23_osx-64-23.1.4-h8d5f570_0.conda#0ff49fb7c4fd8e3b1081e1952027a7f3
+https://conda.anaconda.org/conda-forge/osx-64/compiler-rt23-23.1.4-h8c1e6b9_0.conda#f52c5ab437fcee6069cb2efc62bab802
+https://conda.anaconda.org/conda-forge/osx-64/libclang-cpp23.1-23.1.4-default_hae96fce_1.conda#e062039234d5988c27ecfeaea9f97964
+https://conda.anaconda.org/conda-forge/osx-64/clang-23-23.1.4-default_h4ef152c_1.conda#041eb1bcf17ad0c35c2e15ed929c6c7e
+https://conda.anaconda.org/conda-forge/osx-64/libcompiler-rt-23.1.4-h8c1e6b9_0.conda#2b1e1fbcaf22f19e2b59cb8e397df6b8
+https://conda.anaconda.org/conda-forge/osx-64/compiler-rt-23.1.4-h694c41f_0.conda#c44a148e770492ab7a88a89f446e0cf3
+https://conda.anaconda.org/conda-forge/noarch/compiler-rt_osx-64-23.1.4-h694c41f_0.conda#15f4f5a05a66001c5a0e8b05269f32f6
+https://conda.anaconda.org/conda-forge/osx-64/clang_impl_osx-64-23.1.4-default_hae96fce_1.conda#c0b2cd30c7f230d4cc98f5bc861d77b3
+https://conda.anaconda.org/conda-forge/osx-64/llvm-openmp-23.1.5-h8c1e6b9_0.conda#54816d0f39b274da1a2207ba82833df9
+https://conda.anaconda.org/conda-forge/osx-64/clang-23.1.4-default_cfg_h72d5512_1.conda#3137dfe5ae37d551a25318921b775596
+https://conda.anaconda.org/conda-forge/osx-64/clang-format-23-23.1.4-default_hae96fce_1.conda#73f2bb5985f00f69cde5285dd9a864ca
+https://conda.anaconda.org/conda-forge/osx-64/clang-format-23.1.4-default_habf4d7d_1.conda#e8cc110a92672d6f570ff3cb4e32354c
+https://conda.anaconda.org/conda-forge/osx-64/libclang13-23.1.4-default_h4ef152c_1.conda#696b0f70f9647b3aec71a0367ad4d535
+https://conda.anaconda.org/conda-forge/osx-64/clang-scan-deps-23.1.4-default_hae96fce_1.conda#eb00ff29fcafea53c4f0e6da53f3b088
+https://conda.anaconda.org/conda-forge/osx-64/clang-tools-23.1.4-default_h4d629d3_1.conda#9de678e2e2b79e4da04b29d8a38cfcbf
+https://conda.anaconda.org/conda-forge/noarch/libcxx-headers-23.1.5-h707e725_0.conda#808a94a425676e6b9365742903c85572
+https://conda.anaconda.org/conda-forge/osx-64/libcxx-devel-23.1.5-h7c275be_0.conda#6a2a931fc8349ac6d6532d9ccc6ec7b8
+https://conda.anaconda.org/conda-forge/osx-64/clangxx_impl_osx-64-23.1.4-default_hd505f51_1.conda#b06b59087cbd42de83d10e6f6ed8848a
+https://conda.anaconda.org/conda-forge/osx-64/clangxx-23.1.4-default_cfg_h1f0aee1_1.conda#caa7e747c8ad85a934dca98c984bebac
+https://conda.anaconda.org/conda-forge/osx-64/libclang-23.1.4-default_hb9e13d8_1.conda#9f272b2ead97e0bce59104c20d776c38
+https://conda.anaconda.org/conda-forge/osx-64/libclang-cpp-23.1.4-default_h4ef152c_1.conda#6169716b2907c2f283af4c1c1c3fe1e7
+https://conda.anaconda.org/conda-forge/osx-64/llvmdev-23.1.4-h36529c3_1.conda#fa16970343f557c1f3dc091428f63e15
+https://conda.anaconda.org/conda-forge/osx-64/clangdev-23.1.4-default_hfa21f1e_1.conda#8d10f4f5d1e4d37701b9f7e8ed0dcce2
+https://conda.anaconda.org/conda-forge/osx-64/zstd-static-1.5.7-h5853828_7.conda#697f109436a9e346956e2fe60e747a3f
