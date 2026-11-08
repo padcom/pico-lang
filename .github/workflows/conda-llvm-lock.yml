@@ -12,7 +12,8 @@ jobs:
     runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
-      - run: scripts/ci-llvm-conda.sh --relock "$RUNNER_TEMP/llvm" | tee llvm-osx-64.lock
+      - shell: bash -eo pipefail {0}
+        run: scripts/ci-llvm-conda.sh --relock "$RUNNER_TEMP/llvm" | tee llvm-osx-64.lock
       - uses: actions/upload-artifact@v4
         with:
           name: llvm-osx-64.lock

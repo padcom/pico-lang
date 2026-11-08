@@ -20,7 +20,7 @@ mm_sha256=1e71054bb3ac9a076e21f7ec48acfef536f9b3f1408f371a942784bf5ef83d8a
 tmp=${RUNNER_TEMP:-${TMPDIR:-/tmp}}
 mm="$tmp/micromamba-$mm_version"
 if [ ! -x "$mm" ]; then
-  curl -fsSL --retry 5 -o "$mm.part" \
+  curl -fsSL --retry 10 --retry-all-errors --retry-delay 10 -o "$mm.part" \
     "https://github.com/mamba-org/micromamba-releases/releases/download/$mm_version/micromamba-osx-64"
   echo "$mm_sha256  $mm.part" | shasum -a 256 -c - > /dev/null
   chmod +x "$mm.part" && mv "$mm.part" "$mm"
