@@ -67,8 +67,15 @@ else
   # (libxml2's own dependencies, after it on the link line.)
   for l in icuuc icudata lzma; do extra+=(-C "link-arg=-l$l"); done
 fi
+if [ "$os" = macos ]; then
+  # Libraries macOS has, from macOS: with conda-forge's LLVM (Intel, #129), its lib directory
+  # (a search directory for LLVM's libraries) has dylibs of its own for zlib, libxml2 and
+  # libc++, which a link would otherwise pick before the SDK's.
+  sdk=$(xcrun --show-sdk-path)
+  for l in z xml2 c++; do ln -sf "$sdk/usr/lib/lib$l.tbd" "$static/lib$l.tbd"; done
+fi
 for l in "${wanted[@]}"; do
-  for d in "$(brew --prefix 2>/dev/null)/lib" /usr/lib/"$(uname -m)"-linux-gnu /usr/lib /usr/local/lib \
+  for d in "${LLVM_SYS_231_PREFIX:-/nonexistent}/lib" "$(brew --prefix 2>/dev/null)/lib" /usr/lib/"$(uname -m)"-linux-gnu /usr/lib /usr/local/lib \
     "${MINGW_PREFIX:-/nonexistent}/lib"; do
     if [ -f "$d/lib$l.a" ]; then cp "$d/lib$l.a" "$static/"; break; fi
   done

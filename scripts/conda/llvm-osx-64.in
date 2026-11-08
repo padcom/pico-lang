@@ -1,0 +1,8 @@
+# conda-forge's LLVM 23 for the macos-x64 release build (#129): Homebrew has no bottles for Intel
+# Macs. Exact versions and builds (the __osx >=11.0 ones: pico targets macOS 13). The full
+# solved set, every package by URL and checksum, is llvm-osx-64.lock (scripts/ci-llvm-conda.sh
+# --relock prints it). Move llvmdev, clangdev and with them clang, lld's sources (build-lld.sh)
+# to 23.1.5 together, once conda-forge has clangdev 23.1.5 for osx-64: never mix the two.
+llvmdev==23.1.4=h36529c3_1
+clangdev==23.1.4=default_hfa21f1e_1
+zstd-static==1.5.7=h5853828_7
