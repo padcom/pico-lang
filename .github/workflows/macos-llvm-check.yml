@@ -1,0 +1,70 @@
+# THROWAWAY (#127, removed before merge): llvm.sh's plan/built/link on Apple silicon, where
+# llvm@23 is the same alias of llvm but installs from a bottle in minutes. One job installs and
+# saves the kegs; a fresh runner restores them, links and verifies, as an Intel cache hit does.
+name: macos-llvm check (throwaway)
+
+on:
+  push:
+    branches: [fix/127-macos-llvm-cache]
+    paths: ['.github/actions/macos-llvm/**', '.github/workflows/macos-llvm-check.yml']
+
+env:
+  SUFFIX: -check-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  save:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: plan
+        id: plan
+        run: .github/actions/macos-llvm/llvm.sh plan
+      - name: build (a bottle here)
+        run: .github/actions/macos-llvm/llvm.sh build
+      - name: built
+        id: built
+        run: .github/actions/macos-llvm/llvm.sh built
+      - name: plan's key and paths are built's
+        run: |
+          [ "${{ steps.plan.outputs.key }}" = "${{ steps.built.outputs.key }}" ]
+          [ "${{ steps.plan.outputs.paths }}" = "${{ steps.built.outputs.paths }}" ]
+          printf '%s\n' "${{ steps.built.outputs.paths }}"
+      - uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.built.outputs.paths }}
+          key: ${{ steps.built.outputs.key }}${{ env.SUFFIX }}
+
+  restore:
+    needs: save
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: nothing of llvm's on this runner yet
+        run: |
+          ls -la "$(brew --prefix)/opt" | grep -i llvm || true
+          brew list --versions | head -50
+      - name: plan
+        id: plan
+        run: .github/actions/macos-llvm/llvm.sh plan
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.plan.outputs.paths }}
+          key: ${{ steps.plan.outputs.key }}${{ env.SUFFIX }}
+          fail-on-cache-miss: true
+      - name: link
+        run: .github/actions/macos-llvm/llvm.sh link
+      - name: scripts/env.sh finds it
+        run: |
+          . scripts/env.sh
+          echo "LLVM_SYS_231_PREFIX=$LLVM_SYS_231_PREFIX"
+          "$LLVM_SYS_231_PREFIX/bin/llvm-config" --version
+          "$LLVM_SYS_231_PREFIX/bin/clang" --version
+          printf 'int main(void){return 0;}\n' > t.c
+          "$LLVM_SYS_231_PREFIX/bin/clang" t.c -o t && ./t
+      - name: a missing keg falls back (link fails)
+        run: |
+          llvm=$(brew info --json=v2 llvm@23 | jq -r '.formulae[0].name')
+          keg=$(cd "$(brew --prefix)/opt/$llvm" && pwd -P)
+          mv "$keg" "$keg.away"
+          if .github/actions/macos-llvm/llvm.sh link; then echo "link passed without the keg"; exit 1; fi
+          mv "$keg.away" "$keg"

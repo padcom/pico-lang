@@ -14,12 +14,19 @@ export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
 
 out() { echo "$1=$2" >> "${GITHUB_OUTPUT:-/dev/null}"; echo "$1=$2"; }
 
+# A formula's canonical name: llvm@23 is an alias of llvm, whose keg is Cellar/llvm/<version>
+# and whose opt link is opt/llvm (Homebrew adds opt/llvm@23 beside it).
+canonical() { brew info --json=v2 "$1" | jq -r '.formulae[0].name'; }
+
 # llvm@23's runtime dependencies (recursive; not build or test ones), dependencies before what
-# needs them, then llvm@23: one per line.
+# needs them, then llvm@23's own formula: one canonical name per line.
 formulae() {
-  brew deps --topological llvm@23
-  echo llvm@23
+  local f
+  for f in $(brew deps --topological llvm@23) llvm@23; do canonical "$f"; done
 }
+
+# opt/<name>, resolved to the keg it points at (empty if there's none).
+opt_keg() { (cd "$(brew --prefix)/opt/$1" 2> /dev/null && pwd -P) || true; }
 
 # The "name version" list plan made, for link (the runner's temporary directory).
 KEGS="${RUNNER_TEMP:-/tmp}/llvm-kegs.txt"
@@ -33,32 +40,37 @@ versions_from_index() {
 versions_installed() {
   local f keg
   for f in $(formulae); do
-    keg=$(cd "$(brew --prefix "$f")" 2> /dev/null && pwd -P) || { echo "no installed keg for $f" >&2; return 1; }
+    keg=$(opt_keg "$f")
+    [ -n "$keg" ] || { echo "no installed keg for $f" >&2; return 1; }
     echo "$f $(basename "$keg")"
   done
 }
 
 # The key and the keg paths for a "name version" list on stdin.
 emit() {
-  local list cellar macos hash llvm paths=()
+  local list cellar macos hash llvm name version paths=()
   list=$(sort)
   cellar=$(brew --cellar)
   macos=$(sw_vers -productVersion | cut -d. -f1)
   hash=$(printf '%s\n' "$list" | shasum -a 256 | cut -c1-12)
-  llvm=$(awk '$1 == "llvm@23" { print $2 }' <<< "$list")
+  llvm=$(awk -v n="$(canonical llvm@23)" '$1 == n { print $2 }' <<< "$list")
   while read -r name version; do paths+=("$cellar/$name/$version"); done <<< "$list"
   echo "$list" | sed 's/^/  /'
   printf '%s\n' "$list" > "$KEGS"
-  out key "llvm@23-macos$macos-x64-$llvm-$hash"
+  out key "llvm@23-macos$macos-$(uname -m)-$llvm-$hash"
   { echo "paths<<EOF"; printf '%s\n' "${paths[@]}"; echo "EOF"; } >> "${GITHUB_OUTPUT:-/dev/null}"
 }
 
-# Whether the restored kegs make a working LLVM: llvm-config answers, and libLLVM's and a tool's
-# Homebrew libraries all resolve.
+# Whether the kegs make a working LLVM: opt/llvm@23 (scripts/env.sh's path) is llvm's keg,
+# llvm-config answers, and libLLVM's and a tool's Homebrew libraries all resolve.
 # (Each check returns explicitly: called as `verify || …`, set -e doesn't apply inside it.)
 verify() {
-  local prefix libdir lib missing=0 path
-  prefix=$(brew --prefix llvm@23) || return 1
+  local prefix libdir lib missing=0 path keg
+  prefix="$(brew --prefix)/opt/llvm@23"
+  keg=$(opt_keg llvm@23)
+  [ -n "$keg" ] && [ "$keg" = "$(opt_keg "$(canonical llvm@23)")" ] \
+    || { echo "opt/llvm@23 isn't llvm@23's keg (${keg:-missing})" >&2; return 1; }
+  echo "opt/llvm@23 -> $keg"
   "$prefix/bin/llvm-config" --version || return 1
   "$prefix/bin/llvm-config" --system-libs || return 1
   libdir=$("$prefix/bin/llvm-config" --libdir) || return 1
@@ -82,23 +94,28 @@ case "${1:-}" in
     ;;
   link)
     # Dependencies first, so llvm@23's links find theirs; each at the version the key was made
-    # from. Keg-only ones get only their opt link (brew link refuses them without --force, and
-    # they mustn't shadow the system's).
+    # from. The opt link is set to the cached keg first: with another version of a formula
+    # already on the image, that's the one brew link then picks. Keg-only formulae get only
+    # their opt link (brew link refuses them without --force, and they mustn't shadow the
+    # system's); llvm@23 also gets its alias's.
+    prefix=$(brew --prefix)
     for f in $(formulae); do
       version=$(awk -v f="$f" '$1 == f { print $2 }' "$KEGS")
       keg="$(brew --cellar)/$f/$version"
       [ -n "$version" ] && [ -f "$keg/INSTALL_RECEIPT.json" ] \
         || { echo "::warning::the cache has no keg for $f $version: building instead"; exit 1; }
       if [ "$(brew info --json=v2 "$f" | jq -r '.formulae[0].keg_only')" = true ]; then
-        brew link "$f" 2>&1 | sed 's/^/  /' || true
-        # (Where brew link makes no opt link for a keg-only formula, the one it would make.)
-        [ -e "$(brew --prefix)/opt/$f" ] || ln -sfn "$keg" "$(brew --prefix)/opt/$f"
+        ln -sfn "$keg" "$prefix/opt/$f"
       else
+        brew unlink "$f" > /dev/null 2>&1 || true
+        ln -sfn "$keg" "$prefix/opt/$f"
         brew link --overwrite "$f"
       fi
-      [ "$(cd "$(brew --prefix)/opt/$f" && pwd -P)" = "$keg" ] \
+      [ "$(opt_keg "$f")" = "$keg" ] \
         || { echo "::warning::$f's opt link isn't the cached $version: building instead"; exit 1; }
     done
+    llvm=$(canonical llvm@23)
+    [ "$llvm" = llvm@23 ] || ln -sfn "$(opt_keg "$llvm")" "$prefix/opt/llvm@23"
     verify || { echo "::warning::the restored llvm@23 doesn't work: building instead"; exit 1; }
     ;;
   build)
