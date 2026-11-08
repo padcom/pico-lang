@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # Builds lld's static libraries for the LLVM on PATH (`llvm-config`), into <prefix>, so pico
 # can link them (`PICO_LLD_PREFIX=<prefix>`). For macOS, where Homebrew's `lld` formula has
-# only shared libraries, built against its newest `llvm` rather than `llvm@23`, and for Intel
-# macOS's conda-forge LLVM (#129). (CMAKE_PREFIX_PATH: LLVM's config finds its zstd, zlib and
-# libxml2 there.)
+# only shared libraries, built against its newest `llvm` rather than `llvm@23`.
 # Needs cmake; downloads the llvm-project release matching `llvm-config --version`.
 #
 # Usage: scripts/build-lld.sh <prefix>
@@ -32,7 +30,6 @@ cmake -S "$src/lld" -B "$work/build" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$prefix" \
   -DLLVM_DIR="$llvm/lib/cmake/llvm" \
-  -DCMAKE_PREFIX_PATH="$llvm" \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DBUILD_SHARED_LIBS=OFF \
   "${extra[@]}"

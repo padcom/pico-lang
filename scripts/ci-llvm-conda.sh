@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs LLVM 23 and clang's static libraries for Intel macOS (#129) from conda-forge into
+# Installs LLVM 23 with clang's and lld's static libraries for Intel macOS (#129) from conda-forge into
 # <prefix>, for LLVM_SYS_231_PREFIX: prebuilt, where Homebrew would compile them for 5 hours.
 # The packages are the ones scripts/conda/llvm-osx-64.lock names, by URL and checksum.
 #
@@ -38,10 +38,10 @@ if [ "$relock" = 1 ]; then
 fi
 "$mm" create --yes --quiet --prefix "$prefix" --file "$conda/llvm-osx-64.lock"
 
-# What the build takes from it: llvm-config, LLVM's and clang's static libraries, zstd's, and
+# What the build takes from it: llvm-config, LLVM's, clang's and lld's static libraries, zstd's, and
 # clang's resource headers (embedded in pico).
 v=$("$prefix/bin/llvm-config" --version)
-for f in lib/libLLVMCore.a lib/libclangDriver.a lib/libzstd.a "lib/clang/${v%%.*}/include/stddef.h"; do
+for f in lib/libLLVMCore.a lib/libclangDriver.a lib/liblldELF.a include/lld/Common/Driver.h lib/libzstd.a "lib/clang/${v%%.*}/include/stddef.h"; do
   [ -e "$prefix/$f" ] || { echo "$prefix/$f is missing" >&2; exit 1; }
 done
 echo "LLVM $v from conda-forge in $prefix"
