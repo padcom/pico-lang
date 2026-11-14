@@ -92,7 +92,7 @@ function __theReactivity(): __Reactivity {
   }
   const made = new __Reactivity()
   __reactivity = made
-  made
+  return made
 }
 
 /// A new observer, in the current effect scope.
@@ -104,7 +104,7 @@ function __observer(kind: int, run: () => void): __Observer {
   if (s != null) {
     s.observers.push(o)
   }
-  o
+  return o
 }
 
 /// Records that the running observer (if any) read `dep`.
@@ -194,7 +194,7 @@ function __changed(e: __Observer): bool {
       return true
     }
   }
-  false
+  return false
 }
 
 /// Runs the queued effects, oldest first (spec §16.5). Effects an exception leaves queued run
@@ -363,7 +363,7 @@ class Reactive<T> {
   public static __of<U>(v: U): Reactive<U> {
     const c = new Reactive<U>()
     c.cache.push(v)
-    c
+    return c
   }
 
   /// A computed cell.
@@ -375,7 +375,7 @@ class Reactive<T> {
     o.own = c.dep
     c.dep.computed = o
     c.obs = o
-    c
+    return c
   }
 
   /// The value; tracked inside a computed or an effect.
@@ -397,13 +397,13 @@ class Reactive<T> {
       this.__refresh()
     }
     __track(this.dep)
-    this.cache[0]
+    return this.cache[0]
   }
 
   /// `__get()` of a cell holding an object: also a tracked read of the object (spec §16.6).
   public __getObject<U extends object>(v: U): U {
     __trackObject(v)
-    v
+    return v
   }
 
   /// Writes the value (a computed's setter), and triggers unless it's identical to the old one.
@@ -517,7 +517,7 @@ function watchEffect(fn: () => void): WatchHandle {
   __runEffect(o)
   // What its first run wrote.
   __flush()
-  h
+  return h
 }
 
 /// The effects and computeds created while a function ran, stopped together (spec §16.7).
@@ -558,5 +558,5 @@ function effectScope(fn: () => void): EffectScope {
   } finally {
     r.scope = parent
   }
-  s
+  return s
 }

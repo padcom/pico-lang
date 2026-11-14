@@ -34,10 +34,10 @@ function __job<T>(op: int, a: int, b: int, c: int, s: string, t: string, path: s
       p.__resolve(read({ r, r2, job }))
     }
   })
-  p
+  return p
 }
 
-function __unit(res: __IoResult): void {}
+function __unit(_res: __IoResult): void {}
 
 /// The bytes of a view as a buffer handle starting at its first byte, and their count.
 function __bytesOf(data: Uint8Array): ArrayBuffer {
@@ -92,7 +92,7 @@ function __info(text: string): FileInfo {
     size: parseInt(parts[1]),
     mtime: parseInt(parts[2]),
   }
-  info
+  return info
 }
 
 /// Facts about the file or directory at `path` (following symbolic links unless
@@ -171,7 +171,7 @@ function __entries(text: string): DirEntry[] {
       out.push({ name: line.slice(2), isFile: k == "f", isDirectory: k == "d", isSymlink: k == "l" })
     }
   }
-  out
+  return out
 }
 
 /// The entries of a directory (without `.` and `..`), in name order.
@@ -302,7 +302,7 @@ export class Watcher implements Disposable {
     const p = new Promise<WatchEvent?>()
     requests.push(p)
     serve()
-    p
+    return p
   }
 
   /// `for await` uses the watcher itself.

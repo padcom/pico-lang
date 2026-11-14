@@ -144,7 +144,7 @@ one character, and a pattern without `/` matches the file name in any directory.
 
 | Rule | Checks |
 |------|--------|
-| `naming` | camelCase values and functions, PascalCase types, enum variants and type parameters (decision 39) |
+| `naming` | camelCase values and functions, PascalCase types, enum variants and type parameters (decision 39); constants, static fields and static getters may be UPPER_SNAKE_CASE; a leading `_` and a trailing one (`async_`, avoiding a keyword) are ignored, and `__` names (the core library's internals) aren't checked |
 | `unused` | variables (read, not only assigned), parameters after the last used one (not those an overridden or implemented method fixes), module-level bindings that aren't exported, private methods and imports that are never used. Exempt: names starting with `_`, bindings with a type test (`catch (e: E)`, `s: string =>`, `c as R`), `comptime` bindings, and the protocol methods the language calls itself (`toString`, `equals`, `hashCode`, `compareTo`, `format`, `iterator`, `next`, `dispose`, `disposeAsync`). Private fields aren't checked (printing, reflection and derived methods read them) |
 | `complexity` | the cyclomatic complexity of each function: at most `true` → 4, or the number given (`{ "max": n }` too) |
 | `blankLines` | a blank line before a statement `if` (not `else if`), `switch`, `match`, `return`, loop (`for`, `while`, `do`, `loop`), `try`, block statement, `export`, and before a function, method, constructor, getter, setter or class, unless it's the first in its block or type body; one after the imports (`import`), and one between class members after a multi-line member (`member`). Loops, `try` and blocks don't need one after a `const`/`let` or an `if`. Comments and decorators that belong to it go after the blank line. `{ "before": ["if", "function", …] }` picks the constructs |
@@ -165,7 +165,7 @@ The rules from the author's ESLint configuration (decision 332), each off unless
 | `shadow` | a declaration that hides a variable, parameter, function, type or import of an enclosing scope (not class members) |
 | `unusedExpressions` | a dropped value that does nothing: a variable, literal, operation, member read or conditional expression, or an object created with `new` and dropped, as a statement that isn't its block's value (a `: void` function's last statement is dropped too) |
 | `unreachable` | statements after `return`, `throw`, `break` or `continue` in the same block (function declarations aside) |
-| `selfCompare`, `selfAssign` | `x == x` (and the other comparisons), `x = x`, for variables and member chains |
+| `selfCompare`, `selfAssign` | `x == x` (and the other comparisons; not on floats, where `x != x` tests for NaN), `x = x`, for variables and member chains |
 | `constantBinary` | `??` and `??=` whose left side's type can't be `null` |
 | `unsafeFinally` | `return`, `throw`, and `break`/`continue` of a loop outside it, in a `finally` block |
 | `requireYield` | a generator with a body but no `yield` |
@@ -175,7 +175,7 @@ The rules from the author's ESLint configuration (decision 332), each off unless
 | `uselessCatch` | a last `catch` whose body only rethrows what it caught |
 | `templateInString` | a plain string containing `${…}` |
 | `loopFunc` | a closure in a loop that captures a `let` declared outside the loop and changed somewhere |
-| `floatingPromise` | a dropped `Promise` (a statement that isn't its block's value), unless it ends with `.catch(…)` or `.then(onValue, onError)` |
+| `floatingPromise` | a dropped `Promise` that can fail (its error type isn't `never`; a statement that isn't its block's value), unless it ends with `.catch(…)` or `.then(onValue, onError)` |
 | `awaitInLoop` | `await` in a loop (not in a `for await` loop's body) |
 | `requireAwait` | an `async` function with a body but no `await` or `for await` (async generators aside) |
 | `preferAwait` | `.then`/`.catch`/`.finally` on a promise, a `callback`/`cb` parameter, a callback argument whose first parameter is `err`/`error` |
@@ -210,7 +210,7 @@ The rules from the author's ESLint configuration (decision 332), each off unless
 | `quotes` | strings in the other kind of quotes (`"single"` by default, or `"double"`), unless that avoids an escape; with `"double"`, one-character `'x'` (maybe a `char`) is left alone |
 | `docTags` | in a function's doc comment: `@param` for each parameter, in order, named right, once, with a description; `@returns` with a description exactly when the declared result isn't `void`, `never` or `Promise<void>`; `@yields` exactly on generators; no `{types}` or `[defaults]`; known tag names; no text on tags that take none; valid `@access` and `@version`/`@since`; `@implements` only on classes. `@inheritdoc` exempts the comment |
 | `docFormat` | in `/** … */`: `*` aligned under the opening `*`, one `*` per line, no text on the first or last line of a multi-line block, one space after `*` outside `@example`; in every doc comment, one blank line between description and tags and none between tags |
-| `underscoreDangle` | a variable, parameter or function whose name starts or ends with `_` but is used; unused ones are fine, that's how to keep state or parameters you don't need |
+| `underscoreDangle` | a variable, parameter or function whose name starts or ends with `_` but is used; unused ones are fine, that's how to keep state or parameters you don't need. `__` names (the core library's internals) aren't reported |
 | `preferNamedCaptureGroup` | a regex with an unnamed capture group (`(…)`, not `(?:…)` or `(?<name>…)`) |
 
 Not taken over: `no-return-await` (pico doesn't flatten a returned promise, so `return await p`
@@ -223,4 +223,4 @@ each `&&`, `||` and `??`. A closure counts as a function of its own and adds not
 function around it.
 
 `if` and `match` in expression position (`const x = if (c) 1 else 2`) don't need a blank line.
-`pico fmt` doesn't insert the blank lines. Decisions 277, 331, 332.
+`pico fmt` doesn't insert the blank lines. The standard library follows the rules that are on by default (a test lints it). Decisions 277, 331, 332, 333.

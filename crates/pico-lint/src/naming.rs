@@ -1,7 +1,9 @@
 //! `naming` (decision 39): camelCase values, functions, methods, fields and parameters;
 //! PascalCase types, enum variants and type parameters. Constants and static fields may be
-//! UPPER_SNAKE_CASE. Leading underscores are ignored; `extern "C"` declarations (C's names)
-//! aren't checked.
+//! UPPER_SNAKE_CASE, and so may static getters (`Math.PI`). A leading `_` and a trailing one
+//! (which avoids a keyword, `async_`) are ignored; names starting with `__` are the core library's
+//! internals (some, like `__Array_filter`, are looked up by the compiler) and aren't checked,
+//! nor are `extern "C"` declarations (C's names).
 
 use crate::walk::{self, Visit, bound_names};
 use pico_diag::{Diagnostic, codes};
@@ -34,10 +36,11 @@ enum Case {
 
 impl Naming<'_> {
     fn name(&mut self, n: &Ident, case: Case, what: &str) {
-        if self.in_extern {
+        if self.in_extern || n.name.starts_with("__") {
             return;
         }
-        let bare = n.name.trim_start_matches('_');
+        // (A trailing `_` avoids a keyword: `async_`, `class_`.)
+        let bare = n.name.trim_start_matches('_').trim_end_matches('_');
         if bare.is_empty() {
             return;
         }
@@ -163,6 +166,12 @@ impl<'a> Visit<'a> for Naming<'_> {
                     Case::Camel
                 };
                 self.name(name, case, "field");
+            }
+            // A static getter is a constant to its readers (`Math.PI`, `WebSocket.OPEN`).
+            MemberKind::Getter(f) if m.mods.is_static => {
+                if let Some(n) = &f.name {
+                    self.name(n, Case::CamelOrUpper, "getter");
+                }
             }
             MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => {
                 if let Some(n) = &f.name {

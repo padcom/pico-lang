@@ -1,8 +1,9 @@
 //! Async (P10.2f): `floatingPromise`, `awaitInLoop`, `requireAwait`, `preferAwait`,
 //! `promiseReturnWrap`, `promiseParamNames`.
 //!
-//! - `floatingPromise`: a statement whose value is a `Promise` and is dropped (not the
-//!   block's value), unless it ends in `.catch(…)` or `.then(onValue, onError)`.
+//! - `floatingPromise`: a statement whose value is a `Promise` that can fail (its error type
+//!   isn't `never`) and is dropped (not the block's value), unless it ends in `.catch(…)` or
+//!   `.then(onValue, onError)`.
 //! - `awaitInLoop`: `await` in a loop's body or condition (a `for await` loop's body is meant
 //!   to wait), not counting nested functions.
 //! - `requireAwait`: an `async` function (not a generator) with a body but no `await` and no
@@ -52,6 +53,15 @@ struct Async<'c, 'a, 'o> {
 
 fn is_promise(t: &Ty) -> bool {
     matches!(t, Ty::Class(_, name, _) if &**name == "Promise")
+}
+
+/// A promise that can fail: its error type isn't `never` (an `async` function without
+/// `throws` returns `Promise<T, never>`, decision 234).
+fn can_fail(t: &Ty) -> bool {
+    match t {
+        Ty::Class(_, name, args) if &**name == "Promise" => !matches!(args.get(1), Some(Ty::Never)),
+        _ => false,
+    }
 }
 
 /// `x.then(…)`, `x.catch(…)`, `x.finally(…)`: the method's name and the arguments.
@@ -163,7 +173,7 @@ impl Async<'_, '_, '_> {
             if !matches!(e.kind, ExprKind::Call { .. } | ExprKind::New { .. }) {
                 continue;
             }
-            if !self.cx.ty(e.span).is_some_and(is_promise) {
+            if !self.cx.ty(e.span).is_some_and(can_fail) {
                 continue;
             }
             let handled = match promise_method(e) {

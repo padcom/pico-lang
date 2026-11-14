@@ -444,6 +444,8 @@ function check(limit: i32): i32 {
   let x = limit
   x = x
   if (x == x) println("same")
+  const f = 0.5
+  if (f != f) println("NaN")
   if (x > 1) { println(1) } else if (x > 2) { println(2) } else if (x > 1) { println(3) }
   for (let i = 0; i < 10; i--) { break }
   if (x > 100) {}
@@ -461,6 +463,8 @@ while (k < 3) {
   k += 1
 }
 const _hidden = 5
+function __internal(): i32 { return 1 }
+println(__internal())
 function _unusedHelper(_skip: i32): i32 { 1 }
 println(`${check(1)} ${tryIt()} ${opt(1)} ${fns.length} ${_hidden} ${limit}`)
 for (const v of none()) println(v)
@@ -486,6 +490,7 @@ fn mistakes() {
 }
 
 const ASYNC: &str = r#"async function work(): Promise<int> { 1 }
+async function risky(): Promise<int> throws Error { await work() }
 async function each(xs: int[]): Promise<int> {
   let t = 0
   for (const x of xs) {
@@ -495,7 +500,9 @@ async function each(xs: int[]): Promise<int> {
     t += await work() + y
   }
   work()
-  work().then((v: int) => println(v))
+  risky()
+  risky().then((v: int) => println(v))
+  risky().catch((e: Error) => 0)
   return t
 }
 async function* ticks(): AsyncIterator<int> { yield 1 }

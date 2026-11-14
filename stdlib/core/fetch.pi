@@ -60,7 +60,7 @@ class Headers {
         out = if (o == null) v else `${o}, ${v}`
       }
     }
-    out
+    return out
   }
 
   /// Every `Set-Cookie` value (they're never joined).
@@ -71,12 +71,12 @@ class Headers {
         out.push(v)
       }
     }
-    out
+    return out
   }
 
   /// Whether there's a value for `name`.
   public has(name: string): bool {
-    this.get(name) != null
+    return this.get(name) != null
   }
 
   /// Replaces every value of `name` with `value`.
@@ -88,7 +88,7 @@ class Headers {
   /// The fields sorted by name, values of a name joined (except `set-cookie`).
   public entries(): [string, string][] {
     const names: string[] = []
-    for (const [k, v] of this.list) {
+    for (const [k, _v] of this.list) {
       if (!names.includes(k)) {
         names.push(k)
       }
@@ -107,16 +107,16 @@ class Headers {
         }
       }
     }
-    out
+    return out
   }
 
   /// The field names, sorted, once each (`set-cookie` once per value, as in `entries`).
   public keys(): string[] {
     const out: string[] = []
-    for (const [k, v] of this.entries()) {
+    for (const [k, _v] of this.entries()) {
       out.push(k)
     }
-    out
+    return out
   }
 
   /// `for (const [name, value] of headers)`.
@@ -126,7 +126,7 @@ class Headers {
 
   /// The fields in the order they were added (as sent).
   public __raw(): [string, string][] {
-    this.list
+    return this.list
   }
 }
 
@@ -152,7 +152,7 @@ function __concatBytes(parts: Uint8Array[]): Uint8Array {
       k += 1
     }
   }
-  out
+  return out
 }
 
 /// A request's or response's headers and body (read once).
@@ -192,7 +192,7 @@ class __Body {
 
   /// Whether the body has been read (`bytes`, `text`, `json`, `arrayBuffer`).
   public get bodyUsed(): bool {
-    this.used
+    return this.used
   }
 
   /// The body as a stream (`null` without one).
@@ -208,7 +208,7 @@ class __Body {
     const made = ReadableStream.from<Uint8Array>([b])
     this.__stream = made
     this.__bytes = null
-    made
+    return made
   }
 
   /// The whole body.
@@ -376,7 +376,7 @@ class Response extends __Body {
 
   /// Whether the status is 200–299.
   public get ok(): bool {
-    this.status >= 200 && this.status < 300
+    return this.status >= 200 && this.status < 300
   }
 
   /// `data` as JSON (as `JSON.stringify`), with `content-type: application/json`.
@@ -428,7 +428,7 @@ class __HttpReader {
     }
     this.buf = n
     this.pos = 0
-    true
+    return true
   }
 
   /// Bytes `from..to` of the buffer as text (each byte one character, as HTTP heads are).
@@ -437,7 +437,7 @@ class __HttpReader {
     for (let i = from; i < to; i++) {
       s = `${s}${this.buf.get(i) as u32 as char}`
     }
-    s
+    return s
   }
 
   /// The next head (without the blank line), or `null` when the connection ends first.
@@ -464,7 +464,7 @@ class __HttpReader {
       }
       from = if (seen > 3) seen - 3 else 0
     }
-    null
+    return null
   }
 
   /// The next line (without its CRLF).
@@ -485,7 +485,7 @@ class __HttpReader {
       }
       from = if (seen > 1) seen - 1 else 0
     }
-    ""
+    return ""
   }
 
   /// The next `n` bytes.
@@ -497,7 +497,7 @@ class __HttpReader {
     }
     const out = this.buf.slice(this.pos, this.pos + n)
     this.pos += n
-    out
+    return out
   }
 
   /// Everything until the connection ends.
@@ -505,7 +505,7 @@ class __HttpReader {
     while (await this.more()) {}
     const out = this.buf.slice(this.pos)
     this.pos = this.buf.length
-    out
+    return out
   }
 
   /// A body as `headers` describe it (`untilEnd`: without a length, it lasts until the
@@ -580,7 +580,7 @@ function __parseHead(text: string): __HttpHead throws TypeError {
     headers.append(line.slice(0, colon).trim(), line.slice(colon + 1))
   }
   const head: __HttpHead = { first: start.slice(0, a), second, third, headers }
-  head
+  return head
 }
 
 /// Writes a head and `msg`'s body (`Content-Length` when known, else chunked; `noBody`:

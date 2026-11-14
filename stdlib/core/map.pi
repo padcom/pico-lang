@@ -27,7 +27,7 @@ class Map<K extends Hashable<K>, V> {
   constructor() {}
 
   bucket(key: K): int {
-    (key.hashCode() % (this.buckets.length as u64)) as int
+    return (key.hashCode() % (this.buckets.length as u64)) as int
   }
 
   /// The index of `key`'s entry, or -1.
@@ -41,7 +41,7 @@ class Map<K extends Hashable<K>, V> {
         return i
       }
     }
-    -1
+    return -1
   }
 
   /// Rebuilds the buckets (`n` of them), dropping deleted entries.
@@ -70,13 +70,13 @@ class Map<K extends Hashable<K>, V> {
   /// How many entries the map has.
   public get size(): int {
     if (__reactivity_on()) __trackObject(this)
-    this.count
+    return this.count
   }
 
   /// Whether the map has an entry for `key`.
   public has(key: K): bool {
     if (__reactivity_on()) __trackObject(this)
-    this.find(key) >= 0
+    return this.find(key) >= 0
   }
 
   /// The value for `key`, or `null` if there's none.
@@ -86,7 +86,7 @@ class Map<K extends Hashable<K>, V> {
     if (i < 0) {
       return null
     }
-    this.items[i].value
+    return this.items[i].value
   }
 
   /// Sets `key`'s value (replacing an earlier one, which keeps its place in the order); returns the
@@ -135,7 +135,7 @@ class Map<K extends Hashable<K>, V> {
       this.rehash(this.buckets.length)
     }
     if (__reactivity_on()) __triggerObject(this)
-    true
+    return true
   }
 
   /// Removes every entry.
@@ -155,7 +155,7 @@ class Map<K extends Hashable<K>, V> {
         out.push(e.key)
       }
     }
-    out
+    return out
   }
 
   /// The values, in insertion order (a new array).
@@ -167,7 +167,7 @@ class Map<K extends Hashable<K>, V> {
         out.push(e.value)
       }
     }
-    out
+    return out
   }
 
   /// The entries as `[key, value]` pairs, in insertion order (a new array).
@@ -179,7 +179,7 @@ class Map<K extends Hashable<K>, V> {
         out.push([e.key, e.value])
       }
     }
-    out
+    return out
   }
 
   /// `for (const [k, v] of map)`: the entries in insertion order.
@@ -208,7 +208,7 @@ class Map<K extends Hashable<K>, V> {
         first = false
       }
     }
-    `${out} }`
+    return `${out} }`
   }
 
   /// Sets each of `other`'s entries, in its order (`{ ...other }` in a map literal).
@@ -233,7 +233,7 @@ class Set<T extends Hashable<T>> {
 
   /// How many values the set has.
   public get size(): int {
-    this.map.size
+    return this.map.size
   }
 
   /// Whether `value` is in the set.
@@ -282,6 +282,6 @@ class Set<T extends Hashable<T>> {
     for (let i = 0; i < vs.length; i++) {
       out = if (i == 0) `${out}${vs[i]:?}` else `${out}, ${vs[i]:?}`
     }
-    `${out} }`
+    return `${out} }`
   }
 }

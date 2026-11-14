@@ -14,7 +14,7 @@ class WeakRef<T extends object> {
 
   /// The target, or `null` once it has been collected.
   public deref(): T? {
-    this.target
+    return this.target
   }
 }
 
@@ -45,7 +45,7 @@ class WeakMap<K extends object, V> {
     if (e == null || e.key == null) {
       return null
     }
-    e
+    return e
   }
 
   prune(): void {
@@ -60,7 +60,7 @@ class WeakMap<K extends object, V> {
 
   /// Whether the map has an entry for `key`.
   public has(key: K): bool {
-    this.live(key) != null
+    return this.live(key) != null
   }
 
   /// The value for `key`, or `null` if there's none.
@@ -69,7 +69,7 @@ class WeakMap<K extends object, V> {
     if (e == null) {
       return null
     }
-    e.value
+    return e.value
   }
 
   /// Sets `key`'s value; the map itself.
@@ -161,7 +161,7 @@ class FinalizationRegistry<T> {
     this.cells.push(
       new __FinalizationCell<T>(() => w.deref() != null, held, (id: int) => {
         const k = t.deref()
-        k != null && __ref_id(k) == id
+        return k != null && __ref_id(k) == id
       }),
     )
   }
@@ -178,7 +178,7 @@ class FinalizationRegistry<T> {
     }
     const removed = kept.length < this.cells.length
     this.cells = kept
-    removed
+    return removed
   }
 
   /// The runtime's: runs the callback for the targets already collected, now (the buffers' registry
@@ -204,7 +204,7 @@ class FinalizationRegistry<T> {
       const f = this.callback
       f(h)
     }
-    due.length > 0
+    return due.length > 0
   }
 }
 
@@ -234,7 +234,7 @@ function __runDueFinalizers(): bool {
       ran = true
     }
   }
-  ran
+  return ran
 }
 
 /// Collections counted when the due finalizers last ran, and loop steps since then.

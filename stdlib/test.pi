@@ -36,7 +36,7 @@ class __Test {
     for (const suite of this.suites) {
       if (suite.name != "") s = s + suite.name + " > "
     }
-    s + this.name
+    return s + this.name
   }
 }
 
@@ -87,7 +87,7 @@ class __Run {
 
 const __state = new __Run()
 
-function __run(): __Run { __state }
+function __run(): __Run { return __state }
 
 const __STOP = "\u{1}pico-test: expectation failed"
 
@@ -183,7 +183,7 @@ export function afterAll(fn: () => void): void { __currentSuite().afterAll.push(
 
 function __currentSuite(): __Suite {
   const r = __run()
-  r.stack[r.stack.length - 1]
+  return r.stack[r.stack.length - 1]
 }
 
 /// A benchmark: `pico bench` runs it (warm-up, then enough iterations for about half a
@@ -325,7 +325,7 @@ function __finished(r: __Run, t: __Test): void {
 /// `0.12ms`, with a few significant digits.
 function __ms(ms: number): string {
   const r = if (ms >= 100.0) Math.round(ms) else Math.round(ms * 100.0) / 100.0
-  `(${r}ms)`
+  return `(${r}ms)`
 }
 
 function __runBenches(r: __Run): void {
@@ -369,7 +369,7 @@ function __runBenches(r: __Run): void {
 function __time(ms: number): string {
   if (ms < 0.001) return `${Math.round(ms * 1000000.0 * 10.0) / 10.0}ns`
   if (ms < 1.0) return `${Math.round(ms * 1000.0 * 100.0) / 100.0}µs`
-  `${Math.round(ms * 100.0) / 100.0}ms`
+  return `${Math.round(ms * 100.0) / 100.0}ms`
 }
 
 // ---- expectations ----

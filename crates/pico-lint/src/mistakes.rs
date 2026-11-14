@@ -84,7 +84,9 @@ fn scopes(cx: &Cx, out: &mut Vec<Diagnostic>) {
     }
     if cx.on("underscoreDangle").is_some() {
         for b in &s.bindings {
+            // (`__name`s are the core library's internals, decision 333.)
             let dangling = b.name.len() > 1
+                && !b.name.starts_with("__")
                 && !b.name.chars().all(|c| c == '_')
                 && (b.name.starts_with('_') || b.name.ends_with('_'));
             let kinds = [
@@ -646,8 +648,14 @@ impl<'a> Visit<'a> for Mistakes<'_, '_, '_> {
                     op,
                     BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
                 );
+                // `x != x` on a float is pico's test for NaN (there's no `isNaN`).
+                let float = self
+                    .cx
+                    .ty(strip_parens(lhs).span)
+                    .is_some_and(|t| matches!(t, Ty::Float(_)));
                 if cmp
                     && self.cx.on("selfCompare").is_some()
+                    && !float
                     && simple(lhs)
                     && norm(self.cx.src(strip_parens(lhs).span))
                         == norm(self.cx.src(strip_parens(rhs).span))

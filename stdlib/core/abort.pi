@@ -70,14 +70,14 @@ class AbortSignal {
   public static abort(reason: Error? = null): AbortSignal {
     const s = new AbortSignal()
     s.__abort(reason)
-    s
+    return s
   }
 
   /// A signal that aborts after `ms` milliseconds.
   public static timeout(ms: int): AbortSignal {
     const s = new AbortSignal()
     setTimeout(() => s.__abort(new Error("The operation timed out")), ms)
-    s
+    return s
   }
 }
 

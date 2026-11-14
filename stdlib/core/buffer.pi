@@ -29,7 +29,7 @@ class ArrayBuffer {
 
   /// Whether it was transferred away (its length is then 0).
   public get detached(): bool {
-    this.__handle == 0
+    return this.__handle == 0
   }
 
   /// A copy of bytes `begin..end` (negative counts from the end; `end` defaults to the end).
@@ -87,7 +87,7 @@ function __bufferRegistry(): FinalizationRegistry<int> {
     __buf_op(2, h, 0, 0);
   })
   __buffers = made
-  made
+  return made
 }
 
 /// Collections counted when buffers were last reclaimed here, and buffer bytes made since then.
@@ -131,7 +131,7 @@ function __transfer(options: TransferOptions?): int[] {
       hs.push(b.__handle)
     }
   }
-  hs
+  return hs
 }
 
 function __detachAll(options: TransferOptions?): void {
@@ -150,7 +150,7 @@ function __viewLength(length: int, view: string): int {
   if (length < 0) {
     panic(`invalid ${view} length: ${length}`)
   }
-  length
+  return length
 }
 
 /// How many `size`-byte elements fit in `buffer` from `byteOffset` to its end.
@@ -160,7 +160,7 @@ function __viewRest(buffer: ArrayBuffer, byteOffset: int, size: int, view: strin
   if (rest % size != 0) {
     panic(`${view}: the buffer's length minus the offset isn't a multiple of ${size}`)
   }
-  rest / size
+  return rest / size
 }
 
 /// `length`, if `length` `size`-byte elements from `byteOffset` fit in `buffer`.
@@ -177,7 +177,7 @@ function __viewSpan(
     const bytes = buffer.byteLength
     panic(`${view} of ${length} elements from byte ${byteOffset} overruns its ${bytes}-byte buffer`)
   }
-  length
+  return length
 }
 
 function __viewOffset(buffer: ArrayBuffer, byteOffset: int, size: int, view: string): void {
@@ -229,7 +229,7 @@ class Uint8Array {
 
   /// The view's size in bytes (`length * 1`; 0 once the buffer is detached).
   public get byteLength(): int {
-    this.length * 1
+    return this.length * 1
   }
 
   check(i: int): void {
@@ -315,7 +315,7 @@ class Uint8Array {
     for (let i = 0; i < values.length; i++) {
       out.set(i, values[i] & 255)
     }
-    out
+    return out
   }
 }
 
@@ -360,7 +360,7 @@ class Int32Array {
 
   /// The view's size in bytes (`length * 4`; 0 once the buffer is detached).
   public get byteLength(): int {
-    this.length * 4
+    return this.length * 4
   }
 
   check(i: int): void {
@@ -427,7 +427,7 @@ class Uint32Array {
 
   /// The view's size in bytes (`length * 4`; 0 once the buffer is detached).
   public get byteLength(): int {
-    this.length * 4
+    return this.length * 4
   }
 
   check(i: int): void {
@@ -495,7 +495,7 @@ class Float32Array {
 
   /// The view's size in bytes (`length * 4`; 0 once the buffer is detached).
   public get byteLength(): int {
-    this.length * 4
+    return this.length * 4
   }
 
   check(i: int): void {
@@ -562,7 +562,7 @@ class Float64Array {
 
   /// The view's size in bytes (`length * 8`; 0 once the buffer is detached).
   public get byteLength(): int {
-    this.length * 8
+    return this.length * 8
   }
 
   check(i: int): void {

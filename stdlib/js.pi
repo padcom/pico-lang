@@ -25,7 +25,7 @@ function __jsCheck(r: int): int {
   if (r == -3) {
     panic("std/js is only available on wasm32-browser")
   }
-  r
+  return r
 }
 
 /// A handle from an operation that may have thrown (-1): the exception becomes a `JsError`.
@@ -44,7 +44,7 @@ function __jsArgs(args: JsArg[]): int {
     const v = JsValue.from(x)
     __io(159, a, v.handle, 0, "", "");
   }
-  a
+  return a
 }
 
 /// A JavaScript array of `xs` (rest parameters of generated `js:` functions).
@@ -146,11 +146,11 @@ export class JsValue {
   }
 
   /// Whether it's JavaScript's `null`.
-  public isNull(): bool { this.typeOf() == "null" }
+  public isNull(): bool { return this.typeOf() == "null" }
   /// Whether it's JavaScript's `undefined`.
-  public isUndefined(): bool { this.typeOf() == "undefined" }
+  public isUndefined(): bool { return this.typeOf() == "undefined" }
   /// `null` or `undefined`.
-  public isNullish(): bool { this.handle <= 1 || __jsCheck(__io(160, this.handle, 0, 0, "", "")) <= 1 }
+  public isNullish(): bool { return this.handle <= 1 || __jsCheck(__io(160, this.handle, 0, 0, "", "")) <= 1 }
 
   /// The number this is (`JsError` if it isn't one).
   public asNumber(): f64 throws JsError {
@@ -176,7 +176,7 @@ export class JsValue {
     if (this.typeOf() != "boolean") {
       throw new JsError(`expected a boolean, got ${this.typeOf()}`)
     }
-    __io(162, this.handle, 0, 0, "", "") == 1
+    return __io(162, this.handle, 0, 0, "", "") == 1
   }
 
   /// `String(this)`.
@@ -184,12 +184,12 @@ export class JsValue {
     const j = __jsCheck(__io(163, this.handle, 0, 0, "", ""))
     const s = __io_text(j)
     __io(104, j, 0, 0, "", "");
-    s
+    return s
   }
 
   /// `this === other`.
   public equals(other: JsValue): bool {
-    __jsCheck(__io(167, this.handle, other.handle, 0, "", "")) == 1
+    return __jsCheck(__io(167, this.handle, other.handle, 0, "", "")) == 1
   }
 }
 
@@ -231,7 +231,7 @@ class __JsCallbacks {
     const id = this.next
     this.next += 1
     this.fns.set(id, f)
-    id
+    return id
   }
 }
 
@@ -250,5 +250,5 @@ export function __jsCallback(id: int, args: int): int {
       } catch (e2: JsError) {}
     }
   }
-  0
+  return 0
 }

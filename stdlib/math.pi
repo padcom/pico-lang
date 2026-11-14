@@ -14,13 +14,13 @@ export function clamp(x: number, lo: number, hi: number): number {
 
 /// The value `t` of the way from `a` to `b` (`t` = 0 is `a`, 1 is `b`).
 export function lerp(a: number, b: number, t: number): number {
-  a + (b - a) * t
+  return a + (b - a) * t
 }
 
 /// `d` degrees in radians.
-export function degToRad(d: number): number { d * Math.PI / 180.0 }
+export function degToRad(d: number): number { return d * Math.PI / 180.0 }
 /// `r` radians in degrees.
-export function radToDeg(r: number): number { r * 180.0 / Math.PI }
+export function radToDeg(r: number): number { return r * 180.0 / Math.PI }
 
 /// A 2D vector.
 export struct Vec2 implements Formattable {
@@ -30,27 +30,27 @@ export struct Vec2 implements Formattable {
   y: number
 
   /// The vector `(x, y)`.
-  static of(x: number, y: number): Vec2 { Vec2 { x: x, y: y } }
+  static of(x: number, y: number): Vec2 { return Vec2 { x: x, y: y } }
   /// `(0, 0)`.
-  static get zero(): Vec2 { Vec2 { x: 0, y: 0 } }
+  static get zero(): Vec2 { return Vec2 { x: 0, y: 0 } }
   /// `(1, 1)`.
-  static get one(): Vec2 { Vec2 { x: 1, y: 1 } }
+  static get one(): Vec2 { return Vec2 { x: 1, y: 1 } }
 
-  operator +(o: Vec2): Vec2 { Vec2 { x: x + o.x, y: y + o.y } }
-  operator -(o: Vec2): Vec2 { Vec2 { x: x - o.x, y: y - o.y } }
+  operator +(o: Vec2): Vec2 { return Vec2 { x: x + o.x, y: y + o.y } }
+  operator -(o: Vec2): Vec2 { return Vec2 { x: x - o.x, y: y - o.y } }
   /// By a scalar, or component by component.
-  operator *(k: number): Vec2 { Vec2 { x: x * k, y: y * k } }
-  operator *(o: Vec2): Vec2 { Vec2 { x: x * o.x, y: y * o.y } }
-  operator /(k: number): Vec2 { Vec2 { x: x / k, y: y / k } }
-  operator -(): Vec2 { Vec2 { x: -x, y: -y } }
+  operator *(k: number): Vec2 { return Vec2 { x: x * k, y: y * k } }
+  operator *(o: Vec2): Vec2 { return Vec2 { x: x * o.x, y: y * o.y } }
+  operator /(k: number): Vec2 { return Vec2 { x: x / k, y: y / k } }
+  operator -(): Vec2 { return Vec2 { x: -x, y: -y } }
   operator [](i: int): number { if (i == 0) x else if (i == 1) y else panic(`Vec2 index ${i}`) }
 
   /// The dot product with `o`.
-  dot(o: Vec2): number { x * o.x + y * o.y }
+  dot(o: Vec2): number { return x * o.x + y * o.y }
   /// The z of the 3D cross product (positive when `o` is counter-clockwise from this).
-  cross(o: Vec2): number { x * o.y - y * o.x }
+  cross(o: Vec2): number { return x * o.y - y * o.x }
   /// The squared length (cheaper than `length()`, for comparisons).
-  lengthSquared(): number { x * x + y * y }
+  lengthSquared(): number { return x * x + y * y }
   /// The Euclidean length.
   length(): number { Math.sqrt(x * x + y * y) }
   /// This direction with length 1 (the zero vector stays zero).
@@ -61,21 +61,21 @@ export struct Vec2 implements Formattable {
   /// The Euclidean distance to `o`.
   distance(o: Vec2): number { Math.sqrt((x - o.x) * (x - o.x) + (y - o.y) * (y - o.y)) }
   /// The point `t` of the way from this to `o` (`t` isn't clamped: outside 0..1 it extrapolates).
-  lerp(o: Vec2, t: number): Vec2 { Vec2 { x: x + (o.x - x) * t, y: y + (o.y - y) * t } }
+  lerp(o: Vec2, t: number): Vec2 { return Vec2 { x: x + (o.x - x) * t, y: y + (o.y - y) * t } }
   /// Rotated counter-clockwise by `angle` radians.
   rotate(angle: number): Vec2 {
     const c = Math.cos(angle)
     const s = Math.sin(angle)
-    Vec2 { x: x * c - y * s, y: x * s + y * c }
+    return Vec2 { x: x * c - y * s, y: x * s + y * c }
   }
   /// The angle from the x axis, in radians (`-π..π`).
   angle(): number { Math.atan2(y, x) }
   /// Each component within `eps` of `o`'s.
-  approxEquals(o: Vec2, eps: number = 1e-9): bool { Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps }
+  approxEquals(o: Vec2, eps: number = 1e-9): bool { return Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps }
   /// `(x, y)`, e.g. `(1.5, 2)`.
-  toString(): string { `(${x}, ${y})` }
+  toString(): string { return `(${x}, ${y})` }
   /// Each component formatted with `spec` (`${v:.2f}` is `(1.50, 2.00)`); an invalid spec panics.
-  format(spec: string): string { `(${formatNumber(x, spec)}, ${formatNumber(y, spec)})` }
+  format(spec: string): string { return `(${formatNumber(x, spec)}, ${formatNumber(y, spec)})` }
 }
 
 /// A 3D vector.
@@ -88,34 +88,34 @@ export struct Vec3 implements Formattable {
   z: number
 
   /// The vector `(x, y, z)`.
-  static of(x: number, y: number, z: number): Vec3 { Vec3 { x: x, y: y, z: z } }
+  static of(x: number, y: number, z: number): Vec3 { return Vec3 { x: x, y: y, z: z } }
   /// `(0, 0, 0)`.
-  static get zero(): Vec3 { Vec3 { x: 0, y: 0, z: 0 } }
+  static get zero(): Vec3 { return Vec3 { x: 0, y: 0, z: 0 } }
   /// `(1, 1, 1)`.
-  static get one(): Vec3 { Vec3 { x: 1, y: 1, z: 1 } }
+  static get one(): Vec3 { return Vec3 { x: 1, y: 1, z: 1 } }
   /// `(1, 0, 0)`.
-  static get unitX(): Vec3 { Vec3 { x: 1, y: 0, z: 0 } }
+  static get unitX(): Vec3 { return Vec3 { x: 1, y: 0, z: 0 } }
   /// `(0, 1, 0)`.
-  static get unitY(): Vec3 { Vec3 { x: 0, y: 1, z: 0 } }
+  static get unitY(): Vec3 { return Vec3 { x: 0, y: 1, z: 0 } }
   /// `(0, 0, 1)`.
-  static get unitZ(): Vec3 { Vec3 { x: 0, y: 0, z: 1 } }
+  static get unitZ(): Vec3 { return Vec3 { x: 0, y: 0, z: 1 } }
 
-  operator +(o: Vec3): Vec3 { Vec3 { x: x + o.x, y: y + o.y, z: z + o.z } }
-  operator -(o: Vec3): Vec3 { Vec3 { x: x - o.x, y: y - o.y, z: z - o.z } }
-  operator *(k: number): Vec3 { Vec3 { x: x * k, y: y * k, z: z * k } }
-  operator *(o: Vec3): Vec3 { Vec3 { x: x * o.x, y: y * o.y, z: z * o.z } }
-  operator /(k: number): Vec3 { Vec3 { x: x / k, y: y / k, z: z / k } }
-  operator -(): Vec3 { Vec3 { x: -x, y: -y, z: -z } }
+  operator +(o: Vec3): Vec3 { return Vec3 { x: x + o.x, y: y + o.y, z: z + o.z } }
+  operator -(o: Vec3): Vec3 { return Vec3 { x: x - o.x, y: y - o.y, z: z - o.z } }
+  operator *(k: number): Vec3 { return Vec3 { x: x * k, y: y * k, z: z * k } }
+  operator *(o: Vec3): Vec3 { return Vec3 { x: x * o.x, y: y * o.y, z: z * o.z } }
+  operator /(k: number): Vec3 { return Vec3 { x: x / k, y: y / k, z: z / k } }
+  operator -(): Vec3 { return Vec3 { x: -x, y: -y, z: -z } }
   operator [](i: int): number {
     if (i == 0) x else if (i == 1) y else if (i == 2) z else panic(`Vec3 index ${i}`)
   }
 
   /// The dot product with `o`.
-  dot(o: Vec3): number { x * o.x + y * o.y + z * o.z }
+  dot(o: Vec3): number { return x * o.x + y * o.y + z * o.z }
   /// The cross product `this × o` (right-handed: `unitX.cross(unitY)` is `unitZ`).
-  cross(o: Vec3): Vec3 { Vec3 { x: y * o.z - z * o.y, y: z * o.x - x * o.z, z: x * o.y - y * o.x } }
+  cross(o: Vec3): Vec3 { return Vec3 { x: y * o.z - z * o.y, y: z * o.x - x * o.z, z: x * o.y - y * o.x } }
   /// The squared length (cheaper than `length()`, for comparisons).
-  lengthSquared(): number { x * x + y * y + z * z }
+  lengthSquared(): number { return x * x + y * y + z * z }
   /// The Euclidean length.
   length(): number { Math.sqrt(x * x + y * y + z * z) }
   /// This direction with length 1 (the zero vector stays zero).
@@ -126,16 +126,16 @@ export struct Vec3 implements Formattable {
   /// The Euclidean distance to `o`.
   distance(o: Vec3): number { (this - o).length() }
   /// The point `t` of the way from this to `o` (`t` isn't clamped: outside 0..1 it extrapolates).
-  lerp(o: Vec3, t: number): Vec3 { Vec3 { x: x + (o.x - x) * t, y: y + (o.y - y) * t, z: z + (o.z - z) * t } }
+  lerp(o: Vec3, t: number): Vec3 { return Vec3 { x: x + (o.x - x) * t, y: y + (o.y - y) * t, z: z + (o.z - z) * t } }
   /// Each component within `eps` of `o`'s.
   approxEquals(o: Vec3, eps: number = 1e-9): bool {
-    Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps
+    return Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps
   }
   /// `(x, y, z)`, e.g. `(1, 2, 3)`.
-  toString(): string { `(${x}, ${y}, ${z})` }
+  toString(): string { return `(${x}, ${y}, ${z})` }
   /// Each component formatted with `spec` (`${v:.2f}` is `(1.00, 2.00, 3.00)`); an invalid spec
   /// panics.
-  format(spec: string): string { `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)})` }
+  format(spec: string): string { return `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)})` }
 }
 
 /// A 4D vector (homogeneous coordinates: `w` = 1 for points, 0 for directions).
@@ -150,28 +150,28 @@ export struct Vec4 implements Formattable {
   w: number
 
   /// The vector `(x, y, z, w)`.
-  static of(x: number, y: number, z: number, w: number): Vec4 { Vec4 { x: x, y: y, z: z, w: w } }
+  static of(x: number, y: number, z: number, w: number): Vec4 { return Vec4 { x: x, y: y, z: z, w: w } }
   /// `v` as a point: `w` = 1, so translations apply.
-  static point(v: Vec3): Vec4 { Vec4 { x: v.x, y: v.y, z: v.z, w: 1 } }
+  static point(v: Vec3): Vec4 { return Vec4 { x: v.x, y: v.y, z: v.z, w: 1 } }
   /// `v` as a direction: `w` = 0, so translations don't apply.
-  static direction(v: Vec3): Vec4 { Vec4 { x: v.x, y: v.y, z: v.z, w: 0 } }
+  static direction(v: Vec3): Vec4 { return Vec4 { x: v.x, y: v.y, z: v.z, w: 0 } }
   /// `(0, 0, 0, 0)`.
-  static get zero(): Vec4 { Vec4 { x: 0, y: 0, z: 0, w: 0 } }
+  static get zero(): Vec4 { return Vec4 { x: 0, y: 0, z: 0, w: 0 } }
 
-  operator +(o: Vec4): Vec4 { Vec4 { x: x + o.x, y: y + o.y, z: z + o.z, w: w + o.w } }
-  operator -(o: Vec4): Vec4 { Vec4 { x: x - o.x, y: y - o.y, z: z - o.z, w: w - o.w } }
-  operator *(k: number): Vec4 { Vec4 { x: x * k, y: y * k, z: z * k, w: w * k } }
-  operator *(o: Vec4): Vec4 { Vec4 { x: x * o.x, y: y * o.y, z: z * o.z, w: w * o.w } }
-  operator /(k: number): Vec4 { Vec4 { x: x / k, y: y / k, z: z / k, w: w / k } }
-  operator -(): Vec4 { Vec4 { x: -x, y: -y, z: -z, w: -w } }
+  operator +(o: Vec4): Vec4 { return Vec4 { x: x + o.x, y: y + o.y, z: z + o.z, w: w + o.w } }
+  operator -(o: Vec4): Vec4 { return Vec4 { x: x - o.x, y: y - o.y, z: z - o.z, w: w - o.w } }
+  operator *(k: number): Vec4 { return Vec4 { x: x * k, y: y * k, z: z * k, w: w * k } }
+  operator *(o: Vec4): Vec4 { return Vec4 { x: x * o.x, y: y * o.y, z: z * o.z, w: w * o.w } }
+  operator /(k: number): Vec4 { return Vec4 { x: x / k, y: y / k, z: z / k, w: w / k } }
+  operator -(): Vec4 { return Vec4 { x: -x, y: -y, z: -z, w: -w } }
   operator [](i: int): number {
     if (i == 0) x else if (i == 1) y else if (i == 2) z else if (i == 3) w else panic(`Vec4 index ${i}`)
   }
 
   /// The dot product with `o` (all four components).
-  dot(o: Vec4): number { x * o.x + y * o.y + z * o.z + w * o.w }
+  dot(o: Vec4): number { return x * o.x + y * o.y + z * o.z + w * o.w }
   /// The squared length over all four components.
-  lengthSquared(): number { x * x + y * y + z * z + w * w }
+  lengthSquared(): number { return x * x + y * y + z * z + w * w }
   /// The Euclidean length over all four components.
   length(): number { Math.sqrt(x * x + y * y + z * z + w * w) }
   /// This vector with length 1, `w` included (the zero vector stays zero).
@@ -184,17 +184,17 @@ export struct Vec4 implements Formattable {
     if (w == 0.0 || w == 1.0) Vec3 { x: x, y: y, z: z } else Vec3 { x: x / w, y: y / w, z: z / w }
   }
   /// The point `t` of the way from this to `o` (`t` isn't clamped: outside 0..1 it extrapolates).
-  lerp(o: Vec4, t: number): Vec4 { this + (o - this) * t }
+  lerp(o: Vec4, t: number): Vec4 { return this + (o - this) * t }
   /// Each component within `eps` of `o`'s.
   approxEquals(o: Vec4, eps: number = 1e-9): bool {
-    Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
+    return Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
   }
   /// `(x, y, z, w)`, e.g. `(1, 2, 3, 1)`.
-  toString(): string { `(${x}, ${y}, ${z}, ${w})` }
+  toString(): string { return `(${x}, ${y}, ${z}, ${w})` }
   /// Each component formatted with `spec` (`${v:.1f}` is `(1.0, 2.0, 3.0, 1.0)`); an invalid spec
   /// panics.
   format(spec: string): string {
-    `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)}, ${formatNumber(w, spec)})`
+    return `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)}, ${formatNumber(w, spec)})`
   }
 }
 
@@ -210,35 +210,35 @@ export struct Quat implements Formattable {
   w: number
 
   /// No rotation: `(0, 0, 0, 1)`.
-  static get identity(): Quat { Quat { x: 0, y: 0, z: 0, w: 1 } }
+  static get identity(): Quat { return Quat { x: 0, y: 0, z: 0, w: 1 } }
   /// The quaternion `w + xi + yj + zk`, as given (not normalized).
-  static of(x: number, y: number, z: number, w: number): Quat { Quat { x: x, y: y, z: z, w: w } }
+  static of(x: number, y: number, z: number, w: number): Quat { return Quat { x: x, y: y, z: z, w: w } }
 
   /// A rotation by `angle` radians around `axis` (normalized here).
   static fromAxisAngle(axis: Vec3, angle: number): Quat {
     const a = axis.normalize()
     const s = Math.sin(angle / 2.0)
-    Quat { x: a.x * s, y: a.y * s, z: a.z * s, w: Math.cos(angle / 2.0) }
+    return Quat { x: a.x * s, y: a.y * s, z: a.z * s, w: Math.cos(angle / 2.0) }
   }
 
   /// Rotations around x, then y, then z (radians), applied in that order.
   static fromEuler(rx: number, ry: number, rz: number): Quat {
-    Quat.fromAxisAngle(Vec3.unitZ, rz) * Quat.fromAxisAngle(Vec3.unitY, ry) * Quat.fromAxisAngle(Vec3.unitX, rx)
+    return Quat.fromAxisAngle(Vec3.unitZ, rz) * Quat.fromAxisAngle(Vec3.unitY, ry) * Quat.fromAxisAngle(Vec3.unitX, rx)
   }
 
   /// The Hamilton product: `a * b` rotates by `b`, then by `a`.
   operator *(o: Quat): Quat {
-    Quat {
+    return Quat {
       x: w * o.x + x * o.w + y * o.z - z * o.y,
       y: w * o.y - x * o.z + y * o.w + z * o.x,
       z: w * o.z + x * o.y - y * o.x + z * o.w,
       w: w * o.w - x * o.x - y * o.y - z * o.z,
     }
   }
-  operator -(): Quat { Quat { x: -x, y: -y, z: -z, w: -w } }
+  operator -(): Quat { return Quat { x: -x, y: -y, z: -z, w: -w } }
 
   /// The 4D dot product with `o` (for unit quaternions, the cosine of half the angle between them).
-  dot(o: Quat): number { x * o.x + y * o.y + z * o.z + w * o.w }
+  dot(o: Quat): number { return x * o.x + y * o.y + z * o.z + w * o.w }
   /// The length (1 for a rotation).
   length(): number { Math.sqrt(x * x + y * y + z * z + w * w) }
   /// This quaternion with length 1 (a zero quaternion gives `Quat.identity`).
@@ -248,11 +248,11 @@ export struct Quat implements Formattable {
   }
   /// The vector part negated: for a unit quaternion, the opposite rotation (cheaper than
   /// `inverse()`).
-  conjugate(): Quat { Quat { x: -x, y: -y, z: -z, w: w } }
+  conjugate(): Quat { return Quat { x: -x, y: -y, z: -z, w: w } }
   /// The opposite rotation (the conjugate over the squared length).
   inverse(): Quat {
     const n = x * x + y * y + z * z + w * w
-    Quat { x: -x / n, y: -y / n, z: -z / n, w: w / n }
+    return Quat { x: -x / n, y: -y / n, z: -z / n, w: w / n }
   }
 
   /// `v` rotated.
@@ -260,7 +260,7 @@ export struct Quat implements Formattable {
     // v + 2w(q×v) + 2q×(q×v), with q the vector part.
     const q = Vec3 { x: x, y: y, z: z }
     const t = q.cross(v) * 2.0
-    v + t * w + q.cross(t)
+    return v + t * w + q.cross(t)
   }
 
   /// Spherical interpolation along the shorter arc.
@@ -279,7 +279,7 @@ export struct Quat implements Formattable {
     const s = Math.sin(theta)
     const ka = Math.sin((1.0 - t) * theta) / s
     const kb = Math.sin(t * theta) / s
-    Quat { x: x * ka + b.x * kb, y: y * ka + b.y * kb, z: z * ka + b.z * kb, w: w * ka + b.w * kb }
+    return Quat { x: x * ka + b.x * kb, y: y * ka + b.y * kb, z: z * ka + b.z * kb, w: w * ka + b.w * kb }
   }
 
   /// The rotation matrix.
@@ -288,13 +288,13 @@ export struct Quat implements Formattable {
   /// Each component within `eps` of `o`'s (`q` and `-q` are the same rotation but aren't
   /// approximately equal).
   approxEquals(o: Quat, eps: number = 1e-9): bool {
-    Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
+    return Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
   }
   /// `(x, y, z, w)`, e.g. `(0, 0, 0, 1)` for the identity.
-  toString(): string { `(${x}, ${y}, ${z}, ${w})` }
+  toString(): string { return `(${x}, ${y}, ${z}, ${w})` }
   /// Each component formatted with `spec` (`${q:.2f}`); an invalid spec panics.
   format(spec: string): string {
-    `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)}, ${formatNumber(w, spec)})`
+    return `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)}, ${formatNumber(w, spec)})`
   }
 }
 
@@ -306,7 +306,7 @@ export struct Mat4 {
 
   /// The identity matrix.
   static get identity(): Mat4 {
-    Mat4 { m: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] }
+    return Mat4 { m: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] }
   }
 
   /// From 16 numbers in column-major order.
@@ -314,7 +314,7 @@ export struct Mat4 {
     if (v.length != 16) panic(`Mat4.fromColumnMajor: ${v.length} numbers, not 16`)
     let m = Mat4.identity.m
     for (let i = 0; i < 16; i++) m[i] = v[i]
-    Mat4 { m: m }
+    return Mat4 { m: m }
   }
 
   /// From 16 numbers as written on paper (row by row).
@@ -324,7 +324,7 @@ export struct Mat4 {
     for (let r = 0; r < 4; r++) {
       for (let c = 0; c < 4; c++) m[c * 4 + r] = v[r * 4 + c]
     }
-    Mat4 { m: m }
+    return Mat4 { m: m }
   }
 
   /// A translation by `v`.
@@ -333,7 +333,7 @@ export struct Mat4 {
     m[12] = v.x
     m[13] = v.y
     m[14] = v.z
-    Mat4 { m: m }
+    return Mat4 { m: m }
   }
 
   /// A scaling by `v.x`, `v.y` and `v.z` along the axes.
@@ -342,7 +342,7 @@ export struct Mat4 {
     m[0] = v.x
     m[5] = v.y
     m[10] = v.z
-    Mat4 { m: m }
+    return Mat4 { m: m }
   }
 
   /// A rotation by `angle` radians around `axis`.
@@ -413,7 +413,7 @@ export struct Mat4 {
   }
 
   /// The element in `row`, `col` (0-based).
-  get(row: int, col: int): number { m[col * 4 + row] }
+  get(row: int, col: int): number { return m[col * 4 + row] }
 
   operator *(o: Mat4): Mat4 {
     let r = Mat4.identity.m
@@ -424,11 +424,11 @@ export struct Mat4 {
         r[c * 4 + row] = s
       }
     }
-    Mat4 { m: r }
+    return Mat4 { m: r }
   }
 
   operator *(v: Vec4): Vec4 {
-    Vec4 {
+    return Vec4 {
       x: m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12] * v.w,
       y: m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13] * v.w,
       z: m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14] * v.w,
@@ -441,7 +441,7 @@ export struct Mat4 {
   /// A direction (w = 0) transformed: no translation.
   transformDirection(d: Vec3): Vec3 {
     const r = this * Vec4.direction(d)
-    Vec3 { x: r.x, y: r.y, z: r.z }
+    return Vec3 { x: r.x, y: r.y, z: r.z }
   }
 
   /// Rows and columns swapped.
@@ -450,13 +450,13 @@ export struct Mat4 {
     for (let c = 0; c < 4; c++) {
       for (let row = 0; row < 4; row++) r[c * 4 + row] = m[row * 4 + c]
     }
-    Mat4 { m: r }
+    return Mat4 { m: r }
   }
 
   /// The determinant (0 for a singular matrix).
   determinant(): number {
     const c = Mat4.__cofactors(m)
-    m[0] * c[0] + m[1] * c[4] + m[2] * c[8] + m[3] * c[12]
+    return m[0] * c[0] + m[1] * c[4] + m[2] * c[8] + m[3] * c[12]
   }
 
   /// The inverse, or `null` for a singular matrix.
@@ -465,7 +465,7 @@ export struct Mat4 {
     const det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12]
     if (det == 0.0) return null
     for (let i = 0; i < 16; i++) inv[i] = inv[i] / det
-    Mat4 { m: inv }
+    return Mat4 { m: inv }
   }
 
   /// The adjugate (transposed cofactors) of a column-major matrix.
@@ -487,14 +487,14 @@ export struct Mat4 {
     inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6]
     inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5]
     inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5]
-    inv
+    return inv
   }
 
   /// The 16 numbers in column-major order (for uploading).
   toArray(): number[] {
     const r: number[] = []
     for (let i = 0; i < 16; i++) r.push(m[i])
-    r
+    return r
   }
 
   /// Each element within `eps` of `o`'s.
@@ -502,7 +502,7 @@ export struct Mat4 {
     for (let i = 0; i < 16; i++) {
       if (Math.abs(m[i] - o.m[i]) > eps) return false
     }
-    true
+    return true
   }
 
   /// Row by row: `[1, 0, 0, 0; 0, 1, 0, 0; …]`.
@@ -513,7 +513,7 @@ export struct Mat4 {
         s = s + `${m[c * 4 + r]}` + (if (c < 3) ", " else if (r < 3) "; " else "]")
       }
     }
-    s
+    return s
   }
 }
 
@@ -558,24 +558,24 @@ export class Random {
     const limit = 0x4000000000000000 - 0x4000000000000000 % range
     let r = ((this.g.next() & 0x3FFFFFFF) << 32) | this.g.next()
     while (r >= limit) r = ((this.g.next() & 0x3FFFFFFF) << 32) | this.g.next()
-    lo + r % range
+    return lo + r % range
   }
 
   /// `true` with probability `p`.
-  public bool(p: number = 0.5): bool { this.g.nextFloat() < p }
+  public bool(p: number = 0.5): bool { return this.g.nextFloat() < p }
 
   /// A normally distributed number (Box–Muller).
   public gaussian(mean: number = 0.0, stdDev: number = 1.0): number {
     let u = this.g.nextFloat()
     while (u == 0.0) u = this.g.nextFloat()
     const v = this.g.nextFloat()
-    mean + stdDev * Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v)
+    return mean + stdDev * Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v)
   }
 
   /// A random element (panics on an empty array).
   public pick<T>(xs: T[]): T {
     if (xs.length == 0) panic("Random.pick: empty array")
-    xs[this.int(0, xs.length)]
+    return xs[this.int(0, xs.length)]
   }
 
   /// Shuffles `xs` in place (Fisher–Yates).
@@ -625,7 +625,7 @@ export class BigInt {
     const r = new BigInt(0)
     r.limbs = limbs.slice(0, n)
     r.sign = if (n == 0) 0 else sign
-    r
+    return r
   }
 
   /// The integer `value`: `BigInt.of(n)` is `new BigInt(n)`.
@@ -662,9 +662,9 @@ export class BigInt {
   }
 
   /// Whether the value is 0.
-  public get isZero(): bool { this.sign == 0 }
+  public get isZero(): bool { return this.sign == 0 }
   /// Whether the value is below 0.
-  public get isNegative(): bool { this.sign < 0 }
+  public get isNegative(): bool { return this.sign < 0 }
 
   /// The value as an `int` (panics if it doesn't fit).
   public toInt(): int {
@@ -680,7 +680,7 @@ export class BigInt {
       v = v * __BASE + this.limbs[i]
       i -= 1
     }
-    v * this.sign
+    return v * this.sign
   }
 
   /// The nearest `number`.
@@ -691,7 +691,7 @@ export class BigInt {
       v = v * 1000000000.0 + (this.limbs[i] as f64)
       i -= 1
     }
-    v * (this.sign as f64)
+    return v * (this.sign as f64)
   }
 
   static __cmpMag(a: int[], b: int[]): int {
@@ -701,7 +701,7 @@ export class BigInt {
       if (a[i] != b[i]) return if (a[i] < b[i]) -1 else 1
       i -= 1
     }
-    0
+    return 0
   }
 
   static __addMag(a: int[], b: int[]): int[] {
@@ -714,7 +714,7 @@ export class BigInt {
       carry = s / __BASE
     }
     if (carry > 0) r.push(carry)
-    r
+    return r
   }
 
   /// `a - b` for `|a| >= |b|`.
@@ -730,7 +730,7 @@ export class BigInt {
       }
       r.push(d)
     }
-    r
+    return r
   }
 
   __mulSmall(k: int): BigInt {
@@ -763,7 +763,7 @@ export class BigInt {
 
   operator -(): BigInt { BigInt.__make(-this.sign, this.limbs) }
 
-  operator -(o: BigInt): BigInt { this + -o }
+  operator -(o: BigInt): BigInt { return this + -o }
 
   operator *(o: BigInt): BigInt {
     if (this.sign == 0 || o.sign == 0) return new BigInt(0)
@@ -812,7 +812,7 @@ export class BigInt {
       q[i] = lo
       i -= 1
     }
-    [BigInt.__make(1, q), rem]
+    return [BigInt.__make(1, q), rem]
   }
 
   /// Truncating division (panics on division by zero).
@@ -842,7 +842,7 @@ export class BigInt {
       base = base * base
       k = k / 2
     }
-    result
+    return result
   }
 
   /// The absolute value.
@@ -852,11 +852,11 @@ export class BigInt {
   public compareTo(o: BigInt): int {
     if (this.sign != o.sign) return if (this.sign < o.sign) -1 else 1
     const c = BigInt.__cmpMag(this.limbs, o.limbs)
-    c * (if (this.sign < 0) -1 else 1)
+    return c * (if (this.sign < 0) -1 else 1)
   }
 
   /// Whether this and `o` are the same integer.
-  public equals(o: BigInt): bool { this.compareTo(o) == 0 }
+  public equals(o: BigInt): bool { return this.compareTo(o) == 0 }
 
   /// In decimal (also the string form: `${big}`).
   public toString(): string { this.toStringRadix(10) }

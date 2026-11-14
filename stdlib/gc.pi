@@ -41,7 +41,7 @@ export class gc {
   public static resume() { __gc_resume() }
   /// The current counters.
   public static stats(): GcStats {
-    GcStats {
+    return GcStats {
       heapSize: __gc_stat(0),
       usedBytes: __gc_stat(1),
       allocatedBytes: __gc_stat(2),

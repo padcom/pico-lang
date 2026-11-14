@@ -38,7 +38,7 @@ function __daysFromCivil(year: int, month: int, day: int): int {
   const mp = if (m > 2) m - 3 else m + 9
   const doy = (153 * mp + 2) / 5 + day - 1
   const doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
-  era * 146097 + doe - 719468
+  return era * 146097 + doe - 719468
 }
 
 /// The civil date `[year, month, day]` of a day number (days since 1970-01-01).
@@ -52,11 +52,11 @@ function __civilFromDays(days: int): int[] {
   const d = doy - (153 * mp + 2) / 5 + 1
   const m = if (mp < 10) mp + 3 else mp - 9
   const y = yoe + era * 400 + (if (m <= 2) 1 else 0)
-  [y, m, d]
+  return [y, m, d]
 }
 
 function __isLeapYear(y: int): bool {
-  (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+  return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
 
 function __daysInMonth(y: int, m: int): int {
@@ -141,7 +141,7 @@ class __PosixTz {
     if (r2 == null || !p.done()) return null
     z.startRule = r1
     z.endRule = r2
-    z
+    return z
   }
 
   /// The instant (epoch seconds) a rule's transition happens in `year`; `offset` is the
@@ -163,7 +163,7 @@ class __PosixTz {
       while (d >= first + __daysInMonth(year, m)) d -= 7
       day = d
     }
-    day * 86400 + r[4] - offset
+    return day * 86400 + r[4] - offset
   }
 
   public isDst(t: int): bool {
@@ -192,7 +192,7 @@ class __TzParser {
   }
 
   public done(): bool {
-    this.i >= this.s.length
+    return this.i >= this.s.length
   }
 
   public peek(): string {
@@ -204,7 +204,7 @@ class __TzParser {
       this.i += 1
       return true
     }
-    false
+    return false
   }
 
   /// A zone name: letters, or anything in `<…>`.
@@ -258,7 +258,7 @@ class __TzParser {
         t += s
       }
     }
-    sign * t
+    return sign * t
   }
 
   public rule(): int[]? {
@@ -287,7 +287,7 @@ class __TzParser {
       at = o
     }
     r.push(at)
-    r
+    return r
   }
 }
 
@@ -316,7 +316,7 @@ class __Zone {
     r.stdName = name
     r.stdOffset = offset
     z.rule = r
-    z
+    return z
   }
 
   /// The type in force at `t` (epoch seconds), or -1 when the rule decides.
@@ -339,7 +339,7 @@ class __Zone {
       const mid = (lo + hi + 1) / 2
       if (this.times[mid] <= t) lo = mid else hi = mid - 1
     }
-    this.kinds[lo]
+    return this.kinds[lo]
   }
 
   /// The offset from UTC (seconds) at instant `t` (epoch seconds).
@@ -380,7 +380,7 @@ class __Zone {
     if (okBefore) return w - before
     if (okAfter) return w - after
     // A gap: the offset before it moves the time forward.
-    w - before
+    return w - before
   }
 
   /// Parses TZif data (RFC 8536, versions 1–4; the 64-bit part when there is one).
@@ -434,7 +434,7 @@ class __Zone {
       }
       if (s.length > 0) z.rule = __PosixTz.parse(s)
     }
-    z
+    return z
   }
 }
 
@@ -456,12 +456,12 @@ class __TzifHead {
     h.timecnt = __tzifInt(b, p + 32, 4)
     h.typecnt = __tzifInt(b, p + 36, 4)
     h.charcnt = __tzifInt(b, p + 40, 4)
-    h
+    return h
   }
 
   /// The data block's size with `w`-byte times.
   public size(w: int): int {
-    this.timecnt * w + this.timecnt + this.typecnt * 6 + this.charcnt + this.leapcnt * (w + 4) + this.isstdcnt + this.isutcnt
+    return this.timecnt * w + this.timecnt + this.typecnt * 6 + this.charcnt + this.leapcnt * (w + 4) + this.isstdcnt + this.isutcnt
   }
 }
 
@@ -481,7 +481,7 @@ function __zones(): Map<string, __Zone> {
   if (c != null) return c
   const m = new Map<string, __Zone>()
   __zoneCache = m
-  m
+  return m
 }
 
 function __envVar(name: string): string? {
@@ -530,7 +530,7 @@ function __zoneNamed(id: string): __Zone? {
   if (data == null) return null
   const z = __Zone.fromTzif(id, data!)
   if (z != null) cache.set(id, z)
-  z
+  return z
 }
 
 /// The local time zone: `TZ` (a zone name, `:name`, a file path or a POSIX rule), else the
@@ -589,12 +589,12 @@ function __localZone(): __Zone {
 struct Performance {
   /// Milliseconds (with a fraction) since the program started.
   now(): number {
-    (__monoNanos() as f64) / 1000000.0
+    return (__monoNanos() as f64) / 1000000.0
   }
 
   /// When the program started, in milliseconds since 1970.
   timeOrigin(): number {
-    ((__wallNanos() - __monoNanos()) / 1000000) as f64
+    return ((__wallNanos() - __monoNanos()) / 1000000) as f64
   }
 }
 
@@ -639,7 +639,7 @@ class Date {
 
   /// Milliseconds since 1970 now.
   public static now(): number {
-    (__wallNanos() / 1000000) as f64
+    return (__wallNanos() / 1000000) as f64
   }
 
   /// The time value of a UTC date (0-based month), like the constructor's local form.
@@ -675,7 +675,7 @@ class Date {
       return 0.0 / 0.0
     }
     const days = __daysFromCivil(year as int, (month as int) + 1, 1) as f64 + ((day as int) - 1) as f64
-    days * 86400000.0 + ((h as int) as f64) * 3600000.0 + ((mi as int) as f64) * 60000.0 + ((s as int) as f64) * 1000.0 + ((ms as int) as f64)
+    return days * 86400000.0 + ((h as int) as f64) * 3600000.0 + ((mi as int) as f64) * 60000.0 + ((s as int) as f64) * 1000.0 + ((ms as int) as f64)
   }
 
   public static __clip(t: number): number {
@@ -688,7 +688,7 @@ class Date {
     const wi = w as int
     const sec = __floorDiv(wi, 1000)
     const t = __localZone().instantOf(sec)
-    (t * 1000 + __floorMod(wi, 1000)) as f64
+    return (t * 1000 + __floorMod(wi, 1000)) as f64
   }
 
   /// The local offset in seconds at this date.
@@ -721,13 +721,13 @@ class Date {
     } else {
       msOfDay % 1000
     }
-    n as f64
+    return n as f64
   }
 
   /// The time value: milliseconds since 1970 (UTC), or `NaN` for an invalid date.
-  public getTime(): number { this.t }
+  public getTime(): number { return this.t }
   /// The time value, as `getTime()`.
-  public valueOf(): number { this.t }
+  public valueOf(): number { return this.t }
   /// The full year (`2024`; not 2-digit), in local time; `NaN` for an invalid date.
   public getFullYear(): number { this.__field(false, 0) }
   /// The month, 0–11 (January is 0), in local time; `NaN` for an invalid date.
@@ -770,7 +770,7 @@ class Date {
   /// it.
   public setTime(t: number): number {
     this.t = Date.__clip(t)
-    this.t
+    return this.t
   }
 
   /// Replaces some fields (`-1`… means keep): the shared part of the setters.
@@ -790,7 +790,7 @@ class Date {
     }
     const w = Date.__makeTime(cur[0], cur[1], cur[2], cur[3], cur[4], cur[5], cur[6])
     this.t = Date.__clip(if (utc) w else Date.__localToUtc(w))
-    this.t
+    return this.t
   }
 
   /// Sets the year (and optionally the month and day) in local time, out-of-range values rolling
@@ -843,7 +843,7 @@ class Date {
     const days = __floorDiv(w, 86400000)
     const c = __civilFromDays(days)
     const ms = w - days * 86400000
-    `${__isoYear(c[0])}-${__pad(c[1], 2)}-${__pad(c[2], 2)}T${__pad(ms / 3600000, 2)}:${__pad((ms / 60000) % 60, 2)}:${__pad((ms / 1000) % 60, 2)}.${__pad(ms % 1000, 3)}Z`
+    return `${__isoYear(c[0])}-${__pad(c[1], 2)}-${__pad(c[2], 2)}T${__pad(ms / 3600000, 2)}:${__pad((ms / 60000) % 60, 2)}:${__pad((ms / 1000) % 60, 2)}.${__pad(ms % 1000, 3)}Z`
   }
 
   /// `toISOString()`, or `null` for an invalid date.
@@ -859,7 +859,7 @@ class Date {
   public toDateString(): string {
     if (this.t != this.t) return "Invalid Date"
     const y = this.getFullYear() as int
-    `${__dayName(this.getDay() as int)} ${__monthName(this.getMonth() as int)} ${__pad(this.getDate() as int, 2)} ${this.__yearText(y)}`
+    return `${__dayName(this.getDay() as int)} ${__monthName(this.getMonth() as int)} ${__pad(this.getDate() as int, 2)} ${this.__yearText(y)}`
   }
 
   /// `12:30:00 GMT+0100 (CET)`
@@ -867,7 +867,7 @@ class Date {
     if (this.t != this.t) return "Invalid Date"
     const z = __localZone()
     const sec = __floorDiv(this.t as int, 1000)
-    `${__pad(this.getHours() as int, 2)}:${__pad(this.getMinutes() as int, 2)}:${__pad(this.getSeconds() as int, 2)} GMT${__offsetText(z.offsetAt(sec), false)} (${z.nameAt(sec)})`
+    return `${__pad(this.getHours() as int, 2)}:${__pad(this.getMinutes() as int, 2)}:${__pad(this.getSeconds() as int, 2)} GMT${__offsetText(z.offsetAt(sec), false)} (${z.nameAt(sec)})`
   }
 
   /// `Sun Mar 10 2024 12:30:00 GMT+0100 (CET)` (JavaScript's long zone names aren't kept;
@@ -880,7 +880,7 @@ class Date {
   public toUTCString(): string {
     if (this.t != this.t) return "Invalid Date"
     const y = this.getUTCFullYear() as int
-    `${__dayName(this.getUTCDay() as int)}, ${__pad(this.getUTCDate() as int, 2)} ${__monthName(this.getUTCMonth() as int)} ${this.__yearText(y)} ${__pad(this.getUTCHours() as int, 2)}:${__pad(this.getUTCMinutes() as int, 2)}:${__pad(this.getUTCSeconds() as int, 2)} GMT`
+    return `${__dayName(this.getUTCDay() as int)}, ${__pad(this.getUTCDate() as int, 2)} ${__monthName(this.getUTCMonth() as int)} ${this.__yearText(y)} ${__pad(this.getUTCHours() as int, 2)}:${__pad(this.getUTCMinutes() as int, 2)}:${__pad(this.getUTCSeconds() as int, 2)} GMT`
   }
 }
 
@@ -981,7 +981,7 @@ function __parseIso(s: string): __IsoFields? {
     if (!p.eat("]") || f.zone.length == 0) return null
   }
   if (!p.done()) return null
-  f
+  return f
 }
 
 function __isoDigits(p: __TzParser, n: int): int? {
@@ -993,7 +993,7 @@ function __isoDigits(p: __TzParser, n: int): int? {
     v = v * 10 + ((c as u32) as int) - 48
     p.i += 1
   }
-  v
+  return v
 }
 
 /// `toString`/`toUTCString`-style dates: `[Day,] Mon DD YYYY HH:MM:SS GMT±hhmm` or
@@ -1053,5 +1053,5 @@ function __smallInt(s: string): int {
     if (c < '0' || c > '9') return -1
     n = n * 10 + ((c as u32) as int) - 48
   }
-  n
+  return n
 }

@@ -25,7 +25,7 @@ class Iterator<T> {
     if (v == null) {
       this.done = true
     }
-    v
+    return v
   }
 
   /// Itself (so an iterator works in `for-of`).
@@ -96,7 +96,7 @@ class Iterator<T> {
       if (b == null) {
         return null
       }
-      [a, b]
+      return [a, b]
     })
   }
 
@@ -111,7 +111,7 @@ class Iterator<T> {
       }
       const pair: [int, T] = [i, v]
       i += 1
-      pair
+      return pair
     })
   }
 
@@ -125,7 +125,7 @@ class Iterator<T> {
       }
       out.push(v)
     }
-    out
+    return out
   }
 
   /// Calls `f` with each remaining value.
@@ -148,6 +148,6 @@ function __Array_iterator<T>(xs: T[]): Iterator<T> {
       return null
     }
     i += 1
-    xs[i - 1]
+    return xs[i - 1]
   })
 }

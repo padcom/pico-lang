@@ -123,5 +123,5 @@ export class EcKeyPair {
 export function ecdsaVerify(curve: NamedCurve, hash: HashAlgorithm, publicKey: Uint8Array, message: Uint8Array | string, signature: Uint8Array): bool {
   if (curve == "X25519") return false
   const r = try! __cryptoOp(1000 + __curveId(curve), [__u32(__hashId(hash)), publicKey, __bytes(message), signature])
-  r.get(0) == 1
+  return r.get(0) == 1
 }
