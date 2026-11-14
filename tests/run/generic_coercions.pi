@@ -1,0 +1,39 @@
+// Generic instances see their type arguments in every type lowering reads (#134): widened
+// values (`T` to `T?`), locals, signatures and the calls' own type
+// arguments, for values of several layouts in one program.
+// expect: some(1) none
+// expect: some(hi) none
+// expect: some(P { x: 1, y: 2 }) none
+// expect: [1, 2, 3] [a, b] [P { x: 3, y: 4 }]
+// expect: Box(41) Box(x)
+struct P {
+  x: int
+  y: int
+}
+
+function maybe<T>(x: T, keep: bool): T? {
+  const out: T? = if (keep) x else null
+  return out
+}
+
+function show<T>(x: T?): string {
+  return if (x == null) "none" else `some(${x})`
+}
+
+function listOf<T>(a: T, rest: T[]): T[] {
+  const out: T[] = [a]
+  for (const r of rest) out.push(r)
+  return out
+}
+
+class Box<T> {
+  constructor(public value: T) {}
+  public map<U>(f: (v: T) => U): Box<U> { return new Box<U>(f(value)) }
+  public toString(): string { return `Box(${value})` }
+}
+
+println(`${show(maybe(1, true))} ${show(maybe(2, false))}`)
+println(`${show(maybe("hi", true))} ${show(maybe("no", false))}`)
+println(`${show(maybe(P { x: 1, y: 2 }, true))} ${show(maybe(P { x: 0, y: 0 }, false))}`)
+println(`[${listOf(1, [2, 3]).join(", ")}] [${listOf("a", ["b"]).join(", ")}] [${listOf(P { x: 3, y: 4 }, []).join(", ")}]`)
+println(`${new Box(40).map((v: int) => v + 1)} ${new Box(1).map((_: int) => "x")}`)

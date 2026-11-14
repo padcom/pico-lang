@@ -191,8 +191,9 @@ impl Timings {
         if self.on {
             let now = std::time::Instant::now();
             eprintln!(
-                "[timings] {name:<10} {:>8.1} ms",
-                (now - self.last).as_secs_f64() * 1000.0
+                "[timings] {name:<10} {:>8.1} ms{}",
+                (now - self.last).as_secs_f64() * 1000.0,
+                peak_note()
             );
             self.last = now;
         }
@@ -201,11 +202,56 @@ impl Timings {
     fn total(&self) {
         if self.on {
             eprintln!(
-                "[timings] {:<10} {:>8.1} ms",
+                "[timings] {:<10} {:>8.1} ms{}",
                 "total",
-                self.start.elapsed().as_secs_f64() * 1000.0
+                self.start.elapsed().as_secs_f64() * 1000.0,
+                peak_note()
             );
         }
+    }
+}
+
+/// `  (peak N MB)`: the process's peak memory so far, when it's known (#134).
+fn peak_note() -> String {
+    peak_memory_mb().map_or(String::new(), |mb| format!("  (peak {mb} MB)"))
+}
+
+/// The most memory this process has had resident at once, in MiB (Unix; `None` elsewhere).
+/// Printed with `PICO_TIMINGS=1` after each stage of a check and at the end of a build (#134).
+pub fn peak_memory_mb() -> Option<u64> {
+    #[cfg(unix)]
+    {
+        #[repr(C)]
+        struct RUsage {
+            /// `ru_utime`, `ru_stime` (two `timeval`s).
+            times: [i64; 4],
+            maxrss: i64,
+            /// The other thirteen counters.
+            rest: [i64; 13],
+        }
+        unsafe extern "C" {
+            fn getrusage(who: i32, usage: *mut RUsage) -> i32;
+        }
+        let mut u = RUsage {
+            times: [0; 4],
+            maxrss: 0,
+            rest: [0; 13],
+        };
+        // SAFETY: `RUsage` has `struct rusage`'s layout on 64-bit Unix; 0 is `RUSAGE_SELF`.
+        if unsafe { getrusage(0, &mut u) } != 0 || u.maxrss <= 0 {
+            return None;
+        }
+        // macOS counts bytes, Linux and the BSDs kibibytes.
+        let bytes = if cfg!(target_os = "macos") {
+            u.maxrss as u64
+        } else {
+            u.maxrss as u64 * 1024
+        };
+        Some(bytes / (1024 * 1024))
+    }
+    #[cfg(not(unix))]
+    {
+        None
     }
 }
 
