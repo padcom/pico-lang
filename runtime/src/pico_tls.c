@@ -6,7 +6,11 @@
  * poll() outside it, so a read waiting for data never blocks a write. Shutting the socket
  * down wakes a waiting read (it then sees the end). On Windows the socket is a SOCKET kept in
  * an int (handle values fit), waits are 100 ms `WSAPoll` slices (a shutdown doesn't wake
- * one), and the roots are the system's ROOT store. */
+ * one), and the roots are the system's ROOT store. On macOS the roots are the bundle
+ * (`/etc/ssl/cert.pem`) and the Keychain's (#137): its anchors and the certificates with trust
+ * settings in the admin and user domains (corporate and custom roots), read once through
+ * Security.framework opened with dlopen (so programs don't link it). `PICO_TLS_DEBUG=1` says
+ * where the roots came from. */
 #if defined(_WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -27,6 +31,9 @@
 #endif
 #if !defined(_WIN32)
 #include <unistd.h> /* access */
+#endif
+#if defined(__APPLE__)
+#include <dlfcn.h>
 #endif
 
 #include "mbedtls/ctr_drbg.h"
@@ -190,15 +197,88 @@ static int parse_pem_crt(mbedtls_x509_crt *crt, const char *pem, size_t n) {
     return r;
 }
 
+/* `PICO_TLS_DEBUG=1`: where the roots of each verified connection come from (stderr). */
+static int tls_debug(void) {
+    const char *d = getenv("PICO_TLS_DEBUG");
+    return d && strcmp(d, "1") == 0;
+}
+
+#if defined(__APPLE__)
+/* The Keychain's trusted roots, DER-encoded, read once (#137). */
+typedef struct {
+    unsigned char *der;
+    size_t len;
+} Der;
+static Der *keychain_roots;
+static size_t keychain_count;
+static pthread_once_t keychain_once = PTHREAD_ONCE_INIT;
+
+typedef const void *CFRef;
+static void keychain_load(void) {
+    void *cf = dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", RTLD_LAZY);
+    void *sec = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY);
+    if (!cf || !sec) return;
+    long (*count)(CFRef) = (long (*)(CFRef))dlsym(cf, "CFArrayGetCount");
+    CFRef (*at)(CFRef, long) = (CFRef(*)(CFRef, long))dlsym(cf, "CFArrayGetValueAtIndex");
+    const unsigned char *(*bytes)(CFRef) = (const unsigned char *(*)(CFRef))dlsym(cf, "CFDataGetBytePtr");
+    long (*length)(CFRef) = (long (*)(CFRef))dlsym(cf, "CFDataGetLength");
+    void (*release)(CFRef) = (void (*)(CFRef))dlsym(cf, "CFRelease");
+    int (*anchors)(CFRef *) = (int (*)(CFRef *))dlsym(sec, "SecTrustCopyAnchorCertificates");
+    int (*settings)(int, CFRef *) = (int (*)(int, CFRef *))dlsym(sec, "SecTrustSettingsCopyCertificates");
+    CFRef (*data)(CFRef) = (CFRef(*)(CFRef))dlsym(sec, "SecCertificateCopyData");
+    if (!count || !at || !bytes || !length || !release || !anchors || !data) return;
+    CFRef arrays[3] = {NULL, NULL, NULL};
+    anchors(&arrays[0]);
+    /* Trust settings domains: 0 user, 1 admin (the system domain's are the anchors). */
+    if (settings) {
+        settings(1, &arrays[1]);
+        settings(0, &arrays[2]);
+    }
+    for (int a = 0; a < 3; a++) {
+        if (!arrays[a]) continue;
+        long n = count(arrays[a]);
+        for (long i = 0; i < n; i++) {
+            CFRef d = data(at(arrays[a], i));
+            if (!d) continue;
+            long len = length(d);
+            if (len > 0) {
+                Der *more = realloc(keychain_roots, (keychain_count + 1) * sizeof *more);
+                unsigned char *copy = malloc((size_t)len);
+                if (!more || !copy) abort();
+                memcpy(copy, bytes(d), (size_t)len);
+                keychain_roots = more;
+                keychain_roots[keychain_count++] = (Der){copy, (size_t)len};
+            }
+            release(d);
+        }
+        release(arrays[a]);
+    }
+}
+
+/* Adds the Keychain's roots to `ca`: how many parsed. */
+static int keychain_add(mbedtls_x509_crt *ca) {
+    pthread_once(&keychain_once, keychain_load);
+    int added = 0;
+    for (size_t i = 0; i < keychain_count; i++) {
+        if (mbedtls_x509_crt_parse_der(ca, keychain_roots[i].der, keychain_roots[i].len) == 0) added++;
+    }
+    return added;
+}
+#endif
+
 /* The system's trusted roots: `SSL_CERT_FILE`, `SSL_CERT_DIR`, else the usual bundle
- * locations (Windows: the ROOT store). Whether it found any. */
+ * locations (Windows: the ROOT store; macOS: the bundle and the Keychain). Whether it found
+ * any. */
 static int load_roots(mbedtls_x509_crt *ca) {
     int found = 0;
     const char *file = getenv("SSL_CERT_FILE");
     if (file && *file && mbedtls_x509_crt_parse_file(ca, file) >= 0) found = 1;
     const char *dir = getenv("SSL_CERT_DIR");
     if (dir && *dir && mbedtls_x509_crt_parse_path(ca, dir) >= 0) found = 1;
-    if (found) return 1;
+    if (found) {
+        if (tls_debug()) fprintf(stderr, "[tls] roots: SSL_CERT_FILE/SSL_CERT_DIR\n");
+        return 1;
+    }
 #if defined(_WIN32)
     HCERTSTORE store = CertOpenSystemStoreW(0, L"ROOT");
     if (!store) return 0;
@@ -209,6 +289,7 @@ static int load_roots(mbedtls_x509_crt *ca) {
             found = 1;
     }
     CertCloseStore(store, 0);
+    if (tls_debug()) fprintf(stderr, "[tls] roots: the ROOT store%s\n", found ? "" : " (empty)");
     return found;
 #else
     static const char *const bundles[] = {
@@ -218,13 +299,25 @@ static int load_roots(mbedtls_x509_crt *ca) {
         "/etc/ssl/ca-bundle.pem",             /* openSUSE */
         "/etc/pki/tls/cacert.pem",
     };
+    const char *bundle = NULL;
     for (size_t i = 0; i < sizeof bundles / sizeof *bundles; i++) {
         /* (A bundle with a few unparsable entries still counts.) */
         if (access(bundles[i], R_OK) == 0 && mbedtls_x509_crt_parse_file(ca, bundles[i]) >= 0) {
-            return 1;
+            bundle = bundles[i];
+            found = 1;
+            break;
         }
     }
-    return 0;
+#if defined(__APPLE__)
+    int keychain = keychain_add(ca);
+    if (keychain > 0) found = 1;
+    if (tls_debug())
+        fprintf(stderr, "[tls] roots: %s, %d from the Keychain\n", bundle ? bundle : "no bundle",
+                keychain);
+#else
+    if (tls_debug()) fprintf(stderr, "[tls] roots: %s\n", bundle ? bundle : "none found");
+#endif
+    return found;
 #endif
 }
 
