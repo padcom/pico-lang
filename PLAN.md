@@ -911,8 +911,9 @@ Every new rule is off unless turned on, takes the ESLint configuration's option 
 and gets a `W0xxx` code, a `docs/errors` page and snapshot tests (enabled, disabled, options).
 
 ##### P10.2c `explicitReturn` (the author's own rule)
-- **Do**: a function whose result is a lone variable returns it with `return` (`return sum`,
-  not a final `sum`). Exempt: expression-bodied arrows, constructors, setters, generators,
+- **Do**: a function whose result is a simple value (variable, literal, operation, member or
+  element read) returns it with `return` (`return sum`, not a final `sum`); calls, `if`/`match`,
+  blocks and the like stay implicit. Exempt: expression-bodied arrows, constructors, setters, generators,
   `: void` functions, blocks used as values. On by default (the author).
 - **Done (decision 331)**: `returns.rs`, W0006.
 

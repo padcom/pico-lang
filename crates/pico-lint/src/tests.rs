@@ -301,6 +301,23 @@ function explicit(n: i32): i32 {
   return m
 }
 function computed(a: i32, b: i32): i32 { a + b }
+function label(n: i32): string {
+  if (n > 1) return "many"
+  "one"
+}
+function greet(name: string): string {
+  `Hello, ${name}`
+}
+function number(): i32 { 1 }
+function flag(): bool { true }
+function list(): i32[] { [1, 2] }
+function field(p: Pair): i32 { p.a }
+function first(xs: i32[]): i32 { xs[0] }
+function pick(c: bool): i32 { c ? 1 : 2 }
+function called(): i32 { number() }
+function branch(c: bool): i32 { if (c) 1 else 2 }
+function made(): Pair { new Pair(1) }
+class Pair { constructor(public a: i32) {} }
 function nothing(n: i32): void {
   println(n)
 }
@@ -325,6 +342,7 @@ class Counter {
 }
 const c = new Counter(1)
 c.value = 2
+println(`${label(1)} ${greet("x")} ${number()} ${flag()} ${list().length} ${field(made())} ${first([1])} ${pick(true)} ${called()} ${branch(true)}`)
 println(`${total([1])} ${wrapped(1)} ${explicit(1)} ${computed(1, 2)} ${area} ${id(1)} ${twice(1)} ${c.value} ${c.next()}`)
 nothing(1)
 for (const g of gen()) println(g)

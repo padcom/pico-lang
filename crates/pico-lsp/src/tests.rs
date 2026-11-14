@@ -478,10 +478,13 @@ fn ask(
         at(3, "textDocument/definition", &uri, text, def.0, def.1, 0),
     ]);
     let d = diags_for(&out, &uri);
+    // (`explicitReturn`, on by default, isn't what these fixtures are about.)
     let n = d.last().unwrap()["params"]["diagnostics"]
         .as_array()
         .unwrap()
-        .len();
+        .iter()
+        .filter(|v| v["code"] != "W0006")
+        .count();
     (n, hover_text(&out, 2), def_line(&out, 3).1)
 }
 
@@ -1265,6 +1268,7 @@ fn hover_exported_aliases_and_decorators() {
         .iter()
         .filter(|m| m["method"] == "textDocument/publishDiagnostics")
         .flat_map(|m| m["params"]["diagnostics"].as_array().unwrap())
+        .filter(|v| v["code"] != "W0006")
         .collect();
     assert!(diags.is_empty(), "{diags:#?}");
 }

@@ -47,7 +47,7 @@ lints! {
     LINT_COMPLEXITY = 3: "complexity": "a function's cyclomatic complexity is above the maximum",
     LINT_BLANK_LINE = 4: "blankLines": "a blank line is missing before a statement or declaration",
     LINT_DOCS = 5: "docs": "an exported declaration has no doc comment",
-    LINT_EXPLICIT_RETURN = 6: "explicitReturn": "a function's result is a lone variable without `return`",
+    LINT_EXPLICIT_RETURN = 6: "explicitReturn": "a function's result is a simple value without `return`",
     LINT_MAX_PARAMS = 7: "maxParams": "a function has more parameters than the maximum",
     LINT_MAX_DEPTH = 8: "maxDepth": "blocks are nested deeper than the maximum",
     LINT_MAX_LINES = 9: "maxLines": "a function has more lines than the maximum",
