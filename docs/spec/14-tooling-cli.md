@@ -121,10 +121,10 @@ is a `.pi` file builds it first, and lldb loads pico's formatters. Decisions 280
 the compiler's errors); it exits with status 1 when there are any. The language server shows
 them in the editor too. Rules are set in `project.json`'s `"lint"`:
 ```json
-{ "lint": { "naming": true, "unused": true, "complexity": 4, "blankLines": true, "docs": true } }
+{ "lint": { "naming": true, "unused": true, "complexity": 4, "blankLines": true, "docs": true, "explicitReturn": true } }
 ```
 Each rule is off with `false`, on with its defaults with `true`, or on with options. `naming` and
-`unused` are on unless turned off; the other three are off unless turned on.
+`unused` are on unless turned off; the others are off unless turned on.
 
 | Rule | Checks |
 |------|--------|
@@ -133,6 +133,7 @@ Each rule is off with `false`, on with its defaults with `true`, or on with opti
 | `complexity` | the cyclomatic complexity of each function: at most `true` → 4, or the number given (`{ "max": n }` too) |
 | `blankLines` | a blank line before a statement `if` (not `else if`), `switch` and `match`, and before a function, method, constructor, getter or setter, unless it's the first in its block or type body; comments and decorators that belong to it go after the blank line. `{ "before": ["if", "function", …] }` picks the constructs |
 | `docs` | a doc comment (`/** … */` or `///`, with a description) on every exported declaration of a module, and on the public members (methods, getters, setters, fields) of exported types; a member that implements or overrides a documented member is documented by it |
+| `explicitReturn` | a function whose result is a lone variable returns it with `return` (`return sum`, not a final `sum`); expression-bodied arrows, constructors, setters, generators, `: void` functions and blocks used as values are exempt (decision 331) |
 
 **Complexity** starts at 1 per function and adds 1 for each `if` and `else if`, loop (`for`,
 `for-of`, `while`, `do`, `loop`), `case` and `match` arm, `catch`, conditional expression, and

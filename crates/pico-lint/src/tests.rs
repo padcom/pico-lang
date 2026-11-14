@@ -277,6 +277,60 @@ fn docs() {
     assert_eq!(run("docs_off", OFF, DOCS, &[]), "");
 }
 
+const RETURNS: &str = r#"function total(xs: i32[]): i32 {
+  let sum: i32 = 0
+  for (const x of xs) sum += x
+  sum
+}
+function wrapped(n: i32): i32 {
+  const m = n * 2
+  (m)
+}
+function explicit(n: i32): i32 {
+  const m = n * 2
+  return m
+}
+function computed(a: i32, b: i32): i32 { a + b }
+function nothing(n: i32): void {
+  println(n)
+}
+function* gen(): Iterator<i32> { yield 1 }
+const area = {
+  const w = 3
+  w
+}
+const id = (x: i32) => x
+const twice = (x: i32) => {
+  const y = x * 2
+  y
+}
+class Counter {
+  constructor(private n: i32) {}
+  public get value(): i32 { n }
+  public set value(v: i32) { n = v }
+  public next(): i32 {
+    n += 1
+    return n
+  }
+}
+const c = new Counter(1)
+c.value = 2
+println(`${total([1])} ${wrapped(1)} ${explicit(1)} ${computed(1, 2)} ${area} ${id(1)} ${twice(1)} ${c.value} ${c.next()}`)
+nothing(1)
+for (const g of gen()) println(g)
+"#;
+
+#[test]
+fn explicit_return() {
+    insta::assert_snapshot!(run(
+        "explicit_return",
+        r#"{ "naming": false, "unused": false, "explicitReturn": true }"#,
+        RETURNS,
+        &[]
+    ));
+    assert_eq!(run("explicit_return_off", OFF, RETURNS, &[]), "");
+}
+
 #[test]
 fn configuration() {
     let (c, e) = Config::from_json(None);

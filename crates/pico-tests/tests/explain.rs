@@ -60,6 +60,7 @@ fn reported(text: &str, dir: &std::path::Path) -> Vec<String> {
                 .collect(),
         ),
         docs: true,
+        explicit_return: true,
     };
     codes.extend(
         pico_lint::lint(&checked, pico_lint::entry_file(&checked), &cfg)

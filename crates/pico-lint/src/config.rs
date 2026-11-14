@@ -25,6 +25,8 @@ pub struct Config {
     /// The constructs that need a blank line before them.
     pub blank_lines: Option<Vec<String>>,
     pub docs: bool,
+    /// A function's result that is a lone variable needs `return`.
+    pub explicit_return: bool,
 }
 
 impl Default for Config {
@@ -35,6 +37,7 @@ impl Default for Config {
             complexity: None,
             blank_lines: None,
             docs: false,
+            explicit_return: false,
         }
     }
 }
@@ -74,6 +77,7 @@ impl Config {
                 ("naming", Value::Bool(b)) => c.naming = *b,
                 ("unused", Value::Bool(b)) => c.unused = *b,
                 ("docs", Value::Bool(b)) => c.docs = *b,
+                ("explicitReturn", Value::Bool(b)) => c.explicit_return = *b,
                 ("complexity", Value::Bool(b)) => c.complexity = b.then_some(4),
                 ("complexity", Value::Number(n)) => match n.as_u64() {
                     Some(n) if n >= 1 => c.complexity = Some(n as u32),
@@ -104,11 +108,11 @@ impl Config {
                     }
                     c.blank_lines = Some(list);
                 }
-                ("naming" | "unused" | "docs", _) => bad("must be true or false"),
+                ("naming" | "unused" | "docs" | "explicitReturn", _) => bad("must be true or false"),
                 ("complexity", _) => bad("must be true, false, a number or { \"max\": n }"),
                 ("blankLines", _) => bad("must be true, false or { \"before\": [...] }"),
                 _ => errors.push(format!(
-                    "\"lint\": unknown rule `{rule}` (the rules: naming, unused, complexity, blankLines, docs)"
+                    "\"lint\": unknown rule `{rule}` (the rules: naming, unused, complexity, blankLines, docs, explicitReturn)"
                 )),
             }
         }

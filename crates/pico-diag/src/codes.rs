@@ -47,6 +47,7 @@ lints! {
     LINT_COMPLEXITY = 3: "complexity": "a function's cyclomatic complexity is above the maximum",
     LINT_BLANK_LINE = 4: "blankLines": "a blank line is missing before a statement or declaration",
     LINT_DOCS = 5: "docs": "an exported declaration has no doc comment",
+    LINT_EXPLICIT_RETURN = 6: "explicitReturn": "a function's result is a lone variable without `return`",
 }
 
 impl fmt::Debug for Code {

@@ -887,6 +887,101 @@ P10.10. (Task ids stay as they were: decisions and the log refer to them.)
 - **Done when**: snapshot tests of each rule, enabled, disabled and with options, pass.
 - **Done (decision 278)**: `complexity.rs`, `blank.rs`, `docs.rs` in `crates/pico-lint`.
 
+#### P10.2c-i Rules from the author's ESLint configuration
+The author's ESLint configuration ([padcom/eslint-config](https://github.com/padcom/eslint-config):
+`javascript`, `typescript`, `promises`, `jsdocs`, `tests`) compared with pico on 2026-11-14
+(decision 331). Already covered: by `pico lint` `complexity` (4), `naming` (`new-cap`), `unused`
+(`no-unused-vars`, partly `no-unused-private-class-members`: private fields aren't checked),
+`docs` (`jsdoc/require-jsdoc`, `require-description`), `blankLines` (part of
+`padding-line-between-statements`); by the language (compile errors) `no-var`, `eqeqeq`,
+`no-eq-null`, `no-fallthrough`, `no-throw-literal`, `no-use-before-define`, `no-implicit-coercion`
+and `no-extra-boolean-cast` (conditions must be `bool`, `!` takes only `bool`), `no-cond-assign`,
+`no-return-assign`, `no-sequences`, the label rules, `no-ex-assign`, `no-dupe-keys`,
+`no-invalid-this`, `prefer-rest-params`, `consistent-return`, `array-callback-return`,
+`no-promise-executor-return`, `promise/valid-params`; by `pico fmt` indentation, spacing, trailing
+whitespace, `eol-last`, `no-multiple-empty-lines`, `padded-blocks`. Not applicable (no such
+feature): `no-eval`, `no-implied-eval`, `no-script-url`, `no-alert`, `no-caller`, `no-iterator`,
+`no-proto`, `no-extend-native`, `no-new-wrappers`, the `Array`/`Object` constructor rules,
+`symbol-description`, `prefer-object-has-own`, `prefer-object-spread`, `no-extra-bind`,
+`no-useless-call`, `dot-notation` (`m["k"]` is a map lookup), `@typescript-eslint/*`, the jsdoc
+type rules (types come from signatures), `promise/no-new-statics`, `promise/spec-only`, the
+`no-restricted-*` rules (enabled without options, so they check nothing).
+
+Every new rule is off unless turned on, takes the ESLint configuration's option as its default,
+and gets a `W0xxx` code, a `docs/errors` page and snapshot tests (enabled, disabled, options).
+
+##### P10.2c `explicitReturn` (the author's own rule)
+- **Do**: a function whose result is a lone variable returns it with `return` (`return sum`,
+  not a final `sum`). Exempt: expression-bodied arrows, constructors, setters, generators,
+  `: void` functions, blocks used as values.
+- **Done (decision 331)**: `returns.rs`, W0006.
+
+##### P10.2d Size limits
+- `maxParams` (4, `max-params`), `maxDepth` (2, `max-depth`: nested blocks in a function),
+  `maxLines` (32, `max-lines-per-function`), `maxNestedCallbacks` (2, `max-nested-callbacks`),
+  `maxStatementsPerLine` (2), `maxLen` (130, `@stylistic/max-len`).
+- Per-file overrides in `"lint"` (`"overrides": [{ "files": "*.test.pi", … }]`), for the
+  `tests` configuration's `maxNestedCallbacks: 4` in test files.
+
+##### P10.2e Likely mistakes
+- `shadow` (`no-shadow`): a local that hides a parameter, an outer local or a module-level
+  binding (pico allows all three).
+- `unusedExpressions` (`no-unused-expressions`, `no-new`): a statement without effect whose
+  value is dropped (`a + b` or `new Foo()` that isn't the block's last expression).
+- `unreachable` (`no-unreachable`, recommended): statements after `return`, `throw`, `break`,
+  `continue`.
+- `selfCompare`, `selfAssign` (`no-self-compare`, `no-self-assign`).
+- `constantBinary` (`no-constant-binary-expression`): `x ?? d` with a non-nullable `x`, a
+  comparison whose result is known.
+- `unsafeFinally` (`no-unsafe-finally`, `promise/no-return-in-finally`): `return`/`throw`/`break`
+  in `finally` (today it silently overrides the `try`'s result).
+- `requireYield` (`require-yield`), `forDirection` (`for-direction`), `emptyBlock` (`no-empty`),
+  `dupeElseIf` (`no-dupe-else-if`), `uselessCatch` (`no-useless-catch`: a catch that only
+  rethrows), `templateInString` (`no-template-curly-in-string`: `"${x}"` in a plain string).
+- `loopFunc` (`no-loop-func`): a closure in a loop capturing a `let` the loop changes.
+
+##### P10.2f Async
+- `floatingPromise` (`promise/catch-or-return`): a promise that's dropped (neither awaited,
+  returned, stored nor given a `catch`).
+- `awaitInLoop` (`no-await-in-loop`), `requireAwait` (`require-await`), `returnAwait`
+  (`no-return-await`), `preferAwait` (`promise/prefer-await-to-then`,
+  `prefer-await-to-callbacks`), `promiseReturnWrap` (`promise/no-return-wrap`),
+  `promiseParamNames` (`promise/param-names`: `resolve`, `reject`).
+- Later: `promise/no-multiple-resolved`, `promise/no-callback-in-promise`,
+  `require-atomic-updates` (need flow analysis).
+
+##### P10.2g Simplifications (candidates for `--fix`)
+- `preferConst` (`prefer-const`), `objectShorthand` (`{ x: x }`), `uselessRename`
+  (`{ a: a }` patterns, `import { a as a }`), `operatorAssignment` (`x = x + 1`),
+  `preferTemplate` (`"a" + x`), `uselessConcat` (`"a" + "b"`), `arrowBodyStyle`
+  (`=> { return x }` → `=> x`), `preferArrowCallback`, `funcStyle` (`const f = function …`;
+  arrows allowed), `lonelyIf` (`else { if … }`), `loneBlocks` (statement blocks that scope
+  nothing), `uselessReturn` (a bare `return` at the end), `uselessConstructor`,
+  `preferDestructuring` (`const x = o.x`), `preferExponentiation` (`Math.pow(a, b)`), `yoda`
+  (`5 == a`), `groupedAccessors` (getter right before its setter).
+
+##### P10.2h Style that `pico fmt` doesn't do (lint rules, or `fmt` options: the author decides)
+- `curly` (`multi-line`: a body on its own line needs braces), `extraParens`, `mixedOperators`
+  (ESLint's default groups), `commaDangle` (`always-multiline`), `braceStyle` (`1tbs`, single
+  line allowed), `operatorLinebreak` (`before`), `multilineTernary` (`always-multiline`),
+  `spacedComment` (`// x`), `extraSemi` (only where `;` doesn't change a block's value),
+  `quotes` (single, `pico fmt` only knows double).
+- `blankLines` gains the `padding-line-between-statements` and `lines-between-class-members`
+  cases it lacks: after imports, before `export`, `return`, loops, blocks and classes, between
+  fields (except single-line ones).
+
+##### P10.2i Doc comments (`jsdoc/*`)
+- `docs` options: `@param` names match the parameters and every parameter is documented once one
+  is (`check-param-names`, `require-param`), each tag with a description (`require-*-description`),
+  `@returns`/`@yields` on functions with a result (`require-returns`, `require-returns-check`,
+  `require-yields`), no types or defaults in tags (`no-types`, `no-defaults`), known tag names,
+  no empty tags, a blank line between the description and the tags (`tag-lines`), and the block's
+  layout (`check-alignment`, `check-indentation`, `multiline-blocks`, `no-multi-asterisks`).
+- With suppression comments (#79/#80): a reason required, as `ban-ts-comment` asks.
+- `underscoreDangle` (`no-underscore-dangle`) conflicts with `unused`'s `_` exemption: only
+  trailing `_` and used `_`-names, if the author wants it.
+- `preferNamedCaptureGroup` (`warn` in the configuration) on regex literals.
+
 ### P10.3 Package manager
 - **Spec**: 08 §8.3–8.4
 - **Do**: the `project.json` schema, `pico init`/`add`/`remove`, git dependencies, semver resolution

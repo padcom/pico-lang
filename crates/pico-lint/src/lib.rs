@@ -1,5 +1,5 @@
 //! The pico linter (`pico lint`, spec §14.7): warnings about naming, unused code, complexity,
-//! blank lines and documentation, configured in `project.json`'s `"lint"`.
+//! blank lines, documentation and implicit returns, configured in `project.json`'s `"lint"`.
 //!
 //! The rules read a file's syntax tree (re-parsed from its text, so they see only that file),
 //! and `unused` and `docs` also the checked program. A file with syntax errors isn't linted
@@ -10,6 +10,7 @@ mod complexity;
 pub mod config;
 mod docs;
 mod naming;
+mod returns;
 mod unused;
 mod walk;
 
@@ -40,6 +41,9 @@ pub fn lint(checked: &Checked, file: FileId, cfg: &Config) -> Vec<Diagnostic> {
     }
     if cfg.docs {
         docs::check(&module, text, file, checked, &mut out);
+    }
+    if cfg.explicit_return {
+        returns::check(&module, text, &mut out);
     }
     out.sort_by_key(|d| d.main_span().map(|s| (s.start, s.end)));
     out

@@ -1,0 +1,9 @@
+---
+source: crates/pico-lint/src/tests.rs
+assertion_line: 325
+expression: "run(\"explicit_return\",\nr#\"{ \"naming\": false, \"unused\": false, \"explicitReturn\": true }\"#, RETURNS,\n&[])"
+---
+4:3 W0006 the function's result is the variable `sum`: return it with `return` (write `return sum`)
+8:3 W0006 the function's result is the variable `m`: return it with `return` (write `return m`)
+26:3 W0006 the function's result is the variable `y`: return it with `return` (write `return y`)
+30:29 W0006 the function's result is the variable `n`: return it with `return` (write `return n`)
