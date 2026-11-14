@@ -1,5 +1,6 @@
 ---
 source: crates/pico-driver/tests/mir.rs
+assertion_line: 87
 expression: "mir(r#\"\nconst name = \"pico\"\nfunction greet(): string { \"hello, \" + name + \"!\" }\nfunction tag(): string { `${1 + 2}-${true}-${'x'}` }\nprintln(greet())\nprintln(tag())\n\"#)"
 ---
 global @g0: () => bool[]? // __finalizationRegistries
@@ -102,11 +103,11 @@ fn <main>() -> void {
     @g9 = const -1_i64
     @g10 = const 0_i64
     @g11 = const null<Map<string, __Zone>?>
-    _0 = struct#119{}
+    _0 = struct#120{}
     @g12 = _0
     @g13 = const null<__Xoshiro128?>
-    _1 = struct#130{}
-    _2 = struct#131{_1}
+    _1 = struct#131{}
+    _2 = struct#132{_1}
     @g14 = _2
     @g15 = const "pico"
     _3 = call greet() -> bb6

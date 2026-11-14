@@ -1,5 +1,6 @@
 ---
 source: crates/pico-driver/tests/mir.rs
+assertion_line: 61
 expression: "mir(r#\"\nfunction max<T extends Comparable<T>>(a: T, b: T): T { if (a.compareTo(b) >= 0) a else b }\nconst i = max(1, 2)\nconst s = max(\"a\", \"b\")\nconst again = max(3, 4)\n\"#)"
 ---
 global @g0: () => bool[]? // __finalizationRegistries
@@ -86,11 +87,11 @@ fn <main>() -> void {
     @g9 = const -1_i64
     @g10 = const 0_i64
     @g11 = const null<Map<string, __Zone>?>
-    _0 = struct#119{}
+    _0 = struct#120{}
     @g12 = _0
     @g13 = const null<__Xoshiro128?>
-    _1 = struct#130{}
-    _2 = struct#131{_1}
+    _1 = struct#131{}
+    _2 = struct#132{_1}
     @g14 = _2
     _3 = call max<i64>(const 1_i64, const 2_i64) -> bb6
   bb6:

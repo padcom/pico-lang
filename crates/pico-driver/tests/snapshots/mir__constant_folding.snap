@@ -1,5 +1,6 @@
 ---
 source: crates/pico-driver/tests/mir.rs
+assertion_line: 71
 expression: "mir(r#\"\nconst KB = 1 << 10\nconst MB = KB * 1024\nconst ratio = 1.5 * 2.0\nconst big = KB > 1000 && !false\nfunction scaled(x: i64): i64 { x * (2 + 3) - -KB }\nfunction narrow(): u8 { (KB / 8) as u8 }\nprintln(MB + scaled(1) + narrow() as i64)\nprintln(`${ratio} ${big}`)\n\"#)"
 ---
 global @g0: () => bool[]? // __finalizationRegistries
@@ -117,11 +118,11 @@ fn <main>() -> void {
     @g9 = const -1_i64
     @g10 = const 0_i64
     @g11 = const null<Map<string, __Zone>?>
-    _0 = struct#119{}
+    _0 = struct#120{}
     @g12 = _0
     @g13 = const null<__Xoshiro128?>
-    _1 = struct#130{}
-    _2 = struct#131{_1}
+    _1 = struct#131{}
+    _2 = struct#132{_1}
     @g14 = _2
     @g15 = const 1024_i64
     @g16 = const 1048576_i64
