@@ -405,7 +405,10 @@ or `"manual"`, `"error"`; 303, and 301/302 after a POST, become a GET) and rejec
 `TypeError` on network failures (`fetch failed: connection refused: 127.0.0.1:9`, with the
 `NetError` as `cause`), never for HTTP error statuses. `https:` uses TLS (1.2 and 1.3, Mbed
 TLS) and checks the server's certificate and name against the system's roots (`SSL_CERT_FILE`/
-`SSL_CERT_DIR`, else the usual bundles such as `/etc/ssl/cert.pem`); a failure is a `NetError`
+`SSL_CERT_DIR`, else the usual bundles such as `/etc/ssl/cert.pem`; on Windows the ROOT store;
+on macOS the bundle and the Keychain's roots: its anchors and the certificates with trust
+settings in the admin and user domains, where corporate and custom roots go; `PICO_TLS_DEBUG=1`
+prints where they came from, #137); a failure is a `NetError`
 of kind `TlsError` (`TLS: certificate verification failed: …`). `RequestInit` is `{ method,
 headers, body, redirect, caCerts }` (`caCerts`, a pico extension: extra PEM certificates to
 trust), `ResponseInit` `{ status,
