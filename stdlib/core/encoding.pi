@@ -19,7 +19,7 @@ function __asciiCodes(s: string): int[] {
   for (const c of s) {
     codes.push(c as u32 as int)
   }
-  codes
+  return codes
 }
 
 /// ASCII bytes as a string (decoded in one go).
@@ -113,7 +113,7 @@ class Base64 {
       }
       i += 4
     }
-    out
+    return out
   }
 }
 
@@ -156,6 +156,6 @@ class Hex {
     for (let i = 0; i < out.length; i++) {
       out.set(i, values[2 * i] * 16 + values[2 * i + 1])
     }
-    out
+    return out
   }
 }

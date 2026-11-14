@@ -12,7 +12,7 @@ function __cwd(): string {
   const job = __io(105, 0, 0, 0, "", "")
   const dir = __io_text(job)
   __io(104, job, 0, 0, "", "");
-  dir
+  return dir
 }
 
 // ---- POSIX ----
@@ -157,7 +157,7 @@ function __extOf(b: string): string {
 
 // ---- Windows ----
 
-function __isSep(c: char): bool { c == '/' || c == '\\' }
+function __isSep(c: char): bool { return c == '/' || c == '\\' }
 
 /// Where a Windows path's root ends: its device (`C:`, `\\server\share`, or `""`), whether
 /// it's absolute, and the index after the root.
@@ -207,7 +207,7 @@ function __winIsAbsolute(p: string): bool {
   if (n == 0) {
     return false
   }
-  __isSep(p[0]) || (n > 2 && __isAlpha(p[0]) && p[1] == ':' && __isSep(p[2]))
+  return __isSep(p[0]) || (n > 2 && __isAlpha(p[0]) && p[1] == ':' && __isSep(p[2]))
 }
 
 function __winNormalize(p: string): string {
@@ -405,7 +405,7 @@ function __winSegments(p: string): string[] {
       start = i + 1
     }
   }
-  out
+  return out
 }
 
 // ---- the namespaces ----

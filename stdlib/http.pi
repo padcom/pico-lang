@@ -44,7 +44,7 @@ export class HttpServer {
 
   /// Settles once the server has stopped and every connection is closed.
   public get finished(): Promise<void> {
-    this.__done
+    return this.__done
   }
 
   /// Stops accepting connections, closes idle ones, and lets requests in progress finish.
@@ -58,7 +58,7 @@ export class HttpServer {
         c.close()
       }
     }
-    this.__done
+    return this.__done
   }
 
   public __setIdle(c: Conn, waiting: bool): void {
@@ -200,7 +200,7 @@ export async function serve(options: ServeOptions,
     server.__key = key
   }
   __acceptAll(server);
-  server
+  return server
 }
 
 /// What `upgradeWebSocket` gives: the server's end of the socket, and the response to return
@@ -231,5 +231,5 @@ export function upgradeWebSocket(req: Request, protocol: string = ""): WebSocket
   const response = new Response(null, { status: 101, headers })
   response.__upgrade = socket
   const out: WebSocketUpgrade = { socket, response }
-  out
+  return out
 }

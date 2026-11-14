@@ -55,14 +55,14 @@ class __Xoshiro128 {
     this.s0 = this.s0 ^ this.s3
     this.s2 = this.s2 ^ t
     this.s3 = ((this.s3 << 11) | (this.s3 >> 21)) & m
-    result
+    return result
   }
 
   /// A number in `[0, 1)` with 53 random bits.
   public nextFloat(): number {
     const hi = this.next() >> 5
     const lo = this.next() >> 6
-    ((hi as f64) * 67108864.0 + (lo as f64)) / 9007199254740992.0
+    return ((hi as f64) * 67108864.0 + (lo as f64)) / 9007199254740992.0
   }
 }
 
@@ -74,21 +74,21 @@ class Math {
   constructor() {}
 
   /// Euler's number *e* (about 2.718), the base of natural logarithms.
-  public static get E(): number { 2.718281828459045 }
+  public static get E(): number { return 2.718281828459045 }
   /// The natural logarithm of 10.
-  public static get LN10(): number { 2.302585092994046 }
+  public static get LN10(): number { return 2.302585092994046 }
   /// The natural logarithm of 2.
-  public static get LN2(): number { 0.6931471805599453 }
+  public static get LN2(): number { return 0.6931471805599453 }
   /// The base-10 logarithm of *e*.
-  public static get LOG10E(): number { 0.4342944819032518 }
+  public static get LOG10E(): number { return 0.4342944819032518 }
   /// The base-2 logarithm of *e*.
-  public static get LOG2E(): number { 1.4426950408889634 }
+  public static get LOG2E(): number { return 1.4426950408889634 }
   /// π (about 3.14159), a circle's circumference divided by its diameter.
-  public static get PI(): number { 3.141592653589793 }
+  public static get PI(): number { return 3.141592653589793 }
   /// The square root of ½.
-  public static get SQRT1_2(): number { 0.7071067811865476 }
+  public static get SQRT1_2(): number { return 0.7071067811865476 }
   /// The square root of 2.
-  public static get SQRT2(): number { 1.4142135623730951 }
+  public static get SQRT2(): number { return 1.4142135623730951 }
 
   /// The absolute value of `x`.
   public static abs(x: number): number { if (x < 0.0) -x else if (x == 0.0) 0.0 else x }
@@ -169,7 +169,7 @@ class Math {
       if (v == 1.0 / 0.0 || v == -1.0 / 0.0) return 1.0 / 0.0
       r = __math(17, r, v)
     }
-    r
+    return r
   }
 
   /// The largest value (`-Infinity` for none; `NaN` if any is).
@@ -179,7 +179,7 @@ class Math {
       if (v != v) return v
       if (v > r) r = v
     }
-    r
+    return r
   }
 
   /// The smallest value (`Infinity` for none; `NaN` if any is).
@@ -189,7 +189,7 @@ class Math {
       if (v != v) return v
       if (v < r) r = v
     }
-    r
+    return r
   }
 
   /// A number in `[0, 1)`: not for cryptography (use `crypto`).
@@ -213,7 +213,7 @@ class Math {
       n = n << 1
       c += 1
     }
-    c as f64
+    return c as f64
   }
 
   /// The 32-bit integer product of `a` and `b` (C-like wrapping).
@@ -224,7 +224,7 @@ class Math {
     const lo = (x & 0xFFFF) * y
     const hi = (((x >> 16) * y) & 0xFFFF) << 16
     const r = (lo + hi) & 0xFFFFFFFF
-    (if (r >= 0x80000000) r - 0x100000000 else r) as f64
+    return (if (r >= 0x80000000) r - 0x100000000 else r) as f64
   }
 
   /// ToUint32 of ECMAScript.
@@ -233,6 +233,6 @@ class Math {
     const t = __math(15, x, 0.0)
     const m = __math(26, t, 4294967296.0)
     const r = (if (m < 0.0) m + 4294967296.0 else m) as int
-    r
+    return r
   }
 }

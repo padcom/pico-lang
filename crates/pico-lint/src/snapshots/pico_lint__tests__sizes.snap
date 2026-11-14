@@ -1,0 +1,12 @@
+---
+source: crates/pico-lint/src/tests.rs
+assertion_line: 376
+expression: "run(\"sizes\",\nr#\"{ \"naming\": false, \"unused\": false, \"maxParams\": true, \"maxDepth\": true, \"maxLines\": 5, \"maxNestedCallbacks\": true, \"maxStatementsPerLine\": true, \"maxLen\": { \"max\": 80 } }\"#,\nSIZES, &[])"
+---
+1:10 W0007 `many` has 5 parameters (the maximum is 4) (group related parameters in a struct)
+2:10 W0009 `deep` has 9 lines (the maximum is 5) (split it into smaller functions)
+6:7 W0008 blocks are nested 3 deep (the maximum is 2) (move the inner part into a function of its own, or return early)
+11:67 W0010 callbacks are nested 3 deep (the maximum is 2) (give the inner callback a name and declare it outside, or use `await`)
+11:81 W0012 this line is 90 characters long (the maximum is 80) (break the line)
+12:27 W0011 this line has 3 statements (the maximum is 2) (put each statement on a line of its own)
+13:81 W0012 this line is 95 characters long (the maximum is 80) (break the line)

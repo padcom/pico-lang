@@ -110,7 +110,7 @@ class TextDecoder {
       this.pending = []
       throw new TypeError(`The encoded data was not valid utf-8 (at byte ${start + at})`)
     }
-    text
+    return text
   }
 }
 

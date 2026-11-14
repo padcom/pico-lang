@@ -47,6 +47,64 @@ lints! {
     LINT_COMPLEXITY = 3: "complexity": "a function's cyclomatic complexity is above the maximum",
     LINT_BLANK_LINE = 4: "blankLines": "a blank line is missing before a statement or declaration",
     LINT_DOCS = 5: "docs": "an exported declaration has no doc comment",
+    LINT_EXPLICIT_RETURN = 6: "explicitReturn": "a function's result is a simple value without `return`",
+    LINT_MAX_PARAMS = 7: "maxParams": "a function has more parameters than the maximum",
+    LINT_MAX_DEPTH = 8: "maxDepth": "blocks are nested deeper than the maximum",
+    LINT_MAX_LINES = 9: "maxLines": "a function has more lines than the maximum",
+    LINT_MAX_NESTED_CALLBACKS = 10: "maxNestedCallbacks": "callbacks are nested deeper than the maximum",
+    LINT_MAX_STATEMENTS_PER_LINE = 11: "maxStatementsPerLine": "a line has more statements than the maximum",
+    LINT_MAX_LEN = 12: "maxLen": "a line is longer than the maximum",
+    LINT_SHADOW = 13: "shadow": "a declaration hides a variable of an enclosing scope",
+    LINT_UNUSED_EXPRESSIONS = 14: "unusedExpressions": "an expression's value is dropped and it has no effect",
+    LINT_UNREACHABLE = 15: "unreachable": "code after `return`, `throw`, `break` or `continue` never runs",
+    LINT_SELF_COMPARE = 16: "selfCompare": "a value is compared with itself",
+    LINT_SELF_ASSIGN = 17: "selfAssign": "a variable is assigned to itself",
+    LINT_CONSTANT_BINARY = 18: "constantBinary": "an operation's result doesn't depend on its operands",
+    LINT_UNSAFE_FINALLY = 19: "unsafeFinally": "`finally` exits with `return`, `throw`, `break` or `continue`",
+    LINT_REQUIRE_YIELD = 20: "requireYield": "a generator has no `yield`",
+    LINT_FOR_DIRECTION = 21: "forDirection": "a `for` loop's update moves its counter away from the condition",
+    LINT_EMPTY_BLOCK = 22: "emptyBlock": "a block is empty",
+    LINT_DUPE_ELSE_IF = 23: "dupeElseIf": "an `else if` repeats an earlier condition",
+    LINT_USELESS_CATCH = 24: "uselessCatch": "a `catch` only rethrows what it caught",
+    LINT_TEMPLATE_IN_STRING = 25: "templateInString": "a plain string contains a `${…}` substitution",
+    LINT_LOOP_FUNC = 26: "loopFunc": "a closure in a loop captures a variable the loop changes",
+    LINT_FLOATING_PROMISE = 27: "floatingPromise": "a promise is dropped without `await` or `catch`",
+    LINT_AWAIT_IN_LOOP = 28: "awaitInLoop": "`await` inside a loop",
+    LINT_REQUIRE_AWAIT = 29: "requireAwait": "an `async` function has no `await`",
+    LINT_PREFER_AWAIT = 31: "preferAwait": "`then`/`catch`/`finally` or a callback where `await` would do",
+    LINT_PROMISE_RETURN_WRAP = 32: "promiseReturnWrap": "a promise callback wraps its result in `Promise.resolve`/`reject`",
+    LINT_PROMISE_PARAM_NAMES = 33: "promiseParamNames": "a promise executor's parameters aren't `resolve` and `reject`",
+    LINT_PREFER_CONST = 34: "preferConst": "a `let` is never reassigned",
+    LINT_OBJECT_SHORTHAND = 35: "objectShorthand": "an object literal field repeats its name (`x: x`)",
+    LINT_USELESS_RENAME = 36: "uselessRename": "a destructuring, import or export renames a name to itself",
+    LINT_OPERATOR_ASSIGNMENT = 37: "operatorAssignment": "`x = x op y` where `x op= y` would do",
+    LINT_PREFER_TEMPLATE = 38: "preferTemplate": "a string is built with `+` where a template would do",
+    LINT_USELESS_CONCAT = 39: "uselessConcat": "two string literals are joined with `+`",
+    LINT_ARROW_BODY_STYLE = 40: "arrowBodyStyle": "an arrow function's block body holds a single expression",
+    LINT_PREFER_ARROW_CALLBACK = 41: "preferArrowCallback": "a `function` expression is passed as a callback",
+    LINT_FUNC_STYLE = 42: "funcStyle": "a `function` expression is assigned to a variable",
+    LINT_LONELY_IF = 43: "lonelyIf": "an `else` block holds only an `if`",
+    LINT_LONE_BLOCKS = 44: "loneBlocks": "a block statement scopes nothing",
+    LINT_USELESS_RETURN = 45: "uselessReturn": "a `return` at the end of a function does nothing",
+    LINT_USELESS_CONSTRUCTOR = 46: "uselessConstructor": "a constructor does nothing the default one wouldn't",
+    LINT_PREFER_DESTRUCTURING = 47: "preferDestructuring": "a variable is initialized from a field of the same name",
+    LINT_PREFER_EXPONENTIATION = 48: "preferExponentiation": "`Math.pow` where `**` would do",
+    LINT_YODA = 49: "yoda": "a comparison puts the literal first",
+    LINT_GROUPED_ACCESSORS = 50: "groupedAccessors": "a getter and its setter aren't next to each other, getter first",
+    LINT_CURLY = 51: "curly": "a body without braces doesn't end on its statement's line",
+    LINT_EXTRA_PARENS = 52: "extraParens": "parentheses that change nothing",
+    LINT_MIXED_OPERATORS = 53: "mixedOperators": "operators of different precedence are mixed without parentheses",
+    LINT_COMMA_DANGLE = 54: "commaDangle": "a trailing comma is missing in a multi-line list or present in a one-line list",
+    LINT_BRACE_STYLE = 55: "braceStyle": "braces aren't placed in the one true brace style",
+    LINT_OPERATOR_LINEBREAK = 56: "operatorLinebreak": "a line breaks after an operator instead of before it",
+    LINT_MULTILINE_TERNARY = 57: "multilineTernary": "a multi-line conditional expression doesn't put each part on its own line",
+    LINT_SPACED_COMMENT = 58: "spacedComment": "a comment doesn't start with a space",
+    LINT_EXTRA_SEMI = 59: "extraSemi": "a semicolon that changes nothing",
+    LINT_QUOTES = 60: "quotes": "a string uses the other kind of quotes",
+    LINT_DOC_TAGS = 61: "docTags": "a doc comment's tags don't match the declaration",
+    LINT_DOC_FORMAT = 62: "docFormat": "a doc comment's layout is off",
+    LINT_UNDERSCORE_DANGLE = 63: "underscoreDangle": "a used name starts or ends with `_`",
+    LINT_PREFER_NAMED_CAPTURE_GROUP = 64: "preferNamedCaptureGroup": "a regex has an unnamed capture group",
 }
 
 impl fmt::Debug for Code {
@@ -179,6 +237,11 @@ pub fn parse(s: &str) -> Option<Code> {
     let n: u16 = digits.parse().ok()?;
     let code = if warning { Code::warning(n) } else { Code(n) };
     describe(code).map(|_| code)
+}
+
+/// The code of lint rule `rule` (its name in `project.json`'s `"lint"`).
+pub fn lint_code(rule: &str) -> Option<Code> {
+    LINTS.iter().find(|(_, r, _)| *r == rule).map(|(c, ..)| *c)
 }
 
 pub fn describe(code: Code) -> Option<&'static str> {

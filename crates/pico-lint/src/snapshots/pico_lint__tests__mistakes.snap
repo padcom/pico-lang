@@ -1,0 +1,21 @@
+---
+source: crates/pico-lint/src/tests.rs
+assertion_line: 477
+expression: "run(\"mistakes\",\nr#\"{ \"naming\": false, \"unused\": false, \"shadow\": true, \"unusedExpressions\": true, \"unreachable\": true, \"selfCompare\": true, \"selfAssign\": true, \"constantBinary\": true, \"unsafeFinally\": true, \"requireYield\": true, \"forDirection\": true, \"emptyBlock\": true, \"dupeElseIf\": true, \"uselessCatch\": true, \"templateInString\": true, \"loopFunc\": true, \"underscoreDangle\": true, \"preferNamedCaptureGroup\": true }\"#,\nMISTAKES, &[])"
+---
+2:16 W0013 `limit` hides the constant `limit` declared on line 1 (give it a name of its own)
+3:3 W0014 an operation whose value is dropped does nothing (remove it, or use its value)
+6:5 W0015 this code never runs (remove it, or move it before the statement that leaves)
+8:13 W0025 this plain string contains `${…}`, which only a template substitutes (use a template: `…`)
+11:3 W0017 this assigns a value to itself (remove it, or assign what you meant)
+12:7 W0016 this compares a value with itself (compare it with something else)
+15:69 W0023 this condition was already tested earlier in the chain (remove the branch, or fix the condition)
+16:27 W0021 the update moves `i` away from the loop's end (count the other way, or fix the condition)
+17:16 W0022 this block is empty (remove it, or put a comment inside saying why it's empty)
+20:11 W0020 this generator never yields (yield its values, or make it an ordinary function)
+22:20 W0024 this `catch` only rethrows what it caught (remove it: the error passes through without it)
+22:52 W0019 this leaves a `finally` block, replacing the `try`'s result or error (move it out of the `finally` block)
+24:29 W0018 the left side of `??` can't be null, so the right side is never used (remove the right side)
+28:12 W0026 this closure captures `k`, which changes while the loop runs (copy the value into a `const` inside the loop and capture that)
+31:7 W0063 `_hidden` is used, but a leading or trailing `_` marks a name as unused (drop the `_`)
+37:12 W0064 this regex has an unnamed capture group (name it, `(?<name>…)`, or don't capture, `(?:…)`)

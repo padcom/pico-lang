@@ -23,7 +23,7 @@ class JSON {
     if (r.failed) {
       throw new JsonError(r.message)
     }
-    v
+    return v
   }
 
   /// `value` as JSON text: with no spaces, or with `indent` spaces per level and one member or
@@ -36,8 +36,8 @@ class JSON {
   }
 }
 
-function __jsonRead<T>(r: __JsonReader): T { panic("JSON reader wasn't generated") }
-function __jsonWrite<T>(w: __JsonWriter, value: T): void { panic("JSON writer wasn't generated") }
+function __jsonRead<T>(_r: __JsonReader): T { panic("JSON reader wasn't generated") }
+function __jsonWrite<T>(_w: __JsonWriter, _value: T): void { panic("JSON writer wasn't generated") }
 
 /// Reads JSON text for generated parsers. Character codes; `-1` is the end of the text.
 class __JsonReader {
@@ -59,7 +59,7 @@ class __JsonReader {
   code(i: int): int { if (i < len) (text[i] as u32) as int else -1 }
 
   /// Whether `lit` comes next.
-  has(lit: string): bool { pos + lit.length <= len && __matchesAt(text, lit, pos) }
+  has(lit: string): bool { return pos + lit.length <= len && __matchesAt(text, lit, pos) }
 
   ws() {
     while (pos < len) {
@@ -85,7 +85,7 @@ class __JsonReader {
       }
       i += 1
     }
-    `${line}:${col}`
+    return `${line}:${col}`
   }
 
   prefix(): string {
@@ -166,7 +166,7 @@ class __JsonReader {
       pos += 4
       return true
     }
-    false
+    return false
   }
 
   public readBool(type: string): bool {
@@ -183,7 +183,7 @@ class __JsonReader {
       return false
     }
     mismatch(type)
-    false
+    return false
   }
 
   public readString(type: string): string {
@@ -266,7 +266,7 @@ class __JsonReader {
         return ""
       }
     }
-    out
+    return out
   }
 
   hex4(): int {
@@ -286,7 +286,7 @@ class __JsonReader {
       pos += 1
       k += 1
     }
-    v
+    return v
   }
 
   public readChar(type: string): char {
@@ -298,7 +298,7 @@ class __JsonReader {
       fail(`expected ${type}, got ${__jsonQuote(s)}`)
       return ' '
     }
-    s[0]
+    return s[0]
   }
 
   /// A JSON number's text at the current position (consumed), or `null`.
@@ -385,7 +385,7 @@ class __JsonReader {
       const d = ((c as u32) as int) - 48
       v = if (negative) v * 10 - d else v * 10 + d
     }
-    v
+    return v
   }
 
   public readU64(type: string): u64 {
@@ -408,7 +408,7 @@ class __JsonReader {
     for (const c of t) {
       v = v * 10u64 + (((c as u32) - 48u32) as u64)
     }
-    v
+    return v
   }
 
   /// Starts reading an array (`false` if it isn't one).
@@ -423,7 +423,7 @@ class __JsonReader {
     }
     pos += 1
     firsts.push(true)
-    true
+    return true
   }
 
   /// Whether the open array has another element (moving to it).
@@ -445,7 +445,7 @@ class __JsonReader {
       syntax("expected ',' or ']'")
       return false
     }
-    true
+    return true
   }
 
   /// Starts reading an object (`false` if it isn't one).
@@ -460,7 +460,7 @@ class __JsonReader {
     }
     pos += 1
     firsts.push(true)
-    true
+    return true
   }
 
   /// The open object's next key (its value comes next), or `null` at its end.
@@ -494,7 +494,7 @@ class __JsonReader {
       return null
     }
     pos += 1
-    key
+    return key
   }
 
   /// Skips any value (checking that it's JSON).
@@ -558,7 +558,7 @@ function __jsonQuote(s: string): string {
       else if (n < 32u32) `\\u${n:04x}`
       else `${c}`)
   }
-  out + "\""
+  return out + "\""
 }
 
 /// Compact JSON `text` (as the writer makes it) laid out with `indent` spaces per level: each

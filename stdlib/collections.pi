@@ -16,9 +16,9 @@ export class Deque<T> {
   }
 
   /// The number of elements.
-  public get length(): int { this.front.length + this.back.length }
+  public get length(): int { return this.front.length + this.back.length }
   /// Whether there are no elements.
-  public get isEmpty(): bool { this.front.length == 0 && this.back.length == 0 }
+  public get isEmpty(): bool { return this.front.length == 0 && this.back.length == 0 }
 
   /// Adds `x` at the back (also `push`).
   public pushBack(x: T): void { this.back.push(x) }
@@ -101,7 +101,7 @@ export class Deque<T> {
       i -= 1
     }
     for (const x of this.back) r.push(x)
-    r
+    return r
   }
 
   /// `for (const x of deque)`: front to back, over a snapshot (changes during the loop don't show).
@@ -121,9 +121,9 @@ export class PriorityQueue<T> {
   }
 
   /// The number of elements.
-  public get size(): int { this.heap.length }
+  public get size(): int { return this.heap.length }
   /// Whether there are no elements.
-  public get isEmpty(): bool { this.heap.length == 0 }
+  public get isEmpty(): bool { return this.heap.length == 0 }
 
   /// Adds `x` in O(log n).
   public push(x: T): void {
@@ -157,7 +157,7 @@ export class PriorityQueue<T> {
       this.heap[0] = last
       this.siftDown(0)
     }
-    top
+    return top
   }
 
   siftDown(start: int): void {
@@ -190,7 +190,7 @@ export class PriorityQueue<T> {
       r.push(copy.heap[0])
       copy.pop()
     }
-    r
+    return r
   }
 
   /// The elements in heap order (not sorted).
@@ -244,7 +244,7 @@ function __rotateRight<K, V>(n: __TreeNode<K, V>): __TreeNode<K, V> {
   l.right = n
   __fix(n)
   __fix(l)
-  l
+  return l
 }
 
 function __rotateLeft<K, V>(n: __TreeNode<K, V>): __TreeNode<K, V> {
@@ -253,7 +253,7 @@ function __rotateLeft<K, V>(n: __TreeNode<K, V>): __TreeNode<K, V> {
   r.left = n
   __fix(n)
   __fix(r)
-  r
+  return r
 }
 
 /// `n` rebalanced after one of its subtrees changed height by one.
@@ -270,7 +270,7 @@ function __balance<K, V>(n: __TreeNode<K, V>): __TreeNode<K, V> {
     if (__height(r.right) < __height(r.left)) n.right = __rotateRight(r)
     return __rotateLeft(n)
   }
-  n
+  return n
 }
 
 /// A map whose keys stay sorted (by `compareTo`), as a balanced (AVL) tree: lookups, inserts
@@ -283,9 +283,9 @@ export class SortedMap<K extends Comparable<K>, V> {
   constructor() {}
 
   /// The number of entries.
-  public get size(): int { this.count }
+  public get size(): int { return this.count }
   /// Whether there are no entries.
-  public get isEmpty(): bool { this.count == 0 }
+  public get isEmpty(): bool { return this.count == 0 }
 
   node(k: K): __TreeNode<K, V>? {
     let n = this.root
@@ -294,7 +294,7 @@ export class SortedMap<K extends Comparable<K>, V> {
       if (c == 0) return n
       n = if (c < 0) n.left else n.right
     }
-    null
+    return null
   }
 
   /// The value for `k`, or `null` if there's none. O(log n).
@@ -304,7 +304,7 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// Whether the map has an entry for `k`. O(log n).
-  public has(k: K): bool { this.node(k) != null }
+  public has(k: K): bool { return this.node(k) != null }
 
   insert(n: __TreeNode<K, V>?, k: K, v: V): __TreeNode<K, V> {
     if (n == null) {
@@ -366,7 +366,7 @@ export class SortedMap<K extends Comparable<K>, V> {
     const found: bool[] = []
     this.root = this.remove(this.root, k, found)
     if (found.length > 0) this.count -= 1
-    found.length > 0
+    return found.length > 0
   }
 
   /// Removes every entry.
@@ -385,7 +385,7 @@ export class SortedMap<K extends Comparable<K>, V> {
       n = next
       next = n.left
     }
-    n.key
+    return n.key
   }
 
   /// The largest key, or `null` when empty.
@@ -398,7 +398,7 @@ export class SortedMap<K extends Comparable<K>, V> {
       n = next
       next = n.right
     }
-    n.key
+    return n.key
   }
 
   /// The largest key `<= k`, or `null`.
@@ -416,7 +416,7 @@ export class SortedMap<K extends Comparable<K>, V> {
         n = at.right
       }
     }
-    best
+    return best
   }
 
   /// The smallest key `>= k`, or `null`.
@@ -434,7 +434,7 @@ export class SortedMap<K extends Comparable<K>, V> {
         n = at.left
       }
     }
-    best
+    return best
   }
 
   /// The entries of `n` with `lo <= key < hi` (no bound when `null`), in order, onto `out`.
@@ -451,28 +451,28 @@ export class SortedMap<K extends Comparable<K>, V> {
   public range(lo: K, hi: K): [K, V][] {
     const r: [K, V][] = []
     this.walk(this.root, lo, hi, r)
-    r
+    return r
   }
 
   /// The `[key, value]` pairs in key order.
   public entries(): [K, V][] {
     const r: [K, V][] = []
     this.walk(this.root, null, null, r)
-    r
+    return r
   }
 
   /// The keys in order (a new array).
   public keys(): K[] {
     const r: K[] = []
     for (const [k, _] of this.entries()) r.push(k)
-    r
+    return r
   }
 
   /// The values in key order (a new array).
   public values(): V[] {
     const r: V[] = []
     for (const [_, v] of this.entries()) r.push(v)
-    r
+    return r
   }
 
   /// Calls `f(value, key)` for each entry in key order.
@@ -493,9 +493,9 @@ export class SortedSet<T extends Comparable<T>> {
   constructor() {}
 
   /// How many values the set has.
-  public get size(): int { this.map.size }
+  public get size(): int { return this.map.size }
   /// Whether it's empty.
-  public get isEmpty(): bool { this.map.isEmpty }
+  public get isEmpty(): bool { return this.map.isEmpty }
   /// Whether `v` is in the set.
   public has(v: T): bool { this.map.has(v) }
   /// Adds `v` (nothing changes if it's there); the set, for chaining.
@@ -519,7 +519,7 @@ export class SortedSet<T extends Comparable<T>> {
   public range(lo: T, hi: T): T[] {
     const r: T[] = []
     for (const [k, _] of this.map.range(lo, hi)) r.push(k)
-    r
+    return r
   }
   /// The values in order (a new array).
   public values(): T[] { this.map.keys() }
@@ -536,9 +536,9 @@ export class MultiMap<K extends Hashable<K>, V> {
   constructor() {}
 
   /// How many values there are, over all keys.
-  public get size(): int { this.count }
+  public get size(): int { return this.count }
   /// How many keys have values.
-  public get keyCount(): int { this.map.size }
+  public get keyCount(): int { return this.map.size }
   /// Adds `v` to `k`'s values; the map, for chaining.
   public add(k: K, v: V): MultiMap<K, V> {
     const vs = this.map.get(k)
@@ -563,7 +563,7 @@ export class MultiMap<K extends Hashable<K>, V> {
     if (vs == null) return 0
     this.map.delete(k)
     this.count -= vs.length
-    vs.length
+    return vs.length
   }
   /// Removes everything.
   public clear(): void {
@@ -578,7 +578,7 @@ export class MultiMap<K extends Hashable<K>, V> {
     for (const [k, vs] of this.map) {
       for (const v of vs) r.push([k, v])
     }
-    r
+    return r
   }
   /// `for (const [k, v] of multi)`: every pair, key by key.
   public iterator(): Iterator<[K, V]> { this.entries().iterator() }
@@ -603,9 +603,9 @@ export class LinkedList<T> {
   constructor() {}
 
   /// How many elements it has.
-  public get size(): int { this.count }
+  public get size(): int { return this.count }
   /// Whether it's empty.
-  public get isEmpty(): bool { this.count == 0 }
+  public get isEmpty(): bool { return this.count == 0 }
 
   /// Adds `v` at the end.
   public push(v: T): void {
@@ -639,7 +639,7 @@ export class LinkedList<T> {
     const p = t.prev
     if (p == null) this.head = null else p.next = null
     this.count -= 1
-    t.value
+    return t.value
   }
 
   /// Removes the first element and returns it; `null` when empty.
@@ -650,7 +650,7 @@ export class LinkedList<T> {
     const n = h.next
     if (n == null) this.tail = null else n.prev = null
     this.count -= 1
-    h.value
+    return h.value
   }
 
   /// The first element, or `null` when empty.
@@ -680,7 +680,7 @@ export class LinkedList<T> {
       r.push(n.value)
       n = n.next
     }
-    r
+    return r
   }
 
   /// `for (const v of list)`: in order.
@@ -703,7 +703,7 @@ export class LruCache<K extends Hashable<K>, V> {
   }
 
   /// How many entries it has.
-  public get size(): int { this.map.size }
+  public get size(): int { return this.map.size }
 
   unlink(n: __ListNode<[K, V]>): void {
     const p = n.prev
@@ -727,7 +727,7 @@ export class LruCache<K extends Hashable<K>, V> {
     if (n == null) return null
     this.unlink(n)
     this.front(n)
-    n.value[1]
+    return n.value[1]
   }
 
   /// `k`'s value without counting as a use, or `null`.
@@ -768,7 +768,7 @@ export class LruCache<K extends Hashable<K>, V> {
     if (n == null) return false
     this.unlink(n)
     this.map.delete(k)
-    true
+    return true
   }
 
   /// Removes every entry.
@@ -786,7 +786,7 @@ export class LruCache<K extends Hashable<K>, V> {
       r.push(n.value[0])
       n = n.next
     }
-    r
+    return r
   }
 }
 
@@ -808,7 +808,7 @@ export class BitSet {
   public has(i: int): bool {
     BitSet.__check(i)
     const w = i >> 5
-    w < this.words.length && ((this.words[w] >> (i & 31)) & 1) == 1
+    return w < this.words.length && ((this.words[w] >> (i & 31)) & 1) == 1
   }
 
   /// Sets bit `i` (grows as needed).
@@ -825,7 +825,7 @@ export class BitSet {
     if (!this.has(i)) return false
     const w = i >> 5
     this.words[w] = this.words[w] & ~(1 << (i & 31)) & 0xFFFFFFFF
-    true
+    return true
   }
 
   /// Sets `i` when `on`, else clears it.
@@ -853,11 +853,11 @@ export class BitSet {
         n += 1
       }
     }
-    n
+    return n
   }
 
   /// Whether no bit is set.
-  public get isEmpty(): bool { this.size == 0 }
+  public get isEmpty(): bool { return this.size == 0 }
 
   /// One more than the highest set bit (0 when empty).
   public get length(): int {
@@ -871,7 +871,7 @@ export class BitSet {
       }
       w -= 1
     }
-    0
+    return 0
   }
 
   static __combine(a: BitSet, b: BitSet, op: int): BitSet {
@@ -882,7 +882,7 @@ export class BitSet {
       const y = if (i < b.words.length) b.words[i] else 0
       r.words.push(if (op == 0) x & y else if (op == 1) x | y else if (op == 2) x ^ y else x & ~y & 0xFFFFFFFF)
     }
-    r
+    return r
   }
 
   /// A new set: the bits in both this set and `o`.
@@ -902,7 +902,7 @@ export class BitSet {
       const y = if (i < o.words.length) o.words[i] else 0
       if (x != y) return false
     }
-    true
+    return true
   }
 
   /// The set bits, ascending.
@@ -915,12 +915,12 @@ export class BitSet {
         if (((x >> b) & 1) == 1) r.push(w * 32 + b)
       }
     }
-    r
+    return r
   }
 
   /// `for (const i of bits)`: the set bits, ascending.
   public iterator(): Iterator<int> { this.toArray().iterator() }
 
   /// `{1, 5, 64}`
-  public toString(): string { "{" + this.toArray().join(", ") + "}" }
+  public toString(): string { return "{" + this.toArray().join(", ") + "}" }
 }

@@ -1,8 +1,9 @@
 ---
 source: crates/pico-lint/src/tests.rs
+assertion_line: 232
 expression: all
 ---
-2:10 W0004 a blank line is needed before this function
+2:1 W0004 a blank line is needed after the imports
 3:10 W0004 a blank line is needed before this function
 5:3 W0004 a blank line is needed before this `if`
 12:3 W0004 a blank line is needed before this `match`

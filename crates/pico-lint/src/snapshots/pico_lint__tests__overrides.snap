@@ -1,0 +1,8 @@
+---
+source: crates/pico-lint/src/tests.rs
+assertion_line: 409
+expression: "Config::from_json(Some(&bad)).1.join(\"\\n\")"
+---
+"lint.overrides": each override needs "files": a pattern or a list of them
+"lint.maxLen": must be true, false, a number or { "max": n }
+"lint.quotes": must be true, false or one of single, double

@@ -115,16 +115,16 @@ class __RClass {
         break
       }
     }
-    found != this.neg
+    return found != this.neg
   }
 }
 
 function __rIsWord(c: int): bool {
-  (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || c == 95 || (c >= 97 && c <= 122)
+  return (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || c == 95 || (c >= 97 && c <= 122)
 }
 
 function __rIsLineEnd(c: int): bool {
-  c == 10 || c == 13 || c == 0x2028 || c == 0x2029
+  return c == 10 || c == 13 || c == 0x2028 || c == 0x2029
 }
 
 /// The lowercase form of code point `c` (one code point; others stay).
@@ -185,7 +185,7 @@ class __RParser {
       this.i += 1
       return true
     }
-    false
+    return false
   }
 
   public parse(): __RNode throws SyntaxError {
@@ -209,7 +209,7 @@ class __RParser {
     if (this.maxBackref > this.groups) {
       this.fail("Invalid escape")
     }
-    n
+    return n
   }
 
   alternation(): __RNode throws SyntaxError {
@@ -222,7 +222,7 @@ class __RParser {
     while (this.eat(124)) {
       alt.kids.push(this.sequence())
     }
-    alt
+    return alt
   }
 
   sequence(): __RNode throws SyntaxError {
@@ -275,7 +275,7 @@ class __RParser {
       this.i = save
       return null
     }
-    [min, max]
+    return [min, max]
   }
 
   quantified(): __RNode throws SyntaxError {
@@ -318,7 +318,7 @@ class __RParser {
     r.kids.push(atom)
     r.capFrom = start
     r.capTo = this.groups
-    r
+    return r
   }
 
   atom(): __RNode throws SyntaxError {
@@ -359,7 +359,7 @@ class __RParser {
   lit(c: int): __RNode {
     const n = new __RNode(0)
     n.c = c
-    n
+    return n
   }
 
   group(): __RNode throws SyntaxError {
@@ -404,7 +404,7 @@ class __RParser {
     g.idx = this.groups
     g.kids.push(this.alternation())
     this.close()
-    g
+    return g
   }
 
   close(): void throws SyntaxError {
@@ -419,7 +419,7 @@ class __RParser {
     g.behind = behind
     g.kids.push(this.alternation())
     this.close()
-    g
+    return g
   }
 
   /// `name>` after `(?<` or `\k<`.
@@ -444,7 +444,7 @@ class __RParser {
     if (name.length == 0) {
       this.fail("Invalid capture group name")
     }
-    name
+    return name
   }
 
   hex(count: int): int throws SyntaxError {
@@ -457,7 +457,7 @@ class __RParser {
       v = v * 16 + d
       this.i += 1
     }
-    v
+    return v
   }
 
   /// A character escape's code point (after `\`), or -1 for a class escape (`\d`, …) that
@@ -530,7 +530,7 @@ class __RParser {
       return c
     }
     this.fail("Invalid escape")
-    -1
+    return -1
   }
 
   escape(): __RNode throws SyntaxError {
@@ -605,7 +605,7 @@ class __RParser {
     }
     const n = new __RNode(2)
     n.cls = cls
-    n
+    return n
   }
 
   /// One class member: its code point, or -1 for a class escape added to `cls`.
@@ -615,7 +615,7 @@ class __RParser {
     if (c == 92) {
       return this.escapeChar(cls, true)
     }
-    c
+    return c
   }
 }
 
@@ -647,7 +647,7 @@ class __RProgram {
     if (this.op.length > 200000) {
       panic("regular expression too large")
     }
-    this.op.length - 1
+    return this.op.length - 1
   }
 
   public compile(n: __RNode): void {
@@ -803,7 +803,7 @@ class __RMachine {
   }
 
   wordAt(i: int): bool {
-    i >= 0 && i < this.input.length && __rIsWord(this.input[i])
+    return i >= 0 && i < this.input.length && __rIsWord(this.input[i])
   }
 
   classHas(cls: __RClass, c: int): bool {
@@ -815,7 +815,7 @@ class __RMachine {
       const up = __rUpper(c)
       return (lo != c && cls.has(lo)) || (up != c && cls.has(up))
     }
-    false
+    return false
   }
 
   /// Whether the program from `pc` matches at `sp` (ending at `this.end`); captures keep
@@ -980,7 +980,7 @@ class __RMachine {
         return true
       }
     }
-    false
+    return false
   }
 }
 
@@ -1007,7 +1007,7 @@ class RegExpMatch {
 
   /// The count of elements: 1 plus the count of capture groups.
   public get length(): int {
-    this.__items.length
+    return this.__items.length
   }
 
   operator [](i: int): string? {
@@ -1016,7 +1016,7 @@ class RegExpMatch {
 
   /// The elements as an array.
   public toArray(): (string?)[] {
-    this.__items
+    return this.__items
   }
 
   /// `for (const s of m)`.
@@ -1152,7 +1152,7 @@ class RegExp {
         return m.caps
       }
     }
-    null
+    return null
   }
 
   /// A match from capture positions.
@@ -1195,12 +1195,12 @@ class RegExp {
 
   /// Whether `s` has a match (moving `lastIndex` as `exec` does).
   public test(s: string): bool {
-    this.exec(s) != null
+    return this.exec(s) != null
   }
 
   /// `/source/flags`.
   public toString(): string {
-    `/${this.source}/${this.flags}`
+    return `/${this.source}/${this.flags}`
   }
 }
 
@@ -1210,7 +1210,7 @@ function __rChars(s: string): int[] {
   for (const c of s) {
     cs.push(c as u32 as int)
   }
-  cs
+  return cs
 }
 
 /// `replacement` with `$&`, `$1`…`$99`, `$<name>`, `` $` ``, `$'` and `$$` filled in.
@@ -1283,7 +1283,7 @@ function __rExpand(replacement: string, m: RegExpMatch, s: string): string {
       i += 1
     }
   }
-  out
+  return out
 }
 
 /// A function giving a match's replacement.
@@ -1321,7 +1321,7 @@ function __rReplace(s: string, re: RegExp, rep: __Replacement, all: bool): strin
   if (re.global || re.sticky) {
     re.lastIndex = 0
   }
-  out + s.slice(last)
+  return out + s.slice(last)
 }
 
 /// Every match of `re` in `s`.
@@ -1337,7 +1337,7 @@ function __rMatchAll(s: string, re: RegExp): RegExpMatch[] {
     out.push(re.__match(s, caps))
     from = if (caps[1] == caps[0]) caps[1] + 1 else caps[1]
   }
-  out
+  return out
 }
 
 /// `s.split(re)`: the pieces between matches, with captured groups spliced in.
@@ -1378,5 +1378,5 @@ function __rSplit(s: string, re: RegExp, limit: int): string[] {
     q = if (e == q) q + 1 else e
   }
   out.push(s.slice(last))
-  out
+  return out
 }

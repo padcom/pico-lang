@@ -20,7 +20,7 @@ class __Type {
     public kind: string,
   ) {}
   /// Its `name`.
-  public toString(): string { name }
+  public toString(): string { return name }
 }
 
 /// A decorator on a declaration: its name and each argument's source text
@@ -64,7 +64,7 @@ class __TypeInfo<T> {
   public field(name: string): __Field<T>? { fields.find((f: __Field<T>) => f.name == name) }
 
   /// Its `name`.
-  public toString(): string { name }
+  public toString(): string { return name }
 }
 
 /// A field of a `T` (or of the runtime class described). `get` and `set` name the field's type
@@ -94,17 +94,17 @@ class __Field<T> {
   public show(obj: T): string { __reflectShow<T>(obj, id) }
 
   /// As declared: `age: int`.
-  public toString(): string { `${name}: ${type.name}` }
+  public toString(): string { return `${name}: ${type.name}` }
 }
 
 function __reflectType<T>(): __TypeInfo<T> { panic("reflection metadata wasn't generated") }
-function __reflectTypeOf<T>(value: T): __TypeInfo<T> {
+function __reflectTypeOf<T>(_value: T): __TypeInfo<T> {
   panic("reflection metadata wasn't generated")
 }
-function __reflectGet<T, V>(obj: T, id: int): V { panic("reflection accessor wasn't generated") }
-function __reflectSet<T, V>(obj: T, id: int, value: V): void {
+function __reflectGet<T, V>(_obj: T, _id: int): V { panic("reflection accessor wasn't generated") }
+function __reflectSet<T, V>(_obj: T, _id: int, _value: V): void {
   panic("reflection accessor wasn't generated")
 }
-function __reflectShow<T>(obj: T, id: int): string {
+function __reflectShow<T>(_obj: T, _id: int): string {
   panic("reflection accessor wasn't generated")
 }

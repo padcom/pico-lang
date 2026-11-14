@@ -69,7 +69,7 @@ function __hashId(a: string): int {
   if (a == "SHA3-384") return 6
   if (a == "SHA3-512") return 7
   if (a == "SHA-224") return 8
-  0
+  return 0
 }
 
 /// The named curves: `P-256`, `P-384` (ECDSA and ECDH) and `X25519` (ECDH).
@@ -298,7 +298,7 @@ struct SubtleCrypto {
     }
     __need(name == "ECDSA" && key.type == "public", "ECDSA verification needs a public ECDSA key")
     const r = __cryptoOp(1000 + __curveId(key.algorithm.namedCurve ?? ""), [__u32(__hashId(__hashOf(a, null))), key.__bytes, data, signature])
-    r.get(0) == 1
+    return r.get(0) == 1
   }
 
   /// AES-GCM (`{ name: "AES-GCM", iv, additionalData? }`): ciphertext ‖ 16-byte tag.
@@ -357,7 +357,7 @@ function __unpack(b: Uint8Array): Uint8Array[] {
     out.push(b.slice(at + 4, at + 4 + n))
     at += 4 + n
   }
-  out
+  return out
 }
 
 /// Whether `a` and `b` hold the same bytes, in time that depends only on their length.
@@ -365,7 +365,7 @@ function __timingSafeEqual(a: Uint8Array, b: Uint8Array): bool {
   if (a.length != b.length) return false
   let d = 0
   for (let i = 0; i < a.length; i++) d = d | (a.get(i) ^ b.get(i))
-  d == 0
+  return d == 0
 }
 
 /// The `crypto` global (Web Crypto): random values, UUIDs and `subtle`. A struct, so it
@@ -380,7 +380,7 @@ struct Crypto {
     if (array.length > 65536) panic("crypto.getRandomValues: more than 65536 bytes")
     const r = __randomBytes(array.length)
     for (let i = 0; i < array.length; i++) array.set(i, r.get(i))
-    array
+    return array
   }
 
   /// A random version-4 UUID (`"1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"`).
@@ -389,7 +389,7 @@ struct Crypto {
     b.set(6, (b.get(6) & 0x0F) | 0x40)
     b.set(8, (b.get(8) & 0x3F) | 0x80)
     const h = new Hex().encode(b)
-    `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
   }
 }
 

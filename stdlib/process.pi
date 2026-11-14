@@ -42,7 +42,7 @@ export class ProcessError extends Error {
 function __text(job: int): string {
   const text = __io_text(job)
   __io(104, job, 0, 0, "", "");
-  text
+  return text
 }
 
 function __fields(text: string): string[] {
@@ -55,7 +55,7 @@ function __fields(text: string): string[] {
   }
   // (Every field ends with a NUL, so the last part is empty.)
   out.pop()
-  out
+  return out
 }
 
 /// The program's arguments (without the program itself).
@@ -88,7 +88,7 @@ export class Env {
 
   /// Whether the variable is set (to anything, `""` too).
   public has(name: string): bool {
-    this.get(name) != null
+    return this.get(name) != null
   }
 
   /// Sets the variable to `value` for this process and the commands it starts later.
@@ -110,7 +110,7 @@ export class Env {
         m.set(line.slice(0, i), line.slice(i + 1))
       }
     }
-    m
+    return m
   }
 }
 
@@ -137,7 +137,7 @@ function __pjob<T>(op: int, a: int, b: int, c: int, t: string, name: string,
       p.__resolve(read({ r, r2, job }))
     }
   })
-  p
+  return p
 }
 
 /// The bytes of a view as a buffer handle starting at its first byte.
@@ -177,7 +177,7 @@ export class Reader {
     }
     const s = new ReadableStream<Uint8Array>({ pullAsync: (c) => __pullReader(this, c) })
     this.rs = s
-    s
+    return s
   }
 
   start(): void {
@@ -219,7 +219,7 @@ export class Reader {
       }
     })
     this.job = __lastJob
-    p
+    return p
   }
 
   /// Stops reading (#100): a pending `read()` settles with `null`, as at the end, and so do later
@@ -256,7 +256,7 @@ export class Reader {
     }
     const p = new Promise<string, IoError>()
     p.__resolve("")
-    p
+    return p
   }
 
   /// The rest of the stream as text (UTF-8; anything else rejects with kind `"InvalidData"`).
@@ -324,11 +324,11 @@ export class Writer {
       return w
     }
     const s = new WritableStream<Uint8Array>({
-      writeAsync: (chunk, c) => this.write(chunk).then<void>((n: int) => {}),
+      writeAsync: (chunk, _c) => this.write(chunk).then<void>((_n: int) => {}),
       close: () => this.close(),
     })
     this.ws = s
-    s
+    return s
   }
 
   add(w: __Write): Promise<int, IoError> {
@@ -342,7 +342,7 @@ export class Writer {
     }
     queue.push(w)
     pump()
-    w.p
+    return w.p
   }
 
   /// Writes all of `data`; the count written.
@@ -503,7 +503,7 @@ export class Child {
       }
       p.__resolve(status)
     })
-    p
+    return p
   }
 
   /// Everything the child writes to its piped `stdout` and `stderr` (as text), and how it
@@ -521,7 +521,7 @@ export class Child {
       throw new ProcessError(program, `the output of ${program} is not valid UTF-8`, "InvalidData")
     }
     const res: Output = { success: s.success, code: s.code, signal: s.signal, stdout: o, stderr: e }
-    res
+    return res
   }
 
   /// Sends the child a signal (`SIGTERM` by default; on Windows it's terminated). Nothing

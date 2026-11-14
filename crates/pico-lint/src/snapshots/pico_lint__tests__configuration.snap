@@ -1,8 +1,10 @@
 ---
 source: crates/pico-lint/src/tests.rs
+assertion_line: 356
 expression: "e.join(\"\\n\")"
 ---
 "lint.complexity": the maximum must be a whole number of at least 1
-"lint.blankLines": `before` lists "loop"; it can list if, switch, match, function, method, constructor, getter, setter
+"lint.blankLines": `before` lists "elsewhere"; it can list if, switch, match, function, method, constructor, getter, setter, return, for, while, do, loop, try, block, class, export, import, member
 "lint.docs": must be true or false
-"lint": unknown rule `speed` (the rules: naming, unused, complexity, blankLines, docs)
+"lint": unknown rule `speed` (the rules are listed in spec §14.7)
+"lint": unknown rule `shadows` (did you mean `shadow`?)

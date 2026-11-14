@@ -48,7 +48,7 @@ class __Loop {
     this.seq += 1
     const delay = if (ms > 0) ms else 0
     this.timers.push(new __Timer(id, __clock_ms() + delay, this.seq, f, period))
-    id
+    return id
   }
 
   public clear(id: int): void {
@@ -73,7 +73,7 @@ class __Loop {
     const f = this.microtasks[this.head]
     this.head += 1
     f()
-    true
+    return true
   }
 
   /// A rejection nothing handled once the microtasks are done ends the program, like an
@@ -108,7 +108,7 @@ class __Loop {
       }
       i += 1
     }
-    best
+    return best
   }
 
   /// One step: the next microtask, else the next timer (waiting for it). False when nothing
@@ -174,7 +174,7 @@ class __Loop {
     }
     const f = t.callback
     f()
-    true
+    return true
   }
 }
 
@@ -188,7 +188,7 @@ function __theLoop(): __Loop {
   }
   const made = new __Loop()
   __loop = made
-  made
+  return made
 }
 
 /// Calls `f` after `ms` milliseconds (at the earliest); the id cancels it.

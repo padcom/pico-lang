@@ -1,0 +1,17 @@
+---
+source: crates/pico-lint/src/tests.rs
+expression: "run(\"explicit_return\",\nr#\"{ \"naming\": false, \"unused\": false, \"explicitReturn\": true }\"#, RETURNS,\n&[])"
+---
+4:3 W0006 the function's result is the variable `sum`: return it with `return` (write `return sum`)
+8:3 W0006 the function's result is the variable `m`: return it with `return` (write `return (m)`)
+14:42 W0006 the function's result is an operation: return it with `return` (write `return a + b`)
+17:3 W0006 the function's result is a string: return it with `return` (write `return "one"`)
+20:3 W0006 the function's result is a template: return it with `return` (put `return` before it)
+22:26 W0006 the function's result is a number: return it with `return` (write `return 1`)
+23:25 W0006 the function's result is a boolean: return it with `return` (write `return true`)
+24:26 W0006 the function's result is an array literal: return it with `return` (write `return [1, 2]`)
+25:32 W0006 the function's result is a member read: return it with `return` (write `return p.a`)
+26:34 W0006 the function's result is an element read: return it with `return` (write `return xs[0]`)
+27:31 W0006 the function's result is an operation: return it with `return` (write `return c ? 1 : 2`)
+43:3 W0006 the function's result is the variable `y`: return it with `return` (write `return y`)
+47:29 W0006 the function's result is the variable `n`: return it with `return` (write `return n`)

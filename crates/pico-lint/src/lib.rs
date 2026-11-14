@@ -1,15 +1,25 @@
 //! The pico linter (`pico lint`, spec §14.7): warnings about naming, unused code, complexity,
-//! blank lines and documentation, configured in `project.json`'s `"lint"`.
+//! blank lines, documentation, likely mistakes, simplifications and style, configured in
+//! `project.json`'s `"lint"`.
 //!
 //! The rules read a file's syntax tree (re-parsed from its text, so they see only that file),
-//! and `unused` and `docs` also the checked program. A file with syntax errors isn't linted
+//! and some also the checked program (types, uses). A file with syntax errors isn't linted
 //! (the errors come first); one with other errors is, without what needs the checked program.
 
+mod asyncs;
 mod blank;
 mod complexity;
 pub mod config;
+mod cx;
 mod docs;
+mod doctags;
+mod mistakes;
 mod naming;
+mod returns;
+mod scope;
+mod simplify;
+mod sizes;
+mod style;
 mod unused;
 mod walk;
 
@@ -41,6 +51,16 @@ pub fn lint(checked: &Checked, file: FileId, cfg: &Config) -> Vec<Diagnostic> {
     if cfg.docs {
         docs::check(&module, text, file, checked, &mut out);
     }
+    if cfg.on("explicitReturn").is_some() {
+        returns::check(&module, text, &mut out);
+    }
+    let cx = cx::Cx::new(&module, text, file, checked, cfg);
+    sizes::check(&cx, &mut out);
+    mistakes::check(&cx, &mut out);
+    asyncs::check(&cx, &mut out);
+    simplify::check(&cx, &mut out);
+    style::check(&cx, &mut out);
+    doctags::check(&cx, &mut out);
     out.sort_by_key(|d| d.main_span().map(|s| (s.start, s.end)));
     out
 }
@@ -55,8 +75,9 @@ pub fn entry_file(checked: &Checked) -> FileId {
         .unwrap_or(FileId(0))
 }
 
-/// Checks and lints the file at `path` with `text`, under the configuration of its directory:
-/// the check (its errors, and the source map for rendering) and the warnings.
+/// Checks and lints the file at `path` with `text`, under the configuration of its directory
+/// (`cfg`, with the overrides that match the file applied): the check (its errors, and the
+/// source map for rendering) and the warnings.
 pub fn lint_file(path: &Path, text: &str, cfg: &Config) -> (Checked, Vec<Diagnostic>) {
     let dir = path.parent().unwrap_or(Path::new("."));
     let checked = pico_driver::check_source_with(
@@ -65,7 +86,8 @@ pub fn lint_file(path: &Path, text: &str, cfg: &Config) -> (Checked, Vec<Diagnos
         dir,
         pico_driver::BuildOptions::default(),
     );
-    let warnings = lint(&checked, entry_file(&checked), cfg);
+    let cfg = cfg.for_path(path);
+    let warnings = lint(&checked, entry_file(&checked), &cfg);
     (checked, warnings)
 }
 

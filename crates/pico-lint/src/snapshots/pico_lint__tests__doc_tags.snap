@@ -1,0 +1,22 @@
+---
+source: crates/pico-lint/src/tests.rs
+assertion_line: 651
+expression: "run(\"doctags\",\nr#\"{ \"naming\": false, \"unused\": false, \"docTags\": true, \"docFormat\": true }\"#,\nDOCTAGS, &[])"
+---
+3:4 W0062 one blank line separates a doc comment's description from its tags (leave exactly one blank line before the first tag)
+4:4 W0061 types in doc tags repeat the signature (remove the `{…}`: the declaration has the type)
+5:4 W0061 there's no parameter `c` (fix the name, or remove the tag)
+5:4 W0061 `@param c` has no description (say what the parameter is for)
+6:4 W0061 `@returns` has no description (say what the result is)
+8:10 W0061 parameter `d` has no `@param` (add `@param d …`)
+11:1 W0062 the `*` isn't under the first `*` of `/**` (align it)
+12:1 W0062 a doc comment line has extra indentation after `*` (keep one space after `*`)
+13:1 W0062 a doc comment line starts with more than one `*` (keep one `*`)
+16:4 W0062 one blank line separates a doc comment's description from its tags (leave exactly one blank line before the first tag)
+16:4 W0061 `@custom` isn't a known tag (use a known tag, or describe it in the text)
+18:4 W0061 `@returns` on a function without a result (remove it)
+23:5 W0062 one blank line separates a doc comment's description from its tags (leave exactly one blank line before the first tag)
+26:1 W0062 a multi-line doc comment starts on the line after `/**` (break the line after `/**`)
+27:1 W0062 a multi-line doc comment ends with `*/` on a line of its own (break the line before `*/`)
+28:10 W0061 parameter `x` has no `@param` (add `@param x …`)
+28:10 W0061 the result has no `@returns` (add `@returns …`)

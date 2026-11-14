@@ -13,7 +13,7 @@ function __String_indexOf(s: string, search: string): int {
     }
     i += 1
   }
-  -1
+  return -1
 }
 
 function __matchesAt(s: string, search: string, at: int): bool {
@@ -24,27 +24,27 @@ function __matchesAt(s: string, search: string, at: int): bool {
     }
     k += 1
   }
-  true
+  return true
 }
 
 /// Whether `search` occurs in the string.
 function __String_includes(s: string, search: string): bool {
-  __String_indexOf(s, search) >= 0
+  return __String_indexOf(s, search) >= 0
 }
 
 /// Whether the string starts with `prefix`.
 function __String_startsWith(s: string, prefix: string): bool {
-  prefix.length <= s.length && __matchesAt(s, prefix, 0)
+  return prefix.length <= s.length && __matchesAt(s, prefix, 0)
 }
 
 /// Whether the string ends with `suffix`.
 function __String_endsWith(s: string, suffix: string): bool {
-  suffix.length <= s.length && __matchesAt(s, suffix, s.length - suffix.length)
+  return suffix.length <= s.length && __matchesAt(s, suffix, s.length - suffix.length)
 }
 
 function __isSpace(c: char): bool {
   const n = c as u32
-  n == 32 || (n >= 9 && n <= 13)
+  return n == 32 || (n >= 9 && n <= 13)
 }
 
 /// The string without leading whitespace (spaces, tabs, line breaks, vertical tabs and form feeds).
@@ -79,7 +79,7 @@ function __String_toUpperCase(s: string): string {
     const n = c as u32
     out = out + (if (n >= 97 && n <= 122) `${(n - 32) as char}` else `${c}`)
   }
-  out
+  return out
 }
 
 /// ASCII letters only.
@@ -89,7 +89,7 @@ function __String_toLowerCase(s: string): string {
     const n = c as u32
     out = out + (if (n >= 65 && n <= 90) `${(n + 32) as char}` else `${c}`)
   }
-  out
+  return out
 }
 
 /// The pieces of the string between occurrences of `separator` (a string or a `RegExp`, whose
@@ -125,7 +125,7 @@ function __splitStr(s: string, separator: string): string[] {
     }
   }
   out.push(s.slice(start))
-  out
+  return out
 }
 
 /// Replaces the first occurrence of `search` (every match for a `RegExp` with the `g` flag).
@@ -199,7 +199,7 @@ function __rQuote(s: string): string {
       out = `${out}${c}`
     }
   }
-  out
+  return out
 }
 
 function __replaceAllStr(s: string, search: string, replacement: string): string {
@@ -218,7 +218,7 @@ function __replaceAllStr(s: string, search: string, replacement: string): string
       i += 1
     }
   }
-  out + s.slice(start)
+  return out + s.slice(start)
 }
 
 /// The string `count` times over: `"ab".repeat(3)` is `"ababab"` (empty for a `count` of 0 or
@@ -237,7 +237,7 @@ function __String_repeat(s: string, count: int): string {
       piece = piece + piece
     }
   }
-  out
+  return out
 }
 
 function __padding(length: int, fill: string): string {
@@ -312,7 +312,7 @@ function __String_lastIndexOf(s: string, search: string): int {
     }
     i -= 1
   }
-  -1
+  return -1
 }
 
 // `string.fromC(p)` (spec §12.1): a copy of the NUL-terminated UTF-8 string at `p`.

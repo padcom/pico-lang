@@ -90,7 +90,7 @@ class Promise<T, E extends Error = never> {
         __throw_unchecked(e)
       }
     }
-    this.values[0]
+    return this.values[0]
   }
 
   /// Runs an async function's step function until it finishes or awaits.
@@ -112,7 +112,7 @@ class Promise<T, E extends Error = never> {
 
   /// Whether it has settled (fulfilled or rejected).
   public get settled(): bool {
-    this.state != 0
+    return this.state != 0
   }
 
   /// A promise of `f(value)`, settled after this one (rejected with its error).
@@ -126,7 +126,7 @@ class Promise<T, E extends Error = never> {
         p.__resolve(f(this.values[0]))
       }
     })
-    p
+    return p
   }
 
   /// A promise of this one's value, or of `f(error)` when it rejects (so it doesn't reject):
@@ -141,7 +141,7 @@ class Promise<T, E extends Error = never> {
         p.__resolve(this.values[0])
       }
     })
-    p
+    return p
   }
 
   /// A promise that settles like this one, after `f` ran (once it settled either way) (#52).
@@ -156,21 +156,21 @@ class Promise<T, E extends Error = never> {
         p.__resolve(this.values[0])
       }
     })
-    p
+    return p
   }
 
   /// A promise already fulfilled with `value`.
   public static resolve<U>(value: U): Promise<U> {
     const p = new Promise<U>()
     p.__resolve(value)
-    p
+    return p
   }
 
   /// A promise already rejected with `error`.
   public static reject<U>(error: Error): Promise<U, Error> {
     const p = new Promise<U, Error>()
     p.__reject(error)
-    p
+    return p
   }
 
   /// All the values, in order; rejected with the first error.
@@ -203,7 +203,7 @@ class Promise<T, E extends Error = never> {
         }
       })
     }
-    out
+    return out
   }
 
   /// Settles like the first of `ps` to settle.
@@ -219,7 +219,7 @@ class Promise<T, E extends Error = never> {
         }
       })
     }
-    out
+    return out
   }
 
   /// Waits for all of `ps`, never rejecting: how each one ended.
@@ -252,7 +252,7 @@ class Promise<T, E extends Error = never> {
         }
       })
     }
-    out
+    return out
   }
 }
 
@@ -337,7 +337,7 @@ class AsyncIterator<T, E extends Error = never> {
     if (!this.running) {
       this.resume()
     }
-    p
+    return p
   }
 
   /// `for await` uses the iterator itself.

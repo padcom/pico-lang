@@ -56,7 +56,7 @@ function __netShow(hostname: string, port: int): string {
 /// An `Addr` from "host port" at `fields[i]`, `fields[i + 1]`.
 function __netAddr(fields: string[], i: int): Addr {
   const a: Addr = { hostname: fields[i], port: parseInt(fields[i + 1]) }
-  a
+  return a
 }
 
 /// A finished job's results.
@@ -84,13 +84,13 @@ function __netJob<T>(op: int, a: int, b: int, c: int, s: string, t: string, addr
       p.__resolve(read({ r, r2, job }))
     }
   })
-  p
+  return p
 }
 
 function __netResolved<T>(value: T): Promise<T, NetError> {
   const p = new Promise<T, NetError>()
   p.__resolve(value)
-  p
+  return p
 }
 
 /// The bytes of a view as a buffer handle starting at its first byte.
@@ -154,10 +154,10 @@ class Conn {
     }
     const s = new ReadableStream<Uint8Array>({
       pullAsync: (c) => __netPullConn(this, c),
-      cancel: (reason) => this.close(),
+      cancel: (_reason) => this.close(),
     })
     this.rs = s
-    s
+    return s
   }
 
   /// The connection's outgoing bytes as a stream: closing it finishes writing
@@ -168,12 +168,12 @@ class Conn {
       return w
     }
     const s = new WritableStream<Uint8Array>({
-      writeAsync: (chunk, c) => this.write(chunk).then<void>((n: int) => {}),
+      writeAsync: (chunk, _c) => this.write(chunk).then<void>((_n: int) => {}),
       close: () => this.closeWrite(),
-      abort: (reason) => this.close(),
+      abort: (_reason) => this.close(),
     })
     this.ws = s
-    s
+    return s
   }
 
   /// Once the other side has finished and so has this one, the connection closes itself.
@@ -201,7 +201,7 @@ class Conn {
       return false
     }
     reading = true
-    true
+    return true
   }
 
   /// Runs a TLS handshake on the connection (P7.5b): afterwards its reads and writes are
@@ -222,7 +222,7 @@ class Conn {
         p.__resolve(__void())
       }
     })
-    p
+    return p
   }
 
   /// Up to `n` bytes (as soon as some arrive), or `null` once the other side has finished
@@ -283,7 +283,7 @@ class Conn {
     }
     queue.push(w)
     pump()
-    w.p
+    return w.p
   }
 
   /// Writes all of `data`; the count written.
@@ -384,7 +384,7 @@ class Listener {
       __io(121, fd, 0, 0, "", "");
       if (addr.port < 0) {
         // A Unix-domain socket's file goes with it, as in Node.js.
-        __ioSubmit(7, 0, 0, 0, addr.hostname, "", (job: int) => {})
+        __ioSubmit(7, 0, 0, 0, addr.hostname, "", (_job: int) => {})
       }
     }
   }
@@ -523,7 +523,7 @@ class UdpSocket {
       (res: __NetResult) => {
         this.sending -= 1
         this.release()
-        res.r
+        return res.r
       }, () => {
         this.sending -= 1
         this.release()
@@ -559,7 +559,7 @@ class UdpSocket {
       }
       const f = __io_text(res.job).split(" ")
       const d: Datagram = { data: __netBytes(res), addr: __netAddr(f, 0) }
-      d
+      return d
     }, () => {
       this.receiving = false
       this.release()
@@ -597,6 +597,6 @@ function __netResolve(hostname: string): Promise<string[], NetError> {
         out.push(part)
       }
     }
-    out
+    return out
   })
 }

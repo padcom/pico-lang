@@ -80,7 +80,7 @@ class ReadableStreamDefaultController<T> {
 function __resolvedVoid(): Promise<void, Error> {
   const p = new Promise<void, Error>()
   p.__resolve(__void())
-  p
+  return p
 }
 
 /// A stream of chunks to read: with a reader (`getReader()`), `for await`, or piped into a
@@ -172,22 +172,23 @@ class ReadableStream<T> {
         start: (c: ReadableStreamDefaultController<T>) => {
           ctls.push(c)
         },
-        pull: (c: ReadableStreamDefaultController<T>) => pull(),
+        pull: (_c: ReadableStreamDefaultController<T>) => pull(),
         cancel: (reason: Error?) => {
           live[i] = false
           if (!live[0] && !live[1]) {
-            src.cancel(reason);
+            // (Cancelling a branch can't report the source's failure.)
+            src.cancel(reason).catch((_e: Error) => {});
           }
         },
       }
       new ReadableStream<T>(source)
     }
-    [branch(0), branch(1)]
+    return [branch(0), branch(1)]
   }
 
   /// Whether a reader (or a pipe) holds the stream.
   public get locked(): bool {
-    this.__locked
+    return this.__locked
   }
 
   /// A reader for the stream (only one at a time).
@@ -270,7 +271,7 @@ class ReadableStream<T> {
     const done = this.pipeTo(t.writable, options)
     // (Failures reach `t.readable`'s readers.)
     done.__onSettle(() => {})
-    t.readable
+    return t.readable
   }
 
   public __desired(): int {
@@ -303,7 +304,7 @@ class ReadableStream<T> {
       this.reads.push(p)
       this.pullIfNeeded()
     }
-    p
+    return p
   }
 
   public __enqueue(chunk: T): void {
@@ -386,7 +387,7 @@ class ReadableStream<T> {
         p.__reject(e)
       }
     }
-    p
+    return p
   }
 
   pullIfNeeded(): void {
@@ -463,7 +464,7 @@ class ReadableStreamDefaultReader<T> {
     this.check()
     this.s.__read().then<ReadResult<T>>((v: T?) => {
       const r: ReadResult<T> = { done: v == null, value: v }
-      r
+      return r
     })
   }
 
@@ -567,7 +568,7 @@ class WritableStream<T> {
 
   /// Whether a writer (or a pipe) holds the stream.
   public get locked(): bool {
-    this.__locked
+    return this.__locked
   }
 
   /// A writer for the stream (only one at a time).
@@ -611,7 +612,7 @@ class WritableStream<T> {
     }
     this.queue.push({ chunk, p })
     this.advance()
-    p
+    return p
   }
 
   public __close(): Promise<void, Error> {
@@ -629,7 +630,7 @@ class WritableStream<T> {
     } else {
       this.advance()
     }
-    p
+    return p
   }
 
   /// Settles once there's room for another chunk.
@@ -649,7 +650,7 @@ class WritableStream<T> {
     }
     const p = new Promise<void, Error>()
     this.readyP = p
-    p
+    return p
   }
 
   public __closed(): Promise<void, Error> {
@@ -665,7 +666,7 @@ class WritableStream<T> {
     } else if (this.state == 2 && e != null) {
       p.__reject(e)
     }
-    p
+    return p
   }
 
   public __error(e: Error): void {
@@ -874,7 +875,7 @@ class TransformStreamDefaultController<O> {
 
   /// Room left on the readable side.
   public get desiredSize(): int {
-    this.rc.desiredSize
+    return this.rc.desiredSize
   }
 
   /// Adds `chunk` to the readable side. Panics once that side is closed or failed.
@@ -1010,7 +1011,7 @@ class TransformStream<I, O> {
         st.rc = c
         st.tc = new TransformStreamDefaultController<O>(c, (e: Error) => st.fail(e), (e: Error) => st.failWritable(e))
       },
-      pull: (c) => st.release(),
+      pull: (_c) => st.release(),
       cancel: (reason) => {
         const w = st.wc
         if (w != null) {
@@ -1022,7 +1023,7 @@ class TransformStream<I, O> {
       start: (c) => {
         st.wc = c
       },
-      writeAsync: (chunk, c) => st.write(chunk),
+      writeAsync: (chunk, _c) => st.write(chunk),
       close: () => st.close(),
       abort: (reason) => {
         const r = st.rc

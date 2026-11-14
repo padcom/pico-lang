@@ -39,7 +39,7 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
   nextCall: int = 1
 
   /// (`new Worker("./job")`: `module` is the module's id; `kind` is 0.)
-  constructor(module: int, kind: int) {
+  constructor(module: int, _kind: int) {
     this.handle = __worker_op(1, module)
     __theLoop().channels.set(this.handle, () => this.__deliver())
   }
@@ -74,7 +74,7 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
     this.pending.set(id, p)
     __worker_op(10, this.handle)
     __worker_post(this.handle, __Call<In> { id: id, arg: input })
-    p
+    return p
   }
 
   /// Sends a copy of `message` to the worker (`options.transfer`: buffers moved instead).
@@ -97,7 +97,7 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
       return
     }
     const ps: Promise<Out, E>[] = []
-    this.pending.forEach((p: Promise<Out, E>, id: int) => {
+    this.pending.forEach((p: Promise<Out, E>, _id: int) => {
       ps.push(p)
     })
     this.pending = new Map<int, Promise<Out, E>>()

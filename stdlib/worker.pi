@@ -48,7 +48,7 @@ export function parallelMap<T extends Sendable, U extends Sendable, E extends Er
       w.terminate()
     }
   })
-  all
+  return all
 }
 
 /// A fixed number of workers running the same module (`new WorkerPool<In, Out>("./job",
@@ -79,7 +79,7 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
 
   /// The number of workers (`size`, at least 1).
   public get size(): int {
-    this.workers.length
+    return this.workers.length
   }
 
   /// Sends `job` to the worker with the fewest jobs waiting. Rejects with a `WorkerPanicked` if
@@ -94,7 +94,7 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
     const p = new Promise<Out, WorkerPanicked>()
     this.waiting[best].push(p)
     this.workers[best].postMessage(job)
-    p
+    return p
   }
 
   /// Stops every worker; jobs still waiting for an answer reject with a `WorkerPanicked`.

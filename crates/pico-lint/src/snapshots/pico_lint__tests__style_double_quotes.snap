@@ -1,0 +1,6 @@
+---
+source: crates/pico-lint/src/tests.rs
+assertion_line: 605
+expression: "run(\"style_double\",\nr#\"{ \"naming\": false, \"unused\": false, \"quotes\": \"double\" }\"#, STYLE, &[])"
+---
+30:16 W0060 this string should use double quotes (write it with "…")

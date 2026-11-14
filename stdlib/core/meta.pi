@@ -17,7 +17,7 @@ class __Args {
     if (this.names.length == 0) return "0u64"
     let key = `__hashOf(${this.names[0]})`
     for (const i of 1..this.names.length) key = `__hashMix(${key}, __hashOf(${this.names[i]}))`
-    key
+    return key
   }
 }
 
@@ -52,7 +52,7 @@ class __ClassDecl {
     for (const i of 0..this.fieldNames.length) {
       out.push({ name: this.fieldNames[i], typeName: this.fieldTypes[i] })
     }
-    out
+    return out
   }
 
   /// Whether the type declares an instance field called `name`.
@@ -85,7 +85,7 @@ class __ClassDecl {
   public addStatic(name: string, init: string): string {
     const n = `__${this.name}_${name}_${this.id}`
     __meta_emit(this.id, "static", n, init)
-    n
+    return n
   }
 
   /// A compile error at the decorated declaration.
@@ -128,7 +128,7 @@ class __FunctionDecl {
     for (const i of 0..this.paramNames.length) {
       out.push({ name: this.paramNames[i], typeName: this.paramTypes[i] })
     }
-    out
+    return out
   }
 
   /// Replaces the body with the code `f` returns: `f` gets the arguments and the code that
@@ -143,7 +143,7 @@ class __FunctionDecl {
   public addStatic(name: string, init: string): string {
     const n = `__${this.name}_${name}_${this.id}`
     __meta_emit(this.id, "static", n, init)
-    n
+    return n
   }
 
   /// A compile error at the decorated declaration.
@@ -178,12 +178,12 @@ class __ast {
         _ => `${c}`,
       }
     }
-    out + "\""
+    return out + "\""
   }
 
   /// An integer literal: `ast.int(42)` is `42`.
   public static int(n: i64): string {
-    `${n}`
+    return `${n}`
   }
 
   /// A boolean literal: `true` or `false`.
@@ -202,27 +202,27 @@ class __ast {
       first = false
     }
     if (!ok) panic(`ast.ident: \`${name}\` isn't an identifier`)
-    name
+    return name
   }
 
   /// `this.name`
   public static field(name: string): string {
-    `this.${__ast.ident(name)}`
+    return `this.${__ast.ident(name)}`
   }
 
   /// `object.name`
   public static member(object: string, name: string): string {
-    `${object}.${__ast.ident(name)}`
+    return `${object}.${__ast.ident(name)}`
   }
 
   /// `callee(a, b)`
   public static call(callee: string, ...args: string[]): string {
-    `${callee}(${args.join(", ")})`
+    return `${callee}(${args.join(", ")})`
   }
 
   /// `(left op right)`
   public static binary(left: string, op: string, right: string): string {
-    `(${left} ${op} ${right})`
+    return `(${left} ${op} ${right})`
   }
 
   /// `a + b + …` of strings, as one string expression (`""` for none).
@@ -232,26 +232,26 @@ class __ast {
 
   /// `return value`
   public static returns(value: string): string {
-    `return ${value}`
+    return `return ${value}`
   }
 
   /// `const name = value`
   public static constant(name: string, value: string): string {
-    `const ${__ast.ident(name)} = ${value}`
+    return `const ${__ast.ident(name)} = ${value}`
   }
 
   /// `{ statements }`
   public static block(...statements: string[]): string {
-    `{\n${statements.join("\n")}\n}`
+    return `{\n${statements.join("\n")}\n}`
   }
 
   /// A public method without parameters: `name() { statements }`.
   public static method(name: string, ...statements: string[]): string {
-    `public ${__ast.ident(name)}() {\n${statements.join("\n")}\n}`
+    return `public ${__ast.ident(name)}() {\n${statements.join("\n")}\n}`
   }
 
   /// A public method with parameters (`"x: i64"`, …) and a return type.
   public static typedMethod(name: string, params: string[], returns: string, ...statements: string[]): string {
-    `public ${__ast.ident(name)}(${params.join(", ")}): ${returns} {\n${statements.join("\n")}\n}`
+    return `public ${__ast.ident(name)}(${params.join(", ")}): ${returns} {\n${statements.join("\n")}\n}`
   }
 }

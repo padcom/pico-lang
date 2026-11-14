@@ -49,18 +49,7 @@ fn reported(text: &str, dir: &std::path::Path) -> Vec<String> {
         .filter(|d| d.is_error())
         .filter_map(|d| d.code.map(|c| c.to_string()))
         .collect();
-    let cfg = pico_lint::Config {
-        naming: true,
-        unused: true,
-        complexity: Some(4),
-        blank_lines: Some(
-            pico_lint::config::CONSTRUCTS
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-        ),
-        docs: true,
-    };
+    let cfg = pico_lint::Config::all();
     codes.extend(
         pico_lint::lint(&checked, pico_lint::entry_file(&checked), &cfg)
             .iter()
