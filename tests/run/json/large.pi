@@ -1,0 +1,33 @@
+// `JSON.stringify` on a larger value (#133): the result is joined from many pieces, which
+// must give the same text as joining one by one; strings are escaped as before.
+// expect: 200 items, 23982 characters pretty
+// expect: [
+// expect:   {
+// expect:     "id": 0,
+// expect:     "name": "item 0 \"q\" \\ é ✓",
+// expect:     "tags": [
+// expect:       "a",
+// expect:       "{b}"
+// expect:     ],
+// expect:     "extra": {}
+// expect:   },
+// expect: round trip: true
+// expect: "tab\there\nnewline \u0001 ok"
+struct Extra {}
+struct Item {
+  id: int
+  name: string
+  tags: string[]
+  extra: Extra
+}
+const items: Item[] = []
+for (let i = 0; i < 200; i++) {
+  items.push(Item { id: i, name: `item ${i} "q" \\ é ✓`, tags: ["a", "{b}"], extra: Extra {} })
+}
+const pretty = JSON.stringify(items, 2)
+println(`${items.length} items, ${pretty.length} characters pretty`)
+const lines = pretty.split("\n")
+for (let i = 0; i < 10; i++) println(lines[i])
+const back = JSON.parse<Item[]>(pretty)
+println(`round trip: ${JSON.stringify(back) == JSON.stringify(items)}`)
+println(JSON.stringify("tab\there\nnewline \u{1} ok"))
