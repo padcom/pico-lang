@@ -1,0 +1,24 @@
+---
+source: crates/pico-lint/src/tests.rs
+assertion_line: 551
+expression: "run(\"simplify\",\nr#\"{ \"naming\": false, \"unused\": false, \"preferConst\": true, \"objectShorthand\": true, \"uselessRename\": true, \"operatorAssignment\": true, \"preferTemplate\": true, \"uselessConcat\": true, \"arrowBodyStyle\": true, \"preferArrowCallback\": true, \"funcStyle\": true, \"lonelyIf\": true, \"loneBlocks\": true, \"uselessReturn\": true, \"uselessConstructor\": true, \"preferDestructuring\": true, \"preferExponentiation\": true, \"yoda\": true, \"groupedAccessors\": true }\"#,\nSIMPLIFY, &[])"
+---
+1:10 W0036 `readText` is renamed to itself (drop the `as …`)
+10:3 W0046 this constructor does nothing the default one wouldn't (remove it)
+15:3 W0046 this constructor does nothing the default one wouldn't (remove it)
+16:14 W0050 the setter of `v` isn't right after its getter (move it right after the getter)
+22:7 W0034 `unchanged` is never reassigned (declare it with `const`)
+24:3 W0037 `total = total + …` where `total += …` would do (write `total += …`)
+25:3 W0047 `x` is read from a field of the same name (write `const { x } = p`)
+26:11 W0036 `y` is renamed to itself (write just `y`)
+27:21 W0035 `x: x` repeats the name (write just `x`)
+28:17 W0038 this string is built with `+` (write it as a template: `text ${value}`)
+28:37 W0039 two string literals are joined with `+` (write them as one string)
+32:5 W0043 this `if` is alone in an `else` block (write `else if` instead)
+34:3 W0044 this block declares nothing, so it scopes nothing (remove the braces)
+37:11 W0048 `Math.pow(a, b)` where `a ** b` would do (write `a ** b`)
+38:7 W0049 the literal comes first in this comparison (put the value being tested first)
+41:1 W0042 a `function` expression is assigned to a variable (declare a function (`function name(…) { … }`), or use an arrow function)
+42:24 W0041 a `function` expression is passed as a callback (pass an arrow function)
+43:12 W0040 this arrow function's block only returns a value (write the value after `=>`, without braces and `return`)
+46:3 W0045 this `return` is at the end of the function anyway (remove it)

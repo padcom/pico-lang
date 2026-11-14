@@ -913,7 +913,7 @@ and gets a `W0xxx` code, a `docs/errors` page and snapshot tests (enabled, disab
 ##### P10.2c `explicitReturn` (the author's own rule)
 - **Do**: a function whose result is a lone variable returns it with `return` (`return sum`,
   not a final `sum`). Exempt: expression-bodied arrows, constructors, setters, generators,
-  `: void` functions, blocks used as values.
+  `: void` functions, blocks used as values. On by default (the author).
 - **Done (decision 331)**: `returns.rs`, W0006.
 
 ##### P10.2d Size limits
@@ -922,6 +922,7 @@ and gets a `W0xxx` code, a `docs/errors` page and snapshot tests (enabled, disab
   `maxStatementsPerLine` (2), `maxLen` (130, `@stylistic/max-len`).
 - Per-file overrides in `"lint"` (`"overrides": [{ "files": "*.test.pi", … }]`), for the
   `tests` configuration's `maxNestedCallbacks: 4` in test files.
+- **Done (decision 332)**: `sizes.rs`, `config.rs` (`RULES`, `overrides`, `for_path`), W0007–W0012.
 
 ##### P10.2e Likely mistakes
 - `shadow` (`no-shadow`): a local that hides a parameter, an outer local or a module-level
@@ -939,16 +940,19 @@ and gets a `W0xxx` code, a `docs/errors` page and snapshot tests (enabled, disab
   `dupeElseIf` (`no-dupe-else-if`), `uselessCatch` (`no-useless-catch`: a catch that only
   rethrows), `templateInString` (`no-template-curly-in-string`: `"${x}"` in a plain string).
 - `loopFunc` (`no-loop-func`): a closure in a loop capturing a `let` the loop changes.
+- **Done (decision 332)**: `mistakes.rs`, `scope.rs`, W0013–W0026.
 
 ##### P10.2f Async
 - `floatingPromise` (`promise/catch-or-return`): a promise that's dropped (neither awaited,
   returned, stored nor given a `catch`).
-- `awaitInLoop` (`no-await-in-loop`), `requireAwait` (`require-await`), `returnAwait`
-  (`no-return-await`), `preferAwait` (`promise/prefer-await-to-then`,
+- `awaitInLoop` (`no-await-in-loop`), `requireAwait` (`require-await`), `preferAwait`
+  (`promise/prefer-await-to-then`,
   `prefer-await-to-callbacks`), `promiseReturnWrap` (`promise/no-return-wrap`),
   `promiseParamNames` (`promise/param-names`: `resolve`, `reject`).
+- Not taken over: `no-return-await` (pico doesn't flatten returned promises, decision 331).
 - Later: `promise/no-multiple-resolved`, `promise/no-callback-in-promise`,
   `require-atomic-updates` (need flow analysis).
+- **Done (decision 332)**: `asyncs.rs`, W0027–W0033 (W0030 unused).
 
 ##### P10.2g Simplifications (candidates for `--fix`)
 - `preferConst` (`prefer-const`), `objectShorthand` (`{ x: x }`), `uselessRename`
@@ -959,6 +963,7 @@ and gets a `W0xxx` code, a `docs/errors` page and snapshot tests (enabled, disab
   nothing), `uselessReturn` (a bare `return` at the end), `uselessConstructor`,
   `preferDestructuring` (`const x = o.x`), `preferExponentiation` (`Math.pow(a, b)`), `yoda`
   (`5 == a`), `groupedAccessors` (getter right before its setter).
+- **Done (decision 332)**: `simplify.rs`, W0034–W0050.
 
 ##### P10.2h Style that `pico fmt` doesn't do (lint rules, or `fmt` options: the author decides)
 - `curly` (`multi-line`: a body on its own line needs braces), `extraParens`, `mixedOperators`
@@ -969,6 +974,7 @@ and gets a `W0xxx` code, a `docs/errors` page and snapshot tests (enabled, disab
 - `blankLines` gains the `padding-line-between-statements` and `lines-between-class-members`
   cases it lacks: after imports, before `export`, `return`, loops, blocks and classes, between
   fields (except single-line ones).
+- **Done (decision 332)**: lint rules (not `fmt` options), `style.rs`, `blank.rs`, W0051–W0060.
 
 ##### P10.2i Doc comments (`jsdoc/*`)
 - `docs` options: `@param` names match the parameters and every parameter is documented once one
@@ -978,9 +984,12 @@ and gets a `W0xxx` code, a `docs/errors` page and snapshot tests (enabled, disab
   no empty tags, a blank line between the description and the tags (`tag-lines`), and the block's
   layout (`check-alignment`, `check-indentation`, `multiline-blocks`, `no-multi-asterisks`).
 - With suppression comments (#79/#80): a reason required, as `ban-ts-comment` asks.
-- `underscoreDangle` (`no-underscore-dangle`) conflicts with `unused`'s `_` exemption: only
-  trailing `_` and used `_`-names, if the author wants it.
+- `underscoreDangle` (`no-underscore-dangle`): the author chose to report a leading or trailing
+  `_` only on names that are used (an unused one is how to keep state that isn't read).
 - `preferNamedCaptureGroup` (`warn` in the configuration) on regex literals.
+- **Done (decision 332)**: `doctags.rs` (`docTags`, `docFormat`), `underscoreDangle` and
+  `preferNamedCaptureGroup` in `mistakes.rs`, W0061–W0064. Suppression comments are still to
+  come (#79), and with them the required reason.
 
 ### P10.3 Package manager
 - **Spec**: 08 §8.3–8.4

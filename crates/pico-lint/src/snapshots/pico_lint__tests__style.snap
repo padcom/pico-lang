@@ -1,0 +1,20 @@
+---
+source: crates/pico-lint/src/tests.rs
+assertion_line: 598
+expression: "run(\"style\",\nr#\"{ \"naming\": false, \"unused\": false, \"curly\": true, \"extraParens\": true, \"mixedOperators\": true, \"commaDangle\": true, \"braceStyle\": true, \"operatorLinebreak\": true, \"multilineTernary\": true, \"spacedComment\": true, \"extraSemi\": true, \"quotes\": true }\"#,\nSTYLE, &[])"
+---
+1:11 W0052 these parentheses change nothing (remove them)
+2:11 W0052 these parentheses change nothing (remove them)
+2:12 W0052 these parentheses change nothing (remove them)
+3:15 W0053 `+` and `*` are mixed without parentheses (add parentheses to show the order)
+4:12 W0053 `||` and `&&` are mixed without parentheses (add parentheses to show the order)
+7:3 W0054 this multi-line list needs a trailing comma (add `,` after the last element)
+9:18 W0054 this one-line list has a trailing comma (remove it)
+11:3 W0051 this body is on another line than its statement, so it needs braces (wrap it in `{ … }`, or put it on the statement's line)
+15:1 W0055 `else` goes on the line of the `}` before it (write `} else`)
+18:11 W0057 this conditional expression spans several lines, so each part needs a line of its own (put the condition, `? then` and `: else` on lines of their own)
+23:17 W0056 `*` should start the next line, not end this one (break the line before `*`)
+27:1 W0058 this comment needs a space after its marker (add a space after the comment marker)
+29:11 W0060 this string should use single quotes (write it with '…')
+29:19 W0059 this `;` changes nothing (remove it)
+32:3 W0054 this multi-line list needs a trailing comma (add `,` after the last element)

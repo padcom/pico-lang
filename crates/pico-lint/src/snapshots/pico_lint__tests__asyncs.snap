@@ -1,0 +1,17 @@
+---
+source: crates/pico-lint/src/tests.rs
+assertion_line: 489
+expression: "run(\"asyncs\",\nr#\"{ \"naming\": false, \"unused\": false, \"floatingPromise\": true, \"awaitInLoop\": true, \"requireAwait\": true, \"preferAwait\": true, \"promiseReturnWrap\": true, \"promiseParamNames\": true }\"#,\nASYNC, &[])"
+---
+1:16 W0029 this `async` function never awaits (remove `async`, or await what it waits for)
+5:10 W0028 this `await` makes each iteration wait for the previous one (start the work first and await `Promise.all(…)` after the loop, if the iterations don't depend on each other)
+10:3 W0027 this promise is dropped: its failure would go unnoticed (`await` it, return it, or end it with `.catch(…)`)
+11:3 W0027 this promise is dropped: its failure would go unnoticed (`await` it, return it, or end it with `.catch(…)`)
+11:10 W0031 `.then(…)` where `await` would do (await the promise in an `async` function (with `try`/`catch`/`finally` for the other two))
+15:31 W0031 `callback` takes a callback where returning a promise would do (return a `Promise` and let callers `await` it)
+16:29 W0033 the executor's parameter should be named `resolve` (call it `resolve`)
+16:33 W0033 the executor's parameter should be named `reject` (call it `reject`)
+17:1 W0027 this promise is dropped: its failure would go unnoticed (`await` it, return it, or end it with `.catch(…)`)
+17:3 W0031 `.then(…)` where `await` would do (await the promise in an `async` function (with `try`/`catch`/`finally` for the other two))
+17:20 W0032 `Promise.resolve(…)` in a promise callback (return the value itself)
+18:3 W0031 `.catch(…)` where `await` would do (await the promise in an `async` function (with `try`/`catch`/`finally` for the other two))

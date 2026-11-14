@@ -512,7 +512,7 @@ fn answers_in_code_with_name_and_type_errors() {
     assert_eq!(n, 1, "no follow-up errors");
     assert_eq!(h, "```pico\nconst s: i32\n```");
     assert_eq!(line, 0);
-    let text = "function g(x: Missing, y: i32): i32 { y }\nconst k = g(1, 2)\n";
+    let text = "function g(x: Missing, y: i32): i32 { y * 2 }\nconst k = g(1, 2)\n";
     let (n, h, _) = ask("types", text, ("g(1", 0, 0), ("g(1", 0));
     assert_eq!(n, 1);
     assert_eq!(h, "```pico\nfunction g(x: unknown, y: i32): i32\n```");

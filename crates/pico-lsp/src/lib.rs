@@ -458,6 +458,7 @@ fn check(uri: &str, text: &str) -> (BTreeMap<String, Vec<Value>>, Option<index::
     }
     // Lint warnings (spec §14.7) of the document itself, under its project's configuration.
     let (cfg, problems) = pico_lint::Config::for_dir(&dir);
+    let cfg = cfg.for_path(&path);
     for p in problems {
         out.get_mut(uri).expect("inserted").push(json!({
             "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } },
