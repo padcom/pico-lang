@@ -108,16 +108,23 @@ function __Array_join<T>(xs: T[]): string {
 
 /// The elements' string forms joined with `separator`: `["a", "b"].join(", ")` is `"a, b"`.
 function __Array_join<T>(xs: T[], separator: string): string {
-  let out = ""
-  let first = true
-  for (const x of xs) {
-    if (!first) {
-      out = out + separator
+  const parts: string[] = []
+  for (const x of xs) parts.push(`${x}`)
+  return __joinRange(parts, separator, 0, parts.length)
+}
+
+/// `parts[lo..hi]` joined with `separator`, halves first: each character is copied about
+/// log₂(n) times, not once per later part as appending one by one would (#133).
+function __joinRange(parts: string[], separator: string, lo: int, hi: int): string {
+  if (hi - lo <= 8) {
+    let out = ""
+    for (let i = lo; i < hi; i++) {
+      out = if (i == lo) parts[i] else out + separator + parts[i]
     }
-    out = out + `${x}`
-    first = false
+    return out
   }
-  return out
+  const mid = lo + ((hi - lo) >> 1)
+  return __joinRange(parts, separator, lo, mid) + separator + __joinRange(parts, separator, mid, hi)
 }
 
 /// `start` and `end` as in `slice`: negative counts from the end, both clamped.
