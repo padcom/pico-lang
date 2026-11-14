@@ -115,6 +115,10 @@ is a `.pi` file builds it first, and lldb loads pico's formatters. Decisions 280
   their own), cached by content. Decision 279.
 - **Single binary**: the `pico` executable bundles LLVM, lld, libclang (for `c:` imports), the
   runtime and the stdlib sources.
+- **Timings**: with `PICO_TIMINGS=1` in the environment, a check prints how long each stage
+  took (parse, imports, decorators, resolve, typecheck, mir, comptime) and the compiler's peak
+  memory so far, and `pico build`/`pico run` print the peak once the build is done, code
+  generation and linking included (on Unix; the program's own memory isn't counted).
 
 ## 14.7 Lint
 `pico lint` checks the project's modules and reports **warnings** (as `W0xxx` diagnostics, like

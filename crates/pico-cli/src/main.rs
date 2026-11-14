@@ -735,12 +735,23 @@ fn run(path: &Path, interp: bool, opts: pico_driver::BuildOptions, args: &[Strin
             return ExitCode::FAILURE;
         }
     };
+    timings_peak();
     match std::process::Command::new(&exe).args(args).status() {
         Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8),
         Err(e) => {
             eprintln!("error: cannot run {}: {e}", exe.display());
             ExitCode::FAILURE
         }
+    }
+}
+
+/// With `PICO_TIMINGS=1`: the compiler's peak memory once a build is done (code generation and
+/// linking included; the program's own memory isn't counted), #134.
+fn timings_peak() {
+    if std::env::var_os("PICO_TIMINGS").is_some_and(|v| v == "1")
+        && let Some(mb) = pico_driver::peak_memory_mb()
+    {
+        eprintln!("[timings] built: peak {mb} MB");
     }
 }
 
@@ -1019,6 +1030,7 @@ fn build(
         None => match pico_driver::build_native(&checked, &exe, opts) {
             Ok(()) => {
                 pico_driver::fingerprint::record(&checked, path, &exe, &opts);
+                timings_peak();
                 ExitCode::SUCCESS
             }
             Err(e) => {
