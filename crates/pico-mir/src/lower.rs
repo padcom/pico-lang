@@ -24,7 +24,7 @@ pub fn lower(
     let file = sources.file(file_id);
     let mut cx = Cx {
         program,
-        types: TypesRef::Borrowed(types),
+        types,
         file_id,
         sources,
         loc_files: RefCell::new(vec![file_id]),
@@ -96,32 +96,18 @@ pub fn lower(
     // Monomorphization: each instance is the generic body seen through substituted types.
     // Show functions may need more instances and the other way round.
     let mut next = 0;
-    let mut substituted: Vec<(Subst, std::rc::Rc<Types>)> = Vec::new();
     let mut synth_fns: Vec<mir::Function> = Vec::new();
     while next < cx.instances.len() || synth_fns.len() < cx.synths.len() {
         if next == cx.instances.len() {
-            cx.types = TypesRef::Borrowed(types);
             cx.cur_subst = Vec::new();
             let (what, id) = cx.synths[synth_fns.len()].clone();
             synth_fns.push(cx.synth_function(&what, id));
             continue;
         }
         let (id, subst) = cx.instances[next].clone();
-        // Instances with the same substitution (the methods of `Map<string, i64>`) share the
-        // substituted tables: building them is most of lowering's time otherwise.
-        let shared = match substituted.iter().find(|(s, _)| *s == subst) {
-            Some((_, t)) => t.clone(),
-            None => {
-                let mut t = types.clone();
-                for (owner, args) in &subst {
-                    t = t.substituted(*owner, args);
-                }
-                let t = std::rc::Rc::new(t);
-                substituted.push((subst.clone(), t.clone()));
-                t
-            }
-        };
-        cx.types = TypesRef::Shared(shared);
+        // The instance's types are the generic ones with `subst` applied as they're read
+        // (`Cx::sig`, `expr_ty`, …): copying the whole program's tables per substitution, as
+        // lowering once did, took gigabytes for large programs (#134).
         cx.cur_subst = subst.clone();
         cx.cur_mir = FnId((program.fns.len() + next) as u32);
         let mut f = cx.function(id);
@@ -147,7 +133,6 @@ pub fn lower(
         fns.push(f);
         next += 1;
     }
-    cx.types = TypesRef::Borrowed(types);
     cx.cur_subst = Vec::new();
     let mut worker_entries: Vec<FnId> = (0..worker_fns.len())
         .map(|i| FnId((fns.len() + i) as u32))
@@ -324,7 +309,7 @@ fn check_externs(cx: &mut Cx) {
     let p = cx.program;
     for e in &p.externs {
         let f = p.func(e.func);
-        let sig = &cx.types.sigs[e.func.0 as usize];
+        let sig = &cx.sig(e.func);
         let core = f.span.file != cx.file_id && cx.program.func(e.func).name.starts_with("pico_");
         let pod = |sid: &StructId| {
             p.struct_def(*sid)
@@ -382,7 +367,7 @@ fn export_wrappers(cx: &mut Cx, fns: &mut Vec<mir::Function>) -> Vec<mir::Export
     let mut out = Vec::new();
     for e in &p.exports {
         let f = p.func(e.func);
-        let sig = cx.types.sigs[e.func.0 as usize].clone();
+        let sig = cx.sig(e.func);
         let mut bad = Vec::new();
         if !f.throws.is_empty() {
             bad.push("it throws: an exported function has to catch its errors".to_string());
@@ -692,27 +677,11 @@ type Subst = Vec<(u32, Vec<Ty>)>;
 
 /// The type tables lowering reads: the program's, or a generic instance's substituted copy
 /// (shared by the instances with the same substitution).
-enum TypesRef<'a> {
-    Borrowed(&'a Types),
-    Shared(std::rc::Rc<Types>),
-}
-
-impl std::ops::Deref for TypesRef<'_> {
-    type Target = Types;
-
-    fn deref(&self) -> &Types {
-        match self {
-            TypesRef::Borrowed(t) => t,
-            TypesRef::Shared(t) => t,
-        }
-    }
-}
-
 struct Cx<'a> {
     program: &'a hir::Program,
-    /// The type checker's results; while lowering a generic instance, a copy with its type
-    /// arguments substituted.
-    types: TypesRef<'a>,
+    /// The type checker's results, for the generic code: what depends on type parameters is
+    /// read through `sig`, `expr_ty`, `local_tys`, … which apply `cur_subst` (#134).
+    types: &'a Types,
     /// Generic instances: a function and the substitutions it's seen through (its own type
     /// parameters, and its type's for methods of generic types); instance `i` is MIR
     /// function `program.fns.len() + i`.
@@ -877,6 +846,73 @@ fn kind_name(t: &Ty) -> &'static str {
 }
 
 impl Cx<'_> {
+    /// `t` with the current instance's type arguments in place of its type parameters.
+    fn sub(&self, t: &Ty) -> Ty {
+        let mut t = t.clone();
+        for (owner, args) in &self.cur_subst {
+            t = t.subst(*owner, args);
+        }
+        t
+    }
+
+    /// Function `f`'s signature, in the current instance.
+    fn sig(&self, f: FnId) -> pico_sema::FnSig {
+        let g = &self.types.sigs[f.0 as usize];
+        pico_sema::FnSig {
+            params: g.params.iter().map(|t| self.sub(t)).collect(),
+            ret: self.sub(&g.ret),
+        }
+    }
+
+    /// The type of expression `e`, in the current instance.
+    fn expr_ty(&self, e: hir::ExprId) -> Ty {
+        self.sub(self.types.expr(e))
+    }
+
+    /// The types of function `f`'s locals, in the current instance.
+    fn local_tys(&self, f: FnId) -> Vec<Ty> {
+        self.types.locals[f.0 as usize]
+            .iter()
+            .map(|t| self.sub(t))
+            .collect()
+    }
+
+    /// The type of local `l` of function `f`, in the current instance.
+    fn local_ty(&self, f: FnId, l: hir::LocalId) -> Ty {
+        self.sub(&self.types.locals[f.0 as usize][l.0 as usize])
+    }
+
+    /// The type expression `e` is widened to, if any, in the current instance.
+    fn coercion(&self, e: hir::ExprId) -> Option<Ty> {
+        self.types.coercions.get(&e).map(|t| self.sub(t))
+    }
+
+    /// The type arguments of the generic call `e`, in the current instance.
+    fn instance_args(&self, e: hir::ExprId) -> Option<Vec<Ty>> {
+        self.types
+            .instances
+            .get(&e)
+            .map(|ts| ts.iter().map(|t| self.sub(t)).collect())
+    }
+
+    /// The receiver's type arguments of method call `e`, in the current instance.
+    fn recv_args_of(&self, e: hir::ExprId) -> Option<Vec<Ty>> {
+        self.types
+            .recv_args
+            .get(&e)
+            .map(|ts| ts.iter().map(|t| self.sub(t)).collect())
+    }
+
+    /// The type `e`'s value has after coercion, in the current instance.
+    fn final_ty(&self, e: hir::ExprId) -> Ty {
+        self.sub(self.types.final_ty(e))
+    }
+
+    /// The cell type read by `e` (a reactive binding), in the current instance.
+    fn cell_read(&self, e: hir::ExprId) -> Option<Ty> {
+        self.types.cell_reads.get(&e).map(|t| self.sub(t))
+    }
+
     /// The MIR function for generic `id` seen through `subst`.
     /// Whether MIR function `id` (a HIR function or a generic instance) declares `throws`.
     fn throws(&self, id: FnId) -> bool {
@@ -969,7 +1005,7 @@ impl Cx<'_> {
     /// parameters, or only defaulted ones, #9; doesn't throw).
     fn to_string_method(&self, sid: StructId) -> Option<FnId> {
         let m = self.program.struct_def(sid).method("toString")?;
-        let sig = &self.types.sigs[m.0 as usize];
+        let sig = &self.sig(m);
         let f = self.program.func(m);
         let defaulted = sig.params.len() == f.defaults.iter().filter(|d| d.is_some()).count();
         (defaulted
@@ -1076,7 +1112,7 @@ impl Cx<'_> {
                 (format!("{t}.<show field>"), vec![obj, fid], Ty::Str, None)
             }
             Synth::CVariadic(f, extra) => {
-                let sig = b.cx.types.sigs[f.0 as usize].clone();
+                let sig = b.cx.sig(*f);
                 let name = b.cx.program.func(*f).name.clone();
                 let params: Vec<Local> = sig
                     .params
@@ -1173,7 +1209,7 @@ impl Cx<'_> {
         for (f, placeholder) in self.fn_values.clone() {
             let real = FnId(fns.len() as u32);
             map.insert(placeholder, real);
-            let sig = self.types.sigs[f.0 as usize].clone();
+            let sig = self.sig(f);
             let mut locals = vec![LocalDecl {
                 ty: Ty::Ref(Box::new(Ty::Tuple(Vec::new()))),
                 name: Some("env".into()),
@@ -1305,7 +1341,7 @@ impl Cx<'_> {
         slot: Option<u32>,
         fns: &[mir::Function],
     ) -> mir::Function {
-        let sig = &self.types.sigs[ifn.0 as usize];
+        let sig = &self.sig(ifn);
         let def = self.program.struct_def(imp);
         let data_ty = if def.is_class {
             self.program.struct_ty(imp)
@@ -1400,8 +1436,8 @@ impl Cx<'_> {
 
     fn function(&mut self, id: FnId) -> mir::Function {
         let f = self.program.func(id);
-        let sig = self.types.sigs[id.0 as usize].clone();
-        let local_tys = self.types.locals[id.0 as usize].clone();
+        let sig = self.sig(id);
+        let local_tys = self.local_tys(id);
         let mut b = FnBuilder {
             cx: self,
             hir_fn: f,
@@ -1680,7 +1716,7 @@ impl FnBuilder<'_, '_> {
     }
 
     fn ty(&self, e: &Expr) -> Ty {
-        self.cx.types.expr(e.id).clone()
+        self.cx.expr_ty(e.id)
     }
 
     /// Whether a top-level statement belongs to a module this thread's entry leaves out.
@@ -1867,7 +1903,7 @@ impl FnBuilder<'_, '_> {
 
     /// `object` (a `ptr<T>`) in a local, to read or write through.
     fn ptr_local(&mut self, object: &Expr) -> Local {
-        let t = self.ty_of(object).clone();
+        let t = self.ty_of(object);
         let v = self.expr(object);
         let l = self.temp(t);
         self.assign(Place::local(l), Rvalue::Use(v), object.span);
@@ -2168,7 +2204,7 @@ impl FnBuilder<'_, '_> {
             Rvalue::Use(Operand::Const(Const::Int(-1, IntTy::I64))),
             span,
         );
-        let ret = self.cx.types.sigs[self.hir_fn_id().0 as usize].ret.clone();
+        let ret = self.cx.sig(self.hir_fn_id()).ret;
         self.terminate(Terminator::Return(Some(Operand::Const(Const::Null(ret)))));
     }
 
@@ -2475,14 +2511,14 @@ impl FnBuilder<'_, '_> {
 
     fn var_ty(&self, v: Var) -> Ty {
         match v {
-            Var::Local(l) => self.cx.types.locals[self.fn_id.0 as usize][l.0 as usize].clone(),
+            Var::Local(l) => self.cx.local_ty(self.fn_id, l),
             Var::Global(g) => self.cx.types.globals[g.0 as usize].clone(),
         }
     }
 
     /// The type of an expression's value (after coercion).
-    fn ty_of(&self, e: &Expr) -> &Ty {
-        self.cx.types.final_ty(e.id)
+    fn ty_of(&self, e: &Expr) -> Ty {
+        self.cx.final_ty(e.id)
     }
 
     fn place_ty(&self, p: &Place) -> Ty {
@@ -2521,7 +2557,7 @@ impl FnBuilder<'_, '_> {
     /// Like [`Self::place_of`], but leaves the bounds checks in `checks` (an assignment checks
     /// after evaluating its value, which might change the array).
     fn place_deferred(&mut self, e: &Expr, checks: &mut Vec<Check>) -> Place {
-        if let Some(cell_ty) = self.cx.types.cell_reads.get(&e.id).cloned() {
+        if let Some(cell_ty) = self.cx.cell_read(e.id) {
             // A reactive binding's value (spec §16.2), not the cell.
             let cell = self.place_deferred_raw(e, checks);
             let v = self.cell_get(Operand::Copy(cell), &cell_ty, e.span);
@@ -2555,13 +2591,13 @@ impl FnBuilder<'_, '_> {
                 let i = if name == "start" { 0 } else { 1 };
                 self.place_deferred(object, checks).field(i)
             }
-            ExprKind::Index { object, index } if *self.ty_of(object) != Ty::Str => {
+            ExprKind::Index { object, index } if self.ty_of(object) != Ty::Str => {
                 self.index_place(object, index, checks)
             }
             _ => match self.expr(e) {
                 Operand::Copy(p) => p,
                 c @ Operand::Const(_) => {
-                    let ty = self.ty_of(e).clone();
+                    let ty = self.ty_of(e);
                     let t = self.temp(ty);
                     self.assign(Place::local(t), Rvalue::Use(c), e.span);
                     Place::local(t)
@@ -2803,7 +2839,7 @@ impl FnBuilder<'_, '_> {
     /// Lowers `e` and applies its recorded coercion.
     fn expr(&mut self, e: &Expr) -> Operand {
         let mut v = self.expr_inner(e);
-        if let Some(cell) = self.cx.types.cell_reads.get(&e.id).cloned() {
+        if let Some(cell) = self.cx.cell_read(e.id) {
             v = self.cell_get(v, &cell, e.span);
             let t = self.reactive_arg(&cell).expect("a cell");
             if self.deep_object(&t) {
@@ -2813,7 +2849,7 @@ impl FnBuilder<'_, '_> {
                 self.object_hook("__trackObject", v.clone(), &t, e.span);
             }
         }
-        match self.cx.types.coercions.get(&e.id).cloned() {
+        match self.cx.coercion(e.id) {
             Some(to) => {
                 let from = self.ty(e);
                 self.convert(v, &from, &to, e.span)
@@ -3018,7 +3054,7 @@ impl FnBuilder<'_, '_> {
                 Operand::Copy(self.narrowed_place(*v, &ty, e.span))
             }
             ExprKind::TypeOf(inner) => {
-                let t = self.ty_of(inner).clone();
+                let t = self.ty_of(inner);
                 let v = self.expr(inner);
                 self.type_name(v, &t, e.span)
             }
@@ -3198,7 +3234,7 @@ impl FnBuilder<'_, '_> {
             } if self.cx.types.setters.contains_key(id) => {
                 // `obj.prop = v` / `obj.prop += v` through accessors.
                 let setter = self.cx.types.setters[id];
-                let rt = self.ty_of(object).clone();
+                let rt = self.ty_of(object);
                 let setter = self.method_of(setter, &rt);
                 let recv = self.expr(object);
                 let v = match op {
@@ -3229,13 +3265,13 @@ impl FnBuilder<'_, '_> {
                 op,
                 target: hir::Target::Field { id, object, .. },
                 value,
-            } if self.cx.types.cell_reads.contains_key(&object.id)
+            } if self.cx.cell_read(object.id).is_some()
                 && matches!(self.ty_of(object), Ty::Struct(..)) =>
             {
                 // `point.x = v` with `point` reactive: the struct is a value, so the whole
                 // value is written back (spec §16.6).
-                let cell_ty = self.cx.types.cell_reads[&object.id].clone();
-                let st = self.ty_of(object).clone();
+                let cell_ty = self.cx.cell_read(object.id).expect("a cell read");
+                let st = self.ty_of(object);
                 let cell = self.expr_inner(object);
                 let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
                 let tmp = Place::local(self.temp(st));
@@ -3297,18 +3333,18 @@ impl FnBuilder<'_, '_> {
                 if *prefix { new } else { old }
             }
             ExprKind::Call { callee, args, .. } => self.call(e, callee, args, ty),
-            ExprKind::Member { object, .. } if *self.ty_of(object) == Ty::Str => {
+            ExprKind::Member { object, .. } if self.ty_of(object) == Ty::Str => {
                 let s = self.expr(object);
                 self.rvalue_to_temp(Rvalue::StrLen(s), ty, e.span)
             }
             ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Array(_)) => {
                 let a = self.expr(object);
-                let at = self.ty_of(object).clone();
+                let at = self.ty_of(object);
                 self.object_hook("__trackObject", a.clone(), &at, e.span);
                 self.rvalue_to_temp(Rvalue::ArrayLen(a), ty, e.span)
             }
             ExprKind::Member { object, .. } if matches!(self.ty_of(object), Ty::Fixed(..)) => {
-                let Ty::Fixed(_, n) = self.ty_of(object).clone() else {
+                let Ty::Fixed(_, n) = self.ty_of(object) else {
                     unreachable!()
                 };
                 self.expr(object);
@@ -3316,7 +3352,7 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Member { object, .. } if self.cx.types.getters.contains_key(&e.id) => {
                 let g = self.cx.types.getters[&e.id];
-                let rt = self.ty_of(object).clone();
+                let rt = self.ty_of(object);
                 let g = self.method_of(g, &rt);
                 let recv = self.expr(object);
                 self.call_fn_value(g, vec![recv], ty, e.span)
@@ -3422,7 +3458,7 @@ impl FnBuilder<'_, '_> {
                     .collect();
                 self.rvalue_to_temp(Rvalue::Aggregate(ty.clone(), ops), ty, e.span)
             }
-            ExprKind::Index { object, index } if *self.ty_of(object) == Ty::Str => {
+            ExprKind::Index { object, index } if self.ty_of(object) == Ty::Str => {
                 let s = self.expr(object);
                 let i = self.expr(index);
                 self.rvalue_to_temp(Rvalue::StrCharAt(s, i), ty, e.span)
@@ -3732,8 +3768,8 @@ impl FnBuilder<'_, '_> {
                 if self.hir_fn.is_entry {
                     self.exit_hooks(e.span);
                 }
-                let ret_has_value = !self.hir_fn.is_entry
-                    && has_value(&self.cx.types.sigs[self.fn_id.0 as usize].ret);
+                let ret_has_value =
+                    !self.hir_fn.is_entry && has_value(&self.cx.sig(self.fn_id).ret);
                 let term = match v {
                     // After a diverging value (`tailcall`, `panic`), the return is dead.
                     Some((Operand::Const(Const::Void), _)) if ret_has_value => {
@@ -3864,13 +3900,11 @@ impl FnBuilder<'_, '_> {
             .struct_def(sid)
             .method("iterator")
             .expect("checked");
-        self.cx.types.sigs[m.0 as usize]
-            .ret
-            .subst(Ty::type_owner(sid), &args)
+        self.cx.sig(m).ret.subst(Ty::type_owner(sid), &args)
     }
 
     fn for_of(&mut self, var: hir::LocalId, iter: &Expr, body: &Expr, span: Span) {
-        let it_ty = self.ty_of(iter).clone();
+        let it_ty = self.ty_of(iter);
         // `for (i of a..b)`: a plain counting loop (step 1 can't overflow past `b`).
         let literal = match (&iter.kind, &it_ty) {
             (ExprKind::Range { start, end }, Ty::Range(it)) => {
@@ -4032,14 +4066,14 @@ impl FnBuilder<'_, '_> {
                     let t = self.temp(Ty::Void);
                     self.assign(Place::local(t), Rvalue::ArrayPush(a.clone(), v), e.span);
                 }
-                let at = self.ty_of(object).clone();
+                let at = self.ty_of(object);
                 self.object_hook("__triggerObject", a, &at, e.span);
                 Operand::Const(Const::Void)
             }
             "pop" => {
                 let a = self.expr(object);
                 let v = self.rvalue_to_temp(Rvalue::ArrayPop(a.clone()), ty, e.span);
-                let at = self.ty_of(object).clone();
+                let at = self.ty_of(object);
                 self.object_hook("__triggerObject", a, &at, e.span);
                 v
             }
@@ -4080,7 +4114,7 @@ impl FnBuilder<'_, '_> {
                 } else {
                     "compareTo"
                 };
-                self.cx.program.struct_def(*sid).method(name)
+                self.cx.program.struct_def(sid).method(name)
             }
             _ => None,
         };
@@ -4093,7 +4127,7 @@ impl FnBuilder<'_, '_> {
             .or(generic_class_op)
         {
             // A user operator, or `equals` / `compareTo`.
-            let rt = self.cx.types.sigs[m.0 as usize].ret.clone();
+            let rt = self.cx.sig(m).ret;
             let v = self.user_call(e, m, l, &[r], rt);
             return match op {
                 B::Lt | B::Le | B::Gt | B::Ge => self.rvalue_to_temp(
@@ -4106,7 +4140,7 @@ impl FnBuilder<'_, '_> {
             };
         }
         if self.cx.types.derived.get(&e.id) == Some(&pico_sema::typeck::Derived::Equals) {
-            let t = self.ty_of(l).clone();
+            let t = self.ty_of(l);
             let a = self.expr(l);
             let b = self.expr(r);
             let eq = self.eq_values(a, b, &t, e.span);
@@ -4116,7 +4150,7 @@ impl FnBuilder<'_, '_> {
             return eq;
         }
         if self.cx.types.derived.get(&e.id) == Some(&pico_sema::typeck::Derived::Compare) {
-            let t = self.ty_of(l).clone();
+            let t = self.ty_of(l);
             let a = self.expr(l);
             let b = self.expr(r);
             let c = self.compare_values(a, b, &t, e.span);
@@ -4185,8 +4219,8 @@ impl FnBuilder<'_, '_> {
                 let mut rv = self.expr(r);
                 if op == ast::BinOp::Add && ty.erase() == Ty::Str {
                     // `"n = " + n`: the other side's string form.
-                    let lt = self.cx.types.final_ty(l.id).clone();
-                    let rt = self.cx.types.final_ty(r.id).clone();
+                    let lt = self.cx.final_ty(l.id);
+                    let rt = self.cx.final_ty(r.id);
                     lv = self.stringify(lv, &lt, l.span);
                     rv = self.stringify(rv, &rt, r.span);
                 }
@@ -4559,7 +4593,7 @@ impl FnBuilder<'_, '_> {
 
     /// `l ?? r`: `r` only when `l` is null.
     fn nullish(&mut self, l: &Expr, r: &Expr, ty: Ty, span: Span) -> Operand {
-        let lt = self.ty_of(l).clone();
+        let lt = self.ty_of(l);
         let a = self.expr(l);
         if !matches!(lt, Ty::Nullable(_)) {
             if lt == Ty::Null {
@@ -4611,7 +4645,7 @@ impl FnBuilder<'_, '_> {
         ty: Ty,
         span: Span,
     ) -> Operand {
-        let bt = self.ty_of(base).clone();
+        let bt = self.ty_of(base);
         let b = self.expr(base);
         let tmp_place = self.place(hir::Var::Local(tmp));
         if !matches!(bt, Ty::Nullable(_)) {
@@ -4633,7 +4667,7 @@ impl FnBuilder<'_, '_> {
         self.switch_to(some_bb);
         self.assign(tmp_place, Rvalue::Unwrap(b), span);
         let r = self.expr(rest);
-        let rt = self.ty_of(rest).clone();
+        let rt = self.ty_of(rest);
         if let Some(res) = &res
             && rt != Ty::Never
         {
@@ -4684,7 +4718,7 @@ impl FnBuilder<'_, '_> {
             match branch {
                 Some(branch) => {
                     let v = self.expr(branch);
-                    let bt = self.ty_of(branch).clone();
+                    let bt = self.ty_of(branch);
                     if let Some(r) = result.clone()
                         && bt != Ty::Never
                     {
@@ -5742,7 +5776,7 @@ impl FnBuilder<'_, '_> {
                 None => Callee::Fn(self.method_of(m, t)),
             };
             // Defaulted parameters: not given (the callee computes them).
-            let params = self.cx.types.sigs[m.0 as usize].params.clone();
+            let params = self.cx.sig(m).params;
             let mut call_args = vec![obj()];
             for p in &params {
                 let pt = self.mono(&p.subst(Ty::type_owner(*sid), args));
@@ -6080,7 +6114,7 @@ impl FnBuilder<'_, '_> {
             }
             if let Some(p) = parts.get(i) {
                 let v = self.expr(&p.expr);
-                let t = self.cx.types.final_ty(p.expr.id).clone();
+                let t = self.cx.final_ty(p.expr.id);
                 if let Some(m) = self.cx.types.formattables.get(&p.expr.id).copied() {
                     let s =
                         self.format_call(v, &t, m, p.spec.as_deref().unwrap_or(""), p.expr.span);
@@ -6262,7 +6296,7 @@ impl FnBuilder<'_, '_> {
         let Some(slots) = self.cx.types.arg_slots.get(&e.id).cloned() else {
             return args.iter().map(|a| self.expr(value(a))).collect();
         };
-        let sig = self.cx.types.sigs[f.0 as usize].clone();
+        let sig = self.cx.sig(f);
         let hf = self.cx.program.func(f);
         let mut tuples: HashMap<usize, Place> = HashMap::new();
         let mut ops = Vec::new();
@@ -6274,7 +6308,7 @@ impl FnBuilder<'_, '_> {
                 pico_sema::typeck::Slot::Default => Operand::Const(Const::Undef(pt.clone())),
                 pico_sema::typeck::Slot::Rest(is) => {
                     // A generic function's `T[]`: this call's element type.
-                    let pt = match self.cx.types.instances.get(&e.id) {
+                    let pt = match self.cx.instance_args(e.id).as_ref() {
                         Some(targs) => self.mono(&pt.subst(f.0, targs)),
                         None => pt.clone(),
                     };
@@ -6393,13 +6427,13 @@ impl FnBuilder<'_, '_> {
 
     fn method_target(&mut self, e: &Expr, m: FnId) -> FnId {
         let mut subst = Subst::new();
-        if let Some(args) = self.cx.types.recv_args.get(&e.id).cloned()
+        if let Some(args) = self.cx.recv_args_of(e.id)
             && let Some(sid) = self.cx.program.func(m).owner
             && !args.is_empty()
         {
             subst.push((Ty::type_owner(sid), args));
         }
-        if let Some(args) = self.cx.types.instances.get(&e.id).cloned()
+        if let Some(args) = self.cx.instance_args(e.id)
             && !args.is_empty()
         {
             subst.push((m.0, args));
@@ -6414,7 +6448,7 @@ impl FnBuilder<'_, '_> {
     /// The class an expression's (class-typed) value belongs to.
     fn class_of(&self, e: &Expr) -> pico_sema::ty::StructId {
         match self.ty_of(e) {
-            Ty::Class(sid, _, _) | Ty::Struct(sid, _, _) => *sid,
+            Ty::Class(sid, _, _) | Ty::Struct(sid, _, _) => sid,
             t => unreachable!("not a class: {t}"),
         }
     }
@@ -6430,7 +6464,7 @@ impl FnBuilder<'_, '_> {
         args: &[Expr],
         ty: Ty,
     ) -> Operand {
-        let t = self.ty_of(object).clone();
+        let t = self.ty_of(object);
         let primitive = matches!(
             t.erase(),
             Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Bool
@@ -6618,7 +6652,7 @@ impl FnBuilder<'_, '_> {
 
     /// Calls user method `m` on `object` with these arguments.
     fn user_call(&mut self, e: &Expr, m: FnId, object: &Expr, args: &[&Expr], ty: Ty) -> Operand {
-        let t = self.ty_of(object).clone();
+        let t = self.ty_of(object);
         let place = self.place_of(object);
         let recv = self.receiver(&place, &t, e.span);
         let mut ops = vec![recv];
@@ -6775,7 +6809,7 @@ impl FnBuilder<'_, '_> {
             Some(op) => {
                 let mut v = self.expr(value);
                 if *op == ast::BinOp::Add && self.place_ty(&place).erase() == Ty::Str {
-                    let vt = self.cx.types.final_ty(value.id).clone();
+                    let vt = self.cx.final_ty(value.id);
                     v = self.stringify(v, &vt, value.span);
                 }
                 self.emit_checks(&checks);
@@ -6968,7 +7002,7 @@ impl FnBuilder<'_, '_> {
                 let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
                 let mut rhs = self.expr(value);
                 if op == ast::BinOp::Add && t.erase() == Ty::Str {
-                    let vt = self.cx.types.final_ty(value.id).clone();
+                    let vt = self.cx.final_ty(value.id);
                     rhs = self.stringify(rhs, &vt, value.span);
                 }
                 self.rvalue_to_temp(Rvalue::Binary(bin_op(op), cur, rhs), t.clone(), e.span)
@@ -7406,7 +7440,7 @@ impl FnBuilder<'_, '_> {
             // A pico extension of a built-in type: the receiver is the first argument (and
             // defaulted parameters get their flags, as in any call).
             let recv = self.expr(object);
-            let rt = self.ty_of(object).clone();
+            let rt = self.ty_of(object);
             let fname = self.cx.program.func(id).name.clone();
             let mutates = matches!(
                 fname.as_str(),
@@ -7424,12 +7458,12 @@ impl FnBuilder<'_, '_> {
                         .iter()
                         .any(|s| matches!(s, pico_sema::typeck::Slot::Rest(_))) =>
                 {
-                    let sig = self.cx.types.sigs[id.0 as usize].clone();
+                    let sig = self.cx.sig(id);
                     for (k, slot) in slots.iter().enumerate().skip(1) {
                         let op = match slot {
                             pico_sema::typeck::Slot::Arg(i) => self.expr(&args[*i - 1]),
                             pico_sema::typeck::Slot::Rest(is) => {
-                                let pt = match self.cx.types.instances.get(&e.id) {
+                                let pt = match self.cx.instance_args(e.id).as_ref() {
                                     Some(targs) => self.mono(&sig.params[k].subst(id.0, targs)),
                                     None => sig.params[k].clone(),
                                 };
@@ -7449,7 +7483,7 @@ impl FnBuilder<'_, '_> {
                 _ => ops.extend(args.iter().map(|a| self.expr(a))),
             }
             let given = ops.len();
-            let sig = self.cx.types.sigs[id.0 as usize].clone();
+            let sig = self.cx.sig(id);
             let defaults: Vec<bool> = self
                 .cx
                 .program
@@ -7466,7 +7500,7 @@ impl FnBuilder<'_, '_> {
                     ops.push(Operand::Const(Const::Bool(k < given)));
                 }
             }
-            let id = match self.cx.types.instances.get(&e.id).cloned() {
+            let id = match self.cx.instance_args(e.id) {
                 Some(targs) => self.cx.instance(id, vec![(id.0, targs)]),
                 None => id,
             };
@@ -7479,7 +7513,7 @@ impl FnBuilder<'_, '_> {
         match &callee.kind {
             ExprKind::Member { object, .. } if self.cx.types.derived.contains_key(&e.id) => {
                 let d = self.cx.types.derived[&e.id];
-                let t = self.ty_of(object).clone();
+                let t = self.ty_of(object);
                 self.derived_call(d, object, args.first(), &t, e.span)
             }
             ExprKind::Member { object, name, .. }
@@ -7503,7 +7537,7 @@ impl FnBuilder<'_, '_> {
                         let Ty::Iface(sid, _, _) = self.ty_of(object) else {
                             unreachable!("interface call")
                         };
-                        self.cx.program.struct_def(*sid).methods[slot as usize].1
+                        self.cx.program.struct_def(sid).methods[slot as usize].1
                     });
                 let mut ops = vec![self.expr(object)];
                 ops.extend(args.iter().map(|a| self.expr(a)));
@@ -7563,7 +7597,7 @@ impl FnBuilder<'_, '_> {
             ExprKind::Member { object, .. } if self.cx.types.methods.contains_key(&e.id) => {
                 let hm = self.cx.types.methods[&e.id];
                 let m = self.method_target(e, hm);
-                let recv_ty = self.ty_of(object).clone();
+                let recv_ty = self.ty_of(object);
                 let recv = self.place_of(object);
                 let (this, back) = self.struct_receiver(recv, &recv_ty, e.span);
                 let mut ops = vec![this];
@@ -7612,7 +7646,7 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Member { object, name, .. } if name == "toString" => {
                 let v = self.expr(object);
-                let t = self.cx.types.final_ty(object.id).clone();
+                let t = self.cx.final_ty(object.id);
                 self.stringify(v, &t, e.span)
             }
             ExprKind::Fn(f) if REFLECT_FNS.contains(&self.cx.program.func(*f).name.as_str()) => {
@@ -7685,13 +7719,13 @@ impl FnBuilder<'_, '_> {
                     _ => self.cx.types.overloads[&e.id],
                 };
                 let mut ops: Vec<Operand> = self.call_operands(e, *id, args);
-                let id = match self.cx.types.instances.get(&e.id).cloned() {
+                let id = match self.cx.instance_args(e.id) {
                     Some(targs) => self.cx.instance(*id, vec![(id.0, targs)]),
                     // C's `...` (spec §12.1): a wrapper taking the extra arguments too.
                     None if let Some(extra) = self.cx.types.c_varargs.get(&e.id).cloned() => {
                         let mut tys = Vec::new();
                         for i in extra {
-                            tys.push(self.mono(self.ty_of(&args[i])));
+                            tys.push(self.mono(&self.ty_of(&args[i])));
                             ops.push(self.expr(&args[i]));
                         }
                         self.cx.synth(Synth::CVariadic(*id, tys))
@@ -7717,7 +7751,7 @@ impl FnBuilder<'_, '_> {
                     None => Operand::Const(Const::Void),
                 }
             }
-            _ if matches!(self.ty_of(callee), Ty::Ref(f) if matches!(**f, Ty::Fn(..))) => {
+            _ if matches!(self.ty_of(callee), Ty::Ref(f) if matches!(*f, Ty::Fn(..))) => {
                 // A C function pointer (spec §12.1).
                 let mut ops = vec![self.expr(callee)];
                 ops.extend(args.iter().map(|a| self.expr(a)));
@@ -7768,7 +7802,7 @@ impl FnBuilder<'_, '_> {
                 let mut ops = Vec::new();
                 for a in args {
                     let v = self.expr(a);
-                    let t = self.ty_of(a).clone();
+                    let t = self.ty_of(a);
                     let has_class = |t: &Ty| matches!(t.erase(), Ty::Class(..));
                     let with_class = matches!(&t, Ty::Union(_, ms) if ms.iter().any(has_class));
                     ops.push(
@@ -7795,7 +7829,7 @@ impl FnBuilder<'_, '_> {
                 Operand::Const(Const::Bool(self.cx.types.uses_reactivity))
             }
             ExprKind::Builtin(Builtin::Identical) => {
-                let t = self.ty_of(&args[0]).clone();
+                let t = self.ty_of(&args[0]);
                 let a = self.expr(&args[0]);
                 let b = self.expr(&args[1]);
                 self.identical_values(a, b, &t, e.span)
