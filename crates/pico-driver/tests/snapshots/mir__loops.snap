@@ -1,5 +1,6 @@
 ---
 source: crates/pico-driver/tests/mir.rs
+assertion_line: 15
 expression: "mir(r#\"\nfunction sum(n: i64): i64 {\n  let total = 0\n  for (let i = 0; i < n; i++) {\n    if (i % 2 == 0) continue\n    total += i\n  }\n  while (total > 100) total -= 1\n  do { total += 1 } while (total < 5)\n  total\n}\nfor (const i of 0..3) println(i)\n\"#)"
 ---
 global @g0: () => bool[]? // __finalizationRegistries
@@ -139,11 +140,11 @@ fn <main>() -> void {
     @g9 = const -1_i64
     @g10 = const 0_i64
     @g11 = const null<Map<string, __Zone>?>
-    _1 = struct#119{}
+    _1 = struct#120{}
     @g12 = _1
     @g13 = const null<__Xoshiro128?>
-    _2 = struct#130{}
-    _3 = struct#131{_2}
+    _2 = struct#131{}
+    _3 = struct#132{_2}
     @g14 = _3
     _5 = const 0_i64
     goto bb6
