@@ -80,7 +80,7 @@ pub fn entry_file(checked: &Checked) -> FileId {
 /// source map for rendering) and the warnings.
 pub fn lint_file(path: &Path, text: &str, cfg: &Config) -> (Checked, Vec<Diagnostic>) {
     let dir = path.parent().unwrap_or(Path::new("."));
-    let checked = pico_driver::check_source_with(
+    let checked = pico_driver::check_source_for_lint(
         path.display().to_string(),
         text.to_string(),
         dir,

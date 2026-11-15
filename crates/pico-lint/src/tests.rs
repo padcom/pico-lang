@@ -744,3 +744,27 @@ stop.dispose()
         ""
     );
 }
+
+/// Linting stops before MIR (the lint rules don't need it), but still reports the errors in
+/// C and JavaScript signatures, which lowering used to find (spec §14.7).
+#[test]
+fn signature_errors_without_lowering() {
+    let d = dir("signatures");
+    let path = d.join("main.pi");
+    let text = "extern \"C\" {\n  function getenv(name: string): string\n}\n\n@export(\"c\")\nexport function twice(n: int): string {\n  return `${n}`\n}\n";
+    std::fs::write(&path, text).unwrap();
+    let (checked, _) = lint_file(&path, text, &Config::default());
+    assert!(checked.mir.is_none());
+    let errors: Vec<String> = checked
+        .diags
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.code.map(|c| c.to_string()).unwrap_or_default())
+        .collect();
+    assert_eq!(
+        errors,
+        ["E0355", "E0355"],
+        "{}",
+        checked.render_diagnostics()
+    );
+}

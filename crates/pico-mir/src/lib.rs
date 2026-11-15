@@ -5,5 +5,5 @@ pub mod fold;
 pub mod lower;
 pub mod mir;
 
-pub use lower::lower;
+pub use lower::{check_signatures, lower};
 pub use mir::{Program, dump};
