@@ -143,6 +143,20 @@ pub fn check_source_for_editor(
     check(name.into(), text.into(), dir, opts, Mode::Editor)
 }
 
+/// Like [`check_source_with`], for the linter: stops after type checking and the C and
+/// JavaScript signature checks ([`pico_mir::check_signatures`]). The lint rules read only the
+/// HIR and the types, and lowering to MIR was most of the time, done again for every file of
+/// the program; so `mir` is `None`, and the errors only lowering and `comptime` find are
+/// `pico build`'s (spec §14.7).
+pub fn check_source_for_lint(
+    name: impl Into<String>,
+    text: impl Into<String>,
+    dir: &Path,
+    opts: BuildOptions,
+) -> Checked {
+    check(name.into(), text.into(), dir, opts, Mode::Lint)
+}
+
 /// The front end for the language server's index in code with errors: resolves and type
 /// checks whatever parsed, past errors (each stage marks what it couldn't make sense of as an
 /// error node or `Ty::Error`), and stops before MIR. Its diagnostics include follow-up
@@ -202,11 +216,13 @@ enum Mode {
     Editor,
     /// [`check_source_recovering`] (for the editor too).
     Recovering,
+    /// [`check_source_for_lint`].
+    Lint,
 }
 
 fn check(name: String, text: String, dir: &Path, opts: BuildOptions, mode: Mode) -> Checked {
     let recover = mode == Mode::Recovering;
-    let editor = mode != Mode::Build;
+    let editor = matches!(mode, Mode::Editor | Mode::Recovering);
     let mut t = Timings::new();
     // (Forget reads of an earlier check on this thread.)
     pico_interp::comptime::take_files_read();
@@ -264,7 +280,10 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, mode: Mode)
             let (ty, mut d) = pico_sema::check(&program);
             diags.append(&mut d);
             t.stage("typecheck");
-            if !recover && !diags.iter().any(Diagnostic::is_error) {
+            if mode == Mode::Lint && !diags.iter().any(Diagnostic::is_error) {
+                diags.append(&mut pico_mir::check_signatures(&program, &ty, file));
+            }
+            if mode != Mode::Lint && !recover && !diags.iter().any(Diagnostic::is_error) {
                 let (mut m, mut d) = pico_mir::lower(&program, &ty, &sm, file);
                 diags.append(&mut d);
                 t.stage("mir");

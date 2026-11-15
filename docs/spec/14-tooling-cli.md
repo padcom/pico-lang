@@ -119,7 +119,11 @@ is a `.pi` file builds it first, and lldb loads pico's formatters. Decisions 280
 ## 14.7 Lint
 `pico lint` checks the project's modules and reports **warnings** (as `W0xxx` diagnostics, like
 the compiler's errors); it exits with status 1 when there are any. The language server shows
-them in the editor too. Rules are set in `project.json`'s `"lint"`:
+them in the editor too. A file's own errors are reported with its warnings: those of parsing,
+name resolution, type checking and the C and JavaScript signatures. `pico lint` stops there, before
+lowering, so errors only a build finds (a constant expression that always panics, failing
+`comptime` code) are `pico build`'s. Files are linted in parallel. Rules are set in
+`project.json`'s `"lint"`:
 ```json
 {
   "lint": {

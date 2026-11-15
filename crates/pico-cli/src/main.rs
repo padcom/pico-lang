@@ -864,28 +864,36 @@ fn lint(paths: &[PathBuf]) -> ExitCode {
         }
     }
     files.sort();
+    // Each file is checked on its own (with what it imports), so the files are linted in
+    // parallel; each worker renders its file's report, printed afterwards in file order.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let reports: std::sync::Mutex<Vec<(usize, LintReport)>> = std::sync::Mutex::new(Vec::new());
+    let jobs = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    std::thread::scope(|s| {
+        for _ in 0..jobs.min(files.len()) {
+            std::thread::Builder::new()
+                .name("pico-lint".into())
+                // (Decorators and comptime code run in the interpreter, which recurses deeply.)
+                .stack_size(1 << 28)
+                .spawn_scoped(s, || {
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(f) = files.get(i) else { break };
+                        let r = lint_one(f);
+                        reports.lock().expect("lint reports").push((i, r));
+                    }
+                })
+                .expect("spawn lint thread");
+        }
+    });
+    let mut reports = reports.into_inner().expect("lint reports");
+    reports.sort_by_key(|(i, _)| *i);
     let (mut warnings, mut errors, mut config_errors) = (0, 0, std::collections::BTreeSet::new());
-    for f in &files {
-        let Ok(text) = std::fs::read_to_string(f) else {
-            eprintln!("error: cannot read {}", f.display());
-            errors += 1;
-            continue;
-        };
-        let (cfg, problems) = pico_lint::Config::for_dir(f.parent().unwrap_or(Path::new(".")));
-        config_errors.extend(problems);
-        let (checked, found) = pico_lint::lint_file(f, &text, &cfg);
-        // (Only the file's own errors: an imported module's are reported with it.)
-        let entry = pico_lint::entry_file(&checked);
-        let own: Vec<pico_diag::Diagnostic> = checked
-            .diags
-            .iter()
-            .filter(|d| d.is_error() && d.main_span().is_none_or(|s| s.file == entry))
-            .cloned()
-            .collect();
-        errors += own.len();
-        warnings += found.len();
-        eprint!("{}", pico_diag::render_all(&own, &checked.sm));
-        eprint!("{}", pico_diag::render_all(&found, &checked.sm));
+    for (_, r) in reports {
+        warnings += r.warnings;
+        errors += r.errors;
+        config_errors.extend(r.config_errors);
+        eprint!("{}", r.output);
     }
     for e in &config_errors {
         eprintln!("error: {e}");
@@ -900,6 +908,43 @@ fn lint(paths: &[PathBuf]) -> ExitCode {
     }
     println!("no warnings in {} file(s)", files.len());
     ExitCode::SUCCESS
+}
+
+/// What linting one file found: its rendered diagnostics and their counts.
+struct LintReport {
+    warnings: usize,
+    errors: usize,
+    config_errors: Vec<String>,
+    output: String,
+}
+
+fn lint_one(f: &Path) -> LintReport {
+    let Ok(text) = std::fs::read_to_string(f) else {
+        return LintReport {
+            warnings: 0,
+            errors: 1,
+            config_errors: Vec::new(),
+            output: format!("error: cannot read {}\n", f.display()),
+        };
+    };
+    let (cfg, config_errors) = pico_lint::Config::for_dir(f.parent().unwrap_or(Path::new(".")));
+    let (checked, found) = pico_lint::lint_file(f, &text, &cfg);
+    // (Only the file's own errors: an imported module's are reported with it.)
+    let entry = pico_lint::entry_file(&checked);
+    let own: Vec<pico_diag::Diagnostic> = checked
+        .diags
+        .iter()
+        .filter(|d| d.is_error() && d.main_span().is_none_or(|s| s.file == entry))
+        .cloned()
+        .collect();
+    let mut output = pico_diag::render_all(&own, &checked.sm);
+    output.push_str(&pico_diag::render_all(&found, &checked.sm));
+    LintReport {
+        warnings: found.len(),
+        errors: own.len(),
+        config_errors,
+        output,
+    }
 }
 
 /// The `.pi` files at `p` (a file, or a directory searched recursively, skipping hidden

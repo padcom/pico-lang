@@ -147,6 +147,15 @@ fn project_json(dir: &Path) -> Option<(PathBuf, Value)> {
     Some((root, serde_json::from_str(&text).ok()?))
 }
 
+/// A temporary `.c` file's path, unique in this process too: `pico lint` checks files on
+/// several threads, and two of them may read the same header at once (one would remove the
+/// file under the other's clang, which then sees none of its macros).
+fn temp_c_file(name: &str) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("pico-cheader-{}-{n}-{name}.c", std::process::id()))
+}
+
 /// The pico module for `c:<header>` (a system header like `math.h`, or `./x.h` relative to
 /// `dir`).
 pub fn generate(header: &str, dir: &Path, cfg: &CConfig) -> Result<String, String> {
@@ -159,11 +168,7 @@ pub fn generate(header: &str, dir: &Path, cfg: &CConfig) -> Result<String, Strin
     } else {
         format!("#include <{header}>\n")
     };
-    let tmp = std::env::temp_dir().join(format!(
-        "pico-cheader-{}-{}.c",
-        std::process::id(),
-        header.replace(['/', '.'], "_")
-    ));
+    let tmp = temp_c_file(&header.replace(['/', '.'], "_"));
     std::fs::write(&tmp, &include).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
     let base = |c: &mut Command| {
         c.arg("-x").arg("c").arg("-std=gnu17");
@@ -194,7 +199,7 @@ pub fn generate(header: &str, dir: &Path, cfg: &CConfig) -> Result<String, Strin
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default();
     // The compiler's own macros (`linux`, `__x86_64__`) aren't the header's.
-    let empty = std::env::temp_dir().join(format!("pico-cheader-{}-empty.c", std::process::id()));
+    let empty = temp_c_file("empty");
     let _ = std::fs::write(&empty, "");
     let mut builtin = cc.command();
     base(&mut builtin);

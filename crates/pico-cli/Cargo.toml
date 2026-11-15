@@ -34,3 +34,7 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 
 [lints]
 workspace = true
+
+# `lint_speed` measures `pico lint`'s CPU time (getrusage).
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"

@@ -10,7 +10,7 @@ use crate::mir::{
 use pico_diag::{Diagnostic, SourceMap, Span, codes};
 use pico_sema::hir::{self, Builtin, Expr, ExprKind, FnId, Stmt, Var};
 use pico_sema::ty::{LitVal, StructId};
-use pico_sema::{IntTy, Ty, Types};
+use pico_sema::{FnSig, IntTy, Ty, Types};
 use pico_syntax::ast;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -243,7 +243,7 @@ pub fn lower(
         })
         .collect();
     let exports = export_wrappers(&mut cx, &mut fns);
-    check_externs(&mut cx);
+    check_externs(program, types, file_id, &mut cx.diags);
     // C variadic externs and the wrappers of their calls (`Synth::CVariadic`, which come
     // last: `first_synth` on).
     let mut c_variadic: Vec<(FnId, usize)> = Vec::new();
@@ -316,16 +316,36 @@ fn js_problem(p: &hir::Program, t: &Ty, seen: &mut Vec<StructId>) -> Option<Stri
     }
 }
 
+/// The errors lowering finds in the signatures of `extern "C"` and `@export` functions,
+/// without lowering anything: for front ends that stop before MIR (the linter).
+pub fn check_signatures(
+    program: &hir::Program,
+    types: &Types,
+    file_id: pico_diag::FileId,
+) -> Vec<Diagnostic> {
+    let mut diags: Vec<Diagnostic> = program
+        .exports
+        .iter()
+        .filter_map(|e| export_problem(program, e, &types.sigs[e.func.0 as usize]))
+        .collect();
+    check_externs(program, types, file_id, &mut diags);
+    diags
+}
+
 /// What an `extern "C"` function may take and return (spec §12.1): numbers, `bool`, pointers
 /// (callbacks too), `@pod` structs (by value, through a C shim; not with C's `...`) and, as
 /// parameters, `string` (a temporary C string). The core library's externs may return a pico
 /// `string` from the runtime.
-fn check_externs(cx: &mut Cx) {
-    let p = cx.program;
+fn check_externs(
+    p: &hir::Program,
+    types: &Types,
+    file_id: pico_diag::FileId,
+    diags: &mut Vec<Diagnostic>,
+) {
     for e in &p.externs {
         let f = p.func(e.func);
-        let sig = &cx.types.sigs[e.func.0 as usize];
-        let core = f.span.file != cx.file_id && cx.program.func(e.func).name.starts_with("pico_");
+        let sig = &types.sigs[e.func.0 as usize];
+        let core = f.span.file != file_id && f.name.starts_with("pico_");
         let pod = |sid: &StructId| {
             p.struct_def(*sid)
                 .decorators
@@ -363,7 +383,7 @@ fn check_externs(cx: &mut Cx) {
             } else {
                 "C takes numbers, `bool`, pointers, strings and `@pod` structs"
             };
-            cx.diags.push(
+            diags.push(
                 Diagnostic::error(
                     codes::EXPORT_TYPE,
                     format!("`{}` can't have `{t}` in a C signature", f.name),
@@ -375,6 +395,49 @@ fn check_externs(cx: &mut Cx) {
     }
 }
 
+/// Why the `@export` function `e` (of signature `sig`) can't cross to C or JavaScript, if it
+/// can't (spec §12.4).
+fn export_problem(p: &hir::Program, e: &hir::Export, sig: &FnSig) -> Option<Diagnostic> {
+    let f = p.func(e.func);
+    let mut bad = Vec::new();
+    if !f.throws.is_empty() {
+        bad.push("it throws: an exported function has to catch its errors".to_string());
+    }
+    if e.abi == hir::ExportAbi::C {
+        // C (spec §12.4): numbers, `bool` and pointers (structs by pointer for now).
+        for t in sig.params.iter().chain(std::iter::once(&sig.ret)) {
+            let ok = matches!(t, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Ref(_))
+                || matches!(t, Ty::Nullable(p) if matches!(**p, Ty::Ref(_)))
+                || (*t == Ty::Void && std::ptr::eq(t, &sig.ret));
+            if !ok {
+                bad.push(format!(
+                    "`{t}` can't cross to C (numbers, `bool` and pointers can)"
+                ));
+            }
+        }
+    }
+    if e.abi == hir::ExportAbi::Js {
+        for t in sig
+            .params
+            .iter()
+            .chain(std::iter::once(&sig.ret).filter(|t| !matches!(t, Ty::Void)))
+        {
+            bad.extend(js_problem(p, t, &mut Vec::new()));
+        }
+    }
+    if f.rest || f.defaults.iter().any(Option::is_some) {
+        bad.push("default and rest parameters can't be exported yet".into());
+    }
+    let why = bad.first()?;
+    Some(
+        Diagnostic::error(
+            codes::EXPORT_TYPE,
+            format!("`{}` can't be exported: {why}", e.name),
+        )
+        .primary(e.span, "exported here"),
+    )
+}
+
 /// The wrappers of `@export` functions (decision 258): `(out?, params…)`, where struct
 /// parameters come as pointers to a copy and a struct result is stored through `out`.
 fn export_wrappers(cx: &mut Cx, fns: &mut Vec<mir::Function>) -> Vec<mir::Export> {
@@ -383,43 +446,8 @@ fn export_wrappers(cx: &mut Cx, fns: &mut Vec<mir::Function>) -> Vec<mir::Export
     for e in &p.exports {
         let f = p.func(e.func);
         let sig = cx.types.sigs[e.func.0 as usize].clone();
-        let mut bad = Vec::new();
-        if !f.throws.is_empty() {
-            bad.push("it throws: an exported function has to catch its errors".to_string());
-        }
-        if e.abi == hir::ExportAbi::C {
-            // C (spec §12.4): numbers, `bool` and pointers (structs by pointer for now).
-            for t in sig.params.iter().chain(std::iter::once(&sig.ret)) {
-                let ok = matches!(t, Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Ref(_))
-                    || matches!(t, Ty::Nullable(p) if matches!(**p, Ty::Ref(_)))
-                    || (*t == Ty::Void && std::ptr::eq(t, &sig.ret));
-                if !ok {
-                    bad.push(format!(
-                        "`{t}` can't cross to C (numbers, `bool` and pointers can)"
-                    ));
-                }
-            }
-        }
-        if e.abi == hir::ExportAbi::Js {
-            for t in sig
-                .params
-                .iter()
-                .chain(std::iter::once(&sig.ret).filter(|t| !matches!(t, Ty::Void)))
-            {
-                bad.extend(js_problem(p, t, &mut Vec::new()));
-            }
-        }
-        if f.rest || f.defaults.iter().any(Option::is_some) {
-            bad.push("default and rest parameters can't be exported yet".into());
-        }
-        if let Some(why) = bad.first() {
-            cx.diags.push(
-                Diagnostic::error(
-                    codes::EXPORT_TYPE,
-                    format!("`{}` can't be exported: {why}", e.name),
-                )
-                .primary(e.span, "exported here"),
-            );
+        if let Some(d) = export_problem(p, e, &sig) {
+            cx.diags.push(d);
             continue;
         }
         let js = e.abi == hir::ExportAbi::Js;
