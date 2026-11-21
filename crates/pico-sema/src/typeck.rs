@@ -6805,6 +6805,10 @@ impl<'p> Checker<'p> {
         if f.ret.is_none() && self.state[id.0 as usize] == FnState::Unchecked {
             self.check_fn(id);
         }
+        // The slots are this pass's: an earlier pass over the same call (overload resolution
+        // infers the arguments, then the chosen overload checks them) recorded its own, which
+        // the `contains_key` guards below would take for named arguments' (#146).
+        self.types.arg_slots.remove(&e.id);
         let mut sig = self.types.sigs[id.0 as usize].clone();
         if let Some((o, a)) = pre {
             sig = FnSig {
