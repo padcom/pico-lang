@@ -1294,7 +1294,8 @@ impl Cx<'_> {
             let def = self.program.struct_def(imp);
             let mut entries = Vec::new();
             for (name, ifn) in &idef.methods {
-                let entry = match def.method(name) {
+                let chosen = self.types.impl_methods.get(&(imp, *ifn)).copied();
+                let entry = match chosen.or_else(|| def.method(name)) {
                     Some(f) => {
                         let slot = def.virtual_slot(name).filter(|_| def.is_class);
                         let id = FnId(fns.len() as u32);
@@ -6525,7 +6526,9 @@ impl FnBuilder<'_, '_> {
             other => unreachable!("method `{name}` on {other}"),
         };
         let def = self.cx.program.struct_def(sid);
-        let Some(m) = def.method(name) else {
+        // The method the type checker chose (an overload, spec §5.4), else the one of the name.
+        let chosen = self.cx.types.methods.get(&e.id).copied();
+        let Some(m) = chosen.or_else(|| def.method(name)) else {
             // A derived protocol on the concrete type.
             let d = match name {
                 "compareTo" => pico_sema::typeck::Derived::Compare,

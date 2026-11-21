@@ -1,0 +1,107 @@
+// Overloaded methods (spec §5.4): instance and static methods of classes and structs, chosen
+// by the arguments' types and count, with defaults, named arguments, generic types and
+// methods, untyped closures (chosen by their parameter count) and an interface implemented
+// by one of the overloads.
+// expect: a,#2,b,c,z,z,name=n
+// expect: 3
+// expect: 12
+// expect: #7 s made
+// expect: > a,#2,b,c,z,z,name=n
+// expect: box
+// expect: 6 4
+// expect: opt -a '' -
+// expect: opt -b 'bee' -
+// expect: opt -c '' x
+// expect: parser -d 2 0
+// expect: parser -e 1 5
+// expect: opt -f '' named
+// expect: parser -g 2 9
+// expect: [1, 2, 3] [2, 4, 6] ["1", "2", "3", "end"]
+// expect: go 1 base go 'x'
+// expect: default default default default default
+// expect: parser parser parser default
+// expect: bool bool opts
+interface Shape { describe(prefix: string): string }
+
+class Box implements Shape {
+  public items: string[] = []
+  public add(s: string): Box { items.push(s); return this }
+  public add(n: int): Box { items.push(`#${n}`); return this }
+  public add(xs: string[]): Box { for (const x of xs) items.push(x); return this }
+  public add(s: string, times: int): Box { for (const _ of 0..times) items.push(s); return this }
+  public name(n: string): Box { items.push(`name=${n}`); return this }
+  public name(): string { return items.join(",") }
+  public on(f: (s: string) => int): int { return f("abc") }
+  public on(f: (a: string, b: string) => int): int { return f("ab", "c") }
+  public describe(prefix: string): string { return prefix + name() }
+  public describe(): string { return "box" }
+  public static of(s: string): Box { return new Box().add(s) }
+  public static of(n: int): Box { return new Box().add(n) }
+  public static make(): Box { return of("made") }
+}
+
+struct P {
+  x: int
+  scale(k: int): P { return P { x: x * k } }
+  scale(k: number): P { return P { x: (x as number * k) as int } }
+}
+
+const b = new Box()
+b.add("a").add(2).add(["b", "c"]).add("z", 2).name("n")
+println(b.name())
+println(b.on((s) => s.length))
+println(b.on((a, b2) => a.length + b2.length * 10))
+println(Box.of(7).name() + " " + Box.of("s").name() + " " + Box.make().name())
+const sh: Shape = b
+println(sh.describe("> "))
+println(b.describe())
+const p = P { x: 3 }
+println(`${p.scale(2).x} ${p.scale(1.5).x}`)
+class Cmd {
+  public log: string[] = []
+  public option(flags: string, description: string = "", def: string? = null): Cmd {
+    log.push(`opt ${flags} '${description}' ${def ?? "-"}`)
+    return this
+  }
+  public option(flags: string, description: string, parser: (v: string) => int, def: int = 0): Cmd {
+    log.push(`parser ${flags} ${parser("12")} ${def}`)
+    return this
+  }
+}
+class Stack<T> {
+  public xs: T[] = []
+  public push(x: T): Stack<T> { xs.push(x); return this }
+  public push(xs2: T[]): Stack<T> { for (const x of xs2) xs.push(x); return this }
+  public map<U>(f: (x: T) => U): U[] { return xs.map(f) }
+  public map<U>(f: (x: T) => U, extra: U): U[] { const out = xs.map(f); out.push(extra); return out }
+}
+class Base { public hi(): string { return "base" } }
+class Derived extends Base {
+  public go(n: int): string { return `go ${n} ${hi()}` }
+  public go(s: string): string { return `go '${s}'` }
+}
+const c = new Cmd()
+c.option("-a").option("-b", "bee").option("-c", "", "x").option("-d", "dee", (v) => v.length).option("-e", "e", (v) => 1, 5)
+c.option("-f", def: "named").option("-g", "g", parser: (v: string) => 2, def: 9)
+for (const l of c.log) println(l)
+const st = new Stack<int>()
+st.push(1).push([2, 3])
+println(`${st.xs:?} ${st.map((x) => x * 2):?} ${st.map((x) => `${x}`, "end"):?}`)
+const d = new Derived()
+println(d.go(1) + " " + d.go("x"))
+
+// Literals and values going into a (nullable) union, closures by their parameter count, an
+// object literal for a struct parameter.
+type Default = bool | string | int | number
+type Parser = (value: string, previous: int) => int
+struct Opts { isDefault?: bool; hidden?: bool }
+class Defaults {
+  public option(flags: string, description: string = "", defaultValue: Default? = null): string { return "default" }
+  public option(flags: string, description: string, parser: Parser, defaultValue: Default? = null): string { return "parser" }
+  public command(name: string, isDefault: bool = false): string { return "bool" }
+  public command(name: string, opts: Opts): string { return "opts" }
+}
+const dd = new Defaults()
+println(`${dd.option("-a")} ${dd.option("-n", "", 1)} ${dd.option("-x", "", 1.5)} ${dd.option("-s", "", "s")} ${dd.option("-b", "", true)}`)
+println(`${dd.option("-p", "", (_v, p) => p + 1)} ${dd.option("-q", "", (_v, _p) => 0, 3)} ${dd.option("-r", "", parser: (_v, _p) => 1)} ${dd.option("-t", "", null)}`)
+println(`${dd.command("x")} ${dd.command("x", true)} ${dd.command("x", { isDefault: true })}`)
