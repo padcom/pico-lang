@@ -4846,7 +4846,7 @@ impl<'p> Gen<'p> {
                                 s.global_set(self.job_global() + 2);
                                 s.i64_const(1);
                             }
-                            150..=168 => {
+                            150..=168 | 122..=124 => {
                                 s.i32_const(op as i32);
                                 for a in &args[1..6] {
                                     self.operand(fx, s, a)?;

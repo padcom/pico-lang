@@ -7560,7 +7560,11 @@ impl FnBuilder<'_, '_> {
             let fname = self.cx.program.func(id).name.clone();
             let mutates = matches!(
                 fname.as_str(),
-                "__Array_sort" | "__Array_reverse" | "__Array_splice"
+                "__Array_sort"
+                    | "__Array_reverse"
+                    | "__Array_splice"
+                    | "__Array_shift"
+                    | "__Array_unshift"
             );
             if !mutates {
                 self.object_hook("__trackObject", recv.clone(), &rt, e.span);

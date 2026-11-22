@@ -11,7 +11,12 @@ the built-in error classes, `fetch`, `Request`, `Response`, `Headers`, `URL`, `U
 `AbortController`, `AbortSignal`, `Worker`, `WeakRef`, `WeakMap`, `WeakSet`,
 `FinalizationRegistry`, `Arena` (§9.4), `parseInt(s): int` (base 10, JavaScript's parsing; a
 string without leading digits panics, since `int` has no `NaN`) and `parseFloat(s): number`
-(JavaScript's: the number at the start, `NaN` without one). Integer arrays have `sum()`.
+(JavaScript's: the number at the start, `NaN` without one), and `eprint(text)` and
+`eprintln(text = "")`, which write to stderr at once, after what `print` wrote. Integer arrays
+have `sum()`; arrays have `shift()` and `unshift(...items)`, and strings `substring(start, end?)`
+(JavaScript's clamping and swapping), `codePointAt(i)` (`null` outside; positions count code
+points) and `localeCompare(other)` (case-insensitive first, then lower case first, as ICU orders
+ASCII).
 
 Text that may not be a number is parsed with the number types' `parse` (decision 340), which give
 `null` instead of panicking: `int.parse(s, radix = 10): int?` and the same for `i8` … `i64` and
@@ -138,7 +143,8 @@ This process: `args: string[]` (the arguments after the program), `pid`, `cwd()`
 (`get(name): string?`, `has`, `set`, `delete`, `toObject(): Map<string, string>`; children
 started later see changes), `exit(code = 0)` (ends the program at once: no `finally` blocks,
 pending promises dropped; called in a worker, it ends the whole program too, decision 321) and `stdin` (a `Reader`), `stdout`, `stderr` (`Writer`s whose writes
-are in order with `print`).
+are in order with `print`). `stdin`, `stdout` and `stderr` say whether they're a terminal
+(`isTerminal`), and the writers give its size (`columns` and `rows`, `null` when it isn't one).
 
 ## 13.4 Async-only I/O
 No I/O function has a synchronous variant. Scripts use top-level `await`:
@@ -436,7 +442,9 @@ it did, since 1970).
 `floor`, `ceil`, `round` (half up, as in JavaScript), `trunc`, `fround`, `sqrt`, `cbrt`, `pow`,
 `exp`, `expm1`, `log`, `log1p`, `log2`, `log10`, the trigonometric and hyperbolic functions,
 `atan2`, `hypot(...)`, `min(...)`, `max(...)`, `clz32`, `imul` and `random()` (xoshiro128**
-seeded from the system: not for cryptography). Library functions are the platform's libm in
+seeded from the system: not for cryptography). `abs`, `sign`, `min(first, ...rest)` and
+`max(first, ...rest)` have integer overloads too, chosen for integer arguments (literals
+included), which give an `int`. Library functions are the platform's libm in
 both backends, except on Windows, whose programs carry musl's (the UCRT's differ from Linux's by
 up to an ulp; decision 249).
 

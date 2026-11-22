@@ -1102,6 +1102,32 @@ impl<'p> Checker<'p> {
                     return Facts::default();
                 };
                 let vt = self.types.expr(expr.id).clone();
+                // `v is T` on a union (`v is int[]`, `v is string`, #159): `v` is that member when
+                // it's true, the other one (of two) when it's false, as with `typeof`.
+                if let (
+                    Ty::Union(_, ms),
+                    PatKind::Type {
+                        ty,
+                        bind: None,
+                        fields: None,
+                    },
+                ) = (&vt, &pat.kind)
+                    && let Some(i) = ms.iter().position(|m| m == ty)
+                {
+                    let rest: Vec<&Ty> = ms
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, _)| *j != i)
+                        .map(|(_, t)| t)
+                        .collect();
+                    return Facts {
+                        when_true: vec![(v, ms[i].clone())],
+                        when_false: match rest.as_slice() {
+                            [one] => vec![(v, (*one).clone())],
+                            _ => Vec::new(),
+                        },
+                    };
+                }
                 let Ty::Nullable(inner) = &vt else {
                     return Facts::default();
                 };
@@ -6167,8 +6193,20 @@ impl<'p> Checker<'p> {
                 let mut fits = true;
                 let mut used = Vec::new();
                 for (k, slot) in slots.iter().enumerate() {
-                    let p = &sig.params[k];
-                    if let Slot::Arg(i) = slot {
+                    // A rest parameter's arguments: each against its element type (#155).
+                    let (indices, p): (Vec<usize>, Ty) = match slot {
+                        Slot::Arg(i) => (vec![*i], sig.params[k].clone()),
+                        Slot::Rest(is) => (
+                            is.clone(),
+                            match &sig.params[k] {
+                                Ty::Array(t) => (**t).clone(),
+                                t => t.clone(),
+                            },
+                        ),
+                        _ => continue,
+                    };
+                    let p = &p;
+                    for i in &indices {
                         used.push(p.clone());
                         let fit = match &tys[*i] {
                             Some(t) => {
@@ -6202,6 +6240,12 @@ impl<'p> Checker<'p> {
             .map(|a| match &Self::arg_value(a).kind {
                 ExprKind::Int(_, None) => Some(Ty::INT),
                 ExprKind::Float(_, None) => Some(Ty::NUMBER),
+                // (`-3` too: a negated literal.)
+                ExprKind::Unary(UnOp::Neg, inner) => match inner.kind {
+                    ExprKind::Int(_, None) => Some(Ty::INT),
+                    ExprKind::Float(_, None) => Some(Ty::NUMBER),
+                    _ => None,
+                },
                 _ => None,
             })
             .collect();

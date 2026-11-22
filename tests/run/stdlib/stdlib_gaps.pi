@@ -1,0 +1,34 @@
+// Standard library gaps (#155–#159): Math on integers, substring/codePointAt/localeCompare,
+// shift/unshift, eprint (to stderr, not seen here) and `v is int[]` narrowing a union.
+// (isTerminal and columns: run/process/terminal.pi.)
+// expect: 9 2 7 -1 7 2.5 2.5
+// expect: el el llo hello
+// expect: 98 true 233
+// expect: alpha,Alpha,beta,Beta,gamma
+// expect: 1 4 [9, 8, 2, 3]
+// expect: true
+// expect: out1 out2
+// expect: array 2
+// expect: false
+const a: int = Math.max(3, 9, 4)
+const b: int = Math.min(5, 2)
+const n = 7
+println(`${a} ${b} ${Math.abs(-n)} ${Math.sign(-n)} ${Math.max(n, 1)} ${Math.max(1.5, 2.5)} ${Math.abs(-2.5)}`)
+println(`${"hello".substring(1, 3)} ${"hello".substring(3, 1)} ${"hello".substring(2)} ${"hello".substring(-5, 99)}`)
+println(`${"abc".codePointAt(1) ?? -1} ${"abc".codePointAt(5) == null} ${"é".codePointAt(0) ?? -1}`)
+const names = ["beta", "Alpha", "alpha", "Beta", "gamma"]
+names.sort((x: string, y: string) => x.localeCompare(y))
+println(names.join(","))
+const xs = [1, 2, 3]
+const first = xs.shift()
+const len = xs.unshift(9, 8)
+println(`${first ?? 0} ${len} ${xs:?}`)
+const empty: int[] = []
+println(empty.shift() == null)
+print("out1 ")
+eprintln("err line")
+println("out2")
+const v: string | int[] = [1, 2]
+if (v is int[]) println(`array ${v.length}`)
+const w: string | int[] = "s"
+println(w is int[])

@@ -216,6 +216,41 @@ impl Parser {
                 span,
             );
         }
+        // `v is int[]`, `T[][]` (#159): an array type test (with nothing bound).
+        if ctx == PatCtx::Match
+            && self.at(Punct::LBracket)
+            && matches!(self.peek_nth(1), TokenKind::Punct(Punct::RBracket))
+        {
+            let mut ty = Type {
+                kind: TypeKind::Path {
+                    path: path.clone(),
+                    args: Vec::new(),
+                },
+                span: start.to(self.prev_span()),
+            };
+            while self.at(Punct::LBracket)
+                && matches!(self.peek_nth(1), TokenKind::Punct(Punct::RBracket))
+            {
+                self.bump();
+                self.bump();
+                ty = Type {
+                    kind: TypeKind::Array(Box::new(ty)),
+                    span: start.to(self.prev_span()),
+                };
+            }
+            let span = start.to(self.prev_span());
+            return mk(
+                PatternKind::Typed {
+                    name: Ident {
+                        name: "_".into(),
+                        span,
+                    },
+                    ty,
+                    fields: None,
+                },
+                span,
+            );
+        }
         let span = start.to(self.prev_span());
         if path.len() == 1 {
             mk(PatternKind::Ident(path.pop().unwrap()), span)

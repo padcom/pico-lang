@@ -140,6 +140,32 @@ enum Pipe {
 #[cfg(unix)]
 unsafe extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
+    fn ioctl(fd: i32, request: std::ffi::c_ulong, ...) -> i32;
+}
+
+/// `ioctl`'s request for a terminal's size (`struct winsize`).
+#[cfg(target_os = "linux")]
+const TIOCGWINSZ: std::ffi::c_ulong = 0x5413;
+#[cfg(target_os = "macos")]
+const TIOCGWINSZ: std::ffi::c_ulong = 0x4008_7468;
+
+/// A terminal's size (op 124, #158): `b` 0 the columns, 1 the rows; -1 when `fd` isn't one.
+fn terminal_size(fd: i64, b: i64) -> i64 {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        let mut ws = [0u16; 4];
+        // SAFETY: TIOCGWINSZ fills a `struct winsize`, four `unsigned short`s.
+        let r = unsafe { ioctl(fd as i32, TIOCGWINSZ, ws.as_mut_ptr()) };
+        if r == 0 && ws[0] > 0 && ws[1] > 0 {
+            return i64::from(if b == 1 { ws[0] } else { ws[1] });
+        }
+        -1
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (fd, b);
+        -1
+    }
 }
 
 /// A `watch` (op 15): the tree's last snapshot and the "next" job (op 16) waiting on it.
@@ -530,7 +556,7 @@ impl Interp<'_, '_> {
             }
             return Value::Int(0);
         }
-        if (110..=119).contains(&op) {
+        if (110..=119).contains(&op) || (122..=124).contains(&op) {
             return Value::Int(i128::from(self.process_op(op, a, b, c, &s(4), &s(5))));
         }
         if op == 16 {
@@ -1528,6 +1554,26 @@ impl Interp<'_, '_> {
                 result(&mut self.io, 0, 0, text)
             }
             119 => i64::from(std::process::id()),
+            // Text to stderr now, after the output so far (#157).
+            122 => {
+                use std::io::Write;
+                self.flush_output();
+                let mut e = std::io::stderr();
+                let _ = e.write_all(s.as_bytes());
+                let _ = e.flush();
+                0
+            }
+            // Whether fd `a` is a terminal (#158).
+            123 => {
+                use std::io::IsTerminal;
+                i64::from(match a {
+                    0 => std::io::stdin().is_terminal(),
+                    1 => std::io::stdout().is_terminal(),
+                    2 => std::io::stderr().is_terminal(),
+                    _ => false,
+                })
+            }
+            124 => terminal_size(a, b),
             _ => -1,
         }
     }

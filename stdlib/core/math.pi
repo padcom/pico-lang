@@ -92,6 +92,10 @@ class Math {
 
   /// The absolute value of `x`.
   public static abs(x: number): number { if (x < 0.0) -x else if (x == 0.0) 0.0 else x }
+  /// The absolute value of an integer (#155; overflows, a panic, for `i64`'s minimum).
+  public static abs(x: int): int {
+    return if (x < 0) -x else x
+  }
   /// The square root of `x` (`NaN` if `x` is negative).
   public static sqrt(x: number): number { __math(0, x, 0.0) }
   /// The cube root of `x`.
@@ -162,6 +166,11 @@ class Math {
     if (x > 0.0) 1.0 else if (x < 0.0) -1.0 else x
   }
 
+  /// -1, 0 or 1 by the integer's sign (#155).
+  public static sign(x: int): int {
+    return if (x > 0) 1 else if (x < 0) -1 else 0
+  }
+
   /// The square root of the sum of squares, without needless overflow.
   public static hypot(...values: number[]): number {
     let r = 0.0
@@ -178,6 +187,24 @@ class Math {
     for (const v of values) {
       if (v != v) return v
       if (v > r) r = v
+    }
+    return r
+  }
+
+  /// The largest of integers (#155): there's at least one, as `int` has no `-Infinity`.
+  public static max(first: int, ...rest: int[]): int {
+    let r = first
+    for (const v of rest) {
+      if (v > r) r = v
+    }
+    return r
+  }
+
+  /// The smallest of integers (#155).
+  public static min(first: int, ...rest: int[]): int {
+    let r = first
+    for (const v of rest) {
+      if (v < r) r = v
     }
     return r
   }

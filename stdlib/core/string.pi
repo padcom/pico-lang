@@ -470,6 +470,44 @@ function parseFloat(s: string): number {
   return __numberValue(t.slice(0, end))
 }
 
+/// The text from `start` up to `end` (default: the end), as JavaScript's `substring` (#156):
+/// both are clamped to the string, and swapped when `start` is greater.
+function __String_substring(s: string, start: int, end: int = s.length): string {
+  const n = s.length
+  const a = if (start < 0) 0 else if (start > n) n else start
+  const b = if (end < 0) 0 else if (end > n) n else end
+  return if (a <= b) s.slice(a, b) else s.slice(b, a)
+}
+
+/// The code point at position `i` (positions count code points), or `null` outside the string
+/// (#156).
+function __String_codePointAt(s: string, i: int): int? {
+  if (i < 0 || i >= s.length) return null
+  return (s[i] as u32) as int
+}
+
+/// Compares `s` with `other` for sorting text (#156): ignoring case first, then lower case
+/// before upper case, as ICU's root collation orders ASCII (JavaScript's `localeCompare`).
+/// Negative, 0 or positive.
+function __String_localeCompare(s: string, other: string): int {
+  const a = s.toLowerCase()
+  const b = other.toLowerCase()
+  if (a < b) return -1
+  if (a > b) return 1
+  if (s == other) return 0
+  return if (s > other) -1 else 1
+}
+
+/// Writes `text` to stderr at once, after what `print` wrote (#157).
+function eprint(text: string): void {
+  __io(122, 2, 0, 0, text, "");
+}
+
+/// `eprint` with a line break.
+function eprintln(text: string = ""): void {
+  __io(122, 2, 0, 0, text + "\n", "");
+}
+
 /// The last position of `search` in `s`, or -1.
 function __String_lastIndexOf(s: string, search: string): int {
   const n = s.length
