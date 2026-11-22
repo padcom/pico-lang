@@ -7072,7 +7072,12 @@ impl Resolver {
             }
             P::Typed { name, ty, fields } => {
                 let ty = self.resolve_type(ty);
-                let bind = self.bind_name(name, b);
+                // (`v is int[]` tests `v` itself, as `v is string` does: nothing is bound, #159.)
+                let bind = if name.name == "_" {
+                    None
+                } else {
+                    self.bind_name(name, b)
+                };
                 let fields = fields.as_ref().map(|f| self.field_patterns(f, b));
                 PatKind::Type { ty, bind, fields }
             }

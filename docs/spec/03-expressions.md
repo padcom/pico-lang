@@ -147,6 +147,9 @@ if (!(x is string)) return
 x.toUpperCase()                     // x narrowed to string here
 while (queue.next() is Job { id }) process(id)
 ```
+On a variable of a union type, `v is T` with a member type `T` (`v is string`, `v is int[]`)
+narrows `v` to `T` where it's true, and to the other member, if there are two, where it's false
+(decision 341).
 
 ## 3.6 Ternary, optional chaining, nullish
 These work as in TS: `c ? a : b`, `a?.b?.c()`, `a ?? b`, `a!`.

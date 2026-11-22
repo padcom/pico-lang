@@ -152,6 +152,21 @@ function __Array_slice<T>(xs: T[], start: int, end: int): T[] {
 
 /// Removes the elements from index `start` to the end (in place) and returns them. A negative
 /// `start` counts from the end; it's clamped to the array.
+/// Removes the first element and returns it; `null` (and nothing changes) when the array is
+/// empty (#156).
+function __Array_shift<T>(xs: T[]): T? {
+  if (xs.length == 0) return null
+  const first = xs[0]
+  __Array_splice(xs, 0, 1)
+  return first
+}
+
+/// Inserts `items` at the start; the new length (#156).
+function __Array_unshift<T>(xs: T[], ...items: T[]): int {
+  __Array_splice(xs, 0, 0, ...items)
+  return xs.length
+}
+
 function __Array_splice<T>(xs: T[], start: int): T[] {
   __Array_splice(xs, start, xs.length)
 }

@@ -269,6 +269,16 @@ export default async function init(options = {}) {
       err.flush();
     }
     switch (op) {
+      // Text to stderr now, after the output so far (#157); no terminals here (#158).
+      case 122:
+        out.flush();
+        err.put(str(s));
+        err.flush();
+        return 0;
+      case 123:
+        return 0;
+      case 124:
+        return -1;
       case 150:
         return guard(() => put(val(a)[str(s)]));
       case 151:

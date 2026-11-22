@@ -1,0 +1,5 @@
+// A golden run's output is a pipe, not a terminal: `isTerminal` is false and there's no size
+// (#158).
+// expect: false true true
+import { stdout, stderr } from "std/process"
+println(`${stdout.isTerminal} ${stdout.columns == null} ${stderr.rows == null}`)

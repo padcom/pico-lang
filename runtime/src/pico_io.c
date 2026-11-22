@@ -12,6 +12,7 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <direct.h> /* _getcwd */
+#include <io.h>     /* _isatty */
 #include <signal.h>
 #endif
 #include "pico_rt.h"
@@ -39,6 +40,15 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#if __has_include(<sys/ioctl.h>)
+#include <sys/ioctl.h>
+#else /* (a minimal sysroot, as the cross-compilation tests' macOS one: what op 124 needs) */
+struct winsize {
+    unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel;
+};
+int ioctl(int fd, unsigned long request, ...);
+#define TIOCGWINSZ 0x40087468UL
+#endif
 #elif defined(__wasi__)
 /* (wasi-libc's POSIX file API over preopened directories; no processes or sockets.) */
 #include <dirent.h>
@@ -1645,6 +1655,18 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
         fflush(stderr);
         exit((int)a);
     case 119: return (int64_t)getpid();
+    case 122: /* text s to stderr now, after the output so far (#157) */
+        fflush(stdout);
+        fwrite(s->data, 1, (size_t)s->byte_len, stderr);
+        fflush(stderr);
+        return 0;
+    case 123: /* whether fd a is a terminal (#158) */
+        return isatty((int)a) ? 1 : 0;
+    case 124: { /* a terminal's columns (b 0) or rows (b 1), or -1 */
+        struct winsize ws;
+        if (ioctl((int)a, TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0) return -1;
+        return b == 1 ? ws.ws_row : ws.ws_col;
+    }
     default: return -1;
     }
 }
@@ -2714,6 +2736,13 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
     case 118: /* exit(a) */
         pico_exit((int)a);
     case 119: return 1; /* (WASI has no process ids) */
+    case 122: /* text s to stderr now, after the output so far (#157) */
+        fflush(stdout);
+        fwrite(s->data, 1, (size_t)s->byte_len, stderr);
+        fflush(stderr);
+        return 0;
+    case 123: return 0; /* (no terminals, #158) */
+    case 124: return -1;
     default: return -1;
     }
 }
@@ -2769,7 +2798,10 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     case 116:
     case 117:
     case 118:
-    case 119: return process_op(q, op, a, b, c, s, t);
+    case 119:
+    case 122:
+    case 123:
+    case 124: return process_op(q, op, a, b, c, s, t);
     case 134: { /* read file s whole, now: r = a buffer handle (or -1), r2 = its size */
         Job *j = result_job(q);
         j->r = -1;
@@ -3730,6 +3762,19 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
         fflush(stderr);
         exit((int)a);
     case 119: return (int64_t)GetCurrentProcessId();
+    case 122: /* text s to stderr now, after the output so far (#157) */
+        fflush(stdout);
+        fwrite(s->data, 1, (size_t)s->byte_len, stderr);
+        fflush(stderr);
+        return 0;
+    case 123: return _isatty((int)a) ? 1 : 0; /* (#158) */
+    case 124: { /* a console's columns (b 0) or rows (b 1), or -1 */
+        CONSOLE_SCREEN_BUFFER_INFO info;
+        HANDLE h = GetStdHandle(a == 0 ? STD_INPUT_HANDLE : a == 2 ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+        if (a < 0 || a > 2 || !GetConsoleScreenBufferInfo(h, &info)) return -1;
+        return b == 1 ? info.srWindow.Bottom - info.srWindow.Top + 1
+                      : info.srWindow.Right - info.srWindow.Left + 1;
+    }
     default: return -1;
     }
 }
@@ -4065,7 +4110,10 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     case 116:
     case 117:
     case 118:
-    case 119: return process_op(q, op, a, b, c, s, t);
+    case 119:
+    case 122:
+    case 123:
+    case 124: return process_op(q, op, a, b, c, s, t);
     default: return -1;
     }
 }

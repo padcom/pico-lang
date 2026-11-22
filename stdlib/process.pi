@@ -169,6 +169,11 @@ export class Reader {
     this.done = piped && fd < 0
   }
 
+  /// Whether it reads from a terminal (#158): `stdin.isTerminal` is false when input is piped.
+  public get isTerminal(): bool {
+    return fd >= 0 && __io(123, fd, 0, 0, "", "") == 1
+  }
+
   /// The bytes as a stream (reading it and `read()` don't mix).
   public get readable(): ReadableStream<Uint8Array> {
     const r = this.rs
@@ -348,6 +353,24 @@ export class Writer {
   /// Writes all of `data`; the count written.
   public write(data: Uint8Array): Promise<int, IoError> {
     add({ bytes: __bytesOf(data), count: data.length, text: "", p: new Promise<int, IoError>() })
+  }
+
+  /// Whether it writes to a terminal (#158): `stdout.isTerminal` is false when the output is
+  /// piped or redirected.
+  public get isTerminal(): bool {
+    return fd >= 0 && __io(123, fd, 0, 0, "", "") == 1
+  }
+
+  /// The terminal's width in columns, or `null` when it isn't one (#158).
+  public get columns(): int? {
+    const n = if (fd >= 0) __io(124, fd, 0, 0, "", "") else -1
+    return if (n > 0) n else null
+  }
+
+  /// The terminal's height in rows, or `null` when it isn't one.
+  public get rows(): int? {
+    const n = if (fd >= 0) __io(124, fd, 1, 0, "", "") else -1
+    return if (n > 0) n else null
   }
 
   /// Writes `text` as UTF-8; the count of bytes written.
