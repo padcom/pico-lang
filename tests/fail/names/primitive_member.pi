@@ -1,0 +1,4 @@
+// A number type has `parse`; other static members are unknown (#154).
+// error: E0309
+// at: 4:15
+const x = int.nope("1")

@@ -301,6 +301,175 @@ function parseInt(s: string): int {
   if (negative) -value else value
 }
 
+/// The value of digit `c` in bases up to 36 (`0`–`9`, then `a`–`z` or `A`–`Z`), or -1.
+function __digitValue(c: char): int {
+  const n = (c as u32) as int
+  if (n >= 48 && n <= 57) return n - 48
+  if (n >= 97 && n <= 122) return n - 87
+  if (n >= 65 && n <= 90) return n - 55
+  return -1
+}
+
+function __checkRadix(radix: int): void {
+  if (radix < 2 || radix > 36) panic(`parse: radix ${radix} isn't between 2 and 36`)
+}
+
+/// `s` (spaces around it are allowed) as an integer in base `radix`: an optional sign and at
+/// least one digit, nothing else; `null` for other text or a value that doesn't fit an `i64`.
+function __parseSigned(s: string, radix: int): i64? {
+  __checkRadix(radix)
+  const t = s.trim()
+  let i = 0
+  let negative = false
+  if (t.startsWith("-") || t.startsWith("+")) {
+    negative = t.startsWith("-")
+    i = 1
+  }
+  if (i >= t.length) return null
+  let v: i64 = 0
+  while (i < t.length) {
+    const d = __digitValue(t[i])
+    if (d < 0 || d >= radix) return null
+    const m = v.checkedMul(radix)
+    if (m == null) return null
+    const a = if (negative) m.checkedSub(d) else m.checkedAdd(d)
+    if (a == null) return null
+    v = a
+    i += 1
+  }
+  return v
+}
+
+/// `__parseSigned` for unsigned types: no `-`, up to `u64`'s range.
+function __parseUnsigned(s: string, radix: int): u64? {
+  __checkRadix(radix)
+  const t = s.trim()
+  let i = if (t.startsWith("+")) 1 else 0
+  if (i >= t.length) return null
+  let v: u64 = 0
+  while (i < t.length) {
+    const d = __digitValue(t[i])
+    if (d < 0 || d >= radix) return null
+    const m = v.checkedMul(radix as u64)
+    if (m == null) return null
+    const a = m.checkedAdd(d as u64)
+    if (a == null) return null
+    v = a
+    i += 1
+  }
+  return v
+}
+
+/// `int.parse(s)`, `i64.parse(s, radix)`: the integer `s` is, or `null` (#154).
+function __i64_parse(s: string, radix: int = 10): i64? {
+  return __parseSigned(s, radix)
+}
+
+function __i32_parse(s: string, radix: int = 10): i32? {
+  const v = __parseSigned(s, radix)
+  if (v == null || v < -2147483648 || v > 2147483647) return null
+  return v as i32
+}
+
+function __i16_parse(s: string, radix: int = 10): i16? {
+  const v = __parseSigned(s, radix)
+  if (v == null || v < -32768 || v > 32767) return null
+  return v as i16
+}
+
+function __i8_parse(s: string, radix: int = 10): i8? {
+  const v = __parseSigned(s, radix)
+  if (v == null || v < -128 || v > 127) return null
+  return v as i8
+}
+
+function __u64_parse(s: string, radix: int = 10): u64? {
+  return __parseUnsigned(s, radix)
+}
+
+function __u32_parse(s: string, radix: int = 10): u32? {
+  const v = __parseUnsigned(s, radix)
+  if (v == null || v > 4294967295u64) return null
+  return v as u32
+}
+
+function __u16_parse(s: string, radix: int = 10): u16? {
+  const v = __parseUnsigned(s, radix)
+  if (v == null || v > 65535u64) return null
+  return v as u16
+}
+
+function __u8_parse(s: string, radix: int = 10): u8? {
+  const v = __parseUnsigned(s, radix)
+  if (v == null || v > 255u64) return null
+  return v as u8
+}
+
+/// Where the longest decimal number at the start of `t` ends (`[+-]` digits, a `.` and digits,
+/// an exponent; or `Infinity`), or 0 when there's none.
+function __numberEnd(t: string): int {
+  let i = 0
+  if (i < t.length && (t[i] == '+' || t[i] == '-')) i += 1
+  if (t.slice(i).startsWith("Infinity")) return i + 8
+  const from = i
+  while (i < t.length && t[i] >= '0' && t[i] <= '9') {
+    i += 1
+  }
+  let digits = i - from
+  if (i < t.length && t[i] == '.') {
+    let j = i + 1
+    while (j < t.length && t[j] >= '0' && t[j] <= '9') {
+      j += 1
+    }
+    digits += j - i - 1
+    if (digits > 0) i = j
+  }
+  if (digits == 0) return 0
+  if (i < t.length && (t[i] == 'e' || t[i] == 'E')) {
+    let j = i + 1
+    if (j < t.length && (t[j] == '+' || t[j] == '-')) j += 1
+    const k = j
+    while (j < t.length && t[j] >= '0' && t[j] <= '9') {
+      j += 1
+    }
+    if (j > k) i = j
+  }
+  return i
+}
+
+/// The value of a number `__numberEnd` accepted (the same in every backend).
+function __numberValue(text: string): f64 {
+  const t = if (text.startsWith("+")) text.slice(1) else text
+  if (t == "Infinity") return __parse_f64("inf")
+  if (t == "-Infinity") return __parse_f64("-inf")
+  return __parse_f64(t)
+}
+
+/// `number.parse(s)`, `f64.parse(s)`: the number `s` is (decimal, an exponent, `Infinity`,
+/// `NaN`; spaces around it), or `null` (#154).
+function __f64_parse(s: string): f64? {
+  const t = s.trim()
+  if (t == "NaN") return __parse_f64("NaN")
+  const end = __numberEnd(t)
+  if (end == 0 || end != t.length) return null
+  return __numberValue(t)
+}
+
+function __f32_parse(s: string): f32? {
+  const v = __f64_parse(s)
+  if (v == null) return null
+  return v as f32
+}
+
+/// The number at the start of `s`, like JavaScript's `parseFloat(s)`: leading whitespace, then
+/// the longest decimal number (or `Infinity`); `NaN` without one.
+function parseFloat(s: string): number {
+  const t = s.trimStart()
+  const end = __numberEnd(t)
+  if (end == 0) return __parse_f64("NaN")
+  return __numberValue(t.slice(0, end))
+}
+
 /// The last position of `search` in `s`, or -1.
 function __String_lastIndexOf(s: string, search: string): int {
   const n = s.length

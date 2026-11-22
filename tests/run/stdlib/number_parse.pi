@@ -1,0 +1,26 @@
+// Checked number parsing (#154): int.parse with radixes, bounds of the sized types, number.parse
+// with fractions, exponents, Infinity and NaN, and JavaScript-style parseFloat.
+// expect: 42 -7 3 null null null 255 -5
+// expect: 9223372036854775807 -9223372036854775808 null
+// expect: 2147483647 true 255 true true 18446744073709551615
+// expect: 1.5 0.5 1 -2000 0.01 Infinity null null null null
+// expect: true
+// expect: 3.14 -100 true -Infinity
+// expect: 0.25
+const show = (v: int?) => if (v == null) "null" else `${v}`
+const showf = (v: number?) => if (v == null) "null" else `${v}`
+println([show(int.parse("42")), show(int.parse(" -7 ")), show(int.parse("+3")), show(int.parse("x")), show(int.parse("")), show(int.parse("12a")), show(int.parse("ff", 16)), show(int.parse("-101", 2))].join(" "))
+println([show(int.parse("9223372036854775807")), show(int.parse("-9223372036854775808")), show(int.parse("9223372036854775808"))].join(" "))
+const a = i32.parse("2147483647")
+const b = i32.parse("2147483648")
+const c = u8.parse("255")
+const d = u8.parse("256")
+const e = u8.parse("-1")
+const g = u64.parse("18446744073709551615")
+println(`${a ?? 0} ${b == null} ${c ?? 0} ${d == null} ${e == null} ${g ?? 0u64}`)
+println([showf(number.parse("1.5")), showf(number.parse(".5")), showf(number.parse("1.")), showf(number.parse("-2e3")), showf(number.parse("+1E-2")), showf(number.parse("Infinity")), showf(number.parse("1.5x")), showf(number.parse(".")), showf(number.parse("e5")), showf(number.parse(""))].join(" "))
+const n = number.parse("NaN") ?? 0.0
+println(n != n)
+println(`${parseFloat("3.14abc")} ${parseFloat("  -1e2xyz")} ${parseFloat("abc") != parseFloat("abc")} ${parseFloat("-Infinity")}`)
+const f = f32.parse("0.25")
+println(f ?? 0.0f32)
