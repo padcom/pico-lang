@@ -1,11 +1,9 @@
 // expect: abcd|efgh|ij true
 // std/fs' FileStream (#181): a file read in chunks; writes are discarded.
 import { FileStream, writeText, remove } from "std/fs"
-import { join } from "std/path"
-import { tmpDir } from "std/os"
 
 async function main(): Promise<void> throws Error {
-  const path = join(tmpDir(), `pico-file-stream-${Math.floor(Math.random() * 1000000000)}.bin`)
+  const path = "file-stream.bin"
   await writeText(path, "abcdefghij")
   const fs = new FileStream(path, 4)
   const parts: string[] = []
