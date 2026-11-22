@@ -126,6 +126,9 @@ pub struct EnumDef {
     pub origin: EnumOrigin,
     /// `implements Throwable`: its values can be thrown.
     pub throwable: bool,
+    /// Methods (#51): functions whose first parameter is the value (`this`), called as
+    /// `v.m(args)` like the core library's extensions of built-in types.
+    pub methods: Vec<(String, FnId)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -623,7 +626,7 @@ impl Function {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub stmts: Vec<Stmt>,
     /// The last expression when it has no trailing `;`: the block's value.
@@ -631,7 +634,7 @@ pub struct Block {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Let {
         var: Var,
@@ -883,7 +886,7 @@ impl Builtin {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Expr {
     pub id: ExprId,
     pub kind: ExprKind,
@@ -891,7 +894,7 @@ pub struct Expr {
 }
 
 /// The target of an assignment or `++`/`--`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Target {
     Var(Var),
     /// `object.name = …`; `id` keys the field index in the type checker's results.
@@ -908,7 +911,7 @@ pub enum Target {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FieldInit {
     /// The field name, or a map literal's constant key (empty for computed keys and spreads).
     pub name: String,
@@ -919,7 +922,7 @@ pub struct FieldInit {
 }
 
 /// How an object literal entry names its key.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InitKey {
     /// `x: v` or `x`: a struct field, or a `string` key of a map literal.
     Name,
@@ -943,13 +946,13 @@ impl FieldInit {
 }
 
 /// An argument of a variant constructor: `Circle(r: 1)` or `Rect(2, 3)`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariantArg {
     pub name: Option<(String, Span)>,
     pub value: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pattern {
     /// Keys the type checker's results (shares the expression id space).
     pub id: ExprId,
@@ -957,7 +960,7 @@ pub struct Pattern {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LitPat {
     /// The value, already negated for `-1`.
     Int(i128),
@@ -967,7 +970,7 @@ pub enum LitPat {
     Null,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum VariantPatArgs {
     /// `Empty` (also matches a payload variant, ignoring its fields).
     None,
@@ -976,14 +979,14 @@ pub enum VariantPatArgs {
     Named(Vec<FieldPat>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FieldPat {
     pub name: String,
     pub name_span: Span,
     pub pat: Pattern,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PatKind {
     Wild,
     Bind(LocalId),
@@ -1044,14 +1047,14 @@ impl Pattern {
 }
 
 /// `catch (e: IoError { path }) body`: the pattern matches the thrown error.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CatchClause {
     pub pat: Pattern,
     pub body: Expr,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Arm {
     pub pat: Pattern,
     pub guard: Option<Expr>,
@@ -1059,13 +1062,13 @@ pub struct Arm {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TemplatePart {
     pub expr: Expr,
     pub spec: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExprKind {
     Int(u64, Option<NumSuffix>),
     Float(f64, Option<NumSuffix>),

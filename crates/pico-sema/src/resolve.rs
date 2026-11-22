@@ -211,6 +211,7 @@ pub fn resolve_modules(
         method_class: HashMap::new(),
         async_promises: HashSet::new(),
         async_closures: HashSet::new(),
+        enum_methods: Vec::new(),
         top_globals: Names::default(),
         globals_declared: HashSet::new(),
         f: FnState::default(),
@@ -411,6 +412,8 @@ struct Resolver {
     /// See `Program::async_promises` and `async_closures`.
     async_promises: HashSet<ExprId>,
     async_closures: HashSet<FnId>,
+    /// Enum methods, with `this` as their first parameter, resolved in pass 2 (#51).
+    enum_methods: Vec<(FnId, ast::FnDecl)>,
     top_globals: Names<GlobalId>,
     /// Async methods (by their declaration's span): desugared like async functions.
     async_methods: HashSet<Span>,
@@ -751,6 +754,7 @@ impl Resolver {
                             variants: Vec::new(),
                             origin: EnumOrigin::Declared,
                             throwable: false,
+                            methods: Vec::new(),
                         });
                         self.top_enums.insert(&self.mods, ed.name.name.clone(), id);
                         for v in &ed.variants {
@@ -911,6 +915,11 @@ impl Resolver {
         for (id, f, this) in fn_decls {
             self.cur_fn = id;
             let func = self.function(f, false, this);
+            self.fns[id.0 as usize] = Some(func);
+        }
+        for (id, decl) in std::mem::take(&mut self.enum_methods) {
+            self.cur_fn = id;
+            let func = self.function(&decl, false, None);
             self.fns[id.0 as usize] = Some(func);
         }
         // Overloads must differ in their parameter types.
@@ -1096,8 +1105,69 @@ impl Resolver {
                 _ => self.not_implemented(t.span, "interfaces on enums (other than `Throwable`)"),
             }
         }
-        if let Some(m) = ed.members.first() {
-            self.not_implemented(m.span, "enum methods");
+        // Methods (#51): `this` is their first parameter, of the enum's type.
+        let mut method_seen: HashMap<String, Span> = HashMap::new();
+        for m in &ed.members {
+            let ast::MemberKind::Method(f) = &m.kind else {
+                self.not_implemented(m.span, "enum members other than methods");
+                continue;
+            };
+            if m.mods.is_static {
+                self.not_implemented(m.span, "static enum methods");
+                continue;
+            }
+            let Some(name) = &f.name else { continue };
+            let overload = self.enums[eid.0 as usize]
+                .methods
+                .iter()
+                .any(|(n, _)| *n == name.name);
+            if !overload && self.check_duplicate(&mut method_seen, name) {
+                continue;
+            }
+            let id = FnId(self.fns.len() as u32);
+            self.fns.push(None);
+            let span = f.span;
+            let this = ast::Param {
+                decorators: Vec::new(),
+                mods: ast::Modifiers::default(),
+                pat: ast::Pattern {
+                    kind: ast::PatternKind::Ident(ast::Ident {
+                        name: "this".to_string(),
+                        span: name.span,
+                    }),
+                    span: name.span,
+                },
+                ty: Some(build::named_type(&ed.name.name, Vec::new(), name.span)),
+                optional: false,
+                rest: false,
+                comptime: false,
+                default: None,
+                span,
+            };
+            let mut decl = f.clone();
+            decl.name = Some(ast::Ident {
+                name: format!("{}.{}", ed.name.name, name.name),
+                span: name.span,
+            });
+            decl.params.insert(0, this);
+            self.enums[eid.0 as usize]
+                .methods
+                .push((name.name.clone(), id));
+            self.enum_methods.push((id, decl));
+        }
+        // Overloads must differ in their parameter types (checked once they're resolved).
+        let methods = self.enums[eid.0 as usize].methods.clone();
+        let mut names: Vec<&String> = methods.iter().map(|(n, _)| n).collect();
+        names.dedup();
+        for n in names {
+            let ids: Vec<FnId> = methods
+                .iter()
+                .filter(|(m, _)| m == n)
+                .map(|(_, f)| *f)
+                .collect();
+            if ids.len() > 1 {
+                self.method_overloads.push(ids);
+            }
         }
         let mut seen: HashMap<String, Span> = HashMap::new();
         for v in &ed.variants {
@@ -4805,6 +4875,7 @@ impl Resolver {
                 .collect(),
             origin: EnumOrigin::Union(members.clone()),
             throwable: false,
+            methods: Vec::new(),
         });
         self.unions.push((members.clone(), id));
         Ty::Union(id, members.into())
@@ -4843,6 +4914,7 @@ impl Resolver {
             variants: Vec::new(),
             origin: EnumOrigin::Discriminated(disc.clone()),
             throwable: false,
+            methods: Vec::new(),
         });
         let mut seen: HashMap<String, Span> = HashMap::new();
         for o in objects {
@@ -5653,6 +5725,8 @@ impl Resolver {
             }
             A::This => match self.this_here() {
                 Some((this, _)) => ExprKind::Var(Var::Local(this)),
+                // An enum method's `this` is its first parameter (#51), captured as any local.
+                None if let Some(Found::Var(v)) = self.lookup("this", span) => ExprKind::Var(v),
                 None => {
                     self.error(
                         codes::NOT_A_VALUE,

@@ -1,0 +1,10 @@
+// Enum methods: overloads differ in their parameter types; static ones aren't done yet (#51).
+// error: E0203
+// at: 8:3
+// error: E0900
+// at: 9:3
+enum E { A, B
+  f(x: int): int { return x }
+  f(y: int): int { return y }
+  static g(): int { return 1 }
+}

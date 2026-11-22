@@ -100,6 +100,21 @@ type Event = { kind: "click", x: i32, y: i32 } | { kind: "key", code: u32 }
 ```
 Both are tagged unions in memory and can be matched exhaustively.
 
+A declared enum can have methods, after its variants (decision 339). `this` is the value, usually
+taken apart with `match`; methods overload as functions do (§5.4):
+```ts
+enum Shape {
+  Circle(r: f64),
+  Square(side: f64),
+
+  area(): f64 {
+    return match (this) { Circle(r) => Math.PI * r * r, Square(s) => s * s }
+  }
+}
+Shape.Circle(r: 1).area()
+```
+Not yet: static enum methods, and enums implementing interfaces other than `Throwable`.
+
 ## 2.7 Structs (value types)
 ```ts
 struct Vec3 {
