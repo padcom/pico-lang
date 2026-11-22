@@ -207,6 +207,8 @@ pub fn resolve_modules(
         spans: Vec::new(),
         top_fns: Names::default(),
         method_overloads: Vec::new(),
+        method_params: HashMap::new(),
+        method_class: HashMap::new(),
         top_globals: Names::default(),
         globals_declared: HashSet::new(),
         f: FnState::default(),
@@ -398,6 +400,12 @@ struct Resolver {
     /// Overloaded methods (static or not) of each struct and class: checked like
     /// `top_fns`' overloads once their parameter types are resolved.
     method_overloads: Vec<Vec<FnId>>,
+    /// Each class method's parameter types, resolved when it's registered (`None` for a
+    /// generic method): an override has the parameter types of the method it overrides, an
+    /// overload others (#152, #153).
+    method_params: HashMap<FnId, Option<Vec<Ty>>>,
+    /// The class that declares each class method (for messages about overrides).
+    method_class: HashMap<FnId, StructId>,
     top_globals: Names<GlobalId>,
     /// Async methods (by their declaration's span): desugared like async functions.
     async_methods: HashSet<Span>,
@@ -1259,6 +1267,8 @@ impl Resolver {
                     let id = FnId(self.fns.len() as u32);
                     self.fns.push(None);
                     self.add_to_group(&mut groups, name, false, &m.mods, id);
+                    let key = self.param_key(f);
+                    self.method_params.insert(id, key);
                     self.structs[sid.0 as usize]
                         .methods
                         .push((name.name.clone(), id));
@@ -2202,7 +2212,16 @@ impl Resolver {
         for p in self.structs[sid.0 as usize].implements.clone() {
             let pd = &self.structs[p.0 as usize];
             for (n, f) in pd.methods.clone() {
-                if !methods.iter().any(|(m, _)| *m == n) {
+                // (The same method through two parents is one; so are a name's single
+                // methods; overloads by their parameter types.)
+                let key = self.method_params.get(&f).cloned().unwrap_or(None);
+                let dup = methods.iter().any(|(m, g)| {
+                    *g == f
+                        || *m == n
+                            && (self.structs[p.0 as usize].methods_named(&n).len() == 1
+                                || self.same_params(*g, &key))
+                });
+                if !dup {
                     if pd.abstract_fns.contains(&f) {
                         abstract_fns.insert(f);
                     }
@@ -2211,19 +2230,44 @@ impl Resolver {
             }
         }
         let mut seen: HashMap<String, Span> = HashMap::new();
+        let mut groups: Vec<MethodGroup> = Vec::new();
         for m in &d.members {
             let ast::MemberKind::Method(f) = &m.kind else {
                 self.not_implemented(m.span, "interface members other than methods");
                 continue;
             };
             let Some(name) = &f.name else { continue };
-            if self.check_duplicate(&mut seen, name) {
+            let again = Self::is_overload(&groups, &name.name, false);
+            if !again && self.check_duplicate(&mut seen, name) {
                 continue;
             }
             let id = FnId(self.fns.len() as u32);
             self.fns.push(None);
+            // Interface members are public: the group's visibility check doesn't apply.
+            let public = ast::Modifiers {
+                visibility: Some(ast::Visibility::Public),
+                ..m.mods
+            };
+            self.add_to_group(&mut groups, name, false, &public, id);
+            let key = self.param_key(f);
+            self.method_params.insert(id, key.clone());
             let is_abstract = f.body.is_none();
-            match methods.iter_mut().find(|(n, _)| *n == name.name) {
+            let inherited_one = methods.iter().filter(|(n, _)| *n == name.name).count() == 1
+                && d.members
+                    .iter()
+                    .filter(|o| matches!(&o.kind, ast::MemberKind::Method(g) if g.name.as_ref().is_some_and(|n| n.name == name.name)))
+                    .count()
+                    == 1;
+            let own: Vec<FnId> = groups
+                .iter()
+                .filter(|g| g.name == name.name)
+                .flat_map(|g| g.ids.iter().copied())
+                .collect();
+            match methods.iter_mut().find(|(n, g)| {
+                *n == name.name
+                    && !own.contains(g)
+                    && (inherited_one || self.method_params.get(g).cloned().unwrap_or(None) == key)
+            }) {
                 // Redeclaring an inherited method (to give it a default) keeps its slot.
                 Some(slot) => {
                     abstract_fns.remove(&slot.1);
@@ -2236,6 +2280,7 @@ impl Resolver {
             }
             out.push((id, f, sid, is_abstract));
         }
+        self.keep_overloads(groups);
         let def = &mut self.structs[sid.0 as usize];
         def.methods = methods;
         def.abstract_fns = abstract_fns;
@@ -2268,15 +2313,27 @@ impl Resolver {
             let mut ifaces = Vec::new();
             self.all_interfaces(sid, &mut ifaces);
             let mut errors = Vec::new();
-            let mut checked: HashSet<String> = HashSet::new();
+            let mut checked: Vec<(String, Option<Vec<Ty>>)> = Vec::new();
             for iface in &ifaces {
                 let idef = &self.structs[iface.0 as usize];
                 for (name, f) in &idef.methods {
-                    if !checked.insert(name.clone()) {
+                    // With overloads (in the interface or the type) a method is matched by its
+                    // parameter types too; a single one by its name, and the type checker
+                    // compares the signatures (#153).
+                    let key = self.method_params.get(f).cloned().unwrap_or(None);
+                    let d = &self.structs[i];
+                    let by_params =
+                        idef.methods_named(name).len() > 1 || d.methods_named(name).len() > 1;
+                    let ck = (name.clone(), if by_params { key.clone() } else { None });
+                    if checked.contains(&ck) {
                         continue;
                     }
-                    let d = &self.structs[i];
-                    if d.method(name).is_some() {
+                    checked.push(ck);
+                    let implemented = d
+                        .methods_named(name)
+                        .iter()
+                        .any(|g| !by_params || self.same_params(*g, &key));
+                    if implemented {
                         if d.is_class && !d.is_public(name) {
                             errors.push((
                                 codes::PRIVATE_MEMBER,
@@ -2292,11 +2349,13 @@ impl Resolver {
                     let mut defaults: Vec<(String, FnId)> = Vec::new();
                     for j in &ifaces {
                         let jd = &self.structs[j.0 as usize];
-                        if let Some(g) = jd.method(name)
-                            && !jd.abstract_fns.contains(&g)
-                            && !defaults.iter().any(|(_, x)| *x == g)
-                        {
-                            defaults.push((jd.name.clone(), g));
+                        for g in jd.methods_named(name) {
+                            if (!by_params || self.same_params(g, &key))
+                                && !jd.abstract_fns.contains(&g)
+                                && !defaults.iter().any(|(_, x)| *x == g)
+                            {
+                                defaults.push((jd.name.clone(), g));
+                            }
                         }
                     }
                     match defaults.len() {
@@ -2355,7 +2414,7 @@ impl Resolver {
         let private = b.private.clone();
         let protected = b.protected.clone();
         let abstract_fns = b.abstract_fns.clone();
-        let final_methods = b.final_methods.clone();
+        let final_slots = b.final_slots.clone();
         let mut declared_in = b.declared_in.clone();
         let names = fields
             .iter()
@@ -2376,7 +2435,7 @@ impl Resolver {
         d.private = private;
         d.protected = protected;
         d.abstract_fns = abstract_fns;
-        d.final_methods = final_methods;
+        d.final_slots = final_slots;
         d.declared_in = declared_in;
     }
 
@@ -2456,18 +2515,6 @@ impl Resolver {
             false
         };
         let mut groups: Vec<MethodGroup> = Vec::new();
-        // Overloads of an inherited method (not implemented): reported once, then left out.
-        let mut skipped: HashSet<String> = HashSet::new();
-        // Instance methods declared more than once: overloads.
-        let mut counts: HashMap<&str, usize> = HashMap::new();
-        for m in &cd.members {
-            if let ast::MemberKind::Method(f) = &m.kind
-                && !m.mods.is_static
-                && let Some(n) = &f.name
-            {
-                *counts.entry(n.name.as_str()).or_default() += 1;
-            }
-        }
         for m in &cd.members {
             // `@weak` fields: the core library's weak references (spec §9.3).
             let weak = self.mods.cur == PRELUDE_MODULE
@@ -2658,33 +2705,10 @@ impl Resolver {
                         name: key,
                         span: name.span,
                     };
-                    if is_method && !m.mods.is_static && skipped.contains(&name.name) {
-                        continue;
-                    }
                     let again =
                         is_method && Self::is_overload(&groups, &name.name, m.mods.is_static);
                     if !again && self.check_duplicate(&mut seen, &k) {
                         continue;
-                    }
-                    if is_method
-                        && !m.mods.is_static
-                        && counts.get(name.name.as_str()).is_some_and(|n| *n > 1)
-                    {
-                        if m.mods.virtual_ || m.mods.override_ || m.mods.abstract_ {
-                            self.not_implemented(
-                                m.span,
-                                "virtual, abstract and overriding overloaded methods",
-                            );
-                        }
-                        if !again
-                            && self.structs[sid.0 as usize]
-                                .declared_in
-                                .contains_key(&name.name)
-                        {
-                            self.not_implemented(name.span, "overloading an inherited method");
-                            skipped.insert(name.name.clone());
-                            continue;
-                        }
                     }
                     if !is_method && (m.mods.virtual_ || m.mods.override_ || m.mods.abstract_) {
                         self.not_implemented(m.span, "virtual accessors");
@@ -2694,9 +2718,18 @@ impl Resolver {
                     if is_method {
                         self.add_to_group(&mut groups, name, m.mods.is_static, &m.mods, id);
                     }
+                    let mut replaced = None;
                     if is_method && !m.mods.is_static {
+                        let key = self.param_key(f);
+                        self.method_params.insert(id, key.clone());
+                        self.method_class.insert(id, sid);
+                        let own: Vec<FnId> = groups
+                            .iter()
+                            .filter(|g| g.name == name.name && !g.is_static)
+                            .flat_map(|g| g.ids.iter().copied())
+                            .collect();
                         // Before `set_vis`, which forgets where an inherited name came from.
-                        self.method_slot(sid, name, &m.mods, id, m.span);
+                        replaced = self.method_slot(sid, name, &key, &own, &m.mods, id, m.span);
                     }
                     set_vis(self, &name.name, &m.mods);
                     if m.mods.is_static {
@@ -2725,9 +2758,13 @@ impl Resolver {
                         ast::MemberKind::Setter(_) => &mut d.setters,
                         _ => &mut d.methods,
                     };
-                    // (An inherited method of the name is overridden, or hidden; an overload
-                    // keeps the ones declared before it.)
-                    if !again {
+                    if is_method {
+                        // An override takes the place of the method it overrides; overloads,
+                        // own and inherited, stay (#152).
+                        if let Some(prev) = replaced {
+                            list.retain(|(_, f)| *f != prev);
+                        }
+                    } else {
                         list.retain(|(n, _)| *n != name.name);
                     }
                     list.push((name.name.clone(), id));
@@ -2790,19 +2827,65 @@ impl Resolver {
         info
     }
 
-    /// Puts method `name` (function `id`) into the class's vtable, enforcing that methods are
-    /// final by default and that overrides say `override` (spec §6.1).
+    /// A method's parameter types as written, resolved now (to tell an override from an
+    /// overload); `None` for a generic method, whose types need its own type parameters.
+    fn param_key(&mut self, f: &ast::FnDecl) -> Option<Vec<Ty>> {
+        if !f.generics.is_empty() {
+            return None;
+        }
+        // (The function's own resolution reports problems with the types.)
+        let reported = self.diags.len();
+        let key = f
+            .params
+            .iter()
+            .map(|p| match &p.ty {
+                Some(t) if p.optional => self.resolve_type(t).nullable(),
+                Some(t) => self.resolve_type(t),
+                None => Ty::Error,
+            })
+            .collect();
+        self.diags.truncate(reported);
+        Some(key)
+    }
+
+    /// Whether method `f` has the parameter types `key` (generic methods: whether both are).
+    fn same_params(&self, f: FnId, key: &Option<Vec<Ty>>) -> bool {
+        match (self.method_params.get(&f), key) {
+            (Some(Some(a)), Some(b)) => a == b,
+            (Some(None), None) => true,
+            _ => false,
+        }
+    }
+
+    /// Puts method `name` (function `id`, parameter types `key`) into the class's vtable,
+    /// enforcing that methods are final by default and that overrides say `override` (spec
+    /// §6.1). An inherited method with the same parameter types is overridden (it must be
+    /// virtual); one with others stays, and `id` is another overload of it (#152). `own`: the
+    /// overloads of `name` declared in this class so far. Returns the overridden method.
+    #[allow(clippy::too_many_arguments)]
     fn method_slot(
         &mut self,
         sid: StructId,
         name: &ast::Ident,
+        key: &Option<Vec<Ty>>,
+        own: &[FnId],
         mods: &ast::Modifiers,
         id: FnId,
         span: Span,
-    ) {
+    ) -> Option<FnId> {
         let d = &self.structs[sid.0 as usize];
-        let inherited = d.declared_in.get(&name.name).copied();
-        let slot = d.virtual_slot(&name.name);
+        let inherited: Vec<FnId> = d
+            .methods
+            .iter()
+            .filter(|(n, f)| *n == name.name && *f != id && !own.contains(f))
+            .map(|(_, f)| *f)
+            .collect();
+        let base_of = d.declared_in.get(&name.name).copied();
+        let same = inherited
+            .iter()
+            .copied()
+            .find(|f| self.same_params(*f, key));
+        let same_slot = same.and_then(|f| d.slot_of(f));
         let class_name = d.name.clone();
         let wants_slot = mods.virtual_ || mods.abstract_;
         if mods.abstract_ && !d.is_abstract {
@@ -2816,58 +2899,76 @@ impl Resolver {
                 format!("declare `abstract class {class_name}`"),
             );
         }
-        match (inherited, slot) {
-            (Some(b), Some(slot)) => {
-                let bname = self.structs[b.0 as usize].name.clone();
-                if !mods.override_ {
-                    self.diags.push(
-                        Diagnostic::error(
-                            codes::MISSING_OVERRIDE,
-                            format!(
-                                "`{}` overrides `{bname}.{}` without `override`",
-                                name.name, name.name
-                            ),
-                        )
-                        .primary(name.span, "add `override`")
-                        .help(format!("write `override {}(…)`", name.name)),
-                    );
+        let declaring = same
+            .and_then(|f| self.method_class.get(&f).copied())
+            .or(base_of);
+        let bname = declaring.map_or_else(String::new, |b| self.structs[b.0 as usize].name.clone());
+        let mut slot_taken = None;
+        let replaced = match same {
+            Some(prev) => {
+                match same_slot {
+                    Some(slot) => {
+                        if !mods.override_ {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::MISSING_OVERRIDE,
+                                    format!(
+                                        "`{}` overrides `{bname}.{}` without `override`",
+                                        name.name, name.name
+                                    ),
+                                )
+                                .primary(name.span, "add `override`")
+                                .help(format!("write `override {}(…)`", name.name)),
+                            );
+                        }
+                        if self.structs[sid.0 as usize].final_slots.contains(&slot) {
+                            self.error(
+                                codes::BAD_OVERRIDE,
+                                name.span,
+                                format!("`{bname}.{}` is `final`", name.name),
+                                "can't be overridden",
+                            );
+                        }
+                        self.structs[sid.0 as usize].vtable[slot as usize] = id;
+                        slot_taken = Some(slot);
+                    }
+                    None => {
+                        self.diags.push(
+                            Diagnostic::error(
+                                codes::BAD_OVERRIDE,
+                                format!("`{bname}.{}` can't be overridden", name.name),
+                            )
+                            .primary(name.span, "redefines a method of a base class")
+                            .note("methods are final by default")
+                            .help(format!(
+                                "declare `{bname}.{}` as `virtual` to allow overriding it",
+                                name.name
+                            )),
+                        );
+                    }
                 }
-                if self.structs[sid.0 as usize]
-                    .final_methods
-                    .contains(&name.name)
-                {
-                    self.error(
-                        codes::BAD_OVERRIDE,
-                        name.span,
-                        format!("`{bname}.{}` is `final`", name.name),
-                        "can't be overridden",
-                    );
-                }
-                let d = &mut self.structs[sid.0 as usize];
-                d.vtable[slot as usize] = id;
+                Some(prev)
             }
-            (Some(b), None) => {
-                let bname = self.structs[b.0 as usize].name.clone();
-                self.diags.push(
-                    Diagnostic::error(
-                        codes::BAD_OVERRIDE,
-                        format!("`{bname}.{}` can't be overridden", name.name),
-                    )
-                    .primary(name.span, "redefines a method of a base class")
-                    .note("methods are final by default")
-                    .help(format!(
-                        "declare `{bname}.{}` as `virtual` to allow overriding it",
-                        name.name
-                    )),
-                );
-            }
-            (None, _) => {
+            None => {
                 if mods.override_ {
+                    let label = if inherited.is_empty() {
+                        "no base class method with this name"
+                    } else {
+                        "no base class method with these parameter types"
+                    };
                     self.error(
                         codes::BAD_OVERRIDE,
                         name.span,
                         format!("`{}` has nothing to override", name.name),
-                        "no base class method with this name",
+                        label,
+                    );
+                }
+                if !inherited.is_empty() && !self.same_visibility(sid, &name.name, mods) {
+                    self.error(
+                        codes::DUPLICATE_DECL,
+                        name.span,
+                        format!("the overloads of `{}` differ in visibility", name.name),
+                        "an overload of an inherited method has its visibility",
                     );
                 }
                 if wants_slot || mods.override_ {
@@ -2875,14 +2976,30 @@ impl Resolver {
                     let slot = d.vtable.len() as u32;
                     d.vtable.push(id);
                     d.virtual_slots.push((name.name.clone(), slot));
+                    slot_taken = Some(slot);
                 }
+                None
             }
+        };
+        if mods.final_
+            && let Some(slot) = slot_taken
+        {
+            self.structs[sid.0 as usize].final_slots.insert(slot);
         }
-        if mods.final_ {
-            self.structs[sid.0 as usize]
-                .final_methods
-                .insert(name.name.clone());
-        }
+        replaced
+    }
+
+    /// Whether `mods` gives member `name` of class `sid` the visibility it has (inherited).
+    fn same_visibility(&self, sid: StructId, name: &str, mods: &ast::Modifiers) -> bool {
+        let d = &self.structs[sid.0 as usize];
+        let now = if d.private.contains(name) {
+            ast::Visibility::Private
+        } else if d.protected.contains(name) {
+            ast::Visibility::Protected
+        } else {
+            ast::Visibility::Public
+        };
+        mods.visibility.unwrap_or(ast::Visibility::Private) == now
     }
 
     /// A class's constructor. In order: `super(…)` (explicit or implied) or `this(…)`, then

@@ -1384,14 +1384,20 @@ impl Cx<'_> {
             let mut entries = Vec::new();
             for (name, ifn) in &idef.methods {
                 let chosen = self.types.impl_methods.get(&(imp, *ifn)).copied();
-                let entry = match chosen.or_else(|| def.method(name)) {
+                // With overloads, only the one the type checker paired implements it.
+                let overloaded =
+                    idef.methods_named(name).len() > 1 || def.methods_named(name).len() > 1;
+                let single = if overloaded { None } else { def.method(name) };
+                let entry = match chosen.or(single) {
                     Some(f) => {
-                        let slot = def.virtual_slot(name).filter(|_| def.is_class);
+                        let slot = def.slot_of(f).filter(|_| def.is_class);
                         let id = FnId(fns.len() as u32);
                         let adapter = self.adapter(imp, iface, *ifn, f, slot, fns);
                         fns.push(adapter);
                         id
                     }
+                    // (An overloaded name: the interface method's own default, by its id.)
+                    None if idef.methods_named(name).len() > 1 => *ifn,
                     None => self.default_method(imp, name).unwrap_or(*ifn),
                 };
                 entries.push(entry);
@@ -3446,7 +3452,7 @@ impl FnBuilder<'_, '_> {
                 let m = self.cx.types.bound_methods[&e.id];
                 let rt = self.ty_of(object).clone();
                 let slot = match &rt {
-                    Ty::Class(sid, ..) => self.cx.program.struct_def(*sid).virtual_slot(name),
+                    Ty::Class(sid, ..) => self.cx.program.struct_def(*sid).slot_of(m),
                     _ => None,
                 };
                 let recv = self.expr(object);
@@ -6650,11 +6656,14 @@ impl FnBuilder<'_, '_> {
         let loc = self.loc(e.span);
         let (callee, recv) = match &t {
             Ty::Iface(..) => {
-                let slot = def.methods.iter().position(|(n, _)| n == name).unwrap_or(0) as u32;
+                let slot = match self.cx.types.iface_calls.get(&e.id) {
+                    Some(s) => *s,
+                    None => def.methods.iter().position(|(n, _)| n == name).unwrap_or(0) as u32,
+                };
                 (Callee::Iface { slot, decl: m }, self.expr(object))
             }
             Ty::Class(..) => {
-                let callee = match def.virtual_slot(name) {
+                let callee = match def.slot_of(m) {
                     Some(slot) => Callee::Virtual { slot, decl: m },
                     None => Callee::Fn(m),
                 };

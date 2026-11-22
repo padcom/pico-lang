@@ -64,9 +64,21 @@ class Command {
 ```
 The overloads of a method share its visibility and `readonly`. A closure with untyped
 parameters (`(v) => v.length`) has no type before an overload is chosen: it fits a function
-type that takes as many parameters, and then gets that overload's parameter types. An
-interface method is implemented by the overload with its parameter types. Not yet: virtual,
-abstract and overriding overloads, and a class adding overloads to an inherited method.
+type that takes as many parameters, and then gets that overload's parameter types.
+
+Overloads work across inheritance (decision 337). A subclass's method with other parameter
+types than the inherited ones is one more overload: `Sub.f(string)` doesn't hide `Base.f(int)`.
+One with the same parameter types overrides that overload, which has to be `virtual` (or
+`abstract`), and says `override`; each overload has its own vtable slot and can be `final` on
+its own. Interfaces overload the same way, and a type implements each overload (or gets the
+interface's default for it).
+```ts
+class Base { public virtual g(x: int): string { … }  public virtual g(x: string): string { … } }
+class Sub extends Base {
+  public override g(x: string): string { … }   // overrides g(string); g(int) is Base's
+  public g(x: bool): string { … }              // a third overload
+}
+```
 
 An overloaded function used as a value needs an expected function type; the overload with its
 parameter types is the value (`const f: (x: int) => string = parse`). A class's method used as a
