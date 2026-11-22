@@ -1,0 +1,31 @@
+// Constructors overloaded by parameter types (#150, decision 335): `new`, `this(…)`, `super(…)`,
+// a subclass's synthesized forwarding constructors and named arguments pick by type.
+// expect: int 3
+// expect: string 3
+// expect: list 2
+// expect: pair 3
+// expect: string 2
+// expect: int 5
+// expect: T 3
+// expect: pair 14
+class R {
+  public n: int
+  public how: string
+  constructor(x: int) { this.n = x; this.how = "int" }
+  constructor(s: string) { this.n = s.length; this.how = "string" }
+  constructor(xs: string[]) { this(xs.length); this.how = "list" }
+  constructor(a: int, b: int = 10) { this.n = a + b; this.how = "pair" }
+}
+class S extends R {}
+class T extends R {
+  constructor(s: string) { super(s + "!"); this.how = "T" }
+}
+const show = (r: R) => println(`${r.how} ${r.n}`)
+show(new R(3))
+show(new R("abc"))
+show(new R(["a", "b"]))
+show(new R(1, 2))
+show(new S("xy"))
+show(new S(5))
+show(new T("ab"))
+show(new R(a: 4))

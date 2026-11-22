@@ -29,7 +29,8 @@ class Dog extends Animal {
 - **Methods are final by default.** A method has to be `virtual` (or `abstract`) before it can be
   overridden, and an override has to say `override`. Leaving out `override` is an error.
 - **Abstract**: `abstract class` and `abstract` methods, as in TS.
-- **Constructors** can be overloaded. One constructor can delegate to another with
+- **Constructors** can be overloaded, by parameter types as functions are (`constructor(x: int)`
+  and `constructor(s: string)`, §5.1). One constructor can delegate to another with
   `this(...)`. `super(...)` calls the base constructor. Constructor parameter properties
   (`public name: string`) declare and assign a field.
 - Every field must be definitely assigned by the end of each constructor.

@@ -2526,16 +2526,17 @@ impl Resolver {
                         });
                     }
                     let def = &self.structs[sid.0 as usize];
-                    if def.ctors.iter().any(|(_, ps)| ps.len() == tys.len()) {
+                    // Overloaded constructors differ in their parameter types (spec §5.4, #150).
+                    if def.ctors.iter().any(|(_, ps)| *ps == tys) {
+                        let shown: Vec<String> = tys.iter().map(|t| t.to_string()).collect();
                         self.error(
                             codes::DUPLICATE_DECL,
                             m.span,
                             format!(
-                                "`{class_name}` already has a constructor with {} parameter{}",
-                                tys.len(),
-                                if tys.len() == 1 { "" } else { "s" }
+                                "`{class_name}` already has a constructor taking ({})",
+                                shown.join(", ")
                             ),
-                            "overloaded constructors need different numbers of parameters",
+                            "overloaded constructors need different parameter types",
                         );
                         continue;
                     }

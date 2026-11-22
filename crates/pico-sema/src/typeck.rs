@@ -2716,7 +2716,7 @@ impl<'p> Checker<'p> {
                 // A generic class: its type arguments are given, expected, or inferred from
                 // the constructor's arguments.
                 let def = self.program.struct_def(*class);
-                let Some(ctor) = self.pick_ctor(*class, args) else {
+                let Some(ctor) = self.pick_ctor(e, *class, args) else {
                     for a in args {
                         self.infer(a);
                     }
@@ -2759,7 +2759,7 @@ impl<'p> Checker<'p> {
             {
                 // Inside a generic class: the same type arguments as `this`.
                 let def = self.program.struct_def(*class);
-                let Some(ctor) = self.pick_ctor(*class, args) else {
+                let Some(ctor) = self.pick_ctor(e, *class, args) else {
                     for a in args {
                         self.infer(a);
                     }
@@ -2781,14 +2781,24 @@ impl<'p> Checker<'p> {
             }
             ExprKind::New { class, args, .. } | ExprKind::CtorCall { class, args } => {
                 let def = self.program.struct_def(*class);
-                match self.pick_ctor(*class, args) {
+                let reported = self.diags.len();
+                match self.pick_ctor(e, *class, args) {
                     Some(ctor) => {
                         self.types.ctor_calls.insert(e.id, ctor);
                         self.call_fn(e, ctor, args);
                     }
+                    // Several fit by count, and overload resolution said why none was chosen.
+                    None if self.diags.len() > reported => {
+                        for a in args {
+                            self.infer(a);
+                        }
+                    }
                     None => {
-                        let arities: Vec<String> =
-                            def.ctors.iter().map(|(_, p)| p.len().to_string()).collect();
+                        let mut counts: Vec<usize> =
+                            def.ctors.iter().map(|(_, p)| p.len()).collect();
+                        counts.sort_unstable();
+                        counts.dedup();
+                        let arities: Vec<String> = counts.iter().map(|n| n.to_string()).collect();
                         self.diags.push(
                             Diagnostic::error(
                                 codes::WRONG_ARG_COUNT,
@@ -5699,13 +5709,11 @@ impl<'p> Checker<'p> {
     /// The constructor of `class` that `args` call: the one taking exactly that many
     /// positional arguments, the only one, else the first whose defaults, rest parameter
     /// and parameter names allow them (`map_args` then checks the details).
-    fn pick_ctor(&self, class: StructId, args: &[Expr]) -> Option<FnId> {
+    fn pick_ctor(&mut self, e: &Expr, class: StructId, args: &[Expr]) -> Option<FnId> {
         let def = self.program.struct_def(class);
-        let plain = args
-            .iter()
-            .all(|a| !matches!(a.kind, ExprKind::NamedArg { .. } | ExprKind::Spread(_)));
-        if plain && let Some(f) = def.ctor_with(args.len()) {
-            return Some(f);
+        if def.ctors.len() == 1 {
+            // The only one: the argument checks then say what's wrong.
+            return Some(def.ctors[0].0);
         }
         let spread = args.iter().any(|a| matches!(a.kind, ExprKind::Spread(_)));
         let named: Vec<&str> = args
@@ -5716,24 +5724,50 @@ impl<'p> Checker<'p> {
             })
             .collect();
         let positional = args.len() - named.len();
-        if def.ctors.len() == 1 {
-            // The only one: the argument checks then say what's wrong.
-            return Some(def.ctors[0].0);
+        // The ones whose parameter count, defaults, rest parameter and names allow the
+        // arguments (`map_args` then checks the details).
+        let fits: Vec<FnId> = def
+            .ctors
+            .iter()
+            .map(|(f, _)| *f)
+            .filter(|&id| {
+                let f = self.program.func(id);
+                let total = f.params.len();
+                let fixed = if f.rest { total - 1 } else { total };
+                let required = (0..fixed)
+                    .filter(|k| f.defaults.get(*k).is_none_or(Option::is_none))
+                    .count();
+                let names_ok = named
+                    .iter()
+                    .all(|n| f.params.iter().any(|p| f.local(*p).name == *n));
+                names_ok
+                    && (f.rest || (!spread && positional <= fixed))
+                    && (spread || positional + named.len() >= required)
+            })
+            .collect();
+        match fits.as_slice() {
+            [] => None,
+            [one] => Some(*one),
+            // Several: by the arguments' types, as overloaded functions (#150). Exactly as many
+            // parameters as arguments first, as before.
+            many => {
+                let plain = named.is_empty() && !spread;
+                let exact: Vec<FnId> = many
+                    .iter()
+                    .copied()
+                    .filter(|f| self.program.func(*f).params.len() == args.len())
+                    .collect();
+                let cands = if plain && !exact.is_empty() {
+                    exact
+                } else {
+                    many.to_vec()
+                };
+                if cands.len() == 1 {
+                    return Some(cands[0]);
+                }
+                self.pick_overload(e, &cands, args)
+            }
         }
-        def.ctors.iter().map(|(f, _)| *f).find(|&id| {
-            let f = self.program.func(id);
-            let total = f.params.len();
-            let fixed = if f.rest { total - 1 } else { total };
-            let required = (0..fixed)
-                .filter(|k| f.defaults.get(*k).is_none_or(Option::is_none))
-                .count();
-            let names_ok = named
-                .iter()
-                .all(|n| f.params.iter().any(|p| f.local(*p).name == *n));
-            names_ok
-                && (f.rest || (!spread && positional <= fixed))
-                && (spread || positional + named.len() >= required)
-        })
     }
 
     fn call_fn(&mut self, e: &Expr, id: FnId, args: &[Expr]) -> Ty {
