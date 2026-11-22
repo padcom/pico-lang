@@ -5867,7 +5867,8 @@ impl<'p> Checker<'p> {
             [] => None,
             [one] => Some(*one),
             // Several: by the arguments' types, as overloaded functions (#150). Exactly as many
-            // parameters as arguments first, as before.
+            // parameters as arguments first, as before, but only one whose types fit: else
+            // `new TextDecoder("x")` took `(options)` over `(label, options = {})` (#182).
             many => {
                 let plain = named.is_empty() && !spread;
                 let exact: Vec<FnId> = many
@@ -5875,15 +5876,14 @@ impl<'p> Checker<'p> {
                     .copied()
                     .filter(|f| self.program.func(*f).params.len() == args.len())
                     .collect();
-                let cands = if plain && !exact.is_empty() {
-                    exact
-                } else {
-                    many.to_vec()
-                };
-                if cands.len() == 1 {
-                    return Some(cands[0]);
+                if plain && !exact.is_empty() && exact.len() < many.len() {
+                    let before = self.diags.len();
+                    if let Some(f) = self.pick_overload(e, &exact, args) {
+                        return Some(f);
+                    }
+                    self.diags.truncate(before);
                 }
-                self.pick_overload(e, &cands, args)
+                self.pick_overload(e, many, args)
             }
         }
     }

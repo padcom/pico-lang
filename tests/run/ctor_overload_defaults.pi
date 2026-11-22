@@ -1,0 +1,22 @@
+// expect: x
+// expect: options
+// A constructor overload with a defaulted parameter is taken when a same-arity one doesn't fit the
+// argument's type (#182); the exact-arity one still wins when it fits.
+struct Opts {
+  flag?: bool
+}
+
+class A {
+  public label: string
+
+  constructor(label: string, options: Opts = {}) {
+    this.label = label
+  }
+
+  constructor(options: Opts) {
+    this.label = "options"
+  }
+}
+
+println(new A("x").label)
+println(new A({ flag: true }).label)
