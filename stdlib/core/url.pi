@@ -17,14 +17,6 @@ function __isSpecial(scheme: string): bool {
     scheme == "ftp" || scheme == "file"
 }
 
-function __isAlpha(c: char): bool {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-}
-
-function __isDigit(c: char): bool {
-  return c >= '0' && c <= '9'
-}
-
 function __hexValue(c: char): int {
   if (c >= '0' && c <= '9') (c as u32 as int) - 48
   else if (c >= 'a' && c <= 'f') (c as u32 as int) - 87
@@ -98,7 +90,7 @@ function __decode(s: string, plus: bool): string {
 function __formEncode(s: string): string {
   let out = ""
   for (const c of s) {
-    if (__isAlpha(c) || __isDigit(c) || c == '*' || c == '-' || c == '.' || c == '_') {
+    if (c.isAlpha() || c.isDigit() || c == '*' || c == '-' || c == '.' || c == '_') {
       out = `${out}${c}`
     } else if (c == ' ') {
       out = out + "+"
@@ -332,9 +324,9 @@ class URL {
       chars.push(c)
     }
     let scheme = ""
-    if (chars.length > 0 && __isAlpha(chars[0])) {
+    if (chars.length > 0 && chars[0].isAlpha()) {
       let k = 1
-      while (k < chars.length && (__isAlpha(chars[k]) || __isDigit(chars[k]) || chars[k] == '+' || chars[k] == '-' || chars[k] == '.')) {
+      while (k < chars.length && (chars[k].isAlpha() || chars[k].isDigit() || chars[k] == '+' || chars[k] == '-' || chars[k] == '.')) {
         k += 1
       }
       if (k < chars.length && chars[k] == ':') {
@@ -427,7 +419,7 @@ class URL {
     }
     if (port.length > 0) {
       for (const c of port) {
-        if (!__isDigit(c)) {
+        if (!c.isDigit()) {
           this.fail(input)
         }
       }

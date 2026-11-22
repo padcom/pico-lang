@@ -540,7 +540,7 @@ class __HttpReader {
     if (cl != null) {
       const t = cl.trim()
       for (const c of t) {
-        if (!__isDigit(c)) {
+        if (!c.isDigit()) {
           throw new TypeError(`bad content-length: ${cl}`)
         }
       }

@@ -283,3 +283,58 @@ export function groupDigits(text: string, separator: string = ",", size: int = 3
   }
   return text.slice(0, start) + out + text.slice(end)
 }
+
+/// `text` wrapped at spaces to lines of at most `width` code points (decision 344): its own line
+/// breaks are kept, a line's leading spaces stay, the spaces where a line is broken and at its
+/// end go, and a word longer than `width` stays whole on its own line.
+export function wrap(text: string, width: int): string {
+  wrap(text, width, (s: string) => s.length)
+}
+
+/// `wrap` measuring each piece with `measure`: `wrap(text, 60, displayWidth)` (`std/term`) for
+/// text with colours or wide characters.
+export function wrap(text: string, width: int, measure: (s: string) => int): string {
+  const wrapped: string[] = []
+  for (const line of text.replaceAll("\r\n", "\n").split("\n")) {
+    const chunks = __chunks(line)
+    if (chunks.length == 0) {
+      wrapped.push("")
+      continue
+    }
+    let sum = chunks[0]
+    let sumWidth = measure(sum)
+    for (let i = 1; i < chunks.length; i++) {
+      const chunk = chunks[i]
+      const w = measure(chunk)
+      if (sumWidth + w <= width) {
+        sum += chunk
+        sumWidth += w
+      } else {
+        wrapped.push(sum)
+        sum = chunk.trimStart()
+        sumWidth = measure(sum)
+      }
+    }
+    wrapped.push(sum)
+  }
+  return wrapped.join("\n")
+}
+
+/// `line` as runs of spaces each followed by a word (`"a  b"` is `"a"`, `"  b"`); spaces at the
+/// end are dropped.
+function __chunks(line: string): string[] {
+  const chunks: string[] = []
+  let current = ""
+  let inWord = false
+  for (const c of line) {
+    const space = c == ' ' || c == '\t'
+    if (space && inWord) {
+      chunks.push(current)
+      current = ""
+    }
+    inWord = !space
+    current += c.toString()
+  }
+  if (inWord) chunks.push(current)
+  return chunks
+}

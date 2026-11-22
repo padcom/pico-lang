@@ -195,7 +195,7 @@ function __winRoot(p: string): __WinRoot {
     }
     return { device: "", absolute: true, end: 1 }
   }
-  if (n > 1 && __isAlpha(p[0]) && p[1] == ':') {
+  if (n > 1 && p[0].isAlpha() && p[1] == ':') {
     const absolute = n > 2 && __isSep(p[2])
     return { device: p.slice(0, 2), absolute: absolute, end: if (absolute) 3 else 2 }
   }
@@ -207,7 +207,7 @@ function __winIsAbsolute(p: string): bool {
   if (n == 0) {
     return false
   }
-  return __isSep(p[0]) || (n > 2 && __isAlpha(p[0]) && p[1] == ':' && __isSep(p[2]))
+  return __isSep(p[0]) || (n > 2 && p[0].isAlpha() && p[1] == ':' && __isSep(p[2]))
 }
 
 function __winNormalize(p: string): string {
@@ -355,7 +355,7 @@ function __winDirname(p: string): string {
 
 /// The last segment of a Windows path (after any drive), trailing separators dropped.
 function __winLast(p: string): string {
-  const start = if (p.length >= 2 && __isAlpha(p[0]) && p[1] == ':') 2 else 0
+  const start = if (p.length >= 2 && p[0].isAlpha() && p[1] == ':') 2 else 0
   let end = p.length
   while (end > start && __isSep(p[end - 1])) {
     end -= 1
