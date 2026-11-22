@@ -68,6 +68,11 @@ type that takes as many parameters, and then gets that overload's parameter type
 interface method is implemented by the overload with its parameter types. Not yet: virtual,
 abstract and overriding overloads, and a class adding overloads to an inherited method.
 
+An overloaded function used as a value needs an expected function type; the overload with its
+parameter types is the value (`const f: (x: int) => string = parse`). A class's method used as a
+value, `obj.m`, is a **bound method**: a function that calls `m` on that `obj` (virtually, if `m`
+is virtual), chosen among overloads the same way (decision 336).
+
 ## 5.4.1 Guaranteed tail calls
 ```ts
 function loopUntil(n: i64, acc: i64): i64 {

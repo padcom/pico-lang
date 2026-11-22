@@ -46,6 +46,8 @@ pub struct Types {
     /// A type's method implementing an interface's (type, interface method): among the
     /// type's overloads of the name, the one with the interface method's parameters.
     pub impl_methods: HashMap<(StructId, FnId), FnId>,
+    /// Bound methods (`obj.m` used as a value, #151): the member expression and the method.
+    pub bound_methods: HashMap<ExprId, FnId>,
     /// Variable reads of a `T?` binding that narrowing typed as `T` (lowering unwraps them).
     pub narrowed: HashSet<ExprId>,
     /// Variant patterns: the enum and variant index.
@@ -218,6 +220,7 @@ impl Types {
             fn_throws: self.fn_throws.clone(),
             extensions: self.extensions.clone(),
             impl_methods: self.impl_methods.clone(),
+            bound_methods: self.bound_methods.clone(),
             iterables: self.iterables.clone(),
             formattables: self.formattables.clone(),
             arg_slots: self.arg_slots.clone(),
@@ -291,6 +294,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             fn_throws: program.fns.iter().map(|f| f.throws.clone()).collect(),
             extensions: HashMap::new(),
             impl_methods: HashMap::new(),
+            bound_methods: HashMap::new(),
             iterables: HashMap::new(),
             formattables: HashMap::new(),
         },
@@ -2020,37 +2024,7 @@ impl<'p> Checker<'p> {
                 }
                 self.var_ty(*v, e.span)
             }
-            ExprKind::Fn(id) if self.program.func(*id).generics.is_empty() => {
-                // A named function used as a value. An `unsafe function`'s value could be
-                // called anywhere, so taking it needs `unsafe` too (#4).
-                if self.program.func(*id).is_unsafe {
-                    self.require_unsafe(e.span, "using an `unsafe function` as a value");
-                }
-                // A function value has a fixed parameter list: a call through it couldn't pass
-                // C's `...` arguments (spec §12.1).
-                if self.program.func(*id).c_variadic {
-                    self.diags.push(
-                        Diagnostic::error(
-                            codes::EXPORT_TYPE,
-                            format!(
-                                "the C variadic function `{}` can't be used as a value",
-                                self.program.func(*id).name
-                            ),
-                        )
-                        .primary(e.span, "used as a value here")
-                        .help("call it directly, or wrap the call in a pico function"),
-                    );
-                }
-                let g = self.program.func(*id);
-                if (g.ret.is_none() || g.infer_throws)
-                    && self.state[id.0 as usize] == FnState::Unchecked
-                {
-                    self.check_fn(*id);
-                }
-                let sig = self.types.sigs[id.0 as usize].clone();
-                let ts = self.types.fn_throws[id.0 as usize].clone();
-                Ty::Fn(sig.params.into(), Box::new(sig.ret), ts.into())
-            }
+            ExprKind::Fn(id) if self.program.func(*id).generics.is_empty() => self.fn_value(e, *id),
             ExprKind::FnAddr(id) if self.program.func(*id).generics.is_empty() => {
                 // A C function pointer to a top-level function (spec §12.1).
                 let g = self.program.func(*id);
@@ -2106,15 +2080,9 @@ impl<'p> Checker<'p> {
                 }
                 self.types.sigs[f.0 as usize].ret.clone()
             }
-            ExprKind::Overloaded(_) => {
-                self.diags.push(
-                    Diagnostic::error(
-                        codes::NOT_IMPLEMENTED,
-                        "overloaded functions as values aren't implemented yet",
-                    )
-                    .primary(e.span, "call it instead"),
-                );
-                Ty::Error
+            ExprKind::Overloaded(cands) => {
+                let cands = cands.clone();
+                self.overload_value(e, &cands, want)
             }
             ExprKind::NamedArg { value, .. } | ExprKind::Spread(value) => {
                 self.infer(value);
@@ -2378,7 +2346,7 @@ impl<'p> Checker<'p> {
                     }
                     (Ty::Class(sid, _, args), _) => {
                         self.recv_args = args.to_vec();
-                        self.class_member(e.id, *sid, name, *name_span)
+                        self.class_member(e.id, *sid, name, *name_span, want)
                     }
                     (Ty::Variant(eid, v, _), _) => {
                         let var = &self.program.enum_def(*eid).variants[*v as usize];
@@ -4396,7 +4364,14 @@ impl<'p> Checker<'p> {
     }
 
     /// A class member read (`obj.name`): a field or a getter.
-    fn class_member(&mut self, id: ExprId, sid: StructId, name: &str, span: Span) -> Ty {
+    fn class_member(
+        &mut self,
+        id: ExprId,
+        sid: StructId,
+        name: &str,
+        span: Span,
+        want: Option<&Expect>,
+    ) -> Ty {
         let def = self.program.struct_def(sid);
         if def.field(name).is_none()
             && let Some(g) = def.getter(name)
@@ -4413,7 +4388,88 @@ impl<'p> Checker<'p> {
                 .ret
                 .subst(Ty::type_owner(sid), &args);
         }
+        if def.field(name).is_none() && !def.methods_named(name).is_empty() {
+            return self.bound_method(id, sid, name, span, want);
+        }
         self.field(id, sid, name, span)
+    }
+
+    /// `obj.m` used as a value: a function calling `m` on `obj` (#151). Of overloads, the one
+    /// whose parameter types are the expected function type's.
+    fn bound_method(
+        &mut self,
+        id: ExprId,
+        sid: StructId,
+        name: &str,
+        span: Span,
+        want: Option<&Expect>,
+    ) -> Ty {
+        let def = self.program.struct_def(sid);
+        let recv = std::mem::take(&mut self.recv_args);
+        if !def.generics.is_empty() {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::NOT_IMPLEMENTED,
+                    "methods of generic classes as values aren't implemented yet",
+                )
+                .primary(span, "call it instead, or wrap it in a closure"),
+            );
+            return Ty::Error;
+        }
+        let cands = def.methods_named(name);
+        for c in &cands {
+            if self.program.func(*c).ret.is_none() && self.state[c.0 as usize] == FnState::Unchecked
+            {
+                self.check_fn(*c);
+            }
+        }
+        let m = if cands.len() == 1 {
+            cands[0]
+        } else {
+            let wanted = want.and_then(|w| match &w.ty {
+                Ty::Fn(ps, _, _) => Some(ps.clone()),
+                _ => None,
+            });
+            let fits: Vec<FnId> = match &wanted {
+                Some(ps) => cands
+                    .iter()
+                    .copied()
+                    .filter(|c| *self.types.sigs[c.0 as usize].params == **ps)
+                    .collect(),
+                None => Vec::new(),
+            };
+            match fits.as_slice() {
+                [one] => *one,
+                _ => {
+                    let cname = def.name.clone();
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::AMBIGUOUS_OVERLOAD,
+                            format!("which overload of `{cname}.{name}` is meant isn't known"),
+                        )
+                        .primary(span, "an overloaded method used as a value")
+                        .help("give it a function type: `const f: (x: int) => int = obj.m`"),
+                    );
+                    return Ty::Error;
+                }
+            }
+        };
+        let _ = recv;
+        if !self.program.func(m).generics.is_empty() {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::NOT_IMPLEMENTED,
+                    "generic methods as values aren't implemented yet",
+                )
+                .primary(span, "call it instead, or wrap it in a closure"),
+            );
+            return Ty::Error;
+        }
+        self.check_access(sid, name, span);
+        self.types.bound_methods.insert(id, m);
+        let sig = self.types.sigs[m.0 as usize].clone();
+        let ts = self.types.fn_throws[m.0 as usize].clone();
+        Ty::Fn(sig.params.into(), Box::new(sig.ret), ts.into())
     }
 
     /// Reports use of a private class member outside the class.
@@ -6190,6 +6246,93 @@ impl<'p> Checker<'p> {
                 _ => false,
             },
             _ => false,
+        }
+    }
+
+    /// A named function `id` used as a value: its function type.
+    fn fn_value(&mut self, e: &Expr, id: FnId) -> Ty {
+        // A named function used as a value. An `unsafe function`'s value could be
+        // called anywhere, so taking it needs `unsafe` too (#4).
+        if self.program.func(id).is_unsafe {
+            self.require_unsafe(e.span, "using an `unsafe function` as a value");
+        }
+        // A function value has a fixed parameter list: a call through it couldn't pass
+        // C's `...` arguments (spec §12.1).
+        if self.program.func(id).c_variadic {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::EXPORT_TYPE,
+                    format!(
+                        "the C variadic function `{}` can't be used as a value",
+                        self.program.func(id).name
+                    ),
+                )
+                .primary(e.span, "used as a value here")
+                .help("call it directly, or wrap the call in a pico function"),
+            );
+        }
+        let g = self.program.func(id);
+        if (g.ret.is_none() || g.infer_throws) && self.state[id.0 as usize] == FnState::Unchecked {
+            self.check_fn(id);
+        }
+        let sig = self.types.sigs[id.0 as usize].clone();
+        let ts = self.types.fn_throws[id.0 as usize].clone();
+        Ty::Fn(sig.params.into(), Box::new(sig.ret), ts.into())
+    }
+
+    /// An overloaded function used as a value: the overload whose parameter types are the
+    /// expected function type's (#151).
+    fn overload_value(&mut self, e: &Expr, cands: &[FnId], want: Option<&Expect>) -> Ty {
+        let wanted = want.and_then(|w| match &w.ty {
+            Ty::Fn(ps, _, _) => Some(ps.clone()),
+            Ty::Nullable(inner) => match &**inner {
+                Ty::Fn(ps, _, _) => Some(ps.clone()),
+                _ => None,
+            },
+            _ => None,
+        });
+        let name = self.program.func(cands[0]).name.clone();
+        let Some(ps) = wanted else {
+            self.diags.push(
+                Diagnostic::error(
+                    codes::AMBIGUOUS_OVERLOAD,
+                    format!("which overload of `{name}` is meant isn't known"),
+                )
+                .primary(e.span, "an overloaded function used as a value")
+                .help("give it a function type: `const f: (x: int) => int = …`"),
+            );
+            return Ty::Error;
+        };
+        for c in cands {
+            if self.program.func(*c).ret.is_none() && self.state[c.0 as usize] == FnState::Unchecked
+            {
+                self.check_fn(*c);
+            }
+        }
+        let fits: Vec<FnId> = cands
+            .iter()
+            .copied()
+            .filter(|c| {
+                self.program.func(*c).generics.is_empty()
+                    && *self.types.sigs[c.0 as usize].params == *ps
+            })
+            .collect();
+        match fits.as_slice() {
+            [one] => {
+                self.types.overloads.insert(e.id, *one);
+                self.fn_value(e, *one)
+            }
+            _ => {
+                let shown: Vec<String> = ps.iter().map(|t| t.to_string()).collect();
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::NO_OVERLOAD,
+                        format!("no overload of `{name}` takes ({})", shown.join(", ")),
+                    )
+                    .primary(e.span, "the expected function type's parameters"),
+                );
+                Ty::Error
+            }
         }
     }
 
