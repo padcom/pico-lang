@@ -269,8 +269,8 @@ for await (const chunk of conn.readable) handle(chunk)   // without a reader
 Sources, sinks and transformers are structs of callbacks (`UnderlyingSource<T>`: `start`,
 `pull`, `cancel`; `UnderlyingSink<T>`: `start`, `write`, `close`, `abort`; `Transformer<I, O>`:
 `start`, `transform`, `flush`). Callbacks finish when they return; work that finishes later is
-given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transformAsync` (pico has
-no async lambdas yet). Strategies are `{ highWaterMark }` (default 1; a transform's readable
+given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transformAsync` (which
+predate async lambdas). Strategies are `{ highWaterMark }` (default 1; a transform's readable
 side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel })` writes each chunk after
 the last one was taken; `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
 streams an array; `tee()` gives two streams that each get every chunk (the source is locked;

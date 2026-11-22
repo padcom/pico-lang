@@ -42,7 +42,7 @@ Tests live in `*.test.pi` files and use a Vitest-like API:
 import { describe, test, expect } from "std/test"
 import { add, load } from "./math"
 
-// An async test is an `async function` passed by name (there are no async lambdas yet).
+// An async test is an `async function`, or an async lambda: `test("…", async () => { … })`.
 async function missingFilesReject(): Promise<void> {
   await expect(load("no-such-file")).rejects.toThrow("no-such-file")
 }
@@ -61,7 +61,7 @@ Tests run in parallel, one isolated process per file (`pico test [paths] [-t fil
 [--watch] [-j jobs]`; it finds `*.test.pi` files under the paths). Coverage is planned.
 
 - Registering: `describe(name, fn)` (nesting; names show as `group > test`), `test`/`it(name,
-  fn)` with a function or an `async function` (passed by name: there are no async lambdas yet),
+  fn)` with a function, an `async function` or an async lambda (`async () => { … }`),
   `skip`, `only` and `todo`, and the hooks `beforeEach`, `afterEach`, `beforeAll`, `afterAll`.
   The tests run once the file's top level is done, in order; the file prints one line per test
   and `pico-test: N passed, M failed, K skipped`, and exits with 1 when any failed. So

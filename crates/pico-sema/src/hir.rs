@@ -54,6 +54,12 @@ pub struct Program {
     /// Methods of built-in types written in pico: top-level functions `__Array_map`,
     /// `__String_…` whose first parameter is the receiver, by (`Array`/`String`, method name).
     pub extensions: HashMap<(String, String), Vec<FnId>>,
+    /// The promises of async lambdas without a written result type (#52): `new Promise()`
+    /// whose type arguments are the lambda's result type, expected or hinted.
+    pub async_promises: std::collections::HashSet<ExprId>,
+    /// Async lambdas (desugared to plain ones returning a promise): they fit only function
+    /// types returning a `Promise` in overload resolution.
+    pub async_closures: std::collections::HashSet<FnId>,
     /// Functions that initialize classes' static fields; the entry function calls them first.
     pub static_inits: Vec<FnId>,
     /// File-based workers' modules (spec §10.2), worker id `i + 1` for index `i`: their
