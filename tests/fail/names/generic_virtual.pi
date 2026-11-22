@@ -1,0 +1,25 @@
+// A generic method can't be dispatched at run time (#169): one vtable or interface slot can't
+// hold every instance, so `virtual`, `abstract`, `override` and interface methods can't have
+// type parameters (before, a `virtual` one compiled to a body that never returned).
+// error: E0358
+// at: 13:24
+// error: E0358
+// at: 17:26
+// error: E0358
+// at: 20:25
+// error: E0358
+// at: 24:5
+class A {
+  public virtual first<T>(x: T): int { return 1 }
+  public plain<T>(x: T): int { return 2 }
+}
+abstract class B {
+  public abstract second<T>(x: T): int
+}
+class C extends A {
+  public override first<T>(x: T): int { return 3 }
+}
+interface I {
+  g(x: int): int
+  h<T>(x: T): int
+}
