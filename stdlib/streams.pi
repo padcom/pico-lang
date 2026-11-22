@@ -55,3 +55,267 @@ export function textDecoderStream(): TransformStream<Uint8Array, string> {
     },
   })
 }
+
+// ------------------------------------------------------------------------------- byte streams
+
+/// Bytes in and out, in order: what a protocol library reads and writes, whatever carries them
+/// (`TcpStream` and `UdpStream` from `std/net`, `FileStream` from `std/fs`, `bytePipe()`, a serial
+/// port).
+export interface ByteStream {
+  /// The next bytes, as soon as some are there; null once the stream has ended.
+  read(): Promise<Uint8Array?, Error>
+  /// Writes all of `bytes`, in order with earlier writes.
+  write(bytes: Uint8Array): Promise<void, Error>
+  /// Ends the stream: a `read()` still waiting, and later ones, give null.
+  close(): void
+}
+
+/// An unbounded queue between async code: `send` never waits, `receive` waits for a value. Once
+/// it's closed, the values already sent are still received, then `receive` gives null. Also
+/// `for await (const v of channel)`.
+export class Channel<T> {
+  items: T[] = []
+  head: int = 0
+  waiters: ((value: T?) => void)[] = []
+  closed: bool = false
+
+  constructor() {}
+
+  /// Values sent and not received yet.
+  public get size(): int {
+    return items.length - head
+  }
+
+  /// Whether `close()` was called.
+  public get isClosed(): bool {
+    return closed
+  }
+
+  /// Queues `value` (or hands it to a waiting `receive`); false, and dropped, once closed.
+  public send(value: T): bool {
+    if (closed) {
+      return false
+    }
+    if (waiters.length > 0) {
+      const w = waiters.shift()
+      if (w != null) {
+        w(value)
+        return true
+      }
+    }
+    items.push(value)
+    return true
+  }
+
+  /// The next value; null once the channel is closed and empty.
+  public receive(): Promise<T?> {
+    if (head < items.length) {
+      const v = items[head]
+      head += 1
+      if (head == items.length) {
+        items = []
+        head = 0
+      }
+      return Promise.resolve<T?>(v)
+    }
+    if (closed) {
+      return Promise.resolve<T?>(null)
+    }
+    new Promise<T?>((resolve: (value: T?) => void, _reject: (error: Error) => void) => {
+      this.waiters.push(resolve)
+    })
+  }
+
+  /// No more values: waiting `receive`s give null now, later ones once the queue is empty.
+  public close(): void {
+    if (closed) {
+      return
+    }
+    closed = true
+    const ws = waiters
+    waiters = []
+    for (const w of ws) {
+      w(null)
+    }
+  }
+
+  /// `for await`: the next value.
+  public next(): Promise<T?> {
+    receive()
+  }
+
+  public asyncIterator(): Channel<T> {
+    return this
+  }
+}
+
+/// One end of an in-memory pipe (`bytePipe()`): what one end writes, the other reads.
+export class PipeEnd implements ByteStream {
+  inbox: Channel<Uint8Array> = new Channel<Uint8Array>()
+  /// The other end.
+  public peer: PipeEnd? = null
+
+  constructor() {}
+
+  public read(): Promise<Uint8Array?, Error> {
+    inbox.receive()
+  }
+
+  /// Delivers a copy of `bytes` to the peer (dropped once the pipe is closed).
+  public async write(bytes: Uint8Array): Promise<void> throws Error {
+    const p = peer
+    if (p != null) {
+      p.inbox.send(bytes.slice())
+    }
+  }
+
+  /// Ends both directions: reads on either end give null once what was sent is read.
+  public close(): void {
+    inbox.close()
+    const p = peer
+    if (p != null) {
+      p.inbox.close()
+    }
+  }
+}
+
+/// Two connected in-memory byte streams, for tests and for joining two parts of a program.
+export function bytePipe(): PipeEnd[] {
+  const a = new PipeEnd()
+  const b = new PipeEnd()
+  a.peer = b
+  b.peer = a
+  return [a, b]
+}
+
+// ------------------------------------------------------------------------------------ framing
+
+/// The size of a frame's length prefix (a u32, big-endian).
+export const FRAME_HEADER_BYTES: int = 4
+
+/// The default limit on a frame's message.
+export const DEFAULT_MAX_FRAME_BYTES: int = 16 * 1024 * 1024
+
+/// Framing options: the largest message (`maxBytes`, default 16 MiB) and whether a message may be
+/// empty (`allowEmpty`, default false).
+export struct FrameOptions {
+  maxBytes?: int
+  allowEmpty?: bool
+}
+
+/// A frame that breaks the options: `kind` is `"Empty"` (an empty message where none are allowed),
+/// `"TooLarge"` (over `maxBytes`), `"Truncated"` (`frames`: the stream ended inside a frame) or
+/// `"Failed"` (an earlier error left the stream unusable);
+/// `length` is the message length the frame gave (or was given).
+export class FrameError extends Error {
+  public kind: string
+  public length: int
+
+  constructor(kind: string, length: int, message: string) {
+    super(message)
+    this.kind = kind
+    this.length = length
+  }
+}
+
+function __frameCheck(n: int, options: FrameOptions): void throws FrameError {
+  const max = options.maxBytes ?? DEFAULT_MAX_FRAME_BYTES
+  if (n == 0 && options.allowEmpty != true) {
+    throw new FrameError("Empty", 0, "an empty frame")
+  }
+  if (n > max) {
+    throw new FrameError("TooLarge", n, `a frame of ${n} bytes (at most ${max})`)
+  }
+}
+
+/// `message` with its length in front: a u32, big-endian.
+export function encodeFrame(message: Uint8Array, options: FrameOptions = {}): Uint8Array throws FrameError {
+  const n = message.length
+  __frameCheck(n, options)
+  const out = new Uint8Array(FRAME_HEADER_BYTES + n)
+  new DataView(out).setUint32(0, n)
+  out.setAll(message, FRAME_HEADER_BYTES)
+  return out
+}
+
+/// Splits a byte stream of frames back into messages, whatever the chunks: `push` what arrives,
+/// then take `next()` until it gives null. A length over the limit fails before its bytes are
+/// buffered; after an error the stream is unusable.
+export class FrameReader {
+  buf: Uint8Array = new Uint8Array(65536)
+  start: int = 0
+  end: int = 0
+  failed: bool = false
+  options: FrameOptions
+
+  constructor(options: FrameOptions = {}) {
+    this.options = options
+  }
+
+  /// Adds received bytes.
+  public push(chunk: Uint8Array): void {
+    const live = end - start
+    if (end + chunk.length > buf.length) {
+      let cap = buf.length
+      while (cap < live + chunk.length) {
+        cap = cap * 2
+      }
+      const grown = if (cap == buf.length) buf else new Uint8Array(cap)
+      grown.setAll(buf.subarray(start, end))
+      buf = grown
+      start = 0
+      end = live
+    }
+    buf.setAll(chunk, end)
+    end += chunk.length
+  }
+
+  /// The next complete message, or null until more bytes arrive.
+  public next(): Uint8Array? throws FrameError {
+    if (failed) {
+      throw new FrameError("Failed", 0, "the stream already failed")
+    }
+    if (end - start < FRAME_HEADER_BYTES) {
+      return null
+    }
+    const n = new DataView(buf.buffer, buf.byteOffset + start, FRAME_HEADER_BYTES).getUint32(0)
+    try {
+      __frameCheck(n, options)
+    } catch (e: FrameError) {
+      failed = true
+      throw e
+    }
+    if (end - start - FRAME_HEADER_BYTES < n) {
+      return null
+    }
+    const at = start + FRAME_HEADER_BYTES
+    start = at + n
+    buf.slice(at, at + n)
+  }
+
+  /// Bytes of an unfinished frame (not 0 at the end of the stream: it was cut off).
+  public get pending(): int {
+    return end - start
+  }
+}
+
+/// The messages of `stream`'s frames, until it ends; a frame cut off at the end is a `FrameError`
+/// (`"Truncated"`).
+export async function* frames(stream: ByteStream, options: FrameOptions = {}): AsyncIterator<Uint8Array> throws Error {
+  const reader = new FrameReader(options)
+  while (true) {
+    let m = reader.next()
+    while (m != null) {
+      yield m
+      m = reader.next()
+    }
+    const chunk = await stream.read()
+    if (chunk == null) {
+      if (reader.pending > 0) {
+        throw new FrameError("Truncated", reader.pending, `the stream ended inside a frame (${reader.pending} bytes)`)
+      }
+      return
+    }
+    reader.push(chunk)
+  }
+}

@@ -309,6 +309,64 @@ class Uint8Array {
     this
   }
 
+  /// The first position from `fromIndex` (negative counts from the end) whose byte is `value`, or
+  /// -1, as on the Web.
+  public indexOf(value: int, fromIndex: int = 0): int {
+    const n = this.length
+    if (value < 0 || value > 255) {
+      return -1
+    }
+    for (let i = this.clamp(fromIndex); i < n; i++) {
+      if (__buf_op(11, this.buffer.__handle, this.byteOffset + i, 0) == value) {
+        return i
+      }
+    }
+    return -1
+  }
+
+  /// Whether a byte from `fromIndex` on is `value`.
+  public includes(value: int, fromIndex: int = 0): bool {
+    return this.indexOf(value, fromIndex) >= 0
+  }
+
+  /// Sets the bytes from `start` to `end` (negative counts from the end) to `value`'s low 8 bits,
+  /// as on the Web. Returns this view.
+  public fill(value: int, start: int = 0, end: int? = null): Uint8Array {
+    const a = this.clamp(start)
+    const e = end
+    const b = if (e != null) this.clamp(e) else this.length
+    for (let i = a; i < b; i++) {
+      __buf_op(21, this.buffer.__handle, this.byteOffset + i, value);
+    }
+    this
+  }
+
+  /// Whether `other` has the same bytes (and length). Not on the Web, where it takes a loop.
+  public equals(other: Uint8Array): bool {
+    const n = this.length
+    if (other.length != n) {
+      return false
+    }
+    const a = this.buffer.__handle
+    const b = other.buffer.__handle
+    const x = this.byteOffset
+    const y = other.byteOffset
+    let i = 0
+    while (i + 8 <= n) {
+      if (__buf_op(18, a, x + i, 0) != __buf_op(18, b, y + i, 0)) {
+        return false
+      }
+      i += 8
+    }
+    while (i < n) {
+      if (__buf_op(11, a, x + i, 0) != __buf_op(11, b, y + i, 0)) {
+        return false
+      }
+      i += 1
+    }
+    return true
+  }
+
   /// The bytes of `values` (each taken modulo 256).
   public static from(values: int[]): Uint8Array {
     const out = new Uint8Array(values.length)
@@ -586,4 +644,221 @@ class Float64Array {
   operator [](i: int): f64 {
     this.get(i)
   }
+}
+
+/// Reads and writes numbers of any size at any byte offset of a buffer, in either byte order:
+/// big-endian unless `littleEndian` is given, as on the Web. Offsets outside the view panic (the
+/// Web throws a `RangeError`). 64-bit integers are `i64`/`u64` (`getBigInt64`, `getBigUint64`:
+/// the Web's names, without its BigInt). Pico also takes a `Uint8Array`: the view's bytes.
+class DataView {
+  /// The `ArrayBuffer` whose bytes the view reads and writes.
+  public buffer: ArrayBuffer
+  /// Where the view starts in `buffer`, in bytes.
+  public byteOffset: int
+  count: int
+
+  /// A view of `buffer` from `byteOffset`, `byteLength` bytes long (default: to its end). Panics
+  /// if that isn't inside the buffer.
+  constructor(buffer: ArrayBuffer, byteOffset: int = 0, byteLength: int? = null) {
+    this.buffer = buffer
+    this.byteOffset = byteOffset
+    const n = byteLength
+    this.count = if (n != null) __viewSpan(buffer, byteOffset, n, 1, "DataView") else __viewRest(buffer, byteOffset, 1, "DataView")
+  }
+
+  /// A view of the same bytes as `view`.
+  constructor(view: Uint8Array) {
+    this.buffer = view.buffer
+    this.byteOffset = view.byteOffset
+    this.count = view.length
+  }
+
+  /// The view's size in bytes (0 once the buffer is detached).
+  public get byteLength(): int {
+    if (this.buffer.detached) 0 else this.count
+  }
+
+  /// Where `size` bytes at `at` are in the buffer; they must be inside the view.
+  offset(at: int, size: int): int {
+    if (at < 0 || at > this.byteLength - size) {
+      panic(`DataView: ${size} bytes at offset ${at} are outside its ${this.byteLength} bytes`)
+    }
+    return this.byteOffset + at
+  }
+
+  /// The `size`-byte unsigned integer at `at` (all 64 bits for 8: the caller casts).
+  read(at: int, size: int, littleEndian: bool): int {
+    const o = this.offset(at, size)
+    const h = this.buffer.__handle
+    if (littleEndian) {
+      return __buf_op(10 + size, h, o, 0)
+    }
+    let v = 0
+    for (let i = 0; i < size; i++) {
+      v = (v << 8) | __buf_op(11, h, o + i, 0)
+    }
+    return v
+  }
+
+  /// Writes the low `size` bytes of `v` at `at`.
+  write(at: int, size: int, v: int, littleEndian: bool): void {
+    const o = this.offset(at, size)
+    const h = this.buffer.__handle
+    if (littleEndian) {
+      __buf_op(20 + size, h, o, v);
+      return
+    }
+    for (let i = 0; i < size; i++) {
+      __buf_op(21, h, o + i, v >> ((size - 1 - i) * 8));
+    }
+  }
+
+  public getUint8(at: int): int {
+    this.read(at, 1, true)
+  }
+
+  public getInt8(at: int): int {
+    __signed(this.read(at, 1, true), 8)
+  }
+
+  public getUint16(at: int, littleEndian: bool = false): int {
+    this.read(at, 2, littleEndian)
+  }
+
+  public getInt16(at: int, littleEndian: bool = false): int {
+    __signed(this.read(at, 2, littleEndian), 16)
+  }
+
+  public getUint32(at: int, littleEndian: bool = false): int {
+    this.read(at, 4, littleEndian)
+  }
+
+  public getInt32(at: int, littleEndian: bool = false): int {
+    __signed(this.read(at, 4, littleEndian), 32)
+  }
+
+  public getBigInt64(at: int, littleEndian: bool = false): i64 {
+    this.read(at, 8, littleEndian)
+  }
+
+  public getBigUint64(at: int, littleEndian: bool = false): u64 {
+    unsafe { unsafe.cast<u64>(this.read(at, 8, littleEndian)) }
+  }
+
+  /// An IEEE 754 half-precision number (ES2025's `getFloat16`).
+  public getFloat16(at: int, littleEndian: bool = false): f64 {
+    __f16ToF64(this.read(at, 2, littleEndian))
+  }
+
+  public getFloat32(at: int, littleEndian: bool = false): f32 {
+    unsafe { unsafe.cast<f32>(__signed(this.read(at, 4, littleEndian), 32) as i32) }
+  }
+
+  public getFloat64(at: int, littleEndian: bool = false): f64 {
+    unsafe { unsafe.cast<f64>(this.read(at, 8, littleEndian)) }
+  }
+
+  /// Stores `value`'s low 8 bits (as do all the integer setters: their low 16, 32, 64 bits).
+  public setUint8(at: int, value: int): void {
+    this.write(at, 1, value, true)
+  }
+
+  public setInt8(at: int, value: int): void {
+    this.write(at, 1, value, true)
+  }
+
+  public setUint16(at: int, value: int, littleEndian: bool = false): void {
+    this.write(at, 2, value, littleEndian)
+  }
+
+  public setInt16(at: int, value: int, littleEndian: bool = false): void {
+    this.write(at, 2, value, littleEndian)
+  }
+
+  public setUint32(at: int, value: int, littleEndian: bool = false): void {
+    this.write(at, 4, value, littleEndian)
+  }
+
+  public setInt32(at: int, value: int, littleEndian: bool = false): void {
+    this.write(at, 4, value, littleEndian)
+  }
+
+  public setBigInt64(at: int, value: i64, littleEndian: bool = false): void {
+    this.write(at, 8, value, littleEndian)
+  }
+
+  public setBigUint64(at: int, value: u64, littleEndian: bool = false): void {
+    this.write(at, 8, unsafe { unsafe.cast<i64>(value) }, littleEndian)
+  }
+
+  /// `value` rounded to the nearest half-precision number (ties to even; too large: infinity).
+  public setFloat16(at: int, value: f64, littleEndian: bool = false): void {
+    this.write(at, 2, __f64ToF16(value), littleEndian)
+  }
+
+  public setFloat32(at: int, value: f32, littleEndian: bool = false): void {
+    this.write(at, 4, unsafe { unsafe.cast<i32>(value) } as int, littleEndian)
+  }
+
+  public setFloat64(at: int, value: f64, littleEndian: bool = false): void {
+    this.write(at, 8, unsafe { unsafe.cast<i64>(value) }, littleEndian)
+  }
+}
+
+/// `v`, an unsigned `bits`-bit number, as two's complement.
+function __signed(v: int, bits: int): int {
+  if (v >= (1 << (bits - 1))) v - (1 << bits) else v
+}
+
+/// The half-precision bits `h` as a double (exactly).
+function __f16ToF64(h: int): f64 {
+  const sign = (h & 0x8000) << 48
+  const e = (h >> 10) & 0x1f
+  const m = h & 0x3ff
+  if (e == 0) {
+    // Zero or subnormal: m × 2^-24, exact in a double.
+    const v = (m as f64) * 0.000000059604644775390625
+    return if (sign != 0) -v else v
+  }
+  const bits = if (e == 0x1f) sign | (0x7ff << 52) | (m << 42) else sign | ((e - 15 + 1023) << 52) | (m << 42)
+  unsafe { unsafe.cast<f64>(bits) }
+}
+
+/// The half-precision bits nearest to `v` (ties to even; beyond the largest half: infinity; NaN
+/// stays a quiet NaN).
+function __f64ToF16(v: f64): int {
+  const bits = unsafe { unsafe.cast<i64>(v) }
+  const sign = (bits >>> 48) & 0x8000
+  const exp = (bits >>> 52) & 0x7ff
+  const mant = bits & 0xfffffffffffff
+  if (exp == 0x7ff) {
+    return sign | 0x7c00 | (if (mant != 0) 0x200 else 0)
+  }
+  const e = exp - 1023 + 15
+  if (e >= 31) {
+    return sign | 0x7c00
+  }
+  // The half's bits before rounding, and how many low bits of the double's mantissa it drops.
+  let half = 0
+  let shift = 42
+  let m = mant
+  if (e <= 0) {
+    if (exp == 0) {
+      return sign
+    }
+    shift = 43 - e
+    if (shift > 63) {
+      return sign
+    }
+    m = mant | (1 << 52)
+    half = m >> shift
+  } else {
+    half = (e << 10) | (mant >> 42)
+  }
+  const rest = m & ((1 << shift) - 1)
+  const halfway = 1 << (shift - 1)
+  if (rest > halfway || (rest == halfway && (half & 1) == 1)) {
+    half += 1
+  }
+  return sign | half
 }

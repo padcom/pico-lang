@@ -6698,6 +6698,8 @@ impl Resolver {
             "u32" => "u32",
             "u64" => "u64",
             "f32" => "f32",
+            // `string.fromUtf8(bytes)` (#181): the core library's `__string_fromUtf8`.
+            "string" => "string",
             _ => return None,
         })
     }

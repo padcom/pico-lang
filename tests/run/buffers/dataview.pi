@@ -1,0 +1,52 @@
+// expect: 1 4 16909060 67305985
+// expect: -2 65534 -2 254
+// expect: 1.5 63 248
+// expect: 0.25
+// expect: -3 18446744073709551613
+// expect: -1
+// expect: 1 -> 15360 -> 1
+// expect: -2.5 -> 49408 -> -2.5
+// expect: 65504 -> 31743 -> 65504
+// expect: 65520 -> 31744 -> Infinity
+// expect: 5.9604644775390625e-8 -> 1 -> 5.9604644775390625e-8
+// expect: 0.00006103515625 -> 1024 -> 0.00006103515625
+// expect: 1.0009765625 -> 15361 -> 1.0009765625
+// expect: 1.00048828125 -> 15360 -> 1
+// expect: 0 -> 0 -> 0
+// expect: Infinity -> 31744 -> Infinity
+// expect: 100000 -> 31744 -> Infinity
+// expect: 0.333333 -> 13653 -> 0.333251953125
+// expect: nan 32256 NaN
+// expect: 1 -1 true 7 254
+// expect: true true
+// expect: false false true
+// expect: 4
+// DataView (#181): both byte orders, every size, Float16 rounding (ties to even, overflow to
+// infinity, subnormals, NaN); Uint8Array indexOf, includes, fill, equals.
+const b = new Uint8Array(16)
+const dv = new DataView(b)
+dv.setUint32(0, 0x01020304)
+println(`${b[0]} ${b[3]} ${dv.getUint32(0)} ${dv.getUint32(0, true)}`)
+dv.setInt16(4, -2, true)
+println(`${dv.getInt16(4, true)} ${dv.getUint16(4, true)} ${dv.getInt8(4)} ${dv.getUint8(4)}`)
+dv.setFloat64(8, 1.5)
+println(`${dv.getFloat64(8)} ${b[8]} ${b[9]}`)
+dv.setFloat32(0, 0.25, true)
+println(`${dv.getFloat32(0, true)}`)
+dv.setBigInt64(8, -3)
+println(`${dv.getBigInt64(8)} ${dv.getBigUint64(8)}`)
+dv.setBigUint64(8, 18446744073709551615, true)
+println(`${dv.getBigInt64(8, true)}`)
+for (const v of [1.0, -2.5, 65504.0, 65520.0, 0.000000059604644775390625, 0.00006103515625, 1.0009765625, 1.00048828125, 0.0, 1.0 / 0.0, 100000.0, 0.333333]) {
+  dv.setFloat16(0, v)
+  println(`${v} -> ${dv.getUint16(0)} -> ${dv.getFloat16(0)}`)
+}
+dv.setFloat16(0, 0.0 / 0.0)
+println(`nan ${dv.getUint16(0)} ${dv.getFloat16(0)}`)
+println(`${b.indexOf(0)} ${b.indexOf(77)} ${b.includes(0)} ${b.fill(7, 2, 4)[3]} ${b[4]}`)
+const c = b.slice()
+println(`${b.equals(c)} ${b.subarray(1).equals(c.subarray(1))}`)
+c.set(15, 99)
+println(`${b.equals(c)} ${b.equals(c.subarray(0, 15))} ${b.subarray(0, 15).equals(c.subarray(0, 15))}`)
+const sub = new DataView(b.buffer, 4, 4)
+println(`${sub.byteLength}`)
