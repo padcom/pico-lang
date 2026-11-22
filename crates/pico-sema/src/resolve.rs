@@ -6616,7 +6616,25 @@ impl Resolver {
 
     fn is_value_name(&self, name: &str) -> bool {
         self.f.scopes.iter().any(|s| s.names.contains_key(name))
+            || self.outer_local(name)
             || self.top_globals.contains_key(&self.mods, name)
+    }
+
+    /// Whether a closure sees a local `name` of a function around it (what `capture` would
+    /// capture), so that it hides `target`, `build` or a type of that name (#171).
+    fn outer_local(&self, name: &str) -> bool {
+        if !self.f.is_closure {
+            return false;
+        }
+        for st in self.outer_fns.iter().rev() {
+            if st.scopes.iter().any(|sc| sc.names.contains_key(name)) {
+                return true;
+            }
+            if !st.is_closure {
+                return false;
+            }
+        }
+        false
     }
 
     /// The type `e` names (a type parameter, a primitive, a struct, class or enum), unless a

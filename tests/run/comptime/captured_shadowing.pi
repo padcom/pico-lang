@@ -1,0 +1,24 @@
+// expect: 6
+// expect: 7
+// expect: 8
+// A local named `target` or `build` hides the built-in one in closures that capture it too
+// (#171), also through a nested closure.
+function g(target: int): int {
+  const h = (): int => target
+  return h()
+}
+function k(): int {
+  const build = 7
+  const h = (): int => build
+  return h()
+}
+function m(target: int): int {
+  const outer = (): int => {
+    const inner = (): int => target + 1
+    return inner()
+  }
+  return outer()
+}
+println(g(6))
+println(k())
+println(m(7))
