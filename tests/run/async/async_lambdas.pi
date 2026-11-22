@@ -1,0 +1,48 @@
+// Async lambdas (#52): with a written result type, from the expected function type (also
+// `void`), a sync/async overload pair telling them apart, and in `map`.
+// expect: 42
+// expect: hi!
+// expect: void body
+// expect: sync 1
+// expect: async registered
+// expect: async x 2
+// expect: 9
+import { delay } from "std/timers"
+class Cmd {
+  public log: string[] = []
+  public action(fn: (a: string, b: int) => void throws Error): Cmd { try! fn("sync", 1); return this }
+  public action(fn: (a: string, b: int) => Promise<void, Error>): Cmd { log.push("async registered"); pending = fn; return this }
+  public pending: ((a: string, b: int) => Promise<void, Error>)? = null
+}
+async function main(): Promise<void> throws Error {
+  const twice = async (x: int): Promise<int> throws Error => {
+    await delay(1)
+    return x * 2
+  }
+  println(await twice(21))
+  const f: (s: string) => Promise<string, Error> = async (s) => {
+    await delay(1)
+    return s + "!"
+  }
+  println(await f("hi"))
+  const g: () => Promise<void, Error> = async () => {
+    await delay(1)
+    println("void body")
+  }
+  await g()
+  const c = new Cmd()
+  c.action((a, b) => { println(`${a} ${b}`) })
+  c.action(async (a, b) => {
+    await delay(1)
+    println(`async ${a} ${b}`)
+  })
+  println(c.log.join(","))
+  const p = c.pending
+  if (p != null) await p("x", 2)
+  const xs = [1, 2, 3]
+  const ps = xs.map(async (n: int): Promise<int> => n + 1)
+  let sum = 0
+  for (const q of ps) sum += await q
+  println(sum)
+}
+await main()

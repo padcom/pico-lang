@@ -1646,7 +1646,7 @@ describe("add", () => {
   test("missing files reject", missingFilesReject)
 })
 
-// Async tests are `async function`s passed by name (no async lambdas yet).
+// Async tests are `async function`s or async lambdas (`async () => { … }`).
 async function missingFilesReject(): Promise<void> {
   await expect(load("no-such-file")).rejects.toThrow("no-such-file")
 }

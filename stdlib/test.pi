@@ -5,7 +5,7 @@
 //
 // A failed expectation stops a test (it panics, and the runner catches that); after an
 // `await` it's recorded and the test goes on. A panic or an exception in a test fails it.
-// Async tests are `async function`s passed by name (no async lambdas yet). Environment:
+// Async tests are `async function`s or async lambdas (`it("…", async () => { … })`). Environment:
 // `PICO_TEST_FILTER` (only tests whose full name contains it), `PICO_TEST_MODE=bench` (run the
 // benchmarks instead), `PICO_TEST_TIMES=0` (no durations, for reproducible output).
 

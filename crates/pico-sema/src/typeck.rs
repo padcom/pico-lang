@@ -311,6 +311,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
         tail_position: false,
         tail_body: false,
         ret_hints: HashMap::new(),
+        lenient_closures: false,
         diags: Vec::new(),
         state: vec![FnState::Unchecked; program.fns.len()],
         global_known: vec![false; program.globals.len()],
@@ -423,6 +424,8 @@ struct Checker<'p> {
     tail_body: bool,
     /// Lambdas' result types taken from the expected function type.
     ret_hints: HashMap<FnId, Ty>,
+    /// While `pick_overload` retries: a plain lambda fits promise-returning function types too.
+    lenient_closures: bool,
     /// Flow-sensitive narrowing: scopes mapping variables to the type they're known to have
     /// (`T` for a `T?` binding after `x != null`).
     narrow: Vec<HashMap<Var, Ty>>,
@@ -2706,6 +2709,34 @@ impl<'p> Checker<'p> {
                 };
                 let explicit = match (type_args.is_empty(), want.map(|w| &w.ty)) {
                     (false, _) => type_args.clone(),
+                    // An async lambda's promise: its result type's arguments (#52).
+                    (true, _) if self.program.async_promises.contains(&e.id) => {
+                        match self.stack.last().map(|c| &c.ret) {
+                            Some(Ret::Declared(Ty::Class(s, _, a), _)) if s == class => a.to_vec(),
+                            Some(Ret::Declared(t, _)) if !t.is_error() => {
+                                let t = t.clone();
+                                self.diags.push(
+                                    Diagnostic::error(
+                                        codes::MISMATCHED_TYPES,
+                                        format!("an async lambda returns a `Promise`, not `{t}`"),
+                                    )
+                                    .primary(e.span, format!("`{t}` is expected here")),
+                                );
+                                return Ty::Error;
+                            }
+                            _ => {
+                                self.diags.push(
+                                    Diagnostic::error(
+                                        codes::MISSING_PARAM_TYPE,
+                                        "an async lambda needs its result type here",
+                                    )
+                                    .primary(e.span, "its `Promise<T>` isn't known")
+                                    .help("write `async (…): Promise<T> => …`, or pass it where a function returning a promise is expected"),
+                                );
+                                return Ty::Error;
+                            }
+                        }
+                    }
                     (true, Some(Ty::Class(s, _, a))) if s == class => a.to_vec(),
                     _ => Vec::new(),
                 };
@@ -3785,6 +3816,8 @@ impl<'p> Checker<'p> {
             // `T?`: what each step yields, `null` at the end.
             self.types.sigs[id.0 as usize].ret = match &expected {
                 Some((_, r, _)) => (**r).clone(),
+                // An async function's step whose promise already failed to type (#52).
+                None if f.name.starts_with("<async") => Ty::Error,
                 None => {
                     self.diags.push(
                         Diagnostic::error(
@@ -6119,20 +6152,27 @@ impl<'p> Checker<'p> {
             })
             .collect();
         let mut ok: Vec<(FnId, Vec<Ty>)> = Vec::new();
-        for c in cands {
-            let sig = self.types.sigs[c.0 as usize].clone();
-            let Some(slots) = self.map_args(e, *c, &sig.params, args, true) else {
-                continue;
-            };
-            let mut fits = true;
-            let mut used = Vec::new();
-            for (k, slot) in slots.iter().enumerate() {
-                let p = &sig.params[k];
-                if let Slot::Arg(i) = slot {
-                    used.push(p.clone());
-                    let fit = match &tys[*i] {
-                        Some(t) => {
-                            t == p
+        // A plain untyped lambda first fits only function types that don't return a promise
+        // (so `f(x => …)` takes the sync overload of a sync/async pair); if none fits, any (#52).
+        for lenient in [false, true] {
+            if lenient && !ok.is_empty() {
+                break;
+            }
+            self.lenient_closures = lenient;
+            for c in cands {
+                let sig = self.types.sigs[c.0 as usize].clone();
+                let Some(slots) = self.map_args(e, *c, &sig.params, args, true) else {
+                    continue;
+                };
+                let mut fits = true;
+                let mut used = Vec::new();
+                for (k, slot) in slots.iter().enumerate() {
+                    let p = &sig.params[k];
+                    if let Slot::Arg(i) = slot {
+                        used.push(p.clone());
+                        let fit = match &tys[*i] {
+                            Some(t) => {
+                                t == p
                                 || t.widens_to(p)
                                 || self.upcasts(t, p)
                                 || self.fits_union(t, p)
@@ -6144,16 +6184,18 @@ impl<'p> Checker<'p> {
                                     (ExprKind::Closure(_), Ty::Fn(p1, _, t1), Ty::Fn(p2, r2, _))
                                         if p1 == p2 && **r2 == Ty::Void
                                             && self.upcasts(&Ty::Fn(p1.clone(), Box::new(Ty::Void), t1.clone()), p))
-                        }
-                        None => self.literal_fits(Self::arg_value(&args[*i]), p),
-                    };
-                    fits &= fit;
+                            }
+                            None => self.literal_fits(Self::arg_value(&args[*i]), p),
+                        };
+                        fits &= fit;
+                    }
+                }
+                if fits {
+                    ok.push((*c, used));
                 }
             }
-            if fits {
-                ok.push((*c, used));
-            }
         }
+        self.lenient_closures = false;
         // A literal argument prefers its own type (`3` → `int` over `number`).
         let lit_ty: Vec<Option<Ty>> = args
             .iter()
@@ -6231,9 +6273,16 @@ impl<'p> Checker<'p> {
             (ExprKind::Object { .. }, Ty::Struct(..) | Ty::Enum(..)) => true,
             (ExprKind::Object { ty: None, .. }, Ty::Class(sid, _, _)) => self.is_core_map(&sid),
             (_, Ty::Param(..)) => true,
-            // `(a, b) => …` fits a function type taking as many parameters.
-            (ExprKind::Closure(f), Ty::Fn(ps, _, _)) => {
+            // `(a, b) => …` fits a function type taking as many parameters; an async one only
+            // a function type returning a promise (#52).
+            (ExprKind::Closure(f), Ty::Fn(ps, r, _)) => {
+                let is_async = self.program.async_closures.contains(f);
                 self.program.func(*f).params.len() == ps.len()
+                    && if is_async {
+                        self.is_promise(&r)
+                    } else {
+                        self.lenient_closures || !self.is_promise(&r)
+                    }
             }
             _ => false,
         }
@@ -6339,13 +6388,19 @@ impl<'p> Checker<'p> {
         }
     }
 
+    fn is_promise(&self, t: &Ty) -> bool {
+        matches!(t, Ty::Class(sid, ..) if self.program.struct_def(*sid).name == "Promise" && self.program.prelude_files.contains(&self.program.struct_def(*sid).name_span.file))
+    }
+
     /// A closure with a parameter whose type isn't written (`(a, b) => …`).
     fn untyped_closure(&self, e: &Expr) -> bool {
         let ExprKind::Closure(f) = &e.kind else {
             return false;
         };
+        // (An async lambda's result type comes from the overload, so it needs one too.)
         let func = self.program.func(*f);
         func.params.iter().any(|p| func.local(*p).ty.is_none())
+            || self.program.async_closures.contains(f) && func.ret.is_none()
     }
 
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr]) -> Ty {

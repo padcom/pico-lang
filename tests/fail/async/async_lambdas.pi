@@ -1,0 +1,16 @@
+// An async lambda needs its `Promise<T>`: written, or from where it is used, and it fits only
+// function types returning a promise (#52).
+// error: E0207
+// at: 11:17
+// error: E0333
+// at: 15:1
+// error: E0207
+// at: 15:13
+// error: E0308
+// at: 16:28
+const h = async () => 1
+function take(f: (x: int) => int): int { return f(1) }
+function take2(f: (x: int) => int): int { return f(1) }
+function take2(f: (x: string) => int): int { return 0 }
+take2(async (x) => 1)
+const k: () => int = async () => 1

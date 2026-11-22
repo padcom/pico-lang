@@ -209,6 +209,8 @@ pub fn resolve_modules(
         method_overloads: Vec::new(),
         method_params: HashMap::new(),
         method_class: HashMap::new(),
+        async_promises: HashSet::new(),
+        async_closures: HashSet::new(),
         top_globals: Names::default(),
         globals_declared: HashSet::new(),
         f: FnState::default(),
@@ -406,6 +408,9 @@ struct Resolver {
     method_params: HashMap<FnId, Option<Vec<Ty>>>,
     /// The class that declares each class method (for messages about overrides).
     method_class: HashMap<FnId, StructId>,
+    /// See `Program::async_promises` and `async_closures`.
+    async_promises: HashSet<ExprId>,
+    async_closures: HashSet<FnId>,
     top_globals: Names<GlobalId>,
     /// Async methods (by their declaration's span): desugared like async functions.
     async_methods: HashSet<Span>,
@@ -1068,6 +1073,8 @@ impl Resolver {
             links: std::mem::take(&mut self.links),
             name_refs: std::mem::take(&mut self.name_refs),
             public_names: HashMap::new(),
+            async_promises: std::mem::take(&mut self.async_promises),
+            async_closures: std::mem::take(&mut self.async_closures),
         }
     }
 
@@ -4075,6 +4082,19 @@ impl Resolver {
     }
 
     fn closure(&mut self, f: &ast::FnDecl, span: Span) -> ExprKind {
+        // `async (…) => …` (#52): a lambda returning a promise, as an async function is.
+        if f.flags.is_async && !f.flags.generator && f.body.is_some() {
+            let d = if f.ret.is_some() {
+                self.desugar_async(f)
+            } else {
+                Some(self.desugar_async_lambda(f))
+            };
+            if let Some(d) = d {
+                let id = FnId(self.fns.len() as u32);
+                self.async_closures.insert(id);
+                return self.closure(&d, span);
+            }
+        }
         let id = FnId(self.fns.len() as u32);
         self.fns.push(None);
         let parent = self.cur_fn;
@@ -6007,6 +6027,26 @@ impl Resolver {
                     pat,
                 }
             }
+            // An async lambda's promise (`desugar_async_lambda`): its type arguments are the
+            // lambda's result type's, which the type checker knows.
+            A::Call { callee, args, .. }
+                if args.is_empty()
+                    && matches!(&callee.kind, ast::ExprKind::Ident(n) if n.as_str() == "__asyncPromise") =>
+            {
+                let promise = self
+                    .top_structs
+                    .prelude()
+                    .find(|(n, _)| *n == "Promise")
+                    .map(|(_, v)| *v)
+                    .expect("the prelude's Promise");
+                let id = ExprId(self.spans.len() as u32);
+                self.async_promises.insert(id);
+                ExprKind::New {
+                    class: promise,
+                    args: Vec::new(),
+                    type_args: Vec::new(),
+                }
+            }
             A::Call {
                 callee,
                 type_args,
@@ -7612,6 +7652,89 @@ impl Resolver {
             body: Some(ast::FnBody::Block(body)),
             ..f.clone()
         })
+    }
+
+    /// `async (…) => body` without a result type (#52) → `(…) => { const __p = new Promise();
+    /// __p.__run(<step>); __p }`, the promise's type arguments being the lambda's expected
+    /// result type's (`async_promises`). A block that can end without a value resolves with
+    /// `void`, as an async `void` function does.
+    fn desugar_async_lambda(&mut self, f: &ast::FnDecl) -> ast::FnDecl {
+        let span = f.span;
+        let resolve = |v: ast::Expr| {
+            build::call(
+                build::member(build::ident("__p", span), "__hold", span),
+                vec![v],
+                span,
+            )
+        };
+        let void = || build::call(build::ident("__void", span), Vec::new(), span);
+        let stmts = match &f.body {
+            Some(ast::FnBody::Expr(x)) => vec![build::stmt(resolve((**x).clone()))],
+            Some(ast::FnBody::Block(b)) => {
+                let mut stmts = b.stmts.clone();
+                match stmts.pop() {
+                    Some(ast::Stmt {
+                        kind: ast::StmtKind::Expr { expr, semi: false },
+                        ..
+                    }) if matches!(
+                        expr.kind,
+                        ast::ExprKind::Return(_) | ast::ExprKind::Throw(_)
+                    ) =>
+                    {
+                        stmts.push(build::stmt(expr));
+                    }
+                    Some(last) => {
+                        stmts.push(last);
+                        stmts.push(build::stmt(resolve(void())));
+                    }
+                    None => stmts.push(build::stmt(resolve(void()))),
+                }
+                stmts
+            }
+            None => Vec::new(),
+        };
+        let step = ast::FnDecl {
+            name: Some(ast::Ident {
+                name: "<async lambda>".to_string(),
+                span,
+            }),
+            flags: ast::FnFlags {
+                arrow: true,
+                generator: true,
+                is_async: true,
+                ..Default::default()
+            },
+            generics: Vec::new(),
+            params: Vec::new(),
+            ret: None,
+            throws: None,
+            where_clause: Vec::new(),
+            body: Some(ast::FnBody::Block(ast::Block { stmts, span })),
+            span,
+        };
+        let new_promise = build::call(build::ident("__asyncPromise", span), Vec::new(), span);
+        let run = build::call(
+            build::member(build::ident("__p", span), "__run", span),
+            vec![build::e(ast::ExprKind::Function(Box::new(step)), span)],
+            span,
+        );
+        ast::FnDecl {
+            flags: ast::FnFlags {
+                is_async: false,
+                ..f.flags
+            },
+            ret: None,
+            throws: None,
+            body: Some(ast::FnBody::Block(ast::Block {
+                stmts: vec![
+                    build::const_("__p", new_promise),
+                    build::stmt(run),
+                    build::tail(build::ident("__p", span)),
+                ],
+                span,
+            })),
+            ..f.clone()
+        }
     }
 
     /// `async function* g(…): AsyncIterator<T> throws E { body }` →

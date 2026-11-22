@@ -107,6 +107,18 @@ println(count)   // 2
 Arrow functions capture `this` lexically. Plain `function` expressions inside methods can't use
 `this`.
 
+## 5.5.1 Async lambdas
+`async (params) => body` is a lambda returning a promise, as an `async function` does (decision
+338). Its `Promise<T>` result type is written (`async (x: int): Promise<int> throws E => …`) or
+comes from where it's used:
+```ts
+const f: (s: string) => Promise<string, Error> = async (s) => { await delay(1); return s + "!" }
+it("loads", async () => { expect(await load("a")).toBe("a") })
+```
+In overload resolution an async lambda fits only function types returning a promise, and a
+plain lambda prefers those that don't, so `action(fn)` overloaded for sync and async callbacks
+takes either.
+
 ## 5.6 Function types
 ```ts
 type Handler = (req: Request) => Response
