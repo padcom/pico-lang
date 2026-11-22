@@ -302,6 +302,8 @@ pub struct Shared {
     pub cwd: Option<std::path::PathBuf>,
     /// The program's arguments.
     pub args: Vec<String>,
+    /// The program's file (`argv0` and `execPath()` in `std/process`, #172).
+    pub program_file: Option<std::path::PathBuf>,
     /// `exit(code)` in some thread: the whole program ends with `code`, as natively (#46).
     pub exit: Mutex<Option<i32>>,
 }

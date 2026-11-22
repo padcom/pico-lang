@@ -227,19 +227,22 @@ pub fn run_in(
     out: &mut dyn Write,
     cwd: Option<std::path::PathBuf>,
 ) -> Result<(), Panic> {
-    run_with(program, out, cwd, Vec::new())
+    run_with(program, out, cwd, Vec::new(), None)
 }
 
-/// [`run_in`] with the program's arguments (`args` in `std/process`).
+/// [`run_in`] with the program's arguments (`args` in `std/process`) and its file (`argv0`
+/// and `execPath()`; the entry file, for `pico run --interp`).
 pub fn run_with(
     program: &Program,
     out: &mut dyn Write,
     cwd: Option<std::path::PathBuf>,
     args: Vec<String>,
+    file: Option<std::path::PathBuf>,
 ) -> Result<(), Panic> {
     let shared = Arc::new(workers::Shared {
         cwd,
         args,
+        program_file: file,
         ..Default::default()
     });
     let _ = shared.start.set(std::time::Instant::now());

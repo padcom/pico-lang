@@ -719,7 +719,13 @@ fn run(path: &Path, interp: bool, opts: pico_driver::BuildOptions, args: &[Strin
     if interp {
         let mir = checked.mir.as_ref().expect("MIR after a clean check");
         let mut out = std::io::stdout();
-        return match pico_driver::run_interp_with(mir, &mut out, None, args.to_vec()) {
+        return match pico_driver::run_interp_with(
+            mir,
+            &mut out,
+            None,
+            args.to_vec(),
+            Some(path.to_path_buf()),
+        ) {
             Ok(()) => ExitCode::SUCCESS,
             Err(p) if p.exit.is_some() => ExitCode::from(p.exit.unwrap_or(0).clamp(0, 255) as u8),
             Err(p) => {

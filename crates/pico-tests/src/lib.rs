@@ -277,12 +277,12 @@ pub fn run(f: &Fixture) -> Outcome {
     };
     let checked = pico_driver::check_source_with(f.name.clone(), text, dir, opts);
     match f.kind {
-        Kind::Run => run_test(&directives, &checked),
+        Kind::Run => run_test(&directives, &checked, &f.path),
         Kind::Fail => fail_test(&directives, &checked),
     }
 }
 
-fn run_test(d: &Directives, checked: &pico_driver::Checked) -> Outcome {
+fn run_test(d: &Directives, checked: &pico_driver::Checked, file: &Path) -> Outcome {
     if !d.errors.is_empty() {
         return Outcome::Fail("`error` directives belong in tests/fail, not tests/run".into());
     }
@@ -305,7 +305,14 @@ fn run_test(d: &Directives, checked: &pico_driver::Checked) -> Outcome {
     if !d.native_only && test_target().is_none() {
         let mut out: Vec<u8> = Vec::new();
         let dir = TempDir::new();
-        let result = pico_driver::run_interp_in(mir, &mut out, Some(dir.0.clone()));
+        // As `pico run --interp`: the program's file is its entry (`argv0`, `execPath()`).
+        let result = pico_driver::run_interp_with(
+            mir,
+            &mut out,
+            Some(dir.0.clone()),
+            Vec::new(),
+            Some(file.to_path_buf()),
+        );
         let err = result.err();
         let uncaught = err.as_ref().is_some_and(|p| p.uncaught);
         let exited = err.as_ref().and_then(|p| p.exit);

@@ -507,22 +507,24 @@ pub fn run_interp_in(
     out: &mut (dyn std::io::Write + Send),
     cwd: Option<std::path::PathBuf>,
 ) -> Result<(), pico_interp::Panic> {
-    run_interp_with(mir, out, cwd, Vec::new())
+    run_interp_with(mir, out, cwd, Vec::new(), None)
 }
 
-/// [`run_interp_in`] with the program's arguments (`args` in `std/process`). A program that
-/// calls `exit(code)` ends with a [`pico_interp::Panic`] whose `exit` is set.
+/// [`run_interp_in`] with the program's arguments (`args` in `std/process`) and its file
+/// (`argv0`, `execPath()`). A program that calls `exit(code)` ends with a
+/// [`pico_interp::Panic`] whose `exit` is set.
 pub fn run_interp_with(
     mir: &pico_mir::Program,
     out: &mut (dyn std::io::Write + Send),
     cwd: Option<std::path::PathBuf>,
     args: Vec<String>,
+    file: Option<std::path::PathBuf>,
 ) -> Result<(), pico_interp::Panic> {
     std::thread::scope(|s| {
         std::thread::Builder::new()
             .name("pico-interp".into())
             .stack_size(1 << 30)
-            .spawn_scoped(s, || pico_interp::run_with(mir, out, cwd, args))
+            .spawn_scoped(s, || pico_interp::run_with(mir, out, cwd, args, file))
             .expect("spawn interpreter thread")
             .join()
             .expect("interpreter thread panicked")
