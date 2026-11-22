@@ -1,7 +1,8 @@
-// `std/process`: this process (`args`, `env`, `exit`, `cwd`, `pid`, `stdin`/`stdout`/`stderr`)
-// and external processes (`Command`), spec §13.2 and §13.3. Programs run without a shell
-// (arguments are passed as an array) unless `Command.shell` asks for one. Reading or writing
-// a pipe and waiting for a child are jobs on runtime threads that settle on the event loop.
+// `std/process`: this process (`args`, `argv0`, `execPath`, `env`, `exit`, `cwd`, `pid`,
+// `stdin`/`stdout`/`stderr`) and external processes (`Command`), spec §13.2 and §13.3.
+// Programs run without a shell (arguments are passed as an array) unless `Command.shell` asks
+// for one. Reading or writing a pipe and waiting for a child are jobs on runtime threads that
+// settle on the event loop.
 
 import { ReadableStream, WritableStream, ReadableStreamDefaultController } from "std/streams"
 
@@ -60,6 +61,21 @@ function __fields(text: string): string[] {
 
 /// The program's arguments (without the program itself).
 export const args: string[] = __fields(__text(__io(113, 0, 0, 0, "", "")))
+
+/// The program as it was started: the first word of its command line as given (`./pm`, `pm`,
+/// `C:\bin\pm.exe`), which names it (commander's `nameFromFilename`); under
+/// `pico run --interp`, the entry file. `""` when there's none.
+export const argv0: string = __text(__io(125, 0, 0, 0, "", ""))
+
+/// The running program's file as an absolute path, symlinks resolved (an executable found
+/// through `PATH` or a link too): what's next to it is the program's. Under
+/// `pico run --interp`, the entry file. `null` where it can't be known (WASI).
+export function execPath(): string? {
+  const job = __io(125, 1, 0, 0, "", "")
+  const found = __io(102, job, 0, 0, "", "") == 1
+  const value = __text(job)
+  return if (found) value else null
+}
 
 /// The process id.
 export const pid: int = __io(119, 0, 0, 0, "", "")

@@ -556,7 +556,7 @@ impl Interp<'_, '_> {
             }
             return Value::Int(0);
         }
-        if (110..=119).contains(&op) || (122..=124).contains(&op) {
+        if (110..=119).contains(&op) || (122..=125).contains(&op) {
             return Value::Int(i128::from(self.process_op(op, a, b, c, &s(4), &s(5))));
         }
         if op == 16 {
@@ -1532,6 +1532,21 @@ impl Interp<'_, '_> {
                     text.push('\0');
                 }
                 result(&mut self.io, 0, 0, text)
+            }
+            125 => {
+                // `argv0` (a 0): the entry file as given; `execPath()` (a 1): it absolute,
+                // symlinks resolved (#172).
+                let file = self.shared.program_file.clone();
+                let text = match (a, &file) {
+                    (0, Some(f)) => Some(f.display().to_string()),
+                    (0, None) => Some(String::new()),
+                    (_, Some(f)) => std::fs::canonicalize(f)
+                        .ok()
+                        .map(|p| p.display().to_string()),
+                    (_, None) => None,
+                };
+                let found = i64::from(text.is_some());
+                result(&mut self.io, found, 0, text.unwrap_or_default())
             }
             114 => {
                 let v = self.env_map().get(s).cloned();

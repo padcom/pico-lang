@@ -43,7 +43,7 @@ const users = await res.json<User[]>()        // typed, generated like JSON.pars
 | `std/timers` | `delay(ms, signal?)`: a cancellable promise timer (§10.5) |
 | `std/fs` | `readText`, `readBytes`, `writeText`, `writeBytes`, `open` (`File implements AsyncDisposable`), `readDir` (async iterator), `stat`, `mkdir`, `remove`, `rename`, `copy`, `symlink`, `readlink`, `chmod`, `watch` |
 | `std/path` | `join`, `resolve`, `dirname`, `basename`, `extname`, `relative`, `sep` |
-| `std/process` | `args`, `env`, `exit`, `cwd`, `spawn`/`Command` (async), `stdin`/`stdout`/`stderr` streams |
+| `std/process` | `args`, `argv0`, `execPath`, `env`, `exit`, `cwd`, `spawn`/`Command` (async), `stdin`/`stdout`/`stderr` streams |
 | `std/net` | TCP/UDP and Unix-domain sockets, `listen`, `connect`, `listenUnix`, `connectUnix`, DNS |
 | `std/http` | `serve(handler)` on top of Web `Request`/`Response` (Deno.serve-like), WebSocket |
 | `std/streams` | Web Streams: `ReadableStream`, `WritableStream`, `TransformStream` |
@@ -139,7 +139,10 @@ program can stop reading a pipe or device whose other end never writes (decision
 they're made, and `close()`, which ends the child's input after them. A child that stops
 reading makes writes reject (`Other`, os error 32) instead of ending the program.
 
-This process: `args: string[]` (the arguments after the program), `pid`, `cwd()`, `env`
+This process: `args: string[]` (the arguments after the program), `argv0` (the program as it
+was started: its command line's first word as given; under `pico run --interp`, the entry
+file), `execPath(): string?` (the program's file, absolute, symlinks resolved; the entry file
+in the interpreter; `null` on WASI; decision 343), `pid`, `cwd()`, `env`
 (`get(name): string?`, `has`, `set`, `delete`, `toObject(): Map<string, string>`; children
 started later see changes), `exit(code = 0)` (ends the program at once: no `finally` blocks,
 pending promises dropped; called in a worker, it ends the whole program too, decision 321) and `stdin` (a `Reader`), `stdout`, `stderr` (`Writer`s whose writes

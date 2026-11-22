@@ -1,0 +1,8 @@
+// The program's own file (#172): `argv0` is how it was started (the built executable, or the
+// entry file in the interpreter), `execPath()` that file, absolute.
+// expect: true true true
+import { argv0, execPath } from "std/process"
+import { basename, isAbsolute } from "std/path"
+const exe = execPath() ?? ""
+const name = basename(argv0)
+println(`${argv0 != ""} ${isAbsolute(exe)} ${basename(exe) == name}`)

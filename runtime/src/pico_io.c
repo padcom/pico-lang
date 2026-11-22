@@ -1396,6 +1396,29 @@ static char *cstr(const PicoStr *s, size_t *len);
 
 extern int pico_argc;
 extern char **pico_argv;
+
+#if defined(__APPLE__)
+int _NSGetExecutablePath(char *buf, uint32_t *bufsize); /* <mach-o/dyld.h> */
+#endif
+
+/* The running executable's absolute path, symlinks resolved, malloc'd (or NULL). */
+static char *exe_path(void) {
+#if defined(__APPLE__)
+    uint32_t n = 0;
+    _NSGetExecutablePath(NULL, &n);
+    char *buf = malloc(n + 1);
+    if (!buf) abort();
+    if (_NSGetExecutablePath(buf, &n) != 0) {
+        free(buf);
+        return NULL;
+    }
+    char *real = realpath(buf, NULL);
+    free(buf);
+    return real;
+#else
+    return realpath("/proc/self/exe", NULL);
+#endif
+}
 extern char **environ;
 
 /* Children not yet reaped, so `kill` never signals a reused pid. */
@@ -1666,6 +1689,20 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
         struct winsize ws;
         if (ioctl((int)a, TIOCGWINSZ, &ws) != 0 || ws.ws_col == 0) return -1;
         return b == 1 ? ws.ws_row : ws.ws_col;
+    }
+    case 125: { /* argv[0] (a 0) or the executable's resolved path (a 1); r = 1 when known (#172) */
+        Job *j = result_job(q);
+        if (a == 0) {
+            const char *v = pico_argc > 0 ? pico_argv[0] : "";
+            j->r = 1;
+            text_add(j, v, strlen(v));
+            return j->id;
+        }
+        char *path = exe_path();
+        j->r = path != NULL;
+        if (path) text_add(j, path, strlen(path));
+        free(path);
+        return j->id;
     }
     default: return -1;
     }
@@ -2743,6 +2780,12 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
         return 0;
     case 123: return 0; /* (no terminals, #158) */
     case 124: return -1;
+    case 125: { /* argv[0] (a 0); no executable path on WASI (#172) */
+        Job *j = result_job(q);
+        j->r = a == 0;
+        if (a == 0 && pico_argc > 0) text_add(j, pico_argv[0], strlen(pico_argv[0]));
+        return j->id;
+    }
     default: return -1;
     }
 }
@@ -2801,7 +2844,8 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     case 119:
     case 122:
     case 123:
-    case 124: return process_op(q, op, a, b, c, s, t);
+    case 124:
+    case 125: return process_op(q, op, a, b, c, s, t);
     case 134: { /* read file s whole, now: r = a buffer handle (or -1), r2 = its size */
         Job *j = result_job(q);
         j->r = -1;
@@ -3775,6 +3819,41 @@ static int64_t process_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c,
         return b == 1 ? info.srWindow.Bottom - info.srWindow.Top + 1
                       : info.srWindow.Right - info.srWindow.Left + 1;
     }
+    case 125: { /* argv[0] (a 0) or the executable's path (a 1) (#172) */
+        Job *j = result_job(q);
+        j->r = 1;
+        if (a == 0) {
+            int n = 0;
+            wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &n);
+            if (argv && n > 0) {
+                char *u = narrow(argv[0]);
+                text_add(j, u, strlen(u));
+                free(u);
+            }
+            if (argv) LocalFree(argv);
+            return j->id;
+        }
+        DWORD size = MAX_PATH;
+        wchar_t *w = NULL;
+        for (;;) {
+            w = realloc(w, size * sizeof *w);
+            if (!w) abort();
+            DWORD got = GetModuleFileNameW(NULL, w, size);
+            if (got == 0) {
+                j->r = 0;
+                break;
+            }
+            if (got < size) {
+                char *u = narrow(w);
+                text_add(j, u, strlen(u));
+                free(u);
+                break;
+            }
+            size *= 2;
+        }
+        free(w);
+        return j->id;
+    }
     default: return -1;
     }
 }
@@ -4113,7 +4192,8 @@ static int64_t os_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
     case 119:
     case 122:
     case 123:
-    case 124: return process_op(q, op, a, b, c, s, t);
+    case 124:
+    case 125: return process_op(q, op, a, b, c, s, t);
     default: return -1;
     }
 }
