@@ -206,6 +206,7 @@ pub fn resolve_modules(
         globals: Vec::new(),
         spans: Vec::new(),
         top_fns: Names::default(),
+        method_overloads: Vec::new(),
         top_globals: Names::default(),
         globals_declared: HashSet::new(),
         f: FnState::default(),
@@ -356,6 +357,17 @@ struct FnState {
     async_gen: bool,
 }
 
+/// The methods of one name declared in one struct or class: one, or several overloads.
+struct MethodGroup {
+    name: String,
+    is_static: bool,
+    ids: Vec<FnId>,
+    /// The first one's `readonly` and visibility: the overloads share them (they're kept by
+    /// name).
+    readonly: bool,
+    vis: Option<ast::Visibility>,
+}
+
 struct Resolver {
     /// Declarations (by name span) of `const`s initialized by a call: they may hold a
     /// `Reactive<T>` (spec §16.2), so assigning them is left to the type checker.
@@ -383,6 +395,9 @@ struct Resolver {
     spans: Vec<Span>,
     /// Top-level functions by name (several for overloads).
     top_fns: Names<Vec<FnId>>,
+    /// Overloaded methods (static or not) of each struct and class: checked like
+    /// `top_fns`' overloads once their parameter types are resolved.
+    method_overloads: Vec<Vec<FnId>>,
     top_globals: Names<GlobalId>,
     /// Async methods (by their declaration's span): desugared like async functions.
     async_methods: HashSet<Span>,
@@ -892,33 +907,7 @@ impl Resolver {
             .filter(|v| v.len() > 1)
             .cloned()
             .collect();
-        for set in sets {
-            for (i, a) in set.iter().enumerate() {
-                for b in &set[..i] {
-                    let tys = |r: &Resolver, f: FnId| -> Vec<Option<Ty>> {
-                        let func = r.fns[f.0 as usize].as_ref().expect("resolved");
-                        func.params
-                            .iter()
-                            .map(|p| func.local(*p).ty.clone())
-                            .collect()
-                    };
-                    if tys(self, *a) == tys(self, *b) {
-                        let (fa, fb) = (
-                            self.fns[a.0 as usize].as_ref().expect("resolved"),
-                            self.fns[b.0 as usize].as_ref().expect("resolved"),
-                        );
-                        let d = Diagnostic::error(
-                            codes::DUPLICATE_DECL,
-                            format!("`{}` is declared twice", fa.name),
-                        )
-                        .primary(fa.name_span, "declared again here")
-                        .secondary(fb.name_span, "first declared here")
-                        .note("overloads must differ in their parameter types");
-                        self.diags.push(d);
-                    }
-                }
-            }
-        }
+        self.check_overload_sets(sets);
         let mut static_inits = Vec::new();
         for c in &classes {
             for (id, f, this, is_abstract) in &c.methods {
@@ -948,6 +937,8 @@ impl Resolver {
                 static_inits.push(id);
             }
         }
+        let sets = std::mem::take(&mut self.method_overloads);
+        self.check_overload_sets(sets);
 
         // Pass 3: the entry body (top-level statements in order).
         let entry_id = FnId(self.fns.len() as u32);
@@ -1163,6 +1154,7 @@ impl Resolver {
         }
         self.resolve_implements(sid, &sd.implements);
         let mut seen: HashMap<String, Span> = HashMap::new();
+        let mut groups: Vec<MethodGroup> = Vec::new();
         for m in &sd.members {
             let json_name = self.json_name(&m.decorators);
             let is_static = m.mods.is_static
@@ -1203,16 +1195,19 @@ impl Resolver {
                     unreachable!("checked")
                 };
                 let Some(name) = &f.name else { continue };
-                if self.check_duplicate(&mut seen, name) {
+                let is_method = matches!(m.kind, ast::MemberKind::Method(_));
+                let again = is_method && Self::is_overload(&groups, &name.name, true);
+                if !again && self.check_duplicate(&mut seen, name) {
                     continue;
                 }
                 let id = FnId(self.fns.len() as u32);
                 self.fns.push(None);
                 let d = &mut self.structs[sid.0 as usize];
-                if matches!(m.kind, ast::MemberKind::Getter(_)) {
-                    d.static_getters.push((name.name.clone(), id));
-                } else {
+                if is_method {
                     d.static_methods.push((name.name.clone(), id));
+                    self.add_to_group(&mut groups, name, true, &m.mods, id);
+                } else {
+                    d.static_getters.push((name.name.clone(), id));
                 }
                 fn_decls.push((id, f, None));
                 continue;
@@ -1257,11 +1252,13 @@ impl Resolver {
                 }
                 ast::MemberKind::Method(f) => {
                     let Some(name) = &f.name else { continue };
-                    if self.check_duplicate(&mut seen, name) {
+                    let again = Self::is_overload(&groups, &name.name, false);
+                    if !again && self.check_duplicate(&mut seen, name) {
                         continue;
                     }
                     let id = FnId(self.fns.len() as u32);
                     self.fns.push(None);
+                    self.add_to_group(&mut groups, name, false, &m.mods, id);
                     self.structs[sid.0 as usize]
                         .methods
                         .push((name.name.clone(), id));
@@ -1287,6 +1284,7 @@ impl Resolver {
                 }
             }
         }
+        self.keep_overloads(groups);
     }
 
     /// A struct or enum that contains itself by value (directly or through other inline
@@ -1390,6 +1388,98 @@ impl Resolver {
 
     /// Reports a duplicate top-level name. Returns true if `name` was already declared.
     /// Whether `name` is already declared in the current module (reporting it).
+    /// Overloads (of a top-level function or a method) must differ in their parameter types.
+    fn check_overload_sets(&mut self, sets: Vec<Vec<FnId>>) {
+        for set in sets {
+            for (i, a) in set.iter().enumerate() {
+                for b in &set[..i] {
+                    let tys = |r: &Resolver, f: FnId| -> Vec<Option<Ty>> {
+                        let func = r.fns[f.0 as usize].as_ref().expect("resolved");
+                        func.params
+                            .iter()
+                            .map(|p| func.local(*p).ty.clone())
+                            .collect()
+                    };
+                    if tys(self, *a) == tys(self, *b) {
+                        let (fa, fb) = (
+                            self.fns[a.0 as usize].as_ref().expect("resolved"),
+                            self.fns[b.0 as usize].as_ref().expect("resolved"),
+                        );
+                        let d = Diagnostic::error(
+                            codes::DUPLICATE_DECL,
+                            format!("`{}` is declared twice", fa.name),
+                        )
+                        .primary(fa.name_span, "declared again here")
+                        .secondary(fb.name_span, "first declared here")
+                        .note("overloads must differ in their parameter types");
+                        self.diags.push(d);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether method `name` is another overload of one declared before in the same type
+    /// (both static, or neither): then it isn't a duplicate (spec §5.4).
+    fn is_overload(groups: &[MethodGroup], name: &str, is_static: bool) -> bool {
+        groups
+            .iter()
+            .any(|g| g.name == name && g.is_static == is_static)
+    }
+
+    /// Records method `id` (declared with `mods`) in its group of overloads; an overload whose
+    /// `readonly` or visibility differs from the first one's is an error.
+    fn add_to_group(
+        &mut self,
+        groups: &mut Vec<MethodGroup>,
+        name: &ast::Ident,
+        is_static: bool,
+        mods: &ast::Modifiers,
+        id: FnId,
+    ) {
+        let vis = match mods.visibility {
+            Some(ast::Visibility::Private) => None,
+            v => v,
+        };
+        match groups
+            .iter_mut()
+            .find(|g| g.name == name.name && g.is_static == is_static)
+        {
+            Some(g) => {
+                g.ids.push(id);
+                if g.readonly != mods.readonly || g.vis != vis {
+                    let what = if g.readonly != mods.readonly {
+                        "`readonly`"
+                    } else {
+                        "visibility"
+                    };
+                    self.error(
+                        codes::DUPLICATE_DECL,
+                        name.span,
+                        format!("the overloads of `{}` differ in {what}", name.name),
+                        "overloads of a method share its visibility and `readonly`",
+                    );
+                }
+            }
+            None => groups.push(MethodGroup {
+                name: name.name.clone(),
+                is_static,
+                ids: vec![id],
+                readonly: mods.readonly,
+                vis,
+            }),
+        }
+    }
+
+    /// After a type's members: its overloaded methods, for `check_overload_sets`.
+    fn keep_overloads(&mut self, groups: Vec<MethodGroup>) {
+        for g in groups {
+            if g.ids.len() > 1 {
+                self.method_overloads.push(g.ids);
+            }
+        }
+    }
+
     fn check_duplicate(&mut self, seen: &mut HashMap<String, Span>, name: &ast::Ident) -> bool {
         let key = format!("{}#{}", self.mods.cur, name.name);
         if let Some(&prev) = seen.get(&key) {
@@ -2365,6 +2455,19 @@ impl Resolver {
             }
             false
         };
+        let mut groups: Vec<MethodGroup> = Vec::new();
+        // Overloads of an inherited method (not implemented): reported once, then left out.
+        let mut skipped: HashSet<String> = HashSet::new();
+        // Instance methods declared more than once: overloads.
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for m in &cd.members {
+            if let ast::MemberKind::Method(f) = &m.kind
+                && !m.mods.is_static
+                && let Some(n) = &f.name
+            {
+                *counts.entry(n.name.as_str()).or_default() += 1;
+            }
+        }
         for m in &cd.members {
             // `@weak` fields: the core library's weak references (spec §9.3).
             let weak = self.mods.cur == PRELUDE_MODULE
@@ -2554,14 +2657,42 @@ impl Resolver {
                         name: key,
                         span: name.span,
                     };
-                    if self.check_duplicate(&mut seen, &k) {
+                    if is_method && !m.mods.is_static && skipped.contains(&name.name) {
                         continue;
+                    }
+                    let again =
+                        is_method && Self::is_overload(&groups, &name.name, m.mods.is_static);
+                    if !again && self.check_duplicate(&mut seen, &k) {
+                        continue;
+                    }
+                    if is_method
+                        && !m.mods.is_static
+                        && counts.get(name.name.as_str()).is_some_and(|n| *n > 1)
+                    {
+                        if m.mods.virtual_ || m.mods.override_ || m.mods.abstract_ {
+                            self.not_implemented(
+                                m.span,
+                                "virtual, abstract and overriding overloaded methods",
+                            );
+                        }
+                        if !again
+                            && self.structs[sid.0 as usize]
+                                .declared_in
+                                .contains_key(&name.name)
+                        {
+                            self.not_implemented(name.span, "overloading an inherited method");
+                            skipped.insert(name.name.clone());
+                            continue;
+                        }
                     }
                     if !is_method && (m.mods.virtual_ || m.mods.override_ || m.mods.abstract_) {
                         self.not_implemented(m.span, "virtual accessors");
                     }
                     let id = FnId(self.fns.len() as u32);
                     self.fns.push(None);
+                    if is_method {
+                        self.add_to_group(&mut groups, name, m.mods.is_static, &m.mods, id);
+                    }
                     if is_method && !m.mods.is_static {
                         // Before `set_vis`, which forgets where an inherited name came from.
                         self.method_slot(sid, name, &m.mods, id, m.span);
@@ -2593,7 +2724,11 @@ impl Resolver {
                         ast::MemberKind::Setter(_) => &mut d.setters,
                         _ => &mut d.methods,
                     };
-                    list.retain(|(n, _)| *n != name.name);
+                    // (An inherited method of the name is overridden, or hidden; an overload
+                    // keeps the ones declared before it.)
+                    if !again {
+                        list.retain(|(n, _)| *n != name.name);
+                    }
                     list.push((name.name.clone(), id));
                     if is_abstract {
                         d.abstract_fns.insert(id);
@@ -2610,6 +2745,7 @@ impl Resolver {
                 }
             }
         }
+        self.keep_overloads(groups);
         if info.ctors.is_empty() {
             // Without a constructor, a class gets one that takes no arguments, or (in a
             // subclass) one forwarding to each base constructor.
@@ -3451,6 +3587,10 @@ impl Resolver {
             let def = &self.structs[sid.0 as usize];
             if let Some(g) = def.static_field(name) {
                 return Some(Found::Var(Var::Global(g)));
+            }
+            let fs = def.static_methods_named(name);
+            if fs.len() > 1 {
+                return Some(Found::Overloads(fs));
             }
             if let Some(f) = def.static_method(name) {
                 return Some(Found::Fn(f));
@@ -6262,8 +6402,10 @@ impl Resolver {
         // member, `Class.name`'s last part.)
         self.name_refs.push((class.span, def.name_span));
         let def = &self.structs[sid.0 as usize];
+        let overloads = def.static_methods_named(&prop.name);
         let found = match (field, method) {
             (Some(g), _) => ExprKind::Var(Var::Global(g)),
+            (_, Some(_)) if overloads.len() > 1 => ExprKind::Overloaded(overloads),
             (_, Some(f)) => ExprKind::Fn(f),
             _ if getter.is_some() => {
                 if !self.structs[sid.0 as usize].is_public(&prop.name) && self.f.owner != Some(sid)

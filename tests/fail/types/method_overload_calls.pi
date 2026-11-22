@@ -1,0 +1,25 @@
+// A call of an overloaded method fits one overload: `null` fits both `h`s (ambiguous), a
+// `bool` neither `g`, and an untyped closure neither `k` (wrong parameter count).
+// error: E0332
+// at: 22:1
+// error: E0333
+// at: 23:1
+// error: E0333
+// at: 24:1
+// error: E0333
+// at: 25:1
+class A {
+  public g(x: int): int { return 1 }
+  public g(x: string): int { return 2 }
+  public h(x: int?): int { return 1 }
+  public h(x: string?): int { return 2 }
+  public k(f: (x: int) => int): int { return f(1) }
+  public k(f: (x: int, y: int) => int): int { return f(1, 2) }
+  public static s(x: int): int { return x }
+  public static s(x: string): int { return 0 }
+}
+const a = new A()
+a.h(null)
+a.g(true)
+a.k((x, y, z) => x)
+A.s(false)

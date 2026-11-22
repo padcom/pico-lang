@@ -43,6 +43,9 @@ pub struct Types {
     pub map_literals: HashMap<ExprId, Ty>,
     /// Method calls: the call expression and the method it calls.
     pub methods: HashMap<ExprId, FnId>,
+    /// A type's method implementing an interface's (type, interface method): among the
+    /// type's overloads of the name, the one with the interface method's parameters.
+    pub impl_methods: HashMap<(StructId, FnId), FnId>,
     /// Variable reads of a `T?` binding that narrowing typed as `T` (lowering unwraps them).
     pub narrowed: HashSet<ExprId>,
     /// Variant patterns: the enum and variant index.
@@ -214,6 +217,7 @@ impl Types {
             int_ariths: self.int_ariths.clone(),
             fn_throws: self.fn_throws.clone(),
             extensions: self.extensions.clone(),
+            impl_methods: self.impl_methods.clone(),
             iterables: self.iterables.clone(),
             formattables: self.formattables.clone(),
             arg_slots: self.arg_slots.clone(),
@@ -286,6 +290,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             int_ariths: HashMap::new(),
             fn_throws: program.fns.iter().map(|f| f.throws.clone()).collect(),
             extensions: HashMap::new(),
+            impl_methods: HashMap::new(),
             iterables: HashMap::new(),
             formattables: HashMap::new(),
         },
@@ -1345,7 +1350,21 @@ impl<'p> Checker<'p> {
                     continue;
                 }
                 for (name, ifn) in &idef.methods {
-                    if let Some(f) = def.method(name) {
+                    let overloads = def.methods_named(name);
+                    let f = overloads
+                        .iter()
+                        .copied()
+                        .find(|f| {
+                            self.types.sigs[f.0 as usize].params
+                                == self.types.sigs[ifn.0 as usize].params
+                        })
+                        .or_else(|| def.method(name));
+                    if let Some(f) = f {
+                        if overloads.len() > 1 {
+                            self.types
+                                .impl_methods
+                                .insert((StructId(i as u32), *ifn), f);
+                        }
                         pairs.push((f, *ifn));
                     }
                 }
@@ -5997,12 +6016,13 @@ impl<'p> Checker<'p> {
                 self.check_fn(*c);
             }
         }
-        // Argument types (literals are flexible: they fit any type that can hold them).
+        // Argument types (literals are flexible: they fit any type that can hold them; so does a
+        // closure with untyped parameters, which only an expected type can type).
         let tys: Vec<Option<Ty>> = args
             .iter()
             .map(|a| {
                 let v = Self::arg_value(a);
-                (!needs_context(v)).then(|| self.infer(v))
+                (!needs_context(v) && !self.untyped_closure(v)).then(|| self.infer(v))
             })
             .collect();
         let mut ok: Vec<(FnId, Vec<Ty>)> = Vec::new();
@@ -6022,6 +6042,7 @@ impl<'p> Checker<'p> {
                             t == p
                                 || t.widens_to(p)
                                 || self.upcasts(t, p)
+                                || self.fits_union(t, p)
                                 || (p.has_any_params() && shape_fits(p, t))
                                 || t.is_error()
                                 // A closure checked against a `void` function type drops
@@ -6099,6 +6120,14 @@ impl<'p> Checker<'p> {
 
     /// Whether an untyped literal (or `[]`, `null`, `{…}`) could be a `t`.
     fn literal_fits(&self, e: &Expr, t: &Ty) -> bool {
+        // A union (`int | string`), or a nullable one: a literal fitting one of its members.
+        match t {
+            Ty::Union(_, ms) => return ms.iter().any(|m| self.literal_fits(e, m)),
+            Ty::Nullable(inner) if matches!(&**inner, Ty::Union(..)) => {
+                return matches!(e.kind, ExprKind::Null) || self.literal_fits(e, inner);
+            }
+            _ => {}
+        }
         match (&e.kind, t.erase()) {
             (_, Ty::Error) => true,
             (ExprKind::Int(v, _), Ty::Int(it)) => it.contains(*v as i128),
@@ -6109,8 +6138,34 @@ impl<'p> Checker<'p> {
             (ExprKind::Object { .. }, Ty::Struct(..) | Ty::Enum(..)) => true,
             (ExprKind::Object { ty: None, .. }, Ty::Class(sid, _, _)) => self.is_core_map(&sid),
             (_, Ty::Param(..)) => true,
+            // `(a, b) => …` fits a function type taking as many parameters.
+            (ExprKind::Closure(f), Ty::Fn(ps, _, _)) => {
+                self.program.func(*f).params.len() == ps.len()
+            }
             _ => false,
         }
+    }
+
+    /// Whether a `t` goes into the union `p` (or a nullable one) as one of its members, as
+    /// `coerce` puts it there.
+    fn fits_union(&self, t: &Ty, p: &Ty) -> bool {
+        match p {
+            Ty::Union(_, ms) => self.union_member(t, ms).is_some(),
+            Ty::Nullable(inner) => match &**inner {
+                Ty::Union(_, ms) => *t == Ty::Null || self.union_member(t, ms).is_some(),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// A closure with a parameter whose type isn't written (`(a, b) => …`).
+    fn untyped_closure(&self, e: &Expr) -> bool {
+        let ExprKind::Closure(f) = &e.kind else {
+            return false;
+        };
+        let func = self.program.func(*f);
+        func.params.iter().any(|p| func.local(*p).ty.is_none())
     }
 
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Expr]) -> Ty {
@@ -6206,7 +6261,17 @@ impl<'p> Checker<'p> {
                 | Ty::Iface(sid, sname, _) = &t
                 {
                     let def = self.program.struct_def(*sid);
-                    if let Some(m) = def.method(name) {
+                    // Overloaded methods: the one the arguments fit (spec §5.4).
+                    let overloads = def.methods_named(name);
+                    let picked = if overloads.len() > 1 {
+                        match self.pick_overload(e, &overloads, args) {
+                            Some(m) => Some(m),
+                            None => return Ty::Error,
+                        }
+                    } else {
+                        def.method(name)
+                    };
+                    if let Some(m) = picked {
                         self.check_access(*sid, name, *name_span);
                         self.types.methods.insert(e.id, m);
                         if let Some(slot) = def.virtual_slot(name) {

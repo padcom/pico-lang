@@ -48,7 +48,7 @@ registry.unregister(owner)
   `WeakRef<T extends object>` (`deref(): T?`), `WeakMap<K extends object, V>` (`has`, `get`
   (`V?`), `set`, `delete`), `WeakSet<T extends object>` (`has`, `add`, `delete`).
   `FinalizationRegistry<T>(callback)` has `register(target, held)`,
-  `registerWithToken(target, held, token)` (pico has no method overloading yet) and
+  `registerWithToken(target, held, token)` (it predates method overloading) and
   `unregister(token): bool`.
 - A weak reference is cleared when a collection finds its target unreachable (a nursery
   collection for young targets, the end of a major marking for old ones); `gc.collect()`

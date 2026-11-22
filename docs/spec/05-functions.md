@@ -52,6 +52,21 @@ function len(m: Map<string, i32>): i64 { m.size }
 Overloads can't differ only in return type. Named arguments take part in resolution. Overloads
 can have default parameters, and a call that is actually ambiguous is a compile error.
 
+Methods overload the same way, instance and static ones, in classes and structs (decision 334):
+```ts
+class Command {
+  public name(n: string): Command { cmdName = n; return this }
+  public name(): string { return cmdName }
+  public option(flags: string, description = "", defaultValue?: string): Command { … }
+  public option(flags: string, description: string, parser: (v: string) => int): Command { … }
+}
+```
+The overloads of a method share its visibility and `readonly`. A closure with untyped
+parameters (`(v) => v.length`) has no type before an overload is chosen: it fits a function
+type that takes as many parameters, and then gets that overload's parameter types. An
+interface method is implemented by the overload with its parameter types. Not yet: virtual,
+abstract and overriding overloads, and a class adding overloads to an inherited method.
+
 ## 5.4.1 Guaranteed tail calls
 ```ts
 function loopUntil(n: i64, acc: i64): i64 {

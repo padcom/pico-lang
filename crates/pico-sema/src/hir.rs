@@ -280,6 +280,15 @@ impl StructDef {
             .map(|(_, g)| *g)
     }
 
+    /// Every static method with this name (overloads).
+    pub fn static_methods_named(&self, name: &str) -> Vec<FnId> {
+        self.static_methods
+            .iter()
+            .filter(|(n, _)| n == name)
+            .map(|(_, f)| *f)
+            .collect()
+    }
+
     pub fn static_method(&self, name: &str) -> Option<FnId> {
         find(&self.static_methods, name)
     }
