@@ -76,6 +76,10 @@ enum Command {
     Lint {
         /// Files or directories (default: the project around the current directory).
         paths: Vec<PathBuf>,
+        /// How many files are linted at once (default: the number of CPUs, but no more than
+        /// the available memory holds).
+        #[arg(short, long)]
+        jobs: Option<usize>,
     },
     /// Run the tests in `*.test.pi` files (spec §14.3), each file in a process of its own,
     /// in parallel.
@@ -273,7 +277,9 @@ fn main() -> ExitCode {
             )
         }),
         Some(Command::Fmt { paths, check }) => fmt(&paths, check),
-        Some(Command::Lint { paths }) => lint(&paths),
+        Some(Command::Lint { paths, jobs }) => {
+            lint(&paths, jobs.unwrap_or_else(|| default_jobs(LINT_JOB_MB)))
+        }
         Some(Command::Dap) => dap::run(),
         Some(Command::Fetch) => fetch(),
         Some(Command::Doc { std, out }) => doc::run(std, out.as_deref()),
@@ -402,9 +408,7 @@ fn main() -> ExitCode {
                 interp,
                 release,
                 bench: false,
-                jobs: jobs.unwrap_or_else(|| {
-                    std::thread::available_parallelism().map_or(4, std::num::NonZero::get)
-                }),
+                jobs: jobs.unwrap_or_else(|| default_jobs(TEST_JOB_MB)),
             };
             if watch { t.watch() } else { t.run() }
         }
@@ -853,7 +857,31 @@ fn with_entry(file: Option<PathBuf>, f: impl FnOnce(PathBuf) -> ExitCode) -> Exi
     }
 }
 
-fn lint(paths: &[PathBuf]) -> ExitCode {
+/// About what one `pico lint` worker needs at most (a file with everything it imports, checked;
+/// about 200 MB for an 80-file application, #166).
+const LINT_JOB_MB: u64 = 256;
+/// About what one test file's process needs while it's compiled and run.
+const TEST_JOB_MB: u64 = 512;
+
+/// How many jobs run at once by default: one per CPU, but no more than the available memory
+/// holds at `per_job_mb` each (on Linux, `MemAvailable`; elsewhere the CPUs), at least one.
+fn default_jobs(per_job_mb: u64) -> usize {
+    let cpus = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    match available_memory_mb() {
+        Some(mb) => cpus.min(((mb / per_job_mb) as usize).max(1)),
+        None => cpus,
+    }
+}
+
+/// The memory available to new work, in MB (Linux: `/proc/meminfo`'s `MemAvailable`).
+fn available_memory_mb() -> Option<u64> {
+    let info = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let line = info.lines().find(|l| l.starts_with("MemAvailable:"))?;
+    let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kb / 1024)
+}
+
+fn lint(paths: &[PathBuf], jobs: usize) -> ExitCode {
     let mut files = Vec::new();
     if paths.is_empty() {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -868,9 +896,8 @@ fn lint(paths: &[PathBuf]) -> ExitCode {
     // parallel; each worker renders its file's report, printed afterwards in file order.
     let next = std::sync::atomic::AtomicUsize::new(0);
     let reports: std::sync::Mutex<Vec<(usize, LintReport)>> = std::sync::Mutex::new(Vec::new());
-    let jobs = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
     std::thread::scope(|s| {
-        for _ in 0..jobs.min(files.len()) {
+        for _ in 0..jobs.max(1).min(files.len()) {
             std::thread::Builder::new()
                 .name("pico-lint".into())
                 // (Decorators and comptime code run in the interpreter, which recurses deeply.)
