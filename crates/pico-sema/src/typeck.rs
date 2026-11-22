@@ -6452,6 +6452,9 @@ impl<'p> Checker<'p> {
                         "a reference is pushed onto an array outside the block",
                     );
                 }
+                if let Some(r) = self.enum_method_call(e, object, &t, name, args) {
+                    return r;
+                }
                 if let Some(r) = self.builtin_method(e, &t, name, *name_span, args) {
                     return r;
                 }
@@ -6826,6 +6829,50 @@ impl<'p> Checker<'p> {
             }
             _ => None,
         }
+    }
+
+    /// `v.m(args)` on an enum value: its method `m(v, args)` (#51), the overload whose parameter
+    /// count fits, as for extensions.
+    fn enum_method_call(
+        &mut self,
+        e: &Expr,
+        object: &Expr,
+        t: &Ty,
+        name: &str,
+        args: &[Expr],
+    ) -> Option<Ty> {
+        let eid = match t {
+            Ty::Enum(eid, ..) | Ty::Variant(eid, ..) => *eid,
+            _ => return None,
+        };
+        let ids: Vec<FnId> = self
+            .program
+            .enum_def(eid)
+            .methods
+            .iter()
+            .filter(|(n, _)| n == name)
+            .map(|(_, f)| *f)
+            .collect();
+        let first = *ids.first()?;
+        let id = if ids.len() > 1 {
+            // Overloads: by the arguments, the receiver being the first (spec §5.4).
+            let mut all = vec![object.clone()];
+            all.extend(args.iter().cloned());
+            self.pick_overload(e, &ids, &all)?
+        } else {
+            first
+        };
+        let mut all: Vec<&Expr> = vec![object];
+        all.extend(args.iter());
+        let generics = self.program.func(id).generics.clone();
+        self.reuse = Some(object.id);
+        let (ret, targs) = self.call_inferring(e, id, &all, &[], id.0, &generics, None);
+        self.reuse = None;
+        if !generics.is_empty() {
+            self.types.instances.insert(e.id, targs);
+        }
+        self.types.extensions.insert(e.id, id);
+        Some(ret)
     }
 
     /// `xs.map(f)` on a built-in type: a call of the pico extension `__Array_map(xs, f)` (the
