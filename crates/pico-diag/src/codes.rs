@@ -210,6 +210,7 @@ codes! {
     EXPORT_TYPE = 355: "an `@export`ed or `extern` function whose signature can't cross to JavaScript or C",
     UNAVAILABLE = 356: "a module or feature that isn't available on the target",
     REACTIVE = 357: "reactive state used where it isn't allowed",
+    GENERIC_VIRTUAL = 358: "a generic method that's virtual, abstract, an override or an interface method",
     // Internal
     NOT_IMPLEMENTED = 900: "feature not implemented yet",
 }

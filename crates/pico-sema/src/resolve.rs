@@ -2275,6 +2275,24 @@ impl Resolver {
 
     /// An interface's methods: the inherited ones first (so the first parent's method table
     /// is a prefix), then its own; a body is a default implementation.
+    /// E0358: a generic method dispatched at run time. A virtual call goes through one vtable
+    /// slot, which can't hold every instance of a generic method (instances are made per type
+    /// argument, at compile time).
+    fn generic_virtual(&mut self, span: Span, name: &str) {
+        self.diags.push(
+            Diagnostic::error(
+                codes::GENERIC_VIRTUAL,
+                format!("generic method `{name}` can't be dispatched at run time"),
+            )
+            .primary(span, "type parameters here")
+            .note(
+                "a generic method is instantiated per type argument at compile time, so it can't be \
+             `virtual`, `abstract`, an `override` or an interface method; make it a plain \
+             method, or move the type parameter to the class",
+            ),
+        );
+    }
+
     fn interface_members<'a>(
         &mut self,
         sid: StructId,
@@ -2314,6 +2332,9 @@ impl Resolver {
                 continue;
             };
             let Some(name) = &f.name else { continue };
+            if let Some(g) = f.generics.first() {
+                self.generic_virtual(g.span, &name.name);
+            }
             let again = Self::is_overload(&groups, &name.name, false);
             if !again && self.check_duplicate(&mut seen, name) {
                 continue;
@@ -2789,6 +2810,12 @@ impl Resolver {
                     }
                     if !is_method && (m.mods.virtual_ || m.mods.override_ || m.mods.abstract_) {
                         self.not_implemented(m.span, "virtual accessors");
+                    }
+                    if is_method
+                        && (m.mods.virtual_ || m.mods.override_ || m.mods.abstract_)
+                        && let Some(g) = f.generics.first()
+                    {
+                        self.generic_virtual(g.span, &name.name);
                     }
                     let id = FnId(self.fns.len() as u32);
                     self.fns.push(None);

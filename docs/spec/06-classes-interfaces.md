@@ -76,4 +76,7 @@ class Circle implements Shape {
 ## 6.3 Dispatch
 - Calls to non-virtual methods and to struct methods are static.
 - Calls to virtual methods go through a vtable.
+- A generic method is instantiated per type argument at compile time, so it can't be dispatched
+  at run time: a generic method can't be `virtual`, `abstract`, an `override` or an interface
+  method (E0358, decision 342). Put the type parameter on the class instead.
 - Calls through an interface type go through an interface table (fat pointer: object + itable).
