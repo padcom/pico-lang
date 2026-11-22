@@ -34,6 +34,7 @@ pub fn lower(
         instances: Vec::new(),
         cur_subst: Vec::new(),
         fn_values: Vec::new(),
+        bound_values: Vec::new(),
         cur_mir: FnId(0),
         gen_frames: HashMap::new(),
         skip_files: program.workers.iter().copied().collect(),
@@ -749,6 +750,10 @@ struct Cx<'a> {
     cur_subst: Subst,
     /// Named functions used as values: (function, the adapter that takes an environment).
     fn_values: Vec<(FnId, FnId)>,
+    /// Bound methods used as values (#151): (method, its vtable slot when it's virtual, the
+    /// receiver's type, the adapter's placeholder id). The adapter's environment holds the
+    /// receiver.
+    bound_values: Vec<(FnId, Option<u32>, Ty, FnId)>,
     /// The program's file (the entry module).
     file_id: pico_diag::FileId,
     /// Every file, for panic locations in modules and the core library (#3).
@@ -1195,9 +1200,93 @@ impl Cx<'_> {
         a
     }
 
+    /// The adapter calling method `m` on the receiver its environment holds, so that `obj.m`
+    /// can be a function value (#151).
+    fn bound_value(&mut self, m: FnId, slot: Option<u32>, recv: Ty) -> FnId {
+        if let Some((.., a)) = self
+            .bound_values
+            .iter()
+            .find(|(f, s, r, _)| *f == m && *s == slot && *r == recv)
+        {
+            return *a;
+        }
+        let a =
+            FnId(u32::MAX - (self.fn_values.len() + self.bound_values.len()) as u32 - 1_000_000);
+        self.bound_values.push((m, slot, recv, a));
+        a
+    }
+
     /// Appends the function-value adapters and patches references to them.
     fn build_fn_values(&mut self, fns: &mut Vec<mir::Function>) {
         let mut map = HashMap::new();
+        for (m, slot, recv, placeholder) in self.bound_values.clone() {
+            let real = FnId(fns.len() as u32);
+            map.insert(placeholder, real);
+            let sig = self.types.sigs[m.0 as usize].clone();
+            let mut locals = vec![LocalDecl {
+                ty: Ty::Ref(Box::new(Ty::Tuple(vec![recv.clone()]))),
+                name: Some("env".into()),
+            }];
+            for t in &sig.params {
+                locals.push(LocalDecl {
+                    ty: t.clone(),
+                    name: None,
+                });
+            }
+            let params: Vec<Local> = (0..=sig.params.len() as u32).map(Local).collect();
+            locals.push(LocalDecl {
+                ty: recv.clone(),
+                name: Some("this".into()),
+            });
+            let this = Local(locals.len() as u32 - 1);
+            let result = has_value(&sig.ret).then(|| {
+                locals.push(LocalDecl {
+                    ty: sig.ret.clone(),
+                    name: None,
+                });
+                Local(locals.len() as u32 - 1)
+            });
+            let mut args = vec![Operand::Copy(Place::local(this))];
+            args.extend(params[1..].iter().map(|l| Operand::Copy(Place::local(*l))));
+            // Called as a value, every argument is given.
+            for d in &self.program.func(m).defaults {
+                if d.is_some() {
+                    args.push(Operand::Const(Const::Bool(true)));
+                }
+            }
+            let callee = match slot {
+                Some(slot) => Callee::Virtual { slot, decl: m },
+                None => Callee::Fn(m),
+            };
+            fns.push(mir::Function {
+                name: format!("{}<bound>", self.program.func(m).name),
+                library: true,
+                track_caller: false,
+                params,
+                ret: sig.ret.clone(),
+                locals,
+                blocks: vec![
+                    mir::BasicBlock {
+                        stmts: vec![mir::Statement {
+                            place: Place::local(this),
+                            rvalue: Rvalue::Use(Operand::Copy(Place::deref(Local(0)).field(0))),
+                            loc: Loc::default(),
+                        }],
+                        term: Terminator::Call {
+                            callee,
+                            args,
+                            dest: result.map(Place::local),
+                            next: BlockId(1),
+                            loc: Loc::default(),
+                        },
+                    },
+                    mir::BasicBlock {
+                        stmts: Vec::new(),
+                        term: Terminator::Return(result.map(|r| Operand::Copy(Place::local(r)))),
+                    },
+                ],
+            });
+        }
         for (f, placeholder) in self.fn_values.clone() {
             let real = FnId(fns.len() as u32);
             map.insert(placeholder, real);
@@ -3101,6 +3190,13 @@ impl FnBuilder<'_, '_> {
                 let a = self.cx.fn_value(*id);
                 self.rvalue_to_temp(Rvalue::Closure(a, Vec::new()), ty, e.span)
             }
+            // An overloaded function as a value: the overload the expected type chose (#151).
+            ExprKind::Overloaded(_)
+                if matches!(ty, Ty::Fn(..)) && self.cx.types.overloads.contains_key(&e.id) =>
+            {
+                let a = self.cx.fn_value(self.cx.types.overloads[&e.id]);
+                self.rvalue_to_temp(Rvalue::Closure(a, Vec::new()), ty, e.span)
+            }
             ExprKind::Closure(id) => {
                 let info = self
                     .cx
@@ -3342,6 +3438,20 @@ impl FnBuilder<'_, '_> {
                 };
                 self.expr(object);
                 Operand::Const(Const::Int(n as i128, IntTy::I64))
+            }
+            // `obj.m` as a value (#151): a closure over the receiver.
+            ExprKind::Member { object, name, .. }
+                if self.cx.types.bound_methods.contains_key(&e.id) =>
+            {
+                let m = self.cx.types.bound_methods[&e.id];
+                let rt = self.ty_of(object).clone();
+                let slot = match &rt {
+                    Ty::Class(sid, ..) => self.cx.program.struct_def(*sid).virtual_slot(name),
+                    _ => None,
+                };
+                let recv = self.expr(object);
+                let a = self.cx.bound_value(m, slot, rt);
+                self.rvalue_to_temp(Rvalue::Closure(a, vec![recv]), ty, e.span)
             }
             ExprKind::Member { object, .. } if self.cx.types.getters.contains_key(&e.id) => {
                 let g = self.cx.types.getters[&e.id];

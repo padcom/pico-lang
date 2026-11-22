@@ -1,0 +1,43 @@
+// Functions and methods as values (#151): an overloaded function picked by the expected
+// function type, and bound methods (`obj.m`): overloaded, virtual, with defaults, private.
+// expect: int 3
+// expect: str a
+// expect: int 9
+// expect: 5
+// expect: counter
+// expect: named
+// expect: hi bob?
+// expect: 42
+// expect: 6,8
+function p(x: int): string { return `int ${x}` }
+function p(x: string): string { return `str ${x}` }
+function apply(f: (s: string) => string, v: string): string { return f(v) }
+const g: (x: int) => string = p
+println(g(3))
+println(apply(p, "a"))
+const fs: ((x: int) => string)[] = [p]
+println(fs[0](9))
+class Counter {
+  public n: int = 0
+  public add(k: int): int { n += k; return n }
+  public add(s: string): int { n += s.length; return n }
+  public virtual name(): string { return "counter" }
+  public greet(who: string, punct: string = "!"): string { return `hi ${who}${punct}` }
+  private secret(): int { return 42 }
+  public reveal(): () => int { return this.secret }
+}
+class Named extends Counter {
+  public override name(): string { return "named" }
+}
+const c = new Counter()
+const fa: (k: int) => int = c.add
+const ga: (s: string) => int = c.add
+fa(2)
+ga("abc")
+println(c.n)
+const ns: (() => string)[] = [c.name, new Named().name]
+for (const h of ns) println(h())
+const gr = c.greet
+println(gr("bob", "?"))
+println(c.reveal()())
+println(["a", "bb"].map(ga).join(","))

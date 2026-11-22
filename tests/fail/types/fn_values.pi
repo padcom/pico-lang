@@ -1,0 +1,28 @@
+// Functions and methods as values (#151): an overloaded one needs an expected function type
+// that picks one overload; private methods stay private; generic classes' aren't done yet.
+// error: E0332
+// at: 24:11
+// error: E0333
+// at: 25:29
+// error: E0332
+// at: 26:13
+// error: E0319
+// at: 27:13
+// error: E0900
+// at: 28:26
+function p(x: int): int { return x }
+function p(x: string): int { return 0 }
+class A {
+  public add(k: int): int { return k }
+  public add(s: string): int { return 0 }
+  private hidden(): int { return 1 }
+}
+class Box<T> {
+  public get(x: T): T { return x }
+}
+const a = new A()
+const f = p
+const g: (x: bool) => int = p
+const h = a.add
+const q = a.hidden
+const b = new Box<int>().get
