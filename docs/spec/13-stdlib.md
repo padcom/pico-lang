@@ -9,8 +9,19 @@ the built-in error classes, `fetch`, `Request`, `Response`, `Headers`, `URL`, `U
 `TextEncoder`, `TextDecoder`, `setTimeout`, `setInterval`, `clearTimeout`, `queueMicrotask`,
 `structuredClone`, `crypto` (`getRandomValues`, `randomUUID`, `subtle`), `performance.now()`,
 `AbortController`, `AbortSignal`, `Worker`, `WeakRef`, `WeakMap`, `WeakSet`,
-`FinalizationRegistry`, `Arena` (§9.4) and `parseInt(s): int` (base 10, JavaScript's parsing; a
-string without leading digits panics, since `int` has no `NaN`). Integer arrays have `sum()`.
+`FinalizationRegistry`, `Arena` (§9.4), `parseInt(s): int` (base 10, JavaScript's parsing; a
+string without leading digits panics, since `int` has no `NaN`) and `parseFloat(s): number`
+(JavaScript's: the number at the start, `NaN` without one). Integer arrays have `sum()`.
+
+Text that may not be a number is parsed with the number types' `parse` (decision 340), which give
+`null` instead of panicking: `int.parse(s, radix = 10): int?` and the same for `i8` … `i64` and
+`u8` … `u64` (an optional sign, digits of the radix, nothing else; `null` when the value doesn't
+fit the type), and `number.parse(s): number?` (`f64`, `f32`: decimal with an optional fraction and
+exponent, `Infinity`, `NaN`). Spaces around the text are allowed.
+```ts
+const port = int.parse(text) ?? 8080
+const mask = u32.parse("ff00", 16)
+```
 
 APIs that mirror a Web standard take that standard's **options object**, as a struct built from
 an object literal (`fetch(url, { method: "POST", headers })`, `postMessage(m, { transfer })`).

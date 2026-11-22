@@ -5896,6 +5896,33 @@ impl Resolver {
                 };
                 ExprKind::TypeInfo { ty, member, elem }
             }
+            // `int.parse(s)`, `f64.parse(s)` (#154): the core library's `__i64_parse`, ….
+            A::Member { object, prop, .. } if self.names_primitive(object).is_some() => {
+                let t = self.names_primitive(object).expect("checked");
+                let fname = format!("__{t}_{}", prop.name);
+                let found = self
+                    .top_fns
+                    .prelude()
+                    .find(|(n, _)| **n == fname)
+                    .map(|(_, v)| v.clone());
+                match found {
+                    Some(fs) if fs.len() == 1 => ExprKind::Fn(fs[0]),
+                    Some(fs) => ExprKind::Overloaded(fs),
+                    None => {
+                        let shown = match &object.kind {
+                            ast::ExprKind::Ident(n) => n.to_string(),
+                            _ => t.to_string(),
+                        };
+                        self.error(
+                            codes::UNKNOWN_MEMBER,
+                            prop.span,
+                            format!("`{shown}` has no static member `{}`", prop.name),
+                            format!("`{}` isn't declared", prop.name),
+                        );
+                        ExprKind::Error
+                    }
+                }
+            }
             A::Member { object, prop, .. } if self.names_class(object) => {
                 match self.static_member(object, prop) {
                     Some(k) => k,
@@ -6606,6 +6633,30 @@ impl Resolver {
 
     /// Whether `e` names a class, or a struct with static members (as in `Animal.count`,
     /// `Vec3.zero()`), not shadowed by a variable.
+    /// A primitive number type named where a value goes (`int` in `int.parse(s)`): its
+    /// canonical name (`int` is `i64`, `number` is `f64`).
+    fn names_primitive(&self, e: &ast::Expr) -> Option<&'static str> {
+        let ast::ExprKind::Ident(n) = &e.kind else {
+            return None;
+        };
+        if self.is_value_name(n) {
+            return None;
+        }
+        Some(match n.as_str() {
+            "int" | "i64" => "i64",
+            "number" | "f64" => "f64",
+            "i8" => "i8",
+            "i16" => "i16",
+            "i32" => "i32",
+            "u8" => "u8",
+            "u16" => "u16",
+            "u32" => "u32",
+            "u64" => "u64",
+            "f32" => "f32",
+            _ => return None,
+        })
+    }
+
     fn names_class(&self, e: &ast::Expr) -> bool {
         matches!(&e.kind, ast::ExprKind::Ident(n)
         if !self.is_value_name(n)
