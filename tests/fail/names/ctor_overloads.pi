@@ -1,0 +1,7 @@
+// Overloaded constructors must differ in their parameter types (#150).
+// error: E0203
+// at: 6:3
+class R {
+  constructor(x: int) {}
+  constructor(y: int) {}
+}

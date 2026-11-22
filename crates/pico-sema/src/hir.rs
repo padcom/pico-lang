@@ -182,7 +182,7 @@ pub struct StructDef {
     /// Type parameters (`struct Pair<A, B>`); `Ty::Param(Ty::type_owner(id), i, _)` inside.
     pub generics: Vec<TypeParam>,
     /// The constructors (classes always have at least one, possibly synthesized), with
-    /// their parameter types; overloads have different numbers of parameters.
+    /// their parameter types; overloads have different parameter types (#150).
     pub ctors: Vec<(FnId, Vec<Ty>)>,
     /// The class this one `extends`.
     pub base: Option<StructId>,
