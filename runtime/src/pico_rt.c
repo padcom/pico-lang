@@ -480,24 +480,43 @@ static int special(double v, char *out) {
     return -1;
 }
 
+/* Whether the p-digit integer m times 10^(e - p + 1) reads back as v. */
+static bool round_trips(unsigned long long m, int p, int e, double v, bool is_f32) {
+    char s[48];
+    snprintf(s, sizeof s, "%llue%d", m, e - (p - 1));
+    return is_f32 ? (strtof(s, NULL) == (float)v) : (strtod(s, NULL) == v);
+}
+
 /* The shortest digits d1…dk (into `digits`, returns k) and exponent *n with
- * |v| = 0.d1…dk × 10^n that round-trip. Uses the shortest "%.*e" (half-to-even). v finite, > 0. */
+ * |v| = 0.d1…dk × 10^n that round-trip. Tries the shortest "%.*e" (half-to-even), and at each
+ * precision the next decimal up and down when it doesn't round-trip: below a power of two the
+ * floats are twice as dense, so the other neighbour may (2^-24, #184). v finite, > 0. Must match
+ * `pico_interp::shortest_digits`. */
 static int shortest_digits(double v, bool is_f32, char *digits, int *n) {
     char sci[40];
     int max = is_f32 ? 9 : 17;
     for (int p = 1; p <= max; p++) {
-        snprintf(sci, sizeof sci, "%.*e", p - 1, v);
-        if (is_f32 ? (strtof(sci, NULL) == (float)v) : (strtod(sci, NULL) == v)) break;
+        snprintf(sci, sizeof sci, "%.*e", p - 1, is_f32 ? (double)(float)v : v);
+        unsigned long long m = 0;
+        const char *s = sci;
+        while (*s && *s != 'e') {
+            if (*s >= '0' && *s <= '9') m = m * 10 + (unsigned long long)(*s - '0');
+            s++;
+        }
+        int e = atoi(s + 1);
+        unsigned long long low = 1;
+        for (int i = 1; i < p; i++) low *= 10;
+        unsigned long long cm[3] = {m, m + 1 == low * 10 ? low : m + 1, m == low ? low * 10 - 1 : m - 1};
+        int ce[3] = {e, m + 1 == low * 10 ? e + 1 : e, m == low ? e - 1 : e};
+        for (int c = 0; c < 3; c++) {
+            if (!round_trips(cm[c], p, ce[c], v, is_f32)) continue;
+            int k = snprintf(digits, 24, "%llu", cm[c]);
+            while (k > 1 && digits[k - 1] == '0') k--;
+            *n = ce[c] + 1;
+            return k;
+        }
     }
-    const char *s = sci;
-    int k = 0;
-    while (*s && *s != 'e') {
-        if (*s != '.') digits[k++] = *s;
-        s++;
-    }
-    while (k > 1 && digits[k - 1] == '0') k--;
-    *n = atoi(s + 1) + 1;
-    return k;
+    return 0; /* unreachable: 17 significant digits always round-trip */
 }
 
 static int format_shortest(double v, bool is_f32, char *out) {
