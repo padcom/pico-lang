@@ -193,7 +193,8 @@ pub struct StructDef {
     pub virtual_slots: Vec<(String, u32)>,
     /// Abstract methods (stubs that panic) and methods that can't be overridden further.
     pub abstract_fns: std::collections::HashSet<FnId>,
-    pub final_methods: std::collections::HashSet<String>,
+    /// Vtable slots whose method is `final` (can't be overridden further).
+    pub final_slots: std::collections::HashSet<u32>,
     /// `protected` members (accessible in subclasses).
     pub protected: std::collections::HashSet<String>,
     /// Where each inherited member was declared (own members aren't listed).
@@ -234,7 +235,7 @@ impl StructDef {
             vtable: Vec::new(),
             virtual_slots: Vec::new(),
             abstract_fns: Default::default(),
-            final_methods: Default::default(),
+            final_slots: Default::default(),
             protected: Default::default(),
             declared_in: HashMap::new(),
             readonly_methods: Default::default(),
@@ -325,6 +326,12 @@ impl StructDef {
     /// A field's type for a value of type `of` (substituting the type arguments).
     pub fn field_ty(&self, id: StructId, i: usize, of: &Ty) -> Ty {
         self.fields[i].ty.subst(Ty::type_owner(id), of.type_args())
+    }
+
+    /// The vtable slot of method `m` (its implementation in this class), if it's virtual. With
+    /// overloads, several slots share a name, so a method is found by its id (#153).
+    pub fn slot_of(&self, m: FnId) -> Option<u32> {
+        self.vtable.iter().position(|f| *f == m).map(|i| i as u32)
     }
 
     pub fn virtual_slot(&self, name: &str) -> Option<u32> {

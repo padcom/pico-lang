@@ -1355,6 +1355,7 @@ impl<'p> Checker<'p> {
                 }
                 for (name, ifn) in &idef.methods {
                     let overloads = def.methods_named(name);
+                    let by_params = overloads.len() > 1 || idef.methods_named(name).len() > 1;
                     let f = overloads
                         .iter()
                         .copied()
@@ -1362,9 +1363,11 @@ impl<'p> Checker<'p> {
                             self.types.sigs[f.0 as usize].params
                                 == self.types.sigs[ifn.0 as usize].params
                         })
-                        .or_else(|| def.method(name));
+                        // (A single method of the name implements it; with overloads, none
+                        // with its parameters means the interface's default is used.)
+                        .or_else(|| if by_params { None } else { def.method(name) });
                     if let Some(f) = f {
-                        if overloads.len() > 1 {
+                        if by_params {
                             self.types
                                 .impl_methods
                                 .insert((StructId(i as u32), *ifn), f);
@@ -6427,9 +6430,21 @@ impl<'p> Checker<'p> {
                 }
                 if let Ty::Iface(sid, _, _) = &t {
                     let def = self.program.struct_def(*sid);
-                    if let Some(slot) = def.methods.iter().position(|(n, _)| n == name) {
-                        let m = def.methods[slot].1;
+                    // Overloads: the one the arguments fit, at its own position (#153).
+                    let overloads = def.methods_named(name);
+                    let picked = if overloads.len() > 1 {
+                        match self.pick_overload(e, &overloads, args) {
+                            Some(m) => Some(m),
+                            None => return Ty::Error,
+                        }
+                    } else {
+                        def.method(name)
+                    };
+                    if let Some(m) = picked
+                        && let Some(slot) = def.methods.iter().position(|(_, f)| *f == m)
+                    {
                         self.types.iface_calls.insert(e.id, slot as u32);
+                        self.types.methods.insert(e.id, m);
                         return self.call_fn(e, m, args);
                     }
                 }
@@ -6451,7 +6466,7 @@ impl<'p> Checker<'p> {
                     if let Some(m) = picked {
                         self.check_access(*sid, name, *name_span);
                         self.types.methods.insert(e.id, m);
-                        if let Some(slot) = def.virtual_slot(name) {
+                        if let Some(slot) = def.slot_of(m) {
                             self.types.virtual_calls.insert(e.id, slot);
                         }
                         let own = self.program.func(m).generics.clone();

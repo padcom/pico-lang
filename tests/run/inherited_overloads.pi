@@ -1,0 +1,61 @@
+// Overloads across inheritance (#152: a subclass adds to the inherited ones) and virtual,
+// abstract, final and interface overloads (#153: slots by method, not name).
+// expect: Base.f(int) Sub.f(string) Sub.f(bool)
+// expect: Base.g(int) Sub.g(string) Sub.h()
+// expect: Leaf.g(int) Sub.g(string) Leaf.g(bool) Base.f(int)
+// expect: Leaf.g(int) Sub.g(string)
+// expect: Leaf.g(bool)
+// expect: str a int 2 default(true)
+// expect: list 2 int 3
+// expect: sv str b sv int 4 default(false)
+class Base {
+  public f(x: int): string { return "Base.f(int)" }
+  public virtual g(x: int): string { return "Base.g(int)" }
+  public virtual g(x: string): string { return "Base.g(string)" }
+  public virtual h(): string { return "Base.h()" }
+}
+class Sub extends Base {
+  public f(x: string): string { return "Sub.f(string)" }
+  public f(x: bool): string { return "Sub.f(bool)" }
+  public override g(x: string): string { return "Sub.g(string)" }
+  public virtual g(x: bool): string { return "Sub.g(bool)" }
+  public final override h(): string { return "Sub.h()" }
+}
+class Leaf extends Sub {
+  public override g(x: int): string { return "Leaf.g(int)" }
+  public override g(x: bool): string { return "Leaf.g(bool)" }
+}
+const s = new Sub()
+println(`${s.f(1)} ${s.f("a")} ${s.f(true)}`)
+const b: Base = new Sub()
+println(`${b.g(1)} ${b.g("a")} ${b.h()}`)
+const l: Sub = new Leaf()
+println(`${l.g(1)} ${l.g("a")} ${l.g(true)} ${l.f(2)}`)
+const lb: Base = new Leaf()
+println(`${lb.g(1)} ${lb.g("x")}`)
+const gb: (x: bool) => string = l.g
+println(gb(false))
+interface Writer {
+  write(s: string): string
+  write(n: int): string
+  write(b: bool): string { return `default(${b})` }
+}
+interface Fancy extends Writer {
+  write(xs: string[]): string
+}
+class Plain implements Fancy {
+  public write(s: string): string { return `str ${s}` }
+  public write(n: int): string { return `int ${n}` }
+  public write(xs: string[]): string { return `list ${xs.length}` }
+}
+struct Sv implements Writer {
+  tag: string
+  write(s: string): string { return `${tag} str ${s}` }
+  write(n: int): string { return `${tag} int ${n}` }
+}
+const w1: Writer = new Plain()
+println(`${w1.write("a")} ${w1.write(2)} ${w1.write(true)}`)
+const f1: Fancy = new Plain()
+println(`${f1.write(["x", "y"])} ${f1.write(3)}`)
+const v1: Writer = Sv { tag: "sv" }
+println(`${v1.write("b")} ${v1.write(4)} ${v1.write(false)}`)

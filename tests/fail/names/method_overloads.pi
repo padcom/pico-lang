@@ -1,25 +1,39 @@
-// Overloaded methods: overloads must differ in their parameter types and share visibility;
-// virtual overloads and overloads of an inherited method aren't implemented yet; a call
-// fits one overload, or it's ambiguous or fits none (`types/method_overload_calls.pi`).
+// Overloaded methods: overloads must differ in their parameter types and share visibility,
+// also with inherited ones (#152); an override needs `override`, a virtual method with those
+// parameter types, and not a `final` one (#153); an interface's overloads must all be there.
 // error: E0203
-// at: 14:10
+// at: 20:10
 // error: E0203
-// at: 16:3
-// error: E0900
-// at: 19:3
-// error: E0900
-// at: 23:10
+// at: 22:3
+// error: E0322
+// at: 27:19
+// error: E0321
+// at: 28:10
+// error: E0322
+// at: 29:19
+// error: E0203
+// at: 31:10
+// error: E0327
+// at: 37:7
 class A {
   public f(x: int): int { return 1 }
   public f(y: int): string { return "2" }
   public g(x: int): int { return 1 }
   g(x: string): int { return 2 }
-  public h(x: int?): int { return 1 }
-  public h(x: string?): int { return 2 }
   public virtual v(x: int): int { return 1 }
-  public v(x: string): int { return 2 }
+  public final virtual v(x: string): int { return 2 }
 }
 class B extends A {
-  public h(x: bool): int { return 3 }
-  public h(x: number): int { return 4 }
+  public override v(x: bool): int { return 3 }
+  public v(x: int): int { return 4 }
+  public override v(x: string): int { return 5 }
+  h(x: string): int { return 6 }
+  public h(x: int): int { return 7 }
+}
+interface W {
+  write(s: string): string
+  write(n: int): string
+}
+class C implements W {
+  public write(s: string): string { return s }
 }
