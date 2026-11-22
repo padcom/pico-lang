@@ -299,6 +299,7 @@ fn type_members(
     let builtin = match ty {
         Ty::Array(_) => "Array",
         Ty::Str => "String",
+        Ty::Char => "Char",
         Ty::Fixed(..) | Ty::FixedN(..) => "Fixed",
         _ => "",
     };

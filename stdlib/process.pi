@@ -377,6 +377,17 @@ export class Writer {
     return fd >= 0 && __io(123, fd, 0, 0, "", "") == 1
   }
 
+  /// Whether text written here should have colours (decision 344), as command-line tools
+  /// commonly decide: no when `NO_COLOR` is set to anything but `""`, or `FORCE_COLOR` is `0` or
+  /// `false`; yes when `FORCE_COLOR` is set to anything else but `""`, or `CLICOLOR_FORCE` is set;
+  /// otherwise whether it writes to a terminal.
+  public hasColors(): bool {
+    const force = env.get("FORCE_COLOR")
+    if ((env.get("NO_COLOR") ?? "") != "" || force == "0" || force == "false") return false
+    if ((force ?? "") != "" || env.has("CLICOLOR_FORCE")) return true
+    return isTerminal
+  }
+
   /// The terminal's width in columns, or `null` when it isn't one (#158).
   public get columns(): int? {
     const n = if (fd >= 0) __io(124, fd, 0, 0, "", "") else -1

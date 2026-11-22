@@ -29,7 +29,7 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 17 chapters (16: Reactivity), 341 decisions; 303–306 (reactivity details) provisional |
+| Spec | ✅ 17 chapters (16: Reactivity), 344 decisions; 303–306 (reactivity details) provisional |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23 (Homebrew `llvm@23` 23.1.3 on macOS, apt.llvm.org 23.1.5 on Linux), inkwell 0.11 `llvm23-1` |
 | Last green `scripts/test.sh` | 2026-11-07 (bug fixes, release 0.4.2, Linux arm64; includes the WasmGC goldens) |
@@ -639,3 +639,4 @@ Notes:
 | 2026-11-22 | #171 | A local named `target` or `build` hides the built-in one in the closures that capture it too: `is_value_name` also looks at the locals of the functions around a closure (`outer_local`, what `capture` would capture), which also decides whether a name means a type. Test: `tests/run/comptime/captured_shadowing.pi`. |
 | 2026-11-22 | #172 | `std/process`: `argv0` (the program as started) and `execPath()` (its file, absolute, symlinks resolved; the entry file under `pico run --interp`; `null` on WASI), decision 343: `__io` 125 in the C runtime (POSIX, WASI, Windows) and the interpreter (`Shared::program_file`, `run_interp_with`'s new `file`). Test: `tests/run/process/program.pi`. |
 | 2026-11-22 | release | Version 0.8.0 (Cargo, the VS Code extension, the website's download commands). Since 0.7.0: `std/process`'s `argv0` and `execPath()` (#172, PR #174, decision 343) and a captured local named `target` or `build` hiding the built-in (#171, PR #173). Known flaky test: #176. |
+| 2026-11-22 | #178 | Helpers pico-commander had of its own, decision 344: `std/text` (`editDistance`, `camelCase`, `kebabCase`, `snakeCase`), `std/term` (`stripAnsi`, `displayWidth`), `std/fmt`'s `wrap`, `Writer.hasColors()`, `new Map(other)`, and `char` tests (`isDigit`, `isAlpha`, `isAlphanumeric`, `isWhitespace`: `__Char_` extensions; `url.pi` and `fetch.pi` dropped their private copies). Golden `tests/run/stdlib/commander_helpers.pi`. Not yet: `new Map(entries)` (an inline tuple-array literal doesn't fit an overloaded constructor). |

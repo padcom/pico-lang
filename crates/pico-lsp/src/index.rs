@@ -518,6 +518,7 @@ impl Builder<'_> {
         let on = match self.t.exprs.get(object.id.0 as usize) {
             Some(Ty::Array(_)) => "Array",
             Some(Ty::Str) => "String",
+            Some(Ty::Char) => "Char",
             Some(Ty::Fixed(..) | Ty::FixedN(..)) => "Fixed",
             _ => return,
         };

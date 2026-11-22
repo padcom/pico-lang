@@ -1,0 +1,107 @@
+// `std/text` (spec §13.11, decision 344): edit distance, for "did you mean …?" suggestions, and
+// converting names between `camelCase`, `kebab-case` and `snake_case`.
+
+/// The edit distance between `a` and `b`: the fewest insertions, deletions, substitutions and
+/// swaps of two neighbouring characters that turn one into the other (Damerau-Levenshtein, as
+/// optimal string alignment: no substring is edited twice). Characters are code points.
+export function editDistance(a: string, b: string): int {
+  const x: char[] = []
+  for (const c of a) x.push(c)
+  const y: char[] = []
+  for (const c of b) y.push(c)
+  const d: int[][] = []
+  for (let i = 0; i <= x.length; i++) {
+    const row: int[] = []
+    for (let j = 0; j <= y.length; j++) row.push(if (i == 0) j else if (j == 0) i else 0)
+    d.push(row)
+  }
+  for (let i = 1; i <= x.length; i++) {
+    for (let j = 1; j <= y.length; j++) {
+      const cost = if (x[i - 1] == y[j - 1]) 0 else 1
+      let best = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+      if (i > 1 && j > 1 && x[i - 1] == y[j - 2] && x[i - 2] == y[j - 1]) {
+        best = Math.min(best, d[i - 2][j - 2] + 1)
+      }
+      d[i][j] = best
+    }
+  }
+  return d[x.length][y.length]
+}
+
+/// `s` in camel case: the words between `separators` (by default `-`, `_` and spaces) joined,
+/// each after the first starting with an upper-case letter; letters are otherwise kept as they
+/// are. `camelCase("pizza-type")` is `"pizzaType"`, `camelCase("max_retry count")`
+/// `"maxRetryCount"`.
+export function camelCase(s: string, separators: string = "-_ "): string {
+  const words = splitAt(s, separators)
+  let out = words[0]
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i]
+    out += if (w == "") "" else w.slice(0, 1).toUpperCase() + w.slice(1)
+  }
+  return out
+}
+
+/// `s` in kebab case: its words in lower case, joined with `-`. Words are separated by `-`, `_`
+/// and whitespace, and where a lower-case letter or a digit meets an upper-case one (`fooBar`) or
+/// an upper-case run ends (`HTTPServer`). `kebabCase("pizzaType")` is `"pizza-type"`.
+export function kebabCase(s: string): string {
+  return words(s).join("-")
+}
+
+/// `s` in snake case: its words (as `kebabCase` finds them) in lower case, joined with `_`.
+/// `snakeCase("maxRetryCount")` is `"max_retry_count"`.
+export function snakeCase(s: string): string {
+  return words(s).join("_")
+}
+
+/// `s` cut at every character in `separators` (empty pieces kept).
+function splitAt(s: string, separators: string): string[] {
+  const out: string[] = []
+  let current = ""
+  for (const c of s) {
+    if (separators.includes(c.toString())) {
+      out.push(current)
+      current = ""
+    } else {
+      current += c.toString()
+    }
+  }
+  out.push(current)
+  return out
+}
+
+function isUpper(c: char): bool {
+  return c.toString() != c.toString().toLowerCase()
+}
+
+function isLower(c: char): bool {
+  return c.toString() != c.toString().toUpperCase()
+}
+
+/// The words of `s` in lower case (see `kebabCase`).
+function words(s: string): string[] {
+  const cs: char[] = []
+  for (const c of s) cs.push(c)
+  const out: string[] = []
+  let current = ""
+  for (let i = 0; i < cs.length; i++) {
+    const c = cs[i]
+    if (c == '-' || c == '_' || c.isWhitespace()) {
+      if (current != "") out.push(current)
+      current = ""
+      continue
+    }
+    if (current != "" && isUpper(c)) {
+      const prev = cs[i - 1]
+      const nextLower = i + 1 < cs.length && isLower(cs[i + 1])
+      if (isLower(prev) || prev.isDigit() || (isUpper(prev) && nextLower)) {
+        out.push(current)
+        current = ""
+      }
+    }
+    current += c.toString().toLowerCase()
+  }
+  if (current != "") out.push(current)
+  return out
+}

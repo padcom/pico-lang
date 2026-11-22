@@ -26,6 +26,11 @@ class Map<K extends Hashable<K>, V> {
   /// An empty map (`new Map<string, int>()`).
   constructor() {}
 
+  /// A copy of `other`: the same entries in the same order (a shallow copy; decision 344).
+  constructor(other: Map<K, V>) {
+    for (const [k, v] of other) this.set(k, v)
+  }
+
   bucket(key: K): int {
     return (key.hashCode() % (this.buckets.length as u64)) as int
   }

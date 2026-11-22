@@ -6932,6 +6932,7 @@ impl<'p> Checker<'p> {
         let kind = match t {
             Ty::Array(_) => "Array",
             Ty::Str => "String",
+            Ty::Char => "Char",
             _ => return None,
         };
         let ids = self

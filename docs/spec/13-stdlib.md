@@ -16,7 +16,8 @@ string without leading digits panics, since `int` has no `NaN`) and `parseFloat(
 have `sum()`; arrays have `shift()` and `unshift(...items)`, and strings `substring(start, end?)`
 (JavaScript's clamping and swapping), `codePointAt(i)` (`null` outside; positions count code
 points) and `localeCompare(other)` (case-insensitive first, then lower case first, as ICU orders
-ASCII).
+ASCII). Characters have `isDigit()`, `isAlpha()`, `isAlphanumeric()` and `isWhitespace()` (ASCII
+only), and `new Map(other)` copies a map: the same entries in the same order (decision 344).
 
 Text that may not be a number is parsed with the number types' `parse` (decision 340), which give
 `null` instead of panicking: `int.parse(s, radix = 10): int?` and the same for `i8` … `i64` and
@@ -59,7 +60,9 @@ const users = await res.json<User[]>()        // typed, generated like JSON.pars
 | `std/math` | vectors/matrices (`Vec2/3/4`, `Mat4`, `Quat` with operator overloads), bigint, random |
 | `std/collections` | `Deque`, `PriorityQueue`, `SortedMap`, `SortedSet`, `MultiMap`, `LinkedList`, `LruCache`, `BitSet` |
 | `std/encoding` | base64, hex, utf-16, csv, toml |
-| `std/fmt` | `Formattable`, padding/number formatting helpers |
+| `std/fmt` | `Formattable`, padding/number formatting helpers, `wrap` |
+| `std/text` | `editDistance`, `camelCase`, `kebabCase`, `snakeCase` |
+| `std/term` | `stripAnsi`, `displayWidth` |
 
 ## 13.3 Target availability
 `std/fs`, `std/net` and `std/process` aren't available on `wasm32-browser`, and importing them there
@@ -148,6 +151,9 @@ started later see changes), `exit(code = 0)` (ends the program at once: no `fina
 pending promises dropped; called in a worker, it ends the whole program too, decision 321) and `stdin` (a `Reader`), `stdout`, `stderr` (`Writer`s whose writes
 are in order with `print`). `stdin`, `stdout` and `stderr` say whether they're a terminal
 (`isTerminal`), and the writers give its size (`columns` and `rows`, `null` when it isn't one).
+A writer's `hasColors()` says whether to write colours: no when `NO_COLOR` is non-empty or
+`FORCE_COLOR` is `0` or `false`, yes when `FORCE_COLOR` is otherwise non-empty or `CLICOLOR_FORCE`
+is set, else whether it's a terminal (decision 344).
 
 ## 13.4 Async-only I/O
 No I/O function has a synchronous variant. Scripts use top-level `await`:
@@ -491,7 +497,17 @@ recent first) and `BitSet` (`add`, `delete`, `has`, `set(i, on)`, `flip`, `size`
 rounding matches templates; precisions up to 20), `formatString(s, spec)`, `formatBool(b,
 spec)`, `pad(text, width, align, fill)` and `groupDigits(text, separator = ",", size = 3)`. An
 invalid spec panics. `DateTime` (`${dt:yyyy-MM-dd}` is its `format` pattern) and `std/math`'s
-vectors and quaternions (`${v:.2f}` per component) are `Formattable`.
+vectors and quaternions (`${v:.2f}` per component) are `Formattable`. `wrap(text, width,
+measure?)` wraps at spaces to `width` (measured by `measure`, by default code points): line
+breaks and a line's leading spaces stay, the spaces at a break go, a longer word stays whole.
+
+`std/text` has `editDistance(a, b)` (Damerau-Levenshtein, optimal string alignment, over code
+points: for "did you mean" suggestions), `camelCase(s, separators = "-_ ")` (`pizza-type` →
+`pizzaType`; letters other than the words' first are kept), `kebabCase(s)` and `snakeCase(s)`
+(words split at `-`, `_`, whitespace and case changes, as in `HTTPServer` → `http-server`).
+`std/term` has `stripAnsi(text)` (control sequences, operating-system commands and other escapes
+removed) and `displayWidth(text)`: the terminal columns a line takes (no escapes, controls or
+combining marks; 2 for East Asian wide characters and emoji). Decision 344.
 
 ## 13.12 Cryptography
 Both the `crypto` global and `std/crypto` run on Mbed TLS (3.6 LTS, vendored in

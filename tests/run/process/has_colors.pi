@@ -1,0 +1,18 @@
+// Writer.hasColors() (decision 344). A golden run's stdout is a pipe: colours only when the
+// variables ask for them.
+// expect: false true false true
+import { env, stdout } from "std/process"
+
+env.delete("NO_COLOR")
+env.delete("FORCE_COLOR")
+env.delete("CLICOLOR_FORCE")
+const plain = stdout.hasColors()
+env.set("FORCE_COLOR", "1")
+const forced = stdout.hasColors()
+env.set("NO_COLOR", "1")
+const none = stdout.hasColors()
+env.delete("NO_COLOR")
+env.delete("FORCE_COLOR")
+env.set("CLICOLOR_FORCE", "")
+println(`${plain} ${forced} ${none} ${stdout.hasColors()}`)
+env.delete("CLICOLOR_FORCE")
