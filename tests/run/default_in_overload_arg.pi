@@ -1,0 +1,14 @@
+// A core method's defaulted parameter left out inside an overloaded call's argument: the
+// argument is typed twice, and the second pass must not reuse the first one's slots (issue #146).
+// expect: b
+// expect: 2
+// expect: a|b
+// expect: x
+function f(x: string): string { return x }
+function f(x: int): string { return `${x}` }
+function g<T>(xs: T[], n: int = 0): T { return xs[n] }
+
+println(f("a,b".split(",")[1]))
+println(f("a,b".split(",").length))
+println(f("a,b".split(",", 2).join("|")))
+println(f(g(["x", "y"])))
