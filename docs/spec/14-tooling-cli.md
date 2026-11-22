@@ -58,7 +58,8 @@ describe("add", () => {
 })
 ```
 Tests run in parallel, one isolated process per file (`pico test [paths] [-t filter] [--interp]
-[--watch] [-j jobs]`; it finds `*.test.pi` files under the paths). Coverage is planned.
+[--watch] [-j jobs]`; it finds `*.test.pi` files under the paths; `-j` defaults to one file per
+CPU, but no more than the available memory holds at about 512 MB each). Coverage is planned.
 
 - Registering: `describe(name, fn)` (nesting; names show as `group > test`), `test`/`it(name,
   fn)` with a function, an `async function` or an async lambda (`async () => { … }`),
@@ -122,7 +123,8 @@ the compiler's errors); it exits with status 1 when there are any. The language 
 them in the editor too. A file's own errors are reported with its warnings: those of parsing,
 name resolution, type checking and the C and JavaScript signatures. `pico lint` stops there, before
 lowering, so errors only a build finds (a constant expression that always panics, failing
-`comptime` code) are `pico build`'s. Files are linted in parallel. Rules are set in
+`comptime` code) are `pico build`'s. Files are linted in parallel: `-j N` at a time, by default
+one per CPU but no more than the available memory holds (about 256 MB each, #166). Rules are set in
 `project.json`'s `"lint"`:
 ```json
 {
