@@ -1,0 +1,81 @@
+// `fetch` with a deadline, a signal and a body limit (#136): `timeout` and an aborted
+// `signal` reject with `AbortError` and close the connection; `connectTimeout` covers a peer
+// that never finishes the TLS handshake; `maxBodyBytes` rejects before reading a body whose
+// `content-length` is too large, and as soon as a streamed body passes it.
+// expect: timeout: AbortError (fetch: no response within 100 ms)
+// expect: abort: AbortError (user gave up)
+// expect: already aborted: AbortError
+// expect: signal timeout: AbortError (The operation timed out)
+// expect: content-length: TypeError: fetch: the response body is larger than maxBodyBytes (100)
+// expect: chunked: TypeError: fetch: the response body is larger than maxBodyBytes (100)
+// expect: within the limit: 1000 bytes
+// expect: connect: AbortError (fetch: connecting to 127.0.0.1
+// expect: done
+import { serve } from "std/http"
+import { listen } from "std/net"
+import { ReadableStream } from "std/streams"
+import { delay } from "std/timers"
+
+async function handle(req: Request): Promise<Response> throws Error {
+  const path = new URL(req.url).pathname
+  if (path == "/slow") {
+    await delay(1000)
+    return new Response("late")
+  }
+  if (path == "/big") {
+    return new Response("x".repeat(1000))
+  }
+  if (path == "/stream") {
+    const chunk = new TextEncoder().encode("y".repeat(64))
+    return new Response(ReadableStream.from([chunk, chunk, chunk, chunk]))
+  }
+  return new Response("ok")
+}
+
+async function attempt(what: string, run: () => Promise<Response, Error>): Promise<void> {
+  try {
+    const r = await run()
+    println(`${what}: ${(await r.bytes()).length} bytes`)
+  } catch (e: AbortError) {
+    const cause = e.cause
+    println(if (cause == null) `${what}: AbortError` else `${what}: AbortError (${cause.message})`)
+  } catch (e: TypeError) {
+    println(`${what}: TypeError: ${e.message}`)
+  } catch (e) {
+    println(`${what}: Error: ${e.message}`)
+  }
+}
+
+/// What `fetch` with a `connectTimeout` says about a peer that never answers on `port`.
+async function connectSilent(port: int): Promise<string> {
+  try {
+    await fetch(`https://127.0.0.1:${port}/`, { connectTimeout: 100 })
+    return "connected?"
+  } catch (e: AbortError) {
+    return `connect: AbortError (${e.cause?.message ?? ""}`
+  } catch (e) {
+    return `connect: ${e.message}`
+  }
+}
+
+const server = await serve({ port: 0 }, handle)
+const base = `http://127.0.0.1:${server.addr.port}`
+await attempt("timeout", () => fetch(`${base}/slow`, { timeout: 100 }))
+const ac = new AbortController()
+setTimeout(() => ac.abort(new Error("user gave up")), 50)
+await attempt("abort", () => fetch(`${base}/slow`, { signal: ac.signal }))
+await attempt("already aborted", () => fetch(`${base}/`, { signal: AbortSignal.abort() }))
+await attempt("signal timeout", () => fetch(`${base}/slow`, { signal: AbortSignal.timeout(50) }))
+await attempt("content-length", () => fetch(`${base}/big`, { maxBodyBytes: 100 }))
+await attempt("chunked", () => fetch(`${base}/stream`, { maxBodyBytes: 100 }))
+await attempt("within the limit", () => fetch(`${base}/big`, { maxBodyBytes: 1000 }))
+// A peer that accepts and then says nothing: the TLS handshake never ends.
+const silent = await listen(0)
+const held: Conn[] = []
+silent.accept().then((c: Conn?) => { if (c != null) held.push(c) })
+const msg = await connectSilent(silent.addr.port)
+println(msg.slice(0, 51))
+for (const c of held) c.close()
+silent.close()
+await server.shutdown()
+println("done")

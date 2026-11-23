@@ -270,6 +270,18 @@ struct RequestInit {
   redirect?: string
   /// (pico) Extra certificates (PEM) to trust for https:, besides the system's roots.
   caCerts?: string[]
+  /// Cancels the request: once it's aborted, `fetch` rejects with the signal's `AbortError`
+  /// and closes the connection (`AbortSignal.timeout(ms)` gives a deadline).
+  signal?: AbortSignal
+  /// (pico) Milliseconds for the whole fetch, redirects and body included; past it, `fetch`
+  /// rejects with an `AbortError` whose `cause` says it timed out (#136).
+  timeout?: int
+  /// (pico) Milliseconds for each connection to be made, TLS handshake included; past it,
+  /// `fetch` rejects with an `AbortError` (#136).
+  connectTimeout?: int
+  /// (pico) The most bytes a response body may have: `fetch` rejects with a `TypeError` as
+  /// soon as the body passes it, or before reading it when its `content-length` does (#136).
+  maxBodyBytes?: int
 }
 
 /// An HTTP request: what `fetch` sends, and what a `serve` handler gets.
@@ -282,6 +294,12 @@ class Request extends __Body {
   public readonly redirect: string
   /// `RequestInit.caCerts`.
   public readonly __caCerts: string[]
+  /// The signal that cancels this request, if any.
+  public readonly signal: AbortSignal?
+  /// `RequestInit.timeout`, `connectTimeout` and `maxBodyBytes`.
+  public readonly __timeout: int?
+  public readonly __connectTimeout: int?
+  public readonly __maxBodyBytes: int?
 
   /// A request for `input` with `init`'s method, headers, body and redirect mode. Throws a
   /// `TypeError` for an invalid URL or a `GET`/`HEAD` request with a body.
@@ -297,6 +315,10 @@ class Request extends __Body {
     const r = init.redirect
     this.redirect = if (r != null) r else "follow"
     this.__caCerts = init.caCerts ?? []
+    this.signal = init.signal
+    this.__timeout = init.timeout
+    this.__connectTimeout = init.connectTimeout
+    this.__maxBodyBytes = init.maxBodyBytes
     if ((this.method == "GET" || this.method == "HEAD") && (this.__bytes != null || this.__stream != null)) {
       throw new TypeError(`a ${this.method} request can't have a body`)
     }
@@ -500,20 +522,23 @@ class __HttpReader {
     return out
   }
 
-  /// Everything until the connection ends.
-  public async rest(): Promise<Uint8Array> throws Error {
-    while (await this.more()) {}
+  /// Everything until the connection ends (at most `max` bytes).
+  public async rest(max: int? = null): Promise<Uint8Array> throws Error {
+    while (await this.more()) {
+      if (max != null && this.buf.length - this.pos > max) __tooLarge(max)
+    }
     const out = this.buf.slice(this.pos)
     this.pos = this.buf.length
     return out
   }
 
   /// A body as `headers` describe it (`untilEnd`: without a length, it lasts until the
-  /// connection ends, as a response's does; a request's is empty).
-  public async body(headers: Headers, untilEnd: bool): Promise<Uint8Array> throws Error {
+  /// connection ends, as a response's does; a request's is empty), of at most `max` bytes.
+  public async body(headers: Headers, untilEnd: bool, max: int? = null): Promise<Uint8Array> throws Error {
     const te = headers.get("transfer-encoding")
     if (te != null && te.toLowerCase().includes("chunked")) {
       const parts: Uint8Array[] = []
+      let total = 0
       while (true) {
         const sizeLine = await this.line()
         const semi = sizeLine.indexOf(";")
@@ -531,6 +556,8 @@ class __HttpReader {
           while ((await this.line()).length > 0) {}
           break
         }
+        total += size
+        if (max != null && total > max) __tooLarge(max)
         parts.push(await this.exact(size))
         await this.line()
       }
@@ -544,10 +571,17 @@ class __HttpReader {
           throw new TypeError(`bad content-length: ${cl}`)
         }
       }
-      return await this.exact(if (t.length == 0) 0 else parseInt(t))
+      const n = if (t.length == 0) 0 else parseInt(t)
+      if (max != null && n > max) __tooLarge(max)
+      return await this.exact(n)
     }
-    if (untilEnd) await this.rest() else new Uint8Array(0)
+    if (untilEnd) await this.rest(max) else new Uint8Array(0)
   }
+}
+
+/// A body over `RequestInit.maxBodyBytes`.
+function __tooLarge(max: int): never throws TypeError {
+  throw new TypeError(`fetch: the response body is larger than maxBodyBytes (${max})`)
 }
 
 /// A parsed head: the start line's three parts and the header fields.
@@ -631,7 +665,7 @@ function __connectHost(u: URL): string {
 }
 
 /// One request and its response (no redirects).
-async function __fetchOnce(req: Request): Promise<Response> throws Error {
+async function __fetchOnce(req: Request, ctl: __FetchControl): Promise<Response> throws Error {
   const u = new URL(req.url)
   const tls = u.protocol == "https:"
   if (u.protocol != "http:" && !tls) {
@@ -639,12 +673,15 @@ async function __fetchOnce(req: Request): Promise<Response> throws Error {
   }
   const port = if (u.port.length > 0) parseInt(u.port) else if (tls) 443 else 80
   let conn: Conn? = null
+  const connecting = ctl.connectTimer(u.host)
   try {
-    const opened = await __netConnect(port, __connectHost(u))
+    const opened = await ctl.connect(__netConnect(port, __connectHost(u)))
     conn = opened
+    ctl.conn = opened
     if (tls) {
       await opened.__startTls(0, __connectHost(u), req.__caCerts.join("\n"))
     }
+    ctl.clear(connecting)
   } catch (e: NetError) {
     const c0 = conn
     if (c0 != null) c0.close()
@@ -691,7 +728,7 @@ async function __fetchOnce(req: Request): Promise<Response> throws Error {
         continue
       }
       const empty = req.method == "HEAD" || status == 204 || status == 304
-      const body = if (empty) new Uint8Array(0) else await r.body(h.headers, true)
+      const body = if (empty) new Uint8Array(0) else await r.body(h.headers, true, ctl.maxBodyBytes)
       const res = new Response(if (empty) null else body, {
         status: if (status < 200 || status > 599) 500 else status,
         statusText: h.third,
@@ -732,6 +769,95 @@ function __withInit(r: Request, init: RequestInit): Request throws TypeError {
   new Request(r.url, { method: method, headers: headers, redirect: redirect, caCerts: caCerts })
 }
 
+/// What can stop a `fetch` (its signal, `timeout`, `connectTimeout`) and its body limit: once
+/// stopped, the connection is closed (a pending read or write fails) and `fetch` rejects with
+/// `reason` (#136).
+class __FetchControl {
+  /// Why it stopped (an `AbortError`), once it has.
+  public reason: Error? = null
+  /// The connection in use, closed when it stops.
+  public conn: Conn? = null
+  /// `RequestInit.maxBodyBytes`.
+  public readonly maxBodyBytes: int?
+  connectTimeout: int?
+  timers: int[] = []
+  stops: (() => void)[] = []
+  done: bool = false
+
+  constructor(connectTimeout: int?, maxBodyBytes: int?) {
+    this.connectTimeout = connectTimeout
+    this.maxBodyBytes = maxBodyBytes
+  }
+
+  /// Stops the fetch with `reason` (once; not after it's done).
+  public stop(reason: Error): void {
+    if (this.done || this.reason != null) {
+      return
+    }
+    this.reason = reason
+    const c = this.conn
+    if (c != null) c.close()
+    const fs = this.stops
+    this.stops = []
+    for (const f of fs) f()
+  }
+
+  /// Stops the fetch after `ms` milliseconds (`why`: the `AbortError`'s `cause`).
+  public timer(ms: int, why: string): int {
+    const id = setTimeout(() => this.stop(new AbortError("This operation was aborted", new Error(why))), ms)
+    this.timers.push(id)
+    return id
+  }
+
+  /// The timer for connecting to `host` (when `connectTimeout` was given).
+  public connectTimer(host: string): int? {
+    const t = this.connectTimeout
+    if (t == null) return null
+    return this.timer(t, `fetch: connecting to ${host} took longer than ${t} ms`)
+  }
+
+  public clear(id: int?): void {
+    if (id != null) clearTimeout(id)
+  }
+
+  /// The fetch has settled: its timers go (they'd keep the program alive) and it can't stop.
+  public finish(): void {
+    this.done = true
+    for (const t of this.timers) clearTimeout(t)
+    this.timers = []
+  }
+
+  /// The connection `p` makes, or a rejection with `reason` as soon as it stops (a connection
+  /// made after that is closed).
+  public connect(p: Promise<Conn, NetError>): Promise<Conn, Error> {
+    return new Promise<Conn, Error>((resolve, reject) => {
+      p.__onSettle(() => {
+        try {
+          const c = p.__get()
+          const r = this.reason
+          if (r != null) {
+            c.close()
+            reject(r)
+          } else {
+            resolve(c)
+          }
+        } catch (e) {
+          reject(e)
+        }
+      })
+      const r = this.reason
+      if (r != null) {
+        reject(r)
+      } else {
+        this.stops.push(() => {
+          const fallback: Error = new AbortError("This operation was aborted")
+          reject(this.reason ?? fallback)
+        })
+      }
+    })
+  }
+}
+
 /// Fetches `input` over HTTP/1.1, following redirects (see `RequestInit.redirect`).
 /// Network failures and unsupported URLs reject with a `TypeError` (its `cause` is the
 /// `NetError`); HTTP error statuses don't (check `ok`).
@@ -741,9 +867,35 @@ async function fetch(input: string | URL | Request, init: RequestInit = {}): Pro
     s: string => new Request(s, init),
     u: URL => new Request(u, init),
   }
+  const ctl = new __FetchControl(init.connectTimeout ?? req.__connectTimeout, init.maxBodyBytes ?? req.__maxBodyBytes)
+  const signal = init.signal ?? req.signal
+  if (signal != null) {
+    signal.throwIfAborted()
+    const s: AbortSignal = signal
+    s.addEventListener("abort", () => ctl.stop(s.reason ?? new AbortError("This operation was aborted")))
+  }
+  const total = init.timeout ?? req.__timeout
+  if (total != null) {
+    ctl.timer(total, `fetch: no response within ${total} ms`)
+  }
+  try {
+    return await __fetchFollowing(req, ctl)
+  } catch (e) {
+    // (Closing the connection makes the pending read or write fail somehow: report why.)
+    const r = ctl.reason
+    if (r != null) throw r
+    throw e
+  } finally {
+    ctl.finish()
+  }
+}
+
+/// `fetch`'s loop over redirects, under `ctl`.
+async function __fetchFollowing(first: Request, ctl: __FetchControl): Promise<Response> throws Error {
+  let req = first
   let redirects = 0
   while (true) {
-    const res = await __fetchOnce(req)
+    const res = await __fetchOnce(req, ctl)
     const loc = res.headers.get("location")
     const s = res.status
     if (loc == null || !(s == 301 || s == 302 || s == 303 || s == 307 || s == 308) || req.redirect == "manual") {
