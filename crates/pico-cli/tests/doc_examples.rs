@@ -1,17 +1,17 @@
-//! The standard library's usage examples (decision 348): every `@example` in the doc comments of
-//! the standard and core libraries is a program that type-checks, and `website/reference.json`
-//! (the website's reference page) is what `pico doc --std --json` makes of them.
+//! The standard library's usage examples (decision 348): every function, method, constructor,
+//! property and type of the standard and core libraries has one, every `@example` in their doc
+//! comments is a program that type-checks, and `website/reference.json` (the website's reference
+//! page) is what `pico doc --std --json` makes of them.
 //!
-//! - `PICO_DOC_EXAMPLES=std/path,core` checks only those pages' examples.
 //! `std/js` examples are checked for `wasm32-browser`, the only target that has it. An example
 //! that needs another module (a worker's) has it after a line `// --- job.pi ---`: the files
 //! are written next to each other, the program first.
 //!
-//! - `PICO_DOC_EXAMPLES_RUN=1` also runs each example (but `std/js`'s) (in the interpreter) and prints what it
-//!   printed, to compare with the `// …` comments that say what it prints.
+//! - `PICO_DOC_EXAMPLES=std/path,core` checks only those pages' examples.
+//! - `PICO_DOC_EXAMPLES_RUN=1` also runs each example (but `std/js`'s, in the interpreter) and
+//!   prints what it printed, to compare with the `// …` comments that say what it prints.
 //! - `PICO_DOC_EXAMPLES_JOBS=2` checks two at a time (default: the CPUs, at most 8).
 //! - `PICO_UPDATE_REFERENCE=1` writes `website/reference.json` instead of comparing it.
-
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -107,6 +107,40 @@ fn write_files(dir: &Path, n: usize, code: &str) -> (PathBuf, String) {
     (file, main)
 }
 
+/// The entries that need an example and have none: functions, methods, constructors,
+/// properties and types (fields, constants and type aliases are shown by their type's or
+/// module's examples).
+fn without_examples(reference: &Value) -> Vec<String> {
+    fn walk(out: &mut Vec<String>, at: &str, items: &Value) {
+        for i in items.as_array().into_iter().flatten() {
+            let label = format!("{at} › {}", i["name"].as_str().unwrap_or("?"));
+            let needs = matches!(
+                i["kind"].as_str(),
+                Some(
+                    "function"
+                        | "method"
+                        | "constructor"
+                        | "property"
+                        | "class"
+                        | "struct"
+                        | "interface"
+                        | "enum"
+                )
+            );
+            if needs && i["examples"].as_array().is_none_or(Vec::is_empty) {
+                let at = i["source"].as_str().unwrap_or("the compiler");
+                out.push(format!("{label} ({at})"));
+            }
+            walk(out, &label, &i["members"]);
+        }
+    }
+    let mut out = Vec::new();
+    for m in reference["modules"].as_array().unwrap() {
+        walk(&mut out, m["name"].as_str().unwrap(), &m["items"]);
+    }
+    out
+}
+
 /// The errors of checking an example (for the browser, if `browser`).
 fn check(dir: &Path, n: usize, code: &str, browser: bool) -> Vec<String> {
     let (file, code) = write_files(dir, n, code);
@@ -144,6 +178,15 @@ fn examples_type_check_and_the_website_reference_is_current() {
         assert!(
             current == text,
             "website/reference.json is out of date: run `PICO_UPDATE_REFERENCE=1 cargo test -p pico-cli --test doc_examples`"
+        );
+    }
+    if std::env::var_os("PICO_DOC_EXAMPLES").is_none() {
+        let missing = without_examples(&json);
+        assert!(
+            missing.is_empty(),
+            "{} entries have no @example (docs/DEVELOPMENT.md, \"Standard library examples\"):\n  {}",
+            missing.len(),
+            missing.join("\n  ")
         );
     }
     let samples = samples(&json);

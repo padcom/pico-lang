@@ -527,8 +527,11 @@ impl Builder<'_> {
             .iter()
             .find(|(o, n, ..)| *o == on && *n == name)
         {
-            self.builtins
-                .push((at, n, format!("```pico\n{sig}\n```\n\n{}", for_display(docs))));
+            self.builtins.push((
+                at,
+                n,
+                format!("```pico\n{sig}\n```\n\n{}", for_display(docs)),
+            ));
         }
     }
 

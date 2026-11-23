@@ -106,6 +106,12 @@ export function join(...parts: string[]): string {
 - Examples that touch the outside world (files, sockets, processes, time) do so harmlessly: a file
   in `tmpDir()`, `127.0.0.1`, a short `delay`.
 - `@example A caption` names an example when an entry has more than one.
+- An example that needs a second module (a worker's) puts it after a line `// --- job.pi ---`;
+  the test writes the files next to each other. `std/js` examples are checked for
+  `wasm32-browser` and not run.
+- The test fails when a function, method, constructor, property or type has no example (fields,
+  constants and type aliases don't need one). The compiler's own built-ins (`println`, `push`,
+  …) have theirs in `BUILTIN_DOCS`/`BUILTIN_MEMBER_DOCS` (crates/pico-sema/src/hir.rs).
 
 ```sh
 # Type-check the examples of some pages (all of them without PICO_DOC_EXAMPLES):
