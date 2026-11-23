@@ -21,22 +21,101 @@ import { ByteStream } from "std/streams"
 
 /// A TCP (or Unix-domain) connection as a `ByteStream` (`std/streams`), for protocol code that
 /// takes any byte stream.
+///
+/// @example
+/// ```ts
+/// import { listen, connect, TcpStream } from "std/net"
+///
+/// const server = await listen(0)
+/// const client = new TcpStream(await connect(server.addr.port))
+/// const conn = await server.accept()
+/// if (conn != null) {
+///   await client.write(new TextEncoder().encode("ping"))
+///   const got = await conn.read()
+///   if (got != null) {
+///     println(new TextDecoder().decode(got))   // ping
+///   }
+///   conn.close()
+/// }
+/// client.close()
+/// server.close()
+/// ```
 export class TcpStream implements ByteStream {
   /// The connection.
   public readonly conn: Conn
 
+  /// @example
+  /// ```ts
+  /// import { listen, connect, TcpStream } from "std/net"
+  /// import { ByteStream } from "std/streams"
+  ///
+  /// const server = await listen(0)
+  /// const stream: ByteStream = new TcpStream(await connect(server.addr.port))
+  /// println(server.addr.hostname)   // 127.0.0.1
+  /// stream.close()
+  /// server.close()
+  /// ```
   constructor(conn: Conn) {
     this.conn = conn
   }
 
+  /// @example
+  /// ```ts
+  /// import { listen, connect, TcpStream } from "std/net"
+  ///
+  /// const server = await listen(0)
+  /// const client = await connect(server.addr.port)
+  /// const conn = await server.accept()
+  /// if (conn != null) {
+  ///   const stream = new TcpStream(conn)
+  ///   await client.writeText("hello")
+  ///   const bytes = await stream.read()
+  ///   if (bytes != null) {
+  ///     println(new TextDecoder().decode(bytes))   // hello
+  ///   }
+  ///   stream.close()
+  /// }
+  /// client.close()
+  /// server.close()
+  /// ```
   public read(): Promise<Uint8Array?, Error> {
     conn.read()
   }
 
+  /// @example
+  /// ```ts
+  /// import { listen, connect, TcpStream } from "std/net"
+  ///
+  /// const server = await listen(0)
+  /// const stream = new TcpStream(await connect(server.addr.port))
+  /// const conn = await server.accept()
+  /// if (conn != null) {
+  ///   await stream.write(Uint8Array.from([1, 2, 3]))
+  ///   const got = await conn.read()
+  ///   println(got?.length)   // 3
+  ///   conn.close()
+  /// }
+  /// stream.close()
+  /// server.close()
+  /// ```
   public async write(bytes: Uint8Array): Promise<void> throws Error {
     await conn.write(bytes)
   }
 
+  /// @example
+  /// ```ts
+  /// import { listen, connect, TcpStream } from "std/net"
+  ///
+  /// const server = await listen(0)
+  /// const stream = new TcpStream(await connect(server.addr.port))
+  /// const conn = await server.accept()
+  /// stream.close()
+  /// if (conn != null) {
+  ///   println(await conn.read())   // null: the other end closed
+  ///   conn.close()
+  /// }
+  /// server.close()
+  /// ```
   public close(): void {
     conn.close()
   }
@@ -45,18 +124,57 @@ export class TcpStream implements ByteStream {
 /// A UDP socket as a `ByteStream`: datagrams from anyone are read; writes go to `peerPort` and
 /// `peerHost`, or, until one is given, to whoever sent the last datagram read (and are dropped
 /// while nobody has).
+///
+/// @example
+/// ```ts
+/// import { bind, UdpStream } from "std/net"
+///
+/// const a = await bind(0)
+/// const b = await bind(0)
+/// const toB = new UdpStream(a, b.addr.port)
+/// const fromA = new UdpStream(b)
+/// await toB.write(new TextEncoder().encode("hi"))
+/// const got = await fromA.read()
+/// if (got != null) {
+///   println(new TextDecoder().decode(got))   // hi
+/// }
+/// println(fromA.peerPort == a.addr.port)     // true: replies go back to `a`
+/// toB.close()
+/// fromA.close()
+/// ```
 export class UdpStream implements ByteStream {
   /// The socket.
   public readonly socket: UdpSocket
   public peerHost: string?
   public peerPort: int?
 
+  /// @example
+  /// ```ts
+  /// import { bind, UdpStream } from "std/net"
+  ///
+  /// const socket = await bind(0)
+  /// const stream = new UdpStream(socket, 14550, "127.0.0.1")
+  /// println(stream.peerPort)   // 14550
+  /// stream.close()
+  /// ```
   constructor(socket: UdpSocket, peerPort: int? = null, peerHost: string? = null) {
     this.socket = socket
     this.peerPort = peerPort
     this.peerHost = peerHost
   }
 
+  /// @example
+  /// ```ts
+  /// import { bind, UdpStream } from "std/net"
+  ///
+  /// const a = await bind(0)
+  /// const b = new UdpStream(await bind(0))
+  /// await a.sendText("one datagram", b.socket.addr.port)
+  /// const got = await b.read()
+  /// println(got?.length)   // 12
+  /// a.close()
+  /// b.close()
+  /// ```
   public async read(): Promise<Uint8Array?> throws Error {
     const d = await socket.receive()
     if (d == null) {
@@ -70,6 +188,19 @@ export class UdpStream implements ByteStream {
   }
 
   /// Sends `bytes` as one datagram.
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind, UdpStream } from "std/net"
+  ///
+  /// const listener = await bind(0)
+  /// const sender = new UdpStream(await bind(0), listener.addr.port)
+  /// await sender.write(Uint8Array.from([7, 8, 9]))
+  /// const d = await listener.receive()
+  /// println(d?.data.length)   // 3
+  /// sender.close()
+  /// listener.close()
+  /// ```
   public async write(bytes: Uint8Array): Promise<void> throws Error {
     const port = peerPort
     if (port != null) {
@@ -77,6 +208,13 @@ export class UdpStream implements ByteStream {
     }
   }
 
+  /// @example
+  /// ```ts
+  /// import { bind, UdpStream } from "std/net"
+  ///
+  /// const stream = new UdpStream(await bind(0))
+  /// stream.close()   // closes the socket
+  /// ```
   public close(): void {
     socket.close()
   }
