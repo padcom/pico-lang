@@ -7,11 +7,50 @@
 /// `reflect.typeOf(value)` describes the value's runtime class (a subclass of its static type
 /// for a class value), `reflect.typeOf<T>()` the type `T`; both as a `TypeInfo<T>`. Metadata
 /// is generated only for the types that reach `reflect.typeOf`.
+///
+/// @example
+/// ```ts
+/// import { reflect } from "std/reflect"
+///
+/// class User {
+///   constructor(public name: string, public age: int) {}
+/// }
+///
+/// const user = new User("Ada", 36)
+/// const t = reflect.typeOf(user)
+/// for (const f of t.fields) {
+///   println(`${f.name} = ${f.show(user)}`)   // name = "Ada", then: age = 36
+/// }
+/// println(reflect.typeOf<int>().kind)   // primitive
+/// ```
 class __reflect {}
 
 /// A type, as the type of a field or an implemented interface shows it.
+///
+/// @example
+/// ```ts
+/// import { reflect } from "std/reflect"
+///
+/// class Point {
+///   constructor(public x: f64, public label: string) {}
+/// }
+///
+/// const t = reflect.typeOf<Point>()
+/// for (const f of t.fields) {
+///   println(`${f.name}: ${f.type.name} (${f.type.kind})`)   // x: f64 (primitive), then: label: string (primitive)
+/// }
+/// ```
 class __Type {
   /// Made by the compiler's reflection metadata.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Type } from "std/reflect"
+  ///
+  /// // The compiler makes these for reflection metadata; a hand-made one shows the shape.
+  /// const t = new Type("Point", "struct")
+  /// println(`${t.name} is a ${t.kind}`)   // Point is a struct
+  /// ```
   constructor(
     /// As messages show it: `string`, `Point`, `i64[]`.
     public name: string,
@@ -20,13 +59,50 @@ class __Type {
     public kind: string,
   ) {}
   /// Its `name`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  ///
+  /// struct Size { w: int; h: int }
+  ///
+  /// const f = reflect.typeOf<Size>().field("w")!
+  /// println(f.type.toString())   // i64
+  /// ```
   public toString(): string { return name }
 }
 
 /// A decorator on a declaration: its name and each argument's source text
 /// (`@json.name("id")` → `json.name`, `["\"id\""]`).
+///
+/// @example
+/// ```ts
+/// import { reflect } from "std/reflect"
+/// import { ClassDecl } from "std/meta"
+///
+/// decorator function table(c: ClassDecl, name: string): void {}
+///
+/// @table("users")
+/// class User {
+///   constructor(public id: int) {}
+/// }
+///
+/// for (const d of reflect.typeOf<User>().decorators) {
+///   println(d.name)      // table
+///   println(d.args[0])   // "users"
+/// }
+/// ```
 class __DecoratorInfo {
   /// Made by the compiler's reflection metadata.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DecoratorInfo } from "std/reflect"
+  ///
+  /// // The compiler makes these for reflection metadata; a hand-made one shows the shape.
+  /// const d = new DecoratorInfo("json.name", ["\"id\""])
+  /// println(d.name)   // json.name
+  /// ```
   constructor(
     /// The decorator's name as written: `json.name`.
     public name: string,
@@ -34,6 +110,25 @@ class __DecoratorInfo {
     public args: string[],
   ) {}
   /// As written: `@json.name("id")`, `@sealed`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function sealed(c: ClassDecl): void {}
+  /// decorator function table(c: ClassDecl, name: string): void {}
+  ///
+  /// @sealed
+  /// @table("orders")
+  /// class Order {
+  ///   constructor(public id: int) {}
+  /// }
+  ///
+  /// for (const d of reflect.typeOf<Order>().decorators) {
+  ///   println(d.toString())   // @sealed, then: @table("orders")
+  /// }
+  /// ```
   public toString(): string {
     if (args.length == 0) `@${name}` else `@${name}(${args.join(", ")})`
   }
@@ -41,8 +136,37 @@ class __DecoratorInfo {
 
 /// A type described at runtime. `T` is the type it was asked about: for a class value, the
 /// description is of the value's runtime class (`T` or a subclass).
+///
+/// @example
+/// ```ts
+/// import { reflect } from "std/reflect"
+///
+/// class Animal {
+///   constructor(public name: string) {}
+/// }
+/// class Dog extends Animal {
+///   constructor(name: string, public breed: string) { super(name) }
+/// }
+///
+/// const pet: Animal = new Dog("Rex", "collie")
+/// const t = reflect.typeOf(pet)
+/// println(t.name)                // Dog
+/// println(t.kind)                // class
+/// println(t.base!.name)          // Animal
+/// println(t.fields.length)       // 2
+/// ```
 class __TypeInfo<T> {
   /// Made by the compiler's reflection metadata (`reflect.typeOf`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  ///
+  /// struct Point { x: int; y: int }
+  ///
+  /// const t = reflect.typeOf(Point { x: 1, y: 2 })
+  /// println(`${t.name}: ${t.kind}`)   // Point: struct
+  /// ```
   constructor(
     /// As messages show it: `Point`, `Box<i64>`, `i64[]`.
     public name: string,
@@ -61,16 +185,68 @@ class __TypeInfo<T> {
   ) {}
 
   /// The field called `name`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  ///
+  /// class Account {
+  ///   constructor(public owner: string, public balance: int) {}
+  /// }
+  ///
+  /// const a = new Account("Ada", 100)
+  /// const t = reflect.typeOf(a)
+  /// println(t.field("balance")!.get<int>(a))   // 100
+  /// println(t.field("missing") == null)        // true
+  /// ```
   public field(name: string): __Field<T>? { fields.find((f: __Field<T>) => f.name == name) }
 
   /// Its `name`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  ///
+  /// class Box<T> {
+  ///   constructor(public value: T) {}
+  /// }
+  ///
+  /// println(reflect.typeOf(new Box<int>(1)).toString())   // Box<i64>
+  /// ```
   public toString(): string { return name }
 }
 
 /// A field of a `T` (or of the runtime class described). `get` and `set` name the field's type
 /// and panic if it's another one (or if the object isn't of the class the field belongs to).
+///
+/// @example
+/// ```ts
+/// import { reflect } from "std/reflect"
+///
+/// class User {
+///   constructor(public name: string, public readonly id: int) {}
+/// }
+///
+/// const u = new User("Ada", 1)
+/// for (const f of reflect.typeOf(u).fields) {
+///   println(`${f} readonly=${f.isReadonly}`)   // name: string readonly=false, then: id: i64 readonly=true
+/// }
+/// ```
 class __Field<T> {
   /// Made by the compiler's reflection metadata.
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  ///
+  /// class Item {
+  ///   constructor(public title: string) {}
+  /// }
+  ///
+  /// const f = reflect.typeOf<Item>().fields[0]
+  /// println(f.name)        // title
+  /// println(f.type.name)   // string
+  /// ```
   constructor(
     /// The field's name.
     public name: string,
@@ -84,16 +260,68 @@ class __Field<T> {
   ) {}
 
   /// The field's value in `obj`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  ///
+  /// class User {
+  ///   constructor(public name: string, public age: int) {}
+  /// }
+  ///
+  /// const u = new User("Ada", 36)
+  /// const age = reflect.typeOf(u).field("age")!.get<int>(u)
+  /// println(age)   // 36
+  /// ```
   public get<V>(obj: T): V { __reflectGet<T, V>(obj, id) }
 
   /// Sets the field in `obj` (a class instance; a struct is passed by value). Panics for a
   /// `readonly` field (`isReadonly`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  ///
+  /// class User {
+  ///   constructor(public name: string, public age: int) {}
+  /// }
+  ///
+  /// const u = new User("Ada", 36)
+  /// const f = reflect.typeOf(u).field("age")!
+  /// f.set<int>(u, f.get<int>(u) + 1)
+  /// println(u.age)   // 37
+  /// ```
   public set<V>(obj: T, value: V): void { __reflectSet<T, V>(obj, id, value) }
 
   /// The field's value in `obj` as a string, as a class's default string form shows it.
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  ///
+  /// class Point {
+  ///   constructor(public x: int, public tags: string[]) {}
+  /// }
+  ///
+  /// const p = new Point(3, ["a", "b"])
+  /// const t = reflect.typeOf(p)
+  /// println(t.field("x")!.show(p))      // 3
+  /// println(t.field("tags")!.show(p))   // ["a", "b"]
+  /// ```
   public show(obj: T): string { __reflectShow<T>(obj, id) }
 
   /// As declared: `age: int`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { reflect } from "std/reflect"
+  ///
+  /// struct Config { port: int; host: string }
+  ///
+  /// for (const f of reflect.typeOf<Config>().fields) {
+  ///   println(f.toString())   // port: i64, then: host: string
+  /// }
+  /// ```
   public toString(): string { return `${name}: ${type.name}` }
 }
 

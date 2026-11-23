@@ -3,16 +3,93 @@
 // in the core library so the core's own decorators (`@derive`) can use them.
 
 /// The `${}`-spliceable arguments of a wrapped function's call.
+///
+/// @example
+/// ```ts
+/// import { FunctionDecl } from "std/meta"
+///
+/// decorator function logCalls(fn: FunctionDecl): void {
+///   fn.wrapBody((args, call) => `
+///     println("${fn.name}(" + [${args.list()}].join(", ") + ")")
+///     return ${call}
+///   `)
+/// }
+///
+/// @logCalls
+/// function add(a: int, b: int): int {
+///   return a + b
+/// }
+///
+/// println(add(2, 3))   // add(2, 3), then: 5
+/// ```
 class __Args {
   /// Made by the compiler for `wrapBody`. `names`: the parameters' names, in order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Args } from "std/meta"
+  ///
+  /// // The compiler makes these for `wrapBody`; a hand-made one shows what it splices.
+  /// const args = new Args(["x", "y"])
+  /// println(args.list())   // x, y
+  /// ```
   constructor(public names: string[]) {}
 
   /// The arguments as an argument list: `a, b`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl } from "std/meta"
+  ///
+  /// decorator function audited(fn: FunctionDecl): void {
+  ///   fn.wrapBody((args, call) => `
+  ///     audit("${fn.name}", [${args.list()}])
+  ///     return ${call}
+  ///   `)
+  /// }
+  ///
+  /// function audit(name: string, values: int[]): void {
+  ///   println(`${name} called with ${values.length} arguments`)
+  /// }
+  ///
+  /// @audited
+  /// function mul(a: int, b: int): int {
+  ///   return a * b
+  /// }
+  ///
+  /// println(mul(6, 7))   // mul called with 2 arguments, then: 42
+  /// ```
   public list(): string {
     this.names.join(", ")
   }
 
   /// Code computing a `u64` hash of the arguments (they must be `Hashable`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl } from "std/meta"
+  ///
+  /// decorator function memoize(fn: FunctionDecl): void {
+  ///   const cache = fn.addStatic("cache", `new Map<u64, ${fn.returnType}>()`)
+  ///   fn.wrapBody((args, call) => `
+  ///     const key = ${args.hashKey()}
+  ///     const hit = ${cache}.get(key)
+  ///     if (hit != null) return hit
+  ///     const v = ${call}
+  ///     ${cache}.set(key, v)
+  ///     return v
+  ///   `)
+  /// }
+  ///
+  /// @memoize
+  /// function slowSquare(n: int): int {
+  ///   println(`computing ${n}`)
+  ///   return n * n
+  /// }
+  ///
+  /// println(slowSquare(4))   // computing 4, then: 16
+  /// println(slowSquare(4))   // 16 (from the cache)
+  /// ```
   public hashKey(): string {
     if (this.names.length == 0) return "0u64"
     let key = `__hashOf(${this.names[0]})`
@@ -22,8 +99,33 @@ class __Args {
 }
 
 /// A decorated class or struct.
+///
+/// @example
+/// ```ts
+/// import { ClassDecl } from "std/meta"
+///
+/// decorator function describe(c: ClassDecl): void {
+///   c.addMethod(`public describe(): string { "${c.kind} ${c.name} with ${c.fieldNames.join(", ")}" }`)
+/// }
+///
+/// @describe
+/// class User {
+///   constructor(public id: int, public name: string) {}
+/// }
+///
+/// println(new User(1, "Ada").describe())   // class User with id, name
+/// ```
 class __ClassDecl {
   /// Made by the compiler for each use of a decorator; a decorator receives it.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// // The compiler makes one for each use of a decorator; a hand-made one shows what it holds.
+  /// const c = new ClassDecl(0, "Point", "struct", ["x", "y"], ["f64", "f64"], [], [])
+  /// println(c.hasField("x"))   // true
+  /// ```
   constructor(
     /// Which declaration this is (for the compiler).
     public id: int,
@@ -42,11 +144,45 @@ class __ClassDecl {
   ) {}
 
   /// The type as written inside its own declaration: `Box<T>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function withClone(c: ClassDecl): void {
+  ///   c.addMethod(`public clone(): ${c.selfType} { new ${c.selfType}(this.value) }`)
+  /// }
+  ///
+  /// @withClone
+  /// class Box<T> {
+  ///   constructor(public value: T) {}
+  /// }
+  ///
+  /// println(new Box<int>(7).clone().value)   // 7
+  /// ```
   public get selfType(): string {
     if (this.typeParams.length == 0) this.name else `${this.name}<${this.typeParams.join(", ")}>`
   }
 
   /// The instance fields, in declaration order: each one's name and type as written.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function schema(c: ClassDecl): void {
+  ///   const parts = c.fields.map((f) => `${f.name}: ${f.typeName}`)
+  ///   c.addMethod(`public static schema(): string { "${parts.join(", ")}" }`)
+  /// }
+  ///
+  /// @schema
+  /// struct Point {
+  ///   x: f64
+  ///   y: f64
+  /// }
+  ///
+  /// println(Point.schema())   // x: f64, y: f64
+  /// ```
   public get fields(): FieldInfo[] {
     const out: FieldInfo[] = []
     for (const i of 0..this.fieldNames.length) {
@@ -56,32 +192,135 @@ class __ClassDecl {
   }
 
   /// Whether the type declares an instance field called `name`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function entity(c: ClassDecl): void {
+  ///   if (!c.hasField("id")) c.error("entity classes need an `id` field")
+  /// }
+  ///
+  /// @entity
+  /// class Order {
+  ///   constructor(public id: int) {}
+  /// }
+  ///
+  /// println(new Order(7).id)   // 7
+  /// ```
   public hasField(name: string): bool {
     this.fieldNames.includes(name)
   }
 
   /// Whether the type declares an instance method called `name` (before any the decorators add).
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function printable(c: ClassDecl): void {
+  ///   if (!c.hasMethod("toString")) {
+  ///     c.addMethod(`public toString(): string { "<${c.name}>" }`)
+  ///   }
+  /// }
+  ///
+  /// @printable
+  /// class Token {
+  ///   constructor(public text: string) {}
+  /// }
+  ///
+  /// println(new Token("x").toString())   // <Token>
+  /// ```
   public hasMethod(name: string): bool {
     this.methodNames.includes(name)
   }
 
   /// Adds a member written as code: `toString(): string { … }` or `count: int = 0`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function counted(c: ClassDecl): void {
+  ///   c.addMember(`public hits: int = 0`)
+  ///   c.addMember(`public hit(): void { this.hits += 1 }`)
+  /// }
+  ///
+  /// @counted
+  /// class Page {
+  ///   constructor(public path: string) {}
+  /// }
+  ///
+  /// const p = new Page("/")
+  /// p.hit()
+  /// p.hit()
+  /// println(p.hits)   // 2
+  /// ```
   public addMember(code: string): void {
     __meta_emit(this.id, "member", code, "")
   }
 
   /// Adds a method written as code.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function greeter(c: ClassDecl): void {
+  ///   c.addMethod(`public greet(): string { "hello from ${c.name}" }`)
+  /// }
+  ///
+  /// @greeter
+  /// class Robot {}
+  ///
+  /// println(new Robot().greet())   // hello from Robot
+  /// ```
   public addMethod(code: string): void {
     this.addMember(code)
   }
 
   /// Adds a field written as code.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function versioned(c: ClassDecl): void {
+  ///   c.addField(`public version: int = 1`)
+  /// }
+  ///
+  /// @versioned
+  /// class Doc {
+  ///   constructor(public title: string) {}
+  /// }
+  ///
+  /// println(new Doc("notes").version)   // 1
+  /// ```
   public addField(code: string): void {
     this.addMember(code)
   }
 
   /// Hidden, once-initialized state only generated code can use; returns the name to splice
   /// into templates.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function numbered(c: ClassDecl): void {
+  ///   const next = c.addStatic("next", `[0]`)
+  ///   c.addMethod(`public static nextNumber(): int {
+  ///     ${next}[0] += 1
+  ///     return ${next}[0]
+  ///   }`)
+  /// }
+  ///
+  /// @numbered
+  /// class Ticket {}
+  ///
+  /// println(Ticket.nextNumber())   // 1
+  /// println(Ticket.nextNumber())   // 2
+  /// ```
   public addStatic(name: string, init: string): string {
     const n = `__${this.name}_${name}_${this.id}`
     __meta_emit(this.id, "static", n, init)
@@ -89,24 +328,101 @@ class __ClassDecl {
   }
 
   /// A compile error at the decorated declaration.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function needsId(c: ClassDecl): void {
+  ///   // On a class without `id` this stops the build, pointing at the class.
+  ///   if (!c.hasField("id")) c.error(`${c.name} needs an \`id\` field`)
+  /// }
+  ///
+  /// @needsId
+  /// class Customer {
+  ///   constructor(public id: int, public name: string) {}
+  /// }
+  ///
+  /// println(new Customer(1, "Ada").name)   // Ada
+  /// ```
   public error(message: string): void {
     __meta_emit(this.id, "error", message, "")
   }
 
   /// A compile warning at the decorated declaration (the build goes on).
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function deprecated(c: ClassDecl, instead: string): void {
+  ///   c.warn(`${c.name} is deprecated: use ${instead}`)   // a compile warning; the build goes on
+  /// }
+  ///
+  /// @deprecated("NewApi")
+  /// class OldApi {}
+  ///
+  /// println("built")   // built
+  /// ```
   public warn(message: string): void {
     __meta_emit(this.id, "warn", message, "")
   }
 
   /// A note (information, not a problem) at the decorated declaration.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl } from "std/meta"
+  ///
+  /// decorator function audited(c: ClassDecl): void {
+  ///   c.note(`${c.name}: ${c.fieldNames.length} fields audited`)   // shown when it compiles
+  /// }
+  ///
+  /// @audited
+  /// class Payment {
+  ///   constructor(public amount: int) {}
+  /// }
+  ///
+  /// println(new Payment(5).amount)   // 5
+  /// ```
   public note(message: string): void {
     __meta_emit(this.id, "note", message, "")
   }
 }
 
 /// A decorated function.
+///
+/// @example
+/// ```ts
+/// import { FunctionDecl } from "std/meta"
+///
+/// decorator function traced(fn: FunctionDecl): void {
+///   fn.wrapBody((args, call) => `
+///     println("enter ${fn.name}")
+///     const result = ${call}
+///     println("leave ${fn.name}")
+///     return result
+///   `)
+/// }
+///
+/// @traced
+/// function double(n: int): int {
+///   return n * 2
+/// }
+///
+/// println(double(21))   // enter double, leave double, then: 42
+/// ```
 class __FunctionDecl {
   /// Made by the compiler for each use of a decorator; a decorator receives it.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl } from "std/meta"
+  ///
+  /// // The compiler makes one for each use of a decorator; a hand-made one shows what it holds.
+  /// const fn = new FunctionDecl(0, "load", ["path"], ["string"], "string", true)
+  /// println(`${fn.name}(${fn.paramNames[0]}: ${fn.paramTypes[0]}): ${fn.returnType}`)   // load(path: string): string
+  /// ```
   constructor(
     /// Which declaration this is (for the compiler).
     public id: int,
@@ -123,6 +439,26 @@ class __FunctionDecl {
   ) {}
 
   /// The parameters, in order: each one's name and type as written.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl } from "std/meta"
+  ///
+  /// decorator function signature(fn: FunctionDecl): void {
+  ///   const ps = fn.params.map((p) => `${p.name}: ${p.typeName}`).join(", ")
+  ///   fn.wrapBody((args, call) => `
+  ///     println("${fn.name}(${ps})")
+  ///     return ${call}
+  ///   `)
+  /// }
+  ///
+  /// @signature
+  /// function area(w: f64, h: f64): f64 {
+  ///   return w * h
+  /// }
+  ///
+  /// println(area(2.0, 3.0))   // area(w: f64, h: f64), then: 6
+  /// ```
   public get params(): FieldInfo[] {
     const out: FieldInfo[] = []
     for (const i of 0..this.paramNames.length) {
@@ -133,6 +469,26 @@ class __FunctionDecl {
 
   /// Replaces the body with the code `f` returns: `f` gets the arguments and the code that
   /// calls the original body with them (`call`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl } from "std/meta"
+  ///
+  /// decorator function clampResult(fn: FunctionDecl, max: int): void {
+  ///   fn.wrapBody((args, call) => `
+  ///     const v = ${call}
+  ///     return if (v > ${max}) ${max} else v
+  ///   `)
+  /// }
+  ///
+  /// @clampResult(100)
+  /// function score(hits: int): int {
+  ///   return hits * 30
+  /// }
+  ///
+  /// println(score(2))   // 60
+  /// println(score(5))   // 100
+  /// ```
   public wrapBody(f: (args: __Args, call: string) => string): void {
     const call = `__orig(${this.paramNames.join(", ")})`
     __meta_emit(this.id, "wrap", f(new __Args(this.paramNames), call), "")
@@ -140,6 +496,28 @@ class __FunctionDecl {
 
   /// Hidden, once-initialized state only generated code can use; returns the name to splice
   /// into templates.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl } from "std/meta"
+  ///
+  /// decorator function countCalls(fn: FunctionDecl): void {
+  ///   const calls = fn.addStatic("calls", `[0]`)
+  ///   fn.wrapBody((args, call) => `
+  ///     ${calls}[0] += 1
+  ///     println("call #" + ${calls}[0])
+  ///     return ${call}
+  ///   `)
+  /// }
+  ///
+  /// @countCalls
+  /// function ping(): string {
+  ///   return "pong"
+  /// }
+  ///
+  /// ping()   // call #1
+  /// ping()   // call #2
+  /// ```
   public addStatic(name: string, init: string): string {
     const n = `__${this.name}_${name}_${this.id}`
     __meta_emit(this.id, "static", n, init)
@@ -147,16 +525,65 @@ class __FunctionDecl {
   }
 
   /// A compile error at the decorated declaration.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl } from "std/meta"
+  ///
+  /// decorator function pure(fn: FunctionDecl): void {
+  ///   // On an async function this stops the build, pointing at the function.
+  ///   if (fn.isAsync) fn.error(`${fn.name} can't be pure: it's async`)
+  /// }
+  ///
+  /// @pure
+  /// function sum(a: int, b: int): int {
+  ///   return a + b
+  /// }
+  ///
+  /// println(sum(1, 2))   // 3
+  /// ```
   public error(message: string): void {
     __meta_emit(this.id, "error", message, "")
   }
 
   /// A compile warning at the decorated declaration (the build goes on).
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl } from "std/meta"
+  ///
+  /// decorator function slow(fn: FunctionDecl): void {
+  ///   fn.warn(`${fn.name} is slow; don't call it in a loop`)   // a compile warning; the build goes on
+  /// }
+  ///
+  /// @slow
+  /// function fib(n: int): int {
+  ///   return if (n < 2) n else fib(n - 1) + fib(n - 2)
+  /// }
+  ///
+  /// println(fib(10))   // 55
+  /// ```
   public warn(message: string): void {
     __meta_emit(this.id, "warn", message, "")
   }
 
   /// A note (information, not a problem) at the decorated declaration.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl } from "std/meta"
+  ///
+  /// decorator function endpoint(fn: FunctionDecl, path: string): void {
+  ///   fn.note(`${fn.name} serves ${path}`)   // shown when it compiles
+  /// }
+  ///
+  /// @endpoint("/health")
+  /// function health(): string {
+  ///   return "ok"
+  /// }
+  ///
+  /// println(health())   // ok
+  /// ```
   public note(message: string): void {
     __meta_emit(this.id, "note", message, "")
   }
@@ -164,8 +591,29 @@ class __FunctionDecl {
 
 /// The AST builder: code for generated declarations, built piece by piece (each piece is
 /// code text, so it splices into templates too: `${ast.string(fn.name)}`).
+///
+/// @example
+/// ```ts
+/// import { ClassDecl, ast } from "std/meta"
+///
+/// decorator function named(c: ClassDecl): void {
+///   c.addMethod(ast.typedMethod("typeName", [], "string", ast.returns(ast.string(c.name))))
+/// }
+///
+/// @named
+/// class Invoice {}
+///
+/// println(new Invoice().typeName())   // Invoice
+/// ```
 class __ast {
   /// A string literal: `ast.string("a\"b")` is `"a\"b"`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.string("say \"hi\""))   // "say \"hi\""
+  /// ```
   public static string(s: string): string {
     let out = "\""
     for (const c of s) {
@@ -182,16 +630,37 @@ class __ast {
   }
 
   /// An integer literal: `ast.int(42)` is `42`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.int(42))   // 42
+  /// ```
   public static int(n: i64): string {
     return `${n}`
   }
 
   /// A boolean literal: `true` or `false`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.bool(true))   // true
+  /// ```
   public static bool(b: bool): string {
     if (b) "true" else "false"
   }
 
   /// A name, checked to be an identifier.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.ident("count"))   // count
+  /// ```
   public static ident(name: string): string {
     let ok = name.length > 0
     let first = true
@@ -206,51 +675,146 @@ class __ast {
   }
 
   /// `this.name`
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.field("name"))   // this.name
+  /// ```
   public static field(name: string): string {
     return `this.${__ast.ident(name)}`
   }
 
   /// `object.name`
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.member("user", "email"))   // user.email
+  /// ```
   public static member(object: string, name: string): string {
     return `${object}.${__ast.ident(name)}`
   }
 
   /// `callee(a, b)`
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.call("max", "a", ast.int(0)))   // max(a, 0)
+  /// ```
   public static call(callee: string, ...args: string[]): string {
     return `${callee}(${args.join(", ")})`
   }
 
   /// `(left op right)`
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.binary("a", "*", ast.int(2)))   // (a * 2)
+  /// ```
   public static binary(left: string, op: string, right: string): string {
     return `(${left} ${op} ${right})`
   }
 
   /// `a + b + …` of strings, as one string expression (`""` for none).
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.concat(ast.string("id="), ast.field("id")))   // ("id=" + this.id)
+  /// ```
   public static concat(...parts: string[]): string {
     if (parts.length == 0) "\"\"" else `(${parts.join(" + ")})`
   }
 
   /// `return value`
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.returns(ast.field("total")))   // return this.total
+  /// ```
   public static returns(value: string): string {
     return `return ${value}`
   }
 
   /// `const name = value`
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// println(ast.constant("limit", ast.int(10)))   // const limit = 10
+  /// ```
   public static constant(name: string, value: string): string {
     return `const ${__ast.ident(name)} = ${value}`
   }
 
   /// `{ statements }`
+  ///
+  /// @example
+  /// ```ts
+  /// import { ast } from "std/meta"
+  ///
+  /// const code = ast.block(ast.constant("x", ast.int(1)), ast.returns("x"))
+  /// println(code)
+  /// // {
+  /// // const x = 1
+  /// // return x
+  /// // }
+  /// ```
   public static block(...statements: string[]): string {
     return `{\n${statements.join("\n")}\n}`
   }
 
   /// A public method without parameters: `name() { statements }`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl, ast } from "std/meta"
+  ///
+  /// decorator function resettable(c: ClassDecl): void {
+  ///   c.addMethod(ast.method("reset", `${ast.field("count")} = 0`))
+  /// }
+  ///
+  /// @resettable
+  /// class Counter {
+  ///   public count: int = 5
+  /// }
+  ///
+  /// const k = new Counter()
+  /// k.reset()
+  /// println(k.count)   // 0
+  /// ```
   public static method(name: string, ...statements: string[]): string {
     return `public ${__ast.ident(name)}() {\n${statements.join("\n")}\n}`
   }
 
   /// A public method with parameters (`"x: i64"`, …) and a return type.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl, ast } from "std/meta"
+  ///
+  /// decorator function scaled(c: ClassDecl): void {
+  ///   c.addMethod(ast.typedMethod("scaled", ["k: i64"], "i64", ast.returns(ast.binary(ast.field("n"), "*", "k"))))
+  /// }
+  ///
+  /// @scaled
+  /// class Amount {
+  ///   constructor(public n: i64) {}
+  /// }
+  ///
+  /// println(new Amount(5).scaled(3))   // 15
+  /// ```
   public static typedMethod(name: string, params: string[], returns: string, ...statements: string[]): string {
     return `public ${__ast.ident(name)}(${params.join(", ")}): ${returns} {\n${statements.join("\n")}\n}`
   }
