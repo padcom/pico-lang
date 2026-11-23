@@ -5,6 +5,15 @@
 
 /// A CRC algorithm. `poly` is the polynomial without its top bit, written most significant bit
 /// first (CRC-32's is 0x04C11DB7) whether or not the CRC is reflected.
+///
+/// @example
+/// ```ts
+/// import { CrcSpec, crc } from "std/checksum"
+///
+/// // CRC-16/AUG-CCITT, which the module doesn't predefine
+/// const AUG_CCITT: CrcSpec = { width: 16, poly: 0x1021, init: 0x1D0F, reflected: false, xorOut: 0 }
+/// println(`${crc(new TextEncoder().encode("123456789"), AUG_CCITT):#X}`)   // 0xE5CC
+/// ```
 export struct CrcSpec {
   /// Bits: 8 to 32.
   width: int
@@ -85,6 +94,16 @@ function tableOf(spec: CrcSpec): int[] {
 /// ```ts
 /// const c = new Crc(CRC16_MCRF4XX).update(header).updateByte(crcExtra)
 /// ```
+///
+/// @example
+/// ```ts
+/// import { Crc, CRC16_MCRF4XX } from "std/checksum"
+///
+/// const c = new Crc(CRC16_MCRF4XX)
+/// c.update(new TextEncoder().encode("12345"))
+/// c.update(new TextEncoder().encode("6789"))
+/// println(`${c.value:#X}`)   // 0x6F91
+/// ```
 export class Crc {
   public readonly spec: CrcSpec
   table: int[]
@@ -93,6 +112,16 @@ export class Crc {
 
   /// A CRC of no bytes yet; or, with `previous`, carrying on after bytes whose CRC was `previous`
   /// (`crc(b, spec, crc(a, spec))` is the CRC of `a` then `b`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Crc, CRC32, crc32 } from "std/checksum"
+  ///
+  /// const first = crc32(new TextEncoder().encode("12345"))
+  /// const c = new Crc(CRC32, first)   // carries on after "12345"
+  /// c.update(new TextEncoder().encode("6789"))
+  /// println(`${c.value:#X}`)   // 0xCBF43926
+  /// ```
   constructor(spec: CrcSpec, previous: int? = null) {
     if (spec.width < 8 || spec.width > 32) {
       panic(`Crc: width ${spec.width} isn't 8 to 32 bits`)
@@ -106,6 +135,14 @@ export class Crc {
   }
 
   /// Takes `bytes` in.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Crc, CRC16_MODBUS } from "std/checksum"
+  ///
+  /// const c = new Crc(CRC16_MODBUS).update(new TextEncoder().encode("123456789"))
+  /// println(`${c.value:#X}`)   // 0x4B37
+  /// ```
   public update(bytes: Uint8Array): Crc {
     let r = register
     const t = table
@@ -125,6 +162,15 @@ export class Crc {
   }
 
   /// Takes one byte (`b`'s low 8 bits) in.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Crc, CRC8 } from "std/checksum"
+  ///
+  /// const c = new Crc(CRC8)
+  /// for (const b of [0x31, 0x32, 0x33]) c.updateByte(b)
+  /// println(c.value)   // 192
+  /// ```
   public updateByte(b: int): Crc {
     if (spec.reflected) {
       register = table[(register ^ b) & 0xFF] ^ (register >> 8)
@@ -135,22 +181,61 @@ export class Crc {
   }
 
   /// The CRC of the bytes so far.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Crc, CRC32 } from "std/checksum"
+  ///
+  /// const c = new Crc(CRC32)
+  /// println(c.value)   // 0
+  /// c.update(new TextEncoder().encode("123456789"))
+  /// println(`${c.value:#X}`)   // 0xCBF43926
+  /// ```
   public get value(): int {
     return (register ^ spec.xorOut) & mask
   }
 
   /// Starts again with no bytes.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Crc, CRC16_XMODEM } from "std/checksum"
+  ///
+  /// const c = new Crc(CRC16_XMODEM).update(new TextEncoder().encode("junk"))
+  /// c.reset()
+  /// c.update(new TextEncoder().encode("123456789"))
+  /// println(`${c.value:#X}`)   // 0x31C3
+  /// ```
   public reset(): void {
     register = spec.init & mask
   }
 }
 
 /// The CRC of `bytes` (by default CRC-32), carrying on from `previous` if given.
+///
+/// @example
+/// ```ts
+/// import { crc, CRC16_MODBUS, CRC8 } from "std/checksum"
+///
+/// const data = new TextEncoder().encode("123456789")
+/// println(`${crc(data):#X}`)                 // 0xCBF43926
+/// println(`${crc(data, CRC16_MODBUS):#X}`)   // 0x4B37
+/// println(`${crc(data, CRC8):#X}`)           // 0xF4
+/// ```
 export function crc(bytes: Uint8Array, spec: CrcSpec = CRC32, previous: int? = null): int {
   return new Crc(spec, previous).update(bytes).value
 }
 
 /// zlib's `crc32(previous, bytes)`: CRC-32 of `bytes`, carrying on from `previous` (0: none).
+///
+/// @example
+/// ```ts
+/// import { crc32 } from "std/checksum"
+///
+/// const a = new TextEncoder().encode("12345")
+/// const b = new TextEncoder().encode("6789")
+/// println(`${crc32(b, crc32(a)):#X}`)   // 0xCBF43926
+/// ```
 export function crc32(bytes: Uint8Array, previous: int = 0): int {
   return new Crc(CRC32, previous).update(bytes).value
 }

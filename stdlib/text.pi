@@ -4,6 +4,14 @@
 /// The edit distance between `a` and `b`: the fewest insertions, deletions, substitutions and
 /// swaps of two neighbouring characters that turn one into the other (Damerau-Levenshtein, as
 /// optimal string alignment: no substring is edited twice). Characters are code points.
+///
+/// @example
+/// ```ts
+/// import { editDistance } from "std/text"
+///
+/// println(editDistance("kitten", "sitting"))   // 3
+/// println(editDistance("teh", "the"))          // 1
+/// ```
 export function editDistance(a: string, b: string): int {
   const x: char[] = []
   for (const c of a) x.push(c)
@@ -32,6 +40,14 @@ export function editDistance(a: string, b: string): int {
 /// each after the first starting with an upper-case letter; letters are otherwise kept as they
 /// are. `camelCase("pizza-type")` is `"pizzaType"`, `camelCase("max_retry count")`
 /// `"maxRetryCount"`.
+///
+/// @example
+/// ```ts
+/// import { camelCase } from "std/text"
+///
+/// println(camelCase("pizza-type"))        // pizzaType
+/// println(camelCase("max_retry count"))   // maxRetryCount
+/// ```
 export function camelCase(s: string, separators: string = "-_ "): string {
   const words = splitAt(s, separators)
   let out = words[0]
@@ -45,12 +61,28 @@ export function camelCase(s: string, separators: string = "-_ "): string {
 /// `s` in kebab case: its words in lower case, joined with `-`. Words are separated by `-`, `_`
 /// and whitespace, and where a lower-case letter or a digit meets an upper-case one (`fooBar`) or
 /// an upper-case run ends (`HTTPServer`). `kebabCase("pizzaType")` is `"pizza-type"`.
+///
+/// @example
+/// ```ts
+/// import { kebabCase } from "std/text"
+///
+/// println(kebabCase("pizzaType"))         // pizza-type
+/// println(kebabCase("HTTPServerError"))   // http-server-error
+/// ```
 export function kebabCase(s: string): string {
   return words(s).join("-")
 }
 
 /// `s` in snake case: its words (as `kebabCase` finds them) in lower case, joined with `_`.
 /// `snakeCase("maxRetryCount")` is `"max_retry_count"`.
+///
+/// @example
+/// ```ts
+/// import { snakeCase } from "std/text"
+///
+/// println(snakeCase("maxRetryCount"))   // max_retry_count
+/// println(snakeCase("Content-Type"))    // content_type
+/// ```
 export function snakeCase(s: string): string {
   return words(s).join("_")
 }
