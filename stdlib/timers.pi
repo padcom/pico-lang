@@ -4,6 +4,22 @@
 
 /// Settles after `ms` milliseconds; rejects with `AbortError` as soon as `signal` is aborted
 /// (right away if it already is), and the timer is cleared.
+///
+/// @example
+/// ```ts
+/// import { delay } from "std/timers"
+///
+/// await delay(10)
+/// println("10 ms later")   // 10 ms later
+///
+/// const ac = new AbortController()
+/// ac.abort()
+/// try {
+///   await delay(1000, ac.signal)
+/// } catch (e: AbortError) {
+///   println("aborted")     // aborted
+/// }
+/// ```
 export function delay(ms: int, signal: AbortSignal? = null): Promise<void, AbortError> {
   const p = new Promise<void, AbortError>()
   if (signal != null) {
@@ -28,10 +44,32 @@ export function delay(ms: int, signal: AbortSignal? = null): Promise<void, Abort
 }
 
 /// What `withTimeout` rejects with when the time runs out.
+///
+/// @example
+/// ```ts
+/// import { withTimeout, delay, TimeoutError } from "std/timers"
+///
+/// try {
+///   await withTimeout(delay(1000), 20)
+/// } catch (e: Error) {
+///   if (e instanceof TimeoutError) {
+///     println(e.message)   // timed out after 20 ms
+///     println(e.ms)        // 20
+///   }
+/// }
+/// ```
 export class TimeoutError extends Error {
   /// The time that ran out, in milliseconds.
   public ms: int
 
+  /// @example
+  /// ```ts
+  /// import { TimeoutError } from "std/timers"
+  ///
+  /// const e = new TimeoutError(500)
+  /// println(e.message)   // timed out after 500 ms
+  /// println(e.ms)        // 500
+  /// ```
   constructor(ms: int) {
     super(`timed out after ${ms} ms`)
     this.ms = ms
@@ -41,6 +79,24 @@ export class TimeoutError extends Error {
 /// `promise`'s value or error if it settles within `ms` milliseconds, else a `TimeoutError`. The
 /// work isn't stopped, only no longer waited for (give it an `AbortSignal` to stop it); a failure
 /// it has later is ignored.
+///
+/// @example
+/// ```ts
+/// import { withTimeout, delay } from "std/timers"
+///
+/// async function fetchName(): Promise<string> throws AbortError {
+///   await delay(5)
+///   return "done"
+/// }
+///
+/// println(await withTimeout(fetchName(), 1000))   // done
+///
+/// try {
+///   await withTimeout(delay(1000), 20)
+/// } catch (e: Error) {
+///   println(e.message)   // timed out after 20 ms
+/// }
+/// ```
 export function withTimeout<T, E extends Error>(promise: Promise<T, E>, ms: int): Promise<T, Error> {
   const out = new Promise<T, Error>()
   const id = setTimeout(() => out.__reject(new TimeoutError(ms)), ms)

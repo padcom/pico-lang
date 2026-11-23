@@ -5,6 +5,17 @@
 
 /// A snapshot of the current thread's collector counters (each thread has its own heap). Sizes
 /// are in bytes, pauses in nanoseconds; all are 0 in the interpreter.
+///
+/// @example
+/// ```ts
+/// import { gc, GcStats } from "std/gc"
+///
+/// const words = ["a", "b", "c"].map((w: string) => w + "!")
+/// const s: GcStats = gc.stats()
+/// println(s.allocatedBytes > 0)   // true (false in the interpreter)
+/// println(`${s.collections} full, ${s.youngCollections} young collections so far`)   // e.g. 0 full, 0 young collections so far
+/// println(words.length)   // 3
+/// ```
 export struct GcStats {
   /// Memory the heap holds from the system (its blocks and large objects).
   heapSize: int
@@ -27,19 +38,82 @@ export struct GcStats {
 
 /// The collector's controls, as static methods: `gc.collect()`, `gc.pause()`, `gc.stats()`, ….
 /// In the interpreter they do nothing.
+///
+/// @example
+/// ```ts
+/// import { gc } from "std/gc"
+///
+/// gc.collect()
+/// const s = gc.stats()
+/// println(`${s.collections} collection(s), max pause ${s.maxPause} ns`)   // e.g. 1 collection(s), max pause 458 ns
+/// ```
 export class gc {
   /// A full collection now (also while paused); clears every weak reference whose target is
   /// unreachable.
+  ///
+  /// @example
+  /// ```ts
+  /// import { gc } from "std/gc"
+  ///
+  /// let junk: int[] = []
+  /// for (let i = 0; i < 1000; i++) {
+  ///   junk = [i, i + 1]
+  /// }
+  /// gc.collect()
+  /// println(gc.stats().collections >= 1)   // true (false in the interpreter)
+  /// ```
   public static collect() { __gc_collect() }
   /// Collects the nursery only.
+  ///
+  /// @example
+  /// ```ts
+  /// import { gc } from "std/gc"
+  ///
+  /// gc.collectYoung()
+  /// println(gc.stats().youngCollections >= 1)   // true (false in the interpreter)
+  /// ```
   public static collectYoung() { __gc_collect_young() }
   /// No automatic collections until the matching `resume()` (calls nest). Explicit
   /// `collect()` and `collectYoung()` still run.
+  ///
+  /// @example
+  /// ```ts
+  /// import { gc } from "std/gc"
+  ///
+  /// gc.pause()   // no automatic collections until resume()
+  /// let total = 0
+  /// for (let i = 0; i < 100; i++) {
+  ///   const frame = [i, i * 2, i * 3]
+  ///   total += frame[2]
+  /// }
+  /// gc.resume()
+  /// println(total)   // 14850
+  /// ```
   public static pause() { __gc_pause() }
   /// Ends one `pause()`; after the outermost one, automatic collections resume at the next
   /// safepoint. Extra calls do nothing.
+  ///
+  /// @example
+  /// ```ts
+  /// import { gc } from "std/gc"
+  ///
+  /// gc.pause()
+  /// const items = ["a", "b", "c"].map((s: string) => s.toUpperCase())
+  /// gc.resume()   // automatic collections run again
+  /// println(items.join(","))   // A,B,C
+  /// ```
   public static resume() { __gc_resume() }
   /// The current counters.
+  ///
+  /// @example
+  /// ```ts
+  /// import { gc } from "std/gc"
+  ///
+  /// const before = gc.stats().allocatedBytes
+  /// const xs = [1, 2, 3, 4, 5]
+  /// const after = gc.stats().allocatedBytes
+  /// println(after - before)   // e.g. 64 (0 in the interpreter)
+  /// ```
   public static stats(): GcStats {
     return GcStats {
       heapSize: __gc_stat(0),
@@ -54,8 +128,26 @@ export class gc {
   }
   /// Restarts the pause statistics (`lastPause`, `maxPause`, `totalPause`), e.g. after
   /// loading, to measure a frame loop.
+  ///
+  /// @example
+  /// ```ts
+  /// import { gc } from "std/gc"
+  ///
+  /// gc.collect()
+  /// gc.resetStats()
+  /// println(gc.stats().maxPause)   // 0
+  /// ```
   public static resetStats() { __gc_stat(-1) }
   /// Debugging: prints the GC roots that hold references to standard output (named locals per
   /// active function, innermost first, then globals).
+  ///
+  /// @example
+  /// ```ts
+  /// import { gc } from "std/gc"
+  ///
+  /// const names = ["ada", "grace"]
+  /// gc.dumpRoots()   // prints the roots, e.g. `names` (nothing in the interpreter)
+  /// println(names.length)   // 2
+  /// ```
   public static dumpRoots() { __gc_dump_roots() }
 }
