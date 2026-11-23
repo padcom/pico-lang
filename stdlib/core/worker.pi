@@ -2,8 +2,28 @@
 // nothing; messages are deep-copied. The runtime side is `runtime/src/pico_worker.c`.
 
 /// A worker ended by a panic or an uncaught error (`Worker.onerror`).
+///
+/// @example
+/// ```ts
+/// const w = new Worker((n: int): int => {
+///   if (n < 0) panic("negative input")
+///   return n * 2
+/// })
+/// w.onerror = (e: WorkerPanicked) => println(`worker died: ${e.message}`)   // worker died: negative input
+/// try {
+///   println(await w.call(-1))
+/// } catch (e: WorkerPanicked) {
+///   println(`call failed: ${e.message}`)   // call failed: negative input
+/// }
+/// ```
 class WorkerPanicked extends Error {
   /// A `WorkerPanicked` with the panic's or the uncaught error's `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new WorkerPanicked("the worker was terminated")
+  /// println(e.message)   // the worker was terminated
+  /// ```
   constructor(message: string) {
     super(message)
   }
@@ -25,6 +45,21 @@ struct __Reply<T> {
 /// path into the module's id). It receives `In`s and sends `Out`s. An inline worker,
 /// `new Worker(f)`, runs a capture-free function: `await w.call(x)` is `f(x)`, computed in
 /// the worker (throwing what `f` throws, `E`).
+///
+/// @example
+/// ```ts
+/// const w = new Worker((n: i64): i64 => {
+///   let a: i64 = 0
+///   let b: i64 = 1
+///   for (let i = 0; i < n; i++) {
+///     const t = a + b
+///     a = b
+///     b = t
+///   }
+///   return a
+/// })
+/// println(await w.call(50))   // 12586269025
+/// ```
 class Worker<In extends Sendable, Out extends Sendable, E extends Error = never> {
   handle: int
   /// Called with each message the worker sends (inline workers' replies settle `call`'s promises
@@ -39,6 +74,21 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
   nextCall: int = 1
 
   /// (`new Worker("./job")`: `module` is the module's id; `kind` is 0.)
+  ///
+  /// @example
+  /// ```ts
+  /// // The path names a worker module, e.g. "./job" for job.pi beside this file:
+  /// //   import { self } from "std/worker"
+  /// //   self.onmessage = (n: int) => self.postMessage(n * n)
+  /// // (This example names "std/worker" so it compiles on its own.)
+  /// function start(): Worker<int, int> {
+  ///   const w = new Worker<int, int>("std/worker")
+  ///   w.onmessage = (n: int) => println(`got ${n}`)
+  ///   w.onerror = (e: WorkerPanicked) => println(`worker died: ${e.message}`)
+  ///   w.postMessage(7)
+  ///   return w
+  /// }
+  /// ```
   constructor(module: int, _kind: int) {
     this.handle = __worker_op(1, module)
     __theLoop().channels.set(this.handle, () => this.__deliver())
@@ -46,6 +96,12 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
 
   /// `new Worker(f)`: an inline worker that serves `call`s with `f`, a capture-free function copied
   /// to the worker. While no call is pending it doesn't keep the program running.
+  ///
+  /// @example
+  /// ```ts
+  /// const w = new Worker((s: string): int => s.length)
+  /// println(await w.call("hello"))   // 5
+  /// ```
   constructor(f: (input: In) => Out throws E) {
     this.inline = true
     this.handle = __worker_op(8, 0)
@@ -67,6 +123,18 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
   }
 
   /// An inline worker's `f(input)`, computed in the worker.
+  ///
+  /// @example
+  /// ```ts
+  /// const w = new Worker((xs: int[]): int => {
+  ///   let sum = 0
+  ///   for (const x of xs) sum += x
+  ///   return sum
+  /// })
+  /// const [a, b] = await Promise.all([w.call([1, 2, 3]), w.call([10, 20])])
+  /// println(a)   // 6
+  /// println(b)   // 30
+  /// ```
   public call(input: In): Promise<Out, E> {
     const p = new Promise<Out, E>()
     const id = this.nextCall
@@ -78,6 +146,15 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
   }
 
   /// Sends a copy of `message` to the worker (`options.transfer`: buffers moved instead).
+  ///
+  /// @example
+  /// ```ts
+  /// // `w` runs a worker module (`new Worker<ArrayBuffer, int>("./job")`) that takes byte buffers.
+  /// function send(w: Worker<ArrayBuffer, int>): void {
+  ///   const frame = new ArrayBuffer(1 << 20)
+  ///   w.postMessage(frame, { transfer: [frame] })   // moved, not copied: `frame` is detached here
+  /// }
+  /// ```
   public postMessage(message: In, options: TransferOptions? = null): void {
     __worker_post(this.handle, message, __transfer(options))
     __detachAll(options)
@@ -85,6 +162,19 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
 
   /// Stops the worker (right away: at its next safepoint). Pending `call`s reject with a
   /// `WorkerPanicked`.
+  ///
+  /// @example
+  /// ```ts
+  /// const w = new Worker((n: int): int => n + 1)
+  /// println(await w.call(1))   // 2
+  /// const p = w.call(2)
+  /// w.terminate()
+  /// try {
+  ///   println(await p)
+  /// } catch (e: WorkerPanicked) {
+  ///   println(e.message)   // the worker was terminated
+  /// }
+  /// ```
   public terminate(): void {
     __worker_op(4, this.handle)
     __theLoop().channels.delete(this.handle)
@@ -172,8 +262,19 @@ function __inlineWorkerMain(): void {
 }
 
 /// What the machine offers (`navigator.hardwareConcurrency`, as on the Web).
+///
+/// @example
+/// ```ts
+/// const n = navigator.hardwareConcurrency
+/// println(`up to ${n} workers in parallel`)   // e.g. up to 8 workers in parallel
+/// ```
 class navigator {
   /// The number of processors.
+  ///
+  /// @example
+  /// ```ts
+  /// println(navigator.hardwareConcurrency > 0)   // true
+  /// ```
   public static get hardwareConcurrency(): int {
     __worker_op(11, 0)
   }

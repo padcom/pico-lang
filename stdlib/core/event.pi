@@ -192,11 +192,27 @@ function __theLoop(): __Loop {
 }
 
 /// Calls `f` after `ms` milliseconds (at the earliest); the id cancels it.
+///
+/// @example
+/// ```ts
+/// setTimeout(() => println("later"), 10)
+/// println("now")   // now, then: later
+/// ```
 function setTimeout(f: () => void, ms: int = 0): int {
   __theLoop().addTimer(f, ms, -1)
 }
 
 /// Calls `f` every `ms` milliseconds until cleared.
+///
+/// @example
+/// ```ts
+/// let ticks = 0
+/// const id: int = setInterval(() => {
+///   ticks += 1
+///   println(`tick ${ticks}`)   // tick 1, tick 2, tick 3
+///   if (ticks == 3) clearInterval(id)
+/// }, 5)
+/// ```
 function setInterval(f: () => void, ms: int = 0): int {
   const period = if (ms > 0) ms else 1
   __theLoop().addTimer(f, period, period)
@@ -204,16 +220,42 @@ function setInterval(f: () => void, ms: int = 0): int {
 
 /// Cancels the `setTimeout` call whose id is `id` (nothing happens if it already ran or was
 /// cleared).
+///
+/// @example
+/// ```ts
+/// const id = setTimeout(() => println("never printed"), 10)
+/// clearTimeout(id)
+/// println("cancelled")   // cancelled
+/// ```
 function clearTimeout(id: int): void {
   __theLoop().clear(id)
 }
 
 /// Stops the `setInterval` calls whose id is `id`.
+///
+/// @example
+/// ```ts
+/// let n = 0
+/// const id: int = setInterval(() => {
+///   n += 1
+/// }, 5)
+/// setTimeout(() => {
+///   clearInterval(id)
+///   println(n > 0)   // true
+/// }, 30)
+/// ```
 function clearInterval(id: int): void {
   __theLoop().clear(id)
 }
 
 /// Runs `f` once the current task (and the microtasks before it) has finished.
+///
+/// @example
+/// ```ts
+/// setTimeout(() => println("timer"), 0)
+/// queueMicrotask(() => println("microtask"))
+/// println("sync")   // sync, then: microtask, timer
+/// ```
 function queueMicrotask(f: () => void): void {
   __theLoop().microtasks.push(f)
 }
