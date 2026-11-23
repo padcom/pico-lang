@@ -6,21 +6,69 @@
 /// plain data (no references), which the collector doesn't trace and which stays valid until
 /// `free()`. Pointers into it dangle afterwards (undefined behavior). The scoped `arena { … }`
 /// block needs none of this.
+///
+/// @example
+/// ```ts
+/// struct Particle {
+///   x: f32
+///   y: f32
+/// }
+///
+/// unsafe {
+///   const a = new Arena(4096)
+///   const p = a.alloc<Particle>(100)
+///   (p + 1).write(Particle { x: 1.5, y: 2.0 })
+///   println((p + 1).read().x)   // 1.5
+///   a.free()
+/// }
+/// ```
 class Arena {
   handle: int
 
   /// An arena that reserves memory in chunks of `capacity` bytes (4096 if it isn't positive;
   /// a bigger allocation gets a chunk of its own).
+  ///
+  /// @example
+  /// ```ts
+  /// unsafe {
+  ///   const a = new Arena(1 << 16)
+  ///   const xs = a.alloc<i32>(1000)
+  ///   println(xs.read())   // 0
+  ///   a.free()
+  /// }
+  /// ```
   constructor(capacity: int) {
     this.handle = __raw_arena_new(capacity)
   }
 
   /// Room for `count` zeroed `T`s (plain data: no references), as a pointer to the first.
+  ///
+  /// @example
+  /// ```ts
+  /// unsafe {
+  ///   const a = new Arena(1024)
+  ///   const counts = a.alloc<u64>(4)
+  ///   (counts + 2).write(7u64)
+  ///   println((counts + 2).read())   // 7
+  ///   a.free()
+  /// }
+  /// ```
   public alloc<T>(count: int): ptr<T> {
     unsafe { __raw_arena_alloc<T>(this.handle, count) }
   }
 
   /// Frees everything allocated from this arena.
+  ///
+  /// @example
+  /// ```ts
+  /// unsafe {
+  ///   const a = new Arena(4096)
+  ///   const p = a.alloc<f64>(8)
+  ///   p.write(3.5)
+  ///   println(p.read())   // 3.5
+  ///   a.free()   // `p` dangles from here on
+  /// }
+  /// ```
   public free(): void {
     __raw_arena_free(this.handle)
     this.handle = 0
