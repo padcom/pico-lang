@@ -405,10 +405,20 @@ or `"manual"`, `"error"`; 303, and 301/302 after a POST, become a GET) and rejec
 `TypeError` on network failures (`fetch failed: connection refused: 127.0.0.1:9`, with the
 `NetError` as `cause`), never for HTTP error statuses. `https:` uses TLS (1.2 and 1.3, Mbed
 TLS) and checks the server's certificate and name against the system's roots (`SSL_CERT_FILE`/
-`SSL_CERT_DIR`, else the usual bundles such as `/etc/ssl/cert.pem`); a failure is a `NetError`
+`SSL_CERT_DIR`, else the usual bundles such as `/etc/ssl/cert.pem`; on Windows the ROOT store;
+on macOS the bundle and the Keychain's roots: its anchors and the certificates with trust
+settings in the admin and user domains, where corporate and custom roots go; `PICO_TLS_DEBUG=1`
+prints where they came from, #137); a failure is a `NetError`
 of kind `TlsError` (`TLS: certificate verification failed: …`). `RequestInit` is `{ method,
-headers, body, redirect, caCerts }` (`caCerts`, a pico extension: extra PEM certificates to
-trust), `ResponseInit` `{ status,
+headers, body, redirect, signal, caCerts, timeout, connectTimeout, maxBodyBytes }` (and a
+`Request` keeps them). `signal`, an `AbortSignal` as on the Web, cancels the fetch: it rejects
+with the signal's `AbortError` and closes the connection. The others are pico extensions:
+`caCerts`, extra PEM certificates to trust; `timeout`, milliseconds for the whole fetch,
+redirects and body included, and `connectTimeout`, for making each connection, TLS handshake
+included, both rejecting with an `AbortError` whose `cause` says what timed out;
+`maxBodyBytes`, the largest response body, rejecting with a `TypeError` before reading one whose
+`content-length` is larger and as soon as a chunked or unsized body passes it (#136). The
+response body is read whole before `fetch` resolves. `ResponseInit` `{ status,
 statusText, headers }`; a body (`BodyInit`) is a `string` (`text/plain;charset=UTF-8`), a
 `Uint8Array`, a `ReadableStream<Uint8Array>` (sent chunked) or `URLSearchParams` (form
 encoded). Bodies have `body` (a stream), `bodyUsed`, `bytes()`, `arrayBuffer()`, `text()` and

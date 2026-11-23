@@ -2612,11 +2612,13 @@ static void net_submit(Job *j) {
 }
 
 /* Ends the jobs waiting on socket `id` (shut down for reading, or closed): reads see the end,
- * accepts fail. */
+ * accepts fail. Writes go on after a shutdown for reading, but not after a close: a stream
+ * can't be dropped while a pollable subscribed from it is alive (a TLS write waiting for the
+ * peer subscribes to the input stream). */
 static void net_release(int64_t id, int closed) {
     for (size_t i = 0; i < nwaiting;) {
         Job *j = waiting[i];
-        if (j->a != id || j->op == 21 || j->op == 34 || j->op == 36) {
+        if (j->a != id || (!closed && (j->op == 21 || j->op == 34 || j->op == 36))) {
             i++;
             continue;
         }

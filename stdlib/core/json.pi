@@ -545,12 +545,22 @@ class __JsonWriter {
   public text(): string { parts.join("") }
 }
 
-/// `s` as a JSON string literal.
+/// `s` as a JSON string literal. A string with nothing to escape is copied whole; otherwise
+/// the pieces are joined once at the end (appending each to the text so far was quadratic, #133).
 function __jsonQuote(s: string): string {
-  let out = "\""
+  let plain = true
   for (const c of s) {
     const n = c as u32
-    out = out + (if (n == 34u32) "\\\""
+    if (n < 32u32 || n == 34u32 || n == 92u32) {
+      plain = false
+      break
+    }
+  }
+  if (plain) return `"${s}"`
+  const out: string[] = ["\""]
+  for (const c of s) {
+    const n = c as u32
+    out.push(if (n == 34u32) "\\\""
       else if (n == 92u32) "\\\\"
       else if (n == 10u32) "\\n"
       else if (n == 13u32) "\\r"
@@ -558,22 +568,29 @@ function __jsonQuote(s: string): string {
       else if (n < 32u32) `\\u${n:04x}`
       else `${c}`)
   }
-  return out + "\""
+  out.push("\"")
+  return out.join("")
 }
 
 /// Compact JSON `text` (as the writer makes it) laid out with `indent` spaces per level: each
 /// member or element on a line of its own, `": "` after keys, and `[]`/`{}` kept as they are.
+/// Runs of plain text (keys, strings, numbers) are copied whole (#133).
 function __jsonPretty(text: string, indent: int): string {
   const out: string[] = []
   const unit = " ".repeat(indent)
+  const pads: string[] = [""]
   let depth = 0
+  let run = 0
   let inString = false
   let escaped = false
   const n = text.length
+  const pad = (d: int): string => {
+    while (pads.length <= d) pads.push(pads[pads.length - 1] + unit)
+    return pads[d]
+  }
   for (let i = 0; i < n; i++) {
     const c = text[i]
     if (inString) {
-      out.push(`${c}`)
       if (escaped) {
         escaped = false
       } else if (c == '\\') {
@@ -585,26 +602,31 @@ function __jsonPretty(text: string, indent: int): string {
     }
     if (c == '"') {
       inString = true
-      out.push("\"")
-    } else if (c == '{' || c == '[') {
+      continue
+    }
+    const structural = c == '{' || c == '[' || c == '}' || c == ']' || c == ',' || c == ':'
+    if (!structural) continue
+    if (run < i) out.push(text.slice(run, i))
+    run = i + 1
+    if (c == '{' || c == '[') {
       const close: char = if (c == '{') '}' else ']'
       if (i + 1 < n && text[i + 1] == close) {
         out.push(`${c}${close}`)
         i += 1
+        run = i + 1
       } else {
         depth += 1
-        out.push(`${c}\n${unit.repeat(depth)}`)
+        out.push(`${c}\n${pad(depth)}`)
       }
     } else if (c == '}' || c == ']') {
       depth -= 1
-      out.push(`\n${unit.repeat(depth)}${c}`)
+      out.push(`\n${pad(depth)}${c}`)
     } else if (c == ',') {
-      out.push(`,\n${unit.repeat(depth)}`)
-    } else if (c == ':') {
-      out.push(": ")
+      out.push(`,\n${pad(depth)}`)
     } else {
-      out.push(`${c}`)
+      out.push(": ")
     }
   }
-  out.join("")
+  if (run < n) out.push(text.slice(run, n))
+  return out.join("")
 }

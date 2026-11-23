@@ -319,6 +319,7 @@ fn run_test(d: &Directives, checked: &pico_driver::Checked, file: &Path) -> Outc
         let interp = Run {
             stdout: String::from_utf8_lossy(&out).into_owned(),
             exit: exited.or(uncaught.then_some(pico_driver::UNCAUGHT_EXIT_CODE)),
+            stderr: err.as_ref().map(|p| p.report()).unwrap_or_default(),
             panic: err
                 .filter(|p| !p.uncaught && p.exit.is_none())
                 .map(|p| p.msg),
@@ -418,6 +419,7 @@ fn run_native(checked: &pico_driver::Checked, gc_stress: bool) -> Result<Run, St
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
         panic,
         exit: Some(code),
+        stderr: stderr.into_owned(),
     })
 }
 
@@ -455,6 +457,9 @@ pub struct Run {
     pub panic: Option<String>,
     /// The process exit code (native runs); derived from `panic` for the interpreter.
     pub exit: Option<i32>,
+    /// What it wrote to stderr (native runs), or the interpreter's error report: shown when
+    /// the run doesn't match, so a CI failure says why.
+    pub stderr: String,
 }
 
 impl Run {
@@ -509,6 +514,14 @@ pub fn compare_run(d: &Directives, run: &Run, mode: &str) -> Option<String> {
             let _ = writeln!(problems, "unexpected panic: {got}");
         }
         _ => {}
+    }
+    if !problems.is_empty() && !run.stderr.trim().is_empty() {
+        let lines: Vec<&str> = run.stderr.trim_end().lines().collect();
+        let tail = &lines[lines.len().saturating_sub(20)..];
+        let _ = writeln!(problems, "stderr (last {} lines):", tail.len());
+        for l in tail {
+            let _ = writeln!(problems, "  | {l}");
+        }
     }
     (!problems.is_empty()).then(|| format!("[{mode}] {}", problems.trim_end()))
 }
