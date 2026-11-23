@@ -11,6 +11,19 @@
 /// awaiting it can throw (an `async function`'s `throws`). `await p` waits for it inside an async
 /// function (or at the top level); reactions run as microtasks, so the ordering is JavaScript's. An
 /// `async function f(): Promise<T> throws E` returns a `Promise<T, E>`.
+///
+/// @example
+/// ```ts
+/// import { delay } from "std/timers"
+///
+/// async function fetchUser(id: int): Promise<string> throws AbortError {
+///   await delay(10)
+///   return `user ${id}`
+/// }
+///
+/// const name = await fetchUser(7)
+/// println(name)   // user 7
+/// ```
 class Promise<T, E extends Error = never> {
   /// 0: pending, 1: fulfilled, 2: rejected.
   state: int = 0
@@ -23,9 +36,23 @@ class Promise<T, E extends Error = never> {
   handled: bool = false
 
   /// A pending promise (what an async function settles).
+  ///
+  /// @example
+  /// ```ts
+  /// const p = new Promise<int>()
+  /// println(p.settled)   // false
+  /// ```
   constructor() {}
 
   /// `new Promise((resolve, reject) => …)`: `executor` runs right away and settles it.
+  ///
+  /// @example
+  /// ```ts
+  /// const p = new Promise<int>((resolve, reject) => {
+  ///   setTimeout(() => resolve(42), 10)
+  /// })
+  /// println(await p)   // 42
+  /// ```
   constructor(executor: (resolve: (value: T) => void, reject: (error: Error) => void) => void) {
     executor((v: T) => this.__resolve(v), (e: Error) => this.__reject(e))
   }
@@ -111,11 +138,24 @@ class Promise<T, E extends Error = never> {
   }
 
   /// Whether it has settled (fulfilled or rejected).
+  ///
+  /// @example
+  /// ```ts
+  /// const p = Promise.resolve(1)
+  /// println(p.settled)   // true
+  /// println(new Promise<int>().settled)   // false
+  /// ```
   public get settled(): bool {
     return this.state != 0
   }
 
   /// A promise of `f(value)`, settled after this one (rejected with its error).
+  ///
+  /// @example
+  /// ```ts
+  /// const doubled = Promise.resolve(21).then((n) => n * 2)
+  /// println(await doubled)   // 42
+  /// ```
   public then<U>(f: (value: T) => U): Promise<U, E> {
     const p = new Promise<U, E>()
     this.__onSettle(() => {
@@ -131,6 +171,16 @@ class Promise<T, E extends Error = never> {
 
   /// A promise of this one's value, or of `f(error)` when it rejects (so it doesn't reject):
   /// `load().catch((e) => fallback)` (#52).
+  ///
+  /// @example
+  /// ```ts
+  /// const p = Promise.reject<int>(new Error("offline"))
+  /// const value = await p.catch((e) => {
+  ///   println(e.message)   // offline
+  ///   return 0
+  /// })
+  /// println(value)   // 0
+  /// ```
   public catch(f: (error: Error) => T): Promise<T> {
     const p = new Promise<T>()
     this.__onSettle(() => {
@@ -145,6 +195,12 @@ class Promise<T, E extends Error = never> {
   }
 
   /// A promise that settles like this one, after `f` ran (once it settled either way) (#52).
+  ///
+  /// @example
+  /// ```ts
+  /// const p = Promise.resolve("done").finally(() => println("cleaning up"))
+  /// println(await p)   // cleaning up, then: done
+  /// ```
   public finally(f: () => void): Promise<T, E> {
     const p = new Promise<T, E>()
     this.__onSettle(() => {
@@ -160,6 +216,12 @@ class Promise<T, E extends Error = never> {
   }
 
   /// A promise already fulfilled with `value`.
+  ///
+  /// @example
+  /// ```ts
+  /// const p = Promise.resolve("cached")
+  /// println(await p)   // cached
+  /// ```
   public static resolve<U>(value: U): Promise<U> {
     const p = new Promise<U>()
     p.__resolve(value)
@@ -167,6 +229,16 @@ class Promise<T, E extends Error = never> {
   }
 
   /// A promise already rejected with `error`.
+  ///
+  /// @example
+  /// ```ts
+  /// const p = Promise.reject<int>(new Error("not found"))
+  /// try {
+  ///   println(await p)
+  /// } catch (e: Error) {
+  ///   println(e.message)   // not found
+  /// }
+  /// ```
   public static reject<U>(error: Error): Promise<U, Error> {
     const p = new Promise<U, Error>()
     p.__reject(error)
@@ -174,6 +246,19 @@ class Promise<T, E extends Error = never> {
   }
 
   /// All the values, in order; rejected with the first error.
+  ///
+  /// @example
+  /// ```ts
+  /// import { delay } from "std/timers"
+  ///
+  /// async function square(n: int): Promise<int> throws AbortError {
+  ///   await delay(n)
+  ///   return n * n
+  /// }
+  ///
+  /// const all = await Promise.all([square(3), square(1), square(2)])
+  /// println(all.join(", "))   // 9, 1, 4
+  /// ```
   public static all<U, F extends Error>(ps: Promise<U, F>[]): Promise<U[], F> {
     const out = new Promise<U[], F>()
     const slots: U[][] = []
@@ -207,6 +292,18 @@ class Promise<T, E extends Error = never> {
   }
 
   /// Settles like the first of `ps` to settle.
+  ///
+  /// @example
+  /// ```ts
+  /// import { delay } from "std/timers"
+  ///
+  /// async function after(ms: int, label: string): Promise<string> throws AbortError {
+  ///   await delay(ms)
+  ///   return label
+  /// }
+  ///
+  /// println(await Promise.race([after(50, "slow"), after(5, "fast")]))   // fast
+  /// ```
   public static race<U, F extends Error>(ps: Promise<U, F>[]): Promise<U, F> {
     const out = new Promise<U, F>()
     for (const p of ps) {
@@ -225,10 +322,25 @@ class Promise<T, E extends Error = never> {
   /// Waits for all of `ps`, never rejecting: how each one ended.
   /// A pending promise and the functions that settle it (ES2024), for code that settles it from
   /// outside an executor: `const r = Promise.withResolvers<int, Error>()`, then `r.resolve(1)`.
+  ///
+  /// @example
+  /// ```ts
+  /// const r = Promise.withResolvers<int, Error>()
+  /// setTimeout(() => r.resolve(7), 10)
+  /// println(await r.promise)   // 7
+  /// ```
   public static withResolvers<U, F extends Error>(): PromiseWithResolvers<U, F> {
     new PromiseWithResolvers<U, F>(new Promise<U, F>())
   }
 
+  /// @example
+  /// ```ts
+  /// const results = await Promise.allSettled([Promise.resolve(1), Promise.reject<int>(new Error("boom"))])
+  /// for (const r of results) {
+  ///   println(r.status)   // fulfilled, then: rejected
+  /// }
+  /// println(results[1].reason!.message)   // boom
+  /// ```
   public static allSettled<U, F extends Error>(ps: Promise<U, F>[]): Promise<Settled<U>[]> {
     const out = new Promise<Settled<U>[]>()
     const slots: Settled<U>[][] = []
@@ -264,20 +376,52 @@ class Promise<T, E extends Error = never> {
 
 /// What `Promise.withResolvers()` gives: the promise and the functions that settle it (the first
 /// call of either wins).
+///
+/// @example
+/// ```ts
+/// const r = Promise.withResolvers<string, Error>()
+/// r.resolve("ready")
+/// println(await r.promise)   // ready
+/// ```
 class PromiseWithResolvers<T, E extends Error> {
   /// The pending promise.
   public readonly promise: Promise<T, E>
 
+  /// @example
+  /// ```ts
+  /// const r = new PromiseWithResolvers<int, Error>(new Promise<int, Error>())
+  /// r.resolve(5)
+  /// println(await r.promise)   // 5
+  /// ```
   constructor(promise: Promise<T, E>) {
     this.promise = promise
   }
 
   /// Fulfills the promise with `value`.
+  ///
+  /// @example
+  /// ```ts
+  /// const r = Promise.withResolvers<int, Error>()
+  /// r.resolve(1)
+  /// r.resolve(2)               // ignored: the first call wins
+  /// println(await r.promise)   // 1
+  /// ```
   public resolve(value: T): void {
     this.promise.__resolve(value)
   }
 
   /// Rejects the promise with `error`.
+  ///
+  /// @example
+  /// ```ts
+  /// const r = Promise.withResolvers<int, Error>()
+  /// r.reject(new Error("cancelled"))
+  /// try {
+  ///   println(await r.promise)
+  /// } catch (e: Error) {
+  ///   println(e.message)   // cancelled
+  /// }
+  /// ```
   public reject(error: Error): void {
     this.promise.__reject(error)
   }
@@ -285,6 +429,13 @@ class PromiseWithResolvers<T, E extends Error> {
 
 /// How a promise ended (`Promise.allSettled`): `status` is `"fulfilled"` (with `value`) or
 /// `"rejected"` (with `reason`).
+///
+/// @example
+/// ```ts
+/// const [a, b] = await Promise.allSettled([Promise.resolve(10), Promise.reject<int>(new Error("bad"))])
+/// println(`${a.status} ${a.value}`)            // fulfilled 10
+/// println(`${b.status} ${b.reason!.message}`)  // rejected bad
+/// ```
 struct Settled<T> {
   /// `"fulfilled"` or `"rejected"`.
   status: string
@@ -322,6 +473,19 @@ function __void(): void {}
 /// (so, like `Iterator`, a `T` that is itself nullable can't be told apart from the end).
 /// `async function* g(): AsyncIterator<T> throws E` makes one: its step function yields
 /// suspensions, both for `await` and, after storing the value, for `yield v`.
+///
+/// @example
+/// ```ts
+/// async function* countdown(n: int): AsyncIterator<int> {
+///   for (let i = n; i > 0; i--) {
+///     yield i
+///   }
+/// }
+///
+/// for await (const i of countdown(3)) {
+///   println(i)   // 3, 2, 1
+/// }
+/// ```
 class AsyncIterator<T, E extends Error = never> {
   step: (() => ((k: () => void) => void)? throws E)? = null
   /// `next()` promises not fulfilled yet, oldest first.
@@ -335,6 +499,13 @@ class AsyncIterator<T, E extends Error = never> {
   finished: bool = false
 
   /// An iterator with no steps (an `async function*` makes the ones that produce values).
+  ///
+  /// @example
+  /// ```ts
+  /// // `async function*` makes the iterators that produce values; this one is empty.
+  /// const it = new AsyncIterator<int>()
+  /// println(it.asyncIterator() == it)   // true
+  /// ```
   constructor() {}
 
   public __start(step: () => ((k: () => void) => void)? throws E): void {
@@ -354,6 +525,19 @@ class AsyncIterator<T, E extends Error = never> {
   /// Promises the next value, or `null` once done. The promise rejects with what the generator
   /// throws (and later calls give `null`). Calls made before earlier ones are fulfilled queue up,
   /// in order.
+  ///
+  /// @example
+  /// ```ts
+  /// async function* letters(): AsyncIterator<string> {
+  ///   yield "a"
+  ///   yield "b"
+  /// }
+  ///
+  /// const it = letters()
+  /// println(await it.next())   // a
+  /// println(await it.next())   // b
+  /// println(await it.next())   // null
+  /// ```
   public next(): Promise<T?, E> {
     const p = new Promise<T?, E>()
     if (this.finished) {
@@ -368,6 +552,16 @@ class AsyncIterator<T, E extends Error = never> {
   }
 
   /// `for await` uses the iterator itself.
+  ///
+  /// @example
+  /// ```ts
+  /// async function* one(): AsyncIterator<int> {
+  ///   yield 1
+  /// }
+  ///
+  /// const it = one()
+  /// println(it.asyncIterator() == it)   // true
+  /// ```
   public asyncIterator(): AsyncIterator<T, E> {
     this
   }
@@ -438,7 +632,35 @@ class AsyncIterator<T, E extends Error = never> {
 }
 
 /// Released by `await using` (spec §11.5) at the end of its scope.
+///
+/// @example
+/// ```ts
+/// class Session implements AsyncDisposable {
+///   public async disposeAsync(): Promise<void> {
+///     println("session closed")
+///   }
+/// }
+///
+/// async function run(): Promise<void> {
+///   await using s = new Session()
+///   println("working")   // working
+/// }                      // session closed
+///
+/// await run()
+/// ```
 interface AsyncDisposable {
   /// Releases the resource; `await using` waits for the promise.
+  ///
+  /// @example
+  /// ```ts
+  /// class Upload implements AsyncDisposable {
+  ///   public async disposeAsync(): Promise<void> {
+  ///     println("upload finished")
+  ///   }
+  /// }
+  ///
+  /// const u = new Upload()
+  /// await u.disposeAsync()   // upload finished
+  /// ```
   disposeAsync(): Promise<void>
 }
