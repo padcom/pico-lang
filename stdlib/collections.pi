@@ -5,29 +5,107 @@
 // its first `null` element; use `toArray()` for those.
 
 /// A double-ended queue: push and pop at both ends in amortized O(1), index in O(1).
+///
+/// @example
+/// ```ts
+/// import { Deque } from "std/collections"
+///
+/// const d = new Deque<int>([2, 3])
+/// d.pushFront(1)
+/// d.pushBack(4)
+/// println(d.popFront())              // 1
+/// println(d.popBack())               // 4
+/// println(d.toArray().join(", "))    // 2, 3
+/// ```
 export class Deque<T> {
   /// The front half, reversed (its last element is the deque's first).
   front: T[] = []
   back: T[] = []
 
   /// A deque holding `items`, front to back.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<string>(["a", "b", "c"])
+  /// println(d.peekFront())   // a
+  /// println(d.length)        // 3
+  /// ```
   constructor(items: T[] = []) {
     for (const x of items) this.back.push(x)
   }
 
   /// The number of elements.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([1, 2])
+  /// d.push(3)
+  /// println(d.length)   // 3
+  /// ```
   public get length(): int { return this.front.length + this.back.length }
   /// Whether there are no elements.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>()
+  /// println(d.isEmpty)   // true
+  /// d.push(1)
+  /// println(d.isEmpty)   // false
+  /// ```
   public get isEmpty(): bool { return this.front.length == 0 && this.back.length == 0 }
 
   /// Adds `x` at the back (also `push`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([1])
+  /// d.pushBack(2)
+  /// println(d.peekBack())   // 2
+  /// ```
   public pushBack(x: T): void { this.back.push(x) }
   /// Adds `x` at the back (the same as `pushBack`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>()
+  /// d.push(1)
+  /// d.push(2)
+  /// println(d.toArray().join(", "))   // 1, 2
+  /// ```
   public push(x: T): void { this.back.push(x) }
 
   /// Adds `x` at the front (also `unshift`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([2])
+  /// d.pushFront(1)
+  /// println(d.peekFront())   // 1
+  /// ```
   public pushFront(x: T): void { this.front.push(x) }
   /// Adds `x` at the front (the same as `pushFront`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([3])
+  /// d.unshift(2)
+  /// d.unshift(1)
+  /// println(d.toArray().join(", "))   // 1, 2, 3
+  /// ```
   public unshift(x: T): void { this.front.push(x) }
 
   /// Moves half of one side over when the other runs out.
@@ -56,24 +134,73 @@ export class Deque<T> {
   }
 
   /// Removes and returns the last element (`null` when empty; also `pop`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([1, 2])
+  /// println(d.popBack())   // 2
+  /// println(d.popBack())   // 1
+  /// println(d.popBack())   // null
+  /// ```
   public popBack(): T? {
     if (this.back.length == 0) this.balance(false)
     if (this.back.length == 0) return null
     this.back.pop()
   }
   /// Removes and returns the last element, or `null` when empty (the same as `popBack`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const stack = new Deque<string>()
+  /// stack.push("a")
+  /// stack.push("b")
+  /// println(stack.pop())   // b
+  /// ```
   public pop(): T? { this.popBack() }
 
   /// Removes and returns the first element (`null` when empty; also `shift`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([1, 2])
+  /// println(d.popFront())   // 1
+  /// println(d.length)       // 1
+  /// ```
   public popFront(): T? {
     if (this.front.length == 0) this.balance(true)
     if (this.front.length == 0) return null
     this.front.pop()
   }
   /// Removes and returns the first element, or `null` when empty (the same as `popFront`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const queue = new Deque<string>()
+  /// queue.push("first")
+  /// queue.push("second")
+  /// println(queue.shift())   // first
+  /// ```
   public shift(): T? { this.popFront() }
 
   /// The element at `i` (negative counts from the back), or `null` out of range.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<string>(["a", "b", "c"])
+  /// println(d.at(1))    // b
+  /// println(d.at(-1))   // c
+  /// println(d.at(5))    // null
+  /// ```
   public at(i: int): T? {
     const n = this.length
     const k = if (i < 0) n + i else i
@@ -82,17 +209,53 @@ export class Deque<T> {
   }
 
   /// The first element without removing it, or `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([7, 8])
+  /// println(d.peekFront())   // 7
+  /// println(d.length)        // 2
+  /// ```
   public peekFront(): T? { this.at(0) }
   /// The last element without removing it, or `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([7, 8])
+  /// println(d.peekBack())   // 8
+  /// ```
   public peekBack(): T? { this.at(-1) }
 
   /// Removes every element.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([1, 2, 3])
+  /// d.clear()
+  /// println(d.isEmpty)   // true
+  /// ```
   public clear(): void {
     this.front = []
     this.back = []
   }
 
   /// The elements, front to back.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<int>([2])
+  /// d.pushFront(1)
+  /// d.pushBack(3)
+  /// println(d.toArray().join(" "))   // 1 2 3
+  /// ```
   public toArray(): T[] {
     const r: T[] = []
     let i = this.front.length - 1
@@ -105,27 +268,81 @@ export class Deque<T> {
   }
 
   /// `for (const x of deque)`: front to back, over a snapshot (changes during the loop don't show).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Deque } from "std/collections"
+  ///
+  /// const d = new Deque<string>(["x", "y"])
+  /// for (const s of d) println(s)
+  /// // x
+  /// // y
+  /// ```
   public iterator(): Iterator<T> { this.toArray().iterator() }
 }
 
 /// A priority queue: `pop` gives the smallest element by `compare` (negative when `a` comes
 /// first), so `(a, b) => b - a` makes a max-queue. Push and pop are O(log n).
+///
+/// @example
+/// ```ts
+/// import { PriorityQueue } from "std/collections"
+///
+/// const tasks = new PriorityQueue<int>((a, b) => a - b, [5, 1, 3])
+/// tasks.push(2)
+/// println(tasks.pop())   // 1
+/// println(tasks.pop())   // 2
+/// ```
 export class PriorityQueue<T> {
   heap: T[] = []
   compare: (a: T, b: T) => int
 
   /// A queue ordered by `compare` (negative when `a` comes first), holding `items`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const maxQueue = new PriorityQueue<int>((a, b) => b - a, [3, 9, 4])
+  /// println(maxQueue.peek())   // 9
+  /// ```
   constructor(compare: (a: T, b: T) => int, items: T[] = []) {
     this.compare = compare
     for (const x of items) this.push(x)
   }
 
   /// The number of elements.
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const q = new PriorityQueue<int>((a, b) => a - b, [3, 1])
+  /// println(q.size)   // 2
+  /// ```
   public get size(): int { return this.heap.length }
   /// Whether there are no elements.
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const q = new PriorityQueue<int>((a, b) => a - b)
+  /// println(q.isEmpty)   // true
+  /// ```
   public get isEmpty(): bool { return this.heap.length == 0 }
 
   /// Adds `x` in O(log n).
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const q = new PriorityQueue<string>((a, b) => a.length - b.length)
+  /// q.push("banana")
+  /// q.push("fig")
+  /// println(q.peek())   // fig
+  /// ```
   public push(x: T): void {
     this.heap.push(x)
     let i = this.heap.length - 1
@@ -141,11 +358,30 @@ export class PriorityQueue<T> {
   }
 
   /// The first element without removing it (`null` when empty).
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const q = new PriorityQueue<int>((a, b) => a - b, [4, 2])
+  /// println(q.peek())   // 2
+  /// println(q.size)     // 2
+  /// ```
   public peek(): T? {
     if (this.heap.length == 0) null else this.heap[0]
   }
 
   /// Removes and returns the first element (`null` when empty).
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const q = new PriorityQueue<int>((a, b) => a - b, [4, 2])
+  /// println(q.pop())   // 2
+  /// println(q.pop())   // 4
+  /// println(q.pop())   // null
+  /// ```
   public pop(): T? {
     const n = this.heap.length
     if (n == 0) return null
@@ -179,9 +415,27 @@ export class PriorityQueue<T> {
   }
 
   /// Removes every element.
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const q = new PriorityQueue<int>((a, b) => a - b, [1, 2])
+  /// q.clear()
+  /// println(q.size)   // 0
+  /// ```
   public clear(): void { this.heap = [] }
 
   /// The elements in priority order (the queue is unchanged).
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const q = new PriorityQueue<int>((a, b) => a - b, [5, 1, 4, 2])
+  /// println(q.toSortedArray().join(", "))   // 1, 2, 4, 5
+  /// println(q.size)                         // 4
+  /// ```
   public toSortedArray(): T[] {
     const copy = new PriorityQueue<T>(this.compare)
     for (const x of this.heap) copy.heap.push(x)
@@ -194,9 +448,29 @@ export class PriorityQueue<T> {
   }
 
   /// The elements in heap order (not sorted).
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const q = new PriorityQueue<int>((a, b) => a - b, [3, 1, 2])
+  /// println(q.toArray().length)   // 3
+  /// println(q.toArray()[0])       // 1
+  /// ```
   public toArray(): T[] { this.heap.slice(0) }
 
   /// Walks the elements in priority order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { PriorityQueue } from "std/collections"
+  ///
+  /// const q = new PriorityQueue<int>((a, b) => b - a, [1, 3, 2])
+  /// for (const x of q) println(x)
+  /// // 3
+  /// // 2
+  /// // 1
+  /// ```
   public iterator(): Iterator<T> { this.toSortedArray().iterator() }
 }
 
@@ -275,16 +549,51 @@ function __balance<K, V>(n: __TreeNode<K, V>): __TreeNode<K, V> {
 
 /// A map whose keys stay sorted (by `compareTo`), as a balanced (AVL) tree: lookups, inserts
 /// and deletes in O(log n) (#59), plus ordered queries (`floorKey`, `ceilingKey`, `range`).
+///
+/// @example
+/// ```ts
+/// import { SortedMap } from "std/collections"
+///
+/// const ages = new SortedMap<string, int>()
+/// ages.set("carol", 41).set("alice", 30).set("bob", 25)
+/// println(ages.keys().join(", "))   // alice, bob, carol
+/// println(ages.get("bob"))          // 25
+/// ```
 export class SortedMap<K extends Comparable<K>, V> {
   root: __TreeNode<K, V>? = null
   count: int = 0
 
   /// An empty map.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// println(m.size)   // 0
+  /// ```
   constructor() {}
 
   /// The number of entries.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// m.set(1, "one").set(2, "two").set(1, "uno")
+  /// println(m.size)   // 2
+  /// ```
   public get size(): int { return this.count }
   /// Whether there are no entries.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// println(m.isEmpty)   // true
+  /// ```
   public get isEmpty(): bool { return this.count == 0 }
 
   node(k: K): __TreeNode<K, V>? {
@@ -298,12 +607,32 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// The value for `k`, or `null` if there's none. O(log n).
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<string, int>()
+  /// m.set("a", 1)
+  /// println(m.get("a"))   // 1
+  /// println(m.get("z"))   // null
+  /// ```
   public get(k: K): V? {
     const n = this.node(k)
     if (n == null) null else n.value
   }
 
   /// Whether the map has an entry for `k`. O(log n).
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<string, int>()
+  /// m.set("a", 1)
+  /// println(m.has("a"))   // true
+  /// println(m.has("b"))   // false
+  /// ```
   public has(k: K): bool { return this.node(k) != null }
 
   insert(n: __TreeNode<K, V>?, k: K, v: V): __TreeNode<K, V> {
@@ -321,6 +650,15 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// Sets `k`'s value to `v` (O(log n)); the map itself, for chaining.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// m.set(3, "c").set(1, "a")
+  /// println(m.firstKey())   // 1
+  /// ```
   public set(k: K, v: V): SortedMap<K, V> {
     this.root = this.insert(this.root, k, v)
     this
@@ -362,6 +700,16 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// Removes `k`'s entry (O(log n)); whether there was one.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// m.set(1, "a")
+  /// println(m.delete(1))   // true
+  /// println(m.delete(1))   // false
+  /// ```
   public delete(k: K): bool {
     const found: bool[] = []
     this.root = this.remove(this.root, k, found)
@@ -370,12 +718,31 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// Removes every entry.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// m.set(1, "a").set(2, "b")
+  /// m.clear()
+  /// println(m.isEmpty)   // true
+  /// ```
   public clear(): void {
     this.root = null
     this.count = 0
   }
 
   /// The smallest key, or `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// m.set(20, "b").set(10, "a")
+  /// println(m.firstKey())   // 10
+  /// ```
   public firstKey(): K? {
     const r = this.root
     if (r == null) return null
@@ -389,6 +756,15 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// The largest key, or `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// m.set(20, "b").set(10, "a")
+  /// println(m.lastKey())   // 20
+  /// ```
   public lastKey(): K? {
     const r = this.root
     if (r == null) return null
@@ -402,6 +778,18 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// The largest key `<= k`, or `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// // Price brackets: the bracket of 75 starts at the largest key <= 75.
+  /// const brackets = new SortedMap<int, string>()
+  /// brackets.set(0, "cheap").set(50, "mid").set(100, "premium")
+  /// const k = brackets.floorKey(75)
+  /// if (k != null) println(brackets.get(k))   // mid
+  /// println(brackets.floorKey(-1))            // null
+  /// ```
   public floorKey(k: K): K? {
     let n = this.root
     let best: K? = null
@@ -420,6 +808,16 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// The smallest key `>= k`, or `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// m.set(10, "a").set(20, "b")
+  /// println(m.ceilingKey(15))   // 20
+  /// println(m.ceilingKey(25))   // null
+  /// ```
   public ceilingKey(k: K): K? {
     let n = this.root
     let best: K? = null
@@ -448,6 +846,17 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// The entries with `lo <= key < hi`, in order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// m.set(1, "a").set(2, "b").set(3, "c").set(4, "d")
+  /// for (const [k, v] of m.range(2, 4)) println(`${k}=${v}`)
+  /// // 2=b
+  /// // 3=c
+  /// ```
   public range(lo: K, hi: K): [K, V][] {
     const r: [K, V][] = []
     this.walk(this.root, lo, hi, r)
@@ -455,6 +864,15 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// The `[key, value]` pairs in key order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<string, int>()
+  /// m.set("y", 2).set("x", 1)
+  /// println(m.entries().map(([k, v]) => `${k}=${v}`).join(" "))   // x=1 y=2
+  /// ```
   public entries(): [K, V][] {
     const r: [K, V][] = []
     this.walk(this.root, null, null, r)
@@ -462,6 +880,15 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// The keys in order (a new array).
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<string, int>()
+  /// m.set("pear", 3).set("apple", 5)
+  /// println(m.keys().join(", "))   // apple, pear
+  /// ```
   public keys(): K[] {
     const r: K[] = []
     for (const [k, _] of this.entries()) r.push(k)
@@ -469,6 +896,15 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// The values in key order (a new array).
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<string, int>()
+  /// m.set("pear", 3).set("apple", 5)
+  /// println(m.values().join(", "))   // 5, 3
+  /// ```
   public values(): V[] {
     const r: V[] = []
     for (const [_, v] of this.entries()) r.push(v)
@@ -476,70 +912,278 @@ export class SortedMap<K extends Comparable<K>, V> {
   }
 
   /// Calls `f(value, key)` for each entry in key order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<string, int>()
+  /// m.set("b", 2).set("a", 1)
+  /// m.forEach((v, k) => println(`${k}: ${v}`))
+  /// // a: 1
+  /// // b: 2
+  /// ```
   public forEach(f: (value: V, key: K) => void): void {
     for (const [k, v] of this.entries()) f(v, k)
   }
 
   /// `for (const [k, v] of map)`: in key order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedMap } from "std/collections"
+  ///
+  /// const m = new SortedMap<int, string>()
+  /// m.set(2, "two").set(1, "one")
+  /// for (const [k, v] of m) println(`${k} ${v}`)
+  /// // 1 one
+  /// // 2 two
+  /// ```
   public iterator(): Iterator<[K, V]> { this.entries().iterator() }
 }
 
 /// A set whose values stay sorted (by `compareTo`): adds, deletes and lookups in O(log n), and
 /// the ordered queries of `SortedMap` (#59).
+///
+/// @example
+/// ```ts
+/// import { SortedSet } from "std/collections"
+///
+/// const s = new SortedSet<int>()
+/// s.add(5).add(1).add(3).add(1)
+/// println(s.values().join(", "))   // 1, 3, 5
+/// println(s.ceiling(2))            // 3
+/// ```
 export class SortedSet<T extends Comparable<T>> {
   map: SortedMap<T, bool> = new SortedMap<T, bool>()
 
   /// An empty set.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<string>()
+  /// println(s.size)   // 0
+  /// ```
   constructor() {}
 
   /// How many values the set has.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<string>()
+  /// s.add("a").add("b").add("a")
+  /// println(s.size)   // 2
+  /// ```
   public get size(): int { return this.map.size }
   /// Whether it's empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// println(s.isEmpty)   // true
+  /// ```
   public get isEmpty(): bool { return this.map.isEmpty }
   /// Whether `v` is in the set.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// s.add(1)
+  /// println(s.has(1))   // true
+  /// println(s.has(2))   // false
+  /// ```
   public has(v: T): bool { this.map.has(v) }
   /// Adds `v` (nothing changes if it's there); the set, for chaining.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<string>()
+  /// s.add("pear").add("apple")
+  /// println(s.first())   // apple
+  /// ```
   public add(v: T): SortedSet<T> {
     this.map.set(v, true)
     this
   }
   /// Removes `v`; whether it was there.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// s.add(1)
+  /// println(s.delete(1))   // true
+  /// println(s.delete(1))   // false
+  /// ```
   public delete(v: T): bool { this.map.delete(v) }
   /// Removes every value.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// s.add(1).add(2)
+  /// s.clear()
+  /// println(s.isEmpty)   // true
+  /// ```
   public clear(): void { this.map.clear() }
   /// The smallest value, or `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// s.add(8).add(3)
+  /// println(s.first())   // 3
+  /// ```
   public first(): T? { this.map.firstKey() }
   /// The largest value, or `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// s.add(8).add(3)
+  /// println(s.last())   // 8
+  /// ```
   public last(): T? { this.map.lastKey() }
   /// The largest value `<= v`, or `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// s.add(10).add(20)
+  /// println(s.floor(15))   // 10
+  /// println(s.floor(5))    // null
+  /// ```
   public floor(v: T): T? { this.map.floorKey(v) }
   /// The smallest value `>= v`, or `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// s.add(10).add(20)
+  /// println(s.ceiling(15))   // 20
+  /// println(s.ceiling(25))   // null
+  /// ```
   public ceiling(v: T): T? { this.map.ceilingKey(v) }
   /// The values with `lo <= v < hi`, in order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// for (const x of [1, 2, 3, 4, 5]) s.add(x)
+  /// println(s.range(2, 4).join(", "))   // 2, 3
+  /// ```
   public range(lo: T, hi: T): T[] {
     const r: T[] = []
     for (const [k, _] of this.map.range(lo, hi)) r.push(k)
     return r
   }
   /// The values in order (a new array).
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<string>()
+  /// s.add("c").add("a").add("b")
+  /// println(s.values().join(""))   // abc
+  /// ```
   public values(): T[] { this.map.keys() }
   /// `for (const v of set)`: in order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { SortedSet } from "std/collections"
+  ///
+  /// const s = new SortedSet<int>()
+  /// s.add(2).add(1)
+  /// for (const x of s) println(x)
+  /// // 1
+  /// // 2
+  /// ```
   public iterator(): Iterator<T> { this.map.keys().iterator() }
 }
 
 /// A map from each key to a list of values, in the order they were added (#59).
+///
+/// @example
+/// ```ts
+/// import { MultiMap } from "std/collections"
+///
+/// const tags = new MultiMap<string, string>()
+/// tags.add("fruit", "apple").add("fruit", "pear").add("veg", "leek")
+/// println(tags.get("fruit").join(", "))   // apple, pear
+/// println(tags.size)                      // 3
+/// ```
 export class MultiMap<K extends Hashable<K>, V> {
   map: Map<K, V[]> = new Map<K, V[]>()
   count: int = 0
 
   /// An empty map.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// println(m.size)   // 0
+  /// ```
   constructor() {}
 
   /// How many values there are, over all keys.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("a", 1).add("a", 2).add("b", 3)
+  /// println(m.size)   // 3
+  /// ```
   public get size(): int { return this.count }
   /// How many keys have values.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("a", 1).add("a", 2).add("b", 3)
+  /// println(m.keyCount)   // 2
+  /// ```
   public get keyCount(): int { return this.map.size }
   /// Adds `v` to `k`'s values; the map, for chaining.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("x", 1).add("x", 2)
+  /// println(m.get("x").join(", "))   // 1, 2
+  /// ```
   public add(k: K, v: V): MultiMap<K, V> {
     const vs = this.map.get(k)
     if (vs == null) {
@@ -551,13 +1195,43 @@ export class MultiMap<K extends Hashable<K>, V> {
     this
   }
   /// `k`'s values (a new array; empty when there are none).
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("x", 1)
+  /// println(m.get("x").length)   // 1
+  /// println(m.get("y").length)   // 0
+  /// ```
   public get(k: K): V[] {
     const vs = this.map.get(k)
     if (vs == null) [] else vs.slice(0)
   }
   /// Whether `k` has any values.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("x", 1)
+  /// println(m.has("x"))   // true
+  /// println(m.has("y"))   // false
+  /// ```
   public has(k: K): bool { this.map.has(k) }
   /// Removes all of `k`'s values; how many there were.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("x", 1).add("x", 2)
+  /// println(m.delete("x"))   // 2
+  /// println(m.has("x"))      // false
+  /// ```
   public delete(k: K): int {
     const vs = this.map.get(k)
     if (vs == null) return 0
@@ -566,13 +1240,41 @@ export class MultiMap<K extends Hashable<K>, V> {
     return vs.length
   }
   /// Removes everything.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("x", 1)
+  /// m.clear()
+  /// println(m.size)   // 0
+  /// ```
   public clear(): void {
     this.map.clear()
     this.count = 0
   }
   /// The keys with values, in the order they first got one.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("b", 1).add("a", 2).add("b", 3)
+  /// println(m.keys().join(", "))   // b, a
+  /// ```
   public keys(): K[] { this.map.keys() }
   /// Every `[key, value]` pair, key by key.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("b", 1).add("a", 2).add("b", 3)
+  /// println(m.entries().map(([k, v]) => `${k}${v}`).join(" "))   // b1 b3 a2
+  /// ```
   public entries(): [K, V][] {
     const r: [K, V][] = []
     for (const [k, vs] of this.map) {
@@ -581,6 +1283,17 @@ export class MultiMap<K extends Hashable<K>, V> {
     return r
   }
   /// `for (const [k, v] of multi)`: every pair, key by key.
+  ///
+  /// @example
+  /// ```ts
+  /// import { MultiMap } from "std/collections"
+  ///
+  /// const m = new MultiMap<string, int>()
+  /// m.add("a", 1).add("a", 2)
+  /// for (const [k, v] of m) println(`${k}=${v}`)
+  /// // a=1
+  /// // a=2
+  /// ```
   public iterator(): Iterator<[K, V]> { this.entries().iterator() }
 }
 
@@ -594,20 +1307,68 @@ class __ListNode<T> {
 
 /// A doubly linked list: adding and removing at either end in O(1) (#59). `Deque` is usually
 /// faster; this one never moves its elements.
+///
+/// @example
+/// ```ts
+/// import { LinkedList } from "std/collections"
+///
+/// const list = new LinkedList<string>()
+/// list.push("b")
+/// list.unshift("a")
+/// list.push("c")
+/// println(list.toArray().join(", "))   // a, b, c
+/// println(list.shift())                // a
+/// ```
 export class LinkedList<T> {
   head: __ListNode<T>? = null
   tail: __ListNode<T>? = null
   count: int = 0
 
   /// An empty list.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<int>()
+  /// println(list.size)   // 0
+  /// ```
   constructor() {}
 
   /// How many elements it has.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<int>()
+  /// list.push(1)
+  /// list.push(2)
+  /// println(list.size)   // 2
+  /// ```
   public get size(): int { return this.count }
   /// Whether it's empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<int>()
+  /// println(list.isEmpty)   // true
+  /// ```
   public get isEmpty(): bool { return this.count == 0 }
 
   /// Adds `v` at the end.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<int>()
+  /// list.push(1)
+  /// list.push(2)
+  /// println(list.last())   // 2
+  /// ```
   public push(v: T): void {
     const n = new __ListNode<T>(v)
     const t = this.tail
@@ -620,6 +1381,16 @@ export class LinkedList<T> {
   }
 
   /// Adds `v` at the start.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<int>()
+  /// list.unshift(2)
+  /// list.unshift(1)
+  /// println(list.first())   // 1
+  /// ```
   public unshift(v: T): void {
     const n = new __ListNode<T>(v)
     const h = this.head
@@ -632,6 +1403,17 @@ export class LinkedList<T> {
   }
 
   /// Removes the last element and returns it; `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<int>()
+  /// list.push(1)
+  /// list.push(2)
+  /// println(list.pop())   // 2
+  /// println(list.size)    // 1
+  /// ```
   public pop(): T? {
     const t = this.tail
     if (t == null) return null
@@ -643,6 +1425,16 @@ export class LinkedList<T> {
   }
 
   /// Removes the first element and returns it; `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<int>()
+  /// list.push(1)
+  /// println(list.shift())   // 1
+  /// println(list.shift())   // null
+  /// ```
   public shift(): T? {
     const h = this.head
     if (h == null) return null
@@ -654,18 +1446,48 @@ export class LinkedList<T> {
   }
 
   /// The first element, or `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<string>()
+  /// println(list.first())   // null
+  /// list.push("x")
+  /// println(list.first())   // x
+  /// ```
   public first(): T? {
     const h = this.head
     if (h == null) null else h.value
   }
 
   /// The last element, or `null` when empty.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<string>()
+  /// list.push("x")
+  /// list.push("y")
+  /// println(list.last())   // y
+  /// ```
   public last(): T? {
     const t = this.tail
     if (t == null) null else t.value
   }
 
   /// Removes every element.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<int>()
+  /// list.push(1)
+  /// list.clear()
+  /// println(list.isEmpty)   // true
+  /// ```
   public clear(): void {
     this.head = null
     this.tail = null
@@ -673,6 +1495,16 @@ export class LinkedList<T> {
   }
 
   /// The elements in order (a new array).
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<int>()
+  /// list.push(2)
+  /// list.unshift(1)
+  /// println(list.toArray().join(" "))   // 1 2
+  /// ```
   public toArray(): T[] {
     const r: T[] = []
     let n = this.head
@@ -684,11 +1516,35 @@ export class LinkedList<T> {
   }
 
   /// `for (const v of list)`: in order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LinkedList } from "std/collections"
+  ///
+  /// const list = new LinkedList<string>()
+  /// list.push("a")
+  /// list.push("b")
+  /// for (const s of list) println(s)
+  /// // a
+  /// // b
+  /// ```
   public iterator(): Iterator<T> { this.toArray().iterator() }
 }
 
 /// A map that holds at most `capacity` entries, dropping the least recently used one (by `get`
 /// or `set`) when a new key would go past it (#59). Every operation is O(1).
+///
+/// @example
+/// ```ts
+/// import { LruCache } from "std/collections"
+///
+/// const cache = new LruCache<string, int>(2)
+/// cache.set("a", 1).set("b", 2)
+/// cache.get("a")         // "a" is now the most recently used
+/// cache.set("c", 3)      // drops "b"
+/// println(cache.has("b"))            // false
+/// println(cache.keys().join(", "))   // c, a
+/// ```
 export class LruCache<K extends Hashable<K>, V> {
   public readonly capacity: int
   map: Map<K, __ListNode<[K, V]>> = new Map<K, __ListNode<[K, V]>>()
@@ -697,12 +1553,29 @@ export class LruCache<K extends Hashable<K>, V> {
   tail: __ListNode<[K, V]>? = null
 
   /// An empty cache for at most `capacity` entries (at least 1).
+  ///
+  /// @example
+  /// ```ts
+  /// import { LruCache } from "std/collections"
+  ///
+  /// const cache = new LruCache<int, string>(100)
+  /// println(cache.capacity)   // 100
+  /// ```
   constructor(capacity: int) {
     if (capacity < 1) panic(`an LruCache needs a capacity of at least 1, got ${capacity}`)
     this.capacity = capacity
   }
 
   /// How many entries it has.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LruCache } from "std/collections"
+  ///
+  /// const cache = new LruCache<string, int>(2)
+  /// cache.set("a", 1).set("b", 2).set("c", 3)
+  /// println(cache.size)   // 2
+  /// ```
   public get size(): int { return this.map.size }
 
   unlink(n: __ListNode<[K, V]>): void {
@@ -722,6 +1595,16 @@ export class LruCache<K extends Hashable<K>, V> {
   }
 
   /// `k`'s value (now the most recently used), or `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LruCache } from "std/collections"
+  ///
+  /// const cache = new LruCache<string, int>(10)
+  /// cache.set("a", 1)
+  /// println(cache.get("a"))   // 1
+  /// println(cache.get("b"))   // null
+  /// ```
   public get(k: K): V? {
     const n = this.map.get(k)
     if (n == null) return null
@@ -731,16 +1614,45 @@ export class LruCache<K extends Hashable<K>, V> {
   }
 
   /// `k`'s value without counting as a use, or `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LruCache } from "std/collections"
+  ///
+  /// const cache = new LruCache<string, int>(2)
+  /// cache.set("a", 1).set("b", 2)
+  /// println(cache.peek("a"))           // 1
+  /// println(cache.keys().join(", "))   // b, a
+  /// ```
   public peek(k: K): V? {
     const n = this.map.get(k)
     if (n == null) null else n.value[1]
   }
 
   /// Whether `k` has an entry (not counting as a use).
+  ///
+  /// @example
+  /// ```ts
+  /// import { LruCache } from "std/collections"
+  ///
+  /// const cache = new LruCache<string, int>(2)
+  /// cache.set("a", 1)
+  /// println(cache.has("a"))   // true
+  /// ```
   public has(k: K): bool { this.map.has(k) }
 
   /// Sets `k`'s value (now the most recently used), dropping the least recently used entry when
   /// the cache is full; the cache, for chaining.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LruCache } from "std/collections"
+  ///
+  /// const cache = new LruCache<string, int>(1)
+  /// cache.set("a", 1).set("b", 2)
+  /// println(cache.has("a"))   // false
+  /// println(cache.get("b"))   // 2
+  /// ```
   public set(k: K, v: V): LruCache<K, V> {
     const old = this.map.get(k)
     if (old != null) {
@@ -763,6 +1675,16 @@ export class LruCache<K extends Hashable<K>, V> {
   }
 
   /// Removes `k`'s entry; whether there was one.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LruCache } from "std/collections"
+  ///
+  /// const cache = new LruCache<string, int>(2)
+  /// cache.set("a", 1)
+  /// println(cache.delete("a"))   // true
+  /// println(cache.size)          // 0
+  /// ```
   public delete(k: K): bool {
     const n = this.map.get(k)
     if (n == null) return false
@@ -772,6 +1694,16 @@ export class LruCache<K extends Hashable<K>, V> {
   }
 
   /// Removes every entry.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LruCache } from "std/collections"
+  ///
+  /// const cache = new LruCache<string, int>(2)
+  /// cache.set("a", 1).set("b", 2)
+  /// cache.clear()
+  /// println(cache.size)   // 0
+  /// ```
   public clear(): void {
     this.map.clear()
     this.head = null
@@ -779,6 +1711,15 @@ export class LruCache<K extends Hashable<K>, V> {
   }
 
   /// The keys, most recently used first.
+  ///
+  /// @example
+  /// ```ts
+  /// import { LruCache } from "std/collections"
+  ///
+  /// const cache = new LruCache<string, int>(3)
+  /// cache.set("a", 1).set("b", 2).set("c", 3)
+  /// println(cache.keys().join(", "))   // c, b, a
+  /// ```
   public keys(): K[] {
     const r: K[] = []
     let n = this.head
@@ -791,11 +1732,29 @@ export class LruCache<K extends Hashable<K>, V> {
 }
 
 /// A growable set of small non-negative integers, one bit each.
+///
+/// @example
+/// ```ts
+/// import { BitSet } from "std/collections"
+///
+/// const flags = new BitSet([1, 5])
+/// flags.add(64)
+/// println(flags.has(5))   // true
+/// println(flags)          // {1, 5, 64}
+/// ```
 export class BitSet {
   /// 32 bits per word.
   words: int[] = []
 
   /// A set with the bits in `bits` set (a negative one panics).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([0, 3])
+  /// println(bits.size)   // 2
+  /// ```
   constructor(bits: int[] = []) {
     for (const b of bits) this.add(b)
   }
@@ -805,6 +1764,15 @@ export class BitSet {
   }
 
   /// Whether bit `i` is set (`false` beyond the highest one; a negative `i` panics).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([2])
+  /// println(bits.has(2))      // true
+  /// println(bits.has(1000))   // false
+  /// ```
   public has(i: int): bool {
     BitSet.__check(i)
     const w = i >> 5
@@ -812,6 +1780,15 @@ export class BitSet {
   }
 
   /// Sets bit `i` (grows as needed).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet()
+  /// bits.add(1).add(100)
+  /// println(bits)   // {1, 100}
+  /// ```
   public add(i: int): BitSet {
     BitSet.__check(i)
     const w = i >> 5
@@ -821,6 +1798,15 @@ export class BitSet {
   }
 
   /// Clears bit `i`; `true` if it was set.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([3])
+  /// println(bits.delete(3))   // true
+  /// println(bits.delete(3))   // false
+  /// ```
   public delete(i: int): bool {
     if (!this.has(i)) return false
     const w = i >> 5
@@ -829,6 +1815,17 @@ export class BitSet {
   }
 
   /// Sets `i` when `on`, else clears it.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet()
+  /// bits.set(4, true)
+  /// bits.set(5, true)
+  /// bits.set(4, false)
+  /// println(bits)   // {5}
+  /// ```
   public set(i: int, on: bool): void {
     if (on) {
       this.add(i);
@@ -838,12 +1835,39 @@ export class BitSet {
   }
 
   /// Toggles bit `i` (a negative `i` panics).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([1])
+  /// bits.flip(1)
+  /// bits.flip(2)
+  /// println(bits)   // {2}
+  /// ```
   public flip(i: int): void { this.set(i, !this.has(i)) }
 
   /// Clears every bit.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([1, 2])
+  /// bits.clear()
+  /// println(bits.isEmpty)   // true
+  /// ```
   public clear(): void { this.words = [] }
 
   /// The number of set bits.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([1, 40, 100])
+  /// println(bits.size)   // 3
+  /// ```
   public get size(): int {
     let n = 0
     for (const w of this.words) {
@@ -857,9 +1881,25 @@ export class BitSet {
   }
 
   /// Whether no bit is set.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// println(new BitSet().isEmpty)      // true
+  /// println(new BitSet([0]).isEmpty)   // false
+  /// ```
   public get isEmpty(): bool { return this.size == 0 }
 
   /// One more than the highest set bit (0 when empty).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([1, 40])
+  /// println(bits.length)   // 41
+  /// ```
   public get length(): int {
     let w = this.words.length - 1
     while (w >= 0) {
@@ -886,15 +1926,60 @@ export class BitSet {
   }
 
   /// A new set: the bits in both this set and `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const a = new BitSet([1, 2, 3])
+  /// const b = new BitSet([2, 3, 4])
+  /// println(a.and(b))   // {2, 3}
+  /// ```
   public and(o: BitSet): BitSet { BitSet.__combine(this, o, 0) }
   /// A new set: the bits in either this set or `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const a = new BitSet([1, 2])
+  /// const b = new BitSet([2, 70])
+  /// println(a.or(b))   // {1, 2, 70}
+  /// ```
   public or(o: BitSet): BitSet { BitSet.__combine(this, o, 1) }
   /// A new set: the bits in exactly one of this set and `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const a = new BitSet([1, 2])
+  /// const b = new BitSet([2, 3])
+  /// println(a.xor(b))   // {1, 3}
+  /// ```
   public xor(o: BitSet): BitSet { BitSet.__combine(this, o, 2) }
   /// A new set: the bits in this set but not in `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const a = new BitSet([1, 2, 3])
+  /// const b = new BitSet([2])
+  /// println(a.andNot(b))   // {1, 3}
+  /// ```
   public andNot(o: BitSet): BitSet { BitSet.__combine(this, o, 3) }
 
   /// The same bits set (trailing zero words don't matter).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const a = new BitSet([1, 100])
+  /// a.delete(100)
+  /// println(a.equals(new BitSet([1])))   // true
+  /// ```
   public equals(o: BitSet): bool {
     const n = if (this.words.length > o.words.length) this.words.length else o.words.length
     for (let i = 0; i < n; i++) {
@@ -906,6 +1991,14 @@ export class BitSet {
   }
 
   /// The set bits, ascending.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([9, 2, 5])
+  /// println(bits.toArray().join(", "))   // 2, 5, 9
+  /// ```
   public toArray(): int[] {
     const r: int[] = []
     for (let w = 0; w < this.words.length; w++) {
@@ -919,8 +2012,26 @@ export class BitSet {
   }
 
   /// `for (const i of bits)`: the set bits, ascending.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([3, 1])
+  /// for (const i of bits) println(i)
+  /// // 1
+  /// // 3
+  /// ```
   public iterator(): Iterator<int> { this.toArray().iterator() }
 
   /// `{1, 5, 64}`
+  ///
+  /// @example
+  /// ```ts
+  /// import { BitSet } from "std/collections"
+  ///
+  /// const bits = new BitSet([1, 5, 64])
+  /// println(bits.toString())   // {1, 5, 64}
+  /// ```
   public toString(): string { return "{" + this.toArray().join(", ") + "}" }
 }
