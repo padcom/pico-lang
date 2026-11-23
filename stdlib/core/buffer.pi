@@ -3,6 +3,15 @@
 // pointer and detaches it here. Without a transfer, a message gets a copy of the bytes.
 
 /// Raw bytes, off the GC heap.
+///
+/// @example
+/// ```ts
+/// const buf = new ArrayBuffer(4)
+/// const bytes = new Uint8Array(buf, 0)
+/// bytes.set(0, 255)
+/// println(buf.byteLength)   // 4
+/// println(bytes[0])         // 255
+/// ```
 class ArrayBuffer {
   /// The memory (0: detached). The runtime knows this layout: `{ class, handle, byteLength }`.
   public __handle: int
@@ -10,6 +19,13 @@ class ArrayBuffer {
   public byteLength: int
 
   /// `byteLength` zeroed bytes (a negative length gives an empty buffer).
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(16)
+  /// println(buf.byteLength)   // 16
+  /// println(new Uint8Array(buf, 0)[15])   // 0
+  /// ```
   constructor(byteLength: int) {
     const n = if (byteLength < 0) 0 else byteLength
     __reclaimBuffers(n)
@@ -19,6 +35,20 @@ class ArrayBuffer {
   }
 
   /// Takes over memory the runtime allocated (`std/fs` reads).
+  ///
+  /// @example
+  /// ```ts
+  /// import { readBytes, writeBytes, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// // `std/fs` reads hand their memory to an `ArrayBuffer` this way.
+  /// const path = join(tmpDir(), "adopt-example.bin")
+  /// await writeBytes(path, Uint8Array.from([1, 2, 3]))
+  /// const bytes = await readBytes(path)
+  /// println(bytes.buffer.byteLength)   // 3
+  /// await remove(path)
+  /// ```
   constructor(handle: int, byteLength: int, __adopt: bool) {
     __reclaimBuffers(byteLength)
     this.__handle = handle
@@ -28,11 +58,31 @@ class ArrayBuffer {
   }
 
   /// Whether it was transferred away (its length is then 0).
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(8)
+  /// println(buf.detached)   // false
+  /// const w = new Worker((b: ArrayBuffer): int => b.byteLength)
+  /// w.postMessage(buf, { transfer: [buf] })
+  /// println(buf.detached)     // true
+  /// println(buf.byteLength)   // 0
+  /// w.terminate()
+  /// ```
   public get detached(): bool {
     return this.__handle == 0
   }
 
   /// A copy of bytes `begin..end` (negative counts from the end; `end` defaults to the end).
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = Uint8Array.from([10, 20, 30, 40]).buffer
+  /// const part = buf.slice(1, 3)
+  /// println(part.byteLength)   // 2
+  /// println(new Uint8Array(part, 0)[0])   // 20
+  /// println(buf.slice(-1).byteLength)     // 1
+  /// ```
   public slice(begin: int = 0, end: int? = null): ArrayBuffer {
     const a = this.clampIndex(begin)
     const e = end
@@ -118,6 +168,15 @@ function __reclaimBuffers(bytes: int): void {
 }
 
 /// `postMessage(message, { transfer: [buffer] })`: the buffers to move instead of copy.
+///
+/// @example
+/// ```ts
+/// const buf = new ArrayBuffer(1024)
+/// const w = new Worker((b: ArrayBuffer): int => b.byteLength)
+/// w.postMessage(buf, { transfer: [buf] })   // moved, not copied
+/// println(buf.detached)   // true
+/// w.terminate()
+/// ```
 struct TransferOptions {
   /// The buffers to move; each is detached in the sender.
   transfer: ArrayBuffer[]
@@ -190,6 +249,16 @@ function __viewOffset(buffer: ArrayBuffer, byteOffset: int, size: int, view: str
 }
 
 /// A view of an `ArrayBuffer` as 1-byte elements (`int`), as on the Web.
+///
+/// @example
+/// ```ts
+/// const bytes = new Uint8Array(4)
+/// bytes.set(0, 0xCA)
+/// bytes.set(1, 0xFE)
+/// println(bytes.length)           // 4
+/// println(bytes[0])               // 202
+/// println(bytes.includes(0xFE))   // true
+/// ```
 class Uint8Array {
   /// The size of an element: 1 byte.
   public static BYTES_PER_ELEMENT: int = 1
@@ -200,6 +269,13 @@ class Uint8Array {
   count: int
 
   /// `length` zeroed elements in a new buffer; panics if `length` is negative.
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = new Uint8Array(3)
+  /// println(bytes.length)   // 3
+  /// println(bytes[2])       // 0
+  /// ```
   constructor(length: int) {
     this.buffer = new ArrayBuffer(__viewLength(length, "Uint8Array") * 1)
     this.byteOffset = 0
@@ -208,6 +284,13 @@ class Uint8Array {
 
   /// A view of `buffer` from `byteOffset` to its end; panics if `byteOffset` is outside the
   /// buffer.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(8)
+  /// const tail = new Uint8Array(buf, 6)
+  /// println(tail.length)   // 2
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -216,6 +299,15 @@ class Uint8Array {
 
   /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
   /// negative, `length` is negative, or the view would end past the buffer.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(8)
+  /// const mid = new Uint8Array(buf, 2, 4)
+  /// mid.set(0, 7)
+  /// println(mid.length)                   // 4
+  /// println(new Uint8Array(buf, 0)[2])    // 7
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -223,11 +315,23 @@ class Uint8Array {
   }
 
   /// 0 once the buffer is detached (transferred).
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = Uint8Array.from([1, 2, 3])
+  /// println(bytes.length)   // 3
+  /// ```
   public get length(): int {
     if (this.buffer.detached) 0 else this.count
   }
 
   /// The view's size in bytes (`length * 1`; 0 once the buffer is detached).
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = new Uint8Array(5)
+  /// println(bytes.byteLength)   // 5
+  /// ```
   public get byteLength(): int {
     return this.length * 1
   }
@@ -239,6 +343,13 @@ class Uint8Array {
   }
 
   /// The byte at `i` (0 to 255); panics if `i` is out of bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = Uint8Array.from([5, 6, 7])
+  /// println(bytes.get(1))   // 6
+  /// println(bytes[2])       // 7
+  /// ```
   public get(i: int): int {
     this.check(i)
     __buf_op(11, this.buffer.__handle, this.byteOffset + i, 0)
@@ -246,6 +357,15 @@ class Uint8Array {
 
   /// Sets the byte at `i` to `value`'s low 8 bits (`value` modulo 256); panics if `i` is out of
   /// bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = new Uint8Array(2)
+  /// bytes.set(0, 65)
+  /// bytes.set(1, 257)       // stored as 1
+  /// println(bytes[0])       // 65
+  /// println(bytes[1])       // 1
+  /// ```
   public set(i: int, value: int): void {
     this.check(i)
     __buf_op(21, this.buffer.__handle, this.byteOffset + i, value);
@@ -262,6 +382,15 @@ class Uint8Array {
   }
 
   /// A view of the same bytes from `begin` to `end` (negative counts from the end).
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = Uint8Array.from([1, 2, 3, 4, 5])
+  /// const mid = bytes.subarray(1, 3)
+  /// mid.set(0, 9)
+  /// println(mid.length)   // 2
+  /// println(bytes[1])     // 9
+  /// ```
   public subarray(begin: int = 0, end: int? = null): Uint8Array {
     const a = this.clamp(begin)
     const e = end
@@ -270,6 +399,15 @@ class Uint8Array {
   }
 
   /// A copy of the bytes from `begin` to `end` (negative counts from the end).
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = Uint8Array.from([1, 2, 3, 4, 5])
+  /// const copy = bytes.slice(-2)
+  /// copy.set(0, 0)
+  /// println(copy.length)   // 2
+  /// println(bytes[3])      // 4
+  /// ```
   public slice(begin: int = 0, end: int? = null): Uint8Array {
     const a = this.clamp(begin)
     const e = end
@@ -281,6 +419,14 @@ class Uint8Array {
   /// Copies `source`'s bytes into this view from `offset`, as the Web's `set(source, offset)`
   /// overload does: in one go, so `source` may overlap this view's bytes. Panics if they don't
   /// fit. (Named `setAll` until methods can be overloaded: decision 316.)
+  ///
+  /// @example
+  /// ```ts
+  /// const out = new Uint8Array(5)
+  /// out.setAll(Uint8Array.from([7, 8]), 2)
+  /// println(out[2])   // 7
+  /// println(out[3])   // 8
+  /// ```
   public setAll(source: Uint8Array, offset: int = 0): void {
     const n = source.length
     if (offset < 0 || offset > this.length - n) {
@@ -295,6 +441,15 @@ class Uint8Array {
   /// Copies the bytes from `start` to `end` (default: the end) to position `target`, as on the
   /// Web: positions count from the end when negative, and the copy stops at the view's end. The
   /// ranges may overlap. Returns this view.
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = Uint8Array.from([1, 2, 3, 4, 5])
+  /// bytes.copyWithin(0, 3)
+  /// println(bytes[0])   // 4
+  /// println(bytes[1])   // 5
+  /// println(bytes[2])   // 3
+  /// ```
   public copyWithin(target: int, start: int, end: int? = null): Uint8Array {
     const t = this.clamp(target)
     const s = this.clamp(start)
@@ -311,6 +466,14 @@ class Uint8Array {
 
   /// The first position from `fromIndex` (negative counts from the end) whose byte is `value`, or
   /// -1, as on the Web.
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = Uint8Array.from([10, 20, 30, 20])
+  /// println(bytes.indexOf(20))      // 1
+  /// println(bytes.indexOf(20, 2))   // 3
+  /// println(bytes.indexOf(99))      // -1
+  /// ```
   public indexOf(value: int, fromIndex: int = 0): int {
     const n = this.length
     if (value < 0 || value > 255) {
@@ -325,12 +488,27 @@ class Uint8Array {
   }
 
   /// Whether a byte from `fromIndex` on is `value`.
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = Uint8Array.from([0x50, 0x4B, 0x03])
+  /// println(bytes.includes(0x4B))   // true
+  /// println(bytes.includes(0xFF))   // false
+  /// ```
   public includes(value: int, fromIndex: int = 0): bool {
     return this.indexOf(value, fromIndex) >= 0
   }
 
   /// Sets the bytes from `start` to `end` (negative counts from the end) to `value`'s low 8 bits,
   /// as on the Web. Returns this view.
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = new Uint8Array(4).fill(255, 1, 3)
+  /// println(bytes[0])   // 0
+  /// println(bytes[1])   // 255
+  /// println(bytes[3])   // 0
+  /// ```
   public fill(value: int, start: int = 0, end: int? = null): Uint8Array {
     const a = this.clamp(start)
     const e = end
@@ -342,6 +520,14 @@ class Uint8Array {
   }
 
   /// Whether `other` has the same bytes (and length). Not on the Web, where it takes a loop.
+  ///
+  /// @example
+  /// ```ts
+  /// const a = Uint8Array.from([1, 2, 3])
+  /// const b = Uint8Array.from([1, 2, 3])
+  /// println(a.equals(b))                    // true
+  /// println(a.equals(b.subarray(0, 2)))     // false
+  /// ```
   public equals(other: Uint8Array): bool {
     const n = this.length
     if (other.length != n) {
@@ -368,6 +554,13 @@ class Uint8Array {
   }
 
   /// The bytes of `values` (each taken modulo 256).
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = Uint8Array.from([72, 105, 256 + 33])
+  /// println(bytes.length)   // 3
+  /// println(bytes[2])       // 33
+  /// ```
   public static from(values: int[]): Uint8Array {
     const out = new Uint8Array(values.length)
     for (let i = 0; i < values.length; i++) {
@@ -378,6 +571,15 @@ class Uint8Array {
 }
 
 /// A view of an `ArrayBuffer` as 4-byte elements (`int`), as on the Web.
+///
+/// @example
+/// ```ts
+/// const xs = new Int32Array(3)
+/// xs.set(0, -7)
+/// println(xs.length)       // 3
+/// println(xs.byteLength)   // 12
+/// println(xs[0])           // -7
+/// ```
 class Int32Array {
   /// The size of an element: 4 bytes.
   public static BYTES_PER_ELEMENT: int = 4
@@ -388,6 +590,13 @@ class Int32Array {
   count: int
 
   /// `length` zeroed elements in a new buffer; panics if `length` is negative.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Int32Array(4)
+  /// println(xs.length)              // 4
+  /// println(xs.buffer.byteLength)   // 16
+  /// ```
   constructor(length: int) {
     this.buffer = new ArrayBuffer(__viewLength(length, "Int32Array") * 4)
     this.byteOffset = 0
@@ -396,6 +605,13 @@ class Int32Array {
 
   /// A view of `buffer` from `byteOffset` to its end. Panics if `byteOffset` is outside the
   /// buffer or not a multiple of 4, or the bytes after it aren't a whole number of elements.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(16)
+  /// const rest = new Int32Array(buf, 4)
+  /// println(rest.length)   // 3
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -405,6 +621,15 @@ class Int32Array {
   /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
   /// negative or not a multiple of 4, `length` is negative, or the view would end past the
   /// buffer.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(16)
+  /// const two = new Int32Array(buf, 4, 2)
+  /// two.set(0, -7)
+  /// println(two.length)                 // 2
+  /// println(new Int32Array(buf, 0)[1])   // -7
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -412,11 +637,23 @@ class Int32Array {
   }
 
   /// 0 once the buffer is detached (transferred).
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Int32Array(10)
+  /// println(xs.length)   // 10
+  /// ```
   public get length(): int {
     if (this.buffer.detached) 0 else this.count
   }
 
   /// The view's size in bytes (`length * 4`; 0 once the buffer is detached).
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Int32Array(10)
+  /// println(xs.byteLength)   // 40
+  /// ```
   public get byteLength(): int {
     return this.length * 4
   }
@@ -428,12 +665,29 @@ class Int32Array {
   }
 
   /// The element at `i`, a signed 32-bit integer; panics if `i` is out of bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Int32Array(2)
+  /// xs.set(1, -7)
+  /// println(xs.get(1))   // -7
+  /// println(xs[0])       // 0
+  /// ```
   public get(i: int): int {
     this.check(i)
     unsafe { unsafe.cast<i32>(__buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0) as u32) as int }
   }
 
   /// Sets the element at `i` to `value`'s low 32 bits (wrapping); panics if `i` is out of bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Int32Array(2)
+  /// xs.set(0, 123)
+  /// xs.set(1, 0x80000000)   // wraps
+  /// println(xs[0])   // 123
+  /// println(xs[1])   // -2147483648
+  /// ```
   public set(i: int, value: int): void {
     this.check(i)
     __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, value);
@@ -445,6 +699,15 @@ class Int32Array {
 }
 
 /// A view of an `ArrayBuffer` as 4-byte elements (`int`), as on the Web.
+///
+/// @example
+/// ```ts
+/// const xs = new Uint32Array(3)
+/// xs.set(0, 4000000000)
+/// println(xs.length)       // 3
+/// println(xs.byteLength)   // 12
+/// println(xs[0])           // 4000000000
+/// ```
 class Uint32Array {
   /// The size of an element: 4 bytes.
   public static BYTES_PER_ELEMENT: int = 4
@@ -455,6 +718,13 @@ class Uint32Array {
   count: int
 
   /// `length` zeroed elements in a new buffer; panics if `length` is negative.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Uint32Array(4)
+  /// println(xs.length)              // 4
+  /// println(xs.buffer.byteLength)   // 16
+  /// ```
   constructor(length: int) {
     this.buffer = new ArrayBuffer(__viewLength(length, "Uint32Array") * 4)
     this.byteOffset = 0
@@ -463,6 +733,13 @@ class Uint32Array {
 
   /// A view of `buffer` from `byteOffset` to its end. Panics if `byteOffset` is outside the
   /// buffer or not a multiple of 4, or the bytes after it aren't a whole number of elements.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(16)
+  /// const rest = new Uint32Array(buf, 4)
+  /// println(rest.length)   // 3
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -472,6 +749,15 @@ class Uint32Array {
   /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
   /// negative or not a multiple of 4, `length` is negative, or the view would end past the
   /// buffer.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(16)
+  /// const two = new Uint32Array(buf, 4, 2)
+  /// two.set(0, 4000000000)
+  /// println(two.length)                 // 2
+  /// println(new Uint32Array(buf, 0)[1])   // 4000000000
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -479,11 +765,23 @@ class Uint32Array {
   }
 
   /// 0 once the buffer is detached (transferred).
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Uint32Array(10)
+  /// println(xs.length)   // 10
+  /// ```
   public get length(): int {
     if (this.buffer.detached) 0 else this.count
   }
 
   /// The view's size in bytes (`length * 4`; 0 once the buffer is detached).
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Uint32Array(10)
+  /// println(xs.byteLength)   // 40
+  /// ```
   public get byteLength(): int {
     return this.length * 4
   }
@@ -496,12 +794,29 @@ class Uint32Array {
 
   /// The element at `i`, an unsigned 32-bit integer (0 to `2**32 - 1`); panics if `i` is out of
   /// bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Uint32Array(2)
+  /// xs.set(1, 4000000000)
+  /// println(xs.get(1))   // 4000000000
+  /// println(xs[0])       // 0
+  /// ```
   public get(i: int): int {
     this.check(i)
     __buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0)
   }
 
   /// Sets the element at `i` to `value`'s low 32 bits (wrapping); panics if `i` is out of bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Uint32Array(2)
+  /// xs.set(0, 123)
+  /// xs.set(1, -1)   // wraps
+  /// println(xs[0])   // 123
+  /// println(xs[1])   // 4294967295
+  /// ```
   public set(i: int, value: int): void {
     this.check(i)
     __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, value);
@@ -513,6 +828,15 @@ class Uint32Array {
 }
 
 /// A view of an `ArrayBuffer` as 4-byte elements (`f32`), as on the Web.
+///
+/// @example
+/// ```ts
+/// const xs = new Float32Array(3)
+/// xs.set(0, 0.5)
+/// println(xs.length)       // 3
+/// println(xs.byteLength)   // 12
+/// println(xs[0])           // 0.5
+/// ```
 class Float32Array {
   /// The size of an element: 4 bytes.
   public static BYTES_PER_ELEMENT: int = 4
@@ -523,6 +847,13 @@ class Float32Array {
   count: int
 
   /// `length` zeroed elements in a new buffer; panics if `length` is negative.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float32Array(4)
+  /// println(xs.length)              // 4
+  /// println(xs.buffer.byteLength)   // 16
+  /// ```
   constructor(length: int) {
     this.buffer = new ArrayBuffer(__viewLength(length, "Float32Array") * 4)
     this.byteOffset = 0
@@ -531,6 +862,13 @@ class Float32Array {
 
   /// A view of `buffer` from `byteOffset` to its end. Panics if `byteOffset` is outside the
   /// buffer or not a multiple of 4, or the bytes after it aren't a whole number of elements.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(16)
+  /// const rest = new Float32Array(buf, 4)
+  /// println(rest.length)   // 3
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -540,6 +878,15 @@ class Float32Array {
   /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
   /// negative or not a multiple of 4, `length` is negative, or the view would end past the
   /// buffer.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(16)
+  /// const two = new Float32Array(buf, 4, 2)
+  /// two.set(0, 0.5)
+  /// println(two.length)                 // 2
+  /// println(new Float32Array(buf, 0)[1])   // 0.5
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -547,11 +894,23 @@ class Float32Array {
   }
 
   /// 0 once the buffer is detached (transferred).
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float32Array(10)
+  /// println(xs.length)   // 10
+  /// ```
   public get length(): int {
     if (this.buffer.detached) 0 else this.count
   }
 
   /// The view's size in bytes (`length * 4`; 0 once the buffer is detached).
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float32Array(10)
+  /// println(xs.byteLength)   // 40
+  /// ```
   public get byteLength(): int {
     return this.length * 4
   }
@@ -563,12 +922,27 @@ class Float32Array {
   }
 
   /// The element at `i`; panics if `i` is out of bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float32Array(2)
+  /// xs.set(1, 0.5)
+  /// println(xs.get(1))   // 0.5
+  /// println(xs[0])       // 0
+  /// ```
   public get(i: int): f32 {
     this.check(i)
     unsafe { unsafe.cast<f32>(__buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0) as u32) }
   }
 
   /// Sets the element at `i` to `value`; panics if `i` is out of bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float32Array(2)
+  /// xs.set(0, 1.25)
+  /// println(xs[0])   // 1.25
+  /// ```
   public set(i: int, value: f32): void {
     this.check(i)
     __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, unsafe { unsafe.cast<u32>(value) as int });
@@ -580,6 +954,15 @@ class Float32Array {
 }
 
 /// A view of an `ArrayBuffer` as 8-byte elements (`f64`), as on the Web.
+///
+/// @example
+/// ```ts
+/// const xs = new Float64Array(3)
+/// xs.set(0, 3.25)
+/// println(xs.length)       // 3
+/// println(xs.byteLength)   // 24
+/// println(xs[0])           // 3.25
+/// ```
 class Float64Array {
   /// The size of an element: 8 bytes.
   public static BYTES_PER_ELEMENT: int = 8
@@ -590,6 +973,13 @@ class Float64Array {
   count: int
 
   /// `length` zeroed elements in a new buffer; panics if `length` is negative.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float64Array(4)
+  /// println(xs.length)              // 4
+  /// println(xs.buffer.byteLength)   // 32
+  /// ```
   constructor(length: int) {
     this.buffer = new ArrayBuffer(__viewLength(length, "Float64Array") * 8)
     this.byteOffset = 0
@@ -598,6 +988,13 @@ class Float64Array {
 
   /// A view of `buffer` from `byteOffset` to its end. Panics if `byteOffset` is outside the
   /// buffer or not a multiple of 8, or the bytes after it aren't a whole number of elements.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(32)
+  /// const rest = new Float64Array(buf, 8)
+  /// println(rest.length)   // 3
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -607,6 +1004,15 @@ class Float64Array {
   /// A view of `length` elements of `buffer` from `byteOffset`. Panics if `byteOffset` is
   /// negative or not a multiple of 8, `length` is negative, or the view would end past the
   /// buffer.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(32)
+  /// const two = new Float64Array(buf, 8, 2)
+  /// two.set(0, 3.25)
+  /// println(two.length)                 // 2
+  /// println(new Float64Array(buf, 0)[1])   // 3.25
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int, length: int) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -614,11 +1020,23 @@ class Float64Array {
   }
 
   /// 0 once the buffer is detached (transferred).
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float64Array(10)
+  /// println(xs.length)   // 10
+  /// ```
   public get length(): int {
     if (this.buffer.detached) 0 else this.count
   }
 
   /// The view's size in bytes (`length * 8`; 0 once the buffer is detached).
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float64Array(10)
+  /// println(xs.byteLength)   // 80
+  /// ```
   public get byteLength(): int {
     return this.length * 8
   }
@@ -630,12 +1048,27 @@ class Float64Array {
   }
 
   /// The element at `i`; panics if `i` is out of bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float64Array(2)
+  /// xs.set(1, 3.25)
+  /// println(xs.get(1))   // 3.25
+  /// println(xs[0])       // 0
+  /// ```
   public get(i: int): f64 {
     this.check(i)
     unsafe { unsafe.cast<f64>(__buf_op(18, this.buffer.__handle, this.byteOffset + i * 8, 0)) }
   }
 
   /// Sets the element at `i` to `value`; panics if `i` is out of bounds.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs = new Float64Array(2)
+  /// xs.set(0, 1.25)
+  /// println(xs[0])   // 1.25
+  /// ```
   public set(i: int, value: f64): void {
     this.check(i)
     __buf_op(28, this.buffer.__handle, this.byteOffset + i * 8, unsafe { unsafe.cast<i64>(value) });
@@ -650,6 +1083,16 @@ class Float64Array {
 /// big-endian unless `littleEndian` is given, as on the Web. Offsets outside the view panic (the
 /// Web throws a `RangeError`). 64-bit integers are `i64`/`u64` (`getBigInt64`, `getBigUint64`:
 /// the Web's names, without its BigInt). Pico also takes a `Uint8Array`: the view's bytes.
+///
+/// @example
+/// ```ts
+/// const view = new DataView(new ArrayBuffer(6))
+/// view.setUint16(0, 0xCAFE)
+/// view.setUint32(2, 1, true)
+/// println(view.getUint8(0))          // 202
+/// println(view.getUint16(0, true))   // 65226
+/// println(view.getUint32(2, true))   // 1
+/// ```
 class DataView {
   /// The `ArrayBuffer` whose bytes the view reads and writes.
   public buffer: ArrayBuffer
@@ -659,6 +1102,15 @@ class DataView {
 
   /// A view of `buffer` from `byteOffset`, `byteLength` bytes long (default: to its end). Panics
   /// if that isn't inside the buffer.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = new ArrayBuffer(8)
+  /// const header = new DataView(buf, 0, 4)
+  /// const body = new DataView(buf, 4)
+  /// println(header.byteLength)   // 4
+  /// println(body.byteLength)     // 4
+  /// ```
   constructor(buffer: ArrayBuffer, byteOffset: int = 0, byteLength: int? = null) {
     this.buffer = buffer
     this.byteOffset = byteOffset
@@ -667,6 +1119,13 @@ class DataView {
   }
 
   /// A view of the same bytes as `view`.
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = Uint8Array.from([0x00, 0x01, 0x00, 0x00])
+  /// const view = new DataView(bytes)
+  /// println(view.getUint16(0))   // 1
+  /// ```
   constructor(view: Uint8Array) {
     this.buffer = view.buffer
     this.byteOffset = view.byteOffset
@@ -674,6 +1133,12 @@ class DataView {
   }
 
   /// The view's size in bytes (0 once the buffer is detached).
+  ///
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(12), 4)
+  /// println(view.byteLength)   // 8
+  /// ```
   public get byteLength(): int {
     if (this.buffer.detached) 0 else this.count
   }
@@ -713,93 +1178,240 @@ class DataView {
     }
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(Uint8Array.from([200, 7]))
+  /// println(view.getUint8(0))   // 200
+  /// println(view.getUint8(1))   // 7
+  /// ```
   public getUint8(at: int): int {
     this.read(at, 1, true)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(Uint8Array.from([253, 7]))
+  /// println(view.getInt8(0))   // -3
+  /// println(view.getInt8(1))   // 7
+  /// ```
   public getInt8(at: int): int {
     __signed(this.read(at, 1, true), 8)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(2))
+  /// view.setUint16(0, 513)
+  /// println(view.getUint16(0))         // 513
+  /// println(view.getUint16(0, true))   // 258 (the bytes read little-endian)
+  /// ```
   public getUint16(at: int, littleEndian: bool = false): int {
     this.read(at, 2, littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(2))
+  /// view.setInt16(0, -2)
+  /// println(view.getInt16(0))         // -2
+  /// println(view.getInt16(0, true))   // -257 (the bytes read little-endian)
+  /// ```
   public getInt16(at: int, littleEndian: bool = false): int {
     __signed(this.read(at, 2, littleEndian), 16)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(4))
+  /// view.setUint32(0, 3000000000)
+  /// println(view.getUint32(0))         // 3000000000
+  /// println(view.getUint32(0, true))   // 6213810 (the bytes read little-endian)
+  /// ```
   public getUint32(at: int, littleEndian: bool = false): int {
     this.read(at, 4, littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(4))
+  /// view.setInt32(0, -100000)
+  /// println(view.getInt32(0))         // -100000
+  /// println(view.getInt32(0, true))   // 1618607871 (the bytes read little-endian)
+  /// ```
   public getInt32(at: int, littleEndian: bool = false): int {
     __signed(this.read(at, 4, littleEndian), 32)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(8))
+  /// view.setBigInt64(0, -5)
+  /// println(view.getBigInt64(0))   // -5
+  /// ```
   public getBigInt64(at: int, littleEndian: bool = false): i64 {
     this.read(at, 8, littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(8))
+  /// view.setBigInt64(0, -1)
+  /// println(view.getBigUint64(0))   // 18446744073709551615
+  /// ```
   public getBigUint64(at: int, littleEndian: bool = false): u64 {
     unsafe { unsafe.cast<u64>(this.read(at, 8, littleEndian)) }
   }
 
   /// An IEEE 754 half-precision number (ES2025's `getFloat16`).
+  ///
+  /// @example
+  /// ```ts
+  /// const view = new DataView(Uint8Array.from([0x3C, 0x00]))
+  /// println(view.getFloat16(0))   // 1
+  /// ```
   public getFloat16(at: int, littleEndian: bool = false): f64 {
     __f16ToF64(this.read(at, 2, littleEndian))
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(4))
+  /// view.setFloat32(0, 0.75)
+  /// println(view.getFloat32(0))   // 0.75
+  /// ```
   public getFloat32(at: int, littleEndian: bool = false): f32 {
     unsafe { unsafe.cast<f32>(__signed(this.read(at, 4, littleEndian), 32) as i32) }
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(8))
+  /// view.setFloat64(0, 6.5, true)
+  /// println(view.getFloat64(0, true))   // 6.5
+  /// ```
   public getFloat64(at: int, littleEndian: bool = false): f64 {
     unsafe { unsafe.cast<f64>(this.read(at, 8, littleEndian)) }
   }
 
   /// Stores `value`'s low 8 bits (as do all the integer setters: their low 16, 32, 64 bits).
+  ///
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(2))
+  /// view.setUint8(0, 200)
+  /// println(view.getUint8(0))   // 200
+  /// println(view.getUint8(0))    // 200
+  /// ```
   public setUint8(at: int, value: int): void {
     this.write(at, 1, value, true)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(2))
+  /// view.setInt8(0, -3)
+  /// println(view.getInt8(0))   // -3
+  /// println(view.getUint8(0))    // 253
+  /// ```
   public setInt8(at: int, value: int): void {
     this.write(at, 1, value, true)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(2))
+  /// view.setUint16(0, 513, true)     // little-endian
+  /// println(view.getUint16(0, true))   // 513
+  /// println(view.getUint8(0))          // 1
+  /// ```
   public setUint16(at: int, value: int, littleEndian: bool = false): void {
     this.write(at, 2, value, littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(2))
+  /// view.setInt16(0, -2, true)     // little-endian
+  /// println(view.getInt16(0, true))   // -2
+  /// println(view.getUint8(0))          // 254
+  /// ```
   public setInt16(at: int, value: int, littleEndian: bool = false): void {
     this.write(at, 2, value, littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(4))
+  /// view.setUint32(0, 3000000000, true)     // little-endian
+  /// println(view.getUint32(0, true))   // 3000000000
+  /// println(view.getUint8(0))          // 0
+  /// ```
   public setUint32(at: int, value: int, littleEndian: bool = false): void {
     this.write(at, 4, value, littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(4))
+  /// view.setInt32(0, -100000, true)     // little-endian
+  /// println(view.getInt32(0, true))   // -100000
+  /// println(view.getUint8(0))          // 96
+  /// ```
   public setInt32(at: int, value: int, littleEndian: bool = false): void {
     this.write(at, 4, value, littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(8))
+  /// view.setBigInt64(0, 1234567890123)
+  /// println(view.getBigInt64(0))   // 1234567890123
+  /// ```
   public setBigInt64(at: int, value: i64, littleEndian: bool = false): void {
     this.write(at, 8, value, littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const big: u64 = 18446744073709551615
+  /// const view = new DataView(new ArrayBuffer(8))
+  /// view.setBigUint64(0, big)
+  /// println(view.getBigUint64(0))   // 18446744073709551615
+  /// println(view.getInt8(0))        // -1
+  /// ```
   public setBigUint64(at: int, value: u64, littleEndian: bool = false): void {
     this.write(at, 8, unsafe { unsafe.cast<i64>(value) }, littleEndian)
   }
 
   /// `value` rounded to the nearest half-precision number (ties to even; too large: infinity).
+  ///
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(2))
+  /// view.setFloat16(0, 0.1)
+  /// println(view.getFloat16(0))   // 0.0999755859375
+  /// ```
   public setFloat16(at: int, value: f64, littleEndian: bool = false): void {
     this.write(at, 2, __f64ToF16(value), littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(4))
+  /// view.setFloat32(0, 1.5, true)
+  /// println(view.getUint8(3))           // 63
+  /// println(view.getFloat32(0, true))   // 1.5
+  /// ```
   public setFloat32(at: int, value: f32, littleEndian: bool = false): void {
     this.write(at, 4, unsafe { unsafe.cast<i32>(value) } as int, littleEndian)
   }
 
+  /// @example
+  /// ```ts
+  /// const view = new DataView(new ArrayBuffer(8))
+  /// view.setFloat64(0, -2.5)
+  /// println(view.getFloat64(0))   // -2.5
+  /// ```
   public setFloat64(at: int, value: f64, littleEndian: bool = false): void {
     this.write(at, 8, unsafe { unsafe.cast<i64>(value) }, littleEndian)
   }
