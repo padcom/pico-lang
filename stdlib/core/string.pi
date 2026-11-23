@@ -3,6 +3,12 @@
 
 /// Where the first occurrence of `search` starts (in code points, like `s[i]`), or -1. An empty
 /// `search` is found at 0.
+///
+/// @example
+/// ```ts
+/// println("hello".indexOf("l"))   // 2
+/// println("hello".indexOf("z"))   // -1
+/// ```
 function __String_indexOf(s: string, search: string): int {
   const n = s.length
   const m = search.length
@@ -28,16 +34,31 @@ function __matchesAt(s: string, search: string, at: int): bool {
 }
 
 /// Whether `search` occurs in the string.
+///
+/// @example
+/// ```ts
+/// println("pico lang".includes("lang"))   // true
+/// ```
 function __String_includes(s: string, search: string): bool {
   return __String_indexOf(s, search) >= 0
 }
 
 /// Whether the string starts with `prefix`.
+///
+/// @example
+/// ```ts
+/// println("main.pi".startsWith("main"))   // true
+/// ```
 function __String_startsWith(s: string, prefix: string): bool {
   return prefix.length <= s.length && __matchesAt(s, prefix, 0)
 }
 
 /// Whether the string ends with `suffix`.
+///
+/// @example
+/// ```ts
+/// println("main.pi".endsWith(".pi"))   // true
+/// ```
 function __String_endsWith(s: string, suffix: string): bool {
   return suffix.length <= s.length && __matchesAt(s, suffix, s.length - suffix.length)
 }
@@ -48,6 +69,11 @@ function __isSpace(c: char): bool {
 }
 
 /// The string without leading whitespace (spaces, tabs, line breaks, vertical tabs and form feeds).
+///
+/// @example
+/// ```ts
+/// println(`[${"  hi  ".trimStart()}]`)   // [hi  ]
+/// ```
 function __String_trimStart(s: string): string {
   let i = 0
   while (i < s.length && __isSpace(s[i])) {
@@ -58,6 +84,11 @@ function __String_trimStart(s: string): string {
 
 /// The string without trailing whitespace (spaces, tabs, line breaks, vertical tabs and form
 /// feeds).
+///
+/// @example
+/// ```ts
+/// println(`[${"  hi  ".trimEnd()}]`)   // [  hi]
+/// ```
 function __String_trimEnd(s: string): string {
   let j = s.length
   while (j > 0 && __isSpace(s[j - 1])) {
@@ -68,11 +99,21 @@ function __String_trimEnd(s: string): string {
 
 /// The string without leading and trailing whitespace (spaces, tabs, line breaks, vertical tabs and
 /// form feeds).
+///
+/// @example
+/// ```ts
+/// println(`[${"\t hi \n".trim()}]`)   // [hi]
+/// ```
 function __String_trim(s: string): string {
   __String_trimEnd(__String_trimStart(s))
 }
 
 /// ASCII letters only.
+///
+/// @example
+/// ```ts
+/// println("Hello, world".toUpperCase())   // HELLO, WORLD
+/// ```
 function __String_toUpperCase(s: string): string {
   let out = ""
   for (const c of s) {
@@ -83,6 +124,11 @@ function __String_toUpperCase(s: string): string {
 }
 
 /// ASCII letters only.
+///
+/// @example
+/// ```ts
+/// println("Hello, World".toLowerCase())   // hello, world
+/// ```
 function __String_toLowerCase(s: string): string {
   let out = ""
   for (const c of s) {
@@ -95,6 +141,13 @@ function __String_toLowerCase(s: string): string {
 /// The pieces of the string between occurrences of `separator` (a string or a `RegExp`, whose
 /// captured groups are spliced in), at most `limit` of them; an empty separator splits into
 /// characters.
+///
+/// @example
+/// ```ts
+/// println("a,b,c".split(",").join(" | "))      // a | b | c
+/// println("a,b,c".split(",", 2).join(" | "))   // a | b
+/// println("1 + 2".split(/\s*\+\s*/).join(" | "))   // 1 | 2
+/// ```
 function __String_split(s: string, separator: string | RegExp, limit: int = -1): string[] {
   match (separator) {
     sep: string => {
@@ -131,6 +184,13 @@ function __splitStr(s: string, separator: string): string[] {
 /// Replaces the first occurrence of `search` (every match for a `RegExp` with the `g` flag).
 /// `replacement` may use `$&`, `$1`, `$<name>`, `` $` ``, `$'` and `$$`, or be a function of the
 /// match.
+///
+/// @example
+/// ```ts
+/// println("one two two".replace("two", "2"))         // one 2 two
+/// println("a1b22".replace(/\d+/g, "#"))              // a#b#
+/// println("john smith".replace(/(\w+) (\w+)/, "$2, $1"))   // smith, john
+/// ```
 function __String_replace(s: string, search: string | RegExp, replacement: string | ((m: RegExpMatch) => string)): string {
   match (search) {
     t: string => {
@@ -146,6 +206,12 @@ function __String_replace(s: string, search: string | RegExp, replacement: strin
 }
 
 /// Replaces every occurrence of `search` (a `RegExp` needs the `g` flag).
+///
+/// @example
+/// ```ts
+/// println("one two two".replaceAll("two", "2"))   // one 2 2
+/// println("a-b_c".replaceAll(/[-_]/g, (m) => "."))   // a.b.c
+/// ```
 function __String_replaceAll(s: string, search: string | RegExp, replacement: string | ((m: RegExpMatch) => string)): string {
   match (search) {
     t: string => match (replacement) {
@@ -162,6 +228,19 @@ function __String_replaceAll(s: string, search: string | RegExp, replacement: st
 }
 
 /// The first match of `re` (no `g` flag), or every match's text (`g`); `null` without one.
+///
+/// @example
+/// ```ts
+/// const m = "v1.20".match(/(\d+)\.(\d+)/)
+/// if (m != null) {
+///   println(`${m[1]} ${m[2]}`)   // 1 20
+/// }
+/// const all = "a1b22c333".match(/\d+/g)
+/// if (all != null) {
+///   println(all.length)   // 3
+///   println(all[2])       // 333
+/// }
+/// ```
 function __String_match(s: string, re: RegExp): RegExpMatch? {
   if (!re.global) {
     return re.exec(s)
@@ -179,11 +258,25 @@ function __String_match(s: string, re: RegExp): RegExpMatch? {
 }
 
 /// Every match of `re`, with its groups and index.
+///
+/// @example
+/// ```ts
+/// for (const m of "x=1, y=2".matchAll(/(\w)=(\d)/g)) {
+///   println(`${m[1]} is ${m[2]} at ${m.index}`)
+/// }
+/// // x is 1 at 0
+/// // y is 2 at 5
+/// ```
 function __String_matchAll(s: string, re: RegExp): RegExpMatch[] {
   __rMatchAll(s, re)
 }
 
 /// Where the first match of `re` starts, or -1.
+///
+/// @example
+/// ```ts
+/// println("abc123".search(/\d/))   // 3
+/// ```
 function __String_search(s: string, re: RegExp): int {
   const caps = re.__search(__rChars(s), 0, re.sticky)
   if (caps == null) -1 else caps[0]
@@ -223,6 +316,11 @@ function __replaceAllStr(s: string, search: string, replacement: string): string
 
 /// The string `count` times over: `"ab".repeat(3)` is `"ababab"` (empty for a `count` of 0 or
 /// less).
+///
+/// @example
+/// ```ts
+/// println("ab".repeat(3))   // ababab
+/// ```
 function __String_repeat(s: string, count: int): string {
   // By doubling: O(n) bytes built rather than O(n²) (a 100 kB string was 5 GB of garbage).
   let out = ""
@@ -253,24 +351,44 @@ function __padding(length: int, fill: string): string {
 
 /// The string padded with spaces at the start to `length` code points (unchanged if it's that long
 /// already): `"7".padStart(3)` is `"  7"`.
+///
+/// @example
+/// ```ts
+/// println(`[${"7".padStart(3)}]`)   // [  7]
+/// ```
 function __String_padStart(s: string, length: int): string {
   __String_padStart(s, length, " ")
 }
 
 /// The string padded at the start to `length` code points with `fill`, repeated and cut to fit
 /// (unchanged if it's that long already, or `fill` is empty): `"7".padStart(3, "0")` is `"007"`.
+///
+/// @example
+/// ```ts
+/// println("7".padStart(3, "0"))   // 007
+/// ```
 function __String_padStart(s: string, length: int, fill: string): string {
   if (s.length >= length) s else __padding(length - s.length, fill) + s
 }
 
 /// The string padded with spaces at the end to `length` code points (unchanged if it's that long
 /// already).
+///
+/// @example
+/// ```ts
+/// println(`[${"ab".padEnd(5)}]`)   // [ab   ]
+/// ```
 function __String_padEnd(s: string, length: int): string {
   __String_padEnd(s, length, " ")
 }
 
 /// The string padded at the end to `length` code points with `fill`, repeated and cut to fit
 /// (unchanged if it's that long already, or `fill` is empty).
+///
+/// @example
+/// ```ts
+/// println("ab".padEnd(6, "-="))   // ab-=-=
+/// ```
 function __String_padEnd(s: string, length: int, fill: string): string {
   if (s.length >= length) s else s + __padding(length - s.length, fill)
 }
@@ -278,6 +396,12 @@ function __String_padEnd(s: string, length: int, fill: string): string {
 /// The integer at the start of `s`, like JavaScript's `parseInt(s)` in base 10: leading
 /// whitespace, an optional sign, then digits up to the first non-digit. Panics without any
 /// digits (`int` has no `NaN`).
+///
+/// @example
+/// ```ts
+/// println(parseInt("42"))         // 42
+/// println(parseInt("  -7 apples"))   // -7
+/// ```
 function parseInt(s: string): int {
   let i = 0
   const n = s.length
@@ -463,6 +587,12 @@ function __f32_parse(s: string): f32? {
 
 /// The number at the start of `s`, like JavaScript's `parseFloat(s)`: leading whitespace, then
 /// the longest decimal number (or `Infinity`); `NaN` without one.
+///
+/// @example
+/// ```ts
+/// println(parseFloat("3.14 m"))   // 3.14
+/// println(parseFloat("abc"))      // NaN
+/// ```
 function parseFloat(s: string): number {
   const t = s.trimStart()
   const end = __numberEnd(t)
@@ -472,6 +602,12 @@ function parseFloat(s: string): number {
 
 /// The text from `start` up to `end` (default: the end), as JavaScript's `substring` (#156):
 /// both are clamped to the string, and swapped when `start` is greater.
+///
+/// @example
+/// ```ts
+/// println("Hello, world".substring(7))      // world
+/// println("Hello, world".substring(5, 0))   // Hello
+/// ```
 function __String_substring(s: string, start: int, end: int = s.length): string {
   const n = s.length
   const a = if (start < 0) 0 else if (start > n) n else start
@@ -481,6 +617,12 @@ function __String_substring(s: string, start: int, end: int = s.length): string 
 
 /// The code point at position `i` (positions count code points), or `null` outside the string
 /// (#156).
+///
+/// @example
+/// ```ts
+/// println("A€".codePointAt(1))   // 8364
+/// println("A€".codePointAt(5))   // null
+/// ```
 function __String_codePointAt(s: string, i: int): int? {
   if (i < 0 || i >= s.length) return null
   return (s[i] as u32) as int
@@ -489,6 +631,13 @@ function __String_codePointAt(s: string, i: int): int? {
 /// Compares `s` with `other` for sorting text (#156): ignoring case first, then lower case
 /// before upper case, as ICU's root collation orders ASCII (JavaScript's `localeCompare`).
 /// Negative, 0 or positive.
+///
+/// @example
+/// ```ts
+/// const names = ["bob", "Alice", "carol"]
+/// names.sort((a, b) => a.localeCompare(b))
+/// println(names.join(", "))   // Alice, bob, carol
+/// ```
 function __String_localeCompare(s: string, other: string): int {
   const a = s.toLowerCase()
   const b = other.toLowerCase()
@@ -499,11 +648,22 @@ function __String_localeCompare(s: string, other: string): int {
 }
 
 /// Writes `text` to stderr at once, after what `print` wrote (#157).
+///
+/// @example
+/// ```ts
+/// eprint("warning: ")
+/// eprintln("disk almost full")   // stderr: warning: disk almost full
+/// ```
 function eprint(text: string): void {
   __io(122, 2, 0, 0, text, "");
 }
 
 /// `eprint` with a line break.
+///
+/// @example
+/// ```ts
+/// eprintln("something went wrong")   // written to stderr
+/// ```
 function eprintln(text: string = ""): void {
   __io(122, 2, 0, 0, text + "\n", "");
 }
@@ -529,6 +689,12 @@ function __Char_isWhitespace(c: char): bool {
 }
 
 /// The last position of `search` in `s`, or -1.
+///
+/// @example
+/// ```ts
+/// println("a/b/c".lastIndexOf("/"))   // 3
+/// println("a/b/c".lastIndexOf("x"))   // -1
+/// ```
 function __String_lastIndexOf(s: string, search: string): int {
   const n = s.length
   const m = search.length

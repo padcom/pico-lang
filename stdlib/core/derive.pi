@@ -2,6 +2,21 @@
 
 /// `equals`, `hashCode` and `compareTo` for a class, field by field in declaration order
 /// (only the class's own fields). Structs, enums and tuples have them already.
+///
+/// @example
+/// ```ts
+/// @derive(Eq, Hash, Ord)
+/// class Version {
+///   constructor(public major: int, public minor: int) {}
+/// }
+///
+/// const a = new Version(1, 2)
+/// println(a == new Version(1, 2))              // true
+/// println(a.compareTo(new Version(1, 10)) < 0)   // true
+/// const seen = new Set<Version>()
+/// seen.add(a).add(new Version(1, 2))
+/// println(seen.size)   // 1
+/// ```
 decorator function derive(c: __ClassDecl, ...protocols: string[]) {
   for (const p of protocols) {
     if (p != "Eq" && p != "Hash" && p != "Ord") {

@@ -1,4 +1,12 @@
 /// The platform the program is compiled for (spec §15.4), fixed at compile time.
+///
+/// @example
+/// ```ts
+/// println(target.os)     // e.g. linux
+/// println(target.arch)   // e.g. aarch64
+/// const sep = comptime if (target.os == "windows") "\\" else "/"
+/// println(sep)   // / (\ on Windows)
+/// ```
 struct Target {
   /// `"linux"`, `"macos"`, `"windows"`, `"wasi"` or `"browser"`.
   os: string
@@ -9,6 +17,14 @@ struct Target {
 }
 
 /// How the program is being built (spec §11.1).
+///
+/// @example
+/// ```ts
+/// println(build.mode)   // debug (release with --release)
+/// if (build.mode == "debug") {
+///   println("debug checks on")
+/// }
+/// ```
 struct BuildInfo {
   /// `"debug"` or `"release"`.
   mode: string
@@ -24,6 +40,20 @@ function __target(): Target {
 function __build(): BuildInfo { return { mode: __comptime_info(3), flags: [] } }
 
 /// A field of a type, as `T.fields` describes it (spec §11.1).
+///
+/// @example
+/// ```ts
+/// struct Point {
+///   x: f64
+///   label: string
+/// }
+///
+/// for (const f of comptime Point.fields) {
+///   println(`${f.name}: ${f.typeName}`)
+/// }
+/// // x: f64
+/// // label: string
+/// ```
 struct FieldInfo {
   /// The field's name.
   name: string
@@ -32,6 +62,20 @@ struct FieldInfo {
 }
 
 /// A method of a type, as `T.methods` describes it.
+///
+/// @example
+/// ```ts
+/// class Greeter {
+///   public hello(): void {}
+///   public bye(): void {}
+/// }
+///
+/// for (const m of comptime Greeter.methods) {
+///   println(m.name)
+/// }
+/// // hello
+/// // bye
+/// ```
 struct MethodInfo {
   /// The method's name.
   name: string

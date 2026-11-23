@@ -6,16 +6,63 @@
 
 /// What `JSON.parse` throws: the place in the value and what was wrong
 /// (`field 'port': expected u16, got "x"`), or where the text isn't JSON.
+///
+/// @example
+/// ```ts
+/// struct Server {
+///   host: string
+///   port: u16
+/// }
+///
+/// try {
+///   const s = JSON.parse<Server>(`{"host": "localhost", "port": "x"}`)
+///   println(s.host)
+/// } catch (e: JsonError) {
+///   println(e.message)   // field 'port': expected u16, got "x"
+/// }
+/// ```
 class JsonError extends Error {
   /// An error with `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new JsonError("expected a number")
+  /// println(e.message)   // expected a number
+  /// ```
   constructor(message: string) { super(message) }
 }
 
 /// `JSON.parse<T>(text)` and `JSON.stringify(value)`.
+///
+/// @example
+/// ```ts
+/// struct Point {
+///   x: int
+///   y: int
+/// }
+///
+/// const p = JSON.parse<Point>(`{"x": 1, "y": 2}`)
+/// println(p.x + p.y)            // 3
+/// println(JSON.stringify(p))    // {"x":1,"y":2}
+/// ```
 class JSON {
   /// The `T` that `text` holds. Struct and class fields are matched by name (or by
   /// `@json.name`); unknown keys are skipped; a missing field is an error unless it's
   /// nullable (then it's `null`).
+  ///
+  /// @example
+  /// ```ts
+  /// struct User {
+  ///   name: string
+  ///   email: string?
+  /// }
+  ///
+  /// const u = JSON.parse<User>(`{"name": "ann", "age": 31}`)
+  /// println(u.name)    // ann
+  /// println(u.email)   // null
+  /// const xs = JSON.parse<int[]>("[1, 2, 3]")
+  /// println(xs.length)   // 3
+  /// ```
   public static parse<T>(text: string): T throws JsonError {
     const r = new __JsonReader(text)
     const v = __jsonRead<T>(r)
@@ -29,6 +76,21 @@ class JSON {
   /// `value` as JSON text: with no spaces, or with `indent` spaces per level and one member or
   /// element per line, as `JSON.stringify(v, null, indent)` writes it in JavaScript (#58).
   /// `NaN` and infinities become `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// struct Point {
+  ///   x: int
+  ///   y: int
+  /// }
+  ///
+  /// println(JSON.stringify(Point { x: 1, y: 2 }))   // {"x":1,"y":2}
+  /// println(JSON.stringify([1, 2], 2))
+  /// // [
+  /// //   1,
+  /// //   2
+  /// // ]
+  /// ```
   public static stringify<T>(value: T, indent: int = 0): string {
     const w = new __JsonWriter()
     __jsonWrite<T>(w, value)

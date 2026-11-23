@@ -7,31 +7,92 @@ export { CryptoError, CryptoKey, KeyAlgorithm, Algorithm, CryptoKeyPair, SubtleC
 
 /// The hash of `data`: `"SHA-1"`, `"SHA-224"`, `"SHA-256"`, `"SHA-384"`, `"SHA-512"`,
 /// `"SHA3-256"`, `"SHA3-384"` or `"SHA3-512"`.
+///
+/// @example
+/// ```ts
+/// import { digest } from "std/crypto"
+/// import { hex } from "std/encoding"
+///
+/// println(hex.encode(digest("SHA-256", "abc")))
+/// // ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+/// ```
 export function digest(algorithm: HashAlgorithm, data: Uint8Array | string): Uint8Array {
   __digest(algorithm, __bytes(data))
 }
 
 /// The HMAC of `data` under `key`.
+///
+/// @example
+/// ```ts
+/// import { hmac } from "std/crypto"
+/// import { hex } from "std/encoding"
+///
+/// const mac = hmac("SHA-256", "secret key", "message")
+/// println(mac.length)            // 32
+/// println(hex.encode(mac).slice(0, 8))   //
+/// ```
 export function hmac(algorithm: HashAlgorithm, key: Uint8Array | string, data: Uint8Array | string): Uint8Array {
   __hmac(algorithm, __bytes(key), __bytes(data))
 }
 
 /// HKDF (RFC 5869): `length` bytes from input keying material.
+///
+/// @example
+/// ```ts
+/// import { hkdf } from "std/crypto"
+///
+/// const ikm = new TextEncoder().encode("input key material")
+/// const salt = new TextEncoder().encode("salt")
+/// const info = new TextEncoder().encode("session key")
+/// const key = hkdf("SHA-256", ikm, salt, info, 32)
+/// println(key.length)   // 32
+/// ```
 export function hkdf(algorithm: HashAlgorithm, ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, length: int): Uint8Array throws CryptoError {
   __cryptoOp(300 + __hashId(algorithm), [ikm, salt, info, __u32(length)])
 }
 
 /// PBKDF2 with HMAC (RFC 8018): `length` bytes from a password.
+///
+/// @example
+/// ```ts
+/// import { pbkdf2 } from "std/crypto"
+/// import { hex } from "std/encoding"
+///
+/// const salt = new TextEncoder().encode("salt")
+/// const key = pbkdf2("SHA-256", "password", salt, 1, 32)
+/// println(hex.encode(key))
+/// // 120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b
+/// ```
 export function pbkdf2(algorithm: HashAlgorithm, password: Uint8Array | string, salt: Uint8Array, iterations: int, length: int): Uint8Array throws CryptoError {
   __cryptoOp(400 + __hashId(algorithm), [__bytes(password), salt, __u32(iterations), __u32(length)])
 }
 
 /// Whether two byte strings are equal, in time that depends only on their length.
+///
+/// @example
+/// ```ts
+/// import { hmac, timingSafeEqual } from "std/crypto"
+///
+/// const expected = hmac("SHA-256", "key", "data")
+/// const received = hmac("SHA-256", "key", "data")
+/// println(timingSafeEqual(expected, received))   // true
+/// println(timingSafeEqual(expected, hmac("SHA-256", "key", "other")))   // false
+/// ```
 export function timingSafeEqual(a: Uint8Array, b: Uint8Array): bool {
   __timingSafeEqual(a, b)
 }
 
 /// `n` random bytes from the system.
+///
+/// @example
+/// ```ts
+/// import { randomBytes } from "std/crypto"
+/// import { hex } from "std/encoding"
+///
+/// const nonce = randomBytes(12)
+/// println(nonce.length)       // 12
+/// println(hex.encode(nonce))  // e.g. 9f3c0a… (different every run)
+/// ```
 export function randomBytes(n: int): Uint8Array {
   __randomBytes(n)
 }
@@ -39,6 +100,17 @@ export function randomBytes(n: int): Uint8Array {
 /// An AEAD cipher with its key: `seal` encrypts and authenticates (the result is the
 /// ciphertext then a 16-byte tag), `open` checks and decrypts. Never reuse a nonce with
 /// the same key.
+///
+/// @example
+/// ```ts
+/// import { Aead, randomBytes } from "std/crypto"
+///
+/// const cipher = Aead.aesGcm(randomBytes(32))
+/// const nonce = randomBytes(12)
+/// const sealed = cipher.seal(nonce, "attack at dawn")
+/// println(sealed.length)   // 30 (14 bytes of text + 16-byte tag)
+/// println(new TextDecoder().decode(cipher.open(nonce, sealed)))   // attack at dawn
+/// ```
 export class Aead {
   /// 1 AES-GCM, 2 ChaCha20-Poly1305.
   alg: int
@@ -46,18 +118,52 @@ export class Aead {
 
   /// Use `Aead.aesGcm(key)` or `Aead.chacha20Poly1305(key)`, which check the key (`alg`: 1 AES-GCM,
   /// 2 ChaCha20-Poly1305).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Aead } from "std/crypto"
+  ///
+  /// // `new Aead(…)` doesn't check the key: prefer `Aead.aesGcm` or `Aead.chacha20Poly1305`.
+  /// const cipher = new Aead(2, new Uint8Array(32))
+  /// const sealed = cipher.seal(new Uint8Array(12), "hi")
+  /// println(sealed.length)   // 18
+  /// ```
   constructor(alg: int, key: Uint8Array) {
     this.alg = alg
     this.key = key
   }
 
   /// AES-GCM with a 16-, 24- or 32-byte key (nonces: 12 bytes are standard).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Aead, CryptoError, randomBytes } from "std/crypto"
+  ///
+  /// const cipher = Aead.aesGcm(randomBytes(16))
+  /// println(cipher.seal(randomBytes(12), "x").length)   // 17
+  /// try {
+  ///   Aead.aesGcm(randomBytes(10)).seal(randomBytes(12), "x")
+  ///   println("unreachable")
+  /// } catch (e: CryptoError) {
+  ///   println(e.message)   // AES keys are 16, 24 or 32 bytes
+  /// }
+  /// ```
   public static aesGcm(key: Uint8Array): Aead throws CryptoError {
     __need(key.length == 16 || key.length == 24 || key.length == 32, "AES keys are 16, 24 or 32 bytes")
     new Aead(1, key.slice(0))
   }
 
   /// ChaCha20-Poly1305 (RFC 8439) with a 32-byte key and 12-byte nonces.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Aead, randomBytes } from "std/crypto"
+  ///
+  /// const cipher = Aead.chacha20Poly1305(randomBytes(32))
+  /// const nonce = randomBytes(12)
+  /// const sealed = cipher.seal(nonce, "hello")
+  /// println(new TextDecoder().decode(cipher.open(nonce, sealed)))   // hello
+  /// ```
   public static chacha20Poly1305(key: Uint8Array): Aead throws CryptoError {
     __need(key.length == 32, "ChaCha20-Poly1305 keys are 32 bytes")
     new Aead(2, key.slice(0))
@@ -66,12 +172,40 @@ export class Aead {
   /// The ciphertext of `plaintext` (a string is its UTF-8 bytes) followed by a 16-byte tag,
   /// authenticating `aad` too. `nonce` must be unique per key: 12 bytes is standard (and the
   /// only size ChaCha20-Poly1305 takes); a nonce of the wrong size throws `CryptoError`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Aead, randomBytes } from "std/crypto"
+  ///
+  /// const cipher = Aead.aesGcm(randomBytes(32))
+  /// const nonce = randomBytes(12)
+  /// const header = new TextEncoder().encode("v1")
+  /// const sealed = cipher.seal(nonce, "payload", header)
+  /// println(sealed.length)   // 23
+  /// ```
   public seal(nonce: Uint8Array, plaintext: Uint8Array | string, aad: Uint8Array = new Uint8Array(0)): Uint8Array throws CryptoError {
     __cryptoOp(500 + this.alg, [this.key, nonce, aad, __bytes(plaintext)])
   }
 
   /// The plaintext; throws `CryptoError` (`AuthenticationFailed`) when the data, nonce,
   /// associated data or key don't match.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Aead, CryptoError, randomBytes } from "std/crypto"
+  ///
+  /// const cipher = Aead.aesGcm(randomBytes(32))
+  /// const nonce = randomBytes(12)
+  /// const sealed = cipher.seal(nonce, "secret")
+  /// println(new TextDecoder().decode(cipher.open(nonce, sealed)))   // secret
+  /// sealed.set(0, sealed.get(0) ^ 1)
+  /// try {
+  ///   cipher.open(nonce, sealed)
+  ///   println("unreachable")
+  /// } catch (e: CryptoError) {
+  ///   println(e.kind)   // AuthenticationFailed
+  /// }
+  /// ```
   public open(nonce: Uint8Array, sealed: Uint8Array, aad: Uint8Array = new Uint8Array(0)): Uint8Array throws CryptoError {
     __cryptoOp(600 + this.alg, [this.key, nonce, aad, sealed])
   }
@@ -80,6 +214,16 @@ export class Aead {
 /// An elliptic-curve key pair: the private key (a big-endian scalar; for X25519 the
 /// 32-byte RFC 7748 form) and the public key (an uncompressed point `04 ‖ x ‖ y`; for X25519
 /// 32 bytes).
+///
+/// @example
+/// ```ts
+/// import { EcKeyPair, ecdsaVerify } from "std/crypto"
+///
+/// const keys = EcKeyPair.generate("P-256")
+/// println(keys.publicKey.length)   // 65
+/// const sig = keys.sign("SHA-256", "hello")
+/// println(ecdsaVerify("P-256", "SHA-256", keys.publicKey, "hello", sig))   // true
+/// ```
 export class EcKeyPair {
   /// The curve both keys belong to.
   public readonly curve: NamedCurve
@@ -89,6 +233,15 @@ export class EcKeyPair {
   public readonly publicKey: Uint8Array
 
   /// A pair from its parts (not checked to match); a new one comes from the curve's key generation.
+  ///
+  /// @example
+  /// ```ts
+  /// import { EcKeyPair } from "std/crypto"
+  ///
+  /// const generated = EcKeyPair.generate("X25519")
+  /// const copy = new EcKeyPair("X25519", generated.privateKey, generated.publicKey)
+  /// println(copy.curve)   // X25519
+  /// ```
   constructor(curve: NamedCurve, privateKey: Uint8Array, publicKey: Uint8Array) {
     this.curve = curve
     this.privateKey = privateKey
@@ -96,30 +249,79 @@ export class EcKeyPair {
   }
 
   /// A new random key pair.
+  ///
+  /// @example
+  /// ```ts
+  /// import { EcKeyPair } from "std/crypto"
+  ///
+  /// const keys = EcKeyPair.generate("P-384")
+  /// println(keys.privateKey.length)   // 48
+  /// println(keys.publicKey.length)    // 97
+  /// ```
   public static generate(curve: NamedCurve): EcKeyPair {
     const parts = __unpack(try! __cryptoOp(700 + __curveId(curve), []))
     new EcKeyPair(curve, parts[0], parts[1])
   }
 
   /// The key pair of a private key.
+  ///
+  /// @example
+  /// ```ts
+  /// import { EcKeyPair, timingSafeEqual } from "std/crypto"
+  ///
+  /// const original = EcKeyPair.generate("P-256")
+  /// const restored = EcKeyPair.fromPrivateKey("P-256", original.privateKey)
+  /// println(timingSafeEqual(restored.publicKey, original.publicKey))   // true
+  /// ```
   public static fromPrivateKey(curve: NamedCurve, privateKey: Uint8Array): EcKeyPair throws CryptoError {
     const pub = __cryptoOp(800 + __curveId(curve), [privateKey])
     new EcKeyPair(curve, privateKey.slice(0), pub)
   }
 
   /// An ECDSA signature of `message` (hashed with `hash`): `r ‖ s`, deterministic (RFC 6979).
+  ///
+  /// @example
+  /// ```ts
+  /// import { EcKeyPair } from "std/crypto"
+  ///
+  /// const keys = EcKeyPair.generate("P-256")
+  /// const signature = keys.sign("SHA-256", "release v1.0")
+  /// println(signature.length)   // 64 (r ‖ s)
+  /// ```
   public sign(hash: HashAlgorithm, message: Uint8Array | string): Uint8Array throws CryptoError {
     __need(this.curve != "X25519", "X25519 keys can't sign")
     __cryptoOp(900 + __curveId(this.curve), [__u32(__hashId(hash)), this.privateKey, __bytes(message)])
   }
 
   /// The ECDH shared secret with a peer's public key.
+  ///
+  /// @example
+  /// ```ts
+  /// import { EcKeyPair, timingSafeEqual } from "std/crypto"
+  ///
+  /// const alice = EcKeyPair.generate("X25519")
+  /// const bob = EcKeyPair.generate("X25519")
+  /// const s1 = alice.agree(bob.publicKey)
+  /// const s2 = bob.agree(alice.publicKey)
+  /// println(s1.length)                  // 32
+  /// println(timingSafeEqual(s1, s2))    // true
+  /// ```
   public agree(peerPublicKey: Uint8Array): Uint8Array throws CryptoError {
     __cryptoOp(1100 + __curveId(this.curve), [this.privateKey, peerPublicKey])
   }
 }
 
 /// Whether `signature` (`r ‖ s`) is `publicKey`'s ECDSA signature of `message`.
+///
+/// @example
+/// ```ts
+/// import { EcKeyPair, ecdsaVerify } from "std/crypto"
+///
+/// const keys = EcKeyPair.generate("P-256")
+/// const sig = keys.sign("SHA-256", "msg")
+/// println(ecdsaVerify("P-256", "SHA-256", keys.publicKey, "msg", sig))       // true
+/// println(ecdsaVerify("P-256", "SHA-256", keys.publicKey, "tampered", sig))  // false
+/// ```
 export function ecdsaVerify(curve: NamedCurve, hash: HashAlgorithm, publicKey: Uint8Array, message: Uint8Array | string, signature: Uint8Array): bool {
   if (curve == "X25519") return false
   const r = try! __cryptoOp(1000 + __curveId(curve), [__u32(__hashId(hash)), publicKey, __bytes(message), signature])

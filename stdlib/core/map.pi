@@ -15,6 +15,17 @@ class __MapEntry<K, V> {
 /// Keys are compared with `==` and hashed with `hashCode()`: numbers, strings, `bool`, `char`, and
 /// classes or structs with a `hashCode(): u64` method (the `Hashable` protocol, spec §2.8).
 /// `for (const [k, v] of map)` walks the entries.
+///
+/// @example
+/// ```ts
+/// const ages = new Map<string, int>()
+/// ages.set("ann", 31).set("bob", 27)
+/// for (const [name, age] of ages) {
+///   println(`${name}: ${age}`)
+/// }
+/// // ann: 31
+/// // bob: 27
+/// ```
 class Map<K extends Hashable<K>, V> {
   /// In insertion order; deleted entries stay (not `live`) until the next rehash, which comes once
   /// they outnumber the live ones.
@@ -24,9 +35,25 @@ class Map<K extends Hashable<K>, V> {
   count: int = 0
 
   /// An empty map (`new Map<string, int>()`).
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// println(m.size)   // 0
+  /// ```
   constructor() {}
 
   /// A copy of `other`: the same entries in the same order (a shallow copy; decision 344).
+  ///
+  /// @example
+  /// ```ts
+  /// const a = new Map<string, int>()
+  /// a.set("x", 1)
+  /// const b = new Map(a)
+  /// b.set("y", 2)
+  /// println(a.size)   // 1
+  /// println(b.size)   // 2
+  /// ```
   constructor(other: Map<K, V>) {
     for (const [k, v] of other) this.set(k, v)
   }
@@ -73,18 +100,41 @@ class Map<K extends Hashable<K>, V> {
   }
 
   /// How many entries the map has.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1).set("b", 2)
+  /// println(m.size)   // 2
+  /// ```
   public get size(): int {
     if (__reactivity_on()) __trackObject(this)
     return this.count
   }
 
   /// Whether the map has an entry for `key`.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1)
+  /// println(m.has("a"))   // true
+  /// println(m.has("z"))   // false
+  /// ```
   public has(key: K): bool {
     if (__reactivity_on()) __trackObject(this)
     return this.find(key) >= 0
   }
 
   /// The value for `key`, or `null` if there's none.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1)
+  /// println(m.get("a"))   // 1
+  /// println(m.get("z"))   // null
+  /// ```
   public get(key: K): V? {
     if (__reactivity_on()) __trackObject(this)
     const i = this.find(key)
@@ -96,6 +146,13 @@ class Map<K extends Hashable<K>, V> {
 
   /// Sets `key`'s value (replacing an earlier one, which keeps its place in the order); returns the
   /// map, so calls chain.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1).set("b", 2).set("a", 3)
+  /// println(m)   // Map { "a" => 3, "b" => 2 }
+  /// ```
   public set(key: K, value: V): Map<K, V> {
     const i = this.find(key)
     if (i >= 0) {
@@ -117,6 +174,14 @@ class Map<K extends Hashable<K>, V> {
   }
 
   /// Removes `key`'s entry; whether there was one.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1)
+  /// println(m.delete("a"))   // true
+  /// println(m.delete("a"))   // false
+  /// ```
   public delete(key: K): bool {
     const i = this.find(key)
     if (i < 0) {
@@ -144,6 +209,14 @@ class Map<K extends Hashable<K>, V> {
   }
 
   /// Removes every entry.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1).set("b", 2)
+  /// m.clear()
+  /// println(m.size)   // 0
+  /// ```
   public clear(): void {
     this.items = []
     this.buckets = []
@@ -152,6 +225,13 @@ class Map<K extends Hashable<K>, V> {
   }
 
   /// The keys, in insertion order (a new array).
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("b", 2).set("a", 1)
+  /// println(m.keys().join(", "))   // b, a
+  /// ```
   public keys(): K[] {
     if (__reactivity_on()) __trackObject(this)
     const out: K[] = []
@@ -164,6 +244,13 @@ class Map<K extends Hashable<K>, V> {
   }
 
   /// The values, in insertion order (a new array).
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("b", 2).set("a", 1)
+  /// println(m.values().join(", "))   // 2, 1
+  /// ```
   public values(): V[] {
     if (__reactivity_on()) __trackObject(this)
     const out: V[] = []
@@ -176,6 +263,17 @@ class Map<K extends Hashable<K>, V> {
   }
 
   /// The entries as `[key, value]` pairs, in insertion order (a new array).
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1).set("b", 2)
+  /// for (const [k, v] of m.entries()) {
+  ///   println(`${k}=${v}`)
+  /// }
+  /// // a=1
+  /// // b=2
+  /// ```
   public entries(): [K, V][] {
     if (__reactivity_on()) __trackObject(this)
     const out: [K, V][] = []
@@ -188,12 +286,33 @@ class Map<K extends Hashable<K>, V> {
   }
 
   /// `for (const [k, v] of map)`: the entries in insertion order.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1).set("b", 2)
+  /// const it = m.iterator()
+  /// const first = it.next()
+  /// if (first != null) {
+  ///   const [k, v] = first
+  ///   println(`${k}=${v}`)   // a=1
+  /// }
+  /// ```
   public iterator(): Iterator<[K, V]> {
     if (__reactivity_on()) __trackObject(this)
     __Array_iterator(this.entries())
   }
 
   /// Calls `f` with each value and its key, in insertion order.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1).set("b", 2)
+  /// m.forEach((value, key) => println(`${key} -> ${value}`))
+  /// // a -> 1
+  /// // b -> 2
+  /// ```
   public forEach<E extends Error>(f: (value: V, key: K) => void throws E): void throws E {
     for (const e of this.items) {
       if (e.live) {
@@ -203,6 +322,13 @@ class Map<K extends Hashable<K>, V> {
   }
 
   /// `Map { "a" => 1, "b" => 2 }`: the entries' debug forms, in insertion order (#11).
+  ///
+  /// @example
+  /// ```ts
+  /// const m = new Map<string, int>()
+  /// m.set("a", 1).set("b", 2)
+  /// println(m.toString())   // Map { "a" => 1, "b" => 2 }
+  /// ```
   public toString(): string {
     if (this.count == 0) return "Map {}"
     let out = "Map { "
@@ -230,49 +356,131 @@ class Map<K extends Hashable<K>, V> {
 /// A set of distinct values, iterated in insertion order like JavaScript's (spec §13.1). Values are
 /// compared with `==` and hashed with `hashCode()`, as `Map` keys are. `for (const x of set)` walks
 /// it.
+///
+/// @example
+/// ```ts
+/// const seen = new Set<string>()
+/// seen.add("a").add("b").add("a")
+/// println(seen.size)   // 2
+/// for (const x of seen) {
+///   println(x)
+/// }
+/// // a
+/// // b
+/// ```
 class Set<T extends Hashable<T>> {
   map: Map<T, bool> = new Map()
 
   /// An empty set (`new Set<string>()`).
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<int>()
+  /// println(s.size)   // 0
+  /// ```
   constructor() {}
 
   /// How many values the set has.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<int>()
+  /// s.add(1).add(2).add(2)
+  /// println(s.size)   // 2
+  /// ```
   public get size(): int {
     return this.map.size
   }
 
   /// Whether `value` is in the set.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<string>()
+  /// s.add("red")
+  /// println(s.has("red"))    // true
+  /// println(s.has("blue"))   // false
+  /// ```
   public has(value: T): bool {
     this.map.has(value)
   }
 
   /// Adds `value` (nothing changes if it's already there); returns the set, so calls chain.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<int>()
+  /// s.add(3).add(1).add(3)
+  /// println(s)   // Set { 3, 1 }
+  /// ```
   public add(value: T): Set<T> {
     this.map.set(value, true)
     this
   }
 
   /// Removes `value`; whether it was there.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<int>()
+  /// s.add(1)
+  /// println(s.delete(1))   // true
+  /// println(s.delete(1))   // false
+  /// ```
   public delete(value: T): bool {
     this.map.delete(value)
   }
 
   /// Removes every value.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<int>()
+  /// s.add(1).add(2)
+  /// s.clear()
+  /// println(s.size)   // 0
+  /// ```
   public clear(): void {
     this.map.clear()
   }
 
   /// The values, in insertion order (a new array).
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<string>()
+  /// s.add("x").add("y")
+  /// println(s.values().join(", "))   // x, y
+  /// ```
   public values(): T[] {
     this.map.keys()
   }
 
   /// `for (const x of set)`: the values in insertion order.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<int>()
+  /// s.add(10).add(20)
+  /// const it = s.iterator()
+  /// println(it.next())   // 10
+  /// println(it.next())   // 20
+  /// println(it.next())   // null
+  /// ```
   public iterator(): Iterator<T> {
     __Array_iterator(this.map.keys())
   }
 
   /// Calls `f` with each value, in insertion order.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<string>()
+  /// s.add("x").add("y")
+  /// s.forEach((v) => println(v))
+  /// // x
+  /// // y
+  /// ```
   public forEach<E extends Error>(f: (value: T) => void throws E): void throws E {
     for (const v of this.map.keys()) {
       f(v)
@@ -280,6 +488,13 @@ class Set<T extends Hashable<T>> {
   }
 
   /// `Set { 1, 2 }`: the values' debug forms, in insertion order (#11).
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new Set<string>()
+  /// s.add("x").add("y")
+  /// println(s.toString())   // Set { "x", "y" }
+  /// ```
   public toString(): string {
     const vs = this.map.keys()
     if (vs.length == 0) return "Set {}"

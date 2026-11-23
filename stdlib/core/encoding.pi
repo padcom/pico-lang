@@ -33,11 +33,35 @@ function __asciiText(bytes: Uint8Array): string {
 }
 
 /// Base64 (RFC 4648 §4, or §5's URL-safe alphabet with `url`).
+///
+/// @example
+/// ```ts
+/// import { base64 } from "std/encoding"
+///
+/// const bytes = new TextEncoder().encode("hello")
+/// const text = base64.encode(bytes)
+/// println(text)   // aGVsbG8=
+/// println(new TextDecoder().decode(base64.decode(text)))   // hello
+/// ```
 class Base64 {
   /// A base64 codec (`std/encoding` exports one as `base64`).
+  ///
+  /// @example
+  /// ```ts
+  /// const b64 = new Base64()
+  /// println(b64.encode(Uint8Array.from([1, 2, 3])))   // AQID
+  /// ```
   constructor() {}
 
   /// `data` as base64; `url` uses `-` and `_` and leaves out the `=` padding.
+  ///
+  /// @example
+  /// ```ts
+  /// const b64 = new Base64()
+  /// const data = Uint8Array.from([0xFB, 0xFF])
+  /// println(b64.encode(data))         // +/8=
+  /// println(b64.encode(data, true))   // -_8
+  /// ```
   public encode(data: Uint8Array, url: bool = false): string {
     const alphabet = if (url) "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" else "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
     const digits = __asciiCodes(alphabet)
@@ -72,6 +96,18 @@ class Base64 {
 
   /// The bytes of base64 `text` (either alphabet, padding optional; whitespace is skipped).
   /// Other characters, or a length no encoding has, throw a `TypeError`.
+  ///
+  /// @example
+  /// ```ts
+  /// const b64 = new Base64()
+  /// const bytes = b64.decode("aGk=")
+  /// println(new TextDecoder().decode(bytes))   // hi
+  /// try {
+  ///   println(b64.decode("a").length)
+  /// } catch (e: TypeError) {
+  ///   println("not base64")   // not base64
+  /// }
+  /// ```
   public decode(text: string): Uint8Array throws TypeError {
     const values: int[] = []
     let padding = 0
@@ -118,11 +154,31 @@ class Base64 {
 }
 
 /// Hexadecimal: two lowercase digits per byte.
+///
+/// @example
+/// ```ts
+/// import { hex } from "std/encoding"
+///
+/// println(hex.encode(Uint8Array.from([0, 15, 255])))   // 000fff
+/// println(hex.decode("CAFE").get(0))                    // 202
+/// ```
 class Hex {
   /// A hex codec (`std/encoding` exports one as `hex`).
+  ///
+  /// @example
+  /// ```ts
+  /// const h = new Hex()
+  /// println(h.encode(new TextEncoder().encode("A")))   // 41
+  /// ```
   constructor() {}
 
   /// `data` as hexadecimal text: two lowercase digits per byte.
+  ///
+  /// @example
+  /// ```ts
+  /// const h = new Hex()
+  /// println(h.encode(Uint8Array.from([0xDE, 0xAD, 0xBE, 0xEF])))   // deadbeef
+  /// ```
   public encode(data: Uint8Array): string {
     const digits = __asciiCodes("0123456789abcdef")
     const out = new Uint8Array(data.length * 2)
@@ -136,6 +192,18 @@ class Hex {
 
   /// The bytes of `text` (digits in either case); an odd length or another character throws
   /// a `TypeError`.
+  ///
+  /// @example
+  /// ```ts
+  /// const h = new Hex()
+  /// const bytes = h.decode("00ff10")
+  /// println(`${bytes.get(0)} ${bytes.get(1)} ${bytes.get(2)}`)   // 0 255 16
+  /// try {
+  ///   println(h.decode("abc").length)
+  /// } catch (e: TypeError) {
+  ///   println("odd length")   // odd length
+  /// }
+  /// ```
   public decode(text: string): Uint8Array throws TypeError {
     const values: int[] = []
     for (const c of text) {
