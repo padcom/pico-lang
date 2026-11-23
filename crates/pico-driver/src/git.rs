@@ -33,6 +33,25 @@ fn repo_dir(url: &str) -> PathBuf {
         .join(short)
 }
 
+/// Runs `f` holding an exclusive lock on `url`'s cache directory: `pico lint` and `pico test`
+/// resolve dependencies from parallel workers (and processes), which must not clone, fetch or
+/// check out the same repository at once (#195).
+fn locked<T>(url: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let dir = repo_dir(url);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(".lock"))
+        .map_err(|e| format!("cannot lock the cache of {url}: {e}"))?;
+    lock.lock()
+        .map_err(|e| format!("cannot lock the cache of {url}: {e}"))?;
+    let out = f();
+    drop(lock);
+    out
+}
+
 /// The mirror of `url` in the cache, cloned or updated (`update`: fetch new refs; needs the
 /// network).
 fn mirror(url: &str, update: bool) -> Result<PathBuf, String> {
@@ -61,6 +80,10 @@ fn mirror(url: &str, update: bool) -> Result<PathBuf, String> {
 
 /// The commit a tag, branch or revision names (fetching the repository first).
 pub fn resolve(url: &str, pin: &crate::packages::GitPin) -> Result<String, String> {
+    locked(url, || resolve_unlocked(url, pin))
+}
+
+fn resolve_unlocked(url: &str, pin: &crate::packages::GitPin) -> Result<String, String> {
     use crate::packages::GitPin;
     let m = mirror(url, true)
         .map_err(|e| format!("cannot fetch {url} (for its {}): {e}", describe(pin)))?;
@@ -83,6 +106,10 @@ pub fn resolve(url: &str, pin: &crate::packages::GitPin) -> Result<String, Strin
 
 /// The repository's tags (fetching it first).
 pub fn tags(url: &str) -> Result<Vec<String>, String> {
+    locked(url, || tags_unlocked(url))
+}
+
+fn tags_unlocked(url: &str) -> Result<Vec<String>, String> {
     let m = mirror(url, true).map_err(|e| format!("cannot fetch {url}: {e}"))?;
     let out = git(&["--git-dir", &m.display().to_string(), "tag", "--list"])?;
     Ok(out
@@ -106,6 +133,15 @@ pub fn describe(pin: &crate::packages::GitPin) -> String {
 /// when the cache has neither), or `None` when it isn't cached and fetching isn't allowed.
 pub fn checkout(url: &str, commit: &str, fetch: bool) -> Result<Option<PathBuf>, String> {
     let dir = repo_dir(url).join(commit);
+    if dir.join(".pico-checkout").exists() {
+        return Ok(Some(dir));
+    }
+    locked(url, || checkout_unlocked(url, commit, fetch))
+}
+
+fn checkout_unlocked(url: &str, commit: &str, fetch: bool) -> Result<Option<PathBuf>, String> {
+    let dir = repo_dir(url).join(commit);
+    // Another worker may have made it while this one waited for the lock.
     if dir.join(".pico-checkout").exists() {
         return Ok(Some(dir));
     }
