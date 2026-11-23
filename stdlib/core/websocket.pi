@@ -197,8 +197,6 @@ class CloseEvent {
   }
 }
 
-/// A WebSocket connection. Assign `onopen`, `onmessage`, `onclose` and `onerror` right after
-/// creating it (they're called from the event loop); `send` text or bytes once it's open.
 /// `bytes` as UTF-8 text, or `null` if they aren't UTF-8.
 function __wsText(bytes: Uint8Array): string? {
   try {
@@ -208,6 +206,9 @@ function __wsText(bytes: Uint8Array): string? {
   }
 }
 
+/// A WebSocket connection. Assign `onopen`, `onmessage`, `onclose` and `onerror` right after
+/// creating it (they're called from the event loop); `send` text or bytes once it's open.
+///
 /// @example
 /// ```ts
 /// import { serve, upgradeWebSocket } from "std/http"
