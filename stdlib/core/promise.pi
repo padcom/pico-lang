@@ -319,7 +319,6 @@ class Promise<T, E extends Error = never> {
     return out
   }
 
-  /// Waits for all of `ps`, never rejecting: how each one ended.
   /// A pending promise and the functions that settle it (ES2024), for code that settles it from
   /// outside an executor: `const r = Promise.withResolvers<int, Error>()`, then `r.resolve(1)`.
   ///
@@ -333,6 +332,8 @@ class Promise<T, E extends Error = never> {
     new PromiseWithResolvers<U, F>(new Promise<U, F>())
   }
 
+  /// Waits for all of `ps`, never rejecting: how each one ended.
+  ///
   /// @example
   /// ```ts
   /// const results = await Promise.allSettled([Promise.resolve(1), Promise.reject<int>(new Error("boom"))])
