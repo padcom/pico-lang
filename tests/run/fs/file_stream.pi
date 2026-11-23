@@ -1,0 +1,20 @@
+// expect: abcd|efgh|ij true
+// std/fs' FileStream (#181): a file read in chunks; writes are discarded.
+import { FileStream, writeText, remove } from "std/fs"
+
+async function main(): Promise<void> throws Error {
+  const path = "file-stream.bin"
+  await writeText(path, "abcdefghij")
+  const fs = new FileStream(path, 4)
+  const parts: string[] = []
+  let c = await fs.read()
+  while (c != null) {
+    parts.push(string.fromUtf8(c))
+    c = await fs.read()
+  }
+  await fs.write(Uint8Array.from([1]))
+  println(`${parts.join("|")} ${await fs.read() == null}`)
+
+  await remove(path)
+}
+await main()

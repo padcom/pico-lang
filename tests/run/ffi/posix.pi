@@ -1,0 +1,22 @@
+// native-only: the interpreter can't call C
+// expect: -1 true true
+// expect: true true 0
+// expect: 5 true 0 0 -1 true
+// expect: true
+// expect: 0
+// std/posix (#181): the shared declarations, errno, errnoMessage, the flag constants; it links
+// next to c:unistd.h's own close.
+import { EBADF, ENOENT, F_GETFL, O_CLOEXEC, O_RDWR, O_WRONLY, close, dup, errno, errnoMessage, fcntl, isatty, open, write } from "std/posix"
+
+const missing = open("/nonexistent/x", O_WRONLY as c_int)
+println(`${missing} ${errno() == ENOENT} ${errnoMessage(ENOENT).length > 0}`)
+const fd = open("/dev/null", (O_RDWR | O_CLOEXEC) as c_int)
+println(`${fd >= 0} ${(fcntl(fd, F_GETFL as c_int) & 3) == O_RDWR} ${isatty(fd)}`)
+const bytes = new TextEncoder().encode("hello")
+const n = unsafe { write(fd, ptr.bytes(bytes), bytes.length as usize) }
+const d = dup(fd)
+println(`${n} ${d >= 0} ${close(d)} ${close(fd)} ${close(fd)} ${errno() == EBADF}`)
+import * as u from "c:unistd.h"
+println(`${u.getpid() > 0}`)
+const fd2 = open("/dev/null", O_WRONLY as c_int)
+println(`${u.close(fd2)}`)

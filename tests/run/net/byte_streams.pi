@@ -1,0 +1,30 @@
+// expect: ping
+// expect: hi back true
+// std/net's ByteStream adapters (#181): TcpStream, UdpStream (replies to the last sender).
+import { TcpStream, UdpStream, bind, connect, listen } from "std/net"
+
+async function main(): Promise<void> throws Error {
+  const l = await listen(0)
+  const port = l.addr.port
+  const client = new TcpStream(await connect(port))
+  const server = await l.accept()
+  await client.write(new TextEncoder().encode("ping"))
+  const got = await server!.read()
+  println(string.fromUtf8(got!))
+  client.close()
+  server!.close()
+  l.close()
+
+  const a = await bind(0)
+  const b = new UdpStream(await bind(0))
+  const sa = new UdpStream(a, b.socket.addr.port)
+  await b.write(new TextEncoder().encode("lost"))
+  await sa.write(new TextEncoder().encode("hi"))
+  const d = await b.read()
+  await b.write(new TextEncoder().encode("back"))
+  const e = await sa.read()
+  println(`${string.fromUtf8(d!)} ${string.fromUtf8(e!)} ${b.peerPort == a.addr.port}`)
+  sa.close()
+  b.close()
+}
+await main()

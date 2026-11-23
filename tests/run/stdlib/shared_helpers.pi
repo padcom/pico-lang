@@ -1,0 +1,124 @@
+// expect: cbf43926 e3069283 00006f91 0000906e 000029b1 000031c3 00002189 00004b37 0000bb3d 000000f4
+// expect: cbf43926 00006f91 000044bf
+// expect: 2dfd2d88 2dfd2d88
+// expect: 29 0102030706050400000000000000083ff80000000000000000003f4000
+// expect: 010203 26 7 true
+// expect: 24 00000000000000083ff80000000000000000003f40000909
+// expect: 0
+// expect: 00000003010203
+// expect: true 2
+// expect: 010203 04 true 0
+// expect: Empty an empty frame
+// expect: TooLarge 3
+// expect: Failed
+// expect: 1,2 false 0
+// expect: 0506 07 true
+// expect: 7
+// expect: timed out after 5 ms 5
+// Helpers pico-desktop, pico-mavlink and pico-serialport had of their own (#181, decision 345):
+// std/checksum (catalogue check values), std/bytes' ByteBuffer, std/streams' framing, Channel and
+// bytePipe, std/timers' withTimeout.
+import { ByteBuffer } from "std/bytes"
+import { CRC16_ARC, CRC16_CCITT_FALSE, CRC16_KERMIT, CRC16_MCRF4XX, CRC16_MODBUS, CRC16_X25, CRC16_XMODEM, CRC32, CRC32C, CRC8, Crc, crc, crc32 } from "std/checksum"
+import { Channel, FrameError, FrameReader, bytePipe, encodeFrame, frames } from "std/streams"
+import { TimeoutError, delay, withTimeout } from "std/timers"
+import { CrcSpec } from "std/checksum"
+import { hex } from "std/encoding"
+
+function h(n: int): string {
+  hex.encode(Uint8Array.from([(n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255]))
+}
+
+const check = new TextEncoder().encode("123456789")
+println([CRC32, CRC32C, CRC16_MCRF4XX, CRC16_X25, CRC16_CCITT_FALSE, CRC16_XMODEM, CRC16_KERMIT, CRC16_MODBUS, CRC16_ARC, CRC8].map((s) => h(crc(check, s))).join(" "))
+const a = check.subarray(0, 4)
+const b = check.subarray(4)
+println(`${h(crc32(b, crc32(a)))} ${h(new Crc(CRC16_MCRF4XX).update(a).update(b).value)} ${h(new Crc(CRC16_MCRF4XX).update(a).updateByte(0x35).value)}`)
+const raw: CrcSpec = { width: 32, poly: 0x04C11DB7, init: 0, reflected: true, xorOut: 0 }
+println(`${h(crc(b, raw, crc(a, raw)))} ${h(crc(check, raw))}`)
+
+const buf = new ByteBuffer(2)
+buf.writeByte(1)
+buf.writeUint16(0x0203)
+buf.writeUint32(0x04050607, true)
+buf.writeBigUint64(8)
+buf.writeFloat64(1.5)
+buf.writeFloat32(0.5, true)
+buf.writeFloat16(2.0)
+println(`${buf.length} ${hex.encode(buf.bytes())}`)
+println(`${hex.encode(buf.read(3) ?? new Uint8Array(0))} ${buf.length} ${buf.get(0)} ${buf.read(100) == null}`)
+buf.skip(4)
+buf.write(Uint8Array.from([9, 9]))
+println(`${buf.length} ${hex.encode(buf.toUint8Array())}`)
+buf.clear()
+println(`${buf.length}`)
+
+const f1 = encodeFrame(Uint8Array.from([1, 2, 3]))
+const f2 = encodeFrame(Uint8Array.from([4]))
+println(hex.encode(f1))
+const r = new FrameReader()
+const both = new Uint8Array(f1.length + f2.length)
+both.setAll(f1)
+both.setAll(f2, f1.length)
+r.push(both.subarray(0, 2))
+println(`${r.next() == null} ${r.pending}`)
+r.push(both.subarray(2))
+println(`${hex.encode(r.next() ?? new Uint8Array(0))} ${hex.encode(r.next() ?? new Uint8Array(0))} ${r.next() == null} ${r.pending}`)
+try {
+  encodeFrame(new Uint8Array(0))
+} catch (e: FrameError) {
+  println(`${e.kind} ${e.message}`)
+}
+const small = new FrameReader({ maxBytes: 2 })
+small.push(f1)
+try {
+  small.next()
+} catch (e: FrameError) {
+  println(`${e.kind} ${e.length}`)
+}
+try {
+  small.next()
+} catch (e: FrameError) {
+  println(e.kind)
+}
+
+async function slow(): Promise<int> throws AbortError {
+  await delay(50)
+  return 7
+}
+
+async function main(): Promise<void> throws Error {
+  const ch = new Channel<int>()
+  ch.send(1)
+  setTimeout(() => {
+    ch.send(2)
+    ch.close()
+  }, 5)
+  const got: int[] = []
+  for await (const v of ch) {
+    got.push(v)
+  }
+  println(`${got.join(",")} ${ch.send(3)} ${ch.size}`)
+
+  const ends = bytePipe()
+  const left = ends[0]
+  const right = ends[1]
+  await left.write(encodeFrame(Uint8Array.from([5, 6])))
+  await left.write(encodeFrame(Uint8Array.from([7])).subarray(0, 3))
+  await left.write(encodeFrame(Uint8Array.from([7])).subarray(3))
+  left.close()
+  const ms: string[] = []
+  for await (const message of frames(right)) {
+    ms.push(hex.encode(message))
+  }
+  println(`${ms.join(" ")} ${await right.read() == null}`)
+
+  println(`${await withTimeout(slow(), 1000)}`)
+  try {
+    await withTimeout(slow(), 5)
+  } catch (e: TimeoutError) {
+    println(`${e.message} ${e.ms}`)
+  }
+}
+
+await main()

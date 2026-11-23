@@ -1,0 +1,143 @@
+// `std/bytes` (spec §13.5): `ByteBuffer`, a growable run of bytes that is written at its end and read
+// from its front, like Go's `bytes.Buffer`: an encoder's output, or a parser's input that arrives in
+// chunks.
+
+/// Bytes written at the end (`write`, `writeByte`, the `DataView`-style `writeUint16` …) and read
+/// from the front (`read`, `skip`, `get`). The storage grows by doubling; bytes already read are
+/// reclaimed when more room is needed, so a long-lived buffer stays as large as what it holds.
+export class ByteBuffer {
+  buf: Uint8Array
+  view: DataView
+  start: int = 0
+  end: int = 0
+
+  /// An empty buffer with room for `capacity` bytes before it first grows.
+  constructor(capacity: int = 256) {
+    this.buf = new Uint8Array(if (capacity > 0) capacity else 1)
+    this.view = new DataView(this.buf)
+  }
+
+  /// How many bytes it holds (written and not read yet).
+  public get length(): int {
+    return end - start
+  }
+
+  /// The byte at `i` of the ones it holds; panics outside `0..length`.
+  public get(i: int): int {
+    if (i < 0 || i >= end - start) {
+      panic(`ByteBuffer: index ${i} outside its ${end - start} bytes`)
+    }
+    return buf.get(start + i)
+  }
+
+  /// The bytes it holds, without a copy: the view is valid until the next write.
+  public bytes(): Uint8Array {
+    return buf.subarray(start, end)
+  }
+
+  /// A copy of the bytes it holds.
+  public toUint8Array(): Uint8Array {
+    return buf.slice(start, end)
+  }
+
+  /// Makes room for `n` more bytes at the end.
+  public reserve(n: int): void {
+    if (end + n <= buf.length) {
+      return
+    }
+    const live = end - start
+    let size = buf.length
+    while (size < live + n) {
+      size = size * 2
+    }
+    // Enough room once the bytes already read are dropped: move the rest to the front.
+    const grown = if (size == buf.length) buf else new Uint8Array(size)
+    grown.setAll(buf.subarray(start, end))
+    if (grown != buf) {
+      buf = grown
+      view = new DataView(grown)
+    }
+    start = 0
+    end = live
+  }
+
+  /// Appends `bytes`.
+  public write(bytes: Uint8Array): void {
+    reserve(bytes.length)
+    buf.setAll(bytes, end)
+    end += bytes.length
+  }
+
+  /// Appends one byte (`b`'s low 8 bits).
+  public writeByte(b: int): void {
+    reserve(1)
+    buf.set(end, b)
+    end += 1
+  }
+
+  public writeUint16(value: int, littleEndian: bool = false): void {
+    reserve(2)
+    view.setUint16(end, value, littleEndian)
+    end += 2
+  }
+
+  public writeUint32(value: int, littleEndian: bool = false): void {
+    reserve(4)
+    view.setUint32(end, value, littleEndian)
+    end += 4
+  }
+
+  public writeBigUint64(value: u64, littleEndian: bool = false): void {
+    reserve(8)
+    view.setBigUint64(end, value, littleEndian)
+    end += 8
+  }
+
+  public writeFloat16(value: f64, littleEndian: bool = false): void {
+    reserve(2)
+    view.setFloat16(end, value, littleEndian)
+    end += 2
+  }
+
+  public writeFloat32(value: f32, littleEndian: bool = false): void {
+    reserve(4)
+    view.setFloat32(end, value, littleEndian)
+    end += 4
+  }
+
+  public writeFloat64(value: f64, littleEndian: bool = false): void {
+    reserve(8)
+    view.setFloat64(end, value, littleEndian)
+    end += 8
+  }
+
+  /// A copy of the next `n` bytes, which are then read; null (and nothing read) while it holds
+  /// fewer.
+  public read(n: int): Uint8Array? {
+    if (n < 0 || n > end - start) {
+      return null
+    }
+    const out = buf.slice(start, start + n)
+    start += n
+    if (start == end) {
+      start = 0
+      end = 0
+    }
+    return out
+  }
+
+  /// Drops the next `n` bytes (all of them if it holds fewer).
+  public skip(n: int): void {
+    start = if (n >= end - start) end else start + (if (n > 0) n else 0)
+    if (start == end) {
+      start = 0
+      end = 0
+    }
+  }
+
+  /// Drops everything it holds (keeping the storage).
+  public clear(): void {
+    start = 0
+    end = 0
+  }
+}

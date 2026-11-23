@@ -1,0 +1,156 @@
+// `std/checksum` (spec §13.5): cyclic redundancy checks of any width up to 32 bits, described the way
+// the CRC catalogue (reveng) does: polynomial, initial value, whether bytes go in least significant
+// bit first ("reflected"), and what the result is XORed with. Table-driven, with a table per
+// polynomial, made on first use.
+
+/// A CRC algorithm. `poly` is the polynomial without its top bit, written most significant bit
+/// first (CRC-32's is 0x04C11DB7) whether or not the CRC is reflected.
+export struct CrcSpec {
+  /// Bits: 8 to 32.
+  width: int
+  poly: int
+  /// The register's value before the first byte.
+  init: int
+  /// Whether bytes go in least significant bit first (and the result comes out that way).
+  reflected: bool
+  /// XORed with the register to give the result.
+  xorOut: int
+}
+
+/// CRC-32 (ISO-HDLC): zlib's, PNG's, Ethernet's. Check value (of `"123456789"`): 0xCBF43926.
+export const CRC32: CrcSpec = { width: 32, poly: 0x04C11DB7, init: 0xFFFFFFFF, reflected: true, xorOut: 0xFFFFFFFF }
+/// CRC-32C (Castagnoli: iSCSI, ext4, SCTP). Check: 0xE3069283.
+export const CRC32C: CrcSpec = { width: 32, poly: 0x1EDC6F41, init: 0xFFFFFFFF, reflected: true, xorOut: 0xFFFFFFFF }
+/// CRC-16/MCRF4XX: MAVLink's checksum (often called "X.25 CRC", though X.25 also inverts the
+/// result). Check: 0x6F91.
+export const CRC16_MCRF4XX: CrcSpec = { width: 16, poly: 0x1021, init: 0xFFFF, reflected: true, xorOut: 0 }
+/// CRC-16/IBM-SDLC (X.25, HDLC). Check: 0x906E.
+export const CRC16_X25: CrcSpec = { width: 16, poly: 0x1021, init: 0xFFFF, reflected: true, xorOut: 0xFFFF }
+/// CRC-16/IBM-3740 ("CCITT-FALSE"). Check: 0x29B1.
+export const CRC16_CCITT_FALSE: CrcSpec = { width: 16, poly: 0x1021, init: 0xFFFF, reflected: false, xorOut: 0 }
+/// CRC-16/XMODEM. Check: 0x31C3.
+export const CRC16_XMODEM: CrcSpec = { width: 16, poly: 0x1021, init: 0, reflected: false, xorOut: 0 }
+/// CRC-16/KERMIT. Check: 0x2189.
+export const CRC16_KERMIT: CrcSpec = { width: 16, poly: 0x1021, init: 0, reflected: true, xorOut: 0 }
+/// CRC-16/MODBUS. Check: 0x4B37.
+export const CRC16_MODBUS: CrcSpec = { width: 16, poly: 0x8005, init: 0xFFFF, reflected: true, xorOut: 0 }
+/// CRC-16/ARC (LHA). Check: 0xBB3D.
+export const CRC16_ARC: CrcSpec = { width: 16, poly: 0x8005, init: 0, reflected: true, xorOut: 0 }
+/// CRC-8/SMBUS. Check: 0xF4.
+export const CRC8: CrcSpec = { width: 8, poly: 0x07, init: 0, reflected: false, xorOut: 0 }
+
+const tables = new Map<string, int[]>()
+
+function reflect(v: int, bits: int): int {
+  let r = 0
+  for (let i = 0; i < bits; i++) {
+    if ((v & (1 << i)) != 0) {
+      r = r | (1 << (bits - 1 - i))
+    }
+  }
+  return r
+}
+
+function tableOf(spec: CrcSpec): int[] {
+  const key = `${spec.width}/${spec.poly}/${spec.reflected}`
+  const known = tables.get(key)
+  if (known != null) {
+    return known
+  }
+  const mask = (1 << spec.width) - 1
+  const top = 1 << (spec.width - 1)
+  const t: int[] = []
+  for (let i = 0; i < 256; i++) {
+    let c = 0
+    if (spec.reflected) {
+      const rpoly = reflect(spec.poly, spec.width)
+      c = i
+      for (let k = 0; k < 8; k++) {
+        c = if ((c & 1) != 0) (c >> 1) ^ rpoly else c >> 1
+      }
+    } else {
+      c = i << (spec.width - 8)
+      for (let k = 0; k < 8; k++) {
+        c = if ((c & top) != 0) ((c << 1) ^ spec.poly) & mask else (c << 1) & mask
+      }
+    }
+    t.push(c)
+  }
+  tables.set(key, t)
+  return t
+}
+
+/// A running CRC: `update` it with bytes as they come, read `value` at any point.
+///
+/// ```ts
+/// const c = new Crc(CRC16_MCRF4XX).update(header).updateByte(crcExtra)
+/// ```
+export class Crc {
+  public readonly spec: CrcSpec
+  table: int[]
+  register: int
+  mask: int
+
+  /// A CRC of no bytes yet; or, with `previous`, carrying on after bytes whose CRC was `previous`
+  /// (`crc(b, spec, crc(a, spec))` is the CRC of `a` then `b`).
+  constructor(spec: CrcSpec, previous: int? = null) {
+    if (spec.width < 8 || spec.width > 32) {
+      panic(`Crc: width ${spec.width} isn't 8 to 32 bits`)
+    }
+    this.spec = spec
+    this.table = tableOf(spec)
+    this.mask = (1 << spec.width) - 1
+    const p = previous
+    const start = if (p != null) (p ^ spec.xorOut) & this.mask else spec.init & this.mask
+    this.register = start
+  }
+
+  /// Takes `bytes` in.
+  public update(bytes: Uint8Array): Crc {
+    let r = register
+    const t = table
+    const n = bytes.length
+    if (spec.reflected) {
+      for (let i = 0; i < n; i++) {
+        r = t[(r ^ bytes.get(i)) & 0xFF] ^ (r >> 8)
+      }
+    } else {
+      const shift = spec.width - 8
+      for (let i = 0; i < n; i++) {
+        r = (t[((r >> shift) ^ bytes.get(i)) & 0xFF] ^ (r << 8)) & mask
+      }
+    }
+    register = r
+    return this
+  }
+
+  /// Takes one byte (`b`'s low 8 bits) in.
+  public updateByte(b: int): Crc {
+    if (spec.reflected) {
+      register = table[(register ^ b) & 0xFF] ^ (register >> 8)
+    } else {
+      register = (table[((register >> (spec.width - 8)) ^ b) & 0xFF] ^ (register << 8)) & mask
+    }
+    return this
+  }
+
+  /// The CRC of the bytes so far.
+  public get value(): int {
+    return (register ^ spec.xorOut) & mask
+  }
+
+  /// Starts again with no bytes.
+  public reset(): void {
+    register = spec.init & mask
+  }
+}
+
+/// The CRC of `bytes` (by default CRC-32), carrying on from `previous` if given.
+export function crc(bytes: Uint8Array, spec: CrcSpec = CRC32, previous: int? = null): int {
+  return new Crc(spec, previous).update(bytes).value
+}
+
+/// zlib's `crc32(previous, bytes)`: CRC-32 of `bytes`, carrying on from `previous` (0: none).
+export function crc32(bytes: Uint8Array, previous: int = 0): int {
+  return new Crc(CRC32, previous).update(bytes).value
+}

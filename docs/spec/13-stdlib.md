@@ -18,6 +18,9 @@ have `sum()`; arrays have `shift()` and `unshift(...items)`, and strings `substr
 points) and `localeCompare(other)` (case-insensitive first, then lower case first, as ICU orders
 ASCII). Characters have `isDigit()`, `isAlpha()`, `isAlphanumeric()` and `isWhitespace()` (ASCII
 only), and `new Map(other)` copies a map: the same entries in the same order (decision 344).
+`DataView` (§13.5) and `Promise.withResolvers<T, E>()` (ES2024: a pending `promise` with `resolve(value)`
+and `reject(error)` methods) are globals too, and `string.fromUtf8(bytes)` and `string.fromCBytes(bytes)`
+make text of bytes without throwing (decision 345).
 
 Text that may not be a number is parsed with the number types' `parse` (decision 340), which give
 `null` instead of panicking: `int.parse(s, radix = 10): int?` and the same for `i8` … `i64` and
@@ -41,13 +44,17 @@ const users = await res.json<User[]>()        // typed, generated like JSON.pars
 ## 13.2 Modules
 | Module | Contents (draft) |
 |--------|------------------|
-| `std/timers` | `delay(ms, signal?)`: a cancellable promise timer (§10.5) |
+| `std/timers` | `delay(ms, signal?)`: a cancellable promise timer (§10.5); `withTimeout(promise, ms)` and `TimeoutError` |
 | `std/fs` | `readText`, `readBytes`, `writeText`, `writeBytes`, `open` (`File implements AsyncDisposable`), `readDir` (async iterator), `stat`, `mkdir`, `remove`, `rename`, `copy`, `symlink`, `readlink`, `chmod`, `watch` |
 | `std/path` | `join`, `resolve`, `dirname`, `basename`, `extname`, `relative`, `sep` |
 | `std/process` | `args`, `argv0`, `execPath`, `env`, `exit`, `cwd`, `spawn`/`Command` (async), `stdin`/`stdout`/`stderr` streams |
 | `std/net` | TCP/UDP and Unix-domain sockets, `listen`, `connect`, `listenUnix`, `connectUnix`, DNS |
 | `std/http` | `serve(handler)` on top of Web `Request`/`Response` (Deno.serve-like), WebSocket |
-| `std/streams` | Web Streams: `ReadableStream`, `WritableStream`, `TransformStream` |
+| `std/streams` | Web Streams: `ReadableStream`, `WritableStream`, `TransformStream`; `ByteStream`, `Channel`, `bytePipe`, length-prefixed framing |
+| `std/bytes` | `ByteBuffer` |
+| `std/checksum` | `Crc`, `crc`, `crc32` and the catalogue's CRC-8/16/32 algorithms |
+| `std/os` | `platform`, `homeDir`, `tmpDir`, `dataDir`, `localDataDir`, `cacheDir`, `configDir`, `stateDir`, `userDirs` |
+| `std/posix` | `open`, `fcntl`, `ioctl`, `close`, `dup`, `isatty`, `read`, `write`, `errno`, `errnoMessage`, `O_*`, `F_*`, `E*` (Linux, macOS) |
 | `std/regex` | `RegExp` (also produced by regex literals) |
 | `std/crypto` | hashes, HMAC, AEAD, signatures (Web Crypto shape) |
 | `std/time` | `Instant`, `Duration`, `DateTime`, time zones (Temporal-inspired) |
@@ -82,6 +89,8 @@ A JS-compatible `Date` global is kept so ported code works, but new code should 
 | `Worker`, `std/worker` | ✅ | ❌ (wasi-threads unstable) | ✅ (Web Workers) |
 | `fetch`, `std/http` client | ✅ | ✅ (wasi-http) | ✅ (browser fetch) |
 | `std/http` `serve` | ✅ | ✅ (wasi-http incoming) | ❌ |
+| `std/os` | ✅ | ✅ | ❌ compile error |
+| `std/posix` | ✅ Linux, macOS (❌ Windows) | ❌ | ❌ |
 | `std/js` | ❌ | ❌ | ✅ |
 | everything else | ✅ | ✅ | ✅ |
 
@@ -256,7 +265,35 @@ does writing after `closeWrite`/`close`. A `UdpSocket` has `addr`, `send(data, p
 "127.0.0.1")`, `sendText(text, port, hostname)` (one datagram each), `receive(n = 65536):
 Promise<Datagram?, NetError>` (`{ data: Uint8Array, addr }`; bytes past `n` are dropped; `null`
 once closed) and `close()`. Web Streams (`conn.readable`, `conn.writable`) come with
-`std/streams`.
+`std/streams`. `TcpStream(conn)` and `UdpStream(socket, peerPort?, peerHost?)` are `ByteStream`s
+(§13.5); a `UdpStream` without a peer answers whoever sent the last datagram it read (writes before
+that are dropped).
+
+### `std/os`
+Where things go on this system (decision 345). `platform` is `"linux"`, `"macos"`, `"windows"` or
+`"wasi"`. `homeDir()` (`$HOME`, `%USERPROFILE%`), `tmpDir()` (`$TMPDIR`, `%TEMP%`, `%TMP%`, else
+`/tmp` or `C:\Windows\Temp`), and the per-user directories, `null` where nothing says:
+
+| | Linux (XDG) | macOS | Windows |
+|---|---|---|---|
+| `dataDir()` | `$XDG_DATA_HOME`, `~/.local/share` | `~/Library/Application Support` | `%APPDATA%` |
+| `localDataDir()` | as `dataDir()` | as `dataDir()` | `%LOCALAPPDATA%` |
+| `cacheDir()` | `$XDG_CACHE_HOME`, `~/.cache` | `~/Library/Caches` | `%LOCALAPPDATA%` |
+| `configDir()` | `$XDG_CONFIG_HOME`, `~/.config` | `~/Library/Application Support` | `%APPDATA%` |
+| `stateDir()` | `$XDG_STATE_HOME`, `~/.local/state` | `null` | `null` |
+
+They come from the environment; a variable that is empty or not an absolute path is ignored, as the
+XDG specification says. Nothing is created. `userDirs(vars, os = platform)` gives all of them for an
+environment and system (tests, or another system's layout).
+
+### `std/posix`
+Linux and macOS (decision 345): the POSIX calls device code needs, declared once, since header
+imports leave variadic functions out (§12.2) and two declarations of one C symbol with different
+signatures don't link. `open(path, flags, ...)`, `fcntl(fd, cmd, ...)`, `ioctl(fd, request, ...)`,
+`close`, `dup`, `isatty`, `read(fd, buf: ptr<u8>, n)` and `write` (inside `unsafe` with a buffer:
+`ptr.bytes(view)`); `errno()` (right after the failing call) and `errnoMessage(e = errno())`; the
+`open` flags (`O_RDONLY` … `O_CLOEXEC`, each system's values), `F_GETFD`, `F_SETFD`, `F_GETFL`,
+`F_SETFL`, `FD_CLOEXEC` and common `errno` values (`ENOENT`, `EAGAIN`, `EBUSY`, `ENOTTY`, …).
 
 ## 13.5 Streams and encoding
 ### `TextEncoder` and `TextDecoder`
@@ -271,6 +308,36 @@ positions count from the end; one copy), `setAll(source: Uint8Array, offset = 0)
 `set(source, offset)`: copies in one go, overlap allowed; panics if `source` doesn't fit; decision
 316), `copyWithin(target, start, end?)` (as on the Web; returns the view) and
 `Uint8Array.from(values: int[])`.
+
+`TextDecoder.utf8(options = {})` (no label) can't throw. `string.fromUtf8(bytes)` decodes as a decoder that
+isn't fatal, keeping a BOM, and never throws; `string.fromCBytes(bytes)` stops at the first NUL byte
+(a C string or a `char[n]` field). `Uint8Array` also has `indexOf(byte, from = 0)`, `includes`,
+`fill(byte, start = 0, end?)` (as on the Web) and `equals(other)` (same length and bytes).
+
+### `DataView`
+A global, as on the Web: `new DataView(buffer, byteOffset = 0, byteLength?)`, or `new
+DataView(view: Uint8Array)` for the view's bytes. `getInt8`/`getUint8`, `getInt16`/`getUint16`,
+`getInt32`/`getUint32` (`int`), `getBigInt64` (`i64`), `getBigUint64` (`u64`), `getFloat16`
+(ES2025, `f64`), `getFloat32` (`f32`), `getFloat64`, and the `set…` counterparts (integers store
+their low bits; `setFloat16` rounds to nearest, ties to even, overflowing to infinity), all at any
+byte offset and big-endian unless `littleEndian` is true. An access outside the view panics (the
+Web's `RangeError`). Decision 345.
+
+### `std/bytes`
+`ByteBuffer(capacity = 256)`: bytes written at the end (`write(bytes)`, `writeByte(b)`,
+`writeUint16`, `writeUint32`, `writeBigUint64`, `writeFloat16`, `writeFloat32`, `writeFloat64`,
+each with `littleEndian = false`) and read from the front (`read(n): Uint8Array?`, a copy, `null`
+while it holds fewer; `skip(n)`; `get(i)`); `length`, `bytes()` (a view, valid until the next
+write), `toUint8Array()`, `reserve(n)`, `clear()`. The storage doubles; bytes already read are
+reclaimed when room is needed.
+
+### `std/checksum`
+`CrcSpec { width, poly, init, reflected, xorOut }` describes a CRC of 8 to 32 bits as the CRC
+catalogue does; the presets are `CRC32`, `CRC32C`, `CRC16_MCRF4XX` (MAVLink's), `CRC16_X25`,
+`CRC16_CCITT_FALSE`, `CRC16_XMODEM`, `CRC16_KERMIT`, `CRC16_MODBUS`, `CRC16_ARC` and `CRC8`. `new
+Crc(spec, previous?)` is a running CRC (`update(bytes)`, `updateByte(b)`, `value`, `reset()`);
+with `previous` it carries on after bytes whose CRC that was. `crc(bytes, spec = CRC32,
+previous?)` and `crc32(bytes, previous = 0)` (zlib's) do it in one call.
 
 ### `std/encoding`
 `base64.encode(data, url = false)` (RFC 4648; `url` uses `-`/`_` without padding) and
@@ -304,6 +371,20 @@ an error fails both, and cancelling both cancels it). `textEncoderStream()` and 
 strings to UTF-8 bytes and back. `std/net`'s `Conn` and `std/process`'s `Reader`/`Writer` have
 `readable`/`writable` streams of `Uint8Array` (closing a connection's writable finishes writing;
 once both directions are finished the connection closes itself).
+
+`ByteStream` is the interface protocol code takes for bytes in and out, whatever carries them:
+`read(): Promise<Uint8Array?, Error>` (`null` at the end), `write(bytes): Promise<void, Error>`
+and `close()`. `std/net` has `TcpStream` and `UdpStream`, `std/fs` `FileStream(path, chunkSize =
+65536)` (a recording to replay: writes are discarded), and `bytePipe()` gives two connected
+in-memory ends (`PipeEnd`; writes are copied; closing either ends both directions once what was
+sent is read). `Channel<T>` is an unbounded async queue: `send(v): bool` (false once closed),
+`receive(): Promise<T?>` (`null` once closed and empty), `close()`, `size`, `for await`.
+Length-prefixed framing: `encodeFrame(message, options?)` puts a u32 big-endian length in front;
+`FrameReader(options?)` takes chunks (`push`) and gives whole messages (`next(): Uint8Array?`,
+`pending`), checking a length against the limit before buffering it; `frames(stream, options?)`
+is an async iterator over a `ByteStream`'s messages. `FrameOptions { maxBytes = 16 MiB,
+allowEmpty = false }`; failures are `FrameError` with `kind` `"Empty"`, `"TooLarge"`,
+`"Truncated"` or `"Failed"` (after an error the reader is unusable). Decision 345.
 
 ## 13.6 HTTP
 ### `URL` and `URLSearchParams`

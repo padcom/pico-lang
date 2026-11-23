@@ -26,3 +26,30 @@ export function delay(ms: int, signal: AbortSignal? = null): Promise<void, Abort
   }
   return p
 }
+
+/// What `withTimeout` rejects with when the time runs out.
+export class TimeoutError extends Error {
+  /// The time that ran out, in milliseconds.
+  public ms: int
+
+  constructor(ms: int) {
+    super(`timed out after ${ms} ms`)
+    this.ms = ms
+  }
+}
+
+/// `promise`'s value or error if it settles within `ms` milliseconds, else a `TimeoutError`. The
+/// work isn't stopped, only no longer waited for (give it an `AbortSignal` to stop it); a failure
+/// it has later is ignored.
+export function withTimeout<T, E extends Error>(promise: Promise<T, E>, ms: int): Promise<T, Error> {
+  const out = new Promise<T, Error>()
+  const id = setTimeout(() => out.__reject(new TimeoutError(ms)), ms)
+  promise.then<void>((v: T) => {
+    clearTimeout(id)
+    out.__resolve(v)
+  }).catch((e: Error) => {
+    clearTimeout(id)
+    out.__reject(e)
+  })
+  return out
+}

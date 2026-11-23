@@ -1,0 +1,112 @@
+// `std/os` (spec §13.4): where things go on this system: the home directory, the temporary
+// directory, and the per-user directories for an application's data, caches and configuration.
+//
+//                Linux (XDG)                       macOS                           Windows
+//   data         $XDG_DATA_HOME, ~/.local/share    ~/Library/Application Support   %APPDATA%
+//   localData    as data                           as data                         %LOCALAPPDATA%
+//   cache        $XDG_CACHE_HOME, ~/.cache         ~/Library/Caches                %LOCALAPPDATA%
+//   config       $XDG_CONFIG_HOME, ~/.config       ~/Library/Application Support   %APPDATA%
+//   state        $XDG_STATE_HOME, ~/.local/state   —                               —
+//
+// They come from the environment (a variable that is empty or not an absolute path is ignored,
+// as the XDG specification says), so they can be null when nothing says. Nothing is created: an
+// application makes its own directory below one of them.
+import { env } from "std/process"
+import { posix, win32 } from "std/path"
+
+/// This build's system: `"linux"`, `"macos"`, `"windows"` or `"wasi"`.
+export const platform: string = comptime if (target.os == "windows") "windows" else if (target.os == "macos") "macos" else if (target.os == "wasi") "wasi" else "linux"
+
+/// The per-user directories (see `userDirs`); null where nothing says.
+export struct UserDirs {
+  home: string?
+  data: string?
+  localData: string?
+  cache: string?
+  config: string?
+  state: string?
+}
+
+/// `name`'s value if it's an absolute path.
+function absolute(vars: Map<string, string>, name: string, windows: bool): string? {
+  const v = vars.get(name)
+  if (v == null || v == "") {
+    return null
+  }
+  const ok = if (windows) win32.isAbsolute(v) else posix.isAbsolute(v)
+  if (ok) v else null
+}
+
+function under(home: string?, rest: string): string? {
+  if (home != null) posix.join(home, rest) else null
+}
+
+/// The directories for the environment `vars` on system `os` (`platform`'s values): what the
+/// other functions give, for this process. For tests, and for code that works out another
+/// system's.
+export function userDirs(vars: Map<string, string>, os: string = platform): UserDirs {
+  if (os == "windows") {
+    const home = absolute(vars, "USERPROFILE", true)
+    const roaming = absolute(vars, "APPDATA", true)
+    const local = absolute(vars, "LOCALAPPDATA", true)
+    return { home, data: roaming, localData: local, cache: local, config: roaming, state: null }
+  }
+  const home = absolute(vars, "HOME", false)
+  if (os == "macos") {
+    const support = under(home, "Library/Application Support")
+    return { home, data: support, localData: support, cache: under(home, "Library/Caches"), config: support, state: null }
+  }
+  const data = absolute(vars, "XDG_DATA_HOME", false) ?? under(home, ".local/share")
+  return {
+    home,
+    data,
+    localData: data,
+    cache: absolute(vars, "XDG_CACHE_HOME", false) ?? under(home, ".cache"),
+    config: absolute(vars, "XDG_CONFIG_HOME", false) ?? under(home, ".config"),
+    state: absolute(vars, "XDG_STATE_HOME", false) ?? under(home, ".local/state"),
+  }
+}
+
+function mine(): UserDirs {
+  userDirs(env.toObject())
+}
+
+/// The user's home directory: `$HOME` (`%USERPROFILE%` on Windows).
+export function homeDir(): string? {
+  return mine().home
+}
+
+/// For data that must survive: settings, user files (roaming on Windows).
+export function dataDir(): string? {
+  return mine().data
+}
+
+/// For data that stays on this machine (Windows' `%LOCALAPPDATA%`; elsewhere `dataDir()`).
+export function localDataDir(): string? {
+  return mine().localData
+}
+
+/// For what can be rebuilt: downloads, indexes. The user or the system may delete it.
+export function cacheDir(): string? {
+  return mine().cache
+}
+
+/// For configuration files.
+export function configDir(): string? {
+  return mine().config
+}
+
+/// For state worth keeping between runs but not worth backing up: logs, history (Linux only).
+export function stateDir(): string? {
+  return mine().state
+}
+
+/// The directory for temporary files: `$TMPDIR` (`%TEMP%`, `%TMP%` on Windows), else `/tmp`
+/// (`C:\Windows\Temp`).
+export function tmpDir(): string {
+  const vars = env.toObject()
+  if (platform == "windows") {
+    return absolute(vars, "TEMP", true) ?? absolute(vars, "TMP", true) ?? "C:\\Windows\\Temp"
+  }
+  return absolute(vars, "TMPDIR", false) ?? "/tmp"
+}

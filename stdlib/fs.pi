@@ -2,6 +2,8 @@
 // runtime's I/O threads and settles its promise on the event loop. Failures reject with an
 // `IoError` (a global) naming the path and the kind of failure.
 
+import { ByteStream } from "std/streams"
+
 const __kinds = ["", "NotFound", "AlreadyExists", "PermissionDenied", "NotADirectory",
   "IsADirectory", "DirectoryNotEmpty", "InvalidData", "Other"]
 const __messages = ["", "no such file or directory", "already exists", "permission denied",
@@ -372,4 +374,46 @@ export class Watcher implements Disposable {
 /// Starts watching `path` (see `Watcher`); rejects if it can't be looked at.
 export function watch(path: string, recursive: bool = true): Promise<Watcher, IoError> {
   __job<Watcher>(15, if (recursive) 1 else 0, 0, 0, path, "", path, (res: __IoResult) => new Watcher(res.r, path))
+}
+
+/// A file read as a `ByteStream` (`std/streams`), `chunkSize` bytes at a time: a recording for
+/// protocol code to replay. Writes are discarded, so that code can still answer.
+export class FileStream implements ByteStream {
+  /// The file's path.
+  public readonly path: string
+  readonly chunkSize: int
+  file: File? = null
+  ended: bool = false
+
+  constructor(path: string, chunkSize: int = 65536) {
+    this.path = path
+    this.chunkSize = chunkSize
+  }
+
+  public async read(): Promise<Uint8Array?> throws Error {
+    if (ended) {
+      return null
+    }
+    const known = file
+    const f = if (known != null) known else await open(path)
+    file = f
+    const chunk = await f.read(chunkSize)
+    if (chunk == null) {
+      close()
+    }
+    return chunk
+  }
+
+  /// Discards `bytes`.
+  public async write(bytes: Uint8Array): Promise<void> throws Error {}
+
+  /// Stops reading (and closes the file).
+  public close(): void {
+    ended = true
+    const f = file
+    if (f != null) {
+      file = null
+      f.close().catch((_e: Error) => {})
+    }
+  }
 }
