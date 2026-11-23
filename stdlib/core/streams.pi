@@ -7,6 +7,15 @@
 // `pull`, `write`, `close` and `transform` callbacks (which finish when they return).
 
 /// What a reader's `read()` gives: a chunk, or `done` at the end.
+///
+/// @example
+/// ```ts
+/// const reader = ReadableStream.from(["a"]).getReader()
+/// const first: ReadResult<string> = await reader.read()
+/// println(`${first.done} ${first.value}`)   // false a
+/// const end = await reader.read()
+/// println(`${end.done} ${end.value}`)       // true null
+/// ```
 struct ReadResult<T> {
   /// Whether the stream has ended (then there's no `value`).
   done: bool
@@ -15,6 +24,22 @@ struct ReadResult<T> {
 }
 
 /// How many chunks a stream queues before it asks its source to wait (`highWaterMark`).
+///
+/// @example
+/// ```ts
+/// import { delay } from "std/timers"
+///
+/// let pulls = 0
+/// const strategy: QueuingStrategy = { highWaterMark: 3 }
+/// const s = new ReadableStream<int>({
+///   pull: (c) => {
+///     pulls += 1
+///     c.enqueue(pulls)
+///   },
+/// }, strategy)
+/// await delay(10)
+/// println(pulls)   // 3 (it filled its queue up to the high-water mark)
+/// ```
 struct QueuingStrategy {
   /// The number of chunks (default 1; a `TransformStream`'s readable side defaults to 0).
   highWaterMark?: int
@@ -22,6 +47,20 @@ struct QueuingStrategy {
 
 /// `pipeTo`'s options: by default the destination is closed at the end of the source, aborted
 /// when the source fails, and the source is cancelled when the destination fails.
+///
+/// @example
+/// ```ts
+/// const seen: string[] = []
+/// const dest = new WritableStream<string>({
+///   write: (chunk, _c) => seen.push(chunk),
+/// })
+/// const options: StreamPipeOptions = { preventClose: true }
+/// await ReadableStream.from(["a", "b"]).pipeTo(dest, options)
+/// println(seen.join(""))   // ab
+/// const writer = dest.getWriter()   // still open: more can be written
+/// await writer.write("c")
+/// println(seen.join(""))   // abc
+/// ```
 struct StreamPipeOptions {
   /// Whether to leave the destination open when the source ends.
   preventClose?: bool
@@ -33,6 +72,25 @@ struct StreamPipeOptions {
 
 /// The source behind a `ReadableStream`: `start` runs at once, `pull` (or `pullAsync`) when
 /// the stream wants more chunks, `cancel` when its reader gives up.
+///
+/// @example
+/// ```ts
+/// let n = 0
+/// const source: UnderlyingSource<int> = {
+///   start: (c) => c.enqueue(0),
+///   pull: (c) => {
+///     n += 1
+///     if (n <= 2) c.enqueue(n) else c.close()
+///   },
+///   cancel: (_reason) => println("cancelled"),
+/// }
+/// for await (const x of new ReadableStream<int>(source)) {
+///   println(x)
+/// }
+/// // 0
+/// // 1
+/// // 2
+/// ```
 struct UnderlyingSource<T> {
   /// Runs once, inside the constructor (it can already enqueue chunks).
   start?: (c: ReadableStreamDefaultController<T>) => void
@@ -47,31 +105,107 @@ struct UnderlyingSource<T> {
 }
 
 /// What a source uses to feed its stream.
+///
+/// @example
+/// ```ts
+/// const s = new ReadableStream<string>({
+///   start: (c: ReadableStreamDefaultController<string>) => {
+///     c.enqueue("one")
+///     c.enqueue("two")
+///     c.close()
+///   },
+/// })
+/// for await (const x of s) {
+///   println(x)
+/// }
+/// // one
+/// // two
+/// ```
 class ReadableStreamDefaultController<T> {
   s: ReadableStream<T>
 
   /// (Made by the stream, for its source.)
+  ///
+  /// @example
+  /// ```ts
+  /// // A stream makes its controller and hands it to its source's callbacks.
+  /// const s = new ReadableStream<int>({
+  ///   start: (c: ReadableStreamDefaultController<int>) => {
+  ///     c.enqueue(42)
+  ///     c.close()
+  ///   },
+  /// })
+  /// println((await s.getReader().read()).value)   // 42
+  /// ```
   constructor(s: ReadableStream<T>) {
     this.s = s
   }
 
   /// How many more chunks fit before the high-water mark (0 or less: wait).
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new ReadableStream<int>({
+  ///   start: (c) => {
+  ///     println(c.desiredSize)   // 2
+  ///     c.enqueue(1)
+  ///     println(c.desiredSize)   // 1
+  ///   },
+  /// }, { highWaterMark: 2 })
+  /// ```
   public get desiredSize(): int {
     this.s.__desired()
   }
 
   /// Adds `chunk` to the stream (straight to a waiting read, if any). Panics once the stream is
   /// closed, failed or closing.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new ReadableStream<string>({
+  ///   start: (c) => {
+  ///     c.enqueue("hello")
+  ///     c.close()
+  ///   },
+  /// })
+  /// println((await s.getReader().read()).value)   // hello
+  /// ```
   public enqueue(chunk: T): void {
     this.s.__enqueue(chunk)
   }
 
   /// Ends the stream once the queued chunks are read.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new ReadableStream<int>({
+  ///   start: (c) => {
+  ///     c.enqueue(1)
+  ///     c.close()   // ends after the queued chunk
+  ///   },
+  /// })
+  /// const reader = s.getReader()
+  /// println((await reader.read()).value)   // 1
+  /// println((await reader.read()).done)    // true
+  /// ```
   public close(): void {
     this.s.__close()
   }
 
   /// Fails the stream: queued chunks are dropped and reads reject with `e`.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new ReadableStream<int>({
+  ///   start: (c) => c.error(new Error("disk on fire")),
+  /// })
+  /// try {
+  ///   const r = await s.getReader().read()
+  ///   println(r.done)
+  /// } catch (e) {
+  ///   println(e.message)   // disk on fire
+  /// }
+  /// ```
   public error(e: Error): void {
     this.s.__error(e)
   }
@@ -85,6 +219,22 @@ function __resolvedVoid(): Promise<void, Error> {
 
 /// A stream of chunks to read: with a reader (`getReader()`), `for await`, or piped into a
 /// `WritableStream`.
+///
+/// @example
+/// ```ts
+/// const s = new ReadableStream<string>({
+///   start: (c) => {
+///     c.enqueue("a")
+///     c.enqueue("b")
+///     c.close()
+///   },
+/// })
+/// for await (const chunk of s) {
+///   println(chunk)
+/// }
+/// // a
+/// // b
+/// ```
 class ReadableStream<T> {
   source: UnderlyingSource<T>
   hwm: int
@@ -105,6 +255,23 @@ class ReadableStream<T> {
 
   /// A stream fed by `source` (its `start` runs right away), queuing up to `strategy.highWaterMark`
   /// chunks (default 1).
+  ///
+  /// @example
+  /// ```ts
+  /// let i = 0
+  /// const counter = new ReadableStream<int>({
+  ///   pull: (c) => {
+  ///     i += 1
+  ///     if (i <= 3) c.enqueue(i * 10) else c.close()
+  ///   },
+  /// }, { highWaterMark: 1 })
+  /// for await (const x of counter) {
+  ///   println(x)
+  /// }
+  /// // 10
+  /// // 20
+  /// // 30
+  /// ```
   constructor(source: UnderlyingSource<T> = {}, strategy: QueuingStrategy = {}) {
     this.source = source
     const h = strategy.highWaterMark
@@ -122,6 +289,15 @@ class ReadableStream<T> {
   }
 
   /// A stream of `items`, in order.
+  ///
+  /// @example
+  /// ```ts
+  /// for await (const word of ReadableStream.from(["red", "green"])) {
+  ///   println(word)
+  /// }
+  /// // red
+  /// // green
+  /// ```
   public static from<U>(items: U[]): ReadableStream<U> {
     let i = 0
     new ReadableStream<U>({
@@ -139,6 +315,21 @@ class ReadableStream<T> {
   /// Two streams that each get every chunk of this one, which is locked from then on (#63). A
   /// chunk is read when either branch wants one, and waits in the other branch's queue until
   /// that one reads it. An error fails both; cancelling both cancels this stream.
+  ///
+  /// @example
+  /// ```ts
+  /// const [a, b] = ReadableStream.from([1, 2]).tee()
+  /// for await (const x of a) {
+  ///   println(`a ${x}`)
+  /// }
+  /// for await (const x of b) {
+  ///   println(`b ${x}`)
+  /// }
+  /// // a 1
+  /// // a 2
+  /// // b 1
+  /// // b 2
+  /// ```
   public tee(): [ReadableStream<T>, ReadableStream<T>] {
     if (this.__locked) {
       panic("the stream is locked to a reader")
@@ -187,16 +378,46 @@ class ReadableStream<T> {
   }
 
   /// Whether a reader (or a pipe) holds the stream.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = ReadableStream.from([1])
+  /// println(s.locked)   // false
+  /// const reader = s.getReader()
+  /// println(s.locked)   // true
+  /// reader.releaseLock()
+  /// println(s.locked)   // false
+  /// ```
   public get locked(): bool {
     return this.__locked
   }
 
   /// A reader for the stream (only one at a time).
+  ///
+  /// @example
+  /// ```ts
+  /// const reader = ReadableStream.from(["x", "y"]).getReader()
+  /// while (true) {
+  ///   const r = await reader.read()
+  ///   if (r.done) break
+  ///   println(r.value)
+  /// }
+  /// // x
+  /// // y
+  /// ```
   public getReader(): ReadableStreamDefaultReader<T> {
     new ReadableStreamDefaultReader<T>(this)
   }
 
   /// `for await` reads the chunks (while no reader holds the stream).
+  ///
+  /// @example
+  /// ```ts
+  /// const s = ReadableStream.from([7, 8])
+  /// println(await s.next())   // 7
+  /// println(await s.next())   // 8
+  /// println(await s.next())   // null
+  /// ```
   public next(): Promise<T?, Error> {
     if (this.__locked) {
       panic("the stream is locked to a reader")
@@ -205,12 +426,31 @@ class ReadableStream<T> {
   }
 
   /// `for await` uses the stream itself (see `next`).
+  ///
+  /// @example
+  /// ```ts
+  /// let total = 0
+  /// for await (const n of ReadableStream.from([1, 2, 3])) {
+  ///   total += n
+  /// }
+  /// println(total)   // 6
+  /// ```
   public asyncIterator(): ReadableStream<T> {
     this
   }
 
   /// Gives up on the stream: queued chunks are dropped, waiting reads get the end, and the
   /// source's `cancel` runs.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new ReadableStream<int>({
+  ///   start: (c) => c.enqueue(1),
+  ///   cancel: (reason) => println(`cancelled: ${reason?.message}`),
+  /// })
+  /// await s.cancel(new Error("not needed"))   // cancelled: not needed
+  /// println(await s.next())                   // null
+  /// ```
   public cancel(reason: Error? = null): Promise<void, Error> {
     if (this.state == 0) {
       this.queue = []
@@ -233,6 +473,17 @@ class ReadableStream<T> {
 
   /// Writes every chunk to `dest`, then closes it (see `StreamPipeOptions`). Rejects with the
   /// error of either side.
+  ///
+  /// @example
+  /// ```ts
+  /// const lines: string[] = []
+  /// const sink = new WritableStream<string>({
+  ///   write: (chunk, _c) => lines.push(chunk),
+  ///   close: () => println("closed"),
+  /// })
+  /// await ReadableStream.from(["a", "b", "c"]).pipeTo(sink)   // closed
+  /// println(lines.join(","))   // a,b,c
+  /// ```
   public async pipeTo(dest: WritableStream<T>, options: StreamPipeOptions = {}): Promise<void> throws Error {
     if (this.__locked) {
       panic("the stream is locked to a reader")
@@ -267,6 +518,18 @@ class ReadableStream<T> {
   }
 
   /// Pipes the stream into `t`'s writable side; its readable side.
+  ///
+  /// @example
+  /// ```ts
+  /// const upper = new TransformStream<string, string>({
+  ///   transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),
+  /// })
+  /// for await (const s of ReadableStream.from(["hi", "there"]).pipeThrough(upper)) {
+  ///   println(s)
+  /// }
+  /// // HI
+  /// // THERE
+  /// ```
   public pipeThrough<O>(t: TransformStream<T, O>, options: StreamPipeOptions = {}): ReadableStream<O> {
     const done = this.pipeTo(t.writable, options)
     // (Failures reach `t.readable`'s readers.)
@@ -440,11 +703,27 @@ class ReadableStream<T> {
 }
 
 /// Reads a `ReadableStream` (which it locks until `releaseLock()`).
+///
+/// @example
+/// ```ts
+/// const reader: ReadableStreamDefaultReader<int> = ReadableStream.from([1, 2]).getReader()
+/// println((await reader.read()).value)   // 1
+/// println((await reader.read()).value)   // 2
+/// println((await reader.read()).done)    // true
+/// ```
 class ReadableStreamDefaultReader<T> {
   s: ReadableStream<T>
   released: bool = false
 
   /// A reader that locks `stream`; panics if the stream is already locked.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = ReadableStream.from(["only"])
+  /// const reader = new ReadableStreamDefaultReader<string>(s)
+  /// println(s.locked)                      // true
+  /// println((await reader.read()).value)   // only
+  /// ```
   constructor(stream: ReadableStream<T>) {
     if (stream.__locked) {
       panic("the stream is locked to a reader")
@@ -460,6 +739,18 @@ class ReadableStreamDefaultReader<T> {
   }
 
   /// The next chunk (`{ done: false, value }`), or `{ done: true }` at the end.
+  ///
+  /// @example
+  /// ```ts
+  /// const reader = ReadableStream.from(["a", "b"]).getReader()
+  /// let r = await reader.read()
+  /// while (!r.done) {
+  ///   println(r.value)
+  ///   r = await reader.read()
+  /// }
+  /// // a
+  /// // b
+  /// ```
   public read(): Promise<ReadResult<T>, Error> {
     this.check()
     this.s.__read().then<ReadResult<T>>((v: T?) => {
@@ -470,17 +761,46 @@ class ReadableStreamDefaultReader<T> {
 
   /// Cancels the stream (see `ReadableStream.cancel`); the lock stays held. Panics after
   /// `releaseLock()`.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new ReadableStream<int>({
+  ///   start: (c) => c.enqueue(1),
+  ///   cancel: (_reason) => println("source cancelled"),
+  /// })
+  /// const reader = s.getReader()
+  /// await reader.cancel()                 // source cancelled
+  /// println((await reader.read()).done)   // true
+  /// ```
   public cancel(reason: Error? = null): Promise<void, Error> {
     this.check()
     this.s.cancel(reason)
   }
 
   /// Settles when the stream closes (rejects when it fails).
+  ///
+  /// @example
+  /// ```ts
+  /// const reader = ReadableStream.from([1]).getReader()
+  /// println((await reader.read()).value)   // 1
+  /// await reader.closed
+  /// println("closed")                      // closed
+  /// ```
   public get closed(): Promise<void, Error> {
     this.s.__closed()
   }
 
   /// Unlocks the stream (another reader, or `for await`, can take it).
+  ///
+  /// @example
+  /// ```ts
+  /// const s = ReadableStream.from([1, 2])
+  /// const first = s.getReader()
+  /// println((await first.read()).value)   // 1
+  /// first.releaseLock()
+  /// const second = s.getReader()
+  /// println((await second.read()).value)  // 2
+  /// ```
   public releaseLock(): void {
     if (!this.released) {
       this.released = true
@@ -490,15 +810,55 @@ class ReadableStreamDefaultReader<T> {
 }
 
 /// What a sink uses to fail its stream.
+///
+/// @example
+/// ```ts
+/// const sink = new WritableStream<int>({
+///   write: (chunk, c: WritableStreamDefaultController) => {
+///     if (chunk < 0) c.error(new Error("negative"))
+///   },
+/// })
+/// const writer = sink.getWriter()
+/// await writer.write(1)
+/// try {
+///   await writer.write(-1)
+///   await writer.write(2)
+/// } catch (e) {
+///   println(e.message)   // negative
+/// }
+/// ```
 class WritableStreamDefaultController {
   fail: (e: Error) => void
 
   /// (Made by the stream, for its sink.)
+  ///
+  /// @example
+  /// ```ts
+  /// // A stream makes its controller and hands it to its sink's callbacks.
+  /// const sink = new WritableStream<string>({
+  ///   start: (c: WritableStreamDefaultController) => println("started"),   // started
+  /// })
+  /// println(sink.locked)   // false
+  /// ```
   constructor(fail: (e: Error) => void) {
     this.fail = fail
   }
 
   /// Fails the stream: waiting and later writes reject with `e`.
+  ///
+  /// @example
+  /// ```ts
+  /// const sink = new WritableStream<string>({
+  ///   write: (chunk, c) => c.error(new Error(`can't store ${chunk}`)),
+  /// })
+  /// const writer = sink.getWriter()
+  /// try {
+  ///   await writer.write("x")
+  ///   await writer.write("y")
+  /// } catch (e) {
+  ///   println(e.message)   // can't store x
+  /// }
+  /// ```
   public error(e: Error): void {
     const f = this.fail
     f(e)
@@ -508,6 +868,19 @@ class WritableStreamDefaultController {
 /// The sink behind a `WritableStream`: `start` runs at once, `write` (or `writeAsync`) gets
 /// each chunk in turn, `close` (or `closeAsync`) runs after the last, `abort` when the writer
 /// gives up.
+///
+/// @example
+/// ```ts
+/// const got: int[] = []
+/// const sink: UnderlyingSink<int> = {
+///   start: (_c) => println("start"),
+///   write: (chunk, _c) => got.push(chunk),
+///   close: () => println(`close after ${got.length}`),
+/// }
+/// await ReadableStream.from([1, 2, 3]).pipeTo(new WritableStream<int>(sink))
+/// // start
+/// // close after 3
+/// ```
 struct UnderlyingSink<T> {
   /// Runs once, inside the constructor.
   start?: (c: WritableStreamDefaultController) => void
@@ -532,6 +905,19 @@ struct __Chunk<T> {
 }
 
 /// A destination for chunks: through a writer (`getWriter()`), or as a pipe's end.
+///
+/// @example
+/// ```ts
+/// const out: string[] = []
+/// const ws = new WritableStream<string>({
+///   write: (chunk, _c) => out.push(chunk),
+/// })
+/// const writer = ws.getWriter()
+/// await writer.write("hello")
+/// await writer.write("world")
+/// await writer.close()
+/// println(out.join(" "))   // hello world
+/// ```
 class WritableStream<T> {
   sink: UnderlyingSink<T>
   hwm: int
@@ -550,6 +936,21 @@ class WritableStream<T> {
 
   /// A stream writing to `sink` (its `start` runs right away), with room for
   /// `strategy.highWaterMark` chunks (default 1) before writers see backpressure.
+  ///
+  /// @example
+  /// ```ts
+  /// let bytes = 0
+  /// const counter = new WritableStream<Uint8Array>({
+  ///   write: (chunk, _c) => {
+  ///     bytes += chunk.length
+  ///   },
+  /// }, { highWaterMark: 4 })
+  /// const writer = counter.getWriter()
+  /// println(writer.desiredSize)   // 4
+  /// await writer.write(new Uint8Array(10))
+  /// await writer.close()
+  /// println(bytes)   // 10
+  /// ```
   constructor(sink: UnderlyingSink<T> = {}, strategy: QueuingStrategy = {}) {
     this.sink = sink
     const h = strategy.highWaterMark
@@ -567,16 +968,43 @@ class WritableStream<T> {
   }
 
   /// Whether a writer (or a pipe) holds the stream.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<int>({})
+  /// println(ws.locked)   // false
+  /// const writer = ws.getWriter()
+  /// println(ws.locked)   // true
+  /// writer.releaseLock()
+  /// println(ws.locked)   // false
+  /// ```
   public get locked(): bool {
     return this.__locked
   }
 
   /// A writer for the stream (only one at a time).
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<string>({
+  ///   write: (chunk, _c) => println(`got ${chunk}`),
+  /// })
+  /// const writer = ws.getWriter()
+  /// await writer.write("x")   // got x
+  /// ```
   public getWriter(): WritableStreamDefaultWriter<T> {
     new WritableStreamDefaultWriter<T>(this)
   }
 
   /// Closes the stream after the queued writes (when no writer holds it).
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<int>({
+  ///   close: () => println("sink closed"),
+  /// })
+  /// await ws.close()   // sink closed
+  /// ```
   public close(): Promise<void, Error> {
     if (this.__locked) {
       panic("the stream is locked to a writer")
@@ -585,6 +1013,14 @@ class WritableStream<T> {
   }
 
   /// Fails the stream at once: queued writes reject, and the sink's `abort` runs.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<int>({
+  ///   abort: (reason) => println(`aborted: ${reason?.message}`),
+  /// })
+  /// await ws.abort(new Error("user cancelled"))   // aborted: user cancelled
+  /// ```
   public abort(reason: Error? = null): Promise<void, Error> {
     if (this.state == 0) {
       const f = this.sink.abort
@@ -799,11 +1235,32 @@ class WritableStream<T> {
 }
 
 /// Writes to a `WritableStream` (which it locks until `releaseLock()`).
+///
+/// @example
+/// ```ts
+/// const ws = new WritableStream<string>({
+///   write: (chunk, _c) => println(chunk),
+/// })
+/// const writer: WritableStreamDefaultWriter<string> = ws.getWriter()
+/// await writer.ready
+/// await writer.write("one")   // one
+/// await writer.close()
+/// ```
 class WritableStreamDefaultWriter<T> {
   s: WritableStream<T>
   released: bool = false
 
   /// A writer that locks `stream`; panics if the stream is already locked.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<int>({
+  ///   write: (chunk, _c) => println(chunk),
+  /// })
+  /// const writer = new WritableStreamDefaultWriter<int>(ws)
+  /// println(ws.locked)   // true
+  /// await writer.write(5)   // 5
+  /// ```
   constructor(stream: WritableStream<T>) {
     if (stream.__locked) {
       panic("the stream is locked to a writer")
@@ -819,39 +1276,115 @@ class WritableStreamDefaultWriter<T> {
   }
 
   /// Queues `chunk`; settles once the sink has taken it.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<string>({
+  ///   write: (chunk, _c) => println(`stored ${chunk}`),
+  /// })
+  /// const writer = ws.getWriter()
+  /// await writer.write("a")   // stored a
+  /// await writer.write("b")   // stored b
+  /// ```
   public write(chunk: T): Promise<void, Error> {
     this.check()
     this.s.__write(chunk)
   }
 
   /// Closes the stream after the queued writes.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<string>({
+  ///   write: (chunk, _c) => println(chunk),
+  ///   close: () => println("done"),
+  /// })
+  /// const writer = ws.getWriter()
+  /// writer.write("last")
+  /// await writer.close()
+  /// // last
+  /// // done
+  /// ```
   public close(): Promise<void, Error> {
     this.check()
     this.s.__close()
   }
 
   /// Aborts the stream (see `WritableStream.abort`). Panics after `releaseLock()`.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<int>({
+  ///   abort: (reason) => println(`abort: ${reason?.message}`),
+  /// })
+  /// const writer = ws.getWriter()
+  /// await writer.abort(new Error("stop"))   // abort: stop
+  /// ```
   public abort(reason: Error? = null): Promise<void, Error> {
     this.check()
     this.s.abort(reason)
   }
 
   /// Settles when there's room for another chunk (backpressure).
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<int>({
+  ///   write: (chunk, _c) => println(chunk),
+  /// })
+  /// const writer = ws.getWriter()
+  /// for (const n of [1, 2, 3]) {
+  ///   await writer.ready   // waits while the queue is full
+  ///   writer.write(n)
+  /// }
+  /// await writer.close()
+  /// // 1
+  /// // 2
+  /// // 3
+  /// ```
   public get ready(): Promise<void, Error> {
     this.s.__ready()
   }
 
   /// How many more chunks fit before the high-water mark.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<int>({}, { highWaterMark: 3 })
+  /// const writer = ws.getWriter()
+  /// println(writer.desiredSize)   // 3
+  /// ```
   public get desiredSize(): int {
     this.s.__desired()
   }
 
   /// Settles when the stream closes (rejects when it fails).
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<int>({})
+  /// const writer = ws.getWriter()
+  /// writer.closed.then((_v) => println("closed"))
+  /// await writer.close()
+  /// await writer.closed   // closed
+  /// ```
   public get closed(): Promise<void, Error> {
     this.s.__closed()
   }
 
   /// Unlocks the stream (another writer can take it); using this writer afterwards panics.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WritableStream<string>({
+  ///   write: (chunk, _c) => println(chunk),
+  /// })
+  /// const first = ws.getWriter()
+  /// await first.write("from the first")    // from the first
+  /// first.releaseLock()
+  /// const second = ws.getWriter()
+  /// await second.write("from the second")  // from the second
+  /// ```
   public releaseLock(): void {
     if (!this.released) {
       this.released = true
@@ -861,12 +1394,42 @@ class WritableStreamDefaultWriter<T> {
 }
 
 /// What a transformer uses to produce output.
+///
+/// @example
+/// ```ts
+/// const t = new TransformStream<int, int>({
+///   transform: (n, c: TransformStreamDefaultController<int>) => {
+///     c.enqueue(n)
+///     c.enqueue(n * 100)
+///   },
+/// })
+/// for await (const x of ReadableStream.from([1, 2]).pipeThrough(t)) {
+///   println(x)
+/// }
+/// // 1
+/// // 100
+/// // 2
+/// // 200
+/// ```
 class TransformStreamDefaultController<O> {
   rc: ReadableStreamDefaultController<O>
   fail: (e: Error) => void
   failWritable: (e: Error) => void
 
   /// (Made by the transform stream, for its transformer.)
+  ///
+  /// @example
+  /// ```ts
+  /// // A transform stream makes its controller and hands it to its transformer's callbacks.
+  /// const t = new TransformStream<string, int>({
+  ///   transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),
+  /// })
+  /// for await (const n of ReadableStream.from(["abc", "de"]).pipeThrough(t)) {
+  ///   println(n)
+  /// }
+  /// // 3
+  /// // 2
+  /// ```
   constructor(rc: ReadableStreamDefaultController<O>, fail: (e: Error) => void, failWritable: (e: Error) => void) {
     this.rc = rc
     this.fail = fail
@@ -874,16 +1437,58 @@ class TransformStreamDefaultController<O> {
   }
 
   /// Room left on the readable side.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new TransformStream<int, int>({
+  ///   start: (c) => println(c.desiredSize),   // 2
+  ///   transform: (n, c) => c.enqueue(n),
+  /// }, {}, { highWaterMark: 2 })
+  /// ```
   public get desiredSize(): int {
     return this.rc.desiredSize
   }
 
   /// Adds `chunk` to the readable side. Panics once that side is closed or failed.
+  ///
+  /// @example
+  /// ```ts
+  /// const words = new TransformStream<string, string>({
+  ///   transform: (line, c) => {
+  ///     for (const w of line.split(" ")) c.enqueue(w)
+  ///   },
+  /// })
+  /// for await (const w of ReadableStream.from(["to be", "or not"]).pipeThrough(words)) {
+  ///   println(w)
+  /// }
+  /// // to
+  /// // be
+  /// // or
+  /// // not
+  /// ```
   public enqueue(chunk: O): void {
     this.rc.enqueue(chunk)
   }
 
   /// Fails both sides.
+  ///
+  /// @example
+  /// ```ts
+  /// const strict = new TransformStream<int, int>({
+  ///   transform: (n, c) => {
+  ///     if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)
+  ///   },
+  /// })
+  /// try {
+  ///   for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {
+  ///     println(n)
+  ///   }
+  /// } catch (e) {
+  ///   println(e.message)
+  /// }
+  /// // 1
+  /// // negative: -2
+  /// ```
   public error(e: Error): void {
     const f = this.fail
     f(e)
@@ -891,6 +1496,21 @@ class TransformStreamDefaultController<O> {
 
   /// Closes the readable side (what's already enqueued can still be read) and fails the
   /// writable side, so later writes fail (#24).
+  ///
+  /// @example
+  /// ```ts
+  /// const firstTwo = new TransformStream<int, int>({
+  ///   transform: (n, c) => {
+  ///     c.enqueue(n)
+  ///     if (n == 2) c.terminate()
+  ///   },
+  /// })
+  /// for await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {
+  ///   println(n)
+  /// }
+  /// // 1
+  /// // 2
+  /// ```
   public terminate(): void {
     this.rc.close()
     const f = this.failWritable
@@ -900,6 +1520,24 @@ class TransformStreamDefaultController<O> {
 
 /// A `TransformStream`'s work: `transform` (or `transformAsync`) turns each written chunk
 /// into enqueued output, `flush` runs after the last one, `start` at once.
+///
+/// @example
+/// ```ts
+/// let count = 0
+/// const transformer: Transformer<string, string> = {
+///   transform: (line, c) => {
+///     count += 1
+///     c.enqueue(`${count}: ${line}`)
+///   },
+///   flush: (c) => c.enqueue(`(${count} lines)`),
+/// }
+/// for await (const s of ReadableStream.from(["a", "b"]).pipeThrough(new TransformStream(transformer))) {
+///   println(s)
+/// }
+/// // 1: a
+/// // 2: b
+/// // (2 lines)
+/// ```
 struct Transformer<I, O> {
   /// Runs once, at the end of the constructor.
   start?: (c: TransformStreamDefaultController<O>) => void
@@ -990,6 +1628,19 @@ class __Transform<I, O> {
 }
 
 /// A writable side whose chunks come out of a readable side, transformed.
+///
+/// @example
+/// ```ts
+/// const t = new TransformStream<string, string>({
+///   transform: (chunk, c) => c.enqueue(chunk.split("").reverse().join("")),
+/// })
+/// const writer = t.writable.getWriter()
+/// writer.write("pico")
+/// writer.close()
+/// for await (const s of t.readable) {
+///   println(s)   // ocip
+/// }
+/// ```
 class TransformStream<I, O> {
   /// The side the output is read from.
   public readonly readable: ReadableStream<O>
@@ -1000,6 +1651,19 @@ class TransformStream<I, O> {
   /// (else it panics). The writable side queues `writableStrategy.highWaterMark` chunks (default
   /// 1), the readable side `readableStrategy.highWaterMark` (default 0: each write waits until
   /// output is read).
+  ///
+  /// @example
+  /// ```ts
+  /// const double = new TransformStream<int, int>({
+  ///   transform: (n, c) => c.enqueue(n * 2),
+  /// }, { highWaterMark: 1 }, { highWaterMark: 0 })
+  /// for await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {
+  ///   println(n)
+  /// }
+  /// // 2
+  /// // 4
+  /// // 6
+  /// ```
   constructor(transformer: Transformer<I, O>, writableStrategy: QueuingStrategy = {},
     readableStrategy: QueuingStrategy = { highWaterMark: 0 }) {
     if (transformer.transform == null && transformer.transformAsync == null) {
