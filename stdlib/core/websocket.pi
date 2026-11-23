@@ -17,6 +17,14 @@ function __rotl32(x: int, n: int): int {
 
 /// `new WebSocket(url, protocols, options)` (a pico extension): extra trusted certificates
 /// (PEM) for `wss:`.
+///
+/// @example
+/// ```ts
+/// const options: WebSocketOptions = { caCerts: [] }   // PEM certificates to trust for wss:
+/// const ws = new WebSocket("ws://127.0.0.1:9/", [], options)
+/// ws.onerror = (e) => println(e.type)   // error (nothing listens on port 9)
+/// ws.onclose = (e) => println(e.code)   // 1006
+/// ```
 struct WebSocketOptions {
   /// Extra trusted certificates (PEM) for `wss:`, besides the system's roots.
   caCerts?: string[]
@@ -104,22 +112,53 @@ function __wsAccept(key: string): string {
 }
 
 /// A plain event (`open`, `error`).
+///
+/// @example
+/// ```ts
+/// const e = new Event("open")
+/// println(e.type)   // open
+/// ```
 class Event {
   /// `"open"` or `"error"`.
   public readonly type: string
   /// An event of type `type`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new Event("error")
+  /// println(e.type)   // error
+  /// ```
   constructor(type: string) {
     this.type = type
   }
 }
 
 /// A received message: text (`string`) or binary (`Uint8Array`) `data`.
+///
+/// @example
+/// ```ts
+/// const text = new MessageEvent("hi")
+/// match (text.data) {
+///   s: string => println(`text: ${s}`),              // text: hi
+///   b: Uint8Array => println(`${b.length} bytes`),
+/// }
+/// println(text.type)   // message
+/// ```
 class MessageEvent {
   /// Always `"message"`.
   public readonly type: string = "message"
   /// The message: a `string` for a text message, a `Uint8Array` for a binary one.
   public readonly data: string | Uint8Array
   /// A message event carrying `data`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new MessageEvent(Uint8Array.from([1, 2, 3]))
+  /// match (e.data) {
+  ///   s: string => println(s),
+  ///   b: Uint8Array => println(`${b.length} bytes`),   // 3 bytes
+  /// }
+  /// ```
   constructor(data: string | Uint8Array) {
     this.data = data
   }
@@ -127,6 +166,12 @@ class MessageEvent {
 
 /// How a connection ended: `code` (1000 normal, 1005 none given, 1006 lost), `reason`, and
 /// whether the closing handshake completed (`wasClean`).
+///
+/// @example
+/// ```ts
+/// const e = new CloseEvent(1000, "done", true)
+/// println(`${e.type} ${e.code} ${e.reason} ${e.wasClean}`)   // close 1000 done true
+/// ```
 class CloseEvent {
   /// Always `"close"`.
   public readonly type: string = "close"
@@ -138,6 +183,13 @@ class CloseEvent {
   /// Whether the closing handshake completed.
   public readonly wasClean: bool
   /// A close event with `code`, `reason` and `wasClean`.
+  ///
+  /// @example
+  /// ```ts
+  /// const lost = new CloseEvent(1006, "", false)
+  /// println(lost.code)       // 1006
+  /// println(lost.wasClean)   // false
+  /// ```
   constructor(code: int, reason: string, wasClean: bool) {
     this.code = code
     this.reason = reason
@@ -145,8 +197,6 @@ class CloseEvent {
   }
 }
 
-/// A WebSocket connection. Assign `onopen`, `onmessage`, `onclose` and `onerror` right after
-/// creating it (they're called from the event loop); `send` text or bytes once it's open.
 /// `bytes` as UTF-8 text, or `null` if they aren't UTF-8.
 function __wsText(bytes: Uint8Array): string? {
   try {
@@ -156,15 +206,121 @@ function __wsText(bytes: Uint8Array): string? {
   }
 }
 
+/// A WebSocket connection. Assign `onopen`, `onmessage`, `onclose` and `onerror` right after
+/// creating it (they're called from the event loop); `send` text or bytes once it's open.
+///
+/// @example
+/// ```ts
+/// import { serve, upgradeWebSocket } from "std/http"
+///
+/// // An echo server on 127.0.0.1.
+/// async function handle(req: Request): Promise<Response> throws Error {
+///   const up = upgradeWebSocket(req)
+///   up.socket.onmessage = (e) => up.socket.send(e.data)
+///   up.response
+/// }
+/// const server = await serve({ port: 0 }, handle)
+///
+/// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+/// println(ws.readyState == WebSocket.CONNECTING)   // true
+/// await new Promise<void>((resolve, reject) => {
+///   ws.onopen = (e) => ws.send("hello")
+///   ws.onmessage = (e) => {
+///     println(e.data)   // hello
+///     ws.close()
+///   }
+///   ws.onclose = (e) => {
+///     println(e.code)   // 1000
+///     resolve()
+///   }
+/// })
+/// await server.shutdown()
+/// ```
 class WebSocket {
   // (Getters: static fields would be set up at every program's start.)
   /// `readyState` 0: the handshake hasn't finished yet.
+  ///
+  /// @example
+  /// ```ts
+  /// const ws = new WebSocket("ws://127.0.0.1:9/")
+  /// println(ws.readyState == WebSocket.CONNECTING)   // true (just created)
+  /// println(WebSocket.CONNECTING)                    // 0
+  /// ws.close()
+  /// ```
   public static get CONNECTING(): int { return 0 }
   /// `readyState` 1: messages can be sent and received.
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, upgradeWebSocket } from "std/http"
+  ///
+  /// // An echo server on 127.0.0.1.
+  /// async function handle(req: Request): Promise<Response> throws Error {
+  ///   const up = upgradeWebSocket(req)
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.response
+  /// }
+  /// const server = await serve({ port: 0 }, handle)
+  ///
+  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+  /// await new Promise<void>((resolve, reject) => {
+  ///   ws.onopen = (e) => {
+  ///     println(ws.readyState == WebSocket.OPEN)   // true
+  ///     ws.close()
+  ///   }
+  ///   ws.onclose = (e) => resolve()
+  /// })
+  /// await server.shutdown()
+  /// ```
   public static get OPEN(): int { return 1 }
   /// `readyState` 2: `close()` started the closing handshake.
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, upgradeWebSocket } from "std/http"
+  ///
+  /// // An echo server on 127.0.0.1.
+  /// async function handle(req: Request): Promise<Response> throws Error {
+  ///   const up = upgradeWebSocket(req)
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.response
+  /// }
+  /// const server = await serve({ port: 0 }, handle)
+  ///
+  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+  /// await new Promise<void>((resolve, reject) => {
+  ///   ws.onopen = (e) => {
+  ///     ws.close()
+  ///     println(ws.readyState == WebSocket.CLOSING)   // true
+  ///   }
+  ///   ws.onclose = (e) => resolve()
+  /// })
+  /// await server.shutdown()
+  /// ```
   public static get CLOSING(): int { return 2 }
   /// `readyState` 3: the connection is closed (or never opened).
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, upgradeWebSocket } from "std/http"
+  ///
+  /// // An echo server on 127.0.0.1.
+  /// async function handle(req: Request): Promise<Response> throws Error {
+  ///   const up = upgradeWebSocket(req)
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.response
+  /// }
+  /// const server = await serve({ port: 0 }, handle)
+  ///
+  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+  /// await new Promise<void>((resolve, reject) => {
+  ///   ws.onopen = (e) => ws.close()
+  ///   ws.onclose = (e) => resolve()
+  /// })
+  /// println(ws.readyState == WebSocket.CLOSED)   // true
+  /// println(WebSocket.CLOSED)                    // 3
+  /// await server.shutdown()
+  /// ```
   public static get CLOSED(): int { return 3 }
 
   /// The URL connected to, normalized (as `URL.href`); "" for a server-side socket.
@@ -196,6 +352,36 @@ class WebSocket {
   /// Connects to `url` (`ws:`/`wss:`, or `http:`/`https:` as the same). An invalid URL or
   /// another scheme throws a `TypeError`. (pico) `options.caCerts` adds trusted certificates
   /// (PEM) for `wss:`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, upgradeWebSocket } from "std/http"
+  ///
+  /// // An echo server on 127.0.0.1.
+  /// async function handle(req: Request): Promise<Response> throws Error {
+  ///   const up = upgradeWebSocket(req)
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.response
+  /// }
+  /// const server = await serve({ port: 0 }, handle)
+  ///
+  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)
+  /// println(ws.url)   // e.g. ws://127.0.0.1:41234/chat
+  /// await new Promise<void>((resolve, reject) => {
+  ///   ws.onopen = (e) => {
+  ///     println(e.type)   // open
+  ///     ws.close()
+  ///   }
+  ///   ws.onclose = (e) => resolve()
+  /// })
+  /// await server.shutdown()
+  /// try {
+  ///   const bad = new WebSocket("ftp://example.com/")
+  ///   bad.close()
+  /// } catch (e: TypeError) {
+  ///   println("not a ws: URL")   // not a ws: URL
+  /// }
+  /// ```
   constructor(url: string, protocols: string[] = [], options: WebSocketOptions = {}) throws TypeError {
     this.protocols = protocols
     this.caCerts = (options.caCerts ?? []).join("\n")
@@ -445,6 +631,38 @@ class WebSocket {
   }
 
   /// Sends a text or binary message. Panics before the socket is open.
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, upgradeWebSocket } from "std/http"
+  ///
+  /// // An echo server on 127.0.0.1.
+  /// async function handle(req: Request): Promise<Response> throws Error {
+  ///   const up = upgradeWebSocket(req)
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.response
+  /// }
+  /// const server = await serve({ port: 0 }, handle)
+  ///
+  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+  /// await new Promise<void>((resolve, reject) => {
+  ///   ws.onopen = (e) => {
+  ///     ws.send("text")
+  ///     ws.send(Uint8Array.from([1, 2, 3]))
+  ///   }
+  ///   let got = 0
+  ///   ws.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => println(`text: ${s}`),             // text: text
+  ///       b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes
+  ///     }
+  ///     got += 1
+  ///     if (got == 2) ws.close()
+  ///   }
+  ///   ws.onclose = (e) => resolve()
+  /// })
+  /// await server.shutdown()
+  /// ```
   public send(data: string | Uint8Array): void {
     if (this.readyState == 0) {
       panic("WebSocket: send() before the connection is open")
@@ -459,6 +677,29 @@ class WebSocket {
   }
 
   /// Starts the closing handshake (`code` 1000 or 3000–4999, `reason` at most 123 bytes).
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, upgradeWebSocket } from "std/http"
+  ///
+  /// // An echo server on 127.0.0.1.
+  /// async function handle(req: Request): Promise<Response> throws Error {
+  ///   const up = upgradeWebSocket(req)
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.response
+  /// }
+  /// const server = await serve({ port: 0 }, handle)
+  ///
+  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+  /// await new Promise<void>((resolve, reject) => {
+  ///   ws.onopen = (e) => ws.close(4000, "bye")
+  ///   ws.onclose = (e) => {
+  ///     println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true
+  ///     resolve()
+  ///   }
+  /// })
+  /// await server.shutdown()
+  /// ```
   public close(code: int = 1000, reason: string = ""): void {
     if (this.readyState >= 2) {
       return

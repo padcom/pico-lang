@@ -8,6 +8,17 @@ import { Conn, Listener, NetError, Addr } from "std/net"
 /// Where to listen: `port` (0 picks a free one) and `hostname` (`"127.0.0.1"` by default;
 /// `"0.0.0.0"` for every interface). With `cert` (a PEM certificate chain) and `key` (its
 /// PEM private key), as in Deno, the server speaks HTTPS.
+///
+/// @example
+/// ```ts
+/// import { serve } from "std/http"
+///
+/// const server = await serve({ hostname: "127.0.0.1", port: 0 },
+///   async (req) => new Response("hi"))
+/// println(server.addr.hostname)   // 127.0.0.1
+/// println(server.addr.port > 0)   // true (a free port was picked)
+/// await server.shutdown()
+/// ```
 export struct ServeOptions {
   /// The port (8000 by default; 0 picks a free one, which `HttpServer.addr` tells).
   port?: int
@@ -20,6 +31,16 @@ export struct ServeOptions {
 }
 
 /// A running server: its address, `shutdown()`, and `finished` (settles once it has stopped).
+///
+/// @example
+/// ```ts
+/// import { serve } from "std/http"
+///
+/// const server = await serve({ port: 0 }, async (req) => new Response("pong"))
+/// const res = await fetch(`http://127.0.0.1:${server.addr.port}/ping`)
+/// println(await res.text())   // pong
+/// await server.shutdown()
+/// ```
 export class HttpServer {
   public __listener: Listener
   public __handler: (req: Request) => Promise<Response, Error>
@@ -36,6 +57,16 @@ export class HttpServer {
   public __key: string = ""
 
   /// A server for `listener`'s connections; `serve` makes these (and starts accepting).
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, HttpServer } from "std/http"
+  ///
+  /// // `serve` builds the `HttpServer` (with its listener) and starts it.
+  /// const server: HttpServer = await serve({ port: 0 }, async (req) => new Response("ok"))
+  /// println(server.addr.port > 0)   // true
+  /// await server.shutdown()
+  /// ```
   constructor(listener: Listener, handler: (req: Request) => Promise<Response, Error>) {
     this.__listener = listener
     this.__handler = handler
@@ -43,11 +74,32 @@ export class HttpServer {
   }
 
   /// Settles once the server has stopped and every connection is closed.
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve } from "std/http"
+  ///
+  /// const server = await serve({ port: 0 }, async (req) => new Response("bye"))
+  /// server.shutdown()
+  /// await server.finished
+  /// println("stopped")   // stopped
+  /// ```
   public get finished(): Promise<void> {
     return this.__done
   }
 
   /// Stops accepting connections, closes idle ones, and lets requests in progress finish.
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve } from "std/http"
+  ///
+  /// const server = await serve({ port: 0 }, async (req) => new Response("ok"))
+  /// const res = await fetch(`http://127.0.0.1:${server.addr.port}/`)
+  /// println(res.status)   // 200
+  /// await server.shutdown()
+  /// println("closed")     // closed
+  /// ```
   public shutdown(): Promise<void> {
     if (!this.__closing) {
       this.__closing = true
@@ -183,6 +235,23 @@ async function __acceptAll(server: HttpServer): Promise<void> {
 
 /// Serves HTTP on `options.port`, calling `handler` for each request (a handler that throws
 /// gets a 500 response). Resolves once it's listening.
+///
+/// @example
+/// ```ts
+/// import { serve } from "std/http"
+///
+/// const server = await serve({ port: 0 }, async (req) => {
+///   const url = new URL(req.url)
+///   if (url.pathname == "/hello") {
+///     return new Response(`hello, ${url.searchParams.get("name") ?? "world"}`)
+///   }
+///   return new Response("not found", { status: 404 })
+/// })
+/// const base = `http://127.0.0.1:${server.addr.port}`
+/// println(await (await fetch(`${base}/hello?name=pico`)).text())   // hello, pico
+/// println((await fetch(`${base}/nope`)).status)                    // 404
+/// await server.shutdown()
+/// ```
 export async function serve(options: ServeOptions,
   handler: (req: Request) => Promise<Response, Error>): Promise<HttpServer> throws NetError {
   const p = options.port
@@ -205,6 +274,27 @@ export async function serve(options: ServeOptions,
 
 /// What `upgradeWebSocket` gives: the server's end of the socket, and the response to return
 /// from the handler.
+///
+/// @example
+/// ```ts
+/// import { serve, upgradeWebSocket } from "std/http"
+///
+/// const server = await serve({ port: 0 }, async (req) => {
+///   const up = upgradeWebSocket(req)
+///   up.socket.onmessage = (e) => up.socket.send(e.data)   // echo
+///   return up.response
+/// })
+/// const done = Promise.withResolvers<bool, Error>()
+/// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+/// ws.onopen = (e) => ws.send("hello")
+/// ws.onmessage = (e) => {
+///   println(`echo: ${e.data}`)   // echo: hello
+///   ws.close()
+/// }
+/// ws.onclose = (e) => done.resolve(true)
+/// await done.promise
+/// await server.shutdown()
+/// ```
 export struct WebSocketUpgrade {
   /// The server's end of the connection, usable once `response` has been sent.
   socket: WebSocket
@@ -215,6 +305,33 @@ export struct WebSocketUpgrade {
 /// Accepts a WebSocket request (`upgrade: websocket`): return `response` from the handler
 /// and use `socket` (its `onopen` runs once the response is sent). Anything else throws a
 /// `TypeError`.
+///
+/// @example
+/// ```ts
+/// import { serve, upgradeWebSocket } from "std/http"
+///
+/// const server = await serve({ port: 0 }, async (req) => {
+///   const up = try? upgradeWebSocket(req)   // throws a TypeError for a plain request
+///   if (up == null) {
+///     return new Response("WebSocket only", { status: 400 })
+///   }
+///   const socket = up.socket
+///   socket.onmessage = (e) => socket.send(`got ${e.data}`)
+///   return up.response
+/// })
+/// const res = await fetch(`http://127.0.0.1:${server.addr.port}/`)
+/// println(`${res.status} ${await res.text()}`)   // 400 WebSocket only
+/// const done = Promise.withResolvers<bool, Error>()
+/// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+/// ws.onopen = (e) => ws.send("hi")
+/// ws.onmessage = (e) => {
+///   println(e.data)   // got hi
+///   ws.close()
+/// }
+/// ws.onclose = (e) => done.resolve(true)
+/// await done.promise
+/// await server.shutdown()
+/// ```
 export function upgradeWebSocket(req: Request, protocol: string = ""): WebSocketUpgrade throws TypeError {
   const up = req.headers.get("upgrade")
   const key = req.headers.get("sec-websocket-key")

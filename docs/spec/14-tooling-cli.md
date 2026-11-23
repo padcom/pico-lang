@@ -17,7 +17,7 @@ Everything ships in a single static `pico` binary.
 | `pico add pkg[@ver]` / `pico remove pkg` | manage dependencies |
 | `pico publish` | publish to the registry |
 | `pico lsp` | language server (stdio), used by the VS Code extension |
-| `pico doc` | generate HTML API docs from doc comments: the package's `index.pi` (`--std`: the standard and core libraries; `--out dir`, default `target/doc`; decision 294) |
+| `pico doc` | generate HTML API docs from doc comments: the package's `index.pi` (`--std`: the standard and core libraries; `--out dir`, default `target/doc`; decision 294); `@example` blocks are shown after the description, and `--json file` writes the reference as data instead (decision 348) |
 
 ## 14.2 Diagnostics
 Errors are Elm/Rust-style: the error code, a snippet with the source span marked, an explanation

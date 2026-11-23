@@ -32,6 +32,15 @@ extern "C" {
 }
 
 /// `errno`: why the last failed call failed (read it right after the call).
+///
+/// @example
+/// ```ts
+/// import { open, errno, O_RDONLY, ENOENT } from "std/posix"
+///
+/// const fd = open("/no/such/file", O_RDONLY as c_int)
+/// println(fd)                 // -1
+/// println(errno() == ENOENT)  // true
+/// ```
 export function errno(): int {
   unsafe {
     comptime if (target.os == "macos") __error().read() as int else __errno_location().read() as int
@@ -39,6 +48,17 @@ export function errno(): int {
 }
 
 /// The system's text for error number `e` (`strerror`), by default the last one.
+///
+/// @example
+/// ```ts
+/// import { open, errnoMessage, O_RDONLY } from "std/posix"
+///
+/// const fd = open("/no/such/file", O_RDONLY as c_int)
+/// if (fd < 0) {
+///   println(errnoMessage())   // No such file or directory
+/// }
+/// println(errnoMessage(13))   // Permission denied
+/// ```
 export function errnoMessage(e: int = errno()): string {
   unsafe {
     string.fromC(strerror(e as c_int))

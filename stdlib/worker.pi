@@ -4,18 +4,63 @@
 // `self.postMessage(result)`.
 
 /// The worker's side of its channel to the parent: `self` is the one instance.
+///
+/// @example
+/// ```ts
+/// // double.pi, a worker module (`new Worker<int, int>("./double")` starts it): doubles each
+/// // number it receives. Run on its own it has no parent, so it just ends after 100 ms.
+/// import { self } from "std/worker"
+///
+/// self.onmessage = (n: int) => {
+///   self.postMessage(n * 2)
+/// }
+/// setTimeout(() => self.close(), 100)
+/// ```
 export class WorkerSelf {
   /// A handle on the current worker's channel; use `self` rather than making another.
+  ///
+  /// @example
+  /// ```ts
+  /// import { self, WorkerSelf } from "std/worker"
+  ///
+  /// const me: WorkerSelf = self   // the one instance; no need for `new WorkerSelf()`
+  /// me.postMessage("ready")       // to the parent (nothing in the main thread)
+  /// ```
   constructor() {}
 
   /// Sends a copy of `message` to the parent (nothing in the main thread);
   /// `options.transfer`: buffers moved instead.
+  ///
+  /// @example
+  /// ```ts
+  /// import { self } from "std/worker"
+  ///
+  /// struct Frame {
+  ///   pixels: ArrayBuffer
+  /// }
+  ///
+  /// self.postMessage("started")   // a copy goes to the parent (nothing in the main thread)
+  /// const buf = new ArrayBuffer(1024)
+  /// self.postMessage(Frame { pixels: buf }, { transfer: [buf] })
+  /// println(buf.byteLength)       // 0: moved, not copied
+  /// ```
   public postMessage<T extends Sendable>(message: T, options: TransferOptions? = null): void {
     __worker_post(0, message, __transfer(options))
     __detachAll(options)
   }
 
   /// Stops listening: the worker ends once nothing else is pending.
+  ///
+  /// @example
+  /// ```ts
+  /// import { self } from "std/worker"
+  ///
+  /// self.onmessage = (job: string) => {
+  ///   self.postMessage(job.toUpperCase())
+  /// }
+  /// // Listen for 100 ms, then stop: the worker ends once nothing else is pending.
+  /// setTimeout(() => self.close(), 100)
+  /// ```
   public close(): void {
     const l = __theLoop()
     l.listening = false
@@ -28,6 +73,14 @@ export const self = new WorkerSelf()
 
 /// `f` over every item, in parallel on up to `workers` inline workers (spec §10.4); the
 /// results in order. `f` must not capture anything.
+///
+/// @example
+/// ```ts
+/// import { parallelMap } from "std/worker"
+///
+/// const squares = await parallelMap([1, 2, 3, 4], (n: int): int => n * n, workers: 2)
+/// println(squares.map((n: int) => `${n}`).join(","))   // 1,4,9,16
+/// ```
 export function parallelMap<T extends Sendable, U extends Sendable, E extends Error>(
   items: T[],
   f: (item: T) => U throws E,
@@ -53,12 +106,40 @@ export function parallelMap<T extends Sendable, U extends Sendable, E extends Er
 
 /// A fixed number of workers running the same module (`new WorkerPool<In, Out>("./job",
 /// size: n)`); `run(job)` sends a job to the least busy one and promises its next message.
+///
+/// @example
+/// ```ts
+/// import { WorkerPool } from "std/worker"
+///
+/// const pool = new WorkerPool<int, int>("./job", size: 2)
+/// println(await pool.run(21))   // 42
+/// pool.terminate()
+///
+/// // --- job.pi ---
+/// import { self } from "std/worker"
+///
+/// self.onmessage = (n: int) => self.postMessage(n * 2)
+/// ```
 export class WorkerPool<In extends Sendable, Out extends Sendable> {
   workers: Worker<In, Out>[] = []
   /// Per worker: the promises waiting for its answers, oldest first.
   waiting: Promise<Out, WorkerPanicked>[][] = []
 
   /// (`module` is the module's id: the compiler rewrites the path.)
+  ///
+  /// @example
+  /// ```ts
+  /// import { WorkerPool } from "std/worker"
+  ///
+  /// const pool = new WorkerPool<int, int>("./job", size: 2)
+  /// println(pool.size)   // 2
+  /// pool.terminate()
+  ///
+  /// // --- job.pi ---
+  /// import { self } from "std/worker"
+  ///
+  /// self.onmessage = (n: int) => self.postMessage(n * 2)
+  /// ```
   constructor(module: int, size: int) {
     const n = if (size < 1) 1 else size
     for (let i = 0; i < n; i++) {
@@ -78,12 +159,41 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
   }
 
   /// The number of workers (`size`, at least 1).
+  ///
+  /// @example
+  /// ```ts
+  /// import { WorkerPool } from "std/worker"
+  ///
+  /// const pool = new WorkerPool<int, int>("./job", size: 2)
+  /// println(pool.size)   // 2
+  /// pool.terminate()
+  ///
+  /// // --- job.pi ---
+  /// import { self } from "std/worker"
+  ///
+  /// self.onmessage = (n: int) => self.postMessage(n * 2)
+  /// ```
   public get size(): int {
     return this.workers.length
   }
 
   /// Sends `job` to the worker with the fewest jobs waiting. Rejects with a `WorkerPanicked` if
   /// that worker dies or the pool is terminated first.
+  ///
+  /// @example
+  /// ```ts
+  /// import { WorkerPool } from "std/worker"
+  ///
+  /// const pool = new WorkerPool<int, int>("./job", size: 2)
+  /// const [a, b] = [pool.run(1), pool.run(2)]
+  /// println(await a + await b)   // 6
+  /// pool.terminate()
+  ///
+  /// // --- job.pi ---
+  /// import { self } from "std/worker"
+  ///
+  /// self.onmessage = (n: int) => self.postMessage(n * 2)
+  /// ```
   public run(job: In): Promise<Out, WorkerPanicked> {
     let best = 0
     for (let i = 1; i < this.workers.length; i++) {
@@ -98,6 +208,20 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
   }
 
   /// Stops every worker; jobs still waiting for an answer reject with a `WorkerPanicked`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { WorkerPool } from "std/worker"
+  ///
+  /// const pool = new WorkerPool<int, int>("./job", size: 2)
+  /// println(await pool.run(5))   // 10
+  /// pool.terminate()
+  ///
+  /// // --- job.pi ---
+  /// import { self } from "std/worker"
+  ///
+  /// self.onmessage = (n: int) => self.postMessage(n * 2)
+  /// ```
   public terminate(): void {
     for (const w of this.workers) {
       w.terminate()

@@ -25,6 +25,19 @@ function __what(r: int, errno: int): string {
 /// A process that couldn't be started (or whose output couldn't be read as text): the
 /// program, a message and a portable kind (as `IoError`'s: `"NotFound"`, `"PermissionDenied"`,
 /// `"InvalidData"`, `"Other"`, …).
+///
+/// @example
+/// ```ts
+/// import { Command, ProcessError } from "std/process"
+///
+/// try {
+///   const s = await new Command("no-such-program-here").status()
+///   println(s.code)
+/// } catch (e: ProcessError) {
+///   println(e.kind)      // NotFound
+///   println(e.command)   // no-such-program-here
+/// }
+/// ```
 export class ProcessError extends Error {
   /// The program that was to run.
   public command: string
@@ -32,6 +45,14 @@ export class ProcessError extends Error {
   /// `"Other"`, …).
   public kind: string
   /// An error for `command` with `message` and `kind`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ProcessError } from "std/process"
+  ///
+  /// const e = new ProcessError("git", "git is not installed", "NotFound")
+  /// println(`${e.command}: ${e.message} (${e.kind})`)   // git: git is not installed (NotFound)
+  /// ```
   constructor(command: string, message: string, kind: string) {
     super(message)
     this.command = command
@@ -70,6 +91,17 @@ export const argv0: string = __text(__io(125, 0, 0, 0, "", ""))
 /// The running program's file as an absolute path, symlinks resolved (an executable found
 /// through `PATH` or a link too): what's next to it is the program's. Under
 /// `pico run --interp`, the entry file. `null` where it can't be known (WASI).
+///
+/// @example
+/// ```ts
+/// import { execPath } from "std/process"
+/// import { dirname } from "std/path"
+///
+/// const exe = execPath()
+/// if (exe != null) {
+///   println(dirname(exe))   // the directory the program is in, e.g. /usr/local/bin
+/// }
+/// ```
 export function execPath(): string? {
   const job = __io(125, 1, 0, 0, "", "")
   const found = __io(102, job, 0, 0, "", "") == 1
@@ -81,20 +113,58 @@ export function execPath(): string? {
 export const pid: int = __io(119, 0, 0, 0, "", "")
 
 /// The working directory.
+///
+/// @example
+/// ```ts
+/// import { cwd } from "std/process"
+/// import { join } from "std/path"
+///
+/// println(cwd())                         // e.g. /home/ada/project
+/// println(join(cwd(), "project.json"))   // e.g. /home/ada/project/project.json
+/// ```
 export function cwd(): string {
   __text(__io(105, 0, 0, 0, "", ""))
 }
 
 /// Ends the process at once with exit code `code` (no `finally` blocks run, and pending
 /// promises are dropped).
+///
+/// @example
+/// ```ts
+/// import { args, exit } from "std/process"
+///
+/// if (args.includes("--version")) {
+///   println("1.0.0")
+///   exit(0)   // ends here: nothing after this runs
+/// }
+/// println("working…")
+/// ```
 export function exit(code: i32 = 0): void {
   __io(118, code as int, 0, 0, "", "");
 }
 
 /// The environment variables (`env.get("HOME")`). Changes are seen by commands started
 /// later.
+///
+/// @example
+/// ```ts
+/// import { env } from "std/process"
+///
+/// println(env.get("HOME"))   // e.g. /home/ada
+/// env.set("GREETING", "hi")
+/// println(env.get("GREETING"))   // hi
+/// ```
 export class Env {
   /// The variable's value, or `null` when it isn't set.
+  ///
+  /// @example
+  /// ```ts
+  /// import { env } from "std/process"
+  ///
+  /// const editor = env.get("EDITOR") ?? "vi"
+  /// println(editor)                         // e.g. vim
+  /// println(env.get("SURELY_NOT_SET_XYZ"))  // null
+  /// ```
   public get(name: string): string? {
     const job = __io(114, 0, 0, 0, name, "")
     const found = __io(102, job, 0, 0, "", "") == 1
@@ -103,21 +173,57 @@ export class Env {
   }
 
   /// Whether the variable is set (to anything, `""` too).
+  ///
+  /// @example
+  /// ```ts
+  /// import { env } from "std/process"
+  ///
+  /// env.set("EMPTY", "")
+  /// println(env.has("EMPTY"))               // true
+  /// println(env.has("SURELY_NOT_SET_XYZ"))  // false
+  /// ```
   public has(name: string): bool {
     return this.get(name) != null
   }
 
   /// Sets the variable to `value` for this process and the commands it starts later.
+  ///
+  /// @example
+  /// ```ts
+  /// import { env, Command } from "std/process"
+  ///
+  /// env.set("APP_MODE", "test")
+  /// const out = await Command.shell("echo $APP_MODE").output()
+  /// println(out.stdout.trim())   // test
+  /// ```
   public set(name: string, value: string): void {
     __io(115, 0, 0, 0, name, value);
   }
 
   /// Unsets the variable (nothing happens if it isn't set).
+  ///
+  /// @example
+  /// ```ts
+  /// import { env } from "std/process"
+  ///
+  /// env.set("TEMP_FLAG", "1")
+  /// env.delete("TEMP_FLAG")
+  /// println(env.has("TEMP_FLAG"))   // false
+  /// ```
   public delete(name: string): void {
     __io(116, 0, 0, 0, name, "");
   }
 
   /// Every variable, by name.
+  ///
+  /// @example
+  /// ```ts
+  /// import { env } from "std/process"
+  ///
+  /// const vars = env.toObject()
+  /// println(vars.has("PATH"))   // true
+  /// println(vars.size > 0)      // true
+  /// ```
   public toObject(): Map<string, string> {
     const m = new Map<string, string>()
     for (const line of __fields(__text(__io(117, 0, 0, 0, "", "")))) {
@@ -163,6 +269,15 @@ function __bytesOf(data: Uint8Array): ArrayBuffer {
 
 /// The reading end of a pipe (a child's `stdout`/`stderr`) or this process's `stdin`: chunks
 /// of bytes with `read`, `for await`, or everything at once with `text()`. One read at a time.
+///
+/// @example
+/// ```ts
+/// import { Command } from "std/process"
+///
+/// const child = new Command("echo", ["hello"], stdout: "pipe").spawn()
+/// println((await child.stdout.text()).trim())   // hello
+/// await child.status()
+/// ```
 export class Reader {
   fd: int
   /// The stream's name (`"stdin"`, `"stdout"` or `"stderr"`), used in panics and as the `path` of
@@ -178,6 +293,14 @@ export class Reader {
   rs: ReadableStream<Uint8Array>? = null
 
   /// A reader of descriptor `fd` (reading panics unless `piped`); `Command` and `stdin` make these.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Reader, stdin } from "std/process"
+  ///
+  /// const input: Reader = stdin   // `stdin` and a piped child's `stdout`/`stderr` are Readers
+  /// println(input.name)           // stdin
+  /// ```
   constructor(fd: int, name: string, piped: bool) {
     this.fd = fd
     this.name = name
@@ -186,11 +309,33 @@ export class Reader {
   }
 
   /// Whether it reads from a terminal (#158): `stdin.isTerminal` is false when input is piped.
+  ///
+  /// @example
+  /// ```ts
+  /// import { stdin } from "std/process"
+  ///
+  /// if (stdin.isTerminal) {
+  ///   println("type something, then Ctrl-D")   // when run from a terminal
+  /// } else {
+  ///   println("reading piped input")           // with `echo hi | myprogram`
+  /// }
+  /// ```
   public get isTerminal(): bool {
     return fd >= 0 && __io(123, fd, 0, 0, "", "") == 1
   }
 
   /// The bytes as a stream (reading it and `read()` don't mix).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("echo", ["streamed"], stdout: "pipe").spawn()
+  /// const reader = child.stdout.readable.getReader()
+  /// const first = await reader.read()
+  /// println(first.value?.length)   // 9
+  /// await child.status()
+  /// ```
   public get readable(): ReadableStream<Uint8Array> {
     const r = this.rs
     if (r != null) {
@@ -220,6 +365,19 @@ export class Reader {
   }
 
   /// Up to `n` bytes (as soon as some are there), or `null` at the end.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("echo", ["chunk"], stdout: "pipe").spawn()
+  /// const bytes = await child.stdout.read()
+  /// if (bytes != null) {
+  ///   println(new TextDecoder().decode(bytes).trim())   // chunk
+  /// }
+  /// println(await child.stdout.read())   // null: the end
+  /// await child.status()
+  /// ```
   public read(n: int = 65536): Promise<Uint8Array?, IoError> {
     start()
     if (done) {
@@ -247,6 +405,18 @@ export class Reader {
   /// ones. The descriptor is closed once nothing reads it (this process's stdin stays open). Use
   /// it for a pipe or device whose other end may never write or close (a child that keeps
   /// running, a serial port, a pty).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("sleep", ["5"], stdout: "pipe").spawn()
+  /// const pending = child.stdout.read()
+  /// child.stdout.close()
+  /// println(await pending)   // null
+  /// child.kill()
+  /// await child.status()
+  /// ```
   public close(): void {
     if (done || closed) {
       return
@@ -261,11 +431,34 @@ export class Reader {
   }
 
   /// `for await` reads chunks of bytes until the end.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("echo", ["hi"], stdout: "pipe").spawn()
+  /// const chunk = await child.stdout.next()
+  /// println(chunk?.length)   // 3
+  /// await child.status()
+  /// ```
   public next(): Promise<Uint8Array?, IoError> {
     read()
   }
 
   /// `for await` uses the reader itself.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("printf", ["a\\nb\\n"], stdout: "pipe").spawn()
+  /// let total = 0
+  /// for await (const chunk of child.stdout) {
+  ///   total += chunk.length
+  /// }
+  /// println(total)   // 4
+  /// await child.status()
+  /// ```
   public asyncIterator(): Reader {
     this
   }
@@ -281,6 +474,16 @@ export class Reader {
   }
 
   /// The rest of the stream as text (UTF-8; anything else rejects with kind `"InvalidData"`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("printf", ["one\\ntwo\\n"], stdout: "pipe").spawn()
+  /// const text = await child.stdout.text()
+  /// println(text.split("\n").length)   // 3
+  /// await child.status()
+  /// ```
   public text(): Promise<string, IoError> {
     start()
     if (done) {
@@ -317,6 +520,17 @@ struct __Write {
 
 /// The writing end of a pipe (a child's `stdin`) or this process's `stdout`/`stderr`. Writes
 /// happen in the order they're made; `close()` (after them) ends the child's input.
+///
+/// @example
+/// ```ts
+/// import { Command } from "std/process"
+///
+/// const child = new Command("cat", stdin: "pipe", stdout: "pipe").spawn()
+/// await child.stdin.writeText("piped through cat")
+/// child.stdin.close()
+/// println(await child.stdout.text())   // piped through cat
+/// await child.status()
+/// ```
 export class Writer {
   fd: int
   /// The stream's name (`"stdin"`, `"stdout"` or `"stderr"`), used in panics and as the `path` of
@@ -332,6 +546,14 @@ export class Writer {
 
   /// A writer to descriptor `fd` (writing panics unless `piped`); `Command`, `stdout` and `stderr`
   /// make these.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Writer, stdout } from "std/process"
+  ///
+  /// const out: Writer = stdout   // `stdout`, `stderr` and a piped child's `stdin` are Writers
+  /// println(out.name)            // stdout
+  /// ```
   constructor(fd: int, name: string, piped: bool) {
     this.fd = fd
     this.name = name
@@ -339,6 +561,18 @@ export class Writer {
   }
 
   /// The writer as a stream: closing it closes the pipe.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("cat", stdin: "pipe", stdout: "pipe").spawn()
+  /// const writer = child.stdin.writable.getWriter()
+  /// await writer.write(new TextEncoder().encode("via a stream"))
+  /// await writer.close()
+  /// println(await child.stdout.text())   // via a stream
+  /// await child.status()
+  /// ```
   public get writable(): WritableStream<Uint8Array> {
     const w = this.ws
     if (w != null) {
@@ -367,12 +601,31 @@ export class Writer {
   }
 
   /// Writes all of `data`; the count written.
+  ///
+  /// @example
+  /// ```ts
+  /// import { stdout } from "std/process"
+  ///
+  /// const n = await stdout.write(new TextEncoder().encode("bytes\n"))   // bytes
+  /// println(n)                                                           // 6
+  /// ```
   public write(data: Uint8Array): Promise<int, IoError> {
     add({ bytes: __bytesOf(data), count: data.length, text: "", p: new Promise<int, IoError>() })
   }
 
   /// Whether it writes to a terminal (#158): `stdout.isTerminal` is false when the output is
   /// piped or redirected.
+  ///
+  /// @example
+  /// ```ts
+  /// import { stdout } from "std/process"
+  ///
+  /// if (stdout.isTerminal) {
+  ///   println("on a terminal")         // when run from a terminal
+  /// } else {
+  ///   println("piped or redirected")   // with `myprogram > out.txt`
+  /// }
+  /// ```
   public get isTerminal(): bool {
     return fd >= 0 && __io(123, fd, 0, 0, "", "") == 1
   }
@@ -381,6 +634,14 @@ export class Writer {
   /// commonly decide: no when `NO_COLOR` is set to anything but `""`, or `FORCE_COLOR` is `0` or
   /// `false`; yes when `FORCE_COLOR` is set to anything else but `""`, or `CLICOLOR_FORCE` is set;
   /// otherwise whether it writes to a terminal.
+  ///
+  /// @example
+  /// ```ts
+  /// import { stdout } from "std/process"
+  ///
+  /// const red = if (stdout.hasColors()) "\u{1b}[31merror\u{1b}[0m" else "error"
+  /// println(red)   // error (in red on a colour terminal)
+  /// ```
   public hasColors(): bool {
     const force = env.get("FORCE_COLOR")
     if ((env.get("NO_COLOR") ?? "") != "" || force == "0" || force == "false") return false
@@ -389,24 +650,59 @@ export class Writer {
   }
 
   /// The terminal's width in columns, or `null` when it isn't one (#158).
+  ///
+  /// @example
+  /// ```ts
+  /// import { stdout } from "std/process"
+  ///
+  /// const width = stdout.columns ?? 80
+  /// println("-".repeat(width))   // a line as wide as the terminal (80 when it isn't one)
+  /// ```
   public get columns(): int? {
     const n = if (fd >= 0) __io(124, fd, 0, 0, "", "") else -1
     return if (n > 0) n else null
   }
 
   /// The terminal's height in rows, or `null` when it isn't one.
+  ///
+  /// @example
+  /// ```ts
+  /// import { stdout } from "std/process"
+  ///
+  /// println(stdout.rows ?? 24)   // the terminal's height, e.g. 50 (24 when it isn't one)
+  /// ```
   public get rows(): int? {
     const n = if (fd >= 0) __io(124, fd, 1, 0, "", "") else -1
     return if (n > 0) n else null
   }
 
   /// Writes `text` as UTF-8; the count of bytes written.
+  ///
+  /// @example
+  /// ```ts
+  /// import { stdout, stderr } from "std/process"
+  ///
+  /// await stdout.writeText("no newline, ")
+  /// await stdout.writeText("then one\n")    // no newline, then one
+  /// await stderr.writeText("a warning\n")   // (on standard error) a warning
+  /// ```
   public writeText(text: string): Promise<int, IoError> {
     add({ bytes: null, count: 0, text, p: new Promise<int, IoError>() })
   }
 
   /// Closes the pipe once earlier writes are done (twice is fine; for `stdout`/`stderr`
   /// nothing happens).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("wc", ["-c"], stdin: "pipe", stdout: "pipe").spawn()
+  /// child.stdin.writeText("12345")
+  /// child.stdin.close()   // after the write: wc sees the end of its input
+  /// println((await child.stdout.text()).trim())   // 5
+  /// await child.status()
+  /// ```
   public close(): void {
     // The standard streams stay open (`println` writes to them too, #37).
     if (fd >= 0 && fd <= 2) {
@@ -478,6 +774,16 @@ function __mode(s: Stdio): int {
 
 /// How a child ended: `code` is its exit code (128 + the signal's number when a signal
 /// ended it, as shells report it).
+///
+/// @example
+/// ```ts
+/// import { Command, ExitStatus } from "std/process"
+///
+/// const s: ExitStatus = await Command.shell("exit 3").status()
+/// println(s.success)   // false
+/// println(s.code)      // 3
+/// println(s.signal)    // null
+/// ```
 export struct ExitStatus {
   /// Whether it exited with code 0 (and no signal ended it).
   success: bool
@@ -488,6 +794,16 @@ export struct ExitStatus {
 }
 
 /// A finished child's status and everything it wrote (as UTF-8 text).
+///
+/// @example
+/// ```ts
+/// import { Command, Output } from "std/process"
+///
+/// const out: Output = await new Command("echo", ["hi"]).output()
+/// println(out.success)          // true
+/// println(out.stdout.trim())    // hi
+/// println(out.stderr == "")     // true
+/// ```
 export struct Output {
   /// Whether it exited with code 0 (and no signal ended it).
   success: bool
@@ -502,6 +818,16 @@ export struct Output {
 }
 
 /// A started process: its pipes (where piped), `status()`, `kill()`.
+///
+/// @example
+/// ```ts
+/// import { Command } from "std/process"
+///
+/// const child = new Command("echo", ["from a child"], stdout: "pipe").spawn()
+/// println(child.pid > 0)                   // true
+/// println((await child.stdout.text()).trim())   // from a child
+/// println((await child.status()).success)  // true
+/// ```
 export class Child {
   /// 0 when it couldn't be started.
   public readonly pid: int
@@ -518,6 +844,14 @@ export class Child {
 
   /// A child with process id `pid` (0 and an `error` when it couldn't start); `Command.spawn` makes
   /// these.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command, Child } from "std/process"
+  ///
+  /// const child: Child = new Command("true").spawn()   // Command.spawn makes Children
+  /// println((await child.status()).code)               // 0
+  /// ```
   constructor(pid: int, program: string, error: ProcessError?, stdin: Writer, stdout: Reader, stderr: Reader) {
     this.pid = pid
     this.program = program
@@ -529,6 +863,16 @@ export class Child {
 
   /// Waits for the child to end (rejects when it couldn't be started). Every call gives the
   /// same promise.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("true").spawn()
+  /// const s = await child.status()
+  /// println(s.success)   // true
+  /// println(s.code)      // 0
+  /// ```
   public status(): Promise<ExitStatus, ProcessError> {
     const w = waited
     if (w != null) {
@@ -558,6 +902,16 @@ export class Child {
 
   /// Everything the child writes to its piped `stdout` and `stderr` (as text), and how it
   /// ended.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = Command.shell("echo out; echo err >&2", stdout: "pipe", stderr: "pipe").spawn()
+  /// const o = await child.output()
+  /// println(o.stdout.trim())   // out
+  /// println(o.stderr.trim())   // err
+  /// ```
   public async output(): Promise<Output> throws ProcessError {
     const out = stdout.__rest()
     const err = stderr.__rest()
@@ -576,6 +930,17 @@ export class Child {
 
   /// Sends the child a signal (`SIGTERM` by default; on Windows it's terminated). Nothing
   /// happens once it has ended.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("sleep", ["10"]).spawn()
+  /// child.kill()
+  /// const s = await child.status()
+  /// println(s.signal)   // 15
+  /// println(s.code)     // 143
+  /// ```
   public kill(signal: "SIGTERM" | "SIGKILL" | "SIGINT" | "SIGHUP" = "SIGTERM"): void {
     if (pid == 0 || exited) {
       return
@@ -589,6 +954,14 @@ export class Child {
 /// directory, environment (`env` adds to or replaces this process's variables; with
 /// `clearEnv` it's all there is) and standard streams. `spawn()` starts it; `output()` and
 /// `status()` start it and wait.
+///
+/// @example
+/// ```ts
+/// import { Command } from "std/process"
+///
+/// const out = await new Command("echo", ["one", "two"]).output()
+/// println(out.stdout.trim())   // one two
+/// ```
 export class Command {
   /// The program to run: a path, or a name looked up in `PATH`.
   public readonly program: string
@@ -607,6 +980,17 @@ export class Command {
   /// working directory; this process's by default), with `env` added to (or, with `clearEnv`,
   /// instead of) this process's variables, and each standard stream `"inherit"`ed, `"pipe"`d or
   /// `"null"`. Nothing runs until `spawn`, `output` or `status`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  /// import { tmpDir } from "std/os"
+  ///
+  /// const vars = new Map<string, string>()
+  /// vars.set("NAME", "Ada")
+  /// const cmd = new Command("/bin/sh", ["-c", "echo $NAME in $(pwd)"], cwd: tmpDir(), env: vars)
+  /// println((await cmd.output()).stdout.trim())   // e.g. Ada in /tmp
+  /// ```
   constructor(program: string, args: string[] = [], cwd: string? = null,
     env: Map<string, string>? = null, clearEnv: bool = false, stdin: Stdio = "inherit",
     stdout: Stdio = "inherit", stderr: Stdio = "inherit") {
@@ -621,6 +1005,14 @@ export class Command {
   }
 
   /// `script` run by the platform's shell (`/bin/sh -c`; `cmd.exe /c` on Windows).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const out = await Command.shell("echo a | tr a b").output()
+  /// println(out.stdout.trim())   // b
+  /// ```
   public static shell(script: string, cwd: string? = null, env: Map<string, string>? = null,
     clearEnv: bool = false, stdin: Stdio = "inherit", stdout: Stdio = "inherit",
     stderr: Stdio = "inherit"): Command {
@@ -637,6 +1029,15 @@ export class Command {
 
   /// Starts the program. If it can't be started, the child's `status()` rejects with a
   /// `ProcessError`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const child = new Command("echo", ["spawned"], stdout: "pipe").spawn()
+  /// println((await child.stdout.text()).trim())   // spawned
+  /// await child.status()
+  /// ```
   public spawn(): Child {
     spawnWith(__mode(stdinMode), __mode(stdoutMode), __mode(stderrMode))
   }
@@ -673,11 +1074,30 @@ export class Command {
 
   /// Runs the program with its `stdout` and `stderr` piped and waits for it: what it wrote
   /// and how it ended.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const out = await new Command("ls", ["/"]).output()
+  /// println(out.success)                     // true
+  /// println(out.stdout.split("\n").length > 1)   // true
+  /// ```
   public output(): Promise<Output, ProcessError> {
     spawnWith(__mode(stdinMode), 1, 1).output()
   }
 
   /// Runs the program and waits for it to end.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Command } from "std/process"
+  ///
+  /// const s = await new Command("true").status()
+  /// println(s.success)   // true
+  /// const f = await new Command("false").status()
+  /// println(f.code)      // 1
+  /// ```
   public status(): Promise<ExitStatus, ProcessError> {
     spawn().status()
   }

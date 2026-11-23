@@ -5,8 +5,30 @@
 
 /// An exception thrown by JavaScript code (its `String(e)` is the message), or a JavaScript
 /// value of the wrong type.
+///
+/// @example
+/// ```ts
+/// import { js, JsError } from "std/js"
+///
+/// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+/// try {
+///   const v = js.global.get("JSON").call("parse", "{")
+///   println(v.typeOf())
+/// } catch (e: JsError) {
+///   println(e.message.startsWith("SyntaxError"))   // true
+/// }
+/// ```
 export class JsError extends Error {
   /// A `JsError` with `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { JsError } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const e = new JsError("expected a DOM element")
+  /// println(e.message)   // expected a DOM element
+  /// ```
   constructor(message: string) {
     super(message)
   }
@@ -65,12 +87,32 @@ export function __jsCallRest(target: JsValue, name: string, fixed: JsArg[], rest
 }
 
 /// A JavaScript value held by pico code.
+///
+/// @example
+/// ```ts
+/// import { js } from "std/js"
+///
+/// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+/// const parsed = js.global.get("JSON").call("parse", "{\"name\": \"pico\", \"tags\": [1, 2]}")
+/// println(parsed.get("name").asString())                 // pico
+/// println(parsed.get("tags").get("length").asNumber())   // 2
+/// ```
 export class JsValue {
   /// The runtime's handle of the JavaScript value (0 `undefined`, 1 `null`, 2 `globalThis`).
   public readonly handle: int
 
   /// Wraps a handle the runtime returned (released when the `JsValue` is collected); use
   /// `JsValue.from`, `jsNull()` and `jsUndefined()` instead.
+  ///
+  /// @example
+  /// ```ts
+  /// import { JsValue } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// // Handles come from the runtime; 2 is `globalThis`. Prefer `js.global` and `JsValue.from`.
+  /// const global = new JsValue(2)
+  /// println(global.get("Math").get("PI").asNumber())   // 3.141592653589793
+  /// ```
   constructor(handle: int) {
     this.handle = handle
     // (0, 1 and 2 are `undefined`, `null` and `globalThis`: never released.)
@@ -80,6 +122,16 @@ export class JsValue {
   }
 
   /// `x` as a JavaScript value (a number, a string, a boolean, or `x` itself).
+  ///
+  /// @example
+  /// ```ts
+  /// import { JsValue } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// println(JsValue.from(1.5).typeOf())    // number
+  /// println(JsValue.from("hi").typeOf())   // string
+  /// println(JsValue.from(true).asBool())   // true
+  /// ```
   public static from(x: JsArg): JsValue {
     match (x) {
       n: f64 => {
@@ -95,43 +147,122 @@ export class JsValue {
 
   /// A JavaScript function that calls `f` with its arguments (an array). A `JsError` `f`
   /// throws is reported on the console (`console.error`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { js, JsValue } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// let sum = 0.0
+  /// const add = JsValue.fn((args: JsValue) => {
+  ///   sum += args.at(0).asNumber()
+  /// })
+  /// js.global.get("JSON").call("parse", "[1, 2, 3]").call("forEach", add)
+  /// println(sum)   // 6
+  /// ```
   public static fn(f: (args: JsValue) => void throws JsError): JsValue {
     const id = __jsCallbacks.add(f)
     new JsValue(__jsCheck(__io(166, id, 0, 0, "", "")))
   }
 
   /// `this[name]`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const pi = js.global.get("Math").get("PI")
+  /// println(pi.asNumber())   // 3.141592653589793
+  /// ```
   public get(name: string): JsValue throws JsError {
     __jsResult(__io(150, this.handle, 0, 0, name, ""))
   }
 
   /// `this[name] = v`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const obj = js.global.get("Object").construct()
+  /// obj.set("x", 42.0)
+  /// obj.set("name", "pico")
+  /// println(js.global.get("JSON").call("stringify", obj).asString())   // {"x":42,"name":"pico"}
+  /// ```
   public set(name: string, v: JsArg): void throws JsError {
     const x = JsValue.from(v)
     __jsResult(__io(151, this.handle, x.handle, 0, name, ""));
   }
 
   /// `this[name](...args)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const math = js.global.get("Math")
+  /// println(math.call("max", 1.0, 5.0, 3.0).asNumber())   // 5
+  /// ```
   public call(name: string, ...args: JsArg[]): JsValue throws JsError {
     __jsResult(__io(152, this.handle, __jsArgs(args), 0, name, ""))
   }
 
   /// `this(...args)` (with `undefined` as `this`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const parseInt = js.global.get("parseInt")
+  /// println(parseInt.invoke("ff", 16.0).asNumber())   // 255
+  /// ```
   public invoke(...args: JsArg[]): JsValue throws JsError {
     __jsResult(__io(153, this.handle, 0, __jsArgs(args), "", ""))
   }
 
   /// `new this(...args)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const date = js.global.get("Date").construct(0.0)
+  /// println(date.call("toISOString").asString())   // 1970-01-01T00:00:00.000Z
+  /// ```
   public construct(...args: JsArg[]): JsValue throws JsError {
     __jsResult(__io(154, this.handle, __jsArgs(args), 0, "", ""))
   }
 
   /// `this[i]` (arrays, array-likes).
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const xs = js.global.get("JSON").call("parse", "[10, 20, 30]")
+  /// println(xs.at(1).asNumber())   // 20
+  /// ```
   public at(i: int): JsValue throws JsError {
     this.get(`${i}`)
   }
 
   /// `typeof this`, with `"null"` for `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js, jsNull } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// println(js.global.get("Math").typeOf())                  // object
+  /// println(js.global.get("Math").get("max").typeOf())       // function
+  /// println(jsNull().typeOf())                               // null
+  /// ```
   public typeOf(): string {
     match (__jsCheck(__io(160, this.handle, 0, 0, "", ""))) {
       0 => "undefined"
@@ -146,13 +277,53 @@ export class JsValue {
   }
 
   /// Whether it's JavaScript's `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js, jsNull } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// println(jsNull().isNull())                       // true
+  /// println(js.global.get("nothingHere").isNull())   // false (it's undefined)
+  /// ```
   public isNull(): bool { return this.typeOf() == "null" }
   /// Whether it's JavaScript's `undefined`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// println(js.global.get("nothingHere").isUndefined())   // true
+  /// ```
   public isUndefined(): bool { return this.typeOf() == "undefined" }
   /// `null` or `undefined`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js, jsNull } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// println(jsNull().isNullish())                       // true
+  /// println(js.global.get("nothingHere").isNullish())   // true
+  /// println(js.global.get("Math").isNullish())          // false
+  /// ```
   public isNullish(): bool { return this.handle <= 1 || __jsCheck(__io(160, this.handle, 0, 0, "", "")) <= 1 }
 
   /// The number this is (`JsError` if it isn't one).
+  ///
+  /// @example
+  /// ```ts
+  /// import { js, JsError } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// println(js.global.get("Math").get("E").asNumber())   // 2.718281828459045
+  /// try {
+  ///   println(js.global.get("Math").asNumber())
+  /// } catch (e: JsError) {
+  ///   println(e.message)   // expected a number, got object
+  /// }
+  /// ```
   public asNumber(): f64 throws JsError {
     if (this.typeOf() != "number") {
       throw new JsError(`expected a number, got ${this.typeOf()}`)
@@ -164,6 +335,15 @@ export class JsValue {
   }
 
   /// The string this is (`JsError` if it isn't one).
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const s = js.global.get("JSON").call("stringify", js.global.get("JSON").call("parse", "[1,2]"))
+  /// println(s.asString())   // [1,2]
+  /// ```
   public asString(): string throws JsError {
     if (this.typeOf() != "string") {
       throw new JsError(`expected a string, got ${this.typeOf()}`)
@@ -172,6 +352,15 @@ export class JsValue {
   }
 
   /// The boolean this is (`JsError` if it isn't one).
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const big = js.global.get("Number").call("isInteger", 42.0)
+  /// println(big.asBool())   // true
+  /// ```
   public asBool(): bool throws JsError {
     if (this.typeOf() != "boolean") {
       throw new JsError(`expected a boolean, got ${this.typeOf()}`)
@@ -180,6 +369,15 @@ export class JsValue {
   }
 
   /// `String(this)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js, JsValue } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// println(JsValue.from(42.0).toString())                                   // 42
+  /// println(js.global.get("JSON").call("parse", "[1, 2]").toString())   // 1,2
+  /// ```
   public toString(): string {
     const j = __jsCheck(__io(163, this.handle, 0, 0, "", ""))
     const s = __io_text(j)
@@ -188,22 +386,75 @@ export class JsValue {
   }
 
   /// `this === other`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { js } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const math = js.global.get("Math")
+  /// println(math.equals(js.global.get("Math")))   // true
+  /// println(math.equals(js.global.get("JSON")))   // false
+  /// ```
   public equals(other: JsValue): bool {
     return __jsCheck(__io(167, this.handle, other.handle, 0, "", "")) == 1
   }
 }
 
 /// JavaScript's `null` and `undefined`.
+///
+/// @example
+/// ```ts
+/// import { js, jsNull } from "std/js"
+///
+/// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+/// const obj = js.global.get("Object").construct()
+/// obj.set("parent", jsNull())
+/// println(js.global.get("JSON").call("stringify", obj).asString())   // {"parent":null}
+/// ```
 export function jsNull(): JsValue { new JsValue(1) }
 /// JavaScript's `undefined`.
+///
+/// @example
+/// ```ts
+/// import { js, jsUndefined } from "std/js"
+///
+/// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+/// println(jsUndefined().isUndefined())   // true
+/// println(js.global.get("String").invoke(jsUndefined()).asString())   // undefined
+/// ```
 export function jsUndefined(): JsValue { new JsValue(0) }
 
 /// The base of classes generated from `.d.ts` files (`js:` imports): a typed view of a
 /// JavaScript object.
+///
+/// @example
+/// ```ts
+/// import { js, JsError, JsObject, JsValue } from "std/js"
+///
+/// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+/// // `js:` imports generate classes like this one from `.d.ts` files.
+/// class Point extends JsObject {
+///   constructor(v: JsValue) { super(v) }
+///   public get x(): f64 throws JsError { this.jsValue.get("x").asNumber() }
+/// }
+///
+/// const p = new Point(js.global.get("JSON").call("parse", "{\"x\": 3}"))
+/// println(p.x)   // 3
+/// ```
 export class JsObject {
   /// The JavaScript object this is a view of.
   public readonly jsValue: JsValue
   /// A typed view of the JavaScript object `v` (not checked to be of the right kind).
+  ///
+  /// @example
+  /// ```ts
+  /// import { js, JsObject } from "std/js"
+  ///
+  /// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
+  /// const view = new JsObject(js.global.get("Math"))
+  /// println(view.jsValue.get("SQRT2").asNumber())   // 1.4142135623730951
+  /// ```
   constructor(v: JsValue) {
     this.jsValue = v
   }

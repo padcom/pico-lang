@@ -47,11 +47,38 @@ function __bytesOf(data: Uint8Array): ArrayBuffer {
 }
 
 /// The file's text (UTF-8; anything else rejects with kind `"InvalidData"`).
+///
+/// @example
+/// ```ts
+/// import { readText, writeText, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), "read-text-example.txt")
+/// await writeText(path, "hello\nworld\n")
+/// const text = await readText(path)
+/// println(text.split("\n")[1])   // world
+/// await remove(path)
+/// ```
 export function readText(path: string): Promise<string, IoError> {
   __job<string>(1, 0, 0, 0, path, "", path, (res: __IoResult) => __io_text(res.job))
 }
 
 /// The file's bytes.
+///
+/// @example
+/// ```ts
+/// import { readBytes, writeText, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), "read-bytes-example.txt")
+/// await writeText(path, "AB")
+/// const bytes = await readBytes(path)
+/// println(bytes.length)   // 2
+/// println(bytes[0])       // 65
+/// await remove(path)
+/// ```
 export function readBytes(path: string): Promise<Uint8Array, IoError> {
   __job<Uint8Array>(2, 0, 0, 0, path, "", path, (res: __IoResult) => {
     new Uint8Array(new ArrayBuffer(res.r, res.r2, true), 0, res.r2)
@@ -59,17 +86,59 @@ export function readBytes(path: string): Promise<Uint8Array, IoError> {
 }
 
 /// Writes `text` to the file (created if needed; replaced, or appended to with `append`).
+///
+/// @example
+/// ```ts
+/// import { writeText, readText, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const log = join(tmpDir(), "write-text-example.log")
+/// await writeText(log, "first\n")
+/// await writeText(log, "second\n", append: true)
+/// print(await readText(log))   // first, then second
+/// await remove(log)
+/// ```
 export function writeText(path: string, text: string, append: bool = false): Promise<void, IoError> {
   __job<void>(3, if (append) 1 else 0, 0, 0, path, text, path, __unit)
 }
 
 /// Writes the bytes to the file (created if needed; replaced, or appended to with `append`).
+///
+/// @example
+/// ```ts
+/// import { writeBytes, readBytes, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), "write-bytes-example.bin")
+/// await writeBytes(path, Uint8Array.from([1, 2, 3]))
+/// await writeBytes(path, Uint8Array.from([4]), append: true)
+/// println((await readBytes(path)).length)   // 4
+/// await remove(path)
+/// ```
 export function writeBytes(path: string, data: Uint8Array, append: bool = false): Promise<void, IoError> {
   const buf = __bytesOf(data)
   __job<void>(4, if (append) 1 else 0, buf.__handle, data.length, path, "", path, __unit)
 }
 
 /// What `stat` tells about a path.
+///
+/// @example
+/// ```ts
+/// import { stat, writeText, remove, FileInfo } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), "file-info-example.txt")
+/// await writeText(path, "12345")
+/// const info: FileInfo = await stat(path)
+/// println(info.isFile)        // true
+/// println(info.isDirectory)   // false
+/// println(info.size)          // 5
+/// println(info.mtime)         // when it was written, e.g. 1795430400000
+/// await remove(path)
+/// ```
 export struct FileInfo {
   /// Whether it's a regular file.
   isFile: bool
@@ -99,11 +168,40 @@ function __info(text: string): FileInfo {
 
 /// Facts about the file or directory at `path` (following symbolic links unless
 /// `followLinks` is false).
+///
+/// @example
+/// ```ts
+/// import { stat } from "std/fs"
+/// import { tmpDir } from "std/os"
+///
+/// const info = await stat(tmpDir())
+/// println(info.isDirectory)   // true
+///
+/// try {
+///   const missing = await stat("/no/such/path")
+///   println(missing.size)
+/// } catch (e: IoError) {
+///   println(e.kind)           // NotFound
+/// }
+/// ```
 export function stat(path: string, followLinks: bool = true): Promise<FileInfo, IoError> {
   __job<FileInfo>(5, if (followLinks) 0 else 1, 0, 0, path, "", path, (res: __IoResult) => __info(__io_text(res.job)))
 }
 
 /// Whether something exists at `path`.
+///
+/// @example
+/// ```ts
+/// import { exists, writeText, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), "exists-example.txt")
+/// println(await exists(path))   // false
+/// await writeText(path, "")
+/// println(await exists(path))   // true
+/// await remove(path)
+/// ```
 export async function exists(path: string): Promise<bool> {
   try {
     await stat(path, false)
@@ -115,44 +213,158 @@ export async function exists(path: string): Promise<bool> {
 
 /// Creates a directory (with `recursive`, also its missing parents, and an existing
 /// directory is fine).
+///
+/// @example
+/// ```ts
+/// import { mkdir, exists, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const root = join(tmpDir(), "mkdir-example")
+/// await mkdir(join(root, "a", "b"), recursive: true)
+/// println(await exists(join(root, "a", "b")))   // true
+/// await remove(root, recursive: true)
+/// ```
 export function mkdir(path: string, recursive: bool = false): Promise<void, IoError> {
   __job<void>(6, if (recursive) 1 else 0, 0, 0, path, "", path, __unit)
 }
 
 /// Removes a file or an empty directory (with `recursive`, a directory and everything in it).
+///
+/// @example
+/// ```ts
+/// import { mkdir, writeText, remove, exists } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const dir = join(tmpDir(), "remove-example")
+/// await mkdir(dir)
+/// await writeText(join(dir, "a.txt"), "a")
+/// await remove(join(dir, "a.txt"))     // a file
+/// await writeText(join(dir, "b.txt"), "b")
+/// await remove(dir, recursive: true)   // a directory and what's in it
+/// println(await exists(dir))           // false
+/// ```
 export function remove(path: string, recursive: bool = false): Promise<void, IoError> {
   __job<void>(7, if (recursive) 1 else 0, 0, 0, path, "", path, __unit)
 }
 
 /// Moves or renames `from` to `to` (replacing a file there).
+///
+/// @example
+/// ```ts
+/// import { rename, writeText, readText, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const from = join(tmpDir(), "rename-example.tmp")
+/// const to = join(tmpDir(), "rename-example.txt")
+/// await writeText(from, "moved")
+/// await rename(from, to)
+/// println(await readText(to))   // moved
+/// await remove(to)
+/// ```
 export function rename(from: string, to: string): Promise<void, IoError> {
   __job<void>(8, 0, 0, 0, from, to, from, __unit)
 }
 
 /// Copies file `from` to `to`, replacing a file there; the copy gets `from`'s permissions (#64).
 /// A directory rejects (`IsADirectory`).
+///
+/// @example
+/// ```ts
+/// import { copy, writeText, readText, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const original = join(tmpDir(), "copy-example.txt")
+/// const backup = join(tmpDir(), "copy-example.bak")
+/// await writeText(original, "keep me")
+/// await copy(original, backup)
+/// println(await readText(backup))   // keep me
+/// await remove(original)
+/// await remove(backup)
+/// ```
 export function copy(from: string, to: string): Promise<void, IoError> {
   __job<void>(37, 0, 0, 0, from, to, from, __unit)
 }
 
 /// Makes `path` a symbolic link to `target` (as written: a relative target is relative to the
 /// link's directory) (#64). On Windows this needs Developer Mode or the symlink privilege.
+///
+/// @example
+/// ```ts
+/// import { symlink, readText, writeText, remove, stat } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const target = join(tmpDir(), "symlink-example.txt")
+/// const link = join(tmpDir(), "symlink-example.link")
+/// await writeText(target, "through the link")
+/// await symlink("symlink-example.txt", link)   // relative to the link's directory
+/// println(await readText(link))                // through the link
+/// println((await stat(link, followLinks: false)).isSymlink)   // true
+/// await remove(link)
+/// await remove(target)
+/// ```
 export function symlink(target: string, path: string): Promise<void, IoError> {
   __job<void>(38, 0, 0, 0, path, target, path, __unit)
 }
 
 /// The target of the symbolic link `path`, as it was written (#64). Not on Windows yet.
+///
+/// @example
+/// ```ts
+/// import { symlink, readlink, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const link = join(tmpDir(), "readlink-example.link")
+/// await symlink("../somewhere/else", link)
+/// println(await readlink(link))   // ../somewhere/else
+/// await remove(link)
+/// ```
 export function readlink(path: string): Promise<string, IoError> {
   __job<string>(39, 0, 0, 0, path, "", path, (res: __IoResult) => __io_text(res.job))
 }
 
 /// Sets `path`'s permission bits (`0o644`, `0o755`, …) (#64). On Windows only the owner's write
 /// bit counts (the read-only attribute); WASI has no permissions (it rejects).
+///
+/// @example
+/// ```ts
+/// import { chmod, writeText, remove } from "std/fs"
+/// import { Command } from "std/process"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const script = join(tmpDir(), "chmod-example.sh")
+/// await writeText(script, "#!/bin/sh\necho it runs\n")
+/// await chmod(script, 0o755)
+/// println((await new Command(script).output()).stdout.trim())   // it runs
+/// await remove(script)
+/// ```
 export function chmod(path: string, mode: int): Promise<void, IoError> {
   __job<void>(40, mode, 0, 0, path, "", path, __unit)
 }
 
 /// An entry of a directory.
+///
+/// @example
+/// ```ts
+/// import { readDir, mkdir, writeText, remove, DirEntry } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const dir = join(tmpDir(), "dir-entry-example")
+/// await mkdir(join(dir, "sub"), recursive: true)
+/// await writeText(join(dir, "a.txt"), "")
+/// for await (const e of readDir(dir)) {
+///   const entry: DirEntry = e
+///   println(`${entry.name} ${if (entry.isDirectory) "dir" else "file"}`)   // a.txt file, then sub dir
+/// }
+/// await remove(dir, recursive: true)
+/// ```
 export struct DirEntry {
   /// The entry's name (not a path).
   name: string
@@ -177,6 +389,22 @@ function __entries(text: string): DirEntry[] {
 }
 
 /// The entries of a directory (without `.` and `..`), in name order.
+///
+/// @example
+/// ```ts
+/// import { readDir, mkdir, writeText, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const dir = join(tmpDir(), "read-dir-example")
+/// await mkdir(dir)
+/// await writeText(join(dir, "b.txt"), "")
+/// await writeText(join(dir, "a.txt"), "")
+/// for await (const e of readDir(dir)) {
+///   println(e.name)   // a.txt, then b.txt
+/// }
+/// await remove(dir, recursive: true)
+/// ```
 export async function* readDir(path: string): AsyncIterator<DirEntry> throws IoError {
   const entries = await __job<DirEntry[]>(9, 0, 0, 0, path, "", path, (res: __IoResult) => __entries(__io_text(res.job)))
   for (const e of entries) {
@@ -185,6 +413,24 @@ export async function* readDir(path: string): AsyncIterator<DirEntry> throws IoE
 }
 
 /// An open file: `read`, `write` and `seek` (from the start), then `close` (or `await using`).
+///
+/// @example
+/// ```ts
+/// import { open, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), "file-example.bin")
+/// const f = await open(path, write: true, create: true, truncate: true)
+/// await f.write(new TextEncoder().encode("hello"))
+/// await f.seek(0)
+/// const bytes = await f.read(5)
+/// if (bytes != null) {
+///   println(new TextDecoder().decode(bytes))   // hello
+/// }
+/// await f.close()
+/// await remove(path)
+/// ```
 export class File implements AsyncDisposable {
   fd: int
   /// The path the file was opened with.
@@ -192,6 +438,20 @@ export class File implements AsyncDisposable {
   closed: bool = false
 
   /// Wraps the open descriptor `fd`; `open` makes these.
+  ///
+  /// @example
+  /// ```ts
+  /// import { open, File, writeText, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-ctor-example.txt")
+  /// await writeText(path, "x")
+  /// const f: File = await open(path)   // `open` makes Files
+  /// println(f.path == path)            // true
+  /// await f.close()
+  /// await remove(path)
+  /// ```
   constructor(fd: int, path: string) {
     this.fd = fd
     this.path = path
@@ -204,6 +464,22 @@ export class File implements AsyncDisposable {
   }
 
   /// Up to `n` bytes from the current position; `null` at the end of the file.
+  ///
+  /// @example
+  /// ```ts
+  /// import { open, writeText, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-read-example.txt")
+  /// await writeText(path, "abcdef")
+  /// const f = await open(path)
+  /// println((await f.read(4))?.length)   // 4
+  /// println((await f.read(4))?.length)   // 2
+  /// println(await f.read(4))             // null
+  /// await f.close()
+  /// await remove(path)
+  /// ```
   public read(n: int): Promise<Uint8Array?, IoError> {
     check()
     __job<Uint8Array?>(11, fd, n, 0, "", "", path, (res: __IoResult) => {
@@ -217,6 +493,20 @@ export class File implements AsyncDisposable {
   }
 
   /// Writes all of `data` at the current position; the count written.
+  ///
+  /// @example
+  /// ```ts
+  /// import { open, readText, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-write-example.txt")
+  /// const f = await open(path, write: true, create: true, truncate: true)
+  /// println(await f.write(new TextEncoder().encode("written")))   // 7
+  /// await f.close()
+  /// println(await readText(path))   // written
+  /// await remove(path)
+  /// ```
   public write(data: Uint8Array): Promise<int, IoError> {
     check()
     const buf = __bytesOf(data)
@@ -224,12 +514,44 @@ export class File implements AsyncDisposable {
   }
 
   /// Moves to byte `position` (from the start); the new position.
+  ///
+  /// @example
+  /// ```ts
+  /// import { open, writeText, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-seek-example.txt")
+  /// await writeText(path, "0123456789")
+  /// const f = await open(path)
+  /// println(await f.seek(7))   // 7
+  /// const rest = await f.read(10)
+  /// if (rest != null) {
+  ///   println(new TextDecoder().decode(rest))   // 789
+  /// }
+  /// await f.close()
+  /// await remove(path)
+  /// ```
   public seek(position: int): Promise<int, IoError> {
     check()
     __job<int>(14, fd, position, 0, "", "", path, (res: __IoResult) => res.r)
   }
 
   /// Closes the file (twice is fine: the second call resolves at once). Using it afterwards panics.
+  ///
+  /// @example
+  /// ```ts
+  /// import { open, writeText, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-close-example.txt")
+  /// await writeText(path, "x")
+  /// const f = await open(path)
+  /// await f.close()
+  /// await f.close()   // twice is fine
+  /// await remove(path)
+  /// ```
   public close(): Promise<void, IoError> {
     if (closed) {
       const done = new Promise<void, IoError>()
@@ -241,6 +563,21 @@ export class File implements AsyncDisposable {
   }
 
   /// `await using`: closes the file, ignoring a failure.
+  ///
+  /// @example
+  /// ```ts
+  /// import { open, writeText, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-using-example.txt")
+  /// await writeText(path, "auto-closed")
+  /// {
+  ///   await using f = await open(path)
+  ///   println((await f.read(100))?.length)   // 11
+  /// }   // f.disposeAsync() closes it here
+  /// await remove(path)
+  /// ```
   public async disposeAsync(): Promise<void> {
     try {
       await close()
@@ -251,6 +588,20 @@ export class File implements AsyncDisposable {
 /// Opens a file: for reading by default; `write: true` to write (with `create` to create it,
 /// `truncate` to empty it, `append` to write at its end, `createNew` to require that it
 /// doesn't exist).
+///
+/// @example
+/// ```ts
+/// import { open, readText, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), "open-example.log")
+/// const f = await open(path, write: true, create: true, append: true)
+/// await f.write(new TextEncoder().encode("one line\n"))
+/// await f.close()
+/// print(await readText(path))   // one line
+/// await remove(path)
+/// ```
 export function open(path: string, read: bool = true, write: bool = false, append: bool = false,
   create: bool = false, truncate: bool = false, createNew: bool = false): Promise<File, IoError> {
   let flags = 0
@@ -269,6 +620,25 @@ const __sep = comptime if (target.os == "windows") "\\" else "/"
 /// A change `watch` saw: `kind` is `"create"`, `"modify"` (a file's size or modification time
 /// changed) or `"remove"`; `path` is the watched path joined with the changed entry's path
 /// (the watched path itself when watching a file). A rename is a remove and a create.
+///
+/// @example
+/// ```ts
+/// import { watch, writeText, remove, mkdir, WatchEvent } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const dir = join(tmpDir(), "watch-event-example")
+/// await mkdir(dir, recursive: true)
+/// const w = await watch(dir)
+/// await writeText(join(dir, "new.txt"), "hi")
+/// const e: WatchEvent? = await w.next()
+/// if (e != null) {
+///   println(e.kind)                                // create
+///   println(e.path == join(dir, "new.txt"))        // true
+/// }
+/// w.close()
+/// await remove(dir, recursive: true)
+/// ```
 export struct WatchEvent {
   /// `"create"`, `"modify"` or `"remove"`.
   kind: string
@@ -281,6 +651,23 @@ export struct WatchEvent {
 /// iterator of `WatchEvent`s, ended by `close()` (or `using`). Changes made while nobody
 /// waits for an event are compared as a whole when the next one is asked for, so a file
 /// created and changed in between is one `create`, and one created and removed is nothing.
+///
+/// @example
+/// ```ts
+/// import { watch, writeText, remove, mkdir } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const dir = join(tmpDir(), "watcher-example")
+/// await mkdir(dir, recursive: true)
+/// const w = await watch(dir)
+/// await writeText(join(dir, "a.txt"), "1")
+/// for await (const e of w) {
+///   println(`${e.kind} a.txt`)   // create a.txt
+///   w.close()                    // ends the loop
+/// }
+/// await remove(dir, recursive: true)
+/// ```
 export class Watcher implements Disposable {
   id: int
   /// The path being watched, as given to `watch`.
@@ -294,12 +681,43 @@ export class Watcher implements Disposable {
   closed: bool = false
 
   /// Wraps the runtime's watch `id`; `watch` makes these.
+  ///
+  /// @example
+  /// ```ts
+  /// import { watch, Watcher, mkdir, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const dir = join(tmpDir(), "watcher-ctor-example")
+  /// await mkdir(dir, recursive: true)
+  /// const w: Watcher = await watch(dir)   // `watch` makes Watchers
+  /// println(w.path == dir)                // true
+  /// w.close()
+  /// await remove(dir, recursive: true)
+  /// ```
   constructor(id: int, path: string) {
     this.id = id
     this.path = path
   }
 
   /// The next change (waiting for one), or `null` once the watcher is closed.
+  ///
+  /// @example
+  /// ```ts
+  /// import { watch, writeText, remove, mkdir } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const dir = join(tmpDir(), "watcher-next-example")
+  /// await mkdir(dir, recursive: true)
+  /// const w = await watch(dir)
+  /// const next = w.next()
+  /// await writeText(join(dir, "f.txt"), "x")
+  /// println((await next)?.kind)   // create
+  /// w.close()
+  /// println(await w.next() == null)   // true: closed
+  /// await remove(dir, recursive: true)
+  /// ```
   public next(): Promise<WatchEvent?> {
     const p = new Promise<WatchEvent?>()
     requests.push(p)
@@ -308,11 +726,43 @@ export class Watcher implements Disposable {
   }
 
   /// `for await` uses the watcher itself.
+  ///
+  /// @example
+  /// ```ts
+  /// import { watch, writeText, remove, mkdir } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const dir = join(tmpDir(), "watcher-iter-example")
+  /// await mkdir(dir, recursive: true)
+  /// const w = await watch(dir)
+  /// await writeText(join(dir, "f.txt"), "x")
+  /// for await (const e of w.asyncIterator()) {
+  ///   println(e.kind)   // create
+  ///   w.close()
+  /// }
+  /// await remove(dir, recursive: true)
+  /// ```
   public asyncIterator(): Watcher {
     this
   }
 
   /// Stops watching: waiting and later `next()` calls get `null`. Twice is fine.
+  ///
+  /// @example
+  /// ```ts
+  /// import { watch, mkdir, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const dir = join(tmpDir(), "watcher-close-example")
+  /// await mkdir(dir, recursive: true)
+  /// const w = await watch(dir)
+  /// const pending = w.next()
+  /// w.close()
+  /// println(await pending == null)   // true
+  /// await remove(dir, recursive: true)
+  /// ```
   public close(): void {
     if (closed) {
       return
@@ -323,6 +773,21 @@ export class Watcher implements Disposable {
   }
 
   /// `using`: the same as `close()`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { watch, mkdir, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const dir = join(tmpDir(), "watcher-using-example")
+  /// await mkdir(dir, recursive: true)
+  /// {
+  ///   using w = await watch(dir)
+  ///   println(w.path == dir)   // true
+  /// }   // w.dispose() stops watching here
+  /// await remove(dir, recursive: true)
+  /// ```
   public dispose(): void {
     close()
   }
@@ -372,12 +837,45 @@ export class Watcher implements Disposable {
 }
 
 /// Starts watching `path` (see `Watcher`); rejects if it can't be looked at.
+///
+/// @example
+/// ```ts
+/// import { watch, writeText, remove, mkdir } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const dir = join(tmpDir(), "watch-example")
+/// await mkdir(join(dir, "src"), recursive: true)
+/// const w = await watch(dir, recursive: true)
+/// await writeText(join(dir, "src", "main.pi"), "println(1)")
+/// const e = await w.next()
+/// println(e?.kind)   // create
+/// w.close()
+/// await remove(dir, recursive: true)
+/// ```
 export function watch(path: string, recursive: bool = true): Promise<Watcher, IoError> {
   __job<Watcher>(15, if (recursive) 1 else 0, 0, 0, path, "", path, (res: __IoResult) => new Watcher(res.r, path))
 }
 
 /// A file read as a `ByteStream` (`std/streams`), `chunkSize` bytes at a time: a recording for
 /// protocol code to replay. Writes are discarded, so that code can still answer.
+///
+/// @example
+/// ```ts
+/// import { FileStream, writeBytes, remove } from "std/fs"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), "file-stream-example.bin")
+/// await writeBytes(path, Uint8Array.from([1, 2, 3, 4, 5]))
+/// const stream = new FileStream(path, chunkSize: 2)
+/// let chunk = await stream.read()
+/// while (chunk != null) {
+///   println(chunk.length)   // 2, 2, then 1
+///   chunk = await stream.read()
+/// }
+/// await remove(path)
+/// ```
 export class FileStream implements ByteStream {
   /// The file's path.
   public readonly path: string
@@ -385,11 +883,41 @@ export class FileStream implements ByteStream {
   file: File? = null
   ended: bool = false
 
+  /// @example
+  /// ```ts
+  /// import { FileStream, writeText, remove } from "std/fs"
+  /// import { ByteStream } from "std/streams"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-stream-ctor-example.bin")
+  /// await writeText(path, "recorded")
+  /// const replay: ByteStream = new FileStream(path)
+  /// println((await replay.read())?.length)   // 8
+  /// replay.close()
+  /// await remove(path)
+  /// ```
   constructor(path: string, chunkSize: int = 65536) {
     this.path = path
     this.chunkSize = chunkSize
   }
 
+  /// @example
+  /// ```ts
+  /// import { FileStream, writeText, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-stream-read-example.txt")
+  /// await writeText(path, "abc")
+  /// const stream = new FileStream(path)
+  /// const bytes = await stream.read()
+  /// if (bytes != null) {
+  ///   println(new TextDecoder().decode(bytes))   // abc
+  /// }
+  /// println(await stream.read())   // null: the end
+  /// await remove(path)
+  /// ```
   public async read(): Promise<Uint8Array?> throws Error {
     if (ended) {
       return null
@@ -405,9 +933,38 @@ export class FileStream implements ByteStream {
   }
 
   /// Discards `bytes`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FileStream, writeText, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-stream-write-example.txt")
+  /// await writeText(path, "data")
+  /// const stream = new FileStream(path)
+  /// await stream.write(Uint8Array.from([1, 2]))   // discarded: the file is unchanged
+  /// println((await stream.read())?.length)          // 4
+  /// stream.close()
+  /// await remove(path)
+  /// ```
   public async write(bytes: Uint8Array): Promise<void> throws Error {}
 
   /// Stops reading (and closes the file).
+  ///
+  /// @example
+  /// ```ts
+  /// import { FileStream, writeText, remove } from "std/fs"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-stream-close-example.txt")
+  /// await writeText(path, "data")
+  /// const stream = new FileStream(path)
+  /// stream.close()
+  /// println(await stream.read())   // null
+  /// await remove(path)
+  /// ```
   public close(): void {
     ended = true
     const f = file

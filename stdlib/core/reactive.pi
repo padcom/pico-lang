@@ -346,6 +346,19 @@ function __pruneObjects(r: __Reactivity): void {
 
 /// A reactive cell (spec §16.1): what a `reactive` declaration holds and `computed` returns.
 /// Reads and writes of a reactive binding go through `__get` and `__set`.
+///
+/// @example
+/// ```ts
+/// function increment(c: Reactive<int>): void {
+///   c += 1
+/// }
+///
+/// reactive count = 1
+/// increment(count)        // passes the cell, not the value
+/// println(count)          // 2
+/// const doubled: Reactive<int> = computed(() => count * 2)
+/// println(doubled)        // 4
+/// ```
 class Reactive<T> {
   // The state is private, so a cell's internals aren't reachable from user code (#18): the
   // module's functions make cells through `__of` and `__computedOf`.
@@ -357,6 +370,14 @@ class Reactive<T> {
   setter: ((v: T) => void)? = null
   obs: __Observer? = null
 
+  /// @example
+  /// ```ts
+  /// // Cells come from `reactive` declarations and `computed`, not from this constructor.
+  /// reactive score = 10
+  /// const cell: Reactive<int> = score
+  /// cell = 20
+  /// println(score)   // 20
+  /// ```
   constructor() {}
 
   /// A cell holding `v`.
@@ -478,11 +499,32 @@ function __computed<T>(getter: () => T, setter: ((v: T) => void)?): Reactive<T> 
 
 /// A value computed from reactive state (spec §16.3): `getter` runs when the value is read and
 /// something it read changed since; otherwise the cached value is returned. Read-only.
+///
+/// @example
+/// ```ts
+/// reactive first = "Ada"
+/// reactive last = "Lovelace"
+/// const full = computed(() => `${first} ${last}`)
+/// println(full)   // Ada Lovelace
+/// last = "Byron"
+/// println(full)   // Ada Byron
+/// ```
 function computed<T>(getter: () => T): Reactive<T> {
   __computed(getter, null)
 }
 
 /// What `computed({ get, set })` takes: a getter and a setter (spec §16.3).
+///
+/// @example
+/// ```ts
+/// reactive celsius = 20.0
+/// const fahrenheit = computed(ComputedOptions<f64> {
+///   get: () => celsius * 9.0 / 5.0 + 32.0,
+///   set: (f: f64) => { celsius = (f - 32.0) * 5.0 / 9.0 },
+/// })
+/// fahrenheit = 212.0
+/// println(celsius)   // 100
+/// ```
 struct ComputedOptions<T> {
   /// Computes the value from reactive state.
   get: () => T
@@ -491,19 +533,61 @@ struct ComputedOptions<T> {
 }
 
 /// A computed value that can be written: writing it calls `options.set` (spec §16.3).
+///
+/// @example
+/// ```ts
+/// reactive first = "Ada"
+/// reactive last = "Lovelace"
+/// const name = computed({
+///   get: () => `${first} ${last}`,
+///   set: (v: string) => {
+///     const parts = v.split(" ")
+///     first = parts[0]
+///     last = parts[1]
+///   },
+/// })
+/// name = "Grace Hopper"
+/// println(first)   // Grace
+/// println(name)    // Grace Hopper
+/// ```
 function computed<T>(options: ComputedOptions<T>): Reactive<T> {
   __computed(options.get, options.set)
 }
 
 /// Stops an effect (spec §16.4).
+///
+/// @example
+/// ```ts
+/// reactive count = 0
+/// const handle = watchEffect(() => println(`count is ${count}`))   // count is 0
+/// count = 1          // count is 1
+/// handle.dispose()
+/// count = 2          // prints nothing
+/// ```
 class WatchHandle implements Disposable {
   obs: __Observer
 
+  /// @example
+  /// ```ts
+  /// reactive n = 0
+  /// const handle: WatchHandle = watchEffect(() => println(n))   // 0
+  /// handle.dispose()
+  /// ```
   constructor(obs: __Observer) {
     this.obs = obs
   }
 
   /// Stops the effect; disposing it again does nothing.
+  ///
+  /// @example
+  /// ```ts
+  /// reactive n = 0
+  /// const h = watchEffect(() => println(`n = ${n}`))   // n = 0
+  /// n = 1              // n = 1
+  /// h.dispose()
+  /// h.dispose()        // does nothing
+  /// n = 2              // prints nothing
+  /// ```
   public dispose(): void {
     __dispose(this.obs)
   }
@@ -511,6 +595,14 @@ class WatchHandle implements Disposable {
 
 /// Runs `fn` now, and again (synchronously) after every change of the reactive state it read
 /// (spec §16.4).
+///
+/// @example
+/// ```ts
+/// reactive price = 10
+/// reactive qty = 2
+/// watchEffect(() => println(`total: ${price * qty}`))   // total: 20
+/// qty = 3                                               // total: 30
+/// ```
 function watchEffect(fn: () => void): WatchHandle {
   const o = __observer(0, fn)
   const h = new WatchHandle(o)
@@ -521,14 +613,41 @@ function watchEffect(fn: () => void): WatchHandle {
 }
 
 /// The effects and computeds created while a function ran, stopped together (spec §16.7).
+///
+/// @example
+/// ```ts
+/// reactive count = 0
+/// const scope = effectScope(() => {
+///   watchEffect(() => println(`seen ${count}`))   // seen 0
+/// })
+/// count = 1          // seen 1
+/// scope.dispose()
+/// count = 2          // prints nothing
+/// ```
 class EffectScope implements Disposable {
   public observers: __Observer[] = []
   public children: EffectScope[] = []
   disposed: bool = false
 
+  /// @example
+  /// ```ts
+  /// const scope = new EffectScope()
+  /// scope.dispose()   // an empty scope: nothing to stop
+  /// ```
   constructor() {}
 
   /// Stops every effect and computed of the scope, and of the scopes created in it.
+  ///
+  /// @example
+  /// ```ts
+  /// reactive x = 1
+  /// const scope = effectScope(() => {
+  ///   watchEffect(() => println(`a: ${x}`))   // a: 1
+  ///   watchEffect(() => println(`b: ${x}`))   // b: 1
+  /// })
+  /// scope.dispose()   // stops both
+  /// x = 2             // prints nothing
+  /// ```
   public dispose(): void {
     if (this.disposed) {
       return
@@ -545,6 +664,19 @@ class EffectScope implements Disposable {
 
 /// Runs `fn` now; the effects, computeds and effect scopes it creates belong to the returned
 /// scope (spec §16.7).
+///
+/// @example
+/// ```ts
+/// reactive level = 1
+/// function track(): void {
+///   using s = effectScope(() => {
+///     watchEffect(() => println(`level ${level}`))   // level 1
+///   })
+///   level = 2   // level 2
+/// }
+/// track()
+/// level = 3     // prints nothing: the scope ended with the block
+/// ```
 function effectScope(fn: () => void): EffectScope {
   const r = __theReactivity()
   const s = new EffectScope()

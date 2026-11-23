@@ -8,6 +8,14 @@
 // half to even on the exact binary value; precisions up to 20).
 
 /// A parsed format spec.
+///
+/// @example
+/// ```ts
+/// import { FormatSpec } from "std/fmt"
+///
+/// const spec = FormatSpec.parse("*^10.2f")
+/// if (spec != null) println(`${spec.fill} ${spec.align} ${spec.width} ${spec.precision} ${spec.kind}`)   // * ^ 10 2 f
+/// ```
 export class FormatSpec {
   /// The padding character (a space by default).
   public fill: string = " "
@@ -27,9 +35,27 @@ export class FormatSpec {
   public kind: string = ""
 
   /// An empty spec (as `FormatSpec.parse("")`): no width, default alignment and sign.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FormatSpec } from "std/fmt"
+  ///
+  /// const spec = new FormatSpec()
+  /// spec.width = 6
+  /// println(`[${spec.pad("ab", false)}]`)   // [ab    ]
+  /// ```
   constructor() {}
 
   /// The spec, or `null` when `spec` doesn't follow the grammar.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FormatSpec } from "std/fmt"
+  ///
+  /// const spec = FormatSpec.parse("+08.3f")
+  /// if (spec != null) println(`${spec.sign} ${spec.zero} ${spec.width} ${spec.precision}`)   // + true 8 3
+  /// println(FormatSpec.parse("10.2z") == null)                                               // true
+  /// ```
   public static parse(spec: string): FormatSpec? {
     const f = new FormatSpec()
     const cs: string[] = []
@@ -81,6 +107,17 @@ export class FormatSpec {
 
   /// Pads `text` to the width: `numeric` text aligns right by default and takes `0` padding
   /// after its sign and `prefix` (the sign and prefix are already in `text`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { FormatSpec } from "std/fmt"
+  ///
+  /// const spec = new FormatSpec()
+  /// spec.width = 6
+  /// println(`[${spec.pad("42", true)}]`)       // [    42]
+  /// spec.zero = true
+  /// println(`[${spec.pad("-42", true, 1)}]`)   // [-00042]
+  /// ```
   public pad(text: string, numeric: bool, prefixLen: int = 0): string {
     const n = text.length
     if (this.width <= n) return text
@@ -120,6 +157,15 @@ function __radix(n: int, radix: int, upper: bool): string {
 }
 
 /// An integer formatted with `spec` (`d x X o b`, or a float type: `e E f %`).
+///
+/// @example
+/// ```ts
+/// import { formatInt } from "std/fmt"
+///
+/// println(formatInt(255, "#06x"))   // 0x00ff
+/// println(formatInt(5, "08b"))      // 00000101
+/// println(formatInt(42, "+"))       // +42
+/// ```
 export function formatInt(n: int, spec: string = ""): string {
   const f = __spec(spec)
   if (f.kind == "e" || f.kind == "E" || f.kind == "f" || f.kind == "%") {
@@ -216,6 +262,15 @@ function __percent(x: number, p: int): string {
 }
 
 /// A number formatted with `spec` (`e E f %`, or none: the shortest round-trip form).
+///
+/// @example
+/// ```ts
+/// import { formatNumber } from "std/fmt"
+///
+/// println(formatNumber(3.14159, ".2f"))   // 3.14
+/// println(formatNumber(0.256, ".1%"))     // 25.6%
+/// println(formatNumber(1234.5, ".1e"))    // 1.2e3
+/// ```
 export function formatNumber(x: number, spec: string = ""): string {
   const f = __spec(spec)
   if (f.kind == "d" || f.kind == "x" || f.kind == "X" || f.kind == "o" || f.kind == "b") {
@@ -242,6 +297,15 @@ export function formatNumber(x: number, spec: string = ""): string {
 }
 
 /// A string formatted with `spec` (a precision truncates; `?` quotes it).
+///
+/// @example
+/// ```ts
+/// import { formatString } from "std/fmt"
+///
+/// println(`[${formatString("pico", "^8")}]`)    // [  pico  ]
+/// println(formatString("hello world", ".5"))    // hello
+/// println(formatString("hi", "?"))              // "hi"
+/// ```
 export function formatString(s: string, spec: string = ""): string {
   const f = __spec(spec)
   if (f.kind == "?") return f.pad(`${s:?}`, false)
@@ -252,11 +316,27 @@ export function formatString(s: string, spec: string = ""): string {
 
 /// `true` or `false` formatted with `spec`, as a string (`formatString`): `formatBool(ok, ">6")` →
 /// `  true`.
+///
+/// @example
+/// ```ts
+/// import { formatBool } from "std/fmt"
+///
+/// println(`[${formatBool(true, ">6")}]`)   // [  true]
+/// ```
 export function formatBool(b: bool, spec: string = ""): string {
   formatString(if (b) "true" else "false", spec)
 }
 
 /// `text` padded to `width` code points: `align` `<` (left, the default), `>` or `^`.
+///
+/// @example
+/// ```ts
+/// import { pad } from "std/fmt"
+///
+/// println(`[${pad("ab", 5)}]`)             // [ab   ]
+/// println(`[${pad("ab", 5, ">")}]`)        // [   ab]
+/// println(`[${pad("ab", 6, "^", "*")}]`)   // [**ab**]
+/// ```
 export function pad(text: string, width: int, align: string = "<", fill: string = " "): string {
   const f = new FormatSpec()
   f.width = width
@@ -266,6 +346,14 @@ export function pad(text: string, width: int, align: string = "<", fill: string 
 }
 
 /// The integer part's digits of a number's text in groups (`1234567.5` → `1,234,567.5`).
+///
+/// @example
+/// ```ts
+/// import { groupDigits } from "std/fmt"
+///
+/// println(groupDigits("1234567.5"))        // 1,234,567.5
+/// println(groupDigits("-9876543", " "))    // -9 876 543
+/// ```
 export function groupDigits(text: string, separator: string = ",", size: int = 3): string {
   let start = 0
   while (start < text.length && !(text[start] >= '0' && text[start] <= '9')) start += 1
@@ -287,12 +375,33 @@ export function groupDigits(text: string, separator: string = ",", size: int = 3
 /// `text` wrapped at spaces to lines of at most `width` code points (decision 344): its own line
 /// breaks are kept, a line's leading spaces stay, the spaces where a line is broken and at its
 /// end go, and a word longer than `width` stays whole on its own line.
+///
+/// @example
+/// ```ts
+/// import { wrap } from "std/fmt"
+///
+/// println(wrap("the quick brown fox jumps over the lazy dog", 15))
+/// // the quick brown
+/// // fox jumps over
+/// // the lazy dog
+/// ```
 export function wrap(text: string, width: int): string {
   wrap(text, width, (s: string) => s.length)
 }
 
 /// `wrap` measuring each piece with `measure`: `wrap(text, 60, displayWidth)` (`std/term`) for
 /// text with colours or wide characters.
+///
+/// @example
+/// ```ts
+/// import { wrap } from "std/fmt"
+/// import { displayWidth } from "std/term"
+///
+/// // Each of these characters takes two columns.
+/// println(wrap("日本語 の テキスト", 10, displayWidth))
+/// // 日本語 の
+/// // テキスト
+/// ```
 export function wrap(text: string, width: int, measure: (s: string) => int): string {
   const wrapped: string[] = []
   for (const line of text.replaceAll("\r\n", "\n").split("\n")) {

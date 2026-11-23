@@ -5,6 +5,13 @@
 /// `text` without terminal escape codes: control sequences (`ESC [ … m` colours and styles,
 /// cursor movement), operating-system commands (`ESC ] … BEL`, as for hyperlinks) and other
 /// two-character escapes. A sequence that doesn't end is kept as it is.
+///
+/// @example
+/// ```ts
+/// import { stripAnsi } from "std/term"
+///
+/// println(stripAnsi("\u{1b}[1;31merror\u{1b}[0m: not found"))   // error: not found
+/// ```
 export function stripAnsi(text: string): string {
   if (!text.includes("\u{1b}")) return text
   const cs: char[] = []
@@ -51,6 +58,15 @@ function escapeEnd(cs: char[], i: int): int {
 /// How many terminal columns `text` takes: its escape codes take none (see `stripAnsi`), nor do
 /// control characters, combining marks and zero-width characters; East Asian wide and full-width
 /// characters and most emoji take two, everything else one. For one line of text.
+///
+/// @example
+/// ```ts
+/// import { displayWidth } from "std/term"
+///
+/// println(displayWidth("hello"))                   // 5
+/// println(displayWidth("\u{1b}[32mok\u{1b}[0m"))   // 2
+/// println(displayWidth("日本語"))                  // 6
+/// ```
 export function displayWidth(text: string): int {
   let n = 0
   for (const c of stripAnsi(text)) n += charWidth((c as u32) as int)

@@ -5,11 +5,14 @@
 //! from Markdown, then the public members of types. The core library's methods of built-in
 //! types (`__Array_map(xs, f)`) are pages of their own (`Array`, with `map(f)`). Type names in
 //! signatures link to their declarations. `pico doc --std` documents the standard and core
-//! libraries; `pico doc` the current project's package (its `index.pi`).
+//! libraries; `pico doc` the current project's package (its `index.pi`). A doc comment's
+//! `@example`s (decision 348) are shown after its description; `--json` writes the whole
+//! reference as data instead (the website's reference page is made from it).
 
 use pico_diag::FileId;
 use pico_syntax::ast::{self, DeclKind, MemberKind, StmtKind, Visibility};
-use pico_syntax::docs::doc_comment;
+use pico_syntax::docs::{Example, doc_comment, split_examples};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -24,16 +27,22 @@ struct Item {
     signature: String,
     docs: String,
     members: Vec<Item>,
+    /// Where it's declared: the file (relative to the standard library, for it) and the line
+    /// (1-based; `0` for what the compiler implements).
+    file: String,
+    line: u32,
 }
 
 /// A page: a module (`std/path`), the core library, or a built-in type's methods.
 struct Page {
     title: String,
     file: String,
+    /// The module's header comment (the `//` lines it starts with), as Markdown.
+    about: String,
     items: Vec<Item>,
 }
 
-pub fn run(std: bool, out: Option<&Path>) -> ExitCode {
+pub fn run(std: bool, out: Option<&Path>, json: Option<&Path>) -> ExitCode {
     let pages = if std {
         std_pages()
     } else {
@@ -45,6 +54,24 @@ pub fn run(std: bool, out: Option<&Path>) -> ExitCode {
             }
         }
     };
+    if let Some(file) = json {
+        let n: usize = pages.iter().map(|p| p.items.len()).sum();
+        let text = serde_json::to_string_pretty(&reference_json(&pages)).unwrap_or_default();
+        return match std::fs::write(file, text + "\n") {
+            Ok(()) => {
+                println!(
+                    "documented {n} declarations in {} pages: {}",
+                    pages.len(),
+                    file.display()
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: cannot write {}: {e}", file.display());
+                ExitCode::FAILURE
+            }
+        };
+    }
     let out = out
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("target/doc"));
@@ -105,11 +132,15 @@ fn std_pages() -> Vec<Page> {
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        let items = module_items(&f, Exports::Exported, &core_by_name, &mut renames);
-        if !items.is_empty() {
+        let mut items = module_items(&f, Exports::Exported, &core_by_name, &mut renames);
+        // (`__` names a module exports are for generated code: `std/js`'s `__jsCallback`.)
+        items.retain(|i| !i.name.starts_with("__"));
+        // (`std/greeting` is there for the toolchain's own tests.)
+        if !items.is_empty() && stem != "greeting" {
             pages.push(Page {
                 title: format!("std/{stem}"),
                 file: format!("std-{stem}.html"),
+                about: module_header(&f),
                 items,
             });
         }
@@ -146,6 +177,8 @@ fn std_pages() -> Vec<Page> {
             signature: sig,
             docs: docs.to_string(),
             members: Vec::new(),
+            file: String::new(),
+            line: 0,
         });
     }
     // The functions the compiler implements (`println`, …).
@@ -156,6 +189,8 @@ fn std_pages() -> Vec<Page> {
             signature: sig.to_string(),
             docs: docs.to_string(),
             members: Vec::new(),
+            file: String::new(),
+            line: 0,
         });
     }
     core.sort_by(|a, b| a.name.cmp(&b.name));
@@ -164,6 +199,7 @@ fn std_pages() -> Vec<Page> {
         Page {
             title: "core".into(),
             file: "core.html".into(),
+            about: "The core library: what every module has without an import.".into(),
             items: core,
         },
     );
@@ -174,6 +210,7 @@ fn std_pages() -> Vec<Page> {
             Page {
                 title: ty.clone(),
                 file: format!("type-{ty}.html"),
+                about: format!("The methods and properties of the built-in `{ty}` type."),
                 items,
             },
         );
@@ -234,6 +271,7 @@ fn project_pages() -> Result<Vec<Page>, String> {
     Ok(vec![Page {
         title: m.label(),
         file: "index-api.html".into(),
+        about: module_header(&index),
         items: module_items(
             &index,
             Exports::Exported,
@@ -352,9 +390,10 @@ fn read_module_items(
             }
             continue;
         }
-        let Some(item) = decl_item(&text, d) else {
+        let Some(mut item) = decl_item(&text, d) else {
             continue;
         };
+        set_file(&mut item, &source_name(path));
         if which == Exports::Core || d.exported {
             out.push(item);
         } else {
@@ -376,6 +415,33 @@ fn read_module_items(
         out.push(item);
     }
     out
+}
+
+/// The 1-based line of byte `offset`.
+fn line_at(text: &str, offset: u32) -> u32 {
+    pico_syntax::docs::line_of(text, offset) as u32 + 1
+}
+
+/// How a source file is named in the reference: relative to the standard library (`core/map.pi`),
+/// else its file name.
+fn source_name(path: &Path) -> String {
+    let std = pico_driver::stdlib_dir();
+    let std = std.canonicalize().unwrap_or(std);
+    let p = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    match p.strip_prefix(&std) {
+        Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+        Err(_) => p
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    }
+}
+
+fn set_file(item: &mut Item, file: &str) {
+    item.file = file.to_string();
+    for m in &mut item.members {
+        set_file(m, file);
+    }
 }
 
 fn slice(text: &str, start: u32, end: u32) -> &str {
@@ -473,6 +539,8 @@ fn decl_item(text: &str, d: &ast::Decl) -> Option<Item> {
         signature: sig,
         docs,
         members,
+        file: String::new(),
+        line: line_at(text, d.span.start),
     })
 }
 
@@ -516,6 +584,8 @@ fn parameter_properties(text: &str, m: &ast::Member, vis: Vis) -> Vec<Item> {
                 signature: sig.trim_end_matches('=').trim().to_string(),
                 docs: doc_comment(text, p.span.start),
                 members: Vec::new(),
+                file: String::new(),
+                line: line_at(text, p.span.start),
             })
         })
         .collect()
@@ -568,6 +638,8 @@ fn member_item(text: &str, m: &ast::Member, vis: Vis) -> Option<Item> {
         signature: sig,
         docs: doc_comment(text, m.span.start),
         members: Vec::new(),
+        file: String::new(),
+        line: line_at(text, m.span.start),
     })
 }
 
@@ -601,6 +673,8 @@ fn builtin_method(item: &Item) -> Option<(String, Item)> {
             signature: sig,
             docs: item.docs.clone(),
             members: Vec::new(),
+            file: item.file.clone(),
+            line: item.line,
         },
     ))
 }
@@ -619,6 +693,72 @@ fn first_param_end(sig: &str) -> Option<usize> {
         }
     }
     None
+}
+
+/// The comment a module starts with (its `//` lines before anything else), as Markdown.
+fn module_header(path: &Path) -> String {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim_start)
+        .take_while(|l| l.starts_with("//") && !l.starts_with("///"))
+        .map(|l| {
+            let l = l.trim_start_matches("//");
+            l.strip_prefix(' ').unwrap_or(l)
+        })
+        .collect();
+    lines.join("\n").trim().to_string()
+}
+
+// ---------------------------------------------------------------- JSON
+
+/// The reference as data: each page (`name`, `id`, `about` as HTML), its items (`name`,
+/// `kind`, `signature`, `doc` as HTML, `examples`, `source` as `file:line`, `members`), and where each type is
+/// documented (`types`: name → `id#name`), for linking signatures.
+fn reference_json(pages: &[Page]) -> Value {
+    let id = |p: &Page| p.file.trim_end_matches(".html").to_string();
+    let mut types = serde_json::Map::new();
+    for p in pages {
+        for i in &p.items {
+            if matches!(i.kind, "class" | "struct" | "interface" | "enum" | "type") {
+                types
+                    .entry(i.name.clone())
+                    .or_insert(json!(format!("{}#{}", id(p), i.name)));
+            }
+        }
+        if p.file.starts_with("type-") {
+            types.entry(p.title.clone()).or_insert(json!(id(p)));
+        }
+    }
+    let modules: Vec<Value> = pages
+        .iter()
+        .map(|p| {
+            json!({
+                "name": p.title,
+                "id": id(p),
+                "about": markdown(&p.about),
+                "items": p.items.iter().map(item_json).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({ "version": env!("CARGO_PKG_VERSION"), "types": types, "modules": modules })
+}
+
+fn item_json(i: &Item) -> Value {
+    let (docs, examples) = split_examples(&i.docs);
+    let examples: Vec<Value> = examples
+        .iter()
+        .map(|Example { caption, code }| json!({ "caption": caption, "code": code }))
+        .collect();
+    json!({
+        "name": i.name,
+        "kind": i.kind,
+        "signature": i.signature,
+        "doc": markdown(&docs),
+        "examples": examples,
+        "source": if i.line == 0 { Value::Null } else { json!(format!("{}:{}", i.file, i.line)) },
+        "members": i.members.iter().map(item_json).collect::<Vec<_>>(),
+    })
 }
 
 // ---------------------------------------------------------------- HTML
@@ -680,6 +820,8 @@ p code, li code { background: var(--code); padding: 1px 4px; border-radius: 4px;
 .members { margin-left: 18px; padding-left: 14px; border-left: 2px solid var(--line); }
 .members h3 { font-size: 15px; margin: 18px 0 6px; }
 ul.toc { columns: 2; padding-left: 18px; } .none { color: var(--muted); }
+p.example { font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+pre.example { background: var(--code); padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 0 0 8px; }
 "#;
 
 fn page_html(title: &str, back: bool, body: &str) -> String {
@@ -741,10 +883,23 @@ fn item_html(out: &mut String, i: &Item, links: &BTreeMap<String, String>, h: &s
         k = i.kind,
         s = linked(&i.signature, links, &i.name)
     );
-    if i.docs.is_empty() {
+    let (docs, examples) = split_examples(&i.docs);
+    if docs.is_empty() {
         out.push_str("<p class=\"none\">No description.</p>\n");
     } else {
-        out.push_str(&markdown(&i.docs));
+        out.push_str(&markdown(&docs));
+    }
+    for e in &examples {
+        let caption = if e.caption.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", esc(&e.caption))
+        };
+        let _ = writeln!(
+            out,
+            "<p class=\"example\">Example{caption}</p>\n<pre class=\"example\">{}</pre>",
+            esc(&e.code)
+        );
     }
     if !i.members.is_empty() {
         out.push_str("<div class=\"members\">\n");

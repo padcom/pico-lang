@@ -80,6 +80,48 @@ clang --version        # Homebrew clang version 23.1.3
 A throwaway crate depending on `inkwell = { version = "0.11", features = ["llvm23-1"] }` builds,
 links against libLLVM and prints module IR (checked during P1.1).
 
+## Standard library examples
+
+Every function, method, constructor and type in `stdlib/` has a usage example in its doc comment
+(decision 348). The website's reference (`website/reference.html`) is made from them.
+
+```ts
+/// The parts joined with the separator, normalized.
+///
+/// @example
+/// ```ts
+/// import { join } from "std/path"
+///
+/// println(join("src", "lib", "main.pi"))   // src/lib/main.pi
+/// ```
+export function join(...parts: string[]): string {
+```
+
+- An example is a whole program: its imports (none for the core library), then a few lines that
+  show the common use. Values come from the example itself, not from undeclared variables.
+- Say what it prints in a `// …` comment at the end of the line. Check it: the examples run with
+  `PICO_DOC_EXAMPLES_RUN=1` (below).
+- Use the documented member itself, called the way a user would (`xs.map(…)`, not
+  `__Array_map(xs, …)`); a member's example may build its object first.
+- Examples that touch the outside world (files, sockets, processes, time) do so harmlessly: a file
+  in `tmpDir()`, `127.0.0.1`, a short `delay`.
+- `@example A caption` names an example when an entry has more than one.
+- An example that needs a second module (a worker's) puts it after a line `// --- job.pi ---`;
+  the test writes the files next to each other. `std/js` examples are checked for
+  `wasm32-browser` and not run.
+- The test fails when a function, method, constructor, property or type has no example (fields,
+  constants and type aliases don't need one). The compiler's own built-ins (`println`, `push`,
+  …) have theirs in `BUILTIN_DOCS`/`BUILTIN_MEMBER_DOCS` (crates/pico-sema/src/hir.rs).
+
+```sh
+# Type-check the examples of some pages (all of them without PICO_DOC_EXAMPLES):
+PICO_DOC_EXAMPLES=std/path,core cargo test -p pico-cli --test doc_examples -- --nocapture
+# … and run them, printing what each printed:
+PICO_DOC_EXAMPLES_RUN=1 PICO_DOC_EXAMPLES=std/path cargo test -p pico-cli --test doc_examples -- --nocapture
+# After changing doc comments, rewrite the website's copy of the reference:
+PICO_UPDATE_REFERENCE=1 cargo test -p pico-cli --test doc_examples
+```
+
 ## Building and running programs
 
 ```sh

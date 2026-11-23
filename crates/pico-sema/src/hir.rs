@@ -729,7 +729,7 @@ pub const BUILTIN_DOCS: &[(&str, &str, &str)] = &[
         "Writes `value`'s string form to standard output, without a newline.\n\n\
 Anything with a string form can be printed: numbers, `bool`, `char`, strings, class instances \
 (their `toString()`, or `Name (field = value, …)`) and nullable ones of these (`null`). For other \
-values, build the text first: `print(xs.join(\", \"))`, `` print(`${p.x}, ${p.y}`) ``.",
+values, build the text first: `print(xs.join(\", \"))`, `` print(`${p.x}, ${p.y}`) ``.\n\n@example\n```ts\nprint(\"a\")\nprint(1)\nprintln()   // a1\n```",
     ),
     (
         "println",
@@ -738,7 +738,7 @@ values, build the text first: `print(xs.join(\", \"))`, `` print(`${p.x}, ${p.y}
 the newline.\n\n\
 Anything with a string form can be printed: numbers, `bool`, `char`, strings, class instances \
 (their `toString()`, or `Name (field = value, …)`) and nullable ones of these (`null`). To print \
-several values, use a template: `` println(`${a} ${b}`) ``.",
+several values, use a template: `` println(`${a} ${b}`) ``.\n\n@example\n```ts\nprintln(\"hello\")   // hello\nprintln(42)        // 42\nprintln()          // an empty line\n```",
     ),
     (
         "assert",
@@ -747,7 +747,7 @@ several values, use a template: `` println(`${a} ${b}`) ``.",
 assertion is.\n\n\
 A panic means a bug: it can't be caught, runs `finally` blocks while unwinding, and on the main \
 thread ends the process (exit code 101) with the message and a stack trace. For failures a \
-caller should handle, throw an error instead.",
+caller should handle, throw an error instead.\n\n@example\n```ts\nconst xs = [1, 2, 3]\nassert(xs.length == 3, \"three elements\")\nprintln(\"ok\")   // ok\n```",
     ),
     (
         "panic",
@@ -755,7 +755,7 @@ caller should handle, throw an error instead.",
         "Stops the current thread with `message`: a bug, not an error to handle.\n\n\
 A panic can't be caught, runs `finally` blocks while unwinding, and on the main thread ends the \
 process (exit code 101) with the message and a stack trace; in a worker, the parent gets a \
-`WorkerPanicked` error. For failures a caller should handle, throw an error instead.",
+`WorkerPanicked` error. For failures a caller should handle, throw an error instead.\n\n@example\n```ts\nfunction at(xs: int[], i: int): int {\n  if (i >= xs.length) panic(`no element ${i}`)\n  xs[i]\n}\nprintln(at([1, 2], 1))   // 2\n```",
     ),
 ];
 
@@ -767,39 +767,39 @@ pub const BUILTIN_MEMBER_DOCS: &[(&str, &str, &str, &str)] = &[
         "Array",
         "length",
         "(property) length: i64",
-        "How many elements the array has.",
+        "How many elements the array has.\n\n@example\n```ts\nconst xs = [1, 2, 3]\nprintln(xs.length)   // 3\n```",
     ),
     (
         "Array",
         "push",
         "(method) Array.push(...values: T): void",
-        "Appends `values` to the end of the array, in order.",
+        "Appends `values` to the end of the array, in order.\n\n@example\n```ts\nconst xs: int[] = []\nxs.push(1)\nxs.push(2, 3)\nprintln(xs.join(\", \"))   // 1, 2, 3\n```",
     ),
     (
         "Array",
         "pop",
         "(method) Array.pop(): T?",
         "Removes the last element and returns it; `null` (and nothing changes) when the array is \
-empty.",
+empty.\n\n@example\n```ts\nconst xs = [1, 2]\nprintln(xs.pop())     // 2\nprintln(xs.length)    // 1\n```",
     ),
     (
         "String",
         "length",
         "(property) length: i64",
-        "How many code points the string has (as `s[i]` and the string methods count).",
+        "How many code points the string has (as `s[i]` and the string methods count).\n\n@example\n```ts\nprintln(\"héllo\".length)   // 5\n```",
     ),
     (
         "String",
         "slice",
         "(method) String.slice(start: i64, end?: i64): string",
         "The part of the string from code point `start` up to (not including) `end`, or to the \
-end. Negative indices count from the end; both are clamped to the string.",
+end. Negative indices count from the end; both are clamped to the string.\n\n@example\n```ts\nconst s = \"pico-lang\"\nprintln(s.slice(0, 4))   // pico\nprintln(s.slice(-4))     // lang\n```",
     ),
     (
         "Fixed",
         "length",
         "(property) length: i64",
-        "How many elements the fixed-size array has (part of its type).",
+        "How many elements the fixed-size array has (part of its type).\n\n@example\n```ts\nconst grid: [u8; 16] = [0; 16]\nprintln(grid.length)   // 16\n```",
     ),
 ];
 
