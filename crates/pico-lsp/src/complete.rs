@@ -30,6 +30,7 @@ mod kind {
     pub const PROPERTY: u32 = 10;
     pub const ENUM: u32 = 13;
     pub const KEYWORD: u32 = 14;
+    pub const FOLDER: u32 = 19;
     pub const ENUM_MEMBER: u32 = 20;
     pub const CONSTANT: u32 = 21;
     pub const STRUCT: u32 = 22;
@@ -82,8 +83,8 @@ impl Items {
 pub fn complete(path: &Path, text: &str, offset: usize, trigger: Option<&str>) -> Vec<Value> {
     let offset = offset.min(text.len());
     let dir = path.parent().unwrap_or(Path::new("."));
-    if let Some(range) = specifier_at(text, offset) {
-        return specifiers(text, range, dir);
+    if let Some((start, end)) = specifier_at(text, offset) {
+        return specifiers(text, (start, offset, end), path);
     }
     if matches!(trigger, Some("\"" | "'" | "/")) {
         return Vec::new();
@@ -564,15 +565,18 @@ fn specifier_at(text: &str, at: usize) -> Option<(usize, usize)> {
     Some((open + 1, end))
 }
 
-/// The modules an import can name: the standard library's, then the dependencies in the
-/// package's `project.json`. Each replaces the whole path between the quotes.
-fn specifiers(text: &str, (start, end): (usize, usize), dir: &Path) -> Vec<Value> {
+/// The modules an import can name: once the path starts with `.`, the files and directories
+/// it leads to; before that the standard library's modules, the dependencies in the package's
+/// `project.json` and the modules next to this one. Each replaces the whole path between the
+/// quotes (`start..end`; the cursor is at `at`).
+fn specifiers(text: &str, (start, at, end): (usize, usize, usize), path: &Path) -> Vec<Value> {
     let range = json!({ "start": lsp_position(text, start), "end": lsp_position(text, end) });
+    let dir = path.parent().unwrap_or(Path::new("."));
     let mut items = Vec::new();
-    let mut add = |label: &str, detail: &str, docs: Option<String>| {
+    let mut add = |label: &str, k: u32, detail: &str, docs: Option<String>| {
         let mut item = json!({
             "label": label,
-            "kind": kind::MODULE,
+            "kind": k,
             "detail": detail,
             "filterText": label,
             "textEdit": { "range": range, "newText": label },
@@ -580,13 +584,44 @@ fn specifiers(text: &str, (start, end): (usize, usize), dir: &Path) -> Vec<Value
         if let Some(d) = docs.filter(|d| !d.is_empty()) {
             item["documentation"] = json!({ "kind": "markdown", "value": d });
         }
+        if k == kind::FOLDER {
+            // (Its contents next.)
+            item["command"] = json!({ "title": "", "command": "editor.action.triggerSuggest" });
+        }
         items.push(item);
     };
+    let typed = &text[start..at];
+    if typed.starts_with('.') {
+        // `../lib/ge‸`: the entries of `../lib/`; `.‸` and `..‸`: those of `./` and `../`.
+        let (base, folders): (&str, &[&str]) = match typed.rfind('/') {
+            Some(i) => (&typed[..=i], &[]),
+            None => ("./", &["./", "../"]),
+        };
+        for f in folders {
+            add(f, kind::FOLDER, "directory", None);
+        }
+        for (name, k, file) in relative_entries(&dir.join(base), path) {
+            let detail = if k == kind::FOLDER {
+                "directory"
+            } else {
+                "module"
+            };
+            add(
+                &format!("{base}{name}"),
+                k,
+                detail,
+                file.and_then(|f| module_doc(&f)),
+            );
+        }
+        return items;
+    }
     for (name, file) in std_modules() {
+        let docs = module_doc(&file);
         add(
             &format!("std/{name}"),
+            kind::MODULE,
             "standard library",
-            module_doc(&file),
+            docs,
         );
     }
     if let Some(Ok(m)) = pico_driver::packages::package_of(dir) {
@@ -597,11 +632,56 @@ fn specifiers(text: &str, (start, end): (usize, usize), dir: &Path) -> Vec<Value
             for (name, source) in deps {
                 let detail = format!("{what}: {}", source_label(source));
                 let docs = module_path(name, dir).and_then(|f| module_doc(&f));
-                add(name, &detail, docs);
+                add(name, kind::MODULE, &detail, docs);
+            }
+        }
+    }
+    if typed.is_empty() {
+        for (name, k, file) in relative_entries(dir, path) {
+            if k == kind::MODULE {
+                add(
+                    &format!("./{name}"),
+                    k,
+                    "module",
+                    file.and_then(|f| module_doc(&f)),
+                );
             }
         }
     }
     items
+}
+
+/// What a relative import can name in `dir`: its `.pi` modules (without the extension; not
+/// `self`, the document, nor test and benchmark files), its directories with an `index.pi`
+/// as modules, and its directories (`name/`, not hidden ones) to go into. Sorted by name.
+fn relative_entries(dir: &Path, self_: &Path) -> Vec<(String, u32, Option<std::path::PathBuf>)> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let me = self_.canonicalize().ok();
+    let mut out = Vec::new();
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let p = e.path();
+        if name.starts_with('.') {
+            continue;
+        }
+        if p.is_dir() {
+            let index = p.join("index.pi");
+            if index.is_file() {
+                out.push((name.clone(), kind::MODULE, Some(index)));
+            }
+            out.push((format!("{name}/"), kind::FOLDER, None));
+        } else if let Some(stem) = name.strip_suffix(".pi")
+            && !stem.ends_with(".test")
+            && !stem.ends_with(".bench")
+            && p.canonicalize().ok() != me
+        {
+            out.push((stem.to_string(), kind::MODULE, Some(p)));
+        }
+    }
+    out.sort();
+    out
 }
 
 /// The standard library's modules, by name, and their files: `x.pi` and `x/index.pi` (not the

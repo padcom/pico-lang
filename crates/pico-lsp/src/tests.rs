@@ -838,6 +838,48 @@ fn completes_module_paths() {
 }
 
 #[test]
+fn completes_relative_module_paths() {
+    let files = [
+        ("geo.pi", "// Vectors.\nexport struct Vec2 { x: i32 }\n"),
+        ("geo.test.pi", ""),
+        ("notes.txt", ""),
+        ("lib/index.pi", "// The library.\n"),
+        ("lib/util.pi", ""),
+        (".git/config.pi", ""),
+    ];
+    // After `./`: the modules and directories here (not this file, tests, or hidden ones).
+    let (l, items) = complete_at("rel", "import { Vec2 } from \"./‸\"\n", &files);
+    assert_eq!(l, ["./geo", "./lib", "./lib/"]);
+    assert_eq!(item(&items, "./geo")["kind"], 9);
+    assert_eq!(item(&items, "./geo")["documentation"]["value"], "Vectors.");
+    assert_eq!(
+        item(&items, "./lib")["documentation"]["value"],
+        "The library."
+    );
+    let folder = item(&items, "./lib/");
+    assert_eq!(folder["kind"], 19);
+    assert_eq!(folder["command"]["command"], "editor.action.triggerSuggest");
+    // Inside a directory, and the whole path is replaced.
+    let (l, items) = complete_at("rel_sub", "import { f } from \"./lib/u‸\"\n", &files);
+    assert_eq!(l, ["./lib/index", "./lib/util"]);
+    let edit = &item(&items, "./lib/util")["textEdit"];
+    assert_eq!(edit["range"]["start"]["character"], 19);
+    assert_eq!(edit["range"]["end"]["character"], 26);
+    // `.` offers the two directories to start from, `../` the parent's entries.
+    let (l, _) = complete_at("rel_dot", "import { f } from '.‸'\n", &files);
+    assert_eq!(l[..2], ["./", "../"]);
+    let (l, _) = complete_at("rel_up", "import { f } from \"../‸\"\n", &files);
+    // (The test's own directory, seen from its parent.)
+    let own = format!("../pico-lsp-{}-rel_up/", std::process::id());
+    assert!(l.contains(&own), "{l:?}");
+    // An empty path also offers the modules next to this one, after std and packages.
+    let (l, _) = complete_at("rel_empty", "import { f } from \"‸\"\n", &files);
+    assert!(l.iter().any(|x| x == "std/fs"), "{l:?}");
+    assert!(l.iter().any(|x| x == "./geo"), "{l:?}");
+    assert!(!l.iter().any(|x| x == "./lib/"), "{l:?}");
+}
+
+#[test]
 fn completes_members_before_an_existing_name() {
     // An interface-typed value, with the cursor between `.` and a name already there.
     let base = "interface Speakable { speak(s: string): string }\nclass Person implements Speakable {\n  public speak(s: string): string { s }\n}\nconst x: Speakable = new Person()\n";
