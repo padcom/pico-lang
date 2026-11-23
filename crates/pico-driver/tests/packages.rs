@@ -320,3 +320,28 @@ fn majors_unify_or_coexist() {
         assert_eq!(errors(&app.join("src/main.pi")), Vec::<String>::new());
     });
 }
+
+#[test]
+fn parallel_workers_fetch_a_git_dependency_once() {
+    // `pico lint` and `pico test` resolve dependencies from parallel workers: with an empty
+    // cache they all clone, fetch and check out the same repository at once (#195).
+    if !have_git() {
+        return;
+    }
+    let (base, ws) = git_workspace("parallel", "v1.2.0", None);
+    let app = ws.join("packages/app");
+    with_cache(&base, || {
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    pico_driver::packages::prepare_with(&app, true).map(|p| p.is_some())
+                })
+            })
+            .collect();
+        for w in workers {
+            assert_eq!(w.join().unwrap(), Ok(true));
+        }
+        assert_eq!(errors(&app.join("src/main.pi")), Vec::<String>::new());
+    });
+}
