@@ -5,6 +5,18 @@
 /// Bytes written at the end (`write`, `writeByte`, the `DataView`-style `writeUint16` …) and read
 /// from the front (`read`, `skip`, `get`). The storage grows by doubling; bytes already read are
 /// reclaimed when more room is needed, so a long-lived buffer stays as large as what it holds.
+///
+/// @example
+/// ```ts
+/// import { ByteBuffer } from "std/bytes"
+///
+/// const buf = new ByteBuffer()
+/// buf.writeByte(1)
+/// buf.writeUint16(500)
+/// const kind = buf.read(1)
+/// if (kind != null) println(kind.get(0))   // 1
+/// println(buf.length)                      // 2
+/// ```
 export class ByteBuffer {
   buf: Uint8Array
   view: DataView
@@ -12,17 +24,46 @@ export class ByteBuffer {
   end: int = 0
 
   /// An empty buffer with room for `capacity` bytes before it first grows.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer(16)
+  /// println(buf.length)   // 0
+  /// ```
   constructor(capacity: int = 256) {
     this.buf = new Uint8Array(if (capacity > 0) capacity else 1)
     this.view = new DataView(this.buf)
   }
 
   /// How many bytes it holds (written and not read yet).
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.write(new TextEncoder().encode("abc"))
+  /// println(buf.length)   // 3
+  /// buf.skip(1)
+  /// println(buf.length)   // 2
+  /// ```
   public get length(): int {
     return end - start
   }
 
   /// The byte at `i` of the ones it holds; panics outside `0..length`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.write(new TextEncoder().encode("hi!"))
+  /// println(buf.get(0))   // 104
+  /// println(buf.get(2))   // 33
+  /// ```
   public get(i: int): int {
     if (i < 0 || i >= end - start) {
       panic(`ByteBuffer: index ${i} outside its ${end - start} bytes`)
@@ -31,16 +72,46 @@ export class ByteBuffer {
   }
 
   /// The bytes it holds, without a copy: the view is valid until the next write.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.write(new TextEncoder().encode("hello"))
+  /// println(new TextDecoder().decode(buf.bytes()))   // hello
+  /// ```
   public bytes(): Uint8Array {
     return buf.subarray(start, end)
   }
 
   /// A copy of the bytes it holds.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.write(new TextEncoder().encode("hello"))
+  /// const copy = buf.toUint8Array()
+  /// buf.clear()
+  /// println(copy.length)   // 5
+  /// ```
   public toUint8Array(): Uint8Array {
     return buf.slice(start, end)
   }
 
   /// Makes room for `n` more bytes at the end.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer(4)
+  /// buf.reserve(1024)   // grows once instead of while writing
+  /// for (let i = 0; i < 1024; i++) buf.writeByte(i)
+  /// println(buf.length)   // 1024
+  /// ```
   public reserve(n: int): void {
     if (end + n <= buf.length) {
       return
@@ -62,6 +133,16 @@ export class ByteBuffer {
   }
 
   /// Appends `bytes`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.write(new TextEncoder().encode("foo"))
+  /// buf.write(new TextEncoder().encode("bar"))
+  /// println(new TextDecoder().decode(buf.bytes()))   // foobar
+  /// ```
   public write(bytes: Uint8Array): void {
     reserve(bytes.length)
     buf.setAll(bytes, end)
@@ -69,42 +150,119 @@ export class ByteBuffer {
   }
 
   /// Appends one byte (`b`'s low 8 bits).
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.writeByte(0x41)
+  /// buf.writeByte(0x142)   // only the low 8 bits: 0x42
+  /// println(new TextDecoder().decode(buf.bytes()))   // AB
+  /// ```
   public writeByte(b: int): void {
     reserve(1)
     buf.set(end, b)
     end += 1
   }
 
+  /// Appends `value` as 2 bytes, big-endian unless `littleEndian`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  /// import { hex } from "std/encoding"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.writeUint16(0x1234)
+  /// buf.writeUint16(0x1234, true)
+  /// println(hex.encode(buf.bytes()))   // 12343412
+  /// ```
   public writeUint16(value: int, littleEndian: bool = false): void {
     reserve(2)
     view.setUint16(end, value, littleEndian)
     end += 2
   }
 
+  /// Appends `value` as 4 bytes, big-endian unless `littleEndian`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  /// import { hex } from "std/encoding"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.writeUint32(0xCAFE)
+  /// println(hex.encode(buf.bytes()))   // 0000cafe
+  /// ```
   public writeUint32(value: int, littleEndian: bool = false): void {
     reserve(4)
     view.setUint32(end, value, littleEndian)
     end += 4
   }
 
+  /// Appends `value` as 8 bytes, big-endian unless `littleEndian`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  /// import { hex } from "std/encoding"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.writeBigUint64(258, true)
+  /// println(hex.encode(buf.bytes()))   // 0201000000000000
+  /// ```
   public writeBigUint64(value: u64, littleEndian: bool = false): void {
     reserve(8)
     view.setBigUint64(end, value, littleEndian)
     end += 8
   }
 
+  /// Appends `value` as a 2-byte half-precision float, big-endian unless `littleEndian`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  /// import { hex } from "std/encoding"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.writeFloat16(1.5)
+  /// println(hex.encode(buf.bytes()))   // 3e00
+  /// ```
   public writeFloat16(value: f64, littleEndian: bool = false): void {
     reserve(2)
     view.setFloat16(end, value, littleEndian)
     end += 2
   }
 
+  /// Appends `value` as a 4-byte float, big-endian unless `littleEndian`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  /// import { hex } from "std/encoding"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.writeFloat32(1.5)
+  /// println(hex.encode(buf.bytes()))   // 3fc00000
+  /// ```
   public writeFloat32(value: f32, littleEndian: bool = false): void {
     reserve(4)
     view.setFloat32(end, value, littleEndian)
     end += 4
   }
 
+  /// Appends `value` as an 8-byte float, big-endian unless `littleEndian`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  /// import { hex } from "std/encoding"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.writeFloat64(1.5, true)
+  /// println(hex.encode(buf.bytes()))   // 000000000000f83f
+  /// ```
   public writeFloat64(value: f64, littleEndian: bool = false): void {
     reserve(8)
     view.setFloat64(end, value, littleEndian)
@@ -113,6 +271,18 @@ export class ByteBuffer {
 
   /// A copy of the next `n` bytes, which are then read; null (and nothing read) while it holds
   /// fewer.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.write(new TextEncoder().encode("GET /"))
+  /// const verb = buf.read(3)
+  /// if (verb != null) println(new TextDecoder().decode(verb))   // GET
+  /// println(buf.read(10) == null)                               // true
+  /// println(buf.length)                                         // 2
+  /// ```
   public read(n: int): Uint8Array? {
     if (n < 0 || n > end - start) {
       return null
@@ -127,6 +297,16 @@ export class ByteBuffer {
   }
 
   /// Drops the next `n` bytes (all of them if it holds fewer).
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.write(new TextEncoder().encode("header:body"))
+  /// buf.skip(7)
+  /// println(new TextDecoder().decode(buf.bytes()))   // body
+  /// ```
   public skip(n: int): void {
     start = if (n >= end - start) end else start + (if (n > 0) n else 0)
     if (start == end) {
@@ -136,6 +316,16 @@ export class ByteBuffer {
   }
 
   /// Drops everything it holds (keeping the storage).
+  ///
+  /// @example
+  /// ```ts
+  /// import { ByteBuffer } from "std/bytes"
+  ///
+  /// const buf = new ByteBuffer()
+  /// buf.write(new TextEncoder().encode("abc"))
+  /// buf.clear()
+  /// println(buf.length)   // 0
+  /// ```
   public clear(): void {
     start = 0
     end = 0
