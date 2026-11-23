@@ -2,14 +2,47 @@
 /// The root of thrown errors: a message and, optionally, the error that caused it. Subclass it for
 /// errors of your own (`class ParseError extends Error`); functions declare what they throw
 /// (`throws ParseError`), and callers handle it with `try`/`catch` or declare it in turn.
+///
+/// @example
+/// ```ts
+/// class ParseError extends Error {
+///   constructor(public line: int) { super(`parse error at line ${line}`) }
+/// }
+///
+/// function parse(text: string): int throws ParseError {
+///   if (text == "") throw new ParseError(1)
+///   return text.length
+/// }
+///
+/// try {
+///   println(parse(""))
+/// } catch (e: ParseError) {
+///   println(e.message)   // parse error at line 1
+/// }
+/// ```
 class Error {
   /// What went wrong, for people.
   public message: string
   /// The error this one wraps, if any (`new Error("can't load config", e)`).
   public cause: Error? = null
   /// An error with `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new Error("disk full")
+  /// println(e.message)          // disk full
+  /// println(e.cause == null)    // true
+  /// ```
   constructor(message: string) { this.message = message }
   /// An error with `message`, caused by `cause`.
+  ///
+  /// @example
+  /// ```ts
+  /// const low = new Error("connection reset")
+  /// const e = new Error("can't load config", low)
+  /// println(e.message)           // can't load config
+  /// println(e.cause!.message)    // connection reset
+  /// ```
   constructor(message: string, cause: Error?) {
     this(message)
     this.cause = cause
@@ -18,31 +51,97 @@ class Error {
 
 /// A value of the wrong type or shape, as JavaScript's (`TextDecoder` with `fatal` throws it
 /// for bytes that aren't UTF-8).
+///
+/// @example
+/// ```ts
+/// function check(x: int): void throws TypeError {
+///   if (x < 0) throw new TypeError("expected a non-negative number")
+/// }
+///
+/// try {
+///   check(-1)
+/// } catch (e: TypeError) {
+///   println(e.message)   // expected a non-negative number
+/// }
+/// ```
 class TypeError extends Error {
   /// A `TypeError` with `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new TypeError("not a number")
+  /// println(e.message)   // not a number
+  /// ```
   constructor(message: string) { super(message) }
 }
 
 /// A value outside the allowed range, as JavaScript's.
+///
+/// @example
+/// ```ts
+/// function percent(x: int): int throws RangeError {
+///   if (x < 0 || x > 100) throw new RangeError(`${x} is not in 0..100`)
+///   return x
+/// }
+///
+/// try {
+///   println(percent(150))
+/// } catch (e: RangeError) {
+///   println(e.message)   // 150 is not in 0..100
+/// }
+/// ```
 class RangeError extends Error {
   /// A `RangeError` with `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new RangeError("index 7 out of range")
+  /// println(e.message)   // index 7 out of range
+  /// ```
   constructor(message: string) { super(message) }
 }
 
 /// A failed file-system operation (`std/fs`): the path and what went wrong. `kind` is
 /// `"NotFound"`, `"AlreadyExists"`, `"PermissionDenied"`, `"NotADirectory"`, `"IsADirectory"`,
 /// `"DirectoryNotEmpty"`, `"InvalidData"` (text that isn't UTF-8) or `"Other"`.
+///
+/// @example
+/// ```ts
+/// function load(path: string): string throws IoError {
+///   throw new IoError(path, "no such file", "NotFound")
+/// }
+///
+/// try {
+///   println(load("config.json"))
+/// } catch (e: IoError) {
+///   println(`${e.path}: ${e.kind}`)   // config.json: NotFound
+/// }
+/// ```
 class IoError extends Error {
   /// The path the operation was on.
   public path: string
   /// What went wrong, as one of the kinds above (`"Other"` unless given).
   public kind: string = "Other"
   /// An error of kind `"Other"` on `path`, with `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new IoError("/data/log.txt", "the disk is full")
+  /// println(e.path)      // /data/log.txt
+  /// println(e.kind)      // Other
+  /// println(e.message)   // the disk is full
+  /// ```
   constructor(path: string, message: string) {
     super(message)
     this.path = path
   }
   /// An error of `kind` on `path`, with `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new IoError("out.txt", "permission denied", "PermissionDenied")
+  /// println(`${e.kind} on ${e.path}`)   // PermissionDenied on out.txt
+  /// ```
   constructor(path: string, message: string, kind: string) {
     this(path, message)
     this.kind = kind
@@ -51,14 +150,68 @@ class IoError extends Error {
 
 /// A lightweight error (spec §7.1): a struct or enum that can be thrown without being an
 /// `Error` (no stack trace). Enums can't have methods yet, so their message is their debug form.
+///
+/// @example
+/// ```ts
+/// struct Overflow implements Throwable {
+///   limit: int
+///   message(): string { `over the limit of ${this.limit}` }
+/// }
+///
+/// function add(a: int, b: int): int throws Overflow {
+///   if (a + b > 100) throw Overflow { limit: 100 }
+///   return a + b
+/// }
+///
+/// try {
+///   println(add(70, 50))
+/// } catch (e: Overflow) {
+///   println(e.message())   // over the limit of 100
+/// }
+/// ```
 interface Throwable {
   /// What went wrong, for people (what an uncaught throw prints).
+  ///
+  /// @example
+  /// ```ts
+  /// struct Eof implements Throwable {
+  ///   message(): string { "unexpected end of input" }
+  /// }
+  ///
+  /// const e = Eof {}
+  /// println(e.message())   // unexpected end of input
+  /// ```
   message(): string
 }
 
 /// Cleaned up by `using` at the end of its scope (spec §11.5).
+///
+/// @example
+/// ```ts
+/// class Connection implements Disposable {
+///   constructor(public name: string) {}
+///   public dispose(): void { println(`close ${this.name}`) }
+/// }
+///
+/// function work(): void {
+///   using c = new Connection("db")
+///   println(`using ${c.name}`)   // using db
+/// }                              // close db
+///
+/// work()
+/// ```
 interface Disposable {
   /// Releases what this value holds; `using` calls it once, when the scope ends (also when it's
   /// left by a throw).
+  ///
+  /// @example
+  /// ```ts
+  /// class TempFile implements Disposable {
+  ///   public dispose(): void { println("deleted") }
+  /// }
+  ///
+  /// const f = new TempFile()
+  /// f.dispose()   // deleted
+  /// ```
   dispose(): void
 }

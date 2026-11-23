@@ -3,18 +3,51 @@
 // to `abort`, if any).
 
 /// What an aborted operation throws.
+///
+/// @example
+/// ```ts
+/// const c = new AbortController()
+/// c.abort()
+/// try {
+///   c.signal.throwIfAborted()
+/// } catch (e: AbortError) {
+///   println(e.message)   // This operation was aborted
+/// }
+/// ```
 class AbortError extends Error {
   /// An `AbortError` with `message` (and no `cause`).
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new AbortError("download cancelled")
+  /// println(e.message)   // download cancelled
+  /// ```
   constructor(message: string) {
     super(message)
   }
   /// An `AbortError` with `message`; `cause` is the reason given to `abort`, if any.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new AbortError("download cancelled", new Error("user pressed stop"))
+  /// println(e.cause!.message)   // user pressed stop
+  /// ```
   constructor(message: string, cause: Error?) {
     super(message, cause)
   }
 }
 
 /// Tells operations that they should stop (`AbortController.signal`).
+///
+/// @example
+/// ```ts
+/// const c = new AbortController()
+/// const s = c.signal
+/// s.onabort = () => println("stopping")
+/// println(s.aborted)   // false
+/// c.abort()            // stopping
+/// println(s.aborted)   // true
+/// ```
 class AbortSignal {
   /// Whether it has been aborted.
   public aborted: bool = false
@@ -26,10 +59,23 @@ class AbortSignal {
 
   /// A signal that isn't aborted (`AbortController` makes one; `AbortSignal.abort` and
   /// `AbortSignal.timeout` make others).
+  ///
+  /// @example
+  /// ```ts
+  /// const s = new AbortSignal()
+  /// println(s.aborted)   // false
+  /// ```
   constructor() {}
 
   /// Calls `f` when the signal is aborted (`type` must be `"abort"`); right away (as a
   /// microtask) if it already is.
+  ///
+  /// @example
+  /// ```ts
+  /// const c = new AbortController()
+  /// c.signal.addEventListener("abort", () => println("aborted"))
+  /// c.abort()   // aborted
+  /// ```
   public addEventListener(type: string, f: () => void): void {
     if (type != "abort") {
       return
@@ -42,6 +88,16 @@ class AbortSignal {
   }
 
   /// Throws the `AbortError` if it has been aborted.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = AbortSignal.abort(new Error("shutting down"))
+  /// try {
+  ///   s.throwIfAborted()
+  /// } catch (e: AbortError) {
+  ///   println(e.cause!.message)   // shutting down
+  /// }
+  /// ```
   public throwIfAborted(): void throws AbortError {
     const r = this.reason
     if (this.aborted && r != null) {
@@ -67,6 +123,13 @@ class AbortSignal {
   }
 
   /// A signal that is already aborted.
+  ///
+  /// @example
+  /// ```ts
+  /// const s = AbortSignal.abort()
+  /// println(s.aborted)                // true
+  /// println(s.reason!.message)        // This operation was aborted
+  /// ```
   public static abort(reason: Error? = null): AbortSignal {
     const s = new AbortSignal()
     s.__abort(reason)
@@ -74,6 +137,16 @@ class AbortSignal {
   }
 
   /// A signal that aborts after `ms` milliseconds.
+  ///
+  /// @example
+  /// ```ts
+  /// import { delay } from "std/timers"
+  ///
+  /// const s = AbortSignal.timeout(10)
+  /// s.addEventListener("abort", () => println("timed out"))
+  /// await delay(50)               // timed out
+  /// println(s.reason!.cause!.message)   // The operation timed out
+  /// ```
   public static timeout(ms: int): AbortSignal {
     const s = new AbortSignal()
     setTimeout(() => s.__abort(new Error("The operation timed out")), ms)
@@ -83,14 +156,42 @@ class AbortSignal {
 
 /// Cancels operations that take an `AbortSignal` (`fetch(url, { signal })`, streams): pass its
 /// `signal` along, call `abort()` to cancel them.
+///
+/// @example
+/// ```ts
+/// import { delay } from "std/timers"
+///
+/// const c = new AbortController()
+/// setTimeout(() => c.abort(), 10)
+/// try {
+///   await delay(1000, c.signal)
+///   println("finished")
+/// } catch (e: AbortError) {
+///   println("cancelled")   // cancelled
+/// }
+/// ```
 class AbortController {
   /// The signal to hand to the operations this controller cancels.
   public signal: AbortSignal = new AbortSignal()
 
   /// A controller whose signal isn't aborted yet.
+  ///
+  /// @example
+  /// ```ts
+  /// const c = new AbortController()
+  /// println(c.signal.aborted)   // false
+  /// ```
   constructor() {}
 
   /// Aborts the signal (once; later calls do nothing).
+  ///
+  /// @example
+  /// ```ts
+  /// const c = new AbortController()
+  /// c.abort(new Error("no longer needed"))
+  /// println(c.signal.aborted)                    // true
+  /// println(c.signal.reason!.cause!.message)     // no longer needed
+  /// ```
   public abort(reason: Error? = null): void {
     this.signal.__abort(reason)
   }
