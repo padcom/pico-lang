@@ -516,7 +516,18 @@ static int shortest_digits(double v, bool is_f32, char *digits, int *n) {
             return k;
         }
     }
-    return 0; /* unreachable: 17 significant digits always round-trip */
+    /* Where the C library's strtod can't give v back (a subnormal on Windows arm64): the 17
+     * significant digits, as before #184. */
+    snprintf(sci, sizeof sci, "%.16e", is_f32 ? (double)(float)v : v);
+    const char *s = sci;
+    int k = 0;
+    while (*s && *s != 'e') {
+        if (*s != '.') digits[k++] = *s;
+        s++;
+    }
+    while (k > 1 && digits[k - 1] == '0') k--;
+    *n = atoi(s + 1) + 1;
+    return k;
 }
 
 static int format_shortest(double v, bool is_f32, char *out) {
