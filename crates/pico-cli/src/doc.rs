@@ -132,7 +132,9 @@ fn std_pages() -> Vec<Page> {
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        let items = module_items(&f, Exports::Exported, &core_by_name, &mut renames);
+        let mut items = module_items(&f, Exports::Exported, &core_by_name, &mut renames);
+        // (`__` names a module exports are for generated code: `std/js`'s `__jsCallback`.)
+        items.retain(|i| !i.name.starts_with("__"));
         // (`std/greeting` is there for the toolchain's own tests.)
         if !items.is_empty() && stem != "greeting" {
             pages.push(Page {

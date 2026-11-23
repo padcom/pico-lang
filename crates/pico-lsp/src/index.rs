@@ -528,7 +528,7 @@ impl Builder<'_> {
             .find(|(o, n, ..)| *o == on && *n == name)
         {
             self.builtins
-                .push((at, n, format!("```pico\n{sig}\n```\n\n{docs}")));
+                .push((at, n, format!("```pico\n{sig}\n```\n\n{}", for_display(docs))));
         }
     }
 
@@ -602,7 +602,7 @@ impl Builder<'_> {
             }
             ExprKind::Builtin(b) => {
                 if let Some((sig, docs)) = b.docs() {
-                    let hover = format!("```pico\n{sig}\n```\n\n{docs}");
+                    let hover = format!("```pico\n{sig}\n```\n\n{}", for_display(docs));
                     self.builtins.push((e.span, b.name(), hover));
                 }
             }
@@ -795,6 +795,8 @@ pub(crate) fn struct_of(t: &Ty) -> Option<StructId> {
         _ => None,
     }
 }
+
+use pico_syntax::docs::for_display;
 
 /// The doc comment above the declaration whose name is at `at`, as Markdown.
 pub fn doc_comment(sm: &SourceMap, at: Span) -> String {

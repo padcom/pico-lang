@@ -3,7 +3,11 @@
 //! (the website's reference page) is what `pico doc --std --json` makes of them.
 //!
 //! - `PICO_DOC_EXAMPLES=std/path,core` checks only those pages' examples.
-//! - `PICO_DOC_EXAMPLES_RUN=1` also runs each example (in the interpreter) and prints what it
+//! `std/js` examples are checked for `wasm32-browser`, the only target that has it. An example
+//! that needs another module (a worker's) has it after a line `// --- job.pi ---`: the files
+//! are written next to each other, the program first.
+//!
+//! - `PICO_DOC_EXAMPLES_RUN=1` also runs each example (but `std/js`'s) (in the interpreter) and prints what it
 //!   printed, to compare with the `// …` comments that say what it prints.
 //! - `PICO_DOC_EXAMPLES_JOBS=2` checks two at a time (default: the CPUs, at most 8).
 //! - `PICO_UPDATE_REFERENCE=1` writes `website/reference.json` instead of comparing it.
@@ -41,19 +45,22 @@ fn reference(dir: &Path) -> (String, Value) {
 struct Sample {
     label: String,
     code: String,
+    /// Checked for the browser (`std/js` exists only there), and not run.
+    browser: bool,
 }
 
 fn samples(reference: &Value) -> Vec<Sample> {
-    fn walk(out: &mut Vec<Sample>, at: &str, items: &Value) {
+    fn walk(out: &mut Vec<Sample>, at: &str, browser: bool, items: &Value) {
         for i in items.as_array().into_iter().flatten() {
             let label = format!("{at} › {}", i["name"].as_str().unwrap_or("?"));
             for (n, e) in i["examples"].as_array().into_iter().flatten().enumerate() {
                 out.push(Sample {
                     label: format!("{label} (example {})", n + 1),
                     code: e["code"].as_str().unwrap_or("").to_string(),
+                    browser,
                 });
             }
-            walk(out, &label, &i["members"]);
+            walk(out, &label, browser, &i["members"]);
         }
     }
     let only: Option<Vec<String>> = std::env::var("PICO_DOC_EXAMPLES")
@@ -63,19 +70,54 @@ fn samples(reference: &Value) -> Vec<Sample> {
     for m in reference["modules"].as_array().unwrap() {
         let name = m["name"].as_str().unwrap();
         if only.as_ref().is_none_or(|o| o.iter().any(|x| x == name)) {
-            walk(&mut out, name, &m["items"]);
+            walk(&mut out, name, name == "std/js", &m["items"]);
         }
     }
     out
 }
 
-/// The errors of checking `code` as the program `dir/<n>.pi`.
-fn check(dir: &Path, n: usize, code: &str) -> Vec<String> {
-    let file = dir.join(format!("example{n}.pi"));
+/// Writes an example's files into a directory of their own: the program (`main.pi`, returned
+/// with its text) and the modules after `// --- name.pi ---` lines.
+fn write_files(dir: &Path, n: usize, code: &str) -> (PathBuf, String) {
+    let dir = dir.join(format!("example{n}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut main = String::new();
+    let mut current: Option<(String, String)> = None;
+    for line in code.lines() {
+        let marker = line
+            .strip_prefix("// --- ")
+            .and_then(|l| l.strip_suffix(" ---"))
+            .filter(|f| f.ends_with(".pi"));
+        if let Some(f) = marker {
+            if let Some((name, text)) = current.take() {
+                std::fs::write(dir.join(name), text).unwrap();
+            }
+            current = Some((f.to_string(), String::new()));
+            continue;
+        }
+        let out = current.as_mut().map_or(&mut main, |(_, t)| t);
+        out.push_str(line);
+        out.push('\n');
+    }
+    if let Some((name, text)) = current {
+        std::fs::write(dir.join(name), text).unwrap();
+    }
+    let file = dir.join("main.pi");
+    std::fs::write(&file, &main).unwrap();
+    (file, main)
+}
+
+/// The errors of checking an example (for the browser, if `browser`).
+fn check(dir: &Path, n: usize, code: &str, browser: bool) -> Vec<String> {
+    let (file, code) = write_files(dir, n, code);
+    let dir = file.parent().unwrap();
     let name = file.display().to_string();
-    let checked = std::panic::catch_unwind(|| {
-        pico_driver::check_source_with(name, code, dir, pico_driver::BuildOptions::default())
-    });
+    let opts = pico_driver::BuildOptions {
+        target: browser.then(|| pico_driver::Target::parse("wasm32-browser").unwrap()),
+        ..pico_driver::BuildOptions::default()
+    };
+    let checked =
+        std::panic::catch_unwind(|| pico_driver::check_source_with(name, &code, dir, opts));
     match checked {
         Ok(c) => c
             .diags
@@ -122,7 +164,7 @@ fn examples_type_check_and_the_website_reference_is_current() {
                 s.spawn(move || {
                     let mut failed = Vec::new();
                     for (n, sample) in samples.iter().enumerate().skip(j).step_by(jobs) {
-                        let errors = check(dir, n, &sample.code);
+                        let errors = check(dir, n, &sample.code, sample.browser);
                         if !errors.is_empty() {
                             failed.push(format!(
                                 "{}:\n  {}\n--- code ---\n{}\n",
@@ -142,13 +184,12 @@ fn examples_type_check_and_the_website_reference_is_current() {
             .collect()
     });
     if std::env::var_os("PICO_DOC_EXAMPLES_RUN").is_some() {
-        for (n, sample) in samples.iter().enumerate() {
-            let file = dir.join(format!("run{n}.pi"));
-            std::fs::write(&file, &sample.code).unwrap();
+        for (n, sample) in samples.iter().enumerate().filter(|(_, s)| !s.browser) {
+            let (file, _) = write_files(&dir.join("run"), n, &sample.code);
             let out = Command::new(env!("CARGO_BIN_EXE_pico"))
                 .args(["run", "--interp"])
                 .arg(&file)
-                .current_dir(&dir)
+                .current_dir(file.parent().unwrap())
                 .output()
                 .unwrap();
             println!(

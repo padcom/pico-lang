@@ -311,6 +311,7 @@ fn type_members(
             } else {
                 kind::METHOD
             };
+            let docs = pico_syntax::docs::for_display(docs);
             items.add(name, k, Some(&format!("```pico\n{sig}\n```\n\n{docs}")));
         }
     }
@@ -399,6 +400,7 @@ fn scope(items: &mut Items, idx: &Index, p: &Program, at: u32) {
     }
     // Built-in functions (those with pico declarations come from the core library).
     for (name, sig, docs) in pico_sema::hir::BUILTIN_DOCS {
+        let docs = pico_syntax::docs::for_display(docs);
         items.add(
             name,
             kind::FUNCTION,

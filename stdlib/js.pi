@@ -70,31 +70,11 @@ function __jsArgs(args: JsArg[]): int {
 }
 
 /// A JavaScript array of `xs` (rest parameters of generated `js:` functions).
-///
-/// @example
-/// ```ts
-/// import { __jsArray } from "std/js"
-///
-/// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
-/// // Generated `js:` bindings use this for rest parameters.
-/// const xs = __jsArray([1.0, "two", true])
-/// println(xs.get("length").asNumber())   // 3
-/// ```
 export function __jsArray(xs: JsArg[]): JsValue {
   new JsValue(__jsArgs(xs))
 }
 
 /// `target[name](...fixed, ...rest)` (generated `js:` methods with rest parameters).
-///
-/// @example
-/// ```ts
-/// import { js, __jsCallRest } from "std/js"
-///
-/// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
-/// // Generated `js:` bindings use this for methods with rest parameters.
-/// const max = __jsCallRest(js.global.get("Math"), "max", [1.0], [5.0, 3.0])
-/// println(max.asNumber())   // 5
-/// ```
 export function __jsCallRest(target: JsValue, name: string, fixed: JsArg[], rest: JsArg[]): JsValue throws JsError {
   const all: JsArg[] = []
   for (const x of fixed) {
@@ -509,15 +489,6 @@ class __JsCallbacks {
 const __jsCallbacks = new __JsCallbacks()
 
 /// Called by the glue when a `JsValue.fn` function is called: `args` is the arguments array.
-///
-/// @example
-/// ```ts
-/// import { __jsCallback } from "std/js"
-///
-/// // Browser builds only (`--target wasm32-browser`); `pico run` can't run it.
-/// // The JavaScript glue calls this when a `JsValue.fn` function is called; pico code doesn't.
-/// const f: (id: int, args: int) => int = __jsCallback
-/// ```
 @export("js")
 export function __jsCallback(id: int, args: int): int {
   const f = __jsCallbacks.fns.get(id)

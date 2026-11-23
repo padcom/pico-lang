@@ -106,12 +106,40 @@ export function parallelMap<T extends Sendable, U extends Sendable, E extends Er
 
 /// A fixed number of workers running the same module (`new WorkerPool<In, Out>("./job",
 /// size: n)`); `run(job)` sends a job to the least busy one and promises its next message.
+///
+/// @example
+/// ```ts
+/// import { WorkerPool } from "std/worker"
+///
+/// const pool = new WorkerPool<int, int>("./job", size: 2)
+/// println(await pool.run(21))   // 42
+/// pool.terminate()
+///
+/// // --- job.pi ---
+/// import { self } from "std/worker"
+///
+/// self.onmessage = (n: int) => self.postMessage(n * 2)
+/// ```
 export class WorkerPool<In extends Sendable, Out extends Sendable> {
   workers: Worker<In, Out>[] = []
   /// Per worker: the promises waiting for its answers, oldest first.
   waiting: Promise<Out, WorkerPanicked>[][] = []
 
   /// (`module` is the module's id: the compiler rewrites the path.)
+  ///
+  /// @example
+  /// ```ts
+  /// import { WorkerPool } from "std/worker"
+  ///
+  /// const pool = new WorkerPool<int, int>("./job", size: 2)
+  /// println(pool.size)   // 2
+  /// pool.terminate()
+  ///
+  /// // --- job.pi ---
+  /// import { self } from "std/worker"
+  ///
+  /// self.onmessage = (n: int) => self.postMessage(n * 2)
+  /// ```
   constructor(module: int, size: int) {
     const n = if (size < 1) 1 else size
     for (let i = 0; i < n; i++) {
@@ -131,12 +159,41 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
   }
 
   /// The number of workers (`size`, at least 1).
+  ///
+  /// @example
+  /// ```ts
+  /// import { WorkerPool } from "std/worker"
+  ///
+  /// const pool = new WorkerPool<int, int>("./job", size: 2)
+  /// println(pool.size)   // 2
+  /// pool.terminate()
+  ///
+  /// // --- job.pi ---
+  /// import { self } from "std/worker"
+  ///
+  /// self.onmessage = (n: int) => self.postMessage(n * 2)
+  /// ```
   public get size(): int {
     return this.workers.length
   }
 
   /// Sends `job` to the worker with the fewest jobs waiting. Rejects with a `WorkerPanicked` if
   /// that worker dies or the pool is terminated first.
+  ///
+  /// @example
+  /// ```ts
+  /// import { WorkerPool } from "std/worker"
+  ///
+  /// const pool = new WorkerPool<int, int>("./job", size: 2)
+  /// const [a, b] = [pool.run(1), pool.run(2)]
+  /// println(await a + await b)   // 6
+  /// pool.terminate()
+  ///
+  /// // --- job.pi ---
+  /// import { self } from "std/worker"
+  ///
+  /// self.onmessage = (n: int) => self.postMessage(n * 2)
+  /// ```
   public run(job: In): Promise<Out, WorkerPanicked> {
     let best = 0
     for (let i = 1; i < this.workers.length; i++) {
@@ -151,6 +208,20 @@ export class WorkerPool<In extends Sendable, Out extends Sendable> {
   }
 
   /// Stops every worker; jobs still waiting for an answer reject with a `WorkerPanicked`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { WorkerPool } from "std/worker"
+  ///
+  /// const pool = new WorkerPool<int, int>("./job", size: 2)
+  /// println(await pool.run(5))   // 10
+  /// pool.terminate()
+  ///
+  /// // --- job.pi ---
+  /// import { self } from "std/worker"
+  ///
+  /// self.onmessage = (n: int) => self.postMessage(n * 2)
+  /// ```
   public terminate(): void {
     for (const w of this.workers) {
       w.terminate()
