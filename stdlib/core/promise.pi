@@ -223,6 +223,12 @@ class Promise<T, E extends Error = never> {
   }
 
   /// Waits for all of `ps`, never rejecting: how each one ended.
+  /// A pending promise and the functions that settle it (ES2024), for code that settles it from
+  /// outside an executor: `const r = Promise.withResolvers<int, Error>()`, then `r.resolve(1)`.
+  public static withResolvers<U, F extends Error>(): PromiseWithResolvers<U, F> {
+    new PromiseWithResolvers<U, F>(new Promise<U, F>())
+  }
+
   public static allSettled<U, F extends Error>(ps: Promise<U, F>[]): Promise<Settled<U>[]> {
     const out = new Promise<Settled<U>[]>()
     const slots: Settled<U>[][] = []
@@ -253,6 +259,27 @@ class Promise<T, E extends Error = never> {
       })
     }
     return out
+  }
+}
+
+/// What `Promise.withResolvers()` gives: the promise and the functions that settle it (the first
+/// call of either wins).
+class PromiseWithResolvers<T, E extends Error> {
+  /// The pending promise.
+  public readonly promise: Promise<T, E>
+
+  constructor(promise: Promise<T, E>) {
+    this.promise = promise
+  }
+
+  /// Fulfills the promise with `value`.
+  public resolve(value: T): void {
+    this.promise.__resolve(value)
+  }
+
+  /// Rejects the promise with `error`.
+  public reject(error: Error): void {
+    this.promise.__reject(error)
   }
 }
 

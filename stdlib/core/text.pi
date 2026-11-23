@@ -67,6 +67,18 @@ class TextDecoder {
     this.ignoreBOM = options.ignoreBOM == true
   }
 
+  /// A UTF-8 decoder with `options` (`TextDecoder.utf8({ fatal: true })`): no label, so unlike
+  /// `new TextDecoder(label, options)` it can't throw.
+  public static utf8(options: TextDecoderOptions = {}): TextDecoder {
+    return new TextDecoder(options.fatal == true, options.ignoreBOM == true, 0)
+  }
+
+  /// `TextDecoder.utf8`'s (the third argument only tells it apart).
+  constructor(fatal: bool, ignoreBOM: bool, __unlabelled: int) {
+    this.fatal = fatal
+    this.ignoreBOM = ignoreBOM
+  }
+
   /// The text of `input` (and of bytes held back from earlier streamed calls).
   public decode(input: Uint8Array = new Uint8Array(0), options: TextDecodeOptions = {}): string throws TypeError {
     const stream = options.stream == true

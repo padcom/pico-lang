@@ -444,6 +444,9 @@ fn unavailable_on(os: &str, spec: &str, name: Option<&str>) -> bool {
         // (No threads on WASI yet, #19.)
         ("std/worker", _) => os == "wasi",
         ("std/fs" | "std/net" | "std/process", _) => browser,
+        // (#181: std/os reads the environment; std/posix is libc's.)
+        ("std/os", _) => browser,
+        ("std/posix", _) => !matches!(os, "linux" | "macos"),
         ("std/http", Some("serve" | "HttpServer" | "upgradeWebSocket")) => browser,
         ("std/js", _) => !browser,
         _ => spec.starts_with("js:") && !browser,

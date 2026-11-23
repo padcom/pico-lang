@@ -542,6 +542,23 @@ function __String_lastIndexOf(s: string, search: string): int {
   return -1
 }
 
+/// `string.fromUtf8(bytes)`: the text of UTF-8 `bytes`, each invalid sequence as U+FFFD, a leading
+/// byte-order mark kept. Never throws (a `TextDecoder`'s `decode` may: it can be fatal).
+function __string_fromUtf8(bytes: Uint8Array): string {
+  try {
+    TextDecoder.utf8({ ignoreBOM: true }).decode(bytes)
+  } catch (e: TypeError) {
+    panic("a decoder that isn't fatal doesn't throw")
+  }
+}
+
+/// `string.fromCBytes(bytes)`: the text up to the first NUL byte (all of `bytes` without one), as
+/// `string.fromUtf8` decodes it: a C string or a fixed-size `char[n]` field in a buffer.
+function __string_fromCBytes(bytes: Uint8Array): string {
+  const end = bytes.indexOf(0)
+  __string_fromUtf8(if (end < 0) bytes else bytes.subarray(0, end))
+}
+
 // `string.fromC(p)` (spec §12.1): a copy of the NUL-terminated UTF-8 string at `p`.
 extern "C" {
   function pico_str_from_c(p: ptr<u8>): string

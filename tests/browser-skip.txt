@@ -12,3 +12,4 @@ run/test/runner      reads the environment (std/process isn't available in the b
 run/gc/buffers_sync_loop  measures resident memory through /proc (std/fs isn't available in the browser)
 run/collections/map_churn  measures resident memory through /proc (std/fs isn't available in the browser)
 run/ffi/fn_pointers   no signal or dlsym in the browser
+run/ffi/posix         std/posix is for Linux and macOS (spec §13.3)

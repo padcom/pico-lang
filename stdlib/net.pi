@@ -16,3 +16,68 @@ export {
   Datagram,
   UdpSocket,
 }
+
+import { ByteStream } from "std/streams"
+
+/// A TCP (or Unix-domain) connection as a `ByteStream` (`std/streams`), for protocol code that
+/// takes any byte stream.
+export class TcpStream implements ByteStream {
+  /// The connection.
+  public readonly conn: Conn
+
+  constructor(conn: Conn) {
+    this.conn = conn
+  }
+
+  public read(): Promise<Uint8Array?, Error> {
+    conn.read()
+  }
+
+  public async write(bytes: Uint8Array): Promise<void> throws Error {
+    await conn.write(bytes)
+  }
+
+  public close(): void {
+    conn.close()
+  }
+}
+
+/// A UDP socket as a `ByteStream`: datagrams from anyone are read; writes go to `peerPort` and
+/// `peerHost`, or, until one is given, to whoever sent the last datagram read (and are dropped
+/// while nobody has).
+export class UdpStream implements ByteStream {
+  /// The socket.
+  public readonly socket: UdpSocket
+  public peerHost: string?
+  public peerPort: int?
+
+  constructor(socket: UdpSocket, peerPort: int? = null, peerHost: string? = null) {
+    this.socket = socket
+    this.peerPort = peerPort
+    this.peerHost = peerHost
+  }
+
+  public async read(): Promise<Uint8Array?> throws Error {
+    const d = await socket.receive()
+    if (d == null) {
+      return null
+    }
+    if (peerPort == null) {
+      peerPort = d.addr.port
+      peerHost = d.addr.hostname
+    }
+    return d.data
+  }
+
+  /// Sends `bytes` as one datagram.
+  public async write(bytes: Uint8Array): Promise<void> throws Error {
+    const port = peerPort
+    if (port != null) {
+      await socket.send(bytes, port, peerHost ?? "127.0.0.1")
+    }
+  }
+
+  public close(): void {
+    socket.close()
+  }
+}

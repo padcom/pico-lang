@@ -1,0 +1,81 @@
+// `std/posix` (spec §12.3; Linux and macOS): the POSIX calls packages that talk to devices need,
+// declared once. C header imports leave out variadic functions (`open`, `fcntl`, `ioctl`) and macros
+// that glibc builds from others (`O_CLOEXEC`), so packages used to declare their own; two
+// declarations of one C symbol with different signatures don't link, so they must come from here.
+// The others have `c:unistd.h`'s parameters (a buffer is `ptr<u8>`, which is `void *` to the
+// linker), so a program can use both. Buffers go to C as `ptr.bytes(view)` inside `unsafe`.
+//
+// ```ts
+// import { open, close, ioctl, errno, errnoMessage, O_RDWR, O_CLOEXEC } from "std/posix"
+// const fd = open("/dev/ttyUSB0", (O_RDWR | O_CLOEXEC) as c_int)
+// if (fd < 0) throw new Error(errnoMessage())
+// ```
+
+export extern "C" {
+  /// open(2): a descriptor, or -1 (see `errno()`). The mode, with `O_CREAT`, follows `flags`.
+  function open(path: string, flags: c_int, ...): c_int
+  /// fcntl(2): `F_GETFL`, `F_SETFL` (with the flags), `F_GETFD`, `F_SETFD`.
+  function fcntl(fd: c_int, cmd: c_int, ...): c_int
+  /// ioctl(2): the request's argument (an int, or a pointer: `ptr.bytes(view)`) follows.
+  function ioctl(fd: c_int, request: c_ulong, ...): c_int
+  function close(fd: c_int): c_int
+  function dup(fd: c_int): c_int
+  function isatty(fd: c_int): c_int
+  function read(fd: c_int, buf: ptr<u8>, n: usize): isize
+  function write(fd: c_int, buf: ptr<u8>, n: usize): isize
+}
+
+extern "C" {
+  function __errno_location(): ptr<c_int>
+  function __error(): ptr<c_int>
+  function strerror(e: c_int): ptr<u8>
+}
+
+/// `errno`: why the last failed call failed (read it right after the call).
+export function errno(): int {
+  unsafe {
+    comptime if (target.os == "macos") __error().read() as int else __errno_location().read() as int
+  }
+}
+
+/// The system's text for error number `e` (`strerror`), by default the last one.
+export function errnoMessage(e: int = errno()): string {
+  unsafe {
+    string.fromC(strerror(e as c_int))
+  }
+}
+
+const macos: bool = comptime if (target.os == "macos") true else false
+
+// `open` flags. Linux's values are the generic ones (x86-64, arm64, riscv64).
+export const O_RDONLY: int = 0
+export const O_WRONLY: int = 1
+export const O_RDWR: int = 2
+export const O_NONBLOCK: int = if (macos) 0x4 else 0x800
+export const O_APPEND: int = if (macos) 0x8 else 0x400
+export const O_CREAT: int = if (macos) 0x200 else 0x40
+export const O_TRUNC: int = if (macos) 0x400 else 0x200
+export const O_EXCL: int = if (macos) 0x800 else 0x80
+export const O_NOCTTY: int = if (macos) 0x20000 else 0x100
+export const O_CLOEXEC: int = if (macos) 0x1000000 else 0x80000
+
+// `fcntl` commands and descriptor flags.
+export const F_GETFD: int = 1
+export const F_SETFD: int = 2
+export const F_GETFL: int = 3
+export const F_SETFL: int = 4
+export const FD_CLOEXEC: int = 1
+
+// `errno` values.
+export const EPERM: int = 1
+export const ENOENT: int = 2
+export const EINTR: int = 4
+export const EIO: int = 5
+export const EBADF: int = 9
+export const EAGAIN: int = if (macos) 35 else 11
+export const EACCES: int = 13
+export const EBUSY: int = 16
+export const EEXIST: int = 17
+export const ENODEV: int = 19
+export const EINVAL: int = 22
+export const ENOTTY: int = 25

@@ -139,11 +139,11 @@ fn <main>() -> void {
     @g9 = const -1_i64
     @g10 = const 0_i64
     @g11 = const null<Map<string, __Zone>?>
-    _1 = struct#119{}
+    _1 = struct#121{}
     @g12 = _1
     @g13 = const null<__Xoshiro128?>
-    _2 = struct#130{}
-    _3 = struct#131{_2}
+    _2 = struct#132{}
+    _3 = struct#133{_2}
     @g14 = _3
     _5 = const 0_i64
     goto bb6

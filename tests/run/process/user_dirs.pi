@@ -1,0 +1,21 @@
+// expect: /home/u /home/u/.local/share /c /home/u/.config /home/u/.local/state
+// expect: /home/u/Library/Application Support /home/u/Library/Caches null
+// expect: null C:\Users\u\AppData\Roaming C:\Users\u\AppData\Local C:\Users\u\AppData\Local
+// expect: null
+// std/os userDirs (#181): XDG (a relative value is ignored), macOS, Windows, nothing set.
+import { userDirs } from "std/os"
+
+const vars = new Map<string, string>()
+vars.set("HOME", "/home/u")
+vars.set("XDG_CACHE_HOME", "/c")
+vars.set("XDG_DATA_HOME", "relative")
+const d = userDirs(vars, "linux")
+println(`${d.home} ${d.data} ${d.cache} ${d.config} ${d.state}`)
+const m = userDirs(vars, "macos")
+println(`${m.data} ${m.cache} ${m.state}`)
+const wv = new Map<string, string>()
+wv.set("APPDATA", "C:\\Users\\u\\AppData\\Roaming")
+wv.set("LOCALAPPDATA", "C:\\Users\\u\\AppData\\Local")
+const w = userDirs(wv, "windows")
+println(`${w.home} ${w.data} ${w.localData} ${w.cache}`)
+println(`${userDirs(new Map<string, string>(), "linux").data}`)

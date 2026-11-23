@@ -1,0 +1,35 @@
+// expect: héllo héllo|héllo
+// expect: a�b
+// expect: threw
+// expect: 42
+// expect: no
+// string.fromUtf8 / fromCBytes (never throw), TextDecoder.utf8(options) (no label: no RangeError),
+// Promise.withResolvers (#181).
+const b = new TextEncoder().encode("héllo")
+const c = new Uint8Array(10)
+c.setAll(b, 0)
+println(`${string.fromUtf8(b)} ${string.fromCBytes(c)}|${string.fromCBytes(b)}`)
+const bad = Uint8Array.from([0x61, 0xff, 0x62])
+println(string.fromUtf8(bad))
+const d = TextDecoder.utf8({ fatal: true })
+let msg = ""
+try {
+  d.decode(bad)
+} catch (e: TypeError) {
+  msg = "threw"
+}
+println(msg)
+async function main(): Promise<void> throws Error {
+  const r = Promise.withResolvers<int, Error>()
+  setTimeout(() => r.resolve(42), 5)
+  println(`${await r.promise}`)
+  const q = Promise.withResolvers<string, Error>()
+  q.reject(new Error("no"))
+  q.resolve("late")
+  try {
+    await q.promise
+  } catch (e: Error) {
+    println(e.message)
+  }
+}
+await main()
