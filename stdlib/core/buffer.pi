@@ -61,13 +61,14 @@ class ArrayBuffer {
   ///
   /// @example
   /// ```ts
+  /// import { self } from "std/worker"
+  ///
+  /// // In a worker module: hand the bytes to the parent instead of copying them.
   /// const buf = new ArrayBuffer(8)
   /// println(buf.detached)   // false
-  /// const w = new Worker((b: ArrayBuffer): int => b.byteLength)
-  /// w.postMessage(buf, { transfer: [buf] })
+  /// self.postMessage(buf, { transfer: [buf] })
   /// println(buf.detached)     // true
   /// println(buf.byteLength)   // 0
-  /// w.terminate()
   /// ```
   public get detached(): bool {
     return this.__handle == 0
@@ -171,11 +172,12 @@ function __reclaimBuffers(bytes: int): void {
 ///
 /// @example
 /// ```ts
+/// import { self } from "std/worker"
+///
+/// // In a worker module: send a result to the parent without copying its bytes.
 /// const buf = new ArrayBuffer(1024)
-/// const w = new Worker((b: ArrayBuffer): int => b.byteLength)
-/// w.postMessage(buf, { transfer: [buf] })   // moved, not copied
+/// self.postMessage(buf, { transfer: [buf] })   // moved, not copied
 /// println(buf.detached)   // true
-/// w.terminate()
 /// ```
 struct TransferOptions {
   /// The buffers to move; each is detached in the sender.
