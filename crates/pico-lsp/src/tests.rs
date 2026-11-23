@@ -599,9 +599,21 @@ fn recovery_never_panics() {
 
 /// Completion at `‸` in `text` (the marker is removed): the items' labels, and the items.
 fn complete_at(name: &str, text: &str, files: &[(&str, &str)]) -> (Vec<String>, Vec<Value>) {
+    complete_with(name, text, files, json!({}))
+}
+
+/// As [`complete_at`], with the request's `context` (what triggered it).
+fn complete_with(
+    name: &str,
+    text: &str,
+    files: &[(&str, &str)],
+    context: Value,
+) -> (Vec<String>, Vec<Value>) {
     let dir = tmp(name);
     for (f, t) in files {
-        std::fs::write(dir.join(f), t).unwrap();
+        let path = dir.join(f);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, t).unwrap();
     }
     let at = text.find('‸').expect("a cursor");
     let text = text.replace('‸', "");
@@ -615,7 +627,8 @@ fn complete_at(name: &str, text: &str, files: &[(&str, &str)]) -> (Vec<String>, 
         init(),
         open(&uri, &text),
         json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {
-            "textDocument": { "uri": uri }, "position": { "line": line, "character": character } } }),
+            "textDocument": { "uri": uri }, "position": { "line": line, "character": character },
+            "context": context } }),
     ]);
     let r = response(&out, 2);
     assert_eq!(r["isIncomplete"], false);
@@ -750,6 +763,78 @@ fn completes_imported_names() {
     assert_eq!(item(&items, "Person")["kind"], 7);
     let (l, _) = complete_at("imports_std", "import { ‸ } from \"std/path\"\n", &[]);
     assert!(l.iter().any(|x| x == "join"), "{l:?}");
+}
+
+#[test]
+fn completes_module_paths() {
+    // The standard library's modules, with their header comments.
+    let (l, items) = complete_at("paths_std", "import { join } from \"std/p‸\"\n", &[]);
+    for m in ["std/fs", "std/path", "std/process", "std/text"] {
+        assert!(l.iter().any(|x| x == m), "no {m}: {l:?}");
+    }
+    for m in ["std/core", "std/tests", "std/greeting"] {
+        assert!(!l.iter().any(|x| x == m), "{m}: {l:?}");
+    }
+    let fs = item(&items, "std/fs");
+    assert_eq!(fs["kind"], 9);
+    assert_eq!(fs["detail"], "standard library");
+    let docs = fs["documentation"]["value"].as_str().unwrap();
+    assert!(docs.starts_with("`std/fs`: the file system"), "{docs}");
+    // The whole path between the quotes is replaced.
+    let edit = &item(&items, "std/path")["textEdit"];
+    assert_eq!(edit["newText"], "std/path");
+    assert_eq!(
+        edit["range"]["start"],
+        json!({ "line": 0, "character": 22 })
+    );
+    assert_eq!(edit["range"]["end"], json!({ "line": 0, "character": 27 }));
+
+    // The dependencies in project.json, also in a re-export and with single quotes.
+    let manifest = r#"{
+  "name": "acme/app",
+  "workspace": ["libs/*"],
+  "dependencies": {
+    "acme/util": "^0.1.0",
+    "padcom/router": { "git": "https://github.com/padcom/router", "tag": "v1.2.0" }
+  },
+  "devDependencies": { "acme/testkit": { "git": "https://example.com/testkit.git" } }
+}"#;
+    let util = r#"{ "name": "acme/util", "version": "0.1.0" }"#;
+    let files = [
+        ("project.json", manifest),
+        ("libs/util/project.json", util),
+        (
+            "libs/util/index.pi",
+            "// Small helpers.\n\nexport function id(n: int): int { n }\n",
+        ),
+    ];
+    let (l, items) = complete_at("paths_deps", "export { id } from '‸'\n", &files);
+    for m in ["acme/util", "padcom/router", "acme/testkit", "std/fs"] {
+        assert!(l.iter().any(|x| x == m), "no {m}: {l:?}");
+    }
+    assert_eq!(item(&items, "acme/util")["detail"], "dependency: ^0.1.0");
+    assert_eq!(
+        item(&items, "padcom/router")["detail"],
+        "dependency: https://github.com/padcom/router (tag v1.2.0)"
+    );
+    assert_eq!(
+        item(&items, "acme/testkit")["detail"],
+        "dev dependency: https://example.com/testkit.git"
+    );
+    assert_eq!(
+        item(&items, "acme/util")["documentation"]["value"],
+        "Small helpers."
+    );
+
+    // Elsewhere a quote or `/` doesn't complete anything; `.` still does.
+    let slash = json!({ "triggerKind": 2, "triggerCharacter": "/" });
+    let (l, _) = complete_with("paths_slash", "const x = 4 /‸\n", &[], slash);
+    assert!(l.is_empty(), "{l:?}");
+    let quote = json!({ "triggerKind": 2, "triggerCharacter": "\"" });
+    let (l, _) = complete_with("paths_quote", "println(\"‸\")\n", &[], quote);
+    assert!(l.is_empty(), "{l:?}");
+    let (l, _) = complete_at("paths_word", "const from = 1\nconst s = \"‸\"\n", &[]);
+    assert!(!l.iter().any(|x| x == "std/fs"), "{l:?}");
 }
 
 #[test]
