@@ -4,15 +4,53 @@
 // when its last reference is (so a cycle is never cleared).
 
 /// A reference that doesn't keep its target alive.
+///
+/// @example
+/// ```ts
+/// class Node {
+///   public name: string
+///   constructor(name: string) { this.name = name }
+/// }
+///
+/// const node = new Node("root")
+/// const ref = new WeakRef(node)
+/// println(ref.deref()?.name)   // root (while `node` is still in use)
+/// ```
 class WeakRef<T extends object> {
   @weak target: T?
 
   /// A reference to `target`.
+  ///
+  /// @example
+  /// ```ts
+  /// class Config {
+  ///   debug: bool = true
+  /// }
+  ///
+  /// const config = new Config()
+  /// const ref = new WeakRef<Config>(config)
+  /// println(ref.deref() != null)   // true
+  /// ```
   constructor(target: T) {
     this.target = target
   }
 
   /// The target, or `null` once it has been collected.
+  ///
+  /// @example
+  /// ```ts
+  /// class Session {
+  ///   public user: string
+  ///   constructor(user: string) { this.user = user }
+  /// }
+  ///
+  /// const s = new Session("ann")
+  /// const ref = new WeakRef(s)
+  /// const target = ref.deref()
+  /// if (target != null) {
+  ///   println(target.user)   // ann
+  /// }
+  /// ```
   public deref(): T? {
     return this.target
   }
@@ -30,6 +68,16 @@ class __WeakEntry<K extends object, V> {
 
 /// A map whose keys are held weakly: an entry goes away with its key. Values are held
 /// strongly, so a value that refers to its own key keeps the entry (no ephemerons yet).
+///
+/// @example
+/// ```ts
+/// class Widget {}
+///
+/// const sizes = new WeakMap<Widget, int>()
+/// const w = new Widget()
+/// sizes.set(w, 42)
+/// println(sizes.get(w))   // 42
+/// ```
 class WeakMap<K extends object, V> {
   /// By the key's identity. An entry whose key was collected has `key == null` and is
   /// dropped by `prune` (a new object at the same address replaces it).
@@ -38,6 +86,14 @@ class WeakMap<K extends object, V> {
   pruneAt: int = 16
 
   /// An empty map.
+  ///
+  /// @example
+  /// ```ts
+  /// class Key {}
+  ///
+  /// const cache = new WeakMap<Key, string>()
+  /// println(cache.has(new Key()))   // false
+  /// ```
   constructor() {}
 
   live(key: K): __WeakEntry<K, V>? {
@@ -59,11 +115,33 @@ class WeakMap<K extends object, V> {
   }
 
   /// Whether the map has an entry for `key`.
+  ///
+  /// @example
+  /// ```ts
+  /// class Key {}
+  ///
+  /// const m = new WeakMap<Key, int>()
+  /// const k = new Key()
+  /// m.set(k, 1)
+  /// println(m.has(k))           // true
+  /// println(m.has(new Key()))   // false
+  /// ```
   public has(key: K): bool {
     return this.live(key) != null
   }
 
   /// The value for `key`, or `null` if there's none.
+  ///
+  /// @example
+  /// ```ts
+  /// class Key {}
+  ///
+  /// const m = new WeakMap<Key, string>()
+  /// const k = new Key()
+  /// m.set(k, "meta")
+  /// println(m.get(k))           // meta
+  /// println(m.get(new Key()))   // null
+  /// ```
   public get(key: K): V? {
     const e = this.live(key)
     if (e == null) {
@@ -73,6 +151,16 @@ class WeakMap<K extends object, V> {
   }
 
   /// Sets `key`'s value; the map itself.
+  ///
+  /// @example
+  /// ```ts
+  /// class Key {}
+  ///
+  /// const m = new WeakMap<Key, int>()
+  /// const k = new Key()
+  /// m.set(k, 1).set(k, 2)
+  /// println(m.get(k))   // 2
+  /// ```
   public set(key: K, value: V): WeakMap<K, V> {
     const e = this.live(key)
     if (e != null) {
@@ -87,6 +175,17 @@ class WeakMap<K extends object, V> {
   }
 
   /// Removes `key`'s entry; whether there was one.
+  ///
+  /// @example
+  /// ```ts
+  /// class Key {}
+  ///
+  /// const m = new WeakMap<Key, int>()
+  /// const k = new Key()
+  /// m.set(k, 1)
+  /// println(m.delete(k))   // true
+  /// println(m.has(k))      // false
+  /// ```
   public delete(key: K): bool {
     if (this.live(key) == null) {
       return false
@@ -96,24 +195,74 @@ class WeakMap<K extends object, V> {
 }
 
 /// A set whose members are held weakly.
+///
+/// @example
+/// ```ts
+/// class Item {}
+///
+/// const visited = new WeakSet<Item>()
+/// const a = new Item()
+/// visited.add(a)
+/// println(visited.has(a))   // true
+/// ```
 class WeakSet<T extends object> {
   members: WeakMap<T, bool> = new WeakMap<T, bool>()
 
   /// An empty set.
+  ///
+  /// @example
+  /// ```ts
+  /// class Item {}
+  ///
+  /// const s = new WeakSet<Item>()
+  /// println(s.has(new Item()))   // false
+  /// ```
   constructor() {}
 
   /// Whether `value` is in the set.
+  ///
+  /// @example
+  /// ```ts
+  /// class Item {}
+  ///
+  /// const s = new WeakSet<Item>()
+  /// const a = new Item()
+  /// s.add(a)
+  /// println(s.has(a))            // true
+  /// println(s.has(new Item()))   // false
+  /// ```
   public has(value: T): bool {
     this.members.has(value)
   }
 
   /// Adds `value`; the set itself.
+  ///
+  /// @example
+  /// ```ts
+  /// class Item {}
+  ///
+  /// const s = new WeakSet<Item>()
+  /// const a = new Item()
+  /// s.add(a).add(a)
+  /// println(s.has(a))   // true
+  /// ```
   public add(value: T): WeakSet<T> {
     this.members.set(value, true)
     this
   }
 
   /// Removes `value`; whether it was in the set.
+  ///
+  /// @example
+  /// ```ts
+  /// class Item {}
+  ///
+  /// const s = new WeakSet<Item>()
+  /// const a = new Item()
+  /// s.add(a)
+  /// println(s.delete(a))   // true
+  /// println(s.delete(a))   // false
+  /// ```
   public delete(value: T): bool {
     this.members.delete(value)
   }
@@ -135,12 +284,32 @@ class __FinalizationCell<T> {
 
 /// Calls `callback(held)` some time after a registered target has been collected. Until there
 /// is an event loop (spec §10), the callbacks run when the program's top-level code ends.
+///
+/// @example
+/// ```ts
+/// class Resource {}
+///
+/// const registry = new FinalizationRegistry<string>((held) => println(`${held} was collected`))
+/// let r: Resource? = new Resource()
+/// registry.register(r!, "resource #1")
+/// r = null
+/// // may print "resource #1 was collected" once the collector has run
+/// ```
 class FinalizationRegistry<T> {
   callback: (held: T) => void
   cells: __FinalizationCell<T>[] = []
 
   /// A registry that calls `callback` with the `held` value of each registered target that gets
   /// collected.
+  ///
+  /// @example
+  /// ```ts
+  /// class File {}
+  ///
+  /// const registry = new FinalizationRegistry<int>((fd) => println(`closing fd ${fd}`))
+  /// const f = new File()
+  /// registry.register(f, 3)   // "closing fd 3" some time after `f` is collected
+  /// ```
   constructor(callback: (held: T) => void) {
     this.callback = callback
     const all = __finalizationRegistries ?? []
@@ -149,12 +318,32 @@ class FinalizationRegistry<T> {
   }
 
   /// Calls the callback with `held` once `target` has been collected.
+  ///
+  /// @example
+  /// ```ts
+  /// class Chunk {}
+  ///
+  /// const registry = new FinalizationRegistry<string>((name) => println(`freed ${name}`))
+  /// const b = new Chunk()
+  /// registry.register(b, "buffer A")   // "freed buffer A" some time after `b` is collected
+  /// ```
   public register<U extends object>(target: U, held: T): void {
     const w = new WeakRef<U>(target)
     this.cells.push(new __FinalizationCell<T>(() => w.deref() != null, held, (id: int) => false))
   }
 
   /// `register`, and `unregister(token)` cancels it.
+  ///
+  /// @example
+  /// ```ts
+  /// class Handle {}
+  ///
+  /// const registry = new FinalizationRegistry<string>((name) => println(`freed ${name}`))
+  /// const h = new Handle()
+  /// const token = new Handle()
+  /// registry.registerWithToken(h, "handle 1", token)
+  /// println(registry.unregister(token))   // true
+  /// ```
   public registerWithToken<U extends object, K extends object>(target: U, held: T, token: K): void {
     const w = new WeakRef<U>(target)
     const t = new WeakRef<K>(token)
@@ -167,6 +356,18 @@ class FinalizationRegistry<T> {
   }
 
   /// Cancels the registrations made with `token`; whether there were any.
+  ///
+  /// @example
+  /// ```ts
+  /// class Handle {}
+  ///
+  /// const registry = new FinalizationRegistry<string>((name) => println(`freed ${name}`))
+  /// const h = new Handle()
+  /// const token = new Handle()
+  /// registry.registerWithToken(h, "handle 1", token)
+  /// println(registry.unregister(token))   // true
+  /// println(registry.unregister(token))   // false
+  /// ```
   public unregister<K extends object>(token: K): bool {
     const id = __ref_id(token)
     const kept: __FinalizationCell<T>[] = []
