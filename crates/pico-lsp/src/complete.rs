@@ -1,5 +1,6 @@
-//! Completion (PLAN P10.6d1): names in scope at the cursor, members after `.`, and the
-//! exported names of the module inside `import { … } from "…"`.
+//! Completion (PLAN P10.6d1): names in scope at the cursor, members after `.`, the
+//! exported names of the module inside `import { … } from "…"`, and inside `from "…"` the
+//! modules an import can name (the standard library's and the `project.json` dependencies).
 //!
 //! The document is checked again with a placeholder name at the cursor (by the recovering
 //! front end), so `p.` becomes the member access `p.<placeholder>` whose object has a type,
@@ -29,6 +30,7 @@ mod kind {
     pub const PROPERTY: u32 = 10;
     pub const ENUM: u32 = 13;
     pub const KEYWORD: u32 = 14;
+    pub const FOLDER: u32 = 19;
     pub const ENUM_MEMBER: u32 = 20;
     pub const CONSTANT: u32 = 21;
     pub const STRUCT: u32 = 22;
@@ -76,9 +78,17 @@ impl Items {
     }
 }
 
-/// The completion items at byte `offset` of `text`, the document at `path`.
-pub fn complete(path: &Path, text: &str, offset: usize) -> Vec<Value> {
+/// The completion items at byte `offset` of `text`, the document at `path`. `trigger` is the
+/// character that asked for them, if one did: the quotes and `/` only start a module path.
+pub fn complete(path: &Path, text: &str, offset: usize, trigger: Option<&str>) -> Vec<Value> {
     let offset = offset.min(text.len());
+    let dir = path.parent().unwrap_or(Path::new("."));
+    if let Some((start, end)) = specifier_at(text, offset) {
+        return specifiers(text, (start, offset, end), path);
+    }
+    if matches!(trigger, Some("\"" | "'" | "/")) {
+        return Vec::new();
+    }
     let start = text[..offset]
         .char_indices()
         .rev()
@@ -91,7 +101,6 @@ pub fn complete(path: &Path, text: &str, offset: usize) -> Vec<Value> {
             .char_indices()
             .find(|(_, c)| !(c.is_alphanumeric() || *c == '_' || *c == '$'))
             .map_or(text.len() - offset, |(i, _)| i);
-    let dir = path.parent().unwrap_or(Path::new("."));
     if let Some(items) = import_names(text, start, dir) {
         return items;
     }
@@ -538,6 +547,209 @@ fn import_names(text: &str, at: usize, dir: &Path) -> Option<Vec<Value>> {
         items.add(&name, k, Some(&format!("```pico\n{line}\n```")));
     }
     Some(items.list)
+}
+
+/// Inside the string of `from "…"` (an import or a re-export): the byte range of the module
+/// path around `at`, without the quotes (`None` elsewhere).
+fn specifier_at(text: &str, at: usize) -> Option<(usize, usize)> {
+    let line = text[..at].rfind('\n').map_or(0, |i| i + 1);
+    let open = line + text[line..at].rfind(['"', '\''])?;
+    let quote = text[open..].chars().next()?;
+    let lead = text[..open].trim_end().strip_suffix("from")?;
+    if lead.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '$') {
+        return None;
+    }
+    let rest = &text[at..];
+    let end = at
+        + rest
+            .find(|c: char| c == quote || c == ';' || c.is_whitespace())
+            .unwrap_or(rest.len());
+    Some((open + 1, end))
+}
+
+/// The modules an import can name: once the path starts with `.`, the files and directories
+/// it leads to; before that the standard library's modules, the dependencies in the package's
+/// `project.json` and the modules next to this one. Each replaces the whole path between the
+/// quotes (`start..end`; the cursor is at `at`).
+fn specifiers(text: &str, (start, at, end): (usize, usize, usize), path: &Path) -> Vec<Value> {
+    let range = json!({ "start": lsp_position(text, start), "end": lsp_position(text, end) });
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let mut items = Vec::new();
+    let mut add = |label: &str, k: u32, detail: &str, docs: Option<String>| {
+        let mut item = json!({
+            "label": label,
+            "kind": k,
+            "detail": detail,
+            "filterText": label,
+            "textEdit": { "range": range, "newText": label },
+        });
+        if let Some(d) = docs.filter(|d| !d.is_empty()) {
+            item["documentation"] = json!({ "kind": "markdown", "value": d });
+        }
+        if k == kind::FOLDER {
+            // (Its contents next.)
+            item["command"] = json!({ "title": "", "command": "editor.action.triggerSuggest" });
+        }
+        items.push(item);
+    };
+    let typed = &text[start..at];
+    if typed.starts_with('.') {
+        // `../lib/ge‸`: the entries of `../lib/`; `.‸` and `..‸`: those of `./` and `../`.
+        let (base, folders): (&str, &[&str]) = match typed.rfind('/') {
+            Some(i) => (&typed[..=i], &[]),
+            None => ("./", &["./", "../"]),
+        };
+        for f in folders {
+            add(f, kind::FOLDER, "directory", None);
+        }
+        for (name, k, file) in relative_entries(&dir.join(base), path) {
+            let detail = if k == kind::FOLDER {
+                "directory"
+            } else {
+                "module"
+            };
+            add(
+                &format!("{base}{name}"),
+                k,
+                detail,
+                file.and_then(|f| module_doc(&f)),
+            );
+        }
+        return items;
+    }
+    for (name, file) in std_modules() {
+        let docs = module_doc(&file);
+        add(
+            &format!("std/{name}"),
+            kind::MODULE,
+            "standard library",
+            docs,
+        );
+    }
+    if let Some(Ok(m)) = pico_driver::packages::package_of(dir) {
+        for (deps, what) in [
+            (&m.dependencies, "dependency"),
+            (&m.dev_dependencies, "dev dependency"),
+        ] {
+            for (name, source) in deps {
+                let detail = format!("{what}: {}", source_label(source));
+                let docs = module_path(name, dir).and_then(|f| module_doc(&f));
+                add(name, kind::MODULE, &detail, docs);
+            }
+        }
+    }
+    if typed.is_empty() {
+        for (name, k, file) in relative_entries(dir, path) {
+            if k == kind::MODULE {
+                add(
+                    &format!("./{name}"),
+                    k,
+                    "module",
+                    file.and_then(|f| module_doc(&f)),
+                );
+            }
+        }
+    }
+    items
+}
+
+/// What a relative import can name in `dir`: its `.pi` modules (without the extension; not
+/// `self`, the document, nor test and benchmark files), its directories with an `index.pi`
+/// as modules, and its directories (`name/`, not hidden ones) to go into. Sorted by name.
+fn relative_entries(dir: &Path, self_: &Path) -> Vec<(String, u32, Option<std::path::PathBuf>)> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let me = self_.canonicalize().ok();
+    let mut out = Vec::new();
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let p = e.path();
+        if name.starts_with('.') {
+            continue;
+        }
+        if p.is_dir() {
+            let index = p.join("index.pi");
+            if index.is_file() {
+                out.push((name.clone(), kind::MODULE, Some(index)));
+            }
+            out.push((format!("{name}/"), kind::FOLDER, None));
+        } else if let Some(stem) = name.strip_suffix(".pi")
+            && !stem.ends_with(".test")
+            && !stem.ends_with(".bench")
+            && p.canonicalize().ok() != me
+        {
+            out.push((stem.to_string(), kind::MODULE, Some(p)));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The standard library's modules, by name, and their files: `x.pi` and `x/index.pi` (not the
+/// core library, which every module has, nor its tests).
+fn std_modules() -> Vec<(String, std::path::PathBuf)> {
+    let Ok(entries) = std::fs::read_dir(pico_driver::stdlib_dir()) else {
+        return Vec::new();
+    };
+    let mut mods: Vec<(String, std::path::PathBuf)> = entries
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            if path.is_dir() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let index = path.join("index.pi");
+                (!matches!(name.as_str(), "core" | "tests") && index.is_file())
+                    .then_some((name, index))
+            } else if path.extension().is_some_and(|x| x == "pi") {
+                let name = path.file_stem()?.to_string_lossy().into_owned();
+                // (`std/greeting` is there for the toolchain's own tests.)
+                (name != "greeting").then_some((name, path))
+            } else {
+                None
+            }
+        })
+        .collect();
+    mods.sort();
+    mods
+}
+
+/// Where a dependency comes from, as its completion's detail.
+fn source_label(source: &pico_driver::packages::Source) -> String {
+    use pico_driver::packages::{GitPin, Source};
+    match source {
+        Source::Range(r) => r.to_string(),
+        Source::Git { url, pin } => match pin {
+            GitPin::Tag(t) => format!("{url} (tag {t})"),
+            GitPin::Branch(b) => format!("{url} (branch {b})"),
+            GitPin::Rev(r) => format!("{url} (rev {r})"),
+            GitPin::Default => url.clone(),
+        },
+    }
+}
+
+/// The comment a module starts with (`// …` or `//! …` lines before its first declaration).
+fn module_doc(file: &Path) -> Option<String> {
+    let src = std::fs::read_to_string(file).ok()?;
+    let lines: Vec<&str> = src
+        .lines()
+        .map(str::trim_start)
+        .take_while(|l| l.starts_with("//") && !l.starts_with("///"))
+        .map(|l| {
+            let l = l.trim_start_matches("//");
+            let l = l.strip_prefix('!').unwrap_or(l);
+            l.strip_prefix(' ').unwrap_or(l)
+        })
+        .collect();
+    Some(lines.join("\n").trim().to_string()).filter(|d| !d.is_empty())
+}
+
+/// The LSP position (line, UTF-16 code units) of byte `offset` of `text`.
+fn lsp_position(text: &str, offset: usize) -> Value {
+    let before = &text[..offset];
+    let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+    let character: usize = before[line_start..].chars().map(char::len_utf16).sum();
+    json!({ "line": before.matches('\n').count(), "character": character })
 }
 
 /// The file an import specifier names (as the driver resolves it).

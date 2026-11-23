@@ -25,7 +25,8 @@ its `bin` directory on your PATH, or point `pico.server.path` at it. Debugging a
   bracket matching, auto-closing pairs and `/** */` continuation.
 - **Errors and lint warnings as you type**, also those in imported modules.
 - **Completion**: names in scope, members after `.`, the names a module exports inside
-  `import { … }`.
+  `import { … }`, and module paths inside `from "…"`: the standard library's modules, the
+  dependencies in `project.json`, and the files and directories of relative paths (`./`, `../`).
 - **Hover** with the type or signature and the doc comment, also in code that has errors.
 - **Go to Definition** (into imported modules and the core library), **Go to Implementations**
   (Ctrl+F12) and **Rename Symbol** (F2: every use in the project, methods with their overrides).
