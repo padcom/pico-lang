@@ -458,12 +458,29 @@ export const sep = comptime if (target.os == "windows") "\\" else "/"
 export const delimiter = comptime if (target.os == "windows") ";" else ":"
 
 /// Whether `p` starts at a root (`/`; on Windows also `C:\` and `\\server\share`).
+///
+/// @example
+/// ```ts
+/// import { isAbsolute } from "std/path"
+///
+/// println(isAbsolute("/usr/bin"))      // true
+/// println(isAbsolute("src/main.pi"))   // false
+/// ```
 export function isAbsolute(p: string): bool {
   if (__windows) __winIsAbsolute(p) else __posixIsAbsolute(p)
 }
 
 /// `p` without `.` segments, `..` segments that follow a name, and repeated separators
 /// (`a//b/../c/` → `a/c/`); `""` → `"."`.
+///
+/// @example
+/// ```ts
+/// import { normalize } from "std/path"
+///
+/// println(normalize("a//b/../c/"))   // a/c/
+/// println(normalize("./x/./y"))      // x/y
+/// println(normalize(""))             // .
+/// ```
 export function normalize(p: string): string {
   if (__windows) __winNormalize(p) else __posixNormalize(p)
 }
@@ -483,26 +500,69 @@ export function join(...parts: string[]): string {
 
 /// An absolute path: the parts from the last absolute one (or the working directory), joined
 /// and normalized, without a trailing separator.
+///
+/// @example
+/// ```ts
+/// import { resolve } from "std/path"
+/// import { cwd } from "std/process"
+///
+/// println(resolve("/srv", "app", "../data"))              // /srv/data
+/// println(resolve("notes.txt") == cwd() + "/notes.txt")   // true
+/// ```
 export function resolve(...parts: string[]): string {
   if (__windows) __winResolve(parts) else __posixResolve(parts)
 }
 
 /// The directory part (`/a/b/c` → `/a/b`, `a` → `.`, `/a` → `/`).
+///
+/// @example
+/// ```ts
+/// import { dirname } from "std/path"
+///
+/// println(dirname("/a/b/c"))   // /a/b
+/// println(dirname("/a"))       // /
+/// println(dirname("a"))        // .
+/// ```
 export function dirname(p: string): string {
   if (__windows) __winDirname(p) else __posixDirname(p)
 }
 
 /// The last segment (`/a/b.txt` → `b.txt`), without `ext` if it ends with it.
+///
+/// @example
+/// ```ts
+/// import { basename } from "std/path"
+///
+/// println(basename("/a/b.txt"))           // b.txt
+/// println(basename("/a/b.txt", ".txt"))   // b
+/// ```
 export function basename(p: string, ext: string = ""): string {
   if (__windows) __withoutExt(__winLast(p), ext) else __posixBasename(p, ext)
 }
 
 /// The extension of the last segment, from its last `.` (`a.tar.gz` → `.gz`; `.bashrc` → `""`).
+///
+/// @example
+/// ```ts
+/// import { extname } from "std/path"
+///
+/// println(extname("photo.jpg"))   // .jpg
+/// println(extname("a.tar.gz"))    // .gz
+/// println(extname(".bashrc") == "")   // true
+/// ```
 export function extname(p: string): string {
   __extOf(if (__windows) __winLast(p) else __posixBasename(p, ""))
 }
 
 /// The path from `from` to `to` (both resolved first; `""` if they're the same).
+///
+/// @example
+/// ```ts
+/// import { relative } from "std/path"
+///
+/// println(relative("/srv/app/src", "/srv/app/docs/a.md"))   // ../docs/a.md
+/// println(relative("/srv/app", "/srv/app/src/main.pi"))     // src/main.pi
+/// ```
 export function relative(from: string, to: string): string {
   if (__windows) __winRelative(from, to) else __posixRelative(from, to)
 }

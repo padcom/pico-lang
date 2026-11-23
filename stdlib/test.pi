@@ -114,6 +114,22 @@ function __register(name: string, sync: (() => void throws Error)?, async_: (() 
 }
 
 /// Groups tests: `fn` runs now and declares them; names show as `group > test`.
+///
+/// @example
+/// ```ts
+/// import { describe, it, expect } from "std/test"
+///
+/// describe("Array", () => {
+///   describe("push", () => {
+///     it("adds to the end", () => {
+///       const xs = [1, 2]
+///       xs.push(3)
+///       expect(xs).toEqual([1, 2, 3])
+///     })
+///   })
+/// })
+/// // pico test: ✓ Array > push > adds to the end
+/// ```
 export function describe(name: string, fn: () => void): void {
   const r = __run()
   r.stack.push(new __Suite(name))
@@ -122,44 +138,161 @@ export function describe(name: string, fn: () => void): void {
 }
 
 /// A test (also `it`).
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("adds", () => {
+///   expect(1 + 2).toBe(3)
+/// })
+/// // pico test: ✓ adds
+/// ```
 export function test(name: string, fn: () => void throws Error): void {
   __register(name, fn, null, false, false)
 }
 
 /// An async test: an `async function` (its promise is awaited).
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+/// import { delay } from "std/timers"
+///
+/// async function waitsForATimer(): Promise<void> throws AbortError {
+///   await delay(5)
+///   expect(await Promise.resolve(2)).toBe(2)
+/// }
+///
+/// test("waits for a timer", waitsForATimer)
+/// test("an async lambda", async () => {
+///   await delay(1)
+///   expect("ok").toBe("ok")
+/// })
+/// // pico test: ✓ waits for a timer, ✓ an async lambda
+/// ```
 export function test(name: string, fn: () => Promise<void, Error>): void {
   __register(name, null, fn, false, false)
 }
 
 /// A test (the same as `test`): `fn` runs after the file's top level; a failed expectation, a panic
 /// or an uncaught exception fails it.
+///
+/// @example
+/// ```ts
+/// import { describe, it, expect } from "std/test"
+///
+/// describe("string", () => {
+///   it("uppercases", () => {
+///     expect("pico".toUpperCase()).toBe("PICO")
+///   })
+/// })
+/// // pico test: ✓ string > uppercases
+/// ```
 export function it(name: string, fn: () => void throws Error): void { test(name, fn) }
 /// An async test (the same as `test`): an `async function` passed by name; its promise is awaited,
 /// and a rejection fails the test.
+///
+/// @example
+/// ```ts
+/// import { it, expect } from "std/test"
+/// import { delay } from "std/timers"
+///
+/// async function settlesLater(): Promise<void> throws AbortError {
+///   await delay(5)
+///   expect([1, 2].length).toBe(2)
+/// }
+///
+/// it("settles later", settlesLater)
+/// // pico test: ✓ settles later
+/// ```
 export function it(name: string, fn: () => Promise<void, Error>): void { test(name, fn) }
 
 /// A test that's reported as skipped.
+///
+/// @example
+/// ```ts
+/// import { test, skip, expect } from "std/test"
+///
+/// test("runs", () => {
+///   expect(true).toBeTruthy()
+/// })
+/// skip("flaky on CI", () => {
+///   expect(1).toBe(2)   // not run
+/// })
+/// // pico test: ✓ runs, - flaky on CI (skipped)
+/// ```
 export function skip(name: string, fn: () => void throws Error): void {
   __register(name, fn, null, true, false)
 }
 
 /// An async test that's reported as skipped.
+///
+/// @example
+/// ```ts
+/// import { skip, expect } from "std/test"
+/// import { delay } from "std/timers"
+///
+/// async function slowNetworkCall(): Promise<void> throws AbortError {
+///   await delay(5000)
+///   expect(1).toBe(1)
+/// }
+///
+/// skip("slow network call", slowNetworkCall)
+/// // pico test: - slow network call (skipped)
+/// ```
 export function skip(name: string, fn: () => Promise<void, Error>): void {
   __register(name, null, fn, true, false)
 }
 
 /// When any test is `only`, the others are skipped.
+///
+/// @example
+/// ```ts
+/// import { test, only, expect } from "std/test"
+///
+/// only("the one being debugged", () => {
+///   expect(2 * 21).toBe(42)
+/// })
+/// test("everything else", () => {
+///   expect(1).toBe(1)
+/// })
+/// // pico test: ✓ the one being debugged, - everything else (skipped)
+/// ```
 export function only(name: string, fn: () => void throws Error): void {
   __register(name, fn, null, false, true)
 }
 
 /// An async `only` test: an `async function` passed by name (its promise is awaited). When any test
 /// is `only`, the others are skipped.
+///
+/// @example
+/// ```ts
+/// import { test, only, expect } from "std/test"
+/// import { delay } from "std/timers"
+///
+/// async function debugThis(): Promise<void> throws AbortError {
+///   await delay(1)
+///   expect("a" + "b").toBe("ab")
+/// }
+///
+/// only("debug this", debugThis)
+/// test("not now", () => {})
+/// // pico test: ✓ debug this, - not now (skipped)
+/// ```
 export function only(name: string, fn: () => Promise<void, Error>): void {
   __register(name, null, fn, false, true)
 }
 
 /// A test still to write (reported as skipped).
+///
+/// @example
+/// ```ts
+/// import { todo } from "std/test"
+///
+/// todo("parses negative numbers")
+/// // pico test: - parses negative numbers (skipped)
+/// ```
 export function todo(name: string): void {
   __register(name, null, null, true, false)
 }
@@ -167,18 +300,88 @@ export function todo(name: string): void {
 /// Runs `fn` before each test of the enclosing `describe` (at the top level: of the file), outer
 /// suites' hooks first; skipped tests don't run it. A failure or panic in it fails the test, which
 /// then doesn't run (its `afterEach` hooks still do).
+///
+/// @example
+/// ```ts
+/// import { describe, it, beforeEach, expect } from "std/test"
+///
+/// describe("cart", () => {
+///   let items: string[] = []
+///   beforeEach(() => {
+///     items = []   // a fresh cart for every test
+///   })
+///   it("starts empty", () => {
+///     expect(items).toHaveLength(0)
+///   })
+///   it("adds", () => {
+///     items.push("apple")
+///     expect(items).toHaveLength(1)
+///   })
+/// })
+/// // pico test: ✓ cart > starts empty, ✓ cart > adds
+/// ```
 export function beforeEach(fn: () => void): void { __currentSuite().beforeEach.push(fn) }
 /// Runs `fn` after each test of the enclosing `describe` (at the top level: of the file), even a
 /// failed one; inner suites' hooks first, skipped tests don't run it. A failure or panic in it
 /// fails the test.
+///
+/// @example
+/// ```ts
+/// import { it, afterEach, expect } from "std/test"
+///
+/// const opened: string[] = []
+/// afterEach(() => {
+///   opened.pop()   // clean up after each test, even a failed one
+/// })
+/// it("opens one", () => {
+///   opened.push("db")
+///   expect(opened).toHaveLength(1)
+/// })
+/// it("still one", () => {
+///   opened.push("db")
+///   expect(opened).toHaveLength(1)
+/// })
+/// // pico test: ✓ opens one, ✓ still one
+/// ```
 export function afterEach(fn: () => void): void { __currentSuite().afterEach.push(fn) }
 /// Runs `fn` once, before the first test of the enclosing `describe` (at the top level: of the
 /// file) that isn't skipped. A failure or panic in it fails that first test only; the later ones
 /// still run.
+///
+/// @example
+/// ```ts
+/// import { describe, it, beforeAll, expect } from "std/test"
+///
+/// describe("config", () => {
+///   const settings = new Map<string, string>()
+///   beforeAll(() => {
+///     settings.set("mode", "test")   // once, before the first test
+///   })
+///   it("has a mode", () => {
+///     expect(settings.get("mode")).toBe("test")
+///   })
+/// })
+/// // pico test: ✓ config > has a mode
+/// ```
 export function beforeAll(fn: () => void): void { __currentSuite().beforeAll.push(fn) }
 /// Runs `fn` once, after the last test of the enclosing `describe` (at the top level: of the file),
 /// when `beforeAll` ran (some test of the suite wasn't skipped). A failure or panic in it is
 /// reported as a failed `suite > afterAll` entry of its own.
+///
+/// @example
+/// ```ts
+/// import { describe, it, afterAll, expect } from "std/test"
+///
+/// describe("suite", () => {
+///   afterAll(() => {
+///     println("all done")   // once, after the last test
+///   })
+///   it("works", () => {
+///     expect(1).toBe(1)
+///   })
+/// })
+/// // pico test: ✓ suite > works (and prints "all done")
+/// ```
 export function afterAll(fn: () => void): void { __currentSuite().afterAll.push(fn) }
 
 function __currentSuite(): __Suite {
@@ -189,6 +392,20 @@ function __currentSuite(): __Suite {
 /// A benchmark: `pico bench` runs it (warm-up, then enough iterations for about half a
 /// second) and reports mean, median and standard deviation per iteration. `pico test` and
 /// `pico run` skip benchmarks.
+///
+/// @example
+/// ```ts
+/// import { bench } from "std/test"
+///
+/// bench("join 100 strings", () => {
+///   const parts: string[] = []
+///   for (let i = 0; i < 100; i++) {
+///     parts.push(`${i}`)
+///   }
+///   parts.join(",")
+/// })
+/// // pico bench: join 100 strings, its mean, median and standard deviation per iteration
+/// ```
 export function bench(name: string, fn: () => void): void {
   const r = __run()
   r.benches.push(new __Bench(name, fn))
@@ -382,6 +599,22 @@ function __show<T>(v: T): string {
 
 /// Expectations on any value: `toBe`/`toEqual` compare string forms (fields for structs,
 /// elements for arrays, `toString` or fields for classes).
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// struct Point {
+///   x: int
+///   y: int
+/// }
+///
+/// test("structs compare by fields", () => {
+///   const p: Point = { x: 1, y: 2 }
+///   expect(p).toEqual({ x: 1, y: 2 })
+/// })
+/// // pico test: ✓ structs compare by fields
+/// ```
 export class Expect<T> {
   /// The value under test.
   public readonly actual: T
@@ -389,12 +622,35 @@ export class Expect<T> {
   public readonly negated: bool
 
   /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, Expect } from "std/test"
+  ///
+  /// test("by hand", () => {
+  ///   const e = new Expect<string?>(null)   // what `expect(value)` makes
+  ///   e.toBeNull()
+  /// })
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(actual: T, negated: bool = false) {
     this.actual = actual
     this.negated = negated
   }
 
   /// The opposite expectation (`expect(x).not.toBe(y)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("not", () => {
+  ///   const m = new Map<string, int>()
+  ///   m.set("a", 1)
+  ///   expect(m.get("a")).not.toBeNull()
+  /// })
+  /// // pico test: ✓ not
+  /// ```
   public get not(): Expect<T> { new Expect<T>(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
@@ -405,15 +661,64 @@ export class Expect<T> {
 
   /// Passes when `actual` and `expected` have the same string form (their debug form, or a class's
   /// `toString`), so it doesn't test identity; fails with `expected <actual> to be <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// struct User {
+  ///   name: string
+  /// }
+  ///
+  /// test("same string form", () => {
+  ///   const u: User = { name: "ada" }
+  ///   expect(u).toBe({ name: "ada" })
+  /// })
+  /// // pico test: ✓ same string form
+  /// ```
   public toBe(expected: T): void { this.__check(__show(this.actual) == __show(expected), `to be ${__show(expected)}`) }
   /// The same comparison as `toBe` (equal string forms); fails with `expected <actual> to equal
   /// <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("nullable values", () => {
+  ///   const found: int? = [1, 2, 3].find((x: int) => x > 1)
+  ///   expect(found).toEqual(2)
+  /// })
+  /// // pico test: ✓ nullable values
+  /// ```
   public toEqual(expected: T): void { this.__check(__show(this.actual) == __show(expected), `to equal ${__show(expected)}`) }
   /// Passes when `actual` is `null` (its string form is `null`): `expect(map.get(k)).toBeNull()`.
   /// Fails with `expected <actual> to be null`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("missing key", () => {
+  ///   const ages = new Map<string, int>()
+  ///   expect(ages.get("nobody")).toBeNull()
+  /// })
+  /// // pico test: ✓ missing key
+  /// ```
   public toBeNull(): void { this.__check(__show(this.actual) == "null", "to be null") }
   /// Passes when `actual` isn't `null`; fails with `expected a value, got null` (negated: `expected
   /// <actual> to be null`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("present key", () => {
+  ///   const ages = new Map<string, int>()
+  ///   ages.set("ada", 36)
+  ///   expect(ages.get("ada")).toBeDefined()
+  /// })
+  /// // pico test: ✓ present key
+  /// ```
   public toBeDefined(): void {
     if ((__show(this.actual) != "null") == this.negated) {
       __fail(if (this.negated) `expected ${__show(this.actual)} to be null` else "expected a value, got null")
@@ -422,6 +727,18 @@ export class Expect<T> {
 }
 
 /// Expectations on integers.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("ints", () => {
+///   const n = [3, 1, 2].length
+///   expect(n).toBe(3)
+///   expect(n).toBeGreaterThan(2)
+/// })
+/// // pico test: ✓ ints
+/// ```
 export class IntExpect {
   /// The value under test.
   public readonly actual: int
@@ -429,6 +746,17 @@ export class IntExpect {
   public readonly negated: bool
 
   /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, IntExpect } from "std/test"
+  ///
+  /// test("by hand", () => {
+  ///   new IntExpect(5).toBe(5)               // what `expect(5)` makes
+  ///   new IntExpect(5, negated: true).toBe(6)   // what `expect(5).not` makes
+  /// })
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(actual: int, negated: bool = false) {
     this.actual = actual
     this.negated = negated
@@ -436,6 +764,17 @@ export class IntExpect {
 
   /// The opposite expectation: each matcher on it passes where it would fail
   /// (`expect(x).not.toBe(y)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("not", () => {
+  ///   expect(7).not.toBe(8)
+  ///   expect(7).not.toBeLessThan(7)
+  /// })
+  /// // pico test: ✓ not
+  /// ```
   public get not(): IntExpect { new IntExpect(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
@@ -443,20 +782,91 @@ export class IntExpect {
   }
 
   /// Passes when `actual == expected`; fails with `expected <actual> to be <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBe", () => {
+  ///   expect(6 * 7).toBe(42)
+  /// })
+  /// // pico test: ✓ toBe (`expect(6 * 7).toBe(41)` fails with: expected 42 to be 41)
+  /// ```
   public toBe(expected: int): void { this.__check(this.actual == expected, `to be ${expected}`) }
   /// The same as `toBe` (`actual == expected`); fails with `expected <actual> to equal <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toEqual", () => {
+  ///   expect("abc".length).toEqual(3)
+  /// })
+  /// // pico test: ✓ toEqual
+  /// ```
   public toEqual(expected: int): void { this.__check(this.actual == expected, `to equal ${expected}`) }
   /// Passes when `actual > n`; fails with `expected <actual> to be greater than <n>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeGreaterThan", () => {
+  ///   expect(10).toBeGreaterThan(9)
+  /// })
+  /// // pico test: ✓ toBeGreaterThan
+  /// ```
   public toBeGreaterThan(n: int): void { this.__check(this.actual > n, `to be greater than ${n}`) }
   /// Passes when `actual >= n`; fails with `expected <actual> to be at least <n>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeGreaterThanOrEqual", () => {
+  ///   expect(10).toBeGreaterThanOrEqual(10)
+  /// })
+  /// // pico test: ✓ toBeGreaterThanOrEqual
+  /// ```
   public toBeGreaterThanOrEqual(n: int): void { this.__check(this.actual >= n, `to be at least ${n}`) }
   /// Passes when `actual < n`; fails with `expected <actual> to be less than <n>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeLessThan", () => {
+  ///   expect(-1).toBeLessThan(0)
+  /// })
+  /// // pico test: ✓ toBeLessThan
+  /// ```
   public toBeLessThan(n: int): void { this.__check(this.actual < n, `to be less than ${n}`) }
   /// Passes when `actual <= n`; fails with `expected <actual> to be at most <n>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeLessThanOrEqual", () => {
+  ///   expect([1, 2].length).toBeLessThanOrEqual(2)
+  /// })
+  /// // pico test: ✓ toBeLessThanOrEqual
+  /// ```
   public toBeLessThanOrEqual(n: int): void { this.__check(this.actual <= n, `to be at most ${n}`) }
 }
 
 /// Expectations on numbers.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("numbers", () => {
+///   expect(0.1 + 0.2).toBeCloseTo(0.3)
+///   expect(1.5).toBeGreaterThan(1.0)
+/// })
+/// // pico test: ✓ numbers
+/// ```
 export class NumberExpect {
   /// The value under test.
   public readonly actual: number
@@ -464,6 +874,16 @@ export class NumberExpect {
   public readonly negated: bool
 
   /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, NumberExpect } from "std/test"
+  ///
+  /// test("by hand", () => {
+  ///   new NumberExpect(2.5).toBe(2.5)   // what `expect(2.5)` makes
+  /// })
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(actual: number, negated: bool = false) {
     this.actual = actual
     this.negated = negated
@@ -471,6 +891,16 @@ export class NumberExpect {
 
   /// The opposite expectation: each matcher on it passes where it would fail
   /// (`expect(x).not.toBe(y)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("not", () => {
+  ///   expect(Math.sqrt(2.0)).not.toBe(1.4)
+  /// })
+  /// // pico test: ✓ not
+  /// ```
   public get not(): NumberExpect { new NumberExpect(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
@@ -479,21 +909,102 @@ export class NumberExpect {
 
   /// Passes when `actual == expected` (so `NaN` never passes, and `-0.0` equals `0.0`; for rounding
   /// errors use `toBeCloseTo`); fails with `expected <actual> to be <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBe", () => {
+  ///   expect(1.0 / 4.0).toBe(0.25)
+  /// })
+  /// // pico test: ✓ toBe
+  /// ```
   public toBe(expected: number): void { this.__check(this.actual == expected, `to be ${expected}`) }
   /// The same as `toBe` (`actual == expected`); fails with `expected <actual> to equal <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toEqual", () => {
+  ///   expect(Math.abs(-3.5)).toEqual(3.5)
+  /// })
+  /// // pico test: ✓ toEqual
+  /// ```
   public toEqual(expected: number): void { this.__check(this.actual == expected, `to equal ${expected}`) }
   /// Passes when `actual > n`; fails with `expected <actual> to be greater than <n>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeGreaterThan", () => {
+  ///   expect(Math.PI).toBeGreaterThan(3.14)
+  /// })
+  /// // pico test: ✓ toBeGreaterThan
+  /// ```
   public toBeGreaterThan(n: number): void { this.__check(this.actual > n, `to be greater than ${n}`) }
   /// Passes when `actual >= n`; fails with `expected <actual> to be at least <n>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeGreaterThanOrEqual", () => {
+  ///   expect(Math.max(1.0, 2.0)).toBeGreaterThanOrEqual(2.0)
+  /// })
+  /// // pico test: ✓ toBeGreaterThanOrEqual
+  /// ```
   public toBeGreaterThanOrEqual(n: number): void { this.__check(this.actual >= n, `to be at least ${n}`) }
   /// Passes when `actual < n`; fails with `expected <actual> to be less than <n>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeLessThan", () => {
+  ///   expect(Math.random()).toBeLessThan(1.0)
+  /// })
+  /// // pico test: ✓ toBeLessThan
+  /// ```
   public toBeLessThan(n: number): void { this.__check(this.actual < n, `to be less than ${n}`) }
   /// Passes when `actual <= n`; fails with `expected <actual> to be at most <n>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeLessThanOrEqual", () => {
+  ///   expect(Math.min(1.0, 2.0)).toBeLessThanOrEqual(1.0)
+  /// })
+  /// // pico test: ✓ toBeLessThanOrEqual
+  /// ```
   public toBeLessThanOrEqual(n: number): void { this.__check(this.actual <= n, `to be at most ${n}`) }
   /// Passes when `actual` is `NaN`; fails with `expected <actual> to be NaN`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeNaN", () => {
+  ///   expect(Math.sqrt(-1.0)).toBeNaN()
+  /// })
+  /// // pico test: ✓ toBeNaN
+  /// ```
   public toBeNaN(): void { this.__check(this.actual != this.actual, "to be NaN") }
 
   /// Within half of 10^-digits (Vitest's rule).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeCloseTo", () => {
+  ///   expect(0.1 + 0.2).toBeCloseTo(0.3)              // within ±0.005
+  ///   expect(Math.PI).toBeCloseTo(3.1416, digits: 4)  // within ±0.00005
+  /// })
+  /// // pico test: ✓ toBeCloseTo
+  /// ```
   public toBeCloseTo(expected: number, digits: int = 2): void {
     const tol = Math.pow(10.0, -(digits as f64)) / 2.0
     this.__check(Math.abs(this.actual - expected) < tol, `to be close to ${expected} (±${tol})`)
@@ -501,6 +1012,18 @@ export class NumberExpect {
 }
 
 /// Expectations on strings.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("strings", () => {
+///   const greeting = "hello, world"
+///   expect(greeting).toContain("world")
+///   expect(greeting).toHaveLength(12)
+/// })
+/// // pico test: ✓ strings
+/// ```
 export class StringExpect {
   /// The value under test.
   public readonly actual: string
@@ -508,6 +1031,16 @@ export class StringExpect {
   public readonly negated: bool
 
   /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, StringExpect } from "std/test"
+  ///
+  /// test("by hand", () => {
+  ///   new StringExpect("pico").toBe("pico")   // what `expect("pico")` makes
+  /// })
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(actual: string, negated: bool = false) {
     this.actual = actual
     this.negated = negated
@@ -515,6 +1048,16 @@ export class StringExpect {
 
   /// The opposite expectation: each matcher on it passes where it would fail
   /// (`expect(x).not.toBe(y)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("not", () => {
+  ///   expect("release").not.toContain("debug")
+  /// })
+  /// // pico test: ✓ not
+  /// ```
   public get not(): StringExpect { new StringExpect(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
@@ -523,22 +1066,83 @@ export class StringExpect {
 
   /// Passes when `actual == expected`; fails with `expected "<actual>" to be "<expected>"` (both
   /// quoted).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBe", () => {
+  ///   expect(["a", "b"].join("-")).toBe("a-b")
+  /// })
+  /// // pico test: ✓ toBe (`toBe("a+b")` fails with: expected "a-b" to be "a+b")
+  /// ```
   public toBe(expected: string): void { this.__check(this.actual == expected, `to be ${expected:?}`) }
   /// The same as `toBe` (`actual == expected`); fails with `expected "<actual>" to equal
   /// "<expected>"`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toEqual", () => {
+  ///   expect("Pico".toLowerCase()).toEqual("pico")
+  /// })
+  /// // pico test: ✓ toEqual
+  /// ```
   public toEqual(expected: string): void { this.__check(this.actual == expected, `to equal ${expected:?}`) }
   /// Passes when `actual` contains `part` (any string contains `""`); fails with `expected
   /// "<actual>" to contain "<part>"`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toContain", () => {
+  ///   expect("error: file not found").toContain("not found")
+  /// })
+  /// // pico test: ✓ toContain
+  /// ```
   public toContain(part: string): void { this.__check(this.actual.includes(part), `to contain ${part:?}`) }
   /// Passes when `re` matches somewhere in `actual` (`re.test`; anchor it with `^…$` for a full
   /// match): `expect(id).toMatch(/^[a-z]+$/)`. Fails with `expected "<actual>" to match <re>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toMatch", () => {
+  ///   expect("user_42").toMatch(/^[a-z]+_\d+$/)
+  /// })
+  /// // pico test: ✓ toMatch
+  /// ```
   public toMatch(re: RegExp): void { this.__check(re.test(this.actual), `to match ${re}`) }
   /// Passes when `actual.length == n`; fails with `expected "<actual>" to have length <n> (it's
   /// <length>)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toHaveLength", () => {
+  ///   expect("abc").toHaveLength(3)
+  /// })
+  /// // pico test: ✓ toHaveLength
+  /// ```
   public toHaveLength(n: int): void { this.__check(this.actual.length == n, `to have length ${n} (it's ${this.actual.length})`) }
 }
 
 /// Expectations on `bool`s.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("bools", () => {
+///   expect([1, 2].includes(2)).toBe(true)
+///   expect("".length == 0).toBeTruthy()
+/// })
+/// // pico test: ✓ bools
+/// ```
 export class BoolExpect {
   /// The value under test.
   public readonly actual: bool
@@ -546,6 +1150,16 @@ export class BoolExpect {
   public readonly negated: bool
 
   /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, BoolExpect } from "std/test"
+  ///
+  /// test("by hand", () => {
+  ///   new BoolExpect(true).toBeTruthy()   // what `expect(true)` makes
+  /// })
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(actual: bool, negated: bool = false) {
     this.actual = actual
     this.negated = negated
@@ -553,6 +1167,16 @@ export class BoolExpect {
 
   /// The opposite expectation: each matcher on it passes where it would fail
   /// (`expect(x).not.toBe(y)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("not", () => {
+  ///   expect("abc".startsWith("b")).not.toBe(true)
+  /// })
+  /// // pico test: ✓ not
+  /// ```
   public get not(): BoolExpect { new BoolExpect(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
@@ -560,17 +1184,69 @@ export class BoolExpect {
   }
 
   /// Passes when `actual == expected`; fails with `expected <actual> to be <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBe", () => {
+  ///   expect("abc".endsWith("c")).toBe(true)
+  /// })
+  /// // pico test: ✓ toBe
+  /// ```
   public toBe(expected: bool): void { this.__check(this.actual == expected, `to be ${expected}`) }
   /// The same as `toBe`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toEqual", () => {
+  ///   expect("".length == 0).toEqual(true)
+  /// })
+  /// // pico test: ✓ toEqual
+  /// ```
   public toEqual(expected: bool): void { this.toBe(expected) }
   /// Passes when `actual` is `true` (there's no other truthiness: `actual` is a `bool`); fails with
   /// `expected false to be true`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeTruthy", () => {
+  ///   expect("pico".includes("i")).toBeTruthy()
+  /// })
+  /// // pico test: ✓ toBeTruthy
+  /// ```
   public toBeTruthy(): void { this.__check(this.actual, "to be true") }
   /// Passes when `actual` is `false`; fails with `expected true to be false`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBeFalsy", () => {
+  ///   expect([1, 2, 3].includes(4)).toBeFalsy()
+  /// })
+  /// // pico test: ✓ toBeFalsy
+  /// ```
   public toBeFalsy(): void { this.__check(!this.actual, "to be false") }
 }
 
 /// Expectations on arrays: `toEqual` compares elements' string forms.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("arrays", () => {
+///   const xs = [3, 1, 2].sort()
+///   expect(xs).toEqual([1, 2, 3])
+///   expect(xs).toContain(2)
+/// })
+/// // pico test: ✓ arrays
+/// ```
 export class ArrayExpect<T> {
   /// The array under test.
   public readonly actual: T[]
@@ -578,6 +1254,16 @@ export class ArrayExpect<T> {
   public readonly negated: bool
 
   /// Expectations on `actual` (`expect(actual)` makes one); negated when `negated` is `true`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, ArrayExpect } from "std/test"
+  ///
+  /// test("by hand", () => {
+  ///   new ArrayExpect<string>(["a"]).toHaveLength(1)   // what `expect(["a"])` makes
+  /// })
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(actual: T[], negated: bool = false) {
     this.actual = actual
     this.negated = negated
@@ -585,6 +1271,16 @@ export class ArrayExpect<T> {
 
   /// The opposite expectation: each matcher on it passes where it would fail
   /// (`expect(x).not.toBe(y)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("not", () => {
+  ///   expect(["a", "b"]).not.toContain("c")
+  /// })
+  /// // pico test: ✓ not
+  /// ```
   public get not(): ArrayExpect<T> { new ArrayExpect<T>(this.actual, !this.negated) }
 
   __check(ok: bool, what: string): void {
@@ -592,15 +1288,55 @@ export class ArrayExpect<T> {
   }
 
   /// The same as `toEqual` (equal elements, not the same array).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBe", () => {
+  ///   expect([1, 2].map((x: int) => x * 10)).toBe([10, 20])   // equal elements: passes
+  /// })
+  /// // pico test: ✓ toBe
+  /// ```
   public toBe(expected: T[]): void { this.toEqual(expected) }
   /// Passes when both arrays have the same string form (their elements' debug forms, in order):
   /// `expect(xs).toEqual([1, 2])`. Fails with `expected <actual> to equal <expected>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toEqual", () => {
+  ///   expect("a,b,c".split(",")).toEqual(["a", "b", "c"])
+  /// })
+  /// // pico test: ✓ toEqual
+  /// ```
   public toEqual(expected: T[]): void { this.__check(__show(this.actual) == __show(expected), `to equal ${__show(expected)}`) }
   /// Passes when `actual.length == n`: `expect(xs).toHaveLength(3)`. Fails with `expected <actual>
   /// to have length <n> (it's <length>)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toHaveLength", () => {
+  ///   expect([1, 2, 3].filter((x: int) => x > 1)).toHaveLength(2)
+  /// })
+  /// // pico test: ✓ toHaveLength
+  /// ```
   public toHaveLength(n: int): void { this.__check(this.actual.length == n, `to have length ${n} (it's ${this.actual.length})`) }
 
   /// Passes when some element has `x`'s string form; fails with `expected <actual> to contain <x>`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toContain", () => {
+  ///   expect(["red", "green"]).toContain("green")
+  /// })
+  /// // pico test: ✓ toContain
+  /// ```
   public toContain(x: T): void {
     const want = __show(x)
     this.__check(this.actual.some((e) => __show(e) == want), `to contain ${want}`)
@@ -608,6 +1344,21 @@ export class ArrayExpect<T> {
 }
 
 /// Expectations on a function call: it throws, or it panics.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// function parsePort(s: string): int throws Error {
+///   if (!/^\d+$/.test(s)) throw new Error(`bad port: ${s}`)
+///   return parseInt(s)
+/// }
+///
+/// test("rejects a bad port", () => {
+///   expect(() => { parsePort("x") }).toThrow("bad port")
+/// })
+/// // pico test: ✓ rejects a bad port
+/// ```
 export class FnExpect {
   /// The function under test (`toThrow` and `toPanic` call it).
   public readonly f: () => void throws Error
@@ -615,6 +1366,16 @@ export class FnExpect {
   public readonly negated: bool
 
   /// Expectations on calling `f` (`expect(f)` makes one); negated when `negated` is `true`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, FnExpect } from "std/test"
+  ///
+  /// test("by hand", () => {
+  ///   new FnExpect(() => { throw new Error("no") }).toThrow()   // what `expect(f)` makes
+  /// })
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(f: () => void throws Error, negated: bool = false) {
     this.f = f
     this.negated = negated
@@ -622,9 +1383,30 @@ export class FnExpect {
 
   /// The opposite expectation: `expect(f).not.toThrow()` passes when the call returns (a panic
   /// still fails `toThrow`, negated or not).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("not", () => {
+  ///   expect(() => { println("fine") }).not.toThrow()
+  /// })
+  /// // pico test: ✓ not (and prints "fine")
+  /// ```
   public get not(): FnExpect { new FnExpect(this.f, !this.negated) }
 
   /// It throws (an error whose message contains `message`, when given).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toThrow", () => {
+  ///   expect(() => { throw new Error("disk full") }).toThrow()          // any error
+  ///   expect(() => { throw new Error("disk full") }).toThrow("full")    // its message contains "full"
+  /// })
+  /// // pico test: ✓ toThrow
+  /// ```
   public toThrow(message: string = ""): void {
     const f = this.f
     let thrown: string? = null
@@ -651,6 +1433,16 @@ export class FnExpect {
   }
 
   /// It panics (with a message containing `message`, when given).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toPanic", () => {
+  ///   expect(() => { panic("unreachable state") }).toPanic("unreachable")
+  /// })
+  /// // pico test: ✓ toPanic
+  /// ```
   public toPanic(message: string = ""): void {
     const f = this.f
     let threw = ""
@@ -673,33 +1465,114 @@ export class FnExpect {
 
 /// Expectations on a promise: `await expect(p).resolves.toBe(v)`,
 /// `await expect(p).rejects.toThrow("…")`.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// async function promises(): Promise<void> {
+///   await expect(Promise.resolve(42)).resolves.toBe(42)
+///   await expect(Promise.reject<int>(new Error("not found"))).rejects.toThrow("not found")
+/// }
+///
+/// test("promises", promises)
+/// // pico test: ✓ promises
+/// ```
 export class PromiseExpect<T, E extends Error> {
   /// The promise under test.
   public readonly p: Promise<T, E>
 
   /// Expectations on `p` (`expect(p)` makes one).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, PromiseExpect } from "std/test"
+  ///
+  /// async function byHand(): Promise<void> {
+  ///   await new PromiseExpect<int, Error>(Promise.resolve(1)).resolves.toBe(1)   // what `expect(p)` makes
+  /// }
+  ///
+  /// test("by hand", byHand)
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(p: Promise<T, E>) {
     this.p = p
   }
 
   /// Matchers on the value the promise resolves to: `await expect(p).resolves.toBe(v)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  /// import { delay } from "std/timers"
+  ///
+  /// async function double(n: int): Promise<int> throws AbortError {
+  ///   await delay(1)
+  ///   return n * 2
+  /// }
+  ///
+  /// test("resolves", async () => {
+  ///   await expect(double(21)).resolves.toBe(42)
+  /// })
+  /// // pico test: ✓ resolves
+  /// ```
   public get resolves(): Resolves<T, E> { new Resolves<T, E>(this.p) }
   /// Matchers on the promise's rejection: `await expect(p).rejects.toThrow("not found")`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("rejects", async () => {
+  ///   await expect(Promise.reject<string>(new Error("timeout"))).rejects.toThrow()
+  /// })
+  /// // pico test: ✓ rejects
+  /// ```
   public get rejects(): Rejects<T, E> { new Rejects<T, E>(this.p) }
 }
 
 /// Expectations on what a promise resolves to (`expect(p).resolves`); await the matchers. There's
 /// no `.not`.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("resolves", async () => {
+///   await expect(Promise.resolve("ok")).resolves.toEqual("ok")
+/// })
+/// // pico test: ✓ resolves
+/// ```
 export class Resolves<T, E extends Error> {
   /// The promise under test.
   public readonly p: Promise<T, E>
 
   /// Expectations on the value `p` resolves to (`expect(p).resolves` makes one).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, Resolves } from "std/test"
+  ///
+  /// test("by hand", async () => {
+  ///   await new Resolves<int, Error>(Promise.resolve(3)).toBe(3)   // what `expect(p).resolves` makes
+  /// })
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(p: Promise<T, E>) {
     this.p = p
   }
 
   /// It resolves to a value with `expected`'s string form.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toBe", async () => {
+  ///   await expect(Promise.resolve([1, 2].length)).resolves.toBe(2)
+  /// })
+  /// // pico test: ✓ toBe
+  /// ```
   public async toBe(expected: T): Promise<void> {
     try {
       const v = await this.p
@@ -710,6 +1583,21 @@ export class Resolves<T, E extends Error> {
   }
 
   /// The same as `toBe` (equal string forms).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// struct Reply {
+  ///   status: int
+  /// }
+  ///
+  /// test("toEqual", async () => {
+  ///   const r: Reply = { status: 200 }
+  ///   await expect(Promise.resolve(r)).resolves.toEqual({ status: 200 })
+  /// })
+  /// // pico test: ✓ toEqual
+  /// ```
   public async toEqual(expected: T): Promise<void> {
     await this.toBe(expected)
   }
@@ -717,16 +1605,48 @@ export class Resolves<T, E extends Error> {
 
 /// Expectations on a promise's rejection (`expect(p).rejects`); await the matcher. There's no
 /// `.not`.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+/// import { readText } from "std/fs"
+///
+/// test("missing file", async () => {
+///   await expect(readText("/no/such/file")).rejects.toThrow("no such file")
+/// })
+/// // pico test: ✓ missing file
+/// ```
 export class Rejects<T, E extends Error> {
   /// The promise under test.
   public readonly p: Promise<T, E>
 
   /// Expectations on `p` rejecting (`expect(p).rejects` makes one).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, Rejects } from "std/test"
+  ///
+  /// test("by hand", async () => {
+  ///   await new Rejects<int, Error>(Promise.reject<int>(new Error("x"))).toThrow()   // what `expect(p).rejects` makes
+  /// })
+  /// // pico test: ✓ by hand
+  /// ```
   constructor(p: Promise<T, E>) {
     this.p = p
   }
 
   /// It rejects (with a message containing `message`, when given).
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("toThrow", async () => {
+  ///   const p = Promise.reject<int>(new Error("connection refused"))
+  ///   await expect(p).rejects.toThrow("refused")
+  /// })
+  /// // pico test: ✓ toThrow
+  /// ```
   public async toThrow(message: string = ""): Promise<void> {
     try {
       const v = await this.p
@@ -739,20 +1659,111 @@ export class Rejects<T, E extends Error> {
 
 /// Expectations on an `int`: `expect(xs.length).toBe(3)`. `expect` picks its matchers by the
 /// value's type; this overload adds the comparisons (`toBeGreaterThan`, …).
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("an int", () => {
+///   expect([1, 2, 3].length).toBe(3)
+///   expect(10 % 3).toBeLessThan(2)
+/// })
+/// // pico test: ✓ an int
+/// ```
 export function expect(actual: int): IntExpect { new IntExpect(actual) }
 /// Expectations on a `number`: comparisons, `toBeCloseTo` and `toBeNaN` (`expect(0.1 +
 /// 0.2).toBeCloseTo(0.3)`).
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("a number", () => {
+///   expect(0.1 + 0.2).toBeCloseTo(0.3)
+///   expect(0.0 / 0.0).toBeNaN()
+/// })
+/// // pico test: ✓ a number
+/// ```
 export function expect(actual: number): NumberExpect { new NumberExpect(actual) }
 /// Expectations on a `string`: `toBe`, `toContain`, `toMatch` and `toHaveLength`.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("a string", () => {
+///   expect("pico".toUpperCase()).toBe("PICO")
+///   expect("v1.2.3").toMatch(/^v\d+\.\d+\.\d+$/)
+/// })
+/// // pico test: ✓ a string
+/// ```
 export function expect(actual: string): StringExpect { new StringExpect(actual) }
 /// Expectations on a `bool`: `toBe`, `toBeTruthy` and `toBeFalsy`.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("a bool", () => {
+///   expect("abc".includes("b")).toBeTruthy()
+/// })
+/// // pico test: ✓ a bool
+/// ```
 export function expect(actual: bool): BoolExpect { new BoolExpect(actual) }
 /// Expectations on an array: `toEqual` (element-wise), `toContain` and `toHaveLength`.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("an array", () => {
+///   expect("a b".split(" ")).toEqual(["a", "b"])
+///   expect([1, 2, 3]).toContain(2)
+/// })
+/// // pico test: ✓ an array
+/// ```
 export function expect<T>(actual: T[]): ArrayExpect<T> { new ArrayExpect<T>(actual) }
 /// Expectations on calling a function: `expect(() => parse("x")).toThrow("bad")`, `toPanic`.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("a function", () => {
+///   expect(() => { throw new Error("bad input") }).toThrow("bad")
+/// })
+/// // pico test: ✓ a function
+/// ```
 export function expect(f: () => void throws Error): FnExpect { new FnExpect(f) }
 /// Expectations on a promise, through `resolves` and `rejects`: `await expect(p).resolves.toBe(v)`.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// test("a promise", async () => {
+///   await expect(Promise.resolve(7)).resolves.toBe(7)
+/// })
+/// // pico test: ✓ a promise
+/// ```
 export function expect<T, E extends Error>(p: Promise<T, E>): PromiseExpect<T, E> { new PromiseExpect<T, E>(p) }
 /// Expectations on any other value (structs, classes, nullable values, …): `toBe`/`toEqual` compare
 /// string forms; `toBeNull` and `toBeDefined`.
+///
+/// @example
+/// ```ts
+/// import { test, expect } from "std/test"
+///
+/// struct Size {
+///   w: int
+///   h: int
+/// }
+///
+/// test("anything else", () => {
+///   const s: Size = { w: 2, h: 3 }
+///   expect(s).toEqual({ w: 2, h: 3 })
+///   expect(new Map<string, int>().get("x")).toBeNull()
+/// })
+/// // pico test: ✓ anything else
+/// ```
 export function expect<T>(actual: T): Expect<T> { new Expect<T>(actual) }

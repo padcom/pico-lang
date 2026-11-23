@@ -18,6 +18,18 @@ import { posix, win32 } from "std/path"
 export const platform: string = comptime if (target.os == "windows") "windows" else if (target.os == "macos") "macos" else if (target.os == "wasi") "wasi" else "linux"
 
 /// The per-user directories (see `userDirs`); null where nothing says.
+///
+/// @example
+/// ```ts
+/// import { userDirs } from "std/os"
+///
+/// const vars = new Map<string, string>()
+/// vars.set("HOME", "/home/ada")
+/// const dirs = userDirs(vars, "linux")
+/// println(dirs.home)     // /home/ada
+/// println(dirs.cache)    // /home/ada/.cache
+/// println(dirs.config)   // /home/ada/.config
+/// ```
 export struct UserDirs {
   home: string?
   data: string?
@@ -44,6 +56,19 @@ function under(home: string?, rest: string): string? {
 /// The directories for the environment `vars` on system `os` (`platform`'s values): what the
 /// other functions give, for this process. For tests, and for code that works out another
 /// system's.
+///
+/// @example
+/// ```ts
+/// import { userDirs } from "std/os"
+///
+/// const vars = new Map<string, string>()
+/// vars.set("HOME", "/home/ada")
+/// vars.set("XDG_CONFIG_HOME", "/etc/ada")
+/// println(userDirs(vars, "linux").config)   // /etc/ada
+/// println(userDirs(vars, "linux").state)    // /home/ada/.local/state
+/// println(userDirs(vars, "macos").cache)    // /home/ada/Library/Caches
+/// println(userDirs(vars, "windows").home)   // null
+/// ```
 export function userDirs(vars: Map<string, string>, os: string = platform): UserDirs {
   if (os == "windows") {
     const home = absolute(vars, "USERPROFILE", true)
@@ -72,37 +97,98 @@ function mine(): UserDirs {
 }
 
 /// The user's home directory: `$HOME` (`%USERPROFILE%` on Windows).
+///
+/// @example
+/// ```ts
+/// import { homeDir } from "std/os"
+///
+/// println(homeDir())   // e.g. /home/ada
+/// ```
 export function homeDir(): string? {
   return mine().home
 }
 
 /// For data that must survive: settings, user files (roaming on Windows).
+///
+/// @example
+/// ```ts
+/// import { dataDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const dir = dataDir()
+/// if (dir != null) {
+///   println(join(dir, "myapp"))   // e.g. /home/ada/.local/share/myapp
+/// }
+/// ```
 export function dataDir(): string? {
   return mine().data
 }
 
 /// For data that stays on this machine (Windows' `%LOCALAPPDATA%`; elsewhere `dataDir()`).
+///
+/// @example
+/// ```ts
+/// import { localDataDir } from "std/os"
+///
+/// println(localDataDir())   // e.g. /home/ada/.local/share
+/// ```
 export function localDataDir(): string? {
   return mine().localData
 }
 
 /// For what can be rebuilt: downloads, indexes. The user or the system may delete it.
+///
+/// @example
+/// ```ts
+/// import { cacheDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const dir = cacheDir()
+/// if (dir != null) {
+///   println(join(dir, "myapp", "downloads"))   // e.g. /home/ada/.cache/myapp/downloads
+/// }
+/// ```
 export function cacheDir(): string? {
   return mine().cache
 }
 
 /// For configuration files.
+///
+/// @example
+/// ```ts
+/// import { configDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const dir = configDir() ?? "."
+/// println(join(dir, "myapp", "settings.json"))   // e.g. /home/ada/.config/myapp/settings.json
+/// ```
 export function configDir(): string? {
   return mine().config
 }
 
 /// For state worth keeping between runs but not worth backing up: logs, history (Linux only).
+///
+/// @example
+/// ```ts
+/// import { stateDir } from "std/os"
+///
+/// println(stateDir())   // e.g. /home/ada/.local/state (null on macOS and Windows)
+/// ```
 export function stateDir(): string? {
   return mine().state
 }
 
 /// The directory for temporary files: `$TMPDIR` (`%TEMP%`, `%TMP%` on Windows), else `/tmp`
 /// (`C:\Windows\Temp`).
+///
+/// @example
+/// ```ts
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// println(tmpDir())                       // e.g. /tmp
+/// println(join(tmpDir(), "scratch.txt"))  // e.g. /tmp/scratch.txt
+/// ```
 export function tmpDir(): string {
   const vars = env.toObject()
   if (platform == "windows") {
