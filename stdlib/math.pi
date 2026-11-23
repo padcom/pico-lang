@@ -8,21 +8,65 @@
 import { formatNumber } from "std/fmt"
 
 /// `x` limited to `lo..hi`.
+///
+/// @example
+/// ```ts
+/// import { clamp } from "std/math"
+///
+/// println(clamp(12, 0, 10))    // 10
+/// println(clamp(-3, 0, 10))    // 0
+/// println(clamp(4.5, 0, 10))   // 4.5
+/// ```
 export function clamp(x: number, lo: number, hi: number): number {
   if (x < lo) lo else if (x > hi) hi else x
 }
 
 /// The value `t` of the way from `a` to `b` (`t` = 0 is `a`, 1 is `b`).
+///
+/// @example
+/// ```ts
+/// import { lerp } from "std/math"
+///
+/// println(lerp(10, 20, 0.25))   // 12.5
+/// println(lerp(10, 20, 1))      // 20
+/// ```
 export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
 /// `d` degrees in radians.
+///
+/// @example
+/// ```ts
+/// import { degToRad } from "std/math"
+///
+/// println(degToRad(180))           // 3.141592653589793
+/// println(`${degToRad(90):.4f}`)   // 1.5708
+/// ```
 export function degToRad(d: number): number { return d * Math.PI / 180.0 }
 /// `r` radians in degrees.
+///
+/// @example
+/// ```ts
+/// import { radToDeg } from "std/math"
+///
+/// println(radToDeg(Math.PI))       // 180
+/// println(radToDeg(Math.PI / 4))   // 45
+/// ```
 export function radToDeg(r: number): number { return r * 180.0 / Math.PI }
 
 /// A 2D vector.
+///
+/// @example
+/// ```ts
+/// import { Vec2 } from "std/math"
+///
+/// const pos = Vec2.of(1, 2)
+/// const vel = Vec2.of(3, 4)
+/// println(`${pos + vel * 2}`)     // (7, 10)
+/// println(vel.length())           // 5
+/// println(`${vel.normalize()}`)   // (0.6, 0.8)
+/// ```
 export struct Vec2 implements Formattable {
   /// The x component.
   x: number
@@ -30,10 +74,34 @@ export struct Vec2 implements Formattable {
   y: number
 
   /// The vector `(x, y)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// const v = Vec2.of(1.5, 2)
+  /// println(`${v}`)   // (1.5, 2)
+  /// println(v.x)      // 1.5
+  /// ```
   static of(x: number, y: number): Vec2 { return Vec2 { x: x, y: y } }
   /// `(0, 0)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// println(`${Vec2.zero}`)                   // (0, 0)
+  /// println(`${Vec2.zero + Vec2.of(2, 3)}`)   // (2, 3)
+  /// ```
   static get zero(): Vec2 { return Vec2 { x: 0, y: 0 } }
   /// `(1, 1)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// println(`${Vec2.one * 5}`)   // (5, 5)
+  /// ```
   static get one(): Vec2 { return Vec2 { x: 1, y: 1 } }
 
   operator +(o: Vec2): Vec2 { return Vec2 { x: x + o.x, y: y + o.y } }
@@ -46,39 +114,149 @@ export struct Vec2 implements Formattable {
   operator [](i: int): number { if (i == 0) x else if (i == 1) y else panic(`Vec2 index ${i}`) }
 
   /// The dot product with `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// println(Vec2.of(1, 2).dot(Vec2.of(3, 4)))   // 11
+  /// println(Vec2.of(1, 0).dot(Vec2.of(0, 1)))   // 0
+  /// ```
   dot(o: Vec2): number { return x * o.x + y * o.y }
   /// The z of the 3D cross product (positive when `o` is counter-clockwise from this).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// println(Vec2.of(1, 0).cross(Vec2.of(0, 1)))   // 1
+  /// println(Vec2.of(0, 1).cross(Vec2.of(1, 0)))   // -1
+  /// ```
   cross(o: Vec2): number { return x * o.y - y * o.x }
   /// The squared length (cheaper than `length()`, for comparisons).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// const a = Vec2.of(3, 4)
+  /// println(a.lengthSquared())                          // 25
+  /// println(a.lengthSquared() < Vec2.of(6, 0).lengthSquared())   // true
+  /// ```
   lengthSquared(): number { return x * x + y * y }
   /// The Euclidean length.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// println(Vec2.of(3, 4).length())   // 5
+  /// ```
   length(): number { Math.sqrt(x * x + y * y) }
   /// This direction with length 1 (the zero vector stays zero).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// println(`${Vec2.of(0, 5).normalize()}`)   // (0, 1)
+  /// println(`${Vec2.zero.normalize()}`)       // (0, 0)
+  /// ```
   normalize(): Vec2 {
     const l = Math.sqrt(x * x + y * y)
     if (l == 0.0) Vec2 { x: 0, y: 0 } else Vec2 { x: x / l, y: y / l }
   }
   /// The Euclidean distance to `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// println(Vec2.of(1, 1).distance(Vec2.of(4, 5)))   // 5
+  /// ```
   distance(o: Vec2): number { Math.sqrt((x - o.x) * (x - o.x) + (y - o.y) * (y - o.y)) }
   /// The point `t` of the way from this to `o` (`t` isn't clamped: outside 0..1 it extrapolates).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// const a = Vec2.of(0, 0)
+  /// const b = Vec2.of(10, 4)
+  /// println(`${a.lerp(b, 0.5)}`)   // (5, 2)
+  /// println(`${a.lerp(b, 2)}`)     // (20, 8)
+  /// ```
   lerp(o: Vec2, t: number): Vec2 { return Vec2 { x: x + (o.x - x) * t, y: y + (o.y - y) * t } }
   /// Rotated counter-clockwise by `angle` radians.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// const v = Vec2.of(1, 0).rotate(Math.PI / 2)
+  /// println(`${v:.3f}`)                       // (0.000, 1.000)
+  /// println(v.approxEquals(Vec2.of(0, 1)))    // true
+  /// ```
   rotate(angle: number): Vec2 {
     const c = Math.cos(angle)
     const s = Math.sin(angle)
     return Vec2 { x: x * c - y * s, y: x * s + y * c }
   }
   /// The angle from the x axis, in radians (`-π..π`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// println(Vec2.of(1, 0).angle())             // 0
+  /// println(`${Vec2.of(0, 2).angle():.4f}`)    // 1.5708
+  /// ```
   angle(): number { Math.atan2(y, x) }
   /// Each component within `eps` of `o`'s.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// const v = Vec2.of(0.1, 0.2) + Vec2.of(0.2, 0.1)
+  /// println(v.approxEquals(Vec2.of(0.3, 0.3)))         // true
+  /// println(v.approxEquals(Vec2.of(0.3, 0.31), 1e-3))  // false
+  /// ```
   approxEquals(o: Vec2, eps: number = 1e-9): bool { return Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps }
   /// `(x, y)`, e.g. `(1.5, 2)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// println(Vec2.of(1.5, 2).toString())   // (1.5, 2)
+  /// ```
   toString(): string { return `(${x}, ${y})` }
   /// Each component formatted with `spec` (`${v:.2f}` is `(1.50, 2.00)`); an invalid spec panics.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec2 } from "std/math"
+  ///
+  /// const v = Vec2.of(1.5, 2)
+  /// println(`${v:.2f}`)          // (1.50, 2.00)
+  /// println(v.format(".1f"))     // (1.5, 2.0)
+  /// ```
   format(spec: string): string { return `(${formatNumber(x, spec)}, ${formatNumber(y, spec)})` }
 }
 
 /// A 3D vector.
+///
+/// @example
+/// ```ts
+/// import { Vec3 } from "std/math"
+///
+/// const a = Vec3.of(1, 2, 3)
+/// const b = Vec3.of(4, 5, 6)
+/// println(`${a + b}`)        // (5, 7, 9)
+/// println(a.dot(b))          // 32
+/// println(`${a.cross(b)}`)   // (-3, 6, -3)
+/// ```
 export struct Vec3 implements Formattable {
   /// The x component.
   x: number
@@ -88,16 +266,59 @@ export struct Vec3 implements Formattable {
   z: number
 
   /// The vector `(x, y, z)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(`${Vec3.of(1, 2, 3)}`)   // (1, 2, 3)
+  /// ```
   static of(x: number, y: number, z: number): Vec3 { return Vec3 { x: x, y: y, z: z } }
   /// `(0, 0, 0)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(`${Vec3.zero}`)   // (0, 0, 0)
+  /// ```
   static get zero(): Vec3 { return Vec3 { x: 0, y: 0, z: 0 } }
   /// `(1, 1, 1)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(`${Vec3.one * 2}`)   // (2, 2, 2)
+  /// ```
   static get one(): Vec3 { return Vec3 { x: 1, y: 1, z: 1 } }
   /// `(1, 0, 0)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(`${Vec3.unitX}`)   // (1, 0, 0)
+  /// ```
   static get unitX(): Vec3 { return Vec3 { x: 1, y: 0, z: 0 } }
   /// `(0, 1, 0)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(`${Vec3.unitY * 3}`)   // (0, 3, 0)
+  /// ```
   static get unitY(): Vec3 { return Vec3 { x: 0, y: 1, z: 0 } }
   /// `(0, 0, 1)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(`${Vec3.unitX.cross(Vec3.unitY)}`)   // (0, 0, 1)
+  /// println(`${Vec3.unitZ}`)                     // (0, 0, 1)
+  /// ```
   static get unitZ(): Vec3 { return Vec3 { x: 0, y: 0, z: 1 } }
 
   operator +(o: Vec3): Vec3 { return Vec3 { x: x + o.x, y: y + o.y, z: z + o.z } }
@@ -111,34 +332,118 @@ export struct Vec3 implements Formattable {
   }
 
   /// The dot product with `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(Vec3.of(1, 2, 3).dot(Vec3.of(4, 5, 6)))   // 32
+  /// ```
   dot(o: Vec3): number { return x * o.x + y * o.y + z * o.z }
   /// The cross product `this × o` (right-handed: `unitX.cross(unitY)` is `unitZ`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(`${Vec3.unitY.cross(Vec3.unitZ)}`)       // (1, 0, 0)
+  /// println(`${Vec3.of(1, 2, 3).cross(Vec3.of(1, 2, 3))}`)   // (0, 0, 0)
+  /// ```
   cross(o: Vec3): Vec3 { return Vec3 { x: y * o.z - z * o.y, y: z * o.x - x * o.z, z: x * o.y - y * o.x } }
   /// The squared length (cheaper than `length()`, for comparisons).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(Vec3.of(1, 2, 2).lengthSquared())   // 9
+  /// ```
   lengthSquared(): number { return x * x + y * y + z * z }
   /// The Euclidean length.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(Vec3.of(1, 2, 2).length())   // 3
+  /// ```
   length(): number { Math.sqrt(x * x + y * y + z * z) }
   /// This direction with length 1 (the zero vector stays zero).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(`${Vec3.of(0, 0, 7).normalize()}`)   // (0, 0, 1)
+  /// ```
   normalize(): Vec3 {
     const l = Math.sqrt(x * x + y * y + z * z)
     if (l == 0.0) Vec3 { x: 0, y: 0, z: 0 } else Vec3 { x: x / l, y: y / l, z: z / l }
   }
   /// The Euclidean distance to `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(Vec3.of(1, 1, 1).distance(Vec3.of(3, 3, 2)))   // 3
+  /// ```
   distance(o: Vec3): number { (this - o).length() }
   /// The point `t` of the way from this to `o` (`t` isn't clamped: outside 0..1 it extrapolates).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(`${Vec3.zero.lerp(Vec3.of(2, 4, 6), 0.5)}`)   // (1, 2, 3)
+  /// ```
   lerp(o: Vec3, t: number): Vec3 { return Vec3 { x: x + (o.x - x) * t, y: y + (o.y - y) * t, z: z + (o.z - z) * t } }
   /// Each component within `eps` of `o`'s.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// const v = Vec3.of(0.1, 0.2, 0.3) * 10
+  /// println(v.approxEquals(Vec3.of(1, 2, 3)))   // true
+  /// ```
   approxEquals(o: Vec3, eps: number = 1e-9): bool {
     return Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps
   }
   /// `(x, y, z)`, e.g. `(1, 2, 3)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// println(Vec3.of(1, 2.5, 3).toString())   // (1, 2.5, 3)
+  /// ```
   toString(): string { return `(${x}, ${y}, ${z})` }
   /// Each component formatted with `spec` (`${v:.2f}` is `(1.00, 2.00, 3.00)`); an invalid spec
   /// panics.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec3 } from "std/math"
+  ///
+  /// const v = Vec3.of(1, 2, 3)
+  /// println(`${v:.2f}`)        // (1.00, 2.00, 3.00)
+  /// println(v.format("e"))     // (1e0, 2e0, 3e0)
+  /// ```
   format(spec: string): string { return `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)})` }
 }
 
 /// A 4D vector (homogeneous coordinates: `w` = 1 for points, 0 for directions).
+///
+/// @example
+/// ```ts
+/// import { Vec4, Vec3 } from "std/math"
+///
+/// const p = Vec4.point(Vec3.of(1, 2, 3))
+/// println(`${p}`)           // (1, 2, 3, 1)
+/// println(`${p * 2}`)       // (2, 4, 6, 2)
+/// println(`${p.xyz()}`)     // (1, 2, 3)
+/// ```
 export struct Vec4 implements Formattable {
   /// The x component.
   x: number
@@ -150,12 +455,42 @@ export struct Vec4 implements Formattable {
   w: number
 
   /// The vector `(x, y, z, w)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(`${Vec4.of(1, 2, 3, 4)}`)   // (1, 2, 3, 4)
+  /// ```
   static of(x: number, y: number, z: number, w: number): Vec4 { return Vec4 { x: x, y: y, z: z, w: w } }
   /// `v` as a point: `w` = 1, so translations apply.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4, Vec3, Mat4 } from "std/math"
+  ///
+  /// const p = Vec4.point(Vec3.of(1, 2, 3))
+  /// println(`${Mat4.translation(Vec3.of(10, 0, 0)) * p}`)   // (11, 2, 3, 1)
+  /// ```
   static point(v: Vec3): Vec4 { return Vec4 { x: v.x, y: v.y, z: v.z, w: 1 } }
   /// `v` as a direction: `w` = 0, so translations don't apply.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4, Vec3, Mat4 } from "std/math"
+  ///
+  /// const d = Vec4.direction(Vec3.of(1, 2, 3))
+  /// println(`${Mat4.translation(Vec3.of(10, 0, 0)) * d}`)   // (1, 2, 3, 0)
+  /// ```
   static direction(v: Vec3): Vec4 { return Vec4 { x: v.x, y: v.y, z: v.z, w: 0 } }
   /// `(0, 0, 0, 0)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(`${Vec4.zero}`)   // (0, 0, 0, 0)
+  /// ```
   static get zero(): Vec4 { return Vec4 { x: 0, y: 0, z: 0, w: 0 } }
 
   operator +(o: Vec4): Vec4 { return Vec4 { x: x + o.x, y: y + o.y, z: z + o.z, w: w + o.w } }
@@ -169,36 +504,110 @@ export struct Vec4 implements Formattable {
   }
 
   /// The dot product with `o` (all four components).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(Vec4.of(1, 2, 3, 4).dot(Vec4.of(1, 1, 1, 1)))   // 10
+  /// ```
   dot(o: Vec4): number { return x * o.x + y * o.y + z * o.z + w * o.w }
   /// The squared length over all four components.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(Vec4.of(1, 1, 1, 1).lengthSquared())   // 4
+  /// ```
   lengthSquared(): number { return x * x + y * y + z * z + w * w }
   /// The Euclidean length over all four components.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(Vec4.of(1, 1, 1, 1).length())   // 2
+  /// ```
   length(): number { Math.sqrt(x * x + y * y + z * z + w * w) }
   /// This vector with length 1, `w` included (the zero vector stays zero).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(`${Vec4.of(2, 2, 2, 2).normalize()}`)   // (0.5, 0.5, 0.5, 0.5)
+  /// ```
   normalize(): Vec4 {
     const l = this.length()
     if (l == 0.0) Vec4 { x: 0, y: 0, z: 0, w: 0 } else this / l
   }
   /// `x, y, z` (divided by `w` when it isn't 0 or 1: the perspective divide).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(`${Vec4.of(2, 4, 6, 2).xyz()}`)   // (1, 2, 3)
+  /// println(`${Vec4.of(2, 4, 6, 0).xyz()}`)   // (2, 4, 6)
+  /// ```
   xyz(): Vec3 {
     if (w == 0.0 || w == 1.0) Vec3 { x: x, y: y, z: z } else Vec3 { x: x / w, y: y / w, z: z / w }
   }
   /// The point `t` of the way from this to `o` (`t` isn't clamped: outside 0..1 it extrapolates).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(`${Vec4.zero.lerp(Vec4.of(4, 4, 4, 4), 0.25)}`)   // (1, 1, 1, 1)
+  /// ```
   lerp(o: Vec4, t: number): Vec4 { return this + (o - this) * t }
   /// Each component within `eps` of `o`'s.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(Vec4.of(1, 2, 3, 1).approxEquals(Vec4.of(1, 2, 3.0000000001, 1)))   // true
+  /// ```
   approxEquals(o: Vec4, eps: number = 1e-9): bool {
     return Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
   }
   /// `(x, y, z, w)`, e.g. `(1, 2, 3, 1)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(Vec4.of(1, 2, 3, 1).toString())   // (1, 2, 3, 1)
+  /// ```
   toString(): string { return `(${x}, ${y}, ${z}, ${w})` }
   /// Each component formatted with `spec` (`${v:.1f}` is `(1.0, 2.0, 3.0, 1.0)`); an invalid spec
   /// panics.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Vec4 } from "std/math"
+  ///
+  /// println(`${Vec4.of(1, 2, 3, 1):.1f}`)   // (1.0, 2.0, 3.0, 1.0)
+  /// ```
   format(spec: string): string {
     return `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)}, ${formatNumber(w, spec)})`
   }
 }
 
 /// A rotation as a unit quaternion `w + xi + yj + zk`.
+///
+/// @example
+/// ```ts
+/// import { Quat, Vec3 } from "std/math"
+///
+/// // A quarter turn around z takes x to y.
+/// const q = Quat.fromAxisAngle(Vec3.unitZ, Math.PI / 2)
+/// println(`${q.rotate(Vec3.unitX):.3f}`)   // (0.000, 1.000, 0.000)
+/// println(`${q * q.inverse():.3f}`)        // (0.000, 0.000, 0.000, 1.000)
+/// ```
 export struct Quat implements Formattable {
   /// The x of the vector part (`i`).
   x: number
@@ -210,11 +619,36 @@ export struct Quat implements Formattable {
   w: number
 
   /// No rotation: `(0, 0, 0, 1)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// println(`${Quat.identity}`)                       // (0, 0, 0, 1)
+  /// println(`${Quat.identity.rotate(Vec3.of(1, 2, 3))}`)   // (1, 2, 3)
+  /// ```
   static get identity(): Quat { return Quat { x: 0, y: 0, z: 0, w: 1 } }
   /// The quaternion `w + xi + yj + zk`, as given (not normalized).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat } from "std/math"
+  ///
+  /// const q = Quat.of(0, 0, 3, 4)
+  /// println(q.length())            // 5
+  /// println(`${q.normalize()}`)    // (0, 0, 0.6, 0.8)
+  /// ```
   static of(x: number, y: number, z: number, w: number): Quat { return Quat { x: x, y: y, z: z, w: w } }
 
   /// A rotation by `angle` radians around `axis` (normalized here).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// const q = Quat.fromAxisAngle(Vec3.of(0, 0, 5), Math.PI)
+  /// println(`${q.rotate(Vec3.unitX):.3f}`)   // (-1.000, 0.000, 0.000)
+  /// ```
   static fromAxisAngle(axis: Vec3, angle: number): Quat {
     const a = axis.normalize()
     const s = Math.sin(angle / 2.0)
@@ -222,6 +656,14 @@ export struct Quat implements Formattable {
   }
 
   /// Rotations around x, then y, then z (radians), applied in that order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// const q = Quat.fromEuler(0, 0, Math.PI / 2)   // a quarter turn around z
+  /// println(`${q.rotate(Vec3.unitX):.3f}`)        // (0.000, 1.000, 0.000)
+  /// ```
   static fromEuler(rx: number, ry: number, rz: number): Quat {
     return Quat.fromAxisAngle(Vec3.unitZ, rz) * Quat.fromAxisAngle(Vec3.unitY, ry) * Quat.fromAxisAngle(Vec3.unitX, rx)
   }
@@ -238,24 +680,75 @@ export struct Quat implements Formattable {
   operator -(): Quat { return Quat { x: -x, y: -y, z: -z, w: -w } }
 
   /// The 4D dot product with `o` (for unit quaternions, the cosine of half the angle between them).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// const a = Quat.fromAxisAngle(Vec3.unitZ, 0.3)
+  /// println(`${a.dot(a):.3f}`)                 // 1.000
+  /// println(`${a.dot(Quat.identity):.3f}`)     // 0.989
+  /// ```
   dot(o: Quat): number { return x * o.x + y * o.y + z * o.z + w * o.w }
   /// The length (1 for a rotation).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// println(Quat.of(1, 1, 1, 1).length())                            // 2
+  /// println(`${Quat.fromAxisAngle(Vec3.unitY, 1.2).length():.3f}`)   // 1.000
+  /// ```
   length(): number { Math.sqrt(x * x + y * y + z * z + w * w) }
   /// This quaternion with length 1 (a zero quaternion gives `Quat.identity`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat } from "std/math"
+  ///
+  /// println(`${Quat.of(0, 2, 0, 0).normalize()}`)   // (0, 1, 0, 0)
+  /// println(`${Quat.of(0, 0, 0, 0).normalize()}`)   // (0, 0, 0, 1)
+  /// ```
   normalize(): Quat {
     const l = this.length()
     if (l == 0.0) Quat.identity else Quat { x: x / l, y: y / l, z: z / l, w: w / l }
   }
   /// The vector part negated: for a unit quaternion, the opposite rotation (cheaper than
   /// `inverse()`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// const q = Quat.fromAxisAngle(Vec3.unitZ, Math.PI / 2)
+  /// const back = q.conjugate().rotate(q.rotate(Vec3.unitX))
+  /// println(`${back:.3f}`)   // (1.000, 0.000, 0.000)
+  /// ```
   conjugate(): Quat { return Quat { x: -x, y: -y, z: -z, w: w } }
   /// The opposite rotation (the conjugate over the squared length).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat } from "std/math"
+  ///
+  /// const q = Quat.of(0, 0, 0, 2)
+  /// println(`${q.inverse()}`)       // (-0, -0, -0, 0.5)
+  /// println(`${q * q.inverse()}`)   // (0, 0, 0, 1)
+  /// ```
   inverse(): Quat {
     const n = x * x + y * y + z * z + w * w
     return Quat { x: -x / n, y: -y / n, z: -z / n, w: w / n }
   }
 
   /// `v` rotated.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// const q = Quat.fromAxisAngle(Vec3.unitY, Math.PI / 2)
+  /// println(`${q.rotate(Vec3.unitZ):.3f}`)   // (1.000, 0.000, 0.000)
+  /// ```
   rotate(v: Vec3): Vec3 {
     // v + 2w(q×v) + 2q×(q×v), with q the vector part.
     const q = Vec3 { x: x, y: y, z: z }
@@ -264,6 +757,16 @@ export struct Quat implements Formattable {
   }
 
   /// Spherical interpolation along the shorter arc.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// const a = Quat.identity
+  /// const b = Quat.fromAxisAngle(Vec3.unitZ, Math.PI / 2)
+  /// const half = a.slerp(b, 0.5)   // a turn of π/4
+  /// println(`${half.rotate(Vec3.unitX):.3f}`)   // (0.707, 0.707, 0.000)
+  /// ```
   slerp(o: Quat, t: number): Quat {
     let b = o
     let cos = this.dot(o)
@@ -283,16 +786,49 @@ export struct Quat implements Formattable {
   }
 
   /// The rotation matrix.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// const q = Quat.fromAxisAngle(Vec3.unitZ, Math.PI / 2)
+  /// const m = q.toMat4()
+  /// println(`${m.transformPoint(Vec3.unitX):.3f}`)   // (0.000, 1.000, 0.000)
+  /// ```
   toMat4(): Mat4 { Mat4.fromQuat(this) }
 
   /// Each component within `eps` of `o`'s (`q` and `-q` are the same rotation but aren't
   /// approximately equal).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// const q = Quat.fromAxisAngle(Vec3.unitX, Math.PI / 2)
+  /// println(q.approxEquals(Quat.fromEuler(Math.PI / 2, 0, 0)))   // true
+  /// println(q.approxEquals(-q))                                  // false
+  /// ```
   approxEquals(o: Quat, eps: number = 1e-9): bool {
     return Math.abs(x - o.x) <= eps && Math.abs(y - o.y) <= eps && Math.abs(z - o.z) <= eps && Math.abs(w - o.w) <= eps
   }
   /// `(x, y, z, w)`, e.g. `(0, 0, 0, 1)` for the identity.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat } from "std/math"
+  ///
+  /// println(Quat.identity.toString())   // (0, 0, 0, 1)
+  /// ```
   toString(): string { return `(${x}, ${y}, ${z}, ${w})` }
   /// Each component formatted with `spec` (`${q:.2f}`); an invalid spec panics.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Quat, Vec3 } from "std/math"
+  ///
+  /// const q = Quat.fromAxisAngle(Vec3.unitZ, Math.PI / 2)
+  /// println(`${q:.3f}`)   // (0.000, 0.000, 0.707, 0.707)
+  /// ```
   format(spec: string): string {
     return `(${formatNumber(x, spec)}, ${formatNumber(y, spec)}, ${formatNumber(z, spec)}, ${formatNumber(w, spec)})`
   }
@@ -300,16 +836,41 @@ export struct Quat implements Formattable {
 
 /// A 4×4 matrix, column-major (`m[col * 4 + row]`, as OpenGL and WebGPU upload it), acting on
 /// column vectors: `a * b` applies `b` first.
+///
+/// @example
+/// ```ts
+/// import { Mat4, Vec3 } from "std/math"
+///
+/// // Scale, then rotate a quarter turn around z, then move: `a * b` applies `b` first.
+/// const model = Mat4.translation(Vec3.of(10, 0, 0)) * Mat4.rotationZ(Math.PI / 2) * Mat4.scaling(Vec3.of(2, 2, 2))
+/// println(`${model.transformPoint(Vec3.unitX):.1f}`)   // (10.0, 2.0, 0.0)
+/// ```
 export struct Mat4 {
   /// The 16 elements, column-major: the element in `row`, `col` is `m[col * 4 + row]`.
   m: [number; 16]
 
   /// The identity matrix.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// println(`${Mat4.identity.transformPoint(Vec3.of(1, 2, 3))}`)   // (1, 2, 3)
+  /// println(Mat4.identity.determinant())                           // 1
+  /// ```
   static get identity(): Mat4 {
     return Mat4 { m: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0] }
   }
 
   /// From 16 numbers in column-major order.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4 } from "std/math"
+  ///
+  /// const m = Mat4.fromColumnMajor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1])
+  /// println(m.get(0, 3))   // 5
+  /// ```
   static fromColumnMajor(v: number[]): Mat4 {
     if (v.length != 16) panic(`Mat4.fromColumnMajor: ${v.length} numbers, not 16`)
     let m = Mat4.identity.m
@@ -318,6 +879,19 @@ export struct Mat4 {
   }
 
   /// From 16 numbers as written on paper (row by row).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4 } from "std/math"
+  ///
+  /// const m = Mat4.fromRows([
+  ///   1, 0, 0, 5,
+  ///   0, 1, 0, 6,
+  ///   0, 0, 1, 7,
+  ///   0, 0, 0, 1,
+  /// ])
+  /// println(m.get(1, 3))   // 6
+  /// ```
   static fromRows(v: number[]): Mat4 {
     if (v.length != 16) panic(`Mat4.fromRows: ${v.length} numbers, not 16`)
     let m = Mat4.identity.m
@@ -328,6 +902,15 @@ export struct Mat4 {
   }
 
   /// A translation by `v`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const t = Mat4.translation(Vec3.of(1, 2, 3))
+  /// println(`${t.transformPoint(Vec3.zero)}`)          // (1, 2, 3)
+  /// println(`${t.transformDirection(Vec3.unitX)}`)     // (1, 0, 0)
+  /// ```
   static translation(v: Vec3): Mat4 {
     let m = Mat4.identity.m
     m[12] = v.x
@@ -337,6 +920,14 @@ export struct Mat4 {
   }
 
   /// A scaling by `v.x`, `v.y` and `v.z` along the axes.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const s = Mat4.scaling(Vec3.of(2, 3, 4))
+  /// println(`${s.transformPoint(Vec3.one)}`)   // (2, 3, 4)
+  /// ```
   static scaling(v: Vec3): Mat4 {
     let m = Mat4.identity.m
     m[0] = v.x
@@ -346,18 +937,55 @@ export struct Mat4 {
   }
 
   /// A rotation by `angle` radians around `axis`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const r = Mat4.rotation(Vec3.unitZ, Math.PI)
+  /// println(`${r.transformPoint(Vec3.unitX):.3f}`)   // (-1.000, 0.000, 0.000)
+  /// ```
   static rotation(axis: Vec3, angle: number): Mat4 { Mat4.fromQuat(Quat.fromAxisAngle(axis, angle)) }
   /// A rotation by `angle` radians around the x axis (counter-clockwise when the axis points at the
   /// viewer).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// println(`${Mat4.rotationX(Math.PI / 2).transformPoint(Vec3.unitY):.3f}`)   // (0.000, 0.000, 1.000)
+  /// ```
   static rotationX(angle: number): Mat4 { Mat4.rotation(Vec3.unitX, angle) }
   /// A rotation by `angle` radians around the y axis (counter-clockwise when the axis points at the
   /// viewer).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// println(`${Mat4.rotationY(Math.PI / 2).transformPoint(Vec3.unitZ):.3f}`)   // (1.000, 0.000, 0.000)
+  /// ```
   static rotationY(angle: number): Mat4 { Mat4.rotation(Vec3.unitY, angle) }
   /// A rotation by `angle` radians around the z axis (counter-clockwise when the axis points at the
   /// viewer).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// println(`${Mat4.rotationZ(Math.PI / 2).transformPoint(Vec3.unitX):.3f}`)   // (0.000, 1.000, 0.000)
+  /// ```
   static rotationZ(angle: number): Mat4 { Mat4.rotation(Vec3.unitZ, angle) }
 
   /// The rotation matrix of `q` (expected to be a unit quaternion; it isn't normalized here).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Quat, Vec3 } from "std/math"
+  ///
+  /// const q = Quat.fromAxisAngle(Vec3.unitZ, Math.PI / 2)
+  /// println(Mat4.fromQuat(q).approxEquals(Mat4.rotationZ(Math.PI / 2)))   // true
+  /// ```
   static fromQuat(q: Quat): Mat4 {
     const x = q.x
     const y = q.y
@@ -372,6 +1000,16 @@ export struct Mat4 {
   }
 
   /// A perspective projection (OpenGL clip space, z in -1..1): `fovy` radians vertically.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const proj = Mat4.perspective(Math.PI / 2, 16.0 / 9.0, 0.1, 100)
+  /// // A point on the near plane maps to z = -1 in clip space, one on the far plane to 1.
+  /// println(`${proj.transformPoint(Vec3.of(0, 0, -0.1)).z:.3f}`)   // -1.000
+  /// println(`${proj.transformPoint(Vec3.of(0, 0, -100)).z:.3f}`)   // 1.000
+  /// ```
   static perspective(fovy: number, aspect: number, near: number, far: number): Mat4 {
     const f = 1.0 / Math.tan(fovy / 2.0)
     const nf = 1.0 / (near - far)
@@ -384,6 +1022,15 @@ export struct Mat4 {
   }
 
   /// An orthographic projection (OpenGL clip space).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const proj = Mat4.orthographic(0, 800, 0, 600, -1, 1)
+  /// println(`${proj.transformPoint(Vec3.of(400, 300, 0))}`)   // (0, 0, 0)
+  /// println(`${proj.transformPoint(Vec3.of(800, 600, 0))}`)   // (1, 1, 0)
+  /// ```
   static orthographic(left: number, right: number, bottom: number, top: number, near: number, far: number): Mat4 {
     Mat4.fromRows([
       2.0 / (right - left), 0.0, 0.0, -(right + left) / (right - left),
@@ -395,6 +1042,15 @@ export struct Mat4 {
 
   /// A view matrix: the camera at `eye` looking at `target`, `up` roughly up. Panics when `eye` is
   /// `target`, or `up` is along the view direction (there is no side axis then).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const view = Mat4.lookAt(Vec3.of(0, 0, 5), Vec3.zero, Vec3.unitY)
+  /// // The target ends up straight ahead of the camera (down its -z axis).
+  /// println(`${view.transformPoint(Vec3.zero)}`)   // (0, 0, -5)
+  /// ```
   static lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4 {
     const d = target - eye
     if (d.dot(d) == 0.0) panic("Mat4.lookAt: eye and target are the same point")
@@ -413,6 +1069,15 @@ export struct Mat4 {
   }
 
   /// The element in `row`, `col` (0-based).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const m = Mat4.translation(Vec3.of(7, 8, 9))
+  /// println(m.get(0, 3))   // 7
+  /// println(m.get(3, 3))   // 1
+  /// ```
   get(row: int, col: int): number { return m[col * 4 + row] }
 
   operator *(o: Mat4): Mat4 {
@@ -437,14 +1102,39 @@ export struct Mat4 {
   }
 
   /// A point (w = 1) transformed, with the perspective divide.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const m = Mat4.translation(Vec3.of(0, 1, 0)) * Mat4.scaling(Vec3.of(2, 2, 2))
+  /// println(`${m.transformPoint(Vec3.of(1, 1, 1))}`)   // (2, 3, 2)
+  /// ```
   transformPoint(p: Vec3): Vec3 { (this * Vec4.point(p)).xyz() }
   /// A direction (w = 0) transformed: no translation.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const m = Mat4.translation(Vec3.of(0, 1, 0)) * Mat4.scaling(Vec3.of(2, 2, 2))
+  /// println(`${m.transformDirection(Vec3.of(1, 1, 1))}`)   // (2, 2, 2)
+  /// ```
   transformDirection(d: Vec3): Vec3 {
     const r = this * Vec4.direction(d)
     return Vec3 { x: r.x, y: r.y, z: r.z }
   }
 
   /// Rows and columns swapped.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const t = Mat4.translation(Vec3.of(1, 2, 3)).transpose()
+  /// println(t.get(3, 0))   // 1
+  /// println(t.get(0, 3))   // 0
+  /// ```
   transpose(): Mat4 {
     let r = m
     for (let c = 0; c < 4; c++) {
@@ -454,12 +1144,30 @@ export struct Mat4 {
   }
 
   /// The determinant (0 for a singular matrix).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// println(Mat4.scaling(Vec3.of(2, 3, 4)).determinant())   // 24
+  /// println(Mat4.scaling(Vec3.of(1, 0, 1)).determinant())   // 0
+  /// ```
   determinant(): number {
     const c = Mat4.__cofactors(m)
     return m[0] * c[0] + m[1] * c[4] + m[2] * c[8] + m[3] * c[12]
   }
 
   /// The inverse, or `null` for a singular matrix.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const m = Mat4.translation(Vec3.of(1, 2, 3))
+  /// const inv = m.invert()
+  /// if (inv != null) println(`${inv.transformPoint(Vec3.of(1, 2, 3))}`)   // (0, 0, 0)
+  /// println(Mat4.scaling(Vec3.zero).invert() == null)                    // true
+  /// ```
   invert(): Mat4? {
     let inv = Mat4.__cofactors(m)
     const det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12]
@@ -491,6 +1199,15 @@ export struct Mat4 {
   }
 
   /// The 16 numbers in column-major order (for uploading).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const a = Mat4.translation(Vec3.of(5, 6, 7)).toArray()
+  /// println(a.length)                                  // 16
+  /// println(a.slice(12).join(", "))                    // 5, 6, 7, 1
+  /// ```
   toArray(): number[] {
     const r: number[] = []
     for (let i = 0; i < 16; i++) r.push(m[i])
@@ -498,6 +1215,14 @@ export struct Mat4 {
   }
 
   /// Each element within `eps` of `o`'s.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// const m = Mat4.rotationZ(Math.PI / 4) * Mat4.rotationZ(-Math.PI / 4)
+  /// println(m.approxEquals(Mat4.identity))   // true
+  /// ```
   approxEquals(o: Mat4, eps: number = 1e-9): bool {
     for (let i = 0; i < 16; i++) {
       if (Math.abs(m[i] - o.m[i]) > eps) return false
@@ -506,6 +1231,14 @@ export struct Mat4 {
   }
 
   /// Row by row: `[1, 0, 0, 0; 0, 1, 0, 0; …]`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4, Vec3 } from "std/math"
+  ///
+  /// println(Mat4.translation(Vec3.of(1, 2, 3)).toString())
+  /// // [1, 0, 0, 1; 0, 1, 0, 2; 0, 0, 1, 3; 0, 0, 0, 1]
+  /// ```
   toString(): string {
     let s = "["
     for (let r = 0; r < 4; r++) {
@@ -521,21 +1254,67 @@ export struct Mat4 {
 
 /// A seedable pseudo-random generator (xoshiro128**): the same seed gives the same sequence
 /// on every target. Not for cryptography (use `crypto`).
+///
+/// @example
+/// ```ts
+/// import { Random } from "std/math"
+///
+/// const rng = new Random(42)          // the same numbers on every run and target
+/// const die = rng.int(1, 7)           // 1 to 6
+/// println(die >= 1 && die <= 6)       // true
+/// const dice = new Random()           // seeded from the system: different every run
+/// println(dice.float() < 1)           // true
+/// ```
 export class Random {
   g: __Xoshiro128
 
   /// Seeded with `seed`, or from the system's randomness without one.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Random } from "std/math"
+  ///
+  /// const a = new Random(7)
+  /// const b = new Random(7)
+  /// println(a.nextU32() == b.nextU32())   // true
+  /// ```
   constructor(seed: int? = null) {
     this.g = if (seed == null) __Xoshiro128.fromSystem() else __Xoshiro128.seeded(seed)
   }
 
   /// 32 random bits (`0 .. 2**32`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Random } from "std/math"
+  ///
+  /// const rng = new Random(42)
+  /// println(rng.nextU32())   // 4210423199
+  /// ```
   public nextU32(): int { this.g.next() }
 
   /// A number in `[0, 1)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Random } from "std/math"
+  ///
+  /// const rng = new Random()
+  /// const x = rng.float()
+  /// println(x >= 0 && x < 1)   // true
+  /// ```
   public float(): number { this.g.nextFloat() }
 
   /// An integer in `lo .. hi` (`hi` excluded), without bias.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Random } from "std/math"
+  ///
+  /// const rng = new Random()
+  /// const roll = rng.int(1, 7)
+  /// println(roll >= 1 && roll <= 6)   // true
+  /// ```
   public int(lo: int, hi: int): int {
     if (hi <= lo) panic(`Random.int: empty range ${lo}..${hi}`)
     // Wider than 2**62 (`hi - lo` may not even fit in an `int`): draw all 64 bits and keep a draw
@@ -562,9 +1341,29 @@ export class Random {
   }
 
   /// `true` with probability `p`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Random } from "std/math"
+  ///
+  /// const rng = new Random()
+  /// println(rng.bool(1))   // true
+  /// println(rng.bool(0))   // false
+  /// println(rng.bool())    // true or false, each half of the time
+  /// ```
   public bool(p: number = 0.5): bool { return this.g.nextFloat() < p }
 
   /// A normally distributed number (Box–Muller).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Random } from "std/math"
+  ///
+  /// const rng = new Random(1)
+  /// let sum = 0.0
+  /// for (let i = 0; i < 10000; i++) sum += rng.gaussian(100, 15)
+  /// println(Math.abs(sum / 10000 - 100) < 1)   // true (the mean is close to 100)
+  /// ```
   public gaussian(mean: number = 0.0, stdDev: number = 1.0): number {
     let u = this.g.nextFloat()
     while (u == 0.0) u = this.g.nextFloat()
@@ -573,12 +1372,30 @@ export class Random {
   }
 
   /// A random element (panics on an empty array).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Random } from "std/math"
+  ///
+  /// const rng = new Random()
+  /// const colour = rng.pick(["red", "green", "blue"])
+  /// println(colour)   // one of red, green, blue
+  /// ```
   public pick<T>(xs: T[]): T {
     if (xs.length == 0) panic("Random.pick: empty array")
     return xs[this.int(0, xs.length)]
   }
 
   /// Shuffles `xs` in place (Fisher–Yates).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Random } from "std/math"
+  ///
+  /// const cards = [1, 2, 3, 4, 5]
+  /// new Random().shuffle(cards)
+  /// println(cards.join(" "))   // e.g. 3 1 5 2 4
+  /// ```
   public shuffle<T>(xs: T[]): void {
     let i = xs.length - 1
     while (i > 0) {
@@ -597,6 +1414,18 @@ const __BASE = 1000000000
 
 /// An arbitrary-precision integer: `+ - * / %` (division truncates towards zero, as in
 /// JavaScript), comparisons, `pow`, `toString()`/`toStringRadix(radix)` and `parse`.
+///
+/// @example
+/// ```ts
+/// import { BigInt } from "std/math"
+///
+/// const a = BigInt.of(2).pow(64)
+/// const b = new BigInt(1000)
+/// println(a)                       // 18446744073709551616
+/// println(a * b + BigInt.of(1))    // 18446744073709551616001
+/// println(a / b)                   // 18446744073709551
+/// println(a % b)                   // 616
+/// ```
 export class BigInt {
   /// -1, 0 or 1.
   sign: int
@@ -604,6 +1433,14 @@ export class BigInt {
   limbs: int[]
 
   /// The integer `value` (every `int`, `i64`'s minimum included).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(new BigInt(-42))   // -42
+  /// println(new BigInt())      // 0
+  /// ```
   constructor(value: int = 0) {
     this.sign = if (value < 0) -1 else if (value > 0) 1 else 0
     this.limbs = []
@@ -629,10 +1466,31 @@ export class BigInt {
   }
 
   /// The integer `value`: `BigInt.of(n)` is `new BigInt(n)`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(9007199254740993) * BigInt.of(3))   // 27021597764222979
+  /// ```
   public static of(value: int): BigInt { new BigInt(value) }
 
   /// Parses an optionally signed integer in `radix` (2–36; `0x`/`0o`/`0b` prefixes with the
   /// default radix 10). Throws `SyntaxError`, as JavaScript's `BigInt("…")` does.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// try {
+  ///   println(BigInt.parse("123456789012345678901234567890"))   // 123456789012345678901234567890
+  ///   println(BigInt.parse("ff", 16))                           // 255
+  ///   println(BigInt.parse("0b1010"))                           // 10
+  ///   println(BigInt.parse("12x"))
+  /// } catch (e) {
+  ///   println("not a number")                                   // not a number
+  /// }
+  /// ```
   public static parse(s: string, radix: int = 10): BigInt throws SyntaxError {
     let t = s.trim()
     let sign = 1
@@ -662,11 +1520,35 @@ export class BigInt {
   }
 
   /// Whether the value is 0.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(0).isZero)                    // true
+  /// println((BigInt.of(5) - BigInt.of(5)).isZero)   // true
+  /// ```
   public get isZero(): bool { return this.sign == 0 }
   /// Whether the value is below 0.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(-3).isNegative)   // true
+  /// println(BigInt.of(0).isNegative)    // false
+  /// ```
   public get isNegative(): bool { return this.sign < 0 }
 
   /// The value as an `int` (panics if it doesn't fit).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// const n = BigInt.of(10).pow(12) / BigInt.of(4)
+  /// println(n.toInt() + 1)   // 250000000001
+  /// ```
   public toInt(): int {
     if (BigInt.__cmpMag(this.limbs, [854775807, 223372036, 9]) > 0) {
       if (this.sign < 0 && BigInt.__cmpMag(this.limbs, [854775808, 223372036, 9]) == 0) {
@@ -684,6 +1566,13 @@ export class BigInt {
   }
 
   /// The nearest `number`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(2).pow(70).toNumber())   // 1.1805916207174113e+21
+  /// ```
   public toNumber(): number {
     let v = 0.0
     let i = this.limbs.length - 1
@@ -832,6 +1721,14 @@ export class BigInt {
   }
 
   /// `this ** e` (`e >= 0`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(2).pow(100))   // 1267650600228229401496703205376
+  /// println(BigInt.of(7).pow(0))     // 1
+  /// ```
   public pow(e: int): BigInt {
     if (e < 0) panic("BigInt.pow: negative exponent")
     let result = new BigInt(1)
@@ -846,9 +1743,27 @@ export class BigInt {
   }
 
   /// The absolute value.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(-12).abs())   // 12
+  /// ```
   public abs(): BigInt { if (this.sign < 0) -this else this }
 
   /// -1, 0 or 1 as this is less than, equal to or greater than `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// const a = BigInt.of(10).pow(20)
+  /// const b = BigInt.of(10).pow(19)
+  /// println(a.compareTo(b))   // 1
+  /// println(b.compareTo(a))   // -1
+  /// println(a.compareTo(a))   // 0
+  /// ```
   public compareTo(o: BigInt): int {
     if (this.sign != o.sign) return if (this.sign < o.sign) -1 else 1
     const c = BigInt.__cmpMag(this.limbs, o.limbs)
@@ -856,12 +1771,36 @@ export class BigInt {
   }
 
   /// Whether this and `o` are the same integer.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(2).pow(10).equals(BigInt.of(1024)))   // true
+  /// ```
   public equals(o: BigInt): bool { return this.compareTo(o) == 0 }
 
   /// In decimal (also the string form: `${big}`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// const n = BigInt.of(-2).pow(65)
+  /// println(n.toString())   // -36893488147419103232
+  /// println(`n = ${n}`)     // n = -36893488147419103232
+  /// ```
   public toString(): string { this.toStringRadix(10) }
 
   /// In base `radix` (2–36), lower-case digits (JavaScript's `toString(radix)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(255).toStringRadix(16))   // ff
+  /// println(BigInt.of(-5).toStringRadix(2))     // -101
+  /// ```
   public toStringRadix(radix: int): string {
     if (radix < 2 || radix > 36) panic(`BigInt.toString: radix ${radix}`)
     if (this.sign == 0) return "0"
