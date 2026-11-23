@@ -102,12 +102,27 @@ function __formEncode(s: string): string {
 }
 
 /// A query string's name/value pairs (`a=1&b=two%20words`), in order.
+///
+/// @example
+/// ```ts
+/// const params = new URLSearchParams("q=pico&page=2")
+/// println(params.get("q"))       // pico
+/// println(params.toString())     // q=pico&page=2
+/// ```
 class URLSearchParams {
   list: [string, string][] = []
   /// The URL whose query this is (kept in step).
   public __owner: URL? = null
 
   /// From a query string (a leading `?` is skipped) or name/value pairs.
+  ///
+  /// @example
+  /// ```ts
+  /// const fromQuery = new URLSearchParams("?a=1&b=two%20words")
+  /// println(fromQuery.get("b"))     // two words
+  /// const fromPairs = new URLSearchParams([["x", "1"], ["y", "2"]])
+  /// println(fromPairs.toString())   // x=1&y=2
+  /// ```
   constructor(init: string | [string, string][] = "") {
     match (init) {
       q: string => this.__parse(q),
@@ -146,17 +161,37 @@ class URLSearchParams {
   }
 
   /// The count of pairs (repeated names included).
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("a=1&a=2&b=3")
+  /// println(params.size)   // 3
+  /// ```
   public get size(): int {
     return this.list.length
   }
 
   /// Adds a pair (after any others of the same name).
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("tag=a")
+  /// params.append("tag", "b")
+  /// println(params.toString())   // tag=a&tag=b
+  /// ```
   public append(name: string, value: string): void {
     this.list.push([name, value])
     this.update()
   }
 
   /// Removes every pair named `name`.
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("a=1&b=2&a=3")
+  /// params.delete("a")
+  /// println(params.toString())   // b=2
+  /// ```
   public delete(name: string): void {
     const kept: [string, string][] = []
     for (const [k, v] of this.list) {
@@ -169,6 +204,13 @@ class URLSearchParams {
   }
 
   /// The first value named `name`.
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("name=Ada&lang=pico")
+  /// println(params.get("name"))      // Ada
+  /// println(params.get("missing"))   // null
+  /// ```
   public get(name: string): string? {
     for (const [k, v] of this.list) {
       if (k == name) {
@@ -179,6 +221,12 @@ class URLSearchParams {
   }
 
   /// Every value named `name`, in order (empty when there's none).
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("tag=a&x=1&tag=b")
+  /// println(params.getAll("tag").join(", "))   // a, b
+  /// ```
   public getAll(name: string): string[] {
     const out: string[] = []
     for (const [k, v] of this.list) {
@@ -190,11 +238,25 @@ class URLSearchParams {
   }
 
   /// Whether there's a pair named `name`.
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("debug=&level=3")
+  /// println(params.has("debug"))   // true
+  /// println(params.has("trace"))   // false
+  /// ```
   public has(name: string): bool {
     return this.get(name) != null
   }
 
   /// Replaces the first pair named `name` (dropping the others), or appends one.
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("a=1&b=2&a=3")
+  /// params.set("a", "9")
+  /// println(params.toString())   // a=9&b=2
+  /// ```
   public set(name: string, value: string): void {
     const kept: [string, string][] = []
     let found = false
@@ -216,6 +278,13 @@ class URLSearchParams {
   }
 
   /// Sorts the pairs by name (stable).
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("c=3&a=1&b=2")
+  /// params.sort()
+  /// println(params.toString())   // a=1&b=2&c=3
+  /// ```
   public sort(): void {
     const items = this.list
     for (let i = 1; i < items.length; i++) {
@@ -231,6 +300,12 @@ class URLSearchParams {
   }
 
   /// Every pair's name, in order (repeats included).
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("a=1&b=2&a=3")
+  /// println(params.keys().join(" "))   // a b a
+  /// ```
   public keys(): string[] {
     const out: string[] = []
     for (const [k, _v] of this.list) {
@@ -240,6 +315,16 @@ class URLSearchParams {
   }
 
   /// The pairs, in order (a copy).
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("a=1&b=2")
+  /// for (const [name, value] of params.entries()) {
+  ///   println(`${name} -> ${value}`)
+  /// }
+  /// // a -> 1
+  /// // b -> 2
+  /// ```
   public entries(): [string, string][] {
     const out: [string, string][] = []
     for (const [k, v] of this.list) {
@@ -249,11 +334,29 @@ class URLSearchParams {
   }
 
   /// `for (const [name, value] of params)`.
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams("x=10&y=20")
+  /// for (const [name, value] of params) {
+  ///   println(`${name}=${value}`)
+  /// }
+  /// // x=10
+  /// // y=20
+  /// ```
   public iterator(): Iterator<[string, string]> {
     __Array_iterator(this.entries())
   }
 
   /// The pairs as a query string (without `?`).
+  ///
+  /// @example
+  /// ```ts
+  /// const params = new URLSearchParams()
+  /// params.append("q", "hello world")
+  /// params.append("lang", "en&de")
+  /// println(params.toString())   // q=hello+world&lang=en%26de
+  /// ```
   public toString(): string {
     let out = ""
     for (const [k, v] of this.list) {
@@ -268,6 +371,15 @@ class URLSearchParams {
 
 /// A parsed URL. `new URL(input, base?)` throws a `TypeError` for an invalid URL;
 /// `URL.parse` gives `null` instead.
+///
+/// @example
+/// ```ts
+/// const url = new URL("https://example.com:8080/docs/index.html?v=2#intro")
+/// println(url.hostname)   // example.com
+/// println(url.port)       // 8080
+/// println(url.pathname)   // /docs/index.html
+/// println(url.hash)       // #intro
+/// ```
 class URL {
   scheme: string = ""
   /// The user name (percent-encoded), or "".
@@ -288,6 +400,20 @@ class URL {
 
   /// Parses `input`, resolving it against `base` when it's relative. Throws a `TypeError` for an
   /// invalid URL (or base).
+  ///
+  /// @example
+  /// ```ts
+  /// const abs = new URL("https://example.com/a/b")
+  /// println(abs.href)   // https://example.com/a/b
+  /// const rel = new URL("../c?x=1", "https://example.com/a/b/")
+  /// println(rel.href)   // https://example.com/a/c?x=1
+  /// try {
+  ///   const bad = new URL("not a url")
+  ///   println(bad.href)
+  /// } catch (e: TypeError) {
+  ///   println(e.message)   // Invalid URL: not a url
+  /// }
+  /// ```
   constructor(input: string, base: string? = null) throws TypeError {
     const b = base
     if (b != null) {
@@ -299,6 +425,13 @@ class URL {
   }
 
   /// The URL, or `null` when `input` isn't one.
+  ///
+  /// @example
+  /// ```ts
+  /// const good = URL.parse("http://localhost:3000/api")
+  /// println(good?.port)                  // 3000
+  /// println(URL.parse("::nonsense::"))   // null
+  /// ```
   public static parse(input: string, base: string? = null): URL? {
     try {
       return new URL(input, base)
@@ -307,6 +440,13 @@ class URL {
   }
 
   /// Whether `input` (against `base`) is a valid URL.
+  ///
+  /// @example
+  /// ```ts
+  /// println(URL.canParse("https://example.com"))      // true
+  /// println(URL.canParse("/relative/path"))           // false
+  /// println(URL.canParse("/relative/path", "https://example.com"))   // true
+  /// ```
   public static canParse(input: string, base: string? = null): bool {
     return URL.parse(input, base) != null
   }
@@ -549,39 +689,83 @@ class URL {
   }
 
   /// The scheme, lowercased, with its `:` (`"https:"`).
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("HTTPS://example.com")
+  /// println(url.protocol)   // https:
+  /// ```
   public get protocol(): string {
     return `${this.scheme}:`
   }
 
   /// `hostname` and `:port` (when it isn't the default).
+  ///
+  /// @example
+  /// ```ts
+  /// println(new URL("http://example.com:8080/").host)   // example.com:8080
+  /// println(new URL("http://example.com:80/").host)     // example.com
+  /// ```
   public get host(): string {
     if (this.port.length > 0) `${this.hostname}:${this.port}` else this.hostname
   }
 
   /// The path with dot segments resolved and percent-encoded (`"/"` at least for special schemes;
   /// the whole opaque path for `mailto:a@b`).
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("https://example.com/a/./b/../c")
+  /// println(url.pathname)   // /a/c
+  /// ```
   public get pathname(): string {
     return this.path
   }
 
   /// `?` and the query, or "".
+  ///
+  /// @example
+  /// ```ts
+  /// println(new URL("https://example.com/find?q=pico").search)   // ?q=pico
+  /// println(new URL("https://example.com/find").search.length)   // 0
+  /// ```
   public get search(): string {
     const q = this.query
     if (q == null || q.length == 0) "" else `?${q}`
   }
 
   /// `#` and the fragment, or "".
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("https://example.com/guide#install")
+  /// println(url.hash)   // #install
+  /// ```
   public get hash(): string {
     const f = this.fragment
     if (f == null || f.length == 0) "" else `#${f}`
   }
 
   /// `scheme://host` for http(s)/ws(s)/ftp, else `"null"`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(new URL("https://example.com:8443/x?y").origin)   // https://example.com:8443
+  /// println(new URL("mailto:ada@example.com").origin)         // null
+  /// ```
   public get origin(): string {
     if (__isSpecial(this.scheme) && this.scheme != "file") `${this.scheme}://${this.host}` else "null"
   }
 
   /// The query's pairs (changing them changes the URL).
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("https://example.com/search?q=pico")
+  /// println(url.searchParams.get("q"))   // pico
+  /// url.searchParams.append("page", "2")
+  /// println(url.href)   // https://example.com/search?q=pico&page=2
+  /// ```
   public get searchParams(): URLSearchParams {
     const p = this.params
     if (p != null) {
@@ -595,6 +779,12 @@ class URL {
   }
 
   /// The whole URL, serialized.
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("HTTP://User@Example.COM:80/a/../b?x#y")
+  /// println(url.href)   // http://User@example.com/b?x#y
+  /// ```
   public get href(): string {
     let out = `${this.scheme}:`
     if (this.hasHost) {
@@ -621,11 +811,24 @@ class URL {
   }
 
   /// `href`.
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("https://example.com/path")
+  /// println(url.toString())   // https://example.com/path
+  /// println(`link: ${url}`)   // link: https://example.com/path
+  /// ```
   public toString(): string {
     return this.href
   }
 
   /// `href` (as `JSON.stringify` writes a URL).
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("https://example.com/a")
+  /// println(url.toJSON())   // https://example.com/a
+  /// ```
   public toJSON(): string {
     return this.href
   }

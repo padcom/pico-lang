@@ -12,6 +12,23 @@
 /// `"ConnectionReset"`, `"AddrInUse"`, `"AddrNotAvailable"`, `"TimedOut"`, `"HostNotFound"`,
 /// `"InvalidData"`, `"PermissionDenied"`, `"TlsError"` (a failed TLS handshake: the message
 /// says why, such as an untrusted certificate), `"Other"`).
+///
+/// @example
+/// ```ts
+/// import { connect, listen } from "std/net"
+///
+/// // A port nobody listens on: listen, note the port, stop listening.
+/// const probe = await listen(0)
+/// const port = probe.addr.port
+/// probe.close()
+/// try {
+///   const conn = await connect(port)
+///   conn.close()
+/// } catch (e: NetError) {
+///   println(e.kind)                                // ConnectionRefused
+///   println(e.address == `127.0.0.1:${port}`)      // true
+/// }
+/// ```
 class NetError extends Error {
   /// What the operation was about: usually `host:port` (`[::1]:80` for IPv6), the host name alone
   /// for a failed lookup.
@@ -19,6 +36,14 @@ class NetError extends Error {
   /// The portable kind (`"ConnectionRefused"`, `"TimedOut"`, …; see above).
   public kind: string
   /// A `NetError` about `address` with `message` and `kind`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new NetError("example.com:443", "timed out: example.com:443", "TimedOut")
+  /// println(e.kind)      // TimedOut
+  /// println(e.address)   // example.com:443
+  /// println(e.message)   // timed out: example.com:443
+  /// ```
   constructor(address: string, message: string, kind: string) {
     super(message)
     this.address = address
@@ -41,6 +66,17 @@ function __netError(address: string, r: int, errno: int): NetError {
 }
 
 /// An IP address and a port.
+///
+/// @example
+/// ```ts
+/// import { listen } from "std/net"
+///
+/// const listener = await listen(0, "127.0.0.1")
+/// const addr: Addr = listener.addr
+/// println(addr.hostname)   // 127.0.0.1
+/// println(addr.port > 0)   // true (a free port the system picked)
+/// listener.close()
+/// ```
 struct Addr {
   /// The IP address (`"127.0.0.1"`, `"::1"`, without brackets), or a Unix-domain socket's path.
   hostname: string
@@ -118,6 +154,24 @@ struct __NetSend {
 
 /// A TCP connection: chunks of bytes with `read` or `for await`, the rest as text with
 /// `text()`, writes (in the order they're made) with `write`/`writeText`. One read at a time.
+///
+/// @example
+/// ```ts
+/// import { connect, listen } from "std/net"
+///
+/// const listener = await listen(0)
+/// const accepting = listener.accept()
+/// const client = await connect(listener.addr.port)
+/// const server = await accepting
+/// if (server != null) {
+///   await client.writeText("ping")
+///   client.closeWrite()
+///   println(await server.text())   // ping
+///   server.close()
+/// }
+/// client.close()
+/// listener.close()
+/// ```
 class Conn {
   fd: int
   /// This side's address.
@@ -139,6 +193,22 @@ class Conn {
   ws: WritableStream<Uint8Array>? = null
 
   /// A connection on descriptor `fd`; made by `connect` and `accept`, not by programs.
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// // Connections come from `connect` (the client's end) and `accept` (the server's end).
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client: Conn = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// println(client.remoteAddr.port == listener.addr.port)   // true
+  /// println(server?.localAddr.port == listener.addr.port)   // true
+  /// server?.close()
+  /// client.close()
+  /// listener.close()
+  /// ```
   constructor(fd: int, localAddr: Addr, remoteAddr: Addr) {
     this.fd = fd
     this.localAddr = localAddr
@@ -147,6 +217,26 @@ class Conn {
   }
 
   /// The connection's incoming bytes as a stream (reading it and `read()` don't mix).
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// if (server != null) {
+  ///   await server.writeText("streamed")
+  ///   server.close()
+  ///   const decoder = new TextDecoder()
+  ///   for await (const chunk of client.readable) {
+  ///     println(decoder.decode(chunk))   // streamed
+  ///   }
+  /// }
+  /// client.close()
+  /// listener.close()
+  /// ```
   public get readable(): ReadableStream<Uint8Array> {
     const r = this.rs
     if (r != null) {
@@ -162,6 +252,25 @@ class Conn {
 
   /// The connection's outgoing bytes as a stream: closing it finishes writing
   /// (`closeWrite()`), aborting it closes the connection.
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// if (server != null) {
+  ///   const writer = client.writable.getWriter()
+  ///   await writer.write(new TextEncoder().encode("via a stream"))
+  ///   await writer.close()                 // finishes writing (closeWrite)
+  ///   println(await server.text())         // via a stream
+  ///   server.close()
+  /// }
+  /// client.close()
+  /// listener.close()
+  /// ```
   public get writable(): WritableStream<Uint8Array> {
     const w = this.ws
     if (w != null) {
@@ -227,6 +336,25 @@ class Conn {
 
   /// Up to `n` bytes (as soon as some arrive), or `null` once the other side has finished
   /// writing (or this side is closed).
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// if (server != null) {
+  ///   await client.write(Uint8Array.from([1, 2, 3]))
+  ///   const chunk = await server.read()
+  ///   println(chunk?.length)   // 3
+  ///   client.close()
+  ///   println(await server.read())   // null (the client finished)
+  ///   server.close()
+  /// }
+  /// listener.close()
+  /// ```
   public read(n: int = 65536): Promise<Uint8Array?, NetError> {
     if (!start()) {
       return __netResolved<Uint8Array?>(null)
@@ -250,17 +378,74 @@ class Conn {
   }
 
   /// `for await` reads chunks until the end.
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// if (server != null) {
+  ///   await client.writeText("hi")
+  ///   const chunk = await server.next()
+  ///   println(chunk?.length)   // 2
+  ///   server.close()
+  /// }
+  /// client.close()
+  /// listener.close()
+  /// ```
   public next(): Promise<Uint8Array?, NetError> {
     read()
   }
 
   /// The connection itself (`for await (const chunk of conn)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// if (server != null) {
+  ///   await client.writeText("hello")
+  ///   client.close()
+  ///   let total = 0
+  ///   for await (const chunk of server) {
+  ///     total += chunk.length
+  ///   }
+  ///   println(total)   // 5
+  ///   server.close()
+  /// }
+  /// listener.close()
+  /// ```
   public asyncIterator(): Conn {
     this
   }
 
   /// Everything until the other side finishes writing, as text (UTF-8; anything else
   /// rejects with kind `"InvalidData"`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// if (server != null) {
+  ///   await server.writeText("line 1\nline 2\n")
+  ///   server.close()
+  ///   const all = await client.text()
+  ///   println(all.split("\n").length)   // 3
+  /// }
+  /// client.close()
+  /// listener.close()
+  /// ```
   public text(): Promise<string, NetError> {
     if (!start()) {
       return __netResolved<string>("")
@@ -287,17 +472,70 @@ class Conn {
   }
 
   /// Writes all of `data`; the count written.
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// if (server != null) {
+  ///   const n = await client.write(new TextEncoder().encode("bytes"))
+  ///   println(n)   // 5
+  ///   server.close()
+  /// }
+  /// client.close()
+  /// listener.close()
+  /// ```
   public write(data: Uint8Array): Promise<int, NetError> {
     add({ bytes: __netBytesOf(data), count: data.length, text: "", p: new Promise<int, NetError>() })
   }
 
   /// Writes `text` as UTF-8; the count of bytes written.
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// if (server != null) {
+  ///   println(await client.writeText("żółw"))   // 7 (bytes of UTF-8)
+  ///   server.close()
+  /// }
+  /// client.close()
+  /// listener.close()
+  /// ```
   public writeText(text: string): Promise<int, NetError> {
     add({ bytes: null, count: 0, text, p: new Promise<int, NetError>() })
   }
 
   /// Finishes writing once earlier writes are done (the other side reads the end); reading
   /// goes on.
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// if (server != null) {
+  ///   await client.writeText("question")
+  ///   client.closeWrite()                  // the server's text() can finish…
+  ///   const q = await server.text()
+  ///   await server.writeText(`answer to ${q}`)
+  ///   server.close()
+  ///   println(await client.text())         // …and the client still reads: answer to question
+  /// }
+  /// client.close()
+  /// listener.close()
+  /// ```
   public closeWrite(): void {
     if (closing == 0) {
       closing = 1
@@ -307,6 +545,23 @@ class Conn {
 
   /// Closes the connection once earlier writes are done: a waiting read ends with `null`.
   /// Twice is fine.
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const server = await accepting
+  /// client.close()
+  /// client.close()                     // twice is fine
+  /// if (server != null) {
+  ///   println(await server.read())     // null
+  ///   server.close()
+  /// }
+  /// listener.close()
+  /// ```
   public close(): void {
     closing = 2
     pump()
@@ -364,6 +619,20 @@ async function __netPullConn(conn: Conn, c: ReadableStreamDefaultController<Uint
 }
 
 /// A TCP listener: `accept()` or `for await (const conn of listener)`.
+///
+/// @example
+/// ```ts
+/// import { connect, listen } from "std/net"
+///
+/// const listener = await listen(0)
+/// const accepting = listener.accept()
+/// const client = await connect(listener.addr.port)
+/// const server = await accepting
+/// println(server != null)   // true
+/// server?.close()
+/// client.close()
+/// listener.close()
+/// ```
 class Listener {
   fd: int
   /// The address it listens on (with the port chosen when `listen` was given 0).
@@ -373,6 +642,16 @@ class Listener {
   released: bool = false
 
   /// A listener on descriptor `fd`; made by `listen`, not by programs.
+  ///
+  /// @example
+  /// ```ts
+  /// import { listen } from "std/net"
+  ///
+  /// // Listeners come from `listen` (and `listenUnix`).
+  /// const listener: Listener = await listen(0)
+  /// println(listener.addr.hostname)   // 127.0.0.1
+  /// listener.close()
+  /// ```
   constructor(fd: int, addr: Addr) {
     this.fd = fd
     this.addr = addr
@@ -390,6 +669,21 @@ class Listener {
   }
 
   /// The next connection, or `null` once the listener is closed. One at a time.
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.accept()
+  /// const client = await connect(listener.addr.port)
+  /// const conn = await accepting
+  /// println(conn?.remoteAddr.port == client.localAddr.port)   // true
+  /// conn?.close()
+  /// client.close()
+  /// listener.close()
+  /// println(await listener.accept())   // null (closed)
+  /// ```
   public accept(): Promise<Conn?, NetError> {
     if (closed) {
       return __netResolved<Conn?>(null)
@@ -418,17 +712,56 @@ class Listener {
   }
 
   /// `for await` accepts connections until the listener is closed.
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const accepting = listener.next()
+  /// const client = await connect(listener.addr.port)
+  /// const conn = await accepting
+  /// println(conn != null)   // true
+  /// conn?.close()
+  /// client.close()
+  /// listener.close()
+  /// ```
   public next(): Promise<Conn?, NetError> {
     accept()
   }
 
   /// The listener itself (`for await (const conn of listener)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const client = await connect(listener.addr.port)
+  /// await client.writeText("hello")
+  /// client.close()
+  /// for await (const conn of listener) {
+  ///   println(await conn.text())   // hello
+  ///   conn.close()
+  ///   listener.close()             // ends the loop
+  /// }
+  /// ```
   public asyncIterator(): Listener {
     this
   }
 
   /// Stops listening: a waiting `accept()` gives `null` (twice is fine). Open connections
   /// stay open.
+  ///
+  /// @example
+  /// ```ts
+  /// import { listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const waiting = listener.accept()
+  /// listener.close()
+  /// println(await waiting)   // null
+  /// ```
   public close(): void {
     if (closed) {
       return
@@ -451,6 +784,15 @@ class Listener {
 
 /// Listens for TCP connections on `hostname` (`"0.0.0.0"` or `"::"` for every interface) and
 /// `port` (0 picks a free one; see `addr`).
+///
+/// @example
+/// ```ts
+/// import { listen } from "std/net"
+///
+/// const listener = await listen(0, "127.0.0.1")
+/// println(listener.addr.port > 0)   // true
+/// listener.close()
+/// ```
 function __netListen(port: int = 0, hostname: string = "127.0.0.1"): Promise<Listener, NetError> {
   __netJob<Listener>(30, port, 0, 0, hostname, "", __netShow(hostname, port), (res: __NetResult) => {
     const f = __io_text(res.job).split(" ")
@@ -459,6 +801,20 @@ function __netListen(port: int = 0, hostname: string = "127.0.0.1"): Promise<Lis
 }
 
 /// Connects to `hostname` (a name or an IP address) and `port` over TCP.
+///
+/// @example
+/// ```ts
+/// import { connect, listen } from "std/net"
+///
+/// const listener = await listen(0)
+/// const accepting = listener.accept()
+/// const conn = await connect(listener.addr.port, "127.0.0.1")
+/// println(conn.remoteAddr.hostname)   // 127.0.0.1
+/// conn.close()
+/// const server = await accepting
+/// server?.close()
+/// listener.close()
+/// ```
 function __netConnect(port: int, hostname: string = "127.0.0.1"): Promise<Conn, NetError> {
   __netJob<Conn>(32, port, 0, 0, hostname, "", __netShow(hostname, port), (res: __NetResult) => {
     const f = __io_text(res.job).split(" ")
@@ -469,6 +825,27 @@ function __netConnect(port: int, hostname: string = "127.0.0.1"): Promise<Conn, 
 /// Listens for connections on a Unix-domain socket at `path` (macOS, Linux and Windows 10 and
 /// later; not WASI) (#85). The socket file must not exist yet (`AddrInUse`); closing the
 /// listener removes it. `addr` is `{ hostname: path, port: -1 }`.
+///
+/// @example
+/// ```ts
+/// import { connectUnix, listenUnix } from "std/net"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)
+/// const listener = await listenUnix(path)
+/// println(listener.addr.port)   // -1
+/// const accepting = listener.accept()
+/// const client = await connectUnix(path)
+/// await client.writeText("over a socket file")
+/// client.close()
+/// const server = await accepting
+/// if (server != null) {
+///   println(await server.text())   // over a socket file
+///   server.close()
+/// }
+/// listener.close()                // removes the socket file
+/// ```
 function __netListenUnix(path: string): Promise<Listener, NetError> {
   __netJob<Listener>(30, 0, 0, 1, path, "", path, (res: __NetResult) => {
     new Listener(res.r, { hostname: path, port: -1 })
@@ -476,6 +853,23 @@ function __netListenUnix(path: string): Promise<Listener, NetError> {
 }
 
 /// Connects to the Unix-domain socket at `path` (#85).
+///
+/// @example
+/// ```ts
+/// import { connectUnix, listenUnix } from "std/net"
+/// import { tmpDir } from "std/os"
+/// import { join } from "std/path"
+///
+/// const path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)
+/// const listener = await listenUnix(path)
+/// const accepting = listener.accept()
+/// const conn = await connectUnix(path)
+/// println(conn.remoteAddr.hostname == path)   // true
+/// conn.close()
+/// const server = await accepting
+/// server?.close()
+/// listener.close()
+/// ```
 function __netConnectUnix(path: string): Promise<Conn, NetError> {
   __netJob<Conn>(32, 0, 0, 1, path, "", path, (res: __NetResult) => {
     const a: Addr = { hostname: path, port: -1 }
@@ -484,6 +878,22 @@ function __netConnectUnix(path: string): Promise<Conn, NetError> {
 }
 
 /// A received datagram and where it came from.
+///
+/// @example
+/// ```ts
+/// import { bind } from "std/net"
+///
+/// const a = await bind(0)
+/// const b = await bind(0)
+/// await a.sendText("hi", b.addr.port)
+/// const d: Datagram? = await b.receive()
+/// if (d != null) {
+///   println(new TextDecoder().decode(d.data))   // hi
+///   println(d.addr.port == a.addr.port)         // true
+/// }
+/// a.close()
+/// b.close()
+/// ```
 struct Datagram {
   /// The datagram's bytes (cut to the size `receive` asked for).
   data: Uint8Array
@@ -492,6 +902,25 @@ struct Datagram {
 }
 
 /// A UDP socket: `send` datagrams anywhere, `receive` them one at a time.
+///
+/// @example
+/// ```ts
+/// import { bind } from "std/net"
+///
+/// const server = await bind(0)
+/// const client = await bind(0)
+/// await client.sendText("ping", server.addr.port)
+/// const d = await server.receive()
+/// if (d != null) {
+///   await server.sendText("pong", d.addr.port, d.addr.hostname)
+/// }
+/// const reply = await client.receive()
+/// if (reply != null) {
+///   println(new TextDecoder().decode(reply.data))   // pong
+/// }
+/// server.close()
+/// client.close()
+/// ```
 class UdpSocket {
   fd: int
   /// The address it's bound to (with the port chosen when `bind` was given 0).
@@ -502,6 +931,16 @@ class UdpSocket {
   released: bool = false
 
   /// A socket on descriptor `fd`; made by `bind`, not by programs.
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// // UDP sockets come from `bind`.
+  /// const socket: UdpSocket = await bind(0, "127.0.0.1")
+  /// println(socket.addr.hostname)   // 127.0.0.1
+  /// socket.close()
+  /// ```
   constructor(fd: int, addr: Addr) {
     this.fd = fd
     this.addr = addr
@@ -531,17 +970,58 @@ class UdpSocket {
   }
 
   /// Sends `data` as one datagram to `hostname` and `port`; the count of bytes sent.
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// const a = await bind(0)
+  /// const b = await bind(0)
+  /// println(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2
+  /// const d = await b.receive()
+  /// println(d?.data.length)   // 2
+  /// a.close()
+  /// b.close()
+  /// ```
   public send(data: Uint8Array, port: int, hostname: string = "127.0.0.1"): Promise<int, NetError> {
     sendJob(__netBytesOf(data).__handle, data.length, "", port, hostname)
   }
 
   /// Sends `text` (as UTF-8) as one datagram.
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// const a = await bind(0)
+  /// const b = await bind(0)
+  /// println(await a.sendText("hello", b.addr.port, "127.0.0.1"))   // 5
+  /// const d = await b.receive()
+  /// println(d?.data.length)   // 5
+  /// a.close()
+  /// b.close()
+  /// ```
   public sendText(text: string, port: int, hostname: string = "127.0.0.1"): Promise<int, NetError> {
     sendJob(0, -1, text, port, hostname)
   }
 
   /// The next datagram (at most `n` bytes of it; the rest is dropped), or `null` once the
   /// socket is closed. One at a time.
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// const a = await bind(0)
+  /// const b = await bind(0)
+  /// await a.sendText("a long datagram", b.addr.port)
+  /// const d = await b.receive(6)
+  /// if (d != null) {
+  ///   println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)
+  /// }
+  /// a.close()
+  /// b.close()
+  /// ```
   public receive(n: int = 65536): Promise<Datagram?, NetError> {
     if (closed) {
       return __netResolved<Datagram?>(null)
@@ -567,6 +1047,16 @@ class UdpSocket {
   }
 
   /// Closes the socket: a waiting `receive()` gives `null` (twice is fine).
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// const socket = await bind(0)
+  /// const waiting = socket.receive()
+  /// socket.close()
+  /// println((await waiting) == null)   // true
+  /// ```
   public close(): void {
     if (closed) {
       return
@@ -581,6 +1071,15 @@ class UdpSocket {
 }
 
 /// A UDP socket on `hostname` and `port` (0 picks a free one; see `addr`).
+///
+/// @example
+/// ```ts
+/// import { bind } from "std/net"
+///
+/// const socket = await bind(0, "127.0.0.1")
+/// println(socket.addr.port > 0)   // true
+/// socket.close()
+/// ```
 function __netBind(port: int = 0, hostname: string = "127.0.0.1"): Promise<UdpSocket, NetError> {
   __netJob<UdpSocket>(30, port, 1, 0, hostname, "", __netShow(hostname, port), (res: __NetResult) => {
     const f = __io_text(res.job).split(" ")
@@ -589,6 +1088,15 @@ function __netBind(port: int = 0, hostname: string = "127.0.0.1"): Promise<UdpSo
 }
 
 /// The IP addresses of `hostname` (in the order the system gives them, without repeats).
+///
+/// @example
+/// ```ts
+/// import { resolve } from "std/net"
+///
+/// println((await resolve("127.0.0.1")).join(", "))      // 127.0.0.1
+/// const local = await resolve("localhost")
+/// println(local.length > 0)                            // true (e.g. 127.0.0.1 and ::1)
+/// ```
 function __netResolve(hostname: string): Promise<string[], NetError> {
   __netJob<string[]>(35, 0, 0, 0, hostname, "", hostname, (res: __NetResult) => {
     const out: string[] = []
