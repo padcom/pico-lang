@@ -586,13 +586,37 @@ function __localZone(): __Zone {
 
 /// `performance` (High Resolution Time): `now()` is milliseconds since the program started.
 /// (A struct, so the global costs programs that don't use it nothing.)
+///
+/// @example
+/// ```ts
+/// const start = performance.now()
+/// let sum = 0
+/// for (let i = 0; i < 1000; i++) sum += i
+/// const elapsed = performance.now() - start
+/// println(sum)              // 499500
+/// println(elapsed >= 0.0)   // true
+/// ```
 struct Performance {
   /// Milliseconds (with a fraction) since the program started.
+  ///
+  /// @example
+  /// ```ts
+  /// const t0 = performance.now()
+  /// println(t0)                         // e.g. 24.407417 (ms since the program started)
+  /// println(performance.now() >= t0)    // true
+  /// ```
   now(): number {
     return (__monoNanos() as f64) / 1000000.0
   }
 
   /// When the program started, in milliseconds since 1970.
+  ///
+  /// @example
+  /// ```ts
+  /// const origin = performance.timeOrigin()
+  /// println(origin)                                     // e.g. 1795451940937
+  /// println(new Date(origin).getTime() <= Date.now())   // true
+  /// ```
   timeOrigin(): number {
     return ((__wallNanos() - __monoNanos()) / 1000000) as f64
   }
@@ -612,11 +636,34 @@ function __monthName(m: int): string {
 
 /// JavaScript's `Date`: a time value in milliseconds since 1970 (`NaN` when invalid), seen
 /// in local time or UTC. Kept so ported code works; new code should use `std/time`.
+///
+/// @example
+/// ```ts
+/// const d = new Date(Date.UTC(2024, 2, 10, 12, 30))
+/// println(d.toISOString())      // 2024-03-10T12:30:00.000Z
+/// println(d.getUTCMonth())      // 2 (months are 0-based)
+/// const local = new Date(2024, 4, 15, 9, 45)
+/// println(local.getHours())     // 9
+/// println(local.toDateString())   // Wed May 15 2024
+/// ```
 class Date {
   t: number
 
   /// `new Date()` is now; `new Date(ms)` a time value; `new Date("…")` parses (as
   /// `Date.parse`); `new Date(y, m, …)` is a local date with a 0-based month.
+  ///
+  /// @example
+  /// ```ts
+  /// println(new Date(0).toISOString())                     // 1970-01-01T00:00:00.000Z
+  /// println(new Date("2024-03-10T12:30:00Z").getTime())    // 1710073800000
+  /// // 31 January 2024, 18:05 local time (months are 0-based):
+  /// const local = new Date(2024, 0, 31, 18, 5)
+  /// println(local.getMonth())                              // 0
+  /// println(local.getMinutes())                            // 5
+  /// println(new Date("garbage"))                           // Invalid Date
+  /// const now = new Date()
+  /// println(now.getTime() > 0.0)                           // true
+  /// ```
   constructor(value: number | string | Date | null = null, month: number? = null, day: number = 1, hours: number = 0, minutes: number = 0, seconds: number = 0, ms: number = 0) {
     if (value == null) {
       this.t = (__wallNanos() / 1000000) as f64
@@ -638,11 +685,26 @@ class Date {
   }
 
   /// Milliseconds since 1970 now.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = Date.now()
+  /// println(t)              // e.g. 1795451940937
+  /// println(t > 0.0)        // true
+  /// ```
   public static now(): number {
     return (__wallNanos() / 1000000) as f64
   }
 
   /// The time value of a UTC date (0-based month), like the constructor's local form.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = Date.UTC(2024, 2, 10, 12, 30)
+  /// println(t)                            // 1710073800000
+  /// println(new Date(t).toISOString())    // 2024-03-10T12:30:00.000Z
+  /// println(Date.UTC(2024))               // 1704067200000
+  /// ```
   public static UTC(year: number, month: number = 0, day: number = 1, hours: number = 0, minutes: number = 0, seconds: number = 0, ms: number = 0): number {
     Date.__clip(Date.__makeTime(Date.__fullYear(year), month, day, hours, minutes, seconds, ms))
   }
@@ -650,6 +712,15 @@ class Date {
   /// Parses ISO 8601 (`2024-03-10`, `2024-03-10T12:30:00.5Z`, `…+01:00`; date-only forms are
   /// UTC, date-times without an offset local) and `toString`/`toUTCString` output. `NaN`
   /// when it can't.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Date.parse("2024-03-10"))                       // 1710028800000
+  /// println(Date.parse("2024-03-10T12:30:00.5Z"))           // 1710073800500
+  /// println(Date.parse("2024-03-10T12:30:00+01:00"))        // 1710070200000
+  /// println(Date.parse("Sun, 10 Mar 2024 11:30:00 GMT"))    // 1710070200000
+  /// println(Date.parse("not a date"))                       // NaN
+  /// ```
   public static parse(s: string): number {
     const iso = __parseIso(s.trim())
     if (iso != null) {
@@ -725,49 +796,172 @@ class Date {
   }
 
   /// The time value: milliseconds since 1970 (UTC), or `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:30:00Z")
+  /// println(d.getTime())   // 1710073800000
+  /// println(new Date("garbage").getTime())   // NaN
+  /// ```
   public getTime(): number { return this.t }
   /// The time value, as `getTime()`.
+  ///
+  /// @example
+  /// ```ts
+  /// const a = new Date("2024-03-10T12:00:00Z")
+  /// const b = new Date("2024-03-10T12:30:00Z")
+  /// println(b.valueOf() - a.valueOf())   // 1800000
+  /// ```
   public valueOf(): number { return this.t }
   /// The full year (`2024`; not 2-digit), in local time; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15)
+  /// println(d.getFullYear())   // 2024
+  /// ```
   public getFullYear(): number { this.__field(false, 0) }
   /// The month, 0–11 (January is 0), in local time; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15)
+  /// println(d.getMonth())   // 4 (May: months are 0-based)
+  /// ```
   public getMonth(): number { this.__field(false, 1) }
   /// The day of the month, 1–31, in local time; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15)
+  /// println(d.getDate())   // 15
+  /// ```
   public getDate(): number { this.__field(false, 2) }
   /// The day of the week, 0–6 (Sunday is 0), in local time; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15)
+  /// println(d.getDay())   // 3 (Wednesday; Sunday is 0)
+  /// ```
   public getDay(): number { this.__field(false, 3) }
   /// The hour, 0–23, in local time; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 9, 45, 30)
+  /// println(d.getHours())   // 9
+  /// ```
   public getHours(): number { this.__field(false, 4) }
   /// The minutes, 0–59, in local time; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 9, 45, 30)
+  /// println(d.getMinutes())   // 45
+  /// ```
   public getMinutes(): number { this.__field(false, 5) }
   /// The seconds, 0–59, in local time; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 9, 45, 30)
+  /// println(d.getSeconds())   // 30
+  /// ```
   public getSeconds(): number { this.__field(false, 6) }
   /// The milliseconds, 0–999, in local time; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 9, 45, 30, 125)
+  /// println(d.getMilliseconds())   // 125
+  /// ```
   public getMilliseconds(): number { this.__field(false, 7) }
   /// The full year (`2024`; not 2-digit), in UTC; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-12-31T23:30:00Z")
+  /// println(d.getUTCFullYear())   // 2024
+  /// ```
   public getUTCFullYear(): number { this.__field(true, 0) }
   /// The month, 0–11 (January is 0), in UTC; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:30:00Z")
+  /// println(d.getUTCMonth())   // 2 (March: months are 0-based)
+  /// ```
   public getUTCMonth(): number { this.__field(true, 1) }
   /// The day of the month, 1–31, in UTC; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:30:00Z")
+  /// println(d.getUTCDate())   // 10
+  /// ```
   public getUTCDate(): number { this.__field(true, 2) }
   /// The day of the week, 0–6 (Sunday is 0), in UTC; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:30:00Z")
+  /// println(d.getUTCDay())   // 0 (Sunday)
+  /// ```
   public getUTCDay(): number { this.__field(true, 3) }
   /// The hour, 0–23, in UTC; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:30:45.5Z")
+  /// println(d.getUTCHours())   // 12
+  /// ```
   public getUTCHours(): number { this.__field(true, 4) }
   /// The minutes, 0–59, in UTC; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:30:45.5Z")
+  /// println(d.getUTCMinutes())   // 30
+  /// ```
   public getUTCMinutes(): number { this.__field(true, 5) }
   /// The seconds, 0–59, in UTC; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:30:45.5Z")
+  /// println(d.getUTCSeconds())   // 45
+  /// ```
   public getUTCSeconds(): number { this.__field(true, 6) }
   /// The milliseconds, 0–999, in UTC; `NaN` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:30:45.5Z")
+  /// println(d.getUTCMilliseconds())   // 500
+  /// ```
   public getUTCMilliseconds(): number { this.__field(true, 7) }
 
   /// Minutes behind UTC (`-60` in Central Europe in winter), as JavaScript has it.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(Date.UTC(2024, 0, 15))
+  /// println(d.getTimezoneOffset())   // depends on the system's zone: -60 in Warsaw, 300 in New York, 0 in UTC
+  /// ```
   public getTimezoneOffset(): number {
     if (this.t != this.t) 0.0 / 0.0 else (-this.__offset() / 60) as f64
   }
 
   /// Sets the time value to `t` (truncated to whole milliseconds; `NaN` past ±8.64e15) and returns
   /// it.
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(0)
+  /// println(d.setTime(1710073800000.9))   // 1710073800000
+  /// println(d.toISOString())              // 2024-03-10T12:30:00.000Z
+  /// ```
   public setTime(t: number): number {
     this.t = Date.__clip(t)
     return this.t
@@ -795,48 +989,165 @@ class Date {
 
   /// Sets the year (and optionally the month and day) in local time, out-of-range values rolling
   /// over; returns the new time value (an invalid date starts from 1 January, 00:00).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 1, 29)
+  /// d.setFullYear(2025)
+  /// println(d.toDateString())   // Sat Mar 01 2025
+  /// d.setFullYear(2026, 11, 24)
+  /// println(d.toDateString())   // Thu Dec 24 2026
+  /// ```
   public setFullYear(y: number, ...rest: number[]): number { this.__set(false, [y, ...rest], 0) }
   /// Sets the month, 0-based (and optionally the day) in local time, out-of-range values rolling
   /// over; returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 0, 31)
+  /// d.setMonth(3)
+  /// println(d.toDateString())   // Wed May 01 2024
+  /// d.setMonth(13, 5)
+  /// println(d.toDateString())   // Wed Feb 05 2025
+  /// ```
   public setMonth(m: number, ...rest: number[]): number { this.__set(false, [m, ...rest], 1) }
   /// Sets the day of the month in local time, out-of-range values rolling over (`setDate(0)` is the
   /// previous month's last day); returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 2, 15)
+  /// d.setDate(0)
+  /// println(d.toDateString())   // Thu Feb 29 2024
+  /// d.setDate(31)
+  /// println(d.toDateString())   // Sat Mar 02 2024
+  /// ```
   public setDate(d: number): number { this.__set(false, [d], 2) }
   /// Sets the hour (and optionally minutes, seconds, milliseconds) in local time, out-of-range
   /// values rolling over; returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 9, 0)
+  /// d.setHours(26)
+  /// println(d.toDateString())   // Thu May 16 2024
+  /// println(d.getHours())       // 2
+  /// d.setHours(14, 30, 0, 0)
+  /// println(d.getMinutes())     // 30
+  /// ```
   public setHours(h: number, ...rest: number[]): number { this.__set(false, [h, ...rest], 3) }
   /// Sets the minutes (and optionally seconds, milliseconds) in local time, out-of-range values
   /// rolling over; returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 9, 0)
+  /// d.setMinutes(90)
+  /// println(d.getHours())     // 10
+  /// println(d.getMinutes())   // 30
+  /// ```
   public setMinutes(m: number, ...rest: number[]): number { this.__set(false, [m, ...rest], 4) }
   /// Sets the seconds (and optionally milliseconds) in local time, out-of-range values rolling
   /// over; returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 9, 0)
+  /// d.setSeconds(75, 500)
+  /// println(d.getMinutes())        // 1
+  /// println(d.getSeconds())        // 15
+  /// println(d.getMilliseconds())   // 500
+  /// ```
   public setSeconds(s: number, ...rest: number[]): number { this.__set(false, [s, ...rest], 5) }
   /// Sets the milliseconds in local time, out-of-range values rolling over; returns the new time
   /// value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 9, 0)
+  /// d.setMilliseconds(1500)
+  /// println(d.getSeconds())        // 1
+  /// println(d.getMilliseconds())   // 500
+  /// ```
   public setMilliseconds(ms: number): number { this.__set(false, [ms], 6) }
   /// Sets the year (and optionally the month and day) in UTC, out-of-range values rolling over;
   /// returns the new time value (an invalid date starts from 1 January, 00:00).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-02-29T12:00:00Z")
+  /// d.setUTCFullYear(2025)
+  /// println(d.toISOString())   // 2025-03-01T12:00:00.000Z
+  /// ```
   public setUTCFullYear(y: number, ...rest: number[]): number { this.__set(true, [y, ...rest], 0) }
   /// Sets the month, 0-based (and optionally the day) in UTC, out-of-range values rolling over;
   /// returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-01-31T12:00:00Z")
+  /// d.setUTCMonth(1)
+  /// println(d.toISOString())   // 2024-03-02T12:00:00.000Z
+  /// ```
   public setUTCMonth(m: number, ...rest: number[]): number { this.__set(true, [m, ...rest], 1) }
   /// Sets the day of the month in UTC, out-of-range values rolling over (`setDate(0)` is the
   /// previous month's last day); returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-15T12:00:00Z")
+  /// d.setUTCDate(0)
+  /// println(d.toISOString())   // 2024-02-29T12:00:00.000Z
+  /// ```
   public setUTCDate(d: number): number { this.__set(true, [d], 2) }
   /// Sets the hour (and optionally minutes, seconds, milliseconds) in UTC, out-of-range values
   /// rolling over; returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:00:00Z")
+  /// println(d.setUTCHours(23, 59))   // 1710115140000
+  /// println(d.toISOString())         // 2024-03-10T23:59:00.000Z
+  /// ```
   public setUTCHours(h: number, ...rest: number[]): number { this.__set(true, [h, ...rest], 3) }
   /// Sets the minutes (and optionally seconds, milliseconds) in UTC, out-of-range values rolling
   /// over; returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:00:00Z")
+  /// d.setUTCMinutes(45, 30)
+  /// println(d.toISOString())   // 2024-03-10T12:45:30.000Z
+  /// ```
   public setUTCMinutes(m: number, ...rest: number[]): number { this.__set(true, [m, ...rest], 4) }
   /// Sets the seconds (and optionally milliseconds) in UTC, out-of-range values rolling over;
   /// returns the new time value (an invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:00:00Z")
+  /// d.setUTCSeconds(61)
+  /// println(d.toISOString())   // 2024-03-10T12:01:01.000Z
+  /// ```
   public setUTCSeconds(s: number, ...rest: number[]): number { this.__set(true, [s, ...rest], 5) }
   /// Sets the milliseconds in UTC, out-of-range values rolling over; returns the new time value (an
   /// invalid date stays invalid).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:00:00Z")
+  /// d.setUTCMilliseconds(250)
+  /// println(d.toISOString())   // 2024-03-10T12:00:00.250Z
+  /// ```
   public setUTCMilliseconds(ms: number): number { this.__set(true, [ms], 6) }
 
   /// `2024-03-10T12:30:00.000Z`; panics on an invalid date (JavaScript throws `RangeError`).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(Date.UTC(2024, 2, 10, 12, 30, 5, 250))
+  /// println(d.toISOString())   // 2024-03-10T12:30:05.250Z
+  /// ```
   public toISOString(): string {
     if (this.t != this.t) panic("RangeError: Invalid time value")
     const w = this.t as int
@@ -847,6 +1158,12 @@ class Date {
   }
 
   /// `toISOString()`, or `null` for an invalid date.
+  ///
+  /// @example
+  /// ```ts
+  /// println(new Date(Date.UTC(2024, 2, 10)).toJSON())   // 2024-03-10T00:00:00.000Z
+  /// println(new Date("garbage").toJSON() ?? "null")     // null
+  /// ```
   public toJSON(): string? {
     if (this.t != this.t) null else this.toISOString()
   }
@@ -856,6 +1173,12 @@ class Date {
   }
 
   /// `Sun Mar 10 2024`
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 2, 10, 12, 30)
+  /// println(d.toDateString())   // Sun Mar 10 2024
+  /// ```
   public toDateString(): string {
     if (this.t != this.t) return "Invalid Date"
     const y = this.getFullYear() as int
@@ -863,6 +1186,12 @@ class Date {
   }
 
   /// `12:30:00 GMT+0100 (CET)`
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 12, 30)
+  /// println(d.toTimeString())   // e.g. 12:30:00 GMT+0200 (CEST), in the system's zone
+  /// ```
   public toTimeString(): string {
     if (this.t != this.t) return "Invalid Date"
     const z = __localZone()
@@ -872,11 +1201,24 @@ class Date {
 
   /// `Sun Mar 10 2024 12:30:00 GMT+0100 (CET)` (JavaScript's long zone names aren't kept;
   /// the zone's abbreviation is shown).
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date(2024, 4, 15, 12, 30)
+  /// println(d.toString())   // e.g. Wed May 15 2024 12:30:00 GMT+0200 (CEST), in the system's zone
+  /// println(`${d}`)         // the same
+  /// ```
   public toString(): string {
     if (this.t != this.t) "Invalid Date" else this.toDateString() + " " + this.toTimeString()
   }
 
   /// `Sun, 10 Mar 2024 11:30:00 GMT`
+  ///
+  /// @example
+  /// ```ts
+  /// const d = new Date("2024-03-10T12:30:00+01:00")
+  /// println(d.toUTCString())   // Sun, 10 Mar 2024 11:30:00 GMT
+  /// ```
   public toUTCString(): string {
     if (this.t != this.t) return "Invalid Date"
     const y = this.getUTCFullYear() as int

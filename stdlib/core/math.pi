@@ -69,85 +69,310 @@ class __Xoshiro128 {
 let __mathRng: __Xoshiro128? = null
 
 /// JavaScript's `Math`: functions and constants on `number`s (static members only).
+///
+/// @example
+/// ```ts
+/// const r = 2.0
+/// println(Math.PI * r * r)        // 12.566370614359172
+/// println(Math.sqrt(2.0))         // 1.4142135623730951
+/// println(Math.max(3.0, 7.5))     // 7.5
+/// ```
 class Math {
   /// Unused: `Math`'s members are all static (`Math.sqrt(2.0)`).
+  ///
+  /// @example
+  /// ```ts
+  /// // There's no need for an instance: call the static members on `Math`.
+  /// println(Math.floor(3.7))   // 3
+  /// ```
   constructor() {}
 
   /// Euler's number *e* (about 2.718), the base of natural logarithms.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.E)              // 2.718281828459045
+  /// println(Math.log(Math.E))    // 1
+  /// ```
   public static get E(): number { return 2.718281828459045 }
   /// The natural logarithm of 10.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.LN10)                  // 2.302585092994046
+  /// println(Math.log(100.0) / Math.LN10)   // 2
+  /// ```
   public static get LN10(): number { return 2.302585092994046 }
   /// The natural logarithm of 2.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.LN2)                // 0.6931471805599453
+  /// println(Math.log(8.0) / Math.LN2)   // 3
+  /// ```
   public static get LN2(): number { return 0.6931471805599453 }
   /// The base-10 logarithm of *e*.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.LOG10E)   // 0.4342944819032518
+  /// ```
   public static get LOG10E(): number { return 0.4342944819032518 }
   /// The base-2 logarithm of *e*.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.LOG2E)    // 1.4426950408889634
+  /// ```
   public static get LOG2E(): number { return 1.4426950408889634 }
   /// π (about 3.14159), a circle's circumference divided by its diameter.
+  ///
+  /// @example
+  /// ```ts
+  /// const degrees = 180.0
+  /// println(degrees * Math.PI / 180.0)   // 3.141592653589793
+  /// ```
   public static get PI(): number { return 3.141592653589793 }
   /// The square root of ½.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.SQRT1_2)   // 0.7071067811865476
+  /// ```
   public static get SQRT1_2(): number { return 0.7071067811865476 }
   /// The square root of 2.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.SQRT2)     // 1.4142135623730951
+  /// ```
   public static get SQRT2(): number { return 1.4142135623730951 }
 
   /// The absolute value of `x`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.abs(-3.5))   // 3.5
+  /// println(Math.abs(2.0))    // 2
+  /// ```
   public static abs(x: number): number { if (x < 0.0) -x else if (x == 0.0) 0.0 else x }
   /// The absolute value of an integer (#155; overflows, a panic, for `i64`'s minimum).
+  ///
+  /// @example
+  /// ```ts
+  /// const delta: int = 3 - 10
+  /// println(Math.abs(delta))   // 7
+  /// ```
   public static abs(x: int): int {
     return if (x < 0) -x else x
   }
   /// The square root of `x` (`NaN` if `x` is negative).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.sqrt(16.0))   // 4
+  /// println(Math.sqrt(-1.0))   // NaN
+  /// ```
   public static sqrt(x: number): number { __math(0, x, 0.0) }
   /// The cube root of `x`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.cbrt(27.0))   // 3
+  /// println(Math.cbrt(-8.0))   // -2
+  /// ```
   public static cbrt(x: number): number { __math(16, x, 0.0) }
   /// The sine of `x` (in radians).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.sin(0.0))             // 0
+  /// println(Math.sin(Math.PI / 2.0))   // 1
+  /// ```
   public static sin(x: number): number { __math(1, x, 0.0) }
   /// The cosine of `x` (in radians).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.cos(0.0))        // 1
+  /// println(Math.cos(Math.PI))    // -1
+  /// ```
   public static cos(x: number): number { __math(2, x, 0.0) }
   /// The tangent of `x` (in radians).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.tan(0.0))             // 0
+  /// println(Math.tan(Math.PI / 4.0))   // 0.9999999999999999
+  /// ```
   public static tan(x: number): number { __math(3, x, 0.0) }
   /// The arcsine of `x`, in radians in `[-π/2, π/2]` (`NaN` outside `[-1, 1]`).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.asin(1.0))   // 1.5707963267948966
+  /// println(Math.asin(2.0))   // NaN
+  /// ```
   public static asin(x: number): number { __math(4, x, 0.0) }
   /// The arccosine of `x`, in radians in `[0, π]` (`NaN` outside `[-1, 1]`).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.acos(1.0))    // 0
+  /// println(Math.acos(-1.0))   // 3.141592653589793
+  /// ```
   public static acos(x: number): number { __math(5, x, 0.0) }
   /// The arctangent of `x`, in radians in `[-π/2, π/2]`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.atan(1.0))   // 0.7853981633974483
+  /// ```
   public static atan(x: number): number { __math(6, x, 0.0) }
   /// The angle from the positive x axis to the point (`x`, `y`), in radians in `[-π, π]`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.atan2(1.0, 1.0))    // 0.7853981633974483
+  /// println(Math.atan2(0.0, -1.0))   // 3.141592653589793
+  /// ```
   public static atan2(y: number, x: number): number { __math(7, y, x) }
   /// The hyperbolic sine of `x`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.sinh(0.0))   // 0
+  /// println(Math.sinh(1.0))   // 1.1752011936438014
+  /// ```
   public static sinh(x: number): number { __math(18, x, 0.0) }
   /// The hyperbolic cosine of `x`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.cosh(0.0))   // 1
+  /// println(Math.cosh(1.0))   // 1.5430806348152437
+  /// ```
   public static cosh(x: number): number { __math(19, x, 0.0) }
   /// The hyperbolic tangent of `x`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.tanh(0.0))   // 0
+  /// println(Math.tanh(1.0))   // 0.7615941559557649
+  /// ```
   public static tanh(x: number): number { __math(20, x, 0.0) }
   /// The inverse hyperbolic sine of `x`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.asinh(1.0))   // 0.881373587019543
+  /// ```
   public static asinh(x: number): number { __math(21, x, 0.0) }
   /// The inverse hyperbolic cosine of `x` (`NaN` below 1).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.acosh(2.0))   // 1.3169578969248166
+  /// println(Math.acosh(0.5))   // NaN
+  /// ```
   public static acosh(x: number): number { __math(22, x, 0.0) }
   /// The inverse hyperbolic tangent of `x` (`NaN` outside `[-1, 1]`, ±`Infinity` at ±1).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.atanh(0.5))   // 0.5493061443340548
+  /// println(Math.atanh(1.0))   // Infinity
+  /// ```
   public static atanh(x: number): number { __math(23, x, 0.0) }
   /// *e* to the power of `x`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.exp(0.0))   // 1
+  /// println(Math.exp(1.0))   // 2.718281828459045
+  /// ```
   public static exp(x: number): number { __math(8, x, 0.0) }
   /// `exp(x) - 1`, accurate for `x` near 0.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.expm1(0.0))     // 0
+  /// println(Math.expm1(1e-10))   // 1.00000000005e-10
+  /// ```
   public static expm1(x: number): number { __math(24, x, 0.0) }
   /// The natural logarithm of `x` (`NaN` if `x` is negative, `-Infinity` at 0).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.log(Math.E))   // 1
+  /// println(Math.log(0.0))      // -Infinity
+  /// ```
   public static log(x: number): number { __math(9, x, 0.0) }
   /// `log(1 + x)`, accurate for `x` near 0.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.log1p(0.0))     // 0
+  /// println(Math.log1p(1e-10))   // 9.999999999500001e-11
+  /// ```
   public static log1p(x: number): number { __math(25, x, 0.0) }
   /// The base-2 logarithm of `x` (`NaN` if `x` is negative, `-Infinity` at 0).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.log2(8.0))      // 3
+  /// println(Math.log2(1024.0))   // 10
+  /// ```
   public static log2(x: number): number { __math(10, x, 0.0) }
   /// The base-10 logarithm of `x` (`NaN` if `x` is negative, `-Infinity` at 0).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.log10(1000.0))   // 3
+  /// println(Math.log10(0.01))     // -2
+  /// ```
   public static log10(x: number): number { __math(11, x, 0.0) }
   /// The largest integer at most `x`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.floor(2.7))    // 2
+  /// println(Math.floor(-2.2))   // -3
+  /// ```
   public static floor(x: number): number { __math(13, x, 0.0) }
   /// The smallest integer at least `x`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.ceil(2.1))    // 3
+  /// println(Math.ceil(-2.7))   // -2
+  /// ```
   public static ceil(x: number): number { __math(14, x, 0.0) }
   /// `x` without its fractional part (rounded towards 0).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.trunc(2.7))    // 2
+  /// println(Math.trunc(-2.7))   // -2
+  /// ```
   public static trunc(x: number): number { __math(15, x, 0.0) }
   /// `x` rounded to the nearest `f32` (single precision), as a `number`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.fround(5.5))   // 5.5
+  /// println(Math.fround(0.1))   // 0.10000000149011612
+  /// ```
   public static fround(x: number): number { __math(27, x, 0.0) }
 
   /// `x ** y` with JavaScript's special cases (`1 ** NaN` and `(±1) ** ±Infinity` are `NaN`).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.pow(2.0, 10.0))   // 1024
+  /// println(Math.pow(9.0, 0.5))    // 3
+  /// println(Math.pow(2.0, -1.0))   // 0.5
+  /// ```
   public static pow(x: number, y: number): number {
     if (y != y) return 0.0 / 0.0
     if ((x == 1.0 || x == -1.0) && (y == 1.0 / 0.0 || y == -1.0 / 0.0)) return 0.0 / 0.0
@@ -155,6 +380,13 @@ class Math {
   }
 
   /// Rounds half up (towards +Infinity), as JavaScript does: `round(-2.5)` is -2.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.round(2.4))    // 2
+  /// println(Math.round(2.5))    // 3
+  /// println(Math.round(-2.5))   // -2
+  /// ```
   public static round(x: number): number {
     if (x != x || x == 1.0 / 0.0 || x == -1.0 / 0.0) return x
     const f = __math(13, x, 0.0)
@@ -162,16 +394,35 @@ class Math {
   }
 
   /// -1, 0 or 1 (NaN stays NaN).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.sign(-4.2))   // -1
+  /// println(Math.sign(0.0))    // 0
+  /// println(Math.sign(3.0))    // 1
+  /// ```
   public static sign(x: number): number {
     if (x > 0.0) 1.0 else if (x < 0.0) -1.0 else x
   }
 
   /// -1, 0 or 1 by the integer's sign (#155).
+  ///
+  /// @example
+  /// ```ts
+  /// const balance: int = -250
+  /// println(Math.sign(balance))   // -1
+  /// ```
   public static sign(x: int): int {
     return if (x > 0) 1 else if (x < 0) -1 else 0
   }
 
   /// The square root of the sum of squares, without needless overflow.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.hypot(3.0, 4.0))        // 5
+  /// println(Math.hypot(1.0, 2.0, 2.0))   // 3
+  /// ```
   public static hypot(...values: number[]): number {
     let r = 0.0
     for (const v of values) {
@@ -182,6 +433,14 @@ class Math {
   }
 
   /// The largest value (`-Infinity` for none; `NaN` if any is).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.max(1.5, 3.0, 2.0))   // 3
+  /// const xs = [0.5, -1.0, 2.25]
+  /// println(Math.max(...xs))           // 2.25
+  /// println(Math.max())                // -Infinity
+  /// ```
   public static max(...values: number[]): number {
     let r = -1.0 / 0.0
     for (const v of values) {
@@ -192,6 +451,13 @@ class Math {
   }
 
   /// The largest of integers (#155): there's at least one, as `int` has no `-Infinity`.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.max(4, 9, 2))   // 9
+  /// const counts = [3, 8, 5]
+  /// println(Math.max(counts[0], ...counts))   // 8
+  /// ```
   public static max(first: int, ...rest: int[]): int {
     let r = first
     for (const v of rest) {
@@ -201,6 +467,13 @@ class Math {
   }
 
   /// The smallest of integers (#155).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.min(4, 9, 2))   // 2
+  /// const counts = [3, 8, 5]
+  /// println(Math.min(counts[0], ...counts))   // 3
+  /// ```
   public static min(first: int, ...rest: int[]): int {
     let r = first
     for (const v of rest) {
@@ -210,6 +483,12 @@ class Math {
   }
 
   /// The smallest value (`Infinity` for none; `NaN` if any is).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.min(1.5, 3.0, 2.0))   // 1.5
+  /// println(Math.min())                // Infinity
+  /// ```
   public static min(...values: number[]): number {
     let r = 1.0 / 0.0
     for (const v of values) {
@@ -220,6 +499,15 @@ class Math {
   }
 
   /// A number in `[0, 1)`: not for cryptography (use `crypto`).
+  ///
+  /// @example
+  /// ```ts
+  /// const x = Math.random()
+  /// println(x)                         // e.g. 0.7498408643782968
+  /// println(x >= 0.0 && x < 1.0)       // true
+  /// const die = Math.floor(Math.random() * 6.0) + 1.0
+  /// println(die >= 1.0 && die <= 6.0)  // true
+  /// ```
   public static random(): number {
     let g = __mathRng
     if (g == null) {
@@ -231,6 +519,13 @@ class Math {
   }
 
   /// The count of leading zero bits of `x` as a 32-bit integer.
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.clz32(1.0))      // 31
+  /// println(Math.clz32(1000.0))   // 22
+  /// println(Math.clz32(0.0))      // 32
+  /// ```
   public static clz32(x: number): number {
     if (x != x || x == 1.0 / 0.0 || x == -1.0 / 0.0) return 32.0
     let n = Math.__toUint32(x)
@@ -244,6 +539,12 @@ class Math {
   }
 
   /// The 32-bit integer product of `a` and `b` (C-like wrapping).
+  ///
+  /// @example
+  /// ```ts
+  /// println(Math.imul(3.0, 4.0))          // 12
+  /// println(Math.imul(0xffffffff, 5))     // -5
+  /// ```
   public static imul(a: number, b: number): number {
     const x = Math.__toUint32(a)
     const y = Math.__toUint32(b)

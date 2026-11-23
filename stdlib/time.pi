@@ -12,6 +12,16 @@ const NS_PER_H = 3600000000000
 const NS_PER_DAY = 86400000000000
 
 /// The parts of a duration or of a calendar change (`plus({ months: 1, days: 2 })`).
+///
+/// @example
+/// ```ts
+/// import { DateTime, Duration } from "std/time"
+///
+/// const d = Duration.of({ hours: 1, minutes: 30 })
+/// println(d)   // PT1H30M
+/// const start = DateTime.of(2024, 1, 31, 9, 0, 0, 0, "UTC")
+/// println(start.plus({ months: 1, days: 2 }))   // 2024-03-02T09:00:00+00:00[UTC]
+/// ```
 export struct DurationParts {
   /// Calendar years (12 months each; `Duration.of` panics on them).
   years?: int
@@ -37,34 +47,124 @@ export struct DurationParts {
 
 /// An exact length of time in nanoseconds (negative ones too). A day is 24 hours here;
 /// calendar days (which can be 23 or 25 hours long) are `DateTime.plus({ days })`.
+///
+/// @example
+/// ```ts
+/// import { Duration } from "std/time"
+///
+/// const lap = Duration.ofSeconds(90)
+/// println(lap)                       // PT1M30S
+/// println(lap.totalMinutes())        // 1.5
+/// const total = lap.times(3).plus(Duration.ofMilliseconds(250))
+/// println(total)                     // PT4M30.25S
+/// ```
 export class Duration {
   /// The length in nanoseconds (negative for a negative duration).
   public readonly nanoseconds: int
 
   /// A duration of `nanoseconds` nanoseconds.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// const d = new Duration(1500000000)
+  /// println(d)                 // PT1.5S
+  /// println(d.nanoseconds)     // 1500000000
+  /// ```
   constructor(nanoseconds: int) {
     this.nanoseconds = nanoseconds
   }
 
   /// The zero-length duration.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// const z = Duration.zero()
+  /// println(z)          // PT0S
+  /// println(z.isZero)   // true
+  /// ```
   public static zero(): Duration { new Duration(0) }
   /// `n` nanoseconds.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofNanoseconds(1500))   // PT0.0000015S
+  /// ```
   public static ofNanoseconds(n: int): Duration { new Duration(n) }
   /// `n` microseconds (panics on `int` overflow, as do the other `of…` factories).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofMicroseconds(250))   // PT0.00025S
+  /// ```
   public static ofMicroseconds(n: int): Duration { new Duration(n * NS_PER_US) }
   /// `n` milliseconds.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// const d = Duration.ofMilliseconds(1250)
+  /// println(d)                  // PT1.25S
+  /// println(d.nanoseconds)      // 1250000000
+  /// ```
   public static ofMilliseconds(n: int): Duration { new Duration(n * NS_PER_MS) }
   /// `n` seconds (at most about 292 years either way).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofSeconds(3661))   // PT1H1M1S
+  /// ```
   public static ofSeconds(n: int): Duration { new Duration(n * NS_PER_S) }
   /// `n` minutes.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofMinutes(150))   // PT2H30M
+  /// ```
   public static ofMinutes(n: int): Duration { new Duration(n * NS_PER_MIN) }
   /// `n` hours.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofHours(36))   // PT36H
+  /// ```
   public static ofHours(n: int): Duration { new Duration(n * NS_PER_H) }
   /// `n` days of exactly 24 hours.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// const week = Duration.ofDays(7)
+  /// println(week.totalHours())   // 168
+  /// ```
   public static ofDays(n: int): Duration { new Duration(n * NS_PER_DAY) }
 
   /// The sum of `parts` (weeks are 7 days, days 24 hours; years and months panic: they
   /// aren't exact).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// const d = Duration.of({ days: 1, hours: 2, minutes: 30, milliseconds: 5 })
+  /// println(d)                  // PT26H30M0.005S
+  /// println(Duration.of({ weeks: 2 }).totalHours())   // 336
+  /// ```
   public static of(parts: DurationParts): Duration {
     if ((parts.years ?? 0) != 0 || (parts.months ?? 0) != 0) {
       panic("Duration.of: years and months have no fixed length (use DateTime.plus)")
@@ -73,6 +173,21 @@ export class Duration {
   }
 
   /// Parses ISO 8601 durations: `PT1H30M`, `P2DT3.5S`, `-PT0.25S`, `P1W` (no years or months).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.parse("PT1H30M").totalMinutes())   // 90
+  /// println(Duration.parse("P2DT3.5S"))                 // PT48H3.5S
+  /// println(Duration.parse("-PT0.25S").totalSeconds())  // -0.25
+  /// try {
+  ///   const d = Duration.parse("P1Y")
+  ///   println(d)
+  /// } catch (e: RangeError) {
+  ///   println(e.message)                                // invalid duration: P1Y
+  /// }
+  /// ```
   public static parse(s: string): Duration throws RangeError {
     const d = __parseDuration(s)
     if (d == null) throw new RangeError(`invalid duration: ${s}`)
@@ -80,41 +195,165 @@ export class Duration {
   }
 
   /// -1, 0 or 1 as `a` is shorter than, as long as or longer than `b` (for `sort`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// const ds = [Duration.ofMinutes(5), Duration.ofSeconds(30), Duration.ofHours(1)]
+  /// ds.sort(Duration.compare)
+  /// println(ds.map(d => d.toString()).join(", "))   // PT30S, PT5M, PT1H
+  /// ```
   public static compare(a: Duration, b: Duration): int {
     if (a.nanoseconds < b.nanoseconds) -1 else if (a.nanoseconds > b.nanoseconds) 1 else 0
   }
 
   /// This duration plus `d` (panics on `int` overflow).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofHours(1).plus(Duration.ofMinutes(15)))   // PT1H15M
+  /// ```
   public plus(d: Duration): Duration { new Duration(this.nanoseconds + d.nanoseconds) }
   /// This duration minus `d`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofHours(1).minus(Duration.ofMinutes(15)))   // PT45M
+  /// println(Duration.ofSeconds(1).minus(Duration.ofSeconds(3)))  // -PT2S
+  /// ```
   public minus(d: Duration): Duration { new Duration(this.nanoseconds - d.nanoseconds) }
   /// This duration `k` times over (panics on `int` overflow).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofMinutes(20).times(3))   // PT1H
+  /// ```
   public times(k: int): Duration { new Duration(this.nanoseconds * k) }
   /// Divided by `k`, truncated towards zero.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofHours(1).dividedBy(8))   // PT7M30S
+  /// println(Duration.ofSeconds(10).dividedBy(3))   // PT3.333333333S
+  /// ```
   public dividedBy(k: int): Duration { new Duration(this.nanoseconds / k) }
   /// The duration with the opposite sign.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofMinutes(5).negated())   // -PT5M
+  /// ```
   public negated(): Duration { new Duration(-this.nanoseconds) }
   /// The duration without its sign.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// const late = Duration.ofSeconds(-42)
+  /// println(late.abs())   // PT42S
+  /// ```
   public abs(): Duration { if (this.nanoseconds < 0) this.negated() else this }
   /// -1, 0 or 1 as the duration is negative, zero or positive.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofSeconds(-3).sign)   // -1
+  /// println(Duration.zero().sign)          // 0
+  /// println(Duration.ofSeconds(3).sign)    // 1
+  /// ```
   public get sign(): int { if (this.nanoseconds < 0) -1 else if (this.nanoseconds > 0) 1 else 0 }
   /// Whether the duration is zero.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// const d = Duration.ofMinutes(5).minus(Duration.ofSeconds(300))
+  /// println(d.isZero)   // true
+  /// ```
   public get isZero(): bool { return this.nanoseconds == 0 }
   /// Whether `d` is exactly as long.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofMinutes(2).equals(Duration.ofSeconds(120)))   // true
+  /// println(Duration.ofMinutes(2).equals(Duration.ofSeconds(121)))   // false
+  /// ```
   public equals(d: Duration): bool { return this.nanoseconds == d.nanoseconds }
 
   /// Whole milliseconds (truncated), and totals with a fraction.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.parse("PT1.2345S").toMilliseconds())   // 1234
+  /// ```
   public toMilliseconds(): int { return this.nanoseconds / NS_PER_MS }
   /// The length in milliseconds, with a fraction.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.parse("PT1.2345S").totalMilliseconds())   // 1234.5
+  /// ```
   public totalMilliseconds(): number { return (this.nanoseconds as f64) / 1000000.0 }
   /// The length in seconds, with a fraction (`PT1.5S` is `1.5`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.parse("PT1M1.5S").totalSeconds())   // 61.5
+  /// ```
   public totalSeconds(): number { return (this.nanoseconds as f64) / 1000000000.0 }
   /// The length in minutes, with a fraction.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofSeconds(90).totalMinutes())   // 1.5
+  /// ```
   public totalMinutes(): number { return (this.nanoseconds as f64) / 60000000000.0 }
   /// The length in hours, with a fraction.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofMinutes(45).totalHours())   // 0.75
+  /// ```
   public totalHours(): number { return (this.nanoseconds as f64) / 3600000000000.0 }
 
   /// ISO 8601: `PT1H30M`, `PT0.5S`, `-PT2M`, `PT0S` (hours are the largest unit).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.ofMinutes(90).toString())      // PT1H30M
+  /// println(Duration.ofMilliseconds(500))           // PT0.5S
+  /// println(Duration.ofMinutes(-2))                 // -PT2M
+  /// println(`took ${Duration.ofSeconds(3)}`)        // took PT3S
+  /// ```
   public toString(): string {
     const neg = this.nanoseconds < 0
     let n = if (neg) -this.nanoseconds else this.nanoseconds
@@ -213,26 +452,84 @@ function __parseDuration(s: string): Duration? {
 }
 
 /// A point on the UTC time line, in nanoseconds since 1970-01-01T00:00Z.
+///
+/// @example
+/// ```ts
+/// import { Duration, Instant } from "std/time"
+///
+/// const launch = Instant.parse("2024-03-10T12:30:00Z")
+/// const landing = launch.plus(Duration.ofHours(2))
+/// println(landing)                              // 2024-03-10T14:30:00Z
+/// println(landing.since(launch))                // PT2H
+/// println(launch.inZone("Europe/Warsaw"))       // 2024-03-10T13:30:00+01:00[Europe/Warsaw]
+/// ```
 export class Instant {
   /// Nanoseconds since 1970-01-01T00:00Z (negative before).
   public readonly epochNanoseconds: int
 
   /// The instant `epochNanoseconds` nanoseconds after 1970-01-01T00:00Z.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const i = new Instant(1710073800000000000)
+  /// println(i)   // 2024-03-10T12:30:00Z
+  /// ```
   constructor(epochNanoseconds: int) {
     this.epochNanoseconds = epochNanoseconds
   }
 
   /// The wall clock's current instant.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const start = Instant.now()
+  /// println(start)                                  // the current time, e.g. 2026-11-23T10:15:42.123456789Z
+  /// println(Instant.now().since(start).sign >= 0)   // true
+  /// ```
   public static now(): Instant { new Instant(__wallNanos()) }
   /// The instant `s` seconds after 1970-01-01T00:00Z (panics on `int` overflow, beyond
   /// 1678–2262).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// println(Instant.fromEpochSeconds(0))            // 1970-01-01T00:00:00Z
+  /// println(Instant.fromEpochSeconds(1710073800))   // 2024-03-10T12:30:00Z
+  /// ```
   public static fromEpochSeconds(s: int): Instant { new Instant(s * NS_PER_S) }
   /// The instant `ms` milliseconds after 1970-01-01T00:00Z (panics on `int` overflow).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// println(Instant.fromEpochMilliseconds(1710073800250))   // 2024-03-10T12:30:00.25Z
+  /// ```
   public static fromEpochMilliseconds(ms: int): Instant { new Instant(ms * NS_PER_MS) }
   /// The instant `ns` nanoseconds after 1970-01-01T00:00Z.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// println(Instant.fromEpochNanoseconds(1710073800000000001))   // 2024-03-10T12:30:00.000000001Z
+  /// ```
   public static fromEpochNanoseconds(ns: int): Instant { new Instant(ns) }
 
   /// A `Date`'s instant (panics on an invalid date).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const d = new Date("2024-03-10T12:30:00Z")
+  /// println(Instant.fromDate(d))   // 2024-03-10T12:30:00Z
+  /// ```
   public static fromDate(d: Date): Instant {
     const t = d.getTime()
     if (t != t) panic("Instant.fromDate: invalid date")
@@ -240,6 +537,19 @@ export class Instant {
   }
 
   /// Parses an ISO 8601 date-time with `Z` or an offset (`2024-03-10T12:30:00.5+01:00`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// println(Instant.parse("2024-03-10T12:30:00.5+01:00"))   // 2024-03-10T11:30:00.5Z
+  /// try {
+  ///   const i = Instant.parse("2024-03-10T12:30:00")
+  ///   println(i)
+  /// } catch (e: RangeError) {
+  ///   println(e.message)   // invalid instant (needs Z or an offset): 2024-03-10T12:30:00
+  /// }
+  /// ```
   public static parse(s: string): Instant throws RangeError {
     const f = __parseIso(s)
     if (f == null || !f.hasOffset) throw new RangeError(`invalid instant (needs Z or an offset): ${s}`)
@@ -247,39 +557,152 @@ export class Instant {
   }
 
   /// -1, 0 or 1 as `a` is before, at or after `b` (for `sort`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const xs = [Instant.fromEpochSeconds(30), Instant.fromEpochSeconds(10), Instant.fromEpochSeconds(20)]
+  /// xs.sort(Instant.compare)
+  /// println(xs.map(i => `${i.epochSeconds}`).join(", "))   // 10, 20, 30
+  /// ```
   public static compare(a: Instant, b: Instant): int {
     if (a.epochNanoseconds < b.epochNanoseconds) -1 else if (a.epochNanoseconds > b.epochNanoseconds) 1 else 0
   }
 
   /// Whole seconds and milliseconds since 1970 (rounded down).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const i = Instant.parse("2024-03-10T12:30:00.75Z")
+  /// println(i.epochSeconds)   // 1710073800
+  /// ```
   public get epochSeconds(): int { __floorDiv(this.epochNanoseconds, NS_PER_S) }
   /// Whole milliseconds since 1970 (rounded down: -1 ns is -1 ms).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const i = Instant.parse("2024-03-10T12:30:00.75Z")
+  /// println(i.epochMilliseconds)   // 1710073800750
+  /// ```
   public get epochMilliseconds(): int { __floorDiv(this.epochNanoseconds, NS_PER_MS) }
 
   /// The instant `d` later (earlier for a negative `d`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration, Instant } from "std/time"
+  ///
+  /// const i = Instant.parse("2024-03-10T12:30:00Z")
+  /// println(i.plus(Duration.ofMinutes(45)))    // 2024-03-10T13:15:00Z
+  /// println(i.plus(Duration.ofMinutes(-45)))   // 2024-03-10T11:45:00Z
+  /// ```
   public plus(d: Duration): Instant { new Instant(this.epochNanoseconds + d.nanoseconds) }
   /// The instant `d` earlier.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration, Instant } from "std/time"
+  ///
+  /// const i = Instant.parse("2024-03-10T12:30:00Z")
+  /// println(i.minus(Duration.ofDays(1)))   // 2024-03-09T12:30:00Z
+  /// ```
   public minus(d: Duration): Instant { new Instant(this.epochNanoseconds - d.nanoseconds) }
   /// The time from `other` to this instant (negative if `other` is later).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const start = Instant.parse("2024-03-10T12:00:00Z")
+  /// const end = Instant.parse("2024-03-10T13:45:30Z")
+  /// println(end.since(start))   // PT1H45M30S
+  /// println(start.since(end))   // -PT1H45M30S
+  /// ```
   public since(other: Instant): Duration { new Duration(this.epochNanoseconds - other.epochNanoseconds) }
   /// The time from this instant to `other`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const start = Instant.parse("2024-03-10T12:00:00Z")
+  /// const end = Instant.parse("2024-03-10T12:00:10.5Z")
+  /// println(start.until(end).totalSeconds())   // 10.5
+  /// ```
   public until(other: Instant): Duration { new Duration(other.epochNanoseconds - this.epochNanoseconds) }
   /// Whether `o` is the same instant.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const a = Instant.parse("2024-03-10T12:30:00Z")
+  /// const b = Instant.parse("2024-03-10T13:30:00+01:00")
+  /// println(a.equals(b))   // true
+  /// ```
   public equals(o: Instant): bool { return this.epochNanoseconds == o.epochNanoseconds }
   /// Whether this instant is before `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const a = Instant.parse("2024-03-10T12:30:00Z")
+  /// const b = Instant.parse("2024-03-10T12:31:00Z")
+  /// println(a.isBefore(b))   // true
+  /// println(b.isBefore(a))   // false
+  /// ```
   public isBefore(o: Instant): bool { return this.epochNanoseconds < o.epochNanoseconds }
   /// Whether this instant is after `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const a = Instant.parse("2024-03-10T12:30:00Z")
+  /// const b = Instant.parse("2024-03-10T12:31:00Z")
+  /// println(b.isAfter(a))   // true
+  /// ```
   public isAfter(o: Instant): bool { return this.epochNanoseconds > o.epochNanoseconds }
 
   /// This instant in a zone (a `TimeZone` or an id: panics on an unknown one).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant, TimeZone } from "std/time"
+  ///
+  /// const i = Instant.parse("2024-07-01T12:00:00Z")
+  /// println(i.inZone("America/New_York"))         // 2024-07-01T08:00:00-04:00[America/New_York]
+  /// println(i.inZone(TimeZone.of("Europe/Warsaw")).hour)   // 14
+  /// ```
   public inZone(zone: TimeZone | string): DateTime {
     new DateTime(this, __zoneArg(zone))
   }
 
   /// A `Date` at this instant (to the millisecond, rounded down).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const d = Instant.parse("2024-03-10T12:30:00.123456Z").toDate()
+  /// println(d.toISOString())   // 2024-03-10T12:30:00.123Z
+  /// ```
   public toDate(): Date { new Date(this.epochMilliseconds as f64) }
 
   /// ISO 8601 in UTC: `2024-03-10T12:30:00.005Z` (fraction digits as needed).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// println(Instant.fromEpochMilliseconds(1710073800005).toString())   // 2024-03-10T12:30:00.005Z
+  /// ```
   public toString(): string {
     new DateTime(this, TimeZone.utc()).__iso(false, true)
   }
@@ -291,21 +714,73 @@ function __wallSeconds(f: __IsoFields): int {
 }
 
 /// A time zone: an IANA zone (`Europe/Berlin`), UTC, or a fixed offset (`+05:30`).
+///
+/// @example
+/// ```ts
+/// import { Instant, TimeZone } from "std/time"
+///
+/// const warsaw = TimeZone.of("Europe/Warsaw")
+/// const summer = Instant.parse("2024-07-01T12:00:00Z")
+/// println(warsaw.offsetAt(summer))         // +02:00
+/// println(warsaw.abbreviationAt(summer))   // CEST
+/// println(summer.inZone(warsaw).hour)      // 14
+/// ```
 export class TimeZone {
   public readonly __zone: __Zone
 
   /// A time zone over internal zone rules; use `of`, `utc`, `local` or `fixed` instead.
+  ///
+  /// @example
+  /// ```ts
+  /// import { TimeZone } from "std/time"
+  ///
+  /// // Zones come from the factories; the constructor takes internal rules.
+  /// const z = TimeZone.of("UTC")
+  /// println(z.id)   // UTC
+  /// ```
   constructor(zone: __Zone) {
     this.__zone = zone
   }
 
   /// UTC (id `UTC`; `of("UTC")`, `of("Etc/UTC")` and `of("Z")` give the same zone).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant, TimeZone } from "std/time"
+  ///
+  /// const utc = TimeZone.utc()
+  /// println(utc)                                         // UTC
+  /// println(utc.offsetSecondsAt(Instant.fromEpochSeconds(0)))   // 0
+  /// println(utc.equals(TimeZone.of("Etc/UTC")))          // true
+  /// ```
   public static utc(): TimeZone { new TimeZone(__Zone.fixed("UTC", 0, "UTC")) }
 
   /// The system's zone (`TZ`, else `/etc/localtime`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { TimeZone } from "std/time"
+  ///
+  /// const here = TimeZone.local()
+  /// println(here.id)   // the system's zone, e.g. Europe/Warsaw
+  /// ```
   public static local(): TimeZone { new TimeZone(__localZone()) }
 
   /// A zone by IANA id, `UTC`, or an offset (`+01:00`, `-0530`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { TimeZone } from "std/time"
+  ///
+  /// println(TimeZone.of("America/New_York").id)   // America/New_York
+  /// println(TimeZone.of("+05:30"))                // +05:30
+  /// try {
+  ///   const z = TimeZone.of("Mars/Olympus")
+  ///   println(z)
+  /// } catch (e: RangeError) {
+  ///   println(e.message)   // unknown time zone: Mars/Olympus
+  /// }
+  /// ```
   public static of(id: string): TimeZone throws RangeError {
     const z = __zoneById(id)
     if (z == null) throw new RangeError(`unknown time zone: ${id}`)
@@ -313,25 +788,95 @@ export class TimeZone {
   }
 
   /// A fixed offset in seconds east of UTC.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant, TimeZone } from "std/time"
+  ///
+  /// const ist = TimeZone.fixed(19800)
+  /// println(ist)   // +05:30
+  /// println(Instant.parse("2024-03-10T12:00:00Z").inZone(ist))   // 2024-03-10T17:30:00+05:30
+  /// ```
   public static fixed(offsetSeconds: int): TimeZone {
     const id = __offsetText(offsetSeconds)
     new TimeZone(__Zone.fixed(id, offsetSeconds, id))
   }
 
   /// The zone's id: an IANA id (`Europe/Berlin`), `UTC`, or an offset (`+05:30`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { TimeZone } from "std/time"
+  ///
+  /// println(TimeZone.of("Europe/Warsaw").id)   // Europe/Warsaw
+  /// println(TimeZone.fixed(-3600).id)          // -01:00
+  /// ```
   public get id(): string { return this.__zone.id }
 
   /// The offset from UTC at `at`, in seconds (`3600` for `+01:00`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant, TimeZone } from "std/time"
+  ///
+  /// const ny = TimeZone.of("America/New_York")
+  /// println(ny.offsetSecondsAt(Instant.parse("2024-01-15T12:00:00Z")))   // -18000
+  /// println(ny.offsetSecondsAt(Instant.parse("2024-07-15T12:00:00Z")))   // -14400
+  /// ```
   public offsetSecondsAt(at: Instant): int { this.__zone.offsetAt(__floorDiv(at.epochNanoseconds, NS_PER_S)) }
   /// The offset as text (`+01:00`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant, TimeZone } from "std/time"
+  ///
+  /// const warsaw = TimeZone.of("Europe/Warsaw")
+  /// println(warsaw.offsetAt(Instant.parse("2024-01-15T12:00:00Z")))   // +01:00
+  /// println(warsaw.offsetAt(Instant.parse("2024-07-15T12:00:00Z")))   // +02:00
+  /// ```
   public offsetAt(at: Instant): string { __offsetText(this.offsetSecondsAt(at)) }
   /// The zone's abbreviation at `at` (`CET`, `CEST`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant, TimeZone } from "std/time"
+  ///
+  /// const ny = TimeZone.of("America/New_York")
+  /// println(ny.abbreviationAt(Instant.parse("2024-01-15T12:00:00Z")))   // EST
+  /// println(ny.abbreviationAt(Instant.parse("2024-07-15T12:00:00Z")))   // EDT
+  /// ```
   public abbreviationAt(at: Instant): string { this.__zone.nameAt(__floorDiv(at.epochNanoseconds, NS_PER_S)) }
   /// Whether daylight saving time is in force at `at`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant, TimeZone } from "std/time"
+  ///
+  /// const warsaw = TimeZone.of("Europe/Warsaw")
+  /// println(warsaw.isDstAt(Instant.parse("2024-01-15T12:00:00Z")))   // false
+  /// println(warsaw.isDstAt(Instant.parse("2024-07-15T12:00:00Z")))   // true
+  /// ```
   public isDstAt(at: Instant): bool { this.__zone.isDstAt(__floorDiv(at.epochNanoseconds, NS_PER_S)) }
   /// Whether `o` has the same id (so `fixed(0)`, id `+00:00`, isn't `utc()`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { TimeZone } from "std/time"
+  ///
+  /// println(TimeZone.of("Z").equals(TimeZone.utc()))   // true
+  /// println(TimeZone.fixed(0).equals(TimeZone.utc()))  // false
+  /// ```
   public equals(o: TimeZone): bool { return this.id == o.id }
   /// The zone's id.
+  ///
+  /// @example
+  /// ```ts
+  /// import { TimeZone } from "std/time"
+  ///
+  /// const z = TimeZone.of("Europe/Warsaw")
+  /// println(z.toString())   // Europe/Warsaw
+  /// println(`zone: ${z}`)   // zone: Europe/Warsaw
+  /// ```
   public toString(): string { return this.id }
 }
 
@@ -368,6 +913,14 @@ function __zoneArg(zone: TimeZone | string): TimeZone {
 }
 
 /// `DateTime.with` fields: those given replace the date-time's own.
+///
+/// @example
+/// ```ts
+/// import { DateTime } from "std/time"
+///
+/// const dt = DateTime.of(2024, 3, 10, 12, 30, 0, 0, "UTC")
+/// println(dt.with({ day: 1, hour: 0, minute: 0 }))   // 2024-03-01T00:00:00+00:00[UTC]
+/// ```
 export struct DateTimeFields {
   /// The year.
   year?: int
@@ -395,6 +948,17 @@ const __monthLong = ["January", "February", "March", "April", "May", "June", "Ju
 
 /// An instant in a time zone, with its calendar fields (ISO calendar; months 1–12, ISO
 /// weekdays 1 = Monday … 7 = Sunday).
+///
+/// @example
+/// ```ts
+/// import { DateTime } from "std/time"
+///
+/// const meeting = DateTime.of(2024, 3, 29, 15, 0, 0, 0, "Europe/Warsaw")
+/// println(meeting)                                   // 2024-03-29T15:00:00+01:00[Europe/Warsaw]
+/// println(meeting.plus({ days: 3 }))                 // 2024-04-01T15:00:00+02:00[Europe/Warsaw]
+/// println(meeting.withZone("America/New_York").hour)   // 10
+/// println(meeting.format("EEEE, d MMMM yyyy HH:mm"))   // Friday, 29 March 2024 15:00
+/// ```
 export class DateTime implements Formattable {
   /// The instant on the UTC time line.
   public readonly instant: Instant
@@ -420,6 +984,15 @@ export class DateTime implements Formattable {
   public readonly __epochDay: int
 
   /// `instant` seen in `zone`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime, Instant, TimeZone } from "std/time"
+  ///
+  /// const i = Instant.parse("2024-03-10T12:30:00Z")
+  /// const dt = new DateTime(i, TimeZone.of("America/New_York"))
+  /// println(dt)   // 2024-03-10T08:30:00-04:00[America/New_York]
+  /// ```
   constructor(instant: Instant, zone: TimeZone) {
     this.instant = instant
     this.zone = zone
@@ -441,6 +1014,17 @@ export class DateTime implements Formattable {
 
   /// A wall-clock date and time in `zone` (default: the local one). Fields out of range
   /// panic (`DateTime.of(2024, 2, 30)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 12, 30, 0, 0, "Europe/Warsaw")
+  /// println(dt)   // 2024-03-10T12:30:00+01:00[Europe/Warsaw]
+  /// // 02:30 doesn't exist in New York on 10 March 2024 (clocks jump from 02:00 to 03:00):
+  /// println(DateTime.of(2024, 3, 10, 2, 30, 0, 0, "America/New_York"))              // 2024-03-10T03:30:00-04:00[America/New_York]
+  /// println(DateTime.of(2024, 3, 10, 2, 30, 0, 0, "America/New_York", "earlier"))   // 2024-03-10T01:30:00-05:00[America/New_York]
+  /// ```
   public static of(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, nanosecond: int = 0, zone: TimeZone | string | null = null, disambiguation: Disambiguation = "compatible"): DateTime {
     if (month < 1 || month > 12 || day < 1 || day > __daysInMonth(year, month) || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 || nanosecond < 0 || nanosecond >= NS_PER_S) {
       panic(`DateTime.of: ${year}-${month}-${day} ${hour}:${minute}:${second}.${nanosecond} is out of range`)
@@ -471,6 +1055,15 @@ export class DateTime implements Formattable {
   }
 
   /// Now, in `zone` (default: the local one).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const now = DateTime.now("UTC")
+  /// println(now)                 // the current time, e.g. 2026-11-23T10:15:42.123456789+00:00[UTC]
+  /// println(now.year >= 2024)    // true
+  /// ```
   public static now(zone: TimeZone | string | null = null): DateTime {
     new DateTime(Instant.now(), if (zone == null) TimeZone.local() else __zoneArg(zone))
   }
@@ -478,6 +1071,16 @@ export class DateTime implements Formattable {
   /// Parses `2024-03-10T12:30:00+01:00[Europe/Berlin]` (the zone wins; the offset must agree
   /// with it), `…+01:00` (a fixed-offset zone), `…Z` (UTC), or a date or date-time without
   /// either (the local zone).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// println(DateTime.parse("2024-03-10T12:30:00+01:00[Europe/Warsaw]"))   // 2024-03-10T12:30:00+01:00[Europe/Warsaw]
+  /// println(DateTime.parse("2024-03-10T12:30:00+05:30"))                  // 2024-03-10T12:30:00+05:30
+  /// println(DateTime.parse("2024-03-10T12:30:00Z").zone)                  // UTC
+  /// println(DateTime.parse("2024-03-10").hour)                            // 0 (in the local zone)
+  /// ```
   public static parse(s: string): DateTime throws RangeError {
     const f = __parseIso(s)
     if (f == null) throw new RangeError(`invalid date-time: ${s}`)
@@ -503,37 +1106,132 @@ export class DateTime implements Formattable {
   }
 
   /// -1, 0 or 1 as `a`'s instant is before, at or after `b`'s (zones are ignored).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const xs = [
+  ///   DateTime.of(2024, 3, 10, 12, 0, 0, 0, "Europe/Warsaw"),
+  ///   DateTime.of(2024, 3, 10, 7, 0, 0, 0, "America/New_York"),
+  ///   DateTime.of(2024, 3, 10, 9, 0, 0, 0, "UTC"),
+  /// ]
+  /// xs.sort(DateTime.compare)
+  /// println(xs.map(d => d.zone.id).join(", "))   // UTC, Europe/Warsaw, America/New_York
+  /// ```
   public static compare(a: DateTime, b: DateTime): int { Instant.compare(a.instant, b.instant) }
 
   /// The millisecond within the second, 0–999.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.parse("2024-03-10T12:30:00.250Z")
+  /// println(dt.millisecond)   // 250
+  /// println(dt.nanosecond)    // 250000000
+  /// ```
   public get millisecond(): int { return this.nanosecond / NS_PER_MS }
   /// ISO weekday: 1 = Monday … 7 = Sunday.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 12, 0, 0, 0, "UTC")
+  /// println(dt.dayOfWeek)      // 7 (Sunday)
+  /// println(dt.format("EEEE"))   // Sunday
+  /// ```
   public get dayOfWeek(): int {
     const w = __weekday(this.__epochDay)
     if (w == 0) 7 else w
   }
   /// 1 … 366.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// println(DateTime.of(2024, 3, 1, 0, 0, 0, 0, "UTC").dayOfYear)   // 61
+  /// ```
   public get dayOfYear(): int { return this.__epochDay - __daysFromCivil(this.year, 1, 1) + 1 }
   /// The number of days in this month (28–31).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// println(DateTime.of(2024, 2, 10, 0, 0, 0, 0, "UTC").daysInMonth)   // 29
+  /// println(DateTime.of(2023, 2, 10, 0, 0, 0, 0, "UTC").daysInMonth)   // 28
+  /// ```
   public get daysInMonth(): int { __daysInMonth(this.year, this.month) }
   /// 365, or 366 in a leap year.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// println(DateTime.of(2024, 6, 1, 0, 0, 0, 0, "UTC").daysInYear)   // 366
+  /// ```
   public get daysInYear(): int { if (__isLeapYear(this.year)) 366 else 365 }
   /// Whether the year is a leap year (Gregorian rules).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// println(DateTime.of(2024, 6, 1, 0, 0, 0, 0, "UTC").inLeapYear)   // true
+  /// println(DateTime.of(1900, 6, 1, 0, 0, 0, 0, "UTC").inLeapYear)   // false
+  /// ```
   public get inLeapYear(): bool { __isLeapYear(this.year) }
   /// The ISO 8601 week number (1 … 53; the week with the year's first Thursday is 1).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// println(DateTime.of(2024, 3, 10, 0, 0, 0, 0, "UTC").weekOfYear)   // 10
+  /// println(DateTime.of(2021, 1, 1, 0, 0, 0, 0, "UTC").weekOfYear)    // 53
+  /// ```
   public get weekOfYear(): int {
     const thursday = this.__epochDay - this.dayOfWeek + 4
     const y = __civilFromDays(thursday)[0]
     return (thursday - __daysFromCivil(y, 1, 1)) / 7 + 1
   }
   /// The offset from UTC as text (`+01:00`; `+05:30:15` when it has seconds).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// println(DateTime.of(2024, 7, 1, 12, 0, 0, 0, "America/New_York").offset)   // -04:00
+  /// println(DateTime.of(2024, 7, 1, 12, 0, 0, 0, "UTC").offset)                // +00:00
+  /// ```
   public get offset(): string { __offsetText(this.offsetSeconds) }
   /// Whole milliseconds since 1970 (rounded down).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 13, 30, 0, 0, "Europe/Warsaw")
+  /// println(dt.epochMilliseconds)   // 1710073800000
+  /// ```
   public get epochMilliseconds(): int { return this.instant.epochMilliseconds }
 
   /// Adds calendar units then exact time: years and months keep the day (clamped to the
   /// month's end: Jan 31 + 1 month = Feb 29 in 2024), days keep the wall-clock time (across
   /// DST changes), hours and smaller are exact. A `Duration` is exact.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime, Duration } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 1, 31, 9, 0, 0, 0, "Europe/Warsaw")
+  /// println(dt.plus({ months: 1 }))            // 2024-02-29T09:00:00+01:00[Europe/Warsaw]
+  /// println(dt.plus({ days: 1, hours: 2 }))    // 2024-02-01T11:00:00+01:00[Europe/Warsaw]
+  /// println(dt.plus(Duration.ofMinutes(90)))   // 2024-01-31T10:30:00+01:00[Europe/Warsaw]
+  /// ```
   public plus(d: Duration | DurationParts): DateTime {
     match (d) {
       x: Duration => new DateTime(this.instant.plus(x), this.zone)
@@ -542,6 +1240,15 @@ export class DateTime implements Formattable {
   }
 
   /// Subtracts like `plus` with every part negated (`dt.minus({ months: 1 })`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime, Duration } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 31, 12, 0, 0, 0, "UTC")
+  /// println(dt.minus({ months: 1 }))          // 2024-02-29T12:00:00+00:00[UTC]
+  /// println(dt.minus(Duration.ofHours(13)))   // 2024-03-30T23:00:00+00:00[UTC]
+  /// ```
   public minus(d: Duration | DurationParts): DateTime {
     match (d) {
       x: Duration => new DateTime(this.instant.minus(x), this.zone)
@@ -565,32 +1272,120 @@ export class DateTime implements Formattable {
   }
 
   /// The same wall-clock fields, some replaced (`dt.with({ day: 1 })`), in the same zone.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 12, 30, 0, 0, "Europe/Warsaw")
+  /// println(dt.with({ day: 1 }))               // 2024-03-01T12:30:00+01:00[Europe/Warsaw]
+  /// println(dt.with({ month: 7, hour: 9 }))    // 2024-07-10T09:30:00+02:00[Europe/Warsaw]
+  /// ```
   public with(f: DateTimeFields): DateTime {
     DateTime.of(f.year ?? this.year, f.month ?? this.month, f.day ?? this.day, f.hour ?? this.hour, f.minute ?? this.minute, f.second ?? this.second, f.nanosecond ?? this.nanosecond, this.zone)
   }
 
   /// The same instant in another zone.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 12, 30, 0, 0, "Europe/Warsaw")
+  /// println(dt.withZone("America/New_York"))   // 2024-03-10T07:30:00-04:00[America/New_York]
+  /// println(dt.withZone("UTC").hour)           // 11
+  /// ```
   public withZone(zone: TimeZone | string): DateTime { new DateTime(this.instant, __zoneArg(zone)) }
 
   /// The first instant of this date in its zone (midnight, unless a DST change skips it).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 12, 30, 0, 0, "Europe/Warsaw")
+  /// println(dt.startOfDay())   // 2024-03-10T00:00:00+01:00[Europe/Warsaw]
+  /// ```
   public startOfDay(): DateTime {
     DateTime.__resolve(this.year, this.month, this.day, 0, 0, 0, 0, this.zone, "compatible")
   }
 
   /// The exact time from `o` to this date-time (negative if `o` is later).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// // The night of 31 March 2024 is an hour short in Warsaw (DST starts):
+  /// const a = DateTime.of(2024, 3, 30, 12, 0, 0, 0, "Europe/Warsaw")
+  /// const b = DateTime.of(2024, 3, 31, 12, 0, 0, 0, "Europe/Warsaw")
+  /// println(b.since(a))   // PT23H
+  /// ```
   public since(o: DateTime): Duration { this.instant.since(o.instant) }
   /// The exact time from this date-time to `o`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dep = DateTime.of(2024, 7, 1, 10, 0, 0, 0, "Europe/Warsaw")
+  /// const arr = DateTime.of(2024, 7, 1, 13, 30, 0, 0, "America/New_York")
+  /// println(dep.until(arr))   // PT9H30M
+  /// ```
   public until(o: DateTime): Duration { this.instant.until(o.instant) }
   /// Whether `o` is the same instant in the same zone (by id; `isBefore`, `isAfter` and `compare`
   /// ignore zones).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const a = DateTime.of(2024, 3, 10, 12, 0, 0, 0, "UTC")
+  /// println(a.equals(a.withZone("UTC")))             // true
+  /// println(a.equals(a.withZone("Europe/Warsaw")))   // false
+  /// ```
   public equals(o: DateTime): bool { return this.instant.equals(o.instant) && this.zone.equals(o.zone) }
   /// Whether this date-time's instant is before `o`'s.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const a = DateTime.of(2024, 3, 10, 12, 0, 0, 0, "Europe/Warsaw")
+  /// const b = DateTime.of(2024, 3, 10, 12, 0, 0, 0, "UTC")
+  /// println(a.isBefore(b))   // true
+  /// ```
   public isBefore(o: DateTime): bool { this.instant.isBefore(o.instant) }
   /// Whether this date-time's instant is after `o`'s.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const a = DateTime.of(2024, 3, 10, 12, 0, 0, 0, "America/New_York")
+  /// const b = DateTime.of(2024, 3, 10, 12, 0, 0, 0, "UTC")
+  /// println(a.isAfter(b))   // true
+  /// ```
   public isAfter(o: DateTime): bool { this.instant.isAfter(o.instant) }
   /// The instant (the same as `instant`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 13, 30, 0, 0, "Europe/Warsaw")
+  /// println(dt.toInstant())   // 2024-03-10T12:30:00Z
+  /// ```
   public toInstant(): Instant { return this.instant }
   /// A `Date` at this instant (to the millisecond, rounded down).
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const d = DateTime.of(2024, 3, 10, 13, 30, 0, 0, "Europe/Warsaw").toDate()
+  /// println(d.toISOString())   // 2024-03-10T12:30:00.000Z
+  /// ```
   public toDate(): Date { this.instant.toDate() }
 
   /// `2024-03-10T13:30:00+01:00`, then `[zone]` unless the zone is just an offset (or, with
@@ -606,9 +1401,26 @@ export class DateTime implements Formattable {
   }
 
   /// ISO 8601 with the zone: `2024-03-10T13:30:00+01:00[Europe/Berlin]`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 13, 30, 0, 0, "Europe/Warsaw")
+  /// println(dt.toString())   // 2024-03-10T13:30:00+01:00[Europe/Warsaw]
+  /// println(`${dt}`)         // 2024-03-10T13:30:00+01:00[Europe/Warsaw]
+  /// ```
   public toString(): string { this.__iso(true, false) }
 
   /// ISO 8601 without the zone's name: `2024-03-10T13:30:00+01:00`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 13, 30, 0, 0, "Europe/Warsaw")
+  /// println(dt.toIsoString())   // 2024-03-10T13:30:00+01:00
+  /// ```
   public toIsoString(): string { this.__iso(false, false) }
 
   /// Formats with a pattern (also `${dt:yyyy-MM-dd}` in templates): `yyyy` `yy` (year), `M`
@@ -617,6 +1429,17 @@ export class DateTime implements Formattable {
   /// `w` (ISO week), `X` (`Z`/`+01`), `XX` (`+0100`), `XXX` (`+01:00`), `Z` (`+0100`), `z`
   /// (`CET`), `VV` (the zone's id); `'text'` is literal (`''` is a quote), and other non-letters
   /// are kept. Any other letter panics; an empty pattern gives `toString()`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { DateTime } from "std/time"
+  ///
+  /// const dt = DateTime.of(2024, 3, 10, 13, 5, 9, 0, "Europe/Warsaw")
+  /// println(dt.format("yyyy-MM-dd HH:mm:ss"))          // 2024-03-10 13:05:09
+  /// println(dt.format("EEE, d MMM yy h:mm a XXX"))     // Sun, 10 Mar 24 1:05 PM +01:00
+  /// println(dt.format("'week' w', day' D z"))          // week 10, day 70 CET
+  /// println(`${dt:dd.MM.yyyy}`)                        // 10.03.2024
+  /// ```
   public format(pattern: string): string {
     // (`${dt}` in a template is `format("")`: the ISO form.)
     if (pattern.length == 0) return this.toString()

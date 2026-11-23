@@ -7,8 +7,31 @@
 // Regex literals are checked by the compiler (`pico-sema/src/regex.rs`) with the same rules.
 
 /// A pattern that isn't valid (`new RegExp("(")`): `Invalid regular expression: /(/: …`.
+///
+/// @example
+/// ```ts
+/// try {
+///   const re = new RegExp("(")
+///   println(re)
+/// } catch (e: SyntaxError) {
+///   println(e.message)   // Invalid regular expression: /(/: Unterminated group
+/// }
+/// ```
 class SyntaxError extends Error {
   /// A `SyntaxError` with `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// function checkName(name: string): void throws SyntaxError {
+  ///   if (name.length == 0) throw new SyntaxError("empty name")
+  /// }
+  ///
+  /// try {
+  ///   checkName("")
+  /// } catch (e: SyntaxError) {
+  ///   println(e.message)   // empty name
+  /// }
+  /// ```
   constructor(message: string) { super(message) }
 }
 
@@ -987,6 +1010,17 @@ class __RMachine {
 /// A match: element 0 is the matched text, then each capture group's (`null` when it didn't
 /// take part); `index` is where it starts and `groups` holds named groups. With the `g`
 /// flag, `string.match` gives every match's text as the elements instead (`index` -1).
+///
+/// @example
+/// ```ts
+/// const m = /(?<year>\d{4})-(\d{2})/.exec("due 2024-03")
+/// if (m != null) {
+///   println(m[0])                       // 2024-03
+///   println(m[2])                       // 03
+///   println(m.index)                    // 4
+///   println(m.groups?.get("year"))      // 2024
+/// }
+/// ```
 class RegExpMatch {
   public __items: (string?)[]
   /// Where the match starts in `input`, in code points (-1 for a `g`-flag `string.match` result).
@@ -998,6 +1032,14 @@ class RegExpMatch {
   public readonly groups: Map<string, string?>?
 
   /// A match of `items` (the elements) at `index` in `input`, with named `groups`.
+  ///
+  /// @example
+  /// ```ts
+  /// // Matches usually come from `exec` or `string.match`; one can also be built directly.
+  /// const m = new RegExpMatch(["ab", "b"], 3, "xxxab", null)
+  /// println(m[0])      // ab
+  /// println(m.index)   // 3
+  /// ```
   constructor(items: (string?)[], index: int, input: string, groups: Map<string, string?>?) {
     this.__items = items
     this.index = index
@@ -1006,6 +1048,14 @@ class RegExpMatch {
   }
 
   /// The count of elements: 1 plus the count of capture groups.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = /(\w+)@(\w+)/.exec("mail ann@home")
+  /// if (m != null) {
+  ///   println(m.length)   // 3
+  /// }
+  /// ```
   public get length(): int {
     return this.__items.length
   }
@@ -1015,11 +1065,36 @@ class RegExpMatch {
   }
 
   /// The elements as an array.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = /(\d+)x(\d+)?/.exec("size 640x")
+  /// if (m != null) {
+  ///   const parts = m.toArray()
+  ///   println(parts.length)                               // 3
+  ///   println(parts.map(s => s ?? "(none)").join(", "))   // 640x, 640, (none)
+  /// }
+  /// ```
   public toArray(): (string?)[] {
     return this.__items
   }
 
   /// `for (const s of m)`.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = /(\d{4})-(\d{2})-(\d{2})/.exec("2024-03-10")
+  /// if (m != null) {
+  ///   for (const part of m) {
+  ///     println(part)
+  ///   }
+  /// }
+  /// // Prints:
+  /// // 2024-03-10
+  /// // 2024
+  /// // 03
+  /// // 10
+  /// ```
   public iterator(): Iterator<string?> {
     __Array_iterator(this.__items)
   }
@@ -1062,6 +1137,18 @@ function __escapeSource(pattern: string): string {
 
 /// A regular expression: `/pattern/flags` or `new RegExp(pattern, flags)` (flags `d`, `g`,
 /// `i`, `m`, `s`, `u`, `v`, `y`).
+///
+/// @example
+/// ```ts
+/// const date = /(\d{4})-(\d{2})-(\d{2})/
+/// println(date.test("on 2024-03-10"))   // true
+/// const m = date.exec("on 2024-03-10")
+/// if (m != null) {
+///   println(m[1])                       // 2024
+/// }
+/// const word = new RegExp("\\bcat\\b", "i")
+/// println(word.test("A Cat sat"))       // true
+/// ```
 class RegExp {
   /// The pattern's text (`"(?:)"` for an empty pattern).
   public readonly source: string
@@ -1076,6 +1163,19 @@ class RegExp {
   nameIdx: int[]
 
   /// Throws a `SyntaxError` for an invalid pattern or flags.
+  ///
+  /// @example
+  /// ```ts
+  /// const re = new RegExp("^[a-z]+\\d*$", "i")
+  /// println(re)                 // /^[a-z]+\d*$/i
+  /// println(re.test("Abc12"))   // true
+  /// try {
+  ///   const bad = new RegExp("a", "gg")
+  ///   println(bad)
+  /// } catch (e: SyntaxError) {
+  ///   println(e.message)        // Invalid flags supplied to RegExp constructor 'gg'
+  /// }
+  /// ```
   constructor(pattern: string, flags: string = "") throws SyntaxError {
     let canon = ""
     for (const f of "dgimsuvy") {
@@ -1122,18 +1222,66 @@ class RegExp {
   }
 
   /// Whether the `g` flag is set (find every match).
+  ///
+  /// @example
+  /// ```ts
+  /// println(/o/g.global)   // true
+  /// println(/o/.global)    // false
+  /// ```
   public get global(): bool { this.flags.includes("g") }
   /// Whether the `i` flag is set (case-insensitive).
+  ///
+  /// @example
+  /// ```ts
+  /// const re = /hello/i
+  /// println(re.ignoreCase)      // true
+  /// println(re.test("HeLLo"))   // true
+  /// ```
   public get ignoreCase(): bool { this.flags.includes("i") }
   /// Whether the `m` flag is set (`^` and `$` also match at line breaks).
+  ///
+  /// @example
+  /// ```ts
+  /// const re = /^b/m
+  /// println(re.multiline)        // true
+  /// println(re.test("a\nb"))     // true
+  /// ```
   public get multiline(): bool { this.flags.includes("m") }
   /// Whether the `s` flag is set (`.` also matches line breaks).
+  ///
+  /// @example
+  /// ```ts
+  /// const re = /a.b/s
+  /// println(re.dotAll)          // true
+  /// println(re.test("a\nb"))    // true
+  /// ```
   public get dotAll(): bool { this.flags.includes("s") }
   /// Whether the `u` flag is set.
+  ///
+  /// @example
+  /// ```ts
+  /// println(/x/u.unicode)   // true
+  /// println(/x/.unicode)    // false
+  /// ```
   public get unicode(): bool { this.flags.includes("u") }
   /// Whether the `y` flag is set (a match only at `lastIndex`).
+  ///
+  /// @example
+  /// ```ts
+  /// const re = /\d/y
+  /// println(re.sticky)      // true
+  /// println(re.test("a1"))  // false
+  /// re.lastIndex = 1
+  /// println(re.test("a1"))  // true
+  /// ```
   public get sticky(): bool { this.flags.includes("y") }
   /// Whether the `d` flag is set.
+  ///
+  /// @example
+  /// ```ts
+  /// println(/x/d.hasIndices)   // true
+  /// println(/x/.hasIndices)    // false
+  /// ```
   public get hasIndices(): bool { this.flags.includes("d") }
 
   /// The first match in `cs` at or after `from` (only at `from` when `sticky`): the capture
@@ -1176,6 +1324,20 @@ class RegExp {
 
   /// The next match in `s` (from `lastIndex` with `g` or `y`, which it then moves past the
   /// match, or back to 0 when there's none).
+  ///
+  /// @example
+  /// ```ts
+  /// const re = /(\w+)=(\d+)/g
+  /// const s = "a=1 b=22"
+  /// let m = re.exec(s)
+  /// while (m != null) {
+  ///   println(`${m[1]} -> ${m[2]} at ${m.index}`)
+  ///   m = re.exec(s)
+  /// }
+  /// // Prints:
+  /// // a -> 1 at 0
+  /// // b -> 22 at 4
+  /// ```
   public exec(s: string): RegExpMatch? {
     const cs = __rChars(s)
     const keep = this.global || this.sticky
@@ -1194,11 +1356,26 @@ class RegExp {
   }
 
   /// Whether `s` has a match (moving `lastIndex` as `exec` does).
+  ///
+  /// @example
+  /// ```ts
+  /// const digits = /^\d+$/
+  /// println(digits.test("123"))   // true
+  /// println(digits.test("12a"))   // false
+  /// ```
   public test(s: string): bool {
     return this.exec(s) != null
   }
 
   /// `/source/flags`.
+  ///
+  /// @example
+  /// ```ts
+  /// const re = new RegExp("a/b", "gi")
+  /// println(re.toString())   // /a\/b/gi
+  /// println(re.source)       // a\/b
+  /// println(re.flags)        // gi
+  /// ```
   public toString(): string {
     return `/${this.source}/${this.flags}`
   }
