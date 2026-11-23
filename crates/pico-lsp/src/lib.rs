@@ -146,7 +146,7 @@ impl Server {
                         "documentFormattingProvider": true,
                         "hoverProvider": true,
                         "definitionProvider": true,
-                        "completionProvider": { "triggerCharacters": ["."] },
+                        "completionProvider": { "triggerCharacters": [".", "\"", "'", "/"] },
                         "renameProvider": { "prepareProvider": true },
                         "documentSymbolProvider": true,
                         "implementationProvider": true,
@@ -247,7 +247,8 @@ impl Server {
                     let character = pos["character"].as_u64()? as usize;
                     let offset = offset_of(text, line, character)? as usize;
                     let path = uri_to_path(uri).unwrap_or_else(|| PathBuf::from("untitled.pi"));
-                    Some(complete::complete(&path, text, offset))
+                    let trigger = params["context"]["triggerCharacter"].as_str();
+                    Some(complete::complete(&path, text, offset, trigger))
                 });
                 let result = json!({ "isIncomplete": false, "items": items.unwrap_or_default() });
                 send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
