@@ -29,7 +29,7 @@ Notes:
 ## Current state
 | Area | State |
 |------|-------|
-| Spec | ✅ 17 chapters (16: Reactivity), 346 decisions; 303–306 (reactivity details) provisional |
+| Spec | ✅ 17 chapters (16: Reactivity), 347 decisions; 303–306 (reactivity details) provisional |
 | Compiler | **M1 reached**: parse → resolve → typecheck → MIR → interpreter / LLVM native (primitives, functions, loops, panics) |
 | Toolchain | Rust 1.99.0 (rust-toolchain.toml), LLVM 23 (Homebrew `llvm@23` 23.1.3 on macOS, apt.llvm.org 23.1.5 on Linux), inkwell 0.11 `llvm23-1` |
 | Last green `scripts/test.sh` | 2026-11-07 (bug fixes, release 0.4.2, Linux arm64; includes the WasmGC goldens) |
