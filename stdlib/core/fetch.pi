@@ -8,11 +8,29 @@
 type HeadersInit = [string, string][] | Map<string, string> | Headers
 
 /// HTTP header fields: names are case-insensitive (kept lowercase), values trimmed.
+///
+/// @example
+/// ```ts
+/// const headers = new Headers([["Content-Type", "text/plain"]])
+/// headers.append("Accept", "text/html")
+/// println(headers.get("content-type"))   // text/plain
+/// println(headers.has("ACCEPT"))         // true
+/// ```
 class Headers {
   list: [string, string][] = []
 
   /// From name/value pairs, a map (`new Headers({ "Accept": "text/html" })`), or a copy of
   /// other headers.
+  ///
+  /// @example
+  /// ```ts
+  /// const fromPairs = new Headers([["X-Id", "7"]])
+  /// const fromMap = new Headers({ "Accept": "text/html" })
+  /// const copy = new Headers(fromPairs)
+  /// println(fromPairs.get("x-id"))    // 7
+  /// println(fromMap.get("accept"))    // text/html
+  /// println(copy.get("X-ID"))         // 7
+  /// ```
   constructor(init: HeadersInit = []) {
     match (init) {
       pairs: [string, string][] => {
@@ -34,11 +52,26 @@ class Headers {
   }
 
   /// Adds a value (after any others of the same name).
+  ///
+  /// @example
+  /// ```ts
+  /// const headers = new Headers()
+  /// headers.append("Accept", "text/html")
+  /// headers.append("Accept", "application/json")
+  /// println(headers.get("accept"))   // text/html, application/json
+  /// ```
   public append(name: string, value: string): void {
     this.list.push([name.toLowerCase(), value.trim()])
   }
 
   /// Removes every value of `name`.
+  ///
+  /// @example
+  /// ```ts
+  /// const headers = new Headers([["X-Debug", "1"], ["Accept", "*/*"]])
+  /// headers.delete("x-debug")
+  /// println(headers.has("X-Debug"))   // false
+  /// ```
   public delete(name: string): void {
     const n = name.toLowerCase()
     const kept: [string, string][] = []
@@ -51,6 +84,13 @@ class Headers {
   }
 
   /// The values of `name` joined with ", ", or `null`.
+  ///
+  /// @example
+  /// ```ts
+  /// const headers = new Headers([["Vary", "Accept"], ["vary", "Origin"]])
+  /// println(headers.get("VARY"))       // Accept, Origin
+  /// println(headers.get("missing"))    // null
+  /// ```
   public get(name: string): string? {
     const n = name.toLowerCase()
     let out: string? = null
@@ -64,6 +104,14 @@ class Headers {
   }
 
   /// Every `Set-Cookie` value (they're never joined).
+  ///
+  /// @example
+  /// ```ts
+  /// const headers = new Headers()
+  /// headers.append("Set-Cookie", "a=1")
+  /// headers.append("Set-Cookie", "b=2")
+  /// println(headers.getSetCookie().join(" | "))   // a=1 | b=2
+  /// ```
   public getSetCookie(): string[] {
     const out: string[] = []
     for (const [k, v] of this.list) {
@@ -75,17 +123,41 @@ class Headers {
   }
 
   /// Whether there's a value for `name`.
+  ///
+  /// @example
+  /// ```ts
+  /// const headers = new Headers([["Authorization", "Bearer x"]])
+  /// println(headers.has("authorization"))   // true
+  /// println(headers.has("cookie"))          // false
+  /// ```
   public has(name: string): bool {
     return this.get(name) != null
   }
 
   /// Replaces every value of `name` with `value`.
+  ///
+  /// @example
+  /// ```ts
+  /// const headers = new Headers([["Accept", "text/html"], ["Accept", "text/plain"]])
+  /// headers.set("Accept", "application/json")
+  /// println(headers.get("accept"))   // application/json
+  /// ```
   public set(name: string, value: string): void {
     this.delete(name)
     this.append(name, value)
   }
 
   /// The fields sorted by name, values of a name joined (except `set-cookie`).
+  ///
+  /// @example
+  /// ```ts
+  /// const headers = new Headers([["X-B", "2"], ["X-A", "1"]])
+  /// for (const [name, value] of headers.entries()) {
+  ///   println(`${name}: ${value}`)
+  /// }
+  /// // x-a: 1
+  /// // x-b: 2
+  /// ```
   public entries(): [string, string][] {
     const names: string[] = []
     for (const [k, _v] of this.list) {
@@ -111,6 +183,12 @@ class Headers {
   }
 
   /// The field names, sorted, once each (`set-cookie` once per value, as in `entries`).
+  ///
+  /// @example
+  /// ```ts
+  /// const headers = new Headers([["Host", "localhost"], ["Accept", "*/*"]])
+  /// println(headers.keys().join(", "))   // accept, host
+  /// ```
   public keys(): string[] {
     const out: string[] = []
     for (const [k, _v] of this.entries()) {
@@ -120,6 +198,16 @@ class Headers {
   }
 
   /// `for (const [name, value] of headers)`.
+  ///
+  /// @example
+  /// ```ts
+  /// const headers = new Headers([["Content-Length", "12"], ["Content-Type", "text/plain"]])
+  /// for (const [name, value] of headers) {
+  ///   println(`${name}=${value}`)
+  /// }
+  /// // content-length=12
+  /// // content-type=text/plain
+  /// ```
   public iterator(): Iterator<[string, string]> {
     __Array_iterator(this.entries())
   }
@@ -258,6 +346,18 @@ class __Body {
 }
 
 /// `new Request(url, { method, headers, body })`.
+///
+/// @example
+/// ```ts
+/// const init: RequestInit = {
+///   method: "POST",
+///   headers: { "Content-Type": "application/json" },
+///   body: "{\"id\":1}",
+/// }
+/// const req = new Request("http://127.0.0.1:8080/items", init)
+/// println(req.method)                        // POST
+/// println(req.headers.get("content-type"))   // application/json
+/// ```
 struct RequestInit {
   /// The method (uppercased; `"GET"` by default).
   method?: string
@@ -285,6 +385,14 @@ struct RequestInit {
 }
 
 /// An HTTP request: what `fetch` sends, and what a `serve` handler gets.
+///
+/// @example
+/// ```ts
+/// const req = new Request("http://127.0.0.1:8080/echo?x=1", { method: "put", body: "hello" })
+/// println(req.method)          // PUT
+/// println(req.url)             // http://127.0.0.1:8080/echo?x=1
+/// println(await req.text())    // hello
+/// ```
 class Request extends __Body {
   /// The method, uppercased (`"GET"`, `"POST"`, …).
   public readonly method: string
@@ -303,6 +411,19 @@ class Request extends __Body {
 
   /// A request for `input` with `init`'s method, headers, body and redirect mode. Throws a
   /// `TypeError` for an invalid URL or a `GET`/`HEAD` request with a body.
+  ///
+  /// @example
+  /// ```ts
+  /// const req = new Request(new URL("http://localhost/a/../b"))
+  /// println(req.method)   // GET
+  /// println(req.url)      // http://localhost/b
+  /// try {
+  ///   const bad = new Request("http://localhost/", { method: "GET", body: "x" })
+  ///   println(bad.url)
+  /// } catch (e: TypeError) {
+  ///   println(e.message)   // a GET request can't have a body
+  /// }
+  /// ```
   constructor(input: string | URL, init: RequestInit = {}) throws TypeError {
     super(init.body, __headersCopy(init.headers))
     const href = match (input) {
@@ -326,6 +447,15 @@ class Request extends __Body {
 }
 
 /// `new Response(body, { status, statusText, headers })`.
+///
+/// @example
+/// ```ts
+/// const init: ResponseInit = { status: 201, headers: [["Location", "/items/7"]] }
+/// const res = new Response("created", init)
+/// println(res.status)                   // 201
+/// println(res.statusText)               // Created
+/// println(res.headers.get("location"))  // /items/7
+/// ```
 struct ResponseInit {
   /// The status code (200 by default; 101 or 200–599).
   status?: int
@@ -371,6 +501,14 @@ function __statusText(code: int): string {
 }
 
 /// An HTTP response: what `fetch` resolves to, and what a `serve` handler returns.
+///
+/// @example
+/// ```ts
+/// const res = new Response("not here", { status: 404 })
+/// println(`${res.status} ${res.statusText}`)   // 404 Not Found
+/// println(res.ok)                              // false
+/// println(await res.text())                    // not here
+/// ```
 class Response extends __Body {
   /// The status code (`200`, `404`, …).
   public readonly status: int
@@ -385,6 +523,14 @@ class Response extends __Body {
 
   /// A response with `body` and `init`'s status, reason phrase and headers. Panics for a status
   /// outside 200–599 (other than 101).
+  ///
+  /// @example
+  /// ```ts
+  /// const res = new Response("<h1>Hi</h1>", { headers: { "Content-Type": "text/html" } })
+  /// println(res.status)                        // 200
+  /// println(res.headers.get("content-type"))   // text/html
+  /// println(await res.text())                  // <h1>Hi</h1>
+  /// ```
   constructor(body: BodyInit? = null, init: ResponseInit = {}) {
     super(body, __headersCopy(init.headers))
     const s = init.status
@@ -397,11 +543,30 @@ class Response extends __Body {
   }
 
   /// Whether the status is 200–299.
+  ///
+  /// @example
+  /// ```ts
+  /// println(new Response("fine").ok)                       // true
+  /// println(new Response("oops", { status: 500 }).ok)      // false
+  /// ```
   public get ok(): bool {
     return this.status >= 200 && this.status < 300
   }
 
   /// `data` as JSON (as `JSON.stringify`), with `content-type: application/json`.
+  ///
+  /// @example
+  /// ```ts
+  /// struct Point {
+  ///   x: int
+  ///   y: int
+  /// }
+  ///
+  /// const p: Point = { x: 1, y: 2 }
+  /// const res = Response.json(p, { status: 201 })
+  /// println(res.headers.get("content-type"))   // application/json
+  /// println(await res.text())                  // {"x":1,"y":2}
+  /// ```
   public static json<T>(data: T, init: ResponseInit = {}): Response {
     const h = init.headers
     const headers = if (h != null) new Headers(h) else new Headers()
@@ -412,6 +577,13 @@ class Response extends __Body {
   }
 
   /// A redirect to `url` (301, 302, 303, 307 or 308).
+  ///
+  /// @example
+  /// ```ts
+  /// const res = Response.redirect("/login", 303)
+  /// println(res.status)                    // 303
+  /// println(res.headers.get("location"))   // /login
+  /// ```
   public static redirect(url: string, status: int = 302): Response {
     new Response(null, { status, headers: new Headers([["location", url]]) })
   }
@@ -861,6 +1033,21 @@ class __FetchControl {
 /// Fetches `input` over HTTP/1.1, following redirects (see `RequestInit.redirect`).
 /// Network failures and unsupported URLs reject with a `TypeError` (its `cause` is the
 /// `NetError`); HTTP error statuses don't (check `ok`).
+///
+/// @example
+/// ```ts
+/// import { serve } from "std/http"
+///
+/// async function handle(req: Request): Promise<Response> throws Error {
+///   new Response(`you asked for ${new URL(req.url).pathname}`)
+/// }
+///
+/// const server = await serve({ port: 0 }, handle)
+/// const res = await fetch(`http://127.0.0.1:${server.addr.port}/hello`)
+/// println(res.status)         // 200
+/// println(await res.text())   // you asked for /hello
+/// await server.shutdown()
+/// ```
 async function fetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> throws Error {
   let req = match (input) {
     r: Request => __withInit(r, init),
