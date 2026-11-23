@@ -5,11 +5,31 @@
 /// A failed cryptographic operation: a bad key or argument, or data that doesn't
 /// authenticate. `kind` is `"InvalidArgument"`, `"InvalidAccess"` (a key used for something its
 /// `usages` don't allow), `"AuthenticationFailed"` or `"Internal"`.
+///
+/// @example
+/// ```ts
+/// const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 128 }, false, ["encrypt"])
+/// if (key is CryptoKey) {
+///   try {
+///     const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(12) }, key, new Uint8Array(16))
+///     println(plain.length)
+///   } catch (e: CryptoError) {
+///     println(e.kind)   // InvalidAccess
+///   }
+/// }
+/// ```
 class CryptoError extends Error {
   /// `"InvalidArgument"`, `"InvalidAccess"`, `"AuthenticationFailed"` or `"Internal"`.
   public kind: string
 
   /// An error of `kind` with `message`.
+  ///
+  /// @example
+  /// ```ts
+  /// const e = new CryptoError("InvalidArgument", "the key is too short")
+  /// println(e.kind)      // InvalidArgument
+  /// println(e.message)   // the key is too short
+  /// ```
   constructor(kind: string, message: string) {
     super(message)
     this.kind = kind
@@ -91,6 +111,16 @@ function __hmac(alg: HashAlgorithm, key: Uint8Array, data: Uint8Array): Uint8Arr
 
 /// A key for `crypto.subtle` (Web Crypto): its algorithm, usages and bytes (raw secret
 /// bytes, a private scalar, or an uncompressed public point).
+///
+/// @example
+/// ```ts
+/// const raw = new TextEncoder().encode("secret")
+/// const key = await crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+/// println(key.type)                   // secret
+/// println(key.algorithm.name)         // HMAC
+/// println(key.algorithm.length)       // 48
+/// println(key.usages.join(", "))      // sign
+/// ```
 class CryptoKey {
   /// `"secret"`, `"private"` or `"public"`.
   public readonly type: string
@@ -104,6 +134,14 @@ class CryptoKey {
   public readonly __bytes: Uint8Array
 
   /// A key from its parts; `crypto.subtle`'s `generateKey` and `importKey` make them.
+  ///
+  /// @example
+  /// ```ts
+  /// const alg: KeyAlgorithm = { name: "HMAC", hash: "SHA-256", length: 128 }
+  /// const key = new CryptoKey("secret", true, alg, ["sign", "verify"], new Uint8Array(16))
+  /// println(key.extractable)   // true
+  /// println(key.type)          // secret
+  /// ```
   constructor(type: string, extractable: bool, algorithm: KeyAlgorithm, usages: string[], bytes: Uint8Array) {
     this.type = type
     this.extractable = extractable
@@ -115,6 +153,16 @@ class CryptoKey {
 
 /// A key's algorithm: `name` (`"HMAC"`, `"AES-GCM"`, `"ECDSA"`, `"ECDH"`, `"HKDF"`,
 /// `"PBKDF2"`), and its `hash`, `namedCurve` or `length` (bits).
+///
+/// @example
+/// ```ts
+/// const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"])
+/// if (pair is CryptoKeyPair) {
+///   const alg: KeyAlgorithm = pair.publicKey.algorithm
+///   println(alg.name)         // ECDSA
+///   println(alg.namedCurve)   // P-256
+/// }
+/// ```
 struct KeyAlgorithm {
   /// The algorithm's name (`"HMAC"`, `"AES-GCM"`, …).
   name: string
@@ -131,6 +179,16 @@ struct KeyAlgorithm {
 /// `{ name: "ECDSA", hash: "SHA-256" }`, `{ name: "ECDSA", namedCurve: "P-256" }`,
 /// `{ name: "ECDH", public: key }`, `{ name: "HKDF", hash, salt, info }`,
 /// `{ name: "PBKDF2", hash, salt, iterations }`, `{ name: "AES-GCM", length: 256 }`.
+///
+/// @example
+/// ```ts
+/// const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"])
+/// if (key is CryptoKey) {
+///   const params: Algorithm = { name: "AES-GCM", iv: crypto.getRandomValues(new Uint8Array(12)) }
+///   const sealed = await crypto.subtle.encrypt(params, key, new TextEncoder().encode("hi"))
+///   println(sealed.length)   // 18 (2 bytes of ciphertext + a 16-byte tag)
+/// }
+/// ```
 struct Algorithm {
   /// The algorithm's name (`"AES-GCM"`, `"HMAC"`, `"ECDSA"`, `"ECDH"`, `"HKDF"`, `"PBKDF2"`; any
   /// case), or, for `digest`, the hash's.
@@ -159,6 +217,15 @@ struct Algorithm {
 }
 
 /// `generateKey`'s result for key-pair algorithms.
+///
+/// @example
+/// ```ts
+/// const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "X25519" }, false, ["deriveBits"])
+/// if (pair is CryptoKeyPair) {
+///   println(pair.publicKey.type)    // public
+///   println(pair.privateKey.type)   // private
+/// }
+/// ```
 struct CryptoKeyPair {
   /// The public key (always extractable).
   publicKey: CryptoKey
@@ -203,9 +270,26 @@ function __hashOf(a: Algorithm, key: CryptoKey?): HashAlgorithm throws CryptoErr
 /// `exportKey` (`"raw"`), `sign`/`verify` (HMAC, ECDSA), `encrypt`/`decrypt` (AES-GCM) and
 /// `deriveBits` (ECDH, HKDF, PBKDF2). Results are `Uint8Array`s (Web Crypto's are
 /// `ArrayBuffer`s); failures reject with `CryptoError`.
+///
+/// @example
+/// ```ts
+/// import { hex } from "std/encoding"
+///
+/// const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode("abc"))
+/// println(hex.encode(digest))   // a9993e364706816aba3e25717850c26c9cd0d89d
+/// ```
 struct SubtleCrypto {
   /// The hash of `data` with `algorithm` (`"SHA-256"` or `{ name: "SHA-256" }`; the SHA-1, SHA-2
   /// and SHA-3 hashes).
+  ///
+  /// @example
+  /// ```ts
+  /// import { hex } from "std/encoding"
+  ///
+  /// const data = new TextEncoder().encode("hello")
+  /// const hash = await crypto.subtle.digest("SHA-256", data)
+  /// println(hex.encode(hash))   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+  /// ```
   async digest(algorithm: Algorithm | string, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
     const h = __hashOf(Algorithm { name: "", hash: match (algorithm) { s: string => s
       x: Algorithm => x.name } }, null)
@@ -215,6 +299,16 @@ struct SubtleCrypto {
   /// A key from raw bytes (`format` must be `"raw"`): a secret key for HMAC (needs `hash`), AES-GCM
   /// (16, 24 or 32 bytes), HKDF or PBKDF2, or, for ECDSA/ECDH (needs `namedCurve`), a public key
   /// (an uncompressed point on the curve; always extractable).
+  ///
+  /// @example
+  /// ```ts
+  /// import { hex } from "std/encoding"
+  ///
+  /// const enc = new TextEncoder()
+  /// const key = await crypto.subtle.importKey("raw", enc.encode("secret"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+  /// const tag = await crypto.subtle.sign("HMAC", key, enc.encode("message"))
+  /// println(hex.encode(tag))   // 8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b
+  /// ```
   async importKey(format: string, keyData: Uint8Array, algorithm: Algorithm | string, extractable: bool, usages: string[]): Promise<CryptoKey> throws CryptoError {
     __need(format == "raw", `unsupported key format ${format:?} (only "raw")`)
     const name = __algName(algorithm)
@@ -241,6 +335,15 @@ struct SubtleCrypto {
 
   /// A copy of `key`'s bytes (`format` must be `"raw"`); rejects for a key that is neither
   /// extractable nor public.
+  ///
+  /// @example
+  /// ```ts
+  /// const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, true, ["sign"])
+  /// if (key is CryptoKey) {
+  ///   const raw = await crypto.subtle.exportKey("raw", key)
+  ///   println(raw.length)   // 32
+  /// }
+  /// ```
   async exportKey(format: string, key: CryptoKey): Promise<Uint8Array> throws CryptoError {
     __need(format == "raw", `unsupported key format ${format:?} (only "raw")`)
     __need(key.extractable || key.type == "public", "the key isn't extractable")
@@ -248,6 +351,15 @@ struct SubtleCrypto {
   }
 
   /// A secret key (`HMAC`, `AES-GCM`) or, for `ECDSA`/`ECDH`, a key pair.
+  ///
+  /// @example
+  /// ```ts
+  /// const aes = await crypto.subtle.generateKey({ name: "AES-GCM", length: 128 }, false, ["encrypt", "decrypt"])
+  /// match (aes) {
+  ///   k: CryptoKey => println(`${k.algorithm.name} ${k.algorithm.length}`),   // AES-GCM 128
+  ///   p: CryptoKeyPair => println("a key pair"),
+  /// }
+  /// ```
   async generateKey(algorithm: Algorithm, extractable: bool, usages: string[]): Promise<CryptoKey | CryptoKeyPair> throws CryptoError {
     const name = algorithm.name.toUpperCase()
     if (name == "ECDSA" || name == "ECDH") {
@@ -268,6 +380,18 @@ struct SubtleCrypto {
   }
 
   /// An HMAC tag, or an ECDSA signature (`r ‖ s`, as Web Crypto gives it).
+  ///
+  /// @example
+  /// ```ts
+  /// const enc = new TextEncoder()
+  /// const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"])
+  /// if (pair is CryptoKeyPair) {
+  ///   const data = enc.encode("release-1.0.tar.gz")
+  ///   const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, data)
+  ///   println(sig.length)   // 64 (r ‖ s)
+  ///   println(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pair.publicKey, sig, data))   // true
+  /// }
+  /// ```
   async sign(algorithm: Algorithm | string, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
     const name = __algName(algorithm)
     const a = match (algorithm) {
@@ -285,6 +409,15 @@ struct SubtleCrypto {
 
   /// Whether `signature` is `data`'s HMAC tag (compared in constant time) or its ECDSA signature
   /// (`r ‖ s`, with a public key).
+  ///
+  /// @example
+  /// ```ts
+  /// const enc = new TextEncoder()
+  /// const key = await crypto.subtle.importKey("raw", enc.encode("secret"), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"])
+  /// const tag = await crypto.subtle.sign("HMAC", key, enc.encode("message"))
+  /// println(await crypto.subtle.verify("HMAC", key, tag, enc.encode("message")))    // true
+  /// println(await crypto.subtle.verify("HMAC", key, tag, enc.encode("tampered")))   // false
+  /// ```
   async verify(algorithm: Algorithm | string, key: CryptoKey, signature: Uint8Array, data: Uint8Array): Promise<bool> throws CryptoError {
     const name = __algName(algorithm)
     const a = match (algorithm) {
@@ -302,6 +435,16 @@ struct SubtleCrypto {
   }
 
   /// AES-GCM (`{ name: "AES-GCM", iv, additionalData? }`): ciphertext ‖ 16-byte tag.
+  ///
+  /// @example
+  /// ```ts
+  /// const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"])
+  /// if (key is CryptoKey) {
+  ///   const iv = crypto.getRandomValues(new Uint8Array(12))
+  ///   const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode("attack at dawn"))
+  ///   println(sealed.length)   // 30 (14 bytes of ciphertext + a 16-byte tag)
+  /// }
+  /// ```
   async encrypt(algorithm: Algorithm, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
     __need(algorithm.name.toUpperCase() == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM is supported")
     __need((algorithm.tagLength ?? 128) == 128, "only 128-bit tags are supported")
@@ -313,6 +456,17 @@ struct SubtleCrypto {
 
   /// AES-GCM: the plaintext of `data` (ciphertext ‖ 16-byte tag); rejects with
   /// `"AuthenticationFailed"` if the key, `iv`, `additionalData` or data are wrong.
+  ///
+  /// @example
+  /// ```ts
+  /// const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"])
+  /// if (key is CryptoKey) {
+  ///   const iv = crypto.getRandomValues(new Uint8Array(12))
+  ///   const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode("attack at dawn"))
+  ///   const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, sealed)
+  ///   println(new TextDecoder().decode(plain))   // attack at dawn
+  /// }
+  /// ```
   async decrypt(algorithm: Algorithm, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
     __need(algorithm.name.toUpperCase() == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM is supported")
     // (The same tag lengths as `encrypt`, #29.)
@@ -325,6 +479,19 @@ struct SubtleCrypto {
 
   /// `length` bits from ECDH (`{ name: "ECDH", public }`, a private key), HKDF or PBKDF2
   /// (a raw key imported for them).
+  ///
+  /// @example
+  /// ```ts
+  /// import { hex } from "std/encoding"
+  ///
+  /// const enc = new TextEncoder()
+  /// const pw = await crypto.subtle.importKey("raw", enc.encode("password"), "PBKDF2", false, ["deriveBits"])
+  /// const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: enc.encode("salt"), iterations: 1000 }, pw, 128)
+  /// println(hex.encode(bits))   // 632c2812e46d4604102ba7618e9d6d7d
+  /// const ikm = await crypto.subtle.importKey("raw", enc.encode("input key"), "HKDF", false, ["deriveBits"])
+  /// const okm = await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: enc.encode("salt"), info: enc.encode("context") }, ikm, 128)
+  /// println(hex.encode(okm))    // 49060e83486a86844130609b08a2c02c
+  /// ```
   async deriveBits(algorithm: Algorithm, key: CryptoKey, length: int? = null): Promise<Uint8Array> throws CryptoError {
     __usage(key, "deriveBits")
     const name = algorithm.name.toUpperCase()
@@ -370,12 +537,26 @@ function __timingSafeEqual(a: Uint8Array, b: Uint8Array): bool {
 
 /// The `crypto` global (Web Crypto): random values, UUIDs and `subtle`. A struct, so it
 /// costs programs that don't use it nothing.
+///
+/// @example
+/// ```ts
+/// const id = crypto.randomUUID()
+/// println(id.length)   // 36
+/// const bytes = crypto.getRandomValues(new Uint8Array(4))
+/// println(bytes.length)   // 4
+/// ```
 struct Crypto {
   /// Web Crypto's asynchronous operations (keys, signatures, encryption, derivation).
   subtle: SubtleCrypto
 
   /// Fills `array` with random bytes from the system and returns it (at most 65536 bytes,
   /// as on the Web).
+  ///
+  /// @example
+  /// ```ts
+  /// const nonce = crypto.getRandomValues(new Uint8Array(12))
+  /// println(nonce.length)   // 12 (random bytes, different each run)
+  /// ```
   getRandomValues(array: Uint8Array): Uint8Array {
     if (array.length > 65536) panic("crypto.getRandomValues: more than 65536 bytes")
     const r = __randomBytes(array.length)
@@ -384,6 +565,13 @@ struct Crypto {
   }
 
   /// A random version-4 UUID (`"1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"`).
+  ///
+  /// @example
+  /// ```ts
+  /// const id = crypto.randomUUID()
+  /// println(id)          // e.g. 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed
+  /// println(id[14])      // 4 (the version)
+  /// ```
   randomUUID(): string {
     const b = __randomBytes(16)
     b.set(6, (b.get(6) & 0x0F) | 0x40)
