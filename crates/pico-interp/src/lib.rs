@@ -1414,37 +1414,61 @@ pub fn format_float(x: f64, is_f32: bool) -> String {
 }
 
 /// The shortest digits `d1…dk` and decimal exponent `n` with `|x| = 0.d1…dk × 10^n` that
-/// round-trip. Uses the shortest correctly rounded `%.*e` (rounding half to even, so ties pick
-/// the even digit, as ECMAScript requires, and as the C runtime does). `x` must be finite.
+/// round-trip. Tries the shortest correctly rounded `%.*e` (rounding half to even, so ties pick
+/// the even digit, as ECMAScript requires, and as the C runtime does), and at each precision the
+/// next decimal up and down when it doesn't round-trip: below a power of two the floats are
+/// twice as dense, so the other neighbour may (2^-24 is `5.960464477539063e-8`, #184). `x` must
+/// be finite.
 fn shortest_digits(x: f64, is_f32: bool) -> (String, i32) {
     if x == 0.0 {
         return ("0".into(), 1);
     }
     let max = if is_f32 { 9 } else { 17 };
-    let sci = (1..=max)
-        .map(|p| {
-            if is_f32 {
-                format!("{:.*e}", p - 1, x as f32)
-            } else {
-                format!("{:.*e}", p - 1, x)
+    let fits = |m: u64, e: i32| {
+        let s = format!("{m}e{}", e - (m.to_string().len() as i32 - 1));
+        if is_f32 {
+            s.parse::<f32>().ok() == Some(x as f32)
+        } else {
+            s.parse::<f64>().ok() == Some(x)
+        }
+    };
+    for p in 1..=max {
+        let sci = if is_f32 {
+            format!("{:.*e}", p - 1, x as f32)
+        } else {
+            format!("{:.*e}", p - 1, x)
+        };
+        let sci = sci.trim_start_matches('-');
+        let (mant, exp) = sci.split_once('e').expect("scientific format");
+        let m: u64 = mant
+            .chars()
+            .filter(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .expect("digits");
+        let e: i32 = exp.parse().expect("exponent");
+        let low = 10u64.pow(p as u32 - 1);
+        let up = if m + 1 == low * 10 {
+            (low, e + 1)
+        } else {
+            (m + 1, e)
+        };
+        let down = if m == low {
+            (low * 10 - 1, e - 1)
+        } else {
+            (m - 1, e)
+        };
+        for (cm, ce) in [(m, e), up, down] {
+            if fits(cm, ce) {
+                let mut digits = cm.to_string();
+                while digits.len() > 1 && digits.ends_with('0') {
+                    digits.pop();
+                }
+                return (digits, ce + 1);
             }
-        })
-        .find(|s| {
-            if is_f32 {
-                s.parse::<f32>().ok() == Some(x as f32)
-            } else {
-                s.parse::<f64>().ok() == Some(x)
-            }
-        })
-        .expect("17 significant digits always round-trip");
-    let sci = sci.trim_start_matches('-');
-    let (mant, exp) = sci.split_once('e').expect("scientific format");
-    let mut digits: String = mant.chars().filter(|c| *c != '.').collect();
-    while digits.len() > 1 && digits.ends_with('0') {
-        digits.pop();
+        }
     }
-    let exp: i32 = exp.parse().expect("exponent");
-    (digits, exp + 1)
+    unreachable!("17 significant digits always round-trip")
 }
 
 // ---------------------------------------------------------------- format specs
