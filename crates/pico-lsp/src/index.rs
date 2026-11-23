@@ -798,5 +798,8 @@ pub(crate) fn struct_of(t: &Ty) -> Option<StructId> {
 
 /// The doc comment above the declaration whose name is at `at`, as Markdown.
 pub fn doc_comment(sm: &SourceMap, at: Span) -> String {
-    pico_syntax::docs::doc_comment(&sm.file(at.file).text, at.start)
+    pico_syntax::docs::for_display(&pico_syntax::docs::doc_comment(
+        &sm.file(at.file).text,
+        at.start,
+    ))
 }

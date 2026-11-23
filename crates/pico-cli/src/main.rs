@@ -151,6 +151,10 @@ enum Command {
         /// Where to write the pages (default: `target/doc`).
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Write the documentation as JSON to this file instead of HTML pages (the website's
+        /// reference is made from it).
+        #[arg(long, value_name = "FILE", conflicts_with = "out")]
+        json: Option<PathBuf>,
     },
     /// Explain an error or lint code: what it means, an example, the fix (`pico explain E0308`).
     Explain {
@@ -282,7 +286,7 @@ fn main() -> ExitCode {
         }
         Some(Command::Dap) => dap::run(),
         Some(Command::Fetch) => fetch(),
-        Some(Command::Doc { std, out }) => doc::run(std, out.as_deref()),
+        Some(Command::Doc { std, out, json }) => doc::run(std, out.as_deref(), json.as_deref()),
         Some(Command::Explain { code }) => {
             match pico_diag::codes::parse(&code)
                 .and_then(|c| Some((c, pico_diag::codes::explain(c)?)))

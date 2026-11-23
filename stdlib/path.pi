@@ -469,6 +469,14 @@ export function normalize(p: string): string {
 }
 
 /// The parts joined with the separator, normalized (`join("a", "../b", "c")` → `b/c`).
+///
+/// @example
+/// ```ts
+/// import { join } from "std/path"
+///
+/// println(join("src", "lib", "main.pi"))   // src/lib/main.pi
+/// println(join("a", "../b", "c"))          // b/c
+/// ```
 export function join(...parts: string[]): string {
   if (__windows) __winJoin(parts) else __posixJoin(parts)
 }

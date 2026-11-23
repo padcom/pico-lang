@@ -58,6 +58,9 @@ fn standard_library() {
         "{path}"
     );
     assert!(path.contains("href=\"index.html\""), "{path}");
+    // Its `@example`, after the description.
+    assert!(path.contains("<p class=\"example\">Example</p>"), "{path}");
+    assert!(path.contains("src/lib/main.pi"), "{path}");
     // The functions the compiler implements, on the core library's page.
     let core = read(&site.join("core.html"));
     assert!(core.contains("<h2 id=\"println\">"), "{core}");

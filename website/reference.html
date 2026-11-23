@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pico Standard Library</title>
+  <meta name="description" content="The Pico standard library: every module, type and function, with usage examples.">
+  <link rel="icon" href="media/pico-icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="reference.css">
+  <script>document.documentElement.classList.add("js")</script>
+</head>
+<body class="ref">
+  <header class="topbar">
+    <a class="brand" href="index.html" aria-label="Pico home">
+      <img src="media/pico-icon.svg" alt="" class="brand-icon light-only" width="28" height="28">
+      <img src="media/pico-icon-white.svg" alt="" class="brand-icon dark-only" width="28" height="28">
+      <span>Pico</span>
+    </a>
+    <nav class="topnav">
+      <a href="index.html#start">Get started</a>
+      <a href="index.html#features">Features</a>
+      <a href="reference.html" aria-current="page">Library</a>
+      <a href="https://github.com/padcom/pico-lang/releases/latest">Download</a>
+      <a href="https://github.com/padcom/pico-lang">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="ref-layout">
+    <button class="ref-browse" id="ref-browse" type="button" aria-controls="ref-side" aria-expanded="false">Browse and search</button>
+    <aside class="ref-side" id="ref-side">
+      <div class="ref-search">
+        <input id="ref-q" type="search" placeholder="Search the library" autocomplete="off" spellcheck="false" aria-label="Search the standard library">
+        <kbd>/</kbd>
+      </div>
+      <nav class="ref-tree" id="ref-tree" aria-label="Modules"></nav>
+    </aside>
+
+    <main class="ref-main" id="ref-main">
+      <div id="ref-content">
+        <noscript><p>The reference needs JavaScript. The same documentation is in <code>pico doc --std</code>.</p></noscript>
+        <p class="ref-loading">Loading the reference…</p>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <p>Pico Programming Language · MIT licensed · <span id="ref-version"></span> · <a href="https://github.com/padcom/pico-lang">github.com/padcom/pico-lang</a></p>
+  </footer>
+
+  <script src="highlight.js"></script>
+  <script src="reference.js"></script>
+</body>
+</html>
