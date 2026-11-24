@@ -1,3 +1,4 @@
+// not-under-qemu: qemu-user doesn't translate IP_MULTICAST_IF (setsockopt fails with ENOPROTOOPT)
 // expect: joined
 // expect: got hello group from 127.0.0.1
 // expect: both: 2
