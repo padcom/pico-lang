@@ -73,10 +73,9 @@ fn linux_x64() {
         eprintln!("not run: no qemu-x86_64 binfmt handler or {SYSROOT}");
         return;
     }
-    let out = std::process::Command::new(&exe)
-        .env("QEMU_LD_PREFIX", SYSROOT)
-        .output()
-        .unwrap();
+    let out =
+        pico_driver::spawn::output(std::process::Command::new(&exe).env("QEMU_LD_PREFIX", SYSROOT))
+            .unwrap();
     assert!(
         out.status.success(),
         "{}",
@@ -103,7 +102,7 @@ fn glibc_version_suffix() {
     if let Some(vs) = glibc_versions(&exe) {
         assert!(vs.last().is_some_and(|v| *v <= (2, 39)), "{vs:?}");
     }
-    let out = std::process::Command::new(&exe).output().unwrap();
+    let out = pico_driver::spawn::output(&mut std::process::Command::new(&exe)).unwrap();
     // The host's glibc may be older than 2.39; then the loader refuses, which is the point.
     if out.status.success() {
         assert_eq!(
@@ -139,7 +138,7 @@ fn musl_static() {
         if !native && !Path::new("/proc/sys/fs/binfmt_misc/qemu-x86_64").exists() {
             continue;
         }
-        let out = std::process::Command::new(&exe).output().unwrap();
+        let out = pico_driver::spawn::output(&mut std::process::Command::new(&exe)).unwrap();
         assert_eq!(
             String::from_utf8_lossy(&out.stdout),
             "hello from 3 [2, 4, 6]\n",
@@ -164,7 +163,7 @@ fn macos() {
         if !cfg!(target_os = "macos") {
             continue;
         }
-        let out = std::process::Command::new(&exe).output().unwrap();
+        let out = pico_driver::spawn::output(&mut std::process::Command::new(&exe)).unwrap();
         assert_eq!(
             String::from_utf8_lossy(&out.stdout),
             "hello from 3 [2, 4, 6]\n",
@@ -245,7 +244,7 @@ fn link_libraries_from_lib_dirs() {
         let exe =
             pico_driver::build_cached(&checked, opts).unwrap_or_else(|e| panic!("{name}: {e}"));
         if name == "host" {
-            let out = std::process::Command::new(&exe).output().unwrap();
+            let out = pico_driver::spawn::output(&mut std::process::Command::new(&exe)).unwrap();
             assert_eq!(String::from_utf8_lossy(&out.stdout), "5\n");
         }
     }
@@ -360,16 +359,16 @@ fn c_structs_by_value() {
             let exe =
                 pico_driver::build_cached(&checked, opts).unwrap_or_else(|e| panic!("{name}: {e}"));
             let out = match name {
-                "host" => std::process::Command::new(&exe).output().ok(),
+                "host" => pico_driver::spawn::output(&mut std::process::Command::new(&exe)).ok(),
                 "linux-x64"
                     if cfg!(target_arch = "x86_64")
                         || (Path::new("/proc/sys/fs/binfmt_misc/qemu-x86_64").exists()
                             && Path::new(SYSROOT).is_dir()) =>
                 {
-                    std::process::Command::new(&exe)
-                        .env("QEMU_LD_PREFIX", SYSROOT)
-                        .output()
-                        .ok()
+                    pico_driver::spawn::output(
+                        std::process::Command::new(&exe).env("QEMU_LD_PREFIX", SYSROOT),
+                    )
+                    .ok()
                 }
                 "wasm32-wasi" => on_path("wasmtime")
                     .and_then(|w| std::process::Command::new(w).arg(&exe).output().ok()),
