@@ -586,6 +586,8 @@ class AsyncIterator<T, E extends Error = never> {
   pump(): void {
     const step = this.step
     if (step == null) {
+      // An iterator with no steps is done at once (#204).
+      this.finish(null)
       return
     }
     let s: ((k: () => void) => void)? = null

@@ -694,7 +694,7 @@
               "code": "class Session implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"session closed\")\n  }\n}\n\nasync function run(): Promise<void> {\n  await using s = new Session()\n  println(\"working\")   // working\n}                      // session closed\n\nawait run()"
             }
           ],
-          "source": "core/promise.pi:652",
+          "source": "core/promise.pi:654",
           "members": [
             {
               "name": "disposeAsync",
@@ -707,7 +707,7 @@
                   "code": "class Upload implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"upload finished\")\n  }\n}\n\nconst u = new Upload()\nawait u.disposeAsync()   // upload finished"
                 }
               ],
-              "source": "core/promise.pi:666",
+              "source": "core/promise.pi:668",
               "members": []
             }
           ]
