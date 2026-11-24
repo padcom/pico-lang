@@ -1032,6 +1032,7 @@ impl Resolver {
                     })
                 })
             });
+        self.check_extern_signatures();
         Program {
             reactive_class,
             readonly_computed,
@@ -1565,6 +1566,52 @@ impl Resolver {
                 self.method_overloads.push(g.ids);
             }
         }
+    }
+
+    /// One C function declared in several `extern` blocks (#190): the declarations share one
+    /// symbol, so their C types must agree. Types C passes the same way agree (`usize` and
+    /// `ptr<u8>` are both a pointer-sized word); others are an error at the later declaration.
+    fn check_extern_signatures(&mut self) {
+        let mut first: HashMap<&str, FnId> = HashMap::new();
+        let mut diags = Vec::new();
+        for e in &self.externs {
+            let Some(&prev) = first.get(e.symbol.as_str()) else {
+                first.insert(&e.symbol, e.func);
+                continue;
+            };
+            let (Some(a), Some(b)) = (
+                self.fns[prev.0 as usize].as_ref(),
+                self.fns[e.func.0 as usize].as_ref(),
+            ) else {
+                continue;
+            };
+            let shape = |f: &Function| {
+                let ps: Vec<CAbi> = f
+                    .params
+                    .iter()
+                    .map(|p| c_abi(f.local(*p).ty.as_ref().unwrap_or(&Ty::Void)))
+                    .collect();
+                (ps, c_abi(f.ret.as_ref().unwrap_or(&Ty::Void)), f.c_variadic)
+            };
+            if shape(a) == shape(b) {
+                continue;
+            }
+            diags.push(
+                Diagnostic::error(
+                    codes::EXPORT_TYPE,
+                    format!(
+                        "`{}` is declared as `{}` here and as `{}` in another `extern` block",
+                        e.symbol,
+                        c_signature(b),
+                        c_signature(a),
+                    ),
+                )
+                .primary(b.name_span, "declared again with other C types")
+                .secondary(a.name_span, "first declared here")
+                .help("both declarations name one C function: give them the same parameter and return types"),
+            );
+        }
+        self.diags.extend(diags);
     }
 
     fn check_duplicate(&mut self, seen: &mut HashMap<String, Span>, name: &ast::Ident) -> bool {
@@ -7860,6 +7907,12 @@ impl Resolver {
                     {
                         stmts.push(build::stmt(expr));
                     }
+                    // The block's value is the result, as for `async (x) => value` (#201); in
+                    // a `void` context the value is discarded the same way.
+                    Some(ast::Stmt {
+                        kind: ast::StmtKind::Expr { expr, semi: false },
+                        ..
+                    }) => stmts.push(build::stmt(resolve(expr))),
                     Some(last) => {
                         stmts.push(last);
                         stmts.push(build::stmt(resolve(void())));
@@ -8214,4 +8267,49 @@ fn reactive_cell(init: &ast::Expr, t: Option<&ast::Type>) -> ast::Expr {
         },
         span: init.span,
     }
+}
+
+/// How C passes a value of an `extern` signature's type, to compare two declarations of one C
+/// function (#190): pointers, pointer-sized integers and anything else passed as a pointer are
+/// one word.
+#[derive(PartialEq, Debug)]
+enum CAbi {
+    Word,
+    Int(u32),
+    Float(String),
+    Void,
+    Other(String),
+}
+
+fn c_abi(t: &Ty) -> CAbi {
+    use crate::ty::IntTy;
+    match t {
+        Ty::Int(IntTy::Isize | IntTy::Usize) => CAbi::Word,
+        Ty::Int(it) => CAbi::Int(it.bits()),
+        Ty::Bool => CAbi::Int(8),
+        Ty::Float(f) => CAbi::Float(format!("{f:?}")),
+        Ty::Void | Ty::Never => CAbi::Void,
+        Ty::Ref(_) | Ty::Str | Ty::Fn(..) | Ty::Null => CAbi::Word,
+        Ty::Distinct(_, _, base) | Ty::Lits(base, _) | Ty::Immutable(base) => c_abi(base),
+        // A nullable pointer is a pointer that may be null.
+        Ty::Nullable(inner) if c_abi(inner) == CAbi::Word => CAbi::Word,
+        other => CAbi::Other(other.to_string()),
+    }
+}
+
+/// `(ptr<u8>): void`, for messages.
+fn c_signature(f: &Function) -> String {
+    let ps: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| {
+            f.local(*p)
+                .ty
+                .as_ref()
+                .map_or("?".to_string(), |t| t.to_string())
+        })
+        .collect();
+    let dots = if f.c_variadic { ", ..." } else { "" };
+    let ret = f.ret.as_ref().map_or("void".to_string(), |t| t.to_string());
+    format!("({}{dots}): {ret}", ps.join(", "))
 }
