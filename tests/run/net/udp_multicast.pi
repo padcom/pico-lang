@@ -1,0 +1,39 @@
+// expect: joined
+// expect: got hello group from 127.0.0.1
+// expect: both: 2
+// expect: loopback listed: true
+// expect: AddrNotAvailable
+// UDP multicast (#214): sockets that share a port (`reuseAddress`) join a group on the loopback
+// interface and receive what's sent to it.
+import { bind, networkInterfaces, NetError } from "std/net"
+
+const group = "239.255.42.99"
+const a = await bind(0, "0.0.0.0", { reuseAddress: true })
+const port = a.addr.port
+const b = await bind(port, "0.0.0.0", { reuseAddress: true })
+a.addMembership(group, "127.0.0.1")
+b.addMembership(group, "127.0.0.1")
+println("joined")
+
+const sender = await bind(0, "127.0.0.1")
+sender.setMulticastInterface("127.0.0.1")
+sender.setMulticastTTL(1)
+sender.setMulticastLoopback(true)
+await sender.sendText("hello group", port, group)
+const got = await a.receive()
+if (got != null) {
+  println(`got ${new TextDecoder().decode(got.data)} from ${got.addr.hostname}`)
+}
+const got2 = await b.receive()
+println(`both: ${if (got != null && got2 != null) 2 else 0}`)
+
+a.dropMembership(group, "127.0.0.1")
+println(`loopback listed: ${networkInterfaces().some((i) => i.loopback && i.address == "127.0.0.1")}`)
+try {
+  a.addMembership("not a group")
+} catch (e: NetError) {
+  println(e.kind)
+}
+a.close()
+b.close()
+sender.close()

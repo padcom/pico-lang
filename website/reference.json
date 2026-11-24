@@ -11,6 +11,7 @@
     "AsyncDisposable": "core#AsyncDisposable",
     "AsyncIterator": "core#AsyncIterator",
     "Base64": "core#Base64",
+    "BindOptions": "core#BindOptions",
     "BodyInit": "core#BodyInit",
     "BuildInfo": "core#BuildInfo",
     "CloseEvent": "core#CloseEvent",
@@ -49,6 +50,7 @@
     "MethodInfo": "core#MethodInfo",
     "NamedCurve": "core#NamedCurve",
     "NetError": "core#NetError",
+    "NetworkInterface": "core#NetworkInterface",
     "Performance": "core#Performance",
     "Promise": "core#Promise",
     "PromiseWithResolvers": "core#PromiseWithResolvers",
@@ -822,6 +824,30 @@
                 }
               ],
               "source": "core/encoding.pi:111",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "BindOptions",
+          "kind": "struct",
+          "signature": "struct BindOptions",
+          "doc": "<p>Options of <code>bind</code> (#214).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
+            }
+          ],
+          "source": "core/net.pi:1172",
+          "members": [
+            {
+              "name": "reuseAddress",
+              "kind": "field",
+              "signature": "reuseAddress?: bool",
+              "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1175",
               "members": []
             }
           ]
@@ -4833,6 +4859,75 @@
           ]
         },
         {
+          "name": "NetworkInterface",
+          "kind": "struct",
+          "signature": "struct NetworkInterface",
+          "doc": "<p>One address of a network interface (<code>networkInterfaces</code>).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
+            }
+          ],
+          "source": "core/net.pi:1188",
+          "members": [
+            {
+              "name": "name",
+              "kind": "field",
+              "signature": "name: string",
+              "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1190",
+              "members": []
+            },
+            {
+              "name": "family",
+              "kind": "field",
+              "signature": "family: int",
+              "doc": "<p>4 or 6.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1192",
+              "members": []
+            },
+            {
+              "name": "address",
+              "kind": "field",
+              "signature": "address: string",
+              "doc": "<p>The address, as text.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1194",
+              "members": []
+            },
+            {
+              "name": "up",
+              "kind": "field",
+              "signature": "up: bool",
+              "doc": "<p>Whether it's up.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1196",
+              "members": []
+            },
+            {
+              "name": "loopback",
+              "kind": "field",
+              "signature": "loopback: bool",
+              "doc": "<p>Whether it's the loopback interface.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1198",
+              "members": []
+            },
+            {
+              "name": "multicast",
+              "kind": "field",
+              "signature": "multicast: bool",
+              "doc": "<p>Whether it can send and receive multicast.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1200",
+              "members": []
+            }
+          ]
+        },
+        {
           "name": "Performance",
           "kind": "struct",
           "signature": "struct Performance",
@@ -7572,6 +7667,76 @@
               "members": []
             },
             {
+              "name": "addMembership",
+              "kind": "method",
+              "signature": "public addMembership(group: string, interfaceAddress: string = \"\"): void throws NetError",
+              "doc": "<p>Joins multicast group <code>group</code> (an IPv4 or IPv6 address): datagrams sent to it arrive here\ntoo. <code>interfaceAddress</code> picks the interface (its IPv4 address, or for IPv6 its name);\n<code>\"\"</code> lets the system choose. Bind to <code>\"0.0.0.0\"</code> (or <code>\"::\"</code>) and the group's port.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:973",
+              "members": []
+            },
+            {
+              "name": "dropMembership",
+              "kind": "method",
+              "signature": "public dropMembership(group: string, interfaceAddress: string = \"\"): void throws NetError",
+              "doc": "<p>Leaves multicast group <code>group</code> (joined with <code>addMembership</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:988",
+              "members": []
+            },
+            {
+              "name": "setMulticastTTL",
+              "kind": "method",
+              "signature": "public setMulticastTTL(ttl: int): void throws NetError",
+              "doc": "<p>How many hops the multicast datagrams it sends may take (1 by default: this network only;\nmDNS uses 255).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:1003",
+              "members": []
+            },
+            {
+              "name": "setMulticastLoopback",
+              "kind": "method",
+              "signature": "public setMulticastLoopback(on: bool): void throws NetError",
+              "doc": "<p>Whether the multicast datagrams it sends come back to this machine's sockets too (on by\ndefault).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:1018",
+              "members": []
+            },
+            {
+              "name": "setMulticastInterface",
+              "kind": "method",
+              "signature": "public setMulticastInterface(interfaceAddress: string): void throws NetError",
+              "doc": "<p>The interface its multicast datagrams go out on: its IPv4 address (for an IPv6 socket, its\nname). See <code>networkInterfaces</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:1033",
+              "members": []
+            },
+            {
               "name": "send",
               "kind": "method",
               "signature": "public send(data: Uint8Array, port: int, hostname: string = \"127.0.0.1\"): Promise<int, NetError>",
@@ -7582,7 +7747,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:986",
+              "source": "core/net.pi:1074",
               "members": []
             },
             {
@@ -7596,7 +7761,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1004",
+              "source": "core/net.pi:1092",
               "members": []
             },
             {
@@ -7610,7 +7775,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1025",
+              "source": "core/net.pi:1113",
               "members": []
             },
             {
@@ -7624,7 +7789,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1060",
+              "source": "core/net.pi:1148",
               "members": []
             }
           ]
@@ -17254,7 +17419,7 @@
               "code": "import { listen, connect, TcpStream } from \"std/net\"\n\nconst server = await listen(0)\nconst client = new TcpStream(await connect(server.addr.port))\nconst conn = await server.accept()\nif (conn != null) {\n  await client.write(new TextEncoder().encode(\"ping\"))\n  const got = await conn.read()\n  if (got != null) {\n    println(new TextDecoder().decode(got))   // ping\n  }\n  conn.close()\n}\nclient.close()\nserver.close()"
             }
           ],
-          "source": "net.pi:43",
+          "source": "net.pi:46",
           "members": [
             {
               "name": "conn",
@@ -17262,7 +17427,7 @@
               "signature": "public readonly conn: Conn",
               "doc": "<p>The connection.</p>\n",
               "examples": [],
-              "source": "net.pi:45",
+              "source": "net.pi:48",
               "members": []
             },
             {
@@ -17276,7 +17441,7 @@
                   "code": "import { listen, connect, TcpStream } from \"std/net\"\nimport { ByteStream } from \"std/streams\"\n\nconst server = await listen(0)\nconst stream: ByteStream = new TcpStream(await connect(server.addr.port))\nprintln(server.addr.hostname)   // 127.0.0.1\nstream.close()\nserver.close()"
                 }
               ],
-              "source": "net.pi:58",
+              "source": "net.pi:61",
               "members": []
             },
             {
@@ -17290,7 +17455,7 @@
                   "code": "import { listen, connect, TcpStream } from \"std/net\"\n\nconst server = await listen(0)\nconst client = await connect(server.addr.port)\nconst conn = await server.accept()\nif (conn != null) {\n  const stream = new TcpStream(conn)\n  await client.writeText(\"hello\")\n  const bytes = await stream.read()\n  if (bytes != null) {\n    println(new TextDecoder().decode(bytes))   // hello\n  }\n  stream.close()\n}\nclient.close()\nserver.close()"
                 }
               ],
-              "source": "net.pi:81",
+              "source": "net.pi:84",
               "members": []
             },
             {
@@ -17304,7 +17469,7 @@
                   "code": "import { listen, connect, TcpStream } from \"std/net\"\n\nconst server = await listen(0)\nconst stream = new TcpStream(await connect(server.addr.port))\nconst conn = await server.accept()\nif (conn != null) {\n  await stream.write(Uint8Array.from([1, 2, 3]))\n  const got = await conn.read()\n  println(got?.length)   // 3\n  conn.close()\n}\nstream.close()\nserver.close()"
                 }
               ],
-              "source": "net.pi:101",
+              "source": "net.pi:104",
               "members": []
             },
             {
@@ -17318,7 +17483,7 @@
                   "code": "import { listen, connect, TcpStream } from \"std/net\"\n\nconst server = await listen(0)\nconst stream = new TcpStream(await connect(server.addr.port))\nconst conn = await server.accept()\nstream.close()\nif (conn != null) {\n  println(await conn.read())   // null: the other end closed\n  conn.close()\n}\nserver.close()"
                 }
               ],
-              "source": "net.pi:119",
+              "source": "net.pi:122",
               "members": []
             }
           ]
@@ -17334,7 +17499,7 @@
               "code": "import { bind, UdpStream } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nconst toB = new UdpStream(a, b.addr.port)\nconst fromA = new UdpStream(b)\nawait toB.write(new TextEncoder().encode(\"hi\"))\nconst got = await fromA.read()\nif (got != null) {\n  println(new TextDecoder().decode(got))   // hi\n}\nprintln(fromA.peerPort == a.addr.port)     // true: replies go back to `a`\ntoB.close()\nfromA.close()"
             }
           ],
-          "source": "net.pi:145",
+          "source": "net.pi:148",
           "members": [
             {
               "name": "socket",
@@ -17342,7 +17507,7 @@
               "signature": "public readonly socket: UdpSocket",
               "doc": "<p>The socket.</p>\n",
               "examples": [],
-              "source": "net.pi:147",
+              "source": "net.pi:150",
               "members": []
             },
             {
@@ -17351,7 +17516,7 @@
               "signature": "public peerHost: string?",
               "doc": "",
               "examples": [],
-              "source": "net.pi:148",
+              "source": "net.pi:151",
               "members": []
             },
             {
@@ -17360,7 +17525,7 @@
               "signature": "public peerPort: int?",
               "doc": "",
               "examples": [],
-              "source": "net.pi:149",
+              "source": "net.pi:152",
               "members": []
             },
             {
@@ -17374,7 +17539,7 @@
                   "code": "import { bind, UdpStream } from \"std/net\"\n\nconst socket = await bind(0)\nconst stream = new UdpStream(socket, 14550, \"127.0.0.1\")\nprintln(stream.peerPort)   // 14550\nstream.close()"
                 }
               ],
-              "source": "net.pi:160",
+              "source": "net.pi:163",
               "members": []
             },
             {
@@ -17388,7 +17553,7 @@
                   "code": "import { bind, UdpStream } from \"std/net\"\n\nconst a = await bind(0)\nconst b = new UdpStream(await bind(0))\nawait a.sendText(\"one datagram\", b.socket.addr.port)\nconst got = await b.read()\nprintln(got?.length)   // 12\na.close()\nb.close()"
                 }
               ],
-              "source": "net.pi:178",
+              "source": "net.pi:181",
               "members": []
             },
             {
@@ -17402,7 +17567,7 @@
                   "code": "import { bind, UdpStream } from \"std/net\"\n\nconst listener = await bind(0)\nconst sender = new UdpStream(await bind(0), listener.addr.port)\nawait sender.write(Uint8Array.from([7, 8, 9]))\nconst d = await listener.receive()\nprintln(d?.data.length)   // 3\nsender.close()\nlistener.close()"
                 }
               ],
-              "source": "net.pi:204",
+              "source": "net.pi:207",
               "members": []
             },
             {
@@ -17416,7 +17581,7 @@
                   "code": "import { bind, UdpStream } from \"std/net\"\n\nconst stream = new UdpStream(await bind(0))\nstream.close()   // closes the socket"
                 }
               ],
-              "source": "net.pi:218",
+              "source": "net.pi:221",
               "members": []
             }
           ]
@@ -17480,15 +17645,15 @@
         {
           "name": "bind",
           "kind": "function",
-          "signature": "function bind(port: int = 0, hostname: string = \"127.0.0.1\"): Promise<UdpSocket, NetError>",
-          "doc": "<p>A UDP socket on <code>hostname</code> and <code>port</code> (0 picks a free one; see <code>addr</code>).</p>\n",
+          "signature": "function bind(port: int = 0, hostname: string = \"127.0.0.1\", options: BindOptions? = null): Promise<UdpSocket, NetError>",
+          "doc": "<p>A UDP socket on <code>hostname</code> and <code>port</code> (0 picks a free one; see <code>addr</code>). <code>options</code>: see\n<code>BindOptions</code> (sharing the port, for multicast).</p>\n",
           "examples": [
             {
               "caption": "",
               "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.port > 0)   // true\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1083",
+          "source": "core/net.pi:1246",
           "members": []
         },
         {
@@ -17502,8 +17667,115 @@
               "code": "import { resolve } from \"std/net\"\n\nprintln((await resolve(\"127.0.0.1\")).join(\", \"))      // 127.0.0.1\nconst local = await resolve(\"localhost\")\nprintln(local.length > 0)                            // true (e.g. 127.0.0.1 and ::1)"
             }
           ],
-          "source": "core/net.pi:1100",
+          "source": "core/net.pi:1264",
           "members": []
+        },
+        {
+          "name": "networkInterfaces",
+          "kind": "function",
+          "signature": "function networkInterfaces(): NetworkInterface[]",
+          "doc": "<p>The machine's network interfaces, one entry per address (an interface with an IPv4 and an\nIPv6 address has two). Empty where the platform can't tell (WASI, the browser).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { networkInterfaces } from \"std/net\"\n\nconst loopback = networkInterfaces().filter((i) => i.loopback && i.family == 4)\nprintln(loopback.length > 0)   // true"
+            }
+          ],
+          "source": "core/net.pi:1213",
+          "members": []
+        },
+        {
+          "name": "BindOptions",
+          "kind": "struct",
+          "signature": "struct BindOptions",
+          "doc": "<p>Options of <code>bind</code> (#214).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
+            }
+          ],
+          "source": "core/net.pi:1172",
+          "members": [
+            {
+              "name": "reuseAddress",
+              "kind": "field",
+              "signature": "reuseAddress?: bool",
+              "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1175",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "NetworkInterface",
+          "kind": "struct",
+          "signature": "struct NetworkInterface",
+          "doc": "<p>One address of a network interface (<code>networkInterfaces</code>).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
+            }
+          ],
+          "source": "core/net.pi:1188",
+          "members": [
+            {
+              "name": "name",
+              "kind": "field",
+              "signature": "name: string",
+              "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1190",
+              "members": []
+            },
+            {
+              "name": "family",
+              "kind": "field",
+              "signature": "family: int",
+              "doc": "<p>4 or 6.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1192",
+              "members": []
+            },
+            {
+              "name": "address",
+              "kind": "field",
+              "signature": "address: string",
+              "doc": "<p>The address, as text.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1194",
+              "members": []
+            },
+            {
+              "name": "up",
+              "kind": "field",
+              "signature": "up: bool",
+              "doc": "<p>Whether it's up.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1196",
+              "members": []
+            },
+            {
+              "name": "loopback",
+              "kind": "field",
+              "signature": "loopback: bool",
+              "doc": "<p>Whether it's the loopback interface.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1198",
+              "members": []
+            },
+            {
+              "name": "multicast",
+              "kind": "field",
+              "signature": "multicast: bool",
+              "doc": "<p>Whether it can send and receive multicast.</p>\n",
+              "examples": [],
+              "source": "core/net.pi:1200",
+              "members": []
+            }
+          ]
         },
         {
           "name": "NetError",
@@ -17936,6 +18208,76 @@
               "members": []
             },
             {
+              "name": "addMembership",
+              "kind": "method",
+              "signature": "public addMembership(group: string, interfaceAddress: string = \"\"): void throws NetError",
+              "doc": "<p>Joins multicast group <code>group</code> (an IPv4 or IPv6 address): datagrams sent to it arrive here\ntoo. <code>interfaceAddress</code> picks the interface (its IPv4 address, or for IPv6 its name);\n<code>\"\"</code> lets the system choose. Bind to <code>\"0.0.0.0\"</code> (or <code>\"::\"</code>) and the group's port.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:973",
+              "members": []
+            },
+            {
+              "name": "dropMembership",
+              "kind": "method",
+              "signature": "public dropMembership(group: string, interfaceAddress: string = \"\"): void throws NetError",
+              "doc": "<p>Leaves multicast group <code>group</code> (joined with <code>addMembership</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:988",
+              "members": []
+            },
+            {
+              "name": "setMulticastTTL",
+              "kind": "method",
+              "signature": "public setMulticastTTL(ttl: int): void throws NetError",
+              "doc": "<p>How many hops the multicast datagrams it sends may take (1 by default: this network only;\nmDNS uses 255).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:1003",
+              "members": []
+            },
+            {
+              "name": "setMulticastLoopback",
+              "kind": "method",
+              "signature": "public setMulticastLoopback(on: bool): void throws NetError",
+              "doc": "<p>Whether the multicast datagrams it sends come back to this machine's sockets too (on by\ndefault).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:1018",
+              "members": []
+            },
+            {
+              "name": "setMulticastInterface",
+              "kind": "method",
+              "signature": "public setMulticastInterface(interfaceAddress: string): void throws NetError",
+              "doc": "<p>The interface its multicast datagrams go out on: its IPv4 address (for an IPv6 socket, its\nname). See <code>networkInterfaces</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
+                }
+              ],
+              "source": "core/net.pi:1033",
+              "members": []
+            },
+            {
               "name": "send",
               "kind": "method",
               "signature": "public send(data: Uint8Array, port: int, hostname: string = \"127.0.0.1\"): Promise<int, NetError>",
@@ -17946,7 +18288,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:986",
+              "source": "core/net.pi:1074",
               "members": []
             },
             {
@@ -17960,7 +18302,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1004",
+              "source": "core/net.pi:1092",
               "members": []
             },
             {
@@ -17974,7 +18316,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1025",
+              "source": "core/net.pi:1113",
               "members": []
             },
             {
@@ -17988,7 +18330,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1060",
+              "source": "core/net.pi:1148",
               "members": []
             }
           ]

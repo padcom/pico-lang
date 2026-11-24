@@ -403,6 +403,39 @@ impl Interp<'_, '_> {
             };
             return Value::Int(i128::from(self.net_job(op, a, b, c, &host, &s(5))));
         }
+        if op == 170 {
+            // A UDP socket option (#214): the runtime's own code, on the socket's descriptor.
+            let sock = self.io.net.lock().expect("net").socks.get(&a).cloned();
+            let Some(Sock::Udp(u)) = sock else {
+                return Value::Int(-i128::from(K_OTHER));
+            };
+            let group = std::ffi::CString::new(s(4)).unwrap_or_default();
+            let iface = std::ffi::CString::new(s(5)).unwrap_or_default();
+            // SAFETY: a live socket's descriptor and NUL-terminated strings.
+            let r =
+                unsafe { pico_net_udp_option(udp_fd(&u), b, c, group.as_ptr(), iface.as_ptr()) };
+            return Value::Int(i128::from(r));
+        }
+        if op == 171 {
+            // The network interfaces (#214), as the runtime lists them.
+            // SAFETY: returns a malloc'd NUL-terminated text, freed here.
+            let text = unsafe {
+                let p = pico_net_interfaces();
+                let t = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+                libc_free(p.cast());
+                t
+            };
+            let st = &mut self.io;
+            st.next_id += 1;
+            st.taken.push(Job {
+                id: st.next_id,
+                r: 0,
+                r2: 0,
+                text,
+                bytes: None,
+            });
+            return Value::Int(i128::from(st.next_id));
+        }
         if (150..=168).contains(&op) {
             // std/js: only in the browser.
             return Value::Int(-3);
@@ -1268,7 +1301,14 @@ impl Interp<'_, '_> {
                         Ok(v) => v,
                         Err(e) => return fail(e),
                     };
-                    let made = if b == 1 {
+                    let made = if b == 2 {
+                        // Sharing the address and port (#214): made by the runtime, which sets
+                        // the option before binding.
+                        first_ok(&addrs, udp_bind_reuse).map(|u| {
+                            let t = u.local_addr().map(|x| addr_text(&x)).unwrap_or_default();
+                            (Sock::Udp(Arc::new(u)), t)
+                        })
+                    } else if b == 1 {
                         first_ok(&addrs, |x| UdpSocket::bind(x)).map(|u| {
                             let t = u.local_addr().map(|x| addr_text(&x)).unwrap_or_default();
                             (Sock::Udp(Arc::new(u)), t)
@@ -1639,6 +1679,51 @@ unsafe extern "C" {
     fn pico_tls_write(fd: i32, buf: *const u8, n: usize) -> isize;
     fn pico_tls_close_notify(fd: i32);
     fn pico_tls_free(fd: i32);
+}
+
+unsafe extern "C" {
+    fn pico_net_udp_option(
+        fd: i64,
+        what: i64,
+        n: i64,
+        group: *const std::ffi::c_char,
+        iface: *const std::ffi::c_char,
+    ) -> i64;
+    fn pico_net_udp_bind_reuse(ip: *const std::ffi::c_char, port: i64) -> i64;
+    fn pico_net_interfaces() -> *mut std::ffi::c_char;
+    #[link_name = "free"]
+    fn libc_free(p: *mut std::ffi::c_void);
+}
+
+/// A UDP socket's descriptor (a `SOCKET` on Windows).
+fn udp_fd(u: &UdpSocket) -> i64 {
+    #[cfg(unix)]
+    {
+        i64::from(std::os::fd::AsRawFd::as_raw_fd(u))
+    }
+    #[cfg(windows)]
+    {
+        std::os::windows::io::AsRawSocket::as_raw_socket(u) as i64
+    }
+}
+
+/// A UDP socket on `addr` that other sockets may bind too (`SO_REUSEADDR`/`SO_REUSEPORT`,
+/// #214), made by the runtime.
+fn udp_bind_reuse(addr: &SocketAddr) -> std::io::Result<UdpSocket> {
+    let ip = std::ffi::CString::new(addr.ip().to_string()).unwrap_or_default();
+    // SAFETY: a NUL-terminated numeric address.
+    let fd = unsafe { pico_net_udp_bind_reuse(ip.as_ptr(), i64::from(addr.port())) };
+    if fd < 0 {
+        let errno = ((-fd) >> 8) as i32;
+        return Err(std::io::Error::from_raw_os_error(errno));
+    }
+    // SAFETY: a new socket that nothing else owns.
+    #[cfg(unix)]
+    let u = unsafe { <UdpSocket as std::os::fd::FromRawFd>::from_raw_fd(fd as i32) };
+    #[cfg(windows)]
+    let u =
+        unsafe { <UdpSocket as std::os::windows::io::FromRawSocket>::from_raw_socket(fd as u64) };
+    Ok(u)
 }
 
 /// The socket's handle, as the C runtime's TLS layer keys its sessions (a descriptor on Unix,
