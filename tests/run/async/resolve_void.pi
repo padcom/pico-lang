@@ -1,0 +1,13 @@
+// expect: ok
+// expect: done
+// expect: called
+// A `void` parameter may be left out (#210): `resolve()` settles a `Promise<void>`.
+const r = Promise.withResolvers<void, Error>()
+r.resolve()
+await r.promise
+println("ok")
+const p = new Promise<void>((resolve, _reject) => resolve())
+await p
+println("done")
+function noArg(_v: void): void { println("called") }
+noArg()
