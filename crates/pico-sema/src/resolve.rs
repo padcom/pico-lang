@@ -7860,6 +7860,12 @@ impl Resolver {
                     {
                         stmts.push(build::stmt(expr));
                     }
+                    // The block's value is the result, as for `async (x) => value` (#201); in
+                    // a `void` context the value is discarded the same way.
+                    Some(ast::Stmt {
+                        kind: ast::StmtKind::Expr { expr, semi: false },
+                        ..
+                    }) => stmts.push(build::stmt(resolve(expr))),
                     Some(last) => {
                         stmts.push(last);
                         stmts.push(build::stmt(resolve(void())));

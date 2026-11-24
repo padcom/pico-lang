@@ -1,0 +1,22 @@
+// expect: small 2
+// expect: a
+// expect: b
+// expect: 1
+// expect: big 10
+// An async lambda typed from its context: its block's last expression is the result (#201), and
+// in a `void` context the value is discarded.
+async function h(cb: (x: int) => Promise<string, Error>): Promise<string> throws Error {
+  await cb(1)
+}
+println(await h(async (x) => { const y = x + 1; `small ${y}` }))
+const xs: int[] = []
+async function run(cb: (x: int) => Promise<void>): Promise<void> { await cb(1) }
+await run(async (x) => { println("a"); xs.push(x) })
+await run(async (x) => { println("b") })
+println(xs.length)
+println(await h(async (x) => {
+  if (x > 5) {
+    return "huge"
+  }
+  `big ${x * 10}`
+}))
