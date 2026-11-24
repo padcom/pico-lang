@@ -6022,6 +6022,15 @@ impl FnBuilder<'_, '_> {
     /// The debug text of `v`: built in MIR when `t` has classes in it (`Synth::Debug`, #11),
     /// else the backends' `{:?}`.
     fn debug_text(&mut self, v: Operand, t: &Ty, span: Span) -> Operand {
+        // No debug form of their own (a function, a reference, an interface value): what they are, as the plain string form
+        // says it (#213: a class with a closure field panicked in the backend's `{:?}`, which has no case for them).
+        match t.erase() {
+            Ty::Fn(..) => return Operand::Const(Const::Str("<function>".to_string())),
+            other @ (Ty::Ref(_) | Ty::Iface(..)) => {
+                return Operand::Const(Const::Str(format!("<{other}>")));
+            }
+            _ => {}
+        }
         if !self.cx.contains_class(t, &mut Vec::new()) {
             let spec = pico_sema::format::parse("?").expect("valid spec");
             return self.rvalue_to_temp(Rvalue::Format(v, spec), Ty::Str, span);
