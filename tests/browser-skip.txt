@@ -13,4 +13,5 @@ run/gc/buffers_sync_loop  measures resident memory through /proc (std/fs isn't a
 run/collections/map_churn  measures resident memory through /proc (std/fs isn't available in the browser)
 run/ffi/fn_pointers   no signal or dlsym in the browser
 run/ffi/posix         std/posix is for Linux and macOS (spec §13.3)
+run/inline_worker_post  no threads in the browser yet
 run/worker_call_after_end  no threads in the browser yet
