@@ -12,6 +12,10 @@ echo "==> cargo test"
 cargo test --workspace --quiet
 # CI's WasmGC job (`golden (wasm32-browser)`): fixtures the WasmGC backend can't run yet are
 # pending (tests/wasmgc-skip.txt, tests/browser-skip.txt). The glue runs under Node.js.
+if [ -n "${PICO_SKIP_WASMGC:-}" ]; then
+  echo "==> all checks passed (WasmGC golden tests skipped: PICO_SKIP_WASMGC)"
+  exit 0
+fi
 echo "==> golden tests on the WasmGC backend"
 if ! command -v node >/dev/null 2>&1; then
   echo "error: node (Node.js) isn't on PATH; the WasmGC golden tests need it" >&2

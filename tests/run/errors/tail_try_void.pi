@@ -1,0 +1,27 @@
+// expect: f 1
+// expect: bad x
+// expect: ok
+// expect: top
+// A `try` that ends a `void` function or the program is a statement: its value is unused, so the
+// `try` and `catch` branches needn't have one type (#200).
+function parse(s: string): int throws Error {
+  return int.parse(s) ?? throw new Error(s)
+}
+function f(s: string): void {
+  try {
+    const n = parse(s)
+    println(`f ${n}`)
+    n
+  } catch (e: Error) {
+    println(`bad ${e.message}`)
+  }
+}
+f("1")
+f("x")
+println("ok")
+try {
+  println("top")
+  parse("2")
+} catch (e: Error) {
+  println("no")
+}
