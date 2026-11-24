@@ -8639,7 +8639,7 @@
                   "code": "// The path names a worker module, e.g. \"./job\" for job.pi beside this file:\n//   import { self } from \"std/worker\"\n//   self.onmessage = (n: int) => self.postMessage(n * n)\n// (This example names \"std/worker\" so it compiles on its own.)\nfunction start(): Worker<int, int> {\n  const w = new Worker<int, int>(\"std/worker\")\n  w.onmessage = (n: int) => println(`got ${n}`)\n  w.onerror = (e: WorkerPanicked) => println(`worker died: ${e.message}`)\n  w.postMessage(7)\n  return w\n}"
                 }
               ],
-              "source": "core/worker.pi:92",
+              "source": "core/worker.pi:95",
               "members": []
             },
             {
@@ -8653,7 +8653,7 @@
                   "code": "const w = new Worker((s: string): int => s.length)\nprintln(await w.call(\"hello\"))   // 5"
                 }
               ],
-              "source": "core/worker.pi:105",
+              "source": "core/worker.pi:108",
               "members": []
             },
             {
@@ -8667,7 +8667,7 @@
                   "code": "const w = new Worker((xs: int[]): int => {\n  let sum = 0\n  for (const x of xs) sum += x\n  return sum\n})\nconst [a, b] = await Promise.all([w.call([1, 2, 3]), w.call([10, 20])])\nprintln(a)   // 6\nprintln(b)   // 30"
                 }
               ],
-              "source": "core/worker.pi:138",
+              "source": "core/worker.pi:141",
               "members": []
             },
             {
@@ -8681,7 +8681,7 @@
                   "code": "// `w` runs a worker module (`new Worker<ArrayBuffer, int>(\"./job\")`) that takes byte buffers.\nfunction send(w: Worker<ArrayBuffer, int>): void {\n  const frame = new ArrayBuffer(1 << 20)\n  w.postMessage(frame, { transfer: [frame] })   // moved, not copied: `frame` is detached here\n}"
                 }
               ],
-              "source": "core/worker.pi:159",
+              "source": "core/worker.pi:167",
               "members": []
             },
             {
@@ -8695,7 +8695,7 @@
                   "code": "const w = new Worker((n: int): int => n + 1)\nprintln(await w.call(1))   // 2\nconst p = w.call(2)\nw.terminate()\ntry {\n  println(await p)\n} catch (e: WorkerPanicked) {\n  println(e.message)   // the worker was terminated\n}"
                 }
               ],
-              "source": "core/worker.pi:183",
+              "source": "core/worker.pi:191",
               "members": []
             }
           ]
@@ -9135,7 +9135,7 @@
               "code": "const n = navigator.hardwareConcurrency\nprintln(`up to ${n} workers in parallel`)   // e.g. up to 8 workers in parallel"
             }
           ],
-          "source": "core/worker.pi:276",
+          "source": "core/worker.pi:287",
           "members": [
             {
               "name": "hardwareConcurrency",
@@ -9148,7 +9148,7 @@
                   "code": "println(navigator.hardwareConcurrency > 0)   // true"
                 }
               ],
-              "source": "core/worker.pi:283",
+              "source": "core/worker.pi:294",
               "members": []
             }
           ]
