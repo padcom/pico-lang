@@ -1,0 +1,20 @@
+// native-only: the interpreter can't call C
+// Two `extern` blocks may declare one C function with types C passes the same way (#190):
+// `ptr<u8>`, `string` and `usize` are each one pointer-sized word.
+// expect: 5 2
+// expect: freed
+import { strlen as lenOf, malloc, free as freePtr } from "./a"
+extern "C" {
+  function strlen(s: string): usize
+  function free(p: usize): void
+}
+const hi = new Uint8Array(3)
+hi.set(0, 104)
+hi.set(1, 105)
+const n = unsafe { lenOf(ptr.bytes(hi)) }
+println(`${strlen("hello")} ${n}`)
+unsafe {
+  freePtr(malloc(16 as usize))
+}
+free(0 as usize)
+println("freed")

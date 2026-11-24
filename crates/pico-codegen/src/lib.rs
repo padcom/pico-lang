@@ -1321,6 +1321,28 @@ impl<'ctx> Gen<'ctx, '_> {
             }
         }
         let call = match (cfn, target) {
+            // Another `extern` block declared this symbol with other types that C passes the
+            // same way (`usize` and `ptr<u8>`; sema rejects the rest, #190): call it with this
+            // declaration's types.
+            (Some(f), _) if f.get_type() != fn_ty => {
+                let fp = f.as_global_value().as_pointer_value();
+                let call = self.b.build_indirect_call(fn_ty, fp, &args, "r").unwrap();
+                for (k, t) in params[..n_fixed].iter().enumerate() {
+                    if let Some(kind) = ext(t) {
+                        call.add_attribute(
+                            inkwell::attributes::AttributeLoc::Param(k as u32),
+                            self.cx.create_enum_attribute(kind, 0),
+                        );
+                    }
+                }
+                if let Some(kind) = ext(ret) {
+                    call.add_attribute(
+                        inkwell::attributes::AttributeLoc::Return,
+                        self.cx.create_enum_attribute(kind, 0),
+                    );
+                }
+                call
+            }
             (Some(f), _) => self.b.build_call(f, &args, "r").unwrap(),
             (None, CTarget::Pointer(fp)) => {
                 let call = self.b.build_indirect_call(fn_ty, fp, &args, "r").unwrap();
