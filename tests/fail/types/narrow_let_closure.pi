@@ -1,0 +1,10 @@
+// error: E0309
+// at: 8:19
+// A `let` may change before a closure runs, so a null check outside doesn't narrow it inside
+// (a `const` does, #206).
+function find(k: string): string? { if (k == "") null else k }
+let s = find("x")
+if (s == null) throw new Error("none")
+const f = () => s.length
+s = null
+println(f())
