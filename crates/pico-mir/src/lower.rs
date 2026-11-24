@@ -2715,7 +2715,7 @@ impl FnBuilder<'_, '_> {
                 let i = if name == "start" { 0 } else { 1 };
                 self.place_deferred(object, checks).field(i)
             }
-            ExprKind::Index { object, index } if self.ty_of(object) != Ty::Str => {
+            ExprKind::Index { object, index, .. } if self.ty_of(object) != Ty::Str => {
                 self.index_place(object, index, checks)
             }
             _ => match self.expr(e) {
@@ -2808,7 +2808,7 @@ impl FnBuilder<'_, '_> {
                 let i = self.cx.types.fields[id];
                 self.place_deferred(object, checks).field(i)
             }
-            hir::Target::Index { object, index } => self.index_place(object, index, checks),
+            hir::Target::Index { object, index, .. } => self.index_place(object, index, checks),
         }
     }
 
@@ -3332,7 +3332,7 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Assign {
                 op: None,
-                target: hir::Target::Index { object, index },
+                target: hir::Target::Index { object, index, .. },
                 value,
             } if self.cx.types.op_calls.contains_key(&e.id) => {
                 let m = self.cx.types.op_calls[&e.id];
@@ -3603,12 +3603,12 @@ impl FnBuilder<'_, '_> {
                     .collect();
                 self.rvalue_to_temp(Rvalue::Aggregate(ty.clone(), ops), ty, e.span)
             }
-            ExprKind::Index { object, index } if self.ty_of(object) == Ty::Str => {
+            ExprKind::Index { object, index, .. } if self.ty_of(object) == Ty::Str => {
                 let s = self.expr(object);
                 let i = self.expr(index);
                 self.rvalue_to_temp(Rvalue::StrCharAt(s, i), ty, e.span)
             }
-            ExprKind::Index { object, index } if self.cx.types.op_calls.contains_key(&e.id) => {
+            ExprKind::Index { object, index, .. } if self.cx.types.op_calls.contains_key(&e.id) => {
                 let m = self.cx.types.op_calls[&e.id];
                 self.user_call(e, m, object, &[index], ty)
             }

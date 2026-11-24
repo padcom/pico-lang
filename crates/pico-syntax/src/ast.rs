@@ -320,6 +320,8 @@ pub enum ExprKind {
     Index {
         object: Box<Expr>,
         index: Box<Expr>,
+        /// `a?.[i]`: `null` when `a` is (optional chaining).
+        optional: bool,
     },
     NonNull(Box<Expr>),
     As {

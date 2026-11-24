@@ -317,7 +317,14 @@ pub fn expr_s(e: &Expr) -> S {
             if *optional { "?." } else { "." },
             vec![expr_s(object), atom(prop.name.clone())],
         ),
-        ExprKind::Index { object, index } => list("index", vec![expr_s(object), expr_s(index)]),
+        ExprKind::Index {
+            object,
+            index,
+            optional,
+        } => list(
+            if *optional { "?.index" } else { "index" },
+            vec![expr_s(object), expr_s(index)],
+        ),
         ExprKind::NonNull(e) => list("non-null", vec![expr_s(e)]),
         ExprKind::As { expr, ty } => list("as", vec![expr_s(expr), ty_s(ty)]),
         ExprKind::Is { expr, pat } => list("is", vec![expr_s(expr), pat_s(pat)]),

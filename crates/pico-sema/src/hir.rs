@@ -1328,7 +1328,7 @@ impl Expr {
             match t {
                 Target::Var(_) => {}
                 Target::Field { object, .. } => f(object),
-                Target::Index { object, index } => {
+                Target::Index { object, index, .. } => {
                     f(object);
                     f(index);
                 }
@@ -1402,7 +1402,7 @@ impl Expr {
                 args.iter().for_each(&mut *f);
             }
             ExprKind::Member { object, .. } => f(object),
-            ExprKind::Index { object, index } => {
+            ExprKind::Index { object, index, .. } => {
                 f(object);
                 f(index);
             }

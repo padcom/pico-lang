@@ -231,7 +231,7 @@ fn simple(e: &Expr) -> bool {
     match &strip_parens(e).kind {
         ExprKind::Ident(_) | ExprKind::This => true,
         ExprKind::Member { object, .. } => simple(object),
-        ExprKind::Index { object, index } => {
+        ExprKind::Index { object, index, .. } => {
             simple(object)
                 && matches!(
                     strip_parens(index).kind,

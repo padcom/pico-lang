@@ -200,7 +200,7 @@ pub fn walk_expr<'a, V: Visit<'a> + ?Sized>(v: &mut V, e: &'a Expr) {
             }
         }
         ExprKind::Member { object, .. } => v.expr(object),
-        ExprKind::Index { object, index } => {
+        ExprKind::Index { object, index, .. } => {
             v.expr(object);
             v.expr(index);
         }

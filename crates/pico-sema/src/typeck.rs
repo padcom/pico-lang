@@ -2148,7 +2148,7 @@ impl<'p> Checker<'p> {
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, want),
             ExprKind::Assign {
                 op: None,
-                target: Target::Index { object, index },
+                target: Target::Index { object, index, .. },
                 value,
             } if {
                 let ot = self.peek_type(object);
@@ -2397,7 +2397,7 @@ impl<'p> Checker<'p> {
                     }
                 }
             }
-            ExprKind::Index { object, index } => {
+            ExprKind::Index { object, index, .. } => {
                 let ot = self.infer(object).strip_immutable();
                 match ot {
                     Ty::Str => {
@@ -3808,8 +3808,29 @@ impl<'p> Checker<'p> {
             self.ret_hints.insert(id, (**r).clone());
             self.types.sigs[id.0 as usize].ret = (**r).clone();
         }
-        // Checked right here (it sees the enclosing function's current narrowings too).
-        let saved = std::mem::take(&mut self.narrow);
+        // Checked right here. It keeps the narrowings of what can't change after the check
+        // (#206): `const` globals, and the copies of captured `const`s (`let`s are shared
+        // and may be assigned before the closure runs).
+        let mut kept: HashMap<Var, Ty> = HashMap::new();
+        for scope in &self.narrow {
+            for (v, t) in scope {
+                if let Var::Global(g) = v
+                    && !self.program.global(*g).mutable
+                {
+                    kept.insert(*v, t.clone());
+                }
+            }
+        }
+        if let Some(c) = &self.program.func(id).closure {
+            for cap in &c.captures {
+                if !cap.by_ref
+                    && let Some(t) = self.narrowed(Var::Local(cap.outer))
+                {
+                    kept.insert(Var::Local(cap.inner), t.clone());
+                }
+            }
+        }
+        let saved = std::mem::replace(&mut self.narrow, vec![kept]);
         self.inherit_unsafe = true;
         self.check_fn(id);
         self.narrow = saved;
@@ -4326,7 +4347,7 @@ impl<'p> Checker<'p> {
                     }
                 }
             }
-            Target::Index { object, index } => {
+            Target::Index { object, index, .. } => {
                 let ot = self.infer(object);
                 if self.through_immutable(object) {
                     self.immutable_mutation(object.span, "assign an element");
