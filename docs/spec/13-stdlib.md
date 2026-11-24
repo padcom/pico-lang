@@ -400,7 +400,10 @@ setters. `URLSearchParams(init: string | [string, string][])` has `append`, `del
 
 ### `fetch`, `Headers`, `Request`, `Response`
 Globals, as WHATWG Fetch. `fetch(input: string | URL | Request, init = {}): Promise<Response,
-Error>` speaks HTTP/1.1 (`Connection: close`), follows up to 20 redirects (`redirect: "follow"`,
+Error>` speaks HTTP/1.1 and keeps connections alive (#138): an origin's idle connections (up to 6,
+for 4 s; they don't keep the program running) carry its later requests, unless either side sends
+`Connection: close` or the body's end was only the connection's; a kept connection the server closed
+meanwhile is replaced once, without failing the request. It follows up to 20 redirects (`redirect: "follow"`,
 or `"manual"`, `"error"`; 303, and 301/302 after a POST, become a GET) and rejects with a
 `TypeError` on network failures (`fetch failed: connection refused: 127.0.0.1:9`, with the
 `NetError` as `cause`), never for HTTP error statuses. `https:` uses TLS (1.2 and 1.3, Mbed
