@@ -32,6 +32,7 @@ pub const LIBS: &[&str] = &[
     "shell32",
     "user32",
     "ws2_32",
+    "iphlpapi",
     "bcrypt",
 ];
 

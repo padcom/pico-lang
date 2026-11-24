@@ -4452,6 +4452,8 @@ static void unix_run(Job *j) {
     j->r = fd;
 }
 
+static void sock_reuse(int64_t fd);
+
 static void net_run(Job *j) {
     net_init();
     if ((j->op == 30 || j->op == 32) && j->c == 1) {
@@ -4477,6 +4479,8 @@ static void net_run(Job *j) {
             int one = 1;
             if (!j->b) setsockopt((int)fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
 #endif
+            /* b = 2: a UDP socket that shares its address and port (#214). */
+            if (j->b == 2) sock_reuse(fd);
             if (bind((sock_t)fd, ai->ai_addr, (socklen_t)ai->ai_addrlen) == 0 &&
                 (j->b || listen((sock_t)fd, 128) == 0))
                 break;
@@ -4623,6 +4627,15 @@ static void net_run(Job *j) {
     }
 }
 
+/* Lets another socket bind the same address and port (`bind`'s `reuseAddress`, #214). */
+static void sock_reuse(int64_t fd) {
+    int one = 1;
+    setsockopt((sock_t)fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof one);
+#if defined(SO_REUSEPORT) && !defined(_WIN32)
+    setsockopt((sock_t)fd, SOL_SOCKET, SO_REUSEPORT, (const char *)&one, sizeof one);
+#endif
+}
+
 #endif
 
 /* Fills `p` with `n` bytes from the system's randomness; 0 if there's none. */
@@ -4729,6 +4742,12 @@ static int64_t js_op(Queue *q, int64_t op, int64_t a, int64_t b, int64_t c, cons
 }
 #endif
 
+#if defined(_WIN32) || PICO_IO_POSIX
+/* UDP multicast (pico_net.c, #214). */
+int64_t pico_net_udp_option(int64_t fd, int64_t what, int64_t n, const char *group, const char *iface);
+char *pico_net_interfaces(void);
+#endif
+
 int64_t pico_io(int64_t op, int64_t a, int64_t b, int64_t c, const PicoStr *s, const PicoStr *t) {
     Queue *q = queue();
     if (op < 100) {
@@ -4783,6 +4802,30 @@ int64_t pico_io(int64_t op, int64_t a, int64_t b, int64_t c, const PicoStr *s, c
         return j->id;
     }
     case 101: return q->pending;
+    case 170: /* a UDP socket option (#214, pico_net.c): a = descriptor, b = which, c = value, s = group,
+               * t = interface; 0 or -(kind | errno << 8) */
+#if defined(_WIN32) || PICO_IO_POSIX
+    {
+        char *g = cstr(s, NULL), *i = cstr(t, NULL);
+        int64_t r = pico_net_udp_option(a, b, c, g, i);
+        free(g);
+        free(i);
+        return r;
+    }
+#else
+        return -(int64_t)K_OTHER;
+#endif
+    case 171: { /* the network interfaces (#214): a job whose text is pico_net_interfaces's */
+        Job *j = result_job(q);
+#if defined(_WIN32) || PICO_IO_POSIX
+        char *text = pico_net_interfaces();
+        text_add(j, text, strlen(text));
+        free(text);
+#else
+        text_add(j, "", 0);
+#endif
+        return j->id;
+    }
     case 138: /* the event loop is about to wait a ms: 1 = the host waits instead (the browser:
                * the program returns to JavaScript, which resumes the loop when it's due) */
 #if defined(PICO_BROWSER)
