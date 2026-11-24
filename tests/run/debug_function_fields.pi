@@ -1,0 +1,26 @@
+// The debug form of a class with fields of a function type: the function is `<function>` (#213: the native backend
+// panicked, "format spec on () => Promise<void, never>"). Also with width and fill, and inside an array.
+// expect: Holder { name: "h", run: <function>, check: <function> }
+// expect:     Holder { name: "h", run: <function>, check: <function> }|
+// expect: [Holder { name: "a", run: <function>, check: <function> }]
+
+class Holder {
+  public readonly name: string
+  public readonly run: () => Promise<void>
+  public readonly check: (n: int) => bool
+
+  constructor(name: string, run: () => Promise<void>) {
+    this.name = name
+    this.run = run
+    this.check = (n: int) => n > 0
+  }
+}
+
+async function nothing(): Promise<void> {
+}
+
+const h = new Holder("h", nothing)
+println(`${h:?}`)
+println(`${h:>60?}|`)
+const all: Holder[] = [new Holder("a", nothing)]
+println(`${all:?}`)
