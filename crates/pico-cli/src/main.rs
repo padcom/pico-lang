@@ -750,7 +750,7 @@ fn run(path: &Path, interp: bool, opts: pico_driver::BuildOptions, args: &[Strin
         }
     };
     timings_peak();
-    match std::process::Command::new(&exe).args(args).status() {
+    match pico_driver::spawn::status(std::process::Command::new(&exe).args(args)) {
         Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8),
         Err(e) => {
             eprintln!("error: cannot run {}: {e}", exe.display());

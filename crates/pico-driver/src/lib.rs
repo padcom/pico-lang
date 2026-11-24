@@ -26,6 +26,7 @@ mod musl;
 pub mod packages;
 mod run_cache;
 pub mod semver;
+pub mod spawn;
 pub mod target;
 pub use pico_codegen::export_symbol;
 /// What the WasmGC backend's "not supported yet" errors say (P8.7).

@@ -402,8 +402,7 @@ fn run_native(checked: &pico_driver::Checked, gc_stress: bool) -> Result<Run, St
         cmd.env("PICO_GC_STRESS", "1");
     }
     cmd.env(TEST_ENV.0, TEST_ENV.1);
-    let out = cmd
-        .output()
+    let out = pico_driver::spawn::output(&mut cmd)
         .map_err(|e| format!("cannot run {}: {e}", exe.display()))?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     let code = out.status.code().unwrap_or(-1);
