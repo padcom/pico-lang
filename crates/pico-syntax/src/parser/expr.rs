@@ -390,6 +390,24 @@ impl Parser {
                         span,
                     );
                 }
+                TokenKind::Punct(Punct::QDot)
+                    if matches!(self.peek_nth(1), TokenKind::Punct(Punct::LBracket)) =>
+                {
+                    // `a?.[i]` (#208).
+                    self.bump();
+                    let open = self.bump().span;
+                    let index = self.expr();
+                    self.expect_close(Punct::RBracket, open);
+                    let span = e.span.to(self.prev_span());
+                    e = mk(
+                        ExprKind::Index {
+                            object: Box::new(e),
+                            index: Box::new(index),
+                            optional: true,
+                        },
+                        span,
+                    );
+                }
                 TokenKind::Punct(Punct::QDot) => {
                     let dot = self.bump().span;
                     if self.dangling_dot(dot) {
@@ -429,6 +447,7 @@ impl Parser {
                         ExprKind::Index {
                             object: Box::new(e),
                             index: Box::new(index),
+                            optional: false,
                         },
                         span,
                     );
