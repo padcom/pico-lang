@@ -8674,14 +8674,14 @@
               "name": "postMessage",
               "kind": "method",
               "signature": "public postMessage(message: In, options: TransferOptions? = null): void",
-              "doc": "<p>Sends a copy of <code>message</code> to the worker (<code>options.transfer</code>: buffers moved instead).</p>\n",
+              "doc": "<p>Sends a copy of <code>message</code> to the worker (<code>options.transfer</code>: buffers moved instead). Only\nfor a worker module: an inline worker (<code>new Worker(f)</code>) takes <code>call</code>s, and this panics.</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "// `w` runs a worker module (`new Worker<ArrayBuffer, int>(\"./job\")`) that takes byte buffers.\nfunction send(w: Worker<ArrayBuffer, int>): void {\n  const frame = new ArrayBuffer(1 << 20)\n  w.postMessage(frame, { transfer: [frame] })   // moved, not copied: `frame` is detached here\n}"
                 }
               ],
-              "source": "core/worker.pi:158",
+              "source": "core/worker.pi:159",
               "members": []
             },
             {
@@ -8695,7 +8695,7 @@
                   "code": "const w = new Worker((n: int): int => n + 1)\nprintln(await w.call(1))   // 2\nconst p = w.call(2)\nw.terminate()\ntry {\n  println(await p)\n} catch (e: WorkerPanicked) {\n  println(e.message)   // the worker was terminated\n}"
                 }
               ],
-              "source": "core/worker.pi:178",
+              "source": "core/worker.pi:183",
               "members": []
             }
           ]
@@ -9135,7 +9135,7 @@
               "code": "const n = navigator.hardwareConcurrency\nprintln(`up to ${n} workers in parallel`)   // e.g. up to 8 workers in parallel"
             }
           ],
-          "source": "core/worker.pi:271",
+          "source": "core/worker.pi:276",
           "members": [
             {
               "name": "hardwareConcurrency",
@@ -9148,7 +9148,7 @@
                   "code": "println(navigator.hardwareConcurrency > 0)   // true"
                 }
               ],
-              "source": "core/worker.pi:278",
+              "source": "core/worker.pi:283",
               "members": []
             }
           ]

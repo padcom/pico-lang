@@ -145,7 +145,8 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
     return p
   }
 
-  /// Sends a copy of `message` to the worker (`options.transfer`: buffers moved instead).
+  /// Sends a copy of `message` to the worker (`options.transfer`: buffers moved instead). Only
+  /// for a worker module: an inline worker (`new Worker(f)`) takes `call`s, and this panics.
   ///
   /// @example
   /// ```ts
@@ -156,6 +157,10 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
   /// }
   /// ```
   public postMessage(message: In, options: TransferOptions? = null): void {
+    // An inline worker reads every message as a `call` (#202).
+    if (this.inline) {
+      panic("Worker: an inline worker (`new Worker(f)`) takes `call`s, not `postMessage`")
+    }
     __worker_post(this.handle, message, __transfer(options))
     __detachAll(options)
   }
