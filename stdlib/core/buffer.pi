@@ -377,6 +377,10 @@ class Uint8Array {
     this.get(i)
   }
 
+  operator []=(i: int, value: int): void {
+    this.set(i, value)
+  }
+
   /// `i` as a position in `0..length` (negative counts from the end), as on the Web.
   clamp(i: int): int {
     const n = this.length
@@ -698,6 +702,10 @@ class Int32Array {
   operator [](i: int): int {
     this.get(i)
   }
+
+  operator []=(i: int, value: int): void {
+    this.set(i, value)
+  }
 }
 
 /// A view of an `ArrayBuffer` as 4-byte elements (`int`), as on the Web.
@@ -827,6 +835,10 @@ class Uint32Array {
   operator [](i: int): int {
     this.get(i)
   }
+
+  operator []=(i: int, value: int): void {
+    this.set(i, value)
+  }
 }
 
 /// A view of an `ArrayBuffer` as 4-byte elements (`f32`), as on the Web.
@@ -953,6 +965,10 @@ class Float32Array {
   operator [](i: int): f32 {
     this.get(i)
   }
+
+  operator []=(i: int, value: f32): void {
+    this.set(i, value)
+  }
 }
 
 /// A view of an `ArrayBuffer` as 8-byte elements (`f64`), as on the Web.
@@ -1078,6 +1094,10 @@ class Float64Array {
 
   operator [](i: int): f64 {
     this.get(i)
+  }
+
+  operator []=(i: int, value: f64): void {
+    this.set(i, value)
   }
 }
 

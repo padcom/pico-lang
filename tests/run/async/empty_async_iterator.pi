@@ -1,0 +1,13 @@
+// expect: null
+// expect: null
+// expect: 0
+// An `AsyncIterator` made with `new` has no steps: `next()` gives `null` (it never settled, #204),
+// and `for await` over it runs no iterations.
+const it = new AsyncIterator<int>()
+println(await it.next())
+println(await it.next())
+let n = 0
+for await (const _ of new AsyncIterator<string>()) {
+  n += 1
+}
+println(n)

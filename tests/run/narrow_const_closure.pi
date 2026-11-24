@@ -1,0 +1,25 @@
+// expect: 1
+// expect: 3
+// expect: 5
+// A null check on a `const` narrows it inside closures made after the check too (#206): a
+// `const` can't change. (A `let` can, so its closures still see the nullable type.)
+function find(k: string): string? { if (k == "") null else k }
+const s = find("x")
+if (s == null) throw new Error("none")
+const f = () => s.length
+println(f())
+function local(): void {
+  const t = find("abc")
+  if (t != null) {
+    const g = () => t.length
+    println(g())
+  }
+}
+local()
+function nested(): void {
+  const u = find("hello")
+  if (u == null) return
+  const h = () => () => u.length
+  println(h()())
+}
+nested()
