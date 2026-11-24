@@ -1,0 +1,29 @@
+// An f32 carries all 32 bits through a read and a write, a signalling NaN's included (#188: the interpreter quieted it,
+// 0x7F800001 came back 0x7FC00001). MAVLink sends integer parameters bit-cast into a float field.
+// expect: 2139095041
+// expect: 4290777652
+// expect: 2143289344
+// expect: 1.5
+
+const v = new DataView(new ArrayBuffer(4))
+v.setUint32(0, 0x7F800001)
+const w = new DataView(new ArrayBuffer(4))
+w.setFloat32(0, v.getFloat32(0))
+println(`${w.getUint32(0)}`)
+
+// A negative NaN with a payload, through Float32Array.
+const raw = new ArrayBuffer(4)
+new DataView(raw).setUint32(0, 0xFFC01234)
+const out = new ArrayBuffer(4)
+new Float32Array(out, 0).set(0, new Float32Array(raw, 0).get(0))
+println(`${new DataView(out).getUint32(0)}`)
+
+// A quiet NaN, and a number, as before.
+const q = new DataView(new ArrayBuffer(4))
+q.setUint32(0, 0x7FC00000)
+const r = new DataView(new ArrayBuffer(4))
+r.setFloat32(0, q.getFloat32(0))
+println(`${r.getUint32(0)}`)
+const n = new DataView(new ArrayBuffer(4))
+n.setFloat32(0, 1.5)
+println(`${n.getFloat32(0)}`)

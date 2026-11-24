@@ -885,13 +885,13 @@ impl Interp<'_, '_> {
                 let from = self.operand_ty(frame, o);
                 let bits: u128 = match (self.operand(frame, o), &from) {
                     (Value::Int(x), Ty::Int(it)) => to_bits(x, *it),
-                    (Value::Float(x), Ty::Float(FloatTy::F32)) => u128::from((x as f32).to_bits()),
+                    (Value::Float(x), Ty::Float(FloatTy::F32)) => u128::from(f32_bits_of(x)),
                     (Value::Float(x), _) => u128::from(x.to_bits()),
                     (v, t) => unreachable!("bit cast of {v:?}: {t}"),
                 };
                 Ok(match to {
                     Ty::Int(it) => Value::Int(from_bits(bits, *it)),
-                    Ty::Float(FloatTy::F32) => Value::Float(f64::from(f32::from_bits(bits as u32))),
+                    Ty::Float(FloatTy::F32) => Value::Float(f64_of_f32_bits(bits as u32)),
                     _ => Value::Float(f64::from_bits(bits as u64)),
                 })
             }
@@ -1768,6 +1768,83 @@ mod tests {
         assert_eq!(
             format_float(-167581363823776.125, false),
             "-167581363823776.12"
+        );
+    }
+}
+
+/// The `f64` the interpreter holds for an `f32` with these bits. The interpreter keeps every float as
+/// an `f64`; the hardware's widening (`FCVT`, `cvtss2sd`) quiets a signalling NaN, so a NaN's sign
+/// and 23-bit payload are carried over by hand, into the top of the `f64`'s 52-bit payload (#188:
+/// MAVLink sends integer parameters bit-cast into a float, and any 32-bit pattern must survive).
+fn f64_of_f32_bits(bits: u32) -> f64 {
+    let f = f32::from_bits(bits);
+    if !f.is_nan() {
+        return f64::from(f);
+    }
+    let sign = u64::from(bits >> 31) << 63;
+    let payload = u64::from(bits & 0x007F_FFFF) << 29;
+    f64::from_bits(sign | 0x7FF0_0000_0000_0000 | payload)
+}
+
+/// The bits of the `f32` an `f64` stands for: the inverse of `f64_of_f32_bits` for a NaN (its sign
+/// and the top 23 bits of its payload, never a zero payload, which would be an infinity), and the
+/// nearest `f32` for anything else.
+fn f32_bits_of(x: f64) -> u32 {
+    if !x.is_nan() {
+        return (x as f32).to_bits();
+    }
+    let bits = x.to_bits();
+    let sign = ((bits >> 63) as u32) << 31;
+    let payload = ((bits >> 29) & 0x007F_FFFF) as u32;
+    sign | 0x7F80_0000 | if payload == 0 { 0x0040_0000 } else { payload }
+}
+
+#[cfg(test)]
+mod f32_nan_bits {
+    use super::{f32_bits_of, f64_of_f32_bits};
+
+    #[test]
+    fn every_f32_nan_pattern_survives_the_round_trip() {
+        for bits in [
+            0x7F80_0001u32,
+            0x7FA0_0000,
+            0x7FC0_0000,
+            0x7FFF_FFFF,
+            0xFF80_0001,
+            0xFFC0_1234,
+        ] {
+            let wide = f64_of_f32_bits(bits);
+            assert!(wide.is_nan(), "{bits:#x}");
+            assert_eq!(f32_bits_of(wide), bits, "{bits:#x}");
+        }
+    }
+
+    #[test]
+    fn numbers_and_infinities_convert_as_before() {
+        for bits in [
+            0u32,
+            0x8000_0000,
+            0x3F80_0000,
+            0x7F80_0000,
+            0xFF80_0000,
+            0x0000_0001,
+            0x7F7F_FFFF,
+        ] {
+            assert_eq!(f32_bits_of(f64_of_f32_bits(bits)), bits, "{bits:#x}");
+            assert_eq!(
+                f64_of_f32_bits(bits),
+                f64::from(f32::from_bits(bits)),
+                "{bits:#x}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_nan_with_no_payload_left_is_still_a_nan() {
+        // (an f64 NaN whose payload is only in its low bits)
+        assert_eq!(
+            f32_bits_of(f64::from_bits(0x7FF0_0000_0000_0001)),
+            0x7FC0_0000
         );
     }
 }
