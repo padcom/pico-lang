@@ -72,6 +72,9 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
   /// Inline workers: the calls not answered yet.
   pending: Map<int, Promise<Out, E>> = new Map<int, Promise<Out, E>>()
   nextCall: int = 1
+  /// Why the worker is gone (terminated, or ended by a panic): later `call`s reject with it at
+  /// once instead of waiting for an answer that can't come (#203).
+  ended: WorkerPanicked? = null
 
   /// (`new Worker("./job")`: `module` is the module's id; `kind` is 0.)
   ///
@@ -137,6 +140,11 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
   /// ```
   public call(input: In): Promise<Out, E> {
     const p = new Promise<Out, E>()
+    const ended = this.ended
+    if (ended != null) {
+      p.__reject(ended)
+      return p
+    }
     const id = this.nextCall
     this.nextCall += 1
     this.pending.set(id, p)
@@ -178,7 +186,9 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
   public terminate(): void {
     __worker_op(4, this.handle)
     __theLoop().channels.delete(this.handle)
-    this.failPending(new WorkerPanicked("the worker was terminated"))
+    const e = new WorkerPanicked("the worker was terminated")
+    this.ended = e
+    this.failPending(e)
   }
 
   /// Rejects every call not answered yet: the worker won't answer them (#21).
@@ -223,6 +233,7 @@ class Worker<In extends Sendable, Out extends Sendable, E extends Error = never>
       const text = __worker_error(this.handle)
       __theLoop().channels.delete(this.handle)
       const e = new WorkerPanicked(text)
+      this.ended = e
       this.failPending(e)
       const f = this.onerror
       if (f != null) {
