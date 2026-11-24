@@ -1,0 +1,7 @@
+// expect: 5e-324 -5e-324 1e-323 1.5e-323
+// expect: 2.225073858507201e-308 1e-310 4.94e-322
+// Subnormal doubles print their shortest digits on every target (#189). The native runtime finds
+// them exactly, without the C library's strtod, which on Windows arm64 found none for 5e-324.
+let tiny = 5e-324
+println(`${tiny} ${-tiny} ${tiny * 2.0} ${tiny * 3.0}`)
+println(`${2.225073858507201e-308} ${1e-310} ${4.94e-322}`)
