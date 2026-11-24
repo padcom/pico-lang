@@ -1,0 +1,9 @@
+// expect: 8
+// panic: Worker: an inline worker (`new Worker(f)`) takes `call`s, not `postMessage`
+// An inline worker serves `call`s; `postMessage` to it panicked deep inside the worker or ran out
+// of memory (#202). It now panics at the call with what to do instead.
+const w = new Worker((b: ArrayBuffer): int => b.byteLength)
+println(await w.call(new ArrayBuffer(8)))
+const buf = new ArrayBuffer(8)
+w.postMessage(buf, { transfer: [buf] })
+println("not reached")

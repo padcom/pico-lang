@@ -1415,6 +1415,9 @@ class TransformStreamDefaultController<O> {
   rc: ReadableStreamDefaultController<O>
   fail: (e: Error) => void
   failWritable: (e: Error) => void
+  /// Called after each enqueue: the transform stream applies backpressure there, as the Streams
+  /// spec does (#205).
+  public __enqueued: (() => void)? = null
 
   /// (Made by the transform stream, for its transformer.)
   ///
@@ -1468,6 +1471,10 @@ class TransformStreamDefaultController<O> {
   /// ```
   public enqueue(chunk: O): void {
     this.rc.enqueue(chunk)
+    const f = this.__enqueued
+    if (f != null) {
+      f()
+    }
   }
 
   /// Fails both sides.
@@ -1609,7 +1616,15 @@ class __Transform<I, O> {
     } else if (g != null) {
       await g(chunk, c)
     }
-    if (c.desiredSize <= 0 && this.bp == null) {
+  }
+
+  /// After an enqueue: while the readable side is full, writes wait (until it's read from). Only
+  /// an enqueue applies it, right away (#205): after the transform returned, a chunk without
+  /// output would leave a waiting read stuck, and an async transform's enqueue could already
+  /// have been read from (its `pull` releasing nothing yet).
+  public enqueued(): void {
+    const c = this.tc
+    if (c != null && c.desiredSize <= 0 && this.bp == null) {
       this.bp = new Promise<void, Error>()
     }
   }
@@ -1673,7 +1688,9 @@ class TransformStream<I, O> {
     this.readable = new ReadableStream<O>({
       start: (c) => {
         st.rc = c
-        st.tc = new TransformStreamDefaultController<O>(c, (e: Error) => st.fail(e), (e: Error) => st.failWritable(e))
+        const tc = new TransformStreamDefaultController<O>(c, (e: Error) => st.fail(e), (e: Error) => st.failWritable(e))
+        tc.__enqueued = () => st.enqueued()
+        st.tc = tc
       },
       pull: (_c) => st.release(),
       cancel: (reason) => {
