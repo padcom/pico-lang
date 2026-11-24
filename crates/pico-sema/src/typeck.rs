@@ -3808,8 +3808,29 @@ impl<'p> Checker<'p> {
             self.ret_hints.insert(id, (**r).clone());
             self.types.sigs[id.0 as usize].ret = (**r).clone();
         }
-        // Checked right here (it sees the enclosing function's current narrowings too).
-        let saved = std::mem::take(&mut self.narrow);
+        // Checked right here. It keeps the narrowings of what can't change after the check
+        // (#206): `const` globals, and the copies of captured `const`s (`let`s are shared
+        // and may be assigned before the closure runs).
+        let mut kept: HashMap<Var, Ty> = HashMap::new();
+        for scope in &self.narrow {
+            for (v, t) in scope {
+                if let Var::Global(g) = v
+                    && !self.program.global(*g).mutable
+                {
+                    kept.insert(*v, t.clone());
+                }
+            }
+        }
+        if let Some(c) = &self.program.func(id).closure {
+            for cap in &c.captures {
+                if !cap.by_ref
+                    && let Some(t) = self.narrowed(Var::Local(cap.outer))
+                {
+                    kept.insert(Var::Local(cap.inner), t.clone());
+                }
+            }
+        }
+        let saved = std::mem::replace(&mut self.narrow, vec![kept]);
         self.inherit_unsafe = true;
         self.check_fn(id);
         self.narrow = saved;
