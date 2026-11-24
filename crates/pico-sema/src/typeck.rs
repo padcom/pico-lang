@@ -2148,7 +2148,7 @@ impl<'p> Checker<'p> {
             ExprKind::Binary(op, l, r) => self.binary(e, *op, l, r, want),
             ExprKind::Assign {
                 op: None,
-                target: Target::Index { object, index },
+                target: Target::Index { object, index, .. },
                 value,
             } if {
                 let ot = self.peek_type(object);
@@ -2397,7 +2397,7 @@ impl<'p> Checker<'p> {
                     }
                 }
             }
-            ExprKind::Index { object, index } => {
+            ExprKind::Index { object, index, .. } => {
                 let ot = self.infer(object).strip_immutable();
                 match ot {
                     Ty::Str => {
@@ -4326,7 +4326,7 @@ impl<'p> Checker<'p> {
                     }
                 }
             }
-            Target::Index { object, index } => {
+            Target::Index { object, index, .. } => {
                 let ot = self.infer(object);
                 if self.through_immutable(object) {
                     self.immutable_mutation(object.span, "assign an element");

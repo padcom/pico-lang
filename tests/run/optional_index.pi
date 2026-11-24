@@ -1,0 +1,15 @@
+// expect: 1 null
+// expect: 2 null
+// expect: 3
+// `a?.[i]` indexes `a` unless it's `null` (#208), and chains as `?.` does.
+const xs: int[]? = [1, 2]
+const none: int[]? = null
+println(`${xs?.[0]} ${none?.[0]}`)
+const m = new Map<string, int[]>()
+m.set("a", [7, 2])
+println(`${m.get("a")?.[1]} ${m.get("b")?.[1]}`)
+class Box {
+  public items: string[] = ["x", "yyy"]
+}
+const b: Box? = new Box()
+println(b?.items[1].length)

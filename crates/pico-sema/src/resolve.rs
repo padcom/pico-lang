@@ -6396,7 +6396,7 @@ impl Resolver {
                 name: prop.name.clone(),
                 name_span: prop.span,
             },
-            A::Index { object, index } => ExprKind::Index {
+            A::Index { object, index, .. } => ExprKind::Index {
                 object: Box::new(self.lower_expr(object)),
                 index: Box::new(self.lower_expr(index)),
             },
@@ -7282,7 +7282,7 @@ impl Resolver {
                     name_span: prop.span,
                 })
             }
-            ast::ExprKind::Index { object, index } => Some(Target::Index {
+            ast::ExprKind::Index { object, index, .. } => Some(Target::Index {
                 object: Box::new(self.lower_expr(object)),
                 index: Box::new(self.lower_expr(index)),
             }),
@@ -7422,6 +7422,11 @@ fn opt_link_base(e: &ast::Expr) -> Option<&ast::Expr> {
                 object,
                 optional: true,
                 ..
+            }
+            | ast::ExprKind::Index {
+                object,
+                optional: true,
+                ..
             } => return Some(object),
             ast::ExprKind::Member { object, .. } | ast::ExprKind::Index { object, .. } => object,
             ast::ExprKind::Call { callee, .. } => callee,
@@ -7455,9 +7460,26 @@ fn rewrite_opt_link(e: &ast::Expr, name: &str) -> ast::Expr {
             prop: prop.clone(),
             optional: *optional,
         },
-        A::Index { object, index } => A::Index {
+        A::Index {
+            object,
+            index,
+            optional: true,
+        } => A::Index {
+            object: Box::new(ast::Expr {
+                kind: A::Ident(name.to_string()),
+                span: object.span,
+            }),
+            index: index.clone(),
+            optional: false,
+        },
+        A::Index {
+            object,
+            index,
+            optional,
+        } => A::Index {
             object: Box::new(rewrite_opt_link(object, name)),
             index: index.clone(),
+            optional: *optional,
         },
         A::Call {
             callee,
