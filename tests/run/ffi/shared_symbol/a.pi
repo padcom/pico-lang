@@ -1,0 +1,5 @@
+export extern "C" {
+  function strlen(s: ptr<u8>): usize
+  function malloc(n: usize): ptr<void>
+  function free(p: ptr<void>): void
+}
