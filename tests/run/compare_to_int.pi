@@ -1,0 +1,20 @@
+// expect: true false true false
+// expect: true true
+// expect: false true
+// `<`, `<=`, `>`, `>=` on a class call its `compareTo`, whatever integer type it returns (#199:
+// an `int`, that is `i64`, result was compared with an `i32` zero natively).
+class N {
+  v: int
+  constructor(v: int) { this.v = v }
+  public compareTo(o: N): int { return this.v - o.v }
+}
+class Small {
+  v: i8
+  constructor(v: i8) { this.v = v }
+  public compareTo(o: Small): i8 { return this.v - o.v }
+}
+const a = new N(2)
+const b = new N(3)
+println(`${a < b} ${a > b} ${a <= a} ${b <= a}`)
+println(`${b >= a} ${new Small(1) < new Small(2)}`)
+println(`${new Small(5) <= new Small(-1)} ${new Small(5) >= new Small(-1)}`)

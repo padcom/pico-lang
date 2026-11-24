@@ -6,27 +6,25 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Every Linux job installs the same packages and shares one Rust cache (saved by `test` only),
-# so the golden runs for other targets start in parallel with `scripts/test.sh` instead of
+# Every Linux job installs the same packages and shares one Rust cache (saved by `test (linux, lint+crates)` only),
+# so the golden runs for other targets start in parallel with the tests instead of
 # after it.
 
 jobs:
+  # Linux, in three parallel parts (the whole of `scripts/test.sh` took about 25 minutes in one
+  # job): lints and most crates' tests; `pico-cli`'s; the golden suite and the rest of
+  # `pico-tests`. The WasmGC golden run is `golden (wasm32-browser)`'s.
   test:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: test (linux, ${{ matrix.part }})
+    runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-24.04-arm]
+        part: [lint+crates, cli, golden]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM 23 (macOS)
-        if: runner.os == 'macOS'
-        run: brew install llvm@23
-
-      - name: Install LLVM 23 (Linux)
-        if: runner.os == 'Linux'
+      - name: Install LLVM 23
         run: scripts/ci-install-linux.sh
 
       # The wasm32-browser glue tests run under Node.js (Wasm exception handling).
@@ -36,16 +34,57 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}
+          shared-key: Linux
+          save-if: ${{ matrix.part == 'lint+crates' }}
 
       # `pico dap`'s attach test attaches lldb to a process it didn't start, which Ubuntu's Yama
       # default (ptrace_scope 1) forbids.
-      - name: Allow attaching debuggers (Linux)
-        if: runner.os == 'Linux'
+      - name: Allow attaching debuggers
         run: sudo sysctl -w kernel.yama.ptrace_scope=0
 
+      - name: Lints and the other crates' tests
+        if: matrix.part == 'lint+crates'
+        run: |
+          source scripts/env.sh
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --quiet -- -D warnings
+          cargo test --workspace --quiet --exclude pico-cli --exclude pico-tests
+
+      - name: pico-cli's tests
+        if: matrix.part == 'cli'
+        run: |
+          source scripts/env.sh
+          cargo test --quiet -p pico-cli
+
+      - name: pico-tests (the golden suite, natively)
+        if: matrix.part == 'golden'
+        run: |
+          source scripts/env.sh
+          cargo test --quiet -p pico-tests
+
+  # The whole of `scripts/test.sh` on a Mac, after a merge into main only: pull requests still
+  # run the golden programs on macOS (`macos-build`, `macos`), and macOS runners queue longest.
+  test-macos:
+    name: test (macos-latest)
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 23
+        run: brew install llvm@23
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macOS
+
+      # The WasmGC golden run is `golden (wasm32-browser)`'s.
       - name: scripts/test.sh
-        run: scripts/test.sh
+        run: PICO_SKIP_WASMGC=1 scripts/test.sh
 
   # The golden suite's native runs for other targets: linux-x64 under qemu-user, musl,
   # wasm32-wasi under wasmtime and wasm32-browser under Node.js (through the glue).
