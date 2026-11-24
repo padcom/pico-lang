@@ -694,7 +694,7 @@
               "code": "class Session implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"session closed\")\n  }\n}\n\nasync function run(): Promise<void> {\n  await using s = new Session()\n  println(\"working\")   // working\n}                      // session closed\n\nawait run()"
             }
           ],
-          "source": "core/promise.pi:652",
+          "source": "core/promise.pi:654",
           "members": [
             {
               "name": "disposeAsync",
@@ -707,7 +707,7 @@
                   "code": "class Upload implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"upload finished\")\n  }\n}\n\nconst u = new Upload()\nawait u.disposeAsync()   // upload finished"
                 }
               ],
-              "source": "core/promise.pi:666",
+              "source": "core/promise.pi:668",
               "members": []
             }
           ]
@@ -6904,7 +6904,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1644",
+          "source": "core/streams.pi:1659",
           "members": [
             {
               "name": "readable",
@@ -6912,7 +6912,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1646",
+              "source": "core/streams.pi:1661",
               "members": []
             },
             {
@@ -6921,7 +6921,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1648",
+              "source": "core/streams.pi:1663",
               "members": []
             },
             {
@@ -6935,7 +6935,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1667",
+              "source": "core/streams.pi:1682",
               "members": []
             }
           ]
@@ -6964,7 +6964,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1433",
+              "source": "core/streams.pi:1436",
               "members": []
             },
             {
@@ -6978,7 +6978,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1448",
+              "source": "core/streams.pi:1451",
               "members": []
             },
             {
@@ -6992,7 +6992,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1469",
+              "source": "core/streams.pi:1472",
               "members": []
             },
             {
@@ -7006,7 +7006,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1492",
+              "source": "core/streams.pi:1499",
               "members": []
             },
             {
@@ -7020,7 +7020,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1514",
+              "source": "core/streams.pi:1521",
               "members": []
             }
           ]
@@ -7036,7 +7036,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1541",
+          "source": "core/streams.pi:1548",
           "members": [
             {
               "name": "start",
@@ -7044,7 +7044,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1543",
+              "source": "core/streams.pi:1550",
               "members": []
             },
             {
@@ -7053,7 +7053,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1546",
+              "source": "core/streams.pi:1553",
               "members": []
             },
             {
@@ -7062,7 +7062,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1548",
+              "source": "core/streams.pi:1555",
               "members": []
             },
             {
@@ -7071,7 +7071,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1551",
+              "source": "core/streams.pi:1558",
               "members": []
             }
           ]
@@ -8639,7 +8639,7 @@
                   "code": "// The path names a worker module, e.g. \"./job\" for job.pi beside this file:\n//   import { self } from \"std/worker\"\n//   self.onmessage = (n: int) => self.postMessage(n * n)\n// (This example names \"std/worker\" so it compiles on its own.)\nfunction start(): Worker<int, int> {\n  const w = new Worker<int, int>(\"std/worker\")\n  w.onmessage = (n: int) => println(`got ${n}`)\n  w.onerror = (e: WorkerPanicked) => println(`worker died: ${e.message}`)\n  w.postMessage(7)\n  return w\n}"
                 }
               ],
-              "source": "core/worker.pi:92",
+              "source": "core/worker.pi:95",
               "members": []
             },
             {
@@ -8653,7 +8653,7 @@
                   "code": "const w = new Worker((s: string): int => s.length)\nprintln(await w.call(\"hello\"))   // 5"
                 }
               ],
-              "source": "core/worker.pi:105",
+              "source": "core/worker.pi:108",
               "members": []
             },
             {
@@ -8667,21 +8667,21 @@
                   "code": "const w = new Worker((xs: int[]): int => {\n  let sum = 0\n  for (const x of xs) sum += x\n  return sum\n})\nconst [a, b] = await Promise.all([w.call([1, 2, 3]), w.call([10, 20])])\nprintln(a)   // 6\nprintln(b)   // 30"
                 }
               ],
-              "source": "core/worker.pi:138",
+              "source": "core/worker.pi:141",
               "members": []
             },
             {
               "name": "postMessage",
               "kind": "method",
               "signature": "public postMessage(message: In, options: TransferOptions? = null): void",
-              "doc": "<p>Sends a copy of <code>message</code> to the worker (<code>options.transfer</code>: buffers moved instead).</p>\n",
+              "doc": "<p>Sends a copy of <code>message</code> to the worker (<code>options.transfer</code>: buffers moved instead). Only\nfor a worker module: an inline worker (<code>new Worker(f)</code>) takes <code>call</code>s, and this panics.</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "// `w` runs a worker module (`new Worker<ArrayBuffer, int>(\"./job\")`) that takes byte buffers.\nfunction send(w: Worker<ArrayBuffer, int>): void {\n  const frame = new ArrayBuffer(1 << 20)\n  w.postMessage(frame, { transfer: [frame] })   // moved, not copied: `frame` is detached here\n}"
                 }
               ],
-              "source": "core/worker.pi:158",
+              "source": "core/worker.pi:167",
               "members": []
             },
             {
@@ -8695,7 +8695,7 @@
                   "code": "const w = new Worker((n: int): int => n + 1)\nprintln(await w.call(1))   // 2\nconst p = w.call(2)\nw.terminate()\ntry {\n  println(await p)\n} catch (e: WorkerPanicked) {\n  println(e.message)   // the worker was terminated\n}"
                 }
               ],
-              "source": "core/worker.pi:178",
+              "source": "core/worker.pi:191",
               "members": []
             }
           ]
@@ -9135,7 +9135,7 @@
               "code": "const n = navigator.hardwareConcurrency\nprintln(`up to ${n} workers in parallel`)   // e.g. up to 8 workers in parallel"
             }
           ],
-          "source": "core/worker.pi:271",
+          "source": "core/worker.pi:287",
           "members": [
             {
               "name": "hardwareConcurrency",
@@ -9148,7 +9148,7 @@
                   "code": "println(navigator.hardwareConcurrency > 0)   // true"
                 }
               ],
-              "source": "core/worker.pi:278",
+              "source": "core/worker.pi:294",
               "members": []
             }
           ]
@@ -21521,7 +21521,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1433",
+              "source": "core/streams.pi:1436",
               "members": []
             },
             {
@@ -21535,7 +21535,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1448",
+              "source": "core/streams.pi:1451",
               "members": []
             },
             {
@@ -21549,7 +21549,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1469",
+              "source": "core/streams.pi:1472",
               "members": []
             },
             {
@@ -21563,7 +21563,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1492",
+              "source": "core/streams.pi:1499",
               "members": []
             },
             {
@@ -21577,7 +21577,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1514",
+              "source": "core/streams.pi:1521",
               "members": []
             }
           ]
@@ -21593,7 +21593,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1541",
+          "source": "core/streams.pi:1548",
           "members": [
             {
               "name": "start",
@@ -21601,7 +21601,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1543",
+              "source": "core/streams.pi:1550",
               "members": []
             },
             {
@@ -21610,7 +21610,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1546",
+              "source": "core/streams.pi:1553",
               "members": []
             },
             {
@@ -21619,7 +21619,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1548",
+              "source": "core/streams.pi:1555",
               "members": []
             },
             {
@@ -21628,7 +21628,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1551",
+              "source": "core/streams.pi:1558",
               "members": []
             }
           ]
@@ -21644,7 +21644,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1644",
+          "source": "core/streams.pi:1659",
           "members": [
             {
               "name": "readable",
@@ -21652,7 +21652,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1646",
+              "source": "core/streams.pi:1661",
               "members": []
             },
             {
@@ -21661,7 +21661,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1648",
+              "source": "core/streams.pi:1663",
               "members": []
             },
             {
@@ -21675,7 +21675,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1667",
+              "source": "core/streams.pi:1682",
               "members": []
             }
           ]

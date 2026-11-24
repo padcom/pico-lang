@@ -242,6 +242,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
         reuse: None,
         tail_position: false,
         tail_body: false,
+        discard_tail: false,
         ret_hints: HashMap::new(),
         lenient_closures: false,
         diags: Vec::new(),
@@ -354,6 +355,9 @@ struct Checker<'p> {
     tail_position: bool,
     /// The next block checked is a function body (its tail is the result).
     tail_body: bool,
+    /// The next block checked is a body whose last expression's value is discarded (a `void`
+    /// function, the program's top level): a `try` there is a statement (#200).
+    discard_tail: bool,
     /// Lambdas' result types taken from the expected function type.
     ret_hints: HashMap<FnId, Ty>,
     /// While `pick_overload` retries: a plain lambda fits promise-returning function types too.
@@ -1232,6 +1236,7 @@ impl<'p> Checker<'p> {
             (_, true) | (Some(Ty::Void), _) => {
                 // The value of the last expression is discarded.
                 self.check_defaults(f);
+                self.discard_tail = true;
                 self.block(&f.body, None)
             }
             (Some(t), false) => {
@@ -1498,6 +1503,7 @@ impl<'p> Checker<'p> {
     fn block(&mut self, b: &Block, want: Option<&Expect>) -> Ty {
         // Only the function body's own tail is in tail position.
         let tail_body = std::mem::take(&mut self.tail_body);
+        let discard_tail = std::mem::take(&mut self.discard_tail);
         self.narrow.push(HashMap::new());
         let mut diverges = false;
         for s in &b.stmts {
@@ -1522,6 +1528,10 @@ impl<'p> Checker<'p> {
                 self.tail_position = tail_body && matches!(t.kind, ExprKind::Tailcall(_));
                 match want {
                     Some(w) => self.check(t, w),
+                    // An unused `try` value: its branches needn't agree, as for a statement.
+                    None if discard_tail && matches!(t.kind, ExprKind::Try { .. }) => {
+                        self.check(t, &Expect::new(Ty::Void))
+                    }
                     None => self.infer(t),
                 }
             }
