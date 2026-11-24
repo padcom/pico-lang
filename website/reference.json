@@ -694,7 +694,7 @@
               "code": "class Session implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"session closed\")\n  }\n}\n\nasync function run(): Promise<void> {\n  await using s = new Session()\n  println(\"working\")   // working\n}                      // session closed\n\nawait run()"
             }
           ],
-          "source": "core/promise.pi:652",
+          "source": "core/promise.pi:654",
           "members": [
             {
               "name": "disposeAsync",
@@ -707,7 +707,7 @@
                   "code": "class Upload implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"upload finished\")\n  }\n}\n\nconst u = new Upload()\nawait u.disposeAsync()   // upload finished"
                 }
               ],
-              "source": "core/promise.pi:666",
+              "source": "core/promise.pi:668",
               "members": []
             }
           ]
@@ -1352,7 +1352,7 @@
               "code": "const view = new DataView(new ArrayBuffer(6))\nview.setUint16(0, 0xCAFE)\nview.setUint32(2, 1, true)\nprintln(view.getUint8(0))          // 202\nprintln(view.getUint16(0, true))   // 65226\nprintln(view.getUint32(2, true))   // 1"
             }
           ],
-          "source": "core/buffer.pi:1098",
+          "source": "core/buffer.pi:1118",
           "members": [
             {
               "name": "buffer",
@@ -1360,7 +1360,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:1100",
+              "source": "core/buffer.pi:1120",
               "members": []
             },
             {
@@ -1369,7 +1369,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:1102",
+              "source": "core/buffer.pi:1122",
               "members": []
             },
             {
@@ -1383,7 +1383,7 @@
                   "code": "const buf = new ArrayBuffer(8)\nconst header = new DataView(buf, 0, 4)\nconst body = new DataView(buf, 4)\nprintln(header.byteLength)   // 4\nprintln(body.byteLength)     // 4"
                 }
               ],
-              "source": "core/buffer.pi:1116",
+              "source": "core/buffer.pi:1136",
               "members": []
             },
             {
@@ -1397,7 +1397,7 @@
                   "code": "const bytes = Uint8Array.from([0x00, 0x01, 0x00, 0x00])\nconst view = new DataView(bytes)\nprintln(view.getUint16(0))   // 1"
                 }
               ],
-              "source": "core/buffer.pi:1131",
+              "source": "core/buffer.pi:1151",
               "members": []
             },
             {
@@ -1411,7 +1411,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(12), 4)\nprintln(view.byteLength)   // 8"
                 }
               ],
-              "source": "core/buffer.pi:1144",
+              "source": "core/buffer.pi:1164",
               "members": []
             },
             {
@@ -1425,7 +1425,7 @@
                   "code": "const view = new DataView(Uint8Array.from([200, 7]))\nprintln(view.getUint8(0))   // 200\nprintln(view.getUint8(1))   // 7"
                 }
               ],
-              "source": "core/buffer.pi:1189",
+              "source": "core/buffer.pi:1209",
               "members": []
             },
             {
@@ -1439,7 +1439,7 @@
                   "code": "const view = new DataView(Uint8Array.from([253, 7]))\nprintln(view.getInt8(0))   // -3\nprintln(view.getInt8(1))   // 7"
                 }
               ],
-              "source": "core/buffer.pi:1199",
+              "source": "core/buffer.pi:1219",
               "members": []
             },
             {
@@ -1453,7 +1453,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint16(0, 513)\nprintln(view.getUint16(0))         // 513\nprintln(view.getUint16(0, true))   // 258 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1210",
+              "source": "core/buffer.pi:1230",
               "members": []
             },
             {
@@ -1467,7 +1467,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt16(0, -2)\nprintln(view.getInt16(0))         // -2\nprintln(view.getInt16(0, true))   // -257 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1221",
+              "source": "core/buffer.pi:1241",
               "members": []
             },
             {
@@ -1481,7 +1481,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setUint32(0, 3000000000)\nprintln(view.getUint32(0))         // 3000000000\nprintln(view.getUint32(0, true))   // 6213810 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1232",
+              "source": "core/buffer.pi:1252",
               "members": []
             },
             {
@@ -1495,7 +1495,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setInt32(0, -100000)\nprintln(view.getInt32(0))         // -100000\nprintln(view.getInt32(0, true))   // 1618607871 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1243",
+              "source": "core/buffer.pi:1263",
               "members": []
             },
             {
@@ -1509,7 +1509,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, -5)\nprintln(view.getBigInt64(0))   // -5"
                 }
               ],
-              "source": "core/buffer.pi:1253",
+              "source": "core/buffer.pi:1273",
               "members": []
             },
             {
@@ -1523,7 +1523,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, -1)\nprintln(view.getBigUint64(0))   // 18446744073709551615"
                 }
               ],
-              "source": "core/buffer.pi:1263",
+              "source": "core/buffer.pi:1283",
               "members": []
             },
             {
@@ -1537,7 +1537,7 @@
                   "code": "const view = new DataView(Uint8Array.from([0x3C, 0x00]))\nprintln(view.getFloat16(0))   // 1"
                 }
               ],
-              "source": "core/buffer.pi:1274",
+              "source": "core/buffer.pi:1294",
               "members": []
             },
             {
@@ -1551,7 +1551,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setFloat32(0, 0.75)\nprintln(view.getFloat32(0))   // 0.75"
                 }
               ],
-              "source": "core/buffer.pi:1284",
+              "source": "core/buffer.pi:1304",
               "members": []
             },
             {
@@ -1565,7 +1565,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setFloat64(0, 6.5, true)\nprintln(view.getFloat64(0, true))   // 6.5"
                 }
               ],
-              "source": "core/buffer.pi:1294",
+              "source": "core/buffer.pi:1314",
               "members": []
             },
             {
@@ -1579,7 +1579,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint8(0, 200)\nprintln(view.getUint8(0))   // 200\nprintln(view.getUint8(0))    // 200"
                 }
               ],
-              "source": "core/buffer.pi:1307",
+              "source": "core/buffer.pi:1327",
               "members": []
             },
             {
@@ -1593,7 +1593,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt8(0, -3)\nprintln(view.getInt8(0))   // -3\nprintln(view.getUint8(0))    // 253"
                 }
               ],
-              "source": "core/buffer.pi:1318",
+              "source": "core/buffer.pi:1338",
               "members": []
             },
             {
@@ -1607,7 +1607,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint16(0, 513, true)     // little-endian\nprintln(view.getUint16(0, true))   // 513\nprintln(view.getUint8(0))          // 1"
                 }
               ],
-              "source": "core/buffer.pi:1329",
+              "source": "core/buffer.pi:1349",
               "members": []
             },
             {
@@ -1621,7 +1621,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt16(0, -2, true)     // little-endian\nprintln(view.getInt16(0, true))   // -2\nprintln(view.getUint8(0))          // 254"
                 }
               ],
-              "source": "core/buffer.pi:1340",
+              "source": "core/buffer.pi:1360",
               "members": []
             },
             {
@@ -1635,7 +1635,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setUint32(0, 3000000000, true)     // little-endian\nprintln(view.getUint32(0, true))   // 3000000000\nprintln(view.getUint8(0))          // 0"
                 }
               ],
-              "source": "core/buffer.pi:1351",
+              "source": "core/buffer.pi:1371",
               "members": []
             },
             {
@@ -1649,7 +1649,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setInt32(0, -100000, true)     // little-endian\nprintln(view.getInt32(0, true))   // -100000\nprintln(view.getUint8(0))          // 96"
                 }
               ],
-              "source": "core/buffer.pi:1362",
+              "source": "core/buffer.pi:1382",
               "members": []
             },
             {
@@ -1663,7 +1663,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, 1234567890123)\nprintln(view.getBigInt64(0))   // 1234567890123"
                 }
               ],
-              "source": "core/buffer.pi:1372",
+              "source": "core/buffer.pi:1392",
               "members": []
             },
             {
@@ -1677,7 +1677,7 @@
                   "code": "const big: u64 = 18446744073709551615\nconst view = new DataView(new ArrayBuffer(8))\nview.setBigUint64(0, big)\nprintln(view.getBigUint64(0))   // 18446744073709551615\nprintln(view.getInt8(0))        // -1"
                 }
               ],
-              "source": "core/buffer.pi:1384",
+              "source": "core/buffer.pi:1404",
               "members": []
             },
             {
@@ -1691,7 +1691,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setFloat16(0, 0.1)\nprintln(view.getFloat16(0))   // 0.0999755859375"
                 }
               ],
-              "source": "core/buffer.pi:1396",
+              "source": "core/buffer.pi:1416",
               "members": []
             },
             {
@@ -1705,7 +1705,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setFloat32(0, 1.5, true)\nprintln(view.getUint8(3))           // 63\nprintln(view.getFloat32(0, true))   // 1.5"
                 }
               ],
-              "source": "core/buffer.pi:1407",
+              "source": "core/buffer.pi:1427",
               "members": []
             },
             {
@@ -1719,7 +1719,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setFloat64(0, -2.5)\nprintln(view.getFloat64(0))   // -2.5"
                 }
               ],
-              "source": "core/buffer.pi:1417",
+              "source": "core/buffer.pi:1437",
               "members": []
             }
           ]
@@ -2692,7 +2692,7 @@
               "code": "const xs = new Float32Array(3)\nxs.set(0, 0.5)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // 0.5"
             }
           ],
-          "source": "core/buffer.pi:842",
+          "source": "core/buffer.pi:854",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -2700,7 +2700,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:844",
+              "source": "core/buffer.pi:856",
               "members": []
             },
             {
@@ -2709,7 +2709,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:846",
+              "source": "core/buffer.pi:858",
               "members": []
             },
             {
@@ -2718,7 +2718,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:848",
+              "source": "core/buffer.pi:860",
               "members": []
             },
             {
@@ -2732,7 +2732,7 @@
                   "code": "const xs = new Float32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:859",
+              "source": "core/buffer.pi:871",
               "members": []
             },
             {
@@ -2746,7 +2746,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Float32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:874",
+              "source": "core/buffer.pi:886",
               "members": []
             },
             {
@@ -2760,7 +2760,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Float32Array(buf, 4, 2)\ntwo.set(0, 0.5)\nprintln(two.length)                 // 2\nprintln(new Float32Array(buf, 0)[1])   // 0.5"
                 }
               ],
-              "source": "core/buffer.pi:892",
+              "source": "core/buffer.pi:904",
               "members": []
             },
             {
@@ -2774,7 +2774,7 @@
                   "code": "const xs = new Float32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:905",
+              "source": "core/buffer.pi:917",
               "members": []
             },
             {
@@ -2788,7 +2788,7 @@
                   "code": "const xs = new Float32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:916",
+              "source": "core/buffer.pi:928",
               "members": []
             },
             {
@@ -2802,7 +2802,7 @@
                   "code": "const xs = new Float32Array(2)\nxs.set(1, 0.5)\nprintln(xs.get(1))   // 0.5\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:935",
+              "source": "core/buffer.pi:947",
               "members": []
             },
             {
@@ -2816,7 +2816,7 @@
                   "code": "const xs = new Float32Array(2)\nxs.set(0, 1.25)\nprintln(xs[0])   // 1.25"
                 }
               ],
-              "source": "core/buffer.pi:948",
+              "source": "core/buffer.pi:960",
               "members": []
             }
           ]
@@ -2832,7 +2832,7 @@
               "code": "const xs = new Float64Array(3)\nxs.set(0, 3.25)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 24\nprintln(xs[0])           // 3.25"
             }
           ],
-          "source": "core/buffer.pi:968",
+          "source": "core/buffer.pi:984",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -2840,7 +2840,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 8",
               "doc": "<p>The size of an element: 8 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:970",
+              "source": "core/buffer.pi:986",
               "members": []
             },
             {
@@ -2849,7 +2849,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:972",
+              "source": "core/buffer.pi:988",
               "members": []
             },
             {
@@ -2858,7 +2858,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:974",
+              "source": "core/buffer.pi:990",
               "members": []
             },
             {
@@ -2872,7 +2872,7 @@
                   "code": "const xs = new Float64Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 32"
                 }
               ],
-              "source": "core/buffer.pi:985",
+              "source": "core/buffer.pi:1001",
               "members": []
             },
             {
@@ -2886,7 +2886,7 @@
                   "code": "const buf = new ArrayBuffer(32)\nconst rest = new Float64Array(buf, 8)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:1000",
+              "source": "core/buffer.pi:1016",
               "members": []
             },
             {
@@ -2900,7 +2900,7 @@
                   "code": "const buf = new ArrayBuffer(32)\nconst two = new Float64Array(buf, 8, 2)\ntwo.set(0, 3.25)\nprintln(two.length)                 // 2\nprintln(new Float64Array(buf, 0)[1])   // 3.25"
                 }
               ],
-              "source": "core/buffer.pi:1018",
+              "source": "core/buffer.pi:1034",
               "members": []
             },
             {
@@ -2914,7 +2914,7 @@
                   "code": "const xs = new Float64Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:1031",
+              "source": "core/buffer.pi:1047",
               "members": []
             },
             {
@@ -2928,7 +2928,7 @@
                   "code": "const xs = new Float64Array(10)\nprintln(xs.byteLength)   // 80"
                 }
               ],
-              "source": "core/buffer.pi:1042",
+              "source": "core/buffer.pi:1058",
               "members": []
             },
             {
@@ -2942,7 +2942,7 @@
                   "code": "const xs = new Float64Array(2)\nxs.set(1, 3.25)\nprintln(xs.get(1))   // 3.25\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:1061",
+              "source": "core/buffer.pi:1077",
               "members": []
             },
             {
@@ -2956,7 +2956,7 @@
                   "code": "const xs = new Float64Array(2)\nxs.set(0, 1.25)\nprintln(xs[0])   // 1.25"
                 }
               ],
-              "source": "core/buffer.pi:1074",
+              "source": "core/buffer.pi:1090",
               "members": []
             }
           ]
@@ -3231,7 +3231,7 @@
               "code": "const xs = new Int32Array(3)\nxs.set(0, -7)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // -7"
             }
           ],
-          "source": "core/buffer.pi:585",
+          "source": "core/buffer.pi:589",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -3239,7 +3239,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:587",
+              "source": "core/buffer.pi:591",
               "members": []
             },
             {
@@ -3248,7 +3248,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:589",
+              "source": "core/buffer.pi:593",
               "members": []
             },
             {
@@ -3257,7 +3257,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:591",
+              "source": "core/buffer.pi:595",
               "members": []
             },
             {
@@ -3271,7 +3271,7 @@
                   "code": "const xs = new Int32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:602",
+              "source": "core/buffer.pi:606",
               "members": []
             },
             {
@@ -3285,7 +3285,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Int32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:617",
+              "source": "core/buffer.pi:621",
               "members": []
             },
             {
@@ -3299,7 +3299,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Int32Array(buf, 4, 2)\ntwo.set(0, -7)\nprintln(two.length)                 // 2\nprintln(new Int32Array(buf, 0)[1])   // -7"
                 }
               ],
-              "source": "core/buffer.pi:635",
+              "source": "core/buffer.pi:639",
               "members": []
             },
             {
@@ -3313,7 +3313,7 @@
                   "code": "const xs = new Int32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:648",
+              "source": "core/buffer.pi:652",
               "members": []
             },
             {
@@ -3327,7 +3327,7 @@
                   "code": "const xs = new Int32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:659",
+              "source": "core/buffer.pi:663",
               "members": []
             },
             {
@@ -3341,7 +3341,7 @@
                   "code": "const xs = new Int32Array(2)\nxs.set(1, -7)\nprintln(xs.get(1))   // -7\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:678",
+              "source": "core/buffer.pi:682",
               "members": []
             },
             {
@@ -3355,7 +3355,7 @@
                   "code": "const xs = new Int32Array(2)\nxs.set(0, 123)\nxs.set(1, 0x80000000)   // wraps\nprintln(xs[0])   // 123\nprintln(xs[1])   // -2147483648"
                 }
               ],
-              "source": "core/buffer.pi:693",
+              "source": "core/buffer.pi:697",
               "members": []
             }
           ]
@@ -6904,7 +6904,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1644",
+          "source": "core/streams.pi:1659",
           "members": [
             {
               "name": "readable",
@@ -6912,7 +6912,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1646",
+              "source": "core/streams.pi:1661",
               "members": []
             },
             {
@@ -6921,7 +6921,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1648",
+              "source": "core/streams.pi:1663",
               "members": []
             },
             {
@@ -6935,7 +6935,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1667",
+              "source": "core/streams.pi:1682",
               "members": []
             }
           ]
@@ -6964,7 +6964,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1433",
+              "source": "core/streams.pi:1436",
               "members": []
             },
             {
@@ -6978,7 +6978,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1448",
+              "source": "core/streams.pi:1451",
               "members": []
             },
             {
@@ -6992,7 +6992,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1469",
+              "source": "core/streams.pi:1472",
               "members": []
             },
             {
@@ -7006,7 +7006,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1492",
+              "source": "core/streams.pi:1499",
               "members": []
             },
             {
@@ -7020,7 +7020,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1514",
+              "source": "core/streams.pi:1521",
               "members": []
             }
           ]
@@ -7036,7 +7036,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1541",
+          "source": "core/streams.pi:1548",
           "members": [
             {
               "name": "start",
@@ -7044,7 +7044,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1543",
+              "source": "core/streams.pi:1550",
               "members": []
             },
             {
@@ -7053,7 +7053,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1546",
+              "source": "core/streams.pi:1553",
               "members": []
             },
             {
@@ -7062,7 +7062,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1548",
+              "source": "core/streams.pi:1555",
               "members": []
             },
             {
@@ -7071,7 +7071,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1551",
+              "source": "core/streams.pi:1558",
               "members": []
             }
           ]
@@ -7640,7 +7640,7 @@
               "code": "const xs = new Uint32Array(3)\nxs.set(0, 4000000000)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // 4000000000"
             }
           ],
-          "source": "core/buffer.pi:713",
+          "source": "core/buffer.pi:721",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -7648,7 +7648,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:715",
+              "source": "core/buffer.pi:723",
               "members": []
             },
             {
@@ -7657,7 +7657,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:717",
+              "source": "core/buffer.pi:725",
               "members": []
             },
             {
@@ -7666,7 +7666,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:719",
+              "source": "core/buffer.pi:727",
               "members": []
             },
             {
@@ -7680,7 +7680,7 @@
                   "code": "const xs = new Uint32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:730",
+              "source": "core/buffer.pi:738",
               "members": []
             },
             {
@@ -7694,7 +7694,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Uint32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:745",
+              "source": "core/buffer.pi:753",
               "members": []
             },
             {
@@ -7708,7 +7708,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Uint32Array(buf, 4, 2)\ntwo.set(0, 4000000000)\nprintln(two.length)                 // 2\nprintln(new Uint32Array(buf, 0)[1])   // 4000000000"
                 }
               ],
-              "source": "core/buffer.pi:763",
+              "source": "core/buffer.pi:771",
               "members": []
             },
             {
@@ -7722,7 +7722,7 @@
                   "code": "const xs = new Uint32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:776",
+              "source": "core/buffer.pi:784",
               "members": []
             },
             {
@@ -7736,7 +7736,7 @@
                   "code": "const xs = new Uint32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:787",
+              "source": "core/buffer.pi:795",
               "members": []
             },
             {
@@ -7750,7 +7750,7 @@
                   "code": "const xs = new Uint32Array(2)\nxs.set(1, 4000000000)\nprintln(xs.get(1))   // 4000000000\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:807",
+              "source": "core/buffer.pi:815",
               "members": []
             },
             {
@@ -7764,7 +7764,7 @@
                   "code": "const xs = new Uint32Array(2)\nxs.set(0, 123)\nxs.set(1, -1)   // wraps\nprintln(xs[0])   // 123\nprintln(xs[1])   // 4294967295"
                 }
               ],
-              "source": "core/buffer.pi:822",
+              "source": "core/buffer.pi:830",
               "members": []
             }
           ]
@@ -7918,7 +7918,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nconst mid = bytes.subarray(1, 3)\nmid.set(0, 9)\nprintln(mid.length)   // 2\nprintln(bytes[1])     // 9"
                 }
               ],
-              "source": "core/buffer.pi:396",
+              "source": "core/buffer.pi:400",
               "members": []
             },
             {
@@ -7932,7 +7932,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nconst copy = bytes.slice(-2)\ncopy.set(0, 0)\nprintln(copy.length)   // 2\nprintln(bytes[3])      // 4"
                 }
               ],
-              "source": "core/buffer.pi:413",
+              "source": "core/buffer.pi:417",
               "members": []
             },
             {
@@ -7946,7 +7946,7 @@
                   "code": "const out = new Uint8Array(5)\nout.setAll(Uint8Array.from([7, 8]), 2)\nprintln(out[2])   // 7\nprintln(out[3])   // 8"
                 }
               ],
-              "source": "core/buffer.pi:432",
+              "source": "core/buffer.pi:436",
               "members": []
             },
             {
@@ -7960,7 +7960,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nbytes.copyWithin(0, 3)\nprintln(bytes[0])   // 4\nprintln(bytes[1])   // 5\nprintln(bytes[2])   // 3"
                 }
               ],
-              "source": "core/buffer.pi:455",
+              "source": "core/buffer.pi:459",
               "members": []
             },
             {
@@ -7974,7 +7974,7 @@
                   "code": "const bytes = Uint8Array.from([10, 20, 30, 20])\nprintln(bytes.indexOf(20))      // 1\nprintln(bytes.indexOf(20, 2))   // 3\nprintln(bytes.indexOf(99))      // -1"
                 }
               ],
-              "source": "core/buffer.pi:479",
+              "source": "core/buffer.pi:483",
               "members": []
             },
             {
@@ -7988,7 +7988,7 @@
                   "code": "const bytes = Uint8Array.from([0x50, 0x4B, 0x03])\nprintln(bytes.includes(0x4B))   // true\nprintln(bytes.includes(0xFF))   // false"
                 }
               ],
-              "source": "core/buffer.pi:500",
+              "source": "core/buffer.pi:504",
               "members": []
             },
             {
@@ -8002,7 +8002,7 @@
                   "code": "const bytes = new Uint8Array(4).fill(255, 1, 3)\nprintln(bytes[0])   // 0\nprintln(bytes[1])   // 255\nprintln(bytes[3])   // 0"
                 }
               ],
-              "source": "core/buffer.pi:514",
+              "source": "core/buffer.pi:518",
               "members": []
             },
             {
@@ -8016,7 +8016,7 @@
                   "code": "const a = Uint8Array.from([1, 2, 3])\nconst b = Uint8Array.from([1, 2, 3])\nprintln(a.equals(b))                    // true\nprintln(a.equals(b.subarray(0, 2)))     // false"
                 }
               ],
-              "source": "core/buffer.pi:533",
+              "source": "core/buffer.pi:537",
               "members": []
             },
             {
@@ -8030,7 +8030,7 @@
                   "code": "const bytes = Uint8Array.from([72, 105, 256 + 33])\nprintln(bytes.length)   // 3\nprintln(bytes[2])       // 33"
                 }
               ],
-              "source": "core/buffer.pi:566",
+              "source": "core/buffer.pi:570",
               "members": []
             }
           ]
@@ -8639,7 +8639,7 @@
                   "code": "// The path names a worker module, e.g. \"./job\" for job.pi beside this file:\n//   import { self } from \"std/worker\"\n//   self.onmessage = (n: int) => self.postMessage(n * n)\n// (This example names \"std/worker\" so it compiles on its own.)\nfunction start(): Worker<int, int> {\n  const w = new Worker<int, int>(\"std/worker\")\n  w.onmessage = (n: int) => println(`got ${n}`)\n  w.onerror = (e: WorkerPanicked) => println(`worker died: ${e.message}`)\n  w.postMessage(7)\n  return w\n}"
                 }
               ],
-              "source": "core/worker.pi:92",
+              "source": "core/worker.pi:95",
               "members": []
             },
             {
@@ -8653,7 +8653,7 @@
                   "code": "const w = new Worker((s: string): int => s.length)\nprintln(await w.call(\"hello\"))   // 5"
                 }
               ],
-              "source": "core/worker.pi:105",
+              "source": "core/worker.pi:108",
               "members": []
             },
             {
@@ -8667,21 +8667,21 @@
                   "code": "const w = new Worker((xs: int[]): int => {\n  let sum = 0\n  for (const x of xs) sum += x\n  return sum\n})\nconst [a, b] = await Promise.all([w.call([1, 2, 3]), w.call([10, 20])])\nprintln(a)   // 6\nprintln(b)   // 30"
                 }
               ],
-              "source": "core/worker.pi:138",
+              "source": "core/worker.pi:141",
               "members": []
             },
             {
               "name": "postMessage",
               "kind": "method",
               "signature": "public postMessage(message: In, options: TransferOptions? = null): void",
-              "doc": "<p>Sends a copy of <code>message</code> to the worker (<code>options.transfer</code>: buffers moved instead).</p>\n",
+              "doc": "<p>Sends a copy of <code>message</code> to the worker (<code>options.transfer</code>: buffers moved instead). Only\nfor a worker module: an inline worker (<code>new Worker(f)</code>) takes <code>call</code>s, and this panics.</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "// `w` runs a worker module (`new Worker<ArrayBuffer, int>(\"./job\")`) that takes byte buffers.\nfunction send(w: Worker<ArrayBuffer, int>): void {\n  const frame = new ArrayBuffer(1 << 20)\n  w.postMessage(frame, { transfer: [frame] })   // moved, not copied: `frame` is detached here\n}"
                 }
               ],
-              "source": "core/worker.pi:158",
+              "source": "core/worker.pi:167",
               "members": []
             },
             {
@@ -8695,7 +8695,7 @@
                   "code": "const w = new Worker((n: int): int => n + 1)\nprintln(await w.call(1))   // 2\nconst p = w.call(2)\nw.terminate()\ntry {\n  println(await p)\n} catch (e: WorkerPanicked) {\n  println(e.message)   // the worker was terminated\n}"
                 }
               ],
-              "source": "core/worker.pi:178",
+              "source": "core/worker.pi:191",
               "members": []
             }
           ]
@@ -9135,7 +9135,7 @@
               "code": "const n = navigator.hardwareConcurrency\nprintln(`up to ${n} workers in parallel`)   // e.g. up to 8 workers in parallel"
             }
           ],
-          "source": "core/worker.pi:271",
+          "source": "core/worker.pi:287",
           "members": [
             {
               "name": "hardwareConcurrency",
@@ -9148,7 +9148,7 @@
                   "code": "println(navigator.hardwareConcurrency > 0)   // true"
                 }
               ],
-              "source": "core/worker.pi:278",
+              "source": "core/worker.pi:294",
               "members": []
             }
           ]
@@ -21521,7 +21521,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1433",
+              "source": "core/streams.pi:1436",
               "members": []
             },
             {
@@ -21535,7 +21535,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1448",
+              "source": "core/streams.pi:1451",
               "members": []
             },
             {
@@ -21549,7 +21549,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1469",
+              "source": "core/streams.pi:1472",
               "members": []
             },
             {
@@ -21563,7 +21563,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1492",
+              "source": "core/streams.pi:1499",
               "members": []
             },
             {
@@ -21577,7 +21577,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1514",
+              "source": "core/streams.pi:1521",
               "members": []
             }
           ]
@@ -21593,7 +21593,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1541",
+          "source": "core/streams.pi:1548",
           "members": [
             {
               "name": "start",
@@ -21601,7 +21601,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1543",
+              "source": "core/streams.pi:1550",
               "members": []
             },
             {
@@ -21610,7 +21610,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1546",
+              "source": "core/streams.pi:1553",
               "members": []
             },
             {
@@ -21619,7 +21619,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1548",
+              "source": "core/streams.pi:1555",
               "members": []
             },
             {
@@ -21628,7 +21628,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1551",
+              "source": "core/streams.pi:1558",
               "members": []
             }
           ]
@@ -21644,7 +21644,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1644",
+          "source": "core/streams.pi:1659",
           "members": [
             {
               "name": "readable",
@@ -21652,7 +21652,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1646",
+              "source": "core/streams.pi:1661",
               "members": []
             },
             {
@@ -21661,7 +21661,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1648",
+              "source": "core/streams.pi:1663",
               "members": []
             },
             {
@@ -21675,7 +21675,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1667",
+              "source": "core/streams.pi:1682",
               "members": []
             }
           ]

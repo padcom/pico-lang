@@ -6059,7 +6059,11 @@ impl<'p> Checker<'p> {
         #[allow(clippy::needless_range_loop)]
         for k in 0..n {
             if slots[k].is_none() {
-                if f.defaults.get(k).is_some_and(Option::is_some) {
+                // A `void` parameter may be left out, as in TypeScript (#210): `resolve()` of a
+                // `PromiseWithResolvers<void>`. Its value is nothing.
+                if f.defaults.get(k).is_some_and(Option::is_some)
+                    || params.get(k) == Some(&Ty::Void)
+                {
                     slots[k] = Some(Slot::Default);
                 } else {
                     let missing = names.get(k).copied().unwrap_or("?").to_string();
@@ -7398,6 +7402,20 @@ impl<'p> Checker<'p> {
             self.types.arg_slots.insert(e.id, slots);
             sig.params.truncate(fixed);
             sig.params.resize(args.len(), elem);
+        }
+        // Trailing `void` parameters may be left out (#210), as for function values:
+        // `resolve()` of a `PromiseWithResolvers<void>`.
+        if args.len() < sig.params.len()
+            && !self.types.arg_slots.contains_key(&e.id)
+            && sig.params[args.len()..].iter().all(|p| *p == Ty::Void)
+            && !args
+                .iter()
+                .any(|a| matches!(a.kind, ExprKind::NamedArg { .. } | ExprKind::Spread(_)))
+        {
+            let mut slots: Vec<Slot> = (0..args.len()).map(Slot::Arg).collect();
+            slots.extend((args.len()..sig.params.len()).map(|_| Slot::Default));
+            self.types.arg_slots.insert(e.id, slots);
+            sig.params.truncate(args.len());
         }
         if args.len() != sig.params.len() {
             self.diags.push(
