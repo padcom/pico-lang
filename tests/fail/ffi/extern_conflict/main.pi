@@ -1,0 +1,9 @@
+// error: E0355
+// at: 7:12
+// Two `extern` blocks that declare one C function must agree on its C types (#190).
+import { abs as absInt } from "./c"
+println(absInt(-3))
+extern "C" {
+  function abs(x: f64): f64
+}
+println(abs(-2.5))

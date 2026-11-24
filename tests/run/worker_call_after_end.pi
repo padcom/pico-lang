@@ -1,0 +1,27 @@
+// expect: 3
+// expect: rejected: the worker was terminated
+// expect: onerror: index out of bounds
+// expect: first: index out of bounds
+// expect: again: index out of bounds
+// A `call` on a worker that is gone (terminated, or ended by a panic) rejects at once with why,
+// as the calls pending at that moment do; it waited forever (#203).
+const w = new Worker((n: int): int => n + 1)
+println(await w.call(2))
+w.terminate()
+try {
+  println(await w.call(2))
+} catch (e: WorkerPanicked) {
+  println(`rejected: ${e.message}`)
+}
+const crash = new Worker((i: int): int => [1, 2][i])
+crash.onerror = (e: WorkerPanicked) => println(`onerror: ${e.message}`)
+try {
+  println(await crash.call(5))
+} catch (e: WorkerPanicked) {
+  println(`first: ${e.message}`)
+}
+try {
+  println(await crash.call(0))
+} catch (e: WorkerPanicked) {
+  println(`again: ${e.message}`)
+}

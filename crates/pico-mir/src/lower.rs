@@ -4273,10 +4273,15 @@ impl FnBuilder<'_, '_> {
         {
             // A user operator, or `equals` / `compareTo`.
             let rt = self.cx.sig(m).ret;
+            // `compareTo` returns any integer type (`int` is `i64`): compare with its zero (#199).
+            let zero_ty = match &rt {
+                Ty::Int(it) => *it,
+                _ => IntTy::I32,
+            };
             let v = self.user_call(e, m, l, &[r], rt);
             return match op {
                 B::Lt | B::Le | B::Gt | B::Ge => self.rvalue_to_temp(
-                    Rvalue::Binary(bin_op(op), v, Operand::Const(Const::Int(0, IntTy::I32))),
+                    Rvalue::Binary(bin_op(op), v, Operand::Const(Const::Int(0, zero_ty))),
                     Ty::Bool,
                     e.span,
                 ),
