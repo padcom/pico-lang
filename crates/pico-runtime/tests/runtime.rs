@@ -34,8 +34,14 @@ fn run_c(name: &str, src: &str, stdin: &[u8]) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(stdin).unwrap();
-    child.wait_with_output().unwrap()
+    // Feed stdin from another thread: a large input and output would otherwise fill both pipes
+    // and leave the child and this test waiting on each other.
+    let mut pipe = child.stdin.take().unwrap();
+    let input = stdin.to_vec();
+    let writer = std::thread::spawn(move || pipe.write_all(&input).unwrap());
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    out
 }
 
 #[test]
@@ -112,6 +118,33 @@ fn float_formatting_matches_interpreter() {
         1234.5678,
     ];
     let mut rng = Rng(0x9E3779B97F4A7C15);
+    // Subnormals, which the runtime formats without the C library (#189): the smallest few, the
+    // largest, one either side of powers of ten, and many at random.
+    for bits in [
+        1u64,
+        2,
+        3,
+        4,
+        5,
+        9,
+        10,
+        99,
+        100,
+        0x000F_FFFF_FFFF_FFFF,
+        0x000F_FFFF_FFFF_FFFE,
+    ] {
+        values.push(f64::from_bits(bits));
+        values.push(-f64::from_bits(bits));
+    }
+    for e in 308..=323 {
+        let v: f64 = format!("1e-{e}").parse().unwrap();
+        for d in [-1i64, 0, 1] {
+            values.push(f64::from_bits((v.to_bits() as i64 + d) as u64));
+        }
+    }
+    for _ in 0..3000 {
+        values.push(f64::from_bits(rng.next() & 0x000F_FFFF_FFFF_FFFF));
+    }
     for _ in 0..3000 {
         let bits = rng.next();
         let v = f64::from_bits(bits);

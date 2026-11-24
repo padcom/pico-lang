@@ -476,8 +476,124 @@ static int js_layout(bool neg, const char *digits, int k, int n, char *out) {
 static int special(double v, char *out) {
     if (isnan(v)) return sprintf(out, "NaN");
     if (isinf(v)) return sprintf(out, v > 0 ? "Infinity" : "-Infinity");
-    if (v == 0.0) return sprintf(out, "0");
+    /* Zero by its bits: where subnormals are flushed to zero, a subnormal compares equal to 0.0 (#189). */
+    uint64_t raw;
+    memcpy(&raw, &v, sizeof raw);
+    if ((raw & 0x7FFFFFFFFFFFFFFFull) == 0) return sprintf(out, "0");
     return -1;
+}
+
+
+/* --- The shortest digits of a subnormal double, by exact integer arithmetic (#189) ---
+ * Some C libraries flush subnormals to zero in printf and strtod (Windows on arm64 printed
+ * 5e-324 as 0.0), so a subnormal is not given to them: v = f * 2^-1074 exactly, and the
+ * shortest digits that read back as v are found within half a unit of it (steps of 2^-1075),
+ * rounding half to even at the edges, as strtod does. Plain big integers: 2^1075 has 1076 bits,
+ * 2f * 10^324 about 1130, and at most 17 digits are made, so 48 limbs of 32 bits are enough. */
+#define SUB_LIMBS 48
+typedef struct { uint32_t w[SUB_LIMBS]; } sub_big;
+
+static void sub_small(sub_big *b, uint64_t v) {
+    memset(b, 0, sizeof *b);
+    b->w[0] = (uint32_t)v;
+    b->w[1] = (uint32_t)(v >> 32);
+}
+static void sub_mul(sub_big *b, uint32_t m) {
+    uint64_t carry = 0;
+    for (int i = 0; i < SUB_LIMBS; i++) {
+        uint64_t x = (uint64_t)b->w[i] * m + carry;
+        b->w[i] = (uint32_t)x;
+        carry = x >> 32;
+    }
+}
+static int sub_cmp(const sub_big *a, const sub_big *b) {
+    for (int i = SUB_LIMBS - 1; i >= 0; i--)
+        if (a->w[i] != b->w[i]) return a->w[i] < b->w[i] ? -1 : 1;
+    return 0;
+}
+static void sub_sub(sub_big *a, const sub_big *b) { /* a -= b, a >= b */
+    int64_t borrow = 0;
+    for (int i = 0; i < SUB_LIMBS; i++) {
+        int64_t x = (int64_t)a->w[i] - b->w[i] - borrow;
+        borrow = x < 0;
+        a->w[i] = (uint32_t)(x + (borrow ? (int64_t)1 << 32 : 0));
+    }
+}
+static void sub_add(sub_big *out, const sub_big *a, const sub_big *b) {
+    uint64_t carry = 0;
+    for (int i = 0; i < SUB_LIMBS; i++) {
+        uint64_t x = (uint64_t)a->w[i] + b->w[i] + carry;
+        out->w[i] = (uint32_t)x;
+        carry = x >> 32;
+    }
+}
+
+/* The digits (no trailing zeros) of the subnormal with mantissa bits f (1 .. 2^52 - 1), and in
+ * *n where the decimal point goes (value = 0.d1d2... * 10^n), as shortest_digits gives them. */
+static int shortest_subnormal(uint64_t f, char *digits, int *n) {
+    sub_big S, R, M, t;
+    sub_small(&S, 1);
+    for (int i = 0; i < 1075; i++) sub_mul(&S, 2); /* S = 2^1075: one half-step is 1/S */
+    /* The decimal exponent k of the first digit: v * 10^-k in [1, 10). v < 2.3e-308, so -k is
+     * at least 308; start from an estimate and correct it. */
+    int bits = 0;
+    for (uint64_t x = f; x; x >>= 1) bits++;
+    int k = (int)((bits - 1 - 1074) * 0.30102999566398) - 1;
+    for (;;) {
+        sub_small(&R, 2 * f);
+        for (int i = 0; i < -k; i++) sub_mul(&R, 10); /* R / S = v * 10^-k */
+        t = S;
+        sub_mul(&t, 10);
+        if (sub_cmp(&R, &t) >= 0) { k++; continue; }
+        if (sub_cmp(&R, &S) < 0) { k--; continue; }
+        break;
+    }
+    sub_small(&M, 1);
+    for (int i = 0; i < -k; i++) sub_mul(&M, 10); /* M / S = half a step * 10^-k */
+    bool even = (f & 1) == 0; /* an even mantissa: the edges round to it (half to even) */
+    int len = 0;
+    for (;;) {
+        int d = 0;
+        while (sub_cmp(&R, &S) >= 0) { sub_sub(&R, &S); d++; }
+        sub_add(&t, &R, &M);
+        int lo = sub_cmp(&R, &M), hi = sub_cmp(&t, &S);
+        bool low = even ? lo <= 0 : lo < 0;   /* the digits so far are within the interval */
+        bool high = even ? hi >= 0 : hi > 0;  /* one more than d is */
+        if (low || high || len == 16) {
+            bool up = high && !low;
+            if (high && low) { /* both: the nearer one, half to an even digit */
+                sub_big r2 = R;
+                sub_mul(&r2, 2);
+                int c = sub_cmp(&r2, &S);
+                up = c > 0 || (c == 0 && (d & 1));
+            }
+            if (!high && !low) { /* the 17th digit: rounded to nearest */
+                sub_big r2 = R;
+                sub_mul(&r2, 2);
+                up = sub_cmp(&r2, &S) >= 0;
+            }
+            if (up) d++;
+            digits[len++] = (char)('0' + d);
+            break;
+        }
+        digits[len++] = (char)('0' + d);
+        sub_mul(&R, 10);
+        sub_mul(&M, 10);
+    }
+    /* A rounding up that carried (…9 → …10). */
+    for (int i = len - 1; i > 0 && digits[i] > '9'; i--) {
+        digits[i] = '0';
+        digits[i - 1]++;
+    }
+    if (digits[0] > '9') {
+        digits[0] = '1';
+        for (int i = 1; i < len; i++) digits[i] = '0';
+        k++;
+    }
+    while (len > 1 && digits[len - 1] == '0') len--;
+    digits[len] = 0;
+    *n = k + 1;
+    return len;
 }
 
 /* Whether the p-digit integer m times 10^(e - p + 1) reads back as v. */
@@ -494,6 +610,12 @@ static bool round_trips(unsigned long long m, int p, int e, double v, bool is_f3
  * `pico_interp::shortest_digits`. */
 static int shortest_digits(double v, bool is_f32, char *digits, int *n) {
     char sci[40];
+    if (!is_f32) {
+        uint64_t raw;
+        memcpy(&raw, &v, sizeof raw);
+        uint64_t mant = raw & 0x000FFFFFFFFFFFFFull;
+        if ((raw & 0x7FF0000000000000ull) == 0 && mant != 0) return shortest_subnormal(mant, digits, n);
+    }
     int max = is_f32 ? 9 : 17;
     for (int p = 1; p <= max; p++) {
         snprintf(sci, sizeof sci, "%.*e", p - 1, is_f32 ? (double)(float)v : v);
