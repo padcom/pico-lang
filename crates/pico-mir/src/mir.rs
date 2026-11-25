@@ -116,6 +116,8 @@ pub struct Export {
 #[derive(Debug, Default, Clone)]
 pub struct ClassMeta {
     pub base: Option<StructId>,
+    /// A generic base's type arguments, in this class's parameters (#51).
+    pub base_args: Vec<Ty>,
     pub vtable: Vec<FnId>,
 }
 

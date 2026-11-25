@@ -204,6 +204,7 @@ pub fn lower(
             is_class: s.is_class,
             meta: mir::ClassMeta {
                 base: s.base,
+                base_args: s.base_args.clone(),
                 vtable: s.vtable.clone(),
             },
         })
@@ -3817,7 +3818,9 @@ impl FnBuilder<'_, '_> {
                 let mut ops = vec![Operand::Copy(self.place(hir::Var::Local(this)))];
                 let rest = self.call_operands(e, *method, args);
                 ops.extend(rest);
-                self.call_fn_value(*method, ops, ty, e.span)
+                // (A generic base's method: its instance, #51.)
+                let m = self.method_target(e, *method);
+                self.call_fn_value(m, ops, ty, e.span)
             }
             ExprKind::InstanceOf { expr, class } => {
                 let v = self.expr(expr);

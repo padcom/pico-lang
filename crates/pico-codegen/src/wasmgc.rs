@@ -675,17 +675,34 @@ impl<'p> Gen<'p> {
                 // to `anyref`, and the type is keyed by that layout (so `Promise<int, never>`
                 // fits where `Promise<int, Error>` is expected).
                 let generic = is_class && !args.is_empty();
+                // (A generic base's instance first: a field it erases is erased here too, as a
+                // subtype's fields must match its supertype's, #51.)
+                let base_args: Vec<Ty> = layout
+                    .meta
+                    .base_args
+                    .iter()
+                    .map(|a| a.subst(owner, args))
+                    .collect();
+                let base_idx = base.map(|b| {
+                    self.struct_type(&Ty::Class(
+                        b,
+                        self.p.layout(b).name.as_str().into(),
+                        base_args.clone().into(),
+                    ))
+                });
                 let erased: Vec<bool> = layout
                     .fields
                     .iter()
                     .zip(&fields)
-                    .map(|((_, declared), ft)| {
-                        generic
-                            && declared != ft
-                            && !matches!(
-                                ft.erase(),
-                                Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char
-                            )
+                    .enumerate()
+                    .map(|(i, ((_, declared), ft))| {
+                        base_idx.is_some_and(|b| self.erased_field(b, i as u32 + 1))
+                            || generic
+                                && declared != ft
+                                && !matches!(
+                                    ft.erase(),
+                                    Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char
+                                )
                     })
                     .collect();
                 let key = if generic {
@@ -700,17 +717,11 @@ impl<'p> Gen<'p> {
                 } else {
                     Key::Ty(t.clone())
                 };
-                self.register(key, |g| Def::Struct {
+                self.register(key, |_| Def::Struct {
                     fields,
                     erased,
                     class: is_class,
-                    base: base.map(|b| {
-                        g.struct_type(&Ty::Class(
-                            b,
-                            g.p.layout(b).name.as_str().into(),
-                            Vec::new().into(),
-                        ))
-                    }),
+                    base: base_idx,
                     is_final: !is_class,
                 })
             }
@@ -737,14 +748,24 @@ impl<'p> Gen<'p> {
         let Ty::Class(sid, ..) = t else {
             return t.clone();
         };
+        // (With the type arguments each class gives a generic base, #51.)
         let mut c = *sid;
+        let mut args: Vec<Ty> = t.type_args().to_vec();
         while let Some(b) = self.p.layout(c).meta.base {
+            args = self
+                .p
+                .layout(c)
+                .meta
+                .base_args
+                .iter()
+                .map(|a| a.subst(Ty::type_owner(c), &args))
+                .collect();
             c = b;
         }
         if c == *sid {
             t.clone()
         } else {
-            Ty::Class(c, self.p.layout(c).name.as_str().into(), Vec::new().into())
+            Ty::Class(c, self.p.layout(c).name.as_str().into(), args.into())
         }
     }
 

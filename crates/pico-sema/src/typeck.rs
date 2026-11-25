@@ -812,7 +812,16 @@ impl<'p> Checker<'p> {
                         .zip(ys.iter())
                         .all(|(x, y)| x == y || loose(x) && loose(y))
             }
-            (Ty::Class(a, _, _), Ty::Class(b, _, _)) => self.program.is_subclass(*a, *b),
+            // (A generic base with the arguments the subclass gives it, #51.)
+            (Ty::Class(a, _, xs), Ty::Class(b, _, ys)) => {
+                self.program.is_subclass(*a, *b)
+                    && (ys.is_empty()
+                        || self.program.base_args_of(*a, *b).is_some_and(|args| {
+                            args.iter()
+                                .map(|t| t.subst(Ty::type_owner(*a), xs))
+                                .eq(ys.iter().cloned())
+                        }))
+            }
             // To an interface the type implements (nominally).
             // (A generic interface with the type arguments it's implemented with, #51.)
             (Ty::Class(a, _, xs) | Ty::Struct(a, _, xs), Ty::Iface(i, _, ys)) => {
@@ -2903,7 +2912,11 @@ impl<'p> Checker<'p> {
                     }
                     return Ty::Void;
                 };
-                let recv = def.self_ty(*class).type_args().to_vec();
+                // (`super(…)` of a generic base: the arguments this class gives it, #51.)
+                let recv = match self.cur_class().filter(|o| o != class) {
+                    Some(o) => self.program.base_args_of(o, *class).unwrap_or_default(),
+                    None => def.self_ty(*class).type_args().to_vec(),
+                };
                 self.types.ctor_calls.insert(e.id, ctor);
                 let (_, _) = self.call_inferring(
                     e,
@@ -2963,7 +2976,27 @@ impl<'p> Checker<'p> {
                     _ => Ty::Void,
                 }
             }
-            ExprKind::SuperCall { method, args } => self.call_fn(e, *method, args),
+            ExprKind::SuperCall { method, args } => {
+                // A generic base's method (#51): with the arguments this class gives the base.
+                let decl = self.program.func(*method).owner;
+                match (decl, self.cur_class()) {
+                    (Some(b), Some(o)) if !self.program.struct_def(b).generics.is_empty() => {
+                        let recv = self.program.base_args_of(o, b).unwrap_or_default();
+                        let (ret, _) = self.call_inferring(
+                            e,
+                            *method,
+                            &args.iter().collect::<Vec<_>>(),
+                            &[],
+                            method.0,
+                            &[],
+                            Some((Ty::type_owner(b), &recv)),
+                        );
+                        self.types.recv_args.insert(e.id, recv);
+                        ret
+                    }
+                    _ => self.call_fn(e, *method, args),
+                }
+            }
             ExprKind::InstanceOf { expr, class } => {
                 let t = self.infer(expr);
                 let ok = match &t {
@@ -6844,10 +6877,26 @@ impl<'p> Checker<'p> {
                             self.types.virtual_calls.insert(e.id, slot);
                         }
                         let own = self.program.func(m).generics.clone();
-                        if !def.generics.is_empty() || !own.is_empty() {
+                        // An inherited method of a generic base sees the base's arguments as
+                        // this receiver gives them (#51).
+                        let decl = self.program.func(m).owner.filter(|o| {
+                            *o != *sid && !self.program.struct_def(*o).generics.is_empty()
+                        });
+                        if !def.generics.is_empty() || !own.is_empty() || decl.is_some() {
                             // Seen through the receiver's type arguments, then inferring the
                             // method's own.
-                            let recv = t.type_args().to_vec();
+                            let (owner, recv) = match decl {
+                                Some(o) => (
+                                    Ty::type_owner(o),
+                                    self.program
+                                        .base_args_of(*sid, o)
+                                        .unwrap_or_default()
+                                        .iter()
+                                        .map(|a| a.subst(Ty::type_owner(*sid), t.type_args()))
+                                        .collect::<Vec<Ty>>(),
+                                ),
+                                None => (Ty::type_owner(*sid), t.type_args().to_vec()),
+                            };
                             let (ret, targs) = self.call_inferring(
                                 e,
                                 m,
@@ -6855,7 +6904,7 @@ impl<'p> Checker<'p> {
                                 &explicit,
                                 m.0,
                                 &own,
-                                Some((Ty::type_owner(*sid), &recv)),
+                                Some((owner, &recv)),
                             );
                             self.types.recv_args.insert(e.id, recv);
                             self.types.instances.insert(e.id, targs);
@@ -7119,6 +7168,13 @@ impl<'p> Checker<'p> {
             );
         }
         Some(ret)
+    }
+
+    /// The class whose method or constructor is being checked.
+    fn cur_class(&self) -> Option<StructId> {
+        let id = self.stack.last()?.id;
+        let f = self.program.func(id);
+        f.this.map(|t| t.1).or(f.owner)
     }
 
     /// Whether `a<xs>` implements the generic interface `i` with the arguments `ys` (#51):
