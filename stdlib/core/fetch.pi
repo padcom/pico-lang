@@ -625,6 +625,12 @@ class __HttpReader {
     return true
   }
 
+  /// Whether everything read so far has been used and the connection hasn't ended: nothing of a
+  /// next message is mixed in (#138).
+  public drained(): bool {
+    return this.pos == this.buf.length && !this.eof
+  }
+
   /// Bytes `from..to` of the buffer as text (each byte one character, as HTTP heads are).
   latin1(from: int, to: int): string {
     let s = ""
@@ -836,7 +842,69 @@ function __connectHost(u: URL): string {
   if (h.startsWith("[")) h.slice(1, h.length - 1) else h
 }
 
-/// One request and its response (no redirects).
+/// An idle keep-alive connection (#138) and when it became idle.
+struct __IdleConn {
+  conn: Conn
+  since: int
+}
+
+/// `fetch`'s idle HTTP/1.1 connections by origin (scheme, host, port and the CA certificates it
+/// was verified with), reused by later requests (#138). An idle connection doesn't keep the
+/// program running; one idle longer than 4 s is closed when its origin is next used, and an
+/// origin keeps at most 6 (as browsers do).
+class __ConnPool {
+  public idle: Map<string, __IdleConn[]> = new Map<string, __IdleConn[]>()
+
+  /// A connection to `key` that has been idle less than 4 s, or `null`.
+  public take(key: string): Conn? {
+    const list = this.idle.get(key)
+    if (list == null) {
+      return null
+    }
+    const now = __clock_ms()
+    while (list.length > 0) {
+      const e = list.pop()
+      if (e != null) {
+        if (now - e.since < 4000) {
+          return e.conn
+        }
+        e.conn.close()
+      }
+    }
+    return null
+  }
+
+  /// Keeps `conn` for `key` (closing the oldest past 6).
+  public give(key: string, conn: Conn): void {
+    const found = this.idle.get(key)
+    const list: __IdleConn[] = found ?? []
+    if (found == null) {
+      this.idle.set(key, list)
+    }
+    list.push({ conn: conn, since: __clock_ms() })
+    while (list.length > 6) {
+      const oldest = list.shift()
+      if (oldest != null) oldest.conn.close()
+    }
+  }
+}
+
+let __pool: __ConnPool? = null
+
+function __connPool(): __ConnPool {
+  const p = __pool
+  if (p != null) {
+    return p
+  }
+  const made = new __ConnPool()
+  __pool = made
+  return made
+}
+
+/// One request and its response (no redirects), on an idle connection to its origin when there
+/// is one (#138). A reused connection the server has closed in the meantime gives no response:
+/// the request is then sent once more on a new connection (unless its body was a stream, which
+/// can't be sent twice).
 async function __fetchOnce(req: Request, ctl: __FetchControl): Promise<Response> throws Error {
   const u = new URL(req.url)
   const tls = u.protocol == "https:"
@@ -844,6 +912,17 @@ async function __fetchOnce(req: Request, ctl: __FetchControl): Promise<Response>
     throw new TypeError(`fetch: ${u.protocol} URLs aren't supported (only http: and https:)`)
   }
   const port = if (u.port.length > 0) parseInt(u.port) else if (tls) 443 else 80
+  const key = `${u.protocol}//${__connectHost(u)}:${port}#${req.__caCerts.join("\n")}`
+  const idle = __connPool().take(key)
+  if (idle != null) {
+    const res = await __exchange(req, u, idle, key, ctl, true)
+    if (res != null) {
+      return res
+    }
+    if (req.__stream != null) {
+      throw new TypeError("fetch failed: the server closed the kept-alive connection")
+    }
+  }
   let conn: Conn? = null
   const connecting = ctl.connectTimer(u.host)
   try {
@@ -865,8 +944,22 @@ async function __fetchOnce(req: Request, ctl: __FetchControl): Promise<Response>
   if (c == null) {
     throw new TypeError("fetch failed")
   }
+  const res = await __exchange(req, u, c, key, ctl, false)
+  if (res == null) {
+    throw new TypeError("fetch failed: the server closed the connection without a response")
+  }
+  return res
+}
+
+/// Sends `req` on `c` and reads the response. Afterwards `c` goes back to the pool under `key`
+/// when the response was complete and both sides keep the connection open, and is closed
+/// otherwise. `null`: `reused` and the connection failed before any of a response arrived.
+async function __exchange(req: Request, u: URL, c: Conn, key: string, ctl: __FetchControl, reused: bool): Promise<Response?> throws Error {
+  ctl.conn = c
+  let keep = false
+  let started = false
   try {
-    const extra: [string, string][] = [["host", u.host], ["connection", "close"]]
+    const extra: [string, string][] = [["host", u.host]]
     if (!req.headers.has("user-agent")) {
       extra.push(["user-agent", "pico"])
     }
@@ -875,24 +968,43 @@ async function __fetchOnce(req: Request, ctl: __FetchControl): Promise<Response>
     }
     const noLength = req.__bytes == null && req.__stream == null && (req.method == "GET" || req.method == "HEAD")
     const target = `${u.pathname}${u.search}`
-    if (noLength) {
-      let head = `${req.method} ${target} HTTP/1.1\r\n`
-      for (const [k, v] of extra) {
-        head = `${head}${k}: ${v}\r\n`
-      }
-      for (const [k, v] of req.headers.__raw()) {
-        head = `${head}${k}: ${v}\r\n`
-      }
-      await c.writeText(`${head}\r\n`);
-    } else {
-      await __writeMessage(c, `${req.method} ${target} HTTP/1.1`, extra, req, false)
-    }
     const r = new __HttpReader(c)
+    try {
+      if (noLength) {
+        let head = `${req.method} ${target} HTTP/1.1\r\n`
+        for (const [k, v] of extra) {
+          head = `${head}${k}: ${v}\r\n`
+        }
+        for (const [k, v] of req.headers.__raw()) {
+          head = `${head}${k}: ${v}\r\n`
+        }
+        await c.writeText(`${head}\r\n`);
+      } else {
+        await __writeMessage(c, `${req.method} ${target} HTTP/1.1`, extra, req, false)
+      }
+    } catch (e: NetError) {
+      if (reused && ctl.reason == null) {
+        return null
+      }
+      throw e
+    }
     while (true) {
-      const text = await r.head()
+      let text: string? = null
+      try {
+        text = await r.head()
+      } catch (e: NetError) {
+        if (reused && !started && ctl.reason == null) {
+          return null
+        }
+        throw e
+      }
       if (text == null) {
+        if (reused && !started) {
+          return null
+        }
         throw new TypeError("fetch failed: the server closed the connection without a response")
       }
+      started = true
       const h = __parseHead(text)
       const status = parseInt(h.second)
       if (status >= 100 && status < 200) {
@@ -907,12 +1019,42 @@ async function __fetchOnce(req: Request, ctl: __FetchControl): Promise<Response>
         headers: h.headers,
       })
       res.url = req.url
+      keep = __keepsAlive(req, h, empty) && r.drained()
       return res
     }
     throw new TypeError("fetch failed")
   } finally {
-    c.close()
+    if (ctl.conn == c) {
+      ctl.conn = null
+    }
+    if (keep && ctl.reason == null) {
+      __connPool().give(key, c)
+    } else {
+      c.close()
+    }
   }
+}
+
+/// Whether the connection can carry another request after this response (#138): HTTP/1.1 (or
+/// 1.0 that asked to keep alive), no `Connection: close` from either side, and a body whose end
+/// was known without the connection ending.
+function __keepsAlive(req: Request, h: __HttpHead, empty: bool): bool {
+  const mine = req.headers.get("connection")
+  if (mine != null && mine.toLowerCase().includes("close")) {
+    return false
+  }
+  const theirs = (h.headers.get("connection") ?? "").toLowerCase()
+  if (theirs.includes("close")) {
+    return false
+  }
+  if (h.first != "HTTP/1.1" && !theirs.includes("keep-alive")) {
+    return false
+  }
+  if (empty) {
+    return true
+  }
+  const te = h.headers.get("transfer-encoding")
+  return (te != null && te.toLowerCase().includes("chunked")) || h.headers.get("content-length") != null
 }
 
 /// `r` with `init`'s fields in place of its own, as `new Request(r, init)` on the Web (`r` itself
