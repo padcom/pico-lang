@@ -1,0 +1,61 @@
+// expect: 460
+// expect: 11
+// expect: 4
+// expect: 9
+// expect: ok 3
+// expect: err empty
+// expect: true
+// expect: Opt.Some(value: 1) Opt.None Opt.Some(value: "n1")
+// Generic enums (#51): type arguments inferred from the fields or taken from the expected
+// type, payloads of strings, classes and a big struct (each instance its own layout),
+// two parameters, nesting, generic functions over them, `match`, `==` and `:?`.
+enum Opt<T> {
+  Some(value: T),
+  None
+}
+enum Res<T, E> {
+  Ok(value: T),
+  Err(error: E)
+}
+class Box { constructor(public n: int) {} }
+struct Big {
+  a: int
+  b: int
+  c: int
+  d: int
+}
+
+function get<T>(o: Opt<T>, d: T): T {
+  match (o) {
+    Opt.Some(v) => v,
+    Opt.None => d,
+  }
+}
+function parse(s: string): Res<int, string> {
+  if (s == "") Res.Err(error: "empty") else Res.Ok(value: s.length)
+}
+const names: Opt<string>[] = []
+for (let i = 0; i < 200; i++) {
+  names.push(if (i % 3 == 0) Opt.None else Opt.Some(value: `n${i}`))
+}
+let total = 0
+for (const n of names) { total += get(n, "").length }
+println(total)
+const boxes: Opt<Box>[] = [Opt.Some(value: new Box(4)), Opt.None]
+println(get(boxes[0], new Box(0)).n + get(boxes[1], new Box(7)).n)
+const big: Opt<Big> = Opt.Some(value: Big { a: 1, b: 2, c: 3, d: 4 })
+println(get(big, Big { a: 0, b: 0, c: 0, d: 0 }).d)
+const nested: Opt<Opt<int>> = Opt.Some(value: Opt.Some(value: 9))
+println(get(get(nested, Opt.None), 0))
+match (parse("abc")) {
+  Res.Ok(v) => println(`ok ${v}`),
+  Res.Err(e) => println(`err ${e}`),
+}
+match (parse("")) {
+  Res.Ok(v) => println(`ok ${v}`),
+  Res.Err(e) => println(`err ${e}`),
+}
+const x: Opt<int> = Opt.Some(value: 1)
+const y: Opt<int> = Opt.Some(value: 1)
+println(x == y)
+println(`${x:?} ${names[0]:?} ${names[1]:?}`)
