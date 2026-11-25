@@ -696,7 +696,7 @@
               "code": "class Session implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"session closed\")\n  }\n}\n\nasync function run(): Promise<void> {\n  await using s = new Session()\n  println(\"working\")   // working\n}                      // session closed\n\nawait run()"
             }
           ],
-          "source": "core/promise.pi:654",
+          "source": "core/promise.pi:664",
           "members": [
             {
               "name": "disposeAsync",
@@ -709,7 +709,7 @@
                   "code": "class Upload implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"upload finished\")\n  }\n}\n\nconst u = new Upload()\nawait u.disposeAsync()   // upload finished"
                 }
               ],
-              "source": "core/promise.pi:668",
+              "source": "core/promise.pi:678",
               "members": []
             }
           ]
@@ -725,7 +725,7 @@
               "code": "async function* countdown(n: int): AsyncIterator<int> {\n  for (let i = n; i > 0; i--) {\n    yield i\n  }\n}\n\nfor await (const i of countdown(3)) {\n  println(i)   // 3, 2, 1\n}"
             }
           ],
-          "source": "core/promise.pi:490",
+          "source": "core/promise.pi:500",
           "members": [
             {
               "name": "constructor",
@@ -738,7 +738,7 @@
                   "code": "// `async function*` makes the iterators that produce values; this one is empty.\nconst it = new AsyncIterator<int>()\nprintln(it.asyncIterator() == it)   // true"
                 }
               ],
-              "source": "core/promise.pi:510",
+              "source": "core/promise.pi:520",
               "members": []
             },
             {
@@ -752,7 +752,7 @@
                   "code": "async function* letters(): AsyncIterator<string> {\n  yield \"a\"\n  yield \"b\"\n}\n\nconst it = letters()\nprintln(await it.next())   // a\nprintln(await it.next())   // b\nprintln(await it.next())   // null"
                 }
               ],
-              "source": "core/promise.pi:542",
+              "source": "core/promise.pi:552",
               "members": []
             },
             {
@@ -766,7 +766,7 @@
                   "code": "async function* one(): AsyncIterator<int> {\n  yield 1\n}\n\nconst it = one()\nprintln(it.asyncIterator() == it)   // true"
                 }
               ],
-              "source": "core/promise.pi:566",
+              "source": "core/promise.pi:576",
               "members": []
             }
           ]

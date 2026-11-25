@@ -1,0 +1,23 @@
+// expect: start
+// expect: 6
+// expect: 7 x
+// expect: after the microtask
+// expect: done
+// `await` of a value that isn't a promise (#52): as `await Promise.resolve(v)`, it resumes a
+// microtask later with the value itself, inside an async function and at the top level.
+async function f(): Promise<int> {
+  const a = await 5
+  const s: string = await "x"
+  return a + s.length
+}
+
+async function order(): Promise<void> {
+  queueMicrotask(() => println("after the microtask"))
+  await 0
+  println("done")
+}
+
+println("start")
+println(await f())
+println(`${await 7} ${await "x"}`)
+await order()

@@ -448,6 +448,16 @@ struct Settled<T> {
 
 /// `await p` at the top level of the entry module: runs the event loop until `p` settles
 /// (and its reaction runs, as a microtask would), then gives its value or throws.
+// `await x` of a promise: the promise itself (#52).
+function __awaitable<T, E extends Error>(p: Promise<T, E>): Promise<T, E> {
+  return p
+}
+
+// `await x` of any other value: a promise already fulfilled with it, as in JavaScript (#52).
+function __awaitable<T>(value: T): Promise<T> {
+  return Promise.resolve(value)
+}
+
 function __awaitTop<T, E extends Error>(p: Promise<T, E>): T throws E {
   let done = false
   p.__onSettle(() => {
