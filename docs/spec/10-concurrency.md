@@ -2,7 +2,8 @@
 
 ## 10.1 async / await
 - `async function f(): Promise<T> throws E` starts running **eagerly** when called, as in JS.
-- `await` suspends until the promise settles and rethrows `E` (checked).
+- `await` suspends until the promise settles and rethrows `E` (checked). `await v` of a value
+  that isn't a promise is `await Promise.resolve(v)`: it resumes a microtask later with `v`.
 - Async functions and generators compile to **stackless state machines**.
 - **Top-level `await`** is allowed in the entry module.
 - The event loop is **implicit**, as in Node: the process exits once nothing is pending (timers,
