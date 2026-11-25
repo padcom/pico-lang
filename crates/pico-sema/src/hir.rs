@@ -131,6 +131,9 @@ pub struct EnumDef {
     pub methods: Vec<(String, FnId)>,
     /// Static methods (#51): plain functions, called as `Enum.m(args)`.
     pub statics: Vec<(String, FnId)>,
+    /// Type parameters (`enum Opt<T>`, #51); `Ty::Param(Ty::enum_owner(id), i, _)` in the
+    /// variants' fields.
+    pub generics: Vec<TypeParam>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -448,10 +451,16 @@ impl Program {
     }
 
     pub fn enum_ty(&self, id: EnumId) -> Ty {
+        let d = &self.enums[id.0 as usize];
+        let owner = Ty::enum_owner(id);
         Ty::Enum(
             id,
-            self.enums[id.0 as usize].name.as_str().into(),
-            std::sync::Arc::from([]),
+            d.name.as_str().into(),
+            d.generics
+                .iter()
+                .enumerate()
+                .map(|(i, g)| Ty::Param(owner, i as u32, g.name.as_str().into()))
+                .collect(),
         )
     }
 

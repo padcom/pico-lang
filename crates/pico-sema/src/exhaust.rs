@@ -48,11 +48,11 @@ impl Checker<'_> {
     /// The argument types of `c` applied to a value of type `t`.
     fn arg_tys(&self, t: &Ty, c: &Ctor) -> Vec<Ty> {
         match (t, c) {
-            (Ty::Enum(id, _, _), Ctor::Variant(v)) => self.program.enum_def(*id).variants
+            (Ty::Enum(id, _, args), Ctor::Variant(v)) => self.program.enum_def(*id).variants
                 [*v as usize]
                 .fields
                 .iter()
-                .map(|f| f.ty.clone())
+                .map(|f| f.ty.subst(Ty::enum_owner(*id), args))
                 .collect(),
             (Ty::Struct(id, _, a) | Ty::Class(id, _, a), Ctor::Single) => self
                 .program

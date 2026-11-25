@@ -239,6 +239,17 @@ impl Ty {
         0x8000_0000 | id.0
     }
 
+    /// The owner of a generic enum's type parameters (#51): apart from structs' and
+    /// functions'.
+    pub fn enum_owner(id: EnumId) -> u32 {
+        0x4000_0000 | id.0
+    }
+
+    /// The enum whose type parameters `owner` stands for.
+    pub fn owner_enum(owner: u32) -> Option<EnumId> {
+        (owner & 0xC000_0000 == 0x4000_0000).then_some(EnumId(owner & 0x3fff_ffff))
+    }
+
     /// Removes `immutable` everywhere (it only matters while type checking).
     pub fn strip_immutable(&self) -> Ty {
         let s = |t: &Ty| t.strip_immutable();

@@ -561,7 +561,7 @@ fn subst_complete(p: &Ty, owner: u32, subst: &[Option<Ty>]) -> bool {
                 .all(|t| subst_complete(t, owner, subst))
                 && subst_complete(r, owner, subst)
         }
-        Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) => {
+        Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) | Ty::Enum(_, _, a) => {
             a.iter().all(|t| subst_complete(t, owner, subst))
         }
         _ => true,
@@ -656,6 +656,11 @@ fn shape_fits(p: &Ty, t: &Ty) -> bool {
                 && a1.len() == a2.len()
                 && a1.iter().zip(a2.iter()).all(|(x, y)| shape_fits(x, y))
         }
+        (Ty::Enum(e1, _, a1), Ty::Enum(e2, _, a2)) => {
+            e1 == e2
+                && a1.len() == a2.len()
+                && a1.iter().zip(a2.iter()).all(|(x, y)| shape_fits(x, y))
+        }
         (Ty::Fn(p1, _, _), Ty::Fn(p2, _, _)) => p1.len() == p2.len(),
         // Other generic shapes (interfaces, maps…) are left to the full check.
         (Ty::Array(_) | Ty::Fixed(..) | Ty::Tuple(_) | Ty::Fn(..), _) => false,
@@ -691,6 +696,13 @@ fn at_least_as_specific(x: &Ty, y: &Ty) -> bool {
         (Ty::Class(s1, _, a1), Ty::Class(s2, _, a2))
         | (Ty::Struct(s1, _, a1), Ty::Struct(s2, _, a2)) => {
             s1 == s2
+                && a1
+                    .iter()
+                    .zip(a2.iter())
+                    .all(|(p, q)| at_least_as_specific(p, q))
+        }
+        (Ty::Enum(e1, _, a1), Ty::Enum(e2, _, a2)) => {
+            e1 == e2
                 && a1
                     .iter()
                     .zip(a2.iter())
@@ -1147,11 +1159,14 @@ impl<'p> Checker<'p> {
                     .iter()
                     .all(|f| f.weak || self.sendable(&f.ty.subst(owner, args), seen))
             }
-            Ty::Enum(eid, _, _) | Ty::Union(eid, _) | Ty::Variant(eid, _, _) => self.program.enums
-                [eid.0 as usize]
-                .variants
-                .iter()
-                .all(|v| v.fields.iter().all(|f| self.sendable(&f.ty, seen))),
+            Ty::Enum(eid, _, _) | Ty::Union(eid, _) | Ty::Variant(eid, _, _) => {
+                let args = t.type_args();
+                self.program.enums[eid.0 as usize].variants.iter().all(|v| {
+                    v.fields
+                        .iter()
+                        .all(|f| self.sendable(&f.ty.subst(Ty::enum_owner(*eid), args), seen))
+                })
+            }
             Ty::Lits(b, _) | Ty::Distinct(_, _, b) | Ty::Immutable(b) => self.sendable(b, seen),
             Ty::Param(..) => self.bounds_of(t).contains(&Bound::Sendable),
             Ty::Fn(..) | Ty::Iface(..) | Ty::Ref(_) => false,
@@ -1782,12 +1797,11 @@ impl<'p> Checker<'p> {
                 .fields
                 .iter()
                 .all(|f| self.pure_value(&f.ty.subst(Ty::type_owner(*sid), args))),
-            Ty::Enum(eid, _, _) => self
-                .program
-                .enum_def(*eid)
-                .variants
-                .iter()
-                .all(|v| v.fields.iter().all(|f| self.pure_value(&f.ty))),
+            Ty::Enum(eid, _, args) => self.program.enum_def(*eid).variants.iter().all(|v| {
+                v.fields
+                    .iter()
+                    .all(|f| self.pure_value(&f.ty.subst(Ty::enum_owner(*eid), args)))
+            }),
             Ty::Union(_, ms) => ms.iter().all(|m| self.pure_value(m)),
             _ => false,
         }
@@ -2675,7 +2689,7 @@ impl<'p> Checker<'p> {
                 enum_,
                 variant,
                 args,
-            } => self.variant(e, *enum_, *variant, args.as_deref()),
+            } => self.variant(e, *enum_, *variant, args.as_deref(), want),
             ExprKind::New {
                 class,
                 args,
@@ -2876,11 +2890,52 @@ impl<'p> Checker<'p> {
     }
 
     /// `Shape.Circle(r: 1)`, `Shape.Rect(2, 3)`, `Color.Red`.
-    fn variant(&mut self, e: &Expr, eid: EnumId, vi: u32, args: Option<&[VariantArg]>) -> Ty {
+    fn variant(
+        &mut self,
+        e: &Expr,
+        eid: EnumId,
+        vi: u32,
+        args: Option<&[VariantArg]>,
+        want: Option<&Expect>,
+    ) -> Ty {
         let def = self.program.enum_def(eid);
         let v = &def.variants[vi as usize];
-        let ty = self.program.enum_ty(eid);
+        let mut ty = self.program.enum_ty(eid);
+        // A generic enum's type arguments (#51): the expected type's, else inferred from the
+        // fields given (`Opt.Some(5)` is an `Opt<int>`).
+        let owner = Ty::enum_owner(eid);
+        let generic = !def.generics.is_empty();
+        let wanted: Option<Vec<Ty>> = match want.map(|w| match &w.ty {
+            Ty::Nullable(t) => (**t).clone(),
+            t => t.clone(),
+        }) {
+            Some(Ty::Enum(w, _, a))
+                if w == eid && generic && !a.iter().any(|t| t.has_params(owner)) =>
+            {
+                Some(a.to_vec())
+            }
+            _ => None,
+        };
+        if let Some(a) = &wanted {
+            ty = Ty::Enum(eid, def.name.as_str().into(), a.clone().into());
+        }
+        let mut subst: Vec<Option<Ty>> = vec![None; def.generics.len()];
+        let mut inferred: Vec<(&Expr, Ty, u32)> = Vec::new();
         let Some(args) = args else {
+            if generic && wanted.is_none() {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::CANT_INFER,
+                        format!("can't tell the type arguments of `{}.{}`", def.name, v.name),
+                    )
+                    .primary(e.span, "nothing here determines them")
+                    .help(format!(
+                        "give the expected type: `const x: {}<…> = …`",
+                        def.name
+                    )),
+                );
+                return Ty::Error;
+            }
             if !v.fields.is_empty() || v.has_parens {
                 let fields: Vec<String> = v
                     .fields
@@ -2986,7 +3041,21 @@ impl<'p> Checker<'p> {
                     seen[i] = Some(span);
                     order.push(i as u32);
                     let f = &v.fields[i];
-                    self.check(&a.value, &Expect::from(f.ty.clone(), Some(f.span)));
+                    if generic {
+                        match &wanted {
+                            Some(targs) => {
+                                let t = f.ty.subst(owner, targs);
+                                self.check(&a.value, &Expect::from(t, Some(f.span)));
+                            }
+                            None => {
+                                let at = self.infer(&a.value);
+                                self.unify(owner, &f.ty, &at, &mut subst);
+                                inferred.push((&a.value, at, i as u32));
+                            }
+                        }
+                    } else {
+                        self.check(&a.value, &Expect::from(f.ty.clone(), Some(f.span)));
+                    }
                 }
                 None => {
                     order.push(u32::MAX);
@@ -3019,6 +3088,32 @@ impl<'p> Checker<'p> {
             );
         }
         self.types.variant_args.insert(e.id, order);
+        if generic && wanted.is_none() {
+            let Some(targs) = subst.iter().cloned().collect::<Option<Vec<Ty>>>() else {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::CANT_INFER,
+                        format!(
+                            "can't infer the type arguments of `{}.{}`",
+                            def.name, v.name
+                        ),
+                    )
+                    .primary(e.span, "the fields given don't determine them all")
+                    .help(format!(
+                        "give the expected type: `const x: {}<…> = …`",
+                        def.name
+                    )),
+                );
+                return Ty::Error;
+            };
+            // Each field's value against its type with the inferred arguments.
+            for (value, found, i) in inferred {
+                let f = &v.fields[i as usize];
+                let want = Expect::from(f.ty.subst(owner, &targs), Some(f.span));
+                self.coerce(value, found, &want);
+            }
+            ty = Ty::Enum(eid, def.name.as_str().into(), targs.into());
+        }
         ty
     }
 
@@ -3375,10 +3470,16 @@ impl<'p> Checker<'p> {
                     return self.wild_subpatterns(args);
                 };
                 self.types.variants.insert(p.id, (eid, vi));
+                // (A generic enum's fields with the scrutinee's type arguments, #51.)
                 let field_tys: Vec<(String, Ty)> = v
                     .fields
                     .iter()
-                    .map(|f| (f.name.clone(), f.ty.clone()))
+                    .map(|f| {
+                        (
+                            f.name.clone(),
+                            f.ty.subst(Ty::enum_owner(eid), inner.type_args()),
+                        )
+                    })
                     .collect();
                 match args {
                     VariantPatArgs::None => {}
@@ -3661,7 +3762,7 @@ impl<'p> Checker<'p> {
                 let tys: Vec<Ty> = self.program.enum_def(eid).variants[vi as usize]
                     .fields
                     .iter()
-                    .map(|f| f.ty.clone())
+                    .map(|f| f.ty.subst(Ty::enum_owner(eid), inner.type_args()))
                     .collect();
                 let mut cols: Vec<Vec<Pat>> = vec![vec![Pat::Wild]; tys.len()];
                 match args {
@@ -5080,12 +5181,11 @@ impl<'p> Checker<'p> {
                 .any(|b| matches!(b, Bound::Comparable | Bound::Equatable | Bound::Hashable)),
             // Classes without `equals` compare by identity.
             Ty::Class(..) => true,
-            Ty::Enum(id, _, _) => self
-                .program
-                .enum_def(*id)
-                .variants
-                .iter()
-                .all(|v| v.fields.iter().all(|f| self.equatable(&f.ty))),
+            Ty::Enum(id, _, args) => self.program.enum_def(*id).variants.iter().all(|v| {
+                v.fields
+                    .iter()
+                    .all(|f| self.equatable(&f.ty.subst(Ty::enum_owner(*id), args)))
+            }),
             Ty::Fixed(t, _) => self.equatable(t),
             Ty::Range(_) => true,
             _ => false,
@@ -7029,6 +7129,12 @@ impl<'p> Checker<'p> {
     /// The bounds of a type parameter.
     fn bounds_of(&self, t: &Ty) -> &'p [Bound] {
         match t {
+            Ty::Param(owner, i, _) if let Some(e) = Ty::owner_enum(*owner) => self
+                .program
+                .enum_def(e)
+                .generics
+                .get(*i as usize)
+                .map_or(&[][..], |p| &p.bounds[..]),
             Ty::Param(owner, i, _) if owner & 0x8000_0000 != 0 => self
                 .program
                 .struct_def(StructId(owner & 0x7fff_ffff))
@@ -7149,6 +7255,11 @@ impl<'p> Checker<'p> {
                     self.unify(owner, p, a, subst);
                 }
             }
+            (Ty::Enum(e1, _, ps), Ty::Enum(e2, _, xs)) if e1 == e2 && ps.len() == xs.len() => {
+                for (p, a) in ps.iter().zip(xs.iter()) {
+                    self.unify(owner, p, a, subst);
+                }
+            }
             _ => {}
         }
     }
@@ -7159,7 +7270,7 @@ impl<'p> Checker<'p> {
     /// The type of a `comptime` parameter used as a value.
     fn const_param_ty(&self, t: &Ty) -> Ty {
         match t {
-            Ty::Param(o, i, _) if *o & 0x8000_0000 == 0 => self
+            Ty::Param(o, i, _) if *o & 0xC000_0000 == 0 => self
                 .program
                 .func(FnId(*o))
                 .generics

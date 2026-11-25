@@ -288,7 +288,7 @@ fn generate<'ctx>(
         structs: Vec::new(),
         enums: Vec::new(),
         debug_fns: HashMap::new(),
-        eq_fns: HashMap::new(),
+        enum_eq_fns: HashMap::new(),
         class_infos: Vec::new(),
         generic_structs: Default::default(),
         itables: Vec::new(),
@@ -481,7 +481,8 @@ struct Gen<'ctx, 'p> {
     /// LLVM enum types, by `EnumId`.
     enums: Vec<inkwell::types::StructType<'ctx>>,
     /// Generated `==` helpers for enums, by `EnumId`.
-    eq_fns: HashMap<u32, FunctionValue<'ctx>>,
+    /// Equality functions of generic enum instances (#51), by type.
+    enum_eq_fns: HashMap<Ty, FunctionValue<'ctx>>,
     /// Per class: `{ ptr base_info, [n x ptr] vtable }`, which object headers point to.
     class_infos: Vec<Option<GlobalValue<'ctx>>>,
     /// The pending exception (null when none); created when first used.
@@ -510,6 +511,9 @@ struct FnCx<'ctx, 'p> {
     blocks: Vec<BasicBlock<'ctx>>,
     /// The shadow-stack frame, when locals hold references.
     frame: Option<(PointerValue<'ctx>, inkwell::types::StructType<'ctx>)>,
+    /// The type of the place the statement being compiled assigns (a generic enum's
+    /// `Rvalue::Variant` takes its layout from it, #51).
+    dest: Option<Ty>,
 }
 
 impl<'ctx> Gen<'ctx, '_> {
@@ -527,7 +531,7 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Iface(..) | Ty::Fn(..) => self.iface_ty().into(),
             Ty::Struct(sid, _, args) if args.is_empty() => self.structs[sid.0 as usize].into(),
             Ty::Struct(..) => self.struct_llty(t).into(),
-            Ty::Enum(eid, _, _) => self.enums[eid.0 as usize].into(),
+            Ty::Enum(..) => self.enum_llty(t).into(),
             Ty::Fixed(e, n) => self.elem_ty(e).array_type(*n as u32).into(),
             Ty::Tuple(ts) => {
                 let fields: Vec<BasicTypeEnum> = ts.iter().map(|t| self.elem_ty(t)).collect();
@@ -585,31 +589,76 @@ impl<'ctx> Gen<'ctx, '_> {
     }
 
     /// The payload layout of one variant.
-    fn variant_struct(
-        &self,
-        eid: pico_sema::ty::EnumId,
-        v: u32,
-    ) -> inkwell::types::StructType<'ctx> {
-        let fields: Vec<BasicTypeEnum> = self.p.enum_layout(eid).variants[v as usize]
+    /// The fields of variant `v` of the enum type `t`, with its type arguments (#51).
+    fn variant_fields(&self, t: &Ty, v: u32) -> Vec<(String, Ty)> {
+        let Ty::Enum(eid, _, args) = t else {
+            unreachable!("variant of {t}")
+        };
+        let owner = Ty::enum_owner(*eid);
+        self.p.enum_layout(*eid).variants[v as usize]
             .fields
+            .iter()
+            .map(|(n, f)| (n.clone(), f.subst(owner, args)))
+            .collect()
+    }
+
+    fn variant_struct(&self, t: &Ty, v: u32) -> inkwell::types::StructType<'ctx> {
+        let fields: Vec<BasicTypeEnum> = self
+            .variant_fields(t, v)
             .iter()
             .map(|(_, t)| self.elem_ty(t))
             .collect();
         self.cx.struct_type(&fields, false)
     }
 
-    /// A pointer to field `i` of variant `v` inside the enum value at `ptr`.
+    /// The LLVM type of the enum type `t`: `{ i32 tag, [k x i64] payload }`, one per instance
+    /// of a generic enum (#51).
+    fn enum_llty(&self, t: &Ty) -> inkwell::types::StructType<'ctx> {
+        let Ty::Enum(eid, _, args) = t else {
+            unreachable!("enum type of {t}")
+        };
+        if args.is_empty() {
+            return self.enums[eid.0 as usize];
+        }
+        if let Some(st) = self.generic_structs.borrow().get(t) {
+            return *st;
+        }
+        let st = self.cx.opaque_struct_type(&format!("pico.enum.{t}"));
+        self.generic_structs.borrow_mut().insert(t.clone(), st);
+        let n = self.p.enum_layout(*eid).variants.len();
+        let words = (0..n as u32)
+            .map(|v| {
+                let parts: Vec<(u64, u64)> = self
+                    .variant_fields(t, v)
+                    .iter()
+                    .map(|(_, f)| self.size_align(f))
+                    .collect();
+                struct_layout(&parts).0.div_ceil(8)
+            })
+            .max()
+            .unwrap_or(0);
+        let tag = self.cx.i32_type().into();
+        if words == 0 {
+            st.set_body(&[tag], false);
+        } else {
+            let payload = self.cx.i64_type().array_type(words as u32).into();
+            st.set_body(&[tag, payload], false);
+        }
+        st
+    }
+
+    /// A pointer to field `i` of variant `v` inside the enum value (of type `t`) at `ptr`.
     fn variant_field_ptr(
         &self,
-        eid: pico_sema::ty::EnumId,
+        t: &Ty,
         v: u32,
         i: u32,
         ptr: PointerValue<'ctx>,
     ) -> PointerValue<'ctx> {
-        let et = self.enums[eid.0 as usize];
+        let et = self.enum_llty(t);
         let payload = self.b.build_struct_gep(et, ptr, 1, "payload").unwrap();
         self.b
-            .build_struct_gep(self.variant_struct(eid, v), payload, i, "")
+            .build_struct_gep(self.variant_struct(t, v), payload, i, "")
             .unwrap()
     }
 
@@ -1459,6 +1508,7 @@ impl<'ctx> Gen<'ctx, '_> {
             locals,
             blocks,
             frame,
+            dest: None,
         };
         let headers = gc::loop_headers(func);
         for (i, bb) in func.blocks.iter().enumerate() {
@@ -1468,6 +1518,8 @@ impl<'ctx> Gen<'ctx, '_> {
             }
             for s in &bb.stmts {
                 self.debug_loc(s.loc);
+                fx.dest =
+                    matches!(s.rvalue, Rvalue::Variant(..)).then(|| self.place_ty(&fx, &s.place));
                 let v = self.rvalue(&mut fx, &s.rvalue, s.loc);
                 if let Some(v) = v {
                     self.store(&fx, &s.place, v);
@@ -2137,8 +2189,8 @@ impl<'ctx> Gen<'ctx, '_> {
                         .into_pointer_value();
                     self.array_elem(a, elem, i)
                 }
-                (Proj::VariantField(v, i), Ty::Enum(eid, _, _)) => {
-                    self.variant_field_ptr(*eid, *v, *i, ptr)
+                (Proj::VariantField(v, i), et @ Ty::Enum(..)) => {
+                    self.variant_field_ptr(et, *v, *i, ptr)
                 }
                 (Proj::Payload, Ty::Nullable(inner)) if inner.is_ref() => ptr,
                 (Proj::Payload, Ty::Nullable(_)) => {
@@ -2599,7 +2651,16 @@ impl<'ctx> Gen<'ctx, '_> {
                 Some(self.wrap_flagged(&elem, popped, v))
             }
             Rvalue::Variant(eid, v, ops) => {
-                let et = self.enums[eid.0 as usize];
+                // (A generic enum's instance: the destination's type, #51.)
+                let enum_t = match fx.dest.clone().map(|t| t.erase()) {
+                    Some(t @ Ty::Enum(e, _, _)) if e == *eid => t,
+                    _ => Ty::Enum(
+                        *eid,
+                        self.p.enum_layout(*eid).name.as_str().into(),
+                        std::sync::Arc::from([]),
+                    ),
+                };
+                let et = self.enum_llty(&enum_t);
                 let slot = self.entry_alloca(et.into(), "variant");
                 let tag = self.b.build_struct_gep(et, slot, 0, "tag").unwrap();
                 self.b
@@ -2607,7 +2668,7 @@ impl<'ctx> Gen<'ctx, '_> {
                     .unwrap();
                 for (i, o) in ops.iter().enumerate() {
                     if let Some(val) = self.operand(fx, o) {
-                        let p = self.variant_field_ptr(*eid, *v, i as u32, slot);
+                        let p = self.variant_field_ptr(&enum_t, *v, i as u32, slot);
                         self.b.build_store(p, val).unwrap();
                     }
                 }
@@ -3057,9 +3118,9 @@ impl<'ctx> Gen<'ctx, '_> {
                     .build_int_compare(IntPredicate::EQ, a, b, "")
                     .unwrap();
             }
-            Ty::Enum(eid, _, _) => {
-                let f = self.enum_eq_fn(*eid);
-                let et = self.enums[eid.0 as usize];
+            Ty::Enum(..) => {
+                let f = self.enum_eq_fn(t);
+                let et = self.enum_llty(t);
                 let a = self.entry_alloca(et.into(), "eq.a");
                 let b = self.entry_alloca(et.into(), "eq.b");
                 self.b.build_store(a, x).unwrap();
@@ -3122,15 +3183,23 @@ impl<'ctx> Gen<'ctx, '_> {
     }
 
     /// `pico.eq.<Name>(ptr, ptr) -> i1`: same variant and equal payload fields.
-    fn enum_eq_fn(&mut self, eid: pico_sema::ty::EnumId) -> FunctionValue<'ctx> {
-        self.without_debug_loc(|g| g.enum_eq_fn_body(eid))
+    fn enum_eq_fn(&mut self, t: &Ty) -> FunctionValue<'ctx> {
+        self.without_debug_loc(|g| g.enum_eq_fn_body(t))
     }
 
-    fn enum_eq_fn_body(&mut self, eid: pico_sema::ty::EnumId) -> FunctionValue<'ctx> {
-        if let Some(f) = self.eq_fns.get(&eid.0) {
+    fn enum_eq_fn_body(&mut self, t: &Ty) -> FunctionValue<'ctx> {
+        let Ty::Enum(eid, _, args) = t else {
+            unreachable!("enum equality of {t}")
+        };
+        let eid = *eid;
+        if let Some(f) = self.enum_eq_fns.get(t) {
             return *f;
         }
-        let layout_name = self.p.enum_layout(eid).name.clone();
+        let layout_name = if args.is_empty() {
+            self.p.enum_layout(eid).name.clone()
+        } else {
+            t.to_string()
+        };
         let fn_ty = self
             .cx
             .bool_type()
@@ -3140,7 +3209,7 @@ impl<'ctx> Gen<'ctx, '_> {
             fn_ty,
             Some(Linkage::Internal),
         );
-        self.eq_fns.insert(eid.0, f);
+        self.enum_eq_fns.insert(t.clone(), f);
         let saved = self.b.get_insert_block();
         let entry = self.cx.append_basic_block(f, "entry");
         let yes = self.cx.append_basic_block(f, "equal");
@@ -3150,7 +3219,7 @@ impl<'ctx> Gen<'ctx, '_> {
             f.get_nth_param(0).unwrap().into_pointer_value(),
             f.get_nth_param(1).unwrap().into_pointer_value(),
         );
-        let et = self.enums[eid.0 as usize];
+        let et = self.enum_llty(t);
         let load_tag = |g: &Self, p: PointerValue<'ctx>| {
             let tp = g.b.build_struct_gep(et, p, 0, "").unwrap();
             g.b.build_load(g.i32(), tp, "").unwrap().into_int_value()
@@ -3162,12 +3231,14 @@ impl<'ctx> Gen<'ctx, '_> {
             .unwrap();
         let dispatch = self.cx.append_basic_block(f, "dispatch");
         self.b.build_conditional_branch(same, dispatch, no).unwrap();
-        let variants: Vec<Vec<Ty>> = self
-            .p
-            .enum_layout(eid)
-            .variants
-            .iter()
-            .map(|v| v.fields.iter().map(|(_, t)| t.clone()).collect())
+        let n = self.p.enum_layout(eid).variants.len();
+        let variants: Vec<Vec<Ty>> = (0..n as u32)
+            .map(|v| {
+                self.variant_fields(t, v)
+                    .into_iter()
+                    .map(|(_, f)| f)
+                    .collect()
+            })
             .collect();
         let mut cases = Vec::new();
         for (vi, fields) in variants.iter().enumerate() {
@@ -3180,8 +3251,8 @@ impl<'ctx> Gen<'ctx, '_> {
             let mut acc = self.cx.bool_type().const_int(1, false);
             for (i, ft) in fields.iter().enumerate() {
                 let Some(lt) = self.ty(ft) else { continue };
-                let pa = self.variant_field_ptr(eid, vi as u32, i as u32, a);
-                let pb = self.variant_field_ptr(eid, vi as u32, i as u32, b);
+                let pa = self.variant_field_ptr(t, vi as u32, i as u32, a);
+                let pb = self.variant_field_ptr(t, vi as u32, i as u32, b);
                 let x = self.b.build_load(lt, pa, "").unwrap();
                 let y = self.b.build_load(lt, pb, "").unwrap();
                 let eq = self.value_eq(ft, x, y);
@@ -3207,20 +3278,25 @@ impl<'ctx> Gen<'ctx, '_> {
 
     /// The debug text of an enum at `this`, returned from inside the helper `f`:
     /// `Shape.Circle(r: 1)`, `Color.Red`.
-    fn debug_enum_body(
-        &mut self,
-        eid: pico_sema::ty::EnumId,
-        f: FunctionValue<'ctx>,
-        this: PointerValue<'ctx>,
-    ) {
-        let layout = self.p.enum_layout(eid);
+    fn debug_enum_body(&mut self, t: &Ty, f: FunctionValue<'ctx>, this: PointerValue<'ctx>) {
+        let Ty::Enum(eid, _, _) = t else {
+            unreachable!("debug text of {t}")
+        };
+        let layout = self.p.enum_layout(*eid);
         let name = layout.name.clone();
         let variants: Vec<VariantInfo> = layout
             .variants
             .iter()
-            .map(|v| (v.name.clone(), v.fields.clone(), v.has_parens))
+            .enumerate()
+            .map(|(vi, v)| {
+                (
+                    v.name.clone(),
+                    self.variant_fields(t, vi as u32),
+                    v.has_parens,
+                )
+            })
             .collect();
-        let et = self.enums[eid.0 as usize];
+        let et = self.enum_llty(t);
         let tp = self.b.build_struct_gep(et, this, 0, "").unwrap();
         let tag = self
             .b
@@ -3249,7 +3325,7 @@ impl<'ctx> Gen<'ctx, '_> {
                     };
                     let sep = self.str_literal(&sep).into();
                     acc = self.concat(acc, sep);
-                    let p = self.variant_field_ptr(eid, vi as u32, i as u32, this);
+                    let p = self.variant_field_ptr(t, vi as u32, i as u32, this);
                     let t = self.debug_at(ft, p);
                     acc = self.concat(acc, t);
                 }
@@ -3373,8 +3449,8 @@ impl<'ctx> Gen<'ctx, '_> {
         self.b.position_at_end(entry);
         let this = f.get_nth_param(0).unwrap().into_pointer_value();
         let lt = self.ty(t).expect("debuggable type");
-        if let Ty::Enum(eid, _, _) = t {
-            self.debug_enum_body(*eid, f, this);
+        if let Ty::Enum(..) = t {
+            self.debug_enum_body(t, f, this);
             if let Some(bb) = saved {
                 self.b.position_at_end(bb);
             }
