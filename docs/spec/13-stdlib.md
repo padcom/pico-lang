@@ -464,7 +464,9 @@ it serves HTTPS; a client that fails the handshake is disconnected.
 
 ### `WebSocket`
 A global, as WHATWG WebSockets (RFC 6455): `new WebSocket(url, protocols = [], options = {})`
-(`ws:` or `wss:`; `options.caCerts`, a pico extension, as for `fetch`) connects in the background. `readyState` (`CONNECTING`
+(`ws:` or `wss:`; `options.caCerts`, a pico extension, as for `fetch`; `options.maxMessageBytes`,
+the largest message to receive, a bigger one failing the connection with 1009 before it's read,
+#67, also for `upgradeWebSocket(req, protocol, options)`) connects in the background. `readyState` (`CONNECTING`
 0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`; callbacks `onopen(Event)`,
 `onmessage(MessageEvent)` (`data: string | Uint8Array`: text or binary; fragments are joined),
 `onerror(Event)` and `onclose(CloseEvent)` (`code`, `reason`, `wasClean`; 1006 when the
@@ -619,9 +621,10 @@ combining marks; 2 for East Asian wide characters and emoji). Decision 344.
 Both the `crypto` global and `std/crypto` run on Mbed TLS (3.6 LTS, vendored in
 `third_party/mbedtls`), natively and in the interpreter alike. The global follows Web Crypto:
 `getRandomValues(u8)` (at most 65536 bytes), `randomUUID()` and `subtle`. `subtle` has
-`digest`, `importKey`/`exportKey` (`"raw"` only), `generateKey` (HMAC, AES-GCM; ECDSA P-256/P-384
+`digest`, `importKey`/`exportKey` (`"raw"` only), `generateKey` (HMAC, AES-GCM, AES-CBC, AES-CTR; ECDSA P-256/P-384
 and ECDH P-256/P-384/X25519 key pairs), `sign`/`verify` (HMAC; ECDSA with `r ‖ s` signatures),
-`encrypt`/`decrypt` (AES-GCM, 128-bit tags) and `deriveBits` (ECDH, HKDF, PBKDF2). Algorithm
+`encrypt`/`decrypt` (AES-GCM, 128-bit tags; AES-CBC with `iv` and PKCS#7 padding, a wrong padding
+rejecting as `AuthenticationFailed`; AES-CTR with `counter` and its `length` in bits, #69) and `deriveBits` (ECDH, HKDF, PBKDF2). Algorithm
 parameters are one struct, `Algorithm`, built from object literals (`{ name: "AES-GCM", iv }`).
 Results are `Uint8Array`s, failures reject with `CryptoError` (`kind`: `InvalidArgument`,
 `InvalidAccess`, `AuthenticationFailed`, `Internal`), and `CryptoKey` holds its bytes. A key's

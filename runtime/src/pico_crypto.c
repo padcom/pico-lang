@@ -51,6 +51,7 @@ int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t 
 #include "mbedtls/ecp.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/gcm.h"
+#include "mbedtls/aes.h"
 #include "mbedtls/hkdf.h"
 #include "mbedtls/md.h"
 #include "mbedtls/pkcs5.h"
@@ -403,6 +404,88 @@ int64_t pico_crypto_op(int64_t op, const uint8_t *in, size_t n, uint8_t **out, s
             *out_len = 0;
         }
         return result;
+    }
+    case 13: {
+        /* AES-CBC (#69): alg 1 encrypt, 2 decrypt; fields key, iv (16 bytes), data. PKCS#7
+         * padding, as WebCrypto. -2 for a decryption whose padding is wrong. */
+        if (!fields(in, n, f, 3)) return -1;
+        Field key = f[0], iv = f[1], data = f[2];
+        if ((key.n != 16 && key.n != 24 && key.n != 32) || iv.n != 16) return -1;
+        int enc = alg == 1;
+        if (!enc && (data.n == 0 || data.n % 16 != 0)) return -2;
+        size_t len = enc ? (data.n / 16 + 1) * 16 : data.n;
+        uint8_t *buf = alloc(len);
+        memcpy(buf, data.p, data.n);
+        if (enc) {
+            uint8_t pad = (uint8_t)(len - data.n);
+            memset(buf + data.n, pad, pad);
+        }
+        uint8_t ivc[16];
+        memcpy(ivc, iv.p, 16);
+        mbedtls_aes_context a;
+        mbedtls_aes_init(&a);
+        int r = enc ? mbedtls_aes_setkey_enc(&a, key.p, (unsigned)(key.n * 8))
+                    : mbedtls_aes_setkey_dec(&a, key.p, (unsigned)(key.n * 8));
+        uint8_t *o = alloc(len);
+        if (!r) r = mbedtls_aes_crypt_cbc(&a, enc ? MBEDTLS_AES_ENCRYPT : MBEDTLS_AES_DECRYPT, len,
+                                          ivc, buf, o);
+        mbedtls_aes_free(&a);
+        free(buf);
+        if (r) {
+            free(o);
+            return -3;
+        }
+        if (!enc) {
+            uint8_t pad = o[len - 1];
+            int ok = pad >= 1 && pad <= 16;
+            for (size_t i = 0; ok && i < pad; i++) ok = o[len - 1 - i] == pad;
+            if (!ok) {
+                free(o);
+                return -2;
+            }
+            len -= pad;
+        }
+        *out = o;
+        *out_len = len;
+        return 0;
+    }
+    case 14: {
+        /* AES-CTR (#69): fields key, counter block (16 bytes), the counter's bit length (u32,
+         * little-endian, 1..128: only those rightmost bits count up, wrapping), data. Encryption and
+         * decryption are the same. */
+        if (!fields(in, n, f, 4)) return -1;
+        Field key = f[0], ctr = f[1], bits = f[2], data = f[3];
+        if ((key.n != 16 && key.n != 24 && key.n != 32) || ctr.n != 16 || bits.n != 4) return -1;
+        uint32_t nbits = u32_of(bits);
+        if (nbits < 1 || nbits > 128) return -1;
+        mbedtls_aes_context a;
+        mbedtls_aes_init(&a);
+        if (mbedtls_aes_setkey_enc(&a, key.p, (unsigned)(key.n * 8))) {
+            mbedtls_aes_free(&a);
+            return -3;
+        }
+        uint8_t block[16], stream[16];
+        memcpy(block, ctr.p, 16);
+        uint8_t *o = alloc(data.n ? data.n : 1);
+        for (size_t at = 0; at < data.n; at += 16) {
+            mbedtls_aes_crypt_ecb(&a, MBEDTLS_AES_ENCRYPT, block, stream);
+            size_t k = data.n - at < 16 ? data.n - at : 16;
+            for (size_t i = 0; i < k; i++) o[at + i] = data.p[at + i] ^ stream[i];
+            /* The low `nbits` bits of the block count up, mod 2^nbits. */
+            uint32_t left = nbits;
+            for (int i = 15; i >= 0 && left > 0; i--) {
+                uint32_t take = left >= 8 ? 8 : left;
+                uint8_t mask = (uint8_t)((1u << take) - 1);
+                uint8_t low = (uint8_t)((block[i] & mask) + 1) & mask;
+                block[i] = (uint8_t)((block[i] & ~mask) | low);
+                left -= take;
+                if (low != 0) break; /* no carry out of this byte's counted bits */
+            }
+        }
+        mbedtls_aes_free(&a);
+        *out = o;
+        *out_len = data.n;
+        return 0;
     }
     default: return -1;
     }

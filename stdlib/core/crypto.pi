@@ -95,6 +95,26 @@ function __hashId(a: string): int {
 /// The named curves: `P-256`, `P-384` (ECDSA and ECDH) and `X25519` (ECDH).
 type NamedCurve = "P-256" | "P-384" | "X25519"
 
+/// Whether `name` (uppercased) is an AES algorithm `importKey`/`generateKey` take.
+function __isAes(name: string): bool {
+  return name == "AES-GCM" || name == "AES-CBC" || name == "AES-CTR"
+}
+
+/// AES-CBC (PKCS#7 padding) or AES-CTR on `data` with `key` (#69).
+function __aesBlockMode(name: string, a: Algorithm, key: CryptoKey, data: Uint8Array, enc: bool): Uint8Array throws CryptoError {
+  __need(key.algorithm.name == name, `not an ${name} key`)
+  if (name == "AES-CBC") {
+    const iv = a.iv
+    __need(iv != null && iv.length == 16, "AES-CBC needs a 16-byte iv")
+    return __cryptoOp(if (enc) 1301 else 1302, [key.__bytes, iv ?? new Uint8Array(0), data])
+  }
+  const counter = a.counter
+  __need(counter != null && counter.length == 16, "AES-CTR needs a 16-byte counter")
+  const bits = a.length ?? 0
+  __need(bits >= 1 && bits <= 128, "AES-CTR needs a counter length of 1 to 128 bits")
+  return __cryptoOp(1400, [key.__bytes, counter ?? new Uint8Array(0), __u32(bits), data])
+}
+
 function __curveId(c: string): int {
   if (c == "P-256") 1 else if (c == "P-384") 2 else if (c == "X25519") 3 else 0
 }
@@ -200,8 +220,12 @@ struct Algorithm {
   namedCurve?: string
   /// The key length in bits for `generateKey` (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).
   length?: int
-  /// AES-GCM's nonce (required; 12 bytes is usual).
+  /// AES-GCM's nonce (required; 12 bytes is usual), or AES-CBC's initialization vector (16
+  /// bytes).
   iv?: Uint8Array
+  /// AES-CTR's initial counter block (16 bytes); `length` is then how many of its rightmost
+  /// bits count up (#69).
+  counter?: Uint8Array
   /// AES-GCM's authenticated, unencrypted data (none unless given).
   additionalData?: Uint8Array
   /// AES-GCM's tag length in bits: only 128 (the default) is supported.
@@ -327,8 +351,8 @@ struct SubtleCrypto {
       }
       return new CryptoKey("public", true, KeyAlgorithm { name: name, namedCurve: curve }, usages, keyData)
     }
-    __need(name == "HMAC" || name == "AES-GCM" || name == "HKDF" || name == "PBKDF2", `unsupported algorithm ${name:?}`)
-    if (name == "AES-GCM") __need(keyData.length == 16 || keyData.length == 24 || keyData.length == 32, "AES keys are 16, 24 or 32 bytes")
+    __need(name == "HMAC" || __isAes(name) || name == "HKDF" || name == "PBKDF2", `unsupported algorithm ${name:?}`)
+    if (__isAes(name)) __need(keyData.length == 16 || keyData.length == 24 || keyData.length == 32, "AES keys are 16, 24 or 32 bytes")
     const hash = if (name == "HMAC") __hashOf(a, null) as string else null
     new CryptoKey("secret", extractable, KeyAlgorithm { name: name, hash: hash, length: keyData.length * 8 }, usages, keyData.slice(0))
   }
@@ -374,7 +398,7 @@ struct SubtleCrypto {
       }
     }
     const bits = if (name == "HMAC") algorithm.length ?? 256 else algorithm.length ?? 0
-    __need(name == "HMAC" || (name == "AES-GCM" && (bits == 128 || bits == 192 || bits == 256)), `can't generate a ${name} key of ${bits} bits`)
+    __need(name == "HMAC" || (__isAes(name) && (bits == 128 || bits == 192 || bits == 256)), `can't generate a ${name} key of ${bits} bits`)
     const hash = if (name == "HMAC") __hashOf(algorithm, null) as string else null
     new CryptoKey("secret", extractable, KeyAlgorithm { name: name, hash: hash, length: bits }, usages, __randomBytes(bits / 8))
   }
@@ -446,7 +470,12 @@ struct SubtleCrypto {
   /// }
   /// ```
   async encrypt(algorithm: Algorithm, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
-    __need(algorithm.name.toUpperCase() == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM is supported")
+    const name = algorithm.name.toUpperCase()
+    if (name == "AES-CBC" || name == "AES-CTR") {
+      __usage(key, "encrypt")
+      return __aesBlockMode(name, algorithm, key, data, true)
+    }
+    __need(name == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM, AES-CBC and AES-CTR are supported")
     __need((algorithm.tagLength ?? 128) == 128, "only 128-bit tags are supported")
     __usage(key, "encrypt")
     const iv = algorithm.iv
@@ -468,7 +497,12 @@ struct SubtleCrypto {
   /// }
   /// ```
   async decrypt(algorithm: Algorithm, key: CryptoKey, data: Uint8Array): Promise<Uint8Array> throws CryptoError {
-    __need(algorithm.name.toUpperCase() == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM is supported")
+    const name = algorithm.name.toUpperCase()
+    if (name == "AES-CBC" || name == "AES-CTR") {
+      __usage(key, "decrypt")
+      return __aesBlockMode(name, algorithm, key, data, false)
+    }
+    __need(name == "AES-GCM" && key.algorithm.name == "AES-GCM", "only AES-GCM, AES-CBC and AES-CTR are supported")
     // (The same tag lengths as `encrypt`, #29.)
     __need((algorithm.tagLength ?? 128) == 128, "only 128-bit tags are supported")
     __usage(key, "decrypt")

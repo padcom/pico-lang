@@ -28,6 +28,9 @@ function __rotl32(x: int, n: int): int {
 struct WebSocketOptions {
   /// Extra trusted certificates (PEM) for `wss:`, besides the system's roots.
   caCerts?: string[]
+  /// The largest message to receive, in bytes (its fragments together; #67): a bigger one
+  /// closes the connection with code 1009 before it's read. No limit by default.
+  maxMessageBytes?: int
 }
 
 /// SHA-1 of `data` (FIPS 180-4), as WebSocket handshakes need it.
@@ -348,6 +351,8 @@ class WebSocket {
   closed: bool = false
   tls: bool = false
   caCerts: string = ""
+  /// `WebSocketOptions.maxMessageBytes` (0: no limit).
+  public __maxMessageBytes: int = 0
 
   /// Connects to `url` (`ws:`/`wss:`, or `http:`/`https:` as the same). An invalid URL or
   /// another scheme throws a `TypeError`. (pico) `options.caCerts` adds trusted certificates
@@ -385,6 +390,7 @@ class WebSocket {
   constructor(url: string, protocols: string[] = [], options: WebSocketOptions = {}) throws TypeError {
     this.protocols = protocols
     this.caCerts = (options.caCerts ?? []).join("\n")
+    this.__maxMessageBytes = options.maxMessageBytes ?? 0
     if (url.length == 0) {
       // (A server-side socket: `std/http` attaches the connection.)
       this.url = ""
@@ -484,14 +490,19 @@ class WebSocket {
   /// Text that isn't UTF-8 fails the connection with code 1007 (RFC 6455 §8.1, #48): a close
   /// frame says why, and the socket closes.
   async failInvalidText(): Promise<void> throws NetError {
+    await this.failWith(1007)
+  }
+
+  /// Fails the connection with `code`: a close frame says it, and the socket closes.
+  async failWith(code: int): Promise<void> throws NetError {
     if (!this.sentClose) {
       this.sentClose = true
       const payload = new Uint8Array(2)
-      payload.set(0, 1007 >> 8)
-      payload.set(1, 1007 & 255)
+      payload.set(0, code >> 8)
+      payload.set(1, code & 255)
       await this.sendFrame(8, payload)
     }
-    this.finish(1007, "", false)
+    this.finish(code, "", false)
   }
 
   /// Frames until the connection closes.
@@ -502,6 +513,8 @@ class WebSocket {
     }
     let parts: Uint8Array[] = []
     let messageOp = 0
+    // (The message's size so far, for `maxMessageBytes`.)
+    let size = 0
     try {
       while (true) {
         const h = await r.exact(2)
@@ -520,6 +533,15 @@ class WebSocket {
           }
         }
         const key = if (masked) await r.exact(4) else new Uint8Array(0)
+        // A message bigger than `maxMessageBytes` fails with 1009 before its payload is read.
+        const max = this.__maxMessageBytes
+        if (max > 0 && op < 8) {
+          size += len
+          if (size > max) {
+            await this.failWith(1009)
+            return
+          }
+        }
         const payload = await r.exact(len)
         if (masked) {
           for (let i = 0; i < len; i++) {
@@ -560,6 +582,7 @@ class WebSocket {
         if (fin) {
           const whole = if (parts.length == 1) parts[0] else __concatBytes(parts)
           parts = []
+          size = 0
           const f = this.onmessage
           if (f != null && this.readyState == 1) {
             if (messageOp == 1) {

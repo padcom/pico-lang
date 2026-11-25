@@ -446,7 +446,7 @@
               "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const params: Algorithm = { name: \"AES-GCM\", iv: crypto.getRandomValues(new Uint8Array(12)) }\n  const sealed = await crypto.subtle.encrypt(params, key, new TextEncoder().encode(\"hi\"))\n  println(sealed.length)   // 18 (2 bytes of ciphertext + a 16-byte tag)\n}"
             }
           ],
-          "source": "core/crypto.pi:192",
+          "source": "core/crypto.pi:212",
           "members": [
             {
               "name": "name",
@@ -454,7 +454,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"AES-GCM\"</code>, <code>\"HMAC\"</code>, <code>\"ECDSA\"</code>, <code>\"ECDH\"</code>, <code>\"HKDF\"</code>, <code>\"PBKDF2\"</code>; any\ncase), or, for <code>digest</code>, the hash's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:195",
+              "source": "core/crypto.pi:215",
               "members": []
             },
             {
@@ -463,7 +463,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:197",
+              "source": "core/crypto.pi:217",
               "members": []
             },
             {
@@ -472,7 +472,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve for <code>generateKey</code> and <code>importKey</code> of ECDSA (<code>\"P-256\"</code>, <code>\"P-384\"</code>) and ECDH keys\n(also <code>\"X25519\"</code>).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:200",
+              "source": "core/crypto.pi:220",
               "members": []
             },
             {
@@ -481,16 +481,25 @@
               "signature": "length?: int",
               "doc": "<p>The key length in bits for <code>generateKey</code> (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:202",
+              "source": "core/crypto.pi:222",
               "members": []
             },
             {
               "name": "iv",
               "kind": "field",
               "signature": "iv?: Uint8Array",
-              "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual).</p>\n",
+              "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual), or AES-CBC's initialization vector (16\nbytes).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:204",
+              "source": "core/crypto.pi:225",
+              "members": []
+            },
+            {
+              "name": "counter",
+              "kind": "field",
+              "signature": "counter?: Uint8Array",
+              "doc": "<p>AES-CTR's initial counter block (16 bytes); <code>length</code> is then how many of its rightmost\nbits count up (#69).</p>\n",
+              "examples": [],
+              "source": "core/crypto.pi:228",
               "members": []
             },
             {
@@ -499,7 +508,7 @@
               "signature": "additionalData?: Uint8Array",
               "doc": "<p>AES-GCM's authenticated, unencrypted data (none unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:206",
+              "source": "core/crypto.pi:230",
               "members": []
             },
             {
@@ -508,7 +517,7 @@
               "signature": "tagLength?: int",
               "doc": "<p>AES-GCM's tag length in bits: only 128 (the default) is supported.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:208",
+              "source": "core/crypto.pi:232",
               "members": []
             },
             {
@@ -517,7 +526,7 @@
               "signature": "public?: CryptoKey",
               "doc": "<p>ECDH's peer public key, for <code>deriveBits</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:210",
+              "source": "core/crypto.pi:234",
               "members": []
             },
             {
@@ -526,7 +535,7 @@
               "signature": "salt?: Uint8Array",
               "doc": "<p>The HKDF or PBKDF2 salt (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:212",
+              "source": "core/crypto.pi:236",
               "members": []
             },
             {
@@ -535,7 +544,7 @@
               "signature": "info?: Uint8Array",
               "doc": "<p>HKDF's context info (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:214",
+              "source": "core/crypto.pi:238",
               "members": []
             },
             {
@@ -544,7 +553,7 @@
               "signature": "iterations?: int",
               "doc": "<p>PBKDF2's iteration count.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:216",
+              "source": "core/crypto.pi:240",
               "members": []
             }
           ]
@@ -906,7 +915,7 @@
               "code": "const e = new CloseEvent(1000, \"done\", true)\nprintln(`${e.type} ${e.code} ${e.reason} ${e.wasClean}`)   // close 1000 done true"
             }
           ],
-          "source": "core/websocket.pi:175",
+          "source": "core/websocket.pi:178",
           "members": [
             {
               "name": "type",
@@ -914,7 +923,7 @@
               "signature": "public readonly type: string = \"close\"",
               "doc": "<p>Always <code>\"close\"</code>.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:177",
+              "source": "core/websocket.pi:180",
               "members": []
             },
             {
@@ -923,7 +932,7 @@
               "signature": "public readonly code: int",
               "doc": "<p>The close code: the peer's, 1005 when its close frame had none, 1006 when the connection was\nlost or failed.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:180",
+              "source": "core/websocket.pi:183",
               "members": []
             },
             {
@@ -932,7 +941,7 @@
               "signature": "public readonly reason: string",
               "doc": "<p>The peer's close reason (\"\" for none).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:182",
+              "source": "core/websocket.pi:185",
               "members": []
             },
             {
@@ -941,7 +950,7 @@
               "signature": "public readonly wasClean: bool",
               "doc": "<p>Whether the closing handshake completed.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:184",
+              "source": "core/websocket.pi:187",
               "members": []
             },
             {
@@ -955,7 +964,7 @@
                   "code": "const lost = new CloseEvent(1006, \"\", false)\nprintln(lost.code)       // 1006\nprintln(lost.wasClean)   // false"
                 }
               ],
-              "source": "core/websocket.pi:193",
+              "source": "core/websocket.pi:196",
               "members": []
             }
           ]
@@ -1219,7 +1228,7 @@
               "code": "const id = crypto.randomUUID()\nprintln(id.length)   // 36\nconst bytes = crypto.getRandomValues(new Uint8Array(4))\nprintln(bytes.length)   // 4"
             }
           ],
-          "source": "core/crypto.pi:548",
+          "source": "core/crypto.pi:582",
           "members": [
             {
               "name": "subtle",
@@ -1227,7 +1236,7 @@
               "signature": "subtle: SubtleCrypto",
               "doc": "<p>Web Crypto's asynchronous operations (keys, signatures, encryption, derivation).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:550",
+              "source": "core/crypto.pi:584",
               "members": []
             },
             {
@@ -1241,7 +1250,7 @@
                   "code": "const nonce = crypto.getRandomValues(new Uint8Array(12))\nprintln(nonce.length)   // 12 (random bytes, different each run)"
                 }
               ],
-              "source": "core/crypto.pi:560",
+              "source": "core/crypto.pi:594",
               "members": []
             },
             {
@@ -1255,7 +1264,7 @@
                   "code": "const id = crypto.randomUUID()\nprintln(id)          // e.g. 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed\nprintln(id[14])      // 4 (the version)"
                 }
               ],
-              "source": "core/crypto.pi:575",
+              "source": "core/crypto.pi:609",
               "members": []
             }
           ]
@@ -1309,7 +1318,7 @@
               "code": "const raw = new TextEncoder().encode(\"secret\")\nconst key = await crypto.subtle.importKey(\"raw\", raw, { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nprintln(key.type)                   // secret\nprintln(key.algorithm.name)         // HMAC\nprintln(key.algorithm.length)       // 48\nprintln(key.usages.join(\", \"))      // sign"
             }
           ],
-          "source": "core/crypto.pi:124",
+          "source": "core/crypto.pi:144",
           "members": [
             {
               "name": "type",
@@ -1317,7 +1326,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"secret\"</code>, <code>\"private\"</code> or <code>\"public\"</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:126",
+              "source": "core/crypto.pi:146",
               "members": []
             },
             {
@@ -1326,7 +1335,7 @@
               "signature": "public readonly extractable: bool",
               "doc": "<p>Whether <code>exportKey</code> may export a non-public key's bytes.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:128",
+              "source": "core/crypto.pi:148",
               "members": []
             },
             {
@@ -1335,7 +1344,7 @@
               "signature": "public readonly algorithm: KeyAlgorithm",
               "doc": "<p>The algorithm the key is for, with its hash, curve or length.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:130",
+              "source": "core/crypto.pi:150",
               "members": []
             },
             {
@@ -1344,7 +1353,7 @@
               "signature": "public readonly usages: string[]",
               "doc": "<p>What the key may be used for (<code>\"sign\"</code>, <code>\"verify\"</code>, <code>\"encrypt\"</code>, <code>\"decrypt\"</code>,\n<code>\"deriveBits\"</code>): another use rejects with an <code>\"InvalidAccess\"</code> <code>CryptoError</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:133",
+              "source": "core/crypto.pi:153",
               "members": []
             },
             {
@@ -1358,7 +1367,7 @@
                   "code": "const alg: KeyAlgorithm = { name: \"HMAC\", hash: \"SHA-256\", length: 128 }\nconst key = new CryptoKey(\"secret\", true, alg, [\"sign\", \"verify\"], new Uint8Array(16))\nprintln(key.extractable)   // true\nprintln(key.type)          // secret"
                 }
               ],
-              "source": "core/crypto.pi:145",
+              "source": "core/crypto.pi:165",
               "members": []
             }
           ]
@@ -1374,7 +1383,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDH\", namedCurve: \"X25519\" }, false, [\"deriveBits\"])\nif (pair is CryptoKeyPair) {\n  println(pair.publicKey.type)    // public\n  println(pair.privateKey.type)   // private\n}"
             }
           ],
-          "source": "core/crypto.pi:229",
+          "source": "core/crypto.pi:253",
           "members": [
             {
               "name": "publicKey",
@@ -1382,7 +1391,7 @@
               "signature": "publicKey: CryptoKey",
               "doc": "<p>The public key (always extractable).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:231",
+              "source": "core/crypto.pi:255",
               "members": []
             },
             {
@@ -1391,7 +1400,7 @@
               "signature": "privateKey: CryptoKey",
               "doc": "<p>The private key (extractable as <code>generateKey</code> was told).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:233",
+              "source": "core/crypto.pi:257",
               "members": []
             }
           ]
@@ -2605,7 +2614,7 @@
               "code": "const e = new Event(\"open\")\nprintln(e.type)   // open"
             }
           ],
-          "source": "core/websocket.pi:121",
+          "source": "core/websocket.pi:124",
           "members": [
             {
               "name": "type",
@@ -2613,7 +2622,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"open\"</code> or <code>\"error\"</code>.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:123",
+              "source": "core/websocket.pi:126",
               "members": []
             },
             {
@@ -2627,7 +2636,7 @@
                   "code": "const e = new Event(\"error\")\nprintln(e.type)   // error"
                 }
               ],
-              "source": "core/websocket.pi:131",
+              "source": "core/websocket.pi:134",
               "members": []
             }
           ]
@@ -3728,7 +3737,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const alg: KeyAlgorithm = pair.publicKey.algorithm\n  println(alg.name)         // ECDSA\n  println(alg.namedCurve)   // P-256\n}"
             }
           ],
-          "source": "core/crypto.pi:166",
+          "source": "core/crypto.pi:186",
           "members": [
             {
               "name": "name",
@@ -3736,7 +3745,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"HMAC\"</code>, <code>\"AES-GCM\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:168",
+              "source": "core/crypto.pi:188",
               "members": []
             },
             {
@@ -3745,7 +3754,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …), for HMAC keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:170",
+              "source": "core/crypto.pi:190",
               "members": []
             },
             {
@@ -3754,7 +3763,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve (<code>\"P-256\"</code>, <code>\"P-384\"</code>, <code>\"X25519\"</code>), for ECDSA and ECDH keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:172",
+              "source": "core/crypto.pi:192",
               "members": []
             },
             {
@@ -3763,7 +3772,7 @@
               "signature": "length?: int",
               "doc": "<p>The key's length in bits, for secret keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:174",
+              "source": "core/crypto.pi:194",
               "members": []
             }
           ]
@@ -4771,7 +4780,7 @@
               "code": "const text = new MessageEvent(\"hi\")\nmatch (text.data) {\n  s: string => println(`text: ${s}`),              // text: hi\n  b: Uint8Array => println(`${b.length} bytes`),\n}\nprintln(text.type)   // message"
             }
           ],
-          "source": "core/websocket.pi:147",
+          "source": "core/websocket.pi:150",
           "members": [
             {
               "name": "type",
@@ -4779,7 +4788,7 @@
               "signature": "public readonly type: string = \"message\"",
               "doc": "<p>Always <code>\"message\"</code>.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:149",
+              "source": "core/websocket.pi:152",
               "members": []
             },
             {
@@ -4788,7 +4797,7 @@
               "signature": "public readonly data: string | Uint8Array",
               "doc": "<p>The message: a <code>string</code> for a text message, a <code>Uint8Array</code> for a binary one.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:151",
+              "source": "core/websocket.pi:154",
               "members": []
             },
             {
@@ -4802,7 +4811,7 @@
                   "code": "const e = new MessageEvent(Uint8Array.from([1, 2, 3]))\nmatch (e.data) {\n  s: string => println(s),\n  b: Uint8Array => println(`${b.length} bytes`),   // 3 bytes\n}"
                 }
               ],
-              "source": "core/websocket.pi:162",
+              "source": "core/websocket.pi:165",
               "members": []
             }
           ]
@@ -6650,7 +6659,7 @@
               "code": "import { hex } from \"std/encoding\"\n\nconst digest = await crypto.subtle.digest(\"SHA-1\", new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(digest))   // a9993e364706816aba3e25717850c26c9cd0d89d"
             }
           ],
-          "source": "core/crypto.pi:281",
+          "source": "core/crypto.pi:305",
           "members": [
             {
               "name": "digest",
@@ -6663,7 +6672,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst data = new TextEncoder().encode(\"hello\")\nconst hash = await crypto.subtle.digest(\"SHA-256\", data)\nprintln(hex.encode(hash))   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
               ],
-              "source": "core/crypto.pi:293",
+              "source": "core/crypto.pi:317",
               "members": []
             },
             {
@@ -6677,7 +6686,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(hex.encode(tag))   // 8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b"
                 }
               ],
-              "source": "core/crypto.pi:312",
+              "source": "core/crypto.pi:336",
               "members": []
             },
             {
@@ -6691,7 +6700,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"HMAC\", hash: \"SHA-256\" }, true, [\"sign\"])\nif (key is CryptoKey) {\n  const raw = await crypto.subtle.exportKey(\"raw\", key)\n  println(raw.length)   // 32\n}"
                 }
               ],
-              "source": "core/crypto.pi:347",
+              "source": "core/crypto.pi:371",
               "members": []
             },
             {
@@ -6705,7 +6714,7 @@
                   "code": "const aes = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 128 }, false, [\"encrypt\", \"decrypt\"])\nmatch (aes) {\n  k: CryptoKey => println(`${k.algorithm.name} ${k.algorithm.length}`),   // AES-GCM 128\n  p: CryptoKeyPair => println(\"a key pair\"),\n}"
                 }
               ],
-              "source": "core/crypto.pi:363",
+              "source": "core/crypto.pi:387",
               "members": []
             },
             {
@@ -6719,7 +6728,7 @@
                   "code": "const enc = new TextEncoder()\nconst pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const data = enc.encode(\"release-1.0.tar.gz\")\n  const sig = await crypto.subtle.sign({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.privateKey, data)\n  println(sig.length)   // 64 (r ‖ s)\n  println(await crypto.subtle.verify({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.publicKey, sig, data))   // true\n}"
                 }
               ],
-              "source": "core/crypto.pi:395",
+              "source": "core/crypto.pi:419",
               "members": []
             },
             {
@@ -6733,7 +6742,7 @@
                   "code": "const enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\", \"verify\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"message\")))    // true\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"tampered\")))   // false"
                 }
               ],
-              "source": "core/crypto.pi:421",
+              "source": "core/crypto.pi:445",
               "members": []
             },
             {
@@ -6747,7 +6756,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  println(sealed.length)   // 30 (14 bytes of ciphertext + a 16-byte tag)\n}"
                 }
               ],
-              "source": "core/crypto.pi:448",
+              "source": "core/crypto.pi:472",
               "members": []
             },
             {
@@ -6761,7 +6770,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  const plain = await crypto.subtle.decrypt({ name: \"AES-GCM\", iv }, key, sealed)\n  println(new TextDecoder().decode(plain))   // attack at dawn\n}"
                 }
               ],
-              "source": "core/crypto.pi:470",
+              "source": "core/crypto.pi:499",
               "members": []
             },
             {
@@ -6775,7 +6784,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst pw = await crypto.subtle.importKey(\"raw\", enc.encode(\"password\"), \"PBKDF2\", false, [\"deriveBits\"])\nconst bits = await crypto.subtle.deriveBits({ name: \"PBKDF2\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), iterations: 1000 }, pw, 128)\nprintln(hex.encode(bits))   // 632c2812e46d4604102ba7618e9d6d7d\nconst ikm = await crypto.subtle.importKey(\"raw\", enc.encode(\"input key\"), \"HKDF\", false, [\"deriveBits\"])\nconst okm = await crypto.subtle.deriveBits({ name: \"HKDF\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), info: enc.encode(\"context\") }, ikm, 128)\nprintln(hex.encode(okm))    // 49060e83486a86844130609b08a2c02c"
                 }
               ],
-              "source": "core/crypto.pi:495",
+              "source": "core/crypto.pi:529",
               "members": []
             }
           ]
@@ -8710,7 +8719,7 @@
               "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nprintln(ws.readyState == WebSocket.CONNECTING)   // true\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.send(\"hello\")\n  ws.onmessage = (e) => {\n    println(e.data)   // hello\n    ws.close()\n  }\n  ws.onclose = (e) => {\n    println(e.code)   // 1000\n    resolve()\n  }\n})\nawait server.shutdown()"
             }
           ],
-          "source": "core/websocket.pi:239",
+          "source": "core/websocket.pi:242",
           "members": [
             {
               "name": "CONNECTING",
@@ -8723,7 +8732,7 @@
                   "code": "const ws = new WebSocket(\"ws://127.0.0.1:9/\")\nprintln(ws.readyState == WebSocket.CONNECTING)   // true (just created)\nprintln(WebSocket.CONNECTING)                    // 0\nws.close()"
                 }
               ],
-              "source": "core/websocket.pi:250",
+              "source": "core/websocket.pi:253",
               "members": []
             },
             {
@@ -8737,7 +8746,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(ws.readyState == WebSocket.OPEN)   // true\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:275",
+              "source": "core/websocket.pi:278",
               "members": []
             },
             {
@@ -8751,7 +8760,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.close()\n    println(ws.readyState == WebSocket.CLOSING)   // true\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:300",
+              "source": "core/websocket.pi:303",
               "members": []
             },
             {
@@ -8765,7 +8774,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close()\n  ws.onclose = (e) => resolve()\n})\nprintln(ws.readyState == WebSocket.CLOSED)   // true\nprintln(WebSocket.CLOSED)                    // 3\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:324",
+              "source": "core/websocket.pi:327",
               "members": []
             },
             {
@@ -8774,7 +8783,7 @@
               "signature": "public readonly url: string",
               "doc": "<p>The URL connected to, normalized (as <code>URL.href</code>); \"\" for a server-side socket.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:327",
+              "source": "core/websocket.pi:330",
               "members": []
             },
             {
@@ -8783,7 +8792,7 @@
               "signature": "public readyState: int = 0",
               "doc": "<p>The connection's state: <code>CONNECTING</code>, <code>OPEN</code>, <code>CLOSING</code> or <code>CLOSED</code> (0–3).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:329",
+              "source": "core/websocket.pi:332",
               "members": []
             },
             {
@@ -8792,7 +8801,7 @@
               "signature": "public protocol: string = \"\"",
               "doc": "<p>The subprotocol the server chose (\"\" for none).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:331",
+              "source": "core/websocket.pi:334",
               "members": []
             },
             {
@@ -8801,7 +8810,7 @@
               "signature": "public onopen: ((e: Event) => void)? = null",
               "doc": "<p>Called once the connection is open (an <code>\"open\"</code> event).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:333",
+              "source": "core/websocket.pi:336",
               "members": []
             },
             {
@@ -8810,7 +8819,7 @@
               "signature": "public onmessage: ((e: MessageEvent) => void)? = null",
               "doc": "<p>Called for each message received while the socket is open (fragmented ones arrive whole).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:335",
+              "source": "core/websocket.pi:338",
               "members": []
             },
             {
@@ -8819,7 +8828,7 @@
               "signature": "public onclose: ((e: CloseEvent) => void)? = null",
               "doc": "<p>Called once when the connection ends, cleanly or not.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:337",
+              "source": "core/websocket.pi:340",
               "members": []
             },
             {
@@ -8828,7 +8837,7 @@
               "signature": "public onerror: ((e: Event) => void)? = null",
               "doc": "<p>Called when connecting fails (an <code>\"error\"</code> event), just before <code>onclose</code> with code 1006.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:339",
+              "source": "core/websocket.pi:342",
               "members": []
             },
             {
@@ -8842,7 +8851,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
                 }
               ],
-              "source": "core/websocket.pi:385",
+              "source": "core/websocket.pi:390",
               "members": []
             },
             {
@@ -8856,7 +8865,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:666",
+              "source": "core/websocket.pi:689",
               "members": []
             },
             {
@@ -8870,7 +8879,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:703",
+              "source": "core/websocket.pi:726",
               "members": []
             }
           ]
@@ -8895,6 +8904,15 @@
               "doc": "<p>Extra trusted certificates (PEM) for <code>wss:</code>, besides the system's roots.</p>\n",
               "examples": [],
               "source": "core/websocket.pi:30",
+              "members": []
+            },
+            {
+              "name": "maxMessageBytes",
+              "kind": "field",
+              "signature": "maxMessageBytes?: int",
+              "doc": "<p>The largest message to receive, in bytes (its fragments together; #67): a bigger one\ncloses the connection with code 1009 before it's read. No limit by default.</p>\n",
+              "examples": [],
+              "source": "core/websocket.pi:33",
               "members": []
             }
           ]
@@ -12889,7 +12907,7 @@
               "code": "const raw = new TextEncoder().encode(\"secret\")\nconst key = await crypto.subtle.importKey(\"raw\", raw, { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nprintln(key.type)                   // secret\nprintln(key.algorithm.name)         // HMAC\nprintln(key.algorithm.length)       // 48\nprintln(key.usages.join(\", \"))      // sign"
             }
           ],
-          "source": "core/crypto.pi:124",
+          "source": "core/crypto.pi:144",
           "members": [
             {
               "name": "type",
@@ -12897,7 +12915,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"secret\"</code>, <code>\"private\"</code> or <code>\"public\"</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:126",
+              "source": "core/crypto.pi:146",
               "members": []
             },
             {
@@ -12906,7 +12924,7 @@
               "signature": "public readonly extractable: bool",
               "doc": "<p>Whether <code>exportKey</code> may export a non-public key's bytes.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:128",
+              "source": "core/crypto.pi:148",
               "members": []
             },
             {
@@ -12915,7 +12933,7 @@
               "signature": "public readonly algorithm: KeyAlgorithm",
               "doc": "<p>The algorithm the key is for, with its hash, curve or length.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:130",
+              "source": "core/crypto.pi:150",
               "members": []
             },
             {
@@ -12924,7 +12942,7 @@
               "signature": "public readonly usages: string[]",
               "doc": "<p>What the key may be used for (<code>\"sign\"</code>, <code>\"verify\"</code>, <code>\"encrypt\"</code>, <code>\"decrypt\"</code>,\n<code>\"deriveBits\"</code>): another use rejects with an <code>\"InvalidAccess\"</code> <code>CryptoError</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:133",
+              "source": "core/crypto.pi:153",
               "members": []
             },
             {
@@ -12938,7 +12956,7 @@
                   "code": "const alg: KeyAlgorithm = { name: \"HMAC\", hash: \"SHA-256\", length: 128 }\nconst key = new CryptoKey(\"secret\", true, alg, [\"sign\", \"verify\"], new Uint8Array(16))\nprintln(key.extractable)   // true\nprintln(key.type)          // secret"
                 }
               ],
-              "source": "core/crypto.pi:145",
+              "source": "core/crypto.pi:165",
               "members": []
             }
           ]
@@ -12954,7 +12972,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const alg: KeyAlgorithm = pair.publicKey.algorithm\n  println(alg.name)         // ECDSA\n  println(alg.namedCurve)   // P-256\n}"
             }
           ],
-          "source": "core/crypto.pi:166",
+          "source": "core/crypto.pi:186",
           "members": [
             {
               "name": "name",
@@ -12962,7 +12980,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"HMAC\"</code>, <code>\"AES-GCM\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:168",
+              "source": "core/crypto.pi:188",
               "members": []
             },
             {
@@ -12971,7 +12989,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …), for HMAC keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:170",
+              "source": "core/crypto.pi:190",
               "members": []
             },
             {
@@ -12980,7 +12998,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve (<code>\"P-256\"</code>, <code>\"P-384\"</code>, <code>\"X25519\"</code>), for ECDSA and ECDH keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:172",
+              "source": "core/crypto.pi:192",
               "members": []
             },
             {
@@ -12989,7 +13007,7 @@
               "signature": "length?: int",
               "doc": "<p>The key's length in bits, for secret keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:174",
+              "source": "core/crypto.pi:194",
               "members": []
             }
           ]
@@ -13005,7 +13023,7 @@
               "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const params: Algorithm = { name: \"AES-GCM\", iv: crypto.getRandomValues(new Uint8Array(12)) }\n  const sealed = await crypto.subtle.encrypt(params, key, new TextEncoder().encode(\"hi\"))\n  println(sealed.length)   // 18 (2 bytes of ciphertext + a 16-byte tag)\n}"
             }
           ],
-          "source": "core/crypto.pi:192",
+          "source": "core/crypto.pi:212",
           "members": [
             {
               "name": "name",
@@ -13013,7 +13031,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"AES-GCM\"</code>, <code>\"HMAC\"</code>, <code>\"ECDSA\"</code>, <code>\"ECDH\"</code>, <code>\"HKDF\"</code>, <code>\"PBKDF2\"</code>; any\ncase), or, for <code>digest</code>, the hash's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:195",
+              "source": "core/crypto.pi:215",
               "members": []
             },
             {
@@ -13022,7 +13040,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:197",
+              "source": "core/crypto.pi:217",
               "members": []
             },
             {
@@ -13031,7 +13049,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve for <code>generateKey</code> and <code>importKey</code> of ECDSA (<code>\"P-256\"</code>, <code>\"P-384\"</code>) and ECDH keys\n(also <code>\"X25519\"</code>).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:200",
+              "source": "core/crypto.pi:220",
               "members": []
             },
             {
@@ -13040,16 +13058,25 @@
               "signature": "length?: int",
               "doc": "<p>The key length in bits for <code>generateKey</code> (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:202",
+              "source": "core/crypto.pi:222",
               "members": []
             },
             {
               "name": "iv",
               "kind": "field",
               "signature": "iv?: Uint8Array",
-              "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual).</p>\n",
+              "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual), or AES-CBC's initialization vector (16\nbytes).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:204",
+              "source": "core/crypto.pi:225",
+              "members": []
+            },
+            {
+              "name": "counter",
+              "kind": "field",
+              "signature": "counter?: Uint8Array",
+              "doc": "<p>AES-CTR's initial counter block (16 bytes); <code>length</code> is then how many of its rightmost\nbits count up (#69).</p>\n",
+              "examples": [],
+              "source": "core/crypto.pi:228",
               "members": []
             },
             {
@@ -13058,7 +13085,7 @@
               "signature": "additionalData?: Uint8Array",
               "doc": "<p>AES-GCM's authenticated, unencrypted data (none unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:206",
+              "source": "core/crypto.pi:230",
               "members": []
             },
             {
@@ -13067,7 +13094,7 @@
               "signature": "tagLength?: int",
               "doc": "<p>AES-GCM's tag length in bits: only 128 (the default) is supported.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:208",
+              "source": "core/crypto.pi:232",
               "members": []
             },
             {
@@ -13076,7 +13103,7 @@
               "signature": "public?: CryptoKey",
               "doc": "<p>ECDH's peer public key, for <code>deriveBits</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:210",
+              "source": "core/crypto.pi:234",
               "members": []
             },
             {
@@ -13085,7 +13112,7 @@
               "signature": "salt?: Uint8Array",
               "doc": "<p>The HKDF or PBKDF2 salt (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:212",
+              "source": "core/crypto.pi:236",
               "members": []
             },
             {
@@ -13094,7 +13121,7 @@
               "signature": "info?: Uint8Array",
               "doc": "<p>HKDF's context info (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:214",
+              "source": "core/crypto.pi:238",
               "members": []
             },
             {
@@ -13103,7 +13130,7 @@
               "signature": "iterations?: int",
               "doc": "<p>PBKDF2's iteration count.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:216",
+              "source": "core/crypto.pi:240",
               "members": []
             }
           ]
@@ -13119,7 +13146,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDH\", namedCurve: \"X25519\" }, false, [\"deriveBits\"])\nif (pair is CryptoKeyPair) {\n  println(pair.publicKey.type)    // public\n  println(pair.privateKey.type)   // private\n}"
             }
           ],
-          "source": "core/crypto.pi:229",
+          "source": "core/crypto.pi:253",
           "members": [
             {
               "name": "publicKey",
@@ -13127,7 +13154,7 @@
               "signature": "publicKey: CryptoKey",
               "doc": "<p>The public key (always extractable).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:231",
+              "source": "core/crypto.pi:255",
               "members": []
             },
             {
@@ -13136,7 +13163,7 @@
               "signature": "privateKey: CryptoKey",
               "doc": "<p>The private key (extractable as <code>generateKey</code> was told).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:233",
+              "source": "core/crypto.pi:257",
               "members": []
             }
           ]
@@ -13152,7 +13179,7 @@
               "code": "import { hex } from \"std/encoding\"\n\nconst digest = await crypto.subtle.digest(\"SHA-1\", new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(digest))   // a9993e364706816aba3e25717850c26c9cd0d89d"
             }
           ],
-          "source": "core/crypto.pi:281",
+          "source": "core/crypto.pi:305",
           "members": [
             {
               "name": "digest",
@@ -13165,7 +13192,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst data = new TextEncoder().encode(\"hello\")\nconst hash = await crypto.subtle.digest(\"SHA-256\", data)\nprintln(hex.encode(hash))   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
               ],
-              "source": "core/crypto.pi:293",
+              "source": "core/crypto.pi:317",
               "members": []
             },
             {
@@ -13179,7 +13206,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(hex.encode(tag))   // 8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b"
                 }
               ],
-              "source": "core/crypto.pi:312",
+              "source": "core/crypto.pi:336",
               "members": []
             },
             {
@@ -13193,7 +13220,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"HMAC\", hash: \"SHA-256\" }, true, [\"sign\"])\nif (key is CryptoKey) {\n  const raw = await crypto.subtle.exportKey(\"raw\", key)\n  println(raw.length)   // 32\n}"
                 }
               ],
-              "source": "core/crypto.pi:347",
+              "source": "core/crypto.pi:371",
               "members": []
             },
             {
@@ -13207,7 +13234,7 @@
                   "code": "const aes = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 128 }, false, [\"encrypt\", \"decrypt\"])\nmatch (aes) {\n  k: CryptoKey => println(`${k.algorithm.name} ${k.algorithm.length}`),   // AES-GCM 128\n  p: CryptoKeyPair => println(\"a key pair\"),\n}"
                 }
               ],
-              "source": "core/crypto.pi:363",
+              "source": "core/crypto.pi:387",
               "members": []
             },
             {
@@ -13221,7 +13248,7 @@
                   "code": "const enc = new TextEncoder()\nconst pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const data = enc.encode(\"release-1.0.tar.gz\")\n  const sig = await crypto.subtle.sign({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.privateKey, data)\n  println(sig.length)   // 64 (r ‖ s)\n  println(await crypto.subtle.verify({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.publicKey, sig, data))   // true\n}"
                 }
               ],
-              "source": "core/crypto.pi:395",
+              "source": "core/crypto.pi:419",
               "members": []
             },
             {
@@ -13235,7 +13262,7 @@
                   "code": "const enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\", \"verify\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"message\")))    // true\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"tampered\")))   // false"
                 }
               ],
-              "source": "core/crypto.pi:421",
+              "source": "core/crypto.pi:445",
               "members": []
             },
             {
@@ -13249,7 +13276,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  println(sealed.length)   // 30 (14 bytes of ciphertext + a 16-byte tag)\n}"
                 }
               ],
-              "source": "core/crypto.pi:448",
+              "source": "core/crypto.pi:472",
               "members": []
             },
             {
@@ -13263,7 +13290,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  const plain = await crypto.subtle.decrypt({ name: \"AES-GCM\", iv }, key, sealed)\n  println(new TextDecoder().decode(plain))   // attack at dawn\n}"
                 }
               ],
-              "source": "core/crypto.pi:470",
+              "source": "core/crypto.pi:499",
               "members": []
             },
             {
@@ -13277,7 +13304,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst pw = await crypto.subtle.importKey(\"raw\", enc.encode(\"password\"), \"PBKDF2\", false, [\"deriveBits\"])\nconst bits = await crypto.subtle.deriveBits({ name: \"PBKDF2\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), iterations: 1000 }, pw, 128)\nprintln(hex.encode(bits))   // 632c2812e46d4604102ba7618e9d6d7d\nconst ikm = await crypto.subtle.importKey(\"raw\", enc.encode(\"input key\"), \"HKDF\", false, [\"deriveBits\"])\nconst okm = await crypto.subtle.deriveBits({ name: \"HKDF\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), info: enc.encode(\"context\") }, ikm, 128)\nprintln(hex.encode(okm))    // 49060e83486a86844130609b08a2c02c"
                 }
               ],
-              "source": "core/crypto.pi:495",
+              "source": "core/crypto.pi:529",
               "members": []
             }
           ]
@@ -14707,8 +14734,8 @@
         {
           "name": "upgradeWebSocket",
           "kind": "function",
-          "signature": "function upgradeWebSocket(req: Request, protocol: string = \"\"): WebSocketUpgrade throws TypeError",
-          "doc": "<p>Accepts a WebSocket request (<code>upgrade: websocket</code>): return <code>response</code> from the handler\nand use <code>socket</code> (its <code>onopen</code> runs once the response is sent). Anything else throws a\n<code>TypeError</code>.</p>\n",
+          "signature": "function upgradeWebSocket( req: Request, protocol: string = \"\", options: WebSocketOptions = {}, ): WebSocketUpgrade throws TypeError",
+          "doc": "<p>Accepts a WebSocket request (<code>upgrade: websocket</code>): return <code>response</code> from the handler\nand use <code>socket</code> (its <code>onopen</code> runs once the response is sent). Anything else throws a\n<code>TypeError</code>. <code>options.maxMessageBytes</code> limits the messages the socket receives (#67).</p>\n",
           "examples": [
             {
               "caption": "",
