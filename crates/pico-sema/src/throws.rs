@@ -58,7 +58,7 @@ fn normalize(p: &Program, mut ts: Vec<Ty>) -> Vec<Ty> {
     let key = |t: &Ty| match t {
         Ty::Class(s, ..) => (0, s.0),
         Ty::Struct(s, ..) => (1, s.0),
-        Ty::Enum(e, _) => (2, e.0),
+        Ty::Enum(e, _, _) => (2, e.0),
         Ty::Param(o, i, _) => (3 + *o, *i),
         _ => (u32::MAX, 0),
     };

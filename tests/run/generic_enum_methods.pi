@@ -1,0 +1,43 @@
+// expect: true
+// expect: 20
+// expect: 42
+// expect: -1
+// expect: x
+// Methods of generic enums (#51): they take the enum's type parameters from the receiver,
+// one has its own (`map<U>`), and a static one infers them from its arguments.
+enum Opt<T> {
+  Some(value: T),
+  None
+
+  isSome(): bool {
+    match (this) {
+      Opt.Some(_) => true,
+      Opt.None => false,
+    }
+  }
+
+  getOr(d: T): T {
+    match (this) {
+      Opt.Some(v) => v,
+      Opt.None => d,
+    }
+  }
+
+  map<U>(f: (v: T) => U): Opt<U> {
+    match (this) {
+      Opt.Some(v) => Opt.Some(value: f(v)),
+      Opt.None => Opt.None,
+    }
+  }
+
+  static of(v: T): Opt<T> {
+    Opt.Some(value: v)
+  }
+}
+const a: Opt<int> = Opt.Some(value: 20)
+println(a.isSome())
+println(a.getOr(0))
+println(a.map((v: int) => v * 2 + 2).getOr(0))
+const b: Opt<string> = Opt.None
+println(b.map((s: string) => s.length).getOr(-1))
+println(Opt.of("x").getOr("y"))

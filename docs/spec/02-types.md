@@ -123,7 +123,21 @@ enum Color {
 }
 Color.parse("red")
 ```
-Not yet: enums implementing interfaces other than `Throwable`.
+Enums can be generic (#51). The type arguments of a variant come from its fields or from the
+expected type; methods see the enum's type parameters and may add their own:
+```ts
+enum Opt<T> {
+  Some(value: T),
+  None
+
+  getOr(d: T): T { match (this) { Opt.Some(v) => v, Opt.None => d } }
+}
+const a = Opt.Some(value: 5)      // Opt<int>
+const b: Opt<string> = Opt.None   // `Opt.None` alone is E0329: nothing says `T`
+```
+Each instance (`Opt<int>`, `Opt<string>`) has its own layout. Not yet: enums implementing
+interfaces other than `Throwable`, generic enums implementing any interface, and generic enums
+in the WasmGC backend.
 
 ## 2.7 Structs (value types)
 ```ts

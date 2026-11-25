@@ -1,0 +1,5 @@
+// error: E0302
+// at: 5:10
+// A generic enum takes as many type arguments as it declares (#51).
+enum Opt<T> { Some(value: T), None }
+const t: Opt<int, string> = Opt.None

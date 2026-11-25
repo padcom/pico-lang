@@ -1,0 +1,9 @@
+// error: E0329
+// at: 8:11
+// error: E0308
+// at: 9:37
+// A generic enum's type arguments (#51): `Opt.None` alone doesn't say them, and a field's value
+// must fit the expected type's argument.
+enum Opt<T> { Some(value: T), None }
+const n = Opt.None
+const s: Opt<int> = Opt.Some(value: "x")

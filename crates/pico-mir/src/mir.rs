@@ -219,7 +219,8 @@ impl Program {
                 (s * n, a)
             }
             Ty::FixedN(..) => unreachable!("a `comptime` length outside generic code"),
-            Ty::Enum(eid, _) => {
+            Ty::Enum(eid, _, args) => {
+                let owner = Ty::enum_owner(*eid);
                 let words = self
                     .enum_layout(*eid)
                     .variants
@@ -228,7 +229,7 @@ impl Program {
                         let parts: Vec<(u64, u64)> = v
                             .fields
                             .iter()
-                            .map(|(_, t)| self.size_align_with(t, ptr))
+                            .map(|(_, t)| self.size_align_with(&t.subst(owner, args), ptr))
                             .collect();
                         struct_layout(&parts).0.div_ceil(8)
                     })
@@ -287,11 +288,14 @@ impl Program {
             }
             Ty::Tuple(ts) => ts.iter().any(|t| self.traced(t)),
             Ty::Fixed(e, n) => *n > 0 && self.traced(e),
-            Ty::Enum(eid, _) => self
-                .enum_layout(*eid)
-                .variants
-                .iter()
-                .any(|v| v.fields.iter().any(|(_, f)| self.traced(f))),
+            Ty::Enum(eid, _, args) => {
+                let owner = Ty::enum_owner(*eid);
+                self.enum_layout(*eid).variants.iter().any(|v| {
+                    v.fields
+                        .iter()
+                        .any(|(_, f)| self.traced(&f.subst(owner, args)))
+                })
+            }
             _ => false,
         }
     }
@@ -320,8 +324,8 @@ pub fn project(t: &Ty, p: &Proj, field: impl Fn(FieldRef) -> Ty) -> Ty {
         (Ty::Struct(sid, _, args) | Ty::Class(sid, _, args), Proj::Field(i)) => {
             field(FieldRef::Struct(*sid, *i as usize)).subst(Ty::type_owner(*sid), args)
         }
-        (Ty::Enum(eid, _), Proj::VariantField(v, i)) => {
-            field(FieldRef::Variant(*eid, *v, *i as usize))
+        (Ty::Enum(eid, _, args), Proj::VariantField(v, i)) => {
+            field(FieldRef::Variant(*eid, *v, *i as usize)).subst(Ty::enum_owner(*eid), args)
         }
         (Ty::Tuple(ts), Proj::Field(i)) => ts[*i as usize].clone(),
         (Ty::Range(it), Proj::Field(_)) => Ty::Int(*it),

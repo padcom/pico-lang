@@ -671,12 +671,14 @@ fn debuggable(p: &hir::Program, t: &Ty, seen: &mut Vec<Ty>) -> bool {
                 .iter()
                 .all(|f| debuggable(p, &f.ty.subst(owner, args), seen))
         }
-        Ty::Enum(eid, _) => {
+        Ty::Enum(eid, _, args) => {
             seen.push(t.clone());
-            p.enums[eid.0 as usize]
-                .variants
-                .iter()
-                .all(|v| v.fields.iter().all(|f| debuggable(p, &f.ty, seen)))
+            let owner = Ty::enum_owner(*eid);
+            p.enums[eid.0 as usize].variants.iter().all(|v| {
+                v.fields
+                    .iter()
+                    .all(|f| debuggable(p, &f.ty.subst(owner, args), seen))
+            })
         }
         _ => true,
     }
@@ -2296,7 +2298,7 @@ impl FnBuilder<'_, '_> {
                     );
                     (n.to_string(), v)
                 }
-                Ty::Enum(_, n) => {
+                Ty::Enum(_, n, _) => {
                     let spec = pico_sema::format::parse("?").expect("valid spec");
                     let v = self.rvalue_to_temp(
                         Rvalue::Format(Operand::Copy(Place::deref(boxed)), spec),
@@ -7439,7 +7441,7 @@ impl FnBuilder<'_, '_> {
                     self.cmp_into(res, &a.index(k), &b.index(k), et, done, span);
                 }
             }
-            Ty::Enum(eid, _) => {
+            Ty::Enum(eid, _, eargs) => {
                 let u32t = Ty::Int(IntTy::U32);
                 let ta = Place::local(self.temp(u32t.clone()));
                 let tb = Place::local(self.temp(u32t.clone()));
@@ -7452,7 +7454,12 @@ impl FnBuilder<'_, '_> {
                     .enum_def(*eid)
                     .variants
                     .iter()
-                    .map(|v| v.fields.iter().map(|f| f.ty.clone()).collect())
+                    .map(|v| {
+                        v.fields
+                            .iter()
+                            .map(|f| f.ty.subst(Ty::enum_owner(*eid), eargs))
+                            .collect()
+                    })
                     .collect();
                 let after = self.new_block();
                 for (vi, fields) in variants.iter().enumerate() {
@@ -7548,7 +7555,7 @@ impl FnBuilder<'_, '_> {
                     .collect();
                 self.hash_parts(parts, span)
             }
-            Ty::Enum(eid, _) => {
+            Ty::Enum(eid, _, eargs) => {
                 let p = self.in_place(v, &te, span);
                 let res = Place::local(self.temp(u64t.clone()));
                 let tag = self.rvalue_to_temp(
@@ -7564,7 +7571,12 @@ impl FnBuilder<'_, '_> {
                     .enum_def(*eid)
                     .variants
                     .iter()
-                    .map(|v| v.fields.iter().map(|f| f.ty.clone()).collect())
+                    .map(|v| {
+                        v.fields
+                            .iter()
+                            .map(|f| f.ty.subst(Ty::enum_owner(*eid), eargs))
+                            .collect()
+                    })
                     .collect();
                 let after = self.new_block();
                 for (vi, fields) in variants.iter().enumerate() {

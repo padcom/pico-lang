@@ -756,6 +756,7 @@ impl Resolver {
                             throwable: false,
                             methods: Vec::new(),
                             statics: Vec::new(),
+                            generics: Vec::new(),
                         });
                         self.top_enums.insert(&self.mods, ed.name.name.clone(), id);
                         for v in &ed.variants {
@@ -873,6 +874,13 @@ impl Resolver {
             self.f.type_params.clear();
             self.structs[sid.0 as usize].generics = tps;
         }
+        // (And generic enums', #51.)
+        for (eid, ed) in &enum_decls {
+            self.enter_module(ed.name.span);
+            let tps = self.type_params(&ed.generics, &[], Ty::enum_owner(*eid));
+            self.f.type_params.clear();
+            self.enums[eid.0 as usize].generics = tps;
+        }
         for (g, t) in pending_globals {
             self.enter_module(self.globals[g.0 as usize].span);
             let ty = self.resolve_type(t);
@@ -896,6 +904,7 @@ impl Resolver {
         for (eid, ed) in &enum_decls {
             self.enter_module(ed.name.span);
             self.enum_variants(*eid, ed);
+            self.f.type_params.clear();
         }
         let mut classes = Vec::new();
         for (sid, cd) in self.order_classes(&class_decls) {
@@ -1093,9 +1102,29 @@ impl Resolver {
     }
 
     fn enum_variants(&mut self, eid: EnumId, ed: &ast::EnumDecl) {
-        if let Some(g) = ed.generics.first() {
-            self.not_implemented(g.span, "generic enums");
+        // A generic enum's parameters are in scope in its variants' fields (#51).
+        let owner = Ty::enum_owner(eid);
+        let names: Vec<String> = ed.generics.iter().map(|g| g.name.name.clone()).collect();
+        for (i, n) in names.iter().enumerate() {
+            let t = Ty::Param(owner, i as u32, n.as_str().into());
+            self.f.type_params.push((n.clone(), t));
         }
+        if !ed.generics.is_empty() && !ed.implements.is_empty() {
+            self.not_implemented(
+                ed.implements[0].span,
+                "generic enums implementing interfaces",
+            );
+        }
+        // Methods take the enum's type parameters as their own (first), and `this: Enum<…>`,
+        // so they're generic functions whose arguments come from the receiver.
+        let self_ty = build::named_type(
+            &ed.name.name,
+            ed.generics
+                .iter()
+                .map(|g| build::named_type(&g.name.name, Vec::new(), g.span))
+                .collect(),
+            ed.name.span,
+        );
         for t in &ed.implements {
             let throwable = self
                 .top_structs
@@ -1126,6 +1155,9 @@ impl Resolver {
                 let id = FnId(self.fns.len() as u32);
                 self.fns.push(None);
                 let mut decl = f.clone();
+                let mut gs = ed.generics.clone();
+                gs.append(&mut decl.generics);
+                decl.generics = gs;
                 decl.name = Some(ast::Ident {
                     name: format!("{}.{}", ed.name.name, name.name),
                     span: name.span,
@@ -1156,7 +1188,7 @@ impl Resolver {
                     }),
                     span: name.span,
                 },
-                ty: Some(build::named_type(&ed.name.name, Vec::new(), name.span)),
+                ty: Some(self_ty.clone()),
                 optional: false,
                 rest: false,
                 comptime: false,
@@ -1164,6 +1196,9 @@ impl Resolver {
                 span,
             };
             let mut decl = f.clone();
+            let mut gs = ed.generics.clone();
+            gs.append(&mut decl.generics);
+            decl.generics = gs;
             decl.name = Some(ast::Ident {
                 name: format!("{}.{}", ed.name.name, name.name),
                 span: name.span,
@@ -1241,7 +1276,17 @@ impl Resolver {
     }
 
     fn enum_ty(&self, id: EnumId) -> Ty {
-        Ty::Enum(id, self.enums[id.0 as usize].name.as_str().into())
+        let d = &self.enums[id.0 as usize];
+        let owner = Ty::enum_owner(id);
+        Ty::Enum(
+            id,
+            d.name.as_str().into(),
+            d.generics
+                .iter()
+                .enumerate()
+                .map(|(i, g)| Ty::Param(owner, i as u32, g.name.as_str().into()))
+                .collect(),
+        )
     }
 
     fn struct_members<'a>(
@@ -2073,7 +2118,7 @@ impl Resolver {
             Ty::Struct(sid, _, _) => {
                 iface.is_some_and(|i| self.structs[sid.0 as usize].implements.contains(&i))
             }
-            Ty::Enum(e, _) => self.enums[e.0 as usize].throwable,
+            Ty::Enum(e, _, _) => self.enums[e.0 as usize].throwable,
             _ => false,
         }
     }
@@ -4692,12 +4737,17 @@ impl Resolver {
                             self.generic_ty(sid, Vec::new(), t.span)
                         }
                     }
-                    None if self.top_enums.contains_key(&self.mods, &path[0].name) => self.enum_ty(
-                        *self
+                    None if self.top_enums.contains_key(&self.mods, &path[0].name) => {
+                        let eid = *self
                             .top_enums
                             .get(&self.mods, &path[0].name)
-                            .expect("checked"),
-                    ),
+                            .expect("checked");
+                        if self.enums[eid.0 as usize].generics.is_empty() {
+                            self.enum_ty(eid)
+                        } else {
+                            self.generic_enum_ty(eid, Vec::new(), t.span)
+                        }
+                    }
                     None if self.aliases.contains_key(&self.mods, &path[0].name) => {
                         self.alias(&path[0].name, t.span)
                     }
@@ -4740,6 +4790,17 @@ impl Resolver {
                     .expect("checked");
                 let args: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
                 self.generic_ty(sid, args, t.span)
+            }
+            // `Opt<int>` (#51).
+            ast::TypeKind::Path { path, args }
+                if path.len() == 1 && self.top_enums.contains_key(&self.mods, &path[0].name) =>
+            {
+                let eid = *self
+                    .top_enums
+                    .get(&self.mods, &path[0].name)
+                    .expect("checked");
+                let args: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
+                self.generic_enum_ty(eid, args, t.span)
             }
             ast::TypeKind::Array(elem) => Ty::Array(Box::new(self.resolve_type(elem))),
             ast::TypeKind::Fixed { elem, len } => {
@@ -4843,6 +4904,39 @@ impl Resolver {
             }
         }
         self.structs[sid.0 as usize].ty_with(sid, args.into())
+    }
+
+    /// A generic enum's type with its arguments (#51), as [`Self::generic_ty`] for structs.
+    fn generic_enum_ty(&mut self, eid: EnumId, mut args: Vec<Ty>, span: Span) -> Ty {
+        let n = self.enums[eid.0 as usize].generics.len();
+        let name = self.enums[eid.0 as usize].name.clone();
+        if args.len() > n {
+            self.error(
+                codes::WRONG_ARG_COUNT,
+                span,
+                format!(
+                    "`{name}` takes {n} type argument{}",
+                    if n == 1 { "" } else { "s" }
+                ),
+                "too many type arguments",
+            );
+            return Ty::Error;
+        }
+        while args.len() < n {
+            match &self.enums[eid.0 as usize].generics[args.len()].default {
+                Some(d) => args.push(d.clone()),
+                None => {
+                    self.error(
+                        codes::CANT_INFER,
+                        span,
+                        format!("`{name}` needs its type arguments"),
+                        format!("write `{name}<…>`"),
+                    );
+                    return Ty::Error;
+                }
+            }
+        }
+        Ty::Enum(eid, name.as_str().into(), args.into())
     }
 
     /// The type an alias stands for (resolved once; a cycle is an error).
@@ -4990,6 +5084,7 @@ impl Resolver {
             throwable: false,
             methods: Vec::new(),
             statics: Vec::new(),
+            generics: Vec::new(),
         });
         self.unions.push((members.clone(), id));
         Ty::Union(id, members.into())
@@ -5030,6 +5125,7 @@ impl Resolver {
             throwable: false,
             methods: Vec::new(),
             statics: Vec::new(),
+            generics: Vec::new(),
         });
         let mut seen: HashMap<String, Span> = HashMap::new();
         for o in objects {
@@ -5079,7 +5175,7 @@ impl Resolver {
                 has_parens: true,
             });
         }
-        Ty::Enum(id, ename.into())
+        Ty::Enum(id, ename.into(), std::sync::Arc::from([]))
     }
 
     /// The length of a fixed array: an integer literal, or (`Err`) a `comptime` parameter.
@@ -5673,7 +5769,11 @@ impl Resolver {
             return self.generic_ty(sid, args, span);
         }
         match self.top_enums.map.get(&k) {
-            Some(&e) => self.enum_ty(e),
+            Some(&e) if self.enums[e.0 as usize].generics.is_empty() => self.enum_ty(e),
+            Some(&e) => {
+                let args: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
+                self.generic_enum_ty(e, args, span)
+            }
             None => Ty::Error,
         }
     }
@@ -7666,7 +7766,7 @@ enum Inline {
 fn inline_types(t: &Ty, out: &mut Vec<Inline>) {
     match t {
         Ty::Struct(id, _, _) => out.push(Inline::Struct(*id)),
-        Ty::Enum(id, _) => out.push(Inline::Enum(*id)),
+        Ty::Enum(id, _, _) => out.push(Inline::Enum(*id)),
         Ty::Fixed(e, _) | Ty::Nullable(e) => inline_types(e, out),
         Ty::Tuple(ts) => ts.iter().for_each(|t| inline_types(t, out)),
         _ => {}
