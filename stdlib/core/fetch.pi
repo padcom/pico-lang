@@ -628,7 +628,7 @@ class __HttpReader {
   /// Whether everything read so far has been used and the connection hasn't ended: nothing of a
   /// next message is mixed in (#138).
   public drained(): bool {
-    this.pos == this.buf.length && !this.eof
+    return this.pos == this.buf.length && !this.eof
   }
 
   /// Bytes `from..to` of the buffer as text (each byte one character, as HTTP heads are).
