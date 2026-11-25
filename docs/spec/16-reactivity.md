@@ -40,7 +40,9 @@ is `Reactive<T>` (such as the result of `computed`). Access is **transparent** (
 - **Naming** a reactive binding (`count`, `this.count`, `counter.count`) reads its value, an
   expression of type `T`. Inside a computed getter or an effect, the read is **tracked**
   (§16.5).
-- **Assigning** writes its value: `count = 2`, `count += 1`, `count++`. Assignment to a reactive
+- **Assigning** writes its value: `count = 2`, `count += 1`, `count++`; `ready ||= true`,
+  `ok &&= check()` and `name ??= "x"` write (and evaluate their right side) only when the current
+  value calls for it (#71). Assignment to a reactive
   binding always writes the cell and never rebinds it, even for a `const`.
 - A write stores the value and then **triggers** what depends on the binding, unless the new
   value is **identical** to the old one (decision 302): the same reference for classes, arrays,
