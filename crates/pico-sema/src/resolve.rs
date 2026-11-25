@@ -757,6 +757,7 @@ impl Resolver {
                             methods: Vec::new(),
                             statics: Vec::new(),
                             generics: Vec::new(),
+                            implements: Vec::new(),
                         });
                         self.top_enums.insert(&self.mods, ed.name.name.clone(), id);
                         for v in &ed.variants {
@@ -1135,8 +1136,19 @@ impl Resolver {
                 Ty::Iface(i, _, _) if Some(i) == throwable => {
                     self.enums[eid.0 as usize].throwable = true;
                 }
+                // Other interfaces (#51): checked against its methods once they're known.
+                Ty::Iface(i, _, args) => {
+                    self.enums[eid.0 as usize]
+                        .implements
+                        .push((i, args.to_vec()));
+                }
                 Ty::Error => {}
-                _ => self.not_implemented(t.span, "interfaces on enums (other than `Throwable`)"),
+                other => self.error(
+                    codes::UNKNOWN_TYPE,
+                    t.span,
+                    format!("`{other}` isn't an interface"),
+                    "only interfaces can be implemented",
+                ),
             }
         }
         // Methods (#51): `this` is their first parameter, of the enum's type.
@@ -5085,6 +5097,7 @@ impl Resolver {
             methods: Vec::new(),
             statics: Vec::new(),
             generics: Vec::new(),
+            implements: Vec::new(),
         });
         self.unions.push((members.clone(), id));
         Ty::Union(id, members.into())
@@ -5126,6 +5139,7 @@ impl Resolver {
             methods: Vec::new(),
             statics: Vec::new(),
             generics: Vec::new(),
+            implements: Vec::new(),
         });
         let mut seen: HashMap<String, Span> = HashMap::new();
         for o in objects {

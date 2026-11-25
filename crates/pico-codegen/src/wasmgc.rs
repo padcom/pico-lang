@@ -2997,6 +2997,14 @@ impl<'p> Gen<'p> {
             Rvalue::ToIface(o, i) => {
                 let it = self.register(Key::Iface, |_| Def::Iface);
                 self.operand(fx, s, o)?;
+                // An enum's data is a reference to it, a cell here (its adapters take
+                // `*IfaceData(self)`, #51).
+                if let Ty::Enum(..) = self.operand_ty(fx, o)?.erase()
+                    && let Some(v) = self.wasm_ty(&self.operand_ty(fx, o)?)
+                {
+                    let cell = self.register(Key::Opt(v), |_| Def::Opt(v));
+                    s.struct_new(cell);
+                }
                 s.i32_const(self.itable_base[*i as usize] as i32);
                 s.struct_new(it);
             }

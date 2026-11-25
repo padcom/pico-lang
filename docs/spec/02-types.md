@@ -135,8 +135,18 @@ enum Opt<T> {
 const a = Opt.Some(value: 5)      // Opt<int>
 const b: Opt<string> = Opt.None   // `Opt.None` alone is E0329: nothing says `T`
 ```
-Each instance (`Opt<int>`, `Opt<string>`) has its own layout. Not yet: enums implementing
-interfaces other than `Throwable`, and generic enums implementing any interface.
+Each instance (`Opt<int>`, `Opt<string>`) has its own layout.
+
+An enum can implement interfaces (#51) with its methods (their types after `this` must be the
+interface's); it's then a value of the interface (boxed, like a struct), gets the interface's
+defaults, and meets `T extends I` bounds:
+```ts
+interface Named { name(): string }
+enum Color implements Named { Red, Green
+  name(): string { match (this) { Color.Red => "red", Color.Green => "green" } } }
+const n: Named = Color.Red
+```
+Not yet: generic enums implementing interfaces.
 
 ## 2.7 Structs (value types)
 ```ts
