@@ -494,7 +494,7 @@ and lookbehind (`(?=…)`, `(?!…)`, `(?<=…)`, `(?<!…)`), classes (`[a-z]`,
 \S`, `.`), anchors (`^ $ \b \B`) and escapes (`\n \t \xHH \uHHHH \u{H…} \cX`). Captures inside a
 repeated group are reset at each repetition and an iteration that matches nothing ends the
 loop, as in JavaScript. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
-(`^`/`$` at line ends), `s` (`.` matches line ends), `y` (sticky), `u`, `v`, `d` (accepted).
+(`^`/`$` at line ends), `s` (`.` matches line ends), `y` (sticky), `u`, `v`, `d` (match indices).
 Matching is by code point, as if `u` were always on (`.` is one character), and indices count
 code points, as pico strings do.
 
@@ -506,7 +506,9 @@ A regex literal (`/\d+/g`) is checked at compile time (E0010, with JavaScript's 
 `lastIndex`, `exec(s): RegExpMatch?` (from `lastIndex` with `g`/`y`, which it updates), `test(s)`
 and `toString()`. A `RegExpMatch` is array-like: `m[0]` is the match, `m[i]` group `i` (`string?`:
 `null` when the group didn't take part), `length`, `index`, `input`, `groups` (named groups:
-`Map<string, string?>?`), `toArray()`, `for…of`.
+`Map<string, string?>?`), `indices` (with `d`, #62: a `RegExpIndices`, `[start, end]` in code
+points per element, `null` for a group that didn't take part, and `indices.groups` by name;
+`null` without `d`), `toArray()`, `for…of`.
 
 String methods take a `string` or a `RegExp`: `replace(search, replacement)` (the first
 occurrence; every match with `g`), `replaceAll(search, replacement)` (a `RegExp` must have `g`,

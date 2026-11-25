@@ -62,6 +62,7 @@
     "ReadableStreamDefaultController": "core#ReadableStreamDefaultController",
     "ReadableStreamDefaultReader": "core#ReadableStreamDefaultReader",
     "RegExp": "core#RegExp",
+    "RegExpIndices": "core#RegExpIndices",
     "RegExpMatch": "core#RegExpMatch",
     "Request": "core#Request",
     "RequestInit": "core#RequestInit",
@@ -5707,7 +5708,7 @@
               "code": "const date = /(\\d{4})-(\\d{2})-(\\d{2})/\nprintln(date.test(\"on 2024-03-10\"))   // true\nconst m = date.exec(\"on 2024-03-10\")\nif (m != null) {\n  println(m[1])                       // 2024\n}\nconst word = new RegExp(\"\\\\bcat\\\\b\", \"i\")\nprintln(word.test(\"A Cat sat\"))       // true"
             }
           ],
-          "source": "core/regex.pi:1162",
+          "source": "core/regex.pi:1221",
           "members": [
             {
               "name": "source",
@@ -5715,7 +5716,7 @@
               "signature": "public readonly source: string",
               "doc": "<p>The pattern's text (<code>\"(?:)\"</code> for an empty pattern).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1164",
+              "source": "core/regex.pi:1223",
               "members": []
             },
             {
@@ -5724,7 +5725,7 @@
               "signature": "public readonly flags: string",
               "doc": "<p>The flags, in canonical order (<code>\"dgimsuvy\"</code>).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1166",
+              "source": "core/regex.pi:1225",
               "members": []
             },
             {
@@ -5733,7 +5734,7 @@
               "signature": "public lastIndex: int = 0",
               "doc": "<p>Where the next <code>exec</code> or <code>test</code> starts with the <code>g</code> or <code>y</code> flag, in code points; other regexes\nignore it.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1169",
+              "source": "core/regex.pi:1228",
               "members": []
             },
             {
@@ -5747,7 +5748,7 @@
                   "code": "const re = new RegExp(\"^[a-z]+\\\\d*$\", \"i\")\nprintln(re)                 // /^[a-z]+\\d*$/i\nprintln(re.test(\"Abc12\"))   // true\ntry {\n  const bad = new RegExp(\"a\", \"gg\")\n  println(bad)\n} catch (e: SyntaxError) {\n  println(e.message)        // Invalid flags supplied to RegExp constructor 'gg'\n}"
                 }
               ],
-              "source": "core/regex.pi:1191",
+              "source": "core/regex.pi:1250",
               "members": []
             },
             {
@@ -5761,7 +5762,7 @@
                   "code": "const re = /a+/g\nprintln(new RegExp(re))         // /a+/g\nprintln(new RegExp(re, \"i\"))    // /a+/i"
                 }
               ],
-              "source": "core/regex.pi:1211",
+              "source": "core/regex.pi:1270",
               "members": []
             },
             {
@@ -5775,7 +5776,7 @@
                   "code": "println(/o/g.global)   // true\nprintln(/o/.global)    // false"
                 }
               ],
-              "source": "core/regex.pi:1288",
+              "source": "core/regex.pi:1347",
               "members": []
             },
             {
@@ -5789,7 +5790,7 @@
                   "code": "const re = /hello/i\nprintln(re.ignoreCase)      // true\nprintln(re.test(\"HeLLo\"))   // true"
                 }
               ],
-              "source": "core/regex.pi:1297",
+              "source": "core/regex.pi:1356",
               "members": []
             },
             {
@@ -5803,7 +5804,7 @@
                   "code": "const re = /^b/m\nprintln(re.multiline)        // true\nprintln(re.test(\"a\\nb\"))     // true"
                 }
               ],
-              "source": "core/regex.pi:1306",
+              "source": "core/regex.pi:1365",
               "members": []
             },
             {
@@ -5817,7 +5818,7 @@
                   "code": "const re = /a.b/s\nprintln(re.dotAll)          // true\nprintln(re.test(\"a\\nb\"))    // true"
                 }
               ],
-              "source": "core/regex.pi:1315",
+              "source": "core/regex.pi:1374",
               "members": []
             },
             {
@@ -5831,7 +5832,7 @@
                   "code": "println(/x/u.unicode)   // true\nprintln(/x/.unicode)    // false"
                 }
               ],
-              "source": "core/regex.pi:1323",
+              "source": "core/regex.pi:1382",
               "members": []
             },
             {
@@ -5845,7 +5846,7 @@
                   "code": "const re = /\\d/y\nprintln(re.sticky)      // true\nprintln(re.test(\"a1\"))  // false\nre.lastIndex = 1\nprintln(re.test(\"a1\"))  // true"
                 }
               ],
-              "source": "core/regex.pi:1334",
+              "source": "core/regex.pi:1393",
               "members": []
             },
             {
@@ -5859,7 +5860,7 @@
                   "code": "println(/x/d.hasIndices)   // true\nprintln(/x/.hasIndices)    // false"
                 }
               ],
-              "source": "core/regex.pi:1342",
+              "source": "core/regex.pi:1401",
               "members": []
             },
             {
@@ -5873,7 +5874,7 @@
                   "code": "const re = /(\\w+)=(\\d+)/g\nconst s = \"a=1 b=22\"\nlet m = re.exec(s)\nwhile (m != null) {\n  println(`${m[1]} -> ${m[2]} at ${m.index}`)\n  m = re.exec(s)\n}\n// Prints:\n// a -> 1 at 0\n// b -> 22 at 4"
                 }
               ],
-              "source": "core/regex.pi:1398",
+              "source": "core/regex.pi:1476",
               "members": []
             },
             {
@@ -5887,7 +5888,7 @@
                   "code": "const digits = /^\\d+$/\nprintln(digits.test(\"123\"))   // true\nprintln(digits.test(\"12a\"))   // false"
                 }
               ],
-              "source": "core/regex.pi:1423",
+              "source": "core/regex.pi:1501",
               "members": []
             },
             {
@@ -5901,7 +5902,59 @@
                   "code": "const re = new RegExp(\"a/b\", \"gi\")\nprintln(re.toString())   // /a\\/b/gi\nprintln(re.source)       // a\\/b\nprintln(re.flags)        // gi"
                 }
               ],
-              "source": "core/regex.pi:1436",
+              "source": "core/regex.pi:1514",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "RegExpIndices",
+          "kind": "class",
+          "signature": "class RegExpIndices",
+          "doc": "<p>Where a <code>d</code>-flag match and its groups are (<code>RegExpMatch.indices</code>, #62): <code>[start, end]</code> in\ncode points per element (<code>null</code> for a group that didn't take part), and by group name.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const m = /(\\d+)-(\\d+)?/d.exec(\"id 12-\")\nif (m != null) {\n  const ix = m.indices\n  if (ix != null) {\n    println(`${ix.length} ${ix[0]:?} ${ix[1]:?} ${ix[2]:?}`)   // 3 [3, 6] [3, 5] null\n  }\n}"
+            }
+          ],
+          "source": "core/regex.pi:1033",
+          "members": [
+            {
+              "name": "groups",
+              "kind": "field",
+              "signature": "public readonly groups: Map<string, [int, int]?>?",
+              "doc": "<p>The named groups' positions by name, or <code>null</code> when the pattern has no named groups.</p>\n",
+              "examples": [],
+              "source": "core/regex.pi:1036",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(pairs: ([int, int]?)[], groups: Map<string, [int, int]?>?)",
+              "doc": "<p>Positions <code>pairs</code> (one per element) and the named groups'.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "// They usually come from a `d`-flag match; they can also be built directly.\nconst ix = new RegExpIndices([[0, 2], null], null)\nprintln(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null"
+                }
+              ],
+              "source": "core/regex.pi:1046",
+              "members": []
+            },
+            {
+              "name": "length",
+              "kind": "property",
+              "signature": "public get length(): int",
+              "doc": "<p>The count of elements: 1 plus the count of capture groups.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /(a)(b)?/d.exec(\"a\")\nprintln(m?.indices?.length)   // 3"
+                }
+              ],
+              "source": "core/regex.pi:1058",
               "members": []
             }
           ]
@@ -5917,7 +5970,7 @@
               "code": "const m = /(?<year>\\d{4})-(\\d{2})/.exec(\"due 2024-03\")\nif (m != null) {\n  println(m[0])                       // 2024-03\n  println(m[2])                       // 03\n  println(m.index)                    // 4\n  println(m.groups?.get(\"year\"))      // 2024\n}"
             }
           ],
-          "source": "core/regex.pi:1034",
+          "source": "core/regex.pi:1081",
           "members": [
             {
               "name": "index",
@@ -5925,7 +5978,7 @@
               "signature": "public readonly index: int",
               "doc": "<p>Where the match starts in <code>input</code>, in code points (-1 for a <code>g</code>-flag <code>string.match</code> result).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1037",
+              "source": "core/regex.pi:1084",
               "members": []
             },
             {
@@ -5934,7 +5987,7 @@
               "signature": "public readonly input: string",
               "doc": "<p>The string that was searched.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1039",
+              "source": "core/regex.pi:1086",
               "members": []
             },
             {
@@ -5943,7 +5996,21 @@
               "signature": "public readonly groups: Map<string, string?>?",
               "doc": "<p>The named groups' texts by name (<code>null</code> for one that didn't take part), or <code>null</code> when the\npattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1042",
+              "source": "core/regex.pi:1089",
+              "members": []
+            },
+            {
+              "name": "indices",
+              "kind": "field",
+              "signature": "public indices: RegExpIndices? = null",
+              "doc": "<p>With the <code>d</code> flag (#62): where the match and each group start and end, in code points\n(<code>null</code> without it).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /a(?<b>b+)/d.exec(\"xabb\")\nif (m != null) {\n  println(`${m.indices?.[0]:?} ${m.indices?.[1]:?}`)    // [1, 4] [2, 4]\n  println(`${m.indices?.groups?.get(\"b\"):?}`)           // [2, 4]\n}"
+                }
+              ],
+              "source": "core/regex.pi:1101",
               "members": []
             },
             {
@@ -5957,7 +6024,7 @@
                   "code": "// Matches usually come from `exec` or `string.match`; one can also be built directly.\nconst m = new RegExpMatch([\"ab\", \"b\"], 3, \"xxxab\", null)\nprintln(m[0])      // ab\nprintln(m.index)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1053",
+              "source": "core/regex.pi:1112",
               "members": []
             },
             {
@@ -5971,7 +6038,7 @@
                   "code": "const m = /(\\w+)@(\\w+)/.exec(\"mail ann@home\")\nif (m != null) {\n  println(m.length)   // 3\n}"
                 }
               ],
-              "source": "core/regex.pi:1069",
+              "source": "core/regex.pi:1128",
               "members": []
             },
             {
@@ -5985,7 +6052,7 @@
                   "code": "const m = /(\\d+)x(\\d+)?/.exec(\"size 640x\")\nif (m != null) {\n  const parts = m.toArray()\n  println(parts.length)                               // 3\n  println(parts.map(s => s ?? \"(none)\").join(\", \"))   // 640x, 640, (none)\n}"
                 }
               ],
-              "source": "core/regex.pi:1088",
+              "source": "core/regex.pi:1147",
               "members": []
             },
             {
@@ -5999,7 +6066,7 @@
                   "code": "const m = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(\"2024-03-10\")\nif (m != null) {\n  for (const part of m) {\n    println(part)\n  }\n}\n// Prints:\n// 2024-03-10\n// 2024\n// 03\n// 10"
                 }
               ],
-              "source": "core/regex.pi:1108",
+              "source": "core/regex.pi:1167",
               "members": []
             }
           ]
@@ -20343,7 +20410,7 @@
               "code": "const date = /(\\d{4})-(\\d{2})-(\\d{2})/\nprintln(date.test(\"on 2024-03-10\"))   // true\nconst m = date.exec(\"on 2024-03-10\")\nif (m != null) {\n  println(m[1])                       // 2024\n}\nconst word = new RegExp(\"\\\\bcat\\\\b\", \"i\")\nprintln(word.test(\"A Cat sat\"))       // true"
             }
           ],
-          "source": "core/regex.pi:1162",
+          "source": "core/regex.pi:1221",
           "members": [
             {
               "name": "source",
@@ -20351,7 +20418,7 @@
               "signature": "public readonly source: string",
               "doc": "<p>The pattern's text (<code>\"(?:)\"</code> for an empty pattern).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1164",
+              "source": "core/regex.pi:1223",
               "members": []
             },
             {
@@ -20360,7 +20427,7 @@
               "signature": "public readonly flags: string",
               "doc": "<p>The flags, in canonical order (<code>\"dgimsuvy\"</code>).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1166",
+              "source": "core/regex.pi:1225",
               "members": []
             },
             {
@@ -20369,7 +20436,7 @@
               "signature": "public lastIndex: int = 0",
               "doc": "<p>Where the next <code>exec</code> or <code>test</code> starts with the <code>g</code> or <code>y</code> flag, in code points; other regexes\nignore it.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1169",
+              "source": "core/regex.pi:1228",
               "members": []
             },
             {
@@ -20383,7 +20450,7 @@
                   "code": "const re = new RegExp(\"^[a-z]+\\\\d*$\", \"i\")\nprintln(re)                 // /^[a-z]+\\d*$/i\nprintln(re.test(\"Abc12\"))   // true\ntry {\n  const bad = new RegExp(\"a\", \"gg\")\n  println(bad)\n} catch (e: SyntaxError) {\n  println(e.message)        // Invalid flags supplied to RegExp constructor 'gg'\n}"
                 }
               ],
-              "source": "core/regex.pi:1191",
+              "source": "core/regex.pi:1250",
               "members": []
             },
             {
@@ -20397,7 +20464,7 @@
                   "code": "const re = /a+/g\nprintln(new RegExp(re))         // /a+/g\nprintln(new RegExp(re, \"i\"))    // /a+/i"
                 }
               ],
-              "source": "core/regex.pi:1211",
+              "source": "core/regex.pi:1270",
               "members": []
             },
             {
@@ -20411,7 +20478,7 @@
                   "code": "println(/o/g.global)   // true\nprintln(/o/.global)    // false"
                 }
               ],
-              "source": "core/regex.pi:1288",
+              "source": "core/regex.pi:1347",
               "members": []
             },
             {
@@ -20425,7 +20492,7 @@
                   "code": "const re = /hello/i\nprintln(re.ignoreCase)      // true\nprintln(re.test(\"HeLLo\"))   // true"
                 }
               ],
-              "source": "core/regex.pi:1297",
+              "source": "core/regex.pi:1356",
               "members": []
             },
             {
@@ -20439,7 +20506,7 @@
                   "code": "const re = /^b/m\nprintln(re.multiline)        // true\nprintln(re.test(\"a\\nb\"))     // true"
                 }
               ],
-              "source": "core/regex.pi:1306",
+              "source": "core/regex.pi:1365",
               "members": []
             },
             {
@@ -20453,7 +20520,7 @@
                   "code": "const re = /a.b/s\nprintln(re.dotAll)          // true\nprintln(re.test(\"a\\nb\"))    // true"
                 }
               ],
-              "source": "core/regex.pi:1315",
+              "source": "core/regex.pi:1374",
               "members": []
             },
             {
@@ -20467,7 +20534,7 @@
                   "code": "println(/x/u.unicode)   // true\nprintln(/x/.unicode)    // false"
                 }
               ],
-              "source": "core/regex.pi:1323",
+              "source": "core/regex.pi:1382",
               "members": []
             },
             {
@@ -20481,7 +20548,7 @@
                   "code": "const re = /\\d/y\nprintln(re.sticky)      // true\nprintln(re.test(\"a1\"))  // false\nre.lastIndex = 1\nprintln(re.test(\"a1\"))  // true"
                 }
               ],
-              "source": "core/regex.pi:1334",
+              "source": "core/regex.pi:1393",
               "members": []
             },
             {
@@ -20495,7 +20562,7 @@
                   "code": "println(/x/d.hasIndices)   // true\nprintln(/x/.hasIndices)    // false"
                 }
               ],
-              "source": "core/regex.pi:1342",
+              "source": "core/regex.pi:1401",
               "members": []
             },
             {
@@ -20509,7 +20576,7 @@
                   "code": "const re = /(\\w+)=(\\d+)/g\nconst s = \"a=1 b=22\"\nlet m = re.exec(s)\nwhile (m != null) {\n  println(`${m[1]} -> ${m[2]} at ${m.index}`)\n  m = re.exec(s)\n}\n// Prints:\n// a -> 1 at 0\n// b -> 22 at 4"
                 }
               ],
-              "source": "core/regex.pi:1398",
+              "source": "core/regex.pi:1476",
               "members": []
             },
             {
@@ -20523,7 +20590,7 @@
                   "code": "const digits = /^\\d+$/\nprintln(digits.test(\"123\"))   // true\nprintln(digits.test(\"12a\"))   // false"
                 }
               ],
-              "source": "core/regex.pi:1423",
+              "source": "core/regex.pi:1501",
               "members": []
             },
             {
@@ -20537,7 +20604,59 @@
                   "code": "const re = new RegExp(\"a/b\", \"gi\")\nprintln(re.toString())   // /a\\/b/gi\nprintln(re.source)       // a\\/b\nprintln(re.flags)        // gi"
                 }
               ],
-              "source": "core/regex.pi:1436",
+              "source": "core/regex.pi:1514",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "RegExpIndices",
+          "kind": "class",
+          "signature": "class RegExpIndices",
+          "doc": "<p>Where a <code>d</code>-flag match and its groups are (<code>RegExpMatch.indices</code>, #62): <code>[start, end]</code> in\ncode points per element (<code>null</code> for a group that didn't take part), and by group name.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const m = /(\\d+)-(\\d+)?/d.exec(\"id 12-\")\nif (m != null) {\n  const ix = m.indices\n  if (ix != null) {\n    println(`${ix.length} ${ix[0]:?} ${ix[1]:?} ${ix[2]:?}`)   // 3 [3, 6] [3, 5] null\n  }\n}"
+            }
+          ],
+          "source": "core/regex.pi:1033",
+          "members": [
+            {
+              "name": "groups",
+              "kind": "field",
+              "signature": "public readonly groups: Map<string, [int, int]?>?",
+              "doc": "<p>The named groups' positions by name, or <code>null</code> when the pattern has no named groups.</p>\n",
+              "examples": [],
+              "source": "core/regex.pi:1036",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(pairs: ([int, int]?)[], groups: Map<string, [int, int]?>?)",
+              "doc": "<p>Positions <code>pairs</code> (one per element) and the named groups'.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "// They usually come from a `d`-flag match; they can also be built directly.\nconst ix = new RegExpIndices([[0, 2], null], null)\nprintln(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null"
+                }
+              ],
+              "source": "core/regex.pi:1046",
+              "members": []
+            },
+            {
+              "name": "length",
+              "kind": "property",
+              "signature": "public get length(): int",
+              "doc": "<p>The count of elements: 1 plus the count of capture groups.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /(a)(b)?/d.exec(\"a\")\nprintln(m?.indices?.length)   // 3"
+                }
+              ],
+              "source": "core/regex.pi:1058",
               "members": []
             }
           ]
@@ -20553,7 +20672,7 @@
               "code": "const m = /(?<year>\\d{4})-(\\d{2})/.exec(\"due 2024-03\")\nif (m != null) {\n  println(m[0])                       // 2024-03\n  println(m[2])                       // 03\n  println(m.index)                    // 4\n  println(m.groups?.get(\"year\"))      // 2024\n}"
             }
           ],
-          "source": "core/regex.pi:1034",
+          "source": "core/regex.pi:1081",
           "members": [
             {
               "name": "index",
@@ -20561,7 +20680,7 @@
               "signature": "public readonly index: int",
               "doc": "<p>Where the match starts in <code>input</code>, in code points (-1 for a <code>g</code>-flag <code>string.match</code> result).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1037",
+              "source": "core/regex.pi:1084",
               "members": []
             },
             {
@@ -20570,7 +20689,7 @@
               "signature": "public readonly input: string",
               "doc": "<p>The string that was searched.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1039",
+              "source": "core/regex.pi:1086",
               "members": []
             },
             {
@@ -20579,7 +20698,21 @@
               "signature": "public readonly groups: Map<string, string?>?",
               "doc": "<p>The named groups' texts by name (<code>null</code> for one that didn't take part), or <code>null</code> when the\npattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1042",
+              "source": "core/regex.pi:1089",
+              "members": []
+            },
+            {
+              "name": "indices",
+              "kind": "field",
+              "signature": "public indices: RegExpIndices? = null",
+              "doc": "<p>With the <code>d</code> flag (#62): where the match and each group start and end, in code points\n(<code>null</code> without it).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /a(?<b>b+)/d.exec(\"xabb\")\nif (m != null) {\n  println(`${m.indices?.[0]:?} ${m.indices?.[1]:?}`)    // [1, 4] [2, 4]\n  println(`${m.indices?.groups?.get(\"b\"):?}`)           // [2, 4]\n}"
+                }
+              ],
+              "source": "core/regex.pi:1101",
               "members": []
             },
             {
@@ -20593,7 +20726,7 @@
                   "code": "// Matches usually come from `exec` or `string.match`; one can also be built directly.\nconst m = new RegExpMatch([\"ab\", \"b\"], 3, \"xxxab\", null)\nprintln(m[0])      // ab\nprintln(m.index)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1053",
+              "source": "core/regex.pi:1112",
               "members": []
             },
             {
@@ -20607,7 +20740,7 @@
                   "code": "const m = /(\\w+)@(\\w+)/.exec(\"mail ann@home\")\nif (m != null) {\n  println(m.length)   // 3\n}"
                 }
               ],
-              "source": "core/regex.pi:1069",
+              "source": "core/regex.pi:1128",
               "members": []
             },
             {
@@ -20621,7 +20754,7 @@
                   "code": "const m = /(\\d+)x(\\d+)?/.exec(\"size 640x\")\nif (m != null) {\n  const parts = m.toArray()\n  println(parts.length)                               // 3\n  println(parts.map(s => s ?? \"(none)\").join(\", \"))   // 640x, 640, (none)\n}"
                 }
               ],
-              "source": "core/regex.pi:1088",
+              "source": "core/regex.pi:1147",
               "members": []
             },
             {
@@ -20635,7 +20768,7 @@
                   "code": "const m = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(\"2024-03-10\")\nif (m != null) {\n  for (const part of m) {\n    println(part)\n  }\n}\n// Prints:\n// 2024-03-10\n// 2024\n// 03\n// 10"
                 }
               ],
-              "source": "core/regex.pi:1108",
+              "source": "core/regex.pi:1167",
               "members": []
             }
           ]
