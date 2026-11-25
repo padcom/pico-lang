@@ -1720,6 +1720,137 @@ export class BigInt {
     BigInt.__make(this.sign, qr[1].limbs)
   }
 
+  /// Bitwise AND, as on two's complement integers of any size (JavaScript's `&` on bigints, #60).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(12) & BigInt.of(10))   // 8
+  /// println(BigInt.of(-1) & BigInt.of(255))  // 255
+  /// ```
+  operator &(o: BigInt): BigInt { BigInt.__bitwise(this, o, 0) }
+
+  /// Bitwise OR, as on two's complement integers of any size (#60).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(12) | BigInt.of(3))    // 15
+  /// println(BigInt.of(-8) | BigInt.of(1))    // -7
+  /// ```
+  operator |(o: BigInt): BigInt { BigInt.__bitwise(this, o, 1) }
+
+  /// Bitwise XOR, as on two's complement integers of any size (#60).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(12) ^ BigInt.of(10))   // 6
+  /// println(BigInt.of(-1) ^ BigInt.of(5))    // -6
+  /// ```
+  operator ^(o: BigInt): BigInt { BigInt.__bitwise(this, o, 2) }
+
+  /// Bitwise NOT: `-this - 1` (JavaScript's `~` on bigints, #60).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(5).not())    // -6
+  /// println(BigInt.of(-1).not())   // 0
+  /// ```
+  public not(): BigInt {
+    return -this - new BigInt(1)
+  }
+
+  /// `this * 2 ** n` (JavaScript's `<<` on bigints; a negative `n` shifts right, #60).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(1).shiftLeft(100))   // 1267650600228229401496703205376
+  /// println(BigInt.of(-3).shiftLeft(2))    // -12
+  /// ```
+  public shiftLeft(n: int): BigInt {
+    if (n < 0) return this.shiftRight(-n)
+    return this * new BigInt(2).pow(n)
+  }
+
+  /// `this / 2 ** n` rounded down, towards negative infinity (JavaScript's `>>` on bigints; a
+  /// negative `n` shifts left, #60).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// println(BigInt.of(1000).shiftRight(3))   // 125
+  /// println(BigInt.of(-9).shiftRight(1))     // -5
+  /// ```
+  public shiftRight(n: int): BigInt {
+    if (n < 0) return this.shiftLeft(-n)
+    const d = new BigInt(2).pow(n)
+    if (this.sign >= 0) return this / d
+    // (Division truncates towards zero; a right shift rounds down.)
+    return -((-this - new BigInt(1)) / d) - new BigInt(1)
+  }
+
+  /// The magnitude of `x` in 30-bit words, least significant first.
+  static __magWords(x: BigInt): int[] {
+    const base = new BigInt(1 << 30)
+    let m = x.abs()
+    const out: int[] = []
+    while (m.sign != 0) {
+      out.push((m % base).toInt())
+      m = m / base
+    }
+    return out
+  }
+
+  /// `a op b` on two's complement 30-bit words (0 AND, 1 OR, 2 XOR), one word wider than either
+  /// magnitude so the sign fits.
+  static __bitwise(a: BigInt, b: BigInt, op: int): BigInt {
+    const mask = (1 << 30) - 1
+    const ma = BigInt.__magWords(a)
+    const mb = BigInt.__magWords(b)
+    const n = (if (ma.length > mb.length) ma.length else mb.length) + 1
+    const wa = BigInt.__twos(ma, a.sign < 0, n)
+    const wb = BigInt.__twos(mb, b.sign < 0, n)
+    const r: int[] = []
+    for (let i = 0; i < n; i++) {
+      r.push(if (op == 0) wa[i] & wb[i] else if (op == 1) wa[i] | wb[i] else wa[i] ^ wb[i])
+    }
+    const negative = ((r[n - 1] >> 29) & 1) == 1
+    // A negative result's magnitude: its two's complement.
+    const mag = if (negative) BigInt.__twos(r, true, n) else r
+    let acc = new BigInt(0)
+    const base = new BigInt(1 << 30)
+    for (let i = n - 1; i >= 0; i--) {
+      acc = acc * base + new BigInt(mag[i] & mask)
+    }
+    return if (negative) -acc else acc
+  }
+
+  /// `n` 30-bit words of `words` (a magnitude), negated in two's complement when `negative`.
+  static __twos(words: int[], negative: bool, n: int): int[] {
+    const mask = (1 << 30) - 1
+    const out: int[] = []
+    for (let i = 0; i < n; i++) {
+      out.push(if (i < words.length) words[i] else 0)
+    }
+    if (!negative) return out
+    let carry = 1
+    for (let i = 0; i < n; i++) {
+      const v = ((out[i] ^ mask) & mask) + carry
+      out[i] = v & mask
+      carry = v >> 30
+    }
+    return out
+  }
+
   /// `this ** e` (`e >= 0`).
   ///
   /// @example
