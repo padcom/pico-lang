@@ -1,0 +1,39 @@
+// Async hooks (#70): `beforeAll`/`beforeEach`/`afterEach`/`afterAll` take async functions too,
+// and the runner awaits each before going on.
+import { describe, test, expect, beforeAll, beforeEach, afterEach, afterAll } from "std/test"
+
+const log: string[] = []
+
+describe("hooks", () => {
+  beforeAll(async () => {
+    await 0
+    log.push("all")
+  })
+  beforeEach(async () => {
+    await 0
+    log.push("each")
+  })
+  afterEach(async () => {
+    await 0
+    log.push("after")
+  })
+  afterAll(async () => {
+    await 0
+    log.push("done")
+  })
+  test("first", () => {
+    expect(log.join(",")).toBe("all,each")
+  })
+  test("second", async () => {
+    await 0
+    expect(log.join(",")).toBe("all,each,after,each")
+  })
+})
+
+test("after the suite", () => {
+  expect(log.join(",")).toBe("all,each,after,each,after,done")
+})
+
+beforeEach(() => {
+  // (a plain hook still works next to async ones)
+})

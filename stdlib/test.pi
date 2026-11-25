@@ -42,10 +42,10 @@ class __Test {
 
 class __Suite {
   public name: string
-  public beforeEach: (() => void)[] = []
-  public afterEach: (() => void)[] = []
-  public beforeAll: (() => void)[] = []
-  public afterAll: (() => void)[] = []
+  public beforeEach: __Hook[] = []
+  public afterEach: __Hook[] = []
+  public beforeAll: __Hook[] = []
+  public afterAll: __Hook[] = []
   /// Whether `beforeAll` ran (it runs before the suite's first test).
   public started: bool = false
   /// What failed in `beforeAll`: every test of the suite fails with it.
@@ -320,7 +320,11 @@ export function todo(name: string): void {
 /// })
 /// // pico test: ✓ cart > starts empty, ✓ cart > adds
 /// ```
-export function beforeEach(fn: () => void): void { __currentSuite().beforeEach.push(fn) }
+export function beforeEach(fn: () => void): void { __currentSuite().beforeEach.push(__Hook { sync: fn, async_: null }) }
+/// An async `beforeEach` hook: the runner awaits it (#70).
+export function beforeEach(fn: () => Promise<void, Error>): void {
+  __currentSuite().beforeEach.push(__Hook { sync: null, async_: fn })
+}
 /// Runs `fn` after each test of the enclosing `describe` (at the top level: of the file), even a
 /// failed one; inner suites' hooks first, skipped tests don't run it. A failure or panic in it
 /// fails the test.
@@ -343,7 +347,11 @@ export function beforeEach(fn: () => void): void { __currentSuite().beforeEach.p
 /// })
 /// // pico test: ✓ opens one, ✓ still one
 /// ```
-export function afterEach(fn: () => void): void { __currentSuite().afterEach.push(fn) }
+export function afterEach(fn: () => void): void { __currentSuite().afterEach.push(__Hook { sync: fn, async_: null }) }
+/// An async `afterEach` hook: the runner awaits it (#70).
+export function afterEach(fn: () => Promise<void, Error>): void {
+  __currentSuite().afterEach.push(__Hook { sync: null, async_: fn })
+}
 /// Runs `fn` once, before the first test of the enclosing `describe` (at the top level: of the
 /// file) that isn't skipped. A failure or panic in it fails that first test only; the later ones
 /// still run.
@@ -363,7 +371,11 @@ export function afterEach(fn: () => void): void { __currentSuite().afterEach.pus
 /// })
 /// // pico test: ✓ config > has a mode
 /// ```
-export function beforeAll(fn: () => void): void { __currentSuite().beforeAll.push(fn) }
+export function beforeAll(fn: () => void): void { __currentSuite().beforeAll.push(__Hook { sync: fn, async_: null }) }
+/// An async `beforeAll` hook: the runner awaits it (#70).
+export function beforeAll(fn: () => Promise<void, Error>): void {
+  __currentSuite().beforeAll.push(__Hook { sync: null, async_: fn })
+}
 /// Runs `fn` once, after the last test of the enclosing `describe` (at the top level: of the file),
 /// when `beforeAll` ran (some test of the suite wasn't skipped). A failure or panic in it is
 /// reported as a failed `suite > afterAll` entry of its own.
@@ -382,7 +394,11 @@ export function beforeAll(fn: () => void): void { __currentSuite().beforeAll.pus
 /// })
 /// // pico test: ✓ suite > works (and prints "all done")
 /// ```
-export function afterAll(fn: () => void): void { __currentSuite().afterAll.push(fn) }
+export function afterAll(fn: () => void): void { __currentSuite().afterAll.push(__Hook { sync: fn, async_: null }) }
+/// An async `afterAll` hook: the runner awaits it (#70).
+export function afterAll(fn: () => Promise<void, Error>): void {
+  __currentSuite().afterAll.push(__Hook { sync: null, async_: fn })
+}
 
 function __currentSuite(): __Suite {
   const r = __run()
@@ -420,11 +436,39 @@ function __catching(f: () => void): string? {
 }
 
 /// Runs a hook; a failure or panic in it fails the test.
-function __hook(r: __Run, f: () => void): void {
-  r.inSync = true
-  const p = __catching(f)
-  r.inSync = false
-  if (p != null) r.failures.push(p)
+/// A hook: a plain function, or an async one the runner awaits (#70).
+struct __Hook {
+  sync: (() => void)?
+  async_: (() => Promise<void, Error>)?
+}
+
+async function __hook(r: __Run, h: __Hook): Promise<void> {
+  const sync = h.sync
+  const async_ = h.async_
+  if (sync != null) {
+    const f: () => void = sync
+    r.inSync = true
+    const p = __catching(f)
+    r.inSync = false
+    if (p != null) r.failures.push(p)
+  } else if (async_ != null) {
+    const start: () => Promise<void, Error> = async_
+    let promise: Promise<void, Error>? = null
+    r.inSync = true
+    const p = __catching(() => {
+      promise = start()
+    })
+    r.inSync = false
+    if (p != null) r.failures.push(p)
+    const pr = promise
+    if (pr != null) {
+      try {
+        await pr
+      } catch (e) {
+        r.failures.push(`hook rejected with ${typeof e}: ${e.message}`)
+      }
+    }
+  }
 }
 
 async function __runAll(): Promise<void> {
@@ -444,14 +488,14 @@ async function __runAll(): Promise<void> {
     if (t.skip || !wanted) {
       r.skipped += 1
       println(`  - ${t.fullName} (skipped)`)
-      __finished(r, t)
+      await __finished(r, t)
       continue
     }
     r.failures = []
     for (const s of t.suites) {
       if (!s.started) {
         s.started = true
-        for (const h of s.beforeAll) __hook(r, h)
+        for (const h of s.beforeAll) await __hook(r, h)
         s.setupFailures = r.failures.slice(0)
       } else {
         // A failed `beforeAll` fails every test of its suite, not only the first (#38).
@@ -459,7 +503,7 @@ async function __runAll(): Promise<void> {
       }
     }
     for (const s of t.suites) {
-      for (const h of s.beforeEach) __hook(r, h)
+      for (const h of s.beforeEach) await __hook(r, h)
     }
     const start = performance.now()
     if (r.failures.length == 0) {
@@ -499,7 +543,7 @@ async function __runAll(): Promise<void> {
     const ms = performance.now() - start
     let i = t.suites.length - 1
     while (i >= 0) {
-      for (const h of t.suites[i].afterEach) __hook(r, h)
+      for (const h of t.suites[i].afterEach) await __hook(r, h)
       i -= 1
     }
     if (r.failures.length == 0) {
@@ -512,14 +556,14 @@ async function __runAll(): Promise<void> {
         for (const line of f.split("\n")) println(`      ${line}`)
       }
     }
-    __finished(r, t)
+    await __finished(r, t)
   }
   println(`pico-test: ${r.passed} passed, ${r.failed} failed, ${r.skipped} skipped`)
   if (r.failed > 0) exit(1)
 }
 
 /// After a test: `afterAll` of the suites it was the last test of.
-function __finished(r: __Run, t: __Test): void {
+async function __finished(r: __Run, t: __Test): Promise<void> {
   let i = t.suites.length - 1
   while (i >= 0) {
     const s = t.suites[i]
@@ -527,7 +571,7 @@ function __finished(r: __Run, t: __Test): void {
     if (s.remaining == 0 && s.started && s.afterAll.length > 0) {
       const saved = r.failures
       r.failures = []
-      for (const h of s.afterAll) __hook(r, h)
+      for (const h of s.afterAll) await __hook(r, h)
       if (r.failures.length > 0) {
         r.failed += 1
         println(`  ✗ ${if (s.name == "") "afterAll" else s.name + " > afterAll"}`)
