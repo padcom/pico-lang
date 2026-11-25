@@ -514,6 +514,54 @@ class Conn {
     add({ bytes: null, count: 0, text, p: new Promise<int, NetError>() })
   }
 
+  /// Turns Nagle's algorithm off (`noDelay`, the default) or on: small writes go out at once
+  /// instead of waiting to be coalesced (`TCP_NODELAY`, #65). Throws a `NetError` where the
+  /// system can't (WASI).
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const client = await connect(listener.addr.port)
+  /// client.setNoDelay()
+  /// client.close()
+  /// listener.close()
+  /// ```
+  public setNoDelay(noDelay: bool = true): void throws NetError {
+    this.option(6, if (noDelay) 1 else 0, "no delay")
+  }
+
+  /// Turns TCP keep-alive probes on (`enable`) or off (#65); `initialDelay` is how long the
+  /// connection idles before the first probe, in milliseconds (0: the system's default; rounded
+  /// up to seconds). Throws a `NetError` where the system can't (WASI).
+  ///
+  /// @example
+  /// ```ts
+  /// import { connect, listen } from "std/net"
+  ///
+  /// const listener = await listen(0)
+  /// const client = await connect(listener.addr.port)
+  /// client.setKeepAlive(true, 30000)
+  /// client.close()
+  /// listener.close()
+  /// ```
+  public setKeepAlive(enable: bool = false, initialDelay: int = 0): void throws NetError {
+    const n = if (!enable) -1 else if (initialDelay <= 0) 0 else (initialDelay + 999) / 1000
+    this.option(7, n, "keep-alive")
+  }
+
+  /// Sets socket option `which` (`pico_io` op 170); throws what the system says.
+  option(which: int, value: int, about: string): void throws NetError {
+    if (this.shut) {
+      panic(`the connection to ${this.name} is closed`)
+    }
+    const r = __io(170, this.fd, which, value, "", "")
+    if (r < 0) {
+      throw __netError(about, -((-r) & 255), (-r) >> 8)
+    }
+  }
+
   /// Finishes writing once earlier writes are done (the other side reads the end); reading
   /// goes on.
   ///

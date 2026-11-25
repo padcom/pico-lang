@@ -262,7 +262,9 @@ closed), `for await` over chunks, `text()` (the rest as UTF-8), `write(data)` an
 `writeText(text)` (`Promise<int, NetError>`, in the order they're made), `closeWrite()` (the
 other side reads the end after earlier writes; reading goes on) and `close()` (after earlier
 writes; a waiting read gives `null`). One read at a time; a second while one waits panics, as
-does writing after `closeWrite`/`close`. A `UdpSocket` has `addr`, `send(data, port, hostname =
+does writing after `closeWrite`/`close`. `setNoDelay(noDelay = true)` (`TCP_NODELAY`) and
+`setKeepAlive(enable = false, initialDelay = 0)` (milliseconds of idling before the first probe;
+0: the system's) set options (#65; a `NetError` on WASI). A `UdpSocket` has `addr`, `send(data, port, hostname =
 "127.0.0.1")`, `sendText(text, port, hostname)` (one datagram each), `receive(n = 65536):
 Promise<Datagram?, NetError>` (`{ data: Uint8Array, addr }`; bytes past `n` are dropped; `null`
 once closed) and `close()`. Multicast (#214; IPv4 and IPv6, not on WASI or in the browser):
