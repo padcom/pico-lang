@@ -1,0 +1,70 @@
+// expect: server got: short
+// expect: client got: SHORT
+// expect: server closed: 1009
+// expect: client closed: 1009
+// expect: server got: longer than four
+// expect: client limit: 1009
+// `maxMessageBytes` (#67): a server socket (`upgradeWebSocket(req, "", { maxMessageBytes })`)
+// takes a small message and fails the connection with 1009 at a bigger one, before reading it;
+// a client socket's limit (`new WebSocket(url, [], { maxMessageBytes })`) does the same.
+import { serve, upgradeWebSocket } from "std/http"
+
+const done = new Promise<void>()
+let closes = 0
+function closedOne() {
+  closes += 1
+  if (closes == 2) {
+    done.__resolve(__void())
+  }
+}
+
+async function handle(req: Request): Promise<Response> throws TypeError {
+  const limit = if (req.url.endsWith("/strict")) 10 else 0
+  const up = upgradeWebSocket(req, "", { maxMessageBytes: limit })
+  const ws = up.socket
+  ws.onmessage = (e) => {
+    match (e.data) {
+      s: string => {
+        println(`server got: ${s}`)
+        ws.send(s.toUpperCase())
+      },
+      b: Uint8Array => ws.send(b),
+    }
+  }
+  ws.onclose = (e) => {
+    if (limit > 0) {
+      println(`server closed: ${e.code}`)
+      closedOne()
+    }
+  }
+  up.response
+}
+
+const server = await serve({ port: 0 }, handle)
+const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/strict`)
+ws.onopen = (e) => ws.send("short")
+ws.onmessage = (e) => {
+  match (e.data) {
+    s: string => {
+      println(`client got: ${s}`)
+      ws.send("a message over ten bytes")
+    },
+    b: Uint8Array => {},
+  }
+}
+ws.onclose = (e) => {
+  println(`client closed: ${e.code}`)
+  closedOne()
+}
+await done
+
+// The client's own limit: the server's echo of a long message is too big for it.
+const finished = new Promise<void>()
+const small = new WebSocket(`ws://127.0.0.1:${server.addr.port}/free`, [], { maxMessageBytes: 4 })
+small.onopen = (e) => small.send("longer than four")
+small.onclose = (e) => {
+  println(`client limit: ${e.code}`)
+  finished.__resolve(__void())
+}
+await finished
+await server.shutdown()

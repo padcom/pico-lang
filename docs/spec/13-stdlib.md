@@ -464,7 +464,9 @@ it serves HTTPS; a client that fails the handshake is disconnected.
 
 ### `WebSocket`
 A global, as WHATWG WebSockets (RFC 6455): `new WebSocket(url, protocols = [], options = {})`
-(`ws:` or `wss:`; `options.caCerts`, a pico extension, as for `fetch`) connects in the background. `readyState` (`CONNECTING`
+(`ws:` or `wss:`; `options.caCerts`, a pico extension, as for `fetch`; `options.maxMessageBytes`,
+the largest message to receive, a bigger one failing the connection with 1009 before it's read,
+#67, also for `upgradeWebSocket(req, protocol, options)`) connects in the background. `readyState` (`CONNECTING`
 0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`; callbacks `onopen(Event)`,
 `onmessage(MessageEvent)` (`data: string | Uint8Array`: text or binary; fragments are joined),
 `onerror(Event)` and `onclose(CloseEvent)` (`code`, `reason`, `wasClean`; 1006 when the
