@@ -1,0 +1,156 @@
+---
+source: crates/pico-driver/tests/mir.rs
+assertion_line: 71
+expression: "mir(r#\"\nconst KB = 1 << 10\nconst MB = KB * 1024\nconst ratio = 1.5 * 2.0\nconst big = KB > 1000 && !false\nfunction scaled(x: i64): i64 { x * (2 + 3) - -KB }\nfunction narrow(): u8 { (KB / 8) as u8 }\nprintln(MB + scaled(1) + narrow() as i64)\nprintln(`${ratio} ${big}`)\n\"#)"
+---
+global @g0: () => bool[]? // __finalizationRegistries
+global @g1: i64 // __finalizedAtCycle
+global @g2: i64 // __stepsSinceFinalizers
+global @g3: __Reactivity? // __reactivity
+global @g4: bool // __tracking
+global @g5: i64 // __reactiveObjects
+global @g6: __Loop? // __loop
+global @g7: i64 // __lastJob
+global @g8: FinalizationRegistry<i64>? // __buffers
+global @g9: i64 // __reclaimedAtCycle
+global @g10: i64 // __bytesSinceReclaim
+global @g11: __ConnPool? // __pool
+global @g12: Map<string, __Zone>? // __zoneCache
+global @g13: Performance // performance
+global @g14: __Xoshiro128? // __mathRng
+global @g15: Crypto // crypto
+global @g16: i64 // KB
+global @g17: i64 // MB
+global @g18: f64 // ratio
+global @g19: bool // big
+global @g20: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g21: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g22: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g23: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g24: i64 // Float64Array.BYTES_PER_ELEMENT
+
+fn scaled(_0: i64) -> i64 {
+    let _1: i64
+    let _2: i64
+    let _3: i64
+    let _4: i64
+  bb0:
+    _2 = Mul(_0, const 5_i64)
+    _4 = Sub(_2, const -1024_i64)
+    return _4
+}
+
+fn narrow() -> u8 {
+    let _0: i64
+    let _1: u8
+  bb0:
+    return const 128_u8
+}
+
+fn Uint8Array.<static>() -> void {
+  bb0:
+    @g20 = const 1_i64
+    return
+}
+
+fn Int32Array.<static>() -> void {
+  bb0:
+    @g21 = const 4_i64
+    return
+}
+
+fn Uint32Array.<static>() -> void {
+  bb0:
+    @g22 = const 4_i64
+    return
+}
+
+fn Float32Array.<static>() -> void {
+  bb0:
+    @g23 = const 4_i64
+    return
+}
+
+fn Float64Array.<static>() -> void {
+  bb0:
+    @g24 = const 8_i64
+    return
+}
+
+fn <main>() -> void {
+    let _0: Performance
+    let _1: SubtleCrypto
+    let _2: Crypto
+    let _3: i64
+    let _4: i64
+    let _5: f64
+    let _6: bool
+    let _7: bool
+    let _8: bool
+    let _9: i64
+    let _10: i64
+    let _11: u8
+    let _12: i64
+    let _13: i64
+    let _14: string
+    let _15: string
+    let _16: string
+    let _17: string
+  bb0:
+    call Uint8Array.<static>() -> bb1
+  bb1:
+    call Int32Array.<static>() -> bb2
+  bb2:
+    call Uint32Array.<static>() -> bb3
+  bb3:
+    call Float32Array.<static>() -> bb4
+  bb4:
+    call Float64Array.<static>() -> bb5
+  bb5:
+    @g0 = const null<() => bool[]?>
+    @g1 = const -1_i64
+    @g2 = const 0_i64
+    @g3 = const null<__Reactivity?>
+    @g4 = const false
+    @g5 = const 0_i64
+    @g6 = const null<__Loop?>
+    @g7 = const -1_i64
+    @g8 = const null<FinalizationRegistry<i64>?>
+    @g9 = const -1_i64
+    @g10 = const 0_i64
+    @g11 = const null<__ConnPool?>
+    @g12 = const null<Map<string, __Zone>?>
+    _0 = struct#127{}
+    @g13 = _0
+    @g14 = const null<__Xoshiro128?>
+    _1 = struct#138{}
+    _2 = struct#139{_1}
+    @g15 = _2
+    @g16 = const 1024_i64
+    @g17 = const 1048576_i64
+    @g18 = const 3.0_f64
+    goto bb6
+  bb6:
+    goto bb8
+  bb7:
+    unreachable
+  bb8:
+    @g19 = const true
+    _9 = call scaled(const 1_i64) -> bb9
+  bb9:
+    _10 = Add(const 1048576_i64, _9)
+    _11 = call narrow() -> bb10
+  bb10:
+    _12 = _11 as i64
+    _13 = Add(_10, _12)
+    call builtin println(_13) -> bb11
+  bb11:
+    _14 = ToStr(const 3.0_f64)
+    _16 = Add(_14, const " ")
+    _17 = Add(_16, const "true")
+    call builtin println(_17) -> bb12
+  bb12:
+    goto bb13
+  bb13:
+    return
+}
