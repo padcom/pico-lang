@@ -1017,20 +1017,6 @@ struct __RCompiled {
   nameIdx: int[]
 }
 
-/// A match: element 0 is the matched text, then each capture group's (`null` when it didn't
-/// take part); `index` is where it starts and `groups` holds named groups. With the `g`
-/// flag, `string.match` gives every match's text as the elements instead (`index` -1).
-///
-/// @example
-/// ```ts
-/// const m = /(?<year>\d{4})-(\d{2})/.exec("due 2024-03")
-/// if (m != null) {
-///   println(m[0])                       // 2024-03
-///   println(m[2])                       // 03
-///   println(m.index)                    // 4
-///   println(m.groups?.get("year"))      // 2024
-/// }
-/// ```
 /// Where a `d`-flag match and its groups are (`RegExpMatch.indices`, #62): `[start, end]` in
 /// code points per element (`null` for a group that didn't take part), and by group name.
 ///
@@ -1050,12 +1036,25 @@ class RegExpIndices {
   public readonly groups: Map<string, [int, int]?>?
 
   /// Positions `pairs` (one per element) and the named groups'.
+  ///
+  /// @example
+  /// ```ts
+  /// // They usually come from a `d`-flag match; they can also be built directly.
+  /// const ix = new RegExpIndices([[0, 2], null], null)
+  /// println(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null
+  /// ```
   constructor(pairs: ([int, int]?)[], groups: Map<string, [int, int]?>?) {
     this.__pairs = pairs
     this.groups = groups
   }
 
   /// The count of elements: 1 plus the count of capture groups.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = /(a)(b)?/d.exec("a")
+  /// println(m?.indices?.length)   // 3
+  /// ```
   public get length(): int {
     return this.__pairs.length
   }
@@ -1065,6 +1064,20 @@ class RegExpIndices {
   }
 }
 
+/// A match: element 0 is the matched text, then each capture group's (`null` when it didn't
+/// take part); `index` is where it starts and `groups` holds named groups. With the `g`
+/// flag, `string.match` gives every match's text as the elements instead (`index` -1).
+///
+/// @example
+/// ```ts
+/// const m = /(?<year>\d{4})-(\d{2})/.exec("due 2024-03")
+/// if (m != null) {
+///   println(m[0])                       // 2024-03
+///   println(m[2])                       // 03
+///   println(m.index)                    // 4
+///   println(m.groups?.get("year"))      // 2024
+/// }
+/// ```
 class RegExpMatch {
   public __items: (string?)[]
   /// Where the match starts in `input`, in code points (-1 for a `g`-flag `string.match` result).
