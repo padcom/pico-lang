@@ -6174,6 +6174,11 @@ impl FnBuilder<'_, '_> {
                     .iter()
                     .map(|f| (json_key(f), f.ty.subst(owner, args)))
                     .collect();
+                // (Objects of classes can form cycles: the writer counts how deep they nest.)
+                let class = matches!(t, Ty::Class(..));
+                if class {
+                    self.core_call("__JsonWriter", "__enter", vec![wr()], Ty::Void, span);
+                }
                 for (i, (key, fty)) in fields.iter().enumerate() {
                     let sep = if i == 0 { "{" } else { "," };
                     raw(self, lit(&format!("{sep}{}:", json_quote(key))));
@@ -6186,6 +6191,9 @@ impl FnBuilder<'_, '_> {
                     self.json_call(f, wr(), x, span);
                 }
                 raw(self, lit(if fields.is_empty() { "{}" } else { "}" }));
+                if class {
+                    self.core_call("__JsonWriter", "__leave", vec![wr()], Ty::Void, span);
+                }
             }
             _ => {}
         }
@@ -7491,6 +7499,31 @@ impl FnBuilder<'_, '_> {
             return if prefix { new } else { old };
         }
         let value = value.expect("an assignment");
+        // `&&=`, `||=`, `??=` (#71): the value is evaluated, and the cell written (which
+        // notifies its watchers), only when the current value calls for it.
+        if let Some(op @ (ast::BinOp::And | ast::BinOp::Or | ast::BinOp::Nullish)) = op {
+            let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
+            let cond = match op {
+                ast::BinOp::And => cur,
+                ast::BinOp::Or => {
+                    self.rvalue_to_temp(Rvalue::Unary(mir::UnOp::Not, cur), Ty::Bool, e.span)
+                }
+                _ => self.rvalue_to_temp(Rvalue::IsNull(cur), Ty::Bool, e.span),
+            };
+            let write = self.new_block();
+            let join = self.new_block();
+            self.terminate(Terminator::Branch {
+                cond,
+                then: write,
+                else_: join,
+            });
+            self.switch_to(write);
+            let v = self.expr(value);
+            self.cell_set(cell, &cell_ty, v, e.span);
+            self.terminate(Terminator::Goto(join));
+            self.switch_to(join);
+            return Operand::Const(Const::Void);
+        }
         let v = match op {
             None => self.expr(value),
             Some(op) if self.cx.types.op_calls.contains_key(&e.id) => {
