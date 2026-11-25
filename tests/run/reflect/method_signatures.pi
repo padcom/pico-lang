@@ -1,0 +1,35 @@
+// expect: area: (): f64
+// expect: scale: (by: f64, ...extra: i64[]): Shape
+// expect: describe: (label: string): string
+// expect: get: (): i64
+// expect: put: (value: i64, times: i64): void
+// expect: comptime: get (): string
+// Method signatures in reflection (#56): `MethodInfo.signature` lists the parameters (no
+// `this`), rest parameters, inferred results and a generic type's arguments, at run time
+// (`reflect.typeOf`) and at compile time (`T.methods`).
+import { reflect } from "std/reflect"
+
+class Shape {
+  constructor(public size: f64) {}
+  public area(): f64 { return this.size * this.size }
+  public scale(by: f64, ...extra: int[]): Shape { return new Shape(this.size * by) }
+  public describe(label: string) { return `${label}: ${this.size}` }
+}
+
+class Box<T> {
+  constructor(public value: T) {}
+  public get(): T { return this.value }
+  public put(value: T, times: int): void { this.value = value }
+}
+
+for (const m of reflect.typeOf(new Shape(2.0)).methods) {
+  println(`${m.name}: ${m.signature}`)
+}
+for (const m of reflect.typeOf(new Box<int>(1)).methods) {
+  println(`${m.name}: ${m.signature}`)
+}
+function first<T>(): string {
+  const ms = T.methods
+  return `${ms[0].name} ${ms[0].signature}`
+}
+println(`comptime: ${first<Box<string>>()}`)
