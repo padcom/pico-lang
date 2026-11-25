@@ -4837,6 +4837,15 @@
               "examples": [],
               "source": "core/comptime.pi:81",
               "members": []
+            },
+            {
+              "name": "signature",
+              "kind": "field",
+              "signature": "signature: string",
+              "doc": "<p>Its parameters and result, as messages show types: <code>(a: i64, b: string): bool</code> (#56).</p>\n",
+              "examples": [],
+              "source": "core/comptime.pi:83",
+              "members": []
             }
           ]
         },
