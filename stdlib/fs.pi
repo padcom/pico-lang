@@ -492,6 +492,44 @@ export class File implements AsyncDisposable {
     })
   }
 
+  /// The rest of the file as a stream of chunks (up to 64 KiB each, #64), for files too big to
+  /// read whole; the file closes when the stream ends or is cancelled. Pipe it through
+  /// `textDecoderStream()` (`std/streams`) for text.
+  ///
+  /// @example
+  /// ```ts
+  /// import { open, writeText, remove } from "std/fs"
+  /// import { textDecoderStream } from "std/streams"
+  /// import { tmpDir } from "std/os"
+  /// import { join } from "std/path"
+  ///
+  /// const path = join(tmpDir(), "file-readable-example.txt")
+  /// await writeText(path, "streamed text")
+  /// const f = await open(path)
+  /// let text = ""
+  /// for await (const piece of f.readable.pipeThrough(textDecoderStream())) {
+  ///   text = text + piece
+  /// }
+  /// println(text)   // streamed text
+  /// await remove(path)
+  /// ```
+  public get readable(): ReadableStream<Uint8Array> {
+    new ReadableStream<Uint8Array>({
+      pullAsync: (c) => __readChunk(this, c),
+      cancel: (reason) => {
+        this.__closeQuietly()
+      },
+    })
+  }
+
+  /// Closes the file unless it's closed, ignoring a failure (a stream's end).
+  public __closeQuietly(): void {
+    if (!closed) {
+      closed = true
+      __job<void>(13, fd, 0, 0, "", "", path, __unit)
+    }
+  }
+
   /// Writes all of `data` at the current position; the count written.
   ///
   /// @example
@@ -582,6 +620,17 @@ export class File implements AsyncDisposable {
     try {
       await close()
     } catch (e: IoError) {}
+  }
+}
+
+/// One pull of `File.readable`: the next chunk, or the end (which closes the file).
+async function __readChunk(f: File, c: ReadableStreamDefaultController<Uint8Array>): Promise<void> throws Error {
+  const b = await f.read(65536)
+  if (b != null && b.length > 0) {
+    c.enqueue(b)
+  } else {
+    f.__closeQuietly()
+    c.close()
   }
 }
 
