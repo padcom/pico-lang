@@ -1,0 +1,23 @@
+// expect: <P1> <P1wide> P1
+// expect: <C[]> <C[wide]> C[]
+// expect: P2
+// expect: C[]
+// `T extends Formattable` (#57): templates (with a spec), `+` and `println` of a type
+// parameter call the instance type's `format`, for a struct and a class.
+struct P implements Formattable {
+  x: int
+  format(spec: string): string { `P${this.x}${spec}` }
+}
+class C implements Formattable {
+  public format(spec: string): string { `C[${spec}]` }
+}
+function show<T extends Formattable>(v: T): string {
+  `<${v}> <${v:wide}> ` + v
+}
+println(show(P { x: 1 }))
+println(show(new C()))
+function all<T extends Formattable>(vs: T[]): void {
+  for (const v of vs) { println(v) }
+}
+all([P { x: 2 }])
+all([new C()])
