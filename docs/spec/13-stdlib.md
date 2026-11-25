@@ -262,7 +262,9 @@ closed), `for await` over chunks, `text()` (the rest as UTF-8), `write(data)` an
 `writeText(text)` (`Promise<int, NetError>`, in the order they're made), `closeWrite()` (the
 other side reads the end after earlier writes; reading goes on) and `close()` (after earlier
 writes; a waiting read gives `null`). One read at a time; a second while one waits panics, as
-does writing after `closeWrite`/`close`. A `UdpSocket` has `addr`, `send(data, port, hostname =
+does writing after `closeWrite`/`close`. `setNoDelay(noDelay = true)` (`TCP_NODELAY`) and
+`setKeepAlive(enable = false, initialDelay = 0)` (milliseconds of idling before the first probe;
+0: the system's) set options (#65; a `NetError` on WASI). A `UdpSocket` has `addr`, `send(data, port, hostname =
 "127.0.0.1")`, `sendText(text, port, hostname)` (one datagram each), `receive(n = 65536):
 Promise<Datagram?, NetError>` (`{ data: Uint8Array, addr }`; bytes past `n` are dropped; `null`
 once closed) and `close()`. Multicast (#214; IPv4 and IPv6, not on WASI or in the browser):
@@ -462,7 +464,9 @@ it serves HTTPS; a client that fails the handshake is disconnected.
 
 ### `WebSocket`
 A global, as WHATWG WebSockets (RFC 6455): `new WebSocket(url, protocols = [], options = {})`
-(`ws:` or `wss:`; `options.caCerts`, a pico extension, as for `fetch`) connects in the background. `readyState` (`CONNECTING`
+(`ws:` or `wss:`; `options.caCerts`, a pico extension, as for `fetch`; `options.maxMessageBytes`,
+the largest message to receive, a bigger one failing the connection with 1009 before it's read,
+#67, also for `upgradeWebSocket(req, protocol, options)`) connects in the background. `readyState` (`CONNECTING`
 0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`; callbacks `onopen(Event)`,
 `onmessage(MessageEvent)` (`data: string | Uint8Array`: text or binary; fragments are joined),
 `onerror(Event)` and `onclose(CloseEvent)` (`code`, `reason`, `wasClean`; 1006 when the

@@ -848,7 +848,7 @@
               "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1172",
+          "source": "core/net.pi:1220",
           "members": [
             {
               "name": "reuseAddress",
@@ -856,7 +856,7 @@
               "signature": "reuseAddress?: bool",
               "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1175",
+              "source": "core/net.pi:1223",
               "members": []
             }
           ]
@@ -914,7 +914,7 @@
               "code": "const e = new CloseEvent(1000, \"done\", true)\nprintln(`${e.type} ${e.code} ${e.reason} ${e.wasClean}`)   // close 1000 done true"
             }
           ],
-          "source": "core/websocket.pi:175",
+          "source": "core/websocket.pi:178",
           "members": [
             {
               "name": "type",
@@ -922,7 +922,7 @@
               "signature": "public readonly type: string = \"close\"",
               "doc": "<p>Always <code>\"close\"</code>.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:177",
+              "source": "core/websocket.pi:180",
               "members": []
             },
             {
@@ -931,7 +931,7 @@
               "signature": "public readonly code: int",
               "doc": "<p>The close code: the peer's, 1005 when its close frame had none, 1006 when the connection was\nlost or failed.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:180",
+              "source": "core/websocket.pi:183",
               "members": []
             },
             {
@@ -940,7 +940,7 @@
               "signature": "public readonly reason: string",
               "doc": "<p>The peer's close reason (\"\" for none).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:182",
+              "source": "core/websocket.pi:185",
               "members": []
             },
             {
@@ -949,7 +949,7 @@
               "signature": "public readonly wasClean: bool",
               "doc": "<p>Whether the closing handshake completed.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:184",
+              "source": "core/websocket.pi:187",
               "members": []
             },
             {
@@ -963,7 +963,7 @@
                   "code": "const lost = new CloseEvent(1006, \"\", false)\nprintln(lost.code)       // 1006\nprintln(lost.wasClean)   // false"
                 }
               ],
-              "source": "core/websocket.pi:193",
+              "source": "core/websocket.pi:196",
               "members": []
             }
           ]
@@ -1159,6 +1159,34 @@
               "members": []
             },
             {
+              "name": "setNoDelay",
+              "kind": "method",
+              "signature": "public setNoDelay(noDelay: bool = true): void throws NetError",
+              "doc": "<p>Turns Nagle's algorithm off (<code>noDelay</code>, the default) or on: small writes go out at once\ninstead of waiting to be coalesced (<code>TCP_NODELAY</code>, #65). Throws a <code>NetError</code> where the\nsystem can't (WASI).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nclient.setNoDelay()\nclient.close()\nlistener.close()"
+                }
+              ],
+              "source": "core/net.pi:531",
+              "members": []
+            },
+            {
+              "name": "setKeepAlive",
+              "kind": "method",
+              "signature": "public setKeepAlive(enable: bool = false, initialDelay: int = 0): void throws NetError",
+              "doc": "<p>Turns TCP keep-alive probes on (<code>enable</code>) or off (#65); <code>initialDelay</code> is how long the\nconnection idles before the first probe, in milliseconds (0: the system's default; rounded\nup to seconds). Throws a <code>NetError</code> where the system can't (WASI).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nclient.setKeepAlive(true, 30000)\nclient.close()\nlistener.close()"
+                }
+              ],
+              "source": "core/net.pi:549",
+              "members": []
+            },
+            {
               "name": "closeWrite",
               "kind": "method",
               "signature": "public closeWrite(): void",
@@ -1169,7 +1197,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  await client.writeText(\"question\")\n  client.closeWrite()                  // the server's text() can finish…\n  const q = await server.text()\n  await server.writeText(`answer to ${q}`)\n  server.close()\n  println(await client.text())         // …and the client still reads: answer to question\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:539",
+              "source": "core/net.pi:587",
               "members": []
             },
             {
@@ -1183,7 +1211,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nclient.close()\nclient.close()                     // twice is fine\nif (server != null) {\n  println(await server.read())     // null\n  server.close()\n}\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:565",
+              "source": "core/net.pi:613",
               "members": []
             }
           ]
@@ -1770,7 +1798,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"hi\", b.addr.port)\nconst d: Datagram? = await b.receive()\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // hi\n  println(d.addr.port == a.addr.port)         // true\n}\na.close()\nb.close()"
             }
           ],
-          "source": "core/net.pi:897",
+          "source": "core/net.pi:945",
           "members": [
             {
               "name": "data",
@@ -1778,7 +1806,7 @@
               "signature": "data: Uint8Array",
               "doc": "<p>The datagram's bytes (cut to the size <code>receive</code> asked for).</p>\n",
               "examples": [],
-              "source": "core/net.pi:899",
+              "source": "core/net.pi:947",
               "members": []
             },
             {
@@ -1787,7 +1815,7 @@
               "signature": "addr: Addr",
               "doc": "<p>The address it came from.</p>\n",
               "examples": [],
-              "source": "core/net.pi:901",
+              "source": "core/net.pi:949",
               "members": []
             }
           ]
@@ -2585,7 +2613,7 @@
               "code": "const e = new Event(\"open\")\nprintln(e.type)   // open"
             }
           ],
-          "source": "core/websocket.pi:121",
+          "source": "core/websocket.pi:124",
           "members": [
             {
               "name": "type",
@@ -2593,7 +2621,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"open\"</code> or <code>\"error\"</code>.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:123",
+              "source": "core/websocket.pi:126",
               "members": []
             },
             {
@@ -2607,7 +2635,7 @@
                   "code": "const e = new Event(\"error\")\nprintln(e.type)   // error"
                 }
               ],
-              "source": "core/websocket.pi:131",
+              "source": "core/websocket.pi:134",
               "members": []
             }
           ]
@@ -3759,7 +3787,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nprintln(server != null)   // true\nserver?.close()\nclient.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:636",
+          "source": "core/net.pi:684",
           "members": [
             {
               "name": "addr",
@@ -3767,7 +3795,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it listens on (with the port chosen when <code>listen</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:639",
+              "source": "core/net.pi:687",
               "members": []
             },
             {
@@ -3781,7 +3809,7 @@
                   "code": "import { listen } from \"std/net\"\n\n// Listeners come from `listen` (and `listenUnix`).\nconst listener: Listener = await listen(0)\nprintln(listener.addr.hostname)   // 127.0.0.1\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:655",
+              "source": "core/net.pi:703",
               "members": []
             },
             {
@@ -3795,7 +3823,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn?.remoteAddr.port == client.localAddr.port)   // true\nconn?.close()\nclient.close()\nlistener.close()\nprintln(await listener.accept())   // null (closed)"
                 }
               ],
-              "source": "core/net.pi:687",
+              "source": "core/net.pi:735",
               "members": []
             },
             {
@@ -3809,7 +3837,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.next()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn != null)   // true\nconn?.close()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:729",
+              "source": "core/net.pi:777",
               "members": []
             },
             {
@@ -3823,7 +3851,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nawait client.writeText(\"hello\")\nclient.close()\nfor await (const conn of listener) {\n  println(await conn.text())   // hello\n  conn.close()\n  listener.close()             // ends the loop\n}"
                 }
               ],
-              "source": "core/net.pi:749",
+              "source": "core/net.pi:797",
               "members": []
             },
             {
@@ -3837,7 +3865,7 @@
                   "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst waiting = listener.accept()\nlistener.close()\nprintln(await waiting)   // null"
                 }
               ],
-              "source": "core/net.pi:765",
+              "source": "core/net.pi:813",
               "members": []
             }
           ]
@@ -4751,7 +4779,7 @@
               "code": "const text = new MessageEvent(\"hi\")\nmatch (text.data) {\n  s: string => println(`text: ${s}`),              // text: hi\n  b: Uint8Array => println(`${b.length} bytes`),\n}\nprintln(text.type)   // message"
             }
           ],
-          "source": "core/websocket.pi:147",
+          "source": "core/websocket.pi:150",
           "members": [
             {
               "name": "type",
@@ -4759,7 +4787,7 @@
               "signature": "public readonly type: string = \"message\"",
               "doc": "<p>Always <code>\"message\"</code>.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:149",
+              "source": "core/websocket.pi:152",
               "members": []
             },
             {
@@ -4768,7 +4796,7 @@
               "signature": "public readonly data: string | Uint8Array",
               "doc": "<p>The message: a <code>string</code> for a text message, a <code>Uint8Array</code> for a binary one.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:151",
+              "source": "core/websocket.pi:154",
               "members": []
             },
             {
@@ -4782,7 +4810,7 @@
                   "code": "const e = new MessageEvent(Uint8Array.from([1, 2, 3]))\nmatch (e.data) {\n  s: string => println(s),\n  b: Uint8Array => println(`${b.length} bytes`),   // 3 bytes\n}"
                 }
               ],
-              "source": "core/websocket.pi:162",
+              "source": "core/websocket.pi:165",
               "members": []
             }
           ]
@@ -4878,7 +4906,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
             }
           ],
-          "source": "core/net.pi:1188",
+          "source": "core/net.pi:1236",
           "members": [
             {
               "name": "name",
@@ -4886,7 +4914,7 @@
               "signature": "name: string",
               "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
               "examples": [],
-              "source": "core/net.pi:1190",
+              "source": "core/net.pi:1238",
               "members": []
             },
             {
@@ -4895,7 +4923,7 @@
               "signature": "family: int",
               "doc": "<p>4 or 6.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1192",
+              "source": "core/net.pi:1240",
               "members": []
             },
             {
@@ -4904,7 +4932,7 @@
               "signature": "address: string",
               "doc": "<p>The address, as text.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1194",
+              "source": "core/net.pi:1242",
               "members": []
             },
             {
@@ -4913,7 +4941,7 @@
               "signature": "up: bool",
               "doc": "<p>Whether it's up.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1196",
+              "source": "core/net.pi:1244",
               "members": []
             },
             {
@@ -4922,7 +4950,7 @@
               "signature": "loopback: bool",
               "doc": "<p>Whether it's the loopback interface.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1198",
+              "source": "core/net.pi:1246",
               "members": []
             },
             {
@@ -4931,7 +4959,7 @@
               "signature": "multicast: bool",
               "doc": "<p>Whether it can send and receive multicast.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1200",
+              "source": "core/net.pi:1248",
               "members": []
             }
           ]
@@ -7692,7 +7720,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst server = await bind(0)\nconst client = await bind(0)\nawait client.sendText(\"ping\", server.addr.port)\nconst d = await server.receive()\nif (d != null) {\n  await server.sendText(\"pong\", d.addr.port, d.addr.hostname)\n}\nconst reply = await client.receive()\nif (reply != null) {\n  println(new TextDecoder().decode(reply.data))   // pong\n}\nserver.close()\nclient.close()"
             }
           ],
-          "source": "core/net.pi:924",
+          "source": "core/net.pi:972",
           "members": [
             {
               "name": "addr",
@@ -7700,7 +7728,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it's bound to (with the port chosen when <code>bind</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:927",
+              "source": "core/net.pi:975",
               "members": []
             },
             {
@@ -7714,7 +7742,7 @@
                   "code": "import { bind } from \"std/net\"\n\n// UDP sockets come from `bind`.\nconst socket: UdpSocket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.hostname)   // 127.0.0.1\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:944",
+              "source": "core/net.pi:992",
               "members": []
             },
             {
@@ -7728,7 +7756,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:973",
+              "source": "core/net.pi:1021",
               "members": []
             },
             {
@@ -7742,7 +7770,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:988",
+              "source": "core/net.pi:1036",
               "members": []
             },
             {
@@ -7756,7 +7784,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1003",
+              "source": "core/net.pi:1051",
               "members": []
             },
             {
@@ -7770,7 +7798,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1018",
+              "source": "core/net.pi:1066",
               "members": []
             },
             {
@@ -7784,7 +7812,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1033",
+              "source": "core/net.pi:1081",
               "members": []
             },
             {
@@ -7798,7 +7826,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1074",
+              "source": "core/net.pi:1122",
               "members": []
             },
             {
@@ -7812,7 +7840,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1092",
+              "source": "core/net.pi:1140",
               "members": []
             },
             {
@@ -7826,7 +7854,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1113",
+              "source": "core/net.pi:1161",
               "members": []
             },
             {
@@ -7840,7 +7868,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1148",
+              "source": "core/net.pi:1196",
               "members": []
             }
           ]
@@ -8624,7 +8652,7 @@
               "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nprintln(ws.readyState == WebSocket.CONNECTING)   // true\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.send(\"hello\")\n  ws.onmessage = (e) => {\n    println(e.data)   // hello\n    ws.close()\n  }\n  ws.onclose = (e) => {\n    println(e.code)   // 1000\n    resolve()\n  }\n})\nawait server.shutdown()"
             }
           ],
-          "source": "core/websocket.pi:239",
+          "source": "core/websocket.pi:242",
           "members": [
             {
               "name": "CONNECTING",
@@ -8637,7 +8665,7 @@
                   "code": "const ws = new WebSocket(\"ws://127.0.0.1:9/\")\nprintln(ws.readyState == WebSocket.CONNECTING)   // true (just created)\nprintln(WebSocket.CONNECTING)                    // 0\nws.close()"
                 }
               ],
-              "source": "core/websocket.pi:250",
+              "source": "core/websocket.pi:253",
               "members": []
             },
             {
@@ -8651,7 +8679,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(ws.readyState == WebSocket.OPEN)   // true\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:275",
+              "source": "core/websocket.pi:278",
               "members": []
             },
             {
@@ -8665,7 +8693,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.close()\n    println(ws.readyState == WebSocket.CLOSING)   // true\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:300",
+              "source": "core/websocket.pi:303",
               "members": []
             },
             {
@@ -8679,7 +8707,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close()\n  ws.onclose = (e) => resolve()\n})\nprintln(ws.readyState == WebSocket.CLOSED)   // true\nprintln(WebSocket.CLOSED)                    // 3\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:324",
+              "source": "core/websocket.pi:327",
               "members": []
             },
             {
@@ -8688,7 +8716,7 @@
               "signature": "public readonly url: string",
               "doc": "<p>The URL connected to, normalized (as <code>URL.href</code>); \"\" for a server-side socket.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:327",
+              "source": "core/websocket.pi:330",
               "members": []
             },
             {
@@ -8697,7 +8725,7 @@
               "signature": "public readyState: int = 0",
               "doc": "<p>The connection's state: <code>CONNECTING</code>, <code>OPEN</code>, <code>CLOSING</code> or <code>CLOSED</code> (0–3).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:329",
+              "source": "core/websocket.pi:332",
               "members": []
             },
             {
@@ -8706,7 +8734,7 @@
               "signature": "public protocol: string = \"\"",
               "doc": "<p>The subprotocol the server chose (\"\" for none).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:331",
+              "source": "core/websocket.pi:334",
               "members": []
             },
             {
@@ -8715,7 +8743,7 @@
               "signature": "public onopen: ((e: Event) => void)? = null",
               "doc": "<p>Called once the connection is open (an <code>\"open\"</code> event).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:333",
+              "source": "core/websocket.pi:336",
               "members": []
             },
             {
@@ -8724,7 +8752,7 @@
               "signature": "public onmessage: ((e: MessageEvent) => void)? = null",
               "doc": "<p>Called for each message received while the socket is open (fragmented ones arrive whole).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:335",
+              "source": "core/websocket.pi:338",
               "members": []
             },
             {
@@ -8733,7 +8761,7 @@
               "signature": "public onclose: ((e: CloseEvent) => void)? = null",
               "doc": "<p>Called once when the connection ends, cleanly or not.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:337",
+              "source": "core/websocket.pi:340",
               "members": []
             },
             {
@@ -8742,7 +8770,7 @@
               "signature": "public onerror: ((e: Event) => void)? = null",
               "doc": "<p>Called when connecting fails (an <code>\"error\"</code> event), just before <code>onclose</code> with code 1006.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:339",
+              "source": "core/websocket.pi:342",
               "members": []
             },
             {
@@ -8756,7 +8784,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
                 }
               ],
-              "source": "core/websocket.pi:385",
+              "source": "core/websocket.pi:390",
               "members": []
             },
             {
@@ -8770,7 +8798,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:666",
+              "source": "core/websocket.pi:689",
               "members": []
             },
             {
@@ -8784,7 +8812,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:703",
+              "source": "core/websocket.pi:726",
               "members": []
             }
           ]
@@ -8809,6 +8837,15 @@
               "doc": "<p>Extra trusted certificates (PEM) for <code>wss:</code>, besides the system's roots.</p>\n",
               "examples": [],
               "source": "core/websocket.pi:30",
+              "members": []
+            },
+            {
+              "name": "maxMessageBytes",
+              "kind": "field",
+              "signature": "maxMessageBytes?: int",
+              "doc": "<p>The largest message to receive, in bytes (its fragments together; #67): a bigger one\ncloses the connection with code 1009 before it's read. No limit by default.</p>\n",
+              "examples": [],
+              "source": "core/websocket.pi:33",
               "members": []
             }
           ]
@@ -14630,8 +14667,8 @@
         {
           "name": "upgradeWebSocket",
           "kind": "function",
-          "signature": "function upgradeWebSocket(req: Request, protocol: string = \"\"): WebSocketUpgrade throws TypeError",
-          "doc": "<p>Accepts a WebSocket request (<code>upgrade: websocket</code>): return <code>response</code> from the handler\nand use <code>socket</code> (its <code>onopen</code> runs once the response is sent). Anything else throws a\n<code>TypeError</code>.</p>\n",
+          "signature": "function upgradeWebSocket( req: Request, protocol: string = \"\", options: WebSocketOptions = {}, ): WebSocketUpgrade throws TypeError",
+          "doc": "<p>Accepts a WebSocket request (<code>upgrade: websocket</code>): return <code>response</code> from the handler\nand use <code>socket</code> (its <code>onopen</code> runs once the response is sent). Anything else throws a\n<code>TypeError</code>. <code>options.maxMessageBytes</code> limits the messages the socket receives (#67).</p>\n",
           "examples": [
             {
               "caption": "",
@@ -17657,7 +17694,7 @@
               "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0, \"127.0.0.1\")\nprintln(listener.addr.port > 0)   // true\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:796",
+          "source": "core/net.pi:844",
           "members": []
         },
         {
@@ -17671,7 +17708,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst conn = await connect(listener.addr.port, \"127.0.0.1\")\nprintln(conn.remoteAddr.hostname)   // 127.0.0.1\nconn.close()\nconst server = await accepting\nserver?.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:818",
+          "source": "core/net.pi:866",
           "members": []
         },
         {
@@ -17685,7 +17722,7 @@
               "code": "import { connectUnix, listenUnix } from \"std/net\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)\nconst listener = await listenUnix(path)\nprintln(listener.addr.port)   // -1\nconst accepting = listener.accept()\nconst client = await connectUnix(path)\nawait client.writeText(\"over a socket file\")\nclient.close()\nconst server = await accepting\nif (server != null) {\n  println(await server.text())   // over a socket file\n  server.close()\n}\nlistener.close()                // removes the socket file"
             }
           ],
-          "source": "core/net.pi:849",
+          "source": "core/net.pi:897",
           "members": []
         },
         {
@@ -17699,7 +17736,7 @@
               "code": "import { connectUnix, listenUnix } from \"std/net\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)\nconst listener = await listenUnix(path)\nconst accepting = listener.accept()\nconst conn = await connectUnix(path)\nprintln(conn.remoteAddr.hostname == path)   // true\nconn.close()\nconst server = await accepting\nserver?.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:873",
+          "source": "core/net.pi:921",
           "members": []
         },
         {
@@ -17713,7 +17750,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.port > 0)   // true\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1246",
+          "source": "core/net.pi:1294",
           "members": []
         },
         {
@@ -17727,7 +17764,7 @@
               "code": "import { resolve } from \"std/net\"\n\nprintln((await resolve(\"127.0.0.1\")).join(\", \"))      // 127.0.0.1\nconst local = await resolve(\"localhost\")\nprintln(local.length > 0)                            // true (e.g. 127.0.0.1 and ::1)"
             }
           ],
-          "source": "core/net.pi:1264",
+          "source": "core/net.pi:1312",
           "members": []
         },
         {
@@ -17741,7 +17778,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nconst loopback = networkInterfaces().filter((i) => i.loopback && i.family == 4)\nprintln(loopback.length > 0)   // true"
             }
           ],
-          "source": "core/net.pi:1213",
+          "source": "core/net.pi:1261",
           "members": []
         },
         {
@@ -17755,7 +17792,7 @@
               "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1172",
+          "source": "core/net.pi:1220",
           "members": [
             {
               "name": "reuseAddress",
@@ -17763,7 +17800,7 @@
               "signature": "reuseAddress?: bool",
               "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1175",
+              "source": "core/net.pi:1223",
               "members": []
             }
           ]
@@ -17779,7 +17816,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
             }
           ],
-          "source": "core/net.pi:1188",
+          "source": "core/net.pi:1236",
           "members": [
             {
               "name": "name",
@@ -17787,7 +17824,7 @@
               "signature": "name: string",
               "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
               "examples": [],
-              "source": "core/net.pi:1190",
+              "source": "core/net.pi:1238",
               "members": []
             },
             {
@@ -17796,7 +17833,7 @@
               "signature": "family: int",
               "doc": "<p>4 or 6.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1192",
+              "source": "core/net.pi:1240",
               "members": []
             },
             {
@@ -17805,7 +17842,7 @@
               "signature": "address: string",
               "doc": "<p>The address, as text.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1194",
+              "source": "core/net.pi:1242",
               "members": []
             },
             {
@@ -17814,7 +17851,7 @@
               "signature": "up: bool",
               "doc": "<p>Whether it's up.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1196",
+              "source": "core/net.pi:1244",
               "members": []
             },
             {
@@ -17823,7 +17860,7 @@
               "signature": "loopback: bool",
               "doc": "<p>Whether it's the loopback interface.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1198",
+              "source": "core/net.pi:1246",
               "members": []
             },
             {
@@ -17832,7 +17869,7 @@
               "signature": "multicast: bool",
               "doc": "<p>Whether it can send and receive multicast.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1200",
+              "source": "core/net.pi:1248",
               "members": []
             }
           ]
@@ -18075,6 +18112,34 @@
               "members": []
             },
             {
+              "name": "setNoDelay",
+              "kind": "method",
+              "signature": "public setNoDelay(noDelay: bool = true): void throws NetError",
+              "doc": "<p>Turns Nagle's algorithm off (<code>noDelay</code>, the default) or on: small writes go out at once\ninstead of waiting to be coalesced (<code>TCP_NODELAY</code>, #65). Throws a <code>NetError</code> where the\nsystem can't (WASI).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nclient.setNoDelay()\nclient.close()\nlistener.close()"
+                }
+              ],
+              "source": "core/net.pi:531",
+              "members": []
+            },
+            {
+              "name": "setKeepAlive",
+              "kind": "method",
+              "signature": "public setKeepAlive(enable: bool = false, initialDelay: int = 0): void throws NetError",
+              "doc": "<p>Turns TCP keep-alive probes on (<code>enable</code>) or off (#65); <code>initialDelay</code> is how long the\nconnection idles before the first probe, in milliseconds (0: the system's default; rounded\nup to seconds). Throws a <code>NetError</code> where the system can't (WASI).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nclient.setKeepAlive(true, 30000)\nclient.close()\nlistener.close()"
+                }
+              ],
+              "source": "core/net.pi:549",
+              "members": []
+            },
+            {
               "name": "closeWrite",
               "kind": "method",
               "signature": "public closeWrite(): void",
@@ -18085,7 +18150,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  await client.writeText(\"question\")\n  client.closeWrite()                  // the server's text() can finish…\n  const q = await server.text()\n  await server.writeText(`answer to ${q}`)\n  server.close()\n  println(await client.text())         // …and the client still reads: answer to question\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:539",
+              "source": "core/net.pi:587",
               "members": []
             },
             {
@@ -18099,7 +18164,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nclient.close()\nclient.close()                     // twice is fine\nif (server != null) {\n  println(await server.read())     // null\n  server.close()\n}\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:565",
+              "source": "core/net.pi:613",
               "members": []
             }
           ]
@@ -18115,7 +18180,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nprintln(server != null)   // true\nserver?.close()\nclient.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:636",
+          "source": "core/net.pi:684",
           "members": [
             {
               "name": "addr",
@@ -18123,7 +18188,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it listens on (with the port chosen when <code>listen</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:639",
+              "source": "core/net.pi:687",
               "members": []
             },
             {
@@ -18137,7 +18202,7 @@
                   "code": "import { listen } from \"std/net\"\n\n// Listeners come from `listen` (and `listenUnix`).\nconst listener: Listener = await listen(0)\nprintln(listener.addr.hostname)   // 127.0.0.1\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:655",
+              "source": "core/net.pi:703",
               "members": []
             },
             {
@@ -18151,7 +18216,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn?.remoteAddr.port == client.localAddr.port)   // true\nconn?.close()\nclient.close()\nlistener.close()\nprintln(await listener.accept())   // null (closed)"
                 }
               ],
-              "source": "core/net.pi:687",
+              "source": "core/net.pi:735",
               "members": []
             },
             {
@@ -18165,7 +18230,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.next()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn != null)   // true\nconn?.close()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:729",
+              "source": "core/net.pi:777",
               "members": []
             },
             {
@@ -18179,7 +18244,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nawait client.writeText(\"hello\")\nclient.close()\nfor await (const conn of listener) {\n  println(await conn.text())   // hello\n  conn.close()\n  listener.close()             // ends the loop\n}"
                 }
               ],
-              "source": "core/net.pi:749",
+              "source": "core/net.pi:797",
               "members": []
             },
             {
@@ -18193,7 +18258,7 @@
                   "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst waiting = listener.accept()\nlistener.close()\nprintln(await waiting)   // null"
                 }
               ],
-              "source": "core/net.pi:765",
+              "source": "core/net.pi:813",
               "members": []
             }
           ]
@@ -18209,7 +18274,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"hi\", b.addr.port)\nconst d: Datagram? = await b.receive()\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // hi\n  println(d.addr.port == a.addr.port)         // true\n}\na.close()\nb.close()"
             }
           ],
-          "source": "core/net.pi:897",
+          "source": "core/net.pi:945",
           "members": [
             {
               "name": "data",
@@ -18217,7 +18282,7 @@
               "signature": "data: Uint8Array",
               "doc": "<p>The datagram's bytes (cut to the size <code>receive</code> asked for).</p>\n",
               "examples": [],
-              "source": "core/net.pi:899",
+              "source": "core/net.pi:947",
               "members": []
             },
             {
@@ -18226,7 +18291,7 @@
               "signature": "addr: Addr",
               "doc": "<p>The address it came from.</p>\n",
               "examples": [],
-              "source": "core/net.pi:901",
+              "source": "core/net.pi:949",
               "members": []
             }
           ]
@@ -18242,7 +18307,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst server = await bind(0)\nconst client = await bind(0)\nawait client.sendText(\"ping\", server.addr.port)\nconst d = await server.receive()\nif (d != null) {\n  await server.sendText(\"pong\", d.addr.port, d.addr.hostname)\n}\nconst reply = await client.receive()\nif (reply != null) {\n  println(new TextDecoder().decode(reply.data))   // pong\n}\nserver.close()\nclient.close()"
             }
           ],
-          "source": "core/net.pi:924",
+          "source": "core/net.pi:972",
           "members": [
             {
               "name": "addr",
@@ -18250,7 +18315,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it's bound to (with the port chosen when <code>bind</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:927",
+              "source": "core/net.pi:975",
               "members": []
             },
             {
@@ -18264,7 +18329,7 @@
                   "code": "import { bind } from \"std/net\"\n\n// UDP sockets come from `bind`.\nconst socket: UdpSocket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.hostname)   // 127.0.0.1\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:944",
+              "source": "core/net.pi:992",
               "members": []
             },
             {
@@ -18278,7 +18343,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:973",
+              "source": "core/net.pi:1021",
               "members": []
             },
             {
@@ -18292,7 +18357,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:988",
+              "source": "core/net.pi:1036",
               "members": []
             },
             {
@@ -18306,7 +18371,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1003",
+              "source": "core/net.pi:1051",
               "members": []
             },
             {
@@ -18320,7 +18385,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1018",
+              "source": "core/net.pi:1066",
               "members": []
             },
             {
@@ -18334,7 +18399,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1033",
+              "source": "core/net.pi:1081",
               "members": []
             },
             {
@@ -18348,7 +18413,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1074",
+              "source": "core/net.pi:1122",
               "members": []
             },
             {
@@ -18362,7 +18427,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1092",
+              "source": "core/net.pi:1140",
               "members": []
             },
             {
@@ -18376,7 +18441,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1113",
+              "source": "core/net.pi:1161",
               "members": []
             },
             {
@@ -18390,7 +18455,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1148",
+              "source": "core/net.pi:1196",
               "members": []
             }
           ]
