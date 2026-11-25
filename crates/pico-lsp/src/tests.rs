@@ -1486,3 +1486,42 @@ fn hover_on_reactive_bindings() {
         "```pico\nreactive count: Reactive<i64>\n```"
     );
 }
+
+/// Renaming in destructuring patterns and `export { a }` lists (#81): a shorthand field
+/// (`{ x }`) keeps the field it reads (`{ x: ex }`), and an export list follows its binding.
+#[test]
+fn renames_in_destructuring_and_export_lists() {
+    let main = "const [a, b] = [1, 2]\nconst { x, y: w } = { x: 3, y: 4 }\nprintln(`${a} ${b} ${x} ${w}`)\nexport { a }\n";
+    let ok = |needle, new: &str| {
+        rename_at("rename_destr", main, &[], needle, new).unwrap()["main.pi"].clone()
+    };
+    assert_eq!(
+        ok(("a", 0, 0), "first"),
+        "const [first, b] = [1, 2]\nconst { x, y: w } = { x: 3, y: 4 }\nprintln(`${first} ${b} ${x} ${w}`)\nexport { first }\n"
+    );
+    assert_eq!(
+        ok(("a }", 0, 0), "first"),
+        "const [first, b] = [1, 2]\nconst { x, y: w } = { x: 3, y: 4 }\nprintln(`${first} ${b} ${x} ${w}`)\nexport { first }\n"
+    );
+    assert_eq!(
+        ok(("x", 0, 0), "ex"),
+        "const [a, b] = [1, 2]\nconst { x: ex, y: w } = { x: 3, y: 4 }\nprintln(`${a} ${b} ${ex} ${w}`)\nexport { a }\n"
+    );
+    assert_eq!(
+        ok(("w", 0, 0), "dub"),
+        "const [a, b] = [1, 2]\nconst { x, y: dub } = { x: 3, y: 4 }\nprintln(`${a} ${b} ${x} ${dub}`)\nexport { a }\n"
+    );
+    // In a function: locals.
+    let main = "struct P {\n  x: i32\n}\nfunction f(p: P): i32 {\n  const { x } = p\n  return x\n}\nprintln(f(P { x: 1 }))\n";
+    let r = rename_at("rename_destr_local", main, &[], ("return x", 0, 7), "v").unwrap();
+    assert_eq!(
+        r["main.pi"],
+        "struct P {\n  x: i32\n}\nfunction f(p: P): i32 {\n  const { x: v } = p\n  return v\n}\nprintln(f(P { x: 1 }))\n"
+    );
+    // Renaming the field keeps the variable.
+    let r = rename_at("rename_destr_field", main, &[], ("x: i32", 0, 0), "px").unwrap();
+    assert_eq!(
+        r["main.pi"],
+        "struct P {\n  px: i32\n}\nfunction f(p: P): i32 {\n  const { px: x } = p\n  return x\n}\nprintln(f(P { px: 1 }))\n"
+    );
+}
