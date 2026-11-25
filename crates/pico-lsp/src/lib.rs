@@ -177,7 +177,8 @@ impl Server {
                     for c in &changes {
                         apply_change(text, c);
                     }
-                    self.dirty.insert(uri.to_string());
+                    // (Other open documents may import this one: they see its unsaved text.)
+                    self.dirty.extend(self.docs.keys().cloned());
                 }
             }
             ("textDocument/didSave", None) | ("workspace/didChangeWatchedFiles", None) => {
@@ -250,7 +251,10 @@ impl Server {
                     let offset = offset_of(text, line, character)? as usize;
                     let path = uri_to_path(uri).unwrap_or_else(|| PathBuf::from("untitled.pi"));
                     let trigger = params["context"]["triggerCharacter"].as_str();
-                    Some(complete::complete(&path, text, offset, trigger))
+                    let overlay = self.overlay(uri);
+                    Some(pico_driver::with_overlay(overlay, || {
+                        complete::complete(&path, text, offset, trigger)
+                    }))
                 });
                 let result = json!({ "isIncomplete": false, "items": items.unwrap_or_default() });
                 send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
@@ -306,12 +310,23 @@ impl Server {
         false
     }
 
+    /// The other open documents' texts by path, which imports read instead of the disk
+    /// (their unsaved edits, #81).
+    fn overlay(&self, except: &str) -> HashMap<PathBuf, String> {
+        self.docs
+            .iter()
+            .filter(|(u, _)| u.as_str() != except)
+            .filter_map(|(u, t)| Some((uri_to_path(u)?, t.clone())))
+            .collect()
+    }
+
     fn check_dirty(&mut self, send: &mut impl FnMut(Value)) {
         for uri in std::mem::take(&mut self.dirty) {
             let Some(text) = self.docs.get(&uri).cloned() else {
                 continue;
             };
-            let (by_uri, index) = check(&uri, &text);
+            let overlay = self.overlay(&uri);
+            let (by_uri, index) = pico_driver::with_overlay(overlay, || check(&uri, &text));
             if let Some(i) = index {
                 self.indexes.insert(uri.clone(), i);
             }

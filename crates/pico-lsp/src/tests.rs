@@ -1525,3 +1525,54 @@ fn incremental_changes() {
     ]);
     assert_eq!(hover_text(&out, 2), "```pico\nconst total: i64\n```");
 }
+
+/// Unsaved buffers of other open modules (#81): imports see the editor's text, not the disk's,
+/// and a change to one re-checks the documents that may import it.
+#[test]
+fn imports_see_unsaved_buffers() {
+    let dir = tmp("overlay");
+    std::fs::write(
+        dir.join("geo.pi"),
+        "export function dot(a: i32): i32 { a }\n",
+    )
+    .unwrap();
+    let geo_uri = path_to_uri(&dir.join("geo.pi"));
+    let geo = "export function dot(a: i32): i32 { a }\n/// Unsaved.\nexport function cross(a: i32): i32 { a * 2 }\n";
+    let main = "import { cross } from \"./geo\"\nprintln(cross(2))\n";
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let out = session(vec![
+        init(),
+        open(&geo_uri, geo),
+        open(&uri, main),
+        at(2, "textDocument/hover", &uri, main, "cross", 1, 0),
+        // The buffer loses `cross` (still unsaved): `main.pi` is checked again.
+        json!({ "jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
+            "textDocument": { "uri": geo_uri, "version": 2 },
+            "contentChanges": [{ "text": "export function dot(a: i32): i32 { a }\n" }] } }),
+        at(3, "textDocument/hover", &uri, main, "cross", 1, 0),
+    ]);
+    let main_diags: Vec<&Value> = out
+        .iter()
+        .filter(|m| {
+            m["method"] == "textDocument/publishDiagnostics" && m["params"]["uri"] == uri.as_str()
+        })
+        .map(|m| &m["params"]["diagnostics"])
+        .collect();
+    assert!(
+        main_diags
+            .first()
+            .is_some_and(|d| d.as_array().unwrap().is_empty()),
+        "{main_diags:#?}"
+    );
+    assert!(
+        hover_text(&out, 2).contains("Unsaved."),
+        "{}",
+        hover_text(&out, 2)
+    );
+    let last = main_diags.last().unwrap().as_array().unwrap();
+    assert!(
+        last.iter()
+            .any(|d| d["message"].as_str().unwrap().contains("cross")),
+        "{main_diags:#?}"
+    );
+}
