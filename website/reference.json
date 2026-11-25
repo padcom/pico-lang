@@ -14089,6 +14089,20 @@
               "members": []
             },
             {
+              "name": "readable",
+              "kind": "property",
+              "signature": "public get readable(): ReadableStream<Uint8Array>",
+              "doc": "<p>The rest of the file as a stream of chunks (up to 64 KiB each, #64), for files too big to\nread whole; the file closes when the stream ends or is cancelled. Pipe it through\n<code>textDecoderStream()</code> (<code>std/streams</code>) for text.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { open, writeText, remove } from \"std/fs\"\nimport { textDecoderStream } from \"std/streams\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-readable-example.txt\")\nawait writeText(path, \"streamed text\")\nconst f = await open(path)\nlet text = \"\"\nfor await (const piece of f.readable.pipeThrough(textDecoderStream())) {\n  text = text + piece\n}\nprintln(text)   // streamed text\nawait remove(path)"
+                }
+              ],
+              "source": "fs.pi:516",
+              "members": []
+            },
+            {
               "name": "write",
               "kind": "method",
               "signature": "public write(data: Uint8Array): Promise<int, IoError>",
@@ -14099,7 +14113,7 @@
                   "code": "import { open, readText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-write-example.txt\")\nconst f = await open(path, write: true, create: true, truncate: true)\nprintln(await f.write(new TextEncoder().encode(\"written\")))   // 7\nawait f.close()\nprintln(await readText(path))   // written\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:510",
+              "source": "fs.pi:548",
               "members": []
             },
             {
@@ -14113,7 +14127,7 @@
                   "code": "import { open, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-seek-example.txt\")\nawait writeText(path, \"0123456789\")\nconst f = await open(path)\nprintln(await f.seek(7))   // 7\nconst rest = await f.read(10)\nif (rest != null) {\n  println(new TextDecoder().decode(rest))   // 789\n}\nawait f.close()\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:535",
+              "source": "fs.pi:573",
               "members": []
             },
             {
@@ -14127,7 +14141,7 @@
                   "code": "import { open, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-close-example.txt\")\nawait writeText(path, \"x\")\nconst f = await open(path)\nawait f.close()\nawait f.close()   // twice is fine\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:555",
+              "source": "fs.pi:593",
               "members": []
             },
             {
@@ -14141,7 +14155,7 @@
                   "code": "import { open, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-using-example.txt\")\nawait writeText(path, \"auto-closed\")\n{\n  await using f = await open(path)\n  println((await f.read(100))?.length)   // 11\n}   // f.disposeAsync() closes it here\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:581",
+              "source": "fs.pi:619",
               "members": []
             }
           ]
@@ -14157,7 +14171,7 @@
               "code": "import { open, readText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"open-example.log\")\nconst f = await open(path, write: true, create: true, append: true)\nawait f.write(new TextEncoder().encode(\"one line\\n\"))\nawait f.close()\nprint(await readText(path))   // one line\nawait remove(path)"
             }
           ],
-          "source": "fs.pi:605",
+          "source": "fs.pi:654",
           "members": []
         },
         {
@@ -14171,7 +14185,7 @@
               "code": "import { watch, writeText, remove, mkdir, WatchEvent } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watch-event-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nawait writeText(join(dir, \"new.txt\"), \"hi\")\nconst e: WatchEvent? = await w.next()\nif (e != null) {\n  println(e.kind)                                // create\n  println(e.path == join(dir, \"new.txt\"))        // true\n}\nw.close()\nawait remove(dir, recursive: true)"
             }
           ],
-          "source": "fs.pi:642",
+          "source": "fs.pi:691",
           "members": [
             {
               "name": "kind",
@@ -14179,7 +14193,7 @@
               "signature": "kind: string",
               "doc": "<p><code>\"create\"</code>, <code>\"modify\"</code> or <code>\"remove\"</code>.</p>\n",
               "examples": [],
-              "source": "fs.pi:644",
+              "source": "fs.pi:693",
               "members": []
             },
             {
@@ -14188,7 +14202,7 @@
               "signature": "path: string",
               "doc": "<p>The watched path joined with the changed entry's path (the watched path itself when watching a\nfile).</p>\n",
               "examples": [],
-              "source": "fs.pi:647",
+              "source": "fs.pi:696",
               "members": []
             }
           ]
@@ -14204,7 +14218,7 @@
               "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nawait writeText(join(dir, \"a.txt\"), \"1\")\nfor await (const e of w) {\n  println(`${e.kind} a.txt`)   // create a.txt\n  w.close()                    // ends the loop\n}\nawait remove(dir, recursive: true)"
             }
           ],
-          "source": "fs.pi:671",
+          "source": "fs.pi:720",
           "members": [
             {
               "name": "path",
@@ -14212,7 +14226,7 @@
               "signature": "public readonly path: string",
               "doc": "<p>The path being watched, as given to <code>watch</code>.</p>\n",
               "examples": [],
-              "source": "fs.pi:674",
+              "source": "fs.pi:723",
               "members": []
             },
             {
@@ -14226,7 +14240,7 @@
                   "code": "import { watch, Watcher, mkdir, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-ctor-example\")\nawait mkdir(dir, recursive: true)\nconst w: Watcher = await watch(dir)   // `watch` makes Watchers\nprintln(w.path == dir)                // true\nw.close()\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:698",
+              "source": "fs.pi:747",
               "members": []
             },
             {
@@ -14240,7 +14254,7 @@
                   "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-next-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nconst next = w.next()\nawait writeText(join(dir, \"f.txt\"), \"x\")\nprintln((await next)?.kind)   // create\nw.close()\nprintln(await w.next() == null)   // true: closed\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:721",
+              "source": "fs.pi:770",
               "members": []
             },
             {
@@ -14254,7 +14268,7 @@
                   "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-iter-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nawait writeText(join(dir, \"f.txt\"), \"x\")\nfor await (const e of w.asyncIterator()) {\n  println(e.kind)   // create\n  w.close()\n}\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:746",
+              "source": "fs.pi:795",
               "members": []
             },
             {
@@ -14268,7 +14282,7 @@
                   "code": "import { watch, mkdir, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-close-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nconst pending = w.next()\nw.close()\nprintln(await pending == null)   // true\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:766",
+              "source": "fs.pi:815",
               "members": []
             },
             {
@@ -14282,7 +14296,7 @@
                   "code": "import { watch, mkdir, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-using-example\")\nawait mkdir(dir, recursive: true)\n{\n  using w = await watch(dir)\n  println(w.path == dir)   // true\n}   // w.dispose() stops watching here\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:791",
+              "source": "fs.pi:840",
               "members": []
             }
           ]
@@ -14298,7 +14312,7 @@
               "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watch-example\")\nawait mkdir(join(dir, \"src\"), recursive: true)\nconst w = await watch(dir, recursive: true)\nawait writeText(join(dir, \"src\", \"main.pi\"), \"println(1)\")\nconst e = await w.next()\nprintln(e?.kind)   // create\nw.close()\nawait remove(dir, recursive: true)"
             }
           ],
-          "source": "fs.pi:856",
+          "source": "fs.pi:905",
           "members": []
         },
         {
@@ -14312,7 +14326,7 @@
               "code": "import { FileStream, writeBytes, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-example.bin\")\nawait writeBytes(path, Uint8Array.from([1, 2, 3, 4, 5]))\nconst stream = new FileStream(path, chunkSize: 2)\nlet chunk = await stream.read()\nwhile (chunk != null) {\n  println(chunk.length)   // 2, 2, then 1\n  chunk = await stream.read()\n}\nawait remove(path)"
             }
           ],
-          "source": "fs.pi:879",
+          "source": "fs.pi:928",
           "members": [
             {
               "name": "path",
@@ -14320,7 +14334,7 @@
               "signature": "public readonly path: string",
               "doc": "<p>The file's path.</p>\n",
               "examples": [],
-              "source": "fs.pi:881",
+              "source": "fs.pi:930",
               "members": []
             },
             {
@@ -14334,7 +14348,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { ByteStream } from \"std/streams\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-ctor-example.bin\")\nawait writeText(path, \"recorded\")\nconst replay: ByteStream = new FileStream(path)\nprintln((await replay.read())?.length)   // 8\nreplay.close()\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:900",
+              "source": "fs.pi:949",
               "members": []
             },
             {
@@ -14348,7 +14362,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-read-example.txt\")\nawait writeText(path, \"abc\")\nconst stream = new FileStream(path)\nconst bytes = await stream.read()\nif (bytes != null) {\n  println(new TextDecoder().decode(bytes))   // abc\n}\nprintln(await stream.read())   // null: the end\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:921",
+              "source": "fs.pi:970",
               "members": []
             },
             {
@@ -14362,7 +14376,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-write-example.txt\")\nawait writeText(path, \"data\")\nconst stream = new FileStream(path)\nawait stream.write(Uint8Array.from([1, 2]))   // discarded: the file is unchanged\nprintln((await stream.read())?.length)          // 4\nstream.close()\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:951",
+              "source": "fs.pi:1000",
               "members": []
             },
             {
@@ -14376,7 +14390,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-close-example.txt\")\nawait writeText(path, \"data\")\nconst stream = new FileStream(path)\nstream.close()\nprintln(await stream.read())   // null\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:968",
+              "source": "fs.pi:1017",
               "members": []
             }
           ]

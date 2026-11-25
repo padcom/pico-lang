@@ -191,7 +191,9 @@ readDir(path): AsyncIterator<DirEntry> throws IoError  // name, isFile, isDirect
 open(path, read = true, write = false, append = false, create = false, truncate = false,
      createNew = false): Promise<File, IoError>
 ```
-A `File` (`AsyncDisposable`) has `read(n): Promise<Uint8Array?>` (`null` at the end), `write(data):
+A `File` (`AsyncDisposable`) has `read(n): Promise<Uint8Array?>` (`null` at the end), `readable`
+(the rest as a `ReadableStream<Uint8Array>` of chunks up to 64 KiB, closing the file at its end;
+through `textDecoderStream()` for big text files, #64), `write(data):
 Promise<int>`, `seek(position): Promise<int>` (from the start), `close()` (twice is fine) and
 `path`. Using it after `close` panics.
 
