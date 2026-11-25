@@ -73,8 +73,10 @@ class Circle implements Shape {
   interface with type arguments, `class Cell implements Box<int>`, and a `Cell` is then a
   `Box<int>` (not a `Box<string>`); an interface can extend one the same way
   (`interface Named extends Box<string>`). Calls through a `Box<T>` see the receiver's arguments,
-  so generic functions over `Box<T>` work. Not yet: default methods in generic interfaces, and
-  generic classes implementing interfaces (#51).
+  so generic functions over `Box<T>` work. A generic class can implement interfaces too,
+  `class Cell<T> implements Box<T>`: each instance (`Cell<int>`, `Cell<string>`) has its own
+  itable. Not yet: default methods in generic interfaces, and generic classes with `extends`
+  (#51).
 - Structs and enums can also `implement` interfaces.
 - There are no `sealed` hierarchies. For a closed set of cases, use an `enum`.
 

@@ -1,0 +1,50 @@
+// expect: 1
+// expect: 2
+// expect: x
+// expect: y
+// expect: left
+// expect: 15
+// expect: 42
+// expect: deep
+// Generic classes implementing generic interfaces (#51): `Cell<T> implements Box<T>`,
+// `Pair<A, B> implements Box<A>`; each instance has its own itable (`Cell<int>`, `Cell<string>`),
+// also when the conversion happens inside a generic function (`wrap<T>`).
+interface Box<T> {
+  get(): T
+  put(v: T): void
+}
+class Cell<T> implements Box<T> {
+  constructor(private v: T) {}
+  public get(): T { this.v }
+  public put(v: T): void { this.v = v }
+}
+class Pair<A, B> implements Box<A> {
+  constructor(private a: A, private b: B) {}
+  public get(): A { this.a }
+  public put(v: A): void { this.a = v }
+  public second(): B { this.b }
+}
+function swap<T>(b: Box<T>, v: T): T {
+  const old = b.get()
+  b.put(v)
+  old
+}
+const c = new Cell<int>(1)
+println(swap(c, 2))
+println(c.get())
+const s: Box<string> = new Cell("x")
+println(swap(s, "y"))
+println(s.get())
+const p: Box<string> = new Pair("left", 3)
+println(p.get())
+const boxes: Box<int>[] = [new Cell(7), new Pair(8, "eight")]
+let sum = 0
+for (const b of boxes) { sum += b.get() }
+println(sum)
+function wrap<T>(v: T): Box<T> {
+  new Cell(v)
+}
+const w = wrap(40)
+w.put(w.get() + 2)
+println(w.get())
+println(wrap("deep").get())

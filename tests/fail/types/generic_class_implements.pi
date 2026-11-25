@@ -1,0 +1,7 @@
+// error: E0325
+// at: 6:10
+// A generic class's implementation is checked with its own type parameters (#51).
+interface Box<T> { get(): T }
+class Cell<T> implements Box<T> {
+  public get(): int { 1 }
+}
