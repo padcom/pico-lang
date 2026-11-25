@@ -573,6 +573,21 @@ impl Program {
         ))
     }
 
+    /// The bounds of type parameter `t` (none for other types).
+    pub fn param_bounds(&self, t: &Ty) -> &[Bound] {
+        let Ty::Param(owner, i, _) = t else {
+            return &[];
+        };
+        let generics = if let Some(e) = Ty::owner_enum(*owner) {
+            &self.enums[e.0 as usize].generics
+        } else if owner & 0x8000_0000 != 0 {
+            &self.structs[(owner & 0x7fff_ffff) as usize].generics
+        } else {
+            &self.func(FnId(*owner)).generics
+        };
+        generics.get(*i as usize).map_or(&[][..], |g| &g.bounds[..])
+    }
+
     /// Whether `sid` is the core library's `Map`.
     pub fn is_core_map(&self, sid: StructId) -> bool {
         let d = &self.structs[sid.0 as usize];
