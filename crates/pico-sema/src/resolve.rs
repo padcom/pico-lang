@@ -8295,6 +8295,9 @@ impl Resolver {
     /// `await x`: inside an async function's step `{ const a = x; yield a.__suspend();
     /// a.__get() }`; at the entry's top level `__awaitTop(x)`.
     fn lower_await(&mut self, inner: &ast::Expr, span: Span) -> ExprKind {
+        // (Of a value that isn't a promise too: `__awaitable` makes it one, #52.)
+        let wrapped = build::call(build::ident("__awaitable", span), vec![inner.clone()], span);
+        let inner = &wrapped;
         if self.f.async_step {
             self.awaits += 1;
             let name = format!("__await{}", self.awaits);
