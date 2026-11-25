@@ -863,6 +863,7 @@ impl Resolver {
             .iter()
             .map(|(s, d)| (*s, &d.generics[..]))
             .chain(class_decls.iter().map(|(s, d)| (*s, &d.generics[..])))
+            .chain(iface_decls.iter().map(|(s, d)| (*s, &d.generics[..])))
             .collect();
         for (sid, gs) in generic_decls {
             let span = self.structs[sid.0 as usize].name_span;
@@ -882,7 +883,9 @@ impl Resolver {
         let mut iface_methods = Vec::new();
         for (sid, id_) in self.order_interfaces(&iface_decls) {
             self.enter_module(id_.name.span);
+            self.enter_type_params(sid);
             self.interface_members(sid, id_, &mut iface_methods);
+            self.f.type_params.clear();
         }
         for (sid, sd) in &struct_decls {
             self.enter_module(sd.name.span);
@@ -2275,7 +2278,12 @@ impl Resolver {
     fn resolve_implements(&mut self, sid: StructId, types: &[ast::Type]) {
         for t in types {
             match self.resolve_type(t) {
-                Ty::Iface(i, _, _) => self.structs[sid.0 as usize].implements.push(i),
+                Ty::Iface(i, _, args) => {
+                    self.structs[sid.0 as usize].implements.push(i);
+                    self.structs[sid.0 as usize]
+                        .implements_args
+                        .push(args.to_vec());
+                }
                 Ty::Error => {}
                 other => self.error(
                     codes::UNKNOWN_TYPE,
@@ -2364,9 +2372,7 @@ impl Resolver {
         d: &'a ast::InterfaceDecl,
         out: &mut Vec<(FnId, &'a ast::FnDecl, StructId, bool)>,
     ) {
-        if let Some(g) = d.generics.first() {
-            self.not_implemented(g.span, "generic interfaces");
-        }
+
         let mut methods: Vec<(String, FnId)> = Vec::new();
         let mut abstract_fns = HashSet::new();
         for p in self.structs[sid.0 as usize].implements.clone() {
@@ -2415,6 +2421,10 @@ impl Resolver {
             let key = self.param_key(f);
             self.method_params.insert(id, key.clone());
             let is_abstract = f.body.is_none();
+            if !is_abstract && !d.generics.is_empty() {
+                // (Its body would need an instance per implementation's type arguments.)
+                self.not_implemented(f.span, "default methods in generic interfaces");
+            }
             let inherited_one = methods.iter().filter(|(n, _)| *n == name.name).count() == 1
                 && d.members
                     .iter()

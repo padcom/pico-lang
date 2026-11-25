@@ -188,6 +188,8 @@ pub struct StructDef {
     pub is_interface: bool,
     /// Interfaces this type implements directly (`implements`), or an interface extends.
     pub implements: Vec<StructId>,
+    /// The type arguments each of `implements` is given (`implements Box<int>`), in order (#51).
+    pub implements_args: Vec<Vec<Ty>>,
     /// Type parameters (`struct Pair<A, B>`); `Ty::Param(Ty::type_owner(id), i, _)` inside.
     pub generics: Vec<TypeParam>,
     /// The constructors (classes always have at least one, possibly synthesized), with
@@ -236,6 +238,7 @@ impl StructDef {
             pod: false,
             is_interface: false,
             implements: Vec::new(),
+            implements_args: Vec::new(),
             generics: Vec::new(),
             ctors: Vec::new(),
             base: None,
@@ -455,6 +458,50 @@ impl Program {
         let d = &self.structs[sid.0 as usize];
         d.implements.iter().any(|i| self.implements(*i, iface))
             || d.base.is_some_and(|b| self.implements(b, iface))
+    }
+
+    /// The type arguments of the interface `iface` as `sid` implements it (through the
+    /// interfaces it extends too): `[int]` for `class C implements Box<int>`, `None` when it
+    /// doesn't (#51).
+    pub fn iface_args(&self, sid: StructId, iface: StructId) -> Option<Vec<Ty>> {
+        if sid == iface {
+            let owner = Ty::type_owner(sid);
+            return Some(
+                self.structs[sid.0 as usize]
+                    .generics
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| Ty::Param(owner, i as u32, p.name.as_str().into()))
+                    .collect(),
+            );
+        }
+        let d = &self.structs[sid.0 as usize];
+        for (k, i) in d.implements.iter().enumerate() {
+            if let Some(inner) = self.iface_args(*i, iface) {
+                let args = d.implements_args.get(k).cloned().unwrap_or_default();
+                let owner = Ty::type_owner(*i);
+                return Some(inner.iter().map(|t| t.subst(owner, &args)).collect());
+            }
+        }
+        d.base.and_then(|b| self.iface_args(b, iface))
+    }
+
+    /// How `sid<xs>` sees the type parameters of the generic interface that declares `ifn`
+    /// (the owner whose parameters to replace, and with what), `None` when that interface isn't
+    /// generic (#51). Inherited interface methods are typed with their own interface's
+    /// parameters, so `Named extends Box<string>` gives `Box.get` `T = string`.
+    pub fn method_subst(&self, sid: StructId, xs: &[Ty], ifn: FnId) -> Option<(u32, Vec<Ty>)> {
+        let f = self.func(ifn);
+        let k = f.this.map(|t| t.1).or(f.owner)?;
+        if self.structs[k.0 as usize].generics.is_empty() {
+            return None;
+        }
+        let args = self.iface_args(sid, k)?;
+        let own = Ty::type_owner(sid);
+        Some((
+            Ty::type_owner(k),
+            args.iter().map(|t| t.subst(own, xs)).collect(),
+        ))
     }
 
     /// Whether `sid` is the core library's `Map`.

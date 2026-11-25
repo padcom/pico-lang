@@ -798,11 +798,14 @@ impl<'p> Checker<'p> {
             }
             (Ty::Class(a, _, _), Ty::Class(b, _, _)) => self.program.is_subclass(*a, *b),
             // To an interface the type implements (nominally).
-            (Ty::Class(a, _, _) | Ty::Struct(a, _, _), Ty::Iface(i, _, _)) => {
-                self.program.implements(*a, *i)
+            // (A generic interface with the type arguments it's implemented with, #51.)
+            (Ty::Class(a, _, xs) | Ty::Struct(a, _, xs), Ty::Iface(i, _, ys)) => {
+                self.program.implements(*a, *i) && self.iface_args_fit(*a, xs, *i, ys)
             }
             // Interface inheritance: only along first parents, whose methods are a prefix.
-            (Ty::Iface(a, _, _), Ty::Iface(b, _, _)) => self.iface_prefix(*a, *b),
+            (Ty::Iface(a, _, xs), Ty::Iface(b, _, ys)) => {
+                self.iface_prefix(*a, *b) && self.iface_args_fit(*a, xs, *b, ys)
+            }
             (Ty::Class(..) | Ty::Struct(..) | Ty::Iface(..), Ty::Nullable(t)) => {
                 self.upcasts(from, t)
             }
@@ -1304,7 +1307,7 @@ impl<'p> Checker<'p> {
                     if let Some(bf) = bdef.vtable.get(slot)
                         && f != bf
                     {
-                        pairs.push((*f, *bf));
+                        pairs.push((*f, *bf, None));
                     }
                 }
             }
@@ -1320,15 +1323,23 @@ impl<'p> Checker<'p> {
                     continue;
                 }
                 for (name, ifn) in &idef.methods {
+                    // A generic interface's method, with the type arguments it's implemented
+                    // with (`implements Box<int>`: `T` is `int`, #51).
+                    let subst = self.program.method_subst(StructId(i as u32), &[], *ifn);
                     let overloads = def.methods_named(name);
                     let by_params = overloads.len() > 1 || idef.methods_named(name).len() > 1;
+                    let iparams: Vec<Ty> = self.types.sigs[ifn.0 as usize]
+                        .params
+                        .iter()
+                        .map(|p| match &subst {
+                            Some((o, a)) => p.subst(*o, a),
+                            None => p.clone(),
+                        })
+                        .collect();
                     let f = overloads
                         .iter()
                         .copied()
-                        .find(|f| {
-                            self.types.sigs[f.0 as usize].params
-                                == self.types.sigs[ifn.0 as usize].params
-                        })
+                        .find(|f| self.types.sigs[f.0 as usize].params == iparams)
                         // (A single method of the name implements it; with overloads, none
                         // with its parameters means the interface's default is used.)
                         .or_else(|| if by_params { None } else { def.method(name) });
@@ -1338,16 +1349,26 @@ impl<'p> Checker<'p> {
                                 .impl_methods
                                 .insert((StructId(i as u32), *ifn), f);
                         }
-                        pairs.push((f, *ifn));
+                        pairs.push((f, *ifn, subst.clone()));
                     }
                 }
             }
         }
-        for (f, bf) in pairs {
-            let (a, b) = (
-                &self.types.sigs[f.0 as usize],
-                &self.types.sigs[bf.0 as usize],
-            );
+        for (f, bf, subst) in pairs {
+            let a = &self.types.sigs[f.0 as usize];
+            let substituted;
+            let b = match &subst {
+                Some((o, args)) => {
+                    let s = &self.types.sigs[bf.0 as usize];
+                    substituted = FnSig {
+                        params: s.params.iter().map(|p| p.subst(*o, args)).collect(),
+                        ret: s.ret.subst(*o, args),
+                        ..s.clone()
+                    };
+                    &substituted
+                }
+                None => &self.types.sigs[bf.0 as usize],
+            };
             if a.params != b.params || (a.ret != b.ret && !a.ret.is_error() && !b.ret.is_error()) {
                 let fun = self.program.func(f);
                 let bfun = self.program.func(bf);
@@ -6514,6 +6535,22 @@ impl<'p> Checker<'p> {
                     {
                         self.types.iface_calls.insert(e.id, slot as u32);
                         self.types.methods.insert(e.id, m);
+                        if let Some((owner, recv)) =
+                            self.program.method_subst(*sid, t.type_args(), m)
+                        {
+                            // A generic interface's method, seen through the receiver's type
+                            // arguments (#51).
+                            let (ret, _) = self.call_inferring(
+                                e,
+                                m,
+                                &args.iter().collect::<Vec<_>>(),
+                                &explicit,
+                                m.0,
+                                &[],
+                                Some((owner, &recv)),
+                            );
+                            return ret;
+                        }
                         return self.call_fn(e, m, args);
                     }
                 }
@@ -6814,6 +6851,24 @@ impl<'p> Checker<'p> {
             );
         }
         Some(ret)
+    }
+
+    /// Whether `a<xs>` implements the generic interface `i` with the arguments `ys` (#51):
+    /// `class C implements Box<int>` is a `Box<int>`, not a `Box<string>`.
+    fn iface_args_fit(&self, a: StructId, xs: &[Ty], i: StructId, ys: &[Ty]) -> bool {
+        if ys.is_empty() {
+            return true;
+        }
+        match self.program.iface_args(a, i) {
+            Some(args) => {
+                let args: Vec<Ty> = args
+                    .iter()
+                    .map(|t| t.subst(Ty::type_owner(a), xs))
+                    .collect();
+                args.len() == ys.len() && args.iter().zip(ys).all(|(x, y)| x == y)
+            }
+            None => false,
+        }
     }
 
     /// The element type of a value with an `iterator(): Iterator<T>` method (recording the

@@ -69,7 +69,12 @@ class Circle implements Shape {
   class has to override that method.
 - Interface members are always public. A method that implements an interface member is **not**
   automatically virtual: subclasses can override it only if it's marked `virtual`.
-- Interfaces can `extend` other interfaces and can be generic.
+- Interfaces can `extend` other interfaces and can be generic. A class implements a generic
+  interface with type arguments, `class Cell implements Box<int>`, and a `Cell` is then a
+  `Box<int>` (not a `Box<string>`); an interface can extend one the same way
+  (`interface Named extends Box<string>`). Calls through a `Box<T>` see the receiver's arguments,
+  so generic functions over `Box<T>` work. Not yet: default methods in generic interfaces, and
+  generic classes implementing interfaces (#51).
 - Structs and enums can also `implement` interfaces.
 - There are no `sealed` hierarchies. For a closed set of cases, use an `enum`.
 

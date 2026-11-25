@@ -4238,7 +4238,19 @@ impl<'ctx> Gen<'ctx, '_> {
                             .build_load(self.ptr(), slot_ptr, "method")
                             .unwrap()
                             .into_pointer_value();
-                        let fn_ty = self.fns[decl.0 as usize].get_type();
+                        // (From the call itself: a generic interface's own method is typed
+                        // with its type parameters, its implementations with their arguments.)
+                        let _ = decl;
+                        let ptys: Vec<BasicMetadataTypeEnum> = args
+                            .iter()
+                            .filter_map(|a| self.ty(&self.operand_ty(fx, a)))
+                            .map(BasicMetadataTypeEnum::from)
+                            .collect();
+                        let ret = dest.as_ref().and_then(|d| self.ty(&self.place_ty(fx, d)));
+                        let fn_ty = match ret {
+                            Some(t) => t.fn_type(&ptys, false),
+                            None => self.cx.void_type().fn_type(&ptys, false),
+                        };
                         let r = self.b.build_indirect_call(fn_ty, fnptr, &vals, "").unwrap();
                         if let (Some(d), inkwell::values::ValueKind::Basic(v)) =
                             (dest, r.try_as_basic_value())

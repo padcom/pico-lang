@@ -1,0 +1,12 @@
+// error: E0325
+// at: 9:10
+// error: E0308
+// at: 12:21
+// A generic interface's type arguments count (#51): `get` must return `int` for `Box<int>`, and
+// a `Box<string>` isn't a `Box<int>`.
+interface Box<T> { get(): T }
+class Wrong implements Box<int> {
+  public get(): string { "x" }
+}
+class Str implements Box<string> { public get(): string { "s" } }
+const b: Box<int> = new Str()
