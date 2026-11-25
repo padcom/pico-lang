@@ -16820,6 +16820,48 @@
               "members": []
             },
             {
+              "name": "not",
+              "kind": "method",
+              "signature": "public not(): BigInt",
+              "doc": "<p>Bitwise NOT: <code>-this - 1</code> (JavaScript's <code>~</code> on bigints, #60).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(5).not())    // -6\nprintln(BigInt.of(-1).not())   // 0"
+                }
+              ],
+              "source": "math.pi:1765",
+              "members": []
+            },
+            {
+              "name": "shiftLeft",
+              "kind": "method",
+              "signature": "public shiftLeft(n: int): BigInt",
+              "doc": "<p><code>this * 2 ** n</code> (JavaScript's <code>&lt;&lt;</code> on bigints; a negative <code>n</code> shifts right, #60).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(1).shiftLeft(100))   // 1267650600228229401496703205376\nprintln(BigInt.of(-3).shiftLeft(2))    // -12"
+                }
+              ],
+              "source": "math.pi:1778",
+              "members": []
+            },
+            {
+              "name": "shiftRight",
+              "kind": "method",
+              "signature": "public shiftRight(n: int): BigInt",
+              "doc": "<p><code>this / 2 ** n</code> rounded down, towards negative infinity (JavaScript's <code>&gt;&gt;</code> on bigints; a\nnegative <code>n</code> shifts left, #60).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(1000).shiftRight(3))   // 125\nprintln(BigInt.of(-9).shiftRight(1))     // -5"
+                }
+              ],
+              "source": "math.pi:1793",
+              "members": []
+            },
+            {
               "name": "pow",
               "kind": "method",
               "signature": "public pow(e: int): BigInt",
@@ -16830,7 +16872,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(100))   // 1267650600228229401496703205376\nprintln(BigInt.of(7).pow(0))     // 1"
                 }
               ],
-              "source": "math.pi:1732",
+              "source": "math.pi:1863",
               "members": []
             },
             {
@@ -16844,7 +16886,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(-12).abs())   // 12"
                 }
               ],
-              "source": "math.pi:1753",
+              "source": "math.pi:1884",
               "members": []
             },
             {
@@ -16858,7 +16900,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst a = BigInt.of(10).pow(20)\nconst b = BigInt.of(10).pow(19)\nprintln(a.compareTo(b))   // 1\nprintln(b.compareTo(a))   // -1\nprintln(a.compareTo(a))   // 0"
                 }
               ],
-              "source": "math.pi:1767",
+              "source": "math.pi:1898",
               "members": []
             },
             {
@@ -16872,7 +16914,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(10).equals(BigInt.of(1024)))   // true"
                 }
               ],
-              "source": "math.pi:1781",
+              "source": "math.pi:1912",
               "members": []
             },
             {
@@ -16886,7 +16928,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst n = BigInt.of(-2).pow(65)\nprintln(n.toString())   // -36893488147419103232\nprintln(`n = ${n}`)     // n = -36893488147419103232"
                 }
               ],
-              "source": "math.pi:1793",
+              "source": "math.pi:1924",
               "members": []
             },
             {
@@ -16900,7 +16942,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(255).toStringRadix(16))   // ff\nprintln(BigInt.of(-5).toStringRadix(2))     // -101"
                 }
               ],
-              "source": "math.pi:1804",
+              "source": "math.pi:1935",
               "members": []
             }
           ]
