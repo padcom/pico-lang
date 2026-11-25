@@ -59,6 +59,10 @@ enum Command {
         /// A directory to look for `@link` libraries in (as for `pico build`).
         #[arg(short = 'L', long = "lib-dir", value_name = "DIR")]
         lib_dirs: Vec<PathBuf>,
+        /// Build for this target and run it here (#77): `wasm32-wasi` under wasmtime,
+        /// `wasm32-browser` under Node.js, another Linux architecture through qemu-user.
+        #[arg(long, value_name = "TARGET", value_parser = pico_driver::Target::parse)]
+        target: Option<pico_driver::Target>,
         /// Arguments for the program.
         #[arg(last = true)]
         args: Vec<String>,
@@ -389,14 +393,20 @@ fn main() -> ExitCode {
             interp,
             release,
             lib_dirs,
+            target,
             args,
         }) => with_entry(file, |file| {
             pico_driver::set_cli_lib_dirs(absolute(&lib_dirs));
+            if interp && target.is_some() {
+                eprintln!("error: `--interp` runs the program here; it takes no `--target`");
+                return ExitCode::from(2);
+            }
             run(
                 &file,
                 interp,
                 pico_driver::BuildOptions {
                     release,
+                    target,
                     ..Default::default()
                 },
                 &args,
@@ -758,12 +768,66 @@ fn run(path: &Path, interp: bool, opts: pico_driver::BuildOptions, args: &[Strin
         }
     };
     timings_peak();
-    match pico_driver::spawn::status(std::process::Command::new(&exe).args(args)) {
+    let mut cmd = match run_command(&exe, opts.target) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match pico_driver::spawn::status(cmd.args(args)) {
         Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8),
         Err(e) => {
             eprintln!("error: cannot run {}: {e}", exe.display());
             ExitCode::FAILURE
         }
+    }
+}
+
+/// How to run `exe`, built for `target` (#77): directly for the host, under wasmtime for
+/// `wasm32-wasi` (as the golden tests run it), under Node.js for `wasm32-browser`, and for
+/// another Linux architecture directly (binfmt's qemu-user) with `QEMU_LD_PREFIX` set when the
+/// system has that architecture's libraries. macOS and Windows programs only run on their OS.
+fn run_command(
+    exe: &Path,
+    target: Option<pico_driver::Target>,
+) -> Result<std::process::Command, String> {
+    use pico_driver::target::Os;
+    let Some(t) = target.filter(|t| !t.is_host()) else {
+        return Ok(std::process::Command::new(exe));
+    };
+    match t.os {
+        Os::Wasi => {
+            let mut c = std::process::Command::new("wasmtime");
+            c.args([
+                "run",
+                "-W",
+                "exceptions=y",
+                "--dir=.",
+                "-S",
+                "inherit-network=y",
+                "-S",
+                "allow-ip-name-lookup=y",
+            ]);
+            c.arg(exe);
+            Ok(c)
+        }
+        Os::Browser => {
+            let mut c = std::process::Command::new("node");
+            c.arg(exe);
+            Ok(c)
+        }
+        Os::Linux if cfg!(target_os = "linux") => {
+            let mut c = std::process::Command::new(exe);
+            let prefix = PathBuf::from(format!("/usr/{}", t.multiarch()));
+            if prefix.is_dir() {
+                c.env("QEMU_LD_PREFIX", prefix);
+            }
+            Ok(c)
+        }
+        _ => Err(format!(
+            "a {t} program can't run on this machine; build it with `pico build --target {t}` and run it there"
+        )),
     }
 }
 

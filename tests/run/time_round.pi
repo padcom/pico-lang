@@ -1,0 +1,32 @@
+// expect: floor 20 -30 20 -30
+// expect: ceil 30 -20 30 -20
+// expect: trunc 20 -20 20 -20
+// expect: expand 30 -30 30 -30
+// expect: halfFloor 20 -30 30 -30
+// expect: halfCeil 30 -20 30 -30
+// expect: halfTrunc 20 -20 30 -30
+// expect: halfExpand 30 -30 30 -30
+// expect: halfEven 20 -20 30 -30
+// expect: PT2S PT1S PT45M PT2H
+// expect: 2024-05-01T10:17:32Z 2024-05-01T10:15:00Z
+// expect: bad unit: RangeError
+// `round` on durations and instants (#61): Temporal's nine rounding modes at ties (±2.5 steps)
+// and off them (±2.6), units and increments, and a `RangeError` for a unit it doesn't know.
+import { Duration, Instant } from "std/time"
+
+function main(): void throws RangeError {
+  for (const mode of ["floor", "ceil", "trunc", "expand", "halfFloor", "halfCeil", "halfTrunc", "halfExpand", "halfEven"]) {
+    const r = (n: int): int throws RangeError => new Duration(n).round("nanosecond", mode, 10).nanoseconds
+    println(`${mode} ${r(25)} ${r(-25)} ${r(26)} ${r(-26)}`)
+  }
+  const d = Duration.ofMilliseconds(1500)
+  println(`${d.round("second")} ${d.round("second", "trunc")} ${Duration.ofMinutes(52).round("minute", "halfExpand", 15)} ${Duration.ofMinutes(90).round("hours", "halfEven")}`)
+  const t = Instant.parse("2024-05-01T10:17:31.6Z")
+  println(`${t.round("second")} ${t.round("minute", "floor", 15)}`)
+  try {
+    d.round("day")
+  } catch (e: RangeError) {
+    println("bad unit: RangeError")
+  }
+}
+main()
