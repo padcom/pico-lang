@@ -429,15 +429,17 @@ impl Interp<'_, '_> {
         }
         if op == 170 {
             // A UDP socket option (#214): the runtime's own code, on the socket's descriptor.
+            // (A TCP connection's too: `setNoDelay`, `setKeepAlive`, #65.)
             let sock = self.io.net.lock().expect("net").socks.get(&a).cloned();
-            let Some(Sock::Udp(u)) = sock else {
-                return Value::Int(-i128::from(K_OTHER));
+            let fd = match sock {
+                Some(Sock::Udp(u)) => udp_fd(&u),
+                Some(Sock::Stream(st)) => i64::from(raw_fd(&st)),
+                _ => return Value::Int(-i128::from(K_OTHER)),
             };
             let group = std::ffi::CString::new(s(4)).unwrap_or_default();
             let iface = std::ffi::CString::new(s(5)).unwrap_or_default();
             // SAFETY: a live socket's descriptor and NUL-terminated strings.
-            let r =
-                unsafe { pico_net_udp_option(udp_fd(&u), b, c, group.as_ptr(), iface.as_ptr()) };
+            let r = unsafe { pico_net_udp_option(fd, b, c, group.as_ptr(), iface.as_ptr()) };
             return Value::Int(i128::from(r));
         }
         if op == 171 {

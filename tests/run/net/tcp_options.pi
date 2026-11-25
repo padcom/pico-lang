@@ -1,0 +1,26 @@
+// expect: hello
+// expect: options set
+// TCP connection options (#65): `setNoDelay` and `setKeepAlive` on both ends, then data still
+// flows.
+// not-under-qemu: qemu-user doesn't pass every socket option through
+import { connect, listen } from "std/net"
+
+const listener = await listen(0, "127.0.0.1")
+const accepting = listener.accept()
+const client = await connect(listener.addr.port, "127.0.0.1")
+const server = await accepting
+client.setNoDelay()
+client.setNoDelay(false)
+client.setKeepAlive(true, 1500)
+client.setKeepAlive(false)
+if (server != null) {
+  server.setNoDelay(true)
+  server.setKeepAlive(true)
+  await client.writeText("hello")
+  client.closeWrite()
+  println(await server.text())
+  server.close()
+}
+println("options set")
+client.close()
+listener.close()

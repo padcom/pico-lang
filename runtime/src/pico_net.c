@@ -73,6 +73,9 @@ typedef SOCKET sock_t;
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#if __has_include(<netinet/tcp.h>)
+#include <netinet/tcp.h>
+#endif
 #include <sys/socket.h>
 #include <unistd.h>
 typedef int sock_t;
@@ -237,6 +240,35 @@ int64_t pico_net_udp_option(int64_t fd, int64_t what, int64_t n, const char *gro
                 return bad_address();
             }
             r = setsockopt((sock_t)fd, IPPROTO_IP, IP_MULTICAST_IF, (const char *)&a, sizeof a);
+        }
+    } else if (what == 6) {
+        /* TCP: Nagle's algorithm off (n != 0) or on (#65). */
+#ifndef TCP_NODELAY
+#define TCP_NODELAY 1
+#endif
+        int v = n != 0;
+        r = setsockopt((sock_t)fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&v, sizeof v);
+    } else if (what == 7) {
+        /* TCP keep-alive (#65): n < 0 off, else on, after n idle seconds (0: the system's). */
+        int on = n >= 0;
+        r = setsockopt((sock_t)fd, SOL_SOCKET, SO_KEEPALIVE, (const char *)&on, sizeof on);
+        if (r == 0 && n > 0) {
+            int idle = (int)n;
+#if defined(__APPLE__)
+#ifndef TCP_KEEPALIVE
+#define TCP_KEEPALIVE 0x10
+#endif
+            r = setsockopt((sock_t)fd, IPPROTO_TCP, TCP_KEEPALIVE, (const char *)&idle, sizeof idle);
+#elif defined(__linux__)
+#ifndef TCP_KEEPIDLE
+#define TCP_KEEPIDLE 4
+#endif
+            r = setsockopt((sock_t)fd, IPPROTO_TCP, TCP_KEEPIDLE, (const char *)&idle, sizeof idle);
+#elif defined(TCP_KEEPIDLE)
+            r = setsockopt((sock_t)fd, IPPROTO_TCP, TCP_KEEPIDLE, (const char *)&idle, sizeof idle);
+#else
+            (void)idle;
+#endif
         }
     } else {
         return -(int64_t)(K_OTHER | ((int64_t)EINVAL << 8));
