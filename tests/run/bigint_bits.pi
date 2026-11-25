@@ -1,0 +1,35 @@
+// expect: small: ok
+// expect: 1267650600228229401496703205376
+// expect: 1267650600228229401496703205375
+// expect: -1267650600228229401496703205376
+// expect: 340282366920938463463374607431768211455
+// expect: 1
+// BigInt bitwise operators and shifts (#60): against `int` for every pair of small values
+// (negatives included, as two's complement of any width), then values past 64 bits.
+import { BigInt } from "std/math"
+
+const vals = [0, 1, 2, 3, 5, 12, 255, 256, 1000, 123456789, -1, -2, -3, -8, -255, -256, -1000]
+let bad = 0
+for (const a of vals) {
+  for (const b of vals) {
+    const x = BigInt.of(a)
+    const y = BigInt.of(b)
+    if (!(x & y).equals(BigInt.of(a & b))) bad += 1
+    if (!(x | y).equals(BigInt.of(a | b))) bad += 1
+    if (!(x ^ y).equals(BigInt.of(a ^ b))) bad += 1
+  }
+  if (!BigInt.of(a).not().equals(BigInt.of(~a))) bad += 1
+  for (let k = 0; k < 12; k++) {
+    if (!BigInt.of(a).shiftRight(k).equals(BigInt.of(a >> k))) bad += 1
+    if (!BigInt.of(a).shiftLeft(k).equals(BigInt.of(a << k))) bad += 1
+  }
+}
+println(if (bad == 0) "small: ok" else `small: ${bad} wrong`)
+
+const big = BigInt.of(1).shiftLeft(100)
+println(big)
+println(big - BigInt.of(1))
+println(-big)
+const ones = BigInt.of(1).shiftLeft(128) - BigInt.of(1)
+println(ones & (ones ^ BigInt.of(0)))
+println((big | BigInt.of(1)) & BigInt.of(1))

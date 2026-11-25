@@ -173,8 +173,8 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
 - **`stringify(value, indent = 0)`** writes compact JSON, or with `indent > 0` one member or
   element per line indented by that many spaces per level, with `": "` after keys (as
   JavaScript's `JSON.stringify(v, null, indent)`): keys in field order, `null` for null values (and for
-  `NaN`/infinities), numbers as `println` shows them. Object graphs with cycles don't
-  terminate (as in JS, where they throw).
+  `NaN`/infinities), numbers as `println` shows them. An object graph with a cycle panics
+  (objects of classes nested over 1024 deep, #58; JavaScript throws).
 
 ## 11.5 Deterministic cleanup: `using`
 ```ts
