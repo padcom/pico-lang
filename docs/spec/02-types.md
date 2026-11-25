@@ -113,7 +113,17 @@ enum Shape {
 }
 Shape.Circle(r: 1).area()
 ```
-Not yet: static enum methods, and enums implementing interfaces other than `Throwable`.
+A `static` method is a plain function in the enum's namespace, called as `Enum.m(args)` (and a
+value as `Enum.m`); it has no `this`, and a variant of the same name is the variant:
+```ts
+enum Color {
+  Red, Green
+
+  static parse(s: string): Color? { match (s) { "red" => Color.Red, "green" => Color.Green, _ => null } }
+}
+Color.parse("red")
+```
+Not yet: enums implementing interfaces other than `Throwable`.
 
 ## 2.7 Structs (value types)
 ```ts
