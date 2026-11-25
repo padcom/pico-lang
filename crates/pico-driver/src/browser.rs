@@ -40,10 +40,17 @@ pub fn files(out: &Path) -> Files {
 }
 
 /// Links `obj` into the module and writes the glue and its declarations next to it.
-pub fn build(mir: &Program, obj: &Path, out: &Path, packages: &[String]) -> Result<(), String> {
+/// `notices`: the license notices file to write too (#106).
+pub fn build(
+    mir: &Program,
+    obj: &Path,
+    out: &Path,
+    packages: &[String],
+    notices: Option<&Path>,
+) -> Result<(), String> {
     let f = files(out);
     let t = crate::target::Target::parse("wasm32-browser").expect("a known target");
-    crate::link::link_browser(t, obj, &f.wasm)?;
+    crate::link::link_browser(t, obj, &f.wasm, notices)?;
     let wasm = f.wasm.file_name().unwrap_or_default().to_string_lossy();
     let base = wasm.trim_end_matches(".wasm");
     let mut g = Gen {

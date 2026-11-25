@@ -114,6 +114,15 @@ is a `.pi` file builds it first, and lldb loads pico's formatters. Decisions 280
   Programs that import C headers or JavaScript modules, and browser builds, always build.
   Planned: code generation per module (the core library and each module as object files of
   their own), cached by content. Decision 279.
+- **License notices**: `pico build` writes `<output>.notices.txt` next to the executable
+  (`app.notices.txt`, `app.exe.notices.txt`), the license texts to ship with it: pico's own
+  (the runtime and the standard library, MIT) and those of the third-party code linked in, as
+  the linker's map shows it. Mbed TLS (Apache-2.0) when the program uses TLS or `std/crypto`;
+  compiler-rt's builtins when any are needed; musl (MIT) on musl targets and for Windows' math;
+  mingw-w64's CRT and winpthreads on Windows; wasi-libc and wasmtime's preview 1 adapter on
+  `wasm32-wasi`. Programs for glibc and macOS link the system's C library dynamically, so it
+  isn't listed. The release archives carry the vendored sources' license files under
+  `licenses/`.
 - **Single binary**: the `pico` executable bundles LLVM, lld, libclang (for `c:` imports), the
   runtime and the stdlib sources.
 - **Timings**: with `PICO_TIMINGS=1` in the environment, a check prints how long each stage
