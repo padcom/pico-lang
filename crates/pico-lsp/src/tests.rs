@@ -1486,3 +1486,41 @@ fn hover_on_reactive_bindings() {
         "```pico\nreactive count: Reactive<i64>\n```"
     );
 }
+
+/// Hover on built-ins without a pico declaration and on overloaded static methods (#81):
+/// `push`, `length`, `println`; `Math.max` and `K.f(…)` (each call its own overload), whose
+/// uses were recorded at `K.f` (not a name) and so had no hover or definition.
+#[test]
+fn builtins_and_overloaded_statics() {
+    let dir = tmp("builtins");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let text = "class K {\n  public static f(a: int): int { return a }\n  public static f(a: string): string { return a }\n}\nconst xs = [1, 2]\nxs.push(3)\nprintln(`${xs.length} ${Math.max(1, 2)} ${Math.max(1.0, 2.0)} ${K.f(1)} ${K.f(\"s\")}`)\n";
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, text, needle, n, skip);
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, text, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        h(2, "push", 0, 0),
+        h(3, "length", 0, 0),
+        h(4, "println", 0, 0),
+        h(5, "max", 0, 0),
+        h(6, "max", 1, 0),
+        h(7, "K.f", 0, 2),
+        h(8, "K.f", 1, 2),
+        d(9, "K.f", 0, 2),
+        d(10, "K.f", 1, 2),
+    ]);
+    let has = |id, s: &str| {
+        let t = hover_text(&out, id);
+        assert!(t.contains(s), "{id}: {t}");
+    };
+    has(2, "Array.push");
+    has(3, "(property) length: i64");
+    has(4, "function println");
+    has(5, "Math.max(first: i64");
+    has(6, "Math.max(...values: f64[])");
+    has(7, "K.f(a: i64): i64");
+    has(8, "K.f(a: string): string");
+    assert_eq!(def_line(&out, 9), (uri.clone(), 1, 16));
+    assert_eq!(def_line(&out, 10), (uri.clone(), 2, 16));
+}

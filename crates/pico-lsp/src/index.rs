@@ -646,7 +646,8 @@ impl Builder<'_> {
                 if let Some(f) = target {
                     let at = match &callee.kind {
                         ExprKind::Member { name_span, .. } => *name_span,
-                        _ => callee.span,
+                        // (`K.f(…)` of an overloaded static method, #81: the name.)
+                        _ => self.last_part(callee.span),
                     };
                     self.uses.push((at, self.fn_span(f)));
                 }
