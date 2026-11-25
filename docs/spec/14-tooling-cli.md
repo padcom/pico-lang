@@ -5,7 +5,7 @@ Everything ships in a single static `pico` binary.
 ## 14.1 Commands
 | Command | Purpose |
 |---------|---------|
-| `pico run file.pi [args]` | compile with the LLVM JIT and run (script mode) |
+| `pico run file.pi [args]` | compile with the LLVM JIT and run (script mode); `--target t` builds for `t` and runs it here (#77): `wasm32-wasi` under wasmtime, `wasm32-browser` under Node.js, another Linux architecture through qemu-user |
 | `pico` (no args) | REPL |
 | `pico build [--target t] [--release] [-L dir]` | ahead-of-time build to native or wasm (`-L`: where `@link` libraries are, §12.1) |
 | `pico test [filter]` | run `*.test.pi` |

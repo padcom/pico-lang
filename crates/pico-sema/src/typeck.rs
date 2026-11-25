@@ -7921,6 +7921,13 @@ impl<'p> Checker<'p> {
             });
         }
         let mut args_ty: Vec<Ty> = Vec::new();
+        // (An argument that's an error already said so: no "can't infer" on top of it.)
+        let errored = pairs.iter().any(|(a, _)| {
+            self.types
+                .exprs
+                .get(a.id.0 as usize)
+                .is_some_and(Ty::is_error)
+        });
         for (i, t) in subst.iter().enumerate() {
             match t {
                 Some(t) => args_ty.push(t.clone()),
@@ -7929,6 +7936,7 @@ impl<'p> Checker<'p> {
                 }
                 // An error parameter nothing determines: nothing is thrown.
                 None if generics[i].bounds.contains(&Bound::Error) => args_ty.push(Ty::Never),
+                None if errored => args_ty.push(Ty::Error),
                 None => {
                     let name = &generics[i].name;
                     self.diags.push(
