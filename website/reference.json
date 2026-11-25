@@ -5383,7 +5383,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"a\")\n    c.enqueue(\"b\")\n    c.close()\n  },\n})\nfor await (const chunk of s) {\n  println(chunk)\n}\n// a\n// b"
             }
           ],
-          "source": "core/streams.pi:248",
+          "source": "core/streams.pi:251",
           "members": [
             {
               "name": "constructor",
@@ -5396,7 +5396,7 @@
                   "code": "let i = 0\nconst counter = new ReadableStream<int>({\n  pull: (c) => {\n    i += 1\n    if (i <= 3) c.enqueue(i * 10) else c.close()\n  },\n}, { highWaterMark: 1 })\nfor await (const x of counter) {\n  println(x)\n}\n// 10\n// 20\n// 30"
                 }
               ],
-              "source": "core/streams.pi:285",
+              "source": "core/streams.pi:288",
               "members": []
             },
             {
@@ -5410,7 +5410,7 @@
                   "code": "for await (const word of ReadableStream.from([\"red\", \"green\"])) {\n  println(word)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:311",
+              "source": "core/streams.pi:314",
               "members": []
             },
             {
@@ -5424,7 +5424,7 @@
                   "code": "function* count(): Iterator<int> {\n  yield 1\n  yield 2\n}\nfor await (const n of ReadableStream.from(count())) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:339",
+              "source": "core/streams.pi:342",
               "members": []
             },
             {
@@ -5438,7 +5438,7 @@
                   "code": "async function* words(): AsyncIterator<string> {\n  yield \"red\"\n  yield \"green\"\n}\nfor await (const w of ReadableStream.from(words())) {\n  println(w)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:367",
+              "source": "core/streams.pi:370",
               "members": []
             },
             {
@@ -5452,7 +5452,7 @@
                   "code": "const [a, b] = ReadableStream.from([1, 2]).tee()\nfor await (const x of a) {\n  println(`a ${x}`)\n}\nfor await (const x of b) {\n  println(`b ${x}`)\n}\n// a 1\n// a 2\n// b 1\n// b 2"
                 }
               ],
-              "source": "core/streams.pi:391",
+              "source": "core/streams.pi:394",
               "members": []
             },
             {
@@ -5466,7 +5466,7 @@
                   "code": "const s = ReadableStream.from([1])\nprintln(s.locked)   // false\nconst reader = s.getReader()\nprintln(s.locked)   // true\nreader.releaseLock()\nprintln(s.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:449",
+              "source": "core/streams.pi:452",
               "members": []
             },
             {
@@ -5480,7 +5480,7 @@
                   "code": "const reader = ReadableStream.from([\"x\", \"y\"]).getReader()\nwhile (true) {\n  const r = await reader.read()\n  if (r.done) break\n  println(r.value)\n}\n// x\n// y"
                 }
               ],
-              "source": "core/streams.pi:466",
+              "source": "core/streams.pi:469",
               "members": []
             },
             {
@@ -5494,7 +5494,7 @@
                   "code": "const s = ReadableStream.from([7, 8])\nprintln(await s.next())   // 7\nprintln(await s.next())   // 8\nprintln(await s.next())   // null"
                 }
               ],
-              "source": "core/streams.pi:479",
+              "source": "core/streams.pi:482",
               "members": []
             },
             {
@@ -5508,7 +5508,7 @@
                   "code": "let total = 0\nfor await (const n of ReadableStream.from([1, 2, 3])) {\n  total += n\n}\nprintln(total)   // 6"
                 }
               ],
-              "source": "core/streams.pi:496",
+              "source": "core/streams.pi:499",
               "members": []
             },
             {
@@ -5522,7 +5522,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (reason) => println(`cancelled: ${reason?.message}`),\n})\nawait s.cancel(new Error(\"not needed\"))   // cancelled: not needed\nprintln(await s.next())                   // null"
                 }
               ],
-              "source": "core/streams.pi:512",
+              "source": "core/streams.pi:515",
               "members": []
             },
             {
@@ -5536,7 +5536,7 @@
                   "code": "const lines: string[] = []\nconst sink = new WritableStream<string>({\n  write: (chunk, _c) => lines.push(chunk),\n  close: () => println(\"closed\"),\n})\nawait ReadableStream.from([\"a\", \"b\", \"c\"]).pipeTo(sink)   // closed\nprintln(lines.join(\",\"))   // a,b,c"
                 }
               ],
-              "source": "core/streams.pi:545",
+              "source": "core/streams.pi:548",
               "members": []
             },
             {
@@ -5550,7 +5550,7 @@
                   "code": "const upper = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),\n})\nfor await (const s of ReadableStream.from([\"hi\", \"there\"]).pipeThrough(upper)) {\n  println(s)\n}\n// HI\n// THERE"
                 }
               ],
-              "source": "core/streams.pi:591",
+              "source": "core/streams.pi:607",
               "members": []
             }
           ]
@@ -5566,7 +5566,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c: ReadableStreamDefaultController<string>) => {\n    c.enqueue(\"one\")\n    c.enqueue(\"two\")\n    c.close()\n  },\n})\nfor await (const x of s) {\n  println(x)\n}\n// one\n// two"
             }
           ],
-          "source": "core/streams.pi:134",
+          "source": "core/streams.pi:137",
           "members": [
             {
               "name": "constructor",
@@ -5579,7 +5579,7 @@
                   "code": "// A stream makes its controller and hands it to its source's callbacks.\nconst s = new ReadableStream<int>({\n  start: (c: ReadableStreamDefaultController<int>) => {\n    c.enqueue(42)\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // 42"
                 }
               ],
-              "source": "core/streams.pi:150",
+              "source": "core/streams.pi:153",
               "members": []
             },
             {
@@ -5593,7 +5593,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    println(c.desiredSize)   // 2\n    c.enqueue(1)\n    println(c.desiredSize)   // 1\n  },\n}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:166",
+              "source": "core/streams.pi:169",
               "members": []
             },
             {
@@ -5607,7 +5607,7 @@
                   "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"hello\")\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // hello"
                 }
               ],
-              "source": "core/streams.pi:183",
+              "source": "core/streams.pi:186",
               "members": []
             },
             {
@@ -5621,7 +5621,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    c.enqueue(1)\n    c.close()   // ends after the queued chunk\n  },\n})\nconst reader = s.getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).done)    // true"
                 }
               ],
-              "source": "core/streams.pi:201",
+              "source": "core/streams.pi:204",
               "members": []
             },
             {
@@ -5635,7 +5635,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.error(new Error(\"disk on fire\")),\n})\ntry {\n  const r = await s.getReader().read()\n  println(r.done)\n} catch (e) {\n  println(e.message)   // disk on fire\n}"
                 }
               ],
-              "source": "core/streams.pi:219",
+              "source": "core/streams.pi:222",
               "members": []
             }
           ]
@@ -5651,7 +5651,7 @@
               "code": "const reader: ReadableStreamDefaultReader<int> = ReadableStream.from([1, 2]).getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).value)   // 2\nprintln((await reader.read()).done)    // true"
             }
           ],
-          "source": "core/streams.pi:772",
+          "source": "core/streams.pi:788",
           "members": [
             {
               "name": "constructor",
@@ -5664,7 +5664,7 @@
                   "code": "const s = ReadableStream.from([\"only\"])\nconst reader = new ReadableStreamDefaultReader<string>(s)\nprintln(s.locked)                      // true\nprintln((await reader.read()).value)   // only"
                 }
               ],
-              "source": "core/streams.pi:785",
+              "source": "core/streams.pi:801",
               "members": []
             },
             {
@@ -5678,7 +5678,7 @@
                   "code": "const reader = ReadableStream.from([\"a\", \"b\"]).getReader()\nlet r = await reader.read()\nwhile (!r.done) {\n  println(r.value)\n  r = await reader.read()\n}\n// a\n// b"
                 }
               ],
-              "source": "core/streams.pi:812",
+              "source": "core/streams.pi:828",
               "members": []
             },
             {
@@ -5692,7 +5692,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (_reason) => println(\"source cancelled\"),\n})\nconst reader = s.getReader()\nawait reader.cancel()                 // source cancelled\nprintln((await reader.read()).done)   // true"
                 }
               ],
-              "source": "core/streams.pi:833",
+              "source": "core/streams.pi:849",
               "members": []
             },
             {
@@ -5706,7 +5706,7 @@
                   "code": "const reader = ReadableStream.from([1]).getReader()\nprintln((await reader.read()).value)   // 1\nawait reader.closed\nprintln(\"closed\")                      // closed"
                 }
               ],
-              "source": "core/streams.pi:847",
+              "source": "core/streams.pi:863",
               "members": []
             },
             {
@@ -5720,7 +5720,7 @@
                   "code": "const s = ReadableStream.from([1, 2])\nconst first = s.getReader()\nprintln((await first.read()).value)   // 1\nfirst.releaseLock()\nconst second = s.getReader()\nprintln((await second.read()).value)  // 2"
                 }
               ],
-              "source": "core/streams.pi:862",
+              "source": "core/streams.pi:878",
               "members": []
             }
           ]
@@ -6673,6 +6673,15 @@
               "examples": [],
               "source": "core/streams.pi:70",
               "members": []
+            },
+            {
+              "name": "signal",
+              "kind": "field",
+              "signature": "signal?: AbortSignal",
+              "doc": "<p>Stops the pipe when aborted (#63): the source is cancelled and the destination errored\n(unless <code>preventCancel</code>/<code>preventAbort</code>), and the pipe rejects with the signal's reason.</p>\n",
+              "examples": [],
+              "source": "core/streams.pi:73",
+              "members": []
             }
           ]
         },
@@ -7173,7 +7182,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1717",
+          "source": "core/streams.pi:1733",
           "members": [
             {
               "name": "readable",
@@ -7181,7 +7190,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1719",
+              "source": "core/streams.pi:1735",
               "members": []
             },
             {
@@ -7190,7 +7199,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1721",
+              "source": "core/streams.pi:1737",
               "members": []
             },
             {
@@ -7204,7 +7213,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1740",
+              "source": "core/streams.pi:1756",
               "members": []
             }
           ]
@@ -7220,7 +7229,7 @@
               "code": "const t = new TransformStream<int, int>({\n  transform: (n, c: TransformStreamDefaultController<int>) => {\n    c.enqueue(n)\n    c.enqueue(n * 100)\n  },\n})\nfor await (const x of ReadableStream.from([1, 2]).pipeThrough(t)) {\n  println(x)\n}\n// 1\n// 100\n// 2\n// 200"
             }
           ],
-          "source": "core/streams.pi:1472",
+          "source": "core/streams.pi:1488",
           "members": [
             {
               "name": "constructor",
@@ -7233,7 +7242,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1494",
+              "source": "core/streams.pi:1510",
               "members": []
             },
             {
@@ -7247,7 +7256,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1509",
+              "source": "core/streams.pi:1525",
               "members": []
             },
             {
@@ -7261,7 +7270,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1530",
+              "source": "core/streams.pi:1546",
               "members": []
             },
             {
@@ -7275,7 +7284,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1557",
+              "source": "core/streams.pi:1573",
               "members": []
             },
             {
@@ -7289,7 +7298,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1579",
+              "source": "core/streams.pi:1595",
               "members": []
             }
           ]
@@ -7305,7 +7314,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1606",
+          "source": "core/streams.pi:1622",
           "members": [
             {
               "name": "start",
@@ -7313,7 +7322,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1608",
+              "source": "core/streams.pi:1624",
               "members": []
             },
             {
@@ -7322,7 +7331,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1611",
+              "source": "core/streams.pi:1627",
               "members": []
             },
             {
@@ -7331,7 +7340,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1613",
+              "source": "core/streams.pi:1629",
               "members": []
             },
             {
@@ -7340,7 +7349,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1616",
+              "source": "core/streams.pi:1632",
               "members": []
             }
           ]
@@ -8385,7 +8394,7 @@
               "code": "const got: int[] = []\nconst sink: UnderlyingSink<int> = {\n  start: (_c) => println(\"start\"),\n  write: (chunk, _c) => got.push(chunk),\n  close: () => println(`close after ${got.length}`),\n}\nawait ReadableStream.from([1, 2, 3]).pipeTo(new WritableStream<int>(sink))\n// start\n// close after 3"
             }
           ],
-          "source": "core/streams.pi:942",
+          "source": "core/streams.pi:958",
           "members": [
             {
               "name": "start",
@@ -8393,7 +8402,7 @@
               "signature": "start?: (c: WritableStreamDefaultController) => void",
               "doc": "<p>Runs once, inside the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:944",
+              "source": "core/streams.pi:960",
               "members": []
             },
             {
@@ -8402,7 +8411,7 @@
               "signature": "write?: (chunk: T, c: WritableStreamDefaultController) => void",
               "doc": "<p>Takes a chunk; the next one comes after it returns.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:946",
+              "source": "core/streams.pi:962",
               "members": []
             },
             {
@@ -8411,7 +8420,7 @@
               "signature": "writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>",
               "doc": "<p>Like <code>write</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>write</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:949",
+              "source": "core/streams.pi:965",
               "members": []
             },
             {
@@ -8420,7 +8429,7 @@
               "signature": "close?: () => void",
               "doc": "<p>Runs after the last queued chunk is written, when the stream is closed.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:951",
+              "source": "core/streams.pi:967",
               "members": []
             },
             {
@@ -8429,7 +8438,7 @@
               "signature": "closeAsync?: () => Promise<void, Error>",
               "doc": "<p>Like <code>close</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>close</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:954",
+              "source": "core/streams.pi:970",
               "members": []
             },
             {
@@ -8438,7 +8447,7 @@
               "signature": "abort?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is aborted (before the queued writes reject).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:956",
+              "source": "core/streams.pi:972",
               "members": []
             }
           ]
@@ -8454,7 +8463,7 @@
               "code": "let n = 0\nconst source: UnderlyingSource<int> = {\n  start: (c) => c.enqueue(0),\n  pull: (c) => {\n    n += 1\n    if (n <= 2) c.enqueue(n) else c.close()\n  },\n  cancel: (_reason) => println(\"cancelled\"),\n}\nfor await (const x of new ReadableStream<int>(source)) {\n  println(x)\n}\n// 0\n// 1\n// 2"
             }
           ],
-          "source": "core/streams.pi:104",
+          "source": "core/streams.pi:107",
           "members": [
             {
               "name": "start",
@@ -8462,7 +8471,7 @@
               "signature": "start?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Runs once, inside the constructor (it can already enqueue chunks).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:106",
+              "source": "core/streams.pi:109",
               "members": []
             },
             {
@@ -8471,7 +8480,7 @@
               "signature": "pull?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Called when the stream wants more chunks (a waiting read, or room below the high-water mark);\nnot again while it runs. The first call comes after <code>start</code>, as a microtask.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:109",
+              "source": "core/streams.pi:112",
               "members": []
             },
             {
@@ -8480,7 +8489,7 @@
               "signature": "pullAsync?: (c: ReadableStreamDefaultController<T>) => Promise<void, Error>",
               "doc": "<p>Like <code>pull</code>, but finishes when the promise settles (not called again until then); a rejection\nfails the stream. Used instead of <code>pull</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:112",
+              "source": "core/streams.pi:115",
               "members": []
             },
             {
@@ -8489,7 +8498,7 @@
               "signature": "cancel?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is cancelled.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:114",
+              "source": "core/streams.pi:117",
               "members": []
             }
           ]
@@ -9088,7 +9097,7 @@
               "code": "const out: string[] = []\nconst ws = new WritableStream<string>({\n  write: (chunk, _c) => out.push(chunk),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"hello\")\nawait writer.write(\"world\")\nawait writer.close()\nprintln(out.join(\" \"))   // hello world"
             }
           ],
-          "source": "core/streams.pi:979",
+          "source": "core/streams.pi:995",
           "members": [
             {
               "name": "constructor",
@@ -9101,7 +9110,7 @@
                   "code": "let bytes = 0\nconst counter = new WritableStream<Uint8Array>({\n  write: (chunk, _c) => {\n    bytes += chunk.length\n  },\n}, { highWaterMark: 4 })\nconst writer = counter.getWriter()\nprintln(writer.desiredSize)   // 4\nawait writer.write(new Uint8Array(10))\nawait writer.close()\nprintln(bytes)   // 10"
                 }
               ],
-              "source": "core/streams.pi:1012",
+              "source": "core/streams.pi:1028",
               "members": []
             },
             {
@@ -9115,7 +9124,7 @@
                   "code": "const ws = new WritableStream<int>({})\nprintln(ws.locked)   // false\nconst writer = ws.getWriter()\nprintln(ws.locked)   // true\nwriter.releaseLock()\nprintln(ws.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:1039",
+              "source": "core/streams.pi:1055",
               "members": []
             },
             {
@@ -9129,7 +9138,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`got ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"x\")   // got x"
                 }
               ],
-              "source": "core/streams.pi:1053",
+              "source": "core/streams.pi:1069",
               "members": []
             },
             {
@@ -9143,7 +9152,7 @@
                   "code": "const ws = new WritableStream<int>({\n  close: () => println(\"sink closed\"),\n})\nawait ws.close()   // sink closed"
                 }
               ],
-              "source": "core/streams.pi:1066",
+              "source": "core/streams.pi:1082",
               "members": []
             },
             {
@@ -9157,7 +9166,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`aborted: ${reason?.message}`),\n})\nawait ws.abort(new Error(\"user cancelled\"))   // aborted: user cancelled"
                 }
               ],
-              "source": "core/streams.pi:1082",
+              "source": "core/streams.pi:1098",
               "members": []
             }
           ]
@@ -9173,7 +9182,7 @@
               "code": "const sink = new WritableStream<int>({\n  write: (chunk, c: WritableStreamDefaultController) => {\n    if (chunk < 0) c.error(new Error(\"negative\"))\n  },\n})\nconst writer = sink.getWriter()\nawait writer.write(1)\ntry {\n  await writer.write(-1)\n  await writer.write(2)\n} catch (e) {\n  println(e.message)   // negative\n}"
             }
           ],
-          "source": "core/streams.pi:888",
+          "source": "core/streams.pi:904",
           "members": [
             {
               "name": "constructor",
@@ -9186,7 +9195,7 @@
                   "code": "// A stream makes its controller and hands it to its sink's callbacks.\nconst sink = new WritableStream<string>({\n  start: (c: WritableStreamDefaultController) => println(\"started\"),   // started\n})\nprintln(sink.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:901",
+              "source": "core/streams.pi:917",
               "members": []
             },
             {
@@ -9200,7 +9209,7 @@
                   "code": "const sink = new WritableStream<string>({\n  write: (chunk, c) => c.error(new Error(`can't store ${chunk}`)),\n})\nconst writer = sink.getWriter()\ntry {\n  await writer.write(\"x\")\n  await writer.write(\"y\")\n} catch (e) {\n  println(e.message)   // can't store x\n}"
                 }
               ],
-              "source": "core/streams.pi:920",
+              "source": "core/streams.pi:936",
               "members": []
             }
           ]
@@ -9216,7 +9225,7 @@
               "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer: WritableStreamDefaultWriter<string> = ws.getWriter()\nawait writer.ready\nawait writer.write(\"one\")   // one\nawait writer.close()"
             }
           ],
-          "source": "core/streams.pi:1307",
+          "source": "core/streams.pi:1323",
           "members": [
             {
               "name": "constructor",
@@ -9229,7 +9238,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = new WritableStreamDefaultWriter<int>(ws)\nprintln(ws.locked)   // true\nawait writer.write(5)   // 5"
                 }
               ],
-              "source": "core/streams.pi:1322",
+              "source": "core/streams.pi:1338",
               "members": []
             },
             {
@@ -9243,7 +9252,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`stored ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"a\")   // stored a\nawait writer.write(\"b\")   // stored b"
                 }
               ],
-              "source": "core/streams.pi:1347",
+              "source": "core/streams.pi:1363",
               "members": []
             },
             {
@@ -9257,7 +9266,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n  close: () => println(\"done\"),\n})\nconst writer = ws.getWriter()\nwriter.write(\"last\")\nawait writer.close()\n// last\n// done"
                 }
               ],
-              "source": "core/streams.pi:1366",
+              "source": "core/streams.pi:1382",
               "members": []
             },
             {
@@ -9271,7 +9280,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`abort: ${reason?.message}`),\n})\nconst writer = ws.getWriter()\nawait writer.abort(new Error(\"stop\"))   // abort: stop"
                 }
               ],
-              "source": "core/streams.pi:1381",
+              "source": "core/streams.pi:1397",
               "members": []
             },
             {
@@ -9285,7 +9294,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = ws.getWriter()\nfor (const n of [1, 2, 3]) {\n  await writer.ready   // waits while the queue is full\n  writer.write(n)\n}\nawait writer.close()\n// 1\n// 2\n// 3"
                 }
               ],
-              "source": "core/streams.pi:1403",
+              "source": "core/streams.pi:1419",
               "members": []
             },
             {
@@ -9299,7 +9308,7 @@
                   "code": "const ws = new WritableStream<int>({}, { highWaterMark: 3 })\nconst writer = ws.getWriter()\nprintln(writer.desiredSize)   // 3"
                 }
               ],
-              "source": "core/streams.pi:1415",
+              "source": "core/streams.pi:1431",
               "members": []
             },
             {
@@ -9313,7 +9322,7 @@
                   "code": "const ws = new WritableStream<int>({})\nconst writer = ws.getWriter()\nwriter.closed.then((_v) => println(\"closed\"))\nawait writer.close()\nawait writer.closed   // closed"
                 }
               ],
-              "source": "core/streams.pi:1429",
+              "source": "core/streams.pi:1445",
               "members": []
             },
             {
@@ -9327,7 +9336,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst first = ws.getWriter()\nawait first.write(\"from the first\")    // from the first\nfirst.releaseLock()\nconst second = ws.getWriter()\nawait second.write(\"from the second\")  // from the second"
                 }
               ],
-              "source": "core/streams.pi:1446",
+              "source": "core/streams.pi:1462",
               "members": []
             }
           ]
@@ -21492,6 +21501,15 @@
               "examples": [],
               "source": "core/streams.pi:70",
               "members": []
+            },
+            {
+              "name": "signal",
+              "kind": "field",
+              "signature": "signal?: AbortSignal",
+              "doc": "<p>Stops the pipe when aborted (#63): the source is cancelled and the destination errored\n(unless <code>preventCancel</code>/<code>preventAbort</code>), and the pipe rejects with the signal's reason.</p>\n",
+              "examples": [],
+              "source": "core/streams.pi:73",
+              "members": []
             }
           ]
         },
@@ -21506,7 +21524,7 @@
               "code": "let n = 0\nconst source: UnderlyingSource<int> = {\n  start: (c) => c.enqueue(0),\n  pull: (c) => {\n    n += 1\n    if (n <= 2) c.enqueue(n) else c.close()\n  },\n  cancel: (_reason) => println(\"cancelled\"),\n}\nfor await (const x of new ReadableStream<int>(source)) {\n  println(x)\n}\n// 0\n// 1\n// 2"
             }
           ],
-          "source": "core/streams.pi:104",
+          "source": "core/streams.pi:107",
           "members": [
             {
               "name": "start",
@@ -21514,7 +21532,7 @@
               "signature": "start?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Runs once, inside the constructor (it can already enqueue chunks).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:106",
+              "source": "core/streams.pi:109",
               "members": []
             },
             {
@@ -21523,7 +21541,7 @@
               "signature": "pull?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Called when the stream wants more chunks (a waiting read, or room below the high-water mark);\nnot again while it runs. The first call comes after <code>start</code>, as a microtask.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:109",
+              "source": "core/streams.pi:112",
               "members": []
             },
             {
@@ -21532,7 +21550,7 @@
               "signature": "pullAsync?: (c: ReadableStreamDefaultController<T>) => Promise<void, Error>",
               "doc": "<p>Like <code>pull</code>, but finishes when the promise settles (not called again until then); a rejection\nfails the stream. Used instead of <code>pull</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:112",
+              "source": "core/streams.pi:115",
               "members": []
             },
             {
@@ -21541,7 +21559,7 @@
               "signature": "cancel?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is cancelled.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:114",
+              "source": "core/streams.pi:117",
               "members": []
             }
           ]
@@ -21557,7 +21575,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c: ReadableStreamDefaultController<string>) => {\n    c.enqueue(\"one\")\n    c.enqueue(\"two\")\n    c.close()\n  },\n})\nfor await (const x of s) {\n  println(x)\n}\n// one\n// two"
             }
           ],
-          "source": "core/streams.pi:134",
+          "source": "core/streams.pi:137",
           "members": [
             {
               "name": "constructor",
@@ -21570,7 +21588,7 @@
                   "code": "// A stream makes its controller and hands it to its source's callbacks.\nconst s = new ReadableStream<int>({\n  start: (c: ReadableStreamDefaultController<int>) => {\n    c.enqueue(42)\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // 42"
                 }
               ],
-              "source": "core/streams.pi:150",
+              "source": "core/streams.pi:153",
               "members": []
             },
             {
@@ -21584,7 +21602,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    println(c.desiredSize)   // 2\n    c.enqueue(1)\n    println(c.desiredSize)   // 1\n  },\n}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:166",
+              "source": "core/streams.pi:169",
               "members": []
             },
             {
@@ -21598,7 +21616,7 @@
                   "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"hello\")\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // hello"
                 }
               ],
-              "source": "core/streams.pi:183",
+              "source": "core/streams.pi:186",
               "members": []
             },
             {
@@ -21612,7 +21630,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    c.enqueue(1)\n    c.close()   // ends after the queued chunk\n  },\n})\nconst reader = s.getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).done)    // true"
                 }
               ],
-              "source": "core/streams.pi:201",
+              "source": "core/streams.pi:204",
               "members": []
             },
             {
@@ -21626,7 +21644,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.error(new Error(\"disk on fire\")),\n})\ntry {\n  const r = await s.getReader().read()\n  println(r.done)\n} catch (e) {\n  println(e.message)   // disk on fire\n}"
                 }
               ],
-              "source": "core/streams.pi:219",
+              "source": "core/streams.pi:222",
               "members": []
             }
           ]
@@ -21642,7 +21660,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"a\")\n    c.enqueue(\"b\")\n    c.close()\n  },\n})\nfor await (const chunk of s) {\n  println(chunk)\n}\n// a\n// b"
             }
           ],
-          "source": "core/streams.pi:248",
+          "source": "core/streams.pi:251",
           "members": [
             {
               "name": "constructor",
@@ -21655,7 +21673,7 @@
                   "code": "let i = 0\nconst counter = new ReadableStream<int>({\n  pull: (c) => {\n    i += 1\n    if (i <= 3) c.enqueue(i * 10) else c.close()\n  },\n}, { highWaterMark: 1 })\nfor await (const x of counter) {\n  println(x)\n}\n// 10\n// 20\n// 30"
                 }
               ],
-              "source": "core/streams.pi:285",
+              "source": "core/streams.pi:288",
               "members": []
             },
             {
@@ -21669,7 +21687,7 @@
                   "code": "for await (const word of ReadableStream.from([\"red\", \"green\"])) {\n  println(word)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:311",
+              "source": "core/streams.pi:314",
               "members": []
             },
             {
@@ -21683,7 +21701,7 @@
                   "code": "function* count(): Iterator<int> {\n  yield 1\n  yield 2\n}\nfor await (const n of ReadableStream.from(count())) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:339",
+              "source": "core/streams.pi:342",
               "members": []
             },
             {
@@ -21697,7 +21715,7 @@
                   "code": "async function* words(): AsyncIterator<string> {\n  yield \"red\"\n  yield \"green\"\n}\nfor await (const w of ReadableStream.from(words())) {\n  println(w)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:367",
+              "source": "core/streams.pi:370",
               "members": []
             },
             {
@@ -21711,7 +21729,7 @@
                   "code": "const [a, b] = ReadableStream.from([1, 2]).tee()\nfor await (const x of a) {\n  println(`a ${x}`)\n}\nfor await (const x of b) {\n  println(`b ${x}`)\n}\n// a 1\n// a 2\n// b 1\n// b 2"
                 }
               ],
-              "source": "core/streams.pi:391",
+              "source": "core/streams.pi:394",
               "members": []
             },
             {
@@ -21725,7 +21743,7 @@
                   "code": "const s = ReadableStream.from([1])\nprintln(s.locked)   // false\nconst reader = s.getReader()\nprintln(s.locked)   // true\nreader.releaseLock()\nprintln(s.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:449",
+              "source": "core/streams.pi:452",
               "members": []
             },
             {
@@ -21739,7 +21757,7 @@
                   "code": "const reader = ReadableStream.from([\"x\", \"y\"]).getReader()\nwhile (true) {\n  const r = await reader.read()\n  if (r.done) break\n  println(r.value)\n}\n// x\n// y"
                 }
               ],
-              "source": "core/streams.pi:466",
+              "source": "core/streams.pi:469",
               "members": []
             },
             {
@@ -21753,7 +21771,7 @@
                   "code": "const s = ReadableStream.from([7, 8])\nprintln(await s.next())   // 7\nprintln(await s.next())   // 8\nprintln(await s.next())   // null"
                 }
               ],
-              "source": "core/streams.pi:479",
+              "source": "core/streams.pi:482",
               "members": []
             },
             {
@@ -21767,7 +21785,7 @@
                   "code": "let total = 0\nfor await (const n of ReadableStream.from([1, 2, 3])) {\n  total += n\n}\nprintln(total)   // 6"
                 }
               ],
-              "source": "core/streams.pi:496",
+              "source": "core/streams.pi:499",
               "members": []
             },
             {
@@ -21781,7 +21799,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (reason) => println(`cancelled: ${reason?.message}`),\n})\nawait s.cancel(new Error(\"not needed\"))   // cancelled: not needed\nprintln(await s.next())                   // null"
                 }
               ],
-              "source": "core/streams.pi:512",
+              "source": "core/streams.pi:515",
               "members": []
             },
             {
@@ -21795,7 +21813,7 @@
                   "code": "const lines: string[] = []\nconst sink = new WritableStream<string>({\n  write: (chunk, _c) => lines.push(chunk),\n  close: () => println(\"closed\"),\n})\nawait ReadableStream.from([\"a\", \"b\", \"c\"]).pipeTo(sink)   // closed\nprintln(lines.join(\",\"))   // a,b,c"
                 }
               ],
-              "source": "core/streams.pi:545",
+              "source": "core/streams.pi:548",
               "members": []
             },
             {
@@ -21809,7 +21827,7 @@
                   "code": "const upper = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),\n})\nfor await (const s of ReadableStream.from([\"hi\", \"there\"]).pipeThrough(upper)) {\n  println(s)\n}\n// HI\n// THERE"
                 }
               ],
-              "source": "core/streams.pi:591",
+              "source": "core/streams.pi:607",
               "members": []
             }
           ]
@@ -21825,7 +21843,7 @@
               "code": "const reader: ReadableStreamDefaultReader<int> = ReadableStream.from([1, 2]).getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).value)   // 2\nprintln((await reader.read()).done)    // true"
             }
           ],
-          "source": "core/streams.pi:772",
+          "source": "core/streams.pi:788",
           "members": [
             {
               "name": "constructor",
@@ -21838,7 +21856,7 @@
                   "code": "const s = ReadableStream.from([\"only\"])\nconst reader = new ReadableStreamDefaultReader<string>(s)\nprintln(s.locked)                      // true\nprintln((await reader.read()).value)   // only"
                 }
               ],
-              "source": "core/streams.pi:785",
+              "source": "core/streams.pi:801",
               "members": []
             },
             {
@@ -21852,7 +21870,7 @@
                   "code": "const reader = ReadableStream.from([\"a\", \"b\"]).getReader()\nlet r = await reader.read()\nwhile (!r.done) {\n  println(r.value)\n  r = await reader.read()\n}\n// a\n// b"
                 }
               ],
-              "source": "core/streams.pi:812",
+              "source": "core/streams.pi:828",
               "members": []
             },
             {
@@ -21866,7 +21884,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (_reason) => println(\"source cancelled\"),\n})\nconst reader = s.getReader()\nawait reader.cancel()                 // source cancelled\nprintln((await reader.read()).done)   // true"
                 }
               ],
-              "source": "core/streams.pi:833",
+              "source": "core/streams.pi:849",
               "members": []
             },
             {
@@ -21880,7 +21898,7 @@
                   "code": "const reader = ReadableStream.from([1]).getReader()\nprintln((await reader.read()).value)   // 1\nawait reader.closed\nprintln(\"closed\")                      // closed"
                 }
               ],
-              "source": "core/streams.pi:847",
+              "source": "core/streams.pi:863",
               "members": []
             },
             {
@@ -21894,7 +21912,7 @@
                   "code": "const s = ReadableStream.from([1, 2])\nconst first = s.getReader()\nprintln((await first.read()).value)   // 1\nfirst.releaseLock()\nconst second = s.getReader()\nprintln((await second.read()).value)  // 2"
                 }
               ],
-              "source": "core/streams.pi:862",
+              "source": "core/streams.pi:878",
               "members": []
             }
           ]
@@ -21910,7 +21928,7 @@
               "code": "const sink = new WritableStream<int>({\n  write: (chunk, c: WritableStreamDefaultController) => {\n    if (chunk < 0) c.error(new Error(\"negative\"))\n  },\n})\nconst writer = sink.getWriter()\nawait writer.write(1)\ntry {\n  await writer.write(-1)\n  await writer.write(2)\n} catch (e) {\n  println(e.message)   // negative\n}"
             }
           ],
-          "source": "core/streams.pi:888",
+          "source": "core/streams.pi:904",
           "members": [
             {
               "name": "constructor",
@@ -21923,7 +21941,7 @@
                   "code": "// A stream makes its controller and hands it to its sink's callbacks.\nconst sink = new WritableStream<string>({\n  start: (c: WritableStreamDefaultController) => println(\"started\"),   // started\n})\nprintln(sink.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:901",
+              "source": "core/streams.pi:917",
               "members": []
             },
             {
@@ -21937,7 +21955,7 @@
                   "code": "const sink = new WritableStream<string>({\n  write: (chunk, c) => c.error(new Error(`can't store ${chunk}`)),\n})\nconst writer = sink.getWriter()\ntry {\n  await writer.write(\"x\")\n  await writer.write(\"y\")\n} catch (e) {\n  println(e.message)   // can't store x\n}"
                 }
               ],
-              "source": "core/streams.pi:920",
+              "source": "core/streams.pi:936",
               "members": []
             }
           ]
@@ -21953,7 +21971,7 @@
               "code": "const got: int[] = []\nconst sink: UnderlyingSink<int> = {\n  start: (_c) => println(\"start\"),\n  write: (chunk, _c) => got.push(chunk),\n  close: () => println(`close after ${got.length}`),\n}\nawait ReadableStream.from([1, 2, 3]).pipeTo(new WritableStream<int>(sink))\n// start\n// close after 3"
             }
           ],
-          "source": "core/streams.pi:942",
+          "source": "core/streams.pi:958",
           "members": [
             {
               "name": "start",
@@ -21961,7 +21979,7 @@
               "signature": "start?: (c: WritableStreamDefaultController) => void",
               "doc": "<p>Runs once, inside the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:944",
+              "source": "core/streams.pi:960",
               "members": []
             },
             {
@@ -21970,7 +21988,7 @@
               "signature": "write?: (chunk: T, c: WritableStreamDefaultController) => void",
               "doc": "<p>Takes a chunk; the next one comes after it returns.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:946",
+              "source": "core/streams.pi:962",
               "members": []
             },
             {
@@ -21979,7 +21997,7 @@
               "signature": "writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>",
               "doc": "<p>Like <code>write</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>write</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:949",
+              "source": "core/streams.pi:965",
               "members": []
             },
             {
@@ -21988,7 +22006,7 @@
               "signature": "close?: () => void",
               "doc": "<p>Runs after the last queued chunk is written, when the stream is closed.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:951",
+              "source": "core/streams.pi:967",
               "members": []
             },
             {
@@ -21997,7 +22015,7 @@
               "signature": "closeAsync?: () => Promise<void, Error>",
               "doc": "<p>Like <code>close</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>close</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:954",
+              "source": "core/streams.pi:970",
               "members": []
             },
             {
@@ -22006,7 +22024,7 @@
               "signature": "abort?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is aborted (before the queued writes reject).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:956",
+              "source": "core/streams.pi:972",
               "members": []
             }
           ]
@@ -22022,7 +22040,7 @@
               "code": "const out: string[] = []\nconst ws = new WritableStream<string>({\n  write: (chunk, _c) => out.push(chunk),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"hello\")\nawait writer.write(\"world\")\nawait writer.close()\nprintln(out.join(\" \"))   // hello world"
             }
           ],
-          "source": "core/streams.pi:979",
+          "source": "core/streams.pi:995",
           "members": [
             {
               "name": "constructor",
@@ -22035,7 +22053,7 @@
                   "code": "let bytes = 0\nconst counter = new WritableStream<Uint8Array>({\n  write: (chunk, _c) => {\n    bytes += chunk.length\n  },\n}, { highWaterMark: 4 })\nconst writer = counter.getWriter()\nprintln(writer.desiredSize)   // 4\nawait writer.write(new Uint8Array(10))\nawait writer.close()\nprintln(bytes)   // 10"
                 }
               ],
-              "source": "core/streams.pi:1012",
+              "source": "core/streams.pi:1028",
               "members": []
             },
             {
@@ -22049,7 +22067,7 @@
                   "code": "const ws = new WritableStream<int>({})\nprintln(ws.locked)   // false\nconst writer = ws.getWriter()\nprintln(ws.locked)   // true\nwriter.releaseLock()\nprintln(ws.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:1039",
+              "source": "core/streams.pi:1055",
               "members": []
             },
             {
@@ -22063,7 +22081,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`got ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"x\")   // got x"
                 }
               ],
-              "source": "core/streams.pi:1053",
+              "source": "core/streams.pi:1069",
               "members": []
             },
             {
@@ -22077,7 +22095,7 @@
                   "code": "const ws = new WritableStream<int>({\n  close: () => println(\"sink closed\"),\n})\nawait ws.close()   // sink closed"
                 }
               ],
-              "source": "core/streams.pi:1066",
+              "source": "core/streams.pi:1082",
               "members": []
             },
             {
@@ -22091,7 +22109,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`aborted: ${reason?.message}`),\n})\nawait ws.abort(new Error(\"user cancelled\"))   // aborted: user cancelled"
                 }
               ],
-              "source": "core/streams.pi:1082",
+              "source": "core/streams.pi:1098",
               "members": []
             }
           ]
@@ -22107,7 +22125,7 @@
               "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer: WritableStreamDefaultWriter<string> = ws.getWriter()\nawait writer.ready\nawait writer.write(\"one\")   // one\nawait writer.close()"
             }
           ],
-          "source": "core/streams.pi:1307",
+          "source": "core/streams.pi:1323",
           "members": [
             {
               "name": "constructor",
@@ -22120,7 +22138,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = new WritableStreamDefaultWriter<int>(ws)\nprintln(ws.locked)   // true\nawait writer.write(5)   // 5"
                 }
               ],
-              "source": "core/streams.pi:1322",
+              "source": "core/streams.pi:1338",
               "members": []
             },
             {
@@ -22134,7 +22152,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`stored ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"a\")   // stored a\nawait writer.write(\"b\")   // stored b"
                 }
               ],
-              "source": "core/streams.pi:1347",
+              "source": "core/streams.pi:1363",
               "members": []
             },
             {
@@ -22148,7 +22166,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n  close: () => println(\"done\"),\n})\nconst writer = ws.getWriter()\nwriter.write(\"last\")\nawait writer.close()\n// last\n// done"
                 }
               ],
-              "source": "core/streams.pi:1366",
+              "source": "core/streams.pi:1382",
               "members": []
             },
             {
@@ -22162,7 +22180,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`abort: ${reason?.message}`),\n})\nconst writer = ws.getWriter()\nawait writer.abort(new Error(\"stop\"))   // abort: stop"
                 }
               ],
-              "source": "core/streams.pi:1381",
+              "source": "core/streams.pi:1397",
               "members": []
             },
             {
@@ -22176,7 +22194,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = ws.getWriter()\nfor (const n of [1, 2, 3]) {\n  await writer.ready   // waits while the queue is full\n  writer.write(n)\n}\nawait writer.close()\n// 1\n// 2\n// 3"
                 }
               ],
-              "source": "core/streams.pi:1403",
+              "source": "core/streams.pi:1419",
               "members": []
             },
             {
@@ -22190,7 +22208,7 @@
                   "code": "const ws = new WritableStream<int>({}, { highWaterMark: 3 })\nconst writer = ws.getWriter()\nprintln(writer.desiredSize)   // 3"
                 }
               ],
-              "source": "core/streams.pi:1415",
+              "source": "core/streams.pi:1431",
               "members": []
             },
             {
@@ -22204,7 +22222,7 @@
                   "code": "const ws = new WritableStream<int>({})\nconst writer = ws.getWriter()\nwriter.closed.then((_v) => println(\"closed\"))\nawait writer.close()\nawait writer.closed   // closed"
                 }
               ],
-              "source": "core/streams.pi:1429",
+              "source": "core/streams.pi:1445",
               "members": []
             },
             {
@@ -22218,7 +22236,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst first = ws.getWriter()\nawait first.write(\"from the first\")    // from the first\nfirst.releaseLock()\nconst second = ws.getWriter()\nawait second.write(\"from the second\")  // from the second"
                 }
               ],
-              "source": "core/streams.pi:1446",
+              "source": "core/streams.pi:1462",
               "members": []
             }
           ]
@@ -22234,7 +22252,7 @@
               "code": "const t = new TransformStream<int, int>({\n  transform: (n, c: TransformStreamDefaultController<int>) => {\n    c.enqueue(n)\n    c.enqueue(n * 100)\n  },\n})\nfor await (const x of ReadableStream.from([1, 2]).pipeThrough(t)) {\n  println(x)\n}\n// 1\n// 100\n// 2\n// 200"
             }
           ],
-          "source": "core/streams.pi:1472",
+          "source": "core/streams.pi:1488",
           "members": [
             {
               "name": "constructor",
@@ -22247,7 +22265,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1494",
+              "source": "core/streams.pi:1510",
               "members": []
             },
             {
@@ -22261,7 +22279,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1509",
+              "source": "core/streams.pi:1525",
               "members": []
             },
             {
@@ -22275,7 +22293,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1530",
+              "source": "core/streams.pi:1546",
               "members": []
             },
             {
@@ -22289,7 +22307,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1557",
+              "source": "core/streams.pi:1573",
               "members": []
             },
             {
@@ -22303,7 +22321,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1579",
+              "source": "core/streams.pi:1595",
               "members": []
             }
           ]
@@ -22319,7 +22337,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1606",
+          "source": "core/streams.pi:1622",
           "members": [
             {
               "name": "start",
@@ -22327,7 +22345,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1608",
+              "source": "core/streams.pi:1624",
               "members": []
             },
             {
@@ -22336,7 +22354,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1611",
+              "source": "core/streams.pi:1627",
               "members": []
             },
             {
@@ -22345,7 +22363,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1613",
+              "source": "core/streams.pi:1629",
               "members": []
             },
             {
@@ -22354,7 +22372,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1616",
+              "source": "core/streams.pi:1632",
               "members": []
             }
           ]
@@ -22370,7 +22388,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1717",
+          "source": "core/streams.pi:1733",
           "members": [
             {
               "name": "readable",
@@ -22378,7 +22396,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1719",
+              "source": "core/streams.pi:1735",
               "members": []
             },
             {
@@ -22387,7 +22405,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1721",
+              "source": "core/streams.pi:1737",
               "members": []
             },
             {
@@ -22401,7 +22419,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1740",
+              "source": "core/streams.pi:1756",
               "members": []
             }
           ]
