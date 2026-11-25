@@ -102,6 +102,8 @@ pieces splice into templates (`${ast.string(fn.name)}`); errors in generated cod
 reported where it was generated, with a label at the decorator that generated it.
 
 Decorators are allowed on classes, structs, enums, functions, methods, fields and parameters.
+A decorator is used by its name in the module: declared there, imported (also through modules
+that re-export it with `export { d } from` or `export *`, #54), or the core library's.
 
 **How they run** (decision 223): before the program is compiled, its decorators run in a
 program of their own (the core library, `std/meta`, and the declarations the decorator
