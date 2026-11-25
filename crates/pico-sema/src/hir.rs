@@ -129,6 +129,8 @@ pub struct EnumDef {
     /// Methods (#51): functions whose first parameter is the value (`this`), called as
     /// `v.m(args)` like the core library's extensions of built-in types.
     pub methods: Vec<(String, FnId)>,
+    /// Static methods (#51): plain functions, called as `Enum.m(args)`.
+    pub statics: Vec<(String, FnId)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

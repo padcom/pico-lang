@@ -1,0 +1,43 @@
+// expect: Green
+// expect: null
+// expect: 3 colors
+// expect: Red Red
+// Static enum methods (#51): `Enum.m(args)`, plain functions in the enum's namespace; one
+// calls another, and a function value of one can be passed around.
+enum Color {
+  Red,
+  Green,
+  Blue
+
+  static parse(s: string): Color? {
+    match (s) {
+      "red" => Color.Red,
+      "green" => Color.Green,
+      "blue" => Color.Blue,
+      _ => null,
+    }
+  }
+
+  static all(): Color[] {
+    [Color.Red, Color.Green, Color.Blue]
+  }
+
+  static count(): int {
+    Color.all().length
+  }
+
+  label(): string {
+    match (this) {
+      Color.Red => "Red",
+      Color.Green => "Green",
+      Color.Blue => "Blue",
+    }
+  }
+}
+
+println(Color.parse("green")?.label())
+println(Color.parse("pink")?.label())
+println(`${Color.count()} colors`)
+const p = Color.parse
+const r = p("red")
+println(`${r?.label()} ${Color.all()[0].label()}`)
