@@ -2458,8 +2458,15 @@ impl<'p> Checker<'p> {
                     let t = self.infer(&p.expr);
                     // `Formattable` values format themselves (`${x}`, `${x:spec}`); `:?` stays
                     // the debug form.
+                    // (A struct's `toString()` is its string form where there's no spec, #57.)
+                    let plain = p.spec.as_deref().is_none_or(str::is_empty);
+                    let m = if plain {
+                        self.string_method(&t)
+                    } else {
+                        self.formattable_method(&t)
+                    };
                     if !p.spec.as_deref().is_some_and(|s| s.ends_with('?'))
-                        && let Some(m) = self.formattable_method(&t)
+                        && let Some(m) = m
                     {
                         self.types.formattables.insert(p.expr.id, m);
                         continue;
@@ -5088,19 +5095,45 @@ impl<'p> Checker<'p> {
     /// The `format` method of a struct or class implementing the core `Formattable`
     /// interface.
     fn formattable_method(&self, t: &Ty) -> Option<FnId> {
-        let (Ty::Struct(sid, _, _) | Ty::Class(sid, _, _)) = t else {
-            return None;
-        };
         let iface = self
             .program
             .structs
             .iter()
             .position(|d| d.is_interface && d.name == "Formattable")
             .map(|i| StructId(i as u32))?;
+        // `T extends Formattable` (#57): the interface's method, which lowering replaces by
+        // the instance's type's.
+        if let Ty::Param(..) = t {
+            return self
+                .bounds_of(t)
+                .contains(&Bound::Iface(iface))
+                .then(|| self.program.struct_def(iface).method("format"))
+                .flatten();
+        }
+        let (Ty::Struct(sid, _, _) | Ty::Class(sid, _, _)) = t else {
+            return None;
+        };
         if *sid == iface || !self.program.implements(*sid, iface) {
             return None;
         }
         self.program.struct_def(*sid).method("format")
+    }
+
+    /// A value's own string form, without a spec (#57): `Formattable`'s `format("")`, or a
+    /// struct's `toString(): string` (classes have theirs already).
+    fn string_method(&self, t: &Ty) -> Option<FnId> {
+        if let Some(m) = self.formattable_method(t) {
+            return Some(m);
+        }
+        let Ty::Struct(sid, _, _) = t else {
+            return None;
+        };
+        let m = self.program.struct_def(*sid).method("toString")?;
+        let f = self.program.func(m);
+        (f.params.is_empty()
+            && f.generics.is_empty()
+            && f.ret.as_ref().is_none_or(|r| *r == Ty::Str))
+        .then_some(m)
     }
 
     /// Parses and checks a template part's format spec against the part's type.
@@ -5461,7 +5494,7 @@ impl<'p> Checker<'p> {
                 if op == Add && (is_str(&lt) || is_str(&rt)) {
                     for (x, xt) in [(l, &lt), (r, &rt)] {
                         // (A `Formattable` value's string form is its `format("")`, #57.)
-                        if let Some(m) = self.formattable_method(xt) {
+                        if let Some(m) = self.string_method(xt) {
                             self.types.formattables.insert(x.id, m);
                         } else if !is_printable(xt) {
                             self.invalid_operand(x.span, "`+`", xt, "a value with a string form");
@@ -7772,7 +7805,7 @@ impl<'p> Checker<'p> {
                 for a in args {
                     let t = self.infer(a);
                     // A `Formattable` value prints as it formats itself (#57).
-                    if let Some(m) = self.formattable_method(&t) {
+                    if let Some(m) = self.string_method(&t) {
                         self.types.formattables.insert(a.id, m);
                     } else if !is_printable(&t) {
                         self.diags.push(

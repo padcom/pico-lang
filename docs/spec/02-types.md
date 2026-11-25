@@ -150,7 +150,8 @@ struct Vec3 {
 - A struct literal must give every field exactly once, except optional fields: `label?: string`
   is a `string?` field that a literal may leave out (it's then `null`). `${p:?}` shows
   `Point { x: 1, y: 2 }`;
-  structs have no other string form unless they implement `Formattable` (§1.4).
+  structs have no other string form unless they implement `Formattable` (§1.4) or have a
+  `toString(): string` method, which `${p}` (without a spec), `println(p)` and string `+` use.
 - Structs can implement interfaces but cannot be inherited from.
 
 ## 2.8 Tuples and arrays

@@ -6401,6 +6401,21 @@ impl FnBuilder<'_, '_> {
 
     /// `v.format(spec)` for a `Formattable` value of type `t` (virtual for classes).
     fn format_call(&mut self, v: Operand, t: &Ty, m: FnId, spec: &str, span: Span) -> Operand {
+        // A `T extends Formattable` value's `format` is its instance type's (#57).
+        let m = match (self.cx.program.func(m).owner, t) {
+            (Some(o), Ty::Struct(sid, _, _) | Ty::Class(sid, _, _))
+                if self.cx.program.struct_def(o).is_interface =>
+            {
+                self.cx
+                    .program
+                    .struct_def(*sid)
+                    .method("format")
+                    .unwrap_or(m)
+            }
+            _ => m,
+        };
+        // (A struct's `toString()` takes no spec.)
+        let takes_spec = !self.cx.types.sigs[m.0 as usize].params.is_empty();
         let spec = Operand::Const(Const::Str(spec.to_string()));
         if let Ty::Class(sid, _, _) = t {
             let def = self.cx.program.struct_def(*sid);
@@ -6425,7 +6440,12 @@ impl FnBuilder<'_, '_> {
         let tmp = Place::local(self.temp(t.clone()));
         self.assign(tmp.clone(), Rvalue::Use(v), span);
         let recv = self.rvalue_to_temp(Rvalue::Ref(tmp), Ty::Ref(Box::new(t.clone())), span);
-        self.call_fn_value(m, vec![recv, spec], Ty::Str, span)
+        let args = if takes_spec {
+            vec![recv, spec]
+        } else {
+            vec![recv]
+        };
+        self.call_fn_value(m, args, Ty::Str, span)
     }
 
     /// Where a narrowed variable's value is: inside the `T?`, inside the union member, or (an
