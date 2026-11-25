@@ -1017,6 +1017,53 @@ struct __RCompiled {
   nameIdx: int[]
 }
 
+/// Where a `d`-flag match and its groups are (`RegExpMatch.indices`, #62): `[start, end]` in
+/// code points per element (`null` for a group that didn't take part), and by group name.
+///
+/// @example
+/// ```ts
+/// const m = /(\d+)-(\d+)?/d.exec("id 12-")
+/// if (m != null) {
+///   const ix = m.indices
+///   if (ix != null) {
+///     println(`${ix.length} ${ix[0]:?} ${ix[1]:?} ${ix[2]:?}`)   // 3 [3, 6] [3, 5] null
+///   }
+/// }
+/// ```
+class RegExpIndices {
+  public __pairs: ([int, int]?)[]
+  /// The named groups' positions by name, or `null` when the pattern has no named groups.
+  public readonly groups: Map<string, [int, int]?>?
+
+  /// Positions `pairs` (one per element) and the named groups'.
+  ///
+  /// @example
+  /// ```ts
+  /// // They usually come from a `d`-flag match; they can also be built directly.
+  /// const ix = new RegExpIndices([[0, 2], null], null)
+  /// println(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null
+  /// ```
+  constructor(pairs: ([int, int]?)[], groups: Map<string, [int, int]?>?) {
+    this.__pairs = pairs
+    this.groups = groups
+  }
+
+  /// The count of elements: 1 plus the count of capture groups.
+  ///
+  /// @example
+  /// ```ts
+  /// const m = /(a)(b)?/d.exec("a")
+  /// println(m?.indices?.length)   // 3
+  /// ```
+  public get length(): int {
+    return this.__pairs.length
+  }
+
+  operator [](i: int): [int, int]? {
+    if (i < 0 || i >= this.__pairs.length) null else this.__pairs[i]
+  }
+}
+
 /// A match: element 0 is the matched text, then each capture group's (`null` when it didn't
 /// take part); `index` is where it starts and `groups` holds named groups. With the `g`
 /// flag, `string.match` gives every match's text as the elements instead (`index` -1).
@@ -1040,6 +1087,18 @@ class RegExpMatch {
   /// The named groups' texts by name (`null` for one that didn't take part), or `null` when the
   /// pattern has no named groups.
   public readonly groups: Map<string, string?>?
+  /// With the `d` flag (#62): where the match and each group start and end, in code points
+  /// (`null` without it).
+  ///
+  /// @example
+  /// ```ts
+  /// const m = /a(?<b>b+)/d.exec("xabb")
+  /// if (m != null) {
+  ///   println(`${m.indices?.[0]:?} ${m.indices?.[1]:?}`)    // [1, 4] [2, 4]
+  ///   println(`${m.indices?.groups?.get("b"):?}`)           // [2, 4]
+  /// }
+  /// ```
+  public indices: RegExpIndices? = null
 
   /// A match of `items` (the elements) at `index` in `input`, with named `groups`.
   ///
@@ -1376,7 +1435,26 @@ class RegExp {
       }
       groups = gm
     }
-    new RegExpMatch(items, caps[0], s, groups)
+    const m = new RegExpMatch(items, caps[0], s, groups)
+    // `d`: the positions too (#62).
+    if (this.flags.includes("d")) {
+      const pairs: ([int, int]?)[] = []
+      for (let g = 0; g <= this.ngroups; g++) {
+        const a = caps[g * 2]
+        const b = caps[g * 2 + 1]
+        pairs.push(if (a >= 0 && b >= 0) [a, b] else null)
+      }
+      let named: Map<string, [int, int]?>? = null
+      if (this.names.length > 0) {
+        const nm = new Map<string, [int, int]?>()
+        for (let k = 0; k < this.names.length; k++) {
+          nm.set(this.names[k], pairs[this.nameIdx[k]])
+        }
+        named = nm
+      }
+      m.indices = new RegExpIndices(pairs, named)
+    }
+    return m
   }
 
   /// The next match in `s` (from `lastIndex` with `g` or `y`, which it then moves past the

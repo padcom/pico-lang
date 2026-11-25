@@ -62,6 +62,7 @@
     "ReadableStreamDefaultController": "core#ReadableStreamDefaultController",
     "ReadableStreamDefaultReader": "core#ReadableStreamDefaultReader",
     "RegExp": "core#RegExp",
+    "RegExpIndices": "core#RegExpIndices",
     "RegExpMatch": "core#RegExpMatch",
     "Request": "core#Request",
     "RequestInit": "core#RequestInit",
@@ -445,7 +446,7 @@
               "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const params: Algorithm = { name: \"AES-GCM\", iv: crypto.getRandomValues(new Uint8Array(12)) }\n  const sealed = await crypto.subtle.encrypt(params, key, new TextEncoder().encode(\"hi\"))\n  println(sealed.length)   // 18 (2 bytes of ciphertext + a 16-byte tag)\n}"
             }
           ],
-          "source": "core/crypto.pi:192",
+          "source": "core/crypto.pi:212",
           "members": [
             {
               "name": "name",
@@ -453,7 +454,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"AES-GCM\"</code>, <code>\"HMAC\"</code>, <code>\"ECDSA\"</code>, <code>\"ECDH\"</code>, <code>\"HKDF\"</code>, <code>\"PBKDF2\"</code>; any\ncase), or, for <code>digest</code>, the hash's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:195",
+              "source": "core/crypto.pi:215",
               "members": []
             },
             {
@@ -462,7 +463,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:197",
+              "source": "core/crypto.pi:217",
               "members": []
             },
             {
@@ -471,7 +472,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve for <code>generateKey</code> and <code>importKey</code> of ECDSA (<code>\"P-256\"</code>, <code>\"P-384\"</code>) and ECDH keys\n(also <code>\"X25519\"</code>).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:200",
+              "source": "core/crypto.pi:220",
               "members": []
             },
             {
@@ -480,16 +481,25 @@
               "signature": "length?: int",
               "doc": "<p>The key length in bits for <code>generateKey</code> (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:202",
+              "source": "core/crypto.pi:222",
               "members": []
             },
             {
               "name": "iv",
               "kind": "field",
               "signature": "iv?: Uint8Array",
-              "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual).</p>\n",
+              "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual), or AES-CBC's initialization vector (16\nbytes).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:204",
+              "source": "core/crypto.pi:225",
+              "members": []
+            },
+            {
+              "name": "counter",
+              "kind": "field",
+              "signature": "counter?: Uint8Array",
+              "doc": "<p>AES-CTR's initial counter block (16 bytes); <code>length</code> is then how many of its rightmost\nbits count up (#69).</p>\n",
+              "examples": [],
+              "source": "core/crypto.pi:228",
               "members": []
             },
             {
@@ -498,7 +508,7 @@
               "signature": "additionalData?: Uint8Array",
               "doc": "<p>AES-GCM's authenticated, unencrypted data (none unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:206",
+              "source": "core/crypto.pi:230",
               "members": []
             },
             {
@@ -507,7 +517,7 @@
               "signature": "tagLength?: int",
               "doc": "<p>AES-GCM's tag length in bits: only 128 (the default) is supported.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:208",
+              "source": "core/crypto.pi:232",
               "members": []
             },
             {
@@ -516,7 +526,7 @@
               "signature": "public?: CryptoKey",
               "doc": "<p>ECDH's peer public key, for <code>deriveBits</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:210",
+              "source": "core/crypto.pi:234",
               "members": []
             },
             {
@@ -525,7 +535,7 @@
               "signature": "salt?: Uint8Array",
               "doc": "<p>The HKDF or PBKDF2 salt (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:212",
+              "source": "core/crypto.pi:236",
               "members": []
             },
             {
@@ -534,7 +544,7 @@
               "signature": "info?: Uint8Array",
               "doc": "<p>HKDF's context info (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:214",
+              "source": "core/crypto.pi:238",
               "members": []
             },
             {
@@ -543,7 +553,7 @@
               "signature": "iterations?: int",
               "doc": "<p>PBKDF2's iteration count.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:216",
+              "source": "core/crypto.pi:240",
               "members": []
             }
           ]
@@ -1218,7 +1228,7 @@
               "code": "const id = crypto.randomUUID()\nprintln(id.length)   // 36\nconst bytes = crypto.getRandomValues(new Uint8Array(4))\nprintln(bytes.length)   // 4"
             }
           ],
-          "source": "core/crypto.pi:548",
+          "source": "core/crypto.pi:582",
           "members": [
             {
               "name": "subtle",
@@ -1226,7 +1236,7 @@
               "signature": "subtle: SubtleCrypto",
               "doc": "<p>Web Crypto's asynchronous operations (keys, signatures, encryption, derivation).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:550",
+              "source": "core/crypto.pi:584",
               "members": []
             },
             {
@@ -1240,7 +1250,7 @@
                   "code": "const nonce = crypto.getRandomValues(new Uint8Array(12))\nprintln(nonce.length)   // 12 (random bytes, different each run)"
                 }
               ],
-              "source": "core/crypto.pi:560",
+              "source": "core/crypto.pi:594",
               "members": []
             },
             {
@@ -1254,7 +1264,7 @@
                   "code": "const id = crypto.randomUUID()\nprintln(id)          // e.g. 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed\nprintln(id[14])      // 4 (the version)"
                 }
               ],
-              "source": "core/crypto.pi:575",
+              "source": "core/crypto.pi:609",
               "members": []
             }
           ]
@@ -1308,7 +1318,7 @@
               "code": "const raw = new TextEncoder().encode(\"secret\")\nconst key = await crypto.subtle.importKey(\"raw\", raw, { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nprintln(key.type)                   // secret\nprintln(key.algorithm.name)         // HMAC\nprintln(key.algorithm.length)       // 48\nprintln(key.usages.join(\", \"))      // sign"
             }
           ],
-          "source": "core/crypto.pi:124",
+          "source": "core/crypto.pi:144",
           "members": [
             {
               "name": "type",
@@ -1316,7 +1326,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"secret\"</code>, <code>\"private\"</code> or <code>\"public\"</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:126",
+              "source": "core/crypto.pi:146",
               "members": []
             },
             {
@@ -1325,7 +1335,7 @@
               "signature": "public readonly extractable: bool",
               "doc": "<p>Whether <code>exportKey</code> may export a non-public key's bytes.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:128",
+              "source": "core/crypto.pi:148",
               "members": []
             },
             {
@@ -1334,7 +1344,7 @@
               "signature": "public readonly algorithm: KeyAlgorithm",
               "doc": "<p>The algorithm the key is for, with its hash, curve or length.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:130",
+              "source": "core/crypto.pi:150",
               "members": []
             },
             {
@@ -1343,7 +1353,7 @@
               "signature": "public readonly usages: string[]",
               "doc": "<p>What the key may be used for (<code>\"sign\"</code>, <code>\"verify\"</code>, <code>\"encrypt\"</code>, <code>\"decrypt\"</code>,\n<code>\"deriveBits\"</code>): another use rejects with an <code>\"InvalidAccess\"</code> <code>CryptoError</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:133",
+              "source": "core/crypto.pi:153",
               "members": []
             },
             {
@@ -1357,7 +1367,7 @@
                   "code": "const alg: KeyAlgorithm = { name: \"HMAC\", hash: \"SHA-256\", length: 128 }\nconst key = new CryptoKey(\"secret\", true, alg, [\"sign\", \"verify\"], new Uint8Array(16))\nprintln(key.extractable)   // true\nprintln(key.type)          // secret"
                 }
               ],
-              "source": "core/crypto.pi:145",
+              "source": "core/crypto.pi:165",
               "members": []
             }
           ]
@@ -1373,7 +1383,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDH\", namedCurve: \"X25519\" }, false, [\"deriveBits\"])\nif (pair is CryptoKeyPair) {\n  println(pair.publicKey.type)    // public\n  println(pair.privateKey.type)   // private\n}"
             }
           ],
-          "source": "core/crypto.pi:229",
+          "source": "core/crypto.pi:253",
           "members": [
             {
               "name": "publicKey",
@@ -1381,7 +1391,7 @@
               "signature": "publicKey: CryptoKey",
               "doc": "<p>The public key (always extractable).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:231",
+              "source": "core/crypto.pi:255",
               "members": []
             },
             {
@@ -1390,7 +1400,7 @@
               "signature": "privateKey: CryptoKey",
               "doc": "<p>The private key (extractable as <code>generateKey</code> was told).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:233",
+              "source": "core/crypto.pi:257",
               "members": []
             }
           ]
@@ -3727,7 +3737,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const alg: KeyAlgorithm = pair.publicKey.algorithm\n  println(alg.name)         // ECDSA\n  println(alg.namedCurve)   // P-256\n}"
             }
           ],
-          "source": "core/crypto.pi:166",
+          "source": "core/crypto.pi:186",
           "members": [
             {
               "name": "name",
@@ -3735,7 +3745,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"HMAC\"</code>, <code>\"AES-GCM\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:168",
+              "source": "core/crypto.pi:188",
               "members": []
             },
             {
@@ -3744,7 +3754,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …), for HMAC keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:170",
+              "source": "core/crypto.pi:190",
               "members": []
             },
             {
@@ -3753,7 +3763,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve (<code>\"P-256\"</code>, <code>\"P-384\"</code>, <code>\"X25519\"</code>), for ECDSA and ECDH keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:172",
+              "source": "core/crypto.pi:192",
               "members": []
             },
             {
@@ -3762,7 +3772,7 @@
               "signature": "length?: int",
               "doc": "<p>The key's length in bits, for secret keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:174",
+              "source": "core/crypto.pi:194",
               "members": []
             }
           ]
@@ -5726,7 +5736,7 @@
               "code": "const date = /(\\d{4})-(\\d{2})-(\\d{2})/\nprintln(date.test(\"on 2024-03-10\"))   // true\nconst m = date.exec(\"on 2024-03-10\")\nif (m != null) {\n  println(m[1])                       // 2024\n}\nconst word = new RegExp(\"\\\\bcat\\\\b\", \"i\")\nprintln(word.test(\"A Cat sat\"))       // true"
             }
           ],
-          "source": "core/regex.pi:1162",
+          "source": "core/regex.pi:1221",
           "members": [
             {
               "name": "source",
@@ -5734,7 +5744,7 @@
               "signature": "public readonly source: string",
               "doc": "<p>The pattern's text (<code>\"(?:)\"</code> for an empty pattern).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1164",
+              "source": "core/regex.pi:1223",
               "members": []
             },
             {
@@ -5743,7 +5753,7 @@
               "signature": "public readonly flags: string",
               "doc": "<p>The flags, in canonical order (<code>\"dgimsuvy\"</code>).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1166",
+              "source": "core/regex.pi:1225",
               "members": []
             },
             {
@@ -5752,7 +5762,7 @@
               "signature": "public lastIndex: int = 0",
               "doc": "<p>Where the next <code>exec</code> or <code>test</code> starts with the <code>g</code> or <code>y</code> flag, in code points; other regexes\nignore it.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1169",
+              "source": "core/regex.pi:1228",
               "members": []
             },
             {
@@ -5766,7 +5776,7 @@
                   "code": "const re = new RegExp(\"^[a-z]+\\\\d*$\", \"i\")\nprintln(re)                 // /^[a-z]+\\d*$/i\nprintln(re.test(\"Abc12\"))   // true\ntry {\n  const bad = new RegExp(\"a\", \"gg\")\n  println(bad)\n} catch (e: SyntaxError) {\n  println(e.message)        // Invalid flags supplied to RegExp constructor 'gg'\n}"
                 }
               ],
-              "source": "core/regex.pi:1191",
+              "source": "core/regex.pi:1250",
               "members": []
             },
             {
@@ -5780,7 +5790,7 @@
                   "code": "const re = /a+/g\nprintln(new RegExp(re))         // /a+/g\nprintln(new RegExp(re, \"i\"))    // /a+/i"
                 }
               ],
-              "source": "core/regex.pi:1211",
+              "source": "core/regex.pi:1270",
               "members": []
             },
             {
@@ -5794,7 +5804,7 @@
                   "code": "println(/o/g.global)   // true\nprintln(/o/.global)    // false"
                 }
               ],
-              "source": "core/regex.pi:1288",
+              "source": "core/regex.pi:1347",
               "members": []
             },
             {
@@ -5808,7 +5818,7 @@
                   "code": "const re = /hello/i\nprintln(re.ignoreCase)      // true\nprintln(re.test(\"HeLLo\"))   // true"
                 }
               ],
-              "source": "core/regex.pi:1297",
+              "source": "core/regex.pi:1356",
               "members": []
             },
             {
@@ -5822,7 +5832,7 @@
                   "code": "const re = /^b/m\nprintln(re.multiline)        // true\nprintln(re.test(\"a\\nb\"))     // true"
                 }
               ],
-              "source": "core/regex.pi:1306",
+              "source": "core/regex.pi:1365",
               "members": []
             },
             {
@@ -5836,7 +5846,7 @@
                   "code": "const re = /a.b/s\nprintln(re.dotAll)          // true\nprintln(re.test(\"a\\nb\"))    // true"
                 }
               ],
-              "source": "core/regex.pi:1315",
+              "source": "core/regex.pi:1374",
               "members": []
             },
             {
@@ -5850,7 +5860,7 @@
                   "code": "println(/x/u.unicode)   // true\nprintln(/x/.unicode)    // false"
                 }
               ],
-              "source": "core/regex.pi:1323",
+              "source": "core/regex.pi:1382",
               "members": []
             },
             {
@@ -5864,7 +5874,7 @@
                   "code": "const re = /\\d/y\nprintln(re.sticky)      // true\nprintln(re.test(\"a1\"))  // false\nre.lastIndex = 1\nprintln(re.test(\"a1\"))  // true"
                 }
               ],
-              "source": "core/regex.pi:1334",
+              "source": "core/regex.pi:1393",
               "members": []
             },
             {
@@ -5878,7 +5888,7 @@
                   "code": "println(/x/d.hasIndices)   // true\nprintln(/x/.hasIndices)    // false"
                 }
               ],
-              "source": "core/regex.pi:1342",
+              "source": "core/regex.pi:1401",
               "members": []
             },
             {
@@ -5892,7 +5902,7 @@
                   "code": "const re = /(\\w+)=(\\d+)/g\nconst s = \"a=1 b=22\"\nlet m = re.exec(s)\nwhile (m != null) {\n  println(`${m[1]} -> ${m[2]} at ${m.index}`)\n  m = re.exec(s)\n}\n// Prints:\n// a -> 1 at 0\n// b -> 22 at 4"
                 }
               ],
-              "source": "core/regex.pi:1398",
+              "source": "core/regex.pi:1476",
               "members": []
             },
             {
@@ -5906,7 +5916,7 @@
                   "code": "const digits = /^\\d+$/\nprintln(digits.test(\"123\"))   // true\nprintln(digits.test(\"12a\"))   // false"
                 }
               ],
-              "source": "core/regex.pi:1423",
+              "source": "core/regex.pi:1501",
               "members": []
             },
             {
@@ -5920,7 +5930,59 @@
                   "code": "const re = new RegExp(\"a/b\", \"gi\")\nprintln(re.toString())   // /a\\/b/gi\nprintln(re.source)       // a\\/b\nprintln(re.flags)        // gi"
                 }
               ],
-              "source": "core/regex.pi:1436",
+              "source": "core/regex.pi:1514",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "RegExpIndices",
+          "kind": "class",
+          "signature": "class RegExpIndices",
+          "doc": "<p>Where a <code>d</code>-flag match and its groups are (<code>RegExpMatch.indices</code>, #62): <code>[start, end]</code> in\ncode points per element (<code>null</code> for a group that didn't take part), and by group name.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const m = /(\\d+)-(\\d+)?/d.exec(\"id 12-\")\nif (m != null) {\n  const ix = m.indices\n  if (ix != null) {\n    println(`${ix.length} ${ix[0]:?} ${ix[1]:?} ${ix[2]:?}`)   // 3 [3, 6] [3, 5] null\n  }\n}"
+            }
+          ],
+          "source": "core/regex.pi:1033",
+          "members": [
+            {
+              "name": "groups",
+              "kind": "field",
+              "signature": "public readonly groups: Map<string, [int, int]?>?",
+              "doc": "<p>The named groups' positions by name, or <code>null</code> when the pattern has no named groups.</p>\n",
+              "examples": [],
+              "source": "core/regex.pi:1036",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(pairs: ([int, int]?)[], groups: Map<string, [int, int]?>?)",
+              "doc": "<p>Positions <code>pairs</code> (one per element) and the named groups'.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "// They usually come from a `d`-flag match; they can also be built directly.\nconst ix = new RegExpIndices([[0, 2], null], null)\nprintln(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null"
+                }
+              ],
+              "source": "core/regex.pi:1046",
+              "members": []
+            },
+            {
+              "name": "length",
+              "kind": "property",
+              "signature": "public get length(): int",
+              "doc": "<p>The count of elements: 1 plus the count of capture groups.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /(a)(b)?/d.exec(\"a\")\nprintln(m?.indices?.length)   // 3"
+                }
+              ],
+              "source": "core/regex.pi:1058",
               "members": []
             }
           ]
@@ -5936,7 +5998,7 @@
               "code": "const m = /(?<year>\\d{4})-(\\d{2})/.exec(\"due 2024-03\")\nif (m != null) {\n  println(m[0])                       // 2024-03\n  println(m[2])                       // 03\n  println(m.index)                    // 4\n  println(m.groups?.get(\"year\"))      // 2024\n}"
             }
           ],
-          "source": "core/regex.pi:1034",
+          "source": "core/regex.pi:1081",
           "members": [
             {
               "name": "index",
@@ -5944,7 +6006,7 @@
               "signature": "public readonly index: int",
               "doc": "<p>Where the match starts in <code>input</code>, in code points (-1 for a <code>g</code>-flag <code>string.match</code> result).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1037",
+              "source": "core/regex.pi:1084",
               "members": []
             },
             {
@@ -5953,7 +6015,7 @@
               "signature": "public readonly input: string",
               "doc": "<p>The string that was searched.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1039",
+              "source": "core/regex.pi:1086",
               "members": []
             },
             {
@@ -5962,7 +6024,21 @@
               "signature": "public readonly groups: Map<string, string?>?",
               "doc": "<p>The named groups' texts by name (<code>null</code> for one that didn't take part), or <code>null</code> when the\npattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1042",
+              "source": "core/regex.pi:1089",
+              "members": []
+            },
+            {
+              "name": "indices",
+              "kind": "field",
+              "signature": "public indices: RegExpIndices? = null",
+              "doc": "<p>With the <code>d</code> flag (#62): where the match and each group start and end, in code points\n(<code>null</code> without it).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /a(?<b>b+)/d.exec(\"xabb\")\nif (m != null) {\n  println(`${m.indices?.[0]:?} ${m.indices?.[1]:?}`)    // [1, 4] [2, 4]\n  println(`${m.indices?.groups?.get(\"b\"):?}`)           // [2, 4]\n}"
+                }
+              ],
+              "source": "core/regex.pi:1101",
               "members": []
             },
             {
@@ -5976,7 +6052,7 @@
                   "code": "// Matches usually come from `exec` or `string.match`; one can also be built directly.\nconst m = new RegExpMatch([\"ab\", \"b\"], 3, \"xxxab\", null)\nprintln(m[0])      // ab\nprintln(m.index)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1053",
+              "source": "core/regex.pi:1112",
               "members": []
             },
             {
@@ -5990,7 +6066,7 @@
                   "code": "const m = /(\\w+)@(\\w+)/.exec(\"mail ann@home\")\nif (m != null) {\n  println(m.length)   // 3\n}"
                 }
               ],
-              "source": "core/regex.pi:1069",
+              "source": "core/regex.pi:1128",
               "members": []
             },
             {
@@ -6004,7 +6080,7 @@
                   "code": "const m = /(\\d+)x(\\d+)?/.exec(\"size 640x\")\nif (m != null) {\n  const parts = m.toArray()\n  println(parts.length)                               // 3\n  println(parts.map(s => s ?? \"(none)\").join(\", \"))   // 640x, 640, (none)\n}"
                 }
               ],
-              "source": "core/regex.pi:1088",
+              "source": "core/regex.pi:1147",
               "members": []
             },
             {
@@ -6018,7 +6094,7 @@
                   "code": "const m = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(\"2024-03-10\")\nif (m != null) {\n  for (const part of m) {\n    println(part)\n  }\n}\n// Prints:\n// 2024-03-10\n// 2024\n// 03\n// 10"
                 }
               ],
-              "source": "core/regex.pi:1108",
+              "source": "core/regex.pi:1167",
               "members": []
             }
           ]
@@ -6611,7 +6687,7 @@
               "code": "import { hex } from \"std/encoding\"\n\nconst digest = await crypto.subtle.digest(\"SHA-1\", new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(digest))   // a9993e364706816aba3e25717850c26c9cd0d89d"
             }
           ],
-          "source": "core/crypto.pi:281",
+          "source": "core/crypto.pi:305",
           "members": [
             {
               "name": "digest",
@@ -6624,7 +6700,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst data = new TextEncoder().encode(\"hello\")\nconst hash = await crypto.subtle.digest(\"SHA-256\", data)\nprintln(hex.encode(hash))   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
               ],
-              "source": "core/crypto.pi:293",
+              "source": "core/crypto.pi:317",
               "members": []
             },
             {
@@ -6638,7 +6714,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(hex.encode(tag))   // 8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b"
                 }
               ],
-              "source": "core/crypto.pi:312",
+              "source": "core/crypto.pi:336",
               "members": []
             },
             {
@@ -6652,7 +6728,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"HMAC\", hash: \"SHA-256\" }, true, [\"sign\"])\nif (key is CryptoKey) {\n  const raw = await crypto.subtle.exportKey(\"raw\", key)\n  println(raw.length)   // 32\n}"
                 }
               ],
-              "source": "core/crypto.pi:347",
+              "source": "core/crypto.pi:371",
               "members": []
             },
             {
@@ -6666,7 +6742,7 @@
                   "code": "const aes = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 128 }, false, [\"encrypt\", \"decrypt\"])\nmatch (aes) {\n  k: CryptoKey => println(`${k.algorithm.name} ${k.algorithm.length}`),   // AES-GCM 128\n  p: CryptoKeyPair => println(\"a key pair\"),\n}"
                 }
               ],
-              "source": "core/crypto.pi:363",
+              "source": "core/crypto.pi:387",
               "members": []
             },
             {
@@ -6680,7 +6756,7 @@
                   "code": "const enc = new TextEncoder()\nconst pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const data = enc.encode(\"release-1.0.tar.gz\")\n  const sig = await crypto.subtle.sign({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.privateKey, data)\n  println(sig.length)   // 64 (r ‖ s)\n  println(await crypto.subtle.verify({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.publicKey, sig, data))   // true\n}"
                 }
               ],
-              "source": "core/crypto.pi:395",
+              "source": "core/crypto.pi:419",
               "members": []
             },
             {
@@ -6694,7 +6770,7 @@
                   "code": "const enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\", \"verify\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"message\")))    // true\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"tampered\")))   // false"
                 }
               ],
-              "source": "core/crypto.pi:421",
+              "source": "core/crypto.pi:445",
               "members": []
             },
             {
@@ -6708,7 +6784,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  println(sealed.length)   // 30 (14 bytes of ciphertext + a 16-byte tag)\n}"
                 }
               ],
-              "source": "core/crypto.pi:448",
+              "source": "core/crypto.pi:472",
               "members": []
             },
             {
@@ -6722,7 +6798,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  const plain = await crypto.subtle.decrypt({ name: \"AES-GCM\", iv }, key, sealed)\n  println(new TextDecoder().decode(plain))   // attack at dawn\n}"
                 }
               ],
-              "source": "core/crypto.pi:470",
+              "source": "core/crypto.pi:499",
               "members": []
             },
             {
@@ -6736,7 +6812,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst pw = await crypto.subtle.importKey(\"raw\", enc.encode(\"password\"), \"PBKDF2\", false, [\"deriveBits\"])\nconst bits = await crypto.subtle.deriveBits({ name: \"PBKDF2\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), iterations: 1000 }, pw, 128)\nprintln(hex.encode(bits))   // 632c2812e46d4604102ba7618e9d6d7d\nconst ikm = await crypto.subtle.importKey(\"raw\", enc.encode(\"input key\"), \"HKDF\", false, [\"deriveBits\"])\nconst okm = await crypto.subtle.deriveBits({ name: \"HKDF\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), info: enc.encode(\"context\") }, ikm, 128)\nprintln(hex.encode(okm))    // 49060e83486a86844130609b08a2c02c"
                 }
               ],
-              "source": "core/crypto.pi:495",
+              "source": "core/crypto.pi:529",
               "members": []
             }
           ]
@@ -12859,7 +12935,7 @@
               "code": "const raw = new TextEncoder().encode(\"secret\")\nconst key = await crypto.subtle.importKey(\"raw\", raw, { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nprintln(key.type)                   // secret\nprintln(key.algorithm.name)         // HMAC\nprintln(key.algorithm.length)       // 48\nprintln(key.usages.join(\", \"))      // sign"
             }
           ],
-          "source": "core/crypto.pi:124",
+          "source": "core/crypto.pi:144",
           "members": [
             {
               "name": "type",
@@ -12867,7 +12943,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"secret\"</code>, <code>\"private\"</code> or <code>\"public\"</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:126",
+              "source": "core/crypto.pi:146",
               "members": []
             },
             {
@@ -12876,7 +12952,7 @@
               "signature": "public readonly extractable: bool",
               "doc": "<p>Whether <code>exportKey</code> may export a non-public key's bytes.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:128",
+              "source": "core/crypto.pi:148",
               "members": []
             },
             {
@@ -12885,7 +12961,7 @@
               "signature": "public readonly algorithm: KeyAlgorithm",
               "doc": "<p>The algorithm the key is for, with its hash, curve or length.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:130",
+              "source": "core/crypto.pi:150",
               "members": []
             },
             {
@@ -12894,7 +12970,7 @@
               "signature": "public readonly usages: string[]",
               "doc": "<p>What the key may be used for (<code>\"sign\"</code>, <code>\"verify\"</code>, <code>\"encrypt\"</code>, <code>\"decrypt\"</code>,\n<code>\"deriveBits\"</code>): another use rejects with an <code>\"InvalidAccess\"</code> <code>CryptoError</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:133",
+              "source": "core/crypto.pi:153",
               "members": []
             },
             {
@@ -12908,7 +12984,7 @@
                   "code": "const alg: KeyAlgorithm = { name: \"HMAC\", hash: \"SHA-256\", length: 128 }\nconst key = new CryptoKey(\"secret\", true, alg, [\"sign\", \"verify\"], new Uint8Array(16))\nprintln(key.extractable)   // true\nprintln(key.type)          // secret"
                 }
               ],
-              "source": "core/crypto.pi:145",
+              "source": "core/crypto.pi:165",
               "members": []
             }
           ]
@@ -12924,7 +13000,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const alg: KeyAlgorithm = pair.publicKey.algorithm\n  println(alg.name)         // ECDSA\n  println(alg.namedCurve)   // P-256\n}"
             }
           ],
-          "source": "core/crypto.pi:166",
+          "source": "core/crypto.pi:186",
           "members": [
             {
               "name": "name",
@@ -12932,7 +13008,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"HMAC\"</code>, <code>\"AES-GCM\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:168",
+              "source": "core/crypto.pi:188",
               "members": []
             },
             {
@@ -12941,7 +13017,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …), for HMAC keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:170",
+              "source": "core/crypto.pi:190",
               "members": []
             },
             {
@@ -12950,7 +13026,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve (<code>\"P-256\"</code>, <code>\"P-384\"</code>, <code>\"X25519\"</code>), for ECDSA and ECDH keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:172",
+              "source": "core/crypto.pi:192",
               "members": []
             },
             {
@@ -12959,7 +13035,7 @@
               "signature": "length?: int",
               "doc": "<p>The key's length in bits, for secret keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:174",
+              "source": "core/crypto.pi:194",
               "members": []
             }
           ]
@@ -12975,7 +13051,7 @@
               "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const params: Algorithm = { name: \"AES-GCM\", iv: crypto.getRandomValues(new Uint8Array(12)) }\n  const sealed = await crypto.subtle.encrypt(params, key, new TextEncoder().encode(\"hi\"))\n  println(sealed.length)   // 18 (2 bytes of ciphertext + a 16-byte tag)\n}"
             }
           ],
-          "source": "core/crypto.pi:192",
+          "source": "core/crypto.pi:212",
           "members": [
             {
               "name": "name",
@@ -12983,7 +13059,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"AES-GCM\"</code>, <code>\"HMAC\"</code>, <code>\"ECDSA\"</code>, <code>\"ECDH\"</code>, <code>\"HKDF\"</code>, <code>\"PBKDF2\"</code>; any\ncase), or, for <code>digest</code>, the hash's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:195",
+              "source": "core/crypto.pi:215",
               "members": []
             },
             {
@@ -12992,7 +13068,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:197",
+              "source": "core/crypto.pi:217",
               "members": []
             },
             {
@@ -13001,7 +13077,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve for <code>generateKey</code> and <code>importKey</code> of ECDSA (<code>\"P-256\"</code>, <code>\"P-384\"</code>) and ECDH keys\n(also <code>\"X25519\"</code>).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:200",
+              "source": "core/crypto.pi:220",
               "members": []
             },
             {
@@ -13010,16 +13086,25 @@
               "signature": "length?: int",
               "doc": "<p>The key length in bits for <code>generateKey</code> (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:202",
+              "source": "core/crypto.pi:222",
               "members": []
             },
             {
               "name": "iv",
               "kind": "field",
               "signature": "iv?: Uint8Array",
-              "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual).</p>\n",
+              "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual), or AES-CBC's initialization vector (16\nbytes).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:204",
+              "source": "core/crypto.pi:225",
+              "members": []
+            },
+            {
+              "name": "counter",
+              "kind": "field",
+              "signature": "counter?: Uint8Array",
+              "doc": "<p>AES-CTR's initial counter block (16 bytes); <code>length</code> is then how many of its rightmost\nbits count up (#69).</p>\n",
+              "examples": [],
+              "source": "core/crypto.pi:228",
               "members": []
             },
             {
@@ -13028,7 +13113,7 @@
               "signature": "additionalData?: Uint8Array",
               "doc": "<p>AES-GCM's authenticated, unencrypted data (none unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:206",
+              "source": "core/crypto.pi:230",
               "members": []
             },
             {
@@ -13037,7 +13122,7 @@
               "signature": "tagLength?: int",
               "doc": "<p>AES-GCM's tag length in bits: only 128 (the default) is supported.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:208",
+              "source": "core/crypto.pi:232",
               "members": []
             },
             {
@@ -13046,7 +13131,7 @@
               "signature": "public?: CryptoKey",
               "doc": "<p>ECDH's peer public key, for <code>deriveBits</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:210",
+              "source": "core/crypto.pi:234",
               "members": []
             },
             {
@@ -13055,7 +13140,7 @@
               "signature": "salt?: Uint8Array",
               "doc": "<p>The HKDF or PBKDF2 salt (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:212",
+              "source": "core/crypto.pi:236",
               "members": []
             },
             {
@@ -13064,7 +13149,7 @@
               "signature": "info?: Uint8Array",
               "doc": "<p>HKDF's context info (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:214",
+              "source": "core/crypto.pi:238",
               "members": []
             },
             {
@@ -13073,7 +13158,7 @@
               "signature": "iterations?: int",
               "doc": "<p>PBKDF2's iteration count.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:216",
+              "source": "core/crypto.pi:240",
               "members": []
             }
           ]
@@ -13089,7 +13174,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDH\", namedCurve: \"X25519\" }, false, [\"deriveBits\"])\nif (pair is CryptoKeyPair) {\n  println(pair.publicKey.type)    // public\n  println(pair.privateKey.type)   // private\n}"
             }
           ],
-          "source": "core/crypto.pi:229",
+          "source": "core/crypto.pi:253",
           "members": [
             {
               "name": "publicKey",
@@ -13097,7 +13182,7 @@
               "signature": "publicKey: CryptoKey",
               "doc": "<p>The public key (always extractable).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:231",
+              "source": "core/crypto.pi:255",
               "members": []
             },
             {
@@ -13106,7 +13191,7 @@
               "signature": "privateKey: CryptoKey",
               "doc": "<p>The private key (extractable as <code>generateKey</code> was told).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:233",
+              "source": "core/crypto.pi:257",
               "members": []
             }
           ]
@@ -13122,7 +13207,7 @@
               "code": "import { hex } from \"std/encoding\"\n\nconst digest = await crypto.subtle.digest(\"SHA-1\", new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(digest))   // a9993e364706816aba3e25717850c26c9cd0d89d"
             }
           ],
-          "source": "core/crypto.pi:281",
+          "source": "core/crypto.pi:305",
           "members": [
             {
               "name": "digest",
@@ -13135,7 +13220,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst data = new TextEncoder().encode(\"hello\")\nconst hash = await crypto.subtle.digest(\"SHA-256\", data)\nprintln(hex.encode(hash))   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
               ],
-              "source": "core/crypto.pi:293",
+              "source": "core/crypto.pi:317",
               "members": []
             },
             {
@@ -13149,7 +13234,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(hex.encode(tag))   // 8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b"
                 }
               ],
-              "source": "core/crypto.pi:312",
+              "source": "core/crypto.pi:336",
               "members": []
             },
             {
@@ -13163,7 +13248,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"HMAC\", hash: \"SHA-256\" }, true, [\"sign\"])\nif (key is CryptoKey) {\n  const raw = await crypto.subtle.exportKey(\"raw\", key)\n  println(raw.length)   // 32\n}"
                 }
               ],
-              "source": "core/crypto.pi:347",
+              "source": "core/crypto.pi:371",
               "members": []
             },
             {
@@ -13177,7 +13262,7 @@
                   "code": "const aes = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 128 }, false, [\"encrypt\", \"decrypt\"])\nmatch (aes) {\n  k: CryptoKey => println(`${k.algorithm.name} ${k.algorithm.length}`),   // AES-GCM 128\n  p: CryptoKeyPair => println(\"a key pair\"),\n}"
                 }
               ],
-              "source": "core/crypto.pi:363",
+              "source": "core/crypto.pi:387",
               "members": []
             },
             {
@@ -13191,7 +13276,7 @@
                   "code": "const enc = new TextEncoder()\nconst pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const data = enc.encode(\"release-1.0.tar.gz\")\n  const sig = await crypto.subtle.sign({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.privateKey, data)\n  println(sig.length)   // 64 (r ‖ s)\n  println(await crypto.subtle.verify({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.publicKey, sig, data))   // true\n}"
                 }
               ],
-              "source": "core/crypto.pi:395",
+              "source": "core/crypto.pi:419",
               "members": []
             },
             {
@@ -13205,7 +13290,7 @@
                   "code": "const enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\", \"verify\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"message\")))    // true\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"tampered\")))   // false"
                 }
               ],
-              "source": "core/crypto.pi:421",
+              "source": "core/crypto.pi:445",
               "members": []
             },
             {
@@ -13219,7 +13304,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  println(sealed.length)   // 30 (14 bytes of ciphertext + a 16-byte tag)\n}"
                 }
               ],
-              "source": "core/crypto.pi:448",
+              "source": "core/crypto.pi:472",
               "members": []
             },
             {
@@ -13233,7 +13318,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  const plain = await crypto.subtle.decrypt({ name: \"AES-GCM\", iv }, key, sealed)\n  println(new TextDecoder().decode(plain))   // attack at dawn\n}"
                 }
               ],
-              "source": "core/crypto.pi:470",
+              "source": "core/crypto.pi:499",
               "members": []
             },
             {
@@ -13247,7 +13332,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst pw = await crypto.subtle.importKey(\"raw\", enc.encode(\"password\"), \"PBKDF2\", false, [\"deriveBits\"])\nconst bits = await crypto.subtle.deriveBits({ name: \"PBKDF2\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), iterations: 1000 }, pw, 128)\nprintln(hex.encode(bits))   // 632c2812e46d4604102ba7618e9d6d7d\nconst ikm = await crypto.subtle.importKey(\"raw\", enc.encode(\"input key\"), \"HKDF\", false, [\"deriveBits\"])\nconst okm = await crypto.subtle.deriveBits({ name: \"HKDF\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), info: enc.encode(\"context\") }, ikm, 128)\nprintln(hex.encode(okm))    // 49060e83486a86844130609b08a2c02c"
                 }
               ],
-              "source": "core/crypto.pi:495",
+              "source": "core/crypto.pi:529",
               "members": []
             }
           ]
@@ -20353,7 +20438,7 @@
               "code": "const date = /(\\d{4})-(\\d{2})-(\\d{2})/\nprintln(date.test(\"on 2024-03-10\"))   // true\nconst m = date.exec(\"on 2024-03-10\")\nif (m != null) {\n  println(m[1])                       // 2024\n}\nconst word = new RegExp(\"\\\\bcat\\\\b\", \"i\")\nprintln(word.test(\"A Cat sat\"))       // true"
             }
           ],
-          "source": "core/regex.pi:1162",
+          "source": "core/regex.pi:1221",
           "members": [
             {
               "name": "source",
@@ -20361,7 +20446,7 @@
               "signature": "public readonly source: string",
               "doc": "<p>The pattern's text (<code>\"(?:)\"</code> for an empty pattern).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1164",
+              "source": "core/regex.pi:1223",
               "members": []
             },
             {
@@ -20370,7 +20455,7 @@
               "signature": "public readonly flags: string",
               "doc": "<p>The flags, in canonical order (<code>\"dgimsuvy\"</code>).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1166",
+              "source": "core/regex.pi:1225",
               "members": []
             },
             {
@@ -20379,7 +20464,7 @@
               "signature": "public lastIndex: int = 0",
               "doc": "<p>Where the next <code>exec</code> or <code>test</code> starts with the <code>g</code> or <code>y</code> flag, in code points; other regexes\nignore it.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1169",
+              "source": "core/regex.pi:1228",
               "members": []
             },
             {
@@ -20393,7 +20478,7 @@
                   "code": "const re = new RegExp(\"^[a-z]+\\\\d*$\", \"i\")\nprintln(re)                 // /^[a-z]+\\d*$/i\nprintln(re.test(\"Abc12\"))   // true\ntry {\n  const bad = new RegExp(\"a\", \"gg\")\n  println(bad)\n} catch (e: SyntaxError) {\n  println(e.message)        // Invalid flags supplied to RegExp constructor 'gg'\n}"
                 }
               ],
-              "source": "core/regex.pi:1191",
+              "source": "core/regex.pi:1250",
               "members": []
             },
             {
@@ -20407,7 +20492,7 @@
                   "code": "const re = /a+/g\nprintln(new RegExp(re))         // /a+/g\nprintln(new RegExp(re, \"i\"))    // /a+/i"
                 }
               ],
-              "source": "core/regex.pi:1211",
+              "source": "core/regex.pi:1270",
               "members": []
             },
             {
@@ -20421,7 +20506,7 @@
                   "code": "println(/o/g.global)   // true\nprintln(/o/.global)    // false"
                 }
               ],
-              "source": "core/regex.pi:1288",
+              "source": "core/regex.pi:1347",
               "members": []
             },
             {
@@ -20435,7 +20520,7 @@
                   "code": "const re = /hello/i\nprintln(re.ignoreCase)      // true\nprintln(re.test(\"HeLLo\"))   // true"
                 }
               ],
-              "source": "core/regex.pi:1297",
+              "source": "core/regex.pi:1356",
               "members": []
             },
             {
@@ -20449,7 +20534,7 @@
                   "code": "const re = /^b/m\nprintln(re.multiline)        // true\nprintln(re.test(\"a\\nb\"))     // true"
                 }
               ],
-              "source": "core/regex.pi:1306",
+              "source": "core/regex.pi:1365",
               "members": []
             },
             {
@@ -20463,7 +20548,7 @@
                   "code": "const re = /a.b/s\nprintln(re.dotAll)          // true\nprintln(re.test(\"a\\nb\"))    // true"
                 }
               ],
-              "source": "core/regex.pi:1315",
+              "source": "core/regex.pi:1374",
               "members": []
             },
             {
@@ -20477,7 +20562,7 @@
                   "code": "println(/x/u.unicode)   // true\nprintln(/x/.unicode)    // false"
                 }
               ],
-              "source": "core/regex.pi:1323",
+              "source": "core/regex.pi:1382",
               "members": []
             },
             {
@@ -20491,7 +20576,7 @@
                   "code": "const re = /\\d/y\nprintln(re.sticky)      // true\nprintln(re.test(\"a1\"))  // false\nre.lastIndex = 1\nprintln(re.test(\"a1\"))  // true"
                 }
               ],
-              "source": "core/regex.pi:1334",
+              "source": "core/regex.pi:1393",
               "members": []
             },
             {
@@ -20505,7 +20590,7 @@
                   "code": "println(/x/d.hasIndices)   // true\nprintln(/x/.hasIndices)    // false"
                 }
               ],
-              "source": "core/regex.pi:1342",
+              "source": "core/regex.pi:1401",
               "members": []
             },
             {
@@ -20519,7 +20604,7 @@
                   "code": "const re = /(\\w+)=(\\d+)/g\nconst s = \"a=1 b=22\"\nlet m = re.exec(s)\nwhile (m != null) {\n  println(`${m[1]} -> ${m[2]} at ${m.index}`)\n  m = re.exec(s)\n}\n// Prints:\n// a -> 1 at 0\n// b -> 22 at 4"
                 }
               ],
-              "source": "core/regex.pi:1398",
+              "source": "core/regex.pi:1476",
               "members": []
             },
             {
@@ -20533,7 +20618,7 @@
                   "code": "const digits = /^\\d+$/\nprintln(digits.test(\"123\"))   // true\nprintln(digits.test(\"12a\"))   // false"
                 }
               ],
-              "source": "core/regex.pi:1423",
+              "source": "core/regex.pi:1501",
               "members": []
             },
             {
@@ -20547,7 +20632,59 @@
                   "code": "const re = new RegExp(\"a/b\", \"gi\")\nprintln(re.toString())   // /a\\/b/gi\nprintln(re.source)       // a\\/b\nprintln(re.flags)        // gi"
                 }
               ],
-              "source": "core/regex.pi:1436",
+              "source": "core/regex.pi:1514",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "RegExpIndices",
+          "kind": "class",
+          "signature": "class RegExpIndices",
+          "doc": "<p>Where a <code>d</code>-flag match and its groups are (<code>RegExpMatch.indices</code>, #62): <code>[start, end]</code> in\ncode points per element (<code>null</code> for a group that didn't take part), and by group name.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const m = /(\\d+)-(\\d+)?/d.exec(\"id 12-\")\nif (m != null) {\n  const ix = m.indices\n  if (ix != null) {\n    println(`${ix.length} ${ix[0]:?} ${ix[1]:?} ${ix[2]:?}`)   // 3 [3, 6] [3, 5] null\n  }\n}"
+            }
+          ],
+          "source": "core/regex.pi:1033",
+          "members": [
+            {
+              "name": "groups",
+              "kind": "field",
+              "signature": "public readonly groups: Map<string, [int, int]?>?",
+              "doc": "<p>The named groups' positions by name, or <code>null</code> when the pattern has no named groups.</p>\n",
+              "examples": [],
+              "source": "core/regex.pi:1036",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(pairs: ([int, int]?)[], groups: Map<string, [int, int]?>?)",
+              "doc": "<p>Positions <code>pairs</code> (one per element) and the named groups'.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "// They usually come from a `d`-flag match; they can also be built directly.\nconst ix = new RegExpIndices([[0, 2], null], null)\nprintln(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null"
+                }
+              ],
+              "source": "core/regex.pi:1046",
+              "members": []
+            },
+            {
+              "name": "length",
+              "kind": "property",
+              "signature": "public get length(): int",
+              "doc": "<p>The count of elements: 1 plus the count of capture groups.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /(a)(b)?/d.exec(\"a\")\nprintln(m?.indices?.length)   // 3"
+                }
+              ],
+              "source": "core/regex.pi:1058",
               "members": []
             }
           ]
@@ -20563,7 +20700,7 @@
               "code": "const m = /(?<year>\\d{4})-(\\d{2})/.exec(\"due 2024-03\")\nif (m != null) {\n  println(m[0])                       // 2024-03\n  println(m[2])                       // 03\n  println(m.index)                    // 4\n  println(m.groups?.get(\"year\"))      // 2024\n}"
             }
           ],
-          "source": "core/regex.pi:1034",
+          "source": "core/regex.pi:1081",
           "members": [
             {
               "name": "index",
@@ -20571,7 +20708,7 @@
               "signature": "public readonly index: int",
               "doc": "<p>Where the match starts in <code>input</code>, in code points (-1 for a <code>g</code>-flag <code>string.match</code> result).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1037",
+              "source": "core/regex.pi:1084",
               "members": []
             },
             {
@@ -20580,7 +20717,7 @@
               "signature": "public readonly input: string",
               "doc": "<p>The string that was searched.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1039",
+              "source": "core/regex.pi:1086",
               "members": []
             },
             {
@@ -20589,7 +20726,21 @@
               "signature": "public readonly groups: Map<string, string?>?",
               "doc": "<p>The named groups' texts by name (<code>null</code> for one that didn't take part), or <code>null</code> when the\npattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1042",
+              "source": "core/regex.pi:1089",
+              "members": []
+            },
+            {
+              "name": "indices",
+              "kind": "field",
+              "signature": "public indices: RegExpIndices? = null",
+              "doc": "<p>With the <code>d</code> flag (#62): where the match and each group start and end, in code points\n(<code>null</code> without it).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /a(?<b>b+)/d.exec(\"xabb\")\nif (m != null) {\n  println(`${m.indices?.[0]:?} ${m.indices?.[1]:?}`)    // [1, 4] [2, 4]\n  println(`${m.indices?.groups?.get(\"b\"):?}`)           // [2, 4]\n}"
+                }
+              ],
+              "source": "core/regex.pi:1101",
               "members": []
             },
             {
@@ -20603,7 +20754,7 @@
                   "code": "// Matches usually come from `exec` or `string.match`; one can also be built directly.\nconst m = new RegExpMatch([\"ab\", \"b\"], 3, \"xxxab\", null)\nprintln(m[0])      // ab\nprintln(m.index)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1053",
+              "source": "core/regex.pi:1112",
               "members": []
             },
             {
@@ -20617,7 +20768,7 @@
                   "code": "const m = /(\\w+)@(\\w+)/.exec(\"mail ann@home\")\nif (m != null) {\n  println(m.length)   // 3\n}"
                 }
               ],
-              "source": "core/regex.pi:1069",
+              "source": "core/regex.pi:1128",
               "members": []
             },
             {
@@ -20631,7 +20782,7 @@
                   "code": "const m = /(\\d+)x(\\d+)?/.exec(\"size 640x\")\nif (m != null) {\n  const parts = m.toArray()\n  println(parts.length)                               // 3\n  println(parts.map(s => s ?? \"(none)\").join(\", \"))   // 640x, 640, (none)\n}"
                 }
               ],
-              "source": "core/regex.pi:1088",
+              "source": "core/regex.pi:1147",
               "members": []
             },
             {
@@ -20645,7 +20796,7 @@
                   "code": "const m = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(\"2024-03-10\")\nif (m != null) {\n  for (const part of m) {\n    println(part)\n  }\n}\n// Prints:\n// 2024-03-10\n// 2024\n// 03\n// 10"
                 }
               ],
-              "source": "core/regex.pi:1108",
+              "source": "core/regex.pi:1167",
               "members": []
             }
           ]

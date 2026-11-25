@@ -1,0 +1,44 @@
+// expect: cbc 7649abac8119b246cee98e9b12e9197d 32
+// expect: cbc round trip: attack at dawn
+// expect: cbc bad padding: AuthenticationFailed
+// expect: ctr 874d6191b620e3261bef6864990db6ce 16
+// expect: ctr round trip: attack at dawn
+// expect: ctr wrap: ok
+// AES-CBC and AES-CTR (#69) against NIST SP 800-38A's vectors (F.2.1 and F.5.1, the first
+// block of each); PKCS#7 padding (a whole block of it after an exact block), a wrong padding,
+// and an 8-bit counter that wraps within its bits (…ff, then …00, nothing carried).
+import { hex } from "std/encoding"
+
+async function main(): Promise<void> throws Error {
+  const key = hex.decode("2b7e151628aed2a6abf7158809cf4f3c")
+  const block1 = hex.decode("6bc1bee22e409f96e93d7e117393172a")
+  const enc = new TextEncoder()
+  const dec = new TextDecoder()
+
+  const cbc = await crypto.subtle.importKey("raw", key, "AES-CBC", false, ["encrypt", "decrypt"])
+  const iv = hex.decode("000102030405060708090a0b0c0d0e0f")
+  const c1 = await crypto.subtle.encrypt({ name: "AES-CBC", iv }, cbc, block1)
+  println(`cbc ${hex.encode(c1.slice(0, 16))} ${c1.length}`)
+  const sealed = await crypto.subtle.encrypt({ name: "AES-CBC", iv }, cbc, enc.encode("attack at dawn"))
+  println(`cbc round trip: ${dec.decode(await crypto.subtle.decrypt({ name: "AES-CBC", iv }, cbc, sealed))}`)
+  const broken = c1.slice(0)
+  broken.set(31, broken.get(31) ^ 1)
+  try {
+    await crypto.subtle.decrypt({ name: "AES-CBC", iv }, cbc, broken)
+    println("cbc bad padding: accepted")
+  } catch (e: CryptoError) {
+    println(`cbc bad padding: ${e.kind}`)
+  }
+
+  const ctr = await crypto.subtle.importKey("raw", key, "AES-CTR", false, ["encrypt", "decrypt"])
+  const counter = hex.decode("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff")
+  const s1 = await crypto.subtle.encrypt({ name: "AES-CTR", counter, length: 64 }, ctr, block1)
+  println(`ctr ${hex.encode(s1)} ${s1.length}`)
+  const s2 = await crypto.subtle.encrypt({ name: "AES-CTR", counter, length: 64 }, ctr, enc.encode("attack at dawn"))
+  println(`ctr round trip: ${dec.decode(await crypto.subtle.decrypt({ name: "AES-CTR", counter, length: 64 }, ctr, s2))}`)
+
+  const two = await crypto.subtle.encrypt({ name: "AES-CTR", counter: hex.decode("000000000000000000000000000000ff"), length: 8 }, ctr, new Uint8Array(32))
+  const from0 = await crypto.subtle.encrypt({ name: "AES-CTR", counter: new Uint8Array(16), length: 8 }, ctr, new Uint8Array(16))
+  println(`ctr wrap: ${if (hex.encode(two.slice(16)) == hex.encode(from0)) "ok" else "wrong"}`)
+}
+await main()

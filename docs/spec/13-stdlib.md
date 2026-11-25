@@ -495,7 +495,7 @@ and lookbehind (`(?=…)`, `(?!…)`, `(?<=…)`, `(?<!…)`), classes (`[a-z]`,
 \S`, `.`), anchors (`^ $ \b \B`) and escapes (`\n \t \xHH \uHHHH \u{H…} \cX`). Captures inside a
 repeated group are reset at each repetition and an iteration that matches nothing ends the
 loop, as in JavaScript. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
-(`^`/`$` at line ends), `s` (`.` matches line ends), `y` (sticky), `u`, `v`, `d` (accepted).
+(`^`/`$` at line ends), `s` (`.` matches line ends), `y` (sticky), `u`, `v`, `d` (match indices).
 Matching is by code point, as if `u` were always on (`.` is one character), and indices count
 code points, as pico strings do.
 
@@ -507,7 +507,9 @@ A regex literal (`/\d+/g`) is checked at compile time (E0010, with JavaScript's 
 `lastIndex`, `exec(s): RegExpMatch?` (from `lastIndex` with `g`/`y`, which it updates), `test(s)`
 and `toString()`. A `RegExpMatch` is array-like: `m[0]` is the match, `m[i]` group `i` (`string?`:
 `null` when the group didn't take part), `length`, `index`, `input`, `groups` (named groups:
-`Map<string, string?>?`), `toArray()`, `for…of`.
+`Map<string, string?>?`), `indices` (with `d`, #62: a `RegExpIndices`, `[start, end]` in code
+points per element, `null` for a group that didn't take part, and `indices.groups` by name;
+`null` without `d`), `toArray()`, `for…of`.
 
 String methods take a `string` or a `RegExp`: `replace(search, replacement)` (the first
 occurrence; every match with `g`), `replaceAll(search, replacement)` (a `RegExp` must have `g`,
@@ -620,9 +622,10 @@ combining marks; 2 for East Asian wide characters and emoji). Decision 344.
 Both the `crypto` global and `std/crypto` run on Mbed TLS (3.6 LTS, vendored in
 `third_party/mbedtls`), natively and in the interpreter alike. The global follows Web Crypto:
 `getRandomValues(u8)` (at most 65536 bytes), `randomUUID()` and `subtle`. `subtle` has
-`digest`, `importKey`/`exportKey` (`"raw"` only), `generateKey` (HMAC, AES-GCM; ECDSA P-256/P-384
+`digest`, `importKey`/`exportKey` (`"raw"` only), `generateKey` (HMAC, AES-GCM, AES-CBC, AES-CTR; ECDSA P-256/P-384
 and ECDH P-256/P-384/X25519 key pairs), `sign`/`verify` (HMAC; ECDSA with `r ‖ s` signatures),
-`encrypt`/`decrypt` (AES-GCM, 128-bit tags) and `deriveBits` (ECDH, HKDF, PBKDF2). Algorithm
+`encrypt`/`decrypt` (AES-GCM, 128-bit tags; AES-CBC with `iv` and PKCS#7 padding, a wrong padding
+rejecting as `AuthenticationFailed`; AES-CTR with `counter` and its `length` in bits, #69) and `deriveBits` (ECDH, HKDF, PBKDF2). Algorithm
 parameters are one struct, `Algorithm`, built from object literals (`{ name: "AES-GCM", iv }`).
 Results are `Uint8Array`s, failures reject with `CryptoError` (`kind`: `InvalidArgument`,
 `InvalidAccess`, `AuthenticationFailed`, `Internal`), and `CryptoKey` holds its bytes. A key's
