@@ -4,8 +4,33 @@
 use pico_diag::{Diagnostic, FileId, SourceMap, Span, codes};
 use pico_sema::{Import, Modules};
 use pico_syntax::ast::{self, DeclKind, StmtKind};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+thread_local! {
+    /// Module texts that stand in for the files on disk (by canonical path): the editor's
+    /// unsaved buffers, for the language server (#81). See [`with_overlay`].
+    static OVERLAY: RefCell<HashMap<PathBuf, String>> = RefCell::new(HashMap::new());
+}
+
+/// Runs `f` (a check) with `files` read in place of the disk's versions of those paths when
+/// imported. Paths are canonicalized; the overlay is cleared afterwards, even on a panic.
+pub fn with_overlay<R>(files: HashMap<PathBuf, String>, f: impl FnOnce() -> R) -> R {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            OVERLAY.with(|o| o.borrow_mut().clear());
+        }
+    }
+    let files = files
+        .into_iter()
+        .map(|(p, t)| (pico_runtime::canonical(&p).unwrap_or(p), t))
+        .collect();
+    OVERLAY.with(|o| *o.borrow_mut() = files);
+    let _reset = Reset;
+    f()
+}
 
 /// The bundled standard library (`std/…` imports).
 pub fn stdlib_dir() -> PathBuf {
@@ -253,6 +278,7 @@ impl Loader<'_> {
                         for n in names {
                             let alias = n.alias.as_ref().unwrap_or(&n.name);
                             exports.insert(alias.name.clone(), n.name.name.clone());
+                            self.modules.export_names.push((f, n.name.clone()));
                         }
                     }
                     // `export { a } from "./x"`: imported and exported.
@@ -396,7 +422,8 @@ impl Loader<'_> {
             // Already loaded (or being loaded: an import cycle, which is fine for declarations).
             return Some(f);
         }
-        let text = match std::fs::read_to_string(path) {
+        let overlaid = OVERLAY.with(|o| o.borrow().get(&canon).cloned());
+        let text = match overlaid.map_or_else(|| std::fs::read_to_string(path), Ok) {
             Ok(t) => t,
             Err(e) => {
                 self.diags.push(

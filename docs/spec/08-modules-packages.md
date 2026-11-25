@@ -14,7 +14,9 @@ import * as geo from "./geometry"
 import { dot as dotProduct } from "./geometry"
 export { Vec2 } from "./geometry"           // re-export
 ```
-There's no `export default`. Everything is exported by name.
+There's no `export default`. Everything is exported by name. A namespace import (`geo`) names
+the module's exported values (`geo.dot`), types (`geo.Vec2`), and enums' variants and static
+methods (`geo.Axis.X`, `geo.Shape.unit()`; #81).
 
 ### Specifier resolution
 | Specifier | Resolves to |

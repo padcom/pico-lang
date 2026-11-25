@@ -1,0 +1,11 @@
+export enum Axis {
+  X,
+  Y
+}
+
+export enum Shape {
+  Circle(r: f64),
+  Rect(w: f64, h: f64)
+
+  public static unit(): Shape { return Shape.Rect(w: 1.0, h: 1.0) }
+}
