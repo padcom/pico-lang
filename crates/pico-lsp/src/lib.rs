@@ -1,7 +1,7 @@
 //! The pico language server (`pico lsp`, spec §14.1; PLAN P10.6b): JSON-RPC over stdio, as the
 //! Language Server Protocol frames it (`Content-Length` headers).
 //!
-//! Documents are synced whole (`TextDocumentSyncKind.Full`). After a change the server waits
+//! Documents are synced incrementally (`TextDocumentSyncKind.Incremental`, #81). After a change the server waits
 //! until edits pause ([`DEBOUNCE`]), runs the front end (`pico_driver::check_source_with`) on
 //! each changed document and publishes the diagnostics of every file they reach (imported
 //! modules too). `textDocument/formatting` runs the formatter (P10.1) with the document's
@@ -21,7 +21,7 @@ mod uri;
 
 use pico_diag::{Diagnostic, Severity, SourceMap};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -91,8 +91,12 @@ pub fn write_message(out: &mut impl Write, msg: &Value) -> std::io::Result<()> {
 /// `exit`, or when `rx` closes.
 pub fn serve(rx: Receiver<Value>, mut send: impl FnMut(Value)) {
     let mut s = Server::default();
+    // Messages read ahead (to see cancellations of the requests before them).
+    let mut queued: VecDeque<Value> = VecDeque::new();
     loop {
-        let msg = if s.dirty.is_empty() {
+        let msg = if let Some(m) = queued.pop_front() {
+            m
+        } else if s.dirty.is_empty() {
             match rx.recv() {
                 Ok(m) => m,
                 Err(_) => return,
@@ -110,11 +114,26 @@ pub fn serve(rx: Receiver<Value>, mut send: impl FnMut(Value)) {
                 }
             }
         };
+        // A request the client has cancelled already (#81): `RequestCancelled`, not done.
+        if msg.get("method").is_some() && !msg["id"].is_null() {
+            queued.extend(rx.try_iter());
+            let cancelled = queued
+                .iter()
+                .any(|m| m["method"] == "$/cancelRequest" && m["params"]["id"] == msg["id"]);
+            if cancelled {
+                send(json!({ "jsonrpc": "2.0", "id": msg["id"], "error": {
+                    "code": REQUEST_CANCELLED, "message": "cancelled" } }));
+                continue;
+            }
+        }
         if s.handle(msg, &mut send) {
             return;
         }
     }
 }
+
+/// LSP's `RequestCancelled` error code.
+const REQUEST_CANCELLED: i64 = -32800;
 
 #[derive(Default)]
 struct Server {
@@ -142,7 +161,7 @@ impl Server {
                 "id": id,
                 "result": {
                     "capabilities": {
-                        "textDocumentSync": { "openClose": true, "change": 1, "save": true },
+                        "textDocumentSync": { "openClose": true, "change": 2, "save": true },
                         "documentFormattingProvider": true,
                         "hoverProvider": true,
                         "definitionProvider": true,
@@ -168,14 +187,17 @@ impl Server {
             }
             ("textDocument/didChange", None) => {
                 let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
-                // (Full sync: the last change is the whole text.)
-                if let Some(text) = params["contentChanges"]
-                    .as_array()
-                    .and_then(|c| c.last())
-                    .and_then(|c| c["text"].as_str())
+                // Incremental sync (#81): each change replaces a range, or (without one) the
+                // whole text, in order.
+                let changes = params["contentChanges"].as_array().cloned();
+                if let Some(text) = self.docs.get_mut(uri)
+                    && let Some(changes) = changes
                 {
-                    self.docs.insert(uri.to_string(), text.to_string());
-                    self.dirty.insert(uri.to_string());
+                    for c in &changes {
+                        apply_change(text, c);
+                    }
+                    // (Other open documents may import this one: they see its unsaved text.)
+                    self.dirty.extend(self.docs.keys().cloned());
                 }
             }
             ("textDocument/didSave", None) | ("workspace/didChangeWatchedFiles", None) => {
@@ -248,7 +270,10 @@ impl Server {
                     let offset = offset_of(text, line, character)? as usize;
                     let path = uri_to_path(uri).unwrap_or_else(|| PathBuf::from("untitled.pi"));
                     let trigger = params["context"]["triggerCharacter"].as_str();
-                    Some(complete::complete(&path, text, offset, trigger))
+                    let overlay = self.overlay(uri);
+                    Some(pico_driver::with_overlay(overlay, || {
+                        complete::complete(&path, text, offset, trigger)
+                    }))
                 });
                 let result = json!({ "isIncomplete": false, "items": items.unwrap_or_default() });
                 send(json!({ "jsonrpc": "2.0", "id": id, "result": result }));
@@ -304,12 +329,23 @@ impl Server {
         false
     }
 
+    /// The other open documents' texts by path, which imports read instead of the disk
+    /// (their unsaved edits, #81).
+    fn overlay(&self, except: &str) -> HashMap<PathBuf, String> {
+        self.docs
+            .iter()
+            .filter(|(u, _)| u.as_str() != except)
+            .filter_map(|(u, t)| Some((uri_to_path(u)?, t.clone())))
+            .collect()
+    }
+
     fn check_dirty(&mut self, send: &mut impl FnMut(Value)) {
         for uri in std::mem::take(&mut self.dirty) {
             let Some(text) = self.docs.get(&uri).cloned() else {
                 continue;
             };
-            let (by_uri, index) = check(&uri, &text);
+            let overlay = self.overlay(&uri);
+            let (by_uri, index) = pico_driver::with_overlay(overlay, || check(&uri, &text));
             if let Some(i) = index {
                 self.indexes.insert(uri.clone(), i);
             }
@@ -557,6 +593,27 @@ fn file_uri(sm: &SourceMap, file: pico_diag::FileId) -> Option<String> {
 }
 
 /// The byte offset of an LSP position (UTF-16 code units in the line).
+/// One `contentChanges` entry applied to `text`: its `text` in place of its `range`, or of
+/// the whole document when it has none. A range outside the text is clamped to its end.
+fn apply_change(text: &mut String, change: &Value) {
+    let Some(new) = change["text"].as_str() else {
+        return;
+    };
+    let r = &change["range"];
+    if r.is_null() {
+        *text = new.to_string();
+        return;
+    }
+    let at = |p: &Value| {
+        let line = p["line"].as_u64().unwrap_or(0) as usize;
+        let ch = p["character"].as_u64().unwrap_or(0) as usize;
+        offset_of(text, line, ch).map_or(text.len(), |o| o as usize)
+    };
+    let (start, end) = (at(&r["start"]), at(&r["end"]));
+    let (start, end) = (start.min(end), start.max(end));
+    text.replace_range(start..end, new);
+}
+
 fn offset_of(text: &str, line: usize, character: usize) -> Option<u32> {
     let mut start = 0;
     for _ in 0..line {
