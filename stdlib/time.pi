@@ -45,6 +45,42 @@ export struct DurationParts {
   nanoseconds?: int
 }
 
+/// Nanoseconds per `unit` for `round` (#61): `"nanosecond"` up to `"hour"`, singular or plural.
+function __unitNs(unit: string): int throws RangeError {
+  match (unit) {
+    "nanosecond" | "nanoseconds" => 1,
+    "microsecond" | "microseconds" => 1000,
+    "millisecond" | "milliseconds" => 1000000,
+    "second" | "seconds" => 1000000000,
+    "minute" | "minutes" => 60000000000,
+    "hour" | "hours" => 3600000000000,
+    _ => throw new RangeError(`can't round to ${unit:?} (nanosecond … hour)`),
+  }
+}
+
+/// `n` rounded to a multiple of `step` (> 0) by Temporal's rounding mode `mode` (#61).
+function __roundNs(n: int, step: int, mode: string): int throws RangeError {
+  const r = ((n % step) + step) % step
+  const down = n - r
+  const up = if (r == 0) down else down + step
+  const away = if (n >= 0) up else down
+  const toward = if (n >= 0) down else up
+  const tie = 2 * r == step
+  const near = if (2 * r < step) down else up
+  match (mode) {
+    "floor" => down,
+    "ceil" => up,
+    "trunc" => toward,
+    "expand" => away,
+    "halfFloor" => if (tie) down else near,
+    "halfCeil" => if (tie) up else near,
+    "halfTrunc" => if (tie) toward else near,
+    "halfExpand" => if (tie) away else near,
+    "halfEven" => if (tie) (if ((down / step) % 2 == 0) down else up) else near,
+    _ => throw new RangeError(`unknown rounding mode ${mode:?}`),
+  }
+}
+
 /// An exact length of time in nanoseconds (negative ones too). A day is 24 hours here;
 /// calendar days (which can be 23 or 25 hours long) are `DateTime.plus({ days })`.
 ///
@@ -306,6 +342,25 @@ export class Duration {
   /// println(Duration.parse("PT1.2345S").toMilliseconds())   // 1234
   /// ```
   public toMilliseconds(): int { return this.nanoseconds / NS_PER_MS }
+  /// Rounded to a multiple of `increment` `smallestUnit`s (`"nanosecond"` … `"hour"`) by
+  /// `roundingMode` (Temporal's: `"halfExpand"` by default, `"halfEven"`, `"halfTrunc"`,
+  /// `"halfCeil"`, `"halfFloor"`, `"ceil"`, `"floor"`, `"trunc"`, `"expand"`; #61). Throws a
+  /// `RangeError` for another unit or mode, or an `increment` below 1.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// const d = Duration.ofMilliseconds(1500)
+  /// println(d.round("second"))                     // PT2S
+  /// println(d.round("second", "trunc"))            // PT1S
+  /// println(Duration.ofMinutes(52).round("minute", "halfExpand", 15))   // PT45M
+  /// ```
+  public round(smallestUnit: string, roundingMode: string = "halfExpand", increment: int = 1): Duration throws RangeError {
+    if (increment < 1) throw new RangeError("the rounding increment must be at least 1")
+    new Duration(__roundNs(this.nanoseconds, __unitNs(smallestUnit) * increment, roundingMode))
+  }
+
   /// The length in milliseconds, with a fraction.
   ///
   /// @example
@@ -624,6 +679,22 @@ export class Instant {
   /// println(start.since(end))   // -PT1H45M30S
   /// ```
   public since(other: Instant): Duration { new Duration(this.epochNanoseconds - other.epochNanoseconds) }
+
+  /// Rounded to a multiple of `increment` `smallestUnit`s since the epoch (`"nanosecond"` …
+  /// `"hour"`), as `Duration.round` (#61).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Instant } from "std/time"
+  ///
+  /// const t = Instant.parse("2024-05-01T10:17:31.6Z")
+  /// println(t.round("second"))                       // 2024-05-01T10:17:32Z
+  /// println(t.round("minute", "floor", 15))          // 2024-05-01T10:15:00Z
+  /// ```
+  public round(smallestUnit: string, roundingMode: string = "halfExpand", increment: int = 1): Instant throws RangeError {
+    if (increment < 1) throw new RangeError("the rounding increment must be at least 1")
+    new Instant(__roundNs(this.epochNanoseconds, __unitNs(smallestUnit) * increment, roundingMode))
+  }
   /// The time from this instant to `other`.
   ///
   /// @example
