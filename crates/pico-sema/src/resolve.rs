@@ -2435,10 +2435,6 @@ impl Resolver {
             let key = self.param_key(f);
             self.method_params.insert(id, key.clone());
             let is_abstract = f.body.is_none();
-            if !is_abstract && !d.generics.is_empty() {
-                // (Its body would need an instance per implementation's type arguments.)
-                self.not_implemented(f.span, "default methods in generic interfaces");
-            }
             let inherited_one = methods.iter().filter(|(n, _)| *n == name.name).count() == 1
                 && d.members
                     .iter()
