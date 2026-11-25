@@ -734,7 +734,8 @@ struct Cx<'a> {
     #[allow(dead_code)]
     reported: HashSet<(u32, u32)>,
     /// The (implementing type, interface) pairs that need an itable, by itable index.
-    itables: Vec<(StructId, StructId)>,
+    /// (implementer, its type arguments when it's generic (#51), interface).
+    itables: Vec<(StructId, Vec<Ty>, StructId)>,
     /// The MIR id of the function being lowered.
     cur_mir: FnId,
     /// Generator step functions (by MIR id): the frame slots after the captures in their
@@ -1397,14 +1398,66 @@ impl Cx<'_> {
     }
 
     /// The itable index for `imp` (a struct or class) used as interface `iface`.
-    fn itable(&mut self, imp: StructId, iface: StructId) -> u32 {
-        match self.itables.iter().position(|p| *p == (imp, iface)) {
-            Some(i) => i as u32,
-            None => {
-                self.itables.push((imp, iface));
-                self.itables.len() as u32 - 1
+    fn itable(&mut self, imp: StructId, args: &[Ty], iface: StructId) -> u32 {
+        if let Some(i) = self
+            .itables
+            .iter()
+            .position(|(a, xs, b)| *a == imp && xs[..] == *args && *b == iface)
+        {
+            return i as u32;
+        }
+        // A generic implementer's methods, and a generic interface's defaults, are instances:
+        // made now, while lowering still lowers the instances it asks for (`build_itables` runs
+        // after).
+        let idef = self.program.struct_def(iface);
+        let wanted: Vec<(String, FnId)> = idef.methods.clone();
+        for (name, ifn) in wanted {
+            match self.impl_method(imp, iface, ifn, &name) {
+                Some(f) if !args.is_empty() => {
+                    self.instance(f, vec![(Ty::type_owner(imp), args.to_vec())]);
+                }
+                Some(_) => {}
+                None => {
+                    let d = if self.program.struct_def(iface).methods_named(&name).len() > 1 {
+                        ifn
+                    } else {
+                        self.default_method(imp, &name).unwrap_or(ifn)
+                    };
+                    self.default_entry(imp, args, d);
+                }
             }
         }
+        self.itables.push((imp, args.to_vec(), iface));
+        self.itables.len() as u32 - 1
+    }
+
+    /// The itable entry for the interface default `d` when `imp<args>` doesn't implement the
+    /// method: `d` itself, or its instance when its interface is generic (#51).
+    fn default_entry(&mut self, imp: StructId, args: &[Ty], d: FnId) -> FnId {
+        match self.program.method_subst(imp, args, d) {
+            Some(subst) => self.instance(d, vec![subst]),
+            None => d,
+        }
+    }
+
+    /// The generic function an instance id stands for (other ids are themselves).
+    fn generic_of(&self, f: FnId) -> FnId {
+        let base = self.program.fns.len();
+        match (f.0 as usize).checked_sub(base) {
+            Some(i) if i < self.instances.len() => self.instances[i].0,
+            _ => f,
+        }
+    }
+
+    /// The method of `imp` implementing interface method `ifn` (named `name`), if it has one.
+    fn impl_method(&self, imp: StructId, iface: StructId, ifn: FnId, name: &str) -> Option<FnId> {
+        let def = self.program.struct_def(imp);
+        let idef = self.program.struct_def(iface);
+        let chosen = self.types.impl_methods.get(&(imp, ifn)).copied();
+        // With overloads, only the one the type checker paired implements it.
+        let overloaded = idef.methods_named(name).len() > 1 || def.methods_named(name).len() > 1;
+        let single = if overloaded { None } else { def.method(name) };
+        chosen.or(single)
     }
 
     /// Builds every requested itable. An implementer's method gets an adapter function that
@@ -1414,27 +1467,36 @@ impl Cx<'_> {
         let mut out = Vec::new();
         let mut i = 0;
         while i < self.itables.len() {
-            let (imp, iface) = self.itables[i];
+            let (imp, ref imp_args, iface) = self.itables[i];
+            let imp_args = imp_args.clone();
             let idef = self.program.struct_def(iface);
             let def = self.program.struct_def(imp);
             let mut entries = Vec::new();
             for (name, ifn) in &idef.methods {
-                let chosen = self.types.impl_methods.get(&(imp, *ifn)).copied();
-                // With overloads, only the one the type checker paired implements it.
-                let overloaded =
-                    idef.methods_named(name).len() > 1 || def.methods_named(name).len() > 1;
-                let single = if overloaded { None } else { def.method(name) };
-                let entry = match chosen.or(single) {
+                let entry = match self.impl_method(imp, iface, *ifn, name) {
                     Some(f) => {
-                        let slot = def.slot_of(f).filter(|_| def.is_class);
+                        let slot = def
+                            .slot_of(f)
+                            .filter(|_| def.is_class && imp_args.is_empty());
+                        // (A generic implementer's method: its instance, made by `itable`.)
+                        let f = if imp_args.is_empty() {
+                            f
+                        } else {
+                            self.instance(f, vec![(Ty::type_owner(imp), imp_args.clone())])
+                        };
                         let id = FnId(fns.len() as u32);
-                        let adapter = self.adapter(imp, iface, *ifn, f, slot, fns);
+                        let adapter = self.adapter(imp, &imp_args, iface, *ifn, f, slot, fns);
                         fns.push(adapter);
                         id
                     }
                     // (An overloaded name: the interface method's own default, by its id.)
-                    None if idef.methods_named(name).len() > 1 => *ifn,
-                    None => self.default_method(imp, name).unwrap_or(*ifn),
+                    None if idef.methods_named(name).len() > 1 => {
+                        self.default_entry(imp, &imp_args, *ifn)
+                    }
+                    None => {
+                        let d = self.default_method(imp, name).unwrap_or(*ifn);
+                        self.default_entry(imp, &imp_args, d)
+                    }
                 };
                 entries.push(entry);
             }
@@ -1456,9 +1518,11 @@ impl Cx<'_> {
     }
 
     /// `fn(self: Iface, args…) { return method(IfaceData(self), args…) }`
+    #[allow(clippy::too_many_arguments)]
     fn adapter(
         &mut self,
         imp: StructId,
+        imp_args: &[Ty],
         iface: StructId,
         ifn: FnId,
         method: FnId,
@@ -1467,16 +1531,21 @@ impl Cx<'_> {
     ) -> mir::Function {
         let mut sig = self.sig(ifn);
         // A generic interface's method, with the type arguments `imp` implements it with (#51).
-        if let Some((o, targs)) = self.program.method_subst(imp, &[], ifn) {
+        if let Some((o, targs)) = self.program.method_subst(imp, imp_args, ifn) {
             sig.params = sig.params.iter().map(|p| p.subst(o, &targs)).collect();
             sig.ret = sig.ret.subst(o, &targs);
         }
         let sig = &sig;
         let def = self.program.struct_def(imp);
+        let imp_ty = match self.program.struct_ty(imp) {
+            Ty::Class(s, n, _) if !imp_args.is_empty() => Ty::Class(s, n, imp_args.into()),
+            Ty::Struct(s, n, _) if !imp_args.is_empty() => Ty::Struct(s, n, imp_args.into()),
+            t => t,
+        };
         let data_ty = if def.is_class {
-            self.program.struct_ty(imp)
+            imp_ty
         } else {
-            Ty::Ref(Box::new(self.program.struct_ty(imp)))
+            Ty::Ref(Box::new(imp_ty))
         };
         let mut locals = vec![LocalDecl {
             ty: self.program.struct_ty(iface),
@@ -1536,7 +1605,7 @@ impl Cx<'_> {
                 "{}.{}<{}>",
                 def.name,
                 self.program
-                    .func(method)
+                    .func(self.generic_of(method))
                     .name
                     .rsplit('.')
                     .next()
@@ -3056,8 +3125,10 @@ impl FnBuilder<'_, '_> {
                 span,
             );
         }
-        if let (Ty::Class(imp, _, _) | Ty::Struct(imp, _, _), Ty::Iface(iface, _, _)) = (from, to) {
-            let it = self.cx.itable(*imp, *iface);
+        if let (Ty::Class(imp, _, args) | Ty::Struct(imp, _, args), Ty::Iface(iface, _, _)) =
+            (from, to)
+        {
+            let it = self.cx.itable(*imp, args, *iface);
             return self.rvalue_to_temp(Rvalue::ToIface(v, it), to.clone(), span);
         }
         match (from, to) {

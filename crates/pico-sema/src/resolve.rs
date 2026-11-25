@@ -2435,10 +2435,6 @@ impl Resolver {
             let key = self.param_key(f);
             self.method_params.insert(id, key.clone());
             let is_abstract = f.body.is_none();
-            if !is_abstract && !d.generics.is_empty() {
-                // (Its body would need an instance per implementation's type arguments.)
-                self.not_implemented(f.span, "default methods in generic interfaces");
-            }
             let inherited_one = methods.iter().filter(|(n, _)| *n == name.name).count() == 1
                 && d.members
                     .iter()
@@ -2631,10 +2627,11 @@ impl Resolver {
     fn class_members<'a>(&mut self, sid: StructId, cd: &'a ast::ClassDecl) -> ClassInfo<'a> {
         let generics = self.type_params(&cd.generics, &[], Ty::type_owner(sid));
         self.structs[sid.0 as usize].generics = generics;
+        // (A generic class implements interfaces, #51; its base class isn't done yet.)
         if let Some(g) = cd.generics.first()
-            && (cd.extends.is_some() || !cd.implements.is_empty())
+            && cd.extends.is_some()
         {
-            self.not_implemented(g.span, "generic classes with `extends` or `implements`");
+            self.not_implemented(g.span, "generic classes with `extends`");
         }
         let base = self.structs[sid.0 as usize].base;
         if let Some(b) = base {
