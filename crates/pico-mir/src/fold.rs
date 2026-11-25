@@ -124,9 +124,10 @@ impl Folder {
         // Checks of constants (#55): a bounds check, and whether checked arithmetic overflows
         // (as the interpreter decides it: the exact result outside the type's range).
         let flag = match &st.rvalue {
-            Rvalue::InBounds(Operand::Const(Const::Int(i, _)), Operand::Const(Const::Int(n, _))) => {
-                Some(0 <= *i && i < n)
-            }
+            Rvalue::InBounds(
+                Operand::Const(Const::Int(i, _)),
+                Operand::Const(Const::Int(n, _)),
+            ) => Some(0 <= *i && i < n),
             Rvalue::Overflows(
                 op,
                 Operand::Const(Const::Int(a, it)),
