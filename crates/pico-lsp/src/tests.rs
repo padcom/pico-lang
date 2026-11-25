@@ -609,6 +609,17 @@ fn complete_with(
     files: &[(&str, &str)],
     context: Value,
 ) -> (Vec<String>, Vec<Value>) {
+    complete_from(name, text, files, context, init())
+}
+
+/// As [`complete_with`], after the client's `initialize` request `initialize`.
+fn complete_from(
+    name: &str,
+    text: &str,
+    files: &[(&str, &str)],
+    context: Value,
+    initialize: Value,
+) -> (Vec<String>, Vec<Value>) {
     let dir = tmp(name);
     for (f, t) in files {
         let path = dir.join(f);
@@ -624,7 +635,7 @@ fn complete_with(
         .sum();
     let uri = path_to_uri(&dir.join("main.pi"));
     let out = session(vec![
-        init(),
+        initialize,
         open(&uri, &text),
         json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {
             "textDocument": { "uri": uri }, "position": { "line": line, "character": character },
@@ -1485,4 +1496,46 @@ fn hover_on_reactive_bindings() {
         hover_text(&out, 6),
         "```pico\nreactive count: Reactive<i64>\n```"
     );
+}
+
+/// Completion snippets (#81): with a client that takes them, functions and methods insert a
+/// call with their parameters as placeholders; not without, nor when a `(` follows already.
+#[test]
+fn completion_snippets() {
+    let snippet_client = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "capabilities": { "textDocument": { "completion": {
+            "completionItem": { "snippetSupport": true } } } } } });
+    let src = "function add(a: i32, b: i32): i32 { return a + b }\nfunction first<T>(xs: T[], ...more: T[]): T { return xs[0] }\nfunction now(): i32 { return 0 }\nclass C {\n  public bump(by: int): int { return by }\n}\nconst c = new C()\n";
+    let snip = |name, tail: &str, client: &Value| {
+        let (_, items) = complete_from(
+            name,
+            &format!("{src}{tail}"),
+            &[],
+            json!({}),
+            client.clone(),
+        );
+        items
+    };
+    let items = snip("snip_fn", "‸\n", &snippet_client);
+    let insert =
+        |items: &[Value], l: &str| item(items, l)["insertText"].as_str().map(str::to_string);
+    assert_eq!(
+        insert(&items, "add").as_deref(),
+        Some("add(${1:a}, ${2:b})$0")
+    );
+    assert_eq!(
+        insert(&items, "first").as_deref(),
+        Some("first(${1:xs}, ${2:more})$0")
+    );
+    assert_eq!(insert(&items, "now").as_deref(), Some("now()$0"));
+    assert_eq!(item(&items, "add")["insertTextFormat"], 2);
+    assert_eq!(insert(&items, "c"), None); // (not a function)
+    let items = snip("snip_method", "c.‸\n", &snippet_client);
+    assert_eq!(insert(&items, "bump").as_deref(), Some("bump(${1:by})$0"));
+    // A call already written: just the name.
+    let items = snip("snip_paren", "ad‸(1, 2)\n", &snippet_client);
+    assert_eq!(insert(&items, "add"), None);
+    // A client without snippets: just the name.
+    let items = snip("snip_plain", "‸\n", &init());
+    assert_eq!(insert(&items, "add"), None);
 }

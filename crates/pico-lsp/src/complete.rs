@@ -47,6 +47,9 @@ const BUILTIN_TYPES: &[&str] = &[
 struct Items {
     list: Vec<Value>,
     seen: HashSet<String>,
+    /// Functions and methods insert a call with their parameters as placeholders (#81): the
+    /// client takes snippets and no `(` follows the word.
+    snippets: bool,
 }
 
 impl Items {
@@ -64,6 +67,13 @@ impl Items {
         if let Some(h) = hover {
             let (sig, docs) = split_hover(h);
             item["detail"] = json!(sig);
+            if self.snippets
+                && matches!(kind, kind::FUNCTION | kind::METHOD)
+                && let Some(params) = param_names(sig, label)
+            {
+                item["insertText"] = json!(call_snippet(label, &params));
+                item["insertTextFormat"] = json!(2);
+            }
             if !docs.is_empty() {
                 item["documentation"] = json!({ "kind": "markdown", "value": docs });
             }
@@ -80,7 +90,13 @@ impl Items {
 
 /// The completion items at byte `offset` of `text`, the document at `path`. `trigger` is the
 /// character that asked for them, if one did: the quotes and `/` only start a module path.
-pub fn complete(path: &Path, text: &str, offset: usize, trigger: Option<&str>) -> Vec<Value> {
+pub fn complete(
+    path: &Path,
+    text: &str,
+    offset: usize,
+    trigger: Option<&str>,
+    snippets: bool,
+) -> Vec<Value> {
     let offset = offset.min(text.len());
     let dir = path.parent().unwrap_or(Path::new("."));
     if let Some((start, end)) = specifier_at(text, offset) {
@@ -126,7 +142,10 @@ pub fn complete(path: &Path, text: &str, offset: usize, trigger: Option<&str>) -
     };
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let idx = index::build(sm, &hir, &types);
-        let mut items = Items::default();
+        let mut items = Items {
+            snippets: snippets && !text[end..].trim_start().starts_with('('),
+            ..Items::default()
+        };
         let at = start as u32;
         if member {
             members(&mut items, &idx, &hir, &types, before, at);
@@ -139,6 +158,87 @@ pub fn complete(path: &Path, text: &str, offset: usize, trigger: Option<&str>) -
 }
 
 /// The signature line of a hover text, and the documentation after its code block.
+/// The parameter names of the function or method `name` in its signature `sig` (`function
+/// f<T>(a: T, ...rest: T[]): T` → `a`, `rest`), if it has a parameter list.
+fn param_names(sig: &str, name: &str) -> Option<Vec<String>> {
+    let mut from = 0;
+    let open = loop {
+        let at = from + sig[from..].find(name)?;
+        let after = &sig[at + name.len()..];
+        let before_ok = sig[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '$'));
+        if before_ok && (after.starts_with('(') || after.starts_with('<')) {
+            break at + name.len();
+        }
+        from = at + name.len();
+    };
+    let mut depth = 0i32;
+    let mut i = open;
+    // (Type parameters first: `<T, U>`.)
+    if sig[i..].starts_with('<') {
+        for (j, c) in sig[i..].char_indices() {
+            match c {
+                '<' => depth += 1,
+                '>' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                i += j + 1;
+                break;
+            }
+        }
+    }
+    let rest = sig[i..].strip_prefix('(')?;
+    let mut params = Vec::new();
+    let mut cur = String::new();
+    depth = 0;
+    for c in rest.chars() {
+        match c {
+            '(' | '[' | '<' | '{' => depth += 1,
+            ')' if depth == 0 => {
+                params.push(std::mem::take(&mut cur));
+                break;
+            }
+            ')' | ']' | '>' | '}' => depth -= 1,
+            ',' if depth == 0 => {
+                params.push(std::mem::take(&mut cur));
+                continue;
+            }
+            _ => {}
+        }
+        cur.push(c);
+    }
+    Some(
+        params
+            .iter()
+            .map(|p| p.trim().trim_start_matches("..."))
+            .map(|p| {
+                p.chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+                    .collect::<String>()
+            })
+            .filter(|p| !p.is_empty())
+            .collect(),
+    )
+}
+
+/// `f(${1:a}, ${2:b})$0`: a call of `name` with its parameters as placeholders.
+fn call_snippet(name: &str, params: &[String]) -> String {
+    let esc = |s: &str| {
+        s.replace('\\', "\\\\")
+            .replace('$', "\\$")
+            .replace('}', "\\}")
+    };
+    let args: Vec<String> = params
+        .iter()
+        .enumerate()
+        .map(|(i, p)| format!("${{{}:{}}}", i + 1, esc(p)))
+        .collect();
+    format!("{}({})$0", esc(name), args.join(", "))
+}
+
 fn split_hover(h: &str) -> (&str, &str) {
     let body = h.strip_prefix("```pico\n").unwrap_or(h);
     match body.split_once("\n```") {
