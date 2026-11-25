@@ -849,6 +849,11 @@ class __RMachine {
     const p = this.prog
     const n = this.input.length
     let matched = false
+    // Against catastrophic backtracking (#62): a run (one start position) may resume at most
+    // 100 000 paths plus 100 per input code point; linear and quadratic patterns stay far
+    // below it. (A literal, not a module constant: those are globals in every program.)
+    const limit = 100000 + 100 * n
+    let steps = 0
     while (this.sk.length > base) {
       const top = this.sk.length - 1
       const kind = this.sk[top]
@@ -864,6 +869,10 @@ class __RMachine {
       if (kind == 2) {
         this.regs[x] = y
         continue
+      }
+      steps += 1
+      if (steps > limit) {
+        panic(`RegExp: over ${limit} backtracking steps at one position (catastrophic backtracking? nested quantifiers such as (a+)+ can take exponential time)`)
       }
       let pc = x
       let sp = y
