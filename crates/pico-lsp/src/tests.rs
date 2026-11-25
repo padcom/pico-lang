@@ -1622,3 +1622,35 @@ println(`${new Counter().bump()} ${Dir.Up.flip() == Dir.Down}`)
     let e = rename_at("rename_at_this", SRC, &[], ("this.count", 0, 0), "Tally").unwrap_err();
     assert!(e.contains("`this` is a keyword"), "{e}");
 }
+
+/// `ns.f`, `ns.Type` and `ns.Enum.Variant` through `import * as ns` (#81): definition goes to
+/// the module's declaration.
+#[test]
+fn namespace_members() {
+    let dir = tmp("namespaces");
+    let geo = "export struct Vec2 {\n  x: i32\n  y: i32\n}\nexport function dot(a: Vec2, b: Vec2): i32 { a.x * b.x + a.y * b.y }\nexport const ORIGIN: Vec2 = Vec2 { x: 0, y: 0 }\nexport enum Axis {\n  X,\n  Y\n}\n";
+    std::fs::write(dir.join("geo.pi"), geo).unwrap();
+    let geo_uri = path_to_uri(&dir.join("geo.pi").canonicalize().unwrap());
+    let main = "import * as geo from \"./geo\"\nconst v: geo.Vec2 = geo.ORIGIN\nconst a: geo.Axis = geo.Axis.X\nprintln(`${geo.dot(v, v)} ${a == geo.Axis.Y}`)\n";
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, main, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, main),
+        d(2, "geo.Vec2", 0, 4),   // a type
+        d(3, "geo.ORIGIN", 0, 4), // a constant
+        d(4, "geo.dot", 0, 4),    // a function
+        d(5, "geo.Axis", 0, 4),   // an enum type
+        d(6, "Axis.X", 0, 5),     // a variant through the namespace
+    ]);
+    let canon = |u: String| path_to_uri(&uri_to_path(&u).unwrap().canonicalize().unwrap());
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        (canon(u), line, ch)
+    };
+    assert_eq!(l(2), (geo_uri.clone(), 0, 14));
+    assert_eq!(l(3), (geo_uri.clone(), 5, 13));
+    assert_eq!(l(4), (geo_uri.clone(), 4, 16));
+    assert_eq!(l(5), (geo_uri.clone(), 6, 12));
+    assert_eq!(l(6), (geo_uri.clone(), 7, 2));
+}
