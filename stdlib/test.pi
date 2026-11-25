@@ -10,6 +10,7 @@
 // benchmarks instead), `PICO_TEST_TIMES=0` (no durations, for reproducible output).
 
 import { env, exit } from "std/process"
+import { reflect, TypeInfo } from "std/reflect"
 
 // ---- registry ----
 
@@ -1445,6 +1446,16 @@ export class ArrayExpect<T> {
   }
 }
 
+/// Whether the class `t` describes is the one named `name` or extends it.
+function __isA(t: TypeInfo<Error>, name: string): bool {
+  let c: TypeInfo<Error>? = t
+  while (c != null) {
+    if (c!.name == name) return true
+    c = c!.base
+  }
+  return false
+}
+
 /// Expectations on a function call: it throws, or it panics.
 ///
 /// @example
@@ -1531,6 +1542,49 @@ export class FnExpect {
     if (ok == this.negated) {
       const what = if (message == "") "to throw" else `to throw ${message:?}`
       __fail(if (m == null) `expected the call ${if (this.negated) "not " else ""}${what}, but it returned` else `expected the call ${if (this.negated) "not " else ""}${what}, but it threw ${text}`)
+    }
+  }
+
+  /// It throws an `E` (`E` or a subclass of it; #70), whose message contains `message` when
+  /// given. (A class can't be passed as a value, so the type is the type argument.)
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// class ParseError extends Error {}
+  ///
+  /// test("toThrowType", () => {
+  ///   expect(() => { throw new ParseError("bad digit") }).toThrowType<ParseError>()
+  ///   expect(() => { throw new ParseError("bad digit") }).toThrowType<Error>("digit")
+  ///   expect(() => { throw new Error("plain") }).not.toThrowType<ParseError>()
+  /// })
+  /// // pico test: ✓ toThrowType
+  /// ```
+  public toThrowType<E extends Error>(message: string = ""): void {
+    const f = this.f
+    const want = reflect.typeOf<E>().name
+    let thrown: string? = null
+    let matches = false
+    const p = __catch_panic(() => {
+      try {
+        f()
+      } catch (e) {
+        const t = reflect.typeOf(e)
+        thrown = `${t.name}: ${e.message}`
+        matches = __isA(t, want) && e.message.includes(message)
+      }
+    })
+    if (p != null) {
+      if (p == __STOP) panic(__STOP)
+      __fail(`expected ${if (this.negated) "no throw" else "a throw"}, but it panicked: ${p}`)
+      return
+    }
+    if (matches == this.negated) {
+      const what = if (message == "") `to throw ${want}` else `to throw ${want} ${message:?}`
+      const not = if (this.negated) "not " else ""
+      const got = thrown
+      __fail(if (got == null) `expected the call ${not}${what}, but it returned` else `expected the call ${not}${what}, but it threw ${got}`)
     }
   }
 

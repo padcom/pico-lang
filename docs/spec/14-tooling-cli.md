@@ -71,7 +71,8 @@ CPU, but no more than the available memory holds at about 512 MB each). Coverage
 - `expect(v)` picks matchers by type: numbers and `int`s (`toBe`, `toEqual`, `toBeGreaterThan`,
   `toBeLessThan`, `…OrEqual`, `toBeCloseTo(x, digits)`, `toBeNaN`), strings (`toContain`,
   `toMatch(re)`, `toHaveLength`), `bool`s (`toBeTruthy`, `toBeFalsy`), arrays (`toEqual`,
-  `toContain`, `toHaveLength`), functions (`toThrow(message?)`, `toPanic(message?)`), promises
+  `toContain`, `toHaveLength`), functions (`toThrow(message?)`, `toThrowType<E>(message?)`: an `E` or a subclass, #70;
+  `toPanic(message?)`), promises
   (`await expect(p).resolves.toBe(v)`, `await expect(p).rejects.toThrow(message?)`) and any
   other value (`toBe`, `toEqual`, `toBeNull`, `toBeDefined`). `.not` negates. Values compare by
   their debug form (a class by its string form), so `toBe` doesn't test identity.
