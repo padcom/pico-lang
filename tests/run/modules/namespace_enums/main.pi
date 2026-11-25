@@ -1,0 +1,17 @@
+// expect: Axis.X true
+// expect: circle 2
+// expect: rect 1x1
+// Enum variants and static methods through a namespace import, `ns.Enum.Variant` (#81).
+import * as shapes from "./shapes"
+
+function describe(s: shapes.Shape): string {
+  return match (s) {
+    Circle(r) => `circle ${r}`,
+    Rect(w, h) => `rect ${w}x${h}`,
+  }
+}
+
+const a: shapes.Axis = shapes.Axis.X
+println(`${a:?} ${a != shapes.Axis.Y}`)
+println(describe(shapes.Shape.Circle(r: 2.0)))
+println(describe(shapes.Shape.unit()))

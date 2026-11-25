@@ -191,7 +191,9 @@ readDir(path): AsyncIterator<DirEntry> throws IoError  // name, isFile, isDirect
 open(path, read = true, write = false, append = false, create = false, truncate = false,
      createNew = false): Promise<File, IoError>
 ```
-A `File` (`AsyncDisposable`) has `read(n): Promise<Uint8Array?>` (`null` at the end), `write(data):
+A `File` (`AsyncDisposable`) has `read(n): Promise<Uint8Array?>` (`null` at the end), `readable`
+(the rest as a `ReadableStream<Uint8Array>` of chunks up to 64 KiB, closing the file at its end;
+through `textDecoderStream()` for big text files, #64), `write(data):
 Promise<int>`, `seek(position): Promise<int>` (from the start), `close()` (twice is fine) and
 `path`. Using it after `close` panics.
 
@@ -528,6 +530,9 @@ and `index` -1), `matchAll(re): RegExpMatch[]`, `search(re): int`. A replacement
 - `Instant`: a point on the UTC time line (`now()`, `fromEpochMilliseconds(ms)`,
   `parse("2024-03-10T12:30:00Z")`, which needs `Z` or an offset), with `plus`/`minus` a
   `Duration`, `since`/`until`, comparisons, `inZone(zone)` and `toString()` in UTC.
+- `Duration` and `Instant` have `round(smallestUnit, roundingMode = "halfExpand", increment = 1)`
+  (#61): to a multiple of `increment` units from nanosecond to hour, with Temporal's nine rounding
+  modes; a `RangeError` for another unit or mode.
 - `TimeZone`: `utc()`, `local()` (`TZ`, else the system's zone: Windows' setting mapped to
   its IANA id, else `/etc/localtime`), `of(id)` for IANA ids (`Europe/Berlin`, from the
   system's tz database: `/usr/share/zoneinfo` or `TZDIR`; programs for targets without one,
