@@ -946,6 +946,94 @@ class UdpSocket {
     this.addr = addr
   }
 
+  /// Sets socket option `which` (`pico_io` op 170, #214); throws what the system says.
+  option(which: int, value: int, group: string, iface: string, about: string): void throws NetError {
+    if (closed) {
+      panic(`the socket on ${__netShow(addr.hostname, addr.port)} is closed`)
+    }
+    const r = __io(170, fd, which, value, group, iface)
+    if (r < 0) {
+      throw __netError(about, -((-r) & 255), (-r) >> 8)
+    }
+  }
+
+  /// Joins multicast group `group` (an IPv4 or IPv6 address): datagrams sent to it arrive here
+  /// too. `interfaceAddress` picks the interface (its IPv4 address, or for IPv6 its name);
+  /// `""` lets the system choose. Bind to `"0.0.0.0"` (or `"::"`) and the group's port.
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// const socket = await bind(0, "0.0.0.0", { reuseAddress: true })
+  /// socket.addMembership("239.255.0.1")
+  /// socket.dropMembership("239.255.0.1")
+  /// socket.close()
+  /// ```
+  public addMembership(group: string, interfaceAddress: string = ""): void throws NetError {
+    option(1, 0, group, interfaceAddress, group)
+  }
+
+  /// Leaves multicast group `group` (joined with `addMembership`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// const socket = await bind(0, "0.0.0.0")
+  /// socket.addMembership("239.255.0.1")
+  /// socket.dropMembership("239.255.0.1")
+  /// socket.close()
+  /// ```
+  public dropMembership(group: string, interfaceAddress: string = ""): void throws NetError {
+    option(2, 0, group, interfaceAddress, group)
+  }
+
+  /// How many hops the multicast datagrams it sends may take (1 by default: this network only;
+  /// mDNS uses 255).
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// const socket = await bind(0, "0.0.0.0")
+  /// socket.setMulticastTTL(255)
+  /// socket.close()
+  /// ```
+  public setMulticastTTL(ttl: int): void throws NetError {
+    option(3, ttl, "", "", __netShow(addr.hostname, addr.port))
+  }
+
+  /// Whether the multicast datagrams it sends come back to this machine's sockets too (on by
+  /// default).
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// const socket = await bind(0, "0.0.0.0")
+  /// socket.setMulticastLoopback(false)
+  /// socket.close()
+  /// ```
+  public setMulticastLoopback(on: bool): void throws NetError {
+    option(4, if (on) 1 else 0, "", "", __netShow(addr.hostname, addr.port))
+  }
+
+  /// The interface its multicast datagrams go out on: its IPv4 address (for an IPv6 socket, its
+  /// name). See `networkInterfaces`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { bind } from "std/net"
+  ///
+  /// const socket = await bind(0, "0.0.0.0")
+  /// socket.setMulticastInterface("127.0.0.1")
+  /// socket.close()
+  /// ```
+  public setMulticastInterface(interfaceAddress: string): void throws NetError {
+    option(5, 0, "", interfaceAddress, interfaceAddress)
+  }
+
   release(): void {
     if (closed && !receiving && sending == 0 && !released) {
       released = true
@@ -1070,7 +1158,82 @@ class UdpSocket {
   }
 }
 
-/// A UDP socket on `hostname` and `port` (0 picks a free one; see `addr`).
+/// Options of `bind` (#214).
+///
+/// @example
+/// ```ts
+/// import { bind } from "std/net"
+///
+/// // mDNS listens on port 5353, which the system's responder may already have.
+/// const options: BindOptions = { reuseAddress: true }
+/// const socket = await bind(0, "0.0.0.0", options)
+/// socket.close()
+/// ```
+struct BindOptions {
+  /// Lets other sockets bind the same address and port (`SO_REUSEADDR`, and `SO_REUSEPORT`
+  /// where there is one), so several programs can receive one multicast group's datagrams.
+  reuseAddress?: bool
+}
+
+/// One address of a network interface (`networkInterfaces`).
+///
+/// @example
+/// ```ts
+/// import { networkInterfaces } from "std/net"
+///
+/// for (const i of networkInterfaces()) {
+///   if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1
+/// }
+/// ```
+struct NetworkInterface {
+  /// The interface's name (`lo`, `eth0`, `en0`, `Ethernet`, …).
+  name: string
+  /// 4 or 6.
+  family: int
+  /// The address, as text.
+  address: string
+  /// Whether it's up.
+  up: bool
+  /// Whether it's the loopback interface.
+  loopback: bool
+  /// Whether it can send and receive multicast.
+  multicast: bool
+}
+
+/// The machine's network interfaces, one entry per address (an interface with an IPv4 and an
+/// IPv6 address has two). Empty where the platform can't tell (WASI, the browser).
+///
+/// @example
+/// ```ts
+/// import { networkInterfaces } from "std/net"
+///
+/// const loopback = networkInterfaces().filter((i) => i.loopback && i.family == 4)
+/// println(loopback.length > 0)   // true
+/// ```
+function __netInterfaces(): NetworkInterface[] {
+  const job = __io(171, 0, 0, 0, "", "")
+  const text = __io_text(job)
+  __io(104, job, 0, 0, "", "");
+  const out: NetworkInterface[] = []
+  for (const line of text.split("\n")) {
+    const f = line.split("\t")
+    if (f.length < 4) {
+      continue
+    }
+    out.push({
+      name: f[0],
+      family: int.parse(f[1]) ?? 4,
+      address: f[2],
+      up: f[3].includes("u"),
+      loopback: f[3].includes("l"),
+      multicast: f[3].includes("m"),
+    })
+  }
+  return out
+}
+
+/// A UDP socket on `hostname` and `port` (0 picks a free one; see `addr`). `options`: see
+/// `BindOptions` (sharing the port, for multicast).
 ///
 /// @example
 /// ```ts
@@ -1080,8 +1243,9 @@ class UdpSocket {
 /// println(socket.addr.port > 0)   // true
 /// socket.close()
 /// ```
-function __netBind(port: int = 0, hostname: string = "127.0.0.1"): Promise<UdpSocket, NetError> {
-  __netJob<UdpSocket>(30, port, 1, 0, hostname, "", __netShow(hostname, port), (res: __NetResult) => {
+function __netBind(port: int = 0, hostname: string = "127.0.0.1", options: BindOptions? = null): Promise<UdpSocket, NetError> {
+  const reuse = options != null && options.reuseAddress == true
+  __netJob<UdpSocket>(30, port, if (reuse) 2 else 1, 0, hostname, "", __netShow(hostname, port), (res: __NetResult) => {
     const f = __io_text(res.job).split(" ")
     new UdpSocket(res.r, __netAddr(f, 0))
   })

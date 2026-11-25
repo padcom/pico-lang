@@ -243,8 +243,9 @@ listen(port = 0, hostname = "127.0.0.1"): Promise<Listener, NetError>   // "0.0.
 connect(port, hostname = "127.0.0.1"): Promise<Conn, NetError>          // tries each address in turn
 listenUnix(path): Promise<Listener, NetError>    // a Unix-domain socket (a stale socket file is replaced)
 connectUnix(path): Promise<Conn, NetError>       // (macOS, Linux, Windows 10+; not WASI)
-bind(port = 0, hostname = "127.0.0.1"): Promise<UdpSocket, NetError>
+bind(port = 0, hostname = "127.0.0.1", options?: { reuseAddress? }): Promise<UdpSocket, NetError>
 resolve(hostname): Promise<string[], NetError>                          // IP addresses, no repeats
+networkInterfaces(): NetworkInterface[]  // { name, family: 4|6, address, up, loopback, multicast }
 type Addr = { hostname: string, port: int }                             // hostname is an IP address
 ```
 A Unix-domain socket's `Addr` is `{ hostname: path, port: -1 }` for both ends, and `NetError`s
@@ -264,7 +265,12 @@ writes; a waiting read gives `null`). One read at a time; a second while one wai
 does writing after `closeWrite`/`close`. A `UdpSocket` has `addr`, `send(data, port, hostname =
 "127.0.0.1")`, `sendText(text, port, hostname)` (one datagram each), `receive(n = 65536):
 Promise<Datagram?, NetError>` (`{ data: Uint8Array, addr }`; bytes past `n` are dropped; `null`
-once closed) and `close()`. Web Streams (`conn.readable`, `conn.writable`) come with
+once closed) and `close()`. Multicast (#214; IPv4 and IPv6, not on WASI or in the browser):
+`addMembership(group, interfaceAddress = "")`, `dropMembership(…)`, `setMulticastTTL(n)`,
+`setMulticastLoopback(on)` and `setMulticastInterface(address)`, as in Node.js's `dgram`; they
+throw `NetError`. `bind`'s `reuseAddress` (`SO_REUSEADDR`, and `SO_REUSEPORT` where there is one)
+lets several sockets share a port, e.g. mDNS's 5353 with the system's responder.
+`networkInterfaces()` lists one entry per address (empty on WASI and in the browser). Web Streams (`conn.readable`, `conn.writable`) come with
 `std/streams`. `TcpStream(conn)` and `UdpStream(socket, peerPort?, peerHost?)` are `ByteStream`s
 (§13.5); a `UdpStream` without a peer answers whoever sent the last datagram it read (writes before
 that are dropped).

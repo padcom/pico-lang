@@ -64,6 +64,7 @@ fn main() {
     }
     glue.file(root.join("src/pico_crypto.c"))
         .file(root.join("src/pico_tls.c"))
+        .file(root.join("src/pico_net.c"))
         .include(mbed.join("include"))
         .include(root.join("include"))
         .define("MBEDTLS_USER_CONFIG_FILE", user_config)
@@ -77,7 +78,7 @@ fn main() {
     // On Windows (MinGW) the runtime needs winpthreads, the certificate store and the system
     // random source, for the interpreter's copy too.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        for l in ["pthread", "crypt32", "bcrypt"] {
+        for l in ["pthread", "crypt32", "bcrypt", "iphlpapi"] {
             println!("cargo:rustc-link-lib={l}");
         }
     }
