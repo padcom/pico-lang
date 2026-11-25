@@ -1,0 +1,54 @@
+// expect: 42
+// expect: dflt
+// expect: 2
+// expect: some
+// expect: none
+// expect: somenone
+// expect: 7
+// Generic enums implementing interfaces (#51): `Opt<T> implements Box<T>` (each instance its
+// own itable, a generic interface default), a generic function inferring `T` from the enum or
+// a class implementing `Box<int>`, an array of interface values, a `T extends Named` bound.
+interface Box<T> {
+  get(): T
+  twice(): T[] {
+    [this.get(), this.get()]
+  }
+}
+interface Named {
+  name(): string
+}
+enum Opt<T> implements Box<T>, Named {
+  Some(value: T),
+  None(fallback: T)
+
+  get(): T {
+    match (this) {
+      Opt.Some(v) => v,
+      Opt.None(f) => f,
+    }
+  }
+
+  name(): string {
+    match (this) {
+      Opt.Some(_) => "some",
+      Opt.None(_) => "none",
+    }
+  }
+}
+function first<T>(b: Box<T>): T { b.get() }
+println(first(Opt.Some(value: 41)) + 1)
+const s: Box<string> = Opt.None(fallback: "dflt")
+println(s.get())
+println(s.twice().length)
+const ns: Named[] = [Opt.Some(value: 1), Opt.None(fallback: "x")]
+for (const n of ns) { println(n.name()) }
+function names<T extends Named>(xs: T[]): string {
+  let out = ""
+  for (const x of xs) { out = out + x.name() }
+  out
+}
+println(names([Opt.Some(value: true), Opt.None(fallback: false)]))
+class Seven implements Box<int> {
+  public get(): int { 7 }
+}
+println(first(new Seven()))

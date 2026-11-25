@@ -146,7 +146,10 @@ enum Color implements Named { Red, Green
   name(): string { match (this) { Color.Red => "red", Color.Green => "green" } } }
 const n: Named = Color.Red
 ```
-Not yet: generic enums implementing interfaces.
+A generic enum implements interfaces the same way (`enum Opt<T> implements Box<T>`), each
+instance with its interface arguments. A generic function's type arguments are also inferred
+through an interface: `first<T>(b: Box<T>)` called with an `Opt<int>`, or with a class
+implementing `Box<int>`, takes `T = int`.
 
 ## 2.7 Structs (value types)
 ```ts

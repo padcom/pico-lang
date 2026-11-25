@@ -1110,12 +1110,6 @@ impl Resolver {
             let t = Ty::Param(owner, i as u32, n.as_str().into());
             self.f.type_params.push((n.clone(), t));
         }
-        if !ed.generics.is_empty() && !ed.implements.is_empty() {
-            self.not_implemented(
-                ed.implements[0].span,
-                "generic enums implementing interfaces",
-            );
-        }
         // Methods take the enum's type parameters as their own (first), and `this: Enum<…>`,
         // so they're generic functions whose arguments come from the receiver.
         let self_ty = build::named_type(
