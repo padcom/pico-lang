@@ -6414,6 +6414,8 @@ impl FnBuilder<'_, '_> {
             }
             _ => m,
         };
+        // (A struct's `toString()` takes no spec.)
+        let takes_spec = !self.cx.types.sigs[m.0 as usize].params.is_empty();
         let spec = Operand::Const(Const::Str(spec.to_string()));
         if let Ty::Class(sid, _, _) = t {
             let def = self.cx.program.struct_def(*sid);
@@ -6438,7 +6440,12 @@ impl FnBuilder<'_, '_> {
         let tmp = Place::local(self.temp(t.clone()));
         self.assign(tmp.clone(), Rvalue::Use(v), span);
         let recv = self.rvalue_to_temp(Rvalue::Ref(tmp), Ty::Ref(Box::new(t.clone())), span);
-        self.call_fn_value(m, vec![recv, spec], Ty::Str, span)
+        let args = if takes_spec {
+            vec![recv, spec]
+        } else {
+            vec![recv]
+        };
+        self.call_fn_value(m, args, Ty::Str, span)
     }
 
     /// Where a narrowed variable's value is: inside the `T?`, inside the union member, or (an
