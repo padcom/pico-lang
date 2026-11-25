@@ -1145,8 +1145,9 @@ impl<'p> Gen<'p> {
             }
             // The working directory: the root (there's no file system).
             105 => set_text(self, s, "/"),
-            // No environment variables, files, links or local zone here.
-            114 | 135 | 137 => {
+            // No command-line arguments (`args`), program file (`argv0` `""`, `execPath()`
+            // `null`; #78), environment variables, files, links or local zone here.
+            113 | 114 | 125 | 135 | 137 => {
                 s.i64_const(0).global_set(j);
                 set_text(self, s, "");
             }
@@ -4931,7 +4932,11 @@ impl<'p> Gen<'p> {
                                 }
                                 s.call(import_index("js_op"));
                             }
-                            130 | 131 | 132 | 105 | 114 | 134 | 135 | 136 | 137 => {
+                            // The process id: none in a browser (#78).
+                            119 => {
+                                s.i64_const(0);
+                            }
+                            130 | 131 | 132 | 105 | 113 | 114 | 125 | 134 | 135 | 136 | 137 => {
                                 self.io_job(fx, s, op, args)?;
                                 s.i64_const(1);
                             }
