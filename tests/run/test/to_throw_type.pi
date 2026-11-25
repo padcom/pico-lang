@@ -1,0 +1,42 @@
+// `toThrowType<E>()` (#70): the error is an `E` or a subclass of it (its message contains the
+// one given); negated with `.not`; failure messages name the type and what happened.
+// exit: 1
+// expect: fine
+// expect:   ✓ matches the type and its bases
+// expect:   ✗ another type
+// expect:       expected the call to throw ParseError, but it threw RangeError: out
+// expect:   ✗ returned
+// expect:       expected the call to throw ParseError, but it returned
+// expect:   ✗ wrong message
+// expect:       expected the call to throw ParseError "digit", but it threw ParseError: bad sign
+// expect:   ✗ negated
+// expect:       expected the call not to throw ParseError, but it threw StrictParseError: bad
+// expect: pico-test: 1 passed, 4 failed, 0 skipped
+import { env } from "std/process"
+import { test, expect } from "std/test"
+
+env.set("PICO_TEST_TIMES", "0")
+
+class ParseError extends Error {}
+class StrictParseError extends ParseError {}
+
+test("matches the type and its bases", () => {
+  expect(() => { throw new ParseError("bad digit") }).toThrowType<ParseError>()
+  expect(() => { throw new StrictParseError("bad") }).toThrowType<ParseError>()
+  expect(() => { throw new StrictParseError("bad") }).toThrowType<Error>()
+  expect(() => { throw new ParseError("bad digit") }).toThrowType<ParseError>("digit")
+  expect(() => { throw new RangeError("out") }).not.toThrowType<ParseError>()
+  expect(() => { println("fine") }).not.toThrowType<ParseError>()
+})
+test("another type", () => {
+  expect(() => { throw new RangeError("out") }).toThrowType<ParseError>()
+})
+test("returned", () => {
+  expect(() => {}).toThrowType<ParseError>()
+})
+test("wrong message", () => {
+  expect(() => { throw new ParseError("bad sign") }).toThrowType<ParseError>("digit")
+})
+test("negated", () => {
+  expect(() => { throw new StrictParseError("bad") }).not.toThrowType<ParseError>()
+})

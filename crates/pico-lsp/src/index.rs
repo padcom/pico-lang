@@ -283,10 +283,12 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
     let mut linked: HashSet<(Span, Span)> = links.iter().copied().collect();
     for (at, def) in std::mem::take(&mut b.uses) {
         let name = sm.snippet(at);
+        // `this` names its type (#81) but isn't renamed with it.
+        let this = name == "this";
         let named = if resolved.contains(&(at, def)) {
             is_ident(name)
         } else {
-            same_name(name, sm.snippet(def))
+            this || same_name(name, sm.snippet(def))
         };
         if at.file != file || at.is_empty() || !named {
             continue;
@@ -294,7 +296,7 @@ pub fn build(sm: SourceMap, program: &Program, types: &Types) -> Index {
         let Some(hover) = b.decls.get(&def) else {
             continue;
         };
-        if linked.insert((at, def)) {
+        if !this && linked.insert((at, def)) {
             links.push((at, def));
         }
         if seen.insert((at.start, at.end)) {
@@ -568,8 +570,26 @@ impl Builder<'_> {
 
     fn var_span(&self, fid: hir::FnId, v: hir::Var) -> Span {
         match v {
-            hir::Var::Local(l) => self.p.fns[fid.0 as usize].local(l).span,
+            hir::Var::Local(l) => {
+                let b = self.p.fns[fid.0 as usize].local(l);
+                // `this` (whose binding borrows the method's name) is its type's (#81).
+                if b.name == "this"
+                    && let Some(span) = b.ty.as_ref().and_then(|t| self.type_decl(t))
+                {
+                    return span;
+                }
+                b.span
+            }
             hir::Var::Global(g) => self.p.globals[g.0 as usize].span,
+        }
+    }
+
+    /// Where the class, struct, interface or enum `t` is declared.
+    fn type_decl(&self, t: &Ty) -> Option<Span> {
+        match t {
+            Ty::Enum(e, ..) => Some(self.p.enums.get(e.0 as usize)?.name_span),
+            Ty::Nullable(t) | Ty::Immutable(t) | Ty::Ref(t) => self.type_decl(t),
+            _ => Some(self.p.structs.get(struct_of(t)?.0 as usize)?.name_span),
         }
     }
 
@@ -627,6 +647,15 @@ impl Builder<'_> {
             ExprKind::Member {
                 object, name_span, ..
             } => {
+                // `const { x } = o`: the name is the field's and the variable's (#81).
+                let func = &self.p.fns[fid.0 as usize];
+                if let ExprKind::Var(hir::Var::Local(l)) = &object.kind
+                    && func.local(*l).name == "<destructured>"
+                    && (func.locals.iter().any(|b| b.span == *name_span)
+                        || self.p.globals.iter().any(|g| g.span == *name_span))
+                {
+                    self.shorthand.push(*name_span);
+                }
                 if let Some(&f) = self.t.getters.get(&e.id) {
                     self.uses.push((*name_span, self.fn_span(f)));
                 } else if let Some(&idx) = self.t.fields.get(&e.id)
@@ -658,7 +687,8 @@ impl Builder<'_> {
                 if let Some(f) = target {
                     let at = match &callee.kind {
                         ExprKind::Member { name_span, .. } => *name_span,
-                        _ => callee.span,
+                        // (`K.f(…)` of an overloaded static method, #81: the name.)
+                        _ => self.last_part(callee.span),
                     };
                     self.uses.push((at, self.fn_span(f)));
                 }

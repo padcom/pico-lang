@@ -768,3 +768,36 @@ fn signature_errors_without_lowering() {
         checked.render_diagnostics()
     );
 }
+
+/// Per-line suppression comments (#80): `// pico-lint-disable-line` and
+/// `// pico-lint-disable-next-line`, for every rule or the ones named (by rule or code);
+/// `//` inside a string isn't a comment.
+#[test]
+fn suppression_comments() {
+    let text = r#"let Bad_One = 1 // pico-lint-disable-line
+let Bad_Two = 2 // pico-lint-disable-line unused
+let Bad_Three = 3 // pico-lint-disable-line naming, W0002 -- both reported here
+// pico-lint-disable-next-line
+let Bad_Four = 4
+// pico-lint-disable-next-line W0001
+let Bad_Five = 5
+const s = "// pico-lint-disable-next-line"
+let Bad_Six = 6
+// pico-lint-disable-linewise (not a directive)
+let Bad_Seven = 7
+"#;
+    let out = run("suppress", "{}", text, &[]);
+    let on = |line: u32| -> Vec<&str> {
+        out.lines()
+            .filter(|l| l.starts_with(&format!("{line}:")))
+            .map(|l| l.split(' ').nth(1).unwrap())
+            .collect()
+    };
+    assert_eq!(on(1), Vec::<&str>::new(), "{out}");
+    assert_eq!(on(2), ["W0001"], "naming stays: {out}");
+    assert_eq!(on(3), Vec::<&str>::new(), "{out}");
+    assert_eq!(on(5), Vec::<&str>::new(), "{out}");
+    assert_eq!(on(7), ["W0002"], "unused stays: {out}");
+    assert_eq!(on(9), ["W0001", "W0002"], "a string isn't a comment: {out}");
+    assert_eq!(on(11), ["W0001", "W0002"], "{out}");
+}

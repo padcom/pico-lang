@@ -71,7 +71,8 @@ CPU, but no more than the available memory holds at about 512 MB each). Coverage
 - `expect(v)` picks matchers by type: numbers and `int`s (`toBe`, `toEqual`, `toBeGreaterThan`,
   `toBeLessThan`, `…OrEqual`, `toBeCloseTo(x, digits)`, `toBeNaN`), strings (`toContain`,
   `toMatch(re)`, `toHaveLength`), `bool`s (`toBeTruthy`, `toBeFalsy`), arrays (`toEqual`,
-  `toContain`, `toHaveLength`), functions (`toThrow(message?)`, `toPanic(message?)`), promises
+  `toContain`, `toHaveLength`), functions (`toThrow(message?)`, `toThrowType<E>(message?)`: an `E` or a subclass, #70;
+  `toPanic(message?)`), promises
   (`await expect(p).resolves.toBe(v)`, `await expect(p).rejects.toThrow(message?)`) and any
   other value (`toBe`, `toEqual`, `toBeNull`, `toBeDefined`). `.not` negates. Values compare by
   their debug form (a class by its string form), so `toBe` doesn't test identity.
@@ -138,8 +139,15 @@ them in the editor too. A file's own errors are reported with its warnings: thos
 name resolution, type checking and the C and JavaScript signatures. `pico lint` stops there, before
 lowering, so errors only a build finds (a constant expression that always panics, failing
 `comptime` code) are `pico build`'s. Files are linted in parallel: `-j N` at a time, by default
-one per CPU but no more than the available memory holds (about 256 MB each, #166). Rules are set in
-`project.json`'s `"lint"`:
+one per CPU but no more than the available memory holds (about 256 MB each, #166).
+
+A comment turns warnings off for one line (#80), as ESLint's do: `// pico-lint-disable-line` at
+the end of a line, or `// pico-lint-disable-next-line` on the line above. Without names it covers
+every rule; otherwise the rules named (`unused`, `naming, W0003`: rule names or codes, separated by
+commas or spaces; a description can follow ` -- `). A warning belongs to the line its location
+starts on.
+
+Rules are set in `project.json`'s `"lint"`:
 ```json
 {
   "lint": {
