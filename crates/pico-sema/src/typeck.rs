@@ -819,9 +819,15 @@ impl<'p> Checker<'p> {
                 self.program.implements(*a, *i) && self.iface_args_fit(*a, xs, *i, ys)
             }
             // An enum to an interface it implements (#51).
-            (Ty::Enum(e, _, _), Ty::Iface(i, _, ys)) => {
+            (Ty::Enum(e, _, xs), Ty::Iface(i, _, ys)) => {
                 match self.program.enum_iface_args(*e, *i) {
-                    Some(args) => ys.is_empty() || args[..] == ys[..],
+                    Some(args) => {
+                        let args: Vec<Ty> = args
+                            .iter()
+                            .map(|t| t.subst(Ty::enum_owner(*e), xs))
+                            .collect();
+                        ys.is_empty() || args[..] == ys[..]
+                    }
                     None => false,
                 }
             }
@@ -1345,13 +1351,26 @@ impl<'p> Checker<'p> {
                     let iparams: Vec<Ty> =
                         isig.params.iter().map(|p| p.subst(owner, &kargs)).collect();
                     let iret = isig.ret.subst(owner, &kargs);
+                    // (A generic enum's methods own its parameters, first: `T` of the enum is
+                    // the method's `T`.)
+                    let as_method = |f: FnId, t: &Ty| -> Ty {
+                        let ps: Vec<Ty> = def
+                            .generics
+                            .iter()
+                            .enumerate()
+                            .map(|(i, g)| Ty::Param(f.0, i as u32, g.name.as_str().into()))
+                            .collect();
+                        t.subst(Ty::enum_owner(eid), &ps)
+                    };
+                    let fits =
+                        |f: FnId| -> Vec<Ty> { iparams.iter().map(|p| as_method(f, p)).collect() };
                     let found = def
                         .methods
                         .iter()
                         .filter(|(n, _)| n == name)
                         .map(|(_, f)| *f)
                         .find(|f| {
-                            self.types.sigs[f.0 as usize].params.get(1..) == Some(&iparams[..])
+                            self.types.sigs[f.0 as usize].params.get(1..) == Some(&fits(*f)[..])
                         })
                         .or_else(|| {
                             let named: Vec<FnId> = def
@@ -1364,6 +1383,8 @@ impl<'p> Checker<'p> {
                         });
                     match found {
                         Some(f) => {
+                            let iparams = fits(f);
+                            let iret = as_method(f, &iret);
                             let sig = &self.types.sigs[f.0 as usize];
                             let ok = sig.params.get(1..) == Some(&iparams[..])
                                 && (sig.ret == iret || sig.ret.is_error() || iret.is_error());
@@ -7365,6 +7386,23 @@ impl<'p> Checker<'p> {
             (Ty::Enum(e1, _, ps), Ty::Enum(e2, _, xs)) if e1 == e2 && ps.len() == xs.len() => {
                 for (p, a) in ps.iter().zip(xs.iter()) {
                     self.unify(owner, p, a, subst);
+                }
+            }
+            // A generic interface against a type implementing it (#51): the arguments it
+            // implements the interface with (`Box<T>` with an `IntBox` or an `Opt<int>`).
+            (Ty::Iface(i, _, ps), Ty::Struct(s, _, xs) | Ty::Class(s, _, xs)) if !ps.is_empty() => {
+                if let Some(args) = self.program.iface_args(*s, *i) {
+                    let own = Ty::type_owner(*s);
+                    for (p, a) in ps.iter().zip(args.iter()) {
+                        self.unify(owner, p, &a.subst(own, xs), subst);
+                    }
+                }
+            }
+            (Ty::Iface(i, _, ps), Ty::Enum(e, _, xs)) if !ps.is_empty() => {
+                if let Some(args) = self.program.enum_iface_args(*e, *i) {
+                    for (p, a) in ps.iter().zip(args.iter()) {
+                        self.unify(owner, p, &a.subst(Ty::enum_owner(*e), xs), subst);
+                    }
                 }
             }
             _ => {}

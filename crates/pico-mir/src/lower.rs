@@ -708,7 +708,7 @@ fn in_generic_context(program: &hir::Program, id: FnId) -> bool {
 #[derive(Clone, PartialEq)]
 enum Imp {
     Type(StructId, Vec<Ty>),
-    Enum(EnumId),
+    Enum(EnumId, Vec<Ty>),
 }
 
 /// Type arguments for owners of type parameters (`Ty::Param`'s first field).
@@ -1444,8 +1444,8 @@ impl Cx<'_> {
 
     /// The itable index for enum `eid` used as interface `iface` (#51). A generic interface's
     /// defaults it doesn't override are instances, made now as for structs.
-    fn enum_itable(&mut self, eid: EnumId, iface: StructId) -> u32 {
-        let key = Imp::Enum(eid);
+    fn enum_itable(&mut self, eid: EnumId, args: &[Ty], iface: StructId) -> u32 {
+        let key = Imp::Enum(eid, args.to_vec());
         if let Some(i) = self
             .itables
             .iter()
@@ -1453,11 +1453,17 @@ impl Cx<'_> {
         {
             return i as u32;
         }
+        // (A generic enum's methods are instances for its arguments, made now, #51.)
         let wanted: Vec<(String, FnId)> = self.program.struct_def(iface).methods.clone();
         for (name, ifn) in wanted {
-            if !self.types.enum_impl_methods.contains_key(&(eid, ifn)) {
-                let d = self.enum_default(eid, &name).unwrap_or(ifn);
-                self.enum_default_entry(eid, d);
+            match self.types.enum_impl_methods.get(&(eid, ifn)).copied() {
+                Some(m) => {
+                    self.enum_method_instance(m, args);
+                }
+                None => {
+                    let d = self.enum_default(eid, &name).unwrap_or(ifn);
+                    self.enum_default_entry(eid, args, d);
+                }
             }
         }
         self.itables.push((key, iface));
@@ -1483,7 +1489,7 @@ impl Cx<'_> {
 
     /// An interface default as enum `eid`'s itable entry: its instance when its interface is
     /// generic.
-    fn enum_default_entry(&mut self, eid: EnumId, d: FnId) -> FnId {
+    fn enum_default_entry(&mut self, eid: EnumId, args: &[Ty], d: FnId) -> FnId {
         let f = self.program.func(d);
         let Some(k) = f.this.map(|t| t.1).or(f.owner) else {
             return d;
@@ -1491,8 +1497,28 @@ impl Cx<'_> {
         if self.program.struct_def(k).generics.is_empty() {
             return d;
         }
-        let args = self.program.enum_iface_args(eid, k).unwrap_or_default();
-        self.instance(d, vec![(Ty::type_owner(k), args)])
+        let kargs = self.enum_iface_args_for(eid, args, k);
+        self.instance(d, vec![(Ty::type_owner(k), kargs)])
+    }
+
+    /// The type arguments of interface `k` as `eid<args>` implements it.
+    fn enum_iface_args_for(&self, eid: EnumId, args: &[Ty], k: StructId) -> Vec<Ty> {
+        self.program
+            .enum_iface_args(eid, k)
+            .unwrap_or_default()
+            .iter()
+            .map(|t| t.subst(Ty::enum_owner(eid), args))
+            .collect()
+    }
+
+    /// Enum method `m` for the enum's type arguments `args` (the method's first type
+    /// parameters are the enum's): itself, or its instance.
+    fn enum_method_instance(&mut self, m: FnId, args: &[Ty]) -> FnId {
+        if args.is_empty() {
+            m
+        } else {
+            self.instance(m, vec![(m.0, args.to_vec())])
+        }
     }
 
     /// The itable entry for the interface default `d` when `imp<args>` doesn't implement the
@@ -1534,20 +1560,21 @@ impl Cx<'_> {
             let (imp, iface) = self.itables[i].clone();
             let (imp, imp_args) = match imp {
                 Imp::Type(s, a) => (s, a),
-                Imp::Enum(eid) => {
+                Imp::Enum(eid, eargs) => {
                     let idef = self.program.struct_def(iface);
                     let mut entries = Vec::new();
                     for (name, ifn) in idef.methods.clone() {
                         let entry = match self.types.enum_impl_methods.get(&(eid, ifn)).copied() {
                             Some(m) => {
                                 let id = FnId(fns.len() as u32);
-                                let adapter = self.enum_adapter(eid, iface, ifn, m);
+                                let m = self.enum_method_instance(m, &eargs);
+                                let adapter = self.enum_adapter(eid, &eargs, iface, ifn, m);
                                 fns.push(adapter);
                                 id
                             }
                             None => {
                                 let d = self.enum_default(eid, &name).unwrap_or(ifn);
-                                self.enum_default_entry(eid, d)
+                                self.enum_default_entry(eid, &eargs, d)
                             }
                         };
                         entries.push(entry);
@@ -1712,6 +1739,7 @@ impl Cx<'_> {
     fn enum_adapter(
         &mut self,
         eid: EnumId,
+        eargs: &[Ty],
         iface: StructId,
         ifn: FnId,
         method: FnId,
@@ -1721,12 +1749,16 @@ impl Cx<'_> {
         if let Some(k) = decl.this.map(|t| t.1).or(decl.owner)
             && !self.program.struct_def(k).generics.is_empty()
         {
-            let targs = self.program.enum_iface_args(eid, k).unwrap_or_default();
+            let targs = self.enum_iface_args_for(eid, eargs, k);
             let o = Ty::type_owner(k);
             sig.params = sig.params.iter().map(|p| p.subst(o, &targs)).collect();
             sig.ret = sig.ret.subst(o, &targs);
         }
-        let enum_ty = self.program.enum_ty(eid);
+        let enum_ty = Ty::Enum(
+            eid,
+            self.program.enum_def(eid).name.as_str().into(),
+            eargs.into(),
+        );
         let mut locals = vec![LocalDecl {
             ty: self.program.struct_ty(iface),
             name: Some("self".into()),
@@ -1784,7 +1816,7 @@ impl Cx<'_> {
                 "{}.{}<{}>",
                 self.program.enum_def(eid).name,
                 self.program
-                    .func(method)
+                    .func(self.generic_of(method))
                     .name
                     .rsplit('.')
                     .next()
@@ -3304,8 +3336,8 @@ impl FnBuilder<'_, '_> {
                 span,
             );
         }
-        if let (Ty::Enum(eid, _, _), Ty::Iface(iface, _, _)) = (from, to) {
-            let it = self.cx.enum_itable(*eid, *iface);
+        if let (Ty::Enum(eid, _, args), Ty::Iface(iface, _, _)) = (from, to) {
+            let it = self.cx.enum_itable(*eid, args, *iface);
             return self.rvalue_to_temp(Rvalue::ToIface(v, it), to.clone(), span);
         }
         if let (Ty::Class(imp, _, args) | Ty::Struct(imp, _, args), Ty::Iface(iface, _, _)) =
@@ -6934,6 +6966,7 @@ impl FnBuilder<'_, '_> {
         {
             let mut ops = vec![self.expr(object)];
             ops.extend(args.iter().map(|a| self.expr(a)));
+            let m = self.cx.enum_method_instance(m, t.type_args());
             return self.call_fn_value(m, ops, ty, e.span);
         }
         if !primitive && !matches!(t, Ty::Struct(..) | Ty::Class(..) | Ty::Iface(..)) {
