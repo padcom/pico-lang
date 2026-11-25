@@ -262,7 +262,9 @@ closed), `for await` over chunks, `text()` (the rest as UTF-8), `write(data)` an
 `writeText(text)` (`Promise<int, NetError>`, in the order they're made), `closeWrite()` (the
 other side reads the end after earlier writes; reading goes on) and `close()` (after earlier
 writes; a waiting read gives `null`). One read at a time; a second while one waits panics, as
-does writing after `closeWrite`/`close`. A `UdpSocket` has `addr`, `send(data, port, hostname =
+does writing after `closeWrite`/`close`. `setNoDelay(noDelay = true)` (`TCP_NODELAY`) and
+`setKeepAlive(enable = false, initialDelay = 0)` (milliseconds of idling before the first probe;
+0: the system's) set options (#65; a `NetError` on WASI). A `UdpSocket` has `addr`, `send(data, port, hostname =
 "127.0.0.1")`, `sendText(text, port, hostname)` (one datagram each), `receive(n = 65536):
 Promise<Datagram?, NetError>` (`{ data: Uint8Array, addr }`; bytes past `n` are dropped; `null`
 once closed) and `close()`. Multicast (#214; IPv4 and IPv6, not on WASI or in the browser):
@@ -431,7 +433,8 @@ response body is read whole before `fetch` resolves. `ResponseInit` `{ status,
 statusText, headers }`; a body (`BodyInit`) is a `string` (`text/plain;charset=UTF-8`), a
 `Uint8Array`, a `ReadableStream<Uint8Array>` (sent chunked) or `URLSearchParams` (form
 encoded). Bodies have `body` (a stream), `bodyUsed`, `bytes()`, `arrayBuffer()`, `text()` and
-`json<T>()` (as `JSON.parse<T>`), each readable once. `Response.json<T>(data, init)` and
+`json<T>()` (as `JSON.parse<T>`), each readable once; `clone()` on a `Request` or `Response`
+copies it before then (a streamed body is split with `tee`), and throws a `TypeError` after. `Response.json<T>(data, init)` and
 `Response.redirect(url, status = 302)` build responses; `ok`, `status`, `statusText`, `url`,
 `redirected`. Header fields are a `HeadersInit = [string, string][] | Map<string, string> |
 Headers`, so a map literal works where they're expected, as in JS: `fetch(url, { headers: {
