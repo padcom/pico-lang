@@ -6916,22 +6916,22 @@
           "name": "TextDecoder",
           "kind": "class",
           "signature": "class TextDecoder",
-          "doc": "<p>Turns UTF-8 bytes into strings, also chunk by chunk (<code>{ stream: true }</code>).</p>\n",
+          "doc": "<p>Turns UTF-8 (or, by label, UTF-16; #63) bytes into strings, also chunk by chunk\n(<code>{ stream: true }</code>).</p>\n",
           "examples": [
             {
               "caption": "",
               "code": "const bytes = new TextEncoder().encode(\"grüße\")\nprintln(new TextDecoder().decode(bytes))   // grüße"
             }
           ],
-          "source": "core/text.pi:79",
+          "source": "core/text.pi:80",
           "members": [
             {
               "name": "encoding",
               "kind": "field",
-              "signature": "public readonly encoding: string = \"utf-8\"",
-              "doc": "<p>Always <code>\"utf-8\"</code>, the only encoding.</p>\n",
+              "signature": "public readonly encoding: string",
+              "doc": "<p><code>\"utf-8\"</code>, <code>\"utf-16le\"</code> or <code>\"utf-16be\"</code>.</p>\n",
               "examples": [],
-              "source": "core/text.pi:81",
+              "source": "core/text.pi:82",
               "members": []
             },
             {
@@ -6940,7 +6940,7 @@
               "signature": "public readonly fatal: bool",
               "doc": "<p>Whether bytes that aren't UTF-8 throw a <code>TypeError</code> (else they become U+FFFD).</p>\n",
               "examples": [],
-              "source": "core/text.pi:83",
+              "source": "core/text.pi:84",
               "members": []
             },
             {
@@ -6949,7 +6949,7 @@
               "signature": "public readonly ignoreBOM: bool",
               "doc": "<p>Whether a leading byte-order mark is kept in the text.</p>\n",
               "examples": [],
-              "source": "core/text.pi:85",
+              "source": "core/text.pi:86",
               "members": []
             },
             {
@@ -6963,21 +6963,21 @@
                   "code": "const decoder = new TextDecoder()\nprintln(decoder.decode(Uint8Array.from([104, 105, 0xFF])))   // hi�"
                 }
               ],
-              "source": "core/text.pi:98",
+              "source": "core/text.pi:99",
               "members": []
             },
             {
               "name": "constructor",
               "kind": "constructor",
               "signature": "constructor(label: string, options: TextDecoderOptions = {}) throws RangeError",
-              "doc": "<p>A decoder for <code>label</code>, matched case-insensitively, ignoring surrounding whitespace; anything\nbut <code>\"utf-8\"</code>, <code>\"utf8\"</code> or <code>\"unicode-1-1-utf-8\"</code> throws a <code>RangeError</code>, as on the Web.</p>\n",
+              "doc": "<p>A decoder for <code>label</code>, matched case-insensitively, ignoring surrounding whitespace, as on\nthe Web: <code>\"utf-8\"</code> (<code>\"utf8\"</code>, <code>\"unicode-1-1-utf-8\"</code>), <code>\"utf-16le\"</code> (<code>\"utf-16\"</code>, <code>\"ucs-2\"</code>,\n<code>\"unicode\"</code>, …) or <code>\"utf-16be\"</code> (<code>\"unicodefffe\"</code>); another label throws a <code>RangeError</code>.</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "const decoder = new TextDecoder(\"UTF-8\", { fatal: true })\ntry {\n  println(decoder.decode(Uint8Array.from([0xFF])))\n} catch (e: TypeError) {\n  println(e.message)   // The encoded data was not valid utf-8 (at byte 0)\n}"
                 }
               ],
-              "source": "core/text.pi:115",
+              "source": "core/text.pi:118",
               "members": []
             },
             {
@@ -6991,7 +6991,7 @@
                   "code": "const decoder = TextDecoder.utf8({ ignoreBOM: true })\nprintln(decoder.ignoreBOM)   // true"
                 }
               ],
-              "source": "core/text.pi:132",
+              "source": "core/text.pi:138",
               "members": []
             },
             {
@@ -7005,7 +7005,7 @@
                   "code": "const decoder = TextDecoder.utf8()\nprintln(decoder.decode(Uint8Array.from([111, 107])))   // ok"
                 }
               ],
-              "source": "core/text.pi:143",
+              "source": "core/text.pi:149",
               "members": []
             },
             {
@@ -7019,7 +7019,7 @@
                   "code": "const decoder = new TextDecoder()\nconst bytes = new TextEncoder().encode(\"hello\")\nprintln(decoder.decode(bytes))   // hello"
                 }
               ],
-              "source": "core/text.pi:156",
+              "source": "core/text.pi:163",
               "members": []
             }
           ]
