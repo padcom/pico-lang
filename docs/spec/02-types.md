@@ -136,8 +136,7 @@ const a = Opt.Some(value: 5)      // Opt<int>
 const b: Opt<string> = Opt.None   // `Opt.None` alone is E0329: nothing says `T`
 ```
 Each instance (`Opt<int>`, `Opt<string>`) has its own layout. Not yet: enums implementing
-interfaces other than `Throwable`, generic enums implementing any interface, and generic enums
-in the WasmGC backend.
+interfaces other than `Throwable`, and generic enums implementing any interface.
 
 ## 2.7 Structs (value types)
 ```ts
