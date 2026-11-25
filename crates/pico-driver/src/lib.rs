@@ -38,6 +38,7 @@ mod wasi;
 
 pub use link::{set_cli_lib_dirs, use_own_clang};
 pub use modules::stdlib_dir;
+pub use modules::with_overlay;
 pub use target::Target;
 
 /// Compiler stages, in pipeline order.

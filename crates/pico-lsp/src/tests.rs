@@ -49,7 +49,7 @@ fn initialize_and_shutdown() {
     assert_eq!(out.len(), 3, "{out:#?}");
     assert_eq!(out[0]["id"], 1);
     let caps = &out[0]["result"]["capabilities"];
-    assert_eq!(caps["textDocumentSync"]["change"], 1);
+    assert_eq!(caps["textDocumentSync"]["change"], 2);
     assert_eq!(caps["documentFormattingProvider"], true);
     assert_eq!(caps["hoverProvider"], true);
     assert_eq!(caps["definitionProvider"], true);
@@ -609,6 +609,17 @@ fn complete_with(
     files: &[(&str, &str)],
     context: Value,
 ) -> (Vec<String>, Vec<Value>) {
+    complete_from(name, text, files, context, init())
+}
+
+/// As [`complete_with`], after the client's `initialize` request `initialize`.
+fn complete_from(
+    name: &str,
+    text: &str,
+    files: &[(&str, &str)],
+    context: Value,
+    initialize: Value,
+) -> (Vec<String>, Vec<Value>) {
     let dir = tmp(name);
     for (f, t) in files {
         let path = dir.join(f);
@@ -624,7 +635,7 @@ fn complete_with(
         .sum();
     let uri = path_to_uri(&dir.join("main.pi"));
     let out = session(vec![
-        init(),
+        initialize,
         open(&uri, &text),
         json!({ "jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {
             "textDocument": { "uri": uri }, "position": { "line": line, "character": character },
@@ -1485,4 +1496,405 @@ fn hover_on_reactive_bindings() {
         hover_text(&out, 6),
         "```pico\nreactive count: Reactive<i64>\n```"
     );
+}
+
+/// Enum variant uses (#81): `Shape.Circle` in an expression and in a pattern go to the variant
+/// (and hover shows it), the enum name before it to the enum.
+#[test]
+fn enum_variant_uses() {
+    const SRC: &str = r#"enum Shape {
+  Circle(r: f64),
+  Square
+}
+const s = Shape.Circle(r: 1.0)
+const t = Shape.Square
+const n = match (s) {
+  Shape.Circle(r) => 1,
+  Shape.Square => 2,
+}
+println(`${n} ${t == Shape.Square}`)
+"#;
+    let dir = tmp("variants");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, SRC, needle, n, skip);
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, SRC, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SRC),
+        d(2, "Shape.Circle", 0, 6), // the variant in an expression
+        d(3, "Shape.Square", 0, 6), // a unit variant
+        d(4, "Shape.Circle", 1, 6), // in a pattern
+        d(5, "Shape.Square", 1, 6), // a unit variant in a pattern
+        d(6, "Shape.Circle", 0, 1), // the enum's name
+        h(7, "Shape.Circle", 0, 6),
+    ]);
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        assert_eq!(u, uri);
+        (line, ch)
+    };
+    assert_eq!(l(2), (1, 2));
+    assert_eq!(l(3), (2, 2));
+    assert_eq!(l(4), (1, 2));
+    assert_eq!(l(5), (2, 2));
+    assert_eq!(l(6), (0, 5));
+    assert!(
+        hover_text(&out, 7).contains("Shape.Circle"),
+        "{}",
+        hover_text(&out, 7)
+    );
+}
+
+/// Type parameters (#81): a use of `T` goes to its declaration (a function's, a class's), and
+/// hovering it says what it is.
+#[test]
+fn type_parameters() {
+    const SRC: &str = r#"function first<T>(xs: T[]): T {
+  return xs[0]
+}
+class Box<V> {
+  value: V
+  constructor(v: V) { this.value = v }
+  public get(): V { return this.value }
+}
+println(`${first([1, 2])} ${new Box<i32>(3).get()}`)
+"#;
+    let dir = tmp("tparams");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, SRC, needle, n, skip);
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, SRC, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SRC),
+        d(2, "T[]", 0, 0),      // a parameter's type
+        d(3, "): T", 0, 3),     // the return type
+        d(4, "value: V", 0, 7), // a field's type
+        d(5, "(): V", 0, 4),    // a method's return type
+        h(6, "T[]", 0, 0),
+    ]);
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        assert_eq!(u, uri);
+        (line, ch)
+    };
+    assert_eq!(l(2), (0, 15));
+    assert_eq!(l(3), (0, 15));
+    assert_eq!(l(4), (3, 10));
+    assert_eq!(l(5), (3, 10));
+    assert!(
+        hover_text(&out, 6).contains("type parameter"),
+        "{}",
+        hover_text(&out, 6)
+    );
+}
+
+/// `this` (#81) goes to its class (or enum), and hovering it shows that type, not the method
+/// whose name its binding borrows.
+#[test]
+fn this_goes_to_its_type() {
+    const SRC: &str = r#"class Counter {
+  count = 0
+  public bump(): i64 {
+    this.count += 1
+    return this.count
+  }
+}
+enum Dir {
+  Up,
+  Down
+  public flip(): Dir { return if (this == Dir.Up) Dir.Down else Dir.Up }
+}
+println(`${new Counter().bump()} ${Dir.Up.flip() == Dir.Down}`)
+"#;
+    let dir = tmp("this");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, SRC, needle, n, skip);
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, SRC, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SRC),
+        d(2, "this.count", 0, 0),
+        d(3, "this ==", 0, 0),
+        h(4, "this.count", 1, 0),
+    ]);
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        assert_eq!(u, uri);
+        (line, ch)
+    };
+    assert_eq!(l(2), (0, 6));
+    assert_eq!(l(3), (7, 5));
+    let hv = hover_text(&out, 4);
+    assert!(hv.contains("class Counter"), "{hv}");
+    // Renaming the class leaves `this` alone; renaming at `this` isn't a rename of the class.
+    let r = rename_at("rename_this", SRC, &[], ("Counter", 0, 0), "Tally").unwrap();
+    assert!(r["main.pi"].contains("class Tally") && r["main.pi"].contains("this.count += 1"));
+    assert!(r["main.pi"].contains("new Tally()"));
+    let e = rename_at("rename_at_this", SRC, &[], ("this.count", 0, 0), "Tally").unwrap_err();
+    assert!(e.contains("`this` is a keyword"), "{e}");
+}
+
+/// `ns.f`, `ns.Type` and `ns.Enum.Variant` through `import * as ns` (#81): definition goes to
+/// the module's declaration.
+#[test]
+fn namespace_members() {
+    let dir = tmp("namespaces");
+    let geo = "export struct Vec2 {\n  x: i32\n  y: i32\n}\nexport function dot(a: Vec2, b: Vec2): i32 { a.x * b.x + a.y * b.y }\nexport const ORIGIN: Vec2 = Vec2 { x: 0, y: 0 }\nexport enum Axis {\n  X,\n  Y\n}\n";
+    std::fs::write(dir.join("geo.pi"), geo).unwrap();
+    let geo_uri = path_to_uri(&dir.join("geo.pi").canonicalize().unwrap());
+    let main = "import * as geo from \"./geo\"\nconst v: geo.Vec2 = geo.ORIGIN\nconst a: geo.Axis = geo.Axis.X\nprintln(`${geo.dot(v, v)} ${a == geo.Axis.Y}`)\n";
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, main, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, main),
+        d(2, "geo.Vec2", 0, 4),   // a type
+        d(3, "geo.ORIGIN", 0, 4), // a constant
+        d(4, "geo.dot", 0, 4),    // a function
+        d(5, "geo.Axis", 0, 4),   // an enum type
+        d(6, "Axis.X", 0, 5),     // a variant through the namespace
+    ]);
+    let canon = |u: String| path_to_uri(&uri_to_path(&u).unwrap().canonicalize().unwrap());
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        (canon(u), line, ch)
+    };
+    assert_eq!(l(2), (geo_uri.clone(), 0, 14));
+    assert_eq!(l(3), (geo_uri.clone(), 5, 13));
+    assert_eq!(l(4), (geo_uri.clone(), 4, 16));
+    assert_eq!(l(5), (geo_uri.clone(), 6, 12));
+    assert_eq!(l(6), (geo_uri.clone(), 7, 2));
+}
+
+/// Renaming in destructuring patterns and `export { a }` lists (#81): a shorthand field
+/// (`{ x }`) keeps the field it reads (`{ x: ex }`), and an export list follows its binding.
+#[test]
+fn renames_in_destructuring_and_export_lists() {
+    let main = "const [a, b] = [1, 2]\nconst { x, y: w } = { x: 3, y: 4 }\nprintln(`${a} ${b} ${x} ${w}`)\nexport { a }\n";
+    let ok = |needle, new: &str| {
+        rename_at("rename_destr", main, &[], needle, new).unwrap()["main.pi"].clone()
+    };
+    assert_eq!(
+        ok(("a", 0, 0), "first"),
+        "const [first, b] = [1, 2]\nconst { x, y: w } = { x: 3, y: 4 }\nprintln(`${first} ${b} ${x} ${w}`)\nexport { first }\n"
+    );
+    assert_eq!(
+        ok(("a }", 0, 0), "first"),
+        "const [first, b] = [1, 2]\nconst { x, y: w } = { x: 3, y: 4 }\nprintln(`${first} ${b} ${x} ${w}`)\nexport { first }\n"
+    );
+    assert_eq!(
+        ok(("x", 0, 0), "ex"),
+        "const [a, b] = [1, 2]\nconst { x: ex, y: w } = { x: 3, y: 4 }\nprintln(`${a} ${b} ${ex} ${w}`)\nexport { a }\n"
+    );
+    assert_eq!(
+        ok(("w", 0, 0), "dub"),
+        "const [a, b] = [1, 2]\nconst { x, y: dub } = { x: 3, y: 4 }\nprintln(`${a} ${b} ${x} ${dub}`)\nexport { a }\n"
+    );
+    // In a function: locals.
+    let main = "struct P {\n  x: i32\n}\nfunction f(p: P): i32 {\n  const { x } = p\n  return x\n}\nprintln(f(P { x: 1 }))\n";
+    let r = rename_at("rename_destr_local", main, &[], ("return x", 0, 7), "v").unwrap();
+    assert_eq!(
+        r["main.pi"],
+        "struct P {\n  x: i32\n}\nfunction f(p: P): i32 {\n  const { x: v } = p\n  return v\n}\nprintln(f(P { x: 1 }))\n"
+    );
+    // Renaming the field keeps the variable.
+    let r = rename_at("rename_destr_field", main, &[], ("x: i32", 0, 0), "px").unwrap();
+    assert_eq!(
+        r["main.pi"],
+        "struct P {\n  px: i32\n}\nfunction f(p: P): i32 {\n  const { px: x } = p\n  return x\n}\nprintln(f(P { px: 1 }))\n"
+    );
+}
+
+/// Incremental sync (#81): ranged changes apply in order (UTF-16 columns, across lines,
+/// insertions and deletions); a change without a range replaces the text.
+#[test]
+fn incremental_changes() {
+    let ch = |sl, sc, el, ec, text: &str| {
+        json!({ "range": { "start": { "line": sl, "character": sc },
+            "end": { "line": el, "character": ec } }, "text": text })
+    };
+    let mut t = "const a = 1\nconst é😀b = 2\n".to_string();
+    crate::apply_change(&mut t, &ch(0, 6, 0, 7, "x")); // replace `a`
+    assert_eq!(t, "const x = 1\nconst é😀b = 2\n");
+    // (`é` is one UTF-16 unit, `😀` two: `b` is at 9.)
+    crate::apply_change(&mut t, &ch(1, 9, 1, 10, "c"));
+    assert_eq!(t, "const x = 1\nconst é😀c = 2\n");
+    crate::apply_change(&mut t, &ch(0, 11, 1, 0, "\nprintln(x)\n")); // across lines
+    assert_eq!(t, "const x = 1\nprintln(x)\nconst é😀c = 2\n");
+    crate::apply_change(&mut t, &ch(1, 0, 2, 0, "")); // delete a line
+    assert_eq!(t, "const x = 1\nconst é😀c = 2\n");
+    crate::apply_change(&mut t, &ch(2, 0, 2, 0, "x\n")); // insert at the end
+    assert_eq!(t, "const x = 1\nconst é😀c = 2\nx\n");
+    crate::apply_change(&mut t, &json!({ "text": "whole\n" }));
+    assert_eq!(t, "whole\n");
+
+    // Through the server: two edits in one notification, then a hover on the result.
+    let dir = tmp("incremental");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let before = "const answer = 42\nprintln(answer)\n";
+    let after = "const total = 42\nprintln(total)\n";
+    let out = session(vec![
+        init(),
+        open(&uri, before),
+        json!({ "jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
+            "textDocument": { "uri": uri, "version": 2 },
+            "contentChanges": [ch(1, 8, 1, 14, "total"), ch(0, 6, 0, 12, "total")] } }),
+        at(2, "textDocument/hover", &uri, after, "total", 1, 0),
+    ]);
+    assert_eq!(hover_text(&out, 2), "```pico\nconst total: i64\n```");
+}
+
+/// Unsaved buffers of other open modules (#81): imports see the editor's text, not the disk's,
+/// and a change to one re-checks the documents that may import it.
+#[test]
+fn imports_see_unsaved_buffers() {
+    let dir = tmp("overlay");
+    std::fs::write(
+        dir.join("geo.pi"),
+        "export function dot(a: i32): i32 { a }\n",
+    )
+    .unwrap();
+    let geo_uri = path_to_uri(&dir.join("geo.pi"));
+    let geo = "export function dot(a: i32): i32 { a }\n/// Unsaved.\nexport function cross(a: i32): i32 { a * 2 }\n";
+    let main = "import { cross } from \"./geo\"\nprintln(cross(2))\n";
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let out = session(vec![
+        init(),
+        open(&geo_uri, geo),
+        open(&uri, main),
+        at(2, "textDocument/hover", &uri, main, "cross", 1, 0),
+        // The buffer loses `cross` (still unsaved): `main.pi` is checked again.
+        json!({ "jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
+            "textDocument": { "uri": geo_uri, "version": 2 },
+            "contentChanges": [{ "text": "export function dot(a: i32): i32 { a }\n" }] } }),
+        at(3, "textDocument/hover", &uri, main, "cross", 1, 0),
+    ]);
+    let main_diags: Vec<&Value> = out
+        .iter()
+        .filter(|m| {
+            m["method"] == "textDocument/publishDiagnostics" && m["params"]["uri"] == uri.as_str()
+        })
+        .map(|m| &m["params"]["diagnostics"])
+        .collect();
+    assert!(
+        main_diags
+            .first()
+            .is_some_and(|d| d.as_array().unwrap().is_empty()),
+        "{main_diags:#?}"
+    );
+    assert!(
+        hover_text(&out, 2).contains("Unsaved."),
+        "{}",
+        hover_text(&out, 2)
+    );
+    let last = main_diags.last().unwrap().as_array().unwrap();
+    assert!(
+        last.iter()
+            .any(|d| d["message"].as_str().unwrap().contains("cross")),
+        "{main_diags:#?}"
+    );
+}
+
+/// Request cancellation (#81): a request whose `$/cancelRequest` is already waiting gets
+/// `RequestCancelled` instead of an answer; the others are answered.
+#[test]
+fn cancelled_requests() {
+    let dir = tmp("cancel");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let text = "const answer = 42\nprintln(answer)\n";
+    let cancel =
+        |id: u64| json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": id } });
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        at(2, "textDocument/hover", &uri, text, "answer", 1, 0),
+        at(3, "textDocument/hover", &uri, text, "answer", 1, 0),
+        cancel(2),
+        cancel(99), // (an unknown or finished request: ignored)
+    ]);
+    let r2 = out.iter().find(|m| m["id"] == 2).unwrap();
+    assert_eq!(r2["error"]["code"], -32800, "{r2:#}");
+    assert!(r2.get("result").is_none());
+    assert_eq!(hover_text(&out, 3), "```pico\nconst answer: i64\n```");
+    assert!(out.iter().all(|m| m["id"] != 99));
+}
+
+/// Hover on built-ins without a pico declaration and on overloaded static methods (#81):
+/// `push`, `length`, `println`; `Math.max` and `K.f(…)` (each call its own overload), whose
+/// uses were recorded at `K.f` (not a name) and so had no hover or definition.
+#[test]
+fn builtins_and_overloaded_statics() {
+    let dir = tmp("builtins");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let text = "class K {\n  public static f(a: int): int { return a }\n  public static f(a: string): string { return a }\n}\nconst xs = [1, 2]\nxs.push(3)\nprintln(`${xs.length} ${Math.max(1, 2)} ${Math.max(1.0, 2.0)} ${K.f(1)} ${K.f(\"s\")}`)\n";
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, text, needle, n, skip);
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, text, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        h(2, "push", 0, 0),
+        h(3, "length", 0, 0),
+        h(4, "println", 0, 0),
+        h(5, "max", 0, 0),
+        h(6, "max", 1, 0),
+        h(7, "K.f", 0, 2),
+        h(8, "K.f", 1, 2),
+        d(9, "K.f", 0, 2),
+        d(10, "K.f", 1, 2),
+    ]);
+    let has = |id, s: &str| {
+        let t = hover_text(&out, id);
+        assert!(t.contains(s), "{id}: {t}");
+    };
+    has(2, "Array.push");
+    has(3, "(property) length: i64");
+    has(4, "function println");
+    has(5, "Math.max(first: i64");
+    has(6, "Math.max(...values: f64[])");
+    has(7, "K.f(a: i64): i64");
+    has(8, "K.f(a: string): string");
+    assert_eq!(def_line(&out, 9), (uri.clone(), 1, 16));
+    assert_eq!(def_line(&out, 10), (uri.clone(), 2, 16));
+}
+
+/// Completion snippets (#81): with a client that takes them, functions and methods insert a
+/// call with their parameters as placeholders; not without, nor when a `(` follows already.
+#[test]
+fn completion_snippets() {
+    let snippet_client = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "capabilities": { "textDocument": { "completion": {
+            "completionItem": { "snippetSupport": true } } } } } });
+    let src = "function add(a: i32, b: i32): i32 { return a + b }\nfunction first<T>(xs: T[], ...more: T[]): T { return xs[0] }\nfunction now(): i32 { return 0 }\nclass C {\n  public bump(by: int): int { return by }\n}\nconst c = new C()\n";
+    let snip = |name, tail: &str, client: &Value| {
+        let (_, items) = complete_from(
+            name,
+            &format!("{src}{tail}"),
+            &[],
+            json!({}),
+            client.clone(),
+        );
+        items
+    };
+    let items = snip("snip_fn", "‸\n", &snippet_client);
+    let insert =
+        |items: &[Value], l: &str| item(items, l)["insertText"].as_str().map(str::to_string);
+    assert_eq!(
+        insert(&items, "add").as_deref(),
+        Some("add(${1:a}, ${2:b})$0")
+    );
+    assert_eq!(
+        insert(&items, "first").as_deref(),
+        Some("first(${1:xs}, ${2:more})$0")
+    );
+    assert_eq!(insert(&items, "now").as_deref(), Some("now()$0"));
+    assert_eq!(item(&items, "add")["insertTextFormat"], 2);
+    assert_eq!(insert(&items, "c"), None); // (not a function)
+    let items = snip("snip_method", "c.‸\n", &snippet_client);
+    assert_eq!(insert(&items, "bump").as_deref(), Some("bump(${1:by})$0"));
+    // A call already written: just the name.
+    let items = snip("snip_paren", "ad‸(1, 2)\n", &snippet_client);
+    assert_eq!(insert(&items, "add"), None);
+    // A client without snippets: just the name.
+    let items = snip("snip_plain", "‸\n", &init());
+    assert_eq!(insert(&items, "add"), None);
 }
