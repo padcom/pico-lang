@@ -1486,3 +1486,50 @@ fn hover_on_reactive_bindings() {
         "```pico\nreactive count: Reactive<i64>\n```"
     );
 }
+
+/// Enum variant uses (#81): `Shape.Circle` in an expression and in a pattern go to the variant
+/// (and hover shows it), the enum name before it to the enum.
+#[test]
+fn enum_variant_uses() {
+    const SRC: &str = r#"enum Shape {
+  Circle(r: f64),
+  Square
+}
+const s = Shape.Circle(r: 1.0)
+const t = Shape.Square
+const n = match (s) {
+  Shape.Circle(r) => 1,
+  Shape.Square => 2,
+}
+println(`${n} ${t == Shape.Square}`)
+"#;
+    let dir = tmp("variants");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, SRC, needle, n, skip);
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, SRC, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SRC),
+        d(2, "Shape.Circle", 0, 6), // the variant in an expression
+        d(3, "Shape.Square", 0, 6), // a unit variant
+        d(4, "Shape.Circle", 1, 6), // in a pattern
+        d(5, "Shape.Square", 1, 6), // a unit variant in a pattern
+        d(6, "Shape.Circle", 0, 1), // the enum's name
+        h(7, "Shape.Circle", 0, 6),
+    ]);
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        assert_eq!(u, uri);
+        (line, ch)
+    };
+    assert_eq!(l(2), (1, 2));
+    assert_eq!(l(3), (2, 2));
+    assert_eq!(l(4), (1, 2));
+    assert_eq!(l(5), (2, 2));
+    assert_eq!(l(6), (0, 5));
+    assert!(
+        hover_text(&out, 7).contains("Shape.Circle"),
+        "{}",
+        hover_text(&out, 7)
+    );
+}
