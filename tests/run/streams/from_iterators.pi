@@ -1,0 +1,72 @@
+// expect: sync: 1 2 3
+// expect: async: red green
+// expect: piped: A B
+// expect: failed: boom
+// expect: covered: nope
+// expect: covered async: 7
+// `ReadableStream.from` of an iterator and of an async iterator (#63): a generator's values,
+// read as the stream is pulled; an async generator's, awaited; one that throws errors the
+// stream. A type parameter bounded by `Error` is covered by `throws Error`, in plain and
+// async functions.
+function* count(): Iterator<int> {
+  yield 1
+  yield 2
+  yield 3
+}
+
+async function* words(): AsyncIterator<string> {
+  yield "red"
+  await 0
+  yield "green"
+}
+
+async function* broken(): AsyncIterator<string> throws Error {
+  yield "ok"
+  throw new Error("boom")
+}
+
+async function main(): Promise<void> throws Error {
+  const ns: string[] = []
+  for await (const n of ReadableStream.from(count())) {
+    ns.push(`${n}`)
+  }
+  println(`sync: ${ns.join(" ")}`)
+  const ws: string[] = []
+  for await (const w of ReadableStream.from(words())) {
+    ws.push(w)
+  }
+  println(`async: ${ws.join(" ")}`)
+  const upper = ReadableStream.from(["a", "b"]).pipeThrough(new TransformStream<string, string>({
+    transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),
+  }))
+  const up: string[] = []
+  for await (const u of upper) {
+    up.push(u)
+  }
+  println(`piped: ${up.join(" ")}`)
+  try {
+    for await (const b of ReadableStream.from(broken())) {
+      if (b != "ok") println(b)
+    }
+    println("failed: no")
+  } catch (e) {
+    println(`failed: ${e.message}`)
+  }
+}
+await main()
+
+function run<F extends Error>(f: () => void throws F): void throws Error {
+  f()
+}
+try {
+  run(() => { throw new Error("nope") })
+} catch (e) {
+  println(`covered: ${e.message}`)
+}
+async function first<F extends Error>(it: AsyncIterator<int, F>): Promise<int> throws Error {
+  (await it.next()) ?? -1
+}
+async function* sevens(): AsyncIterator<int> {
+  yield 7
+}
+println(`covered async: ${await first(sevens())}`)

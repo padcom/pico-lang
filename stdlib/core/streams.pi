@@ -70,6 +70,16 @@ struct StreamPipeOptions {
   preventCancel?: bool
 }
 
+/// One pull of `ReadableStream.from(asyncIterator)`: the next value, or the end.
+async function __pullFrom<U, F extends Error>(items: AsyncIterator<U, F>, c: ReadableStreamDefaultController<U>): Promise<void> throws Error {
+  const v = await items.next()
+  if (v != null) {
+    c.enqueue(v)
+  } else {
+    c.close()
+  }
+}
+
 /// The source behind a `ReadableStream`: `start` runs at once, `pull` (or `pullAsync`) when
 /// the stream wants more chunks, `cancel` when its reader gives up.
 ///
@@ -309,6 +319,54 @@ class ReadableStream<T> {
           c.close()
         }
       },
+    })
+  }
+
+  /// A stream of what iterator `items` (a generator's, say) yields, read as it's pulled (#63).
+  ///
+  /// @example
+  /// ```ts
+  /// function* count(): Iterator<int> {
+  ///   yield 1
+  ///   yield 2
+  /// }
+  /// for await (const n of ReadableStream.from(count())) {
+  ///   println(n)
+  /// }
+  /// // 1
+  /// // 2
+  /// ```
+  public static from<U>(items: Iterator<U>): ReadableStream<U> {
+    new ReadableStream<U>({
+      pull: (c) => {
+        const v = items.next()
+        if (v != null) {
+          c.enqueue(v)
+        } else {
+          c.close()
+        }
+      },
+    })
+  }
+
+  /// A stream of what async iterator `items` (an async generator's, say) yields, awaited as
+  /// it's pulled (#63); its error errors the stream.
+  ///
+  /// @example
+  /// ```ts
+  /// async function* words(): AsyncIterator<string> {
+  ///   yield "red"
+  ///   yield "green"
+  /// }
+  /// for await (const w of ReadableStream.from(words())) {
+  ///   println(w)
+  /// }
+  /// // red
+  /// // green
+  /// ```
+  public static from<U, F extends Error>(items: AsyncIterator<U, F>): ReadableStream<U> {
+    new ReadableStream<U>({
+      pullAsync: (c) => __pullFrom(items, c),
     })
   }
 
