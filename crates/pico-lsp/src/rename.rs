@@ -23,6 +23,9 @@ pub fn target(idx: &Index, offset: u32) -> Result<(Span, Decl), String> {
     if r.builtin {
         return Err(format!("`{}` is built in and can't be renamed", r.name));
     }
+    if r.name == "this" {
+        return Err("`this` is a keyword and can't be renamed".into());
+    }
     let at = Span::new(idx.file, r.start, r.end);
     Ok((at, decl_of(idx, r.def)?))
 }

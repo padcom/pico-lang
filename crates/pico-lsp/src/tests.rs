@@ -1576,3 +1576,49 @@ println(`${first([1, 2])} ${new Box<i32>(3).get()}`)
         hover_text(&out, 6)
     );
 }
+
+/// `this` (#81) goes to its class (or enum), and hovering it shows that type, not the method
+/// whose name its binding borrows.
+#[test]
+fn this_goes_to_its_type() {
+    const SRC: &str = r#"class Counter {
+  count = 0
+  public bump(): i64 {
+    this.count += 1
+    return this.count
+  }
+}
+enum Dir {
+  Up,
+  Down
+  public flip(): Dir { return if (this == Dir.Up) Dir.Down else Dir.Up }
+}
+println(`${new Counter().bump()} ${Dir.Up.flip() == Dir.Down}`)
+"#;
+    let dir = tmp("this");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, SRC, needle, n, skip);
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, SRC, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SRC),
+        d(2, "this.count", 0, 0),
+        d(3, "this ==", 0, 0),
+        h(4, "this.count", 1, 0),
+    ]);
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        assert_eq!(u, uri);
+        (line, ch)
+    };
+    assert_eq!(l(2), (0, 6));
+    assert_eq!(l(3), (7, 5));
+    let hv = hover_text(&out, 4);
+    assert!(hv.contains("class Counter"), "{hv}");
+    // Renaming the class leaves `this` alone; renaming at `this` isn't a rename of the class.
+    let r = rename_at("rename_this", SRC, &[], ("Counter", 0, 0), "Tally").unwrap();
+    assert!(r["main.pi"].contains("class Tally") && r["main.pi"].contains("this.count += 1"));
+    assert!(r["main.pi"].contains("new Tally()"));
+    let e = rename_at("rename_at_this", SRC, &[], ("this.count", 0, 0), "Tally").unwrap_err();
+    assert!(e.contains("`this` is a keyword"), "{e}");
+}
