@@ -4985,15 +4985,30 @@ impl<'p> Gen<'p> {
                         self.call_result(fx, s, dest.as_ref(), &ret)?;
                     }
                     Callee::Iface { slot, decl } => {
-                        let decl_fn = &self.p.fns[decl.0 as usize];
-                        let (ps, rs) = self.fn_sig(*decl)?;
+                        // (Typed from the call itself: a generic interface's own method has
+                        // its type parameters, the implementations their arguments, #51.)
+                        let _ = decl;
+                        let mut ps = Vec::new();
+                        let mut arg_tys = Vec::new();
+                        for a in args {
+                            let t = self.operand_ty(fx, a)?;
+                            if let Some(v) = self.ty_or_err(&t)? {
+                                ps.push(v);
+                            }
+                            arg_tys.push(t);
+                        }
+                        let ret = match dest {
+                            Some(d) => self.place_ty(fx, d)?,
+                            None => Ty::Void,
+                        };
+                        let rs: Vec<ValType> = self.ty_or_err(&ret)?.into_iter().collect();
                         let sig = self.func_type(ps, rs);
                         let it = self.register(Key::Iface, |_| Def::Iface);
                         let tmp = self.ref_scratch(fx, it);
                         self.operand(fx, s, &args[0])?;
                         s.local_tee(tmp);
-                        for (a, p) in args.iter().zip(&decl_fn.params).skip(1) {
-                            if no_value(decl_fn.local_ty(*p)) {
+                        for (a, t) in args.iter().zip(&arg_tys).skip(1) {
+                            if no_value(t) {
                                 continue;
                             }
                             self.operand(fx, s, a)?;
@@ -5003,7 +5018,6 @@ impl<'p> Gen<'p> {
                         s.i32_const(*slot as i32);
                         s.i32_add();
                         s.call_indirect(0, sig);
-                        let ret = decl_fn.ret.clone();
                         self.call_result(fx, s, dest.as_ref(), &ret)?;
                     }
                 }
