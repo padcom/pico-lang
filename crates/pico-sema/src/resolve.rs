@@ -755,6 +755,7 @@ impl Resolver {
                             origin: EnumOrigin::Declared,
                             throwable: false,
                             methods: Vec::new(),
+                            statics: Vec::new(),
                         });
                         self.top_enums.insert(&self.mods, ed.name.name.clone(), id);
                         for v in &ed.variants {
@@ -1113,11 +1114,25 @@ impl Resolver {
                 self.not_implemented(m.span, "enum members other than methods");
                 continue;
             };
+            let Some(name) = &f.name else { continue };
             if m.mods.is_static {
-                self.not_implemented(m.span, "static enum methods");
+                // A plain function named `Enum.m`, called as `Enum.m(args)`.
+                if self.check_duplicate(&mut method_seen, name) {
+                    continue;
+                }
+                let id = FnId(self.fns.len() as u32);
+                self.fns.push(None);
+                let mut decl = f.clone();
+                decl.name = Some(ast::Ident {
+                    name: format!("{}.{}", ed.name.name, name.name),
+                    span: name.span,
+                });
+                self.enums[eid.0 as usize]
+                    .statics
+                    .push((name.name.clone(), id));
+                self.enum_methods.push((id, decl));
                 continue;
             }
-            let Some(name) = &f.name else { continue };
             let overload = self.enums[eid.0 as usize]
                 .methods
                 .iter()
@@ -4968,6 +4983,7 @@ impl Resolver {
             origin: EnumOrigin::Union(members.clone()),
             throwable: false,
             methods: Vec::new(),
+            statics: Vec::new(),
         });
         self.unions.push((members.clone(), id));
         Ty::Union(id, members.into())
@@ -5007,6 +5023,7 @@ impl Resolver {
             origin: EnumOrigin::Discriminated(disc.clone()),
             throwable: false,
             methods: Vec::new(),
+            statics: Vec::new(),
         });
         let mut seen: HashMap<String, Span> = HashMap::new();
         for o in objects {
@@ -6154,6 +6171,7 @@ impl Resolver {
                     }
                 }
             }
+            A::Member { .. } if let Some(f) = self.enum_static(e) => ExprKind::Fn(f),
             A::Member { .. } if self.names_enum_member(e) => {
                 let Some((enum_, variant)) = self.variant_ref(e) else {
                     return self.error_expr(span);
@@ -6857,10 +6875,39 @@ impl Resolver {
                 object,
                 optional: false,
                 ..
-            } => matches!(&object.kind, ast::ExprKind::Ident(n)
-                if self.top_enums.contains_key(&self.mods, n) && !self.is_value_name(n)),
+            } => {
+                matches!(&object.kind, ast::ExprKind::Ident(n)
+                if self.top_enums.contains_key(&self.mods, n) && !self.is_value_name(n))
+                    && self.enum_static(e).is_none()
+            }
             _ => false,
         }
+    }
+
+    /// `Color.parse` naming a static method of the enum `Color` (#51), not a variant.
+    fn enum_static(&self, e: &ast::Expr) -> Option<FnId> {
+        let ast::ExprKind::Member {
+            object,
+            prop,
+            optional: false,
+        } = &e.kind
+        else {
+            return None;
+        };
+        let ast::ExprKind::Ident(name) = &object.kind else {
+            return None;
+        };
+        if self.is_value_name(name) {
+            return None;
+        }
+        let def = &self.enums[self.top_enums.get(&self.mods, name)?.0 as usize];
+        if def.variant(&prop.name).is_some() {
+            return None;
+        }
+        def.statics
+            .iter()
+            .find(|(n, _)| *n == prop.name)
+            .map(|(_, f)| *f)
     }
 
     /// `Shape.Circle` as an expression: the enum and variant. Reports an unknown variant.
