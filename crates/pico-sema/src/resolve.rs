@@ -230,6 +230,7 @@ pub fn resolve_modules(
         distincts: 0,
         outer_fns: Vec::new(),
         name_refs: Vec::new(),
+        param_decls: HashMap::new(),
         binding_decorators: modules.binding_decorators.clone(),
         maybe_cells: HashSet::new(),
         type_decorators: modules.type_decorators.clone(),
@@ -458,6 +459,9 @@ struct Resolver {
     outer_fns: Vec<FnState>,
     /// See [`Program::name_refs`].
     name_refs: Vec<(Span, Span)>,
+    /// Where each type parameter is declared, by (owner, index), for the language server's
+    /// links from uses of it (#81).
+    param_decls: HashMap<(u32, u32), Span>,
 }
 
 enum Found {
@@ -2154,6 +2158,7 @@ impl Resolver {
         let mut out: Vec<TypeParam> = Vec::new();
         for (i, g) in params.iter().enumerate() {
             let param = Ty::Param(owner, i as u32, g.name.name.as_str().into());
+            self.param_decls.insert((owner, i as u32), g.name.span);
             let comptime = match &g.kind {
                 ast::GenericKind::Type { .. } => {
                     self.f.type_params.push((g.name.name.clone(), param));
@@ -4738,7 +4743,14 @@ impl Resolver {
                     .iter()
                     .find(|(n, _)| *n == path[0].name)
                     .expect("checked");
-                ty.clone()
+                let ty = ty.clone();
+                // (For the language server: the parameter's declaration, #81.)
+                if let Ty::Param(o, i, _) = &ty
+                    && let Some(decl) = self.param_decls.get(&(*o, *i)).copied()
+                {
+                    self.name_refs.push((path[0].span, decl));
+                }
+                ty
             }
             // A `comptime` parameter as a type argument (`zeros<N>()`).
             ast::TypeKind::Path { path, args }
