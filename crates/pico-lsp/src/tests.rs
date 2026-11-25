@@ -49,7 +49,7 @@ fn initialize_and_shutdown() {
     assert_eq!(out.len(), 3, "{out:#?}");
     assert_eq!(out[0]["id"], 1);
     let caps = &out[0]["result"]["capabilities"];
-    assert_eq!(caps["textDocumentSync"]["change"], 1);
+    assert_eq!(caps["textDocumentSync"]["change"], 2);
     assert_eq!(caps["documentFormattingProvider"], true);
     assert_eq!(caps["hoverProvider"], true);
     assert_eq!(caps["definitionProvider"], true);
@@ -1485,4 +1485,43 @@ fn hover_on_reactive_bindings() {
         hover_text(&out, 6),
         "```pico\nreactive count: Reactive<i64>\n```"
     );
+}
+
+/// Incremental sync (#81): ranged changes apply in order (UTF-16 columns, across lines,
+/// insertions and deletions); a change without a range replaces the text.
+#[test]
+fn incremental_changes() {
+    let ch = |sl, sc, el, ec, text: &str| {
+        json!({ "range": { "start": { "line": sl, "character": sc },
+            "end": { "line": el, "character": ec } }, "text": text })
+    };
+    let mut t = "const a = 1\nconst é😀b = 2\n".to_string();
+    crate::apply_change(&mut t, &ch(0, 6, 0, 7, "x")); // replace `a`
+    assert_eq!(t, "const x = 1\nconst é😀b = 2\n");
+    // (`é` is one UTF-16 unit, `😀` two: `b` is at 9.)
+    crate::apply_change(&mut t, &ch(1, 9, 1, 10, "c"));
+    assert_eq!(t, "const x = 1\nconst é😀c = 2\n");
+    crate::apply_change(&mut t, &ch(0, 11, 1, 0, "\nprintln(x)\n")); // across lines
+    assert_eq!(t, "const x = 1\nprintln(x)\nconst é😀c = 2\n");
+    crate::apply_change(&mut t, &ch(1, 0, 2, 0, "")); // delete a line
+    assert_eq!(t, "const x = 1\nconst é😀c = 2\n");
+    crate::apply_change(&mut t, &ch(2, 0, 2, 0, "x\n")); // insert at the end
+    assert_eq!(t, "const x = 1\nconst é😀c = 2\nx\n");
+    crate::apply_change(&mut t, &json!({ "text": "whole\n" }));
+    assert_eq!(t, "whole\n");
+
+    // Through the server: two edits in one notification, then a hover on the result.
+    let dir = tmp("incremental");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let before = "const answer = 42\nprintln(answer)\n";
+    let after = "const total = 42\nprintln(total)\n";
+    let out = session(vec![
+        init(),
+        open(&uri, before),
+        json!({ "jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
+            "textDocument": { "uri": uri, "version": 2 },
+            "contentChanges": [ch(1, 8, 1, 14, "total"), ch(0, 6, 0, 12, "total")] } }),
+        at(2, "textDocument/hover", &uri, after, "total", 1, 0),
+    ]);
+    assert_eq!(hover_text(&out, 2), "```pico\nconst total: i64\n```");
 }
