@@ -317,7 +317,7 @@ pub fn emit(p: &Program, tzdata: &[u8]) -> R<Vec<u8>> {
         let (is_final, base) = match def {
             Def::Struct { base, is_final, .. } => (*is_final, *base),
             Def::Enum => (false, None),
-            Def::Variant(e, _, _) => (true, Some(*e)),
+            Def::Variant(e, _) => (true, Some(*e)),
             _ => (true, None),
         };
         group.push(SubType {
@@ -507,8 +507,9 @@ enum Def {
     Func(Vec<ValType>, Vec<ValType>),
     /// An enum's (or union's) values: `{ tag: i32 }`, the supertype of its variants'.
     Enum,
-    /// One variant: `{ tag, fields… }` (the enum's struct type index, the enum, the variant).
-    Variant(u32, EnumId, u32),
+    /// One variant: `{ tag, fields… }` (the enum's struct type index, the fields' types; one
+    /// per instance of a generic enum, #51).
+    Variant(u32, Vec<ValType>),
     /// A function value: `{ fn: (ref null func type), env: anyref }`.
     Clo(u32),
     /// An interface value: `{ data: anyref, itable: i32 }` (the table's offset).
@@ -524,7 +525,7 @@ enum Key {
     Opt(ValType),
     Func(Vec<ValType>, Vec<ValType>),
     Enum(EnumId),
-    Variant(EnumId, u32),
+    Variant(EnumId, u32, Vec<ValType>),
     Iface,
     Vt,
     Clo(u32),
@@ -793,9 +794,34 @@ impl<'p> Gen<'p> {
         self.register(Key::Enum(eid), |_| Def::Enum)
     }
 
-    fn variant_type(&self, eid: EnumId, v: u32) -> u32 {
+    /// Variant `v` of the enum type `t` (an instance of a generic one: its type arguments in
+    /// the fields, #51).
+    fn variant_type(&self, t: &Ty, v: u32) -> u32 {
+        let Ty::Enum(eid, _, _) = t.erase() else {
+            unreachable!("a variant of {t}")
+        };
         let base = self.enum_type(eid);
-        self.register(Key::Variant(eid, v), |_| Def::Variant(base, eid, v))
+        let fields: Vec<ValType> = self
+            .variant_fields(t, v)
+            .iter()
+            .map(|f| self.wasm_ty(f).unwrap_or(ANYREF))
+            .collect();
+        self.register(Key::Variant(eid, v, fields.clone()), |_| {
+            Def::Variant(base, fields)
+        })
+    }
+
+    /// The fields' types of variant `v` of the enum type `t`, with its type arguments.
+    fn variant_fields(&self, t: &Ty, v: u32) -> Vec<Ty> {
+        let Ty::Enum(eid, _, args) = t.erase() else {
+            unreachable!("a variant of {t}")
+        };
+        let owner = Ty::enum_owner(eid);
+        self.p.enum_layout(eid).variants[v as usize]
+            .fields
+            .iter()
+            .map(|(_, f)| f.subst(owner, &args))
+            .collect()
     }
 
     fn vt_type(&self) -> u32 {
@@ -1325,11 +1351,9 @@ impl<'p> Gen<'p> {
                 CompositeInnerType::Func(wasm_encoder::FuncType::new(ps.clone(), rs.clone()))
             }
             Def::Enum => structure(vec![field(ValType::I32)]),
-            Def::Variant(_, eid, v) => {
+            Def::Variant(_, fields) => {
                 let mut fs = vec![field(ValType::I32)];
-                for (_, t) in &self.p.enum_layout(*eid).variants[*v as usize].fields {
-                    fs.push(field(self.wasm_ty(t).unwrap_or(ANYREF)));
-                }
+                fs.extend(fields.iter().map(|v| field(*v)));
                 structure(fs)
             }
             Def::Clo(sig) => structure(vec![field(ref_to(*sig)), field(ANYREF)]),
@@ -2271,10 +2295,8 @@ impl<'p> Gen<'p> {
             (Proj::Field(i), _) => self.struct_of(t)?.1[*i as usize].clone(),
             (Proj::Index(_), Ty::Array(elem) | Ty::Fixed(elem, _)) => *elem,
             (Proj::Payload, Ty::Nullable(inner)) => *inner,
-            (Proj::VariantField(v, i), Ty::Enum(eid, _, _)) => {
-                self.p.enum_layout(eid).variants[*v as usize].fields[*i as usize]
-                    .1
-                    .clone()
+            (Proj::VariantField(v, i), Ty::Enum(..)) => {
+                self.variant_fields(t, *v)[*i as usize].clone()
             }
             (pr, t) => return unsupported(format!("the place `{pr:?}` of `{t}`")),
         })
@@ -2299,18 +2321,18 @@ impl<'p> Gen<'p> {
             (Proj::VariantField(v, i), Ty::Enum(eid, _, _)) => {
                 // A field every variant has (a discriminated union's discriminant) may be read
                 // before the variant is known: through a getter dispatching on the tag.
-                let layout = self.p.enum_layout(eid);
-                let want = layout.variants[*v as usize].fields[*i as usize].1.clone();
-                let shared = layout.variants.len() > 1
-                    && layout.variants.iter().all(|var| {
-                        var.fields
+                let n = self.p.enum_layout(eid).variants.len() as u32;
+                let want = self.variant_fields(t, *v)[*i as usize].clone();
+                let shared = n > 1
+                    && (0..n).all(|var| {
+                        self.variant_fields(t, var)
                             .get(*i as usize)
-                            .is_some_and(|(_, t)| self.wasm_ty(t) == self.wasm_ty(&want))
+                            .is_some_and(|f| self.wasm_ty(f) == self.wasm_ty(&want))
                     });
                 if shared {
-                    Access::Getter(self.shared_field_fn(eid, *i, &want)?)
+                    Access::Getter(self.shared_field_fn(t, *i, &want)?)
                 } else {
-                    let vt = self.variant_type(eid, *v);
+                    let vt = self.variant_type(t, *v);
                     s.ref_cast_nullable(HeapType::Concrete(vt));
                     Access::Field(vt, *i + 1)
                 }
@@ -2943,13 +2965,18 @@ impl<'p> Gen<'p> {
                 }
             }
             Rvalue::Variant(eid, v, ops) => {
-                let vt = self.variant_type(*eid, *v);
+                // (A generic enum's instance: the destination's type, #51.)
+                let et = match t.erase() {
+                    e @ Ty::Enum(id, _, _) if id == *eid => e,
+                    _ => Ty::Enum(
+                        *eid,
+                        self.p.enum_layout(*eid).name.as_str().into(),
+                        std::sync::Arc::from([]),
+                    ),
+                };
+                let vt = self.variant_type(&et, *v);
                 s.i32_const(*v as i32);
-                let fields: Vec<Ty> = self.p.enum_layout(*eid).variants[*v as usize]
-                    .fields
-                    .iter()
-                    .map(|(_, t)| t.clone())
-                    .collect();
+                let fields: Vec<Ty> = self.variant_fields(&et, *v);
                 for (o, ft) in ops.iter().zip(&fields) {
                     if no_value(ft) {
                         s.ref_null(RefType::ANYREF.heap_type);
@@ -4210,7 +4237,8 @@ impl<'p> Gen<'p> {
                 // Per variant: its literal pieces and fields (`Shape.Circle(r: 1)`).
                 let mut per: Vec<(u32, Vec<Part>)> = Vec::new();
                 for (v, var) in layout.variants.iter().enumerate() {
-                    let vt2 = self.variant_type(eid, v as u32);
+                    let vt2 = self.variant_type(&t, v as u32);
+                    let ftys = self.variant_fields(&t, v as u32);
                     let mut parts = Vec::new();
                     let lit = |g: &mut Self, text: String, parts: &mut Vec<Part>| {
                         let d = g.string_data(&text);
@@ -4220,7 +4248,7 @@ impl<'p> Gen<'p> {
                         lit(self, format!("{}.{}", layout.name, var.name), &mut parts);
                     } else {
                         lit(self, format!("{}.{}(", layout.name, var.name), &mut parts);
-                        for (i, (fname, ft)) in var.fields.iter().enumerate() {
+                        for (i, ((fname, _), ft)) in var.fields.iter().zip(&ftys).enumerate() {
                             let sep = if i == 0 {
                                 format!("{fname}: ")
                             } else {
@@ -4363,14 +4391,17 @@ impl<'p> Gen<'p> {
     }
 
     /// Reads field `i` that every variant of enum `eid` has, whatever the variant.
-    fn shared_field_fn(&mut self, eid: EnumId, i: u32, t: &Ty) -> R<u32> {
+    fn shared_field_fn(&mut self, enum_t: &Ty, i: u32, t: &Ty) -> R<u32> {
+        let Ty::Enum(eid, _, _) = enum_t.erase() else {
+            unreachable!("a field of {enum_t}")
+        };
         let et = ref_to(self.enum_type(eid));
         let rt = self.ty_or_err(t)?.expect("a value");
         let base = self.enum_type(eid);
         let n = self.p.enum_layout(eid).variants.len() as u32;
-        let vts: Vec<u32> = (0..n).map(|v| self.variant_type(eid, v)).collect();
+        let vts: Vec<u32> = (0..n).map(|v| self.variant_type(enum_t, v)).collect();
         Ok(self.extra_fn(
-            format!("shared field {}.{i}", eid.0),
+            format!("shared field {enum_t}.{i}"),
             vec![et],
             vec![rt],
             move |_| {
@@ -4577,12 +4608,8 @@ impl<'p> Gen<'p> {
                 let nv = self.p.enum_layout(eid).variants.len();
                 let mut per: Vec<(u32, Vec<(u32, Cmp)>)> = Vec::new();
                 for v in 0..nv {
-                    let vt2 = self.variant_type(eid, v as u32);
-                    let fts: Vec<Ty> = self.p.enum_layout(eid).variants[v]
-                        .fields
-                        .iter()
-                        .map(|(_, t)| t.clone())
-                        .collect();
+                    let vt2 = self.variant_type(&t, v as u32);
+                    let fts: Vec<Ty> = self.variant_fields(&t, v as u32);
                     let mut cs = Vec::new();
                     for (i, ft) in fts.iter().enumerate() {
                         if !no_value(ft) {
