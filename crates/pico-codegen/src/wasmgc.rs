@@ -2872,6 +2872,28 @@ impl<'p> Gen<'p> {
                 self.operand(fx, s, o)?;
                 self.cast(fx, s, &from, to, loc)?;
             }
+            // `unsafe.cast` between number types of one size (#78): the same bits.
+            Rvalue::BitCast(o, to) => {
+                let from = self.operand_ty(fx, o)?.erase();
+                self.operand(fx, s, o)?;
+                match (&from, &to.erase()) {
+                    (Ty::Float(FloatTy::F64), Ty::Int(_)) => {
+                        s.i64_reinterpret_f64();
+                    }
+                    (Ty::Int(_), Ty::Float(FloatTy::F64)) => {
+                        s.f64_reinterpret_i64();
+                    }
+                    (Ty::Float(FloatTy::F32), Ty::Int(_)) => {
+                        s.i32_reinterpret_f32();
+                    }
+                    (Ty::Int(_), Ty::Float(FloatTy::F32)) => {
+                        s.f32_reinterpret_i32();
+                    }
+                    // (Narrow integers live sign- or zero-extended: `u8` → `i8` extends again.)
+                    (Ty::Int(_), Ty::Int(it)) => self.normalize(s, *it),
+                    (a, b) => return unsupported(format!("`unsafe.cast` from `{a}` to `{b}`")),
+                }
+            }
             Rvalue::ToStr(o) => {
                 let ot = self.operand_ty(fx, o)?;
                 self.operand(fx, s, o)?;
