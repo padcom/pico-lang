@@ -322,6 +322,21 @@ export function todo(name: string): void {
 /// ```
 export function beforeEach(fn: () => void): void { __currentSuite().beforeEach.push(__Hook { sync: fn, async_: null }) }
 /// An async `beforeEach` hook: the runner awaits it (#70).
+///
+/// @example
+/// ```ts
+/// import { beforeEach, it, expect } from "std/test"
+///
+/// let ready = false
+/// beforeEach(async () => {
+///   await 0
+///   ready = true   // awaited before each test
+/// })
+/// it("is ready", () => {
+///   expect(ready).toBe(true)
+/// })
+/// // pico test: ✓ is ready
+/// ```
 export function beforeEach(fn: () => Promise<void, Error>): void {
   __currentSuite().beforeEach.push(__Hook { sync: null, async_: fn })
 }
@@ -349,6 +364,21 @@ export function beforeEach(fn: () => Promise<void, Error>): void {
 /// ```
 export function afterEach(fn: () => void): void { __currentSuite().afterEach.push(__Hook { sync: fn, async_: null }) }
 /// An async `afterEach` hook: the runner awaits it (#70).
+///
+/// @example
+/// ```ts
+/// import { afterEach, it, expect } from "std/test"
+///
+/// let cleaned = 0
+/// afterEach(async () => {
+///   await 0
+///   cleaned += 1   // awaited after each test
+/// })
+/// it("runs", () => {
+///   expect(1).toBe(1)
+/// })
+/// // pico test: ✓ runs
+/// ```
 export function afterEach(fn: () => Promise<void, Error>): void {
   __currentSuite().afterEach.push(__Hook { sync: null, async_: fn })
 }
@@ -373,6 +403,20 @@ export function afterEach(fn: () => Promise<void, Error>): void {
 /// ```
 export function beforeAll(fn: () => void): void { __currentSuite().beforeAll.push(__Hook { sync: fn, async_: null }) }
 /// An async `beforeAll` hook: the runner awaits it (#70).
+///
+/// @example
+/// ```ts
+/// import { beforeAll, it, expect } from "std/test"
+///
+/// let n = 0
+/// beforeAll(async () => {
+///   n = await 41   // once, awaited before the first test
+/// })
+/// it("sees it", () => {
+///   expect(n).toBe(41)
+/// })
+/// // pico test: ✓ sees it
+/// ```
 export function beforeAll(fn: () => Promise<void, Error>): void {
   __currentSuite().beforeAll.push(__Hook { sync: null, async_: fn })
 }
@@ -396,6 +440,20 @@ export function beforeAll(fn: () => Promise<void, Error>): void {
 /// ```
 export function afterAll(fn: () => void): void { __currentSuite().afterAll.push(__Hook { sync: fn, async_: null }) }
 /// An async `afterAll` hook: the runner awaits it (#70).
+///
+/// @example
+/// ```ts
+/// import { afterAll, it, expect } from "std/test"
+///
+/// afterAll(async () => {
+///   await 0
+///   println("cleaned up")   // once, after the last test
+/// })
+/// it("works", () => {
+///   expect(1).toBe(1)
+/// })
+/// // pico test: ✓ works (and prints "cleaned up")
+/// ```
 export function afterAll(fn: () => Promise<void, Error>): void {
   __currentSuite().afterAll.push(__Hook { sync: null, async_: fn })
 }
