@@ -1,0 +1,80 @@
+// expect: 3 requests, 3 ok, 1 connection
+// expect: connection: close: 3 requests, 2 new connections
+// expect: closed by the server while idle: ok, 2 connections
+// `fetch` keeps HTTP/1.1 connections alive and reuses them for the same origin (#138). A
+// response with `Connection: close` isn't reused, and a kept connection that the server closed
+// while it was idle is replaced without failing the request.
+import { listen, Conn } from "std/net"
+
+let connections = 0
+const open: Conn[] = []
+// "keep", "close" (say so) or "drop" (say keep-alive, then close anyway).
+let mode = "keep"
+
+async function answer(conn: Conn): Promise<void> {
+  try {
+    await serveConn(conn)
+  } catch (e) {}
+  conn.close()
+}
+
+async function serveConn(conn: Conn): Promise<void> throws Error {
+  let pending = ""
+  while (true) {
+    const chunk = await conn.read()
+    if (chunk == null) break
+    pending = `${pending}${new TextDecoder().decode(chunk)}`
+    while (pending.includes("\r\n\r\n")) {
+      pending = pending.slice(pending.indexOf("\r\n\r\n") + 4)
+      const m = mode
+      await conn.writeText(`HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: ${if (m == "close") "close" else "keep-alive"}\r\n\r\nok`)
+      if (m != "keep") {
+        return
+      }
+    }
+  }
+}
+
+const server = await listen(0)
+const url = `http://127.0.0.1:${server.addr.port}/`
+async function acceptAll(): Promise<void> {
+  try {
+    for await (const conn of server) {
+      connections += 1
+      open.push(conn)
+      answer(conn)
+    }
+  } catch (e) {}
+}
+acceptAll()
+
+async function get(): Promise<string> throws Error {
+  await (await fetch(url)).text()
+}
+
+let oks = 0
+for (let i = 0; i < 3; i++) {
+  if ((await get()) == "ok") oks += 1
+}
+println(`3 requests, ${oks} ok, ${connections} connection`)
+
+// (The kept connection is closed by the next response.)
+// (The first request still goes on the kept connection, which its response then closes.)
+mode = "close"
+connections = 0
+await get()
+await get()
+await get()
+println(`connection: close: 3 requests, ${connections} new connections`)
+
+mode = "drop"
+connections = 0
+await get()
+// Give the server's close time to arrive.
+await new Promise<void>((resolve, _) => setTimeout(() => resolve(), 50))
+mode = "keep"
+const text = await get()
+println(`closed by the server while idle: ${text}, ${connections} connections`)
+server.close()
+// (The server's side of the connection `fetch` keeps would wait for another request.)
+for (const c of open) c.close()

@@ -13,15 +13,16 @@ global @g7: i64 // __lastJob
 global @g8: FinalizationRegistry<i64>? // __buffers
 global @g9: i64 // __reclaimedAtCycle
 global @g10: i64 // __bytesSinceReclaim
-global @g11: Map<string, __Zone>? // __zoneCache
-global @g12: Performance // performance
-global @g13: __Xoshiro128? // __mathRng
-global @g14: Crypto // crypto
-global @g15: i64 // Uint8Array.BYTES_PER_ELEMENT
-global @g16: i64 // Int32Array.BYTES_PER_ELEMENT
-global @g17: i64 // Uint32Array.BYTES_PER_ELEMENT
-global @g18: i64 // Float32Array.BYTES_PER_ELEMENT
-global @g19: i64 // Float64Array.BYTES_PER_ELEMENT
+global @g11: __ConnPool? // __pool
+global @g12: Map<string, __Zone>? // __zoneCache
+global @g13: Performance // performance
+global @g14: __Xoshiro128? // __mathRng
+global @g15: Crypto // crypto
+global @g16: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g17: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g18: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g19: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g20: i64 // Float64Array.BYTES_PER_ELEMENT
 
 fn sum(_0: i64) -> i64 {
     let _1: i64 // total
@@ -80,31 +81,31 @@ fn sum(_0: i64) -> i64 {
 
 fn Uint8Array.<static>() -> void {
   bb0:
-    @g15 = const 1_i64
+    @g16 = const 1_i64
     return
 }
 
 fn Int32Array.<static>() -> void {
   bb0:
-    @g16 = const 4_i64
+    @g17 = const 4_i64
     return
 }
 
 fn Uint32Array.<static>() -> void {
   bb0:
-    @g17 = const 4_i64
+    @g18 = const 4_i64
     return
 }
 
 fn Float32Array.<static>() -> void {
   bb0:
-    @g18 = const 4_i64
+    @g19 = const 4_i64
     return
 }
 
 fn Float64Array.<static>() -> void {
   bb0:
-    @g19 = const 8_i64
+    @g20 = const 8_i64
     return
 }
 
@@ -138,13 +139,14 @@ fn <main>() -> void {
     @g8 = const null<FinalizationRegistry<i64>?>
     @g9 = const -1_i64
     @g10 = const 0_i64
-    @g11 = const null<Map<string, __Zone>?>
-    _1 = struct#124{}
-    @g12 = _1
-    @g13 = const null<__Xoshiro128?>
-    _2 = struct#135{}
-    _3 = struct#136{_2}
-    @g14 = _3
+    @g11 = const null<__ConnPool?>
+    @g12 = const null<Map<string, __Zone>?>
+    _1 = struct#126{}
+    @g13 = _1
+    @g14 = const null<__Xoshiro128?>
+    _2 = struct#137{}
+    _3 = struct#138{_2}
+    @g15 = _3
     _5 = const 0_i64
     goto bb6
   bb6:

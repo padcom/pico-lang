@@ -20,6 +20,7 @@ fn build(target: &str) -> Option<std::path::PathBuf> {
     let opts = pico_driver::BuildOptions {
         release: false,
         target: Some(target),
+        ..Default::default()
     };
     Some(pico_driver::build_cached(&checked, opts).unwrap())
 }
@@ -238,6 +239,7 @@ fn link_libraries_from_lib_dirs() {
         let opts = pico_driver::BuildOptions {
             release: false,
             target,
+            ..Default::default()
         };
         let checked = pico_driver::check_source_with("main.pi", src, &dir, opts);
         assert!(!checked.has_errors(), "{}", checked.render_diagnostics());
@@ -263,6 +265,7 @@ fn windows_link() {
     let opts = pico_driver::BuildOptions {
         release: false,
         target,
+        ..Default::default()
     };
     let src = "@link(\"user32\")\nextern \"C\" {\n  function MessageBeep(kind: c_uint): i32\n}\n\
                if (false) MessageBeep(0 as c_uint)\nprintln(\"hi\")\n";
@@ -353,7 +356,11 @@ fn c_structs_by_value() {
         .unwrap();
         let target = (name != "host").then(|| pico_driver::Target::parse(name).unwrap());
         for release in [false, true] {
-            let opts = pico_driver::BuildOptions { release, target };
+            let opts = pico_driver::BuildOptions {
+                release,
+                target,
+                ..Default::default()
+            };
             let checked = pico_driver::check_source_with("main.pi", src.as_str(), &sub, opts);
             assert!(!checked.has_errors(), "{}", checked.render_diagnostics());
             let exe =
