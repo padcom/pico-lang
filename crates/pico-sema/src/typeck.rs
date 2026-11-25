@@ -6285,6 +6285,12 @@ impl<'p> Checker<'p> {
                     || (matches!(tys.get(i), Some(Some(t)) if is_integer(t))
                         && is_integer(x)
                         && matches!(y, Ty::Float(_)))
+                    // A function returning something prefers a parameter that keeps its result
+                    // to one that drops it (`test(name, async () => …)` takes the overload for
+                    // `() => Promise<void>`, not `() => void`, #70).
+                    || (matches!(tys.get(i), Some(Some(Ty::Fn(_, ra, _))) if **ra != Ty::Void)
+                        && matches!((x, y), (Ty::Fn(_, rx, _), Ty::Fn(_, ry, _))
+                            if **ry == Ty::Void && **rx != Ty::Void))
             })
         };
         let best: Vec<&(FnId, Vec<Ty>)> = ok

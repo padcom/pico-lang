@@ -43,7 +43,10 @@ function connect({ host, port = 5432 }: DbOptions) { … }   // destructured par
 Several functions or methods can share a name if their parameter lists differ. The compiler
 resolves the call statically from the argument types, and picks the most specific candidate.
 An integer argument prefers an integer parameter to a float one, so with `f(x: int)` and
-`f(x: number)`, `f(n)` for an `i32` `n` calls `f(int)` (decision 317).
+`f(x: number)`, `f(n)` for an `i32` `n` calls `f(int)` (decision 317). A function argument
+that returns something prefers a parameter that keeps its result to one returning `void`: with
+`test(name, fn: () => void)` and `test(name, fn: () => Promise<void>)`, an async lambda takes the
+second.
 An ambiguous call is a compile error.
 ```ts
 function len(s: string): i64 { s.length }

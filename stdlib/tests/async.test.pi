@@ -1,0 +1,13 @@
+// Async tests (#70): an async lambda passed to `test` takes its `() => Promise<void>` overload
+// (it was ambiguous with `() => void`), so the runner awaits it and its expectations count.
+import { test, expect } from "std/test"
+
+test("an async lambda", async () => {
+  const n = await 41
+  expect(n + 1).toBe(42)
+})
+
+test("a typed async lambda", async (): Promise<void> => {
+  await 0
+  expect("late").toBe("late")
+})
