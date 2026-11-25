@@ -1,0 +1,20 @@
+// expect: value 1
+// expect: void
+// expect: value hi
+// A function argument that returns something takes the overload whose function type keeps
+// the result over one that drops it (`=> void`, #70); a `void` function takes the `void` one.
+function run(f: () => void): void {
+  f()
+  println("void")
+}
+
+function run(f: () => int): void {
+  println(`value ${f()}`)
+}
+
+function each(f: () => void): void { println("void") }
+function each(f: () => string): void { println(`value ${f()}`) }
+
+run(() => 1)
+run(() => {})
+each(() => "hi")
