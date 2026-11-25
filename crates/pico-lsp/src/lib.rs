@@ -147,6 +147,8 @@ struct Server {
     /// The last symbol index of each open document.
     indexes: HashMap<String, index::Index>,
     shutdown: bool,
+    /// The client takes snippets in completions (#81).
+    snippets: bool,
 }
 
 impl Server {
@@ -156,23 +158,28 @@ impl Server {
         let id = msg.get("id").cloned();
         let params = &msg["params"];
         match (method.as_str(), id) {
-            ("initialize", Some(id)) => send(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {
-                    "capabilities": {
-                        "textDocumentSync": { "openClose": true, "change": 2, "save": true },
-                        "documentFormattingProvider": true,
-                        "hoverProvider": true,
-                        "definitionProvider": true,
-                        "completionProvider": { "triggerCharacters": [".", "\"", "'", "/"] },
-                        "renameProvider": { "prepareProvider": true },
-                        "documentSymbolProvider": true,
-                        "implementationProvider": true,
+            ("initialize", Some(id)) => {
+                self.snippets = params["capabilities"]["textDocument"]["completion"]["completionItem"]
+                    ["snippetSupport"]
+                    == true;
+                send(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {
+                        "capabilities": {
+                            "textDocumentSync": { "openClose": true, "change": 2, "save": true },
+                            "documentFormattingProvider": true,
+                            "hoverProvider": true,
+                            "definitionProvider": true,
+                            "completionProvider": { "triggerCharacters": [".", "\"", "'", "/"] },
+                            "renameProvider": { "prepareProvider": true },
+                            "documentSymbolProvider": true,
+                            "implementationProvider": true,
+                        },
+                        "serverInfo": { "name": "pico", "version": env!("CARGO_PKG_VERSION") },
                     },
-                    "serverInfo": { "name": "pico", "version": env!("CARGO_PKG_VERSION") },
-                },
-            })),
+                }));
+            }
             ("shutdown", Some(id)) => {
                 self.shutdown = true;
                 send(json!({ "jsonrpc": "2.0", "id": id, "result": null }));
@@ -272,7 +279,7 @@ impl Server {
                     let trigger = params["context"]["triggerCharacter"].as_str();
                     let overlay = self.overlay(uri);
                     Some(pico_driver::with_overlay(overlay, || {
-                        complete::complete(&path, text, offset, trigger)
+                        complete::complete(&path, text, offset, trigger, self.snippets)
                     }))
                 });
                 let result = json!({ "isIncomplete": false, "items": items.unwrap_or_default() });
