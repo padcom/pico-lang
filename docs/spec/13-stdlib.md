@@ -572,7 +572,8 @@ statics `of`, `zero`, `one`, `unitX`…), `Quat` (`fromAxisAngle`, `fromEuler`, 
 `fromQuat`, `perspective`, `orthographic`, `lookAt`, `*` with a `Mat4` or `Vec4`,
 `transformPoint`, `transformDirection`, `transpose`, `determinant`, `invert(): Mat4?`,
 `toArray`). `BigInt` is an arbitrary-precision integer class (`BigInt.of(n)`, `BigInt.parse(s,
-radix)` throwing `SyntaxError`, `+ - * / %` truncating like JavaScript, `pow`, `abs`,
+radix)` throwing `SyntaxError`, `+ - * / %` truncating like JavaScript, `& | ^` and `not()` on two's complement values of any
+width, `shiftLeft(n)`/`shiftRight(n)` (JavaScript's `<<`/`>>`, rounding down; #60), `pow`, `abs`,
 `compareTo`, `equals`, `toInt`, `toNumber`, `toString()`, `toStringRadix(r)`). `Random` is a
 seedable generator (`new Random(seed?)`: `float`, `int(lo, hi)` without bias, `bool(p)`,
 `gaussian`, `pick`, `shuffle`, `nextU32`); a seed gives the same sequence on every target. Also
