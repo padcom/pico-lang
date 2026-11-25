@@ -254,6 +254,8 @@ pub fn run_with(
     shared.stop_all();
     // Socket files of Unix-domain listeners it didn't close go with it (#85).
     it.io.remove_unix_files();
+    // Its open connections close, as they would when a process ends (#138).
+    it.io.shutdown_streams();
     it.flush_output();
     r
 }

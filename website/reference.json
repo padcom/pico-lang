@@ -9121,7 +9121,7 @@
               "code": "import { serve } from \"std/http\"\n\nasync function handle(req: Request): Promise<Response> throws Error {\n  new Response(`you asked for ${new URL(req.url).pathname}`)\n}\n\nconst server = await serve({ port: 0 }, handle)\nconst res = await fetch(`http://127.0.0.1:${server.addr.port}/hello`)\nprintln(res.status)         // 200\nprintln(await res.text())   // you asked for /hello\nawait server.shutdown()"
             }
           ],
-          "source": "core/fetch.pi:1196",
+          "source": "core/fetch.pi:1193",
           "members": []
         },
         {
