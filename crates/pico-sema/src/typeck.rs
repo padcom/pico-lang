@@ -5088,15 +5088,24 @@ impl<'p> Checker<'p> {
     /// The `format` method of a struct or class implementing the core `Formattable`
     /// interface.
     fn formattable_method(&self, t: &Ty) -> Option<FnId> {
-        let (Ty::Struct(sid, _, _) | Ty::Class(sid, _, _)) = t else {
-            return None;
-        };
         let iface = self
             .program
             .structs
             .iter()
             .position(|d| d.is_interface && d.name == "Formattable")
             .map(|i| StructId(i as u32))?;
+        // `T extends Formattable` (#57): the interface's method, which lowering replaces by
+        // the instance's type's.
+        if let Ty::Param(..) = t {
+            return self
+                .bounds_of(t)
+                .contains(&Bound::Iface(iface))
+                .then(|| self.program.struct_def(iface).method("format"))
+                .flatten();
+        }
+        let (Ty::Struct(sid, _, _) | Ty::Class(sid, _, _)) = t else {
+            return None;
+        };
         if *sid == iface || !self.program.implements(*sid, iface) {
             return None;
         }

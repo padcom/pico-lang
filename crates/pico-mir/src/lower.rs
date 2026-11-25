@@ -6401,6 +6401,19 @@ impl FnBuilder<'_, '_> {
 
     /// `v.format(spec)` for a `Formattable` value of type `t` (virtual for classes).
     fn format_call(&mut self, v: Operand, t: &Ty, m: FnId, spec: &str, span: Span) -> Operand {
+        // A `T extends Formattable` value's `format` is its instance type's (#57).
+        let m = match (self.cx.program.func(m).owner, t) {
+            (Some(o), Ty::Struct(sid, _, _) | Ty::Class(sid, _, _))
+                if self.cx.program.struct_def(o).is_interface =>
+            {
+                self.cx
+                    .program
+                    .struct_def(*sid)
+                    .method("format")
+                    .unwrap_or(m)
+            }
+            _ => m,
+        };
         let spec = Operand::Const(Const::Str(spec.to_string()));
         if let Ty::Class(sid, _, _) = t {
             let def = self.cx.program.struct_def(*sid);
