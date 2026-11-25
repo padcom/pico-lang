@@ -1,0 +1,15 @@
+// error: E0308
+// at: 7:20
+// error: E0207
+// at: 13:31
+// A generator's result type is its iterator's (#209), for an async one too; the body is then
+// checked as if it said `Iterator<int>`, so `yield 1` is fine.
+function* count(): int {
+  yield 1
+  yield 2
+}
+println(count())
+
+async function* countLater(): int {
+  yield 1
+}

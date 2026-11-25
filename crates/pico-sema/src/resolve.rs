@@ -1721,6 +1721,24 @@ impl Resolver {
     ) -> Function {
         self.enter_module(f.span);
         let name = f.name.clone().expect("named function");
+        // `function* g(): int`: the result type is the iterator's (#209). Said once, it goes on as
+        // `Iterator<int>`, so the body is checked against what was probably meant.
+        if f.flags.generator
+            && !f.flags.is_async
+            && let Some(r) = &f.ret
+            && !matches!(&r.kind, ast::TypeKind::Path { path, args }
+                if path.len() == 1 && path[0].name == "Iterator" && args.len() == 1)
+        {
+            self.error(
+                codes::MISMATCHED_TYPES,
+                r.span,
+                "a generator's result type is an `Iterator<T>`, of what it yields",
+                "declare it as `Iterator<…>` of this type",
+            );
+            let mut d = f.clone();
+            d.ret = Some(build::named_type("Iterator", vec![r.clone()], r.span));
+            return self.function_in(&d, is_entry, this_struct, owner);
+        }
         if (f.flags.is_async || self.async_methods.contains(&f.span))
             && f.body.is_some()
             && let Some(d) = if f.flags.generator {
@@ -8002,9 +8020,16 @@ impl Resolver {
                 args[0].clone()
             }
             _ => {
+                // (At the result type when there's one, #209.)
+                let at = f
+                    .ret
+                    .as_ref()
+                    .map(|r| r.span)
+                    .or(f.name.as_ref().map(|n| n.span))
+                    .unwrap_or(span);
                 self.error(
                     codes::MISSING_PARAM_TYPE,
-                    f.name.as_ref().map_or(span, |n| n.span),
+                    at,
                     "an async generator needs its `AsyncIterator<T>` result type",
                     "add `: AsyncIterator<T>`",
                 );
