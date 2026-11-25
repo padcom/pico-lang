@@ -1406,21 +1406,38 @@ impl Cx<'_> {
         {
             return i as u32;
         }
-        // A generic implementer's methods are instances, made now, while lowering still lowers
-        // the instances it asks for (`build_itables` runs after).
-        if !args.is_empty() {
-            let idef = self.program.struct_def(iface);
-            let methods: Vec<FnId> = idef
-                .methods
-                .iter()
-                .filter_map(|(name, ifn)| self.impl_method(imp, iface, *ifn, name))
-                .collect();
-            for f in methods {
-                self.instance(f, vec![(Ty::type_owner(imp), args.to_vec())]);
+        // A generic implementer's methods, and a generic interface's defaults, are instances:
+        // made now, while lowering still lowers the instances it asks for (`build_itables` runs
+        // after).
+        let idef = self.program.struct_def(iface);
+        let wanted: Vec<(String, FnId)> = idef.methods.clone();
+        for (name, ifn) in wanted {
+            match self.impl_method(imp, iface, ifn, &name) {
+                Some(f) if !args.is_empty() => {
+                    self.instance(f, vec![(Ty::type_owner(imp), args.to_vec())]);
+                }
+                Some(_) => {}
+                None => {
+                    let d = if self.program.struct_def(iface).methods_named(&name).len() > 1 {
+                        ifn
+                    } else {
+                        self.default_method(imp, &name).unwrap_or(ifn)
+                    };
+                    self.default_entry(imp, args, d);
+                }
             }
         }
         self.itables.push((imp, args.to_vec(), iface));
         self.itables.len() as u32 - 1
+    }
+
+    /// The itable entry for the interface default `d` when `imp<args>` doesn't implement the
+    /// method: `d` itself, or its instance when its interface is generic (#51).
+    fn default_entry(&mut self, imp: StructId, args: &[Ty], d: FnId) -> FnId {
+        match self.program.method_subst(imp, args, d) {
+            Some(subst) => self.instance(d, vec![subst]),
+            None => d,
+        }
     }
 
     /// The generic function an instance id stands for (other ids are themselves).
@@ -1473,8 +1490,13 @@ impl Cx<'_> {
                         id
                     }
                     // (An overloaded name: the interface method's own default, by its id.)
-                    None if idef.methods_named(name).len() > 1 => *ifn,
-                    None => self.default_method(imp, name).unwrap_or(*ifn),
+                    None if idef.methods_named(name).len() > 1 => {
+                        self.default_entry(imp, &imp_args, *ifn)
+                    }
+                    None => {
+                        let d = self.default_method(imp, name).unwrap_or(*ifn);
+                        self.default_entry(imp, &imp_args, d)
+                    }
                 };
                 entries.push(entry);
             }

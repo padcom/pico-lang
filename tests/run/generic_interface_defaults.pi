@@ -1,0 +1,42 @@
+// expect: 4
+// expect: 2
+// expect: 1
+// expect: ada
+// expect: 1
+// Default methods in generic interfaces (#51): each implementation gets an instance of the
+// default for its type arguments; a default calls another, a generic class overrides one, and
+// `Named extends Box<string>` inherits them.
+interface Box<T> {
+  get(): T
+  twice(): T[] {
+    [this.get(), this.get()]
+  }
+  count(): int {
+    this.twice().length
+  }
+}
+interface Named extends Box<string> {
+  shout(): string
+}
+class IntBox implements Box<int> {
+  constructor(private v: int) {}
+  public get(): int { this.v }
+}
+class Cell<T> implements Box<T> {
+  constructor(private v: T) {}
+  public get(): T { this.v }
+  public twice(): T[] { [this.v] }
+}
+class Name implements Named {
+  public get(): string { "ada" }
+  public shout(): string { "ADA" }
+}
+const a: Box<int> = new IntBox(2)
+println(a.twice()[0] + a.twice()[1])
+println(a.count())
+const c: Box<string> = new Cell("one")
+println(c.count())
+const n: Named = new Name()
+println(n.twice()[1])
+const plain: Box<bool> = new Cell(true)
+println(plain.count())
