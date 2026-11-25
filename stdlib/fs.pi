@@ -516,7 +516,7 @@ export class File implements AsyncDisposable {
   public get readable(): ReadableStream<Uint8Array> {
     new ReadableStream<Uint8Array>({
       pullAsync: (c) => __readChunk(this, c),
-      cancel: (reason) => {
+      cancel: (_reason) => {
         this.__closeQuietly()
       },
     })
