@@ -46,6 +46,8 @@ pub struct Types {
     /// A type's method implementing an interface's (type, interface method): among the
     /// type's overloads of the name, the one with the interface method's parameters.
     pub impl_methods: HashMap<(StructId, FnId), FnId>,
+    /// An enum's method implementing an interface's (#51): (enum, interface method) → method.
+    pub enum_impl_methods: HashMap<(EnumId, FnId), FnId>,
     /// Bound methods (`obj.m` used as a value, #151): the member expression and the method.
     pub bound_methods: HashMap<ExprId, FnId>,
     /// Variable reads of a `T?` binding that narrowing typed as `T` (lowering unwraps them).
@@ -226,6 +228,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             fn_throws: program.fns.iter().map(|f| f.throws.clone()).collect(),
             extensions: HashMap::new(),
             impl_methods: HashMap::new(),
+            enum_impl_methods: HashMap::new(),
             bound_methods: HashMap::new(),
             iterables: HashMap::new(),
             formattables: HashMap::new(),
@@ -278,6 +281,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
         c.check_fn(FnId(i as u32));
     }
     c.check_overrides();
+    c.check_enum_impls();
     if !c
         .diags
         .iter()
@@ -814,6 +818,13 @@ impl<'p> Checker<'p> {
             (Ty::Class(a, _, xs) | Ty::Struct(a, _, xs), Ty::Iface(i, _, ys)) => {
                 self.program.implements(*a, *i) && self.iface_args_fit(*a, xs, *i, ys)
             }
+            // An enum to an interface it implements (#51).
+            (Ty::Enum(e, _, _), Ty::Iface(i, _, ys)) => {
+                match self.program.enum_iface_args(*e, *i) {
+                    Some(args) => ys.is_empty() || args[..] == ys[..],
+                    None => false,
+                }
+            }
             // Interface inheritance: only along first parents, whose methods are a prefix.
             (Ty::Iface(a, _, xs), Ty::Iface(b, _, ys)) => {
                 self.iface_prefix(*a, *b) && self.iface_args_fit(*a, xs, *b, ys)
@@ -1308,6 +1319,101 @@ impl<'p> Checker<'p> {
             }
             self.types.fn_throws[id.0 as usize] =
                 crate::throws::uncaught(self.program, &self.types, id);
+        }
+    }
+
+    /// An enum's methods implementing its interfaces' (#51): each abstract one needs a
+    /// method of its name with the interface's parameter and result types (after `this`).
+    fn check_enum_impls(&mut self) {
+        for (e, def) in self.program.enums.iter().enumerate() {
+            let eid = EnumId(e as u32);
+            if def.implements.is_empty() {
+                continue;
+            }
+            for (j, idef) in self.program.structs.iter().enumerate() {
+                let iface = StructId(j as u32);
+                if !idef.is_interface || self.program.enum_iface_args(eid, iface).is_none() {
+                    continue;
+                }
+                for (name, ifn) in &idef.methods {
+                    // The interface method's types as this enum implements it.
+                    let decl = self.program.func(*ifn);
+                    let k = decl.this.map(|t| t.1).or(decl.owner).unwrap_or(iface);
+                    let kargs = self.program.enum_iface_args(eid, k).unwrap_or_default();
+                    let owner = Ty::type_owner(k);
+                    let isig = &self.types.sigs[ifn.0 as usize];
+                    let iparams: Vec<Ty> =
+                        isig.params.iter().map(|p| p.subst(owner, &kargs)).collect();
+                    let iret = isig.ret.subst(owner, &kargs);
+                    let found = def
+                        .methods
+                        .iter()
+                        .filter(|(n, _)| n == name)
+                        .map(|(_, f)| *f)
+                        .find(|f| {
+                            self.types.sigs[f.0 as usize].params.get(1..) == Some(&iparams[..])
+                        })
+                        .or_else(|| {
+                            let named: Vec<FnId> = def
+                                .methods
+                                .iter()
+                                .filter(|(n, _)| n == name)
+                                .map(|(_, f)| *f)
+                                .collect();
+                            (named.len() == 1).then(|| named[0])
+                        });
+                    match found {
+                        Some(f) => {
+                            let sig = &self.types.sigs[f.0 as usize];
+                            let ok = sig.params.get(1..) == Some(&iparams[..])
+                                && (sig.ret == iret || sig.ret.is_error() || iret.is_error());
+                            if !ok {
+                                let show = |ps: &[Ty], r: &Ty| {
+                                    let ps: Vec<String> =
+                                        ps.iter().map(|p| p.to_string()).collect();
+                                    format!("({}): {r}", ps.join(", "))
+                                };
+                                let fun = self.program.func(f);
+                                self.diags.push(
+                                    Diagnostic::error(
+                                        codes::OVERRIDE_SIGNATURE,
+                                        format!(
+                                            "`{}` doesn't match the method it implements",
+                                            fun.name
+                                        ),
+                                    )
+                                    .primary(
+                                        fun.name_span,
+                                        format!(
+                                            "has type `{}`",
+                                            show(sig.params.get(1..).unwrap_or(&[]), &sig.ret)
+                                        ),
+                                    )
+                                    .secondary(
+                                        decl.name_span,
+                                        format!("`{}` is `{}`", decl.name, show(&iparams, &iret)),
+                                    ),
+                                );
+                            }
+                            self.types.enum_impl_methods.insert((eid, *ifn), f);
+                        }
+                        None if idef.abstract_fns.contains(ifn) => {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::MISSING_IMPL,
+                                    format!(
+                                        "`{}` doesn't implement `{}.{name}`",
+                                        def.name, idef.name
+                                    ),
+                                )
+                                .primary(def.name_span, "declared here")
+                                .secondary(decl.name_span, "the interface method"),
+                            );
+                        }
+                        None => {}
+                    }
+                }
+            }
         }
     }
 
@@ -7181,6 +7287,7 @@ impl<'p> Checker<'p> {
                 Ty::Struct(s, _, _) | Ty::Class(s, _, _) | Ty::Iface(s, _, _) => {
                     self.program.implements(*s, *i)
                 }
+                Ty::Enum(e, _, _) => self.program.enum_iface_args(*e, *i).is_some(),
                 _ => false,
             },
         }

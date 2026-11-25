@@ -9,7 +9,7 @@ use crate::mir::{
 };
 use pico_diag::{Diagnostic, SourceMap, Span, codes};
 use pico_sema::hir::{self, Builtin, Expr, ExprKind, FnId, Stmt, Var};
-use pico_sema::ty::{LitVal, StructId};
+use pico_sema::ty::{EnumId, LitVal, StructId};
 use pico_sema::{FnSig, IntTy, Ty, Types};
 use pico_syntax::ast;
 use std::cell::RefCell;
@@ -703,6 +703,14 @@ fn in_generic_context(program: &hir::Program, id: FnId) -> bool {
     }
 }
 
+/// What implements an interface, for its itable: a struct or class (with its type
+/// arguments when it's generic), or an enum (#51).
+#[derive(Clone, PartialEq)]
+enum Imp {
+    Type(StructId, Vec<Ty>),
+    Enum(EnumId),
+}
+
 /// Type arguments for owners of type parameters (`Ty::Param`'s first field).
 type Subst = Vec<(u32, Vec<Ty>)>;
 
@@ -737,7 +745,7 @@ struct Cx<'a> {
     reported: HashSet<(u32, u32)>,
     /// The (implementing type, interface) pairs that need an itable, by itable index.
     /// (implementer, its type arguments when it's generic (#51), interface).
-    itables: Vec<(StructId, Vec<Ty>, StructId)>,
+    itables: Vec<(Imp, StructId)>,
     /// The MIR id of the function being lowered.
     cur_mir: FnId,
     /// Generator step functions (by MIR id): the frame slots after the captures in their
@@ -1401,10 +1409,11 @@ impl Cx<'_> {
 
     /// The itable index for `imp` (a struct or class) used as interface `iface`.
     fn itable(&mut self, imp: StructId, args: &[Ty], iface: StructId) -> u32 {
+        let key = Imp::Type(imp, args.to_vec());
         if let Some(i) = self
             .itables
             .iter()
-            .position(|(a, xs, b)| *a == imp && xs[..] == *args && *b == iface)
+            .position(|(a, b)| *a == key && *b == iface)
         {
             return i as u32;
         }
@@ -1429,8 +1438,61 @@ impl Cx<'_> {
                 }
             }
         }
-        self.itables.push((imp, args.to_vec(), iface));
+        self.itables.push((key, iface));
         self.itables.len() as u32 - 1
+    }
+
+    /// The itable index for enum `eid` used as interface `iface` (#51). A generic interface's
+    /// defaults it doesn't override are instances, made now as for structs.
+    fn enum_itable(&mut self, eid: EnumId, iface: StructId) -> u32 {
+        let key = Imp::Enum(eid);
+        if let Some(i) = self
+            .itables
+            .iter()
+            .position(|(a, b)| *a == key && *b == iface)
+        {
+            return i as u32;
+        }
+        let wanted: Vec<(String, FnId)> = self.program.struct_def(iface).methods.clone();
+        for (name, ifn) in wanted {
+            if !self.types.enum_impl_methods.contains_key(&(eid, ifn)) {
+                let d = self.enum_default(eid, &name).unwrap_or(ifn);
+                self.enum_default_entry(eid, d);
+            }
+        }
+        self.itables.push((key, iface));
+        self.itables.len() as u32 - 1
+    }
+
+    /// The default of `name` among the interfaces enum `eid` implements.
+    fn enum_default(&self, eid: EnumId, name: &str) -> Option<FnId> {
+        self.program
+            .structs
+            .iter()
+            .enumerate()
+            .filter(|(j, d)| {
+                d.is_interface
+                    && self
+                        .program
+                        .enum_iface_args(eid, StructId(*j as u32))
+                        .is_some()
+            })
+            .filter_map(|(_, d)| d.method(name).filter(|f| !d.abstract_fns.contains(f)))
+            .next()
+    }
+
+    /// An interface default as enum `eid`'s itable entry: its instance when its interface is
+    /// generic.
+    fn enum_default_entry(&mut self, eid: EnumId, d: FnId) -> FnId {
+        let f = self.program.func(d);
+        let Some(k) = f.this.map(|t| t.1).or(f.owner) else {
+            return d;
+        };
+        if self.program.struct_def(k).generics.is_empty() {
+            return d;
+        }
+        let args = self.program.enum_iface_args(eid, k).unwrap_or_default();
+        self.instance(d, vec![(Ty::type_owner(k), args)])
     }
 
     /// The itable entry for the interface default `d` when `imp<args>` doesn't implement the
@@ -1469,8 +1531,32 @@ impl Cx<'_> {
         let mut out = Vec::new();
         let mut i = 0;
         while i < self.itables.len() {
-            let (imp, ref imp_args, iface) = self.itables[i];
-            let imp_args = imp_args.clone();
+            let (imp, iface) = self.itables[i].clone();
+            let (imp, imp_args) = match imp {
+                Imp::Type(s, a) => (s, a),
+                Imp::Enum(eid) => {
+                    let idef = self.program.struct_def(iface);
+                    let mut entries = Vec::new();
+                    for (name, ifn) in idef.methods.clone() {
+                        let entry = match self.types.enum_impl_methods.get(&(eid, ifn)).copied() {
+                            Some(m) => {
+                                let id = FnId(fns.len() as u32);
+                                let adapter = self.enum_adapter(eid, iface, ifn, m);
+                                fns.push(adapter);
+                                id
+                            }
+                            None => {
+                                let d = self.enum_default(eid, &name).unwrap_or(ifn);
+                                self.enum_default_entry(eid, d)
+                            }
+                        };
+                        entries.push(entry);
+                    }
+                    out.push(entries);
+                    i += 1;
+                    continue;
+                }
+            };
             let idef = self.program.struct_def(iface);
             let def = self.program.struct_def(imp);
             let mut entries = Vec::new();
@@ -1608,6 +1694,97 @@ impl Cx<'_> {
                 def.name,
                 self.program
                     .func(self.generic_of(method))
+                    .name
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or("?"),
+                self.program.struct_def(iface).name
+            ),
+            params,
+            ret,
+            locals,
+            blocks,
+        }
+    }
+
+    /// `fn(self: Iface, args…) { return method(*IfaceData(self), args…) }` for an enum's
+    /// method (`this` by value, from the box the interface value holds, #51).
+    fn enum_adapter(
+        &mut self,
+        eid: EnumId,
+        iface: StructId,
+        ifn: FnId,
+        method: FnId,
+    ) -> mir::Function {
+        let mut sig = self.sig(ifn);
+        let decl = self.program.func(ifn);
+        if let Some(k) = decl.this.map(|t| t.1).or(decl.owner)
+            && !self.program.struct_def(k).generics.is_empty()
+        {
+            let targs = self.program.enum_iface_args(eid, k).unwrap_or_default();
+            let o = Ty::type_owner(k);
+            sig.params = sig.params.iter().map(|p| p.subst(o, &targs)).collect();
+            sig.ret = sig.ret.subst(o, &targs);
+        }
+        let enum_ty = self.program.enum_ty(eid);
+        let mut locals = vec![LocalDecl {
+            ty: self.program.struct_ty(iface),
+            name: Some("self".into()),
+        }];
+        for t in &sig.params {
+            locals.push(LocalDecl {
+                ty: t.clone(),
+                name: None,
+            });
+        }
+        let data = Local(locals.len() as u32);
+        locals.push(LocalDecl {
+            ty: Ty::Ref(Box::new(enum_ty)),
+            name: None,
+        });
+        let ret = sig.ret.clone();
+        let result = has_value(&ret).then(|| {
+            locals.push(LocalDecl {
+                ty: ret.clone(),
+                name: None,
+            });
+            Local(locals.len() as u32 - 1)
+        });
+        let params: Vec<Local> = (0..=sig.params.len() as u32).map(Local).collect();
+        let this = Place {
+            base: mir::Base::Deref(data),
+            proj: Vec::new(),
+        };
+        let mut args = vec![Operand::Copy(this)];
+        args.extend(params[1..].iter().map(|l| Operand::Copy(Place::local(*l))));
+        let blocks = vec![
+            mir::BasicBlock {
+                stmts: vec![mir::Statement {
+                    place: Place::local(data),
+                    rvalue: Rvalue::IfaceData(Operand::Copy(Place::local(Local(0)))),
+                    loc: Loc::default(),
+                }],
+                term: Terminator::Call {
+                    callee: Callee::Fn(method),
+                    args,
+                    dest: result.map(Place::local),
+                    next: BlockId(1),
+                    loc: Loc::default(),
+                },
+            },
+            mir::BasicBlock {
+                stmts: Vec::new(),
+                term: Terminator::Return(result.map(|r| Operand::Copy(Place::local(r)))),
+            },
+        ];
+        mir::Function {
+            library: true,
+            track_caller: true,
+            name: format!(
+                "{}.{}<{}>",
+                self.program.enum_def(eid).name,
+                self.program
+                    .func(method)
                     .name
                     .rsplit('.')
                     .next()
@@ -3126,6 +3303,10 @@ impl FnBuilder<'_, '_> {
                 to.clone(),
                 span,
             );
+        }
+        if let (Ty::Enum(eid, _, _), Ty::Iface(iface, _, _)) = (from, to) {
+            let it = self.cx.enum_itable(*eid, *iface);
+            return self.rvalue_to_temp(Rvalue::ToIface(v, it), to.clone(), span);
         }
         if let (Ty::Class(imp, _, args) | Ty::Struct(imp, _, args), Ty::Iface(iface, _, _)) =
             (from, to)
@@ -6739,6 +6920,21 @@ impl FnBuilder<'_, '_> {
         if primitive && name == "hashCode" {
             let a = self.expr(object);
             return self.rvalue_to_temp(Rvalue::Hash(a), Ty::Int(IntTy::U64), e.span);
+        }
+        // An enum's own method (one implementing an interface the bound names, #51).
+        if let Ty::Enum(eid, _, _) = &t
+            && let Some(m) = self
+                .cx
+                .program
+                .enum_def(*eid)
+                .methods
+                .iter()
+                .find(|(n, f)| n == name && self.cx.program.func(*f).params.len() == args.len() + 1)
+                .map(|(_, f)| *f)
+        {
+            let mut ops = vec![self.expr(object)];
+            ops.extend(args.iter().map(|a| self.expr(a)));
+            return self.call_fn_value(m, ops, ty, e.span);
         }
         if !primitive && !matches!(t, Ty::Struct(..) | Ty::Class(..) | Ty::Iface(..)) {
             // Enums, tuples, fixed arrays: the derived protocol.

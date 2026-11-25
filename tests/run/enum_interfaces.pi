@@ -1,0 +1,50 @@
+// expect: red/RED
+// expect: teal/TEAL
+// expect: green
+// expect: x
+// expect: 2
+// expect: green
+// Enums implementing interfaces (#51): an interface value of an enum (boxed, through its
+// itable) calls its methods, and the interface's default (`shout`); a generic interface
+// with the enum as its argument; an array of interface values; a `T extends Named` bound.
+interface Named {
+  name(): string
+  shout(): string {
+    this.name().toUpperCase()
+  }
+}
+interface Scored<T> {
+  score(other: T): int
+}
+enum Color implements Named, Scored<Color> {
+  Red,
+  Green,
+  Custom(label: string)
+
+  name(): string {
+    match (this) {
+      Color.Red => "red",
+      Color.Green => "green",
+      Color.Custom(l) => l,
+    }
+  }
+
+  score(other: Color): int {
+    this.name().length - other.name().length
+  }
+}
+function describe(n: Named): string {
+  `${n.name()}/${n.shout()}`
+}
+println(describe(Color.Red))
+println(describe(Color.Custom(label: "teal")))
+const all: Named[] = [Color.Green, Color.Custom(label: "x")]
+for (const c of all) { println(c.name()) }
+const s: Scored<Color> = Color.Green
+println(s.score(Color.Red))
+function best<T extends Named>(xs: T[]): string {
+  let b = ""
+  for (const x of xs) { if (x.name().length > b.length) { b = x.name() } }
+  b
+}
+println(best([Color.Red, Color.Green]))

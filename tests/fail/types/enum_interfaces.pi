@@ -1,0 +1,21 @@
+// error: E0327
+// at: 12:6
+// error: E0325
+// at: 15:3
+// error: E0308
+// at: 21:26
+// An enum implementing interfaces (#51): every abstract method needs an implementation with
+// the interface's types (after `this`), and it's the interface it implements with those
+// type arguments.
+interface Named { name(): string }
+interface Sized<T> { size(): T }
+enum Shape implements Named, Sized<int> {
+  Dot
+
+  size(): string { "small" }
+}
+enum Tone implements Sized<int> {
+  Low
+  size(): int { 1 }
+}
+const s: Sized<string> = Tone.Low

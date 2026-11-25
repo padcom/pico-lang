@@ -134,6 +134,8 @@ pub struct EnumDef {
     /// Type parameters (`enum Opt<T>`, #51); `Ty::Param(Ty::enum_owner(id), i, _)` in the
     /// variants' fields.
     pub generics: Vec<TypeParam>,
+    /// Interfaces it implements (other than `Throwable`), with their type arguments (#51).
+    pub implements: Vec<(StructId, Vec<Ty>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -466,6 +468,18 @@ impl Program {
 
     /// Whether type `sid` (a struct, class or interface) conforms to interface `iface`:
     /// directly, through a base class, or through interface inheritance.
+    /// The type arguments of interface `iface` as enum `eid` implements it (directly or
+    /// through the interfaces those extend), `None` when it doesn't (#51).
+    pub fn enum_iface_args(&self, eid: EnumId, iface: StructId) -> Option<Vec<Ty>> {
+        for (i, args) in &self.enums[eid.0 as usize].implements {
+            if let Some(inner) = self.iface_args(*i, iface) {
+                let owner = Ty::type_owner(*i);
+                return Some(inner.iter().map(|t| t.subst(owner, args)).collect());
+            }
+        }
+        None
+    }
+
     pub fn implements(&self, sid: StructId, iface: StructId) -> bool {
         if sid == iface {
             return true;
