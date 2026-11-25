@@ -6,10 +6,9 @@
 // the text again; reading only the first chunk and cancelling closes the file.
 import { open, writeText, remove } from "std/fs"
 import { textDecoderStream } from "std/streams"
-import { tmpDir } from "std/os"
-import { join } from "std/path"
 
-const path = join(tmpDir(), `file-readable-${Date.now()}.txt`)
+// (Relative: the test's own directory, which WASI can see.)
+const path = "readable.txt"
 const text = "0123456789".repeat(20000)
 await writeText(path, text)
 
