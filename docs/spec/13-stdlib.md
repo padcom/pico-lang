@@ -496,7 +496,9 @@ groups (capturing, `(?:…)`, named `(?<name>…)`), backreferences (`\1`, `\k<n
 and lookbehind (`(?=…)`, `(?!…)`, `(?<=…)`, `(?<!…)`), classes (`[a-z]`, `[^…]`, `\d \w \s \D \W
 \S`, `.`), anchors (`^ $ \b \B`) and escapes (`\n \t \xHH \uHHHH \u{H…} \cX`). Captures inside a
 repeated group are reset at each repetition and an iteration that matches nothing ends the
-loop, as in JavaScript. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
+loop, as in JavaScript. The matcher backtracks; a match that resumes over 100 000 paths (plus
+100 per code point of the input) at one start position panics, naming catastrophic backtracking
+(#62: nested quantifiers such as `(a+)+` on a near miss), instead of running for hours. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
 (`^`/`$` at line ends), `s` (`.` matches line ends), `y` (sticky), `u`, `v`, `d` (match indices).
 Matching is by code point, as if `u` were always on (`.` is one character), and indices count
 code points, as pico strings do.

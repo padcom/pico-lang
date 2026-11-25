@@ -1,0 +1,11 @@
+// expect: no x: false
+// expect: nested, matching: true
+// panic: RegExp: over 103100 backtracking steps at one position (catastrophic backtracking? nested quantifiers such as (a+)+ can take exponential time)
+// A step limit against catastrophic backtracking (#62): `(a+)+$` on 30 `a`s and a `b` tries
+// about 2^30 paths and panics instead of hanging; a quadratic scan (`.*x` over 300
+// characters without an `x`) and a nested pattern that matches stay well below the limit.
+const long = "y".repeat(300)
+println(`no x: ${/.*x/.test(long)}`)
+println(`nested, matching: ${/^(a+)+$/.test("a".repeat(30))}`)
+const nested = /^(a+)+$/
+println(nested.test(`${"a".repeat(30)}b`))
