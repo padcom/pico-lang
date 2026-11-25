@@ -1,0 +1,52 @@
+// expect: 5
+// expect: grace
+// expect: grace
+// expect: GRACE
+// expect: 1
+// Generic interfaces (#51), implemented by classes with type arguments: `T` in parameters
+// and results, two implementations with different arguments, a generic function over
+// `Box<T>`, an interface extending `Box<string>`, and a "compare to my own type" interface.
+interface Box<T> {
+  get(): T
+  put(v: T): void
+}
+interface Order<T> {
+  cmp(other: T): int
+}
+interface Named extends Box<string> {
+  shout(): string
+}
+class IntBox implements Box<int>, Order<IntBox> {
+  constructor(private v: int) {}
+  public get(): int { this.v }
+  public put(v: int): void { this.v = v }
+  public cmp(other: IntBox): int { this.v - other.get() }
+}
+class Name implements Named {
+  constructor(private v: string) {}
+  public get(): string { this.v }
+  public put(v: string): void { this.v = v }
+  public shout(): string { this.v.toUpperCase() }
+}
+function twice<T>(b: Box<T>, v: T): T {
+  b.put(v)
+  b.get()
+}
+function largest(xs: Order<IntBox>[], all: IntBox[]): int {
+  let best = 0
+  for (let i = 1; i < all.length; i++) {
+    if (xs[i].cmp(all[best]) > 0) { best = i }
+  }
+  best
+}
+const a = new IntBox(1)
+println(twice(a, 5))
+const n = new Name("ada")
+println(twice(n, "grace"))
+const s: Box<string> = n
+println(s.get())
+const nm: Named = n
+println(nm.shout())
+const all = [new IntBox(3), new IntBox(9), new IntBox(4)]
+const os: Order<IntBox>[] = [all[0], all[1], all[2]]
+println(largest(os, all))

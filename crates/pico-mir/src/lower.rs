@@ -1465,7 +1465,13 @@ impl Cx<'_> {
         slot: Option<u32>,
         fns: &[mir::Function],
     ) -> mir::Function {
-        let sig = &self.sig(ifn);
+        let mut sig = self.sig(ifn);
+        // A generic interface's method, with the type arguments `imp` implements it with (#51).
+        if let Some((o, targs)) = self.program.method_subst(imp, &[], ifn) {
+            sig.params = sig.params.iter().map(|p| p.subst(o, &targs)).collect();
+            sig.ret = sig.ret.subst(o, &targs);
+        }
+        let sig = &sig;
         let def = self.program.struct_def(imp);
         let data_ty = if def.is_class {
             self.program.struct_ty(imp)
