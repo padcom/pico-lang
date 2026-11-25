@@ -499,6 +499,10 @@ impl Program {
             return None;
         }
         let args = self.iface_args(sid, k)?;
+        // (No `xs`: as `sid`'s own code sees it, its type parameters stay.)
+        if xs.is_empty() {
+            return Some((Ty::type_owner(k), args));
+        }
         let own = Ty::type_owner(sid);
         Some((
             Ty::type_owner(k),
