@@ -783,10 +783,6 @@ class __RProgram {
   }
 }
 
-/// How many paths a match may resume at one start position, plus 100 per input code point,
-/// before it panics (#62).
-const __R_STEP_LIMIT = 100000
-
 /// Runs a program over an input (code points) with an explicit backtracking stack.
 class __RMachine {
   prog: __RProgram
@@ -854,8 +850,9 @@ class __RMachine {
     const n = this.input.length
     let matched = false
     // Against catastrophic backtracking (#62): a run (one start position) may resume at most
-    // this many paths; linear and quadratic patterns stay far below it.
-    const limit = __R_STEP_LIMIT + 100 * n
+    // 100 000 paths plus 100 per input code point; linear and quadratic patterns stay far
+    // below it. (A literal, not a module constant: those are globals in every program.)
+    const limit = 100000 + 100 * n
     let steps = 0
     while (this.sk.length > base) {
       const top = this.sk.length - 1
