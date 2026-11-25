@@ -75,6 +75,7 @@ map<U, E extends Error>(f: (x: T) => U throws E): U[] throws E
 const nums = lines.map(l => parseInt(l))   // throws ParseError, so the call throws ParseError
 const lens = lines.map(l => l.length)      // E = never, so the call can't throw
 ```
+Inside such a function, an `E extends Error` it throws is covered by declaring `throws Error`.
 
 ## 7.3 `try` / `catch` / `finally`
 `try` is an expression. Its value comes from the `try` block, or from whichever `catch` ran.

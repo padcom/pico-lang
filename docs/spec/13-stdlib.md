@@ -374,7 +374,8 @@ given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transfor
 predate async lambdas). Strategies are `{ highWaterMark }` (default 1; a transform's readable
 side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel })` writes each chunk after
 the last one was taken; `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
-streams an array; `tee()` gives two streams that each get every chunk (the source is locked;
+streams an array, an `Iterator<T>` or an `AsyncIterator<T, E>` (a generator's, read as it's
+pulled; an async one's error errors the stream, #63); `tee()` gives two streams that each get every chunk (the source is locked;
 an error fails both, and cancelling both cancels it). `textEncoderStream()` and `textDecoderStream()` are transform streams from
 strings to UTF-8 bytes and back. `std/net`'s `Conn` and `std/process`'s `Reader`/`Writer` have
 `readable`/`writable` streams of `Uint8Array` (closing a connection's writable finishes writing;
@@ -574,7 +575,8 @@ statics `of`, `zero`, `one`, `unitX`…), `Quat` (`fromAxisAngle`, `fromEuler`, 
 `fromQuat`, `perspective`, `orthographic`, `lookAt`, `*` with a `Mat4` or `Vec4`,
 `transformPoint`, `transformDirection`, `transpose`, `determinant`, `invert(): Mat4?`,
 `toArray`). `BigInt` is an arbitrary-precision integer class (`BigInt.of(n)`, `BigInt.parse(s,
-radix)` throwing `SyntaxError`, `+ - * / %` truncating like JavaScript, `pow`, `abs`,
+radix)` throwing `SyntaxError`, `+ - * / %` truncating like JavaScript, `& | ^` and `not()` on two's complement values of any
+width, `shiftLeft(n)`/`shiftRight(n)` (JavaScript's `<<`/`>>`, rounding down; #60), `pow`, `abs`,
 `compareTo`, `equals`, `toInt`, `toNumber`, `toString()`, `toStringRadix(r)`). `Random` is a
 seedable generator (`new Random(seed?)`: `float`, `int(lo, hi)` without bias, `bool(p)`,
 `gaussian`, `pick`, `shuffle`, `nextU32`); a seed gives the same sequence on every target. Also

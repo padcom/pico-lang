@@ -286,6 +286,11 @@ impl<'a, 'm> Walk<'a, 'm> {
         let f = self.p.func(self.fun);
         let declared = f.throws.iter().any(|d| match (d, t) {
             (Ty::Class(d, ..), Ty::Class(s, ..)) => self.p.is_subclass(*s, *d),
+            // A type parameter bounded by `Error` is some `Error` (#63).
+            (Ty::Class(d, ..), Ty::Param(..)) => {
+                Some(*d) == self.p.error_class
+                    && self.p.param_bounds(t).contains(&crate::hir::Bound::Error)
+            }
             (d, t) => d == t,
         });
         if declared {
