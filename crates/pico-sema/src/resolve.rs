@@ -8294,12 +8294,20 @@ impl Resolver {
 
     /// `await x`: inside an async function's step `{ const a = x; yield a.__suspend();
     /// a.__get() }`; at the entry's top level `__awaitTop(x)`.
-    fn lower_await(&mut self, inner: &ast::Expr, span: Span) -> ExprKind {
-        // (Of a value that isn't a promise too: `__awaitable` makes it one, #52.)
-        let wrapped = build::call(build::ident("__awaitable", span), vec![inner.clone()], span);
+    fn lower_await(&mut self, original: &ast::Expr, span: Span) -> ExprKind {
+        // Of a value that isn't a promise too: `__awaitable` makes it one (#52). The operand
+        // is bound first, so it's typed on its own (an overload's generic parameter as its
+        // expected type would leak into its inference: `await p.then(() => …)`).
+        self.awaits += 1;
+        let operand = format!("__awaited{}", self.awaits);
+        let wrapped = build::call(
+            build::ident("__awaitable", span),
+            vec![build::ident(&operand, span)],
+            span,
+        );
         let inner = &wrapped;
+        let bind = build::const_(&operand, original.clone());
         if self.f.async_step {
-            self.awaits += 1;
             let name = format!("__await{}", self.awaits);
             let suspend = build::call(
                 build::member(build::ident(&name, span), "__suspend", span),
@@ -8315,6 +8323,7 @@ impl Resolver {
             // (an async generator would turn a source `yield` into a value).
             self.f.scopes.push(Scope::default());
             let mut stmts = Vec::new();
+            self.lower_stmt(&bind, &mut stmts, None);
             self.lower_stmt(&build::const_(&name, inner.clone()), &mut stmts, None);
             let suspend = self.lower_expr(&suspend);
             stmts.push(Stmt::Expr(
@@ -8330,7 +8339,16 @@ impl Resolver {
         }
         if self.f.in_entry && !self.f.is_closure {
             let c = build::call(build::ident("__awaitTop", span), vec![inner.clone()], span);
-            return self.lower_expr(&c).kind;
+            self.f.scopes.push(Scope::default());
+            let mut stmts = Vec::new();
+            self.lower_stmt(&bind, &mut stmts, None);
+            let tail = self.lower_expr(&c);
+            self.f.scopes.pop();
+            return ExprKind::Block(Block {
+                stmts,
+                tail: Some(Box::new(tail)),
+                span,
+            });
         }
         self.error(
             codes::AWAIT_OUTSIDE_ASYNC,
