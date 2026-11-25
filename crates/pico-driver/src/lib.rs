@@ -23,6 +23,7 @@ mod link;
 mod mingw;
 mod modules;
 mod musl;
+mod notices;
 pub mod packages;
 mod run_cache;
 pub mod semver;
@@ -585,7 +586,12 @@ pub struct BuildOptions {
     pub release: bool,
     /// `--target`; `None` is the host.
     pub target: Option<Target>,
+    /// Write the license notices of what's linked in next to the executable
+    /// (`<output>.notices.txt`, #106): `pico build`.
+    pub notices: bool,
 }
+
+pub use notices::notices_file;
 
 /// Compiles a checked program to a native executable at `exe`: an object file from LLVM,
 /// linked with the C runtime by lld (Linux targets) or, on a macOS host, the system `cc`.
@@ -610,6 +616,8 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         return browser::build_gc(mir, exe, &js_packages(&checked.sm));
     }
     let obj = exe.with_extension("o");
+    let notices = opts.notices.then(|| notices::notices_file(exe));
+    let notices = notices.as_deref();
     {
         // (wasm code generation sets LLVM options that a concurrent lld link would reset.)
         let _no_links = (target.arch == target::Arch::Wasm32).then(pico_lld::lock);
@@ -634,7 +642,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
     }
     if lld {
         let r = if target.os == target::Os::Windows {
-            link::link_windows(target, &obj, exe, &mir.links, &checked.lib_dirs)
+            link::link_windows(target, &obj, exe, &mir.links, &checked.lib_dirs, notices)
         } else if target.os == target::Os::Macos {
             link::link_macos(
                 target,
@@ -643,11 +651,12 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
                 !opts.release,
                 &mir.links,
                 &checked.lib_dirs,
+                notices,
             )
         } else if target.os == target::Os::Wasi {
-            link::link_wasi(target, &obj, exe, &mir.links, &checked.lib_dirs)
+            link::link_wasi(target, &obj, exe, &mir.links, &checked.lib_dirs, notices)
         } else if target.os == target::Os::Browser {
-            browser::build(mir, &obj, exe, &js_packages(&checked.sm))
+            browser::build(mir, &obj, exe, &js_packages(&checked.sm), notices)
         } else {
             link::link_linux(
                 target,
@@ -656,6 +665,7 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
                 !opts.release,
                 &mir.links,
                 &checked.lib_dirs,
+                notices,
             )
         };
         if r.is_ok() && target.os == target::Os::Macos {
@@ -680,6 +690,9 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
         // Panic traces name frames through the dynamic symbol table.
         cmd.arg("-Wl,-export_dynamic");
     }
+    if let Some(n) = notices {
+        cmd.arg(format!("-Wl,-map,{}", notices::map_file(n).display()));
+    }
     cmd.arg("-o").arg(exe);
     let out = cmd
         .output()
@@ -693,6 +706,15 @@ pub fn build_native(checked: &Checked, exe: &Path, opts: BuildOptions) -> Result
             "linking failed:\n{}",
             String::from_utf8_lossy(&out.stderr)
         ));
+    }
+    if let Some(n) = notices {
+        let mbed = pico_runtime::crypto_libs();
+        notices::write(
+            n,
+            &notices::map_file(n),
+            &[(notices::Part::MbedTls, &mbed)],
+            &[],
+        )?;
     }
     Ok(())
 }
