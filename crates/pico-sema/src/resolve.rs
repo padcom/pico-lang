@@ -7078,7 +7078,13 @@ impl Resolver {
         }
         let eid = *self.top_enums.get(&self.mods, name)?;
         match self.enums[eid.0 as usize].variant(&prop.name) {
-            Some((i, _)) => Some((eid, i)),
+            Some((i, v)) => {
+                // (For the language server: the enum's and the variant's declarations, #81.)
+                let (enum_decl, variant_decl) = (self.enums[eid.0 as usize].name_span, v.span);
+                self.name_refs.push((object.span, enum_decl));
+                self.name_refs.push((prop.span, variant_decl));
+                Some((eid, i))
+            }
             None => {
                 let def = &self.enums[eid.0 as usize];
                 let names: Vec<&str> = def.variants.iter().map(|v| v.name.as_str()).collect();
@@ -7121,7 +7127,18 @@ impl Resolver {
         match path {
             [v] => Some((None, v.clone())),
             [e, v] => match self.top_enums.get(&self.mods, &e.name) {
-                Some(id) => Some((Some(*id), v.clone())),
+                Some(id) => {
+                    // (For the language server, #81: `Color.Red` in a pattern.)
+                    let id = *id;
+                    let def = &self.enums[id.0 as usize];
+                    let enum_decl = def.name_span;
+                    let variant_decl = def.variant(&v.name).map(|(_, var)| var.span);
+                    self.name_refs.push((e.span, enum_decl));
+                    if let Some(d) = variant_decl {
+                        self.name_refs.push((v.span, d));
+                    }
+                    Some((Some(id), v.clone()))
+                }
                 None => {
                     self.error(
                         codes::UNKNOWN_TYPE,
