@@ -301,6 +301,30 @@ impl IoState {
         }
     }
 
+    /// Shuts down the connections the program left open (as its process ending would: the
+    /// interpreter shares its process with later programs). Their reading threads wake up and
+    /// end, and the far ends see the close: `fetch`'s idle kept-alive connections (#138) are
+    /// otherwise still open, with an in-program server's read on them pending. A TLS stream's
+    /// descriptor stays open for good: its session (in the C runtime, by descriptor) can't be
+    /// freed under a reading thread, and a later socket given the same number would find it.
+    pub(crate) fn shutdown_streams(&self) {
+        for sock in self.net.lock().expect("net").socks.values() {
+            match sock {
+                Sock::Stream(s) => {
+                    let _ = s.shutdown(std::net::Shutdown::Both);
+                    if tls_has(s) {
+                        std::mem::forget(Arc::clone(s));
+                    }
+                }
+                #[cfg(unix)]
+                Sock::UnixStream(s) => {
+                    let _ = s.shutdown(std::net::Shutdown::Both);
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Whether a "next" job waits on a watcher (the loop then polls instead of sleeping).
     pub(crate) fn watching(&self) -> bool {
         self.watchers.values().any(|w| w.waiting.is_some())
