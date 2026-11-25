@@ -431,7 +431,8 @@ response body is read whole before `fetch` resolves. `ResponseInit` `{ status,
 statusText, headers }`; a body (`BodyInit`) is a `string` (`text/plain;charset=UTF-8`), a
 `Uint8Array`, a `ReadableStream<Uint8Array>` (sent chunked) or `URLSearchParams` (form
 encoded). Bodies have `body` (a stream), `bodyUsed`, `bytes()`, `arrayBuffer()`, `text()` and
-`json<T>()` (as `JSON.parse<T>`), each readable once. `Response.json<T>(data, init)` and
+`json<T>()` (as `JSON.parse<T>`), each readable once; `clone()` on a `Request` or `Response`
+copies it before then (a streamed body is split with `tee`), and throws a `TypeError` after. `Response.json<T>(data, init)` and
 `Response.redirect(url, status = 302)` build responses; `ok`, `status`, `statusText`, `url`,
 `redirected`. Header fields are a `HeadersInit = [string, string][] | Map<string, string> |
 Headers`, so a map literal works where they're expected, as in JS: `fetch(url, { headers: {

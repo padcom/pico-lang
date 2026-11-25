@@ -1,0 +1,33 @@
+// expect: POST http://localhost/items text/plain
+// expect: x=1 | x=1
+// expect: 201 Created hello | hello
+// expect: streamed: abc | abc
+// expect: used: the body has already been read
+// `Request.clone()` and `Response.clone()` (#66): same method, URL, status and headers, a copy
+// of the body (a stream split in two, both readable), and a `TypeError` once it's been read.
+async function main(): Promise<void> throws Error {
+  const req = new Request("http://localhost/items", {
+    method: "POST",
+    body: "x=1",
+    headers: [["content-type", "text/plain"]],
+  })
+  const rc = req.clone()
+  println(`${rc.method} ${rc.url} ${rc.headers.get("content-type")}`)
+  println(`${await req.text()} | ${await rc.text()}`)
+
+  const res = new Response("hello", { status: 201 })
+  const copy = res.clone()
+  println(`${copy.status} ${copy.statusText} ${await copy.text()} | ${await res.text()}`)
+
+  const enc = new TextEncoder()
+  const streamed = new Response(ReadableStream.from<Uint8Array>([enc.encode("a"), enc.encode("bc")]))
+  const sc = streamed.clone()
+  println(`streamed: ${await streamed.text()} | ${await sc.text()}`)
+
+  try {
+    res.clone()
+  } catch (e: TypeError) {
+    println(`used: ${e.message}`)
+  }
+}
+await main()

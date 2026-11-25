@@ -283,6 +283,25 @@ class __Body {
     return this.used
   }
 
+  /// The body for a copy (`clone()`, #66): the same bytes, or the stream split in two (this
+  /// one keeps one half). Throws a `TypeError` once the body has been read.
+  public __cloneBody(): BodyInit? throws TypeError {
+    if (this.used) {
+      throw new TypeError("the body has already been read")
+    }
+    const s = this.__stream
+    if (s != null) {
+      const [mine, theirs] = s.tee()
+      this.__stream = mine
+      return theirs
+    }
+    const b = this.__bytes
+    if (b != null) {
+      return b
+    }
+    return null
+  }
+
   /// The body as a stream (`null` without one).
   public get body(): ReadableStream<Uint8Array>? {
     const s = this.__stream
@@ -444,6 +463,32 @@ class Request extends __Body {
       throw new TypeError(`a ${this.method} request can't have a body`)
     }
   }
+
+  /// A copy with the same method, URL, headers (copied), body and options (#66). A streamed body
+  /// is split, so each can be read; throws a `TypeError` once the body has been read.
+  ///
+  /// @example
+  /// ```ts
+  /// const req = new Request("http://localhost/items", { method: "POST", body: "x=1" })
+  /// const copy = req.clone()
+  /// println(`${copy.method} ${copy.url}`)   // POST http://localhost/items
+  /// println(await req.text())                // x=1
+  /// println(await copy.text())               // x=1
+  /// ```
+  public clone(): Request throws TypeError {
+    const body = this.__cloneBody()
+    return new Request(this.url, {
+      method: this.method,
+      headers: this.headers,
+      body,
+      redirect: this.redirect,
+      caCerts: this.__caCerts,
+      signal: this.signal,
+      timeout: this.__timeout,
+      connectTimeout: this.__connectTimeout,
+      maxBodyBytes: this.__maxBodyBytes,
+    })
+  }
 }
 
 /// `new Response(body, { status, statusText, headers })`.
@@ -540,6 +585,29 @@ class Response extends __Body {
     if ((this.status < 200 && this.status != 101) || this.status > 599) {
       panic(`Response: status ${this.status} is outside 200–599`)
     }
+  }
+
+  /// A copy with the same status, reason phrase, headers (copied), URL and body (#66). A
+  /// streamed body is split, so each can be read; throws a `TypeError` once the body has been
+  /// read.
+  ///
+  /// @example
+  /// ```ts
+  /// const res = new Response("hello", { status: 201 })
+  /// const copy = res.clone()
+  /// println(`${copy.status} ${await copy.text()}`)   // 201 hello
+  /// println(await res.text())                         // hello
+  /// ```
+  public clone(): Response throws TypeError {
+    const body = this.__cloneBody()
+    const copy = new Response(body, {
+      status: this.status,
+      statusText: this.statusText,
+      headers: this.headers,
+    })
+    copy.url = this.url
+    copy.redirected = this.redirected
+    return copy
   }
 
   /// Whether the status is 200–299.
