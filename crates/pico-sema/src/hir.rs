@@ -197,6 +197,9 @@ pub struct StructDef {
     pub implements: Vec<StructId>,
     /// The type arguments each of `implements` is given (`implements Box<int>`), in order (#51).
     pub implements_args: Vec<Vec<Ty>>,
+    /// The type arguments `extends` gives a generic base (`extends Base<int>`, #51), in this
+    /// type's parameters.
+    pub base_args: Vec<Ty>,
     /// Type parameters (`struct Pair<A, B>`); `Ty::Param(Ty::type_owner(id), i, _)` inside.
     pub generics: Vec<TypeParam>,
     /// The constructors (classes always have at least one, possibly synthesized), with
@@ -246,6 +249,7 @@ impl StructDef {
             is_interface: false,
             implements: Vec::new(),
             implements_args: Vec::new(),
+            base_args: Vec::new(),
             generics: Vec::new(),
             ctors: Vec::new(),
             base: None,
@@ -512,7 +516,39 @@ impl Program {
                 return Some(inner.iter().map(|t| t.subst(owner, &args)).collect());
             }
         }
-        d.base.and_then(|b| self.iface_args(b, iface))
+        d.base.and_then(|b| {
+            let inner = self.iface_args(b, iface)?;
+            Some(
+                inner
+                    .iter()
+                    .map(|t| t.subst(Ty::type_owner(b), &d.base_args))
+                    .collect(),
+            )
+        })
+    }
+
+    /// The type arguments of the ancestor class `anc` as class `sid` (in its own parameters)
+    /// sees it: `[int]` for `class S extends Base<int>` (#51); `None` when it isn't one.
+    pub fn base_args_of(&self, sid: StructId, anc: StructId) -> Option<Vec<Ty>> {
+        let d = &self.structs[sid.0 as usize];
+        if sid == anc {
+            let owner = Ty::type_owner(sid);
+            return Some(
+                d.generics
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| Ty::Param(owner, i as u32, p.name.as_str().into()))
+                    .collect(),
+            );
+        }
+        let b = d.base?;
+        let inner = self.base_args_of(b, anc)?;
+        Some(
+            inner
+                .iter()
+                .map(|t| t.subst(Ty::type_owner(b), &d.base_args))
+                .collect(),
+        )
     }
 
     /// How `sid<xs>` sees the type parameters of the generic interface that declares `ifn`

@@ -76,7 +76,12 @@ class Circle implements Shape {
   so generic functions over `Box<T>` work. A generic class can implement interfaces too,
   `class Cell<T> implements Box<T>`: each instance (`Cell<int>`, `Cell<string>`) has its own
   itable. A generic interface's default methods work as other defaults: each implementation
-  gets an instance for its type arguments. Not yet: generic classes with `extends` (#51).
+  gets an instance for its type arguments.
+- A class can extend a generic class with type arguments, `class IntBox extends Box<int>` or
+  `class Cell<T> extends Box<T>` (#51): inherited fields and methods see them, `super(…)` and
+  `super.method()` call the base's instance, and an `IntBox` is a `Box<int>` (not a
+  `Box<string>`). Not yet: virtual (`virtual`, `abstract`, `override`) methods in generic
+  classes, declared or inherited (E0900; a vtable would need an instance per type argument).
 - Structs and enums can also `implement` interfaces.
 - There are no `sealed` hierarchies. For a closed set of cases, use an `enum`.
 
