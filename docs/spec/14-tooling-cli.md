@@ -63,7 +63,8 @@ CPU, but no more than the available memory holds at about 512 MB each). Coverage
 
 - Registering: `describe(name, fn)` (nesting; names show as `group > test`), `test`/`it(name,
   fn)` with a function, an `async function` or an async lambda (`async () => { … }`),
-  `skip`, `only` and `todo`, and the hooks `beforeEach`, `afterEach`, `beforeAll`, `afterAll`.
+  `skip`, `only` and `todo`, and the hooks `beforeEach`, `afterEach`, `beforeAll`, `afterAll` (each also taking an async
+  function, which the runner awaits).
   The tests run once the file's top level is done, in order; the file prints one line per test
   and `pico-test: N passed, M failed, K skipped`, and exits with 1 when any failed. So
   `pico run x.test.pi` runs a single file too.
