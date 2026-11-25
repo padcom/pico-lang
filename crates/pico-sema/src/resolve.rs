@@ -5796,6 +5796,15 @@ impl Resolver {
         let Some(k) = self.exported_key(target, name, &exists) else {
             return Ty::Error;
         };
+        // (For the language server: the type's declaration, #81.)
+        let decl = match (self.top_structs.map.get(&k), self.top_enums.map.get(&k)) {
+            (Some(sid), _) => Some(self.structs[sid.0 as usize].name_span),
+            (_, Some(e)) => Some(self.enums[e.0 as usize].name_span),
+            _ => None,
+        };
+        if let Some(d) = decl {
+            self.name_refs.push((name.span, d));
+        }
         if let Some(&sid) = self.top_structs.map.get(&k) {
             let args: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
             return self.generic_ty(sid, args, span);
@@ -7013,12 +7022,30 @@ impl Resolver {
                 object,
                 optional: false,
                 ..
-            } => {
-                matches!(&object.kind, ast::ExprKind::Ident(n)
-                if self.top_enums.contains_key(&self.mods, n) && !self.is_value_name(n))
-                    && self.enum_static(e).is_none()
-            }
+            } => self.enum_named(object).is_some() && self.enum_static(e).is_none(),
             _ => false,
+        }
+    }
+
+    /// The enum `object` names, and where its name is: `Color`, or `ns.Color` with
+    /// `import * as ns` (#81). Reports nothing.
+    fn enum_named(&self, object: &ast::Expr) -> Option<(EnumId, Span)> {
+        match &object.kind {
+            ast::ExprKind::Ident(n) if !self.is_value_name(n) => {
+                Some((*self.top_enums.get(&self.mods, n)?, object.span))
+            }
+            ast::ExprKind::Member {
+                object: ns,
+                prop,
+                optional: false,
+            } => {
+                let target = self.namespace(ns)?;
+                let local = self.mods.exports.get(&target)?.get(&prop.name)?.clone();
+                let exists = |k: &(u32, String)| self.top_enums.map.contains_key(k);
+                let k = self.mods.resolve_in(target, &local, &exists, 0)?;
+                Some((*self.top_enums.map.get(&k)?, prop.span))
+            }
+            _ => None,
         }
     }
 
@@ -7032,13 +7059,8 @@ impl Resolver {
         else {
             return None;
         };
-        let ast::ExprKind::Ident(name) = &object.kind else {
-            return None;
-        };
-        if self.is_value_name(name) {
-            return None;
-        }
-        let def = &self.enums[self.top_enums.get(&self.mods, name)?.0 as usize];
+        let (eid, _) = self.enum_named(object)?;
+        let def = &self.enums[eid.0 as usize];
         if def.variant(&prop.name).is_some() {
             return None;
         }
@@ -7058,18 +7080,13 @@ impl Resolver {
         else {
             return None;
         };
-        let ast::ExprKind::Ident(name) = &object.kind else {
-            return None;
-        };
-        if self.is_value_name(name) {
-            return None;
-        }
-        let eid = *self.top_enums.get(&self.mods, name)?;
+        let (eid, name_at) = self.enum_named(object)?;
+        let name = self.enums[eid.0 as usize].name.clone();
         match self.enums[eid.0 as usize].variant(&prop.name) {
             Some((i, v)) => {
                 // (For the language server: the enum's and the variant's declarations, #81.)
                 let (enum_decl, variant_decl) = (self.enums[eid.0 as usize].name_span, v.span);
-                self.name_refs.push((object.span, enum_decl));
+                self.name_refs.push((name_at, enum_decl));
                 self.name_refs.push((prop.span, variant_decl));
                 Some((eid, i))
             }
