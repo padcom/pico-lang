@@ -21,7 +21,7 @@ mod uri;
 
 use pico_diag::{Diagnostic, Severity, SourceMap};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -91,8 +91,12 @@ pub fn write_message(out: &mut impl Write, msg: &Value) -> std::io::Result<()> {
 /// `exit`, or when `rx` closes.
 pub fn serve(rx: Receiver<Value>, mut send: impl FnMut(Value)) {
     let mut s = Server::default();
+    // Messages read ahead (to see cancellations of the requests before them).
+    let mut queued: VecDeque<Value> = VecDeque::new();
     loop {
-        let msg = if s.dirty.is_empty() {
+        let msg = if let Some(m) = queued.pop_front() {
+            m
+        } else if s.dirty.is_empty() {
             match rx.recv() {
                 Ok(m) => m,
                 Err(_) => return,
@@ -110,11 +114,26 @@ pub fn serve(rx: Receiver<Value>, mut send: impl FnMut(Value)) {
                 }
             }
         };
+        // A request the client has cancelled already (#81): `RequestCancelled`, not done.
+        if msg.get("method").is_some() && !msg["id"].is_null() {
+            queued.extend(rx.try_iter());
+            let cancelled = queued
+                .iter()
+                .any(|m| m["method"] == "$/cancelRequest" && m["params"]["id"] == msg["id"]);
+            if cancelled {
+                send(json!({ "jsonrpc": "2.0", "id": msg["id"], "error": {
+                    "code": REQUEST_CANCELLED, "message": "cancelled" } }));
+                continue;
+            }
+        }
         if s.handle(msg, &mut send) {
             return;
         }
     }
 }
+
+/// LSP's `RequestCancelled` error code.
+const REQUEST_CANCELLED: i64 = -32800;
 
 #[derive(Default)]
 struct Server {

@@ -1486,3 +1486,27 @@ fn hover_on_reactive_bindings() {
         "```pico\nreactive count: Reactive<i64>\n```"
     );
 }
+
+/// Request cancellation (#81): a request whose `$/cancelRequest` is already waiting gets
+/// `RequestCancelled` instead of an answer; the others are answered.
+#[test]
+fn cancelled_requests() {
+    let dir = tmp("cancel");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let text = "const answer = 42\nprintln(answer)\n";
+    let cancel =
+        |id: u64| json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": id } });
+    let out = session(vec![
+        init(),
+        open(&uri, text),
+        at(2, "textDocument/hover", &uri, text, "answer", 1, 0),
+        at(3, "textDocument/hover", &uri, text, "answer", 1, 0),
+        cancel(2),
+        cancel(99), // (an unknown or finished request: ignored)
+    ]);
+    let r2 = out.iter().find(|m| m["id"] == 2).unwrap();
+    assert_eq!(r2["error"]["code"], -32800, "{r2:#}");
+    assert!(r2.get("result").is_none());
+    assert_eq!(hover_text(&out, 3), "```pico\nconst answer: i64\n```");
+    assert!(out.iter().all(|m| m["id"] != 99));
+}
