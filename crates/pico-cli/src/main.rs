@@ -257,7 +257,11 @@ fn main() -> ExitCode {
             build_lib(
                 &file,
                 output,
-                pico_driver::BuildOptions { release, target },
+                pico_driver::BuildOptions {
+                    release,
+                    target,
+                    ..Default::default()
+                },
                 kind,
             )
         }),
@@ -275,7 +279,11 @@ fn main() -> ExitCode {
             build(
                 &file,
                 output,
-                pico_driver::BuildOptions { release, target },
+                pico_driver::BuildOptions {
+                    release,
+                    target,
+                    notices: true,
+                },
                 emit.as_deref(),
                 force,
             )
@@ -1067,7 +1075,11 @@ fn build(
         .clone()
         .unwrap_or_else(|| PathBuf::from(path.file_stem().unwrap_or_default()));
     // Nothing changed since the last build: done (spec §14.6).
-    if emit.is_none() && !force && pico_driver::fingerprint::up_to_date(path, &exe, &opts) {
+    if emit.is_none()
+        && !force
+        && pico_driver::fingerprint::up_to_date(path, &exe, &opts)
+        && (!opts.notices || pico_driver::notices_file(&exe).exists())
+    {
         eprintln!("{} is up to date", exe.display());
         return ExitCode::SUCCESS;
     }

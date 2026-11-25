@@ -6,6 +6,7 @@
 //! (`runtime/glibc`); `linux-musl` links statically with musl compiled from source
 //! ([`crate::musl`]). Neither needs a C library installed.
 
+use crate::notices::{self, Part};
 use crate::target::{Arch, Env, Target};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -55,6 +56,7 @@ pub fn link_macos(
     debug: bool,
     links: &[String],
     lib_dirs: &[PathBuf],
+    notices: Option<&Path>,
 ) -> Result<(), String> {
     let cc = clang()?;
     let runtime = runtime_objects(t, &darwin_libc(cc))?;
@@ -98,6 +100,9 @@ pub fn link_macos(
         args.extend(lib_dirs.iter().map(|d| format!("-L{}", d.display())));
         args.extend(wanted.iter().map(|l| format!("-l{l}")));
     }
+    if let Some(n) = notices {
+        args.extend(["-map".into(), notices::map_file(n).display().to_string()]);
+    }
     pico_lld::link_macho(&args).map_err(|e| {
         let hint = if e.contains("library not found") {
             format!("\n({})", lib_dirs_hint(t))
@@ -105,7 +110,41 @@ pub fn link_macos(
             String::new()
         };
         format!("linking failed:\n{e}{hint}")
-    })
+    })?;
+    write_notices(notices, &[(Part::MbedTls, &mbedtls_objects(&runtime))], &[])
+}
+
+/// Writes the notices file (if one is wanted) from the map the link wrote (#106).
+fn write_notices(
+    notices: Option<&Path>,
+    offered: &[(Part, &[PathBuf])],
+    always: &[Part],
+) -> Result<(), String> {
+    match notices {
+        Some(n) => notices::write(n, &notices::map_file(n), offered, always),
+        None => Ok(()),
+    }
+}
+
+/// The ELF and wasm linkers' map option, for the notices file `notices` (#106).
+fn map_arg(args: &mut Vec<String>, notices: Option<&Path>) {
+    if let Some(n) = notices {
+        args.push(format!("-Map={}", notices::map_file(n).display()));
+    }
+}
+
+/// Mbed TLS's objects among the runtime's (`mbedtls_*.o`).
+fn mbedtls_objects(runtime: &RuntimeObjects) -> Vec<PathBuf> {
+    runtime
+        .lazy
+        .iter()
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("mbedtls_"))
+        })
+        .cloned()
+        .collect()
 }
 
 /// Links `obj` with the runtime into the module `exe` for `wasm32-wasi` (P8.5a): wasi-libc's
@@ -117,6 +156,7 @@ pub fn link_wasi(
     exe: &Path,
     links: &[String],
     lib_dirs: &[PathBuf],
+    notices: Option<&Path>,
 ) -> Result<(), String> {
     let cc = clang()?;
     let wasi = crate::wasi::libc(t, cc)?;
@@ -139,14 +179,28 @@ pub fn link_wasi(
         args.extend(paths(group));
         args.push("--end-lib".into());
     }
+    map_arg(&mut args, notices);
     pico_lld::link_wasm(&args).map_err(|e| format!("linking failed:\n{e}"))?;
+    write_notices(
+        notices,
+        &[
+            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::CompilerRt, &builtins),
+        ],
+        &[Part::WasiLibc, Part::WasiAdapter],
+    )?;
     crate::wasi::componentize(exe)
 }
 
 /// Links `obj` with the runtime into `wasm` for the browser (decision 258): a module with no
 /// `_start`, whose `pico_start`/`pico_resume` the JavaScript glue calls; wasi-libc's few WASI
 /// calls are the glue's too.
-pub fn link_browser(t: Target, obj: &Path, wasm: &Path) -> Result<(), String> {
+pub fn link_browser(
+    t: Target,
+    obj: &Path,
+    wasm: &Path,
+    notices: Option<&Path>,
+) -> Result<(), String> {
     let cc = clang()?;
     let wasi = crate::wasi::libc(t, cc)?;
     let runtime = runtime_objects(t, &crate::wasi::runtime_libc_for(cc, true))?;
@@ -166,7 +220,16 @@ pub fn link_browser(t: Target, obj: &Path, wasm: &Path) -> Result<(), String> {
         args.extend(paths(group));
         args.push("--end-lib".into());
     }
-    pico_lld::link_wasm(&args).map_err(|e| format!("linking failed:\n{e}"))
+    map_arg(&mut args, notices);
+    pico_lld::link_wasm(&args).map_err(|e| format!("linking failed:\n{e}"))?;
+    write_notices(
+        notices,
+        &[
+            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::CompilerRt, &builtins),
+        ],
+        &[Part::WasiLibc],
+    )
 }
 
 /// The runtime's `main` (`pico_main.c`), for links that must take it whatever else is lazy.
@@ -280,10 +343,11 @@ pub fn link_linux(
     debug: bool,
     links: &[String],
     lib_dirs: &[PathBuf],
+    notices: Option<&Path>,
 ) -> Result<(), String> {
     match t.env {
-        Env::Musl => link_musl(t, obj, exe, debug, links, lib_dirs),
-        _ => link_gnu(t, obj, exe, debug, links, lib_dirs),
+        Env::Musl => link_musl(t, obj, exe, debug, links, lib_dirs, notices),
+        _ => link_gnu(t, obj, exe, debug, links, lib_dirs, notices),
     }
 }
 
@@ -359,6 +423,7 @@ fn link_gnu(
     debug: bool,
     links: &[String],
     lib_dirs: &[PathBuf],
+    notices: Option<&Path>,
 ) -> Result<(), String> {
     let cc = clang()?;
     let runtime = runtime_objects(t, &gnu_libc(t, cc)?)?;
@@ -380,12 +445,22 @@ fn link_gnu(
     args.extend(paths(&runtime.start));
     args.push(obj.display().to_string());
     lazy(&mut args, &runtime.lazy);
-    lazy(&mut args, &crate::builtins::objects(t, cc)?);
+    let builtins = crate::builtins::objects(t, cc)?;
+    lazy(&mut args, &builtins);
     // Only the libraries something refers to become dependencies (libdl, libutil, …).
     args.push("--as-needed".into());
     args.extend(paths(&stubs));
     args.extend(system_libs(t, links, &stubs, lib_dirs));
-    link_split(args, out_at, exe, debug)
+    map_arg(&mut args, notices);
+    link_split(args, out_at, exe, debug)?;
+    write_notices(
+        notices,
+        &[
+            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::CompilerRt, &builtins),
+        ],
+        &[],
+    )
 }
 
 /// A build ID from the object's content (`--build-id=0x…`): both links of a release build
@@ -426,6 +501,7 @@ fn link_musl(
     debug: bool,
     links: &[String],
     lib_dirs: &[PathBuf],
+    notices: Option<&Path>,
 ) -> Result<(), String> {
     let cc = clang()?;
     let musl = crate::musl::libc(t, cc)?;
@@ -440,11 +516,22 @@ fn link_musl(
     args.push(obj.display().to_string());
     lazy(&mut args, &runtime.lazy);
     lazy(&mut args, &musl.lib);
-    lazy(&mut args, &crate::builtins::objects(t, cc)?);
+    let builtins = crate::builtins::objects(t, cc)?;
+    lazy(&mut args, &builtins);
     // (Static libraries built for musl, if the system has them.)
     args.extend(system_libs(t, links, &[], lib_dirs));
     args.extend(paths(&musl.end));
-    link_split(args, out_at, exe, debug)
+    map_arg(&mut args, notices);
+    link_split(args, out_at, exe, debug)?;
+    // (musl's start files are always in.)
+    write_notices(
+        notices,
+        &[
+            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::CompilerRt, &builtins),
+        ],
+        &[Part::Musl],
+    )
 }
 
 /// Windows (MinGW): lld's COFF linker in MinGW mode, MinGW's CRT and import libraries.
@@ -454,6 +541,7 @@ pub fn link_windows(
     exe: &Path,
     links: &[String],
     lib_dirs: &[PathBuf],
+    notices: Option<&Path>,
 ) -> Result<(), String> {
     let cc = clang()?;
     let mingw = crate::mingw::libc(t, cc)?;
@@ -495,7 +583,20 @@ pub fn link_windows(
     }
     args.extend(paths(&mingw.imports));
     args.extend(paths(&windows_libs(t, cc, links, lib_dirs)?));
-    pico_lld::link_coff(&args).map_err(|e| format!("linking failed:\n{e}"))
+    if let Some(n) = notices {
+        args.push(format!("-lldmap:{}", notices::map_file(n).display()));
+    }
+    pico_lld::link_coff(&args).map_err(|e| format!("linking failed:\n{e}"))?;
+    // (MinGW's start file is always in.)
+    write_notices(
+        notices,
+        &[
+            (Part::MbedTls, &mbedtls_objects(&runtime)),
+            (Part::Musl, &libm),
+            (Part::CompilerRt, &builtins),
+        ],
+        &[Part::Mingw],
+    )
 }
 
 /// The libraries `@link` names for Windows (spec §12.1): `name.lib`, `libname.dll.a` or
