@@ -24,6 +24,9 @@ pub struct Modules {
     /// The entry module (its top level may use `let`).
     pub entry: Option<FileId>,
     pub imports: Vec<Import>,
+    /// The local names of `export { a, b as c }` lists (`a`, `b`), by module, for the language
+    /// server (#81).
+    pub export_names: Vec<(FileId, Ident)>,
     /// Per module: exported name → its local name.
     pub exports: HashMap<FileId, HashMap<String, String>>,
     /// How messages name each module (`./geometry`).
@@ -311,6 +314,13 @@ pub fn resolve_modules(
             if imp.alias.span != name.span {
                 program.name_refs.push((imp.alias.span, decl));
             }
+        }
+    }
+    // `export { a }`: the local declaration (#81).
+    for (m, name) in &modules.export_names {
+        r.mods.cur = r.module_of(*m);
+        if let Some(decl) = r.top_level_decl(&name.name, &program) {
+            program.name_refs.push((name.span, decl));
         }
     }
     (program, r.diags)

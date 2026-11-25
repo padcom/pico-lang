@@ -647,6 +647,15 @@ impl Builder<'_> {
             ExprKind::Member {
                 object, name_span, ..
             } => {
+                // `const { x } = o`: the name is the field's and the variable's (#81).
+                let func = &self.p.fns[fid.0 as usize];
+                if let ExprKind::Var(hir::Var::Local(l)) = &object.kind
+                    && func.local(*l).name == "<destructured>"
+                    && (func.locals.iter().any(|b| b.span == *name_span)
+                        || self.p.globals.iter().any(|g| g.span == *name_span))
+                {
+                    self.shorthand.push(*name_span);
+                }
                 if let Some(&f) = self.t.getters.get(&e.id) {
                     self.uses.push((*name_span, self.fn_span(f)));
                 } else if let Some(&idx) = self.t.fields.get(&e.id)
