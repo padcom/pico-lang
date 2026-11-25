@@ -1,0 +1,33 @@
+// expect: ready: false
+// expect: name: null
+// expect: ready: true
+// expect: name: ada
+// expect: rhs evaluated
+// expect: writes: 2 2
+// `&&=`, `||=` and `??=` on reactive state (#71): the right side is evaluated, and the cell
+// written (so watchers run), only when the current value calls for it.
+reactive ready = false
+reactive name: string? = null
+let readyWrites = 0
+let nameWrites = 0
+const w1 = watchEffect(() => {
+  println(`ready: ${ready}`)
+  readyWrites += 1
+})
+const w2 = watchEffect(() => {
+  println(`name: ${name}`)
+  nameWrites += 1
+})
+function rhs(v: string): string {
+  println("rhs evaluated")
+  v
+}
+ready ||= true
+ready ||= false
+ready &&= true
+name ??= "ada"
+name ??= rhs("grace")
+ready &&= rhs("x").length == 1
+println(`writes: ${readyWrites} ${nameWrites}`)
+w1.dispose()
+w2.dispose()
