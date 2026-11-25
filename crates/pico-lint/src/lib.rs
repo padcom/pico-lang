@@ -20,6 +20,7 @@ mod scope;
 mod simplify;
 mod sizes;
 mod style;
+mod suppress;
 mod unused;
 mod walk;
 
@@ -61,6 +62,7 @@ pub fn lint(checked: &Checked, file: FileId, cfg: &Config) -> Vec<Diagnostic> {
     simplify::check(&cx, &mut out);
     style::check(&cx, &mut out);
     doctags::check(&cx, &mut out);
+    suppress::apply(text, file, &mut out);
     out.sort_by_key(|d| d.main_span().map(|s| (s.start, s.end)));
     out
 }

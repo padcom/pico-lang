@@ -377,8 +377,9 @@ Sources, sinks and transformers are structs of callbacks (`UnderlyingSource<T>`:
 `start`, `transform`, `flush`). Callbacks finish when they return; work that finishes later is
 given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transformAsync` (which
 predate async lambdas). Strategies are `{ highWaterMark }` (default 1; a transform's readable
-side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel })` writes each chunk after
-the last one was taken; `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
+side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel, signal })` writes each chunk
+after the last one was taken (an aborted `signal` stops it: the source is cancelled and the
+destination errored unless prevented, and the pipe rejects with the signal's `AbortError`; #63); `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
 streams an array, an `Iterator<T>` or an `AsyncIterator<T, E>` (a generator's, read as it's
 pulled; an async one's error errors the stream, #63); `tee()` gives two streams that each get every chunk (the source is locked;
 an error fails both, and cancelling both cancels it). `textEncoderStream()` and `textDecoderStream()` are transform streams from
@@ -499,7 +500,9 @@ groups (capturing, `(?:…)`, named `(?<name>…)`), backreferences (`\1`, `\k<n
 and lookbehind (`(?=…)`, `(?!…)`, `(?<=…)`, `(?<!…)`), classes (`[a-z]`, `[^…]`, `\d \w \s \D \W
 \S`, `.`), anchors (`^ $ \b \B`) and escapes (`\n \t \xHH \uHHHH \u{H…} \cX`). Captures inside a
 repeated group are reset at each repetition and an iteration that matches nothing ends the
-loop, as in JavaScript. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
+loop, as in JavaScript. The matcher backtracks; a match that resumes over 100 000 paths (plus
+100 per code point of the input) at one start position panics, naming catastrophic backtracking
+(#62: nested quantifiers such as `(a+)+` on a near miss), instead of running for hours. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
 (`^`/`$` at line ends), `s` (`.` matches line ends), `y` (sticky), `u`, `v`, `d` (match indices).
 Matching is by code point, as if `u` were always on (`.` is one character), and indices count
 code points, as pico strings do.
