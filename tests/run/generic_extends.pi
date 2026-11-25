@@ -1,0 +1,37 @@
+// expect: base 7
+// expect: base 3
+// expect: base 1
+// expect: int 2 (base)
+// expect: leaf:3
+// expect: true b base
+// expect: true
+// expect: b
+// Generic base classes (#51): `extends Base<int>` and `extends Base<B>` (a generic class
+// passing its own parameter on), three levels, inherited fields and methods seen through the
+// arguments, `super(…)` and `super.method()`, upcasts to `Base<int>`, `instanceof`.
+class Base<T> {
+  constructor(public v: T) {}
+  public get(): T { this.v }
+  public describe(): string { "base" }
+}
+class IntSub extends Base<int> {
+  constructor(n: int) { super(n) }
+  public label(): string { `int ${this.get()} (${super.describe()})` }
+}
+class Pair<A, B> extends Base<B> {
+  constructor(public a: A, b: B) { super(b) }
+  public first(): A { this.a }
+}
+class Leaf extends Pair<string, int> {
+  constructor() { super("leaf", 3) }
+  public label(): string { `${this.first()}:${this.get()}` }
+}
+const xs: Base<int>[] = [new IntSub(7), new Leaf(), new Base(1)]
+for (const x of xs) { println(`${x.describe()} ${x.get()}`) }
+println(new IntSub(2).label())
+println(new Leaf().label())
+const p = new Pair(true, "b")
+println(`${p.first()} ${p.get()} ${p.describe()}`)
+println(xs[1] instanceof Leaf)
+const bp: Base<string> = p
+println(bp.get())

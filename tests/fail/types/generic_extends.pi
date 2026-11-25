@@ -1,0 +1,9 @@
+// error: E0308
+// at: 8:27
+// A generic base's arguments count (#51): an `IntSub` is a `Base<int>`, not a `Base<string>`.
+class Base<T> { constructor(public v: T) {} }
+class IntSub extends Base<int> { constructor() { super(1) } }
+function f(): void {
+  const ok: Base<int> = new IntSub()
+  const b: Base<string> = new IntSub()
+}

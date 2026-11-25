@@ -2286,8 +2286,9 @@ impl Resolver {
         for (sid, cd) in decls {
             self.enter_module(cd.name.span);
             let Some(t) = &cd.extends else { continue };
+            // (A generic base's arguments are resolved with the class's members, #51.)
             let base = match &t.kind {
-                ast::TypeKind::Path { path, args } if path.len() == 1 && args.is_empty() => self
+                ast::TypeKind::Path { path, .. } if path.len() == 1 => self
                     .top_structs
                     .get(&self.mods, &path[0].name)
                     .copied()
@@ -2626,13 +2627,15 @@ impl Resolver {
     /// Copies what a subclass inherits: fields (assigned by the base constructor), methods,
     /// accessors, the vtable, and the visibility of each member.
     fn inherit(&mut self, sid: StructId, base: StructId) {
+        // (A generic base's fields with the arguments this class gives it, #51.)
+        let base_args = self.structs[sid.0 as usize].base_args.clone();
         let b = &self.structs[base.0 as usize];
         let fields: Vec<FieldDef> = b
             .fields
             .iter()
             .map(|f| FieldDef {
                 name: f.name.clone(),
-                ty: f.ty.clone(),
+                ty: f.ty.subst(Ty::type_owner(base), &base_args),
                 span: f.span,
                 preassigned: true,
                 readonly: false,
@@ -2678,14 +2681,28 @@ impl Resolver {
     fn class_members<'a>(&mut self, sid: StructId, cd: &'a ast::ClassDecl) -> ClassInfo<'a> {
         let generics = self.type_params(&cd.generics, &[], Ty::type_owner(sid));
         self.structs[sid.0 as usize].generics = generics;
-        // (A generic class implements interfaces, #51; its base class isn't done yet.)
-        if let Some(g) = cd.generics.first()
-            && cd.extends.is_some()
-        {
-            self.not_implemented(g.span, "generic classes with `extends`");
-        }
+        // (A generic class implements interfaces and extends classes, #51.)
         let base = self.structs[sid.0 as usize].base;
+        // `extends Base<int>` / `extends Base<T>` (#51): the base's type arguments, in this
+        // class's parameters.
+        if let (Some(b), Some(t)) = (base, &cd.extends)
+            && !self.structs[b.0 as usize].generics.is_empty()
+        {
+            // (The class's type parameters are in scope already.)
+            let bt = self.resolve_type(t);
+            if let Ty::Class(_, _, args) = bt {
+                self.structs[sid.0 as usize].base_args = args.to_vec();
+            }
+        }
         if let Some(b) = base {
+            // (Inheriting virtual methods into a generic class, or from a generic base whose
+            // methods would need an instance in the vtable, isn't done yet.)
+            if !self.structs[b.0 as usize].vtable.is_empty()
+                && (!cd.generics.is_empty() || !self.structs[b.0 as usize].generics.is_empty())
+            {
+                let span = cd.extends.as_ref().map_or(cd.name.span, |t| t.span);
+                self.not_implemented(span, "virtual methods in generic classes");
+            }
             if self.structs[b.0 as usize].is_final {
                 let bname = self.structs[b.0 as usize].name.clone();
                 let span = cd.extends.as_ref().map_or(cd.name.span, |t| t.span);
@@ -2953,6 +2970,13 @@ impl Resolver {
                         && let Some(g) = f.generics.first()
                     {
                         self.generic_virtual(g.span, &name.name);
+                    }
+                    // A generic class's vtable would need an instance per type argument.
+                    if is_method
+                        && (m.mods.virtual_ || m.mods.override_ || m.mods.abstract_)
+                        && !cd.generics.is_empty()
+                    {
+                        self.not_implemented(m.span, "virtual methods in generic classes");
                     }
                     let id = FnId(self.fns.len() as u32);
                     self.fns.push(None);
