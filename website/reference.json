@@ -24064,8 +24064,13 @@
           "name": "Duration",
           "kind": "class",
           "signature": "class Duration",
-          "doc": "",
-          "examples": [],
+          "doc": "<p>An exact length of time in nanoseconds (negative ones too). A day is 24 hours here;\ncalendar days (which can be 23 or 25 hours long) are <code>DateTime.plus({ days })</code>.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { Duration } from \"std/time\"\n\nconst lap = Duration.ofSeconds(90)\nprintln(lap)                       // PT1M30S\nprintln(lap.totalMinutes())        // 1.5\nconst total = lap.times(3).plus(Duration.ofMilliseconds(250))\nprintln(total)                     // PT4M30.25S"
+            }
+          ],
           "source": "time.pi:97",
           "members": [
             {
@@ -24389,26 +24394,27 @@
               "name": "round",
               "kind": "method",
               "signature": "public round(smallestUnit: string, roundingMode: string = \"halfExpand\", increment: int = 1): Duration throws RangeError",
-              "doc": "<p>The length in milliseconds, with a fraction.</p>\n<p>Rounded to a multiple of <code>increment</code> <code>smallestUnit</code>s (<code>\"nanosecond\"</code> … <code>\"hour\"</code>) by\n<code>roundingMode</code> (Temporal's: <code>\"halfExpand\"</code> by default, <code>\"halfEven\"</code>, <code>\"halfTrunc\"</code>,\n<code>\"halfCeil\"</code>, <code>\"halfFloor\"</code>, <code>\"ceil\"</code>, <code>\"floor\"</code>, <code>\"trunc\"</code>, <code>\"expand\"</code>; #61). Throws a\n<code>RangeError</code> for another unit or mode, or an <code>increment</code> below 1.</p>\n",
+              "doc": "<p>Rounded to a multiple of <code>increment</code> <code>smallestUnit</code>s (<code>\"nanosecond\"</code> … <code>\"hour\"</code>) by\n<code>roundingMode</code> (Temporal's: <code>\"halfExpand\"</code> by default, <code>\"halfEven\"</code>, <code>\"halfTrunc\"</code>,\n<code>\"halfCeil\"</code>, <code>\"halfFloor\"</code>, <code>\"ceil\"</code>, <code>\"floor\"</code>, <code>\"trunc\"</code>, <code>\"expand\"</code>; #61). Throws a\n<code>RangeError</code> for another unit or mode, or an <code>increment</code> below 1.</p>\n",
               "examples": [
-                {
-                  "caption": "",
-                  "code": "import { Duration } from \"std/time\"\n\nprintln(Duration.parse(\"PT1.2345S\").totalMilliseconds())   // 1234.5"
-                },
                 {
                   "caption": "",
                   "code": "import { Duration } from \"std/time\"\n\nconst d = Duration.ofMilliseconds(1500)\nprintln(d.round(\"second\"))                     // PT2S\nprintln(d.round(\"second\", \"trunc\"))            // PT1S\nprintln(Duration.ofMinutes(52).round(\"minute\", \"halfExpand\", 15))   // PT45M"
                 }
               ],
-              "source": "time.pi:367",
+              "source": "time.pi:359",
               "members": []
             },
             {
               "name": "totalMilliseconds",
               "kind": "method",
               "signature": "public totalMilliseconds(): number",
-              "doc": "",
-              "examples": [],
+              "doc": "<p>The length in milliseconds, with a fraction.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { Duration } from \"std/time\"\n\nprintln(Duration.parse(\"PT1.2345S\").totalMilliseconds())   // 1234.5"
+                }
+              ],
               "source": "time.pi:372",
               "members": []
             },

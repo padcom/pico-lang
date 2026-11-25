@@ -45,19 +45,6 @@ export struct DurationParts {
   nanoseconds?: int
 }
 
-/// An exact length of time in nanoseconds (negative ones too). A day is 24 hours here;
-/// calendar days (which can be 23 or 25 hours long) are `DateTime.plus({ days })`.
-///
-/// @example
-/// ```ts
-/// import { Duration } from "std/time"
-///
-/// const lap = Duration.ofSeconds(90)
-/// println(lap)                       // PT1M30S
-/// println(lap.totalMinutes())        // 1.5
-/// const total = lap.times(3).plus(Duration.ofMilliseconds(250))
-/// println(total)                     // PT4M30.25S
-/// ```
 /// Nanoseconds per `unit` for `round` (#61): `"nanosecond"` up to `"hour"`, singular or plural.
 function __unitNs(unit: string): int throws RangeError {
   match (unit) {
@@ -94,6 +81,19 @@ function __roundNs(n: int, step: int, mode: string): int throws RangeError {
   }
 }
 
+/// An exact length of time in nanoseconds (negative ones too). A day is 24 hours here;
+/// calendar days (which can be 23 or 25 hours long) are `DateTime.plus({ days })`.
+///
+/// @example
+/// ```ts
+/// import { Duration } from "std/time"
+///
+/// const lap = Duration.ofSeconds(90)
+/// println(lap)                       // PT1M30S
+/// println(lap.totalMinutes())        // 1.5
+/// const total = lap.times(3).plus(Duration.ofMilliseconds(250))
+/// println(total)                     // PT4M30.25S
+/// ```
 export class Duration {
   /// The length in nanoseconds (negative for a negative duration).
   public readonly nanoseconds: int
@@ -342,14 +342,6 @@ export class Duration {
   /// println(Duration.parse("PT1.2345S").toMilliseconds())   // 1234
   /// ```
   public toMilliseconds(): int { return this.nanoseconds / NS_PER_MS }
-  /// The length in milliseconds, with a fraction.
-  ///
-  /// @example
-  /// ```ts
-  /// import { Duration } from "std/time"
-  ///
-  /// println(Duration.parse("PT1.2345S").totalMilliseconds())   // 1234.5
-  /// ```
   /// Rounded to a multiple of `increment` `smallestUnit`s (`"nanosecond"` … `"hour"`) by
   /// `roundingMode` (Temporal's: `"halfExpand"` by default, `"halfEven"`, `"halfTrunc"`,
   /// `"halfCeil"`, `"halfFloor"`, `"ceil"`, `"floor"`, `"trunc"`, `"expand"`; #61). Throws a
@@ -369,6 +361,14 @@ export class Duration {
     new Duration(__roundNs(this.nanoseconds, __unitNs(smallestUnit) * increment, roundingMode))
   }
 
+  /// The length in milliseconds, with a fraction.
+  ///
+  /// @example
+  /// ```ts
+  /// import { Duration } from "std/time"
+  ///
+  /// println(Duration.parse("PT1.2345S").totalMilliseconds())   // 1234.5
+  /// ```
   public totalMilliseconds(): number { return (this.nanoseconds as f64) / 1000000.0 }
   /// The length in seconds, with a fraction (`PT1.5S` is `1.5`).
   ///
