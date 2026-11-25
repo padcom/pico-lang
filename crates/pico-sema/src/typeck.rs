@@ -2360,16 +2360,7 @@ impl<'p> Checker<'p> {
                     None => {
                         self.check(value, &Expect::new(inner));
                     }
-                    Some(BinOp::And | BinOp::Or | BinOp::Nullish) => {
-                        self.infer(value);
-                        self.diags.push(
-                            Diagnostic::error(
-                                codes::NOT_IMPLEMENTED,
-                                "`&&=`, `||=` and `??=` on reactive state",
-                            )
-                            .primary(e.span, "not implemented yet"),
-                        );
-                    }
+                    // (`&&=`, `||=` and `??=` too, #71: lowering writes only when they would.)
                     Some(op) => {
                         self.compound(e, *op, inner, value);
                     }
