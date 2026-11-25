@@ -1,0 +1,24 @@
+// expect: /a+(?<b>b)?/g
+// expect: /a+(?<b>b)?/i
+// expect: b
+// expect: 3 0
+// expect: /a\/b/g
+// expect: /(?:)/m
+// expect: Invalid flags supplied to RegExp constructor 'gg'
+// `new RegExp(regExp)` and `new RegExp(regExp, flags)` (#62): a copy with the same pattern
+// (named groups too), its own `lastIndex`, or the pattern recompiled with other flags.
+const re = /a+(?<b>b)?/g
+const copy = new RegExp(re)
+println(copy)
+println(new RegExp(re, "i"))
+println(copy.exec("xaab")?.groups?.get("b"))
+re.lastIndex = 3
+println(`${re.lastIndex} ${new RegExp(re).lastIndex}`)
+const slash = new RegExp("a/b")
+println(new RegExp(slash, "g"))
+println(new RegExp(new RegExp(""), "m"))
+try {
+  println(new RegExp(re, "gg"))
+} catch (e: SyntaxError) {
+  println(e.message)
+}

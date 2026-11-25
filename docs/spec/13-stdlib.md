@@ -495,7 +495,8 @@ code points, as pico strings do.
 
 A regex literal (`/\d+/g`) is checked at compile time (E0010, with JavaScript's message:
 `Invalid regular expression: /(abc/: Unterminated group`) and can't fail at runtime;
-`new RegExp(pattern, flags = "")` throws a `SyntaxError` instead. A `RegExp` has `source`,
+`new RegExp(pattern, flags = "")` throws a `SyntaxError` instead; `new RegExp(re)` copies a
+`RegExp` (its own `lastIndex`) and `new RegExp(re, flags)` recompiles its pattern with other flags. A `RegExp` has `source`,
 `flags`, `global`, `ignoreCase`, `multiline`, `dotAll`, `unicode`, `sticky`, `hasIndices`,
 `lastIndex`, `exec(s): RegExpMatch?` (from `lastIndex` with `g`/`y`, which it updates), `test(s)`
 and `toString()`. A `RegExpMatch` is array-like: `m[0]` is the match, `m[i]` group `i` (`string?`:

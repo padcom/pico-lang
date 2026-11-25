@@ -1007,6 +1007,16 @@ class __RMachine {
   }
 }
 
+/// A compiled pattern, for `RegExp`'s constructors.
+struct __RCompiled {
+  pattern: string
+  flags: string
+  prog: __RProgram
+  ngroups: int
+  names: string[]
+  nameIdx: int[]
+}
+
 /// A match: element 0 is the matched text, then each capture group's (`null` when it didn't
 /// take part); `index` is where it starts and `groups` holds named groups. With the `g`
 /// flag, `string.match` gives every match's text as the elements instead (`index` -1).
@@ -1161,6 +1171,8 @@ class RegExp {
   ngroups: int
   names: string[]
   nameIdx: int[]
+  /// The pattern as written (`source` is escaped for printing).
+  pattern: string
 
   /// Throws a `SyntaxError` for an invalid pattern or flags.
   ///
@@ -1177,6 +1189,49 @@ class RegExp {
   /// }
   /// ```
   constructor(pattern: string, flags: string = "") throws SyntaxError {
+    const c = RegExp.__compile(pattern, flags)
+    this.source = __escapeSource(c.pattern)
+    this.flags = c.flags
+    this.pattern = c.pattern
+    this.prog = c.prog
+    this.ngroups = c.ngroups
+    this.names = c.names
+    this.nameIdx = c.nameIdx
+  }
+
+  /// A copy of `other`: its pattern with its flags, or with `flags` instead (#62). Its
+  /// `lastIndex` starts at 0.
+  ///
+  /// @example
+  /// ```ts
+  /// const re = /a+/g
+  /// println(new RegExp(re))         // /a+/g
+  /// println(new RegExp(re, "i"))    // /a+/i
+  /// ```
+  constructor(other: RegExp, flags: string? = null) throws SyntaxError {
+    const c = if (flags == null) {
+      __RCompiled {
+        pattern: other.pattern,
+        flags: other.flags,
+        prog: other.prog,
+        ngroups: other.ngroups,
+        names: other.names,
+        nameIdx: other.nameIdx,
+      }
+    } else {
+      RegExp.__compile(other.pattern, flags)
+    }
+    this.source = other.source
+    this.flags = c.flags
+    this.pattern = c.pattern
+    this.prog = c.prog
+    this.ngroups = c.ngroups
+    this.names = c.names
+    this.nameIdx = c.nameIdx
+  }
+
+  /// Checks `flags` and compiles `pattern`.
+  static __compile(pattern: string, flags: string): __RCompiled throws SyntaxError {
     let canon = ""
     for (const f of "dgimsuvy") {
       let count = 0
@@ -1203,12 +1258,14 @@ class RegExp {
     prog.compile(tree)
     prog.emit(5, 1, 0)
     prog.emit(12, 0, 0)
-    this.source = __escapeSource(src)
-    this.flags = canon
-    this.prog = prog
-    this.ngroups = parser.groups
-    this.names = parser.names
-    this.nameIdx = parser.nameIdx
+    return __RCompiled {
+      pattern: src,
+      flags: canon,
+      prog: prog,
+      ngroups: parser.groups,
+      names: parser.names,
+      nameIdx: parser.nameIdx,
+    }
   }
 
   /// A regex literal (checked by the compiler, so it can't fail).
