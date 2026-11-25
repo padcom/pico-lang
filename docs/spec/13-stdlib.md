@@ -374,8 +374,9 @@ Sources, sinks and transformers are structs of callbacks (`UnderlyingSource<T>`:
 `start`, `transform`, `flush`). Callbacks finish when they return; work that finishes later is
 given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transformAsync` (which
 predate async lambdas). Strategies are `{ highWaterMark }` (default 1; a transform's readable
-side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel })` writes each chunk after
-the last one was taken; `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
+side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel, signal })` writes each chunk
+after the last one was taken (an aborted `signal` stops it: the source is cancelled and the
+destination errored unless prevented, and the pipe rejects with the signal's `AbortError`; #63); `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
 streams an array, an `Iterator<T>` or an `AsyncIterator<T, E>` (a generator's, read as it's
 pulled; an async one's error errors the stream, #63); `tee()` gives two streams that each get every chunk (the source is locked;
 an error fails both, and cancelling both cancels it). `textEncoderStream()` and `textDecoderStream()` are transform streams from
