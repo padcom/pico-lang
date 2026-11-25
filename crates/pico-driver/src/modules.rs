@@ -278,6 +278,7 @@ impl Loader<'_> {
                         for n in names {
                             let alias = n.alias.as_ref().unwrap_or(&n.name);
                             exports.insert(alias.name.clone(), n.name.name.clone());
+                            self.modules.export_names.push((f, n.name.clone()));
                         }
                     }
                     // `export { a } from "./x"`: imported and exported.

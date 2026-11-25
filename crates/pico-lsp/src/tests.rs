@@ -1487,6 +1487,213 @@ fn hover_on_reactive_bindings() {
     );
 }
 
+/// Enum variant uses (#81): `Shape.Circle` in an expression and in a pattern go to the variant
+/// (and hover shows it), the enum name before it to the enum.
+#[test]
+fn enum_variant_uses() {
+    const SRC: &str = r#"enum Shape {
+  Circle(r: f64),
+  Square
+}
+const s = Shape.Circle(r: 1.0)
+const t = Shape.Square
+const n = match (s) {
+  Shape.Circle(r) => 1,
+  Shape.Square => 2,
+}
+println(`${n} ${t == Shape.Square}`)
+"#;
+    let dir = tmp("variants");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, SRC, needle, n, skip);
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, SRC, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SRC),
+        d(2, "Shape.Circle", 0, 6), // the variant in an expression
+        d(3, "Shape.Square", 0, 6), // a unit variant
+        d(4, "Shape.Circle", 1, 6), // in a pattern
+        d(5, "Shape.Square", 1, 6), // a unit variant in a pattern
+        d(6, "Shape.Circle", 0, 1), // the enum's name
+        h(7, "Shape.Circle", 0, 6),
+    ]);
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        assert_eq!(u, uri);
+        (line, ch)
+    };
+    assert_eq!(l(2), (1, 2));
+    assert_eq!(l(3), (2, 2));
+    assert_eq!(l(4), (1, 2));
+    assert_eq!(l(5), (2, 2));
+    assert_eq!(l(6), (0, 5));
+    assert!(
+        hover_text(&out, 7).contains("Shape.Circle"),
+        "{}",
+        hover_text(&out, 7)
+    );
+}
+
+/// Type parameters (#81): a use of `T` goes to its declaration (a function's, a class's), and
+/// hovering it says what it is.
+#[test]
+fn type_parameters() {
+    const SRC: &str = r#"function first<T>(xs: T[]): T {
+  return xs[0]
+}
+class Box<V> {
+  value: V
+  constructor(v: V) { this.value = v }
+  public get(): V { return this.value }
+}
+println(`${first([1, 2])} ${new Box<i32>(3).get()}`)
+"#;
+    let dir = tmp("tparams");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, SRC, needle, n, skip);
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, SRC, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SRC),
+        d(2, "T[]", 0, 0),      // a parameter's type
+        d(3, "): T", 0, 3),     // the return type
+        d(4, "value: V", 0, 7), // a field's type
+        d(5, "(): V", 0, 4),    // a method's return type
+        h(6, "T[]", 0, 0),
+    ]);
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        assert_eq!(u, uri);
+        (line, ch)
+    };
+    assert_eq!(l(2), (0, 15));
+    assert_eq!(l(3), (0, 15));
+    assert_eq!(l(4), (3, 10));
+    assert_eq!(l(5), (3, 10));
+    assert!(
+        hover_text(&out, 6).contains("type parameter"),
+        "{}",
+        hover_text(&out, 6)
+    );
+}
+
+/// `this` (#81) goes to its class (or enum), and hovering it shows that type, not the method
+/// whose name its binding borrows.
+#[test]
+fn this_goes_to_its_type() {
+    const SRC: &str = r#"class Counter {
+  count = 0
+  public bump(): i64 {
+    this.count += 1
+    return this.count
+  }
+}
+enum Dir {
+  Up,
+  Down
+  public flip(): Dir { return if (this == Dir.Up) Dir.Down else Dir.Up }
+}
+println(`${new Counter().bump()} ${Dir.Up.flip() == Dir.Down}`)
+"#;
+    let dir = tmp("this");
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, SRC, needle, n, skip);
+    let h = |id, needle, n, skip| at(id, "textDocument/hover", &uri, SRC, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, SRC),
+        d(2, "this.count", 0, 0),
+        d(3, "this ==", 0, 0),
+        h(4, "this.count", 1, 0),
+    ]);
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        assert_eq!(u, uri);
+        (line, ch)
+    };
+    assert_eq!(l(2), (0, 6));
+    assert_eq!(l(3), (7, 5));
+    let hv = hover_text(&out, 4);
+    assert!(hv.contains("class Counter"), "{hv}");
+    // Renaming the class leaves `this` alone; renaming at `this` isn't a rename of the class.
+    let r = rename_at("rename_this", SRC, &[], ("Counter", 0, 0), "Tally").unwrap();
+    assert!(r["main.pi"].contains("class Tally") && r["main.pi"].contains("this.count += 1"));
+    assert!(r["main.pi"].contains("new Tally()"));
+    let e = rename_at("rename_at_this", SRC, &[], ("this.count", 0, 0), "Tally").unwrap_err();
+    assert!(e.contains("`this` is a keyword"), "{e}");
+}
+
+/// `ns.f`, `ns.Type` and `ns.Enum.Variant` through `import * as ns` (#81): definition goes to
+/// the module's declaration.
+#[test]
+fn namespace_members() {
+    let dir = tmp("namespaces");
+    let geo = "export struct Vec2 {\n  x: i32\n  y: i32\n}\nexport function dot(a: Vec2, b: Vec2): i32 { a.x * b.x + a.y * b.y }\nexport const ORIGIN: Vec2 = Vec2 { x: 0, y: 0 }\nexport enum Axis {\n  X,\n  Y\n}\n";
+    std::fs::write(dir.join("geo.pi"), geo).unwrap();
+    let geo_uri = path_to_uri(&dir.join("geo.pi").canonicalize().unwrap());
+    let main = "import * as geo from \"./geo\"\nconst v: geo.Vec2 = geo.ORIGIN\nconst a: geo.Axis = geo.Axis.X\nprintln(`${geo.dot(v, v)} ${a == geo.Axis.Y}`)\n";
+    let uri = path_to_uri(&dir.join("main.pi"));
+    let d = |id, needle, n, skip| at(id, "textDocument/definition", &uri, main, needle, n, skip);
+    let out = session(vec![
+        init(),
+        open(&uri, main),
+        d(2, "geo.Vec2", 0, 4),   // a type
+        d(3, "geo.ORIGIN", 0, 4), // a constant
+        d(4, "geo.dot", 0, 4),    // a function
+        d(5, "geo.Axis", 0, 4),   // an enum type
+        d(6, "Axis.X", 0, 5),     // a variant through the namespace
+    ]);
+    let canon = |u: String| path_to_uri(&uri_to_path(&u).unwrap().canonicalize().unwrap());
+    let l = |id| {
+        let (u, line, ch) = def_line(&out, id);
+        (canon(u), line, ch)
+    };
+    assert_eq!(l(2), (geo_uri.clone(), 0, 14));
+    assert_eq!(l(3), (geo_uri.clone(), 5, 13));
+    assert_eq!(l(4), (geo_uri.clone(), 4, 16));
+    assert_eq!(l(5), (geo_uri.clone(), 6, 12));
+    assert_eq!(l(6), (geo_uri.clone(), 7, 2));
+}
+
+/// Renaming in destructuring patterns and `export { a }` lists (#81): a shorthand field
+/// (`{ x }`) keeps the field it reads (`{ x: ex }`), and an export list follows its binding.
+#[test]
+fn renames_in_destructuring_and_export_lists() {
+    let main = "const [a, b] = [1, 2]\nconst { x, y: w } = { x: 3, y: 4 }\nprintln(`${a} ${b} ${x} ${w}`)\nexport { a }\n";
+    let ok = |needle, new: &str| {
+        rename_at("rename_destr", main, &[], needle, new).unwrap()["main.pi"].clone()
+    };
+    assert_eq!(
+        ok(("a", 0, 0), "first"),
+        "const [first, b] = [1, 2]\nconst { x, y: w } = { x: 3, y: 4 }\nprintln(`${first} ${b} ${x} ${w}`)\nexport { first }\n"
+    );
+    assert_eq!(
+        ok(("a }", 0, 0), "first"),
+        "const [first, b] = [1, 2]\nconst { x, y: w } = { x: 3, y: 4 }\nprintln(`${first} ${b} ${x} ${w}`)\nexport { first }\n"
+    );
+    assert_eq!(
+        ok(("x", 0, 0), "ex"),
+        "const [a, b] = [1, 2]\nconst { x: ex, y: w } = { x: 3, y: 4 }\nprintln(`${a} ${b} ${ex} ${w}`)\nexport { a }\n"
+    );
+    assert_eq!(
+        ok(("w", 0, 0), "dub"),
+        "const [a, b] = [1, 2]\nconst { x, y: dub } = { x: 3, y: 4 }\nprintln(`${a} ${b} ${x} ${dub}`)\nexport { a }\n"
+    );
+    // In a function: locals.
+    let main = "struct P {\n  x: i32\n}\nfunction f(p: P): i32 {\n  const { x } = p\n  return x\n}\nprintln(f(P { x: 1 }))\n";
+    let r = rename_at("rename_destr_local", main, &[], ("return x", 0, 7), "v").unwrap();
+    assert_eq!(
+        r["main.pi"],
+        "struct P {\n  x: i32\n}\nfunction f(p: P): i32 {\n  const { x: v } = p\n  return v\n}\nprintln(f(P { x: 1 }))\n"
+    );
+    // Renaming the field keeps the variable.
+    let r = rename_at("rename_destr_field", main, &[], ("x: i32", 0, 0), "px").unwrap();
+    assert_eq!(
+        r["main.pi"],
+        "struct P {\n  px: i32\n}\nfunction f(p: P): i32 {\n  const { px: x } = p\n  return x\n}\nprintln(f(P { px: 1 }))\n"
+    );
+}
+
 /// Incremental sync (#81): ranged changes apply in order (UTF-16 columns, across lines,
 /// insertions and deletions); a change without a range replaces the text.
 #[test]
