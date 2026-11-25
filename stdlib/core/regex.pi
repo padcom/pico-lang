@@ -1454,7 +1454,7 @@ class RegExp {
       }
       m.indices = new RegExpIndices(pairs, named)
     }
-    m
+    return m
   }
 
   /// The next match in `s` (from `lastIndex` with `g` or `y`, which it then moves past the
