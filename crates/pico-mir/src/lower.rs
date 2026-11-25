@@ -6174,6 +6174,11 @@ impl FnBuilder<'_, '_> {
                     .iter()
                     .map(|f| (json_key(f), f.ty.subst(owner, args)))
                     .collect();
+                // (Objects of classes can form cycles: the writer counts how deep they nest.)
+                let class = matches!(t, Ty::Class(..));
+                if class {
+                    self.core_call("__JsonWriter", "__enter", vec![wr()], Ty::Void, span);
+                }
                 for (i, (key, fty)) in fields.iter().enumerate() {
                     let sep = if i == 0 { "{" } else { "," };
                     raw(self, lit(&format!("{sep}{}:", json_quote(key))));
@@ -6186,6 +6191,9 @@ impl FnBuilder<'_, '_> {
                     self.json_call(f, wr(), x, span);
                 }
                 raw(self, lit(if fields.is_empty() { "{}" } else { "}" }));
+                if class {
+                    self.core_call("__JsonWriter", "__leave", vec![wr()], Ty::Void, span);
+                }
             }
             _ => {}
         }
