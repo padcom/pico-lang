@@ -1156,7 +1156,7 @@ impl Resolver {
                 self.fns.push(None);
                 let mut decl = f.clone();
                 let mut gs = ed.generics.clone();
-                gs.extend(decl.generics.drain(..));
+                gs.append(&mut decl.generics);
                 decl.generics = gs;
                 decl.name = Some(ast::Ident {
                     name: format!("{}.{}", ed.name.name, name.name),
@@ -1197,7 +1197,7 @@ impl Resolver {
             };
             let mut decl = f.clone();
             let mut gs = ed.generics.clone();
-            gs.extend(decl.generics.drain(..));
+            gs.append(&mut decl.generics);
             decl.generics = gs;
             decl.name = Some(ast::Ident {
                 name: format!("{}.{}", ed.name.name, name.name),
