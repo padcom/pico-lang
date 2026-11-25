@@ -1,0 +1,5 @@
+// error: E0201
+// at: 5:15
+// `await` of an operand that's already an error reports that error only, not also "can't infer
+// the type argument" of the await's own machinery.
+println(await missing())

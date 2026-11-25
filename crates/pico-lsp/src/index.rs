@@ -504,6 +504,18 @@ impl Builder<'_> {
                 self.decl(b.span, sig, false);
             }
         }
+        // Type parameters (#81): `T` in `function f<T>`, `class Box<T>`, `enum E<T>`.
+        let tparams = p
+            .fns
+            .iter()
+            .flat_map(|f| &f.generics)
+            .chain(p.structs.iter().flat_map(|s| &s.generics))
+            .chain(p.enums.iter().flat_map(|e| &e.generics));
+        for tp in tparams {
+            if tp.comptime.is_none() && !self.decls.contains_key(&tp.span) {
+                self.decl(tp.span, format!("(type parameter) {}", tp.name), false);
+            }
+        }
         // Type aliases: the declaration's line.
         for &(_, def) in &p.name_refs {
             if !self.decls.contains_key(&def) {

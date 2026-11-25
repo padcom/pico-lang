@@ -1,0 +1,39 @@
+// expect: chunks: 4
+// expect: bytes: 200000
+// expect: text ok: true
+// expect: cancelled early: 1
+// `File.readable` (#64): a big file arrives in 64 KiB chunks; through `textDecoderStream()` it's
+// the text again; reading only the first chunk and cancelling closes the file.
+import { open, writeText, remove } from "std/fs"
+import { textDecoderStream } from "std/streams"
+
+// (Relative: the test's own directory, which WASI can see.)
+const path = "readable.txt"
+const text = "0123456789".repeat(20000)
+await writeText(path, text)
+
+let chunks = 0
+let bytes = 0
+const f = await open(path)
+for await (const c of f.readable) {
+  chunks += 1
+  bytes += c.length
+}
+println(`chunks: ${chunks}`)
+println(`bytes: ${bytes}`)
+
+const g = await open(path)
+let back = ""
+for await (const piece of g.readable.pipeThrough(textDecoderStream())) {
+  back = back + piece
+}
+println(`text ok: ${back == text}`)
+
+const h = await open(path)
+let seen = 0
+for await (const c of h.readable) {
+  seen += 1
+  break
+}
+println(`cancelled early: ${seen}`)
+await remove(path)
