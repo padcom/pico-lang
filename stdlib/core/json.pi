@@ -605,11 +605,11 @@ class __JsonWriter {
   depth: int = 0
   public raw(s: string) { parts.push(s) }
   /// Entering an object of a class (#58): a reference cycle would nest forever, so nesting
-  /// past 4096 objects panics instead of overflowing the stack.
+  /// past 1024 objects panics instead of overflowing the stack.
   public __enter() {
     depth += 1
-    if (depth > 4096) {
-      panic("JSON.stringify: objects nested over 4096 deep (a circular structure?)")
+    if (depth > 1024) {
+      panic("JSON.stringify: objects nested over 1024 deep (a circular structure?)")
     }
   }
   public __leave() { depth -= 1 }

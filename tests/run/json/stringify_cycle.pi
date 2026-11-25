@@ -1,5 +1,5 @@
 // expect: {"name":"a","next":{"name":"b","next":null}}
-// panic: JSON.stringify: objects nested over 4096 deep (a circular structure?)
+// panic: JSON.stringify: objects nested over 1024 deep (a circular structure?)
 // `JSON.stringify` of a reference cycle (#58): a clear panic instead of a stack overflow; a
 // chain without one is written as usual.
 class Node {

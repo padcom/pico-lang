@@ -174,7 +174,7 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
   element per line indented by that many spaces per level, with `": "` after keys (as
   JavaScript's `JSON.stringify(v, null, indent)`): keys in field order, `null` for null values (and for
   `NaN`/infinities), numbers as `println` shows them. An object graph with a cycle panics
-  (objects of classes nested over 4096 deep, #58; JavaScript throws).
+  (objects of classes nested over 1024 deep, #58; JavaScript throws).
 
 ## 11.5 Deterministic cleanup: `using`
 ```ts
