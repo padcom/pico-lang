@@ -927,7 +927,7 @@ impl<'p> Checker<'p> {
                 let ExprKind::Var(v) = object.kind else {
                     return none;
                 };
-                let Ty::Enum(eid, ename) = self.types.expr(object.id) else {
+                let Ty::Enum(eid, ename, _) = self.types.expr(object.id) else {
                     return none;
                 };
                 let def = self.program.enum_def(*eid);
@@ -1147,7 +1147,7 @@ impl<'p> Checker<'p> {
                     .iter()
                     .all(|f| f.weak || self.sendable(&f.ty.subst(owner, args), seen))
             }
-            Ty::Enum(eid, _) | Ty::Union(eid, _) | Ty::Variant(eid, _, _) => self.program.enums
+            Ty::Enum(eid, _, _) | Ty::Union(eid, _) | Ty::Variant(eid, _, _) => self.program.enums
                 [eid.0 as usize]
                 .variants
                 .iter()
@@ -1782,7 +1782,7 @@ impl<'p> Checker<'p> {
                 .fields
                 .iter()
                 .all(|f| self.pure_value(&f.ty.subst(Ty::type_owner(*sid), args))),
-            Ty::Enum(eid, _) => self
+            Ty::Enum(eid, _, _) => self
                 .program
                 .enum_def(*eid)
                 .variants
@@ -2361,7 +2361,7 @@ impl<'p> Checker<'p> {
                             }
                         }
                     }
-                    (Ty::Enum(eid, _), _)
+                    (Ty::Enum(eid, _, _), _)
                         if matches!(&self.program.enum_def(*eid).origin,
                             crate::hir::EnumOrigin::Discriminated(d) if d == name) =>
                     {
@@ -2385,7 +2385,7 @@ impl<'p> Checker<'p> {
                             t => t,
                         }
                     }
-                    (Ty::Enum(eid, _), _)
+                    (Ty::Enum(eid, _, _), _)
                         if matches!(
                             self.program.enum_def(*eid).origin,
                             crate::hir::EnumOrigin::Discriminated(_)
@@ -3174,7 +3174,7 @@ impl<'p> Checker<'p> {
             }
             PatKind::Range(..) => pick(&|m| matches!(m, Ty::Int(_) | Ty::Char)),
             PatKind::Variant { enum_, name, .. } => pick(&|m| match m {
-                Ty::Enum(e, _) => match enum_ {
+                Ty::Enum(e, _, _) => match enum_ {
                     Some(x) => x == e,
                     None => self.program.enum_def(*e).variant(name).is_some(),
                 },
@@ -3344,7 +3344,7 @@ impl<'p> Checker<'p> {
                 args,
             } => {
                 let eid = match &inner {
-                    Ty::Enum(id, _) => *id,
+                    Ty::Enum(id, _, _) => *id,
                     Ty::Error => return self.wild_subpatterns(args),
                     _ => {
                         self.pattern_mismatch(p.span, ty, "a variant");
@@ -4730,7 +4730,7 @@ impl<'p> Checker<'p> {
             return self.map_literal(e, map, fields);
         }
         let discriminated = ty.is_none()
-            && matches!(want.map(|w| &w.ty), Some(Ty::Enum(eid, _))
+            && matches!(want.map(|w| &w.ty), Some(Ty::Enum(eid, _, _))
                 if matches!(self.program.enum_def(*eid).origin, crate::hir::EnumOrigin::Discriminated(_)));
         if let Some(f) = fields.iter().find(|f| match f.key {
             InitKey::Name => false,
@@ -4771,7 +4771,7 @@ impl<'p> Checker<'p> {
             return Ty::Error;
         }
         if ty.is_none()
-            && let Some(Ty::Enum(eid, ename)) = want.map(|w| &w.ty)
+            && let Some(Ty::Enum(eid, ename, _)) = want.map(|w| &w.ty)
             && let crate::hir::EnumOrigin::Discriminated(disc) = &self.program.enum_def(*eid).origin
         {
             return self.discriminated_object(e, *eid, ename, disc, fields);
@@ -5042,7 +5042,7 @@ impl<'p> Checker<'p> {
             );
         }
         self.types.object_variants.insert(e.id, (eid, vi, order));
-        Ty::Enum(eid, ename.clone())
+        Ty::Enum(eid, ename.clone(), std::sync::Arc::from([]))
     }
 
     /// Whether `==` is defined: primitives, strings, and structs whose fields all are.
@@ -5080,7 +5080,7 @@ impl<'p> Checker<'p> {
                 .any(|b| matches!(b, Bound::Comparable | Bound::Equatable | Bound::Hashable)),
             // Classes without `equals` compare by identity.
             Ty::Class(..) => true,
-            Ty::Enum(id, _) => self
+            Ty::Enum(id, _, _) => self
                 .program
                 .enum_def(*id)
                 .variants

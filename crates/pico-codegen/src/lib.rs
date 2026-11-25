@@ -527,7 +527,7 @@ impl<'ctx> Gen<'ctx, '_> {
             Ty::Iface(..) | Ty::Fn(..) => self.iface_ty().into(),
             Ty::Struct(sid, _, args) if args.is_empty() => self.structs[sid.0 as usize].into(),
             Ty::Struct(..) => self.struct_llty(t).into(),
-            Ty::Enum(eid, _) => self.enums[eid.0 as usize].into(),
+            Ty::Enum(eid, _, _) => self.enums[eid.0 as usize].into(),
             Ty::Fixed(e, n) => self.elem_ty(e).array_type(*n as u32).into(),
             Ty::Tuple(ts) => {
                 let fields: Vec<BasicTypeEnum> = ts.iter().map(|t| self.elem_ty(t)).collect();
@@ -1938,7 +1938,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 let inner = (**inner).clone();
                 self.di_type(&inner)?
             }
-            Ty::Enum(eid, name) => {
+            Ty::Enum(eid, name, _) => {
                 // `{ i32 tag, [k x i64] payload }`.
                 let (size, _) = self.size_align(t);
                 let variants: Vec<String> = self
@@ -2137,7 +2137,7 @@ impl<'ctx> Gen<'ctx, '_> {
                         .into_pointer_value();
                     self.array_elem(a, elem, i)
                 }
-                (Proj::VariantField(v, i), Ty::Enum(eid, _)) => {
+                (Proj::VariantField(v, i), Ty::Enum(eid, _, _)) => {
                     self.variant_field_ptr(*eid, *v, *i, ptr)
                 }
                 (Proj::Payload, Ty::Nullable(inner)) if inner.is_ref() => ptr,
@@ -3057,7 +3057,7 @@ impl<'ctx> Gen<'ctx, '_> {
                     .build_int_compare(IntPredicate::EQ, a, b, "")
                     .unwrap();
             }
-            Ty::Enum(eid, _) => {
+            Ty::Enum(eid, _, _) => {
                 let f = self.enum_eq_fn(*eid);
                 let et = self.enums[eid.0 as usize];
                 let a = self.entry_alloca(et.into(), "eq.a");
@@ -3373,7 +3373,7 @@ impl<'ctx> Gen<'ctx, '_> {
         self.b.position_at_end(entry);
         let this = f.get_nth_param(0).unwrap().into_pointer_value();
         let lt = self.ty(t).expect("debuggable type");
-        if let Ty::Enum(eid, _) = t {
+        if let Ty::Enum(eid, _, _) = t {
             self.debug_enum_body(*eid, f, this);
             if let Some(bb) = saved {
                 self.b.position_at_end(bb);

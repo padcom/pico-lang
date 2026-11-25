@@ -1352,7 +1352,7 @@ fn debug_value(p: &Program, v: &Value, t: &Ty) -> String {
                 .collect();
             format!("{} {{ {} }}", layout.name, parts.join(", "))
         }
-        (Value::Enum(vi, fields), Ty::Enum(eid, _)) => {
+        (Value::Enum(vi, fields), Ty::Enum(eid, _, _)) => {
             let layout = p.enum_layout(*eid);
             let v = &layout.variants[*vi as usize];
             if v.fields.is_empty() && !v.has_parens {

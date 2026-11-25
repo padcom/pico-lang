@@ -142,8 +142,8 @@ pub enum Ty {
     /// An interface value: the object (or a boxed struct) and the implementation's method
     /// table (shares the id space with structs).
     Iface(StructId, Arc<str>, Arc<[Ty]>),
-    /// A user-defined enum (a tagged union).
-    Enum(EnumId, Arc<str>),
+    /// A user-defined enum (a tagged union) and its type arguments (#51).
+    Enum(EnumId, Arc<str>, Arc<[Ty]>),
     /// A reference to a value: method receivers internally, and `ptr<T>` in source (spec
     /// §9.5; raw pointers, traced like interior references).
     Ref(Box<Ty>),
@@ -253,6 +253,7 @@ impl Ty {
             Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(s).collect()),
+            Ty::Enum(id, n, a) => Ty::Enum(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Fn(ps, r, ts) => Ty::Fn(
                 ps.iter().map(s).collect(),
                 Box::new(s(r)),
@@ -271,9 +272,10 @@ impl Ty {
                 t.has_params(owner)
             }
             Ty::Tuple(ts) => ts.iter().any(|t| t.has_params(owner)),
-            Ty::Struct(_, _, args) | Ty::Class(_, _, args) | Ty::Iface(_, _, args) => {
-                args.iter().any(|t| t.has_params(owner))
-            }
+            Ty::Struct(_, _, args)
+            | Ty::Class(_, _, args)
+            | Ty::Iface(_, _, args)
+            | Ty::Enum(_, _, args) => args.iter().any(|t| t.has_params(owner)),
             Ty::Fn(ps, r, ts) => {
                 ps.iter().chain(ts.iter()).any(|t| t.has_params(owner)) || r.has_params(owner)
             }
@@ -289,9 +291,10 @@ impl Ty {
                 t.has_any_params()
             }
             Ty::Tuple(ts) => ts.iter().any(Ty::has_any_params),
-            Ty::Struct(_, _, args) | Ty::Class(_, _, args) | Ty::Iface(_, _, args) => {
-                args.iter().any(Ty::has_any_params)
-            }
+            Ty::Struct(_, _, args)
+            | Ty::Class(_, _, args)
+            | Ty::Iface(_, _, args)
+            | Ty::Enum(_, _, args) => args.iter().any(Ty::has_any_params),
             Ty::Fn(ps, r, ts) => {
                 ps.iter().chain(ts.iter()).any(Ty::has_any_params) || r.has_any_params()
             }
@@ -302,7 +305,7 @@ impl Ty {
     /// The type arguments of a struct, class or interface type.
     pub fn type_args(&self) -> &[Ty] {
         match self {
-            Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) => a,
+            Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) | Ty::Enum(_, _, a) => a,
             _ => &[],
         }
     }
@@ -317,7 +320,7 @@ impl Ty {
             }
             Ty::FixedN(t, n) => t.substitutes(owner) || n.substitutes(owner),
             Ty::Tuple(ts) => ts.iter().any(|t| t.substitutes(owner)),
-            Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) => {
+            Ty::Struct(_, _, a) | Ty::Class(_, _, a) | Ty::Iface(_, _, a) | Ty::Enum(_, _, a) => {
                 a.iter().any(|t| t.substitutes(owner))
             }
             Ty::Fn(ps, r, ts) => {
@@ -357,6 +360,7 @@ impl Ty {
             Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(s).collect()),
+            Ty::Enum(id, n, a) => Ty::Enum(*id, n.clone(), a.iter().map(s).collect()),
             Ty::Fn(ps, r, ts) => Ty::Fn(
                 ps.iter().map(s).collect(),
                 Box::new(s(r)),
@@ -378,16 +382,17 @@ impl Ty {
             Ty::Struct(id, n, a) => Ty::Struct(*id, n.clone(), a.iter().map(Ty::erase).collect()),
             Ty::Class(id, n, a) => Ty::Class(*id, n.clone(), a.iter().map(Ty::erase).collect()),
             Ty::Iface(id, n, a) => Ty::Iface(*id, n.clone(), a.iter().map(Ty::erase).collect()),
+            Ty::Enum(id, n, a) => Ty::Enum(*id, n.clone(), a.iter().map(Ty::erase).collect()),
             // What a function throws doesn't change how it's called.
             Ty::Fn(ps, r, _) => Ty::Fn(
                 ps.iter().map(Ty::erase).collect(),
                 Box::new(r.erase()),
                 Arc::from([]),
             ),
-            Ty::Variant(e, _, n) => Ty::Enum(*e, n.clone()),
+            Ty::Variant(e, _, n) => Ty::Enum(*e, n.clone(), Arc::from([])),
             Ty::Distinct(_, _, b) | Ty::Immutable(b) => b.erase(),
             // A union is stored as its anonymous enum.
-            Ty::Union(e, _) => Ty::Enum(*e, self.to_string().into()),
+            Ty::Union(e, _) => Ty::Enum(*e, self.to_string().into(), Arc::from([])),
             t => t.clone(),
         }
     }
@@ -438,7 +443,7 @@ impl Ty {
             // `"a" | "b"` fits `("a" | "b")?` (#92): the nullable rule, before the base's.
             (Ty::Lits(..), Ty::Nullable(inner)) if self.widens_to(inner) => true,
             (Ty::Lits(a, _), t) => a.widens_to(t),
-            (Ty::Variant(e, _, _), Ty::Enum(f, _)) => e == f,
+            (Ty::Variant(e, _, _), Ty::Enum(f, _, _)) => e == f,
             // A mutable value can be viewed as immutable.
             (Ty::Immutable(a), Ty::Immutable(b)) => a.widens_to(b),
             (t, Ty::Immutable(inner)) => t.widens_to(inner),
@@ -464,8 +469,10 @@ impl fmt::Display for Ty {
             Ty::Void => f.write_str("void"),
             Ty::Never => f.write_str("never"),
             Ty::Null => f.write_str("null"),
-            Ty::Enum(_, name) => f.write_str(name),
-            Ty::Struct(_, name, args) | Ty::Class(_, name, args) | Ty::Iface(_, name, args) => {
+            Ty::Struct(_, name, args)
+            | Ty::Class(_, name, args)
+            | Ty::Iface(_, name, args)
+            | Ty::Enum(_, name, args) => {
                 f.write_str(name)?;
                 if !args.is_empty() {
                     let parts: Vec<String> = args.iter().map(|t| t.to_string()).collect();

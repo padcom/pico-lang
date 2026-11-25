@@ -1492,7 +1492,7 @@ impl<'p> Gen<'p> {
                 let v = self.wasm_ty(&inner)?;
                 ref_to(self.register(Key::Opt(v), |_| Def::Opt(v)))
             }
-            Ty::Enum(eid, _) => ref_to(self.enum_type(eid)),
+            Ty::Enum(eid, _, _) => ref_to(self.enum_type(eid)),
             Ty::Iface(..) => ref_to(self.register(Key::Iface, |_| Def::Iface)),
             Ty::Fn(ps, r, _) => {
                 let sig = self.closure_sig(&ps, &r)?;
@@ -2271,7 +2271,7 @@ impl<'p> Gen<'p> {
             (Proj::Field(i), _) => self.struct_of(t)?.1[*i as usize].clone(),
             (Proj::Index(_), Ty::Array(elem) | Ty::Fixed(elem, _)) => *elem,
             (Proj::Payload, Ty::Nullable(inner)) => *inner,
-            (Proj::VariantField(v, i), Ty::Enum(eid, _)) => {
+            (Proj::VariantField(v, i), Ty::Enum(eid, _, _)) => {
                 self.p.enum_layout(eid).variants[*v as usize].fields[*i as usize]
                     .1
                     .clone()
@@ -2296,7 +2296,7 @@ impl<'p> Gen<'p> {
                 }
                 Access::Field(idx, *i + class as u32)
             }
-            (Proj::VariantField(v, i), Ty::Enum(eid, _)) => {
+            (Proj::VariantField(v, i), Ty::Enum(eid, _, _)) => {
                 // A field every variant has (a discriminated union's discriminant) may be read
                 // before the variant is known: through a getter dispatching on the tag.
                 let layout = self.p.enum_layout(eid);
@@ -2961,7 +2961,7 @@ impl<'p> Gen<'p> {
             }
             Rvalue::Tag(o) => {
                 let ot = self.operand_ty(fx, o)?;
-                let Ty::Enum(eid, _) = ot.erase() else {
+                let Ty::Enum(eid, _, _) = ot.erase() else {
                     return unsupported(format!("the tag of `{ot}`"));
                 };
                 self.operand(fx, s, o)?;
@@ -4203,7 +4203,7 @@ impl<'p> Gen<'p> {
                     f
                 }));
             }
-            Ty::Enum(eid, _) => {
+            Ty::Enum(eid, _, _) => {
                 let eid = *eid;
                 let base = self.enum_type(eid);
                 let layout = self.p.enum_layout(eid).clone();
@@ -4571,7 +4571,7 @@ impl<'p> Gen<'p> {
                     }),
                 )
             }
-            Ty::Enum(eid, _) => {
+            Ty::Enum(eid, _, _) => {
                 let eid = *eid;
                 let base = self.enum_type(eid);
                 let nv = self.p.enum_layout(eid).variants.len();

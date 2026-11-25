@@ -395,7 +395,7 @@ impl Program {
                 .fields
                 .iter()
                 .any(|f| self.holds_refs(&f.ty.subst(Ty::type_owner(*sid), args))),
-            Ty::Enum(eid, _) | Ty::Union(eid, _) | Ty::Variant(eid, _, _) => self.enums
+            Ty::Enum(eid, _, _) | Ty::Union(eid, _) | Ty::Variant(eid, _, _) => self.enums
                 [eid.0 as usize]
                 .variants
                 .iter()
@@ -448,7 +448,11 @@ impl Program {
     }
 
     pub fn enum_ty(&self, id: EnumId) -> Ty {
-        Ty::Enum(id, self.enums[id.0 as usize].name.as_str().into())
+        Ty::Enum(
+            id,
+            self.enums[id.0 as usize].name.as_str().into(),
+            std::sync::Arc::from([]),
+        )
     }
 
     /// Whether type `sid` (a struct, class or interface) conforms to interface `iface`:

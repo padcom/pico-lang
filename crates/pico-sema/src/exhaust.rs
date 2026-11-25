@@ -48,7 +48,8 @@ impl Checker<'_> {
     /// The argument types of `c` applied to a value of type `t`.
     fn arg_tys(&self, t: &Ty, c: &Ctor) -> Vec<Ty> {
         match (t, c) {
-            (Ty::Enum(id, _), Ctor::Variant(v)) => self.program.enum_def(*id).variants[*v as usize]
+            (Ty::Enum(id, _, _), Ctor::Variant(v)) => self.program.enum_def(*id).variants
+                [*v as usize]
                 .fields
                 .iter()
                 .map(|f| f.ty.clone())
@@ -74,7 +75,7 @@ impl Checker<'_> {
     /// Every constructor of `t`, or `None` if there are infinitely many.
     fn all_ctors(&self, t: &Ty) -> Option<Vec<Ctor>> {
         Some(match t {
-            Ty::Enum(id, _) => (0..self.program.enum_def(*id).variants.len())
+            Ty::Enum(id, _, _) => (0..self.program.enum_def(*id).variants.len())
                 .map(|i| Ctor::Variant(i as u32))
                 .collect(),
             Ty::Bool => vec![Ctor::Bool(false), Ctor::Bool(true)],
@@ -273,7 +274,7 @@ impl Checker<'_> {
     pub fn show(&self, t: &Ty, p: &Pat) -> String {
         match (p, t) {
             (Pat::Wild, _) => "_".into(),
-            (Pat::Ctor(Ctor::Variant(v), args), Ty::Enum(id, _)) => {
+            (Pat::Ctor(Ctor::Variant(v), args), Ty::Enum(id, _, _)) => {
                 let def = &self.program.enum_def(*id).variants[*v as usize];
                 if def.fields.is_empty() && !def.has_parens {
                     return def.name.clone();

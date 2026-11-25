@@ -1241,7 +1241,11 @@ impl Resolver {
     }
 
     fn enum_ty(&self, id: EnumId) -> Ty {
-        Ty::Enum(id, self.enums[id.0 as usize].name.as_str().into())
+        Ty::Enum(
+            id,
+            self.enums[id.0 as usize].name.as_str().into(),
+            std::sync::Arc::from([]),
+        )
     }
 
     fn struct_members<'a>(
@@ -2073,7 +2077,7 @@ impl Resolver {
             Ty::Struct(sid, _, _) => {
                 iface.is_some_and(|i| self.structs[sid.0 as usize].implements.contains(&i))
             }
-            Ty::Enum(e, _) => self.enums[e.0 as usize].throwable,
+            Ty::Enum(e, _, _) => self.enums[e.0 as usize].throwable,
             _ => false,
         }
     }
@@ -5079,7 +5083,7 @@ impl Resolver {
                 has_parens: true,
             });
         }
-        Ty::Enum(id, ename.into())
+        Ty::Enum(id, ename.into(), std::sync::Arc::from([]))
     }
 
     /// The length of a fixed array: an integer literal, or (`Err`) a `comptime` parameter.
@@ -7666,7 +7670,7 @@ enum Inline {
 fn inline_types(t: &Ty, out: &mut Vec<Inline>) {
     match t {
         Ty::Struct(id, _, _) => out.push(Inline::Struct(*id)),
-        Ty::Enum(id, _) => out.push(Inline::Enum(*id)),
+        Ty::Enum(id, _, _) => out.push(Inline::Enum(*id)),
         Ty::Fixed(e, _) | Ty::Nullable(e) => inline_types(e, out),
         Ty::Tuple(ts) => ts.iter().for_each(|t| inline_types(t, out)),
         _ => {}

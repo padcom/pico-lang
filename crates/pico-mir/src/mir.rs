@@ -219,7 +219,7 @@ impl Program {
                 (s * n, a)
             }
             Ty::FixedN(..) => unreachable!("a `comptime` length outside generic code"),
-            Ty::Enum(eid, _) => {
+            Ty::Enum(eid, _, _) => {
                 let words = self
                     .enum_layout(*eid)
                     .variants
@@ -287,7 +287,7 @@ impl Program {
             }
             Ty::Tuple(ts) => ts.iter().any(|t| self.traced(t)),
             Ty::Fixed(e, n) => *n > 0 && self.traced(e),
-            Ty::Enum(eid, _) => self
+            Ty::Enum(eid, _, _) => self
                 .enum_layout(*eid)
                 .variants
                 .iter()
@@ -320,7 +320,7 @@ pub fn project(t: &Ty, p: &Proj, field: impl Fn(FieldRef) -> Ty) -> Ty {
         (Ty::Struct(sid, _, args) | Ty::Class(sid, _, args), Proj::Field(i)) => {
             field(FieldRef::Struct(*sid, *i as usize)).subst(Ty::type_owner(*sid), args)
         }
-        (Ty::Enum(eid, _), Proj::VariantField(v, i)) => {
+        (Ty::Enum(eid, _, _), Proj::VariantField(v, i)) => {
             field(FieldRef::Variant(*eid, *v, *i as usize))
         }
         (Ty::Tuple(ts), Proj::Field(i)) => ts[*i as usize].clone(),

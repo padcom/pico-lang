@@ -504,7 +504,7 @@ fn write_value(
             }
             temp(f, out, Rvalue::Tuple(ty.clone(), ops))
         }
-        (Value::Enum(var, payload), Ty::Enum(eid, _)) => {
+        (Value::Enum(var, payload), Ty::Enum(eid, _, _)) => {
             let fields: Vec<Ty> = l.enums[eid.0 as usize].variants[*var as usize]
                 .fields
                 .iter()
