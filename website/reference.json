@@ -62,6 +62,7 @@
     "ReadableStreamDefaultController": "core#ReadableStreamDefaultController",
     "ReadableStreamDefaultReader": "core#ReadableStreamDefaultReader",
     "RegExp": "core#RegExp",
+    "RegExpIndices": "core#RegExpIndices",
     "RegExpMatch": "core#RegExpMatch",
     "Request": "core#Request",
     "RequestInit": "core#RequestInit",
@@ -5382,7 +5383,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"a\")\n    c.enqueue(\"b\")\n    c.close()\n  },\n})\nfor await (const chunk of s) {\n  println(chunk)\n}\n// a\n// b"
             }
           ],
-          "source": "core/streams.pi:238",
+          "source": "core/streams.pi:248",
           "members": [
             {
               "name": "constructor",
@@ -5395,7 +5396,7 @@
                   "code": "let i = 0\nconst counter = new ReadableStream<int>({\n  pull: (c) => {\n    i += 1\n    if (i <= 3) c.enqueue(i * 10) else c.close()\n  },\n}, { highWaterMark: 1 })\nfor await (const x of counter) {\n  println(x)\n}\n// 10\n// 20\n// 30"
                 }
               ],
-              "source": "core/streams.pi:275",
+              "source": "core/streams.pi:285",
               "members": []
             },
             {
@@ -5409,7 +5410,35 @@
                   "code": "for await (const word of ReadableStream.from([\"red\", \"green\"])) {\n  println(word)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:301",
+              "source": "core/streams.pi:311",
+              "members": []
+            },
+            {
+              "name": "from",
+              "kind": "method",
+              "signature": "public static from<U>(items: Iterator<U>): ReadableStream<U>",
+              "doc": "<p>A stream of what iterator <code>items</code> (a generator's, say) yields, read as it's pulled (#63).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "function* count(): Iterator<int> {\n  yield 1\n  yield 2\n}\nfor await (const n of ReadableStream.from(count())) {\n  println(n)\n}\n// 1\n// 2"
+                }
+              ],
+              "source": "core/streams.pi:339",
+              "members": []
+            },
+            {
+              "name": "from",
+              "kind": "method",
+              "signature": "public static from<U, F extends Error>(items: AsyncIterator<U, F>): ReadableStream<U>",
+              "doc": "<p>A stream of what async iterator <code>items</code> (an async generator's, say) yields, awaited as\nit's pulled (#63); its error errors the stream.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "async function* words(): AsyncIterator<string> {\n  yield \"red\"\n  yield \"green\"\n}\nfor await (const w of ReadableStream.from(words())) {\n  println(w)\n}\n// red\n// green"
+                }
+              ],
+              "source": "core/streams.pi:367",
               "members": []
             },
             {
@@ -5423,7 +5452,7 @@
                   "code": "const [a, b] = ReadableStream.from([1, 2]).tee()\nfor await (const x of a) {\n  println(`a ${x}`)\n}\nfor await (const x of b) {\n  println(`b ${x}`)\n}\n// a 1\n// a 2\n// b 1\n// b 2"
                 }
               ],
-              "source": "core/streams.pi:333",
+              "source": "core/streams.pi:391",
               "members": []
             },
             {
@@ -5437,7 +5466,7 @@
                   "code": "const s = ReadableStream.from([1])\nprintln(s.locked)   // false\nconst reader = s.getReader()\nprintln(s.locked)   // true\nreader.releaseLock()\nprintln(s.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:391",
+              "source": "core/streams.pi:449",
               "members": []
             },
             {
@@ -5451,7 +5480,7 @@
                   "code": "const reader = ReadableStream.from([\"x\", \"y\"]).getReader()\nwhile (true) {\n  const r = await reader.read()\n  if (r.done) break\n  println(r.value)\n}\n// x\n// y"
                 }
               ],
-              "source": "core/streams.pi:408",
+              "source": "core/streams.pi:466",
               "members": []
             },
             {
@@ -5465,7 +5494,7 @@
                   "code": "const s = ReadableStream.from([7, 8])\nprintln(await s.next())   // 7\nprintln(await s.next())   // 8\nprintln(await s.next())   // null"
                 }
               ],
-              "source": "core/streams.pi:421",
+              "source": "core/streams.pi:479",
               "members": []
             },
             {
@@ -5479,7 +5508,7 @@
                   "code": "let total = 0\nfor await (const n of ReadableStream.from([1, 2, 3])) {\n  total += n\n}\nprintln(total)   // 6"
                 }
               ],
-              "source": "core/streams.pi:438",
+              "source": "core/streams.pi:496",
               "members": []
             },
             {
@@ -5493,7 +5522,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (reason) => println(`cancelled: ${reason?.message}`),\n})\nawait s.cancel(new Error(\"not needed\"))   // cancelled: not needed\nprintln(await s.next())                   // null"
                 }
               ],
-              "source": "core/streams.pi:454",
+              "source": "core/streams.pi:512",
               "members": []
             },
             {
@@ -5507,7 +5536,7 @@
                   "code": "const lines: string[] = []\nconst sink = new WritableStream<string>({\n  write: (chunk, _c) => lines.push(chunk),\n  close: () => println(\"closed\"),\n})\nawait ReadableStream.from([\"a\", \"b\", \"c\"]).pipeTo(sink)   // closed\nprintln(lines.join(\",\"))   // a,b,c"
                 }
               ],
-              "source": "core/streams.pi:487",
+              "source": "core/streams.pi:545",
               "members": []
             },
             {
@@ -5521,7 +5550,7 @@
                   "code": "const upper = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),\n})\nfor await (const s of ReadableStream.from([\"hi\", \"there\"]).pipeThrough(upper)) {\n  println(s)\n}\n// HI\n// THERE"
                 }
               ],
-              "source": "core/streams.pi:533",
+              "source": "core/streams.pi:591",
               "members": []
             }
           ]
@@ -5537,7 +5566,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c: ReadableStreamDefaultController<string>) => {\n    c.enqueue(\"one\")\n    c.enqueue(\"two\")\n    c.close()\n  },\n})\nfor await (const x of s) {\n  println(x)\n}\n// one\n// two"
             }
           ],
-          "source": "core/streams.pi:124",
+          "source": "core/streams.pi:134",
           "members": [
             {
               "name": "constructor",
@@ -5550,7 +5579,7 @@
                   "code": "// A stream makes its controller and hands it to its source's callbacks.\nconst s = new ReadableStream<int>({\n  start: (c: ReadableStreamDefaultController<int>) => {\n    c.enqueue(42)\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // 42"
                 }
               ],
-              "source": "core/streams.pi:140",
+              "source": "core/streams.pi:150",
               "members": []
             },
             {
@@ -5564,7 +5593,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    println(c.desiredSize)   // 2\n    c.enqueue(1)\n    println(c.desiredSize)   // 1\n  },\n}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:156",
+              "source": "core/streams.pi:166",
               "members": []
             },
             {
@@ -5578,7 +5607,7 @@
                   "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"hello\")\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // hello"
                 }
               ],
-              "source": "core/streams.pi:173",
+              "source": "core/streams.pi:183",
               "members": []
             },
             {
@@ -5592,7 +5621,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    c.enqueue(1)\n    c.close()   // ends after the queued chunk\n  },\n})\nconst reader = s.getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).done)    // true"
                 }
               ],
-              "source": "core/streams.pi:191",
+              "source": "core/streams.pi:201",
               "members": []
             },
             {
@@ -5606,7 +5635,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.error(new Error(\"disk on fire\")),\n})\ntry {\n  const r = await s.getReader().read()\n  println(r.done)\n} catch (e) {\n  println(e.message)   // disk on fire\n}"
                 }
               ],
-              "source": "core/streams.pi:209",
+              "source": "core/streams.pi:219",
               "members": []
             }
           ]
@@ -5622,7 +5651,7 @@
               "code": "const reader: ReadableStreamDefaultReader<int> = ReadableStream.from([1, 2]).getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).value)   // 2\nprintln((await reader.read()).done)    // true"
             }
           ],
-          "source": "core/streams.pi:714",
+          "source": "core/streams.pi:772",
           "members": [
             {
               "name": "constructor",
@@ -5635,7 +5664,7 @@
                   "code": "const s = ReadableStream.from([\"only\"])\nconst reader = new ReadableStreamDefaultReader<string>(s)\nprintln(s.locked)                      // true\nprintln((await reader.read()).value)   // only"
                 }
               ],
-              "source": "core/streams.pi:727",
+              "source": "core/streams.pi:785",
               "members": []
             },
             {
@@ -5649,7 +5678,7 @@
                   "code": "const reader = ReadableStream.from([\"a\", \"b\"]).getReader()\nlet r = await reader.read()\nwhile (!r.done) {\n  println(r.value)\n  r = await reader.read()\n}\n// a\n// b"
                 }
               ],
-              "source": "core/streams.pi:754",
+              "source": "core/streams.pi:812",
               "members": []
             },
             {
@@ -5663,7 +5692,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (_reason) => println(\"source cancelled\"),\n})\nconst reader = s.getReader()\nawait reader.cancel()                 // source cancelled\nprintln((await reader.read()).done)   // true"
                 }
               ],
-              "source": "core/streams.pi:775",
+              "source": "core/streams.pi:833",
               "members": []
             },
             {
@@ -5677,7 +5706,7 @@
                   "code": "const reader = ReadableStream.from([1]).getReader()\nprintln((await reader.read()).value)   // 1\nawait reader.closed\nprintln(\"closed\")                      // closed"
                 }
               ],
-              "source": "core/streams.pi:789",
+              "source": "core/streams.pi:847",
               "members": []
             },
             {
@@ -5691,7 +5720,7 @@
                   "code": "const s = ReadableStream.from([1, 2])\nconst first = s.getReader()\nprintln((await first.read()).value)   // 1\nfirst.releaseLock()\nconst second = s.getReader()\nprintln((await second.read()).value)  // 2"
                 }
               ],
-              "source": "core/streams.pi:804",
+              "source": "core/streams.pi:862",
               "members": []
             }
           ]
@@ -5707,7 +5736,7 @@
               "code": "const date = /(\\d{4})-(\\d{2})-(\\d{2})/\nprintln(date.test(\"on 2024-03-10\"))   // true\nconst m = date.exec(\"on 2024-03-10\")\nif (m != null) {\n  println(m[1])                       // 2024\n}\nconst word = new RegExp(\"\\\\bcat\\\\b\", \"i\")\nprintln(word.test(\"A Cat sat\"))       // true"
             }
           ],
-          "source": "core/regex.pi:1162",
+          "source": "core/regex.pi:1221",
           "members": [
             {
               "name": "source",
@@ -5715,7 +5744,7 @@
               "signature": "public readonly source: string",
               "doc": "<p>The pattern's text (<code>\"(?:)\"</code> for an empty pattern).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1164",
+              "source": "core/regex.pi:1223",
               "members": []
             },
             {
@@ -5724,7 +5753,7 @@
               "signature": "public readonly flags: string",
               "doc": "<p>The flags, in canonical order (<code>\"dgimsuvy\"</code>).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1166",
+              "source": "core/regex.pi:1225",
               "members": []
             },
             {
@@ -5733,7 +5762,7 @@
               "signature": "public lastIndex: int = 0",
               "doc": "<p>Where the next <code>exec</code> or <code>test</code> starts with the <code>g</code> or <code>y</code> flag, in code points; other regexes\nignore it.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1169",
+              "source": "core/regex.pi:1228",
               "members": []
             },
             {
@@ -5747,7 +5776,7 @@
                   "code": "const re = new RegExp(\"^[a-z]+\\\\d*$\", \"i\")\nprintln(re)                 // /^[a-z]+\\d*$/i\nprintln(re.test(\"Abc12\"))   // true\ntry {\n  const bad = new RegExp(\"a\", \"gg\")\n  println(bad)\n} catch (e: SyntaxError) {\n  println(e.message)        // Invalid flags supplied to RegExp constructor 'gg'\n}"
                 }
               ],
-              "source": "core/regex.pi:1191",
+              "source": "core/regex.pi:1250",
               "members": []
             },
             {
@@ -5761,7 +5790,7 @@
                   "code": "const re = /a+/g\nprintln(new RegExp(re))         // /a+/g\nprintln(new RegExp(re, \"i\"))    // /a+/i"
                 }
               ],
-              "source": "core/regex.pi:1211",
+              "source": "core/regex.pi:1270",
               "members": []
             },
             {
@@ -5775,7 +5804,7 @@
                   "code": "println(/o/g.global)   // true\nprintln(/o/.global)    // false"
                 }
               ],
-              "source": "core/regex.pi:1288",
+              "source": "core/regex.pi:1347",
               "members": []
             },
             {
@@ -5789,7 +5818,7 @@
                   "code": "const re = /hello/i\nprintln(re.ignoreCase)      // true\nprintln(re.test(\"HeLLo\"))   // true"
                 }
               ],
-              "source": "core/regex.pi:1297",
+              "source": "core/regex.pi:1356",
               "members": []
             },
             {
@@ -5803,7 +5832,7 @@
                   "code": "const re = /^b/m\nprintln(re.multiline)        // true\nprintln(re.test(\"a\\nb\"))     // true"
                 }
               ],
-              "source": "core/regex.pi:1306",
+              "source": "core/regex.pi:1365",
               "members": []
             },
             {
@@ -5817,7 +5846,7 @@
                   "code": "const re = /a.b/s\nprintln(re.dotAll)          // true\nprintln(re.test(\"a\\nb\"))    // true"
                 }
               ],
-              "source": "core/regex.pi:1315",
+              "source": "core/regex.pi:1374",
               "members": []
             },
             {
@@ -5831,7 +5860,7 @@
                   "code": "println(/x/u.unicode)   // true\nprintln(/x/.unicode)    // false"
                 }
               ],
-              "source": "core/regex.pi:1323",
+              "source": "core/regex.pi:1382",
               "members": []
             },
             {
@@ -5845,7 +5874,7 @@
                   "code": "const re = /\\d/y\nprintln(re.sticky)      // true\nprintln(re.test(\"a1\"))  // false\nre.lastIndex = 1\nprintln(re.test(\"a1\"))  // true"
                 }
               ],
-              "source": "core/regex.pi:1334",
+              "source": "core/regex.pi:1393",
               "members": []
             },
             {
@@ -5859,7 +5888,7 @@
                   "code": "println(/x/d.hasIndices)   // true\nprintln(/x/.hasIndices)    // false"
                 }
               ],
-              "source": "core/regex.pi:1342",
+              "source": "core/regex.pi:1401",
               "members": []
             },
             {
@@ -5873,7 +5902,7 @@
                   "code": "const re = /(\\w+)=(\\d+)/g\nconst s = \"a=1 b=22\"\nlet m = re.exec(s)\nwhile (m != null) {\n  println(`${m[1]} -> ${m[2]} at ${m.index}`)\n  m = re.exec(s)\n}\n// Prints:\n// a -> 1 at 0\n// b -> 22 at 4"
                 }
               ],
-              "source": "core/regex.pi:1398",
+              "source": "core/regex.pi:1476",
               "members": []
             },
             {
@@ -5887,7 +5916,7 @@
                   "code": "const digits = /^\\d+$/\nprintln(digits.test(\"123\"))   // true\nprintln(digits.test(\"12a\"))   // false"
                 }
               ],
-              "source": "core/regex.pi:1423",
+              "source": "core/regex.pi:1501",
               "members": []
             },
             {
@@ -5901,7 +5930,59 @@
                   "code": "const re = new RegExp(\"a/b\", \"gi\")\nprintln(re.toString())   // /a\\/b/gi\nprintln(re.source)       // a\\/b\nprintln(re.flags)        // gi"
                 }
               ],
-              "source": "core/regex.pi:1436",
+              "source": "core/regex.pi:1514",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "RegExpIndices",
+          "kind": "class",
+          "signature": "class RegExpIndices",
+          "doc": "<p>Where a <code>d</code>-flag match and its groups are (<code>RegExpMatch.indices</code>, #62): <code>[start, end]</code> in\ncode points per element (<code>null</code> for a group that didn't take part), and by group name.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const m = /(\\d+)-(\\d+)?/d.exec(\"id 12-\")\nif (m != null) {\n  const ix = m.indices\n  if (ix != null) {\n    println(`${ix.length} ${ix[0]:?} ${ix[1]:?} ${ix[2]:?}`)   // 3 [3, 6] [3, 5] null\n  }\n}"
+            }
+          ],
+          "source": "core/regex.pi:1033",
+          "members": [
+            {
+              "name": "groups",
+              "kind": "field",
+              "signature": "public readonly groups: Map<string, [int, int]?>?",
+              "doc": "<p>The named groups' positions by name, or <code>null</code> when the pattern has no named groups.</p>\n",
+              "examples": [],
+              "source": "core/regex.pi:1036",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(pairs: ([int, int]?)[], groups: Map<string, [int, int]?>?)",
+              "doc": "<p>Positions <code>pairs</code> (one per element) and the named groups'.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "// They usually come from a `d`-flag match; they can also be built directly.\nconst ix = new RegExpIndices([[0, 2], null], null)\nprintln(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null"
+                }
+              ],
+              "source": "core/regex.pi:1046",
+              "members": []
+            },
+            {
+              "name": "length",
+              "kind": "property",
+              "signature": "public get length(): int",
+              "doc": "<p>The count of elements: 1 plus the count of capture groups.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /(a)(b)?/d.exec(\"a\")\nprintln(m?.indices?.length)   // 3"
+                }
+              ],
+              "source": "core/regex.pi:1058",
               "members": []
             }
           ]
@@ -5917,7 +5998,7 @@
               "code": "const m = /(?<year>\\d{4})-(\\d{2})/.exec(\"due 2024-03\")\nif (m != null) {\n  println(m[0])                       // 2024-03\n  println(m[2])                       // 03\n  println(m.index)                    // 4\n  println(m.groups?.get(\"year\"))      // 2024\n}"
             }
           ],
-          "source": "core/regex.pi:1034",
+          "source": "core/regex.pi:1081",
           "members": [
             {
               "name": "index",
@@ -5925,7 +6006,7 @@
               "signature": "public readonly index: int",
               "doc": "<p>Where the match starts in <code>input</code>, in code points (-1 for a <code>g</code>-flag <code>string.match</code> result).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1037",
+              "source": "core/regex.pi:1084",
               "members": []
             },
             {
@@ -5934,7 +6015,7 @@
               "signature": "public readonly input: string",
               "doc": "<p>The string that was searched.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1039",
+              "source": "core/regex.pi:1086",
               "members": []
             },
             {
@@ -5943,7 +6024,21 @@
               "signature": "public readonly groups: Map<string, string?>?",
               "doc": "<p>The named groups' texts by name (<code>null</code> for one that didn't take part), or <code>null</code> when the\npattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1042",
+              "source": "core/regex.pi:1089",
+              "members": []
+            },
+            {
+              "name": "indices",
+              "kind": "field",
+              "signature": "public indices: RegExpIndices? = null",
+              "doc": "<p>With the <code>d</code> flag (#62): where the match and each group start and end, in code points\n(<code>null</code> without it).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /a(?<b>b+)/d.exec(\"xabb\")\nif (m != null) {\n  println(`${m.indices?.[0]:?} ${m.indices?.[1]:?}`)    // [1, 4] [2, 4]\n  println(`${m.indices?.groups?.get(\"b\"):?}`)           // [2, 4]\n}"
+                }
+              ],
+              "source": "core/regex.pi:1101",
               "members": []
             },
             {
@@ -5957,7 +6052,7 @@
                   "code": "// Matches usually come from `exec` or `string.match`; one can also be built directly.\nconst m = new RegExpMatch([\"ab\", \"b\"], 3, \"xxxab\", null)\nprintln(m[0])      // ab\nprintln(m.index)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1053",
+              "source": "core/regex.pi:1112",
               "members": []
             },
             {
@@ -5971,7 +6066,7 @@
                   "code": "const m = /(\\w+)@(\\w+)/.exec(\"mail ann@home\")\nif (m != null) {\n  println(m.length)   // 3\n}"
                 }
               ],
-              "source": "core/regex.pi:1069",
+              "source": "core/regex.pi:1128",
               "members": []
             },
             {
@@ -5985,7 +6080,7 @@
                   "code": "const m = /(\\d+)x(\\d+)?/.exec(\"size 640x\")\nif (m != null) {\n  const parts = m.toArray()\n  println(parts.length)                               // 3\n  println(parts.map(s => s ?? \"(none)\").join(\", \"))   // 640x, 640, (none)\n}"
                 }
               ],
-              "source": "core/regex.pi:1088",
+              "source": "core/regex.pi:1147",
               "members": []
             },
             {
@@ -5999,7 +6094,7 @@
                   "code": "const m = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(\"2024-03-10\")\nif (m != null) {\n  for (const part of m) {\n    println(part)\n  }\n}\n// Prints:\n// 2024-03-10\n// 2024\n// 03\n// 10"
                 }
               ],
-              "source": "core/regex.pi:1108",
+              "source": "core/regex.pi:1167",
               "members": []
             }
           ]
@@ -7078,7 +7173,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1659",
+          "source": "core/streams.pi:1717",
           "members": [
             {
               "name": "readable",
@@ -7086,7 +7181,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1661",
+              "source": "core/streams.pi:1719",
               "members": []
             },
             {
@@ -7095,7 +7190,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1663",
+              "source": "core/streams.pi:1721",
               "members": []
             },
             {
@@ -7109,7 +7204,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1682",
+              "source": "core/streams.pi:1740",
               "members": []
             }
           ]
@@ -7125,7 +7220,7 @@
               "code": "const t = new TransformStream<int, int>({\n  transform: (n, c: TransformStreamDefaultController<int>) => {\n    c.enqueue(n)\n    c.enqueue(n * 100)\n  },\n})\nfor await (const x of ReadableStream.from([1, 2]).pipeThrough(t)) {\n  println(x)\n}\n// 1\n// 100\n// 2\n// 200"
             }
           ],
-          "source": "core/streams.pi:1414",
+          "source": "core/streams.pi:1472",
           "members": [
             {
               "name": "constructor",
@@ -7138,7 +7233,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1436",
+              "source": "core/streams.pi:1494",
               "members": []
             },
             {
@@ -7152,7 +7247,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1451",
+              "source": "core/streams.pi:1509",
               "members": []
             },
             {
@@ -7166,7 +7261,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1472",
+              "source": "core/streams.pi:1530",
               "members": []
             },
             {
@@ -7180,7 +7275,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1499",
+              "source": "core/streams.pi:1557",
               "members": []
             },
             {
@@ -7194,7 +7289,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1521",
+              "source": "core/streams.pi:1579",
               "members": []
             }
           ]
@@ -7210,7 +7305,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1548",
+          "source": "core/streams.pi:1606",
           "members": [
             {
               "name": "start",
@@ -7218,7 +7313,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1550",
+              "source": "core/streams.pi:1608",
               "members": []
             },
             {
@@ -7227,7 +7322,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1553",
+              "source": "core/streams.pi:1611",
               "members": []
             },
             {
@@ -7236,7 +7331,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1555",
+              "source": "core/streams.pi:1613",
               "members": []
             },
             {
@@ -7245,7 +7340,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1558",
+              "source": "core/streams.pi:1616",
               "members": []
             }
           ]
@@ -8290,7 +8385,7 @@
               "code": "const got: int[] = []\nconst sink: UnderlyingSink<int> = {\n  start: (_c) => println(\"start\"),\n  write: (chunk, _c) => got.push(chunk),\n  close: () => println(`close after ${got.length}`),\n}\nawait ReadableStream.from([1, 2, 3]).pipeTo(new WritableStream<int>(sink))\n// start\n// close after 3"
             }
           ],
-          "source": "core/streams.pi:884",
+          "source": "core/streams.pi:942",
           "members": [
             {
               "name": "start",
@@ -8298,7 +8393,7 @@
               "signature": "start?: (c: WritableStreamDefaultController) => void",
               "doc": "<p>Runs once, inside the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:886",
+              "source": "core/streams.pi:944",
               "members": []
             },
             {
@@ -8307,7 +8402,7 @@
               "signature": "write?: (chunk: T, c: WritableStreamDefaultController) => void",
               "doc": "<p>Takes a chunk; the next one comes after it returns.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:888",
+              "source": "core/streams.pi:946",
               "members": []
             },
             {
@@ -8316,7 +8411,7 @@
               "signature": "writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>",
               "doc": "<p>Like <code>write</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>write</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:891",
+              "source": "core/streams.pi:949",
               "members": []
             },
             {
@@ -8325,7 +8420,7 @@
               "signature": "close?: () => void",
               "doc": "<p>Runs after the last queued chunk is written, when the stream is closed.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:893",
+              "source": "core/streams.pi:951",
               "members": []
             },
             {
@@ -8334,7 +8429,7 @@
               "signature": "closeAsync?: () => Promise<void, Error>",
               "doc": "<p>Like <code>close</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>close</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:896",
+              "source": "core/streams.pi:954",
               "members": []
             },
             {
@@ -8343,7 +8438,7 @@
               "signature": "abort?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is aborted (before the queued writes reject).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:898",
+              "source": "core/streams.pi:956",
               "members": []
             }
           ]
@@ -8359,7 +8454,7 @@
               "code": "let n = 0\nconst source: UnderlyingSource<int> = {\n  start: (c) => c.enqueue(0),\n  pull: (c) => {\n    n += 1\n    if (n <= 2) c.enqueue(n) else c.close()\n  },\n  cancel: (_reason) => println(\"cancelled\"),\n}\nfor await (const x of new ReadableStream<int>(source)) {\n  println(x)\n}\n// 0\n// 1\n// 2"
             }
           ],
-          "source": "core/streams.pi:94",
+          "source": "core/streams.pi:104",
           "members": [
             {
               "name": "start",
@@ -8367,7 +8462,7 @@
               "signature": "start?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Runs once, inside the constructor (it can already enqueue chunks).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:96",
+              "source": "core/streams.pi:106",
               "members": []
             },
             {
@@ -8376,7 +8471,7 @@
               "signature": "pull?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Called when the stream wants more chunks (a waiting read, or room below the high-water mark);\nnot again while it runs. The first call comes after <code>start</code>, as a microtask.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:99",
+              "source": "core/streams.pi:109",
               "members": []
             },
             {
@@ -8385,7 +8480,7 @@
               "signature": "pullAsync?: (c: ReadableStreamDefaultController<T>) => Promise<void, Error>",
               "doc": "<p>Like <code>pull</code>, but finishes when the promise settles (not called again until then); a rejection\nfails the stream. Used instead of <code>pull</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:102",
+              "source": "core/streams.pi:112",
               "members": []
             },
             {
@@ -8394,7 +8489,7 @@
               "signature": "cancel?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is cancelled.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:104",
+              "source": "core/streams.pi:114",
               "members": []
             }
           ]
@@ -8993,7 +9088,7 @@
               "code": "const out: string[] = []\nconst ws = new WritableStream<string>({\n  write: (chunk, _c) => out.push(chunk),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"hello\")\nawait writer.write(\"world\")\nawait writer.close()\nprintln(out.join(\" \"))   // hello world"
             }
           ],
-          "source": "core/streams.pi:921",
+          "source": "core/streams.pi:979",
           "members": [
             {
               "name": "constructor",
@@ -9006,7 +9101,7 @@
                   "code": "let bytes = 0\nconst counter = new WritableStream<Uint8Array>({\n  write: (chunk, _c) => {\n    bytes += chunk.length\n  },\n}, { highWaterMark: 4 })\nconst writer = counter.getWriter()\nprintln(writer.desiredSize)   // 4\nawait writer.write(new Uint8Array(10))\nawait writer.close()\nprintln(bytes)   // 10"
                 }
               ],
-              "source": "core/streams.pi:954",
+              "source": "core/streams.pi:1012",
               "members": []
             },
             {
@@ -9020,7 +9115,7 @@
                   "code": "const ws = new WritableStream<int>({})\nprintln(ws.locked)   // false\nconst writer = ws.getWriter()\nprintln(ws.locked)   // true\nwriter.releaseLock()\nprintln(ws.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:981",
+              "source": "core/streams.pi:1039",
               "members": []
             },
             {
@@ -9034,7 +9129,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`got ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"x\")   // got x"
                 }
               ],
-              "source": "core/streams.pi:995",
+              "source": "core/streams.pi:1053",
               "members": []
             },
             {
@@ -9048,7 +9143,7 @@
                   "code": "const ws = new WritableStream<int>({\n  close: () => println(\"sink closed\"),\n})\nawait ws.close()   // sink closed"
                 }
               ],
-              "source": "core/streams.pi:1008",
+              "source": "core/streams.pi:1066",
               "members": []
             },
             {
@@ -9062,7 +9157,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`aborted: ${reason?.message}`),\n})\nawait ws.abort(new Error(\"user cancelled\"))   // aborted: user cancelled"
                 }
               ],
-              "source": "core/streams.pi:1024",
+              "source": "core/streams.pi:1082",
               "members": []
             }
           ]
@@ -9078,7 +9173,7 @@
               "code": "const sink = new WritableStream<int>({\n  write: (chunk, c: WritableStreamDefaultController) => {\n    if (chunk < 0) c.error(new Error(\"negative\"))\n  },\n})\nconst writer = sink.getWriter()\nawait writer.write(1)\ntry {\n  await writer.write(-1)\n  await writer.write(2)\n} catch (e) {\n  println(e.message)   // negative\n}"
             }
           ],
-          "source": "core/streams.pi:830",
+          "source": "core/streams.pi:888",
           "members": [
             {
               "name": "constructor",
@@ -9091,7 +9186,7 @@
                   "code": "// A stream makes its controller and hands it to its sink's callbacks.\nconst sink = new WritableStream<string>({\n  start: (c: WritableStreamDefaultController) => println(\"started\"),   // started\n})\nprintln(sink.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:843",
+              "source": "core/streams.pi:901",
               "members": []
             },
             {
@@ -9105,7 +9200,7 @@
                   "code": "const sink = new WritableStream<string>({\n  write: (chunk, c) => c.error(new Error(`can't store ${chunk}`)),\n})\nconst writer = sink.getWriter()\ntry {\n  await writer.write(\"x\")\n  await writer.write(\"y\")\n} catch (e) {\n  println(e.message)   // can't store x\n}"
                 }
               ],
-              "source": "core/streams.pi:862",
+              "source": "core/streams.pi:920",
               "members": []
             }
           ]
@@ -9121,7 +9216,7 @@
               "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer: WritableStreamDefaultWriter<string> = ws.getWriter()\nawait writer.ready\nawait writer.write(\"one\")   // one\nawait writer.close()"
             }
           ],
-          "source": "core/streams.pi:1249",
+          "source": "core/streams.pi:1307",
           "members": [
             {
               "name": "constructor",
@@ -9134,7 +9229,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = new WritableStreamDefaultWriter<int>(ws)\nprintln(ws.locked)   // true\nawait writer.write(5)   // 5"
                 }
               ],
-              "source": "core/streams.pi:1264",
+              "source": "core/streams.pi:1322",
               "members": []
             },
             {
@@ -9148,7 +9243,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`stored ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"a\")   // stored a\nawait writer.write(\"b\")   // stored b"
                 }
               ],
-              "source": "core/streams.pi:1289",
+              "source": "core/streams.pi:1347",
               "members": []
             },
             {
@@ -9162,7 +9257,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n  close: () => println(\"done\"),\n})\nconst writer = ws.getWriter()\nwriter.write(\"last\")\nawait writer.close()\n// last\n// done"
                 }
               ],
-              "source": "core/streams.pi:1308",
+              "source": "core/streams.pi:1366",
               "members": []
             },
             {
@@ -9176,7 +9271,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`abort: ${reason?.message}`),\n})\nconst writer = ws.getWriter()\nawait writer.abort(new Error(\"stop\"))   // abort: stop"
                 }
               ],
-              "source": "core/streams.pi:1323",
+              "source": "core/streams.pi:1381",
               "members": []
             },
             {
@@ -9190,7 +9285,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = ws.getWriter()\nfor (const n of [1, 2, 3]) {\n  await writer.ready   // waits while the queue is full\n  writer.write(n)\n}\nawait writer.close()\n// 1\n// 2\n// 3"
                 }
               ],
-              "source": "core/streams.pi:1345",
+              "source": "core/streams.pi:1403",
               "members": []
             },
             {
@@ -9204,7 +9299,7 @@
                   "code": "const ws = new WritableStream<int>({}, { highWaterMark: 3 })\nconst writer = ws.getWriter()\nprintln(writer.desiredSize)   // 3"
                 }
               ],
-              "source": "core/streams.pi:1357",
+              "source": "core/streams.pi:1415",
               "members": []
             },
             {
@@ -9218,7 +9313,7 @@
                   "code": "const ws = new WritableStream<int>({})\nconst writer = ws.getWriter()\nwriter.closed.then((_v) => println(\"closed\"))\nawait writer.close()\nawait writer.closed   // closed"
                 }
               ],
-              "source": "core/streams.pi:1371",
+              "source": "core/streams.pi:1429",
               "members": []
             },
             {
@@ -9232,7 +9327,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst first = ws.getWriter()\nawait first.write(\"from the first\")    // from the first\nfirst.releaseLock()\nconst second = ws.getWriter()\nawait second.write(\"from the second\")  // from the second"
                 }
               ],
-              "source": "core/streams.pi:1388",
+              "source": "core/streams.pi:1446",
               "members": []
             }
           ]
@@ -20385,7 +20480,7 @@
               "code": "const date = /(\\d{4})-(\\d{2})-(\\d{2})/\nprintln(date.test(\"on 2024-03-10\"))   // true\nconst m = date.exec(\"on 2024-03-10\")\nif (m != null) {\n  println(m[1])                       // 2024\n}\nconst word = new RegExp(\"\\\\bcat\\\\b\", \"i\")\nprintln(word.test(\"A Cat sat\"))       // true"
             }
           ],
-          "source": "core/regex.pi:1162",
+          "source": "core/regex.pi:1221",
           "members": [
             {
               "name": "source",
@@ -20393,7 +20488,7 @@
               "signature": "public readonly source: string",
               "doc": "<p>The pattern's text (<code>\"(?:)\"</code> for an empty pattern).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1164",
+              "source": "core/regex.pi:1223",
               "members": []
             },
             {
@@ -20402,7 +20497,7 @@
               "signature": "public readonly flags: string",
               "doc": "<p>The flags, in canonical order (<code>\"dgimsuvy\"</code>).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1166",
+              "source": "core/regex.pi:1225",
               "members": []
             },
             {
@@ -20411,7 +20506,7 @@
               "signature": "public lastIndex: int = 0",
               "doc": "<p>Where the next <code>exec</code> or <code>test</code> starts with the <code>g</code> or <code>y</code> flag, in code points; other regexes\nignore it.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1169",
+              "source": "core/regex.pi:1228",
               "members": []
             },
             {
@@ -20425,7 +20520,7 @@
                   "code": "const re = new RegExp(\"^[a-z]+\\\\d*$\", \"i\")\nprintln(re)                 // /^[a-z]+\\d*$/i\nprintln(re.test(\"Abc12\"))   // true\ntry {\n  const bad = new RegExp(\"a\", \"gg\")\n  println(bad)\n} catch (e: SyntaxError) {\n  println(e.message)        // Invalid flags supplied to RegExp constructor 'gg'\n}"
                 }
               ],
-              "source": "core/regex.pi:1191",
+              "source": "core/regex.pi:1250",
               "members": []
             },
             {
@@ -20439,7 +20534,7 @@
                   "code": "const re = /a+/g\nprintln(new RegExp(re))         // /a+/g\nprintln(new RegExp(re, \"i\"))    // /a+/i"
                 }
               ],
-              "source": "core/regex.pi:1211",
+              "source": "core/regex.pi:1270",
               "members": []
             },
             {
@@ -20453,7 +20548,7 @@
                   "code": "println(/o/g.global)   // true\nprintln(/o/.global)    // false"
                 }
               ],
-              "source": "core/regex.pi:1288",
+              "source": "core/regex.pi:1347",
               "members": []
             },
             {
@@ -20467,7 +20562,7 @@
                   "code": "const re = /hello/i\nprintln(re.ignoreCase)      // true\nprintln(re.test(\"HeLLo\"))   // true"
                 }
               ],
-              "source": "core/regex.pi:1297",
+              "source": "core/regex.pi:1356",
               "members": []
             },
             {
@@ -20481,7 +20576,7 @@
                   "code": "const re = /^b/m\nprintln(re.multiline)        // true\nprintln(re.test(\"a\\nb\"))     // true"
                 }
               ],
-              "source": "core/regex.pi:1306",
+              "source": "core/regex.pi:1365",
               "members": []
             },
             {
@@ -20495,7 +20590,7 @@
                   "code": "const re = /a.b/s\nprintln(re.dotAll)          // true\nprintln(re.test(\"a\\nb\"))    // true"
                 }
               ],
-              "source": "core/regex.pi:1315",
+              "source": "core/regex.pi:1374",
               "members": []
             },
             {
@@ -20509,7 +20604,7 @@
                   "code": "println(/x/u.unicode)   // true\nprintln(/x/.unicode)    // false"
                 }
               ],
-              "source": "core/regex.pi:1323",
+              "source": "core/regex.pi:1382",
               "members": []
             },
             {
@@ -20523,7 +20618,7 @@
                   "code": "const re = /\\d/y\nprintln(re.sticky)      // true\nprintln(re.test(\"a1\"))  // false\nre.lastIndex = 1\nprintln(re.test(\"a1\"))  // true"
                 }
               ],
-              "source": "core/regex.pi:1334",
+              "source": "core/regex.pi:1393",
               "members": []
             },
             {
@@ -20537,7 +20632,7 @@
                   "code": "println(/x/d.hasIndices)   // true\nprintln(/x/.hasIndices)    // false"
                 }
               ],
-              "source": "core/regex.pi:1342",
+              "source": "core/regex.pi:1401",
               "members": []
             },
             {
@@ -20551,7 +20646,7 @@
                   "code": "const re = /(\\w+)=(\\d+)/g\nconst s = \"a=1 b=22\"\nlet m = re.exec(s)\nwhile (m != null) {\n  println(`${m[1]} -> ${m[2]} at ${m.index}`)\n  m = re.exec(s)\n}\n// Prints:\n// a -> 1 at 0\n// b -> 22 at 4"
                 }
               ],
-              "source": "core/regex.pi:1398",
+              "source": "core/regex.pi:1476",
               "members": []
             },
             {
@@ -20565,7 +20660,7 @@
                   "code": "const digits = /^\\d+$/\nprintln(digits.test(\"123\"))   // true\nprintln(digits.test(\"12a\"))   // false"
                 }
               ],
-              "source": "core/regex.pi:1423",
+              "source": "core/regex.pi:1501",
               "members": []
             },
             {
@@ -20579,7 +20674,59 @@
                   "code": "const re = new RegExp(\"a/b\", \"gi\")\nprintln(re.toString())   // /a\\/b/gi\nprintln(re.source)       // a\\/b\nprintln(re.flags)        // gi"
                 }
               ],
-              "source": "core/regex.pi:1436",
+              "source": "core/regex.pi:1514",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "RegExpIndices",
+          "kind": "class",
+          "signature": "class RegExpIndices",
+          "doc": "<p>Where a <code>d</code>-flag match and its groups are (<code>RegExpMatch.indices</code>, #62): <code>[start, end]</code> in\ncode points per element (<code>null</code> for a group that didn't take part), and by group name.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const m = /(\\d+)-(\\d+)?/d.exec(\"id 12-\")\nif (m != null) {\n  const ix = m.indices\n  if (ix != null) {\n    println(`${ix.length} ${ix[0]:?} ${ix[1]:?} ${ix[2]:?}`)   // 3 [3, 6] [3, 5] null\n  }\n}"
+            }
+          ],
+          "source": "core/regex.pi:1033",
+          "members": [
+            {
+              "name": "groups",
+              "kind": "field",
+              "signature": "public readonly groups: Map<string, [int, int]?>?",
+              "doc": "<p>The named groups' positions by name, or <code>null</code> when the pattern has no named groups.</p>\n",
+              "examples": [],
+              "source": "core/regex.pi:1036",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(pairs: ([int, int]?)[], groups: Map<string, [int, int]?>?)",
+              "doc": "<p>Positions <code>pairs</code> (one per element) and the named groups'.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "// They usually come from a `d`-flag match; they can also be built directly.\nconst ix = new RegExpIndices([[0, 2], null], null)\nprintln(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null"
+                }
+              ],
+              "source": "core/regex.pi:1046",
+              "members": []
+            },
+            {
+              "name": "length",
+              "kind": "property",
+              "signature": "public get length(): int",
+              "doc": "<p>The count of elements: 1 plus the count of capture groups.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /(a)(b)?/d.exec(\"a\")\nprintln(m?.indices?.length)   // 3"
+                }
+              ],
+              "source": "core/regex.pi:1058",
               "members": []
             }
           ]
@@ -20595,7 +20742,7 @@
               "code": "const m = /(?<year>\\d{4})-(\\d{2})/.exec(\"due 2024-03\")\nif (m != null) {\n  println(m[0])                       // 2024-03\n  println(m[2])                       // 03\n  println(m.index)                    // 4\n  println(m.groups?.get(\"year\"))      // 2024\n}"
             }
           ],
-          "source": "core/regex.pi:1034",
+          "source": "core/regex.pi:1081",
           "members": [
             {
               "name": "index",
@@ -20603,7 +20750,7 @@
               "signature": "public readonly index: int",
               "doc": "<p>Where the match starts in <code>input</code>, in code points (-1 for a <code>g</code>-flag <code>string.match</code> result).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1037",
+              "source": "core/regex.pi:1084",
               "members": []
             },
             {
@@ -20612,7 +20759,7 @@
               "signature": "public readonly input: string",
               "doc": "<p>The string that was searched.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1039",
+              "source": "core/regex.pi:1086",
               "members": []
             },
             {
@@ -20621,7 +20768,21 @@
               "signature": "public readonly groups: Map<string, string?>?",
               "doc": "<p>The named groups' texts by name (<code>null</code> for one that didn't take part), or <code>null</code> when the\npattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1042",
+              "source": "core/regex.pi:1089",
+              "members": []
+            },
+            {
+              "name": "indices",
+              "kind": "field",
+              "signature": "public indices: RegExpIndices? = null",
+              "doc": "<p>With the <code>d</code> flag (#62): where the match and each group start and end, in code points\n(<code>null</code> without it).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const m = /a(?<b>b+)/d.exec(\"xabb\")\nif (m != null) {\n  println(`${m.indices?.[0]:?} ${m.indices?.[1]:?}`)    // [1, 4] [2, 4]\n  println(`${m.indices?.groups?.get(\"b\"):?}`)           // [2, 4]\n}"
+                }
+              ],
+              "source": "core/regex.pi:1101",
               "members": []
             },
             {
@@ -20635,7 +20796,7 @@
                   "code": "// Matches usually come from `exec` or `string.match`; one can also be built directly.\nconst m = new RegExpMatch([\"ab\", \"b\"], 3, \"xxxab\", null)\nprintln(m[0])      // ab\nprintln(m.index)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1053",
+              "source": "core/regex.pi:1112",
               "members": []
             },
             {
@@ -20649,7 +20810,7 @@
                   "code": "const m = /(\\w+)@(\\w+)/.exec(\"mail ann@home\")\nif (m != null) {\n  println(m.length)   // 3\n}"
                 }
               ],
-              "source": "core/regex.pi:1069",
+              "source": "core/regex.pi:1128",
               "members": []
             },
             {
@@ -20663,7 +20824,7 @@
                   "code": "const m = /(\\d+)x(\\d+)?/.exec(\"size 640x\")\nif (m != null) {\n  const parts = m.toArray()\n  println(parts.length)                               // 3\n  println(parts.map(s => s ?? \"(none)\").join(\", \"))   // 640x, 640, (none)\n}"
                 }
               ],
-              "source": "core/regex.pi:1088",
+              "source": "core/regex.pi:1147",
               "members": []
             },
             {
@@ -20677,7 +20838,7 @@
                   "code": "const m = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(\"2024-03-10\")\nif (m != null) {\n  for (const part of m) {\n    println(part)\n  }\n}\n// Prints:\n// 2024-03-10\n// 2024\n// 03\n// 10"
                 }
               ],
-              "source": "core/regex.pi:1108",
+              "source": "core/regex.pi:1167",
               "members": []
             }
           ]
@@ -21331,7 +21492,7 @@
               "code": "let n = 0\nconst source: UnderlyingSource<int> = {\n  start: (c) => c.enqueue(0),\n  pull: (c) => {\n    n += 1\n    if (n <= 2) c.enqueue(n) else c.close()\n  },\n  cancel: (_reason) => println(\"cancelled\"),\n}\nfor await (const x of new ReadableStream<int>(source)) {\n  println(x)\n}\n// 0\n// 1\n// 2"
             }
           ],
-          "source": "core/streams.pi:94",
+          "source": "core/streams.pi:104",
           "members": [
             {
               "name": "start",
@@ -21339,7 +21500,7 @@
               "signature": "start?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Runs once, inside the constructor (it can already enqueue chunks).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:96",
+              "source": "core/streams.pi:106",
               "members": []
             },
             {
@@ -21348,7 +21509,7 @@
               "signature": "pull?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Called when the stream wants more chunks (a waiting read, or room below the high-water mark);\nnot again while it runs. The first call comes after <code>start</code>, as a microtask.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:99",
+              "source": "core/streams.pi:109",
               "members": []
             },
             {
@@ -21357,7 +21518,7 @@
               "signature": "pullAsync?: (c: ReadableStreamDefaultController<T>) => Promise<void, Error>",
               "doc": "<p>Like <code>pull</code>, but finishes when the promise settles (not called again until then); a rejection\nfails the stream. Used instead of <code>pull</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:102",
+              "source": "core/streams.pi:112",
               "members": []
             },
             {
@@ -21366,7 +21527,7 @@
               "signature": "cancel?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is cancelled.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:104",
+              "source": "core/streams.pi:114",
               "members": []
             }
           ]
@@ -21382,7 +21543,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c: ReadableStreamDefaultController<string>) => {\n    c.enqueue(\"one\")\n    c.enqueue(\"two\")\n    c.close()\n  },\n})\nfor await (const x of s) {\n  println(x)\n}\n// one\n// two"
             }
           ],
-          "source": "core/streams.pi:124",
+          "source": "core/streams.pi:134",
           "members": [
             {
               "name": "constructor",
@@ -21395,7 +21556,7 @@
                   "code": "// A stream makes its controller and hands it to its source's callbacks.\nconst s = new ReadableStream<int>({\n  start: (c: ReadableStreamDefaultController<int>) => {\n    c.enqueue(42)\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // 42"
                 }
               ],
-              "source": "core/streams.pi:140",
+              "source": "core/streams.pi:150",
               "members": []
             },
             {
@@ -21409,7 +21570,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    println(c.desiredSize)   // 2\n    c.enqueue(1)\n    println(c.desiredSize)   // 1\n  },\n}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:156",
+              "source": "core/streams.pi:166",
               "members": []
             },
             {
@@ -21423,7 +21584,7 @@
                   "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"hello\")\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // hello"
                 }
               ],
-              "source": "core/streams.pi:173",
+              "source": "core/streams.pi:183",
               "members": []
             },
             {
@@ -21437,7 +21598,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    c.enqueue(1)\n    c.close()   // ends after the queued chunk\n  },\n})\nconst reader = s.getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).done)    // true"
                 }
               ],
-              "source": "core/streams.pi:191",
+              "source": "core/streams.pi:201",
               "members": []
             },
             {
@@ -21451,7 +21612,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.error(new Error(\"disk on fire\")),\n})\ntry {\n  const r = await s.getReader().read()\n  println(r.done)\n} catch (e) {\n  println(e.message)   // disk on fire\n}"
                 }
               ],
-              "source": "core/streams.pi:209",
+              "source": "core/streams.pi:219",
               "members": []
             }
           ]
@@ -21467,7 +21628,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"a\")\n    c.enqueue(\"b\")\n    c.close()\n  },\n})\nfor await (const chunk of s) {\n  println(chunk)\n}\n// a\n// b"
             }
           ],
-          "source": "core/streams.pi:238",
+          "source": "core/streams.pi:248",
           "members": [
             {
               "name": "constructor",
@@ -21480,7 +21641,7 @@
                   "code": "let i = 0\nconst counter = new ReadableStream<int>({\n  pull: (c) => {\n    i += 1\n    if (i <= 3) c.enqueue(i * 10) else c.close()\n  },\n}, { highWaterMark: 1 })\nfor await (const x of counter) {\n  println(x)\n}\n// 10\n// 20\n// 30"
                 }
               ],
-              "source": "core/streams.pi:275",
+              "source": "core/streams.pi:285",
               "members": []
             },
             {
@@ -21494,7 +21655,35 @@
                   "code": "for await (const word of ReadableStream.from([\"red\", \"green\"])) {\n  println(word)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:301",
+              "source": "core/streams.pi:311",
+              "members": []
+            },
+            {
+              "name": "from",
+              "kind": "method",
+              "signature": "public static from<U>(items: Iterator<U>): ReadableStream<U>",
+              "doc": "<p>A stream of what iterator <code>items</code> (a generator's, say) yields, read as it's pulled (#63).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "function* count(): Iterator<int> {\n  yield 1\n  yield 2\n}\nfor await (const n of ReadableStream.from(count())) {\n  println(n)\n}\n// 1\n// 2"
+                }
+              ],
+              "source": "core/streams.pi:339",
+              "members": []
+            },
+            {
+              "name": "from",
+              "kind": "method",
+              "signature": "public static from<U, F extends Error>(items: AsyncIterator<U, F>): ReadableStream<U>",
+              "doc": "<p>A stream of what async iterator <code>items</code> (an async generator's, say) yields, awaited as\nit's pulled (#63); its error errors the stream.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "async function* words(): AsyncIterator<string> {\n  yield \"red\"\n  yield \"green\"\n}\nfor await (const w of ReadableStream.from(words())) {\n  println(w)\n}\n// red\n// green"
+                }
+              ],
+              "source": "core/streams.pi:367",
               "members": []
             },
             {
@@ -21508,7 +21697,7 @@
                   "code": "const [a, b] = ReadableStream.from([1, 2]).tee()\nfor await (const x of a) {\n  println(`a ${x}`)\n}\nfor await (const x of b) {\n  println(`b ${x}`)\n}\n// a 1\n// a 2\n// b 1\n// b 2"
                 }
               ],
-              "source": "core/streams.pi:333",
+              "source": "core/streams.pi:391",
               "members": []
             },
             {
@@ -21522,7 +21711,7 @@
                   "code": "const s = ReadableStream.from([1])\nprintln(s.locked)   // false\nconst reader = s.getReader()\nprintln(s.locked)   // true\nreader.releaseLock()\nprintln(s.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:391",
+              "source": "core/streams.pi:449",
               "members": []
             },
             {
@@ -21536,7 +21725,7 @@
                   "code": "const reader = ReadableStream.from([\"x\", \"y\"]).getReader()\nwhile (true) {\n  const r = await reader.read()\n  if (r.done) break\n  println(r.value)\n}\n// x\n// y"
                 }
               ],
-              "source": "core/streams.pi:408",
+              "source": "core/streams.pi:466",
               "members": []
             },
             {
@@ -21550,7 +21739,7 @@
                   "code": "const s = ReadableStream.from([7, 8])\nprintln(await s.next())   // 7\nprintln(await s.next())   // 8\nprintln(await s.next())   // null"
                 }
               ],
-              "source": "core/streams.pi:421",
+              "source": "core/streams.pi:479",
               "members": []
             },
             {
@@ -21564,7 +21753,7 @@
                   "code": "let total = 0\nfor await (const n of ReadableStream.from([1, 2, 3])) {\n  total += n\n}\nprintln(total)   // 6"
                 }
               ],
-              "source": "core/streams.pi:438",
+              "source": "core/streams.pi:496",
               "members": []
             },
             {
@@ -21578,7 +21767,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (reason) => println(`cancelled: ${reason?.message}`),\n})\nawait s.cancel(new Error(\"not needed\"))   // cancelled: not needed\nprintln(await s.next())                   // null"
                 }
               ],
-              "source": "core/streams.pi:454",
+              "source": "core/streams.pi:512",
               "members": []
             },
             {
@@ -21592,7 +21781,7 @@
                   "code": "const lines: string[] = []\nconst sink = new WritableStream<string>({\n  write: (chunk, _c) => lines.push(chunk),\n  close: () => println(\"closed\"),\n})\nawait ReadableStream.from([\"a\", \"b\", \"c\"]).pipeTo(sink)   // closed\nprintln(lines.join(\",\"))   // a,b,c"
                 }
               ],
-              "source": "core/streams.pi:487",
+              "source": "core/streams.pi:545",
               "members": []
             },
             {
@@ -21606,7 +21795,7 @@
                   "code": "const upper = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),\n})\nfor await (const s of ReadableStream.from([\"hi\", \"there\"]).pipeThrough(upper)) {\n  println(s)\n}\n// HI\n// THERE"
                 }
               ],
-              "source": "core/streams.pi:533",
+              "source": "core/streams.pi:591",
               "members": []
             }
           ]
@@ -21622,7 +21811,7 @@
               "code": "const reader: ReadableStreamDefaultReader<int> = ReadableStream.from([1, 2]).getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).value)   // 2\nprintln((await reader.read()).done)    // true"
             }
           ],
-          "source": "core/streams.pi:714",
+          "source": "core/streams.pi:772",
           "members": [
             {
               "name": "constructor",
@@ -21635,7 +21824,7 @@
                   "code": "const s = ReadableStream.from([\"only\"])\nconst reader = new ReadableStreamDefaultReader<string>(s)\nprintln(s.locked)                      // true\nprintln((await reader.read()).value)   // only"
                 }
               ],
-              "source": "core/streams.pi:727",
+              "source": "core/streams.pi:785",
               "members": []
             },
             {
@@ -21649,7 +21838,7 @@
                   "code": "const reader = ReadableStream.from([\"a\", \"b\"]).getReader()\nlet r = await reader.read()\nwhile (!r.done) {\n  println(r.value)\n  r = await reader.read()\n}\n// a\n// b"
                 }
               ],
-              "source": "core/streams.pi:754",
+              "source": "core/streams.pi:812",
               "members": []
             },
             {
@@ -21663,7 +21852,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (_reason) => println(\"source cancelled\"),\n})\nconst reader = s.getReader()\nawait reader.cancel()                 // source cancelled\nprintln((await reader.read()).done)   // true"
                 }
               ],
-              "source": "core/streams.pi:775",
+              "source": "core/streams.pi:833",
               "members": []
             },
             {
@@ -21677,7 +21866,7 @@
                   "code": "const reader = ReadableStream.from([1]).getReader()\nprintln((await reader.read()).value)   // 1\nawait reader.closed\nprintln(\"closed\")                      // closed"
                 }
               ],
-              "source": "core/streams.pi:789",
+              "source": "core/streams.pi:847",
               "members": []
             },
             {
@@ -21691,7 +21880,7 @@
                   "code": "const s = ReadableStream.from([1, 2])\nconst first = s.getReader()\nprintln((await first.read()).value)   // 1\nfirst.releaseLock()\nconst second = s.getReader()\nprintln((await second.read()).value)  // 2"
                 }
               ],
-              "source": "core/streams.pi:804",
+              "source": "core/streams.pi:862",
               "members": []
             }
           ]
@@ -21707,7 +21896,7 @@
               "code": "const sink = new WritableStream<int>({\n  write: (chunk, c: WritableStreamDefaultController) => {\n    if (chunk < 0) c.error(new Error(\"negative\"))\n  },\n})\nconst writer = sink.getWriter()\nawait writer.write(1)\ntry {\n  await writer.write(-1)\n  await writer.write(2)\n} catch (e) {\n  println(e.message)   // negative\n}"
             }
           ],
-          "source": "core/streams.pi:830",
+          "source": "core/streams.pi:888",
           "members": [
             {
               "name": "constructor",
@@ -21720,7 +21909,7 @@
                   "code": "// A stream makes its controller and hands it to its sink's callbacks.\nconst sink = new WritableStream<string>({\n  start: (c: WritableStreamDefaultController) => println(\"started\"),   // started\n})\nprintln(sink.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:843",
+              "source": "core/streams.pi:901",
               "members": []
             },
             {
@@ -21734,7 +21923,7 @@
                   "code": "const sink = new WritableStream<string>({\n  write: (chunk, c) => c.error(new Error(`can't store ${chunk}`)),\n})\nconst writer = sink.getWriter()\ntry {\n  await writer.write(\"x\")\n  await writer.write(\"y\")\n} catch (e) {\n  println(e.message)   // can't store x\n}"
                 }
               ],
-              "source": "core/streams.pi:862",
+              "source": "core/streams.pi:920",
               "members": []
             }
           ]
@@ -21750,7 +21939,7 @@
               "code": "const got: int[] = []\nconst sink: UnderlyingSink<int> = {\n  start: (_c) => println(\"start\"),\n  write: (chunk, _c) => got.push(chunk),\n  close: () => println(`close after ${got.length}`),\n}\nawait ReadableStream.from([1, 2, 3]).pipeTo(new WritableStream<int>(sink))\n// start\n// close after 3"
             }
           ],
-          "source": "core/streams.pi:884",
+          "source": "core/streams.pi:942",
           "members": [
             {
               "name": "start",
@@ -21758,7 +21947,7 @@
               "signature": "start?: (c: WritableStreamDefaultController) => void",
               "doc": "<p>Runs once, inside the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:886",
+              "source": "core/streams.pi:944",
               "members": []
             },
             {
@@ -21767,7 +21956,7 @@
               "signature": "write?: (chunk: T, c: WritableStreamDefaultController) => void",
               "doc": "<p>Takes a chunk; the next one comes after it returns.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:888",
+              "source": "core/streams.pi:946",
               "members": []
             },
             {
@@ -21776,7 +21965,7 @@
               "signature": "writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>",
               "doc": "<p>Like <code>write</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>write</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:891",
+              "source": "core/streams.pi:949",
               "members": []
             },
             {
@@ -21785,7 +21974,7 @@
               "signature": "close?: () => void",
               "doc": "<p>Runs after the last queued chunk is written, when the stream is closed.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:893",
+              "source": "core/streams.pi:951",
               "members": []
             },
             {
@@ -21794,7 +21983,7 @@
               "signature": "closeAsync?: () => Promise<void, Error>",
               "doc": "<p>Like <code>close</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>close</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:896",
+              "source": "core/streams.pi:954",
               "members": []
             },
             {
@@ -21803,7 +21992,7 @@
               "signature": "abort?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is aborted (before the queued writes reject).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:898",
+              "source": "core/streams.pi:956",
               "members": []
             }
           ]
@@ -21819,7 +22008,7 @@
               "code": "const out: string[] = []\nconst ws = new WritableStream<string>({\n  write: (chunk, _c) => out.push(chunk),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"hello\")\nawait writer.write(\"world\")\nawait writer.close()\nprintln(out.join(\" \"))   // hello world"
             }
           ],
-          "source": "core/streams.pi:921",
+          "source": "core/streams.pi:979",
           "members": [
             {
               "name": "constructor",
@@ -21832,7 +22021,7 @@
                   "code": "let bytes = 0\nconst counter = new WritableStream<Uint8Array>({\n  write: (chunk, _c) => {\n    bytes += chunk.length\n  },\n}, { highWaterMark: 4 })\nconst writer = counter.getWriter()\nprintln(writer.desiredSize)   // 4\nawait writer.write(new Uint8Array(10))\nawait writer.close()\nprintln(bytes)   // 10"
                 }
               ],
-              "source": "core/streams.pi:954",
+              "source": "core/streams.pi:1012",
               "members": []
             },
             {
@@ -21846,7 +22035,7 @@
                   "code": "const ws = new WritableStream<int>({})\nprintln(ws.locked)   // false\nconst writer = ws.getWriter()\nprintln(ws.locked)   // true\nwriter.releaseLock()\nprintln(ws.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:981",
+              "source": "core/streams.pi:1039",
               "members": []
             },
             {
@@ -21860,7 +22049,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`got ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"x\")   // got x"
                 }
               ],
-              "source": "core/streams.pi:995",
+              "source": "core/streams.pi:1053",
               "members": []
             },
             {
@@ -21874,7 +22063,7 @@
                   "code": "const ws = new WritableStream<int>({\n  close: () => println(\"sink closed\"),\n})\nawait ws.close()   // sink closed"
                 }
               ],
-              "source": "core/streams.pi:1008",
+              "source": "core/streams.pi:1066",
               "members": []
             },
             {
@@ -21888,7 +22077,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`aborted: ${reason?.message}`),\n})\nawait ws.abort(new Error(\"user cancelled\"))   // aborted: user cancelled"
                 }
               ],
-              "source": "core/streams.pi:1024",
+              "source": "core/streams.pi:1082",
               "members": []
             }
           ]
@@ -21904,7 +22093,7 @@
               "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer: WritableStreamDefaultWriter<string> = ws.getWriter()\nawait writer.ready\nawait writer.write(\"one\")   // one\nawait writer.close()"
             }
           ],
-          "source": "core/streams.pi:1249",
+          "source": "core/streams.pi:1307",
           "members": [
             {
               "name": "constructor",
@@ -21917,7 +22106,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = new WritableStreamDefaultWriter<int>(ws)\nprintln(ws.locked)   // true\nawait writer.write(5)   // 5"
                 }
               ],
-              "source": "core/streams.pi:1264",
+              "source": "core/streams.pi:1322",
               "members": []
             },
             {
@@ -21931,7 +22120,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`stored ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"a\")   // stored a\nawait writer.write(\"b\")   // stored b"
                 }
               ],
-              "source": "core/streams.pi:1289",
+              "source": "core/streams.pi:1347",
               "members": []
             },
             {
@@ -21945,7 +22134,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n  close: () => println(\"done\"),\n})\nconst writer = ws.getWriter()\nwriter.write(\"last\")\nawait writer.close()\n// last\n// done"
                 }
               ],
-              "source": "core/streams.pi:1308",
+              "source": "core/streams.pi:1366",
               "members": []
             },
             {
@@ -21959,7 +22148,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`abort: ${reason?.message}`),\n})\nconst writer = ws.getWriter()\nawait writer.abort(new Error(\"stop\"))   // abort: stop"
                 }
               ],
-              "source": "core/streams.pi:1323",
+              "source": "core/streams.pi:1381",
               "members": []
             },
             {
@@ -21973,7 +22162,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = ws.getWriter()\nfor (const n of [1, 2, 3]) {\n  await writer.ready   // waits while the queue is full\n  writer.write(n)\n}\nawait writer.close()\n// 1\n// 2\n// 3"
                 }
               ],
-              "source": "core/streams.pi:1345",
+              "source": "core/streams.pi:1403",
               "members": []
             },
             {
@@ -21987,7 +22176,7 @@
                   "code": "const ws = new WritableStream<int>({}, { highWaterMark: 3 })\nconst writer = ws.getWriter()\nprintln(writer.desiredSize)   // 3"
                 }
               ],
-              "source": "core/streams.pi:1357",
+              "source": "core/streams.pi:1415",
               "members": []
             },
             {
@@ -22001,7 +22190,7 @@
                   "code": "const ws = new WritableStream<int>({})\nconst writer = ws.getWriter()\nwriter.closed.then((_v) => println(\"closed\"))\nawait writer.close()\nawait writer.closed   // closed"
                 }
               ],
-              "source": "core/streams.pi:1371",
+              "source": "core/streams.pi:1429",
               "members": []
             },
             {
@@ -22015,7 +22204,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst first = ws.getWriter()\nawait first.write(\"from the first\")    // from the first\nfirst.releaseLock()\nconst second = ws.getWriter()\nawait second.write(\"from the second\")  // from the second"
                 }
               ],
-              "source": "core/streams.pi:1388",
+              "source": "core/streams.pi:1446",
               "members": []
             }
           ]
@@ -22031,7 +22220,7 @@
               "code": "const t = new TransformStream<int, int>({\n  transform: (n, c: TransformStreamDefaultController<int>) => {\n    c.enqueue(n)\n    c.enqueue(n * 100)\n  },\n})\nfor await (const x of ReadableStream.from([1, 2]).pipeThrough(t)) {\n  println(x)\n}\n// 1\n// 100\n// 2\n// 200"
             }
           ],
-          "source": "core/streams.pi:1414",
+          "source": "core/streams.pi:1472",
           "members": [
             {
               "name": "constructor",
@@ -22044,7 +22233,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1436",
+              "source": "core/streams.pi:1494",
               "members": []
             },
             {
@@ -22058,7 +22247,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1451",
+              "source": "core/streams.pi:1509",
               "members": []
             },
             {
@@ -22072,7 +22261,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1472",
+              "source": "core/streams.pi:1530",
               "members": []
             },
             {
@@ -22086,7 +22275,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1499",
+              "source": "core/streams.pi:1557",
               "members": []
             },
             {
@@ -22100,7 +22289,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1521",
+              "source": "core/streams.pi:1579",
               "members": []
             }
           ]
@@ -22116,7 +22305,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1548",
+          "source": "core/streams.pi:1606",
           "members": [
             {
               "name": "start",
@@ -22124,7 +22313,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1550",
+              "source": "core/streams.pi:1608",
               "members": []
             },
             {
@@ -22133,7 +22322,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1553",
+              "source": "core/streams.pi:1611",
               "members": []
             },
             {
@@ -22142,7 +22331,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1555",
+              "source": "core/streams.pi:1613",
               "members": []
             },
             {
@@ -22151,7 +22340,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1558",
+              "source": "core/streams.pi:1616",
               "members": []
             }
           ]
@@ -22167,7 +22356,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1659",
+          "source": "core/streams.pi:1717",
           "members": [
             {
               "name": "readable",
@@ -22175,7 +22364,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1661",
+              "source": "core/streams.pi:1719",
               "members": []
             },
             {
@@ -22184,7 +22373,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1663",
+              "source": "core/streams.pi:1721",
               "members": []
             },
             {
@@ -22198,7 +22387,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1682",
+              "source": "core/streams.pi:1740",
               "members": []
             }
           ]
