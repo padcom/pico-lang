@@ -1363,7 +1363,6 @@ impl<'p> Checker<'p> {
                     substituted = FnSig {
                         params: s.params.iter().map(|p| p.subst(*o, args)).collect(),
                         ret: s.ret.subst(*o, args),
-                        ..s.clone()
                     };
                     &substituted
                 }
