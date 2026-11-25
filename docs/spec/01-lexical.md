@@ -127,7 +127,8 @@ nullables, structs and tuples (#11). `Map` and `Set` show their contents (`Map {
 `Set { 1 }`). A struct or class that implements the core interface
 `Formattable` (`format(spec: string): string`) formats itself: `${x}` calls `x.format("")` and
 `${x:spec}` calls `x.format("spec")` with the spec's text unchecked (any text up to the `}`, so
-`${date:yyyy-MM-dd}` works); `${x:?}` stays the debug form. `std/fmt` applies the standard
+`${date:yyyy-MM-dd}` works); `${x:?}` stays the debug form. `print(x)`, `println(x)` and string
+`+` use `x.format("")` too. `std/fmt` applies the standard
 grammar at run time (`FormatSpec.parse`, `formatInt`, `formatNumber`, `formatString`) for types
 that delegate to their fields.
 

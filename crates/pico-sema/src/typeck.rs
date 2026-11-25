@@ -5460,7 +5460,10 @@ impl<'p> Checker<'p> {
                 let is_str = |t: &Ty| t.erase() == Ty::Str;
                 if op == Add && (is_str(&lt) || is_str(&rt)) {
                     for (x, xt) in [(l, &lt), (r, &rt)] {
-                        if !is_printable(xt) {
+                        // (A `Formattable` value's string form is its `format("")`, #57.)
+                        if let Some(m) = self.formattable_method(xt) {
+                            self.types.formattables.insert(x.id, m);
+                        } else if !is_printable(xt) {
                             self.invalid_operand(x.span, "`+`", xt, "a value with a string form");
                         }
                     }
@@ -7768,7 +7771,10 @@ impl<'p> Checker<'p> {
             Builtin::Print | Builtin::Println => {
                 for a in args {
                     let t = self.infer(a);
-                    if !is_printable(&t) {
+                    // A `Formattable` value prints as it formats itself (#57).
+                    if let Some(m) = self.formattable_method(&t) {
+                        self.types.formattables.insert(a.id, m);
+                    } else if !is_printable(&t) {
                         self.diags.push(
                             Diagnostic::error(
                                 codes::INVALID_OPERANDS,

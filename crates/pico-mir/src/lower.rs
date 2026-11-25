@@ -4448,8 +4448,8 @@ impl FnBuilder<'_, '_> {
                     // `"n = " + n`: the other side's string form.
                     let lt = self.cx.final_ty(l.id);
                     let rt = self.cx.final_ty(r.id);
-                    lv = self.stringify(lv, &lt, l.span);
-                    rv = self.stringify(rv, &rt, r.span);
+                    lv = self.string_form(lv, &lt, l);
+                    rv = self.string_form(rv, &rt, r);
                 }
                 self.rvalue_to_temp(Rvalue::Binary(bin_op(op), lv, rv), ty, e.span)
             }
@@ -6390,6 +6390,15 @@ impl FnBuilder<'_, '_> {
         acc
     }
 
+    /// The string form of `e`'s value `v`: its `format("")` when it's `Formattable` (#57),
+    /// else as `stringify` makes it.
+    fn string_form(&mut self, v: Operand, t: &Ty, e: &Expr) -> Operand {
+        match self.cx.types.formattables.get(&e.id).copied() {
+            Some(m) => self.format_call(v, t, m, "", e.span),
+            None => self.stringify(v, t, e.span),
+        }
+    }
+
     /// `v.format(spec)` for a `Formattable` value of type `t` (virtual for classes).
     fn format_call(&mut self, v: Operand, t: &Ty, m: FnId, spec: &str, span: Span) -> Operand {
         let spec = Operand::Const(Const::Str(spec.to_string()));
@@ -8048,6 +8057,10 @@ impl FnBuilder<'_, '_> {
                 for a in args {
                     let v = self.expr(a);
                     let t = self.ty_of(a);
+                    if self.cx.types.formattables.contains_key(&a.id) {
+                        ops.push(self.string_form(v, &t, a));
+                        continue;
+                    }
                     let has_class = |t: &Ty| matches!(t.erase(), Ty::Class(..));
                     let with_class = matches!(&t, Ty::Union(_, ms) if ms.iter().any(has_class));
                     ops.push(
