@@ -1,0 +1,27 @@
+// expect: (1, 2)
+// expect: at (1, 2)!
+// expect: 20°C | 20°C
+// expect: [warm] 68°F
+// `Formattable` values print as they format themselves (#57): `println(x)`, `print(x)` and
+// string `+` use `format("")`, as templates do; a class's `format` wins over its default string
+// form, through its vtable.
+struct P implements Formattable {
+  x: int
+  y: int
+  format(spec: string): string { `(${this.x}, ${this.y})` }
+}
+
+class Celsius implements Formattable {
+  constructor(private degrees: int) {}
+  public format(spec: string): string {
+    if (spec == "f") `${this.degrees * 9 / 5 + 32}°F` else `${this.degrees}°C`
+  }
+}
+
+const p = P { x: 1, y: 2 }
+println(p)
+println("at " + p + "!")
+const c = new Celsius(20)
+print(c)
+println(" | " + c)
+println(`[warm] ${c:f}`)
