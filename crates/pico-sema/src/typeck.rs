@@ -4133,6 +4133,11 @@ impl<'p> Checker<'p> {
                 for t in &inferred {
                     let ok = et.iter().any(|d| match (d, t) {
                         (Ty::Class(d, ..), Ty::Class(c, ..)) => self.program.is_subclass(*c, *d),
+                        // A type parameter bounded by `Error` is some `Error` (#63).
+                        (Ty::Class(d, ..), Ty::Param(..)) => {
+                            Some(*d) == self.program.error_class
+                                && self.program.param_bounds(t).contains(&Bound::Error)
+                        }
                         (d, t) => d == t,
                     });
                     let name = &self.program.func(id).name;
