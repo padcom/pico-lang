@@ -2372,7 +2372,6 @@ impl Resolver {
         d: &'a ast::InterfaceDecl,
         out: &mut Vec<(FnId, &'a ast::FnDecl, StructId, bool)>,
     ) {
-
         let mut methods: Vec<(String, FnId)> = Vec::new();
         let mut abstract_fns = HashSet::new();
         for p in self.structs[sid.0 as usize].implements.clone() {
