@@ -304,7 +304,7 @@ export struct WebSocketUpgrade {
 
 /// Accepts a WebSocket request (`upgrade: websocket`): return `response` from the handler
 /// and use `socket` (its `onopen` runs once the response is sent). Anything else throws a
-/// `TypeError`.
+/// `TypeError`. `options.maxMessageBytes` limits the messages the socket receives (#67).
 ///
 /// @example
 /// ```ts
@@ -332,7 +332,11 @@ export struct WebSocketUpgrade {
 /// await done.promise
 /// await server.shutdown()
 /// ```
-export function upgradeWebSocket(req: Request, protocol: string = ""): WebSocketUpgrade throws TypeError {
+export function upgradeWebSocket(
+  req: Request,
+  protocol: string = "",
+  options: WebSocketOptions = {},
+): WebSocketUpgrade throws TypeError {
   const up = req.headers.get("upgrade")
   const key = req.headers.get("sec-websocket-key")
   if (up == null || up.toLowerCase() != "websocket" || key == null) {
@@ -340,6 +344,7 @@ export function upgradeWebSocket(req: Request, protocol: string = ""): WebSocket
   }
   const socket = new WebSocket("")
   socket.protocol = protocol
+  socket.__maxMessageBytes = options.maxMessageBytes ?? 0
   const headers = new Headers([["upgrade", "websocket"], ["connection", "Upgrade"],
     ["sec-websocket-accept", __wsAccept(key)]])
   if (protocol.length > 0) {
