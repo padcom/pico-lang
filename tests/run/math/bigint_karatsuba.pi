@@ -1,0 +1,23 @@
+// expect: digits 4444
+// expect: head 601366070731328173806422806455
+// expect: tail 456606279089167844159662680001
+// expect: mod 971098971
+// expect: round trip: true true
+// expect: small and mixed: true true
+// Karatsuba multiplication of big `BigInt`s (#60): 7^3000 · 3^4000 (hundreds of limbs, several
+// levels of splitting) checked against Python's exact product; division undoes it; small and
+// lopsided operands (schoolbook, or split on one side only) agree with known results.
+import { BigInt } from "std/math"
+
+const a = new BigInt(7).pow(3000)
+const b = new BigInt(3).pow(4000)
+const p = a * b
+const s = p.toString()
+println(`digits ${s.length}`)
+println(`head ${s.slice(0, 30)}`)
+println(`tail ${s.slice(s.length - 30)}`)
+println(`mod ${p % new BigInt(1000000007)}`)
+println(`round trip: ${p / b == a} ${p % a == new BigInt(0)}`)
+const lopsided = new BigInt(10).pow(5000) * new BigInt(123456789)
+const small = new BigInt(99999) * new BigInt(-12345)
+println(`small and mixed: ${lopsided.toString() == "123456789" + "0".repeat(5000)} ${small == new BigInt(-1234487655)}`)
