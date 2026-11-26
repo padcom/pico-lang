@@ -37,6 +37,8 @@ pub struct Diagnostic {
     pub labels: Vec<Label>,
     pub notes: Vec<String>,
     pub help: Vec<String>,
+    /// Edits that fix it (`pico lint --fix`, #80): each replaces the text of a span.
+    pub fixes: Vec<(Span, String)>,
 }
 
 impl Diagnostic {
@@ -48,7 +50,15 @@ impl Diagnostic {
             labels: Vec::new(),
             notes: Vec::new(),
             help: Vec::new(),
+            fixes: Vec::new(),
         }
+    }
+
+    /// An edit that fixes the problem: `span`'s text replaced by `text` (empty to delete; an
+    /// empty span to insert).
+    pub fn fix(mut self, span: Span, text: impl Into<String>) -> Diagnostic {
+        self.fixes.push((span, text.into()));
+        self
     }
 
     pub fn error(code: Code, message: impl Into<String>) -> Diagnostic {

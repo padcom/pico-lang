@@ -138,10 +138,9 @@ fn <main>() -> void {
     _9 = call scaled(const 1_i64) -> bb9
   bb9:
     _10 = Add(const 1048576_i64, _9)
-    _11 = call narrow() -> bb10
+    goto bb10
   bb10:
-    _12 = _11 as i64
-    _13 = Add(_10, _12)
+    _13 = Add(_10, const 128_i64)
     call builtin println(_13) -> bb11
   bb11:
     _14 = ToStr(const 3.0_f64)
