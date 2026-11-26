@@ -1,0 +1,72 @@
+// expect: before: AbortError, wrote 0
+// expect: got 1
+// expect: source cancelled
+// expect: during: AbortError, wrote 1
+// expect: destination errored: AbortError
+// expect: kept open: AbortError, source still readable: 3
+// `pipeTo(dest, { signal })` (#63): an aborted signal rejects the pipe with an `AbortError`
+// before any chunk; aborting while the pipe waits for a chunk cancels the source, errors the
+// destination and rejects; `preventCancel` leaves the source readable.
+import { ReadableStream, WritableStream, ReadableStreamDefaultController } from "std/streams"
+
+function counting(log: bool): WritableStream<int> {
+  return new WritableStream<int>({
+    write: (n, _c) => {
+      if (log) println(`got ${n}`)
+    },
+  })
+}
+
+// Already aborted.
+const c1 = new AbortController()
+c1.abort()
+let wrote = 0
+const sink1 = new WritableStream<int>({ write: (_n, _c) => { wrote += 1 } })
+try {
+  await ReadableStream.from([1, 2]).pipeTo(sink1, { signal: c1.signal })
+} catch (e: AbortError) {
+  println(`before: AbortError, wrote ${wrote}`)
+}
+
+// Aborted while waiting for the second chunk.
+let ctl: ReadableStreamDefaultController<int>? = null
+const src = new ReadableStream<int>({
+  start: (c) => {
+    ctl = c
+    c.enqueue(1)
+  },
+  cancel: (_reason) => println("source cancelled"),
+})
+const c2 = new AbortController()
+const dest = counting(true)
+const piped = src.pipeTo(dest, { signal: c2.signal })
+await Promise.resolve(0)
+await Promise.resolve(0)
+c2.abort()
+try {
+  await piped
+} catch (e: AbortError) {
+  println("during: AbortError, wrote 1")
+}
+try {
+  await dest.getWriter().write(9)
+} catch (e: AbortError) {
+  println("destination errored: AbortError")
+}
+
+// `preventCancel`: the source stays readable.
+let ctl3: ReadableStreamDefaultController<int>? = null
+const src3 = new ReadableStream<int>({ start: (c) => { ctl3 = c } })
+const c3 = new AbortController()
+const piped3 = src3.pipeTo(counting(false), { signal: c3.signal, preventCancel: true })
+c3.abort()
+// (The pipe's pending read takes the next chunk, then sees the abort.)
+ctl3!.enqueue(2)
+ctl3!.enqueue(3)
+try {
+  await piped3
+} catch (e: AbortError) {
+  const r = src3.getReader()
+  const next = await r.read()
+  println(`kept open: AbortError, source still readable: ${next.value}`)
+}

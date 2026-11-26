@@ -121,6 +121,31 @@ impl Folder {
             st.rvalue = Rvalue::Use(Operand::Const(Const::Str(t)));
             return;
         }
+        // Checks of constants (#55): a bounds check, and whether checked arithmetic overflows
+        // (as the interpreter decides it: the exact result outside the type's range).
+        let flag = match &st.rvalue {
+            Rvalue::InBounds(
+                Operand::Const(Const::Int(i, _)),
+                Operand::Const(Const::Int(n, _)),
+            ) => Some(0 <= *i && i < n),
+            Rvalue::Overflows(
+                op,
+                Operand::Const(Const::Int(a, it)),
+                Operand::Const(Const::Int(b, _)),
+            ) => {
+                let exact = match op {
+                    BinOp::Add => a.checked_add(*b),
+                    BinOp::Sub => a.checked_sub(*b),
+                    _ => a.checked_mul(*b),
+                };
+                Some(!exact.is_some_and(|v| it.contains(v)))
+            }
+            _ => None,
+        };
+        if let Some(b) = flag {
+            st.rvalue = Rvalue::Use(Operand::Const(Const::Bool(b)));
+            return;
+        }
         let folded = match &st.rvalue {
             Rvalue::Binary(op, Operand::Const(a), Operand::Const(b)) => {
                 match (scalar(a), scalar(b), Prim::of(&a.ty())) {

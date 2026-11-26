@@ -1,4 +1,4 @@
-// expect: RangeError: TextDecoder: unsupported encoding nope (only utf-8)
+// expect: RangeError: TextDecoder: unsupported encoding nope (utf-8, utf-16le or utf-16be)
 // expect: utf-8
 // expect: after
 // An unknown label throws a catchable `RangeError` (issue #26).

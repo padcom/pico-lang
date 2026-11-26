@@ -307,8 +307,11 @@ signatures don't link. `open(path, flags, ...)`, `fcntl(fd, cmd, ...)`, `ioctl(f
 
 ## 13.5 Streams and encoding
 ### `TextEncoder` and `TextDecoder`
-Globals, as WHATWG Encoding, UTF-8 only. `new TextEncoder().encode(text): Uint8Array`.
-`new TextDecoder(label = "utf-8", { fatal, ignoreBOM })` (another label throws a `RangeError`);
+Globals, as WHATWG Encoding: the encoder writes UTF-8, the decoder reads UTF-8 or UTF-16.
+`new TextEncoder().encode(text): Uint8Array`. `new TextDecoder(label = "utf-8", { fatal,
+ignoreBOM })` takes the Web's labels of UTF-8, UTF-16LE (`"utf-16"`, `"ucs-2"`, …) and UTF-16BE
+(`encoding` says which; #63: lone surrogates and an odd last byte are errors as below, a surrogate
+pair can be split across streamed chunks); another label throws a `RangeError`;
 `decode(bytes = empty, { stream }): string throws TypeError`: each invalid sequence becomes
 U+FFFD (the WHATWG "maximal subpart" rule) or, with `fatal`, throws `TypeError` (`The encoded
 data was not valid utf-8 (at byte 1)`); a leading BOM is dropped unless `ignoreBOM`; with
@@ -374,8 +377,9 @@ Sources, sinks and transformers are structs of callbacks (`UnderlyingSource<T>`:
 `start`, `transform`, `flush`). Callbacks finish when they return; work that finishes later is
 given as a promise through `pullAsync`, `writeAsync`, `closeAsync` and `transformAsync` (which
 predate async lambdas). Strategies are `{ highWaterMark }` (default 1; a transform's readable
-side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel })` writes each chunk after
-the last one was taken; `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
+side 0). `pipeTo(dest, { preventClose, preventAbort, preventCancel, signal })` writes each chunk
+after the last one was taken (an aborted `signal` stops it: the source is cancelled and the
+destination errored unless prevented, and the pipe rejects with the signal's `AbortError`; #63); `pipeThrough(t)` returns `t.readable`. `ReadableStream.from(items)`
 streams an array, an `Iterator<T>` or an `AsyncIterator<T, E>` (a generator's, read as it's
 pulled; an async one's error errors the stream, #63); `tee()` gives two streams that each get every chunk (the source is locked;
 an error fails both, and cancelling both cancels it). `textEncoderStream()` and `textDecoderStream()` are transform streams from
@@ -496,7 +500,9 @@ groups (capturing, `(?:…)`, named `(?<name>…)`), backreferences (`\1`, `\k<n
 and lookbehind (`(?=…)`, `(?!…)`, `(?<=…)`, `(?<!…)`), classes (`[a-z]`, `[^…]`, `\d \w \s \D \W
 \S`, `.`), anchors (`^ $ \b \B`) and escapes (`\n \t \xHH \uHHHH \u{H…} \cX`). Captures inside a
 repeated group are reset at each repetition and an iteration that matches nothing ends the
-loop, as in JavaScript. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
+loop, as in JavaScript. The matcher backtracks; a match that resumes over 100 000 paths (plus
+100 per code point of the input) at one start position panics, naming catastrophic backtracking
+(#62: nested quantifiers such as `(a+)+` on a near miss), instead of running for hours. Flags: `g` (global), `i` (case-insensitive, simple case folding), `m`
 (`^`/`$` at line ends), `s` (`.` matches line ends), `y` (sticky), `u`, `v`, `d` (match indices).
 Matching is by code point, as if `u` were always on (`.` is one character), and indices count
 code points, as pico strings do.
@@ -612,7 +618,8 @@ recent first) and `BitSet` (`add`, `delete`, `has`, `set(i, on)`, `flip`, `size`
 rounding matches templates; precisions up to 20), `formatString(s, spec)`, `formatBool(b,
 spec)`, `pad(text, width, align, fill)` and `groupDigits(text, separator = ",", size = 3)`. An
 invalid spec panics. `DateTime` (`${dt:yyyy-MM-dd}` is its `format` pattern) and `std/math`'s
-vectors and quaternions (`${v:.2f}` per component) are `Formattable`. `wrap(text, width,
+vectors, quaternions and `Mat4` (`${v:.2f}` per component or element) and `BigInt` (the integer
+specs: `${b:#x}`, `${b:>30}`, …; #57) are `Formattable`. `wrap(text, width,
 measure?)` wraps at spaces to `width` (measured by `measure`, by default code points): line
 breaks and a line's leading spaces stay, the spaces at a break go, a longer word stays whole.
 

@@ -69,7 +69,8 @@ struct TextDecodeOptions {
   stream?: bool
 }
 
-/// Turns UTF-8 bytes into strings, also chunk by chunk (`{ stream: true }`).
+/// Turns UTF-8 (or, by label, UTF-16; #63) bytes into strings, also chunk by chunk
+/// (`{ stream: true }`).
 ///
 /// @example
 /// ```ts
@@ -77,8 +78,8 @@ struct TextDecodeOptions {
 /// println(new TextDecoder().decode(bytes))   // grüße
 /// ```
 class TextDecoder {
-  /// Always `"utf-8"`, the only encoding.
-  public readonly encoding: string = "utf-8"
+  /// `"utf-8"`, `"utf-16le"` or `"utf-16be"`.
+  public readonly encoding: string
   /// Whether bytes that aren't UTF-8 throw a `TypeError` (else they become U+FFFD).
   public readonly fatal: bool
   /// Whether a leading byte-order mark is kept in the text.
@@ -96,12 +97,14 @@ class TextDecoder {
   /// println(decoder.decode(Uint8Array.from([104, 105, 0xFF])))   // hi�
   /// ```
   constructor() {
+    this.encoding = "utf-8"
     this.fatal = false
     this.ignoreBOM = false
   }
 
-  /// A decoder for `label`, matched case-insensitively, ignoring surrounding whitespace; anything
-  /// but `"utf-8"`, `"utf8"` or `"unicode-1-1-utf-8"` throws a `RangeError`, as on the Web.
+  /// A decoder for `label`, matched case-insensitively, ignoring surrounding whitespace, as on
+  /// the Web: `"utf-8"` (`"utf8"`, `"unicode-1-1-utf-8"`), `"utf-16le"` (`"utf-16"`, `"ucs-2"`,
+  /// `"unicode"`, …) or `"utf-16be"` (`"unicodefffe"`); another label throws a `RangeError`.
   ///
   /// @example
   /// ```ts
@@ -114,8 +117,11 @@ class TextDecoder {
   /// ```
   constructor(label: string, options: TextDecoderOptions = {}) throws RangeError {
     const l = label.trim().toLowerCase()
-    if (l != "utf-8" && l != "utf8" && l != "unicode-1-1-utf-8") {
-      throw new RangeError(`TextDecoder: unsupported encoding ${label} (only utf-8)`)
+    this.encoding = match (l) {
+      "utf-8" | "utf8" | "unicode-1-1-utf-8" | "unicode11utf8" | "unicode20utf8" | "x-unicode20utf8" => "utf-8",
+      "utf-16le" | "utf-16" | "ucs-2" | "unicode" | "csunicode" | "iso-10646-ucs-2" | "unicodefeff" => "utf-16le",
+      "utf-16be" | "unicodefffe" => "utf-16be",
+      _ => throw new RangeError(`TextDecoder: unsupported encoding ${label} (utf-8, utf-16le or utf-16be)`),
     }
     this.fatal = options.fatal == true
     this.ignoreBOM = options.ignoreBOM == true
@@ -141,6 +147,7 @@ class TextDecoder {
   /// println(decoder.decode(Uint8Array.from([111, 107])))   // ok
   /// ```
   constructor(fatal: bool, ignoreBOM: bool, __unlabelled: int) {
+    this.encoding = "utf-8"
     this.fatal = fatal
     this.ignoreBOM = ignoreBOM
   }
@@ -166,6 +173,9 @@ class TextDecoder {
       }
       this.pending = []
       bytes = joined
+    }
+    if (this.encoding != "utf-8") {
+      return this.__decode16(bytes, stream, this.encoding == "utf-16be")
     }
     let end = bytes.length
     if (stream) {
@@ -196,6 +206,84 @@ class TextDecoder {
       throw new TypeError(`The encoded data was not valid utf-8 (at byte ${start + at})`)
     }
     return text
+  }
+
+  /// UTF-16 `bytes` (big-endian when `be`) as text: surrogate pairs joined, a lone surrogate or
+  /// an odd last byte U+FFFD (a `TypeError` when `fatal`); with `stream`, an odd byte or a high
+  /// surrogate at the end waits for the next call.
+  __decode16(bytes: Uint8Array, stream: bool, be: bool): string throws TypeError {
+    let n = bytes.length
+    if (stream) {
+      // (Whole code units only, and not a high surrogate at the end.)
+      n -= n % 2
+      if (n >= 2) {
+        const last = if (be) (bytes.get(n - 2) << 8) | bytes.get(n - 1) else (bytes.get(n - 1) << 8) | bytes.get(n - 2)
+        if (last >= 0xD800 && last <= 0xDBFF) n -= 2
+      }
+      for (let i = n; i < bytes.length; i++) {
+        this.pending.push(bytes.get(i))
+      }
+    }
+    let i = 0
+    if (this.atStart && !this.ignoreBOM && n >= 2) {
+      const bom = if (be) (bytes.get(0) << 8) | bytes.get(1) else (bytes.get(1) << 8) | bytes.get(0)
+      if (bom == 0xFEFF) i = 2
+    }
+    if (n > 0 || !stream) this.atStart = stream && n == 0
+    if (!stream) this.atStart = true
+    const unit = (at: int): int => if (be) (bytes.get(at) << 8) | bytes.get(at + 1) else (bytes.get(at + 1) << 8) | bytes.get(at)
+    const out: int[] = []
+    while (i < n) {
+      if (i + 1 >= n) {
+        // An odd last byte (only without `stream`).
+        if (this.fatal) {
+          this.pending = []
+          throw new TypeError(`The encoded data was not valid ${this.encoding} (at byte ${i})`)
+        }
+        __utf8Push(out, 0xFFFD)
+        i += 1
+        continue
+      }
+      const u = unit(i)
+      if (u >= 0xD800 && u <= 0xDBFF && i + 3 < n) {
+        const v = unit(i + 2)
+        if (v >= 0xDC00 && v <= 0xDFFF) {
+          __utf8Push(out, 0x10000 + ((u - 0xD800) << 10) + (v - 0xDC00))
+          i += 4
+          continue
+        }
+      }
+      if (u >= 0xD800 && u <= 0xDFFF) {
+        if (this.fatal) {
+          this.pending = []
+          throw new TypeError(`The encoded data was not valid ${this.encoding} (at byte ${i})`)
+        }
+        __utf8Push(out, 0xFFFD)
+      } else {
+        __utf8Push(out, u)
+      }
+      i += 2
+    }
+    return __string_fromUtf8(Uint8Array.from(out))
+  }
+}
+
+/// Appends code point `c` to `out` as UTF-8.
+function __utf8Push(out: int[], c: int): void {
+  if (c < 0x80) {
+    out.push(c)
+  } else if (c < 0x800) {
+    out.push(0xC0 | (c >> 6))
+    out.push(0x80 | (c & 0x3F))
+  } else if (c < 0x10000) {
+    out.push(0xE0 | (c >> 12))
+    out.push(0x80 | ((c >> 6) & 0x3F))
+    out.push(0x80 | (c & 0x3F))
+  } else {
+    out.push(0xF0 | (c >> 18))
+    out.push(0x80 | ((c >> 12) & 0x3F))
+    out.push(0x80 | ((c >> 6) & 0x3F))
+    out.push(0x80 | (c & 0x3F))
   }
 }
 
