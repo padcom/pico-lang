@@ -150,6 +150,11 @@ class Tree implements Iterable<i32> {
   public *iterator(): Iterator<i32> { yield 1 }
 }
 ```
+Arrays (`T[]`), strings (`Iterable<char>`), `Map` (`Iterable<[K, V]>`), `Set`, `Iterator<T>` itself,
+`URLSearchParams`, `Headers` and the collections are `Iterable`s, so `function total(xs:
+Iterable<int>)` takes any of them; an array or a string passed as one is wrapped (no copy). A type
+parameter bounded by it (`I extends Iterable<T>`) may be one of them too. `for-of` also walks any
+type with an `iterator()` method, declared `Iterable` or not.
 
 Async generators:
 ```ts
@@ -160,4 +165,6 @@ An async generator may `await` and `yield`; it runs lazily, up to the next `yiel
 `next(): Promise<T?, E>` is called (`null`: done). Its type is `AsyncIterator<T, E>`, carrying
 what it throws like a promise; `for await` rethrows that (checked). `for await` works in async
 functions and at the entry's top level, over anything with an
-`asyncIterator(): AsyncIterator<T, E>` method (an `AsyncIterator` is its own).
+`asyncIterator(): AsyncIterator<T, E>` method (an `AsyncIterator` is its own): the interface
+`AsyncIterable<T, E>`, which streams, sockets and listeners, file watchers, a process's output
+readers and channels implement too.

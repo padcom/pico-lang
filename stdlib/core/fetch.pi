@@ -16,7 +16,7 @@ type HeadersInit = [string, string][] | Map<string, string> | Headers
 /// println(headers.get("content-type"))   // text/plain
 /// println(headers.has("ACCEPT"))         // true
 /// ```
-class Headers {
+class Headers implements Iterable<[string, string]> {
   list: [string, string][] = []
 
   /// From name/value pairs, a map (`new Headers({ "Accept": "text/html" })`), or a copy of

@@ -2,6 +2,73 @@
 // function, which returns `null` once it's done; `function*` generators build one, and
 // `for-of` walks one (or anything with an `iterator()` method returning one).
 
+/// What `for-of` walks (spec §5.7): anything with an `iterator()`. Arrays, strings (their
+/// characters), `Map`, `Set`, iterators themselves and the collections are `Iterable`s, so a
+/// function can take any of them.
+///
+/// @example
+/// ```ts
+/// function total(xs: Iterable<int>): int {
+///   let n = 0
+///   for (const x of xs) n += x
+///   n
+/// }
+/// println(total([1, 2, 3]))   // 6
+/// println(total("ab".iterator().map((c) => c as int - 96)))   // 3
+/// ```
+interface Iterable<T> {
+  /// A fresh iterator over the values.
+  ///
+  /// @example
+  /// ```ts
+  /// const xs: Iterable<int> = [1, 2, 3]
+  /// println(xs.iterator().map((x) => x * 2).toArray().join(", "))   // 2, 4, 6
+  /// ```
+  iterator(): Iterator<T>
+}
+
+/// An array as an `Iterable` (where one is expected, an array becomes this).
+class __ArrayIterable<T> implements Iterable<T> {
+  xs: T[]
+
+  constructor(xs: T[]) {
+    this.xs = xs
+  }
+
+  public iterator(): Iterator<T> {
+    __Array_iterator(this.xs)
+  }
+}
+
+function __arrayIterable<T>(xs: T[]): Iterable<T> {
+  new __ArrayIterable<T>(xs)
+}
+
+/// An `Iterable` whose iterators `f` makes (generic, so a program only has it if it's used).
+class __FnIterable<T> implements Iterable<T> {
+  f: () => Iterator<T>
+
+  constructor(f: () => Iterator<T>) {
+    this.f = f
+  }
+
+  public iterator(): Iterator<T> {
+    const f = this.f
+    f()
+  }
+}
+
+function __fnIterable<T>(f: () => Iterator<T>): Iterable<T> {
+  new __FnIterable<T>(f)
+}
+
+/// A string as an `Iterable` of its characters. (Generic, `C` is `char`, so it's only lowered
+/// where it's used: a non-generic function would be, with the adapter class's itable, in every
+/// program.)
+function __stringIterable<C>(s: string): Iterable<char> {
+  __fnIterable<char>(() => __String_iterator(s))
+}
+
 /// Values produced on demand (spec §5.7): `function*` generators return one, `for-of` walks one (or
 /// anything with an `iterator()` method), and its adapters (`map`, `filter`, `take`, …) build new
 /// ones without running anything until values are asked for. An iterator is used up as it goes:
@@ -20,7 +87,7 @@
 /// const squares = naturals().map((n) => n * n).take(4).toArray()
 /// println(squares.join(", "))   // 1, 4, 9, 16
 /// ```
-class Iterator<T> {
+class Iterator<T> implements Iterable<T> {
   step: () => T?
   done: bool = false
 
@@ -262,5 +329,24 @@ function __Array_iterator<T>(xs: T[]): Iterator<T> {
     }
     i += 1
     return xs[i - 1]
+  })
+}
+
+/// The string's characters, lazily.
+///
+/// @example
+/// ```ts
+/// const it = "héllo".iterator()
+/// println(it.next())                       // h
+/// println(it.take(2).toArray().join(""))   // él
+/// ```
+function __String_iterator(s: string): Iterator<char> {
+  let i = 0
+  new Iterator<char>(() => {
+    if (i >= s.length) {
+      return null
+    }
+    i += 1
+    return s[i - 1]
   })
 }

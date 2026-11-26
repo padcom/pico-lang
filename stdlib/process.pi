@@ -280,7 +280,7 @@ function __bytesOf(data: Uint8Array): ArrayBuffer {
 /// println((await child.stdout.text()).trim())   // hello
 /// await child.status()
 /// ```
-export class Reader {
+export class Reader implements AsyncIterable<Uint8Array, IoError> {
   fd: int
   /// The stream's name (`"stdin"`, `"stdout"` or `"stderr"`), used in panics and as the `path` of
   /// its `IoError`s.
@@ -447,7 +447,8 @@ export class Reader {
     read()
   }
 
-  /// `for await` uses the reader itself.
+  /// An async iterator over the chunks (each `next()`), so a reader is an `AsyncIterable`:
+  /// `for await` walks it.
   ///
   /// @example
   /// ```ts
@@ -461,8 +462,8 @@ export class Reader {
   /// println(total)   // 4
   /// await child.status()
   /// ```
-  public asyncIterator(): Reader {
-    this
+  public asyncIterator(): AsyncIterator<Uint8Array, IoError> {
+    __asyncOf(() => this.next())
   }
 
   /// `text()`, or "" when it isn't piped.

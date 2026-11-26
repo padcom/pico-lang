@@ -726,7 +726,7 @@ export struct WatchEvent {
 /// }
 /// await remove(dir, recursive: true)
 /// ```
-export class Watcher implements Disposable {
+export class Watcher implements Disposable, AsyncIterable<WatchEvent> {
   id: int
   /// The path being watched, as given to `watch`.
   public readonly path: string
@@ -783,7 +783,8 @@ export class Watcher implements Disposable {
     return p
   }
 
-  /// `for await` uses the watcher itself.
+  /// An async iterator over the events (each `next()`), so a watcher is an `AsyncIterable`:
+  /// `for await` walks it.
   ///
   /// @example
   /// ```ts
@@ -801,8 +802,8 @@ export class Watcher implements Disposable {
   /// }
   /// await remove(dir, recursive: true)
   /// ```
-  public asyncIterator(): Watcher {
-    this
+  public asyncIterator(): AsyncIterator<WatchEvent> {
+    __asyncOf(() => this.next())
   }
 
   /// Stops watching: waiting and later `next()` calls get `null`. Twice is fine.

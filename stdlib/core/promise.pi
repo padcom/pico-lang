@@ -507,6 +507,37 @@ function __awaitTop<T, E extends Throwable>(p: Promise<T, E>): T throws E {
 /// A `void` value (an async function's result without `return`).
 function __void(): void {}
 
+/// What `for await` walks: anything with an `asyncIterator()` (async generators, streams).
+///
+/// @example
+/// ```ts
+/// async function* count(n: int): AsyncIterator<int> {
+///   for (let i = 1; i <= n; i++) yield i
+/// }
+///
+/// async function sum(xs: AsyncIterable<int>): Promise<int> {
+///   let n = 0
+///   for await (const x of xs) n += x
+///   n
+/// }
+/// println(await sum(count(3)))   // 6
+/// ```
+interface AsyncIterable<T, E extends Throwable = never> {
+  /// An async iterator over the values.
+  ///
+  /// @example
+  /// ```ts
+  /// async function* two(): AsyncIterator<string> {
+  ///   yield "a"
+  ///   yield "b"
+  /// }
+  ///
+  /// const xs: AsyncIterable<string> = two()
+  /// println(await xs.asyncIterator().next())   // a
+  /// ```
+  asyncIterator(): AsyncIterator<T, E>
+}
+
 /// An async iterator (spec §5.7): `next()` promises the next value, or `null` once done
 /// (so, like `Iterator`, a `T` that is itself nullable can't be told apart from the end).
 /// `async function* g(): AsyncIterator<T> throws E` makes one: its step function yields
@@ -524,7 +555,7 @@ function __void(): void {}
 ///   println(i)   // 3, 2, 1
 /// }
 /// ```
-class AsyncIterator<T, E extends Throwable = never> {
+class AsyncIterator<T, E extends Throwable = never> implements AsyncIterable<T, E> {
   step: (() => ((k: () => void) => void)? throws E)? = null
   /// `next()` promises not fulfilled yet, oldest first.
   requests: Promise<T?, E>[] = []
@@ -678,6 +709,19 @@ class AsyncIterator<T, E extends Throwable = never> {
       }
       first = false
     }
+  }
+}
+
+/// An `AsyncIterator` over what `next` gives until it gives `null`: what a type with its own
+/// `next()` (a stream, a socket, a watcher) returns from `asyncIterator()`, so it's an
+/// `AsyncIterable` (#51). Lazy: `next` is called once per value asked for.
+async function* __asyncOf<T, E extends Throwable>(next: () => Promise<T?, E>): AsyncIterator<T> throws E {
+  while (true) {
+    const v = await next()
+    if (v == null) {
+      return
+    }
+    yield v
   }
 }
 

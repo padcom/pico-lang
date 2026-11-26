@@ -3371,6 +3371,18 @@ impl FnBuilder<'_, '_> {
                 span,
             );
         }
+        // An array or a string as an `Iterable`: wrapped in a class that is one.
+        if let (Ty::Array(_) | Ty::Str, Ty::Iface(iface, _, _)) = (from, to)
+            && Some(*iface) == self.cx.program.iterable_iface
+        {
+            let (name, subst) = match from {
+                Ty::Array(t) => ("__arrayIterable", vec![(**t).clone()]),
+                _ => ("__stringIterable", vec![Ty::Char]),
+            };
+            let f = self.cx.core_fn(name);
+            let f = self.cx.instance(f, vec![(f.0, subst)]);
+            return self.call_fn_value(f, vec![v], to.clone(), span);
+        }
         if let (Ty::Enum(eid, _, args), Ty::Iface(iface, _, _)) = (from, to) {
             let it = self.cx.enum_itable(*eid, args, *iface);
             return self.rvalue_to_temp(Rvalue::ToIface(v, it), to.clone(), span);
@@ -4346,6 +4358,33 @@ impl FnBuilder<'_, '_> {
     ) {
         let v = self.expr(iter);
         let (it, it_ty) = match self.cx.types.iterables.get(&iter.id).copied() {
+            // An interface value (`Iterable<T>`): its `iterator()` through the itable.
+            Some(m) if matches!(it_ty, Ty::Iface(..)) => {
+                let Ty::Iface(sid, _, _) = &it_ty else {
+                    unreachable!("an interface")
+                };
+                let slot = self
+                    .cx
+                    .program
+                    .struct_def(*sid)
+                    .methods
+                    .iter()
+                    .position(|(n, _)| n == "iterator")
+                    .unwrap_or(0) as u32;
+                let iter_ty = self.iterator_ty_of(&it_ty);
+                let dest = Place::local(self.temp(iter_ty.clone()));
+                let next = self.new_block();
+                let loc = self.loc(span);
+                self.terminate(Terminator::Call {
+                    callee: Callee::Iface { slot, decl: m },
+                    args: vec![v],
+                    dest: Some(dest.clone()),
+                    next,
+                    loc,
+                });
+                self.switch_to(next);
+                (Operand::Copy(dest), iter_ty)
+            }
             Some(m) => {
                 let m = self.method_of(m, &it_ty);
                 let iter_ty = self.iterator_ty_of(&it_ty);
@@ -4417,7 +4456,7 @@ impl FnBuilder<'_, '_> {
     /// The `Iterator<T>` type an iterable's `iterator()` returns.
     fn iterator_ty_of(&self, t: &Ty) -> Ty {
         let (sid, args) = match t {
-            Ty::Class(s, _, a) | Ty::Struct(s, _, a) => (*s, a.clone()),
+            Ty::Class(s, _, a) | Ty::Struct(s, _, a) | Ty::Iface(s, _, a) => (*s, a.clone()),
             _ => return Ty::Error,
         };
         let m = self
@@ -7308,6 +7347,36 @@ impl FnBuilder<'_, '_> {
             ops.extend(args.iter().map(|a| self.expr(a)));
             let m = self.cx.enum_method_instance(m, t.type_args());
             return self.call_fn_value(m, ops, ty, e.span);
+        }
+        // An array or a string where a bound names an interface (`I extends Iterable<T>`): its
+        // method written in pico (`__Array_iterator`, `__String_iterator`).
+        if let Ty::Array(_) | Ty::Str = &t {
+            let recv = if matches!(t, Ty::Str) {
+                "String"
+            } else {
+                "Array"
+            };
+            let ext = self
+                .cx
+                .program
+                .extensions
+                .get(&(recv.to_string(), name.to_string()))
+                .and_then(|fs| {
+                    fs.iter().copied().find(|f| {
+                        let fd = self.cx.program.func(*f);
+                        fd.params.len() == args.len() + 1
+                            && fd.generics.len() == usize::from(matches!(t, Ty::Array(_)))
+                    })
+                });
+            if let Some(f) = ext {
+                let mut ops = vec![self.expr(object)];
+                ops.extend(args.iter().map(|a| self.expr(a)));
+                let f = match &t {
+                    Ty::Array(elem) => self.cx.instance(f, vec![(f.0, vec![(**elem).clone()])]),
+                    _ => f,
+                };
+                return self.call_fn_value(f, ops, ty, e.span);
+            }
         }
         if !primitive && !matches!(t, Ty::Struct(..) | Ty::Class(..) | Ty::Iface(..)) {
             // Enums, tuples, fixed arrays: the derived protocol.

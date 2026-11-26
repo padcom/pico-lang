@@ -172,7 +172,7 @@ struct __NetSend {
 /// client.close()
 /// listener.close()
 /// ```
-class Conn {
+class Conn implements AsyncIterable<Uint8Array, NetError> {
   fd: int
   /// This side's address.
   public readonly localAddr: Addr
@@ -400,7 +400,8 @@ class Conn {
     read()
   }
 
-  /// The connection itself (`for await (const chunk of conn)`).
+  /// An async iterator over the chunks read (each `next()`), so a connection is an
+  /// `AsyncIterable` (`for await (const chunk of conn)`).
   ///
   /// @example
   /// ```ts
@@ -422,8 +423,8 @@ class Conn {
   /// }
   /// listener.close()
   /// ```
-  public asyncIterator(): Conn {
-    this
+  public asyncIterator(): AsyncIterator<Uint8Array, NetError> {
+    __asyncOf(() => this.next())
   }
 
   /// Everything until the other side finishes writing, as text (UTF-8; anything else
@@ -689,7 +690,7 @@ async function __acceptAfter(l: Listener, prev: Promise<Conn?, NetError>): Promi
 /// client.close()
 /// listener.close()
 /// ```
-class Listener {
+class Listener implements AsyncIterable<Conn, NetError> {
   fd: int
   /// The address it listens on (with the port chosen when `listen` was given 0).
   public readonly addr: Addr
@@ -794,7 +795,8 @@ class Listener {
     accept()
   }
 
-  /// The listener itself (`for await (const conn of listener)`).
+  /// An async iterator over the accepted connections (each `next()`), so a listener is an
+  /// `AsyncIterable` (`for await (const conn of listener)`).
   ///
   /// @example
   /// ```ts
@@ -810,8 +812,8 @@ class Listener {
   ///   listener.close()             // ends the loop
   /// }
   /// ```
-  public asyncIterator(): Listener {
-    this
+  public asyncIterator(): AsyncIterator<Conn, NetError> {
+    __asyncOf(() => this.next())
   }
 
   /// Stops listening: a waiting `accept()` gives `null` (twice is fine). Open connections
