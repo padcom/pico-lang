@@ -165,8 +165,9 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
   order; paths like `env.LANG`). Anything else (enums, tuples, functions, maps with other key
   types, interfaces, type parameters left generic) is a compile-time error at the call.
 - **Objects**: keys match field names, or `@json.name`. Unknown keys are skipped; a missing
-  field is an error unless it's nullable (then `null`). Classes are built without running a
-  constructor.
+  field is an error unless it's nullable (then `null`) or a class field with an initializer
+  (#58: the class's field initializers run first, in order, then the fields present replace
+  theirs). Classes are built without running a constructor.
 - **Errors**: `JsonError.message` is `field '<path>': <problem>` with paths like
   `servers[2].host` (`element '[0]': …` at the top level of an array, no prefix for the value
   itself). Problems: `expected u16, got "x"` (strings and numbers as written, otherwise `an

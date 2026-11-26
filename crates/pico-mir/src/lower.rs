@@ -5948,8 +5948,11 @@ impl FnBuilder<'_, '_> {
                     .get(sid)
                     .filter(|_| def.is_class)
                     .cloned();
-                let has_init =
-                    |i: usize| inits.as_ref().is_some_and(|(_, idx)| idx.contains(&(i as u32)));
+                let has_init = |i: usize| {
+                    inits
+                        .as_ref()
+                        .is_some_and(|(_, idx)| idx.contains(&(i as u32)))
+                };
                 // Missing fields (a nullable one is `null`).
                 for (i, ((_, jkey, fty), (_, seen))) in fields.iter().zip(&slots).enumerate() {
                     if matches!(fty, Ty::Nullable(_)) || has_init(i) {

@@ -3129,7 +3129,10 @@ impl Resolver {
             .filter(|(_, init)| init.is_some())
             .filter_map(|(name, _)| {
                 let def = &self.structs[sid.0 as usize];
-                def.fields.iter().position(|f| f.name == name.name).map(|i| i as u32)
+                def.fields
+                    .iter()
+                    .position(|f| f.name == name.name)
+                    .map(|i| i as u32)
             })
             .collect();
         if !with_init.is_empty() && self.structs[sid.0 as usize].is_class {
