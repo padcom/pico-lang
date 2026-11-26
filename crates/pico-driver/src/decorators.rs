@@ -242,17 +242,30 @@ fn find_decorator(
     if decorators.contains_key(&(file, name.to_string())) {
         return Some((file, name.to_string()));
     }
-    let imported = modules
-        .imports
-        .iter()
-        .find(|i| i.module == file && i.alias.name == name && i.name.is_some())
-        .and_then(|imp| {
-            let exported = &imp.name.as_ref()?.name;
-            let local = modules.exports.get(&imp.target)?.get(exported)?;
-            Some((imp.target, local.clone()))
-        });
-    if let Some(key) = imported {
-        return decorators.contains_key(&key).then_some(key);
+    // Imported, possibly through re-exports (`export { d } from "./x"`, `export *`, #54): a
+    // name a module imports is followed to the module it comes from.
+    let imported_into = |module: FileId, name: &str| {
+        modules
+            .imports
+            .iter()
+            .find(|i| i.module == module && i.alias.name == name && i.name.is_some())
+            .and_then(|imp| {
+                let exported = &imp.name.as_ref()?.name;
+                let local = modules.exports.get(&imp.target)?.get(exported)?;
+                Some((imp.target, local.clone()))
+            })
+    };
+    let mut key = imported_into(file, name);
+    if key.is_some() {
+        // (An imported name that isn't a decorator shadows the core library's.)
+        for _ in 0..32 {
+            let Some(k) = &key else { break };
+            if decorators.contains_key(k) {
+                return key;
+            }
+            key = imported_into(k.0, &k.1);
+        }
+        return None;
     }
     // The core library's decorators (`@derive`) are seen everywhere.
     decorators

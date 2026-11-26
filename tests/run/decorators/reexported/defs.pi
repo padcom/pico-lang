@@ -1,0 +1,11 @@
+import { ClassDecl, ast } from "std/meta"
+
+/// Adds `describe()`.
+export decorator function describable(c: ClassDecl) {
+  c.addMethod(ast.method("describe", ast.returns(ast.string(`describe: ${c.name}`))))
+}
+
+/// Adds `kind()`.
+export decorator function kinded(c: ClassDecl) {
+  c.addMethod(ast.method("kind", ast.returns(ast.string("a class"))))
+}
