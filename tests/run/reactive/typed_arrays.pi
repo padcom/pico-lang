@@ -1,0 +1,28 @@
+// expect: sum 0
+// expect: other 0
+// expect: sum 5
+// expect: sum 12
+// expect: sum 1530
+// expect: view 65535
+// expect: sum 1065
+// expect: view 300
+// Deep tracking of typed arrays and buffers (#71): an effect that reads a typed array runs
+// again when its bytes change, through any view of the same buffer (an element write,
+// `fill`, a `DataView` write); an effect that reads something else doesn't.
+reactive bytes: Uint8Array = new Uint8Array(6)
+const words = new Uint32Array(bytes.buffer, 0, 1)
+const view = new DataView(bytes.buffer)
+
+watchEffect(() => {
+  let sum = 0
+  for (let i = 0; i < bytes.length; i++) sum += bytes[i]
+  println(`sum ${sum}`)
+})
+reactive other = 0
+watchEffect(() => println(`other ${other}`))
+
+bytes[0] = 5            // an element write
+words[0] = 7 << 8 | 5   // another view of the same buffer: byte 1 becomes 7
+bytes.fill(255)         // a bulk write
+watchEffect(() => println(`view ${view.getUint16(4)}`))
+view.setInt16(4, 300)   // a DataView write: bytes 4 and 5
