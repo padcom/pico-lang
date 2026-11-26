@@ -172,11 +172,14 @@ println(left)          // 0
 - **Mutating** a reactive object triggers what depends on it, through whichever reference it's
   done: assigning a field or an element (also `+=`, `++`); the arrays' mutating methods (`push`,
   `pop`, `splice`, `sort`, `reverse`); `Map`'s `set`, `delete` and `clear` (and so `Set`'s `add`,
-  `delete` and `clear`, which use a map).
+  `delete` and `clear`, which use a map); a typed array's or `DataView`'s writes (an element,
+  `fill`, `setAll`, `copyWithin`, `set…` of a `DataView`), which trigger every view of the same
+  `ArrayBuffer`: reads of any view depend on the buffer (#71).
 - The granularity is the object: reading any field depends on all of it, and mutating any field
   triggers everything that read it.
-- Structs are values: assigning a field of a struct held by a reactive binding (`point.x = 1`)
-  writes the binding.
+- Structs are values: assigning a field of a struct held by a reactive binding (`point.x = 1`,
+  also `+=` and `++`, and through nested struct fields: `state.pos.x = 1`, #71) writes the
+  binding.
 - Only programs whose own code uses reactive state pay for this: there, reads and mutations of
   objects test a flag (about half a nanosecond each); other programs don't (decision 309).
 
