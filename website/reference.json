@@ -73,6 +73,7 @@
     "Set": "core#Set",
     "Settled": "core#Settled",
     "StreamPipeOptions": "core#StreamPipeOptions",
+    "StringBuilder": "core#StringBuilder",
     "SubtleCrypto": "core#SubtleCrypto",
     "SyntaxError": "core#SyntaxError",
     "Target": "core#Target",
@@ -6754,6 +6755,91 @@
               "doc": "<p>Stops the pipe when aborted (#63): the source is cancelled and the destination errored\n(unless <code>preventCancel</code>/<code>preventAbort</code>), and the pipe rejects with the signal's reason.</p>\n",
               "examples": [],
               "source": "core/streams.pi:73",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "StringBuilder",
+          "kind": "class",
+          "signature": "class StringBuilder",
+          "doc": "<p>A string built piece by piece, in time linear in its length: appending to a <code>string</code> with <code>+</code>\ncopies everything so far each time (O(n²) for a long one). The pieces are joined once, by\n<code>toString()</code>.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const b = new StringBuilder()\nfor (let i = 1; i <= 3; i++) b.append(i).append(\",\")\nprintln(b.toString())   // 1,2,3,\nprintln(b.length)       // 6"
+            }
+          ],
+          "source": "core/string.pi:728",
+          "members": [
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor()",
+              "doc": "<p>An empty builder.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "println(new StringBuilder().length)   // 0"
+                }
+              ],
+              "source": "core/string.pi:738",
+              "members": []
+            },
+            {
+              "name": "append",
+              "kind": "method",
+              "signature": "public append<T>(x: T): StringBuilder",
+              "doc": "<p>Adds <code>x</code>'s string form (as <code>${x}</code> gives it) at the end; the builder itself, to chain.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const b = new StringBuilder()\nb.append(\"x = \").append(4.5).append(true)\nprintln(b.toString())   // x = 4.5true"
+                }
+              ],
+              "source": "core/string.pi:748",
+              "members": []
+            },
+            {
+              "name": "length",
+              "kind": "property",
+              "signature": "public get length(): int",
+              "doc": "<p>How many characters (code points) it holds.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "println(new StringBuilder().append(\"héllo\").length)   // 5"
+                }
+              ],
+              "source": "core/string.pi:763",
+              "members": []
+            },
+            {
+              "name": "clear",
+              "kind": "method",
+              "signature": "public clear(): void",
+              "doc": "<p>Empties it, to build another string.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const b = new StringBuilder().append(\"a\")\nb.clear()\nprintln(b.append(\"b\").toString())   // b"
+                }
+              ],
+              "source": "core/string.pi:775",
+              "members": []
+            },
+            {
+              "name": "toString",
+              "kind": "method",
+              "signature": "public toString(): string",
+              "doc": "<p>The string built so far.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "println(new StringBuilder().append(\"a\").append(\"b\").toString())   // ab"
+                }
+              ],
+              "source": "core/string.pi:786",
               "members": []
             }
           ]

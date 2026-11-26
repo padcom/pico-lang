@@ -216,6 +216,11 @@ waking it up, and also every 250 ms: on a big tree (tens of thousands of entries
 noticeable CPU, and on macOS a change to a file's contents in a tree of more than 256 entries (only
 directories get a kqueue descriptor then) is only noticed by the 250 ms look.
 
+### `StringBuilder`
+A core class (no import): `append(x)` adds `x`'s string form and returns the builder (to chain),
+`length` counts its characters, `clear()` empties it and `toString()` joins the pieces once. For
+building a long string piece by piece: `+` copies the string so far each time.
+
 ### `std/path`
 Node's `path`: `sep`, `delimiter`, `isAbsolute`, `normalize` (`a//b/../c/` → `a/c/`),
 `join(...parts)`, `resolve(...parts)` (from the working directory; no trailing separator),

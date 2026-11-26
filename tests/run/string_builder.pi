@@ -1,0 +1,23 @@
+// expect: 1,2,3,
+// expect: 6
+// expect: héllo wörld 5 true 2.5
+// expect: 22
+// expect: 100000 100000
+// expect: ab
+// expect: [abc]
+//
+// `StringBuilder` (#73, the user's decision): pieces appended in linear time, joined once.
+const b = new StringBuilder()
+for (let i = 1; i <= 3; i++) b.append(i).append(",")
+println(b.toString())
+println(b.length)
+const c = new StringBuilder().append("héllo").append(" wörld ").append(5).append(" ").append(true).append(" ").append(2.5)
+println(c.toString())
+println(c.length)
+const big = new StringBuilder()
+for (let i = 0; i < 100000; i++) big.append("x")
+const s = big.toString()
+println(`${s.length} ${big.length}`)
+big.clear()
+println(big.append("a").append("b").toString())
+println(`[${new StringBuilder().append("abc")}]`)
