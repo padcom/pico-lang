@@ -3355,14 +3355,10 @@ impl FnBuilder<'_, '_> {
         {
             let (name, subst) = match from {
                 Ty::Array(t) => ("__arrayIterable", vec![(**t).clone()]),
-                _ => ("__stringIterable", Vec::new()),
+                _ => ("__stringIterable", vec![Ty::Char]),
             };
             let f = self.cx.core_fn(name);
-            let f = if subst.is_empty() {
-                f
-            } else {
-                self.cx.instance(f, vec![(f.0, subst)])
-            };
+            let f = self.cx.instance(f, vec![(f.0, subst)]);
             return self.call_fn_value(f, vec![v], to.clone(), span);
         }
         if let (Ty::Enum(eid, _, args), Ty::Iface(iface, _, _)) = (from, to) {
