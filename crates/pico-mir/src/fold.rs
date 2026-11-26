@@ -7,8 +7,8 @@
 
 use crate::eval::{self, Prim, Scalar};
 use crate::mir::{
-    Base, BinOp, BlockId, Const, Function, Local, Operand, Place, Program, Rvalue, Statement,
-    Terminator,
+    Base, BinOp, BlockId, Callee, Const, Function, Local, Operand, Place, Program, Proj, Rvalue,
+    Statement, Terminator,
 };
 use pico_diag::{Diagnostic, Span, codes};
 use std::collections::{HashMap, HashSet};
@@ -20,13 +20,16 @@ pub fn fold_program(p: &mut Program) -> Vec<Diagnostic> {
         diags: Vec::new(),
         reported: HashSet::new(),
     };
-    // Folding a function can make a global constant, which other functions then use.
+    // Folding a function can make a global constant, or a function return a constant (a
+    // call of it is then that constant, #55), which other functions then use.
     loop {
         for f in &mut p.fns {
             cx.function(f);
         }
         let globals = constant_globals(p);
-        if globals.len() == cx.globals.len() {
+        let consts = constant_functions(p);
+        let calls = inline_constant_calls(p, &consts);
+        if globals.len() == cx.globals.len() && calls == 0 {
             break;
         }
         cx.globals = globals;
@@ -48,11 +51,14 @@ impl Folder {
     fn function(&mut self, f: &mut Function) {
         let mut single = single_def_locals(f);
         let mut known: HashMap<Local, Const> = HashMap::new();
+        // Struct values of constants (#55): a field of one is that constant.
+        let mut aggs: HashMap<Local, Vec<Const>> = HashMap::new();
         // Blocks aren't in execution order (loops), so iterate until nothing new is known.
         loop {
-            let before = known.len();
+            let before = (known.len(), aggs.len());
             for b in &mut f.blocks {
                 for st in &mut b.stmts {
+                    st.rvalue.for_each_operand(&mut |o| field_of(o, &aggs));
                     self.statement(st, &known);
                     if let (Base::Local(l), true, Rvalue::Use(Operand::Const(c))) =
                         (st.place.base, st.place.proj.is_empty(), &st.rvalue)
@@ -61,8 +67,34 @@ impl Folder {
                     {
                         known.insert(l, c.clone());
                     }
+                    if let (Base::Local(l), true, Rvalue::Aggregate(_, ops)) =
+                        (st.place.base, st.place.proj.is_empty(), &st.rvalue)
+                        && single.contains(&l)
+                        && ops.iter().all(|o| matches!(o, Operand::Const(c) if scalar(c).is_some() || matches!(c, Const::Str(_))))
+                    {
+                        let cs = ops
+                            .iter()
+                            .map(|o| match o {
+                                Operand::Const(c) => c.clone(),
+                                _ => unreachable!("checked"),
+                            })
+                            .collect();
+                        aggs.insert(l, cs);
+                    }
+                    // (A copy of one, `const s = Size { … }`.)
+                    if let (Base::Local(l), true, Rvalue::Use(Operand::Copy(src))) =
+                        (st.place.base, st.place.proj.is_empty(), &st.rvalue)
+                        && single.contains(&l)
+                        && let (Base::Local(from), true) = (src.base, src.proj.is_empty())
+                        && let Some(cs) = aggs.get(&from).cloned()
+                    {
+                        aggs.insert(l, cs);
+                    }
                 }
-                b.term.for_each_operand(&mut |o| self.substitute(o, &known));
+                b.term.for_each_operand(&mut |o| {
+                    field_of(o, &aggs);
+                    self.substitute(o, &known)
+                });
                 if let Terminator::Branch {
                     cond: Operand::Const(Const::Bool(c)),
                     then,
@@ -76,7 +108,7 @@ impl Folder {
             // count (a short-circuit `&&` of constants).
             if clear_unreachable(f) {
                 single = single_def_locals(f);
-            } else if known.len() == before {
+            } else if (known.len(), aggs.len()) == before {
                 break;
             }
         }
@@ -185,6 +217,96 @@ impl Folder {
             None => {}
         }
     }
+}
+
+/// `s.field` of a local holding a struct value of constants: that constant (#55).
+fn field_of(o: &mut Operand, aggs: &HashMap<Local, Vec<Const>>) {
+    let Operand::Copy(place) = o else { return };
+    if let (Base::Local(l), [Proj::Field(i)]) = (place.base, place.proj.as_slice())
+        && let Some(c) = aggs.get(&l).and_then(|cs| cs.get(*i as usize))
+    {
+        *o = Operand::Const(c.clone());
+    }
+}
+
+/// Functions that return a constant and do nothing else (#55): no parameters, and one block
+/// that only gives locals constants and returns one.
+fn constant_functions(p: &Program) -> HashMap<usize, Const> {
+    let mut out = HashMap::new();
+    for (i, f) in p.fns.iter().enumerate() {
+        if !f.params.is_empty() || f.blocks.is_empty() {
+            continue;
+        }
+        // From the entry, through `goto`s, to a `return` of a constant, with no effects on the
+        // way (folded calls leave `goto`s behind).
+        let mut b = &f.blocks[0];
+        for _ in 0..f.blocks.len() {
+            // (Locals given constants, copies of locals, or struct values of constants.)
+            let pure = b.stmts.iter().all(|st| {
+                matches!(st.place.base, Base::Local(_))
+                    && st.place.proj.is_empty()
+                    && match &st.rvalue {
+                        Rvalue::Use(Operand::Const(_)) => true,
+                        Rvalue::Use(Operand::Copy(p)) => {
+                            matches!(p.base, Base::Local(_)) && p.proj.is_empty()
+                        }
+                        Rvalue::Aggregate(_, ops) => {
+                            ops.iter().all(|o| matches!(o, Operand::Const(_)))
+                        }
+                        _ => false,
+                    }
+            });
+            if !pure {
+                break;
+            }
+            match &b.term {
+                Terminator::Goto(next) => b = &f.blocks[next.0 as usize],
+                Terminator::Return(Some(Operand::Const(c)))
+                    if scalar(c).is_some() || matches!(c, Const::Str(_)) =>
+                {
+                    out.insert(i, c.clone());
+                    break;
+                }
+                _ => break,
+            }
+        }
+    }
+    out
+}
+
+/// Replaces calls of constant functions by their constant; how many.
+fn inline_constant_calls(p: &mut Program, consts: &HashMap<usize, Const>) -> usize {
+    let mut n = 0;
+    for f in &mut p.fns {
+        for b in &mut f.blocks {
+            let Terminator::Call {
+                callee: Callee::Fn(id),
+                args,
+                dest,
+                next,
+                loc,
+            } = &b.term
+            else {
+                continue;
+            };
+            let Some(c) = consts.get(&(id.0 as usize)) else {
+                continue;
+            };
+            if !args.is_empty() {
+                continue;
+            }
+            if let Some(d) = dest {
+                b.stmts.push(Statement {
+                    place: d.clone(),
+                    rvalue: Rvalue::Use(Operand::Const(c.clone())),
+                    loc: loc.clone(),
+                });
+            }
+            b.term = Terminator::Goto(*next);
+            n += 1;
+        }
+    }
+    n
 }
 
 /// The type of a foldable rvalue's result.
