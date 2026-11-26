@@ -1,0 +1,22 @@
+// expect: GET /api/users
+// expect: 2 users
+// expect: GET /api/v2
+// expect: tag Admin
+// expect: ok
+// A decorator's arguments are evaluated in the module that uses it (#54): `PREFIX` and
+// `version()` are this module's; a bare name it has no value for is still passed as a
+// string (`Admin`). (Requests apply in order, so the last decorator's wrapper is outermost.)
+import { route, tag } from "./routes"
+
+const PREFIX = "/api"
+function version(): string { "v2" }
+
+@route(PREFIX + "/users")
+function users(): string { "2 users" }
+
+@tag(Admin)
+@route(`${PREFIX}/${version()}`)
+function v2(): string { "ok" }
+
+println(users())
+println(v2())

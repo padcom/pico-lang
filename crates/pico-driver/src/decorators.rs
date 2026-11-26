@@ -98,6 +98,8 @@ struct Use {
     stmt: usize,
     /// What in it.
     target: Target,
+    /// The decorator's name as the using module writes it (#54: its call runs there).
+    written: String,
     /// The decorator: its module and its name there.
     decorator: (FileId, String),
     span: Span,
@@ -250,6 +252,7 @@ pub fn expand(
                 id: uses.len(),
                 stmt: i,
                 target: target_in,
+                written: name.name.clone(),
                 decorator: target,
                 span: dec.span,
                 args,
@@ -702,15 +705,6 @@ fn run_decorators(
     // (Per module: a name used there means its own declaration, or what it imports by
     // that name.)
     let module_of = |f: FileId| modules.file_modules.get(&f).copied().unwrap_or(f);
-    let declared = |m: FileId, n: &str| {
-        stmts
-            .iter()
-            .any(|st| module_of(st.span.file) == m && declares(st).iter().any(|d| d == n))
-            || modules.prelude.contains(&m)
-                && stmts.iter().any(|st| {
-                    modules.prelude.contains(&st.span.file) && declares(st).iter().any(|d| d == n)
-                })
-    };
     let mut keep: HashSet<usize> = HashSet::new();
     let mut seen: HashSet<(FileId, String)> = HashSet::new();
     let mut work: Vec<(FileId, String)> = Vec::new();
@@ -723,6 +717,19 @@ fn run_decorators(
             keep.insert(i);
             let m = module_of(st.span.file);
             work.extend(free_idents(sm, st.span).into_iter().map(|n| (m, n)));
+        }
+    }
+    // The names the decorators' arguments use, in the modules that use them (#54: arguments
+    // are evaluated there).
+    for u in uses {
+        let um = module_of(stmts[u.stmt].span.file);
+        for a in &u.args {
+            let (tokens, _) = pico_syntax::lex(stmts[u.stmt].span.file, a);
+            for t in tokens {
+                if let TokenKind::Ident(n) = t.kind {
+                    work.push((um, n));
+                }
+            }
         }
     }
     while let Some((m, n)) = work.pop() {
@@ -775,26 +782,38 @@ fn run_decorators(
         }
         program.push(st);
     }
-    // In each decorator's module: run its uses.
+    // In each module that uses decorators: run its uses there, so their arguments see its
+    // names (`@route(PREFIX + "/x")`, #54).
+    // (A name it declares, apart from decorated declarations, or imports.)
+    let value_in = |m: FileId, n: &str| {
+        stmts.iter().enumerate().any(|(i, st)| {
+            !decorated.contains(&i)
+                && module_of(st.span.file) == m
+                && declares(st).iter().any(|d| d == n)
+        }) || modules
+            .imports
+            .iter()
+            .any(|i| i.module == m && i.alias.name == n)
+    };
     let mut modules = modules.clone();
     let mut by_module: HashMap<FileId, String> = HashMap::new();
     for u in uses {
         let StmtKind::Decl(d) = &stmts[u.stmt].kind else {
             unreachable!("a declaration")
         };
+        let um = module_of(stmts[u.stmt].span.file);
         let mut args = vec![descriptor(sm, d, u.target, u.id)];
-        // A bare name the decorator's module doesn't declare is passed as a string
-        // (`@derive(Eq)`).
+        // A bare name the using module has no value for is passed as a string (`@derive(Eq)`).
         for (a, bare) in u.args.iter().zip(&u.bare) {
             match bare {
-                Some(n) if !declared(u.decorator.0, n) => args.push(quote(n)),
+                Some(n) if !value_in(um, n) => args.push(quote(n)),
                 _ => args.push(a.clone()),
             }
         }
-        let code = by_module.entry(u.decorator.0).or_default();
+        let code = by_module.entry(um).or_default();
         code.push_str(&format!(
             "comptime {{ {}({}); }}\n",
-            u.decorator.1,
+            u.written,
             args.join(", ")
         ));
     }
