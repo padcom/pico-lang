@@ -412,8 +412,12 @@ Globals, as WHATWG URL: `new URL(input, base?)` (throws `TypeError: Invalid URL:
 `hostname`, `port` (`""` for the scheme's default), `pathname`, `search`, `hash`, `origin`,
 `searchParams` (changing it changes the URL), `toString()`, `toJSON()`. Special schemes (http,
 https, ws, wss, ftp, file) get an authority, dot-segment removal and default ports; others an
-opaque path. Not covered yet: IDNA (non-ASCII hosts are percent-encoded), IPv4 number forms,
-setters. `URLSearchParams(init: string | [string, string][])` has `append`, `delete`, `get`,
+opaque path. `pathname`, `search`, `hash`, `host` and `protocol` can be set (#66): the part is
+replaced and the URL parsed again (`searchParams` follows); what the URL Standard rejects (a path
+of an opaque URL, a host where there's none, a scheme between special and other) is ignored;
+`username`, `password`, `hostname` and `port` are plain fields; `href` has no setter (make a new
+`URL`). Not covered yet: IDNA (non-ASCII hosts are percent-encoded), IPv4 number forms.
+`URLSearchParams(init: string | [string, string][])` has `append`, `delete`, `get`,
 `getAll`, `has`, `set`, `sort`, `size`, `keys`, `entries`, `for…of` and `toString()`
 (`application/x-www-form-urlencoded`).
 
