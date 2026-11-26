@@ -140,6 +140,10 @@ name resolution, type checking and the C and JavaScript signatures. `pico lint` 
 lowering, so errors only a build finds (a constant expression that always panics, failing
 `comptime` code) are `pico build`'s. Files are linted in parallel: `-j N` at a time, by default
 one per CPU but no more than the available memory holds (about 256 MB each, #166).
+`pico lint --fix` applies the fixes warnings come with and rewrites the files, linting again until
+none are left, then reports the rest (#80): unused imports are removed (a name, or the whole
+import), a function's result gets its `return`, and missing blank lines (`blankLines`) are
+inserted; names (`naming`) are left to the language server's rename, which updates every use.
 
 A comment turns warnings off for one line (#80), as ESLint's do: `// pico-lint-disable-line` at
 the end of a line, or `// pico-lint-disable-next-line` on the line above. Without names it covers

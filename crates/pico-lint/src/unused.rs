@@ -93,19 +93,31 @@ fn unused(span: Span, what: &str, name: &str, help: &str) -> Diagnostic {
 }
 
 fn imports(m: &ast::Module, text: &str, file: FileId, out: &mut Vec<Diagnostic>) {
+    // Each imported name with the text that removes it (`--fix`, #80): the name (with its
+    // `as`) and a comma, or the whole statement when nothing of it is used.
     let mut names: Vec<&ast::Ident> = Vec::new();
     let mut spans: Vec<Span> = Vec::new();
+    let mut groups: Vec<(Span, Vec<(usize, Span)>)> = Vec::new();
     for s in &m.stmts {
         if let ast::StmtKind::Decl(d) = &s.kind
             && let ast::DeclKind::Import(i) = &d.kind
         {
             spans.push(s.span);
+            let mut members = Vec::new();
             match &i.kind {
                 ast::ImportKind::Named(ns) => {
-                    names.extend(ns.iter().map(|n| n.alias.as_ref().unwrap_or(&n.name)));
+                    for n in ns {
+                        let end = n.alias.as_ref().map_or(n.name.span.end, |a| a.span.end);
+                        members.push((names.len(), Span::new(file, n.name.span.start, end)));
+                        names.push(n.alias.as_ref().unwrap_or(&n.name));
+                    }
                 }
-                ast::ImportKind::Namespace(alias) => names.push(alias),
+                ast::ImportKind::Namespace(alias) => {
+                    members.push((names.len(), alias.span));
+                    names.push(alias);
+                }
             }
+            groups.push((s.span, members));
         }
     }
     if names.is_empty() {
@@ -124,14 +136,34 @@ fn imports(m: &ast::Module, text: &str, file: FileId, out: &mut Vec<Diagnostic>)
             _ => None,
         })
         .collect();
-    for n in names {
-        if !n.name.starts_with('_') && !used.contains(n.name.as_str()) {
-            out.push(unused(
-                n.span,
-                "import",
-                &n.name,
-                "remove it from the import",
-            ));
+    let is_unused = |n: &ast::Ident| !n.name.starts_with('_') && !used.contains(n.name.as_str());
+    for (stmt, members) in &groups {
+        let all = members.iter().all(|(i, _)| is_unused(names[*i]));
+        for (k, (i, span)) in members.iter().enumerate() {
+            let n = names[*i];
+            if !is_unused(n) {
+                continue;
+            }
+            let mut d = unused(n.span, "import", &n.name, "remove it from the import");
+            if all {
+                // (The statement once, with its line break.)
+                if k == 0 {
+                    let mut end = stmt.end as usize;
+                    if text[end..].starts_with('\n') {
+                        end += 1;
+                    }
+                    d = d.fix(Span::new(file, stmt.start, end as u32), "");
+                }
+            } else {
+                // The name and the comma after it (or, for the last one, before it).
+                let cut = match members.get(k + 1) {
+                    Some((_, next)) => Span::new(file, span.start, next.start),
+                    None if k > 0 => Span::new(file, members[k - 1].1.end, span.end),
+                    None => *span,
+                };
+                d = d.fix(cut, "");
+            }
+            out.push(d);
         }
     }
 }
