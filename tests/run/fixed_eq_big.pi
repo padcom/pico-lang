@@ -1,0 +1,38 @@
+// expect: true
+// expect: false
+// expect: false
+// expect: true
+// expect: false
+// expect: true
+// expect: true
+//
+// `==` on fixed arrays longer than 8 elements is a loop, ending at the first that differs
+// (#73); short ones are compared inline.
+struct P { x: i32; y: f64 }
+
+function make(n: i32): [i32; 64] {
+  let a: [i32; 64] = [0; 64]
+  for (let i: i32 = 0; i < 64; i++) a[i] = i * n
+  return a
+}
+
+const a = make(3)
+let b = make(3)
+println(a == b)
+b[0] = -1
+println(a == b)          // first differs
+b[0] = 0
+b[63] = 1
+println(a == b)          // last differs
+b[63] = 189
+println(a == b)
+
+// Elements that are themselves compared structurally, and floats (NaN isn't equal).
+let ps: [P; 12] = [P { x: 1, y: 0.5 }; 12]
+let qs: [P; 12] = [P { x: 1, y: 0.5 }; 12]
+qs[7] = P { x: 1, y: 0.0 / 0.0 }
+println(ps == qs)
+qs[7] = P { x: 1, y: 0.5 }
+println(ps == qs)
+const short: [u8; 4] = [1, 2, 3, 4]
+println(short == [1, 2, 3, 4])

@@ -379,6 +379,9 @@ fn generate<'ctx>(
 
 /// Debug info being built (spec §14.5): the compile unit, a file per source, and the function
 /// being emitted with its current location.
+/// Fixed arrays up to this long compare element by element, inline; longer ones in a loop.
+const FIXED_EQ_UNROLL: u64 = 8;
+
 struct Dbg<'ctx> {
     di: inkwell::debug_info::DebugInfoBuilder<'ctx>,
     files: Vec<inkwell::debug_info::DIFile<'ctx>>,
@@ -3101,6 +3104,10 @@ impl<'ctx> Gen<'ctx, '_> {
                 .collect(),
             Ty::Tuple(ts) => ts.clone(),
             Ty::Range(it) => vec![Ty::Int(*it); 3],
+            // (Big ones as a loop, not one comparison per element: #73.)
+            Ty::Fixed(e, n) if *n > FIXED_EQ_UNROLL && x.is_array_value() => {
+                return self.fixed_eq_loop(e, *n, x, y);
+            }
             Ty::Fixed(e, n) => vec![(**e).clone(); *n as usize],
             Ty::Str => return self.str_binary(BinOp::Eq, x, y).into_int_value(),
             // Identity (pointers: the address).
@@ -3180,6 +3187,78 @@ impl<'ctx> Gen<'ctx, '_> {
             acc = self.b.build_and(acc, eq, "").unwrap();
         }
         acc
+    }
+
+    /// `==` on fixed arrays longer than [`FIXED_EQ_UNROLL`]: a loop over the elements (in
+    /// memory), ending at the first that differs.
+    fn fixed_eq_loop(
+        &mut self,
+        e: &Ty,
+        n: u64,
+        x: BasicValueEnum<'ctx>,
+        y: BasicValueEnum<'ctx>,
+    ) -> IntValue<'ctx> {
+        let at = x.get_type().into_array_type();
+        let et = at.get_element_type();
+        let (pa, pb) = (
+            self.entry_alloca(at.into(), "eq.a"),
+            self.entry_alloca(at.into(), "eq.b"),
+        );
+        let slot = self.entry_alloca(self.i64().into(), "eq.i");
+        let res = self.entry_alloca(self.cx.bool_type().into(), "eq.r");
+        self.b.build_store(pa, x).unwrap();
+        self.b.build_store(pb, y).unwrap();
+        self.b.build_store(slot, self.i64().const_zero()).unwrap();
+        self.b
+            .build_store(res, self.cx.bool_type().const_int(1, false))
+            .unwrap();
+        let f = self
+            .b
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .expect("inside a function");
+        let head = self.cx.append_basic_block(f, "eq.head");
+        let body = self.cx.append_basic_block(f, "eq.body");
+        let next = self.cx.append_basic_block(f, "eq.next");
+        let done = self.cx.append_basic_block(f, "eq.done");
+        self.b.build_unconditional_branch(head).unwrap();
+        self.b.position_at_end(head);
+        let i = self
+            .b
+            .build_load(self.i64(), slot, "")
+            .unwrap()
+            .into_int_value();
+        let more = self
+            .b
+            .build_int_compare(IntPredicate::ULT, i, self.i64().const_int(n, false), "")
+            .unwrap();
+        self.b.build_conditional_branch(more, body, done).unwrap();
+        self.b.position_at_end(body);
+        let zero = self.i64().const_zero();
+        // SAFETY: `i < n`, inside both arrays.
+        let (ea, eb) = unsafe {
+            (
+                self.b.build_in_bounds_gep(at, pa, &[zero, i], "").unwrap(),
+                self.b.build_in_bounds_gep(at, pb, &[zero, i], "").unwrap(),
+            )
+        };
+        let a = self.b.build_load(et, ea, "").unwrap();
+        let b = self.b.build_load(et, eb, "").unwrap();
+        let eq = self.value_eq(e, a, b);
+        self.b.build_store(res, eq).unwrap();
+        self.b.build_conditional_branch(eq, next, done).unwrap();
+        self.b.position_at_end(next);
+        let i1 = self
+            .b
+            .build_int_add(i, self.i64().const_int(1, false), "")
+            .unwrap();
+        self.b.build_store(slot, i1).unwrap();
+        self.b.build_unconditional_branch(head).unwrap();
+        self.b.position_at_end(done);
+        self.b
+            .build_load(self.cx.bool_type(), res, "")
+            .unwrap()
+            .into_int_value()
     }
 
     /// `pico.eq.<Name>(ptr, ptr) -> i1`: same variant and equal payload fields.

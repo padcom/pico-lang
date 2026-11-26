@@ -7407,7 +7407,7 @@
               "code": "const url = new URL(\"https://example.com:8080/docs/index.html?v=2#intro\")\nprintln(url.hostname)   // example.com\nprintln(url.port)       // 8080\nprintln(url.pathname)   // /docs/index.html\nprintln(url.hash)       // #intro"
             }
           ],
-          "source": "core/url.pi:383",
+          "source": "core/url.pi:384",
           "members": [
             {
               "name": "username",
@@ -7415,7 +7415,7 @@
               "signature": "public username: string = \"\"",
               "doc": "<p>The user name (percent-encoded), or \"\".</p>\n",
               "examples": [],
-              "source": "core/url.pi:386",
+              "source": "core/url.pi:387",
               "members": []
             },
             {
@@ -7424,7 +7424,7 @@
               "signature": "public password: string = \"\"",
               "doc": "<p>The password (percent-encoded), or \"\".</p>\n",
               "examples": [],
-              "source": "core/url.pi:388",
+              "source": "core/url.pi:389",
               "members": []
             },
             {
@@ -7433,7 +7433,7 @@
               "signature": "public hostname: string = \"\"",
               "doc": "<p>The host, lowercased (an IPv6 address in brackets, <code>[::1]</code>), or \"\".</p>\n",
               "examples": [],
-              "source": "core/url.pi:390",
+              "source": "core/url.pi:391",
               "members": []
             },
             {
@@ -7442,7 +7442,7 @@
               "signature": "public port: string = \"\"",
               "doc": "<p>The port as text, or \"\" when there's none or it's the scheme's default (<code>80</code> for <code>http:</code>).</p>\n",
               "examples": [],
-              "source": "core/url.pi:392",
+              "source": "core/url.pi:393",
               "members": []
             },
             {
@@ -7456,7 +7456,7 @@
                   "code": "const abs = new URL(\"https://example.com/a/b\")\nprintln(abs.href)   // https://example.com/a/b\nconst rel = new URL(\"../c?x=1\", \"https://example.com/a/b/\")\nprintln(rel.href)   // https://example.com/a/c?x=1\ntry {\n  const bad = new URL(\"not a url\")\n  println(bad.href)\n} catch (e: TypeError) {\n  println(e.message)   // Invalid URL: not a url\n}"
                 }
               ],
-              "source": "core/url.pi:417",
+              "source": "core/url.pi:418",
               "members": []
             },
             {
@@ -7470,7 +7470,7 @@
                   "code": "const good = URL.parse(\"http://localhost:3000/api\")\nprintln(good?.port)                  // 3000\nprintln(URL.parse(\"::nonsense::\"))   // null"
                 }
               ],
-              "source": "core/url.pi:435",
+              "source": "core/url.pi:436",
               "members": []
             },
             {
@@ -7484,7 +7484,7 @@
                   "code": "println(URL.canParse(\"https://example.com\"))      // true\nprintln(URL.canParse(\"/relative/path\"))           // false\nprintln(URL.canParse(\"/relative/path\", \"https://example.com\"))   // true"
                 }
               ],
-              "source": "core/url.pi:450",
+              "source": "core/url.pi:451",
               "members": []
             },
             {
@@ -7498,7 +7498,7 @@
                   "code": "const url = new URL(\"HTTPS://example.com\")\nprintln(url.protocol)   // https:"
                 }
               ],
-              "source": "core/url.pi:698",
+              "source": "core/url.pi:699",
               "members": []
             },
             {
@@ -7512,7 +7512,7 @@
                   "code": "println(new URL(\"http://example.com:8080/\").host)   // example.com:8080\nprintln(new URL(\"http://example.com:80/\").host)     // example.com"
                 }
               ],
-              "source": "core/url.pi:709",
+              "source": "core/url.pi:710",
               "members": []
             },
             {
@@ -7526,7 +7526,7 @@
                   "code": "const url = new URL(\"https://example.com/a/./b/../c\")\nprintln(url.pathname)   // /a/c"
                 }
               ],
-              "source": "core/url.pi:721",
+              "source": "core/url.pi:722",
               "members": []
             },
             {
@@ -7540,7 +7540,7 @@
                   "code": "println(new URL(\"https://example.com/find?q=pico\").search)   // ?q=pico\nprintln(new URL(\"https://example.com/find\").search.length)   // 0"
                 }
               ],
-              "source": "core/url.pi:732",
+              "source": "core/url.pi:733",
               "members": []
             },
             {
@@ -7554,7 +7554,7 @@
                   "code": "const url = new URL(\"https://example.com/guide#install\")\nprintln(url.hash)   // #install"
                 }
               ],
-              "source": "core/url.pi:744",
+              "source": "core/url.pi:745",
               "members": []
             },
             {
@@ -7568,7 +7568,7 @@
                   "code": "println(new URL(\"https://example.com:8443/x?y\").origin)   // https://example.com:8443\nprintln(new URL(\"mailto:ada@example.com\").origin)         // null"
                 }
               ],
-              "source": "core/url.pi:756",
+              "source": "core/url.pi:757",
               "members": []
             },
             {
@@ -7582,7 +7582,7 @@
                   "code": "const url = new URL(\"https://example.com/search?q=pico\")\nprintln(url.searchParams.get(\"q\"))   // pico\nurl.searchParams.append(\"page\", \"2\")\nprintln(url.href)   // https://example.com/search?q=pico&page=2"
                 }
               ],
-              "source": "core/url.pi:769",
+              "source": "core/url.pi:770",
               "members": []
             },
             {
@@ -7596,7 +7596,7 @@
                   "code": "const url = new URL(\"HTTP://User@Example.COM:80/a/../b?x#y\")\nprintln(url.href)   // http://User@example.com/b?x#y"
                 }
               ],
-              "source": "core/url.pi:788",
+              "source": "core/url.pi:789",
               "members": []
             },
             {
@@ -7610,7 +7610,7 @@
                   "code": "const url = new URL(\"https://example.com/a?x=1\")\nurl.pathname = \"/docs/read me\"\nprintln(url.href)   // https://example.com/docs/read%20me?x=1"
                 }
               ],
-              "source": "core/url.pi:822",
+              "source": "core/url.pi:823",
               "members": []
             },
             {
@@ -7624,7 +7624,7 @@
                   "code": "const url = new URL(\"https://example.com/find?q=old#top\")\nurl.search = \"q=new&page=2\"\nprintln(url.href)                    // https://example.com/find?q=new&page=2#top\nprintln(url.searchParams.get(\"page\"))   // 2"
                 }
               ],
-              "source": "core/url.pi:839",
+              "source": "core/url.pi:840",
               "members": []
             },
             {
@@ -7638,7 +7638,7 @@
                   "code": "const url = new URL(\"https://example.com/guide\")\nurl.hash = \"install\"\nprintln(url.href)   // https://example.com/guide#install"
                 }
               ],
-              "source": "core/url.pi:852",
+              "source": "core/url.pi:853",
               "members": []
             },
             {
@@ -7652,7 +7652,7 @@
                   "code": "const url = new URL(\"https://example.com/a\")\nurl.host = \"pico.dev:8443\"\nprintln(url.href)   // https://pico.dev:8443/a"
                 }
               ],
-              "source": "core/url.pi:866",
+              "source": "core/url.pi:867",
               "members": []
             },
             {
@@ -7666,7 +7666,7 @@
                   "code": "const url = new URL(\"http://example.com:443/\")\nurl.protocol = \"https\"\nprintln(url.href)   // https://example.com/"
                 }
               ],
-              "source": "core/url.pi:887",
+              "source": "core/url.pi:888",
               "members": []
             },
             {
@@ -7680,7 +7680,7 @@
                   "code": "const url = new URL(\"https://example.com/path\")\nprintln(url.toString())   // https://example.com/path\nprintln(`link: ${url}`)   // link: https://example.com/path"
                 }
               ],
-              "source": "core/url.pi:934",
+              "source": "core/url.pi:935",
               "members": []
             },
             {
@@ -7694,7 +7694,7 @@
                   "code": "const url = new URL(\"https://example.com/a\")\nprintln(url.toJSON())   // https://example.com/a"
                 }
               ],
-              "source": "core/url.pi:945",
+              "source": "core/url.pi:946",
               "members": []
             }
           ]
@@ -7710,7 +7710,7 @@
               "code": "const params = new URLSearchParams(\"q=pico&page=2\")\nprintln(params.get(\"q\"))       // pico\nprintln(params.toString())     // q=pico&page=2"
             }
           ],
-          "source": "core/url.pi:112",
+          "source": "core/url.pi:113",
           "members": [
             {
               "name": "constructor",
@@ -7723,7 +7723,7 @@
                   "code": "const fromQuery = new URLSearchParams(\"?a=1&b=two%20words\")\nprintln(fromQuery.get(\"b\"))     // two words\nconst fromPairs = new URLSearchParams([[\"x\", \"1\"], [\"y\", \"2\"]])\nprintln(fromPairs.toString())   // x=1&y=2"
                 }
               ],
-              "source": "core/url.pi:126",
+              "source": "core/url.pi:127",
               "members": []
             },
             {
@@ -7737,7 +7737,7 @@
                   "code": "const params = new URLSearchParams(\"a=1&a=2&b=3\")\nprintln(params.size)   // 3"
                 }
               ],
-              "source": "core/url.pi:170",
+              "source": "core/url.pi:171",
               "members": []
             },
             {
@@ -7751,7 +7751,7 @@
                   "code": "const params = new URLSearchParams(\"tag=a\")\nparams.append(\"tag\", \"b\")\nprintln(params.toString())   // tag=a&tag=b"
                 }
               ],
-              "source": "core/url.pi:182",
+              "source": "core/url.pi:183",
               "members": []
             },
             {
@@ -7765,7 +7765,7 @@
                   "code": "const params = new URLSearchParams(\"a=1&b=2&a=3\")\nparams.delete(\"a\")\nprintln(params.toString())   // b=2"
                 }
               ],
-              "source": "core/url.pi:195",
+              "source": "core/url.pi:196",
               "members": []
             },
             {
@@ -7779,7 +7779,7 @@
                   "code": "const params = new URLSearchParams(\"name=Ada&lang=pico\")\nprintln(params.get(\"name\"))      // Ada\nprintln(params.get(\"missing\"))   // null"
                 }
               ],
-              "source": "core/url.pi:214",
+              "source": "core/url.pi:215",
               "members": []
             },
             {
@@ -7793,7 +7793,7 @@
                   "code": "const params = new URLSearchParams(\"tag=a&x=1&tag=b\")\nprintln(params.getAll(\"tag\").join(\", \"))   // a, b"
                 }
               ],
-              "source": "core/url.pi:230",
+              "source": "core/url.pi:231",
               "members": []
             },
             {
@@ -7807,7 +7807,7 @@
                   "code": "const params = new URLSearchParams(\"debug=&level=3\")\nprintln(params.has(\"debug\"))   // true\nprintln(params.has(\"trace\"))   // false"
                 }
               ],
-              "source": "core/url.pi:248",
+              "source": "core/url.pi:249",
               "members": []
             },
             {
@@ -7821,7 +7821,7 @@
                   "code": "const params = new URLSearchParams(\"a=1&b=2&a=3\")\nparams.set(\"a\", \"9\")\nprintln(params.toString())   // a=9&b=2"
                 }
               ],
-              "source": "core/url.pi:260",
+              "source": "core/url.pi:261",
               "members": []
             },
             {
@@ -7835,7 +7835,7 @@
                   "code": "const params = new URLSearchParams(\"c=3&a=1&b=2\")\nparams.sort()\nprintln(params.toString())   // a=1&b=2&c=3"
                 }
               ],
-              "source": "core/url.pi:288",
+              "source": "core/url.pi:289",
               "members": []
             },
             {
@@ -7849,7 +7849,7 @@
                   "code": "const params = new URLSearchParams(\"a=1&b=2&a=3\")\nprintln(params.keys().join(\" \"))   // a b a"
                 }
               ],
-              "source": "core/url.pi:309",
+              "source": "core/url.pi:310",
               "members": []
             },
             {
@@ -7863,7 +7863,7 @@
                   "code": "const params = new URLSearchParams(\"a=1&b=2\")\nfor (const [name, value] of params.entries()) {\n  println(`${name} -> ${value}`)\n}\n// a -> 1\n// b -> 2"
                 }
               ],
-              "source": "core/url.pi:328",
+              "source": "core/url.pi:329",
               "members": []
             },
             {
@@ -7877,7 +7877,7 @@
                   "code": "const params = new URLSearchParams(\"x=10&y=20\")\nfor (const [name, value] of params) {\n  println(`${name}=${value}`)\n}\n// x=10\n// y=20"
                 }
               ],
-              "source": "core/url.pi:347",
+              "source": "core/url.pi:348",
               "members": []
             },
             {
@@ -7891,7 +7891,7 @@
                   "code": "const params = new URLSearchParams()\nparams.append(\"q\", \"hello world\")\nparams.append(\"lang\", \"en&de\")\nprintln(params.toString())   // q=hello+world&lang=en%26de"
                 }
               ],
-              "source": "core/url.pi:360",
+              "source": "core/url.pi:361",
               "members": []
             }
           ]
@@ -9547,7 +9547,7 @@
               "code": "eprint(\"warning: \")\neprintln(\"disk almost full\")   // stderr: warning: disk almost full"
             }
           ],
-          "source": "core/string.pi:657",
+          "source": "core/string.pi:641",
           "members": []
         },
         {
@@ -9561,7 +9561,7 @@
               "code": "eprintln(\"something went wrong\")   // written to stderr"
             }
           ],
-          "source": "core/string.pi:667",
+          "source": "core/string.pi:651",
           "members": []
         },
         {
@@ -9632,7 +9632,7 @@
               "code": "println(parseFloat(\"3.14 m\"))   // 3.14\nprintln(parseFloat(\"abc\"))      // NaN"
             }
           ],
-          "source": "core/string.pi:596",
+          "source": "core/string.pi:580",
           "members": []
         },
         {
@@ -9646,7 +9646,7 @@
               "code": "println(parseInt(\"42\"))         // 42\nprintln(parseInt(\"  -7 apples\"))   // -7"
             }
           ],
-          "source": "core/string.pi:405",
+          "source": "core/string.pi:389",
           "members": []
         },
         {
@@ -9751,7 +9751,7 @@
               "code": "println(\"A€\".codePointAt(1))   // 8364\nprintln(\"A€\".codePointAt(5))   // null"
             }
           ],
-          "source": "core/string.pi:626",
+          "source": "core/string.pi:610",
           "members": []
         },
         {
@@ -9807,7 +9807,7 @@
               "code": "println(\"a/b/c\".lastIndexOf(\"/\"))   // 3\nprintln(\"a/b/c\".lastIndexOf(\"x\"))   // -1"
             }
           ],
-          "source": "core/string.pi:698",
+          "source": "core/string.pi:682",
           "members": []
         },
         {
@@ -9835,7 +9835,7 @@
               "code": "const names = [\"bob\", \"Alice\", \"carol\"]\nnames.sort((a, b) => a.localeCompare(b))\nprintln(names.join(\", \"))   // Alice, bob, carol"
             }
           ],
-          "source": "core/string.pi:641",
+          "source": "core/string.pi:625",
           "members": []
         },
         {
@@ -9849,7 +9849,7 @@
               "code": "const m = \"v1.20\".match(/(\\d+)\\.(\\d+)/)\nif (m != null) {\n  println(`${m[1]} ${m[2]}`)   // 1 20\n}\nconst all = \"a1b22c333\".match(/\\d+/g)\nif (all != null) {\n  println(all.length)   // 3\n  println(all[2])       // 333\n}"
             }
           ],
-          "source": "core/string.pi:244",
+          "source": "core/string.pi:245",
           "members": []
         },
         {
@@ -9863,7 +9863,7 @@
               "code": "for (const m of \"x=1, y=2\".matchAll(/(\\w)=(\\d)/g)) {\n  println(`${m[1]} is ${m[2]} at ${m.index}`)\n}\n// x is 1 at 0\n// y is 2 at 5"
             }
           ],
-          "source": "core/string.pi:270",
+          "source": "core/string.pi:271",
           "members": []
         },
         {
@@ -9877,7 +9877,7 @@
               "code": "println(`[${\"ab\".padEnd(5)}]`)   // [ab   ]"
             }
           ],
-          "source": "core/string.pi:381",
+          "source": "core/string.pi:365",
           "members": []
         },
         {
@@ -9891,7 +9891,7 @@
               "code": "println(\"ab\".padEnd(6, \"-=\"))   // ab-=-="
             }
           ],
-          "source": "core/string.pi:392",
+          "source": "core/string.pi:376",
           "members": []
         },
         {
@@ -9905,7 +9905,7 @@
               "code": "println(`[${\"7\".padStart(3)}]`)   // [  7]"
             }
           ],
-          "source": "core/string.pi:359",
+          "source": "core/string.pi:343",
           "members": []
         },
         {
@@ -9919,7 +9919,7 @@
               "code": "println(\"7\".padStart(3, \"0\"))   // 007"
             }
           ],
-          "source": "core/string.pi:370",
+          "source": "core/string.pi:354",
           "members": []
         },
         {
@@ -9933,7 +9933,7 @@
               "code": "println(\"ab\".repeat(3))   // ababab"
             }
           ],
-          "source": "core/string.pi:324",
+          "source": "core/string.pi:311",
           "members": []
         },
         {
@@ -9947,7 +9947,7 @@
               "code": "println(\"one two two\".replace(\"two\", \"2\"))         // one 2 two\nprintln(\"a1b22\".replace(/\\d+/g, \"#\"))              // a#b#\nprintln(\"john smith\".replace(/(\\w+) (\\w+)/, \"$2, $1\"))   // smith, john"
             }
           ],
-          "source": "core/string.pi:194",
+          "source": "core/string.pi:195",
           "members": []
         },
         {
@@ -9961,7 +9961,7 @@
               "code": "println(\"one two two\".replaceAll(\"two\", \"2\"))   // one 2 2\nprintln(\"a-b_c\".replaceAll(/[-_]/g, (m) => \".\"))   // a.b.c"
             }
           ],
-          "source": "core/string.pi:215",
+          "source": "core/string.pi:216",
           "members": []
         },
         {
@@ -9975,7 +9975,7 @@
               "code": "println(\"abc123\".search(/\\d/))   // 3"
             }
           ],
-          "source": "core/string.pi:280",
+          "source": "core/string.pi:281",
           "members": []
         },
         {
@@ -10003,7 +10003,7 @@
               "code": "println(\"a,b,c\".split(\",\").join(\" | \"))      // a | b | c\nprintln(\"a,b,c\".split(\",\", 2).join(\" | \"))   // a | b\nprintln(\"1 + 2\".split(/\\s*\\+\\s*/).join(\" | \"))   // 1 | 2"
             }
           ],
-          "source": "core/string.pi:151",
+          "source": "core/string.pi:152",
           "members": []
         },
         {
@@ -10031,7 +10031,7 @@
               "code": "println(\"Hello, world\".substring(7))      // world\nprintln(\"Hello, world\".substring(5, 0))   // Hello"
             }
           ],
-          "source": "core/string.pi:611",
+          "source": "core/string.pi:595",
           "members": []
         },
         {
@@ -10045,7 +10045,7 @@
               "code": "println(\"Hello, World\".toLowerCase())   // hello, world"
             }
           ],
-          "source": "core/string.pi:132",
+          "source": "core/string.pi:133",
           "members": []
         },
         {
@@ -14016,7 +14016,7 @@
               "code": "import { wrap } from \"std/fmt\"\n\nprintln(wrap(\"the quick brown fox jumps over the lazy dog\", 15))\n// the quick brown\n// fox jumps over\n// the lazy dog"
             }
           ],
-          "source": "fmt.pi:388",
+          "source": "fmt.pi:387",
           "members": []
         },
         {
@@ -14030,7 +14030,7 @@
               "code": "import { wrap } from \"std/fmt\"\nimport { displayWidth } from \"std/term\"\n\n// Each of these characters takes two columns.\nprintln(wrap(\"日本語 の テキスト\", 10, displayWidth))\n// 日本語 の\n// テキスト"
             }
           ],
-          "source": "fmt.pi:405",
+          "source": "fmt.pi:404",
           "members": []
         }
       ]
@@ -22784,7 +22784,7 @@
               "code": "import { displayWidth } from \"std/term\"\n\nprintln(displayWidth(\"hello\"))                   // 5\nprintln(displayWidth(\"\\u{1b}[32mok\\u{1b}[0m\"))   // 2\nprintln(displayWidth(\"日本語\"))                  // 6"
             }
           ],
-          "source": "term.pi:70",
+          "source": "term.pi:71",
           "members": []
         }
       ]

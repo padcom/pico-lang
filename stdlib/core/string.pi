@@ -115,12 +115,13 @@ function __String_trim(s: string): string {
 /// println("Hello, world".toUpperCase())   // HELLO, WORLD
 /// ```
 function __String_toUpperCase(s: string): string {
-  let out = ""
+  // (Pieces joined once: appending is O(n²), #73.)
+  const out: string[] = []
   for (const c of s) {
     const n = c as u32
-    out = out + (if (n >= 97 && n <= 122) `${(n - 32) as char}` else `${c}`)
+    out.push(if (n >= 97 && n <= 122) `${(n - 32) as char}` else `${c}`)
   }
-  return out
+  return out.join("")
 }
 
 /// ASCII letters only.
@@ -130,12 +131,12 @@ function __String_toUpperCase(s: string): string {
 /// println("Hello, World".toLowerCase())   // hello, world
 /// ```
 function __String_toLowerCase(s: string): string {
-  let out = ""
+  const out: string[] = []
   for (const c of s) {
     const n = c as u32
-    out = out + (if (n >= 65 && n <= 90) `${(n + 32) as char}` else `${c}`)
+    out.push(if (n >= 65 && n <= 90) `${(n + 32) as char}` else `${c}`)
   }
-  return out
+  return out.join("")
 }
 
 /// The pieces of the string between occurrences of `separator` (a string or a `RegExp`, whose
@@ -284,34 +285,20 @@ function __String_search(s: string, re: RegExp): int {
 
 /// `s` with regex syntax characters escaped (a pattern matching `s` literally).
 function __rQuote(s: string): string {
-  let out = ""
+  const out: string[] = []
   for (const c of s) {
-    if ("\\^$.*+?()[]{}|/".includes(`${c}`)) {
-      out = `${out}\\${c}`
-    } else {
-      out = `${out}${c}`
-    }
+    if ("\\^$.*+?()[]{}|/".includes(`${c}`)) out.push("\\")
+    out.push(`${c}`)
   }
-  return out
+  return out.join("")
 }
 
 function __replaceAllStr(s: string, search: string, replacement: string): string {
   if (search.length == 0) {
     return s
   }
-  let out = ""
-  let start = 0
-  let i = 0
-  while (i + search.length <= s.length) {
-    if (__matchesAt(s, search, i)) {
-      out = out + s.slice(start, i) + replacement
-      i += search.length
-      start = i
-    } else {
-      i += 1
-    }
-  }
-  return out + s.slice(start)
+  // Every occurrence: the pieces between them, joined with the replacement once (#73).
+  return __splitStr(s, search).join(replacement)
 }
 
 /// The string `count` times over: `"ab".repeat(3)` is `"ababab"` (empty for a `count` of 0 or
@@ -339,14 +326,11 @@ function __String_repeat(s: string, count: int): string {
 }
 
 function __padding(length: int, fill: string): string {
-  let pad = ""
-  if (fill.length == 0) {
-    return pad
+  if (fill.length == 0 || length <= 0) {
+    return ""
   }
-  while (pad.length < length) {
-    pad = pad + fill
-  }
-  pad.slice(0, length)
+  // (By `repeat`, which doubles: appending `fill` one at a time is O(n²), #73.)
+  __String_repeat(fill, (length + fill.length - 1) / fill.length).slice(0, length)
 }
 
 /// The string padded with spaces at the start to `length` code points (unchanged if it's that long
