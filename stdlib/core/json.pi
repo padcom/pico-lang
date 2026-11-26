@@ -48,7 +48,7 @@ class JsonError extends Error {
 class JSON {
   /// The `T` that `text` holds. Struct and class fields are matched by name (or by
   /// `@json.name`); unknown keys are skipped; a missing field is an error unless it's
-  /// nullable (then it's `null`).
+  /// nullable (then it's `null`) or a class field with an initializer (then it takes it).
   ///
   /// @example
   /// ```ts
