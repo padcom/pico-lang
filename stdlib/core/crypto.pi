@@ -49,7 +49,8 @@ function __cryptoOp(op: int, fields: Uint8Array[]): Uint8Array throws CryptoErro
     packed.set(at + 2, (len >> 16) & 255)
     packed.set(at + 3, (len >> 24) & 255)
     at += 4
-    for (let i = 0; i < len; i++) packed.set(at + i, f.get(i))
+    // (One copy, not a call per byte: #69.)
+    packed.setAll(f, at)
     at += len
   }
   const job = __io(140, op, packed.buffer.__handle, n, "", "")
