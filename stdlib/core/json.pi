@@ -104,6 +104,11 @@ function __jsonWrite<T>(_w: __JsonWriter, _value: T): void { panic("JSON writer 
 /// Reads JSON text for generated parsers. Character codes; `-1` is the end of the text.
 class __JsonReader {
   text: string
+  /// Whether `text` is ASCII: then it's read directly (indexing it is constant time), else
+  /// as UTF-8 `bytes` (#58: indexing a non-ASCII string at `i` walks it from the start, which
+  /// made reading quadratic): the structure is ASCII, strings are decoded from byte ranges.
+  ascii: bool
+  bytes: Uint8Array
   pos: int = 0
   len: int
   public failed: bool = false
@@ -113,15 +118,38 @@ class __JsonReader {
   /// For each open array or object: whether no element has been read yet.
   firsts: bool[] = []
 
+  /// The bytes' buffer handle (read directly: `code` is the reader's inner loop).
+  handle: int
+
   constructor(text: string) {
     this.text = text
-    this.len = text.length
+    this.bytes = new TextEncoder().encode(text)
+    this.len = this.bytes.length
+    this.ascii = this.len == text.length
+    this.handle = this.bytes.buffer.__handle
   }
 
-  code(i: int): int { if (i < len) (text[i] as u32) as int else -1 }
+  code(i: int): int {
+    if (i >= len || i < 0) return -1
+    if (ascii) (text[i] as u32) as int else __buf_op(11, handle, i, 0)
+  }
 
-  /// Whether `lit` comes next.
-  has(lit: string): bool { return pos + lit.length <= len && __matchesAt(text, lit, pos) }
+  /// The text of positions `a..b`.
+  str(a: int, b: int): string {
+    if (ascii) text.slice(a, b) else __string_fromUtf8(bytes.subarray(a, b))
+  }
+
+  /// Whether `lit` (ASCII) comes next.
+  has(lit: string): bool {
+    if (pos + lit.length > len) return false
+    if (ascii) return __matchesAt(text, lit, pos)
+    let k = 0
+    for (const c of lit) {
+      if (code(pos + k) != ((c as u32) as int)) return false
+      k += 1
+    }
+    return true
+  }
 
   ws() {
     while (pos < len) {
@@ -142,7 +170,8 @@ class __JsonReader {
       if (code(i) == 10) {
         line += 1
         col = 1
-      } else {
+      } else if ((code(i) & 0xC0) != 0x80) {
+        // (Columns count characters: a UTF-8 continuation byte isn't one.)
         col += 1
       }
       i += 1
@@ -194,7 +223,7 @@ class __JsonReader {
       while (i < len && code(i) != 34) {
         i += if (code(i) == 92) 2 else 1
       }
-      return text.slice(pos, i + 1)
+      return str(pos, i + 1)
     }
     let i = pos
     while (i < len) {
@@ -204,7 +233,7 @@ class __JsonReader {
       }
       i += 1
     }
-    text.slice(pos, i)
+    str(pos, i)
   }
 
   /// Not the expected kind of value.
@@ -220,6 +249,15 @@ class __JsonReader {
   public pop() { path.pop() }
 
   public missing(name: string) { fail(`missing field '${name}'`) }
+  /// Whether a string comes next (an enum's unit variant, #58).
+  public peekString(): bool {
+    if (failed) return false
+    ws()
+    return code(pos) == 34
+  }
+  public unknownVariant(name: string, type: string) { fail(`${type} has no variant ${name:?}`) }
+  public noVariant(type: string) { fail(`expected a variant of ${type}, got an empty object`) }
+  public oneKey(type: string) { fail(`expected one key (the variant) in the ${type} object`) }
 
   /// Whether the next value is `null` (consumed).
   public isNull(): bool {
@@ -265,9 +303,9 @@ class __JsonReader {
     }
     if (code(pos) == 34) {
       pos += 1
-      return text.slice(start, pos - 1)
+      return str(start, pos - 1)
     }
-    let out = text.slice(start, pos)
+    let out = str(start, pos)
     while (true) {
       const c = code(pos)
       if (c == -1) {
@@ -283,8 +321,12 @@ class __JsonReader {
         return ""
       }
       if (c != 92) {
-        out = out + `${text[pos]}`
-        pos += 1
+        // A run of plain text, at once.
+        const from = pos
+        while (pos < len && code(pos) != 34 && code(pos) != 92 && code(pos) >= 32) {
+          pos += 1
+        }
+        out = out + str(from, pos)
         continue
       }
       const e = code(pos + 1)
@@ -402,7 +444,7 @@ class __JsonReader {
       }
     }
     pos = i
-    text.slice(start, i)
+    str(start, i)
   }
 
   public readF64(type: string): f64 {
