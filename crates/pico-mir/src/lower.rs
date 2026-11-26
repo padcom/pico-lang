@@ -5988,9 +5988,20 @@ impl FnBuilder<'_, '_> {
                 self.core_call(R, "skipValue", vec![rd()], Ty::Void, span);
                 self.terminate(Terminator::Goto(head));
                 self.switch_to(done);
+                // A class's fields with initializers take them when missing (#58).
+                let inits = program
+                    .field_initializers
+                    .get(sid)
+                    .filter(|_| def.is_class)
+                    .cloned();
+                let has_init = |i: usize| {
+                    inits
+                        .as_ref()
+                        .is_some_and(|(_, idx)| idx.contains(&(i as u32)))
+                };
                 // Missing fields (a nullable one is `null`).
-                for ((_, jkey, fty), (_, seen)) in fields.iter().zip(&slots) {
-                    if matches!(fty, Ty::Nullable(_)) {
+                for (i, ((_, jkey, fty), (_, seen))) in fields.iter().zip(&slots).enumerate() {
+                    if matches!(fty, Ty::Nullable(_)) || has_init(i) {
                         continue;
                     }
                     let (miss, fine) = (self.new_block(), self.new_block());
@@ -6011,8 +6022,31 @@ impl FnBuilder<'_, '_> {
                 if def.is_class {
                     let obj = self.temp(t.clone());
                     self.assign(Place::local(obj), Rvalue::New(t.clone()), span);
+                    // The initializers first; then the fields the JSON has replace theirs.
+                    if let Some((init, _)) = &inits {
+                        let f = if args.is_empty() {
+                            *init
+                        } else {
+                            self.cx.instance(*init, vec![(owner, args.to_vec())])
+                        };
+                        let unit = Place::local(self.temp(Ty::Void));
+                        self.call_into(f, vec![Operand::Copy(Place::local(obj))], unit, span);
+                    }
                     for (i, v) in vals.into_iter().enumerate() {
-                        self.assign(Place::local(obj).field(i as u32), Rvalue::Use(v), span);
+                        if has_init(i) {
+                            let (set, skip) = (self.new_block(), self.new_block());
+                            self.terminate(Terminator::Branch {
+                                cond: Operand::Copy(Place::local(slots[i].1)),
+                                then: set,
+                                else_: skip,
+                            });
+                            self.switch_to(set);
+                            self.assign(Place::local(obj).field(i as u32), Rvalue::Use(v), span);
+                            self.terminate(Terminator::Goto(skip));
+                            self.switch_to(skip);
+                        } else {
+                            self.assign(Place::local(obj).field(i as u32), Rvalue::Use(v), span);
+                        }
                     }
                     Operand::Copy(Place::local(obj))
                 } else {

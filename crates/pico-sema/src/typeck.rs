@@ -1974,7 +1974,9 @@ impl<'p> Checker<'p> {
             return;
         }
         let f = self.func();
-        let in_ctor = f.name.ends_with(".constructor") && f.owner == Some(*sid);
+        // (The hidden `__initFields` runs a constructor's field initializers, #58.)
+        let in_ctor = (f.name.ends_with(".constructor") || f.name.ends_with(".__initFields"))
+            && f.owner == Some(*sid);
         if !in_ctor {
             self.diags.push(
                 Diagnostic::error(codes::READONLY_FIELD, format!("`{name}` is `readonly`"))

@@ -77,6 +77,10 @@ pub struct Program {
     /// language server's index: type names (types don't keep spans), `new C` and `S { … }`,
     /// imported names.
     pub name_refs: Vec<(Span, Span)>,
+    /// Classes with field initializers: a hidden method that runs them on `this` (as the
+    /// constructor does before its body) and the indices of the fields they set, for
+    /// `JSON.parse` to fill a missing field from its initializer (#58).
+    pub field_initializers: HashMap<StructId, (FnId, Vec<u32>)>,
     /// The core library's internal names that modules export under public ones
     /// (`__ClassDecl` → `ClassDecl`, from `std/meta`'s `export { __ClassDecl as ClassDecl }`),
     /// for the language server's hovers.

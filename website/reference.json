@@ -3675,7 +3675,7 @@
               "name": "parse",
               "kind": "method",
               "signature": "public static parse<T>(text: string): T throws JsonError",
-              "doc": "<p>The <code>T</code> that <code>text</code> holds. Struct and class fields are matched by name (or by\n<code>@json.name</code>); unknown keys are skipped; a missing field is an error unless it's\nnullable (then it's <code>null</code>).</p>\n",
+              "doc": "<p>The <code>T</code> that <code>text</code> holds. Struct and class fields are matched by name (or by\n<code>@json.name</code>); unknown keys are skipped; a missing field is an error unless it's\nnullable (then it's <code>null</code>) or a class field with an initializer (then it takes it).</p>\n",
               "examples": [
                 {
                   "caption": "",
