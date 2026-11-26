@@ -299,7 +299,7 @@ fn inline_constant_calls(p: &mut Program, consts: &HashMap<usize, Const>) -> usi
                 b.stmts.push(Statement {
                     place: d.clone(),
                     rvalue: Rvalue::Use(Operand::Const(c.clone())),
-                    loc: loc.clone(),
+                    loc: *loc,
                 });
             }
             b.term = Terminator::Goto(*next);
