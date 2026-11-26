@@ -1,0 +1,202 @@
+---
+source: crates/pico-driver/tests/mir.rs
+expression: "mir(r#\"\nfunction third(): i32 {\n  const xs: [i32; 3] = [1, 2, 3]\n  return xs[2]\n}\nconst small: i8 = 100\nfunction over(): i8? { small.checkedAdd(28) }\nfunction fine(): i8? { small.checkedMul(1) }\nprintln(`${third()} ${over()} ${fine()}`)\n\"#)"
+---
+global @g0: () => bool[]? // __finalizationRegistries
+global @g1: i64 // __finalizedAtCycle
+global @g2: i64 // __stepsSinceFinalizers
+global @g3: __Reactivity? // __reactivity
+global @g4: bool // __tracking
+global @g5: i64 // __reactiveObjects
+global @g6: __Loop? // __loop
+global @g7: i64 // __lastJob
+global @g8: FinalizationRegistry<i64>? // __buffers
+global @g9: i64 // __reclaimedAtCycle
+global @g10: i64 // __bytesSinceReclaim
+global @g11: __ConnPool? // __pool
+global @g12: Map<string, __Zone>? // __zoneCache
+global @g13: Performance // performance
+global @g14: __Xoshiro128? // __mathRng
+global @g15: Crypto // crypto
+global @g16: i8 // small
+global @g17: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g18: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g19: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g20: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g21: i64 // Float64Array.BYTES_PER_ELEMENT
+
+fn third() -> i32 {
+    let _0: [i32; 3] // xs
+    let _1: [i32; 3]
+    let _2: i64
+    let _3: bool
+    let _4: i32
+  bb0:
+    _1 = [i32; 3](const 1_i32, const 2_i32, const 3_i32)
+    _0 = _1
+    _2 = const 2_i64
+    goto bb1
+  bb1:
+    _4 = _0[_2]
+    return _4
+  bb2:
+    unreachable
+  bb3:
+    unreachable
+}
+
+fn over() -> i8? {
+    let _0: i8
+    let _1: i8
+    let _2: bool
+    let _3: i8?
+    let _4: i8
+  bb0:
+    goto bb1
+  bb1:
+    _3 = const null<i8?>
+    goto bb3
+  bb2:
+    unreachable
+  bb3:
+    return _3
+}
+
+fn fine() -> i8? {
+    let _0: i8
+    let _1: i8
+    let _2: bool
+    let _3: i8?
+    let _4: i8
+  bb0:
+    goto bb2
+  bb1:
+    unreachable
+  bb2:
+    _4 = Wrapping(Mul, const 100_i8, const 1_i8)
+    _3 = Some<i8?>(_4)
+    goto bb3
+  bb3:
+    return _3
+}
+
+fn Uint8Array.<static>() -> void {
+  bb0:
+    @g17 = const 1_i64
+    return
+}
+
+fn Int32Array.<static>() -> void {
+  bb0:
+    @g18 = const 4_i64
+    return
+}
+
+fn Uint32Array.<static>() -> void {
+  bb0:
+    @g19 = const 4_i64
+    return
+}
+
+fn Float32Array.<static>() -> void {
+  bb0:
+    @g20 = const 4_i64
+    return
+}
+
+fn Float64Array.<static>() -> void {
+  bb0:
+    @g21 = const 8_i64
+    return
+}
+
+fn <main>() -> void {
+    let _0: Performance
+    let _1: SubtleCrypto
+    let _2: Crypto
+    let _3: i32
+    let _4: string
+    let _5: i8?
+    let _6: string
+    let _7: bool
+    let _8: i8
+    let _9: string
+    let _10: i8?
+    let _11: string
+    let _12: bool
+    let _13: i8
+    let _14: string
+    let _15: string
+    let _16: string
+    let _17: string
+    let _18: string
+  bb0:
+    call Uint8Array.<static>() -> bb1
+  bb1:
+    call Int32Array.<static>() -> bb2
+  bb2:
+    call Uint32Array.<static>() -> bb3
+  bb3:
+    call Float32Array.<static>() -> bb4
+  bb4:
+    call Float64Array.<static>() -> bb5
+  bb5:
+    @g0 = const null<() => bool[]?>
+    @g1 = const -1_i64
+    @g2 = const 0_i64
+    @g3 = const null<__Reactivity?>
+    @g4 = const false
+    @g5 = const 0_i64
+    @g6 = const null<__Loop?>
+    @g7 = const -1_i64
+    @g8 = const null<FinalizationRegistry<i64>?>
+    @g9 = const -1_i64
+    @g10 = const 0_i64
+    @g11 = const null<__ConnPool?>
+    @g12 = const null<Map<string, __Zone>?>
+    _0 = struct#128{}
+    @g13 = _0
+    @g14 = const null<__Xoshiro128?>
+    _1 = struct#139{}
+    _2 = struct#140{_1}
+    @g15 = _2
+    @g16 = const 100_i8
+    _3 = call third() -> bb6
+  bb6:
+    _4 = ToStr(_3)
+    _5 = call over() -> bb7
+  bb7:
+    _7 = IsNull(_5)
+    branch _7 -> [true: bb8, false: bb9]
+  bb8:
+    _6 = const "null"
+    goto bb10
+  bb9:
+    _8 = Unwrap(_5)
+    _9 = ToStr(_8)
+    _6 = _9
+    goto bb10
+  bb10:
+    _10 = call fine() -> bb11
+  bb11:
+    _12 = IsNull(_10)
+    branch _12 -> [true: bb12, false: bb13]
+  bb12:
+    _11 = const "null"
+    goto bb14
+  bb13:
+    _13 = Unwrap(_10)
+    _14 = ToStr(_13)
+    _11 = _14
+    goto bb14
+  bb14:
+    _15 = Add(_4, const " ")
+    _16 = Add(_15, _6)
+    _17 = Add(_16, const " ")
+    _18 = Add(_17, _11)
+    call builtin println(_18) -> bb15
+  bb15:
+    goto bb16
+  bb16:
+    return
+}
