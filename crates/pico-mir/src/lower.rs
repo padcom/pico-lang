@@ -284,6 +284,9 @@ pub fn lower(
 
 /// Why `t` can't cross to JavaScript (spec §12.3): numbers, `bool`, `string`, structs of
 /// those (copied as plain objects) and classes (handles) can.
+/// Decorators kept for reflection: each one's name and its arguments' source text.
+type Decorators = Vec<(String, Vec<String>)>;
+
 fn js_problem(p: &hir::Program, t: &Ty, seen: &mut Vec<StructId>) -> Option<String> {
     match t {
         Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Str => None,
@@ -2181,7 +2184,7 @@ impl FnBuilder<'_, '_> {
             M::Name => s(t.to_string()),
             M::Kind => s(kind_name(t).to_string()),
             M::Fields => {
-                let fields: Vec<(String, String, Vec<(String, Vec<String>)>)> = match &def {
+                let fields: Vec<(String, String, Decorators)> = match &def {
                     Some((d, sid, args)) => d
                         .fields
                         .iter()
@@ -2218,7 +2221,7 @@ impl FnBuilder<'_, '_> {
                 )
             }
             M::Methods => {
-                let names: Vec<(String, String, Vec<(String, Vec<String>)>)> = match &def {
+                let names: Vec<(String, String, Decorators)> = match &def {
                     Some((d, sid, args)) => d
                         .methods
                         .iter()
