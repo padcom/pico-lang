@@ -8971,7 +8971,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
                 }
               ],
-              "source": "core/websocket.pi:390",
+              "source": "core/websocket.pi:388",
               "members": []
             },
             {
@@ -8985,7 +8985,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:689",
+              "source": "core/websocket.pi:687",
               "members": []
             },
             {
@@ -8999,7 +8999,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:726",
+              "source": "core/websocket.pi:724",
               "members": []
             }
           ]
