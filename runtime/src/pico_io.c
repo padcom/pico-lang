@@ -844,6 +844,7 @@ static Watcher *find_watcher(int64_t id) {
 static int deliver(Watcher *w) {
     watch_drain_os(w);
     if (w->exact && !w->full && w->ndirty == 0) return 0;
+    fprintf(stderr, "PROBE deliver: exact=%d full=%d dirty=%zu\n", w->exact, w->full, w->ndirty);
     Snap now = {0};
     if (w->exact && !w->full && w->root_dir) rescan_dirty(w, &now);
     else scan(w, w->root, w->recursive, &now);
@@ -914,6 +915,7 @@ static void watch_open(Job *j) {
         return;
     }
     w->snap = s;
+    fprintf(stderr, "PROBE open: os_exact=%d exact=%d os=%p\n", w->os_exact, w->exact, w->os);
     pthread_mutex_init(&w->lock, NULL);
     pthread_cond_init(&w->cond, NULL);
     wake_open(w);

@@ -1,3 +1,4 @@
+// expect: PROBE (fails on purpose, to show stderr)
 // expect: modify t/a/b/c/deep.txt
 // expect-windows: modify t\a\b\c\deep.txt
 // expect: remove t/a
