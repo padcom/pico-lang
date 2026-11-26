@@ -666,6 +666,14 @@ async function __netPullConn(conn: Conn, c: ReadableStreamDefaultController<Uint
   }
 }
 
+/// `l.accept()` once `prev` (the accept before it) has settled, however it did.
+async function __acceptAfter(l: Listener, prev: Promise<Conn?, NetError>): Promise<Conn?> throws NetError {
+  try {
+    await prev
+  } catch (_e: NetError) {}
+  return await l.accept()
+}
+
 /// A TCP listener: `accept()` or `for await (const conn of listener)`.
 ///
 /// @example
@@ -686,6 +694,8 @@ class Listener {
   /// The address it listens on (with the port chosen when `listen` was given 0).
   public readonly addr: Addr
   accepting: bool = false
+  /// The accept in flight, which another `accept` waits for (#65).
+  current: Promise<Conn?, NetError>? = null
   closed: bool = false
   released: bool = false
 
@@ -716,7 +726,8 @@ class Listener {
     }
   }
 
-  /// The next connection, or `null` once the listener is closed. One at a time.
+  /// The next connection, or `null` once the listener is closed. Several calls at once each get
+  /// a connection (#65: a call made while another waits accepts after it).
   ///
   /// @example
   /// ```ts
@@ -736,11 +747,14 @@ class Listener {
     if (closed) {
       return __netResolved<Conn?>(null)
     }
-    if (accepting) {
-      panic(`${__netShow(addr.hostname, addr.port)} is already accepting`)
+    const busy = current
+    if (accepting && busy != null) {
+      const after = __acceptAfter(this, busy)
+      current = after
+      return after
     }
     accepting = true
-    __netJob<Conn?>(31, fd, 0, 0, "", "", __netShow(addr.hostname, addr.port), (res: __NetResult) => {
+    const job = __netJob<Conn?>(31, fd, 0, 0, "", "", __netShow(addr.hostname, addr.port), (res: __NetResult) => {
       this.accepting = false
       if (this.closed) {
         // (The connection that woke it up.)
@@ -757,6 +771,8 @@ class Listener {
       this.accepting = false
       this.release()
     })
+    current = job
+    return job
   }
 
   /// `for await` accepts connections until the listener is closed.
