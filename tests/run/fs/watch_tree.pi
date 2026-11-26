@@ -1,0 +1,82 @@
+// expect: modify t/a/b/c/deep.txt
+// expect-windows: modify t\\a\\b\\c\\deep.txt
+// expect: remove t/a
+// expect-windows: remove t\\a
+// expect: remove t/a/b
+// expect-windows: remove t\\a\\b
+// expect: remove t/a/b/c
+// expect-windows: remove t\\a\\b\\c
+// expect: remove t/a/b/c/deep.txt
+// expect-windows: remove t\\a\\b\\c\\deep.txt
+// expect: remove t/a/f.txt
+// expect-windows: remove t\\a\\f.txt
+// expect: create t/z
+// expect-windows: create t\\z
+// expect: create t/z/b
+// expect-windows: create t\\z\\b
+// expect: create t/z/b/c
+// expect-windows: create t\\z\\b\\c
+// expect: create t/z/b/c/deep.txt
+// expect-windows: create t\\z\\b\\c\\deep.txt
+// expect: create t/z/f.txt
+// expect-windows: create t\\z\\f.txt
+// expect: modify t/z/b/c/deep.txt
+// expect-windows: modify t\\z\\b\\c\\deep.txt
+// expect: create t/n
+// expect-windows: create t\\n
+// expect: create t/n/o
+// expect-windows: create t\\n\\o
+// expect: create t/n/o/p
+// expect-windows: create t\\n\\o\\p
+// expect: create t/n/o/p/q.txt
+// expect-windows: create t\\n\\o\\p\\q.txt
+// expect: modify t/n/o/p/q.txt
+// expect-windows: modify t\\n\\o\\p\\q.txt
+// expect: remove t/z
+// expect-windows: remove t\\z
+// expect: remove t/z/b
+// expect-windows: remove t\\z\\b
+// expect: remove t/z/b/c
+// expect-windows: remove t\\z\\b\\c
+// expect: remove t/z/b/c/deep.txt
+// expect-windows: remove t\\z\\b\\c\\deep.txt
+// expect: remove t/z/f.txt
+// expect-windows: remove t\\z\\f.txt
+// expect: modify t/k/x.txt
+// expect-windows: modify t\\k\\x.txt
+
+// A deeper tree (#64): a change deep in it, a directory renamed and then changed inside,
+// a new tree, one removed, and a part nothing happened to (on Linux each is looked at
+// alone: only the directories inotify names are listed again).
+import { mkdir, remove, rename, watch, WatchEvent, Watcher, writeText } from "std/fs"
+
+function show(e: WatchEvent?): void {
+  println(`${e!.kind} ${e!.path}`)
+}
+
+async function events(w: Watcher, n: i32): Promise<void> {
+  for (let i = 0; i < n; i++) show(await w.next())
+}
+
+await mkdir("t/a/b/c", recursive: true)
+await mkdir("t/k")
+await writeText("t/a/b/c/deep.txt", "1")
+await writeText("t/a/f.txt", "f")
+await writeText("t/k/x.txt", "x")
+const w = await watch("t")
+await writeText("t/a/b/c/deep.txt", "2", append: true)
+await events(w, 1)
+await rename("t/a", "t/z")
+await events(w, 10)
+await writeText("t/z/b/c/deep.txt", "3", append: true)
+await events(w, 1)
+await mkdir("t/n/o/p", recursive: true)
+await writeText("t/n/o/p/q.txt", "q")
+await events(w, 4)
+await writeText("t/n/o/p/q.txt", "r", append: true)
+await events(w, 1)
+await remove("t/z", recursive: true)
+await events(w, 5)
+await writeText("t/k/x.txt", "y", append: true)
+await events(w, 1)
+w.close()

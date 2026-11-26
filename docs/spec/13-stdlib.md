@@ -207,8 +207,12 @@ snapshots of the tree (kind, size, modification time, inode per entry), compared
 asked for and again while one waits, in path order. So changes made while nobody waits arrive
 together as one difference (a file created and written is one `create`; created and removed,
 nothing), a rename is a `remove` and a `create`, and directories are never `modify`d.
-`close()` (twice is fine) makes waiting and later `next()` calls return `null`. The OS
-notifications (kqueue, inotify) only wake the watcher up; it also looks every 250 ms.
+`close()` (twice is fine) makes waiting and later `next()` calls return `null`. On Linux
+inotify says which directories changed, and only those are looked at again (nothing without a
+change); a full look when it can't say (its queue overflowed, a watch couldn't be added, the root
+is a file or is gone, which is then looked at every 250 ms). Elsewhere the OS notifications (kqueue,
+a Windows change notification) only wake the watcher up, and it looks at the whole tree, also every
+250 ms.
 
 ### `std/path`
 Node's `path`: `sep`, `delimiter`, `isAbsolute`, `normalize` (`a//b/../c/` → `a/c/`),
