@@ -52,6 +52,15 @@ enum Target {
 /// A decorated binding's name, type as written and whether it's a `const` (#54).
 type BindingInfo = (String, String, bool);
 
+/// A decorator found on something: the decorator, what it's on, the descriptor class that
+/// is, and for a binding its facts and whether it's local.
+type Found<'a> = (
+    &'a ast::Decorator,
+    Target,
+    &'static str,
+    Option<(BindingInfo, bool)>,
+);
+
 /// What a binding decorator receives.
 fn binding_descriptor(b: &BindingInfo, id: usize) -> String {
     format!(
@@ -196,8 +205,7 @@ pub fn expand(
     for (i, st) in stmts.iter().enumerate() {
         let file = st.span.file;
         // (Decorator, what it's on, what that is, a binding's facts.)
-        let mut found: Vec<(&ast::Decorator, Target, &str, Option<(BindingInfo, bool)>)> =
-            Vec::new();
+        let mut found: Vec<Found> = Vec::new();
         // Bindings: top-level ones (their decorators kept aside when modules are read) and
         // local ones anywhere inside.
         if let Some(decs) = modules.binding_decorators.get(&st.span)
@@ -474,7 +482,7 @@ fn push_uses(
     d: Option<&ast::Decl>,
     i: usize,
     file: FileId,
-    found: Vec<(&ast::Decorator, Target, &str, Option<(BindingInfo, bool)>)>,
+    found: Vec<Found>,
 ) {
     for (dec, target_in, what, binding) in found {
         let [name] = &dec.path[..] else { continue };
