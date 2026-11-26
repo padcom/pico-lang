@@ -1,0 +1,26 @@
+// native-only: the trace is the native runtime's
+// env: PICO_WATCH_TRACE=1
+// expect: modify t/a/b/deep.txt
+// expect-windows: modify t\a\b\deep.txt
+// expect: create t/n.txt
+// expect-windows: create t\n.txt
+// expect-stderr: watch: open exact
+// expect-stderr: watch: look incremental
+// expect-stderr: watch: look incremental
+//
+// The OS says what changed (inotify, FSEvents, ReadDirectoryChangesW), so each change is
+// looked at alone, not with a full scan (#64): a silent fallback to scans fails here.
+import { mkdir, watch, WatchEvent, writeText } from "std/fs"
+
+function show(e: WatchEvent?): void {
+  println(`${e!.kind} ${e!.path}`)
+}
+
+await mkdir("t/a/b", recursive: true)
+await writeText("t/a/b/deep.txt", "1")
+const w = await watch("t")
+await writeText("t/a/b/deep.txt", "2", append: true)
+show(await w.next())
+await writeText("t/n.txt", "n")
+show(await w.next())
+w.close()

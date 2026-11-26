@@ -13,6 +13,8 @@
 //! | `// error: E0308` | an expected compile error, in order (`fail` only) |
 //! | `// at: 4:19` | position (line:col) of the preceding `error` |
 //! | `// native-only: why` | skip the interpreter (runtime checks only native code has) |
+//! | `// env: NAME=value` | an environment variable for the native runs |
+//! | `// expect-stderr: text` | a line of the native runs' stderr contains it, in order (needs `native-only`) |
 //! | `// not-under-qemu: why` | pending when native runs would go through qemu-user |
 //! | `// target: wasm32-browser` | check for that target (`fail` only; spec §13.3 errors) |
 //!
@@ -60,6 +62,11 @@ pub struct Directives {
     pub errors: Vec<ExpectedError>,
     /// `// native-only: reason`: the interpreter run is skipped.
     pub native_only: bool,
+    /// `// env: NAME=value`: set for the native runs.
+    pub env: Vec<(String, String)>,
+    /// `// expect-stderr: text`: lines of the native runs' stderr containing these, in order
+    /// (other lines may come between).
+    pub expect_stderr: Vec<String>,
     /// `// not-under-qemu: reason`: something qemu-user doesn't emulate.
     pub not_under_qemu: Option<String>,
     /// `// target: wasm32-browser`: checked for that target (`fail` only), whatever
@@ -103,6 +110,8 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
                 | "error"
                 | "at"
                 | "native-only"
+                | "env"
+                | "expect-stderr"
                 | "not-under-qemu"
                 | "target"
         ) {
@@ -122,6 +131,11 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
                 )),
             },
             "native-only" => d.native_only = true,
+            "env" => match value.split_once('=') {
+                Some((k, v)) if !k.is_empty() => d.env.push((k.to_string(), v.to_string())),
+                _ => problems.push(format!("line {n}: `env` needs NAME=value, got {value:?}")),
+            },
+            "expect-stderr" => d.expect_stderr.push(raw.to_string()),
             "not-under-qemu" => d.not_under_qemu = Some(value.to_string()),
             "target" => d.target = Some(value.to_string()),
             "exit" => match value.parse() {
@@ -161,11 +175,25 @@ pub fn parse_directives(text: &str) -> Result<Directives, Vec<String>> {
             _ => unreachable!(),
         }
     }
+    if !d.expect_stderr.is_empty() && !d.native_only {
+        problems.push(
+            "`expect-stderr` needs `native-only` (the interpreter's stderr is its error report)"
+                .into(),
+        );
+    }
     if problems.is_empty() {
         Ok(d)
     } else {
         Err(problems)
     }
+}
+
+/// The first of `want` not found in `stderr`'s lines in order (each a line containing it).
+pub fn missing_stderr<'a>(want: &'a [String], stderr: &str) -> Option<&'a str> {
+    let mut lines = stderr.lines();
+    want.iter()
+        .find(|w| !lines.any(|l| l.contains(w.as_str())))
+        .map(String::as_str)
 }
 
 fn parse_code(s: &str) -> Option<Code> {
@@ -326,7 +354,7 @@ fn run_test(d: &Directives, checked: &pico_driver::Checked, file: &Path) -> Outc
         };
         problems.extend(compare_run(d, &interp, "interpreter"));
     }
-    match run_native(checked, false) {
+    match run_native(checked, d, false) {
         Ok(native) => problems.extend(compare_run(d, &native, "native")),
         // (`PICO_BACKEND=wasmgc`: what the WasmGC backend can't compile yet is pending.)
         Err(e) if e.contains(pico_driver::WASMGC_UNSUPPORTED) => {
@@ -335,7 +363,7 @@ fn run_test(d: &Directives, checked: &pico_driver::Checked, file: &Path) -> Outc
         Err(e) => problems.push(format!("[native] {e}")),
     }
     // Again with a collection at every safepoint, which finds missing GC roots.
-    match run_native(checked, true) {
+    match run_native(checked, d, true) {
         Ok(native) => problems.extend(compare_run(d, &native, "native, PICO_GC_STRESS=1")),
         Err(e) => problems.push(format!("[native, PICO_GC_STRESS=1] {e}")),
     }
@@ -352,7 +380,11 @@ pub const TEST_ENV: (&str, &str) = ("PICO_TEST_ENV", "1");
 
 /// Builds the program (cached) and runs the executable, optionally collecting garbage at
 /// every safepoint.
-fn run_native(checked: &pico_driver::Checked, gc_stress: bool) -> Result<Run, String> {
+fn run_native(
+    checked: &pico_driver::Checked,
+    d: &Directives,
+    gc_stress: bool,
+) -> Result<Run, String> {
     let target = test_target();
     let opts = pico_driver::BuildOptions {
         target,
@@ -381,6 +413,9 @@ fn run_native(checked: &pico_driver::Checked, gc_stress: bool) -> Result<Run, St
             c.args(["--env", "PICO_GC_STRESS=1"]);
         }
         c.args(["--env", &format!("{}={}", TEST_ENV.0, TEST_ENV.1)]);
+        for (k, v) in &d.env {
+            c.args(["--env", &format!("{k}={v}")]);
+        }
         c.arg(&exe);
         c
     } else if browser {
@@ -402,6 +437,9 @@ fn run_native(checked: &pico_driver::Checked, gc_stress: bool) -> Result<Run, St
         cmd.env("PICO_GC_STRESS", "1");
     }
     cmd.env(TEST_ENV.0, TEST_ENV.1);
+    if !wasi {
+        cmd.envs(d.env.iter().map(|(k, v)| (k, v)));
+    }
     let out = pico_driver::spawn::output(&mut cmd)
         .map_err(|e| format!("cannot run {}: {e}", exe.display()))?;
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -498,6 +536,9 @@ pub fn compare_run(d: &Directives, run: &Run, mode: &str) -> Option<String> {
             "exit code: expected {want_exit}, got {}",
             run.exit_code()
         );
+    }
+    if let Some(w) = missing_stderr(&d.expect_stderr, &run.stderr) {
+        let _ = writeln!(problems, "stderr: no line containing {w:?} (in order)");
     }
     match (&d.panic, &run.panic) {
         (Some(want), Some(got)) if want != got => {
@@ -856,6 +897,15 @@ pub fn export_all(
             expect.push('\n');
         }
         std::fs::write(out.join(format!("{base}.expect")), expect).expect("write expectations");
+        // (`pico-golden-run` reads these when they're there.)
+        if !d.env.is_empty() {
+            let env: String = d.env.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
+            std::fs::write(out.join(format!("{base}.env")), env).expect("write env");
+        }
+        if !d.expect_stderr.is_empty() {
+            let lines: String = d.expect_stderr.iter().map(|l| format!("{l}\n")).collect();
+            std::fs::write(out.join(format!("{base}.stderr")), lines).expect("write stderr");
+        }
         n += 1;
     }
     (n, failed)
@@ -895,6 +945,16 @@ mod tests {
         assert_eq!(d.expected(true), vec!["a\\b", "c"]);
         // Nothing to replace, or two for one line.
         assert!(parse_directives("// expect-windows: x\n").is_err());
+        let d =
+            parse_directives("// native-only: x\n// env: A=1=2\n// expect-stderr: open exact\n")
+                .unwrap();
+        assert_eq!(d.env, vec![("A".to_string(), "1=2".to_string())]);
+        assert_eq!(d.expect_stderr, vec!["open exact".to_string()]);
+        assert!(parse_directives("// expect-stderr: x\n").is_err());
+        assert!(parse_directives("// native-only: x\n// env: nope\n").is_err());
+        let want = vec!["a".to_string(), "c".to_string()];
+        assert_eq!(missing_stderr(&want, "xa\nb\nc!\n"), None);
+        assert_eq!(missing_stderr(&want, "c\na\n"), Some("c"));
         assert!(
             parse_directives("// expect: a\n// expect-windows: b\n// expect-windows: c\n").is_err()
         );

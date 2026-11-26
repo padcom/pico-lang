@@ -1,6 +1,8 @@
 //! Runs the golden-test executables that `pico-tests` exported (`PICO_TEST_EXPORT`) and checks
 //! them against their `.expect` files, the way the harness checks native runs: stdout line by
-//! line, the exit code, and the panic message (the first line of stderr, after `panic: `).
+//! line, the exit code, and the panic message (the first line of stderr, after `panic: `). A
+//! `.env` file next to one (`NAME=value` lines) adds to its environment, a `.stderr` file lists
+//! texts lines of its stderr must contain, in order (`// env:`, `// expect-stderr:`).
 //! Each program runs in a fresh empty working directory. Used where the compiler can't run,
 //! like the Windows CI runners.
 //!
@@ -21,6 +23,8 @@ struct Expect {
     exit: i32,
     panic: Option<String>,
     stdout: Vec<String>,
+    env: Vec<(String, String)>,
+    stderr: Vec<String>,
 }
 
 fn parse(text: &str) -> Option<Expect> {
@@ -38,14 +42,17 @@ fn parse(text: &str) -> Option<Expect> {
         exit,
         panic,
         stdout,
+        env: Vec::new(),
+        stderr: Vec::new(),
     })
 }
 
 /// Runs `exe` in `cwd`, killing it after [`TIMEOUT`].
-fn run(exe: &Path, cwd: &Path) -> Result<(i32, String, String), String> {
+fn run(exe: &Path, cwd: &Path, env: &[(String, String)]) -> Result<(i32, String, String), String> {
     let mut child = Command::new(exe)
         .current_dir(cwd)
         .env(TEST_ENV.0, TEST_ENV.1)
+        .envs(env.iter().map(|(k, v)| (k, v)))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -82,7 +89,7 @@ fn run(exe: &Path, cwd: &Path) -> Result<(i32, String, String), String> {
 }
 
 fn check(exe: &Path, want: &Expect, cwd: &Path) -> Result<(), String> {
-    let (code, stdout, stderr) = run(exe, cwd)?;
+    let (code, stdout, stderr) = run(exe, cwd, &want.env)?;
     let mut problems = Vec::new();
     let mut got: Vec<&str> = stdout.split('\n').collect();
     if got.last() == Some(&"") {
@@ -100,6 +107,14 @@ fn check(exe: &Path, want: &Expect, cwd: &Path) -> Result<(), String> {
     }
     if code != want.exit {
         problems.push(format!("exit code: expected {}, got {code}", want.exit));
+    }
+    let mut lines = stderr.lines();
+    if let Some(w) = want
+        .stderr
+        .iter()
+        .find(|w| !lines.any(|l| l.contains(w.as_str())))
+    {
+        problems.push(format!("stderr: no line containing {w:?} (in order)"));
     }
     let panic = stderr
         .lines()
@@ -155,7 +170,20 @@ fn main() -> ExitCode {
             .iter()
             .map(|x| case.with_extension(x))
             .find(|p| p.is_file());
-        let want = std::fs::read_to_string(case).ok().and_then(|t| parse(&t));
+        let want = std::fs::read_to_string(case)
+            .ok()
+            .and_then(|t| parse(&t))
+            .map(|mut w| {
+                let side =
+                    |x: &str| std::fs::read_to_string(case.with_extension(x)).unwrap_or_default();
+                w.env = side("env")
+                    .lines()
+                    .filter_map(|l| l.split_once('='))
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect();
+                w.stderr = side("stderr").lines().map(str::to_string).collect();
+                w
+            });
         let cwd = work.join(i.to_string());
         let _ = std::fs::create_dir_all(&cwd);
         let r = match (exe, want) {

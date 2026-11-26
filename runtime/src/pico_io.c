@@ -536,12 +536,14 @@ static void run_solo(Job *j) {
 /* `watch` (spec §13.4): a watcher keeps a snapshot of the tree (path, kind, size, mtime,
  * inode per entry, sorted by path). While a "next" job (op 16) waits on it, its thread
  * compares a fresh scan with the snapshot and delivers the differences as events
- * ("c|m|r <relative path>\0" each, in path order). kqueue (macOS) or a change notification
- * (Windows) only wake the thread up, and it scans the whole tree, a timeout catching
- * whatever they miss. inotify (Linux) is exact: one descriptor for the watcher's life,
- * each directory watched before it's listed, so only the directories it names are looked
- * at again (`rescan_dirty`), and nothing at all without an event; a full scan when it can't
- * be (queue overflow, a watch it couldn't add, a root that's a file or is gone). Between
+ * ("c|m|r <relative path>\0" each, in path order). The OS says which directories changed:
+ * inotify (Linux; one descriptor for the watcher's life, each directory watched before it's
+ * listed), FSEvents (macOS; file events for the tree, on a dispatch queue) or
+ * ReadDirectoryChangesW (Windows; on the root, for the tree), each set up before the first
+ * scan. Only those directories are looked at again (`rescan_dirty`), and nothing at all
+ * without an event; a full scan when they can't say (an overflow or dropped events, a watch
+ * that couldn't be added, a root that's a file or is gone: then kqueue or a change
+ * notification only wakes the thread up, and a timeout catches whatever they miss). Between
  * two `next` jobs changes aren't looked at (inotify queues them), so they arrive as one
  * difference (the interpreter does the same). The platform parts are `fs_info`, `dir_*`,
  * `wake_*`, `wait_os` and `watch_*_os`. */
@@ -572,6 +574,8 @@ typedef struct Watcher {
     int full;         /* look at the whole tree again */
     char **dirty;     /* directories (relative) to look at again, if not `full` */
     size_t ndirty, capdirty;
+    int os_exact;     /* the OS part can be exact (its reporting is set up) */
+    void *os;         /* the OS part's state (FSEvents, ReadDirectoryChangesW), or NULL */
     int ino;          /* the inotify descriptor, or -1 */
     struct Wd {
         int wd;
@@ -596,6 +600,21 @@ static void watch_dir_os(Watcher *w, const char *rel);
 static void watch_drain_os(Watcher *w);
 /* Stops reporting directories that aren't in `s` any more. */
 static void watch_prune_os(Watcher *w, const Snap *s);
+/* What reports the changes (for `PICO_WATCH_TRACE`). */
+static const char *watch_name_os(Watcher *w);
+
+/* `PICO_WATCH_TRACE=1`: on stderr, how each watcher finds changes ("watch: open exact
+ * (inotify)", or "scans" and what wakes it up) and each look at the tree ("watch: look
+ * incremental (2 directories)" or "watch: look full"). The golden test `fs/watch_trace`
+ * checks the exact backend is the one used on each platform. */
+static int watch_trace(void) {
+    static int t = -1;
+    if (t < 0) {
+        const char *e = getenv("PICO_WATCH_TRACE");
+        t = e && !strcmp(e, "1");
+    }
+    return t;
+}
 
 static pthread_mutex_t watch_lock = PTHREAD_MUTEX_INITIALIZER;
 static Watcher *watchers;
@@ -664,7 +683,7 @@ static int entry_cmp(const void *a, const void *b) {
  * `exact` says whether all of them could be. */
 static int scan(Watcher *w, const char *root, int recursive, Snap *out) {
     if (w) {
-        w->exact = w->ino >= 0;
+        w->exact = w->os_exact;
         watch_dir_os(w, "");
     }
     Info in;
@@ -841,7 +860,12 @@ static int deliver(Watcher *w) {
     watch_drain_os(w);
     if (w->exact && !w->full && w->ndirty == 0) return 0;
     Snap now = {0};
-    if (w->exact && !w->full && w->root_dir) rescan_dirty(w, &now);
+    int incremental = w->exact && !w->full && w->root_dir;
+    if (watch_trace()) {
+        if (incremental) fprintf(stderr, "watch: look incremental (%zu directories)\n", w->ndirty);
+        else fprintf(stderr, "watch: look full\n");
+    }
+    if (incremental) rescan_dirty(w, &now);
     else scan(w, w->root, w->recursive, &now);
     dirty_clear(w);
     watch_prune_os(w, &now);
@@ -910,6 +934,8 @@ static void watch_open(Job *j) {
         return;
     }
     w->snap = s;
+    if (watch_trace())
+        fprintf(stderr, "watch: open %s (%s)\n", w->exact ? "exact" : "scans", watch_name_os(w));
     pthread_mutex_init(&w->lock, NULL);
     pthread_cond_init(&w->cond, NULL);
     wake_open(w);
@@ -1472,13 +1498,14 @@ static void wake_close(Watcher *w) { (void)w; }
 static void wait_os(Watcher *w, int ms) { (void)w, (void)ms; }
 #endif
 
-#if !defined(__linux__)
+#if !defined(__linux__) && !defined(__APPLE__)
 /* (Not exact: every look is a full scan.) */
 static void watch_init_os(Watcher *w) { (void)w; }
 static void watch_free_os(Watcher *w) { (void)w; }
 static void watch_dir_os(Watcher *w, const char *rel) { (void)w, (void)rel; }
 static void watch_drain_os(Watcher *w) { (void)w; }
 static void watch_prune_os(Watcher *w, const Snap *s) { (void)w, (void)s; }
+static const char *watch_name_os(Watcher *w) { (void)w; return "polling"; }
 #endif
 
 #if defined(__wasi__)
@@ -1504,9 +1531,229 @@ static void wake_close(Watcher *w) {
 #include <sys/event.h>
 #include <sys/time.h>
 
-/* Waits up to `ms` for a change to the root or a snapshot entry (files only for small
- * trees: one descriptor each), or for the wake pipe. */
+#include <dlfcn.h>
+#include <poll.h>
+
+/* FSEvents (#64), loaded at run time like the Keychain (pico_tls.c): file events for the
+ * tree, delivered on a dispatch queue into `Fse`; the directories of the paths they name are
+ * the change list. */
+typedef const void *FseRef;
+typedef struct {
+    long version;
+    void *info;
+    const void *(*retain)(const void *);
+    void (*release)(const void *);
+    FseRef (*describe)(const void *);
+} FseContext;
+typedef void (*FseCallback)(FseRef, void *, size_t, void *, const uint32_t *, const uint64_t *);
+
+static struct {
+    FseRef (*string)(FseRef, const char *, uint32_t);
+    FseRef (*array)(FseRef, const void **, long, const void *);
+    const void *array_callbacks;
+    void (*release)(FseRef);
+    FseRef (*create)(FseRef, FseCallback, FseContext *, FseRef, uint64_t, double, uint32_t);
+    void (*set_queue)(FseRef, void *);
+    unsigned char (*start)(FseRef);
+    void (*stop)(FseRef);
+    void (*invalidate)(FseRef);
+    void (*stream_release)(FseRef);
+    void *(*queue_create)(const char *, void *);
+    void (*sync_f)(void *, void *, void (*)(void *));
+    void (*queue_release)(void *);
+    int ok;
+} fse;
+static pthread_once_t fse_once = PTHREAD_ONCE_INIT;
+
+#define FSE_SYM(field, lib, name) (*(void **)&fse.field = dlsym(lib, name))
+static void fse_load(void) {
+    void *cf = dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", RTLD_LAZY);
+    void *cs = dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_LAZY);
+    if (!cf || !cs) return;
+    FSE_SYM(string, cf, "CFStringCreateWithCString");
+    FSE_SYM(array, cf, "CFArrayCreate");
+    fse.array_callbacks = dlsym(cf, "kCFTypeArrayCallBacks");
+    FSE_SYM(release, cf, "CFRelease");
+    FSE_SYM(create, cs, "FSEventStreamCreate");
+    FSE_SYM(set_queue, cs, "FSEventStreamSetDispatchQueue");
+    FSE_SYM(start, cs, "FSEventStreamStart");
+    FSE_SYM(stop, cs, "FSEventStreamStop");
+    FSE_SYM(invalidate, cs, "FSEventStreamInvalidate");
+    FSE_SYM(stream_release, cs, "FSEventStreamRelease");
+    FSE_SYM(queue_create, RTLD_DEFAULT, "dispatch_queue_create");
+    FSE_SYM(sync_f, RTLD_DEFAULT, "dispatch_sync_f");
+    FSE_SYM(queue_release, RTLD_DEFAULT, "dispatch_release");
+    fse.ok = fse.string && fse.array && fse.array_callbacks && fse.release && fse.create &&
+             fse.set_queue && fse.start && fse.stop && fse.invalidate && fse.stream_release &&
+             fse.queue_create && fse.sync_f && fse.queue_release;
+}
+
+typedef struct Fse {
+    FseRef stream;
+    void *queue;
+    char *real; /* the root's real path (FSEvents' paths are real) */
+    size_t nreal;
+    pthread_mutex_t lock;
+    char **dirs; /* changed directories (relative), from the queue */
+    size_t n, cap;
+    int full;
+    int pipe[2]; /* written to on events: ends `wait_os` */
+} Fse;
+
+static void fse_push(Fse *f, const char *rel, size_t len) {
+    for (size_t i = 0; i < f->n; i++)
+        if (strlen(f->dirs[i]) == len && !strncmp(f->dirs[i], rel, len)) return;
+    if (f->n == f->cap) {
+        f->cap = f->cap ? f->cap * 2 : 8;
+        f->dirs = realloc(f->dirs, f->cap * sizeof *f->dirs);
+        if (!f->dirs) abort();
+    }
+    char *d = malloc(len + 1);
+    if (!d) abort();
+    memcpy(d, rel, len);
+    d[len] = 0;
+    f->dirs[f->n++] = d;
+}
+
+/* (On the queue.) */
+static void fse_event(FseRef stream, void *info, size_t n, void *paths, const uint32_t *flags,
+                      const uint64_t *ids) {
+    (void)stream, (void)ids;
+    Fse *f = info;
+    char **p = paths;
+    pthread_mutex_lock(&f->lock);
+    for (size_t i = 0; i < n; i++) {
+        /* MustScanSubDirs, UserDropped, KernelDropped, RootChanged, Mount, Unmount */
+        if (flags[i] & (0x01 | 0x02 | 0x04 | 0x20 | 0x40 | 0x80)) {
+            f->full = 1;
+            continue;
+        }
+        const char *s = p[i];
+        size_t len = strlen(s);
+        while (len > 1 && s[len - 1] == '/') len--;
+        if (len == f->nreal && !strncmp(s, f->real, len)) {
+            fse_push(f, "", 0); /* (the root itself: list it again) */
+            continue;
+        }
+        if (len <= f->nreal + 1 || strncmp(s, f->real, f->nreal) || s[f->nreal] != '/') {
+            f->full = 1; /* (a path we can't place) */
+            continue;
+        }
+        const char *rel = s + f->nreal + 1;
+        size_t k = len - f->nreal - 1;
+        while (k > 0 && rel[k - 1] != '/') k--;
+        fse_push(f, rel, k ? k - 1 : 0);
+    }
+    pthread_mutex_unlock(&f->lock);
+    char c = 1;
+    if (write(f->pipe[1], &c, 1) < 0) { /* (full: a wake-up is pending anyway) */ }
+}
+
+static void fse_nothing(void *arg) { (void)arg; }
+
+static void fse_free(Fse *f) {
+    if (f->stream) {
+        fse.stop(f->stream);
+        fse.invalidate(f->stream);
+        fse.sync_f(f->queue, NULL, fse_nothing); /* (a callback still running is done) */
+        fse.stream_release(f->stream);
+    }
+    if (f->queue) fse.queue_release(f->queue);
+    for (size_t i = 0; i < f->n; i++) free(f->dirs[i]);
+    free(f->dirs);
+    close(f->pipe[0]);
+    close(f->pipe[1]);
+    pthread_mutex_destroy(&f->lock);
+    free(f->real);
+    free(f);
+}
+
+static void watch_init_os(Watcher *w) {
+    pthread_once(&fse_once, fse_load);
+    struct stat st;
+    if (!fse.ok || stat(w->root, &st) < 0 || !S_ISDIR(st.st_mode)) return;
+    Fse *f = calloc(1, sizeof *f);
+    if (!f) abort();
+    f->real = realpath(w->root, NULL);
+    if (!f->real || pipe(f->pipe) < 0) {
+        free(f->real);
+        free(f);
+        return;
+    }
+    f->nreal = strlen(f->real);
+    fcntl(f->pipe[0], F_SETFL, O_NONBLOCK);
+    fcntl(f->pipe[1], F_SETFL, O_NONBLOCK);
+    pthread_mutex_init(&f->lock, NULL);
+    FseRef path = fse.string(NULL, f->real, 0x08000100 /* UTF-8 */);
+    if (path) {
+        const void *one[1] = {path};
+        FseRef paths = fse.array(NULL, one, 1, fse.array_callbacks);
+        FseContext ctx = {0, f, NULL, NULL, NULL};
+        /* since now, 10 ms latency; NoDefer | WatchRoot | FileEvents */
+        if (paths) f->stream = fse.create(NULL, fse_event, &ctx, paths, ~(uint64_t)0, 0.01, 0x02 | 0x04 | 0x10);
+        if (paths) fse.release(paths);
+        fse.release(path);
+    }
+    if (f->stream) {
+        f->queue = fse.queue_create("pico.watch", NULL);
+        if (f->queue) fse.set_queue(f->stream, f->queue);
+    }
+    if (!f->stream || !f->queue || !fse.start(f->stream)) {
+        if (f->stream && f->queue) fse.invalidate(f->stream);
+        if (f->stream) fse.stream_release(f->stream);
+        f->stream = NULL;
+        fse_free(f);
+        return;
+    }
+    w->os = f;
+    w->os_exact = 1;
+}
+
+static void watch_free_os(Watcher *w) {
+    if (w->os) fse_free(w->os);
+    w->os = NULL;
+}
+
+static void watch_dir_os(Watcher *w, const char *rel) { (void)w, (void)rel; }
+
+static void watch_drain_os(Watcher *w) {
+    Fse *f = w->os;
+    if (!f) return;
+    char buf[64];
+    while (read(f->pipe[0], buf, sizeof buf) > 0) {
+    }
+    pthread_mutex_lock(&f->lock);
+    if (f->full) w->full = 1;
+    f->full = 0;
+    for (size_t i = 0; i < f->n; i++) {
+        dirty_add(w, f->dirs[i]);
+        free(f->dirs[i]);
+    }
+    f->n = 0;
+    pthread_mutex_unlock(&f->lock);
+}
+
+static void watch_prune_os(Watcher *w, const Snap *s) { (void)w, (void)s; }
+
+static const char *watch_name_os(Watcher *w) { return w->os ? "FSEvents" : "kqueue"; }
+
+static void wait_kqueue(Watcher *w, int ms);
+
+/* Waits up to `ms` for FSEvents or for the wake pipe (`deliver` takes the events). */
 static void wait_os(Watcher *w, int ms) {
+    Fse *f = w->os;
+    if (!f) {
+        wait_kqueue(w, ms);
+        return;
+    }
+    struct pollfd p[2] = {{f->pipe[0], POLLIN, 0}, {(int)w->wake[0], POLLIN, 0}};
+    int got = poll(p, 2, ms);
+    if (got > 0 && p[0].revents) usleep(20000); /* let a burst of changes finish */
+}
+
+/* Without FSEvents (or for a file): waits up to `ms` for a change to the root or a snapshot
+ * entry (files only for small trees: one descriptor each), or for the wake pipe. */
+static void wait_kqueue(Watcher *w, int ms) {
     int kq = kqueue();
     if (kq < 0) {
         usleep((useconds_t)ms * 1000);
@@ -1544,7 +1791,10 @@ static void wait_os(Watcher *w, int ms) {
 #include <poll.h>
 #include <sys/inotify.h>
 
-static void watch_init_os(Watcher *w) { w->ino = inotify_init1(IN_NONBLOCK | IN_CLOEXEC); }
+static void watch_init_os(Watcher *w) {
+    w->ino = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    w->os_exact = w->ino >= 0;
+}
 
 static void watch_free_os(Watcher *w) {
     if (w->ino >= 0) close(w->ino);
@@ -1628,6 +1878,8 @@ static void watch_prune_os(Watcher *w, const Snap *s) {
         }
     }
 }
+
+static const char *watch_name_os(Watcher *w) { return w->ino >= 0 ? "inotify" : "polling"; }
 
 /* Waits up to `ms` for an inotify event or for the wake pipe (`deliver` reads the events). */
 static void wait_os(Watcher *w, int ms) {
@@ -3361,15 +3613,126 @@ static void wake_signal(Watcher *w) { SetEvent((HANDLE)w->wake[0]); }
 
 static void wake_close(Watcher *w) { CloseHandle((HANDLE)w->wake[0]); }
 
-/* (Not exact: every look is a full scan.) */
-static void watch_init_os(Watcher *w) { (void)w; }
-static void watch_free_os(Watcher *w) { (void)w; }
+/* ReadDirectoryChangesW on the root (#64), overlapped, armed before the first scan: the
+ * system keeps what changes between two calls, and the directories of the names it reports
+ * are the change list. */
+typedef struct Rdcw {
+    HANDLE dir, ev;
+    OVERLAPPED ov;
+    int armed;
+    DWORD buf[16384]; /* (64 KiB, DWORD-aligned) */
+} Rdcw;
+
+static int rdcw_arm(Watcher *w, Rdcw *r) {
+    ResetEvent(r->ev);
+    memset(&r->ov, 0, sizeof r->ov);
+    r->ov.hEvent = r->ev;
+    r->armed = ReadDirectoryChangesW(
+        r->dir, r->buf, sizeof r->buf, w->recursive ? TRUE : FALSE,
+        FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE |
+            FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_CREATION,
+        NULL, &r->ov, NULL) != 0;
+    return r->armed;
+}
+
+/* Stops being exact (full scans from now on, with a change notification as the wake-up). */
+static void rdcw_end(Watcher *w) {
+    Rdcw *r = w->os;
+    if (!r) return;
+    if (r->armed) {
+        DWORD n;
+        CancelIoEx(r->dir, &r->ov);
+        GetOverlappedResult(r->dir, &r->ov, &n, TRUE); /* (the buffer isn't written to after) */
+    }
+    CloseHandle(r->dir);
+    CloseHandle(r->ev);
+    free(r);
+    w->os = NULL;
+    w->os_exact = 0;
+    w->exact = 0;
+}
+
+static void watch_init_os(Watcher *w) {
+    DWORD a = attributes(w->root);
+    if (a == INVALID_FILE_ATTRIBUTES || !(a & FILE_ATTRIBUTE_DIRECTORY)) return;
+    wchar_t *p = wide(w->root);
+    HANDLE d = CreateFileW(p, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, NULL);
+    free(p);
+    if (d == INVALID_HANDLE_VALUE) return;
+    Rdcw *r = calloc(1, sizeof *r);
+    if (!r) abort();
+    r->dir = d;
+    r->ev = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!r->ev) abort();
+    w->os = r;
+    if (!rdcw_arm(w, r)) {
+        rdcw_end(w);
+        return;
+    }
+    w->os_exact = 1;
+}
+
+static void watch_free_os(Watcher *w) { rdcw_end(w); }
+
 static void watch_dir_os(Watcher *w, const char *rel) { (void)w, (void)rel; }
-static void watch_drain_os(Watcher *w) { (void)w; }
+
+static void watch_drain_os(Watcher *w) {
+    Rdcw *r = w->os;
+    if (!r || !r->armed) return;
+    DWORD n = 0;
+    if (!GetOverlappedResult(r->dir, &r->ov, &n, FALSE)) {
+        DWORD e = GetLastError();
+        if (e == ERROR_IO_INCOMPLETE) return;
+        r->armed = 0;
+        w->full = 1;
+        if (e != ERROR_NOTIFY_ENUM_DIR || !rdcw_arm(w, r)) rdcw_end(w); /* (an overflow, or gone) */
+        return;
+    }
+    r->armed = 0;
+    if (n == 0) {
+        w->full = 1; /* (what changed didn't fit) */
+    } else {
+        for (BYTE *p = (BYTE *)r->buf;;) {
+            const FILE_NOTIFY_INFORMATION *fi = (const FILE_NOTIFY_INFORMATION *)p;
+            size_t len = fi->FileNameLength / sizeof(WCHAR);
+            wchar_t *name = malloc((len + 1) * sizeof *name);
+            if (!name) abort();
+            memcpy(name, fi->FileName, len * sizeof *name);
+            name[len] = 0;
+            char *rel = narrow(name);
+            free(name);
+            char *sep = strrchr(rel, '\\');
+            if (sep) *sep = 0;
+            else rel[0] = 0;
+            dirty_add(w, rel);
+            free(rel);
+            if (!fi->NextEntryOffset) break;
+            p += fi->NextEntryOffset;
+        }
+    }
+    if (!rdcw_arm(w, r)) {
+        w->full = 1;
+        rdcw_end(w);
+    }
+}
+
 static void watch_prune_os(Watcher *w, const Snap *s) { (void)w, (void)s; }
 
-/* A change notification on the watched directory (a watched file's directory). */
+static const char *watch_name_os(Watcher *w) {
+    return w->os ? "ReadDirectoryChangesW" : "change notification";
+}
+
+/* With ReadDirectoryChangesW, waits for it; otherwise for a change notification on the
+ * watched directory (a watched file's directory). */
 static void wait_os(Watcher *w, int ms) {
+    Rdcw *r = w->os;
+    if (r) {
+        HANDLE hs[2] = {(HANDLE)w->wake[0], r->ev};
+        DWORD got = WaitForMultipleObjects(2, hs, FALSE, (DWORD)ms);
+        if (got == WAIT_OBJECT_0 + 1) Sleep(20); /* let a burst of changes finish */
+        return;
+    }
     char *dir = NULL;
     if (w->snap.n == 1 && !*w->snap.e[0].rel) {
         size_t n = strlen(w->root);
