@@ -5,7 +5,7 @@
 // Vectors and quaternions are `Formattable`: `${v}` is `(1, 2, 3)`, `${v:.2f}` formats each
 // component.
 
-import { formatNumber } from "std/fmt"
+import { formatNumber, FormatSpec } from "std/fmt"
 
 /// `x` limited to `lo..hi`.
 ///
@@ -845,7 +845,7 @@ export struct Quat implements Formattable {
 /// const model = Mat4.translation(Vec3.of(10, 0, 0)) * Mat4.rotationZ(Math.PI / 2) * Mat4.scaling(Vec3.of(2, 2, 2))
 /// println(`${model.transformPoint(Vec3.unitX):.1f}`)   // (10.0, 2.0, 0.0)
 /// ```
-export struct Mat4 {
+export struct Mat4 implements Formattable {
   /// The 16 elements, column-major: the element in `row`, `col` is `m[col * 4 + row]`.
   m: [number; 16]
 
@@ -1248,6 +1248,25 @@ export struct Mat4 {
     }
     return s
   }
+
+  /// Row by row as `toString`, each element formatted by `spec` (`${m:.2f}`; #57).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Mat4 } from "std/math"
+  ///
+  /// println(`${Mat4.rotationZ(Math.PI / 4):.2f}`)
+  /// // [0.71, -0.71, 0.00, 0.00; 0.71, 0.71, 0.00, 0.00; 0.00, 0.00, 1.00, 0.00; 0.00, 0.00, 0.00, 1.00]
+  /// ```
+  format(spec: string): string {
+    let s = "["
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        s = s + formatNumber(m[c * 4 + r], spec) + (if (c < 3) ", " else if (r < 3) "; " else "]")
+      }
+    }
+    return s
+  }
 }
 
 // ---- Random ----
@@ -1426,7 +1445,7 @@ const __BASE = 1000000000
 /// println(a / b)                   // 18446744073709551
 /// println(a % b)                   // 616
 /// ```
-export class BigInt {
+export class BigInt implements Formattable {
   /// -1, 0 or 1.
   sign: int
   /// The magnitude in base 10⁹, least significant limb first, no leading zero limbs.
@@ -1922,6 +1941,33 @@ export class BigInt {
   /// println(`n = ${n}`)     // n = -36893488147419103232
   /// ```
   public toString(): string { this.toStringRadix(10) }
+
+  /// The integer as a template's format spec says (#57), as `int`s are: `d` (decimal, the
+  /// default), `x`/`X` (hex), `o`, `b`, with `+`/space signs, `#` prefixes (`0x`, `0o`, `0b`),
+  /// width, alignment, fill and `0` padding. A precision or a float kind panics.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BigInt } from "std/math"
+  ///
+  /// const b = BigInt.parse("-12345678901234567890")
+  /// println(`[${b:>24}] [${b:#x}] [${b:+026}]`)
+  /// // [   -12345678901234567890] [-0xab54a98ceb1f0ad2] [-0000012345678901234567890]
+  /// ```
+  public format(spec: string): string {
+    const f = FormatSpec.parse(spec)
+    if (f == null) panic(`invalid format spec ${spec:?}`)
+    if (f!.precision >= 0) panic("a precision isn't allowed on integers")
+    const k = f!.kind
+    if (k == "e" || k == "E" || k == "f" || k == "%") panic(`BigInt has no float format (${spec:?})`)
+    if (k == "?") return f!.pad(this.toString(), true)
+    const radix = if (k == "x" || k == "X") 16 else if (k == "o") 8 else if (k == "b") 2 else 10
+    const digits = this.abs().toStringRadix(radix)
+    const body = if (k == "X") digits.toUpperCase() else digits
+    const prefix = if (!f!.alternate || radix == 10) "" else if (radix == 16) "0x" else if (radix == 8) "0o" else "0b"
+    const head = f!.__sign(this.sign < 0) + prefix
+    return f!.pad(head + body, true, head.length)
+  }
 
   /// In base `radix` (2–36), lower-case digits (JavaScript's `toString(radix)`).
   ///

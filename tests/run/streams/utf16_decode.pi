@@ -1,0 +1,61 @@
+// expect: le: héllo 😀 (utf-16le)
+// expect: be: héllo 😀 (utf-16be)
+// expect: labels: utf-16le utf-16le utf-16be utf-8
+// expect: bom dropped: true, kept: true
+// expect: lone surrogate: a�b
+// expect: odd byte: a�
+// expect: fatal: The encoded data was not valid utf-16le (at byte 2)
+// expect: streamed: 😀!
+// expect: unknown: TextDecoder: unsupported encoding latin1 (utf-8, utf-16le or utf-16be)
+// `TextDecoder` for UTF-16 (#63): both byte orders, labels as on the Web, the BOM, lone
+// surrogates and an odd byte (U+FFFD, or a `TypeError` when fatal), and a surrogate pair split
+// across streamed chunks.
+
+// The UTF-16 bytes of `units` (code units), little- or big-endian.
+function bytes(units: int[], be: bool): Uint8Array {
+  const out: int[] = []
+  for (const u of units) {
+    if (be) {
+      out.push(u >> 8)
+      out.push(u & 0xFF)
+    } else {
+      out.push(u & 0xFF)
+      out.push(u >> 8)
+    }
+  }
+  return Uint8Array.from(out)
+}
+
+// "héllo 😀": 😀 is the pair D83D DE00.
+const text = [0x68, 0xE9, 0x6C, 0x6C, 0x6F, 0x20, 0xD83D, 0xDE00]
+const le = new TextDecoder("utf-16le")
+println(`le: ${le.decode(bytes(text, false))} (${le.encoding})`)
+const be = new TextDecoder("UTF-16BE")
+println(`be: ${be.decode(bytes(text, true))} (${be.encoding})`)
+println(`labels: ${new TextDecoder("utf-16").encoding} ${new TextDecoder(" ucs-2 ").encoding} ${new TextDecoder("unicodefffe").encoding} ${new TextDecoder("utf8").encoding}`)
+
+const withBom = bytes([0xFEFF, 0x61], false)
+const kept = new TextDecoder("utf-16le", { ignoreBOM: true }).decode(withBom)
+println(`bom dropped: ${le.decode(withBom) == "a"}, kept: ${kept.length == 2}`)
+
+println(`lone surrogate: ${le.decode(bytes([0x61, 0xDC00, 0x62], false))}`)
+println(`odd byte: ${le.decode(Uint8Array.from([0x61, 0x00, 0x62]))}`)
+try {
+  new TextDecoder("utf-16le", { fatal: true }).decode(bytes([0x61, 0xD800, 0x62], false))
+} catch (e: TypeError) {
+  println(`fatal: ${e.message}`)
+}
+
+// The pair split after its high surrogate, and inside a code unit.
+const all = bytes([0xD83D, 0xDE00, 0x21], false)
+const s = new TextDecoder("utf-16le")
+const a = s.decode(all.subarray(0, 2), { stream: true })
+const b = s.decode(all.subarray(2, 5), { stream: true })
+const c = s.decode(all.subarray(5))
+println(`streamed: ${a}${b}${c}`)
+
+try {
+  new TextDecoder("latin1")
+} catch (e: RangeError) {
+  println(`unknown: ${e.message}`)
+}
