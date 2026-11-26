@@ -13,8 +13,8 @@
 ///   for (const x of xs) n += x
 ///   n
 /// }
-/// println(total([1, 2, 3]))                     // 6
-/// println(total(new Set<int>([4, 5]).values()))   // 9
+/// println(total([1, 2, 3]))   // 6
+/// println(total("ab".iterator().map((c) => c as int - 96)))   // 3
 /// ```
 interface Iterable<T> {
   /// A fresh iterator over the values.
