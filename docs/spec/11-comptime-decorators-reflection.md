@@ -162,8 +162,11 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
 - **Types**: integers (range-checked: `70000` isn't a `u16`, `1.5` isn't an `i64`), floats,
   `bool`, `string`, `char` (a one-character string), arrays, `T?` (`null`), structs and classes
   (objects; recursive types work), and `Map<string, V>` (an object with any keys, in insertion
-  order; paths like `env.LANG`). Anything else (enums, tuples, functions, maps with other key
-  types, interfaces, type parameters left generic) is a compile-time error at the call.
+  order; paths like `env.LANG`), and enums whose payloads are JSON, externally tagged (#58): a
+  unit variant is its name (`"Red"`), a variant with a payload a one-key object
+  (`{"Circle": {"r": 1.5}}`; `{"Empty": {}}` for `Empty()`). Anything else (tuples, functions,
+  maps with other key types, interfaces, type parameters left generic) is a compile-time error at
+  the call.
 - **Objects**: keys match field names, or `@json.name`. Unknown keys are skipped; a missing
   field is an error unless it's nullable (then `null`) or a class field with an initializer
   (#58: the class's field initializers run first, in order, then the fields present replace

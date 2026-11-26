@@ -220,6 +220,15 @@ class __JsonReader {
   public pop() { path.pop() }
 
   public missing(name: string) { fail(`missing field '${name}'`) }
+  /// Whether a string comes next (an enum's unit variant, #58).
+  public peekString(): bool {
+    if (failed) return false
+    ws()
+    return code(pos) == 34
+  }
+  public unknownVariant(name: string, type: string) { fail(`${type} has no variant ${name:?}`) }
+  public noVariant(type: string) { fail(`expected a variant of ${type}, got an empty object`) }
+  public oneKey(type: string) { fail(`expected one key (the variant) in the ${type} object`) }
 
   /// Whether the next value is `null` (consumed).
   public isNull(): bool {

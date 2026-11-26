@@ -1,0 +1,46 @@
+// expect: "Red"
+// expect: {"Circle":{"r":1.5}}
+// expect: {"Empty":{}}
+// expect: [{"name":"a","shape":{"Square":{"side":2}},"color":"Green"},{"name":"b","shape":{"Circle":{"r":0.5}},"color":"Red"}]
+// expect: round trip: true
+// expect: Color.Green Circle
+// expect: bad: field 'color': Color has no variant "Purple"
+// expect: bad: field 'shape': expected one key (the variant) in the Shape object
+// expect: bad: field 'shape.Circle': missing field 'r'
+// Enums in JSON (#58), externally tagged: a unit variant is its name, a variant with a payload a
+// one-key object (`{"Circle": {"r": 1.5}}`, `{"Empty": {}}` for `Empty()`); `JSON.parse` reads
+// them back, inside structs and arrays too, and names what's wrong.
+enum Color { Red, Green }
+enum Shape {
+  Circle(r: f64),
+  Square(side: int),
+  Empty()
+}
+struct Item {
+  name: string
+  shape: Shape
+  color: Color
+}
+
+println(JSON.stringify(Color.Red))
+println(JSON.stringify(Shape.Circle(r: 1.5)))
+println(JSON.stringify(Shape.Empty()))
+const items: Item[] = [
+  Item { name: "a", shape: Shape.Square(side: 2), color: Color.Green },
+  Item { name: "b", shape: Shape.Circle(r: 0.5), color: Color.Red },
+]
+const text = JSON.stringify(items)
+println(text)
+const back = JSON.parse<Item[]>(text)
+println(`round trip: ${JSON.stringify(back) == text}`)
+const c = back[0].color
+const s = back[1].shape
+println(`${c:?} ${match (s) { Circle(r) => "Circle", Square(side) => "Square", Empty() => "Empty" }}`)
+for (const bad of [`{"name":"x","shape":{"Empty":{}},"color":"Purple"}`, `{"name":"x","shape":{"Empty":{},"Circle":{"r":1}},"color":"Red"}`, `{"name":"x","shape":{"Circle":{}},"color":"Red"}`]) {
+  try {
+    const item = JSON.parse<Item>(bad)
+    println(`parsed: ${item.name}`)
+  } catch (e: JsonError) {
+    println(`bad: ${e.message}`)
+  }
+}

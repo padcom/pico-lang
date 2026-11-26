@@ -610,7 +610,18 @@ pub fn json_ok(p: &Program, t: &Ty, seen: &mut Vec<Ty>) -> Result<(), Ty> {
             }
             json_ok(p, v, seen)
         }
-        Ty::Struct(..) | Ty::Class(..) if seen.contains(t) => Ok(()),
+        Ty::Struct(..) | Ty::Class(..) | Ty::Enum(..) if seen.contains(t) => Ok(()),
+        // An enum whose payloads are JSON (#58: externally tagged).
+        Ty::Enum(eid, _, args) => {
+            seen.push(t.clone());
+            let owner = Ty::enum_owner(*eid);
+            for v in &p.enum_def(*eid).variants {
+                for f in &v.fields {
+                    json_ok(p, &f.ty.subst(owner, args), seen)?;
+                }
+            }
+            Ok(())
+        }
         Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => {
             seen.push(t.clone());
             let owner = Ty::type_owner(*sid);
@@ -635,7 +646,7 @@ pub fn json_error(t: &Ty, bad: &Ty, span: Span) -> Diagnostic {
         format!("{what} can't be converted to or from JSON"),
     )
     .primary(span, "no JSON form")
-    .note("JSON supports numbers, `bool`, `char`, `string`, arrays, nullable values, `Map<string, V>`, structs and classes")
+    .note("JSON supports numbers, `bool`, `char`, `string`, arrays, nullable values, `Map<string, V>`, structs, classes and enums")
 }
 
 /// Whether an argument of type `t` can instantiate generic parameter type `p` by shape:
