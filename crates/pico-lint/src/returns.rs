@@ -8,7 +8,7 @@
 //! values (`const a = { …; w }`) aren't functions and are exempt too.
 
 use crate::walk::{self, Visit};
-use pico_diag::{Diagnostic, codes};
+use pico_diag::{Diagnostic, Span, codes};
 use pico_syntax::ast::*;
 
 pub fn check(m: &Module, text: &str, out: &mut Vec<Diagnostic>) {
@@ -79,7 +79,11 @@ impl Returns<'_, '_> {
             Diagnostic::warning(msg)
                 .with_code(codes::LINT_EXPLICIT_RETURN)
                 .primary(expr.span, "the function's result")
-                .help(help),
+                .help(help)
+                .fix(
+                    Span::new(expr.span.file, expr.span.start, expr.span.start),
+                    "return ",
+                ),
         );
     }
 }

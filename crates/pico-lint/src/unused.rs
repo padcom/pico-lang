@@ -93,19 +93,31 @@ fn unused(span: Span, what: &str, name: &str, help: &str) -> Diagnostic {
 }
 
 fn imports(m: &ast::Module, text: &str, file: FileId, out: &mut Vec<Diagnostic>) {
+    // Each imported name with the text that removes it (`--fix`, #80): the name (with its
+    // `as`) and a comma, or the whole statement when nothing of it is used.
     let mut names: Vec<&ast::Ident> = Vec::new();
     let mut spans: Vec<Span> = Vec::new();
+    let mut groups: Vec<(Span, Vec<(usize, Span)>)> = Vec::new();
     for s in &m.stmts {
         if let ast::StmtKind::Decl(d) = &s.kind
             && let ast::DeclKind::Import(i) = &d.kind
         {
             spans.push(s.span);
+            let mut members = Vec::new();
             match &i.kind {
                 ast::ImportKind::Named(ns) => {
-                    names.extend(ns.iter().map(|n| n.alias.as_ref().unwrap_or(&n.name)));
+                    for n in ns {
+                        let end = n.alias.as_ref().map_or(n.name.span.end, |a| a.span.end);
+                        members.push((names.len(), Span::new(file, n.name.span.start, end)));
+                        names.push(n.alias.as_ref().unwrap_or(&n.name));
+                    }
                 }
-                ast::ImportKind::Namespace(alias) => names.push(alias),
+                ast::ImportKind::Namespace(alias) => {
+                    members.push((names.len(), alias.span));
+                    names.push(alias);
+                }
             }
+            groups.push((s.span, members));
         }
     }
     if names.is_empty() {
@@ -124,14 +136,34 @@ fn imports(m: &ast::Module, text: &str, file: FileId, out: &mut Vec<Diagnostic>)
             _ => None,
         })
         .collect();
-    for n in names {
-        if !n.name.starts_with('_') && !used.contains(n.name.as_str()) {
-            out.push(unused(
-                n.span,
-                "import",
-                &n.name,
-                "remove it from the import",
-            ));
+    let is_unused = |n: &ast::Ident| !n.name.starts_with('_') && !used.contains(n.name.as_str());
+    for (stmt, members) in &groups {
+        let all = members.iter().all(|(i, _)| is_unused(names[*i]));
+        for (k, (i, span)) in members.iter().enumerate() {
+            let n = names[*i];
+            if !is_unused(n) {
+                continue;
+            }
+            let mut d = unused(n.span, "import", &n.name, "remove it from the import");
+            if all {
+                // (The statement once, with its line break.)
+                if k == 0 {
+                    let mut end = stmt.end as usize;
+                    if text[end..].starts_with('\n') {
+                        end += 1;
+                    }
+                    d = d.fix(Span::new(file, stmt.start, end as u32), "");
+                }
+            } else {
+                // The name and the comma after it (or, for the last one, before it).
+                let cut = match members.get(k + 1) {
+                    Some((_, next)) => Span::new(file, span.start, next.start),
+                    None if k > 0 => Span::new(file, members[k - 1].1.end, span.end),
+                    None => *span,
+                };
+                d = d.fix(cut, "");
+            }
+            out.push(d);
         }
     }
 }
@@ -165,6 +197,10 @@ fn exported_names(m: &ast::Module) -> HashSet<String> {
 struct Reads {
     vars: HashSet<Span>,
     fns: HashSet<hir::FnId>,
+    /// Names of fields read in the linted file (`obj.name`, `this.name`; #80).
+    fields: HashSet<String>,
+    /// The linted file.
+    file: Option<FileId>,
 }
 
 /// Variables, parameters, module-level bindings and private members, from the checked
@@ -178,7 +214,10 @@ fn from_program(
     exempt: &HashSet<Span>,
     out: &mut Vec<Diagnostic>,
 ) {
-    let mut r = Reads::default();
+    let mut r = Reads {
+        file: Some(file),
+        ..Reads::default()
+    };
     for (i, f) in p.fns.iter().enumerate() {
         let fid = hir::FnId(i as u32);
         let mut visit = |e: &hir::Expr| reads(p, fid, e, &mut r);
@@ -279,8 +318,11 @@ fn from_program(
             ));
         }
     }
+    // Classes whose fields something reads invisibly (#80): printed, made into JSON, reflected
+    // on (their values reach a template or a core-library or built-in call), or decorated.
+    let exposed = exposed_classes(p, t);
     // Private members of the module's classes.
-    for s in &p.structs {
+    for (i, s) in p.structs.iter().enumerate() {
         if s.name_span.file != file || !s.is_class {
             continue;
         }
@@ -288,8 +330,24 @@ fn from_program(
             if name.starts_with('_')
                 || s.declared_in.contains_key(name)
                 || IMPLICIT.contains(&name.as_str())
-                || s.field(name).is_some()
             {
+                continue;
+            }
+            // A private field that's never read (writes don't count), in a class nothing reads
+            // fields of behind the scenes (#80).
+            if let Some((_, f)) = s.field(name) {
+                if !r.fields.contains(name)
+                    && !exposed.contains(&StructId(i as u32))
+                    && s.decorators.is_empty()
+                    && real(f.span, name)
+                {
+                    out.push(unused(
+                        f.span,
+                        "private field",
+                        name,
+                        "remove it, or start its name with `_`",
+                    ));
+                }
                 continue;
             }
             let fns: Vec<hir::FnId> = s
@@ -316,6 +374,87 @@ fn from_program(
             }
         }
     }
+}
+
+/// The classes (and their base classes) whose values reach a template, a built-in call or a
+/// call of a core-library function (`println`, `JSON.stringify`, `reflect.typeOf`, …), which
+/// may read every field.
+fn exposed_classes(p: &Program, t: &pico_sema::Types) -> HashSet<StructId> {
+    fn expose(p: &Program, ty: &pico_sema::Ty, out: &mut HashSet<StructId>) {
+        use pico_sema::Ty;
+        match ty {
+            Ty::Class(sid, _, args) | Ty::Struct(sid, _, args) => {
+                let mut cur = Some(*sid);
+                while let Some(c) = cur {
+                    if !out.insert(c) {
+                        break;
+                    }
+                    cur = p.structs[c.0 as usize].base;
+                }
+                for a in args.iter() {
+                    expose(p, a, out);
+                }
+            }
+            Ty::Array(e) | Ty::Nullable(e) => expose(p, e, out),
+            Ty::Tuple(ts) => ts.iter().for_each(|t| expose(p, t, out)),
+            _ => {}
+        }
+    }
+    fn walk(p: &Program, t: &pico_sema::Types, e: &hir::Expr, out: &mut HashSet<StructId>) {
+        let ty_of = |x: &hir::Expr| t.exprs.get(x.id.0 as usize);
+        match &e.kind {
+            ExprKind::Template { parts, .. } => {
+                for part in parts {
+                    if let Some(ty) = ty_of(&part.expr) {
+                        expose(p, ty, out);
+                    }
+                }
+            }
+            // A type given as a type (`describe<User>()`, `JSON.parse<User>`, `schema(User)`,
+            // `T.fields`): it can be reflected on.
+            ExprKind::TypeValue(ty) | ExprKind::TypeInfo { ty, .. } => expose(p, ty, out),
+            ExprKind::Call {
+                callee,
+                args,
+                type_args,
+            } => {
+                for ta in type_args {
+                    expose(p, ta, out);
+                }
+                let core = |f: &hir::FnId| p.prelude_files.contains(&p.fns[f.0 as usize].span.file);
+                // (A generic function may reflect on its type parameters' fields.)
+                let generic = |f: &hir::FnId| !p.fns[f.0 as usize].generics.is_empty();
+                let hidden = match &callee.kind {
+                    ExprKind::Builtin(_) => true,
+                    ExprKind::Fn(f) => core(f) || generic(f),
+                    ExprKind::Overloaded(fs) => fs.iter().any(|f| core(f) || generic(f)),
+                    _ => false,
+                };
+                if hidden {
+                    for a in args {
+                        if let Some(ty) = ty_of(a) {
+                            expose(p, ty, out);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        match &e.kind {
+            ExprKind::Block(b) | ExprKind::Loop(b) | ExprKind::Unsafe(b) => {
+                block(b, &mut |c| walk(p, t, c, out));
+            }
+            _ => e.for_each_child(&mut |c| walk(p, t, c, out)),
+        }
+    }
+    let mut out = HashSet::new();
+    for f in &p.fns {
+        for d in f.defaults.iter().flatten() {
+            walk(p, t, d, &mut out);
+        }
+        block(&f.body, &mut |e| walk(p, t, e, &mut out));
+    }
+    out
 }
 
 fn block(b: &hir::Block, f: &mut dyn FnMut(&hir::Expr)) {
@@ -345,6 +484,11 @@ fn reads(p: &Program, fid: hir::FnId, e: &hir::Expr, r: &mut Reads) {
             r.fns.insert(*f);
         }
         ExprKind::Overloaded(fs) => r.fns.extend(fs.iter().copied()),
+        // (Private fields are read only in their own file: reads elsewhere, the core library's
+        // included, don't count.)
+        ExprKind::Member { name, .. } if Some(p.fns[fid.0 as usize].span.file) == r.file => {
+            r.fields.insert(name.clone());
+        }
         _ => {}
     }
     match &e.kind {
