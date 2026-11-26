@@ -68,6 +68,9 @@ struct StreamPipeOptions {
   preventAbort?: bool
   /// Whether to leave the source alone when the destination fails.
   preventCancel?: bool
+  /// Stops the pipe when aborted (#63): the source is cancelled and the destination errored
+  /// (unless `preventCancel`/`preventAbort`), and the pipe rejects with the signal's reason.
+  signal?: AbortSignal
 }
 
 /// One pull of `ReadableStream.from(asyncIterator)`: the next value, or the end.
@@ -548,14 +551,25 @@ class ReadableStream<T> {
     }
     this.__locked = true
     const w = dest.getWriter()
+    const signal = options.signal
+    let piping = true
+    if (signal != null && options.preventCancel != true) {
+      // (Cancelling the source ends a read that's waiting for a chunk.)
+      signal.addEventListener("abort", () => {
+        if (piping && this.state == 0) this.cancel(signal.reason)
+      })
+    }
     try {
       while (true) {
+        if (signal != null && signal.aborted) throw signal.reason!
         const chunk = await this.__read()
+        if (signal != null && signal.aborted) throw signal.reason!
         if (chunk == null) {
           break
         }
         await w.write(chunk)
       }
+      if (signal != null && signal.aborted) throw signal.reason!
       if (options.preventClose != true) {
         await w.close()
       }
@@ -567,10 +581,12 @@ class ReadableStream<T> {
       if (options.preventCancel != true && this.state == 0) {
         this.cancel(e)
       }
+      piping = false
       this.__locked = false
       w.releaseLock()
       throw e
     }
+    piping = false
     this.__locked = false
     w.releaseLock()
   }
