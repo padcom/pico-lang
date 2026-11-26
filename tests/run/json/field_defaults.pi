@@ -1,0 +1,36 @@
+// expect: Config(host: localhost, port: 8080, retries: 3, url: http://localhost:8080)
+// expect: Config(host: example.com, port: 8080, retries: 0, url: http://localhost:8080)
+// expect: Box(items: [1], label: box of int)
+// expect: missing: missing field 'tag'
+// `JSON.parse` of a class fills a missing field from its initializer (#58): the initializers
+// run in order (one can read another: `url` sees the defaults), then the fields the JSON has replace theirs; a field
+// without an initializer (and not nullable) is still an error.
+class Config {
+  public host: string = "localhost"
+  public port: int = 8080
+  public retries: int = 3
+  public url: string = `http://${this.host}:${this.port}`
+  public toString(): string { return `Config(host: ${host}, port: ${port}, retries: ${retries}, url: ${url})` }
+}
+
+class Box<T> {
+  public items: T[] = []
+  public label: string = "box"
+  public toString(): string { return `Box(items: ${items:?}, label: ${label})` }
+}
+
+class Named {
+  public name: string = ""
+  public tag: string
+  constructor(tag: string) { this.tag = tag }
+}
+
+println(JSON.parse<Config>("{}"))
+println(JSON.parse<Config>(`{"host": "example.com", "retries": 0}`))
+const b = JSON.parse<Box<int>>(`{"items": [1], "label": "box of int"}`)
+println(b)
+try {
+  JSON.parse<Named>(`{"name": "x"}`)
+} catch (e: JsonError) {
+  println(`missing: ${e.message}`)
+}

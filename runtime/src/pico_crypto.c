@@ -14,6 +14,10 @@
  *  10xx ECDSA verify [hash:u32, public, message, r ‖ s] → 1 byte (1 valid, 0 not)
  *  11xx ECDH [private, peer public] → shared secret
  *  12xx check [public]: fails unless it's a point on the curve (`importKey`, #28)
+ *  15xx start a streaming hash → handle (8 bytes: the context's address; #69)
+ *  1600 update [handle, data]
+ *  1700 finish [handle] → digest (the context is freed)
+ *  1800 free [handle] (a hash that's never finished)
  */
 #define _POSIX_C_SOURCE 200809L /* clock_gettime (WASI) */
 #include "pico_crypto.h"
@@ -486,6 +490,58 @@ int64_t pico_crypto_op(int64_t op, const uint8_t *in, size_t n, uint8_t **out, s
         *out = o;
         *out_len = data.n;
         return 0;
+    }
+    case 15: {
+        const mbedtls_md_info_t *md = mbedtls_md_info_from_type(md_of(alg));
+        if (!md) return -1;
+        mbedtls_md_context_t *ctx = malloc(sizeof *ctx);
+        if (!ctx) return -3;
+        mbedtls_md_init(ctx);
+        if (mbedtls_md_setup(ctx, md, 0) || mbedtls_md_starts(ctx)) {
+            mbedtls_md_free(ctx);
+            free(ctx);
+            return -3;
+        }
+        uint64_t h = (uint64_t)(uintptr_t)ctx;
+        uint8_t *o = alloc(8);
+        memcpy(o, &h, 8);
+        *out = o;
+        *out_len = 8;
+        return 0;
+    }
+    case 16:
+    case 17:
+    case 18: {
+        if (!fields(in, n, f, kind == 16 ? 2 : 1) || f[0].n != 8) return -1;
+        uint64_t h;
+        memcpy(&h, f[0].p, 8);
+        mbedtls_md_context_t *ctx = (mbedtls_md_context_t *)(uintptr_t)h;
+        if (kind == 16 || kind == 18) {
+            /* (No output, but a buffer all the same: callers wrap what they get.) */
+            if (kind == 16 && mbedtls_md_update(ctx, f[1].p, f[1].n)) return -3;
+            if (kind == 18) {
+                mbedtls_md_free(ctx);
+                free(ctx);
+            }
+            *out = alloc(1);
+            *out_len = 0;
+            return 0;
+        }
+        if (kind == 17) {
+            size_t len = mbedtls_md_get_size(mbedtls_md_info_from_ctx(ctx));
+            uint8_t *o = alloc(len);
+            int r = mbedtls_md_finish(ctx, o);
+            mbedtls_md_free(ctx);
+            free(ctx);
+            if (r) {
+                free(o);
+                return -3;
+            }
+            *out = o;
+            *out_len = len;
+            return 0;
+        }
+        return -1;
     }
     default: return -1;
     }

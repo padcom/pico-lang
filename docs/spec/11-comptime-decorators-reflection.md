@@ -103,6 +103,8 @@ pieces splice into templates (`${ast.string(fn.name)}`); errors in generated cod
 reported where it was generated, with a label at the decorator that generated it.
 
 Decorators are allowed on classes, structs, enums, functions, methods, fields and parameters.
+A decorator is used by its name in the module: declared there, imported (also through modules
+that re-export it with `export { d } from` or `export *`, #54), or the core library's.
 
 **How they run** (decision 223): before the program is compiled, its decorators run in a
 program of their own (the core library, `std/meta`, and the declarations the decorator
@@ -160,11 +162,15 @@ Field renaming and other options are set with decorators (`@json.name("user_id")
 - **Types**: integers (range-checked: `70000` isn't a `u16`, `1.5` isn't an `i64`), floats,
   `bool`, `string`, `char` (a one-character string), arrays, `T?` (`null`), structs and classes
   (objects; recursive types work), and `Map<string, V>` (an object with any keys, in insertion
-  order; paths like `env.LANG`). Anything else (enums, tuples, functions, maps with other key
-  types, interfaces, type parameters left generic) is a compile-time error at the call.
+  order; paths like `env.LANG`), and enums whose payloads are JSON, externally tagged (#58): a
+  unit variant is its name (`"Red"`), a variant with a payload a one-key object
+  (`{"Circle": {"r": 1.5}}`; `{"Empty": {}}` for `Empty()`). Anything else (tuples, functions,
+  maps with other key types, interfaces, type parameters left generic) is a compile-time error at
+  the call.
 - **Objects**: keys match field names, or `@json.name`. Unknown keys are skipped; a missing
-  field is an error unless it's nullable (then `null`). Classes are built without running a
-  constructor.
+  field is an error unless it's nullable (then `null`) or a class field with an initializer
+  (#58: the class's field initializers run first, in order, then the fields present replace
+  theirs). Classes are built without running a constructor.
 - **Errors**: `JsonError.message` is `field '<path>': <problem>` with paths like
   `servers[2].host` (`element '[0]': …` at the top level of an array, no prefix for the value
   itself). Problems: `expected u16, got "x"` (strings and numbers as written, otherwise `an

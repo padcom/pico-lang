@@ -116,8 +116,12 @@
     "LinkedList": "std-collections#LinkedList",
     "LruCache": "std-collections#LruCache",
     "BitSet": "std-collections#BitSet",
+    "Hash": "std-crypto#Hash",
     "Aead": "std-crypto#Aead",
     "EcKeyPair": "std-crypto#EcKeyPair",
+    "CsvOptions": "std-encoding#CsvOptions",
+    "CsvWriteOptions": "std-encoding#CsvWriteOptions",
+    "Csv": "std-encoding#Csv",
     "FormatSpec": "std-fmt#FormatSpec",
     "FileInfo": "std-fs#FileInfo",
     "DirEntry": "std-fs#DirEntry",
@@ -849,7 +853,7 @@
               "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1220",
+          "source": "core/net.pi:1236",
           "members": [
             {
               "name": "reuseAddress",
@@ -857,7 +861,7 @@
               "signature": "reuseAddress?: bool",
               "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1223",
+              "source": "core/net.pi:1239",
               "members": []
             }
           ]
@@ -1416,7 +1420,7 @@
               "code": "const view = new DataView(new ArrayBuffer(6))\nview.setUint16(0, 0xCAFE)\nview.setUint32(2, 1, true)\nprintln(view.getUint8(0))          // 202\nprintln(view.getUint16(0, true))   // 65226\nprintln(view.getUint32(2, true))   // 1"
             }
           ],
-          "source": "core/buffer.pi:1118",
+          "source": "core/buffer.pi:1137",
           "members": [
             {
               "name": "buffer",
@@ -1424,7 +1428,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:1120",
+              "source": "core/buffer.pi:1139",
               "members": []
             },
             {
@@ -1433,7 +1437,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:1122",
+              "source": "core/buffer.pi:1141",
               "members": []
             },
             {
@@ -1447,7 +1451,7 @@
                   "code": "const buf = new ArrayBuffer(8)\nconst header = new DataView(buf, 0, 4)\nconst body = new DataView(buf, 4)\nprintln(header.byteLength)   // 4\nprintln(body.byteLength)     // 4"
                 }
               ],
-              "source": "core/buffer.pi:1136",
+              "source": "core/buffer.pi:1155",
               "members": []
             },
             {
@@ -1461,7 +1465,7 @@
                   "code": "const bytes = Uint8Array.from([0x00, 0x01, 0x00, 0x00])\nconst view = new DataView(bytes)\nprintln(view.getUint16(0))   // 1"
                 }
               ],
-              "source": "core/buffer.pi:1151",
+              "source": "core/buffer.pi:1170",
               "members": []
             },
             {
@@ -1475,7 +1479,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(12), 4)\nprintln(view.byteLength)   // 8"
                 }
               ],
-              "source": "core/buffer.pi:1164",
+              "source": "core/buffer.pi:1183",
               "members": []
             },
             {
@@ -1489,7 +1493,7 @@
                   "code": "const view = new DataView(Uint8Array.from([200, 7]))\nprintln(view.getUint8(0))   // 200\nprintln(view.getUint8(1))   // 7"
                 }
               ],
-              "source": "core/buffer.pi:1209",
+              "source": "core/buffer.pi:1230",
               "members": []
             },
             {
@@ -1503,7 +1507,7 @@
                   "code": "const view = new DataView(Uint8Array.from([253, 7]))\nprintln(view.getInt8(0))   // -3\nprintln(view.getInt8(1))   // 7"
                 }
               ],
-              "source": "core/buffer.pi:1219",
+              "source": "core/buffer.pi:1240",
               "members": []
             },
             {
@@ -1517,7 +1521,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint16(0, 513)\nprintln(view.getUint16(0))         // 513\nprintln(view.getUint16(0, true))   // 258 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1230",
+              "source": "core/buffer.pi:1251",
               "members": []
             },
             {
@@ -1531,7 +1535,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt16(0, -2)\nprintln(view.getInt16(0))         // -2\nprintln(view.getInt16(0, true))   // -257 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1241",
+              "source": "core/buffer.pi:1262",
               "members": []
             },
             {
@@ -1545,7 +1549,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setUint32(0, 3000000000)\nprintln(view.getUint32(0))         // 3000000000\nprintln(view.getUint32(0, true))   // 6213810 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1252",
+              "source": "core/buffer.pi:1273",
               "members": []
             },
             {
@@ -1559,7 +1563,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setInt32(0, -100000)\nprintln(view.getInt32(0))         // -100000\nprintln(view.getInt32(0, true))   // 1618607871 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1263",
+              "source": "core/buffer.pi:1284",
               "members": []
             },
             {
@@ -1573,7 +1577,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, -5)\nprintln(view.getBigInt64(0))   // -5"
                 }
               ],
-              "source": "core/buffer.pi:1273",
+              "source": "core/buffer.pi:1294",
               "members": []
             },
             {
@@ -1587,7 +1591,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, -1)\nprintln(view.getBigUint64(0))   // 18446744073709551615"
                 }
               ],
-              "source": "core/buffer.pi:1283",
+              "source": "core/buffer.pi:1304",
               "members": []
             },
             {
@@ -1601,7 +1605,7 @@
                   "code": "const view = new DataView(Uint8Array.from([0x3C, 0x00]))\nprintln(view.getFloat16(0))   // 1"
                 }
               ],
-              "source": "core/buffer.pi:1294",
+              "source": "core/buffer.pi:1315",
               "members": []
             },
             {
@@ -1615,7 +1619,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setFloat32(0, 0.75)\nprintln(view.getFloat32(0))   // 0.75"
                 }
               ],
-              "source": "core/buffer.pi:1304",
+              "source": "core/buffer.pi:1325",
               "members": []
             },
             {
@@ -1629,7 +1633,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setFloat64(0, 6.5, true)\nprintln(view.getFloat64(0, true))   // 6.5"
                 }
               ],
-              "source": "core/buffer.pi:1314",
+              "source": "core/buffer.pi:1335",
               "members": []
             },
             {
@@ -1643,7 +1647,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint8(0, 200)\nprintln(view.getUint8(0))   // 200\nprintln(view.getUint8(0))    // 200"
                 }
               ],
-              "source": "core/buffer.pi:1327",
+              "source": "core/buffer.pi:1348",
               "members": []
             },
             {
@@ -1657,7 +1661,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt8(0, -3)\nprintln(view.getInt8(0))   // -3\nprintln(view.getUint8(0))    // 253"
                 }
               ],
-              "source": "core/buffer.pi:1338",
+              "source": "core/buffer.pi:1359",
               "members": []
             },
             {
@@ -1671,7 +1675,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint16(0, 513, true)     // little-endian\nprintln(view.getUint16(0, true))   // 513\nprintln(view.getUint8(0))          // 1"
                 }
               ],
-              "source": "core/buffer.pi:1349",
+              "source": "core/buffer.pi:1370",
               "members": []
             },
             {
@@ -1685,7 +1689,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt16(0, -2, true)     // little-endian\nprintln(view.getInt16(0, true))   // -2\nprintln(view.getUint8(0))          // 254"
                 }
               ],
-              "source": "core/buffer.pi:1360",
+              "source": "core/buffer.pi:1381",
               "members": []
             },
             {
@@ -1699,7 +1703,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setUint32(0, 3000000000, true)     // little-endian\nprintln(view.getUint32(0, true))   // 3000000000\nprintln(view.getUint8(0))          // 0"
                 }
               ],
-              "source": "core/buffer.pi:1371",
+              "source": "core/buffer.pi:1392",
               "members": []
             },
             {
@@ -1713,7 +1717,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setInt32(0, -100000, true)     // little-endian\nprintln(view.getInt32(0, true))   // -100000\nprintln(view.getUint8(0))          // 96"
                 }
               ],
-              "source": "core/buffer.pi:1382",
+              "source": "core/buffer.pi:1403",
               "members": []
             },
             {
@@ -1727,7 +1731,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, 1234567890123)\nprintln(view.getBigInt64(0))   // 1234567890123"
                 }
               ],
-              "source": "core/buffer.pi:1392",
+              "source": "core/buffer.pi:1413",
               "members": []
             },
             {
@@ -1741,7 +1745,7 @@
                   "code": "const big: u64 = 18446744073709551615\nconst view = new DataView(new ArrayBuffer(8))\nview.setBigUint64(0, big)\nprintln(view.getBigUint64(0))   // 18446744073709551615\nprintln(view.getInt8(0))        // -1"
                 }
               ],
-              "source": "core/buffer.pi:1404",
+              "source": "core/buffer.pi:1425",
               "members": []
             },
             {
@@ -1755,7 +1759,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setFloat16(0, 0.1)\nprintln(view.getFloat16(0))   // 0.0999755859375"
                 }
               ],
-              "source": "core/buffer.pi:1416",
+              "source": "core/buffer.pi:1437",
               "members": []
             },
             {
@@ -1769,7 +1773,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setFloat32(0, 1.5, true)\nprintln(view.getUint8(3))           // 63\nprintln(view.getFloat32(0, true))   // 1.5"
                 }
               ],
-              "source": "core/buffer.pi:1427",
+              "source": "core/buffer.pi:1448",
               "members": []
             },
             {
@@ -1783,7 +1787,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setFloat64(0, -2.5)\nprintln(view.getFloat64(0))   // -2.5"
                 }
               ],
-              "source": "core/buffer.pi:1437",
+              "source": "core/buffer.pi:1458",
               "members": []
             }
           ]
@@ -1799,7 +1803,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"hi\", b.addr.port)\nconst d: Datagram? = await b.receive()\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // hi\n  println(d.addr.port == a.addr.port)         // true\n}\na.close()\nb.close()"
             }
           ],
-          "source": "core/net.pi:945",
+          "source": "core/net.pi:961",
           "members": [
             {
               "name": "data",
@@ -1807,7 +1811,7 @@
               "signature": "data: Uint8Array",
               "doc": "<p>The datagram's bytes (cut to the size <code>receive</code> asked for).</p>\n",
               "examples": [],
-              "source": "core/net.pi:947",
+              "source": "core/net.pi:963",
               "members": []
             },
             {
@@ -1816,7 +1820,7 @@
               "signature": "addr: Addr",
               "doc": "<p>The address it came from.</p>\n",
               "examples": [],
-              "source": "core/net.pi:949",
+              "source": "core/net.pi:965",
               "members": []
             }
           ]
@@ -1832,7 +1836,7 @@
               "code": "const d = new Date(Date.UTC(2024, 2, 10, 12, 30))\nprintln(d.toISOString())      // 2024-03-10T12:30:00.000Z\nprintln(d.getUTCMonth())      // 2 (months are 0-based)\nconst local = new Date(2024, 4, 15, 9, 45)\nprintln(local.getHours())     // 9\nprintln(local.toDateString())   // Wed May 15 2024"
             }
           ],
-          "source": "core/time.pi:649",
+          "source": "core/time.pi:666",
           "members": [
             {
               "name": "constructor",
@@ -1845,7 +1849,7 @@
                   "code": "println(new Date(0).toISOString())                     // 1970-01-01T00:00:00.000Z\nprintln(new Date(\"2024-03-10T12:30:00Z\").getTime())    // 1710073800000\n// 31 January 2024, 18:05 local time (months are 0-based):\nconst local = new Date(2024, 0, 31, 18, 5)\nprintln(local.getMonth())                              // 0\nprintln(local.getMinutes())                            // 5\nprintln(new Date(\"garbage\"))                           // Invalid Date\nconst now = new Date()\nprintln(now.getTime() > 0.0)                           // true"
                 }
               ],
-              "source": "core/time.pi:667",
+              "source": "core/time.pi:684",
               "members": []
             },
             {
@@ -1859,7 +1863,7 @@
                   "code": "const t = Date.now()\nprintln(t)              // e.g. 1795451940937\nprintln(t > 0.0)        // true"
                 }
               ],
-              "source": "core/time.pi:695",
+              "source": "core/time.pi:712",
               "members": []
             },
             {
@@ -1873,7 +1877,7 @@
                   "code": "const t = Date.UTC(2024, 2, 10, 12, 30)\nprintln(t)                            // 1710073800000\nprintln(new Date(t).toISOString())    // 2024-03-10T12:30:00.000Z\nprintln(Date.UTC(2024))               // 1704067200000"
                 }
               ],
-              "source": "core/time.pi:708",
+              "source": "core/time.pi:725",
               "members": []
             },
             {
@@ -1887,7 +1891,7 @@
                   "code": "println(Date.parse(\"2024-03-10\"))                       // 1710028800000\nprintln(Date.parse(\"2024-03-10T12:30:00.5Z\"))           // 1710073800500\nprintln(Date.parse(\"2024-03-10T12:30:00+01:00\"))        // 1710070200000\nprintln(Date.parse(\"Sun, 10 Mar 2024 11:30:00 GMT\"))    // 1710070200000\nprintln(Date.parse(\"not a date\"))                       // NaN"
                 }
               ],
-              "source": "core/time.pi:724",
+              "source": "core/time.pi:741",
               "members": []
             },
             {
@@ -1901,7 +1905,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00Z\")\nprintln(d.getTime())   // 1710073800000\nprintln(new Date(\"garbage\").getTime())   // NaN"
                 }
               ],
-              "source": "core/time.pi:806",
+              "source": "core/time.pi:823",
               "members": []
             },
             {
@@ -1915,7 +1919,7 @@
                   "code": "const a = new Date(\"2024-03-10T12:00:00Z\")\nconst b = new Date(\"2024-03-10T12:30:00Z\")\nprintln(b.valueOf() - a.valueOf())   // 1800000"
                 }
               ],
-              "source": "core/time.pi:815",
+              "source": "core/time.pi:832",
               "members": []
             },
             {
@@ -1929,7 +1933,7 @@
                   "code": "const d = new Date(2024, 4, 15)\nprintln(d.getFullYear())   // 2024"
                 }
               ],
-              "source": "core/time.pi:823",
+              "source": "core/time.pi:840",
               "members": []
             },
             {
@@ -1943,7 +1947,7 @@
                   "code": "const d = new Date(2024, 4, 15)\nprintln(d.getMonth())   // 4 (May: months are 0-based)"
                 }
               ],
-              "source": "core/time.pi:831",
+              "source": "core/time.pi:848",
               "members": []
             },
             {
@@ -1957,7 +1961,7 @@
                   "code": "const d = new Date(2024, 4, 15)\nprintln(d.getDate())   // 15"
                 }
               ],
-              "source": "core/time.pi:839",
+              "source": "core/time.pi:856",
               "members": []
             },
             {
@@ -1971,7 +1975,7 @@
                   "code": "const d = new Date(2024, 4, 15)\nprintln(d.getDay())   // 3 (Wednesday; Sunday is 0)"
                 }
               ],
-              "source": "core/time.pi:847",
+              "source": "core/time.pi:864",
               "members": []
             },
             {
@@ -1985,7 +1989,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 45, 30)\nprintln(d.getHours())   // 9"
                 }
               ],
-              "source": "core/time.pi:855",
+              "source": "core/time.pi:872",
               "members": []
             },
             {
@@ -1999,7 +2003,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 45, 30)\nprintln(d.getMinutes())   // 45"
                 }
               ],
-              "source": "core/time.pi:863",
+              "source": "core/time.pi:880",
               "members": []
             },
             {
@@ -2013,7 +2017,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 45, 30)\nprintln(d.getSeconds())   // 30"
                 }
               ],
-              "source": "core/time.pi:871",
+              "source": "core/time.pi:888",
               "members": []
             },
             {
@@ -2027,7 +2031,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 45, 30, 125)\nprintln(d.getMilliseconds())   // 125"
                 }
               ],
-              "source": "core/time.pi:879",
+              "source": "core/time.pi:896",
               "members": []
             },
             {
@@ -2041,7 +2045,7 @@
                   "code": "const d = new Date(\"2024-12-31T23:30:00Z\")\nprintln(d.getUTCFullYear())   // 2024"
                 }
               ],
-              "source": "core/time.pi:887",
+              "source": "core/time.pi:904",
               "members": []
             },
             {
@@ -2055,7 +2059,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00Z\")\nprintln(d.getUTCMonth())   // 2 (March: months are 0-based)"
                 }
               ],
-              "source": "core/time.pi:895",
+              "source": "core/time.pi:912",
               "members": []
             },
             {
@@ -2069,7 +2073,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00Z\")\nprintln(d.getUTCDate())   // 10"
                 }
               ],
-              "source": "core/time.pi:903",
+              "source": "core/time.pi:920",
               "members": []
             },
             {
@@ -2083,7 +2087,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00Z\")\nprintln(d.getUTCDay())   // 0 (Sunday)"
                 }
               ],
-              "source": "core/time.pi:911",
+              "source": "core/time.pi:928",
               "members": []
             },
             {
@@ -2097,7 +2101,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:45.5Z\")\nprintln(d.getUTCHours())   // 12"
                 }
               ],
-              "source": "core/time.pi:919",
+              "source": "core/time.pi:936",
               "members": []
             },
             {
@@ -2111,7 +2115,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:45.5Z\")\nprintln(d.getUTCMinutes())   // 30"
                 }
               ],
-              "source": "core/time.pi:927",
+              "source": "core/time.pi:944",
               "members": []
             },
             {
@@ -2125,7 +2129,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:45.5Z\")\nprintln(d.getUTCSeconds())   // 45"
                 }
               ],
-              "source": "core/time.pi:935",
+              "source": "core/time.pi:952",
               "members": []
             },
             {
@@ -2139,7 +2143,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:45.5Z\")\nprintln(d.getUTCMilliseconds())   // 500"
                 }
               ],
-              "source": "core/time.pi:943",
+              "source": "core/time.pi:960",
               "members": []
             },
             {
@@ -2153,7 +2157,7 @@
                   "code": "const d = new Date(Date.UTC(2024, 0, 15))\nprintln(d.getTimezoneOffset())   // depends on the system's zone: -60 in Warsaw, 300 in New York, 0 in UTC"
                 }
               ],
-              "source": "core/time.pi:952",
+              "source": "core/time.pi:969",
               "members": []
             },
             {
@@ -2167,7 +2171,7 @@
                   "code": "const d = new Date(0)\nprintln(d.setTime(1710073800000.9))   // 1710073800000\nprintln(d.toISOString())              // 2024-03-10T12:30:00.000Z"
                 }
               ],
-              "source": "core/time.pi:965",
+              "source": "core/time.pi:982",
               "members": []
             },
             {
@@ -2181,7 +2185,7 @@
                   "code": "const d = new Date(2024, 1, 29)\nd.setFullYear(2025)\nprintln(d.toDateString())   // Sat Mar 01 2025\nd.setFullYear(2026, 11, 24)\nprintln(d.toDateString())   // Thu Dec 24 2026"
                 }
               ],
-              "source": "core/time.pi:1001",
+              "source": "core/time.pi:1018",
               "members": []
             },
             {
@@ -2195,7 +2199,7 @@
                   "code": "const d = new Date(2024, 0, 31)\nd.setMonth(3)\nprintln(d.toDateString())   // Wed May 01 2024\nd.setMonth(13, 5)\nprintln(d.toDateString())   // Wed Feb 05 2025"
                 }
               ],
-              "source": "core/time.pi:1013",
+              "source": "core/time.pi:1030",
               "members": []
             },
             {
@@ -2209,7 +2213,7 @@
                   "code": "const d = new Date(2024, 2, 15)\nd.setDate(0)\nprintln(d.toDateString())   // Thu Feb 29 2024\nd.setDate(31)\nprintln(d.toDateString())   // Sat Mar 02 2024"
                 }
               ],
-              "source": "core/time.pi:1025",
+              "source": "core/time.pi:1042",
               "members": []
             },
             {
@@ -2223,7 +2227,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 0)\nd.setHours(26)\nprintln(d.toDateString())   // Thu May 16 2024\nprintln(d.getHours())       // 2\nd.setHours(14, 30, 0, 0)\nprintln(d.getMinutes())     // 30"
                 }
               ],
-              "source": "core/time.pi:1038",
+              "source": "core/time.pi:1055",
               "members": []
             },
             {
@@ -2237,7 +2241,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 0)\nd.setMinutes(90)\nprintln(d.getHours())     // 10\nprintln(d.getMinutes())   // 30"
                 }
               ],
-              "source": "core/time.pi:1049",
+              "source": "core/time.pi:1066",
               "members": []
             },
             {
@@ -2251,7 +2255,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 0)\nd.setSeconds(75, 500)\nprintln(d.getMinutes())        // 1\nprintln(d.getSeconds())        // 15\nprintln(d.getMilliseconds())   // 500"
                 }
               ],
-              "source": "core/time.pi:1061",
+              "source": "core/time.pi:1078",
               "members": []
             },
             {
@@ -2265,7 +2269,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 0)\nd.setMilliseconds(1500)\nprintln(d.getSeconds())        // 1\nprintln(d.getMilliseconds())   // 500"
                 }
               ],
-              "source": "core/time.pi:1072",
+              "source": "core/time.pi:1089",
               "members": []
             },
             {
@@ -2279,7 +2283,7 @@
                   "code": "const d = new Date(\"2024-02-29T12:00:00Z\")\nd.setUTCFullYear(2025)\nprintln(d.toISOString())   // 2025-03-01T12:00:00.000Z"
                 }
               ],
-              "source": "core/time.pi:1082",
+              "source": "core/time.pi:1099",
               "members": []
             },
             {
@@ -2293,7 +2297,7 @@
                   "code": "const d = new Date(\"2024-01-31T12:00:00Z\")\nd.setUTCMonth(1)\nprintln(d.toISOString())   // 2024-03-02T12:00:00.000Z"
                 }
               ],
-              "source": "core/time.pi:1092",
+              "source": "core/time.pi:1109",
               "members": []
             },
             {
@@ -2307,7 +2311,7 @@
                   "code": "const d = new Date(\"2024-03-15T12:00:00Z\")\nd.setUTCDate(0)\nprintln(d.toISOString())   // 2024-02-29T12:00:00.000Z"
                 }
               ],
-              "source": "core/time.pi:1102",
+              "source": "core/time.pi:1119",
               "members": []
             },
             {
@@ -2321,7 +2325,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:00:00Z\")\nprintln(d.setUTCHours(23, 59))   // 1710115140000\nprintln(d.toISOString())         // 2024-03-10T23:59:00.000Z"
                 }
               ],
-              "source": "core/time.pi:1112",
+              "source": "core/time.pi:1129",
               "members": []
             },
             {
@@ -2335,7 +2339,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:00:00Z\")\nd.setUTCMinutes(45, 30)\nprintln(d.toISOString())   // 2024-03-10T12:45:30.000Z"
                 }
               ],
-              "source": "core/time.pi:1122",
+              "source": "core/time.pi:1139",
               "members": []
             },
             {
@@ -2349,7 +2353,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:00:00Z\")\nd.setUTCSeconds(61)\nprintln(d.toISOString())   // 2024-03-10T12:01:01.000Z"
                 }
               ],
-              "source": "core/time.pi:1132",
+              "source": "core/time.pi:1149",
               "members": []
             },
             {
@@ -2363,7 +2367,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:00:00Z\")\nd.setUTCMilliseconds(250)\nprintln(d.toISOString())   // 2024-03-10T12:00:00.250Z"
                 }
               ],
-              "source": "core/time.pi:1142",
+              "source": "core/time.pi:1159",
               "members": []
             },
             {
@@ -2377,7 +2381,7 @@
                   "code": "const d = new Date(Date.UTC(2024, 2, 10, 12, 30, 5, 250))\nprintln(d.toISOString())   // 2024-03-10T12:30:05.250Z"
                 }
               ],
-              "source": "core/time.pi:1151",
+              "source": "core/time.pi:1168",
               "members": []
             },
             {
@@ -2391,7 +2395,7 @@
                   "code": "println(new Date(Date.UTC(2024, 2, 10)).toJSON())   // 2024-03-10T00:00:00.000Z\nprintln(new Date(\"garbage\").toJSON() ?? \"null\")     // null"
                 }
               ],
-              "source": "core/time.pi:1167",
+              "source": "core/time.pi:1184",
               "members": []
             },
             {
@@ -2405,7 +2409,7 @@
                   "code": "const d = new Date(2024, 2, 10, 12, 30)\nprintln(d.toDateString())   // Sun Mar 10 2024"
                 }
               ],
-              "source": "core/time.pi:1182",
+              "source": "core/time.pi:1199",
               "members": []
             },
             {
@@ -2419,7 +2423,7 @@
                   "code": "const d = new Date(2024, 4, 15, 12, 30)\nprintln(d.toTimeString())   // e.g. 12:30:00 GMT+0200 (CEST), in the system's zone"
                 }
               ],
-              "source": "core/time.pi:1195",
+              "source": "core/time.pi:1212",
               "members": []
             },
             {
@@ -2433,7 +2437,7 @@
                   "code": "const d = new Date(2024, 4, 15, 12, 30)\nprintln(d.toString())   // e.g. Wed May 15 2024 12:30:00 GMT+0200 (CEST), in the system's zone\nprintln(`${d}`)         // the same"
                 }
               ],
-              "source": "core/time.pi:1211",
+              "source": "core/time.pi:1228",
               "members": []
             },
             {
@@ -2447,7 +2451,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00+01:00\")\nprintln(d.toUTCString())   // Sun, 10 Mar 2024 11:30:00 GMT"
                 }
               ],
-              "source": "core/time.pi:1222",
+              "source": "core/time.pi:1239",
               "members": []
             }
           ]
@@ -2756,7 +2760,7 @@
               "code": "const xs = new Float32Array(3)\nxs.set(0, 0.5)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // 0.5"
             }
           ],
-          "source": "core/buffer.pi:854",
+          "source": "core/buffer.pi:869",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -2764,7 +2768,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:856",
+              "source": "core/buffer.pi:871",
               "members": []
             },
             {
@@ -2773,7 +2777,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:858",
+              "source": "core/buffer.pi:873",
               "members": []
             },
             {
@@ -2782,7 +2786,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:860",
+              "source": "core/buffer.pi:875",
               "members": []
             },
             {
@@ -2796,7 +2800,7 @@
                   "code": "const xs = new Float32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:871",
+              "source": "core/buffer.pi:886",
               "members": []
             },
             {
@@ -2810,7 +2814,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Float32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:886",
+              "source": "core/buffer.pi:901",
               "members": []
             },
             {
@@ -2824,7 +2828,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Float32Array(buf, 4, 2)\ntwo.set(0, 0.5)\nprintln(two.length)                 // 2\nprintln(new Float32Array(buf, 0)[1])   // 0.5"
                 }
               ],
-              "source": "core/buffer.pi:904",
+              "source": "core/buffer.pi:919",
               "members": []
             },
             {
@@ -2838,7 +2842,7 @@
                   "code": "const xs = new Float32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:917",
+              "source": "core/buffer.pi:932",
               "members": []
             },
             {
@@ -2852,7 +2856,7 @@
                   "code": "const xs = new Float32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:928",
+              "source": "core/buffer.pi:943",
               "members": []
             },
             {
@@ -2866,7 +2870,7 @@
                   "code": "const xs = new Float32Array(2)\nxs.set(1, 0.5)\nprintln(xs.get(1))   // 0.5\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:947",
+              "source": "core/buffer.pi:962",
               "members": []
             },
             {
@@ -2880,7 +2884,7 @@
                   "code": "const xs = new Float32Array(2)\nxs.set(0, 1.25)\nprintln(xs[0])   // 1.25"
                 }
               ],
-              "source": "core/buffer.pi:960",
+              "source": "core/buffer.pi:976",
               "members": []
             }
           ]
@@ -2896,7 +2900,7 @@
               "code": "const xs = new Float64Array(3)\nxs.set(0, 3.25)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 24\nprintln(xs[0])           // 3.25"
             }
           ],
-          "source": "core/buffer.pi:984",
+          "source": "core/buffer.pi:1001",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -2904,7 +2908,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 8",
               "doc": "<p>The size of an element: 8 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:986",
+              "source": "core/buffer.pi:1003",
               "members": []
             },
             {
@@ -2913,7 +2917,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:988",
+              "source": "core/buffer.pi:1005",
               "members": []
             },
             {
@@ -2922,7 +2926,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:990",
+              "source": "core/buffer.pi:1007",
               "members": []
             },
             {
@@ -2936,7 +2940,7 @@
                   "code": "const xs = new Float64Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 32"
                 }
               ],
-              "source": "core/buffer.pi:1001",
+              "source": "core/buffer.pi:1018",
               "members": []
             },
             {
@@ -2950,7 +2954,7 @@
                   "code": "const buf = new ArrayBuffer(32)\nconst rest = new Float64Array(buf, 8)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:1016",
+              "source": "core/buffer.pi:1033",
               "members": []
             },
             {
@@ -2964,7 +2968,7 @@
                   "code": "const buf = new ArrayBuffer(32)\nconst two = new Float64Array(buf, 8, 2)\ntwo.set(0, 3.25)\nprintln(two.length)                 // 2\nprintln(new Float64Array(buf, 0)[1])   // 3.25"
                 }
               ],
-              "source": "core/buffer.pi:1034",
+              "source": "core/buffer.pi:1051",
               "members": []
             },
             {
@@ -2978,7 +2982,7 @@
                   "code": "const xs = new Float64Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:1047",
+              "source": "core/buffer.pi:1064",
               "members": []
             },
             {
@@ -2992,7 +2996,7 @@
                   "code": "const xs = new Float64Array(10)\nprintln(xs.byteLength)   // 80"
                 }
               ],
-              "source": "core/buffer.pi:1058",
+              "source": "core/buffer.pi:1075",
               "members": []
             },
             {
@@ -3006,7 +3010,7 @@
                   "code": "const xs = new Float64Array(2)\nxs.set(1, 3.25)\nprintln(xs.get(1))   // 3.25\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:1077",
+              "source": "core/buffer.pi:1094",
               "members": []
             },
             {
@@ -3020,7 +3024,7 @@
                   "code": "const xs = new Float64Array(2)\nxs.set(0, 1.25)\nprintln(xs[0])   // 1.25"
                 }
               ],
-              "source": "core/buffer.pi:1090",
+              "source": "core/buffer.pi:1108",
               "members": []
             }
           ]
@@ -3295,7 +3299,7 @@
               "code": "const xs = new Int32Array(3)\nxs.set(0, -7)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // -7"
             }
           ],
-          "source": "core/buffer.pi:589",
+          "source": "core/buffer.pi:600",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -3303,7 +3307,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:591",
+              "source": "core/buffer.pi:602",
               "members": []
             },
             {
@@ -3312,7 +3316,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:593",
+              "source": "core/buffer.pi:604",
               "members": []
             },
             {
@@ -3321,7 +3325,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:595",
+              "source": "core/buffer.pi:606",
               "members": []
             },
             {
@@ -3335,7 +3339,7 @@
                   "code": "const xs = new Int32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:606",
+              "source": "core/buffer.pi:617",
               "members": []
             },
             {
@@ -3349,7 +3353,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Int32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:621",
+              "source": "core/buffer.pi:632",
               "members": []
             },
             {
@@ -3363,7 +3367,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Int32Array(buf, 4, 2)\ntwo.set(0, -7)\nprintln(two.length)                 // 2\nprintln(new Int32Array(buf, 0)[1])   // -7"
                 }
               ],
-              "source": "core/buffer.pi:639",
+              "source": "core/buffer.pi:650",
               "members": []
             },
             {
@@ -3377,7 +3381,7 @@
                   "code": "const xs = new Int32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:652",
+              "source": "core/buffer.pi:663",
               "members": []
             },
             {
@@ -3391,7 +3395,7 @@
                   "code": "const xs = new Int32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:663",
+              "source": "core/buffer.pi:674",
               "members": []
             },
             {
@@ -3405,7 +3409,7 @@
                   "code": "const xs = new Int32Array(2)\nxs.set(1, -7)\nprintln(xs.get(1))   // -7\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:682",
+              "source": "core/buffer.pi:693",
               "members": []
             },
             {
@@ -3419,7 +3423,7 @@
                   "code": "const xs = new Int32Array(2)\nxs.set(0, 123)\nxs.set(1, 0x80000000)   // wraps\nprintln(xs[0])   // 123\nprintln(xs[1])   // -2147483648"
                 }
               ],
-              "source": "core/buffer.pi:697",
+              "source": "core/buffer.pi:709",
               "members": []
             }
           ]
@@ -3671,7 +3675,7 @@
               "name": "parse",
               "kind": "method",
               "signature": "public static parse<T>(text: string): T throws JsonError",
-              "doc": "<p>The <code>T</code> that <code>text</code> holds. Struct and class fields are matched by name (or by\n<code>@json.name</code>); unknown keys are skipped; a missing field is an error unless it's\nnullable (then it's <code>null</code>).</p>\n",
+              "doc": "<p>The <code>T</code> that <code>text</code> holds. Struct and class fields are matched by name (or by\n<code>@json.name</code>); unknown keys are skipped; a missing field is an error unless it's\nnullable (then it's <code>null</code>) or a class field with an initializer (then it takes it).</p>\n",
               "examples": [
                 {
                   "caption": "",
@@ -3788,7 +3792,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nprintln(server != null)   // true\nserver?.close()\nclient.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:684",
+          "source": "core/net.pi:692",
           "members": [
             {
               "name": "addr",
@@ -3796,7 +3800,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it listens on (with the port chosen when <code>listen</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:687",
+              "source": "core/net.pi:695",
               "members": []
             },
             {
@@ -3810,21 +3814,21 @@
                   "code": "import { listen } from \"std/net\"\n\n// Listeners come from `listen` (and `listenUnix`).\nconst listener: Listener = await listen(0)\nprintln(listener.addr.hostname)   // 127.0.0.1\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:703",
+              "source": "core/net.pi:713",
               "members": []
             },
             {
               "name": "accept",
               "kind": "method",
               "signature": "public accept(): Promise<Conn?, NetError>",
-              "doc": "<p>The next connection, or <code>null</code> once the listener is closed. One at a time.</p>\n",
+              "doc": "<p>The next connection, or <code>null</code> once the listener is closed. Several calls at once each get\na connection (#65: a call made while another waits accepts after it).</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn?.remoteAddr.port == client.localAddr.port)   // true\nconn?.close()\nclient.close()\nlistener.close()\nprintln(await listener.accept())   // null (closed)"
                 }
               ],
-              "source": "core/net.pi:735",
+              "source": "core/net.pi:746",
               "members": []
             },
             {
@@ -3838,7 +3842,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.next()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn != null)   // true\nconn?.close()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:777",
+              "source": "core/net.pi:793",
               "members": []
             },
             {
@@ -3852,7 +3856,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nawait client.writeText(\"hello\")\nclient.close()\nfor await (const conn of listener) {\n  println(await conn.text())   // hello\n  conn.close()\n  listener.close()             // ends the loop\n}"
                 }
               ],
-              "source": "core/net.pi:797",
+              "source": "core/net.pi:813",
               "members": []
             },
             {
@@ -3866,7 +3870,7 @@
                   "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst waiting = listener.accept()\nlistener.close()\nprintln(await waiting)   // null"
                 }
               ],
-              "source": "core/net.pi:813",
+              "source": "core/net.pi:829",
               "members": []
             }
           ]
@@ -4916,7 +4920,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
             }
           ],
-          "source": "core/net.pi:1236",
+          "source": "core/net.pi:1252",
           "members": [
             {
               "name": "name",
@@ -4924,7 +4928,7 @@
               "signature": "name: string",
               "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
               "examples": [],
-              "source": "core/net.pi:1238",
+              "source": "core/net.pi:1254",
               "members": []
             },
             {
@@ -4933,7 +4937,7 @@
               "signature": "family: int",
               "doc": "<p>4 or 6.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1240",
+              "source": "core/net.pi:1256",
               "members": []
             },
             {
@@ -4942,7 +4946,7 @@
               "signature": "address: string",
               "doc": "<p>The address, as text.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1242",
+              "source": "core/net.pi:1258",
               "members": []
             },
             {
@@ -4951,7 +4955,7 @@
               "signature": "up: bool",
               "doc": "<p>Whether it's up.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1244",
+              "source": "core/net.pi:1260",
               "members": []
             },
             {
@@ -4960,7 +4964,7 @@
               "signature": "loopback: bool",
               "doc": "<p>Whether it's the loopback interface.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1246",
+              "source": "core/net.pi:1262",
               "members": []
             },
             {
@@ -4969,7 +4973,7 @@
               "signature": "multicast: bool",
               "doc": "<p>Whether it can send and receive multicast.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1248",
+              "source": "core/net.pi:1264",
               "members": []
             }
           ]
@@ -4985,7 +4989,7 @@
               "code": "const start = performance.now()\nlet sum = 0\nfor (let i = 0; i < 1000; i++) sum += i\nconst elapsed = performance.now() - start\nprintln(sum)              // 499500\nprintln(elapsed >= 0.0)   // true"
             }
           ],
-          "source": "core/time.pi:599",
+          "source": "core/time.pi:616",
           "members": [
             {
               "name": "now",
@@ -4998,7 +5002,7 @@
                   "code": "const t0 = performance.now()\nprintln(t0)                         // e.g. 24.407417 (ms since the program started)\nprintln(performance.now() >= t0)    // true"
                 }
               ],
-              "source": "core/time.pi:608",
+              "source": "core/time.pi:625",
               "members": []
             },
             {
@@ -5012,7 +5016,7 @@
                   "code": "const origin = performance.timeOrigin()\nprintln(origin)                                     // e.g. 1795451940937\nprintln(new Date(origin).getTime() <= Date.now())   // true"
                 }
               ],
-              "source": "core/time.pi:620",
+              "source": "core/time.pi:637",
               "members": []
             }
           ]
@@ -7596,6 +7600,76 @@
               "members": []
             },
             {
+              "name": "pathname",
+              "kind": "property",
+              "signature": "public set pathname(value: string)",
+              "doc": "<p>Replaces the path (#66): percent-encoded as the parser does, <code>?</code> and <code>#</code> kept in it, a\nleading <code>/</code> added for special schemes. Ignored for an opaque path (<code>mailto:a@b</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/a?x=1\")\nurl.pathname = \"/docs/read me\"\nprintln(url.href)   // https://example.com/docs/read%20me?x=1"
+                }
+              ],
+              "source": "core/url.pi:822",
+              "members": []
+            },
+            {
+              "name": "search",
+              "kind": "property",
+              "signature": "public set search(value: string)",
+              "doc": "<p>Replaces the query (#66; a leading <code>?</code> is optional, <code>\"\"</code> removes it). <code>searchParams</code>\nfollows.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/find?q=old#top\")\nurl.search = \"q=new&page=2\"\nprintln(url.href)                    // https://example.com/find?q=new&page=2#top\nprintln(url.searchParams.get(\"page\"))   // 2"
+                }
+              ],
+              "source": "core/url.pi:839",
+              "members": []
+            },
+            {
+              "name": "hash",
+              "kind": "property",
+              "signature": "public set hash(value: string)",
+              "doc": "<p>Replaces the fragment (#66; a leading <code>#</code> is optional, <code>\"\"</code> removes it).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/guide\")\nurl.hash = \"install\"\nprintln(url.href)   // https://example.com/guide#install"
+                }
+              ],
+              "source": "core/url.pi:852",
+              "members": []
+            },
+            {
+              "name": "host",
+              "kind": "property",
+              "signature": "public set host(value: string)",
+              "doc": "<p>Replaces the host and port (<code>example.com:8080</code>; #66): up to a <code>/</code>, <code>?</code> or <code>#</code>. Ignored\nwithout a host (an opaque URL) or for an invalid host.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/a\")\nurl.host = \"pico.dev:8443\"\nprintln(url.href)   // https://pico.dev:8443/a"
+                }
+              ],
+              "source": "core/url.pi:866",
+              "members": []
+            },
+            {
+              "name": "protocol",
+              "kind": "property",
+              "signature": "public set protocol(value: string)",
+              "doc": "<p>Replaces the scheme (<code>\"http\"</code> or <code>\"http:\"</code>; #66), as the URL Standard allows: between\ntwo special schemes (<code>http</code>, <code>https</code>, <code>ws</code>, <code>wss</code>, <code>ftp</code>) or two others, not to or from\n<code>file</code>; anything else is ignored. A port that's the new scheme's default goes.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"http://example.com:443/\")\nurl.protocol = \"https\"\nprintln(url.href)   // https://example.com/"
+                }
+              ],
+              "source": "core/url.pi:887",
+              "members": []
+            },
+            {
               "name": "toString",
               "kind": "method",
               "signature": "public toString(): string",
@@ -7606,7 +7680,7 @@
                   "code": "const url = new URL(\"https://example.com/path\")\nprintln(url.toString())   // https://example.com/path\nprintln(`link: ${url}`)   // link: https://example.com/path"
                 }
               ],
-              "source": "core/url.pi:821",
+              "source": "core/url.pi:934",
               "members": []
             },
             {
@@ -7620,7 +7694,7 @@
                   "code": "const url = new URL(\"https://example.com/a\")\nprintln(url.toJSON())   // https://example.com/a"
                 }
               ],
-              "source": "core/url.pi:832",
+              "source": "core/url.pi:945",
               "members": []
             }
           ]
@@ -7833,7 +7907,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst server = await bind(0)\nconst client = await bind(0)\nawait client.sendText(\"ping\", server.addr.port)\nconst d = await server.receive()\nif (d != null) {\n  await server.sendText(\"pong\", d.addr.port, d.addr.hostname)\n}\nconst reply = await client.receive()\nif (reply != null) {\n  println(new TextDecoder().decode(reply.data))   // pong\n}\nserver.close()\nclient.close()"
             }
           ],
-          "source": "core/net.pi:972",
+          "source": "core/net.pi:988",
           "members": [
             {
               "name": "addr",
@@ -7841,7 +7915,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it's bound to (with the port chosen when <code>bind</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:975",
+              "source": "core/net.pi:991",
               "members": []
             },
             {
@@ -7855,7 +7929,7 @@
                   "code": "import { bind } from \"std/net\"\n\n// UDP sockets come from `bind`.\nconst socket: UdpSocket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.hostname)   // 127.0.0.1\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:992",
+              "source": "core/net.pi:1008",
               "members": []
             },
             {
@@ -7869,7 +7943,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1021",
+              "source": "core/net.pi:1037",
               "members": []
             },
             {
@@ -7883,7 +7957,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1036",
+              "source": "core/net.pi:1052",
               "members": []
             },
             {
@@ -7897,7 +7971,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1051",
+              "source": "core/net.pi:1067",
               "members": []
             },
             {
@@ -7911,7 +7985,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1066",
+              "source": "core/net.pi:1082",
               "members": []
             },
             {
@@ -7925,7 +7999,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1081",
+              "source": "core/net.pi:1097",
               "members": []
             },
             {
@@ -7939,7 +8013,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1122",
+              "source": "core/net.pi:1138",
               "members": []
             },
             {
@@ -7953,7 +8027,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1140",
+              "source": "core/net.pi:1156",
               "members": []
             },
             {
@@ -7967,7 +8041,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1161",
+              "source": "core/net.pi:1177",
               "members": []
             },
             {
@@ -7981,7 +8055,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1196",
+              "source": "core/net.pi:1212",
               "members": []
             }
           ]
@@ -7997,7 +8071,7 @@
               "code": "const xs = new Uint32Array(3)\nxs.set(0, 4000000000)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // 4000000000"
             }
           ],
-          "source": "core/buffer.pi:721",
+          "source": "core/buffer.pi:734",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -8005,7 +8079,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:723",
+              "source": "core/buffer.pi:736",
               "members": []
             },
             {
@@ -8014,7 +8088,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:725",
+              "source": "core/buffer.pi:738",
               "members": []
             },
             {
@@ -8023,7 +8097,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:727",
+              "source": "core/buffer.pi:740",
               "members": []
             },
             {
@@ -8037,7 +8111,7 @@
                   "code": "const xs = new Uint32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:738",
+              "source": "core/buffer.pi:751",
               "members": []
             },
             {
@@ -8051,7 +8125,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Uint32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:753",
+              "source": "core/buffer.pi:766",
               "members": []
             },
             {
@@ -8065,7 +8139,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Uint32Array(buf, 4, 2)\ntwo.set(0, 4000000000)\nprintln(two.length)                 // 2\nprintln(new Uint32Array(buf, 0)[1])   // 4000000000"
                 }
               ],
-              "source": "core/buffer.pi:771",
+              "source": "core/buffer.pi:784",
               "members": []
             },
             {
@@ -8079,7 +8153,7 @@
                   "code": "const xs = new Uint32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:784",
+              "source": "core/buffer.pi:797",
               "members": []
             },
             {
@@ -8093,7 +8167,7 @@
                   "code": "const xs = new Uint32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:795",
+              "source": "core/buffer.pi:808",
               "members": []
             },
             {
@@ -8107,7 +8181,7 @@
                   "code": "const xs = new Uint32Array(2)\nxs.set(1, 4000000000)\nprintln(xs.get(1))   // 4000000000\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:815",
+              "source": "core/buffer.pi:828",
               "members": []
             },
             {
@@ -8121,7 +8195,7 @@
                   "code": "const xs = new Uint32Array(2)\nxs.set(0, 123)\nxs.set(1, -1)   // wraps\nprintln(xs[0])   // 123\nprintln(xs[1])   // 4294967295"
                 }
               ],
-              "source": "core/buffer.pi:830",
+              "source": "core/buffer.pi:844",
               "members": []
             }
           ]
@@ -8261,7 +8335,7 @@
                   "code": "const bytes = new Uint8Array(2)\nbytes.set(0, 65)\nbytes.set(1, 257)       // stored as 1\nprintln(bytes[0])       // 65\nprintln(bytes[1])       // 1"
                 }
               ],
-              "source": "core/buffer.pi:371",
+              "source": "core/buffer.pi:372",
               "members": []
             },
             {
@@ -8275,7 +8349,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nconst mid = bytes.subarray(1, 3)\nmid.set(0, 9)\nprintln(mid.length)   // 2\nprintln(bytes[1])     // 9"
                 }
               ],
-              "source": "core/buffer.pi:400",
+              "source": "core/buffer.pi:402",
               "members": []
             },
             {
@@ -8289,7 +8363,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nconst copy = bytes.slice(-2)\ncopy.set(0, 0)\nprintln(copy.length)   // 2\nprintln(bytes[3])      // 4"
                 }
               ],
-              "source": "core/buffer.pi:417",
+              "source": "core/buffer.pi:419",
               "members": []
             },
             {
@@ -8303,7 +8377,7 @@
                   "code": "const out = new Uint8Array(5)\nout.setAll(Uint8Array.from([7, 8]), 2)\nprintln(out[2])   // 7\nprintln(out[3])   // 8"
                 }
               ],
-              "source": "core/buffer.pi:436",
+              "source": "core/buffer.pi:439",
               "members": []
             },
             {
@@ -8317,7 +8391,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nbytes.copyWithin(0, 3)\nprintln(bytes[0])   // 4\nprintln(bytes[1])   // 5\nprintln(bytes[2])   // 3"
                 }
               ],
-              "source": "core/buffer.pi:459",
+              "source": "core/buffer.pi:465",
               "members": []
             },
             {
@@ -8331,7 +8405,7 @@
                   "code": "const bytes = Uint8Array.from([10, 20, 30, 20])\nprintln(bytes.indexOf(20))      // 1\nprintln(bytes.indexOf(20, 2))   // 3\nprintln(bytes.indexOf(99))      // -1"
                 }
               ],
-              "source": "core/buffer.pi:483",
+              "source": "core/buffer.pi:490",
               "members": []
             },
             {
@@ -8345,7 +8419,7 @@
                   "code": "const bytes = Uint8Array.from([0x50, 0x4B, 0x03])\nprintln(bytes.includes(0x4B))   // true\nprintln(bytes.includes(0xFF))   // false"
                 }
               ],
-              "source": "core/buffer.pi:504",
+              "source": "core/buffer.pi:512",
               "members": []
             },
             {
@@ -8359,7 +8433,7 @@
                   "code": "const bytes = new Uint8Array(4).fill(255, 1, 3)\nprintln(bytes[0])   // 0\nprintln(bytes[1])   // 255\nprintln(bytes[3])   // 0"
                 }
               ],
-              "source": "core/buffer.pi:518",
+              "source": "core/buffer.pi:526",
               "members": []
             },
             {
@@ -8373,7 +8447,7 @@
                   "code": "const a = Uint8Array.from([1, 2, 3])\nconst b = Uint8Array.from([1, 2, 3])\nprintln(a.equals(b))                    // true\nprintln(a.equals(b.subarray(0, 2)))     // false"
                 }
               ],
-              "source": "core/buffer.pi:537",
+              "source": "core/buffer.pi:546",
               "members": []
             },
             {
@@ -8387,7 +8461,7 @@
                   "code": "const bytes = Uint8Array.from([72, 105, 256 + 33])\nprintln(bytes.length)   // 3\nprintln(bytes[2])       // 33"
                 }
               ],
-              "source": "core/buffer.pi:570",
+              "source": "core/buffer.pi:581",
               "members": []
             }
           ]
@@ -8897,7 +8971,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
                 }
               ],
-              "source": "core/websocket.pi:390",
+              "source": "core/websocket.pi:388",
               "members": []
             },
             {
@@ -8911,7 +8985,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:689",
+              "source": "core/websocket.pi:687",
               "members": []
             },
             {
@@ -8925,7 +8999,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:726",
+              "source": "core/websocket.pi:724",
               "members": []
             }
           ]
@@ -12607,7 +12681,7 @@
     {
       "name": "std/crypto",
       "id": "std-crypto",
-      "about": "<p><code>std/crypto</code> (spec §13.2): synchronous cryptography over Mbed TLS: hashes, HMAC, HKDF,\nPBKDF2, AEAD (AES-GCM, ChaCha20-Poly1305), elliptic-curve keys (P-256, P-384, X25519),\nECDSA and ECDH. The <code>crypto</code> global has Web Crypto's async <code>subtle</code> over the same code.\nStrings are taken as their UTF-8 bytes.</p>\n",
+      "about": "<p><code>std/crypto</code> (spec §13.2): synchronous cryptography over Mbed TLS: hashes, HMAC, HKDF,\nPBKDF2, AEAD (AES-GCM, ChaCha20-Poly1305), elliptic-curve keys (P-256, P-384, X25519),\nECDSA and ECDH; streaming hashes (<code>createHash</code>). The <code>crypto</code> global has Web Crypto's async\n<code>subtle</code> over the same code.\nStrings are taken as their UTF-8 bytes.</p>\n",
       "items": [
         {
           "name": "digest",
@@ -12620,8 +12694,88 @@
               "code": "import { digest } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nprintln(hex.encode(digest(\"SHA-256\", \"abc\")))\n// ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
             }
           ],
-          "source": "crypto.pi:19",
+          "source": "crypto.pi:20",
           "members": []
+        },
+        {
+          "name": "createHash",
+          "kind": "function",
+          "signature": "function createHash(algorithm: HashAlgorithm): Hash",
+          "doc": "<p>A hash computed piece by piece (#69): <code>update</code> with each chunk, then <code>digest</code> once, for\ndata that doesn't fit in memory or arrives in parts. The same algorithms as <code>digest</code>.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { createHash } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst h = createHash(\"SHA-256\")\nh.update(\"a\").update(\"bc\")\nprintln(hex.encode(h.digest()))\n// ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            }
+          ],
+          "source": "crypto.pi:37",
+          "members": []
+        },
+        {
+          "name": "Hash",
+          "kind": "class",
+          "signature": "class Hash",
+          "doc": "<p>A hash computed piece by piece (<code>createHash</code>).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { Hash } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst h = new Hash(\"SHA-1\")\nh.update(new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(h.digest()))   // a9993e364706816aba3e25717850c26c9cd0d89d"
+            }
+          ],
+          "source": "crypto.pi:57",
+          "members": [
+            {
+              "name": "algorithm",
+              "kind": "field",
+              "signature": "public readonly algorithm: HashAlgorithm",
+              "doc": "<p>The algorithm.</p>\n",
+              "examples": [],
+              "source": "crypto.pi:59",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(algorithm: HashAlgorithm)",
+              "doc": "<p>A hash of nothing yet, by <code>algorithm</code> (as <code>createHash(algorithm)</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { Hash } from \"std/crypto\"\n\nprintln(new Hash(\"SHA-512\").algorithm)   // SHA-512"
+                }
+              ],
+              "source": "crypto.pi:70",
+              "members": []
+            },
+            {
+              "name": "update",
+              "kind": "method",
+              "signature": "public update(data: Uint8Array | string): Hash",
+              "doc": "<p>Adds <code>data</code> (a string as its UTF-8 bytes); returns the hash, for chaining. Panics after\n<code>digest</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { createHash } from \"std/crypto\"\n\nconst h = createHash(\"SHA-256\").update(\"part one, \").update(\"part two\")\nprintln(h.digest().length)   // 32"
+                }
+              ],
+              "source": "crypto.pi:87",
+              "members": []
+            },
+            {
+              "name": "digest",
+              "kind": "method",
+              "signature": "public digest(): Uint8Array",
+              "doc": "<p>The hash of everything added. A hash is digested once (again panics).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { createHash } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nprintln(hex.encode(createHash(\"SHA-1\").digest()))   // da39a3ee5e6b4b0d3255bfef95601890afd80709"
+                }
+              ],
+              "source": "crypto.pi:103",
+              "members": []
+            }
+          ]
         },
         {
           "name": "hmac",
@@ -12634,7 +12788,7 @@
               "code": "import { hmac } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst mac = hmac(\"SHA-256\", \"secret key\", \"message\")\nprintln(mac.length)            // 32\nprintln(hex.encode(mac).slice(0, 8))   //"
             }
           ],
-          "source": "crypto.pi:34",
+          "source": "crypto.pi:123",
           "members": []
         },
         {
@@ -12648,7 +12802,7 @@
               "code": "import { hkdf } from \"std/crypto\"\n\nconst ikm = new TextEncoder().encode(\"input key material\")\nconst salt = new TextEncoder().encode(\"salt\")\nconst info = new TextEncoder().encode(\"session key\")\nconst key = hkdf(\"SHA-256\", ikm, salt, info, 32)\nprintln(key.length)   // 32"
             }
           ],
-          "source": "crypto.pi:50",
+          "source": "crypto.pi:139",
           "members": []
         },
         {
@@ -12662,7 +12816,7 @@
               "code": "import { pbkdf2 } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst salt = new TextEncoder().encode(\"salt\")\nconst key = pbkdf2(\"SHA-256\", \"password\", salt, 1, 32)\nprintln(hex.encode(key))\n// 120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b"
             }
           ],
-          "source": "crypto.pi:66",
+          "source": "crypto.pi:155",
           "members": []
         },
         {
@@ -12676,7 +12830,7 @@
               "code": "import { hmac, timingSafeEqual } from \"std/crypto\"\n\nconst expected = hmac(\"SHA-256\", \"key\", \"data\")\nconst received = hmac(\"SHA-256\", \"key\", \"data\")\nprintln(timingSafeEqual(expected, received))   // true\nprintln(timingSafeEqual(expected, hmac(\"SHA-256\", \"key\", \"other\")))   // false"
             }
           ],
-          "source": "crypto.pi:81",
+          "source": "crypto.pi:170",
           "members": []
         },
         {
@@ -12690,7 +12844,7 @@
               "code": "import { randomBytes } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst nonce = randomBytes(12)\nprintln(nonce.length)       // 12\nprintln(hex.encode(nonce))  // e.g. 9f3c0a… (different every run)"
             }
           ],
-          "source": "crypto.pi:96",
+          "source": "crypto.pi:185",
           "members": []
         },
         {
@@ -12704,7 +12858,7 @@
               "code": "import { Aead, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(32))\nconst nonce = randomBytes(12)\nconst sealed = cipher.seal(nonce, \"attack at dawn\")\nprintln(sealed.length)   // 30 (14 bytes of text + 16-byte tag)\nprintln(new TextDecoder().decode(cipher.open(nonce, sealed)))   // attack at dawn"
             }
           ],
-          "source": "crypto.pi:114",
+          "source": "crypto.pi:203",
           "members": [
             {
               "name": "constructor",
@@ -12717,7 +12871,7 @@
                   "code": "import { Aead } from \"std/crypto\"\n\n// `new Aead(…)` doesn't check the key: prefer `Aead.aesGcm` or `Aead.chacha20Poly1305`.\nconst cipher = new Aead(2, new Uint8Array(32))\nconst sealed = cipher.seal(new Uint8Array(12), \"hi\")\nprintln(sealed.length)   // 18"
                 }
               ],
-              "source": "crypto.pi:131",
+              "source": "crypto.pi:220",
               "members": []
             },
             {
@@ -12731,7 +12885,7 @@
                   "code": "import { Aead, CryptoError, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(16))\nprintln(cipher.seal(randomBytes(12), \"x\").length)   // 17\ntry {\n  Aead.aesGcm(randomBytes(10)).seal(randomBytes(12), \"x\")\n  println(\"unreachable\")\n} catch (e: CryptoError) {\n  println(e.message)   // AES keys are 16, 24 or 32 bytes\n}"
                 }
               ],
-              "source": "crypto.pi:151",
+              "source": "crypto.pi:240",
               "members": []
             },
             {
@@ -12745,7 +12899,7 @@
                   "code": "import { Aead, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.chacha20Poly1305(randomBytes(32))\nconst nonce = randomBytes(12)\nconst sealed = cipher.seal(nonce, \"hello\")\nprintln(new TextDecoder().decode(cipher.open(nonce, sealed)))   // hello"
                 }
               ],
-              "source": "crypto.pi:167",
+              "source": "crypto.pi:256",
               "members": []
             },
             {
@@ -12759,7 +12913,7 @@
                   "code": "import { Aead, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(32))\nconst nonce = randomBytes(12)\nconst header = new TextEncoder().encode(\"v1\")\nconst sealed = cipher.seal(nonce, \"payload\", header)\nprintln(sealed.length)   // 23"
                 }
               ],
-              "source": "crypto.pi:186",
+              "source": "crypto.pi:275",
               "members": []
             },
             {
@@ -12773,7 +12927,7 @@
                   "code": "import { Aead, CryptoError, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(32))\nconst nonce = randomBytes(12)\nconst sealed = cipher.seal(nonce, \"secret\")\nprintln(new TextDecoder().decode(cipher.open(nonce, sealed)))   // secret\nsealed.set(0, sealed.get(0) ^ 1)\ntry {\n  cipher.open(nonce, sealed)\n  println(\"unreachable\")\n} catch (e: CryptoError) {\n  println(e.kind)   // AuthenticationFailed\n}"
                 }
               ],
-              "source": "crypto.pi:209",
+              "source": "crypto.pi:298",
               "members": []
             }
           ]
@@ -12789,7 +12943,7 @@
               "code": "import { EcKeyPair, ecdsaVerify } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-256\")\nprintln(keys.publicKey.length)   // 65\nconst sig = keys.sign(\"SHA-256\", \"hello\")\nprintln(ecdsaVerify(\"P-256\", \"SHA-256\", keys.publicKey, \"hello\", sig))   // true"
             }
           ],
-          "source": "crypto.pi:227",
+          "source": "crypto.pi:316",
           "members": [
             {
               "name": "curve",
@@ -12797,7 +12951,7 @@
               "signature": "public readonly curve: NamedCurve",
               "doc": "<p>The curve both keys belong to.</p>\n",
               "examples": [],
-              "source": "crypto.pi:229",
+              "source": "crypto.pi:318",
               "members": []
             },
             {
@@ -12806,7 +12960,7 @@
               "signature": "public readonly privateKey: Uint8Array",
               "doc": "<p>The private key: a big-endian scalar (for X25519, the 32-byte RFC 7748 form). Keep it secret.</p>\n",
               "examples": [],
-              "source": "crypto.pi:231",
+              "source": "crypto.pi:320",
               "members": []
             },
             {
@@ -12815,7 +12969,7 @@
               "signature": "public readonly publicKey: Uint8Array",
               "doc": "<p>The public key: an uncompressed point <code>04 ‖ x ‖ y</code> (for X25519, 32 bytes).</p>\n",
               "examples": [],
-              "source": "crypto.pi:233",
+              "source": "crypto.pi:322",
               "members": []
             },
             {
@@ -12829,7 +12983,7 @@
                   "code": "import { EcKeyPair } from \"std/crypto\"\n\nconst generated = EcKeyPair.generate(\"X25519\")\nconst copy = new EcKeyPair(\"X25519\", generated.privateKey, generated.publicKey)\nprintln(copy.curve)   // X25519"
                 }
               ],
-              "source": "crypto.pi:245",
+              "source": "crypto.pi:334",
               "members": []
             },
             {
@@ -12843,7 +12997,7 @@
                   "code": "import { EcKeyPair } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-384\")\nprintln(keys.privateKey.length)   // 48\nprintln(keys.publicKey.length)    // 97"
                 }
               ],
-              "source": "crypto.pi:261",
+              "source": "crypto.pi:350",
               "members": []
             },
             {
@@ -12857,7 +13011,7 @@
                   "code": "import { EcKeyPair, timingSafeEqual } from \"std/crypto\"\n\nconst original = EcKeyPair.generate(\"P-256\")\nconst restored = EcKeyPair.fromPrivateKey(\"P-256\", original.privateKey)\nprintln(timingSafeEqual(restored.publicKey, original.publicKey))   // true"
                 }
               ],
-              "source": "crypto.pi:276",
+              "source": "crypto.pi:365",
               "members": []
             },
             {
@@ -12871,7 +13025,7 @@
                   "code": "import { EcKeyPair } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-256\")\nconst signature = keys.sign(\"SHA-256\", \"release v1.0\")\nprintln(signature.length)   // 64 (r ‖ s)"
                 }
               ],
-              "source": "crypto.pi:291",
+              "source": "crypto.pi:380",
               "members": []
             },
             {
@@ -12885,7 +13039,7 @@
                   "code": "import { EcKeyPair, timingSafeEqual } from \"std/crypto\"\n\nconst alice = EcKeyPair.generate(\"X25519\")\nconst bob = EcKeyPair.generate(\"X25519\")\nconst s1 = alice.agree(bob.publicKey)\nconst s2 = bob.agree(alice.publicKey)\nprintln(s1.length)                  // 32\nprintln(timingSafeEqual(s1, s2))    // true"
                 }
               ],
-              "source": "crypto.pi:309",
+              "source": "crypto.pi:398",
               "members": []
             }
           ]
@@ -12901,7 +13055,7 @@
               "code": "import { EcKeyPair, ecdsaVerify } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-256\")\nconst sig = keys.sign(\"SHA-256\", \"msg\")\nprintln(ecdsaVerify(\"P-256\", \"SHA-256\", keys.publicKey, \"msg\", sig))       // true\nprintln(ecdsaVerify(\"P-256\", \"SHA-256\", keys.publicKey, \"tampered\", sig))  // false"
             }
           ],
-          "source": "crypto.pi:325",
+          "source": "crypto.pi:414",
           "members": []
         },
         {
@@ -13360,7 +13514,7 @@
     {
       "name": "std/encoding",
       "id": "std-encoding",
-      "about": "<p><code>std/encoding</code>: bytes as text (spec §13.5): <code>base64</code> (RFC 4648, also the URL-safe alphabet)\nand <code>hex</code>. The classes are in the core library (<code>&lt;core&gt;/encoding.pi</code>).</p>\n",
+      "about": "<p><code>std/encoding</code>: bytes as text (spec §13.5): <code>base64</code> (RFC 4648, also the URL-safe alphabet)\nand <code>hex</code>; and <code>csv</code> (RFC 4180). The classes are in the core library (<code>&lt;core&gt;/encoding.pi</code>).</p>\n",
       "items": [
         {
           "name": "base64",
@@ -13378,6 +13532,129 @@
           "doc": "<p>Hexadecimal: <code>hex.encode(bytes)</code> (lowercase) and <code>hex.decode(text)</code>.</p>\n",
           "examples": [],
           "source": "encoding.pi:10",
+          "members": []
+        },
+        {
+          "name": "CsvOptions",
+          "kind": "struct",
+          "signature": "struct CsvOptions",
+          "doc": "<p><code>csv.parse</code> options.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { csv } from \"std/encoding\"\n\nprintln(csv.parse(\"a;b\", { separator: \";\" })[0].length)   // 2"
+            }
+          ],
+          "source": "encoding.pi:20",
+          "members": [
+            {
+              "name": "separator",
+              "kind": "field",
+              "signature": "separator?: string",
+              "doc": "<p>The field separator, one character (<code>\",\"</code> by default).</p>\n",
+              "examples": [],
+              "source": "encoding.pi:22",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "CsvWriteOptions",
+          "kind": "struct",
+          "signature": "struct CsvWriteOptions",
+          "doc": "<p><code>csv.stringify</code> options.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { csv } from \"std/encoding\"\n\nprint(csv.stringify([[\"a\", \"b\"]], { separator: \"\\t\", lineEnding: \"\\r\\n\" }))   // a\tb (and CRLF)"
+            }
+          ],
+          "source": "encoding.pi:33",
+          "members": [
+            {
+              "name": "separator",
+              "kind": "field",
+              "signature": "separator?: string",
+              "doc": "<p>The field separator, one character (<code>\",\"</code> by default).</p>\n",
+              "examples": [],
+              "source": "encoding.pi:35",
+              "members": []
+            },
+            {
+              "name": "lineEnding",
+              "kind": "field",
+              "signature": "lineEnding?: string",
+              "doc": "<p>What ends each row (<code>\"\\n\"</code> by default; RFC 4180 says <code>\"\\r\\n\"</code>).</p>\n",
+              "examples": [],
+              "source": "encoding.pi:37",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "Csv",
+          "kind": "class",
+          "signature": "class Csv",
+          "doc": "<p>Comma-separated values (RFC 4180; #63): <code>csv.parse(text)</code> into rows of fields, and\n<code>csv.stringify(rows)</code>.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { csv } from \"std/encoding\"\n\nconst rows = csv.parse(\"name,note\\nAda,\\\"likes \\\"\\\"math\\\"\\\", tea\\\"\\n\")\nprintln(rows[1][1])            // likes \"math\", tea\nprint(csv.stringify(rows))     // name,note / Ada,\"likes \"\"math\"\", tea\""
+            }
+          ],
+          "source": "encoding.pi:51",
+          "members": [
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor()",
+              "doc": "<p>A CSV codec (<code>std/encoding</code> exports one as <code>csv</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { Csv } from \"std/encoding\"\n\nprintln(new Csv().parse(\"x,y\").length)   // 1"
+                }
+              ],
+              "source": "encoding.pi:60",
+              "members": []
+            },
+            {
+              "name": "parse",
+              "kind": "method",
+              "signature": "public parse(text: string, options: CsvOptions = {}): string[][] throws SyntaxError",
+              "doc": "<p>The rows of <code>text</code>: fields split at the separator, rows at line ends (<code>\\n</code> or <code>\\r\\n</code>), a\nquoted field (<code>\"a, \"\"b\"\"\"</code>) taking separators, quotes (doubled) and line ends; a last\nline end ends the last row. A quote inside an unquoted field is kept. Throws a\n<code>SyntaxError</code> for a quoted field that isn't closed, or text after its closing quote.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { csv } from \"std/encoding\"\n\nconst rows = csv.parse(\"a,\\\"b\\nc\\\"\\r\\n1,2\")\nprintln(rows.length)       // 2\nprintln(rows[0][1])        // b (a line break) c\ntry {\n  csv.parse(\"\\\"open\")\n} catch (e: SyntaxError) {\n  println(e.message)       // CSV: a quoted field isn't closed (line 1)\n}"
+                }
+              ],
+              "source": "encoding.pi:80",
+              "members": []
+            },
+            {
+              "name": "stringify",
+              "kind": "method",
+              "signature": "public stringify(rows: string[][], options: CsvWriteOptions = {}): string",
+              "doc": "<p><code>rows</code> as CSV text: fields joined by the separator, each row ended by the line ending; a\nfield with the separator, a quote, a line end or leading or trailing spaces is quoted\n(its quotes doubled).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { csv } from \"std/encoding\"\n\nprint(csv.stringify([[\"id\", \"note\"], [\"1\", \"a, \\\"b\\\"\"]]))\n// id,note\n// 1,\"a, \"\"b\"\"\""
+                }
+              ],
+              "source": "encoding.pi:161",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "csv",
+          "kind": "constant",
+          "signature": "const csv",
+          "doc": "<p>CSV (RFC 4180): <code>csv.parse(text)</code> and <code>csv.stringify(rows)</code>.</p>\n",
+          "examples": [],
+          "source": "encoding.pi:178",
           "members": []
         },
         {
@@ -14314,7 +14591,7 @@
                   "code": "import { watch, mkdir, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-using-example\")\nawait mkdir(dir, recursive: true)\n{\n  using w = await watch(dir)\n  println(w.path == dir)   // true\n}   // w.dispose() stops watching here\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:840",
+              "source": "fs.pi:841",
               "members": []
             }
           ]
@@ -14330,7 +14607,7 @@
               "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watch-example\")\nawait mkdir(join(dir, \"src\"), recursive: true)\nconst w = await watch(dir, recursive: true)\nawait writeText(join(dir, \"src\", \"main.pi\"), \"println(1)\")\nconst e = await w.next()\nprintln(e?.kind)   // create\nw.close()\nawait remove(dir, recursive: true)"
             }
           ],
-          "source": "fs.pi:905",
+          "source": "fs.pi:906",
           "members": []
         },
         {
@@ -14344,7 +14621,7 @@
               "code": "import { FileStream, writeBytes, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-example.bin\")\nawait writeBytes(path, Uint8Array.from([1, 2, 3, 4, 5]))\nconst stream = new FileStream(path, chunkSize: 2)\nlet chunk = await stream.read()\nwhile (chunk != null) {\n  println(chunk.length)   // 2, 2, then 1\n  chunk = await stream.read()\n}\nawait remove(path)"
             }
           ],
-          "source": "fs.pi:928",
+          "source": "fs.pi:940",
           "members": [
             {
               "name": "path",
@@ -14352,7 +14629,7 @@
               "signature": "public readonly path: string",
               "doc": "<p>The file's path.</p>\n",
               "examples": [],
-              "source": "fs.pi:930",
+              "source": "fs.pi:942",
               "members": []
             },
             {
@@ -14366,7 +14643,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { ByteStream } from \"std/streams\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-ctor-example.bin\")\nawait writeText(path, \"recorded\")\nconst replay: ByteStream = new FileStream(path)\nprintln((await replay.read())?.length)   // 8\nreplay.close()\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:949",
+              "source": "fs.pi:961",
               "members": []
             },
             {
@@ -14380,7 +14657,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-read-example.txt\")\nawait writeText(path, \"abc\")\nconst stream = new FileStream(path)\nconst bytes = await stream.read()\nif (bytes != null) {\n  println(new TextDecoder().decode(bytes))   // abc\n}\nprintln(await stream.read())   // null: the end\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:970",
+              "source": "fs.pi:982",
               "members": []
             },
             {
@@ -14394,7 +14671,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-write-example.txt\")\nawait writeText(path, \"data\")\nconst stream = new FileStream(path)\nawait stream.write(Uint8Array.from([1, 2]))   // discarded: the file is unchanged\nprintln((await stream.read())?.length)          // 4\nstream.close()\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:1000",
+              "source": "fs.pi:1012",
               "members": []
             },
             {
@@ -14408,7 +14685,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-close-example.txt\")\nawait writeText(path, \"data\")\nconst stream = new FileStream(path)\nstream.close()\nprintln(await stream.read())   // null\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:1017",
+              "source": "fs.pi:1029",
               "members": []
             }
           ]
@@ -17891,7 +18168,7 @@
               "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0, \"127.0.0.1\")\nprintln(listener.addr.port > 0)   // true\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:844",
+          "source": "core/net.pi:860",
           "members": []
         },
         {
@@ -17905,7 +18182,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst conn = await connect(listener.addr.port, \"127.0.0.1\")\nprintln(conn.remoteAddr.hostname)   // 127.0.0.1\nconn.close()\nconst server = await accepting\nserver?.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:866",
+          "source": "core/net.pi:882",
           "members": []
         },
         {
@@ -17919,7 +18196,7 @@
               "code": "import { connectUnix, listenUnix } from \"std/net\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)\nconst listener = await listenUnix(path)\nprintln(listener.addr.port)   // -1\nconst accepting = listener.accept()\nconst client = await connectUnix(path)\nawait client.writeText(\"over a socket file\")\nclient.close()\nconst server = await accepting\nif (server != null) {\n  println(await server.text())   // over a socket file\n  server.close()\n}\nlistener.close()                // removes the socket file"
             }
           ],
-          "source": "core/net.pi:897",
+          "source": "core/net.pi:913",
           "members": []
         },
         {
@@ -17933,7 +18210,7 @@
               "code": "import { connectUnix, listenUnix } from \"std/net\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)\nconst listener = await listenUnix(path)\nconst accepting = listener.accept()\nconst conn = await connectUnix(path)\nprintln(conn.remoteAddr.hostname == path)   // true\nconn.close()\nconst server = await accepting\nserver?.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:921",
+          "source": "core/net.pi:937",
           "members": []
         },
         {
@@ -17947,7 +18224,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.port > 0)   // true\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1294",
+          "source": "core/net.pi:1310",
           "members": []
         },
         {
@@ -17961,7 +18238,7 @@
               "code": "import { resolve } from \"std/net\"\n\nprintln((await resolve(\"127.0.0.1\")).join(\", \"))      // 127.0.0.1\nconst local = await resolve(\"localhost\")\nprintln(local.length > 0)                            // true (e.g. 127.0.0.1 and ::1)"
             }
           ],
-          "source": "core/net.pi:1312",
+          "source": "core/net.pi:1328",
           "members": []
         },
         {
@@ -17975,7 +18252,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nconst loopback = networkInterfaces().filter((i) => i.loopback && i.family == 4)\nprintln(loopback.length > 0)   // true"
             }
           ],
-          "source": "core/net.pi:1261",
+          "source": "core/net.pi:1277",
           "members": []
         },
         {
@@ -17989,7 +18266,7 @@
               "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1220",
+          "source": "core/net.pi:1236",
           "members": [
             {
               "name": "reuseAddress",
@@ -17997,7 +18274,7 @@
               "signature": "reuseAddress?: bool",
               "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1223",
+              "source": "core/net.pi:1239",
               "members": []
             }
           ]
@@ -18013,7 +18290,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
             }
           ],
-          "source": "core/net.pi:1236",
+          "source": "core/net.pi:1252",
           "members": [
             {
               "name": "name",
@@ -18021,7 +18298,7 @@
               "signature": "name: string",
               "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
               "examples": [],
-              "source": "core/net.pi:1238",
+              "source": "core/net.pi:1254",
               "members": []
             },
             {
@@ -18030,7 +18307,7 @@
               "signature": "family: int",
               "doc": "<p>4 or 6.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1240",
+              "source": "core/net.pi:1256",
               "members": []
             },
             {
@@ -18039,7 +18316,7 @@
               "signature": "address: string",
               "doc": "<p>The address, as text.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1242",
+              "source": "core/net.pi:1258",
               "members": []
             },
             {
@@ -18048,7 +18325,7 @@
               "signature": "up: bool",
               "doc": "<p>Whether it's up.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1244",
+              "source": "core/net.pi:1260",
               "members": []
             },
             {
@@ -18057,7 +18334,7 @@
               "signature": "loopback: bool",
               "doc": "<p>Whether it's the loopback interface.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1246",
+              "source": "core/net.pi:1262",
               "members": []
             },
             {
@@ -18066,7 +18343,7 @@
               "signature": "multicast: bool",
               "doc": "<p>Whether it can send and receive multicast.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1248",
+              "source": "core/net.pi:1264",
               "members": []
             }
           ]
@@ -18377,7 +18654,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nprintln(server != null)   // true\nserver?.close()\nclient.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:684",
+          "source": "core/net.pi:692",
           "members": [
             {
               "name": "addr",
@@ -18385,7 +18662,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it listens on (with the port chosen when <code>listen</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:687",
+              "source": "core/net.pi:695",
               "members": []
             },
             {
@@ -18399,21 +18676,21 @@
                   "code": "import { listen } from \"std/net\"\n\n// Listeners come from `listen` (and `listenUnix`).\nconst listener: Listener = await listen(0)\nprintln(listener.addr.hostname)   // 127.0.0.1\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:703",
+              "source": "core/net.pi:713",
               "members": []
             },
             {
               "name": "accept",
               "kind": "method",
               "signature": "public accept(): Promise<Conn?, NetError>",
-              "doc": "<p>The next connection, or <code>null</code> once the listener is closed. One at a time.</p>\n",
+              "doc": "<p>The next connection, or <code>null</code> once the listener is closed. Several calls at once each get\na connection (#65: a call made while another waits accepts after it).</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn?.remoteAddr.port == client.localAddr.port)   // true\nconn?.close()\nclient.close()\nlistener.close()\nprintln(await listener.accept())   // null (closed)"
                 }
               ],
-              "source": "core/net.pi:735",
+              "source": "core/net.pi:746",
               "members": []
             },
             {
@@ -18427,7 +18704,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.next()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn != null)   // true\nconn?.close()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:777",
+              "source": "core/net.pi:793",
               "members": []
             },
             {
@@ -18441,7 +18718,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nawait client.writeText(\"hello\")\nclient.close()\nfor await (const conn of listener) {\n  println(await conn.text())   // hello\n  conn.close()\n  listener.close()             // ends the loop\n}"
                 }
               ],
-              "source": "core/net.pi:797",
+              "source": "core/net.pi:813",
               "members": []
             },
             {
@@ -18455,7 +18732,7 @@
                   "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst waiting = listener.accept()\nlistener.close()\nprintln(await waiting)   // null"
                 }
               ],
-              "source": "core/net.pi:813",
+              "source": "core/net.pi:829",
               "members": []
             }
           ]
@@ -18471,7 +18748,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"hi\", b.addr.port)\nconst d: Datagram? = await b.receive()\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // hi\n  println(d.addr.port == a.addr.port)         // true\n}\na.close()\nb.close()"
             }
           ],
-          "source": "core/net.pi:945",
+          "source": "core/net.pi:961",
           "members": [
             {
               "name": "data",
@@ -18479,7 +18756,7 @@
               "signature": "data: Uint8Array",
               "doc": "<p>The datagram's bytes (cut to the size <code>receive</code> asked for).</p>\n",
               "examples": [],
-              "source": "core/net.pi:947",
+              "source": "core/net.pi:963",
               "members": []
             },
             {
@@ -18488,7 +18765,7 @@
               "signature": "addr: Addr",
               "doc": "<p>The address it came from.</p>\n",
               "examples": [],
-              "source": "core/net.pi:949",
+              "source": "core/net.pi:965",
               "members": []
             }
           ]
@@ -18504,7 +18781,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst server = await bind(0)\nconst client = await bind(0)\nawait client.sendText(\"ping\", server.addr.port)\nconst d = await server.receive()\nif (d != null) {\n  await server.sendText(\"pong\", d.addr.port, d.addr.hostname)\n}\nconst reply = await client.receive()\nif (reply != null) {\n  println(new TextDecoder().decode(reply.data))   // pong\n}\nserver.close()\nclient.close()"
             }
           ],
-          "source": "core/net.pi:972",
+          "source": "core/net.pi:988",
           "members": [
             {
               "name": "addr",
@@ -18512,7 +18789,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it's bound to (with the port chosen when <code>bind</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:975",
+              "source": "core/net.pi:991",
               "members": []
             },
             {
@@ -18526,7 +18803,7 @@
                   "code": "import { bind } from \"std/net\"\n\n// UDP sockets come from `bind`.\nconst socket: UdpSocket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.hostname)   // 127.0.0.1\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:992",
+              "source": "core/net.pi:1008",
               "members": []
             },
             {
@@ -18540,7 +18817,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1021",
+              "source": "core/net.pi:1037",
               "members": []
             },
             {
@@ -18554,7 +18831,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1036",
+              "source": "core/net.pi:1052",
               "members": []
             },
             {
@@ -18568,7 +18845,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1051",
+              "source": "core/net.pi:1067",
               "members": []
             },
             {
@@ -18582,7 +18859,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1066",
+              "source": "core/net.pi:1082",
               "members": []
             },
             {
@@ -18596,7 +18873,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1081",
+              "source": "core/net.pi:1097",
               "members": []
             },
             {
@@ -18610,7 +18887,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1122",
+              "source": "core/net.pi:1138",
               "members": []
             },
             {
@@ -18624,7 +18901,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1140",
+              "source": "core/net.pi:1156",
               "members": []
             },
             {
@@ -18638,7 +18915,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1161",
+              "source": "core/net.pi:1177",
               "members": []
             },
             {
@@ -18652,7 +18929,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1196",
+              "source": "core/net.pi:1212",
               "members": []
             }
           ]
@@ -19476,7 +19753,7 @@
                   "code": "import { env } from \"std/process\"\n\nenv.set(\"TEMP_FLAG\", \"1\")\nenv.delete(\"TEMP_FLAG\")\nprintln(env.has(\"TEMP_FLAG\"))   // false"
                 }
               ],
-              "source": "process.pi:213",
+              "source": "process.pi:214",
               "members": []
             },
             {
@@ -19490,7 +19767,7 @@
                   "code": "import { env } from \"std/process\"\n\nconst vars = env.toObject()\nprintln(vars.has(\"PATH\"))   // true\nprintln(vars.size > 0)      // true"
                 }
               ],
-              "source": "process.pi:227",
+              "source": "process.pi:229",
               "members": []
             }
           ]
@@ -19501,7 +19778,7 @@
           "signature": "const env",
           "doc": "<p>This process's environment variables.</p>\n",
           "examples": [],
-          "source": "process.pi:240",
+          "source": "process.pi:242",
           "members": []
         },
         {
@@ -19515,7 +19792,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"hello\"], stdout: \"pipe\").spawn()\nprintln((await child.stdout.text()).trim())   // hello\nawait child.status()"
             }
           ],
-          "source": "process.pi:281",
+          "source": "process.pi:283",
           "members": [
             {
               "name": "name",
@@ -19523,7 +19800,7 @@
               "signature": "public readonly name: string",
               "doc": "<p>The stream's name (<code>\"stdin\"</code>, <code>\"stdout\"</code> or <code>\"stderr\"</code>), used in panics and as the <code>path</code> of\nits <code>IoError</code>s.</p>\n",
               "examples": [],
-              "source": "process.pi:285",
+              "source": "process.pi:287",
               "members": []
             },
             {
@@ -19537,7 +19814,7 @@
                   "code": "import { Reader, stdin } from \"std/process\"\n\nconst input: Reader = stdin   // `stdin` and a piped child's `stdout`/`stderr` are Readers\nprintln(input.name)           // stdin"
                 }
               ],
-              "source": "process.pi:304",
+              "source": "process.pi:306",
               "members": []
             },
             {
@@ -19551,7 +19828,7 @@
                   "code": "import { stdin } from \"std/process\"\n\nif (stdin.isTerminal) {\n  println(\"type something, then Ctrl-D\")   // when run from a terminal\n} else {\n  println(\"reading piped input\")           // with `echo hi | myprogram`\n}"
                 }
               ],
-              "source": "process.pi:323",
+              "source": "process.pi:325",
               "members": []
             },
             {
@@ -19565,7 +19842,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"streamed\"], stdout: \"pipe\").spawn()\nconst reader = child.stdout.readable.getReader()\nconst first = await reader.read()\nprintln(first.value?.length)   // 9\nawait child.status()"
                 }
               ],
-              "source": "process.pi:339",
+              "source": "process.pi:341",
               "members": []
             },
             {
@@ -19579,7 +19856,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"chunk\"], stdout: \"pipe\").spawn()\nconst bytes = await child.stdout.read()\nif (bytes != null) {\n  println(new TextDecoder().decode(bytes).trim())   // chunk\n}\nprintln(await child.stdout.read())   // null: the end\nawait child.status()"
                 }
               ],
-              "source": "process.pi:381",
+              "source": "process.pi:383",
               "members": []
             },
             {
@@ -19593,7 +19870,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"sleep\", [\"5\"], stdout: \"pipe\").spawn()\nconst pending = child.stdout.read()\nchild.stdout.close()\nprintln(await pending)   // null\nchild.kill()\nawait child.status()"
                 }
               ],
-              "source": "process.pi:420",
+              "source": "process.pi:422",
               "members": []
             },
             {
@@ -19607,7 +19884,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"hi\"], stdout: \"pipe\").spawn()\nconst chunk = await child.stdout.next()\nprintln(chunk?.length)   // 3\nawait child.status()"
                 }
               ],
-              "source": "process.pi:444",
+              "source": "process.pi:446",
               "members": []
             },
             {
@@ -19621,7 +19898,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"printf\", [\"a\\\\nb\\\\n\"], stdout: \"pipe\").spawn()\nlet total = 0\nfor await (const chunk of child.stdout) {\n  total += chunk.length\n}\nprintln(total)   // 4\nawait child.status()"
                 }
               ],
-              "source": "process.pi:462",
+              "source": "process.pi:464",
               "members": []
             },
             {
@@ -19635,7 +19912,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"printf\", [\"one\\\\ntwo\\\\n\"], stdout: \"pipe\").spawn()\nconst text = await child.stdout.text()\nprintln(text.split(\"\\n\").length)   // 3\nawait child.status()"
                 }
               ],
-              "source": "process.pi:487",
+              "source": "process.pi:489",
               "members": []
             }
           ]
@@ -19651,7 +19928,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"cat\", stdin: \"pipe\", stdout: \"pipe\").spawn()\nawait child.stdin.writeText(\"piped through cat\")\nchild.stdin.close()\nprintln(await child.stdout.text())   // piped through cat\nawait child.status()"
             }
           ],
-          "source": "process.pi:534",
+          "source": "process.pi:536",
           "members": [
             {
               "name": "name",
@@ -19659,7 +19936,7 @@
               "signature": "public readonly name: string",
               "doc": "<p>The stream's name (<code>\"stdin\"</code>, <code>\"stdout\"</code> or <code>\"stderr\"</code>), used in panics and as the <code>path</code> of\nits <code>IoError</code>s.</p>\n",
               "examples": [],
-              "source": "process.pi:538",
+              "source": "process.pi:540",
               "members": []
             },
             {
@@ -19673,7 +19950,7 @@
                   "code": "import { Writer, stdout } from \"std/process\"\n\nconst out: Writer = stdout   // `stdout`, `stderr` and a piped child's `stdin` are Writers\nprintln(out.name)            // stdout"
                 }
               ],
-              "source": "process.pi:557",
+              "source": "process.pi:559",
               "members": []
             },
             {
@@ -19687,7 +19964,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"cat\", stdin: \"pipe\", stdout: \"pipe\").spawn()\nconst writer = child.stdin.writable.getWriter()\nawait writer.write(new TextEncoder().encode(\"via a stream\"))\nawait writer.close()\nprintln(await child.stdout.text())   // via a stream\nawait child.status()"
                 }
               ],
-              "source": "process.pi:576",
+              "source": "process.pi:578",
               "members": []
             },
             {
@@ -19701,7 +19978,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nconst n = await stdout.write(new TextEncoder().encode(\"bytes\\n\"))   // bytes\nprintln(n)                                                           // 6"
                 }
               ],
-              "source": "process.pi:612",
+              "source": "process.pi:614",
               "members": []
             },
             {
@@ -19715,7 +19992,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nif (stdout.isTerminal) {\n  println(\"on a terminal\")         // when run from a terminal\n} else {\n  println(\"piped or redirected\")   // with `myprogram > out.txt`\n}"
                 }
               ],
-              "source": "process.pi:629",
+              "source": "process.pi:631",
               "members": []
             },
             {
@@ -19729,7 +20006,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nconst red = if (stdout.hasColors()) \"\\u{1b}[31merror\\u{1b}[0m\" else \"error\"\nprintln(red)   // error (in red on a colour terminal)"
                 }
               ],
-              "source": "process.pi:645",
+              "source": "process.pi:647",
               "members": []
             },
             {
@@ -19743,7 +20020,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nconst width = stdout.columns ?? 80\nprintln(\"-\".repeat(width))   // a line as wide as the terminal (80 when it isn't one)"
                 }
               ],
-              "source": "process.pi:661",
+              "source": "process.pi:663",
               "members": []
             },
             {
@@ -19757,7 +20034,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nprintln(stdout.rows ?? 24)   // the terminal's height, e.g. 50 (24 when it isn't one)"
                 }
               ],
-              "source": "process.pi:674",
+              "source": "process.pi:676",
               "members": []
             },
             {
@@ -19771,7 +20048,7 @@
                   "code": "import { stdout, stderr } from \"std/process\"\n\nawait stdout.writeText(\"no newline, \")\nawait stdout.writeText(\"then one\\n\")    // no newline, then one\nawait stderr.writeText(\"a warning\\n\")   // (on standard error) a warning"
                 }
               ],
-              "source": "process.pi:689",
+              "source": "process.pi:691",
               "members": []
             },
             {
@@ -19785,7 +20062,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"wc\", [\"-c\"], stdin: \"pipe\", stdout: \"pipe\").spawn()\nchild.stdin.writeText(\"12345\")\nchild.stdin.close()   // after the write: wc sees the end of its input\nprintln((await child.stdout.text()).trim())   // 5\nawait child.status()"
                 }
               ],
-              "source": "process.pi:706",
+              "source": "process.pi:708",
               "members": []
             }
           ]
@@ -19796,7 +20073,7 @@
           "signature": "const stdin",
           "doc": "<p>This process's standard input.</p>\n",
           "examples": [],
-          "source": "process.pi:761",
+          "source": "process.pi:763",
           "members": []
         },
         {
@@ -19805,7 +20082,7 @@
           "signature": "const stdout",
           "doc": "<p>This process's standard output: writes are in order with <code>print</code>.</p>\n",
           "examples": [],
-          "source": "process.pi:763",
+          "source": "process.pi:765",
           "members": []
         },
         {
@@ -19814,7 +20091,7 @@
           "signature": "const stderr",
           "doc": "<p>This process's standard error: writes are in order with <code>print</code>.</p>\n",
           "examples": [],
-          "source": "process.pi:765",
+          "source": "process.pi:767",
           "members": []
         },
         {
@@ -19823,7 +20100,7 @@
           "signature": "type Stdio = \"inherit\" | \"pipe\" | \"null\"",
           "doc": "<p>What a child's standard stream is connected to: this process's (<code>\"inherit\"</code>), a pipe to\nthis process (<code>\"pipe\"</code>), or nothing (<code>\"null\"</code>).</p>\n",
           "examples": [],
-          "source": "process.pi:769",
+          "source": "process.pi:771",
           "members": []
         },
         {
@@ -19837,7 +20114,7 @@
               "code": "import { Command, ExitStatus } from \"std/process\"\n\nconst s: ExitStatus = await Command.shell(\"exit 3\").status()\nprintln(s.success)   // false\nprintln(s.code)      // 3\nprintln(s.signal)    // null"
             }
           ],
-          "source": "process.pi:787",
+          "source": "process.pi:789",
           "members": [
             {
               "name": "success",
@@ -19845,7 +20122,7 @@
               "signature": "success: bool",
               "doc": "<p>Whether it exited with code 0 (and no signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:789",
+              "source": "process.pi:791",
               "members": []
             },
             {
@@ -19854,7 +20131,7 @@
               "signature": "code: i32",
               "doc": "<p>The exit code (128 + the signal's number when a signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:791",
+              "source": "process.pi:793",
               "members": []
             },
             {
@@ -19863,7 +20140,7 @@
               "signature": "signal: i32?",
               "doc": "<p>The number of the signal that ended it (on Windows, the one <code>kill</code> was given), or <code>null</code>.</p>\n",
               "examples": [],
-              "source": "process.pi:793",
+              "source": "process.pi:795",
               "members": []
             }
           ]
@@ -19879,7 +20156,7 @@
               "code": "import { Command, Output } from \"std/process\"\n\nconst out: Output = await new Command(\"echo\", [\"hi\"]).output()\nprintln(out.success)          // true\nprintln(out.stdout.trim())    // hi\nprintln(out.stderr == \"\")     // true"
             }
           ],
-          "source": "process.pi:807",
+          "source": "process.pi:809",
           "members": [
             {
               "name": "success",
@@ -19887,7 +20164,7 @@
               "signature": "success: bool",
               "doc": "<p>Whether it exited with code 0 (and no signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:809",
+              "source": "process.pi:811",
               "members": []
             },
             {
@@ -19896,7 +20173,7 @@
               "signature": "code: i32",
               "doc": "<p>The exit code (128 + the signal's number when a signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:811",
+              "source": "process.pi:813",
               "members": []
             },
             {
@@ -19905,7 +20182,7 @@
               "signature": "signal: i32?",
               "doc": "<p>The number of the signal that ended it (on Windows, the one <code>kill</code> was given), or <code>null</code>.</p>\n",
               "examples": [],
-              "source": "process.pi:813",
+              "source": "process.pi:815",
               "members": []
             },
             {
@@ -19914,7 +20191,7 @@
               "signature": "stdout: string",
               "doc": "<p>Everything it wrote to its standard output (<code>\"\"</code> when that wasn't piped).</p>\n",
               "examples": [],
-              "source": "process.pi:815",
+              "source": "process.pi:817",
               "members": []
             },
             {
@@ -19923,7 +20200,7 @@
               "signature": "stderr: string",
               "doc": "<p>Everything it wrote to its standard error (<code>\"\"</code> when that wasn't piped).</p>\n",
               "examples": [],
-              "source": "process.pi:817",
+              "source": "process.pi:819",
               "members": []
             }
           ]
@@ -19939,7 +20216,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"from a child\"], stdout: \"pipe\").spawn()\nprintln(child.pid > 0)                   // true\nprintln((await child.stdout.text()).trim())   // from a child\nprintln((await child.status()).success)  // true"
             }
           ],
-          "source": "process.pi:831",
+          "source": "process.pi:833",
           "members": [
             {
               "name": "pid",
@@ -19947,7 +20224,7 @@
               "signature": "public readonly pid: int",
               "doc": "<p>0 when it couldn't be started.</p>\n",
               "examples": [],
-              "source": "process.pi:833",
+              "source": "process.pi:835",
               "members": []
             },
             {
@@ -19956,7 +20233,7 @@
               "signature": "public readonly stdin: Writer",
               "doc": "<p>Its standard input, when spawned with <code>stdin: \"pipe\"</code> (writing to it otherwise panics).</p>\n",
               "examples": [],
-              "source": "process.pi:835",
+              "source": "process.pi:837",
               "members": []
             },
             {
@@ -19965,7 +20242,7 @@
               "signature": "public readonly stdout: Reader",
               "doc": "<p>Its standard output, when spawned with <code>stdout: \"pipe\"</code> (reading it otherwise panics).</p>\n",
               "examples": [],
-              "source": "process.pi:837",
+              "source": "process.pi:839",
               "members": []
             },
             {
@@ -19974,7 +20251,7 @@
               "signature": "public readonly stderr: Reader",
               "doc": "<p>Its standard error, when spawned with <code>stderr: \"pipe\"</code> (reading it otherwise panics).</p>\n",
               "examples": [],
-              "source": "process.pi:839",
+              "source": "process.pi:841",
               "members": []
             },
             {
@@ -19988,7 +20265,7 @@
                   "code": "import { Command, Child } from \"std/process\"\n\nconst child: Child = new Command(\"true\").spawn()   // Command.spawn makes Children\nprintln((await child.status()).code)               // 0"
                 }
               ],
-              "source": "process.pi:855",
+              "source": "process.pi:857",
               "members": []
             },
             {
@@ -20002,7 +20279,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"true\").spawn()\nconst s = await child.status()\nprintln(s.success)   // true\nprintln(s.code)      // 0"
                 }
               ],
-              "source": "process.pi:876",
+              "source": "process.pi:878",
               "members": []
             },
             {
@@ -20016,7 +20293,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = Command.shell(\"echo out; echo err >&2\", stdout: \"pipe\", stderr: \"pipe\").spawn()\nconst o = await child.output()\nprintln(o.stdout.trim())   // out\nprintln(o.stderr.trim())   // err"
                 }
               ],
-              "source": "process.pi:915",
+              "source": "process.pi:917",
               "members": []
             },
             {
@@ -20030,7 +20307,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"sleep\", [\"10\"]).spawn()\nchild.kill()\nconst s = await child.status()\nprintln(s.signal)   // 15\nprintln(s.code)     // 143"
                 }
               ],
-              "source": "process.pi:944",
+              "source": "process.pi:946",
               "members": []
             }
           ]
@@ -20046,7 +20323,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst out = await new Command(\"echo\", [\"one\", \"two\"]).output()\nprintln(out.stdout.trim())   // one two"
             }
           ],
-          "source": "process.pi:965",
+          "source": "process.pi:967",
           "members": [
             {
               "name": "program",
@@ -20054,7 +20331,7 @@
               "signature": "public readonly program: string",
               "doc": "<p>The program to run: a path, or a name looked up in <code>PATH</code>.</p>\n",
               "examples": [],
-              "source": "process.pi:967",
+              "source": "process.pi:969",
               "members": []
             },
             {
@@ -20063,7 +20340,7 @@
               "signature": "public readonly args: string[]",
               "doc": "<p>The arguments after the program.</p>\n",
               "examples": [],
-              "source": "process.pi:969",
+              "source": "process.pi:971",
               "members": []
             },
             {
@@ -20077,7 +20354,7 @@
                   "code": "import { Command } from \"std/process\"\nimport { tmpDir } from \"std/os\"\n\nconst vars = new Map<string, string>()\nvars.set(\"NAME\", \"Ada\")\nconst cmd = new Command(\"/bin/sh\", [\"-c\", \"echo $NAME in $(pwd)\"], cwd: tmpDir(), env: vars)\nprintln((await cmd.output()).stdout.trim())   // e.g. Ada in /tmp"
                 }
               ],
-              "source": "process.pi:994",
+              "source": "process.pi:996",
               "members": []
             },
             {
@@ -20091,7 +20368,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst out = await Command.shell(\"echo a | tr a b\").output()\nprintln(out.stdout.trim())   // b"
                 }
               ],
-              "source": "process.pi:1016",
+              "source": "process.pi:1018",
               "members": []
             },
             {
@@ -20105,7 +20382,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"spawned\"], stdout: \"pipe\").spawn()\nprintln((await child.stdout.text()).trim())   // spawned\nawait child.status()"
                 }
               ],
-              "source": "process.pi:1041",
+              "source": "process.pi:1043",
               "members": []
             },
             {
@@ -20119,7 +20396,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst out = await new Command(\"ls\", [\"/\"]).output()\nprintln(out.success)                     // true\nprintln(out.stdout.split(\"\\n\").length > 1)   // true"
                 }
               ],
-              "source": "process.pi:1086",
+              "source": "process.pi:1088",
               "members": []
             },
             {
@@ -20133,7 +20410,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst s = await new Command(\"true\").status()\nprintln(s.success)   // true\nconst f = await new Command(\"false\").status()\nprintln(f.code)      // 1"
                 }
               ],
-              "source": "process.pi:1101",
+              "source": "process.pi:1103",
               "members": []
             }
           ]

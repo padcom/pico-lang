@@ -817,6 +817,7 @@ export class Watcher implements Disposable {
       return
     }
     closed = true
+    __watchers.unregister(this)
     __io(106, id, 0, 0, "", "");
     serve()
   }
@@ -903,8 +904,19 @@ export class Watcher implements Disposable {
 /// await remove(dir, recursive: true)
 /// ```
 export function watch(path: string, recursive: bool = true): Promise<Watcher, IoError> {
-  __job<Watcher>(15, if (recursive) 1 else 0, 0, 0, path, "", path, (res: __IoResult) => new Watcher(res.r, path))
+  __job<Watcher>(15, if (recursive) 1 else 0, 0, 0, path, "", path, (res: __IoResult) => {
+    const w = new Watcher(res.r, path)
+    // (A watcher dropped without `close()` is closed once it's collected, #64.)
+    __watchers.registerWithToken(w, res.r, w)
+    return w
+  })
 }
+
+/// Closes the runtime watcher (its thread and descriptors) of a `Watcher` that was collected
+/// without `close()` (#64).
+const __watchers = new FinalizationRegistry<int>((id: int) => {
+  __io(106, id, 0, 0, "", "");
+})
 
 /// A file read as a `ByteStream` (`std/streams`), `chunkSize` bytes at a time: a recording for
 /// protocol code to replay. Writes are discarded, so that code can still answer.

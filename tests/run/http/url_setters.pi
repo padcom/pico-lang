@@ -1,0 +1,43 @@
+// expect: https://example.com/docs/read%20me%3Fnot-a-query?x=1#top
+// expect: https://example.com/docs/read%20me%3Fnot-a-query?q=new&page=2#top
+// expect: params follow: new 2
+// expect: https://example.com/docs/read%20me%3Fnot-a-query?q=new&page=2#install
+// expect: https://example.com/docs/read%20me%3Fnot-a-query#install
+// expect: https://pico.dev:8443/docs/read%20me%3Fnot-a-query#install
+// expect: https://pico.dev:8443/docs/read%20me%3Fnot-a-query
+// expect: http://example.com:8080/ https://example.com/
+// expect: ignored: https://example.com/ mailto:ada@example.com
+// expect: kept encoded: https://example.com/a%20b
+// URL setters (#66): `pathname`, `search`, `hash`, `host` and `protocol` change their part and
+// re-serialize (`searchParams` follows); what the URL Standard rejects is ignored.
+const url = new URL("https://example.com/a?x=1#top")
+url.pathname = "docs/read me?not-a-query"
+println(url.href)
+const params = url.searchParams
+url.search = "?q=new&page=2"
+println(url.href)
+println(`params follow: ${params.get("q")} ${params.get("page")}`)
+url.hash = "#install"
+println(url.href)
+url.search = ""
+println(url.href)
+url.host = "pico.dev:8443/ignored"
+println(url.href)
+url.hash = ""
+println(url.href)
+
+const plain = new URL("http://example.com:8080/")
+const tls = new URL("http://example.com:443/")
+tls.protocol = "https:"
+println(`${plain.href} ${tls.href}`)
+
+const kept = new URL("https://example.com/")
+kept.protocol = "mailto"
+kept.host = ""
+const mail = new URL("mailto:ada@example.com")
+mail.pathname = "/other"
+mail.host = "x.com"
+println(`ignored: ${kept.href} ${mail.href}`)
+const enc = new URL("https://example.com/")
+enc.pathname = "/a%20b"
+println(`kept encoded: ${enc.href}`)

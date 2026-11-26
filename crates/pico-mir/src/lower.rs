@@ -714,6 +714,9 @@ enum Imp {
 
 /// Type arguments for owners of type parameters (`Ty::Param`'s first field).
 type Subst = Vec<(u32, Vec<Ty>)>;
+/// An enum variant as JSON sees it (#58): its name, whether it's a unit variant (written as
+/// its name), and its fields' JSON keys and types.
+type JsonVariant = (String, bool, Vec<(String, Ty)>);
 
 /// The type tables lowering reads: the program's, or a generic instance's substituted copy
 /// (shared by the instances with the same substitution).
@@ -3698,18 +3701,22 @@ impl FnBuilder<'_, '_> {
                 op,
                 target: hir::Target::Field { id, object, .. },
                 value,
-            } if self.cx.cell_read(object.id).is_some()
-                && matches!(self.ty_of(object), Ty::Struct(..)) =>
-            {
+            } if self.struct_in_cell(object).is_some() => {
                 // `point.x = v` with `point` reactive: the struct is a value, so the whole
-                // value is written back (spec §16.6).
-                let cell_ty = self.cx.cell_read(object.id).expect("a cell read");
-                let st = self.ty_of(object);
-                let cell = self.expr_inner(object);
+                // value is written back (spec §16.6); also through nested struct fields
+                // (`state.pos.x = v`, #71).
+                let (base, path) = self.struct_in_cell(object).expect("checked");
+                let cell_ty = self.cx.cell_read(base.id).expect("a cell read");
+                let st = self.ty_of(base);
+                let cell = self.expr_inner(base);
                 let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
                 let tmp = Place::local(self.temp(st));
                 self.assign(tmp.clone(), Rvalue::Use(cur), e.span);
-                let field = tmp.field(self.cx.types.fields[id]);
+                let mut inner = tmp.clone();
+                for i in path {
+                    inner = inner.field(i);
+                }
+                let field = inner.field(self.cx.types.fields[id]);
                 let v = match op {
                     None => self.expr(value),
                     Some(op) => {
@@ -3733,6 +3740,48 @@ impl FnBuilder<'_, '_> {
                 let result = self.assign_to(e, op, value, place, checks);
                 self.place_hook("__triggerObject", &hook_place, e.span);
                 result
+            }
+            ExprKind::IncDec {
+                target: hir::Target::Field { id, object, .. },
+                inc,
+                prefix,
+            } if self.struct_in_cell(object).is_some() => {
+                // `point.x++` with `point` reactive (or `state.pos.x++`): written back as a
+                // whole, as an assignment is (#71; it was lost).
+                let (base, path) = self.struct_in_cell(object).expect("checked");
+                let cell_ty = self.cx.cell_read(base.id).expect("a cell read");
+                let st = self.ty_of(base);
+                let cell = self.expr_inner(base);
+                let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
+                let tmp = Place::local(self.temp(st));
+                self.assign(tmp.clone(), Rvalue::Use(cur), e.span);
+                let mut inner = tmp.clone();
+                for i in path {
+                    inner = inner.field(i);
+                }
+                let field = inner.field(self.cx.types.fields[id]);
+                let vt = self.place_ty(&field);
+                let Ty::Int(it) = vt else {
+                    return Operand::Const(Const::Void);
+                };
+                let old = self.rvalue_to_temp(
+                    Rvalue::Use(Operand::Copy(field.clone())),
+                    vt.clone(),
+                    e.span,
+                );
+                let op = if *inc {
+                    mir::BinOp::Add
+                } else {
+                    mir::BinOp::Sub
+                };
+                let new = self.rvalue_to_temp(
+                    Rvalue::Binary(op, old.clone(), Operand::Const(Const::Int(1, it))),
+                    vt,
+                    e.span,
+                );
+                self.assign(field, Rvalue::Use(new.clone()), e.span);
+                self.cell_set(cell, &cell_ty, Operand::Copy(tmp), e.span);
+                if *prefix { new } else { old }
             }
             ExprKind::IncDec {
                 target,
@@ -5882,40 +5931,100 @@ impl FnBuilder<'_, '_> {
                     .iter()
                     .map(|f| (f.name.clone(), json_key(f), f.ty.subst(owner, args)))
                     .collect();
-                // A value and a "seen" flag per field.
-                let mut slots = Vec::new();
-                for (_, _, fty) in &fields {
-                    let v = self.temp(fty.clone());
-                    let init = match fty {
-                        Ty::Nullable(_) => Const::Null(fty.clone()),
-                        _ => Const::Undef(fty.clone()),
-                    };
-                    self.assign(Place::local(v), Rvalue::Use(Operand::Const(init)), span);
-                    let seen = self.temp(Ty::Bool);
-                    self.assign(
-                        Place::local(seen),
-                        Rvalue::Use(Operand::Const(Const::Bool(false))),
-                        span,
-                    );
-                    slots.push((v, seen));
+                // A class's fields with initializers take them when missing (#58).
+                let inits = program
+                    .field_initializers
+                    .get(sid)
+                    .filter(|_| def.is_class)
+                    .cloned();
+                let has_init = |i: usize| {
+                    inits
+                        .as_ref()
+                        .is_some_and(|(_, idx)| idx.contains(&(i as u32)))
+                };
+                let keyed: Vec<(String, Ty)> = fields
+                    .iter()
+                    .map(|(_, k, t)| (k.clone(), t.clone()))
+                    .collect();
+                let slots = self.json_read_fields(r, tn, &keyed, &has_init, span);
+                let vals: Vec<Operand> = slots
+                    .iter()
+                    .map(|(v, _)| Operand::Copy(Place::local(*v)))
+                    .collect();
+                if def.is_class {
+                    let obj = self.temp(t.clone());
+                    self.assign(Place::local(obj), Rvalue::New(t.clone()), span);
+                    // The initializers first; then the fields the JSON has replace theirs.
+                    if let Some((init, _)) = &inits {
+                        let f = if args.is_empty() {
+                            *init
+                        } else {
+                            self.cx.instance(*init, vec![(owner, args.to_vec())])
+                        };
+                        let unit = Place::local(self.temp(Ty::Void));
+                        self.call_into(f, vec![Operand::Copy(Place::local(obj))], unit, span);
+                    }
+                    for (i, v) in vals.into_iter().enumerate() {
+                        if has_init(i) {
+                            let (set, skip) = (self.new_block(), self.new_block());
+                            self.terminate(Terminator::Branch {
+                                cond: Operand::Copy(Place::local(slots[i].1)),
+                                then: set,
+                                else_: skip,
+                            });
+                            self.switch_to(set);
+                            self.assign(Place::local(obj).field(i as u32), Rvalue::Use(v), span);
+                            self.terminate(Terminator::Goto(skip));
+                            self.switch_to(skip);
+                        } else {
+                            self.assign(Place::local(obj).field(i as u32), Rvalue::Use(v), span);
+                        }
+                    }
+                    Operand::Copy(Place::local(obj))
+                } else {
+                    self.rvalue_to_temp(Rvalue::Aggregate(t.clone(), vals), t.clone(), span)
                 }
-                self.core_call(R, "beginObject", vec![rd(), tn], Ty::Bool, span);
-                let (head, body, done) = (self.new_block(), self.new_block(), self.new_block());
-                self.terminate(Terminator::Goto(head));
-                self.switch_to(head);
-                let key_ty = Ty::Str.nullable();
-                let key = self.core_call(R, "nextKey", vec![rd()], key_ty, span);
-                let end = self.rvalue_to_temp(Rvalue::IsNull(key.clone()), Ty::Bool, span);
+            }
+            // An enum, externally tagged (#58): `"Name"` for a unit variant, `{"Name": {fields}}`
+            // for one with a payload.
+            Ty::Enum(eid, _, eargs) => {
+                let def = self.cx.program.enum_def(*eid);
+                let owner = Ty::enum_owner(*eid);
+                let variants: Vec<JsonVariant> = def
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        let fields = v
+                            .fields
+                            .iter()
+                            .map(|f| (json_key(f), f.ty.subst(owner, eargs)))
+                            .collect();
+                        (v.name.clone(), v.fields.is_empty() && !v.has_parens, fields)
+                    })
+                    .collect();
+                let res = Place::local(self.temp(t.clone()));
+                self.assign(
+                    res.clone(),
+                    Rvalue::Use(Operand::Const(Const::Undef(t.clone()))),
+                    span,
+                );
+                let done = self.new_block();
+                let is_str = self.core_call(R, "peekString", vec![rd()], Ty::Bool, span);
+                let (str_bb, obj_bb) = (self.new_block(), self.new_block());
                 self.terminate(Terminator::Branch {
-                    cond: end,
-                    then: done,
-                    else_: body,
+                    cond: is_str,
+                    then: str_bb,
+                    else_: obj_bb,
                 });
-                self.switch_to(body);
-                let k = self.rvalue_to_temp(Rvalue::Unwrap(key), Ty::Str, span);
-                for ((_, jkey, fty), (v, seen)) in fields.iter().zip(&slots) {
+                // A unit variant's name.
+                self.switch_to(str_bb);
+                let name = self.core_call(R, "readString", vec![rd(), tn.clone()], Ty::Str, span);
+                for (vi, (vname, unit, _)) in variants.iter().enumerate() {
+                    if !unit {
+                        continue;
+                    }
                     let eq = self.rvalue_to_temp(
-                        Rvalue::Binary(mir::BinOp::Eq, k.clone(), s(jkey.clone())),
+                        Rvalue::Binary(mir::BinOp::Eq, name.clone(), s(vname.clone())),
                         Ty::Bool,
                         span,
                     );
@@ -5926,52 +6035,83 @@ impl FnBuilder<'_, '_> {
                         else_: no,
                     });
                     self.switch_to(yes);
-                    self.core_call(R, "pushField", vec![rd(), s(jkey.clone())], Ty::Void, span);
-                    let f = self.cx.synth(Synth::JsonRead(fty.clone()));
-                    self.call_into(f, vec![rd()], Place::local(*v), span);
-                    self.core_call(R, "pop", vec![rd()], Ty::Void, span);
                     self.assign(
-                        Place::local(*seen),
-                        Rvalue::Use(Operand::Const(Const::Bool(true))),
+                        res.clone(),
+                        Rvalue::Variant(*eid, vi as u32, Vec::new()),
                         span,
                     );
-                    self.terminate(Terminator::Goto(head));
+                    self.terminate(Terminator::Goto(done));
                     self.switch_to(no);
                 }
-                // An unknown key.
-                self.core_call(R, "skipValue", vec![rd()], Ty::Void, span);
-                self.terminate(Terminator::Goto(head));
-                self.switch_to(done);
-                // Missing fields (a nullable one is `null`).
-                for ((_, jkey, fty), (_, seen)) in fields.iter().zip(&slots) {
-                    if matches!(fty, Ty::Nullable(_)) {
+                self.core_call(
+                    R,
+                    "unknownVariant",
+                    vec![rd(), name, tn.clone()],
+                    Ty::Void,
+                    span,
+                );
+                self.terminate(Terminator::Goto(done));
+                // `{"Name": {fields}}`.
+                self.switch_to(obj_bb);
+                self.core_call(R, "beginObject", vec![rd(), tn.clone()], Ty::Bool, span);
+                let key = self.core_call(R, "nextKey", vec![rd()], Ty::Str.nullable(), span);
+                let empty = self.rvalue_to_temp(Rvalue::IsNull(key.clone()), Ty::Bool, span);
+                let (none_bb, key_bb) = (self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: empty,
+                    then: none_bb,
+                    else_: key_bb,
+                });
+                self.switch_to(none_bb);
+                self.core_call(R, "noVariant", vec![rd(), tn.clone()], Ty::Void, span);
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(key_bb);
+                let k = self.rvalue_to_temp(Rvalue::Unwrap(key), Ty::Str, span);
+                for (vi, (vname, unit, fields)) in variants.iter().enumerate() {
+                    if *unit {
                         continue;
                     }
-                    let (miss, fine) = (self.new_block(), self.new_block());
+                    let eq = self.rvalue_to_temp(
+                        Rvalue::Binary(mir::BinOp::Eq, k.clone(), s(vname.clone())),
+                        Ty::Bool,
+                        span,
+                    );
+                    let (yes, no) = (self.new_block(), self.new_block());
                     self.terminate(Terminator::Branch {
-                        cond: Operand::Copy(Place::local(*seen)),
-                        then: fine,
-                        else_: miss,
+                        cond: eq,
+                        then: yes,
+                        else_: no,
                     });
-                    self.switch_to(miss);
-                    self.core_call(R, "missing", vec![rd(), s(jkey.clone())], Ty::Void, span);
-                    self.terminate(Terminator::Goto(fine));
-                    self.switch_to(fine);
+                    self.switch_to(yes);
+                    self.core_call(R, "pushField", vec![rd(), s(vname.clone())], Ty::Void, span);
+                    let vt = s(format!("{t}.{vname}"));
+                    let slots = self.json_read_fields(r, vt, fields, &|_| false, span);
+                    self.core_call(R, "pop", vec![rd()], Ty::Void, span);
+                    let vals = slots
+                        .iter()
+                        .map(|(v, _)| Operand::Copy(Place::local(*v)))
+                        .collect();
+                    self.assign(res.clone(), Rvalue::Variant(*eid, vi as u32, vals), span);
+                    // The variant is the object's only key.
+                    let more = self.core_call(R, "nextKey", vec![rd()], Ty::Str.nullable(), span);
+                    let end = self.rvalue_to_temp(Rvalue::IsNull(more), Ty::Bool, span);
+                    let (extra, ok) = (self.new_block(), self.new_block());
+                    self.terminate(Terminator::Branch {
+                        cond: end,
+                        then: ok,
+                        else_: extra,
+                    });
+                    self.switch_to(extra);
+                    self.core_call(R, "oneKey", vec![rd(), tn.clone()], Ty::Void, span);
+                    self.terminate(Terminator::Goto(done));
+                    self.switch_to(ok);
+                    self.terminate(Terminator::Goto(done));
+                    self.switch_to(no);
                 }
-                let vals: Vec<Operand> = slots
-                    .iter()
-                    .map(|(v, _)| Operand::Copy(Place::local(*v)))
-                    .collect();
-                if def.is_class {
-                    let obj = self.temp(t.clone());
-                    self.assign(Place::local(obj), Rvalue::New(t.clone()), span);
-                    for (i, v) in vals.into_iter().enumerate() {
-                        self.assign(Place::local(obj).field(i as u32), Rvalue::Use(v), span);
-                    }
-                    Operand::Copy(Place::local(obj))
-                } else {
-                    self.rvalue_to_temp(Rvalue::Aggregate(t.clone(), vals), t.clone(), span)
-                }
+                self.core_call(R, "unknownVariant", vec![rd(), k, tn], Ty::Void, span);
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(done);
+                Operand::Copy(res)
             }
             _ => {
                 self.terminate(Terminator::Unreachable);
@@ -5980,6 +6120,98 @@ impl FnBuilder<'_, '_> {
                 Operand::Const(Const::Undef(t.clone()))
             }
         }
+    }
+
+    /// Reads a JSON object's fields into a value and a "seen" flag each (`fields`: JSON key and
+    /// type), skipping unknown keys; a missing field is an error unless it's nullable (then
+    /// `null`) or `optional(i)` says it has a default.
+    fn json_read_fields(
+        &mut self,
+        r: Local,
+        tn: Operand,
+        fields: &[(String, Ty)],
+        optional: &dyn Fn(usize) -> bool,
+        span: Span,
+    ) -> Vec<(Local, Local)> {
+        let rd = || Operand::Copy(Place::local(r));
+        let s = |v: String| Operand::Const(Const::Str(v));
+        const R: &str = "__JsonReader";
+        let mut slots = Vec::new();
+        for (_, fty) in fields {
+            let v = self.temp(fty.clone());
+            let init = match fty {
+                Ty::Nullable(_) => Const::Null(fty.clone()),
+                _ => Const::Undef(fty.clone()),
+            };
+            self.assign(Place::local(v), Rvalue::Use(Operand::Const(init)), span);
+            let seen = self.temp(Ty::Bool);
+            self.assign(
+                Place::local(seen),
+                Rvalue::Use(Operand::Const(Const::Bool(false))),
+                span,
+            );
+            slots.push((v, seen));
+        }
+        self.core_call(R, "beginObject", vec![rd(), tn], Ty::Bool, span);
+        let (head, body, done) = (self.new_block(), self.new_block(), self.new_block());
+        self.terminate(Terminator::Goto(head));
+        self.switch_to(head);
+        let key_ty = Ty::Str.nullable();
+        let key = self.core_call(R, "nextKey", vec![rd()], key_ty, span);
+        let end = self.rvalue_to_temp(Rvalue::IsNull(key.clone()), Ty::Bool, span);
+        self.terminate(Terminator::Branch {
+            cond: end,
+            then: done,
+            else_: body,
+        });
+        self.switch_to(body);
+        let k = self.rvalue_to_temp(Rvalue::Unwrap(key), Ty::Str, span);
+        for ((jkey, fty), (v, seen)) in fields.iter().zip(&slots) {
+            let eq = self.rvalue_to_temp(
+                Rvalue::Binary(mir::BinOp::Eq, k.clone(), s(jkey.clone())),
+                Ty::Bool,
+                span,
+            );
+            let (yes, no) = (self.new_block(), self.new_block());
+            self.terminate(Terminator::Branch {
+                cond: eq,
+                then: yes,
+                else_: no,
+            });
+            self.switch_to(yes);
+            self.core_call(R, "pushField", vec![rd(), s(jkey.clone())], Ty::Void, span);
+            let f = self.cx.synth(Synth::JsonRead(fty.clone()));
+            self.call_into(f, vec![rd()], Place::local(*v), span);
+            self.core_call(R, "pop", vec![rd()], Ty::Void, span);
+            self.assign(
+                Place::local(*seen),
+                Rvalue::Use(Operand::Const(Const::Bool(true))),
+                span,
+            );
+            self.terminate(Terminator::Goto(head));
+            self.switch_to(no);
+        }
+        // An unknown key.
+        self.core_call(R, "skipValue", vec![rd()], Ty::Void, span);
+        self.terminate(Terminator::Goto(head));
+        self.switch_to(done);
+        // Missing fields (a nullable one is `null`).
+        for (i, ((jkey, fty), (_, seen))) in fields.iter().zip(&slots).enumerate() {
+            if matches!(fty, Ty::Nullable(_)) || optional(i) {
+                continue;
+            }
+            let (miss, fine) = (self.new_block(), self.new_block());
+            self.terminate(Terminator::Branch {
+                cond: Operand::Copy(Place::local(*seen)),
+                then: fine,
+                else_: miss,
+            });
+            self.switch_to(miss);
+            self.core_call(R, "missing", vec![rd(), s(jkey.clone())], Ty::Void, span);
+            self.terminate(Terminator::Goto(fine));
+            self.switch_to(fine);
+        }
+        slots
     }
 
     /// The body of `Synth::JsonWrite(t)`: writes value `v` with writer `w`.
@@ -6204,6 +6436,65 @@ impl FnBuilder<'_, '_> {
                 if class {
                     self.core_call("__JsonWriter", "__leave", vec![wr()], Ty::Void, span);
                 }
+            }
+            // An enum, externally tagged (#58).
+            Ty::Enum(eid, _, eargs) => {
+                let def = self.cx.program.enum_def(*eid);
+                let owner = Ty::enum_owner(*eid);
+                let variants: Vec<JsonVariant> = def
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        let fields = v
+                            .fields
+                            .iter()
+                            .map(|f| (json_key(f), f.ty.subst(owner, eargs)))
+                            .collect();
+                        (v.name.clone(), v.fields.is_empty() && !v.has_parens, fields)
+                    })
+                    .collect();
+                let tag = self.rvalue_to_temp(Rvalue::Tag(val()), Ty::Int(IntTy::U32), span);
+                let done = self.new_block();
+                for (vi, (vname, unit, fields)) in variants.iter().enumerate() {
+                    let eq = self.rvalue_to_temp(
+                        Rvalue::Binary(
+                            mir::BinOp::Eq,
+                            tag.clone(),
+                            Operand::Const(Const::Int(vi as i128, IntTy::U32)),
+                        ),
+                        Ty::Bool,
+                        span,
+                    );
+                    let (yes, no) = (self.new_block(), self.new_block());
+                    self.terminate(Terminator::Branch {
+                        cond: eq,
+                        then: yes,
+                        else_: no,
+                    });
+                    self.switch_to(yes);
+                    if *unit {
+                        raw(self, lit(&json_quote(vname)));
+                    } else {
+                        raw(self, lit(&format!("{{{}:", json_quote(vname))));
+                        for (i, (key, fty)) in fields.iter().enumerate() {
+                            let sep = if i == 0 { "{" } else { "," };
+                            raw(self, lit(&format!("{sep}{}:", json_quote(key))));
+                            let place = Place::local(v).variant_field(vi as u32, i as u32);
+                            let x = self.rvalue_to_temp(
+                                Rvalue::Use(Operand::Copy(place)),
+                                fty.clone(),
+                                span,
+                            );
+                            let f = self.cx.synth(Synth::JsonWrite(fty.clone()));
+                            self.json_call(f, wr(), x, span);
+                        }
+                        raw(self, lit(if fields.is_empty() { "{}}" } else { "}}" }));
+                    }
+                    self.terminate(Terminator::Goto(done));
+                    self.switch_to(no);
+                }
+                self.terminate(Terminator::Goto(done));
+                self.switch_to(done);
             }
             _ => {}
         }
@@ -7457,6 +7748,30 @@ impl FnBuilder<'_, '_> {
         }
         let t = self.place_ty(&parent);
         self.object_hook(name, Operand::Copy(parent), &t, span);
+    }
+
+    /// `object` read through struct fields from a struct held in a reactive cell (`s`, or
+    /// `s.pos` in `s.pos.x = v`): that read of the cell, and the field indices from it down to
+    /// `object` (#71).
+    fn struct_in_cell<'e>(&self, object: &'e Expr) -> Option<(&'e Expr, Vec<u32>)> {
+        let mut path = Vec::new();
+        let mut cur = object;
+        loop {
+            if !matches!(self.ty_of(cur), Ty::Struct(..)) {
+                return None;
+            }
+            if self.cx.cell_read(cur.id).is_some() {
+                path.reverse();
+                return Some((cur, path));
+            }
+            match &cur.kind {
+                ExprKind::Member { object: inner, .. } => {
+                    path.push(*self.cx.types.fields.get(&cur.id)?);
+                    cur = inner;
+                }
+                _ => return None,
+            }
+        }
     }
 
     /// A tracked read of a reactive cell.

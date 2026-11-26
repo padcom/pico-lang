@@ -380,8 +380,12 @@ impl Parser {
                 );
             }
         }
-        // `reactive name` (contextual, after the other modifiers).
-        if !param && self.at_word("reactive") && matches!(self.peek_nth(1), TokenKind::Ident(_)) {
+        // `reactive name` (contextual, after the other modifiers); on a parameter, only a
+        // parameter property's (`public reactive count: int`, #71).
+        if (!param || m.visibility.is_some())
+            && self.at_word("reactive")
+            && matches!(self.peek_nth(1), TokenKind::Ident(_))
+        {
             self.bump();
             m.reactive = true;
         }

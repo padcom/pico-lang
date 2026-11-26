@@ -801,3 +801,77 @@ let Bad_Seven = 7
     assert_eq!(on(9), ["W0001", "W0002"], "a string isn't a comment: {out}");
     assert_eq!(on(11), ["W0001", "W0002"], "{out}");
 }
+
+/// Unused private fields (#80, the user's design): reported when never read (writes don't
+/// count), unless something may read the class's fields behind the scenes: printing,
+/// `JSON.stringify`, reflection or a generic function, or a decorator.
+#[test]
+fn unused_private_fields() {
+    let text = r#"class Counter {
+  private hits = 0
+  private seen = 0
+  private _skip = 0
+  public bump(): int {
+    hits += 1
+    seen = 1
+    return hits
+  }
+}
+class Printed {
+  private secret = 1
+}
+class AsJson {
+  private token = "t"
+}
+class Reflected {
+  private inner = 2
+}
+function names<T>(): string { return T.fields.map(f => f.name).join(",") }
+const c = new Counter()
+println(c.bump())
+println(new Printed())
+println(JSON.stringify(new AsJson()))
+println(names<Reflected>())
+"#;
+    let out = run("private_fields", "{}", text, &[]);
+    let fields: Vec<&str> = out
+        .lines()
+        .filter(|l| l.contains("private field"))
+        .collect();
+    assert_eq!(fields.len(), 1, "{out}");
+    assert!(fields[0].contains("`seen`"), "{out}");
+}
+
+/// `pico lint --fix` (#80): the fixes of unused imports (a name, or the whole import), a
+/// missing `return` and missing blank lines, applied round by round until none are left (the
+/// `return` added then wants its blank line too).
+#[test]
+fn fixes() {
+    let d = dir("fixes");
+    std::fs::write(
+        d.join("project.json"),
+        r#"{ "lint": { "blankLines": true } }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        d.join("geo.pi"),
+        "export function dot(a: int, b: int): int { return a * b }\nexport function cross(): int { return 0 }\n",
+    )
+    .unwrap();
+    let path = d.join("main.pi");
+    let mut text = "import { dot, cross } from \"./geo\"\nimport { cross as c2 } from \"./geo\"\n\nfunction twice(x: int): int {\n  const y = x * 2\n  y\n}\nfunction show(n: int) {\n  println(n)\n  if (n > 1) {\n    println(\"big\")\n  }\n}\nshow(twice(dot(1, 2)))\n".to_string();
+    let (cfg, errors) = Config::for_dir(&d);
+    assert!(errors.is_empty(), "{errors:?}");
+    for _ in 0..10 {
+        let (checked, warnings) = lint_file(&path, &text, &cfg);
+        let Some(next) = crate::apply_fixes(&text, crate::entry_file(&checked), &warnings) else {
+            assert!(warnings.is_empty(), "{warnings:?}");
+            break;
+        };
+        text = next;
+    }
+    assert_eq!(
+        text,
+        "import { dot } from \"./geo\"\n\nfunction twice(x: int): int {\n  const y = x * 2\n\n  return y\n}\n\nfunction show(n: int) {\n  println(n)\n\n  if (n > 1) {\n    println(\"big\")\n  }\n}\nshow(twice(dot(1, 2)))\n"
+    );
+}

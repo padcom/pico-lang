@@ -1,0 +1,40 @@
+// expect: 3 rows, 3 fields
+// expect: [a] [b, "c"] [line one
+// expect: line two]
+// expect: crlf: 2 rows, last [2]
+// expect: empty fields: ["", "", ""]
+// expect: no trailing line end: [["x", "y"]]
+// expect: semicolons: [["a", "b,c"]]
+// expect: stray quote kept: [ab"c]
+// expect: unclosed: CSV: a quoted field isn't closed (line 2)
+// expect: after quote: CSV: text after a quoted field's closing quote (line 1)
+// expect: id,note|1,"a, ""b"""|2," padded "|3,plain|
+// expect: round trip: true
+// `csv` in `std/encoding` (#63): RFC 4180 parsing (quoted fields with separators, doubled
+// quotes and line breaks; LF and CRLF; empty fields; another separator) and errors, and
+// `stringify` quoting only what needs it.
+import { csv } from "std/encoding"
+
+const text = "a,\"b, \"\"c\"\"\",\"line one\nline two\"\n1,2,3\n,,\n"
+const rows = csv.parse(text)
+println(`${rows.length} rows, ${rows[0].length} fields`)
+println(`[${rows[0][0]}] [${rows[0][1]}] [${rows[0][2]}]`)
+const crlf = csv.parse("1\r\n2\r\n")
+println(`crlf: ${crlf.length} rows, last [${crlf[1][0]}]`)
+println(`empty fields: ${rows[2]:?}`)
+println(`no trailing line end: ${csv.parse("x,y"):?}`)
+println(`semicolons: ${csv.parse("a;b,c", { separator: ";" }):?}`)
+println(`stray quote kept: [${csv.parse("ab\"c")[0][0]}]`)
+try {
+  csv.parse("a\n\"open,b")
+} catch (e: SyntaxError) {
+  println(`unclosed: ${e.message}`)
+}
+try {
+  csv.parse("\"a\"b")
+} catch (e: SyntaxError) {
+  println(`after quote: ${e.message}`)
+}
+const out = csv.stringify([["id", "note"], ["1", "a, \"b\""], ["2", " padded "], ["3", "plain"]], { lineEnding: "|" })
+println(out)
+println(`round trip: ${csv.stringify(csv.parse(text)) == text}`)

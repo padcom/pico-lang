@@ -810,6 +810,119 @@ class URL {
     return out
   }
 
+  /// Replaces the path (#66): percent-encoded as the parser does, `?` and `#` kept in it, a
+  /// leading `/` added for special schemes. Ignored for an opaque path (`mailto:a@b`).
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("https://example.com/a?x=1")
+  /// url.pathname = "/docs/read me"
+  /// println(url.href)   // https://example.com/docs/read%20me?x=1
+  /// ```
+  public set pathname(value: string) {
+    if (this.opaque) return
+    const p = value.replaceAll("?", "%3F").replaceAll("#", "%23")
+    const lead = if (__isSpecial(this.scheme) && !p.startsWith("/")) "/" else ""
+    this.__reparse(this.__head() + lead + p + this.search + this.hash)
+  }
+
+  /// Replaces the query (#66; a leading `?` is optional, `""` removes it). `searchParams`
+  /// follows.
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("https://example.com/find?q=old#top")
+  /// url.search = "q=new&page=2"
+  /// println(url.href)                    // https://example.com/find?q=new&page=2#top
+  /// println(url.searchParams.get("page"))   // 2
+  /// ```
+  public set search(value: string) {
+    const q = (if (value.startsWith("?")) value.slice(1) else value).replaceAll("#", "%23")
+    this.__reparse(this.__head() + this.path + (if (q.length > 0) `?${q}` else "") + this.hash)
+  }
+
+  /// Replaces the fragment (#66; a leading `#` is optional, `""` removes it).
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("https://example.com/guide")
+  /// url.hash = "install"
+  /// println(url.href)   // https://example.com/guide#install
+  /// ```
+  public set hash(value: string) {
+    const f = if (value.startsWith("#")) value.slice(1) else value
+    this.__reparse(this.__head() + this.path + this.search + (if (f.length > 0) `#${f}` else ""))
+  }
+
+  /// Replaces the host and port (`example.com:8080`; #66): up to a `/`, `?` or `#`. Ignored
+  /// without a host (an opaque URL) or for an invalid host.
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("https://example.com/a")
+  /// url.host = "pico.dev:8443"
+  /// println(url.href)   // https://pico.dev:8443/a
+  /// ```
+  public set host(value: string) {
+    if (!this.hasHost) return
+    let h = value
+    for (const stop of ["/", "?", "#"]) {
+      const at = h.indexOf(stop)
+      if (at >= 0) h = h.slice(0, at)
+    }
+    if (h.length == 0) return
+    this.__reparse(`${this.scheme}://${this.__userinfo()}${h}${this.path}${this.search}${this.hash}`)
+  }
+
+  /// Replaces the scheme (`"http"` or `"http:"`; #66), as the URL Standard allows: between
+  /// two special schemes (`http`, `https`, `ws`, `wss`, `ftp`) or two others, not to or from
+  /// `file`; anything else is ignored. A port that's the new scheme's default goes.
+  ///
+  /// @example
+  /// ```ts
+  /// const url = new URL("http://example.com:443/")
+  /// url.protocol = "https"
+  /// println(url.href)   // https://example.com/
+  /// ```
+  public set protocol(value: string) {
+    const v = (if (value.includes(":")) value.slice(0, value.indexOf(":")) else value).toLowerCase()
+    if (v.length == 0 || v == this.scheme) return
+    if (__isSpecial(v) != __isSpecial(this.scheme) || v == "file" || this.scheme == "file") return
+    this.__reparse(v + this.href.slice(this.scheme.length))
+  }
+
+  /// `scheme:` and, with a host, `//userinfo@host`: what comes before the path.
+  __head(): string {
+    if (!this.hasHost) return `${this.scheme}:`
+    return `${this.scheme}://${this.__userinfo()}${this.host}`
+  }
+
+  /// `user:password@`, or "".
+  __userinfo(): string {
+    if (this.username.length == 0 && this.password.length == 0) return ""
+    return if (this.password.length > 0) `${this.username}:${this.password}@` else `${this.username}@`
+  }
+
+  /// Becomes the URL `text` parses to (a setter's result); stays as it is when `text` isn't one.
+  /// A `searchParams` already handed out follows the new query.
+  __reparse(text: string): void {
+    const u = URL.parse(text)
+    if (u == null) return
+    const n = u!
+    this.scheme = n.scheme
+    this.username = n.username
+    this.password = n.password
+    this.hostname = n.hostname
+    this.port = n.port
+    this.path = n.path
+    this.opaque = n.opaque
+    this.hasHost = n.hasHost
+    this.query = n.query
+    this.fragment = n.fragment
+    const p = this.params
+    if (p != null) p.__parse(n.query ?? "")
+  }
+
   /// `href`.
   ///
   /// @example
