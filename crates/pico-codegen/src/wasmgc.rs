@@ -47,7 +47,18 @@ const ANYREF: ValType = ValType::Ref(RefType::ANYREF);
 /// Globals after the program's: the pending exception and its tag, the panic's message, line
 /// and column, the event loop's wait.
 /// Then a synchronous `__io` job's results (`r`, `r2`, text) and the `ArrayBuffer` table.
-const FIXED_GLOBALS: usize = 10;
+/// Then two long strings' positions (`STR_POS`).
+const FIXED_GLOBALS: usize = 18;
+
+/// The first of the globals holding the last two long strings indexed, most recent first: each
+/// the string, its code-point count (`i64`), and a code point's index and byte offset (`i32`),
+/// so stepping through one (`s[i]`, `slice`) costs the distance moved, not the index (#73). A
+/// global holds a reference, so the string stays alive and `ref.eq` can't confuse it with
+/// another; the module runs on one thread.
+const STR_POS: usize = 10;
+
+/// Strings shorter than this (in bytes) are just walked.
+const STR_POS_MIN: i32 = 64;
 
 /// The string type's index (the first type of the rec group).
 const STR: u32 = 0;
@@ -283,6 +294,9 @@ pub fn emit(p: &Program, tzdata: &[u8]) -> R<Vec<u8>> {
     global_types.extend([str_ref(), ValType::I32, ValType::I32, ValType::I64]);
     let buffers = g.buffer_table();
     global_types.extend([ValType::I64, ValType::I64, str_ref(), ref_to(buffers)]);
+    for _ in 0..2 {
+        global_types.extend([str_ref(), ValType::I64, ValType::I32, ValType::I32]);
+    }
     global_types.extend(g.vt_globals.iter().map(|_| ref_to(vt)));
     // The rec group: strings, then the registry's types. Struct fields can register more, so
     // they're resolved until nothing new comes.
@@ -1826,7 +1840,7 @@ impl<'p> Gen<'p> {
     }
 
     /// A string helper (`char_at`: the code point at a code-point index, or -1; `slice`:
-    /// JavaScript's `slice` on code points).
+    /// JavaScript's `slice` on code points; `nchars`: the code-point count).
     fn str_fn(&mut self, op: &str) -> u32 {
         use ValType::*;
         let sr = str_ref();
@@ -1861,6 +1875,134 @@ impl<'p> Gen<'p> {
             f
         });
         let chars = helper_index("str_chars");
+        let g = self.p.globals.len() as u32 + STR_POS as u32;
+        // Makes the first position slot `s`'s (swapping in the second, or evicting it).
+        let pos = self.extra_fn("str pos".into(), vec![sr], vec![], |_| {
+            // locals: 1-4 the second slot while swapping
+            let mut f = Function::new_with_locals_types(vec![sr, I64, I32, I32]);
+            let mut s = f.instructions();
+            s.global_get(g).local_get(0).ref_eq();
+            s.if_(BlockType::Empty).return_().end();
+            for k in 0..4 {
+                s.global_get(g + 4 + k).local_set(1 + k);
+            }
+            s.global_get(g + 4).local_get(0).ref_eq();
+            s.if_(BlockType::Empty);
+            // The second slot is `s`'s: swap them.
+            for k in 0..4 {
+                s.global_get(g + k).global_set(g + 4 + k);
+                s.local_get(1 + k).global_set(g + k);
+            }
+            s.return_().end();
+            for k in 0..4 {
+                s.global_get(g + k).global_set(g + 4 + k);
+            }
+            s.local_get(0).global_set(g);
+            s.local_get(0).call(chars).global_set(g + 1);
+            s.i32_const(0).global_set(g + 2);
+            s.i32_const(0).global_set(g + 3);
+            s.end();
+            f
+        });
+        // The code-point count, kept for long strings.
+        let nchars = self.extra_fn("str nchars".into(), vec![sr], vec![I64], |_| {
+            let mut f = Function::new_with_locals_types(Vec::<ValType>::new());
+            let mut s = f.instructions();
+            s.local_get(0).array_len().i32_const(STR_POS_MIN).i32_lt_u();
+            s.if_(BlockType::Empty)
+                .local_get(0)
+                .call(chars)
+                .return_()
+                .end();
+            s.local_get(0).call(pos);
+            s.global_get(g + 1).end();
+            f
+        });
+        // The byte offset of code point `i` (at most the count): from the nearest of the
+        // start, the end and the last position, forwards or back (long strings).
+        let off = self.extra_fn("str off2".into(), vec![sr, I32], vec![I32], move |_| {
+            // locals: 2 len, 3 c, 4 b, 5 d, 6 count, 7 k
+            let mut f = Function::new_with_locals_types(vec![I32, I32, I32, I32, I32, I32]);
+            let mut s = f.instructions();
+            s.local_get(0).array_len().local_tee(2);
+            s.i32_const(STR_POS_MIN).i32_lt_u();
+            s.if_(BlockType::Empty)
+                .local_get(0)
+                .local_get(1)
+                .call(off)
+                .return_()
+                .end();
+            s.local_get(0).call(pos);
+            s.global_get(g + 1).i32_wrap_i64().local_tee(6);
+            // ASCII: the offset is the index.
+            s.local_get(2).i32_eq();
+            s.if_(BlockType::Empty).local_get(1).return_().end();
+            // From the start…
+            s.local_get(1).local_set(5);
+            // …or the end…
+            s.local_get(6)
+                .local_get(1)
+                .i32_sub()
+                .local_get(5)
+                .i32_lt_s();
+            s.if_(BlockType::Empty);
+            s.local_get(6).local_set(3);
+            s.local_get(2).local_set(4);
+            s.local_get(6).local_get(1).i32_sub().local_set(5);
+            s.end();
+            // …or the last position.
+            // |c0 - i|: `select` gives its first operand when the condition holds.
+            s.i32_const(0);
+            s.global_get(g + 2).local_get(1).i32_sub().local_tee(7);
+            s.i32_sub(); // -k
+            s.local_get(7); // k
+            s.local_get(7).i32_const(0).i32_lt_s();
+            s.select().local_get(5).i32_lt_s();
+            s.if_(BlockType::Empty);
+            s.global_get(g + 2).local_set(3);
+            s.global_get(g + 3).local_set(4);
+            s.end();
+            let cont = |s: &mut InstructionSink| {
+                s.local_get(0)
+                    .local_get(4)
+                    .array_get_u(STR)
+                    .i32_const(0xc0)
+                    .i32_and()
+                    .i32_const(0x80)
+                    .i32_eq();
+            };
+            // Forwards: past a code point's lead byte and its continuation bytes.
+            s.block(BlockType::Empty).loop_(BlockType::Empty);
+            s.local_get(3).local_get(1).i32_ge_s().br_if(1);
+            s.local_get(4).i32_const(1).i32_add().local_set(4);
+            s.block(BlockType::Empty).loop_(BlockType::Empty);
+            s.local_get(4).local_get(2).i32_ge_u().br_if(1);
+            cont(&mut s);
+            s.i32_eqz().br_if(1);
+            s.local_get(4).i32_const(1).i32_add().local_set(4);
+            s.br(0).end().end();
+            s.local_get(3).i32_const(1).i32_add().local_set(3);
+            s.br(0).end().end();
+            // Backwards: to the previous lead byte.
+            s.block(BlockType::Empty).loop_(BlockType::Empty);
+            s.local_get(3).local_get(1).i32_le_s().br_if(1);
+            s.local_get(4).i32_const(1).i32_sub().local_set(4);
+            s.block(BlockType::Empty).loop_(BlockType::Empty);
+            cont(&mut s);
+            s.i32_eqz().br_if(1);
+            s.local_get(4).i32_const(1).i32_sub().local_set(4);
+            s.br(0).end().end();
+            s.local_get(3).i32_const(1).i32_sub().local_set(3);
+            s.br(0).end().end();
+            s.local_get(3).global_set(g + 2);
+            s.local_get(4).global_set(g + 3);
+            s.local_get(4).end();
+            f
+        });
+        if op == "nchars" {
+            return nchars;
+        }
+        let chars = nchars;
         match op {
             "char_at" => self.extra_fn("str char_at".into(), vec![sr, I64], vec![I32], |_| {
                 // locals: 2 offset, 3 the first byte, 4 code point
@@ -2901,8 +3043,10 @@ impl<'p> Gen<'p> {
                 self.string_form(s, &ot)?;
             }
             Rvalue::StrLen(o) => {
+                // (Kept for long strings: a loop's `i < s.length` would count it each time.)
+                let f = self.str_fn("nchars");
                 self.operand(fx, s, o)?;
-                s.call(helper_index("str_chars"));
+                s.call(f);
             }
             Rvalue::Aggregate(ty, ops) => {
                 let (idx, st) = self.struct_of(ty)?;

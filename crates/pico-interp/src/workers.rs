@@ -368,6 +368,7 @@ impl<'p, 'o> Interp<'p, 'o> {
             started: std::time::Instant::now(),
             comptime: None,
             uninit_global: std::cell::Cell::new(None),
+            str_pos: [None, None],
         }
     }
 
