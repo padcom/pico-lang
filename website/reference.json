@@ -4837,6 +4837,15 @@
               "examples": [],
               "source": "core/comptime.pi:81",
               "members": []
+            },
+            {
+              "name": "signature",
+              "kind": "field",
+              "signature": "signature: string",
+              "doc": "<p>Its parameters and result, as messages show types: <code>(a: i64, b: string): bool</code> (#56).</p>\n",
+              "examples": [],
+              "source": "core/comptime.pi:83",
+              "members": []
             }
           ]
         },
@@ -5383,7 +5392,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"a\")\n    c.enqueue(\"b\")\n    c.close()\n  },\n})\nfor await (const chunk of s) {\n  println(chunk)\n}\n// a\n// b"
             }
           ],
-          "source": "core/streams.pi:248",
+          "source": "core/streams.pi:251",
           "members": [
             {
               "name": "constructor",
@@ -5396,7 +5405,7 @@
                   "code": "let i = 0\nconst counter = new ReadableStream<int>({\n  pull: (c) => {\n    i += 1\n    if (i <= 3) c.enqueue(i * 10) else c.close()\n  },\n}, { highWaterMark: 1 })\nfor await (const x of counter) {\n  println(x)\n}\n// 10\n// 20\n// 30"
                 }
               ],
-              "source": "core/streams.pi:285",
+              "source": "core/streams.pi:288",
               "members": []
             },
             {
@@ -5410,7 +5419,7 @@
                   "code": "for await (const word of ReadableStream.from([\"red\", \"green\"])) {\n  println(word)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:311",
+              "source": "core/streams.pi:314",
               "members": []
             },
             {
@@ -5424,7 +5433,7 @@
                   "code": "function* count(): Iterator<int> {\n  yield 1\n  yield 2\n}\nfor await (const n of ReadableStream.from(count())) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:339",
+              "source": "core/streams.pi:342",
               "members": []
             },
             {
@@ -5438,7 +5447,7 @@
                   "code": "async function* words(): AsyncIterator<string> {\n  yield \"red\"\n  yield \"green\"\n}\nfor await (const w of ReadableStream.from(words())) {\n  println(w)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:367",
+              "source": "core/streams.pi:370",
               "members": []
             },
             {
@@ -5452,7 +5461,7 @@
                   "code": "const [a, b] = ReadableStream.from([1, 2]).tee()\nfor await (const x of a) {\n  println(`a ${x}`)\n}\nfor await (const x of b) {\n  println(`b ${x}`)\n}\n// a 1\n// a 2\n// b 1\n// b 2"
                 }
               ],
-              "source": "core/streams.pi:391",
+              "source": "core/streams.pi:394",
               "members": []
             },
             {
@@ -5466,7 +5475,7 @@
                   "code": "const s = ReadableStream.from([1])\nprintln(s.locked)   // false\nconst reader = s.getReader()\nprintln(s.locked)   // true\nreader.releaseLock()\nprintln(s.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:449",
+              "source": "core/streams.pi:452",
               "members": []
             },
             {
@@ -5480,7 +5489,7 @@
                   "code": "const reader = ReadableStream.from([\"x\", \"y\"]).getReader()\nwhile (true) {\n  const r = await reader.read()\n  if (r.done) break\n  println(r.value)\n}\n// x\n// y"
                 }
               ],
-              "source": "core/streams.pi:466",
+              "source": "core/streams.pi:469",
               "members": []
             },
             {
@@ -5494,7 +5503,7 @@
                   "code": "const s = ReadableStream.from([7, 8])\nprintln(await s.next())   // 7\nprintln(await s.next())   // 8\nprintln(await s.next())   // null"
                 }
               ],
-              "source": "core/streams.pi:479",
+              "source": "core/streams.pi:482",
               "members": []
             },
             {
@@ -5508,7 +5517,7 @@
                   "code": "let total = 0\nfor await (const n of ReadableStream.from([1, 2, 3])) {\n  total += n\n}\nprintln(total)   // 6"
                 }
               ],
-              "source": "core/streams.pi:496",
+              "source": "core/streams.pi:499",
               "members": []
             },
             {
@@ -5522,7 +5531,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (reason) => println(`cancelled: ${reason?.message}`),\n})\nawait s.cancel(new Error(\"not needed\"))   // cancelled: not needed\nprintln(await s.next())                   // null"
                 }
               ],
-              "source": "core/streams.pi:512",
+              "source": "core/streams.pi:515",
               "members": []
             },
             {
@@ -5536,7 +5545,7 @@
                   "code": "const lines: string[] = []\nconst sink = new WritableStream<string>({\n  write: (chunk, _c) => lines.push(chunk),\n  close: () => println(\"closed\"),\n})\nawait ReadableStream.from([\"a\", \"b\", \"c\"]).pipeTo(sink)   // closed\nprintln(lines.join(\",\"))   // a,b,c"
                 }
               ],
-              "source": "core/streams.pi:545",
+              "source": "core/streams.pi:548",
               "members": []
             },
             {
@@ -5550,7 +5559,7 @@
                   "code": "const upper = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),\n})\nfor await (const s of ReadableStream.from([\"hi\", \"there\"]).pipeThrough(upper)) {\n  println(s)\n}\n// HI\n// THERE"
                 }
               ],
-              "source": "core/streams.pi:591",
+              "source": "core/streams.pi:607",
               "members": []
             }
           ]
@@ -5566,7 +5575,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c: ReadableStreamDefaultController<string>) => {\n    c.enqueue(\"one\")\n    c.enqueue(\"two\")\n    c.close()\n  },\n})\nfor await (const x of s) {\n  println(x)\n}\n// one\n// two"
             }
           ],
-          "source": "core/streams.pi:134",
+          "source": "core/streams.pi:137",
           "members": [
             {
               "name": "constructor",
@@ -5579,7 +5588,7 @@
                   "code": "// A stream makes its controller and hands it to its source's callbacks.\nconst s = new ReadableStream<int>({\n  start: (c: ReadableStreamDefaultController<int>) => {\n    c.enqueue(42)\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // 42"
                 }
               ],
-              "source": "core/streams.pi:150",
+              "source": "core/streams.pi:153",
               "members": []
             },
             {
@@ -5593,7 +5602,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    println(c.desiredSize)   // 2\n    c.enqueue(1)\n    println(c.desiredSize)   // 1\n  },\n}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:166",
+              "source": "core/streams.pi:169",
               "members": []
             },
             {
@@ -5607,7 +5616,7 @@
                   "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"hello\")\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // hello"
                 }
               ],
-              "source": "core/streams.pi:183",
+              "source": "core/streams.pi:186",
               "members": []
             },
             {
@@ -5621,7 +5630,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    c.enqueue(1)\n    c.close()   // ends after the queued chunk\n  },\n})\nconst reader = s.getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).done)    // true"
                 }
               ],
-              "source": "core/streams.pi:201",
+              "source": "core/streams.pi:204",
               "members": []
             },
             {
@@ -5635,7 +5644,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.error(new Error(\"disk on fire\")),\n})\ntry {\n  const r = await s.getReader().read()\n  println(r.done)\n} catch (e) {\n  println(e.message)   // disk on fire\n}"
                 }
               ],
-              "source": "core/streams.pi:219",
+              "source": "core/streams.pi:222",
               "members": []
             }
           ]
@@ -5651,7 +5660,7 @@
               "code": "const reader: ReadableStreamDefaultReader<int> = ReadableStream.from([1, 2]).getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).value)   // 2\nprintln((await reader.read()).done)    // true"
             }
           ],
-          "source": "core/streams.pi:772",
+          "source": "core/streams.pi:788",
           "members": [
             {
               "name": "constructor",
@@ -5664,7 +5673,7 @@
                   "code": "const s = ReadableStream.from([\"only\"])\nconst reader = new ReadableStreamDefaultReader<string>(s)\nprintln(s.locked)                      // true\nprintln((await reader.read()).value)   // only"
                 }
               ],
-              "source": "core/streams.pi:785",
+              "source": "core/streams.pi:801",
               "members": []
             },
             {
@@ -5678,7 +5687,7 @@
                   "code": "const reader = ReadableStream.from([\"a\", \"b\"]).getReader()\nlet r = await reader.read()\nwhile (!r.done) {\n  println(r.value)\n  r = await reader.read()\n}\n// a\n// b"
                 }
               ],
-              "source": "core/streams.pi:812",
+              "source": "core/streams.pi:828",
               "members": []
             },
             {
@@ -5692,7 +5701,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (_reason) => println(\"source cancelled\"),\n})\nconst reader = s.getReader()\nawait reader.cancel()                 // source cancelled\nprintln((await reader.read()).done)   // true"
                 }
               ],
-              "source": "core/streams.pi:833",
+              "source": "core/streams.pi:849",
               "members": []
             },
             {
@@ -5706,7 +5715,7 @@
                   "code": "const reader = ReadableStream.from([1]).getReader()\nprintln((await reader.read()).value)   // 1\nawait reader.closed\nprintln(\"closed\")                      // closed"
                 }
               ],
-              "source": "core/streams.pi:847",
+              "source": "core/streams.pi:863",
               "members": []
             },
             {
@@ -5720,7 +5729,7 @@
                   "code": "const s = ReadableStream.from([1, 2])\nconst first = s.getReader()\nprintln((await first.read()).value)   // 1\nfirst.releaseLock()\nconst second = s.getReader()\nprintln((await second.read()).value)  // 2"
                 }
               ],
-              "source": "core/streams.pi:862",
+              "source": "core/streams.pi:878",
               "members": []
             }
           ]
@@ -5736,7 +5745,7 @@
               "code": "const date = /(\\d{4})-(\\d{2})-(\\d{2})/\nprintln(date.test(\"on 2024-03-10\"))   // true\nconst m = date.exec(\"on 2024-03-10\")\nif (m != null) {\n  println(m[1])                       // 2024\n}\nconst word = new RegExp(\"\\\\bcat\\\\b\", \"i\")\nprintln(word.test(\"A Cat sat\"))       // true"
             }
           ],
-          "source": "core/regex.pi:1221",
+          "source": "core/regex.pi:1230",
           "members": [
             {
               "name": "source",
@@ -5744,7 +5753,7 @@
               "signature": "public readonly source: string",
               "doc": "<p>The pattern's text (<code>\"(?:)\"</code> for an empty pattern).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1223",
+              "source": "core/regex.pi:1232",
               "members": []
             },
             {
@@ -5753,7 +5762,7 @@
               "signature": "public readonly flags: string",
               "doc": "<p>The flags, in canonical order (<code>\"dgimsuvy\"</code>).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1225",
+              "source": "core/regex.pi:1234",
               "members": []
             },
             {
@@ -5762,7 +5771,7 @@
               "signature": "public lastIndex: int = 0",
               "doc": "<p>Where the next <code>exec</code> or <code>test</code> starts with the <code>g</code> or <code>y</code> flag, in code points; other regexes\nignore it.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1228",
+              "source": "core/regex.pi:1237",
               "members": []
             },
             {
@@ -5776,7 +5785,7 @@
                   "code": "const re = new RegExp(\"^[a-z]+\\\\d*$\", \"i\")\nprintln(re)                 // /^[a-z]+\\d*$/i\nprintln(re.test(\"Abc12\"))   // true\ntry {\n  const bad = new RegExp(\"a\", \"gg\")\n  println(bad)\n} catch (e: SyntaxError) {\n  println(e.message)        // Invalid flags supplied to RegExp constructor 'gg'\n}"
                 }
               ],
-              "source": "core/regex.pi:1250",
+              "source": "core/regex.pi:1259",
               "members": []
             },
             {
@@ -5790,7 +5799,7 @@
                   "code": "const re = /a+/g\nprintln(new RegExp(re))         // /a+/g\nprintln(new RegExp(re, \"i\"))    // /a+/i"
                 }
               ],
-              "source": "core/regex.pi:1270",
+              "source": "core/regex.pi:1279",
               "members": []
             },
             {
@@ -5804,7 +5813,7 @@
                   "code": "println(/o/g.global)   // true\nprintln(/o/.global)    // false"
                 }
               ],
-              "source": "core/regex.pi:1347",
+              "source": "core/regex.pi:1356",
               "members": []
             },
             {
@@ -5818,7 +5827,7 @@
                   "code": "const re = /hello/i\nprintln(re.ignoreCase)      // true\nprintln(re.test(\"HeLLo\"))   // true"
                 }
               ],
-              "source": "core/regex.pi:1356",
+              "source": "core/regex.pi:1365",
               "members": []
             },
             {
@@ -5832,7 +5841,7 @@
                   "code": "const re = /^b/m\nprintln(re.multiline)        // true\nprintln(re.test(\"a\\nb\"))     // true"
                 }
               ],
-              "source": "core/regex.pi:1365",
+              "source": "core/regex.pi:1374",
               "members": []
             },
             {
@@ -5846,7 +5855,7 @@
                   "code": "const re = /a.b/s\nprintln(re.dotAll)          // true\nprintln(re.test(\"a\\nb\"))    // true"
                 }
               ],
-              "source": "core/regex.pi:1374",
+              "source": "core/regex.pi:1383",
               "members": []
             },
             {
@@ -5860,7 +5869,7 @@
                   "code": "println(/x/u.unicode)   // true\nprintln(/x/.unicode)    // false"
                 }
               ],
-              "source": "core/regex.pi:1382",
+              "source": "core/regex.pi:1391",
               "members": []
             },
             {
@@ -5874,7 +5883,7 @@
                   "code": "const re = /\\d/y\nprintln(re.sticky)      // true\nprintln(re.test(\"a1\"))  // false\nre.lastIndex = 1\nprintln(re.test(\"a1\"))  // true"
                 }
               ],
-              "source": "core/regex.pi:1393",
+              "source": "core/regex.pi:1402",
               "members": []
             },
             {
@@ -5888,7 +5897,7 @@
                   "code": "println(/x/d.hasIndices)   // true\nprintln(/x/.hasIndices)    // false"
                 }
               ],
-              "source": "core/regex.pi:1401",
+              "source": "core/regex.pi:1410",
               "members": []
             },
             {
@@ -5902,7 +5911,7 @@
                   "code": "const re = /(\\w+)=(\\d+)/g\nconst s = \"a=1 b=22\"\nlet m = re.exec(s)\nwhile (m != null) {\n  println(`${m[1]} -> ${m[2]} at ${m.index}`)\n  m = re.exec(s)\n}\n// Prints:\n// a -> 1 at 0\n// b -> 22 at 4"
                 }
               ],
-              "source": "core/regex.pi:1476",
+              "source": "core/regex.pi:1485",
               "members": []
             },
             {
@@ -5916,7 +5925,7 @@
                   "code": "const digits = /^\\d+$/\nprintln(digits.test(\"123\"))   // true\nprintln(digits.test(\"12a\"))   // false"
                 }
               ],
-              "source": "core/regex.pi:1501",
+              "source": "core/regex.pi:1510",
               "members": []
             },
             {
@@ -5930,7 +5939,7 @@
                   "code": "const re = new RegExp(\"a/b\", \"gi\")\nprintln(re.toString())   // /a\\/b/gi\nprintln(re.source)       // a\\/b\nprintln(re.flags)        // gi"
                 }
               ],
-              "source": "core/regex.pi:1514",
+              "source": "core/regex.pi:1523",
               "members": []
             }
           ]
@@ -5946,7 +5955,7 @@
               "code": "const m = /(\\d+)-(\\d+)?/d.exec(\"id 12-\")\nif (m != null) {\n  const ix = m.indices\n  if (ix != null) {\n    println(`${ix.length} ${ix[0]:?} ${ix[1]:?} ${ix[2]:?}`)   // 3 [3, 6] [3, 5] null\n  }\n}"
             }
           ],
-          "source": "core/regex.pi:1033",
+          "source": "core/regex.pi:1042",
           "members": [
             {
               "name": "groups",
@@ -5954,7 +5963,7 @@
               "signature": "public readonly groups: Map<string, [int, int]?>?",
               "doc": "<p>The named groups' positions by name, or <code>null</code> when the pattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1036",
+              "source": "core/regex.pi:1045",
               "members": []
             },
             {
@@ -5968,7 +5977,7 @@
                   "code": "// They usually come from a `d`-flag match; they can also be built directly.\nconst ix = new RegExpIndices([[0, 2], null], null)\nprintln(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null"
                 }
               ],
-              "source": "core/regex.pi:1046",
+              "source": "core/regex.pi:1055",
               "members": []
             },
             {
@@ -5982,7 +5991,7 @@
                   "code": "const m = /(a)(b)?/d.exec(\"a\")\nprintln(m?.indices?.length)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1058",
+              "source": "core/regex.pi:1067",
               "members": []
             }
           ]
@@ -5998,7 +6007,7 @@
               "code": "const m = /(?<year>\\d{4})-(\\d{2})/.exec(\"due 2024-03\")\nif (m != null) {\n  println(m[0])                       // 2024-03\n  println(m[2])                       // 03\n  println(m.index)                    // 4\n  println(m.groups?.get(\"year\"))      // 2024\n}"
             }
           ],
-          "source": "core/regex.pi:1081",
+          "source": "core/regex.pi:1090",
           "members": [
             {
               "name": "index",
@@ -6006,7 +6015,7 @@
               "signature": "public readonly index: int",
               "doc": "<p>Where the match starts in <code>input</code>, in code points (-1 for a <code>g</code>-flag <code>string.match</code> result).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1084",
+              "source": "core/regex.pi:1093",
               "members": []
             },
             {
@@ -6015,7 +6024,7 @@
               "signature": "public readonly input: string",
               "doc": "<p>The string that was searched.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1086",
+              "source": "core/regex.pi:1095",
               "members": []
             },
             {
@@ -6024,7 +6033,7 @@
               "signature": "public readonly groups: Map<string, string?>?",
               "doc": "<p>The named groups' texts by name (<code>null</code> for one that didn't take part), or <code>null</code> when the\npattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1089",
+              "source": "core/regex.pi:1098",
               "members": []
             },
             {
@@ -6038,7 +6047,7 @@
                   "code": "const m = /a(?<b>b+)/d.exec(\"xabb\")\nif (m != null) {\n  println(`${m.indices?.[0]:?} ${m.indices?.[1]:?}`)    // [1, 4] [2, 4]\n  println(`${m.indices?.groups?.get(\"b\"):?}`)           // [2, 4]\n}"
                 }
               ],
-              "source": "core/regex.pi:1101",
+              "source": "core/regex.pi:1110",
               "members": []
             },
             {
@@ -6052,7 +6061,7 @@
                   "code": "// Matches usually come from `exec` or `string.match`; one can also be built directly.\nconst m = new RegExpMatch([\"ab\", \"b\"], 3, \"xxxab\", null)\nprintln(m[0])      // ab\nprintln(m.index)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1112",
+              "source": "core/regex.pi:1121",
               "members": []
             },
             {
@@ -6066,7 +6075,7 @@
                   "code": "const m = /(\\w+)@(\\w+)/.exec(\"mail ann@home\")\nif (m != null) {\n  println(m.length)   // 3\n}"
                 }
               ],
-              "source": "core/regex.pi:1128",
+              "source": "core/regex.pi:1137",
               "members": []
             },
             {
@@ -6080,7 +6089,7 @@
                   "code": "const m = /(\\d+)x(\\d+)?/.exec(\"size 640x\")\nif (m != null) {\n  const parts = m.toArray()\n  println(parts.length)                               // 3\n  println(parts.map(s => s ?? \"(none)\").join(\", \"))   // 640x, 640, (none)\n}"
                 }
               ],
-              "source": "core/regex.pi:1147",
+              "source": "core/regex.pi:1156",
               "members": []
             },
             {
@@ -6094,7 +6103,7 @@
                   "code": "const m = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(\"2024-03-10\")\nif (m != null) {\n  for (const part of m) {\n    println(part)\n  }\n}\n// Prints:\n// 2024-03-10\n// 2024\n// 03\n// 10"
                 }
               ],
-              "source": "core/regex.pi:1167",
+              "source": "core/regex.pi:1176",
               "members": []
             }
           ]
@@ -6673,6 +6682,15 @@
               "examples": [],
               "source": "core/streams.pi:70",
               "members": []
+            },
+            {
+              "name": "signal",
+              "kind": "field",
+              "signature": "signal?: AbortSignal",
+              "doc": "<p>Stops the pipe when aborted (#63): the source is cancelled and the destination errored\n(unless <code>preventCancel</code>/<code>preventAbort</code>), and the pipe rejects with the signal's reason.</p>\n",
+              "examples": [],
+              "source": "core/streams.pi:73",
+              "members": []
             }
           ]
         },
@@ -6916,22 +6934,22 @@
           "name": "TextDecoder",
           "kind": "class",
           "signature": "class TextDecoder",
-          "doc": "<p>Turns UTF-8 bytes into strings, also chunk by chunk (<code>{ stream: true }</code>).</p>\n",
+          "doc": "<p>Turns UTF-8 (or, by label, UTF-16; #63) bytes into strings, also chunk by chunk\n(<code>{ stream: true }</code>).</p>\n",
           "examples": [
             {
               "caption": "",
               "code": "const bytes = new TextEncoder().encode(\"grüße\")\nprintln(new TextDecoder().decode(bytes))   // grüße"
             }
           ],
-          "source": "core/text.pi:79",
+          "source": "core/text.pi:80",
           "members": [
             {
               "name": "encoding",
               "kind": "field",
-              "signature": "public readonly encoding: string = \"utf-8\"",
-              "doc": "<p>Always <code>\"utf-8\"</code>, the only encoding.</p>\n",
+              "signature": "public readonly encoding: string",
+              "doc": "<p><code>\"utf-8\"</code>, <code>\"utf-16le\"</code> or <code>\"utf-16be\"</code>.</p>\n",
               "examples": [],
-              "source": "core/text.pi:81",
+              "source": "core/text.pi:82",
               "members": []
             },
             {
@@ -6940,7 +6958,7 @@
               "signature": "public readonly fatal: bool",
               "doc": "<p>Whether bytes that aren't UTF-8 throw a <code>TypeError</code> (else they become U+FFFD).</p>\n",
               "examples": [],
-              "source": "core/text.pi:83",
+              "source": "core/text.pi:84",
               "members": []
             },
             {
@@ -6949,7 +6967,7 @@
               "signature": "public readonly ignoreBOM: bool",
               "doc": "<p>Whether a leading byte-order mark is kept in the text.</p>\n",
               "examples": [],
-              "source": "core/text.pi:85",
+              "source": "core/text.pi:86",
               "members": []
             },
             {
@@ -6963,21 +6981,21 @@
                   "code": "const decoder = new TextDecoder()\nprintln(decoder.decode(Uint8Array.from([104, 105, 0xFF])))   // hi�"
                 }
               ],
-              "source": "core/text.pi:98",
+              "source": "core/text.pi:99",
               "members": []
             },
             {
               "name": "constructor",
               "kind": "constructor",
               "signature": "constructor(label: string, options: TextDecoderOptions = {}) throws RangeError",
-              "doc": "<p>A decoder for <code>label</code>, matched case-insensitively, ignoring surrounding whitespace; anything\nbut <code>\"utf-8\"</code>, <code>\"utf8\"</code> or <code>\"unicode-1-1-utf-8\"</code> throws a <code>RangeError</code>, as on the Web.</p>\n",
+              "doc": "<p>A decoder for <code>label</code>, matched case-insensitively, ignoring surrounding whitespace, as on\nthe Web: <code>\"utf-8\"</code> (<code>\"utf8\"</code>, <code>\"unicode-1-1-utf-8\"</code>), <code>\"utf-16le\"</code> (<code>\"utf-16\"</code>, <code>\"ucs-2\"</code>,\n<code>\"unicode\"</code>, …) or <code>\"utf-16be\"</code> (<code>\"unicodefffe\"</code>); another label throws a <code>RangeError</code>.</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "const decoder = new TextDecoder(\"UTF-8\", { fatal: true })\ntry {\n  println(decoder.decode(Uint8Array.from([0xFF])))\n} catch (e: TypeError) {\n  println(e.message)   // The encoded data was not valid utf-8 (at byte 0)\n}"
                 }
               ],
-              "source": "core/text.pi:115",
+              "source": "core/text.pi:118",
               "members": []
             },
             {
@@ -6991,7 +7009,7 @@
                   "code": "const decoder = TextDecoder.utf8({ ignoreBOM: true })\nprintln(decoder.ignoreBOM)   // true"
                 }
               ],
-              "source": "core/text.pi:132",
+              "source": "core/text.pi:138",
               "members": []
             },
             {
@@ -7005,7 +7023,7 @@
                   "code": "const decoder = TextDecoder.utf8()\nprintln(decoder.decode(Uint8Array.from([111, 107])))   // ok"
                 }
               ],
-              "source": "core/text.pi:143",
+              "source": "core/text.pi:149",
               "members": []
             },
             {
@@ -7019,7 +7037,7 @@
                   "code": "const decoder = new TextDecoder()\nconst bytes = new TextEncoder().encode(\"hello\")\nprintln(decoder.decode(bytes))   // hello"
                 }
               ],
-              "source": "core/text.pi:156",
+              "source": "core/text.pi:163",
               "members": []
             }
           ]
@@ -7173,7 +7191,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1717",
+          "source": "core/streams.pi:1733",
           "members": [
             {
               "name": "readable",
@@ -7181,7 +7199,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1719",
+              "source": "core/streams.pi:1735",
               "members": []
             },
             {
@@ -7190,7 +7208,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1721",
+              "source": "core/streams.pi:1737",
               "members": []
             },
             {
@@ -7204,7 +7222,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1740",
+              "source": "core/streams.pi:1756",
               "members": []
             }
           ]
@@ -7220,7 +7238,7 @@
               "code": "const t = new TransformStream<int, int>({\n  transform: (n, c: TransformStreamDefaultController<int>) => {\n    c.enqueue(n)\n    c.enqueue(n * 100)\n  },\n})\nfor await (const x of ReadableStream.from([1, 2]).pipeThrough(t)) {\n  println(x)\n}\n// 1\n// 100\n// 2\n// 200"
             }
           ],
-          "source": "core/streams.pi:1472",
+          "source": "core/streams.pi:1488",
           "members": [
             {
               "name": "constructor",
@@ -7233,7 +7251,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1494",
+              "source": "core/streams.pi:1510",
               "members": []
             },
             {
@@ -7247,7 +7265,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1509",
+              "source": "core/streams.pi:1525",
               "members": []
             },
             {
@@ -7261,7 +7279,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1530",
+              "source": "core/streams.pi:1546",
               "members": []
             },
             {
@@ -7275,7 +7293,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1557",
+              "source": "core/streams.pi:1573",
               "members": []
             },
             {
@@ -7289,7 +7307,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1579",
+              "source": "core/streams.pi:1595",
               "members": []
             }
           ]
@@ -7305,7 +7323,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1606",
+          "source": "core/streams.pi:1622",
           "members": [
             {
               "name": "start",
@@ -7313,7 +7331,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1608",
+              "source": "core/streams.pi:1624",
               "members": []
             },
             {
@@ -7322,7 +7340,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1611",
+              "source": "core/streams.pi:1627",
               "members": []
             },
             {
@@ -7331,7 +7349,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1613",
+              "source": "core/streams.pi:1629",
               "members": []
             },
             {
@@ -7340,7 +7358,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1616",
+              "source": "core/streams.pi:1632",
               "members": []
             }
           ]
@@ -8385,7 +8403,7 @@
               "code": "const got: int[] = []\nconst sink: UnderlyingSink<int> = {\n  start: (_c) => println(\"start\"),\n  write: (chunk, _c) => got.push(chunk),\n  close: () => println(`close after ${got.length}`),\n}\nawait ReadableStream.from([1, 2, 3]).pipeTo(new WritableStream<int>(sink))\n// start\n// close after 3"
             }
           ],
-          "source": "core/streams.pi:942",
+          "source": "core/streams.pi:958",
           "members": [
             {
               "name": "start",
@@ -8393,7 +8411,7 @@
               "signature": "start?: (c: WritableStreamDefaultController) => void",
               "doc": "<p>Runs once, inside the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:944",
+              "source": "core/streams.pi:960",
               "members": []
             },
             {
@@ -8402,7 +8420,7 @@
               "signature": "write?: (chunk: T, c: WritableStreamDefaultController) => void",
               "doc": "<p>Takes a chunk; the next one comes after it returns.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:946",
+              "source": "core/streams.pi:962",
               "members": []
             },
             {
@@ -8411,7 +8429,7 @@
               "signature": "writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>",
               "doc": "<p>Like <code>write</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>write</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:949",
+              "source": "core/streams.pi:965",
               "members": []
             },
             {
@@ -8420,7 +8438,7 @@
               "signature": "close?: () => void",
               "doc": "<p>Runs after the last queued chunk is written, when the stream is closed.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:951",
+              "source": "core/streams.pi:967",
               "members": []
             },
             {
@@ -8429,7 +8447,7 @@
               "signature": "closeAsync?: () => Promise<void, Error>",
               "doc": "<p>Like <code>close</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>close</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:954",
+              "source": "core/streams.pi:970",
               "members": []
             },
             {
@@ -8438,7 +8456,7 @@
               "signature": "abort?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is aborted (before the queued writes reject).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:956",
+              "source": "core/streams.pi:972",
               "members": []
             }
           ]
@@ -8454,7 +8472,7 @@
               "code": "let n = 0\nconst source: UnderlyingSource<int> = {\n  start: (c) => c.enqueue(0),\n  pull: (c) => {\n    n += 1\n    if (n <= 2) c.enqueue(n) else c.close()\n  },\n  cancel: (_reason) => println(\"cancelled\"),\n}\nfor await (const x of new ReadableStream<int>(source)) {\n  println(x)\n}\n// 0\n// 1\n// 2"
             }
           ],
-          "source": "core/streams.pi:104",
+          "source": "core/streams.pi:107",
           "members": [
             {
               "name": "start",
@@ -8462,7 +8480,7 @@
               "signature": "start?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Runs once, inside the constructor (it can already enqueue chunks).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:106",
+              "source": "core/streams.pi:109",
               "members": []
             },
             {
@@ -8471,7 +8489,7 @@
               "signature": "pull?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Called when the stream wants more chunks (a waiting read, or room below the high-water mark);\nnot again while it runs. The first call comes after <code>start</code>, as a microtask.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:109",
+              "source": "core/streams.pi:112",
               "members": []
             },
             {
@@ -8480,7 +8498,7 @@
               "signature": "pullAsync?: (c: ReadableStreamDefaultController<T>) => Promise<void, Error>",
               "doc": "<p>Like <code>pull</code>, but finishes when the promise settles (not called again until then); a rejection\nfails the stream. Used instead of <code>pull</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:112",
+              "source": "core/streams.pi:115",
               "members": []
             },
             {
@@ -8489,7 +8507,7 @@
               "signature": "cancel?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is cancelled.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:114",
+              "source": "core/streams.pi:117",
               "members": []
             }
           ]
@@ -9088,7 +9106,7 @@
               "code": "const out: string[] = []\nconst ws = new WritableStream<string>({\n  write: (chunk, _c) => out.push(chunk),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"hello\")\nawait writer.write(\"world\")\nawait writer.close()\nprintln(out.join(\" \"))   // hello world"
             }
           ],
-          "source": "core/streams.pi:979",
+          "source": "core/streams.pi:995",
           "members": [
             {
               "name": "constructor",
@@ -9101,7 +9119,7 @@
                   "code": "let bytes = 0\nconst counter = new WritableStream<Uint8Array>({\n  write: (chunk, _c) => {\n    bytes += chunk.length\n  },\n}, { highWaterMark: 4 })\nconst writer = counter.getWriter()\nprintln(writer.desiredSize)   // 4\nawait writer.write(new Uint8Array(10))\nawait writer.close()\nprintln(bytes)   // 10"
                 }
               ],
-              "source": "core/streams.pi:1012",
+              "source": "core/streams.pi:1028",
               "members": []
             },
             {
@@ -9115,7 +9133,7 @@
                   "code": "const ws = new WritableStream<int>({})\nprintln(ws.locked)   // false\nconst writer = ws.getWriter()\nprintln(ws.locked)   // true\nwriter.releaseLock()\nprintln(ws.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:1039",
+              "source": "core/streams.pi:1055",
               "members": []
             },
             {
@@ -9129,7 +9147,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`got ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"x\")   // got x"
                 }
               ],
-              "source": "core/streams.pi:1053",
+              "source": "core/streams.pi:1069",
               "members": []
             },
             {
@@ -9143,7 +9161,7 @@
                   "code": "const ws = new WritableStream<int>({\n  close: () => println(\"sink closed\"),\n})\nawait ws.close()   // sink closed"
                 }
               ],
-              "source": "core/streams.pi:1066",
+              "source": "core/streams.pi:1082",
               "members": []
             },
             {
@@ -9157,7 +9175,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`aborted: ${reason?.message}`),\n})\nawait ws.abort(new Error(\"user cancelled\"))   // aborted: user cancelled"
                 }
               ],
-              "source": "core/streams.pi:1082",
+              "source": "core/streams.pi:1098",
               "members": []
             }
           ]
@@ -9173,7 +9191,7 @@
               "code": "const sink = new WritableStream<int>({\n  write: (chunk, c: WritableStreamDefaultController) => {\n    if (chunk < 0) c.error(new Error(\"negative\"))\n  },\n})\nconst writer = sink.getWriter()\nawait writer.write(1)\ntry {\n  await writer.write(-1)\n  await writer.write(2)\n} catch (e) {\n  println(e.message)   // negative\n}"
             }
           ],
-          "source": "core/streams.pi:888",
+          "source": "core/streams.pi:904",
           "members": [
             {
               "name": "constructor",
@@ -9186,7 +9204,7 @@
                   "code": "// A stream makes its controller and hands it to its sink's callbacks.\nconst sink = new WritableStream<string>({\n  start: (c: WritableStreamDefaultController) => println(\"started\"),   // started\n})\nprintln(sink.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:901",
+              "source": "core/streams.pi:917",
               "members": []
             },
             {
@@ -9200,7 +9218,7 @@
                   "code": "const sink = new WritableStream<string>({\n  write: (chunk, c) => c.error(new Error(`can't store ${chunk}`)),\n})\nconst writer = sink.getWriter()\ntry {\n  await writer.write(\"x\")\n  await writer.write(\"y\")\n} catch (e) {\n  println(e.message)   // can't store x\n}"
                 }
               ],
-              "source": "core/streams.pi:920",
+              "source": "core/streams.pi:936",
               "members": []
             }
           ]
@@ -9216,7 +9234,7 @@
               "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer: WritableStreamDefaultWriter<string> = ws.getWriter()\nawait writer.ready\nawait writer.write(\"one\")   // one\nawait writer.close()"
             }
           ],
-          "source": "core/streams.pi:1307",
+          "source": "core/streams.pi:1323",
           "members": [
             {
               "name": "constructor",
@@ -9229,7 +9247,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = new WritableStreamDefaultWriter<int>(ws)\nprintln(ws.locked)   // true\nawait writer.write(5)   // 5"
                 }
               ],
-              "source": "core/streams.pi:1322",
+              "source": "core/streams.pi:1338",
               "members": []
             },
             {
@@ -9243,7 +9261,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`stored ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"a\")   // stored a\nawait writer.write(\"b\")   // stored b"
                 }
               ],
-              "source": "core/streams.pi:1347",
+              "source": "core/streams.pi:1363",
               "members": []
             },
             {
@@ -9257,7 +9275,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n  close: () => println(\"done\"),\n})\nconst writer = ws.getWriter()\nwriter.write(\"last\")\nawait writer.close()\n// last\n// done"
                 }
               ],
-              "source": "core/streams.pi:1366",
+              "source": "core/streams.pi:1382",
               "members": []
             },
             {
@@ -9271,7 +9289,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`abort: ${reason?.message}`),\n})\nconst writer = ws.getWriter()\nawait writer.abort(new Error(\"stop\"))   // abort: stop"
                 }
               ],
-              "source": "core/streams.pi:1381",
+              "source": "core/streams.pi:1397",
               "members": []
             },
             {
@@ -9285,7 +9303,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = ws.getWriter()\nfor (const n of [1, 2, 3]) {\n  await writer.ready   // waits while the queue is full\n  writer.write(n)\n}\nawait writer.close()\n// 1\n// 2\n// 3"
                 }
               ],
-              "source": "core/streams.pi:1403",
+              "source": "core/streams.pi:1419",
               "members": []
             },
             {
@@ -9299,7 +9317,7 @@
                   "code": "const ws = new WritableStream<int>({}, { highWaterMark: 3 })\nconst writer = ws.getWriter()\nprintln(writer.desiredSize)   // 3"
                 }
               ],
-              "source": "core/streams.pi:1415",
+              "source": "core/streams.pi:1431",
               "members": []
             },
             {
@@ -9313,7 +9331,7 @@
                   "code": "const ws = new WritableStream<int>({})\nconst writer = ws.getWriter()\nwriter.closed.then((_v) => println(\"closed\"))\nawait writer.close()\nawait writer.closed   // closed"
                 }
               ],
-              "source": "core/streams.pi:1429",
+              "source": "core/streams.pi:1445",
               "members": []
             },
             {
@@ -9327,7 +9345,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst first = ws.getWriter()\nawait first.write(\"from the first\")    // from the first\nfirst.releaseLock()\nconst second = ws.getWriter()\nawait second.write(\"from the second\")  // from the second"
                 }
               ],
-              "source": "core/streams.pi:1446",
+              "source": "core/streams.pi:1462",
               "members": []
             }
           ]
@@ -16252,7 +16270,7 @@
         {
           "name": "Mat4",
           "kind": "struct",
-          "signature": "struct Mat4",
+          "signature": "struct Mat4 implements Formattable",
           "doc": "<p>A 4×4 matrix, column-major (<code>m[col * 4 + row]</code>, as OpenGL and WebGPU upload it), acting on\ncolumn vectors: <code>a * b</code> applies <code>b</code> first.</p>\n",
           "examples": [
             {
@@ -16578,6 +16596,20 @@
               ],
               "source": "math.pi:1242",
               "members": []
+            },
+            {
+              "name": "format",
+              "kind": "method",
+              "signature": "format(spec: string): string",
+              "doc": "<p>Row by row as <code>toString</code>, each element formatted by <code>spec</code> (<code>${m:.2f}</code>; #57).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { Mat4 } from \"std/math\"\n\nprintln(`${Mat4.rotationZ(Math.PI / 4):.2f}`)\n// [0.71, -0.71, 0.00, 0.00; 0.71, 0.71, 0.00, 0.00; 0.00, 0.00, 1.00, 0.00; 0.00, 0.00, 0.00, 1.00]"
+                }
+              ],
+              "source": "math.pi:1261",
+              "members": []
             }
           ]
         },
@@ -16592,7 +16624,7 @@
               "code": "import { Random } from \"std/math\"\n\nconst rng = new Random(42)          // the same numbers on every run and target\nconst die = rng.int(1, 7)           // 1 to 6\nprintln(die >= 1 && die <= 6)       // true\nconst dice = new Random()           // seeded from the system: different every run\nprintln(dice.float() < 1)           // true"
             }
           ],
-          "source": "math.pi:1268",
+          "source": "math.pi:1287",
           "members": [
             {
               "name": "constructor",
@@ -16605,7 +16637,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst a = new Random(7)\nconst b = new Random(7)\nprintln(a.nextU32() == b.nextU32())   // true"
                 }
               ],
-              "source": "math.pi:1281",
+              "source": "math.pi:1300",
               "members": []
             },
             {
@@ -16619,7 +16651,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random(42)\nprintln(rng.nextU32())   // 4210423199"
                 }
               ],
-              "source": "math.pi:1294",
+              "source": "math.pi:1313",
               "members": []
             },
             {
@@ -16633,7 +16665,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random()\nconst x = rng.float()\nprintln(x >= 0 && x < 1)   // true"
                 }
               ],
-              "source": "math.pi:1306",
+              "source": "math.pi:1325",
               "members": []
             },
             {
@@ -16647,7 +16679,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random()\nconst roll = rng.int(1, 7)\nprintln(roll >= 1 && roll <= 6)   // true"
                 }
               ],
-              "source": "math.pi:1318",
+              "source": "math.pi:1337",
               "members": []
             },
             {
@@ -16661,7 +16693,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random()\nprintln(rng.bool(1))   // true\nprintln(rng.bool(0))   // false\nprintln(rng.bool())    // true or false, each half of the time"
                 }
               ],
-              "source": "math.pi:1354",
+              "source": "math.pi:1373",
               "members": []
             },
             {
@@ -16675,7 +16707,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random(1)\nlet sum = 0.0\nfor (let i = 0; i < 10000; i++) sum += rng.gaussian(100, 15)\nprintln(Math.abs(sum / 10000 - 100) < 1)   // true (the mean is close to 100)"
                 }
               ],
-              "source": "math.pi:1367",
+              "source": "math.pi:1386",
               "members": []
             },
             {
@@ -16689,7 +16721,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random()\nconst colour = rng.pick([\"red\", \"green\", \"blue\"])\nprintln(colour)   // one of red, green, blue"
                 }
               ],
-              "source": "math.pi:1384",
+              "source": "math.pi:1403",
               "members": []
             },
             {
@@ -16703,7 +16735,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst cards = [1, 2, 3, 4, 5]\nnew Random().shuffle(cards)\nprintln(cards.join(\" \"))   // e.g. 3 1 5 2 4"
                 }
               ],
-              "source": "math.pi:1399",
+              "source": "math.pi:1418",
               "members": []
             }
           ]
@@ -16711,7 +16743,7 @@
         {
           "name": "BigInt",
           "kind": "class",
-          "signature": "class BigInt",
+          "signature": "class BigInt implements Formattable",
           "doc": "<p>An arbitrary-precision integer: <code>+ - * / %</code> (division truncates towards zero, as in\nJavaScript), comparisons, <code>pow</code>, <code>toString()</code>/<code>toStringRadix(radix)</code> and <code>parse</code>.</p>\n",
           "examples": [
             {
@@ -16719,7 +16751,7 @@
               "code": "import { BigInt } from \"std/math\"\n\nconst a = BigInt.of(2).pow(64)\nconst b = new BigInt(1000)\nprintln(a)                       // 18446744073709551616\nprintln(a * b + BigInt.of(1))    // 18446744073709551616001\nprintln(a / b)                   // 18446744073709551\nprintln(a % b)                   // 616"
             }
           ],
-          "source": "math.pi:1429",
+          "source": "math.pi:1448",
           "members": [
             {
               "name": "constructor",
@@ -16732,7 +16764,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(new BigInt(-42))   // -42\nprintln(new BigInt())      // 0"
                 }
               ],
-              "source": "math.pi:1444",
+              "source": "math.pi:1463",
               "members": []
             },
             {
@@ -16746,7 +16778,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(9007199254740993) * BigInt.of(3))   // 27021597764222979"
                 }
               ],
-              "source": "math.pi:1476",
+              "source": "math.pi:1495",
               "members": []
             },
             {
@@ -16760,7 +16792,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\ntry {\n  println(BigInt.parse(\"123456789012345678901234567890\"))   // 123456789012345678901234567890\n  println(BigInt.parse(\"ff\", 16))                           // 255\n  println(BigInt.parse(\"0b1010\"))                           // 10\n  println(BigInt.parse(\"12x\"))\n} catch (e) {\n  println(\"not a number\")                                   // not a number\n}"
                 }
               ],
-              "source": "math.pi:1494",
+              "source": "math.pi:1513",
               "members": []
             },
             {
@@ -16774,7 +16806,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(0).isZero)                    // true\nprintln((BigInt.of(5) - BigInt.of(5)).isZero)   // true"
                 }
               ],
-              "source": "math.pi:1531",
+              "source": "math.pi:1550",
               "members": []
             },
             {
@@ -16788,7 +16820,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(-3).isNegative)   // true\nprintln(BigInt.of(0).isNegative)    // false"
                 }
               ],
-              "source": "math.pi:1541",
+              "source": "math.pi:1560",
               "members": []
             },
             {
@@ -16802,7 +16834,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst n = BigInt.of(10).pow(12) / BigInt.of(4)\nprintln(n.toInt() + 1)   // 250000000001"
                 }
               ],
-              "source": "math.pi:1552",
+              "source": "math.pi:1571",
               "members": []
             },
             {
@@ -16816,7 +16848,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(70).toNumber())   // 1.1805916207174113e+21"
                 }
               ],
-              "source": "math.pi:1576",
+              "source": "math.pi:1595",
               "members": []
             },
             {
@@ -16830,7 +16862,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(5).not())    // -6\nprintln(BigInt.of(-1).not())   // 0"
                 }
               ],
-              "source": "math.pi:1765",
+              "source": "math.pi:1784",
               "members": []
             },
             {
@@ -16844,7 +16876,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(1).shiftLeft(100))   // 1267650600228229401496703205376\nprintln(BigInt.of(-3).shiftLeft(2))    // -12"
                 }
               ],
-              "source": "math.pi:1778",
+              "source": "math.pi:1797",
               "members": []
             },
             {
@@ -16858,7 +16890,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(1000).shiftRight(3))   // 125\nprintln(BigInt.of(-9).shiftRight(1))     // -5"
                 }
               ],
-              "source": "math.pi:1793",
+              "source": "math.pi:1812",
               "members": []
             },
             {
@@ -16872,7 +16904,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(100))   // 1267650600228229401496703205376\nprintln(BigInt.of(7).pow(0))     // 1"
                 }
               ],
-              "source": "math.pi:1863",
+              "source": "math.pi:1882",
               "members": []
             },
             {
@@ -16886,7 +16918,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(-12).abs())   // 12"
                 }
               ],
-              "source": "math.pi:1884",
+              "source": "math.pi:1903",
               "members": []
             },
             {
@@ -16900,7 +16932,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst a = BigInt.of(10).pow(20)\nconst b = BigInt.of(10).pow(19)\nprintln(a.compareTo(b))   // 1\nprintln(b.compareTo(a))   // -1\nprintln(a.compareTo(a))   // 0"
                 }
               ],
-              "source": "math.pi:1898",
+              "source": "math.pi:1917",
               "members": []
             },
             {
@@ -16914,7 +16946,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(10).equals(BigInt.of(1024)))   // true"
                 }
               ],
-              "source": "math.pi:1912",
+              "source": "math.pi:1931",
               "members": []
             },
             {
@@ -16928,7 +16960,21 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst n = BigInt.of(-2).pow(65)\nprintln(n.toString())   // -36893488147419103232\nprintln(`n = ${n}`)     // n = -36893488147419103232"
                 }
               ],
-              "source": "math.pi:1924",
+              "source": "math.pi:1943",
+              "members": []
+            },
+            {
+              "name": "format",
+              "kind": "method",
+              "signature": "public format(spec: string): string",
+              "doc": "<p>The integer as a template's format spec says (#57), as <code>int</code>s are: <code>d</code> (decimal, the\ndefault), <code>x</code>/<code>X</code> (hex), <code>o</code>, <code>b</code>, with <code>+</code>/space signs, <code>#</code> prefixes (<code>0x</code>, <code>0o</code>, <code>0b</code>),\nwidth, alignment, fill and <code>0</code> padding. A precision or a float kind panics.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { BigInt } from \"std/math\"\n\nconst b = BigInt.parse(\"-12345678901234567890\")\nprintln(`[${b:>24}] [${b:#x}] [${b:+026}]`)\n// [   -12345678901234567890] [-0xab54a98ceb1f0ad2] [-0000012345678901234567890]"
+                }
+              ],
+              "source": "math.pi:1957",
               "members": []
             },
             {
@@ -16942,7 +16988,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(255).toStringRadix(16))   // ff\nprintln(BigInt.of(-5).toStringRadix(2))     // -101"
                 }
               ],
-              "source": "math.pi:1935",
+              "source": "math.pi:1981",
               "members": []
             }
           ]
@@ -20494,7 +20540,7 @@
               "code": "const date = /(\\d{4})-(\\d{2})-(\\d{2})/\nprintln(date.test(\"on 2024-03-10\"))   // true\nconst m = date.exec(\"on 2024-03-10\")\nif (m != null) {\n  println(m[1])                       // 2024\n}\nconst word = new RegExp(\"\\\\bcat\\\\b\", \"i\")\nprintln(word.test(\"A Cat sat\"))       // true"
             }
           ],
-          "source": "core/regex.pi:1221",
+          "source": "core/regex.pi:1230",
           "members": [
             {
               "name": "source",
@@ -20502,7 +20548,7 @@
               "signature": "public readonly source: string",
               "doc": "<p>The pattern's text (<code>\"(?:)\"</code> for an empty pattern).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1223",
+              "source": "core/regex.pi:1232",
               "members": []
             },
             {
@@ -20511,7 +20557,7 @@
               "signature": "public readonly flags: string",
               "doc": "<p>The flags, in canonical order (<code>\"dgimsuvy\"</code>).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1225",
+              "source": "core/regex.pi:1234",
               "members": []
             },
             {
@@ -20520,7 +20566,7 @@
               "signature": "public lastIndex: int = 0",
               "doc": "<p>Where the next <code>exec</code> or <code>test</code> starts with the <code>g</code> or <code>y</code> flag, in code points; other regexes\nignore it.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1228",
+              "source": "core/regex.pi:1237",
               "members": []
             },
             {
@@ -20534,7 +20580,7 @@
                   "code": "const re = new RegExp(\"^[a-z]+\\\\d*$\", \"i\")\nprintln(re)                 // /^[a-z]+\\d*$/i\nprintln(re.test(\"Abc12\"))   // true\ntry {\n  const bad = new RegExp(\"a\", \"gg\")\n  println(bad)\n} catch (e: SyntaxError) {\n  println(e.message)        // Invalid flags supplied to RegExp constructor 'gg'\n}"
                 }
               ],
-              "source": "core/regex.pi:1250",
+              "source": "core/regex.pi:1259",
               "members": []
             },
             {
@@ -20548,7 +20594,7 @@
                   "code": "const re = /a+/g\nprintln(new RegExp(re))         // /a+/g\nprintln(new RegExp(re, \"i\"))    // /a+/i"
                 }
               ],
-              "source": "core/regex.pi:1270",
+              "source": "core/regex.pi:1279",
               "members": []
             },
             {
@@ -20562,7 +20608,7 @@
                   "code": "println(/o/g.global)   // true\nprintln(/o/.global)    // false"
                 }
               ],
-              "source": "core/regex.pi:1347",
+              "source": "core/regex.pi:1356",
               "members": []
             },
             {
@@ -20576,7 +20622,7 @@
                   "code": "const re = /hello/i\nprintln(re.ignoreCase)      // true\nprintln(re.test(\"HeLLo\"))   // true"
                 }
               ],
-              "source": "core/regex.pi:1356",
+              "source": "core/regex.pi:1365",
               "members": []
             },
             {
@@ -20590,7 +20636,7 @@
                   "code": "const re = /^b/m\nprintln(re.multiline)        // true\nprintln(re.test(\"a\\nb\"))     // true"
                 }
               ],
-              "source": "core/regex.pi:1365",
+              "source": "core/regex.pi:1374",
               "members": []
             },
             {
@@ -20604,7 +20650,7 @@
                   "code": "const re = /a.b/s\nprintln(re.dotAll)          // true\nprintln(re.test(\"a\\nb\"))    // true"
                 }
               ],
-              "source": "core/regex.pi:1374",
+              "source": "core/regex.pi:1383",
               "members": []
             },
             {
@@ -20618,7 +20664,7 @@
                   "code": "println(/x/u.unicode)   // true\nprintln(/x/.unicode)    // false"
                 }
               ],
-              "source": "core/regex.pi:1382",
+              "source": "core/regex.pi:1391",
               "members": []
             },
             {
@@ -20632,7 +20678,7 @@
                   "code": "const re = /\\d/y\nprintln(re.sticky)      // true\nprintln(re.test(\"a1\"))  // false\nre.lastIndex = 1\nprintln(re.test(\"a1\"))  // true"
                 }
               ],
-              "source": "core/regex.pi:1393",
+              "source": "core/regex.pi:1402",
               "members": []
             },
             {
@@ -20646,7 +20692,7 @@
                   "code": "println(/x/d.hasIndices)   // true\nprintln(/x/.hasIndices)    // false"
                 }
               ],
-              "source": "core/regex.pi:1401",
+              "source": "core/regex.pi:1410",
               "members": []
             },
             {
@@ -20660,7 +20706,7 @@
                   "code": "const re = /(\\w+)=(\\d+)/g\nconst s = \"a=1 b=22\"\nlet m = re.exec(s)\nwhile (m != null) {\n  println(`${m[1]} -> ${m[2]} at ${m.index}`)\n  m = re.exec(s)\n}\n// Prints:\n// a -> 1 at 0\n// b -> 22 at 4"
                 }
               ],
-              "source": "core/regex.pi:1476",
+              "source": "core/regex.pi:1485",
               "members": []
             },
             {
@@ -20674,7 +20720,7 @@
                   "code": "const digits = /^\\d+$/\nprintln(digits.test(\"123\"))   // true\nprintln(digits.test(\"12a\"))   // false"
                 }
               ],
-              "source": "core/regex.pi:1501",
+              "source": "core/regex.pi:1510",
               "members": []
             },
             {
@@ -20688,7 +20734,7 @@
                   "code": "const re = new RegExp(\"a/b\", \"gi\")\nprintln(re.toString())   // /a\\/b/gi\nprintln(re.source)       // a\\/b\nprintln(re.flags)        // gi"
                 }
               ],
-              "source": "core/regex.pi:1514",
+              "source": "core/regex.pi:1523",
               "members": []
             }
           ]
@@ -20704,7 +20750,7 @@
               "code": "const m = /(\\d+)-(\\d+)?/d.exec(\"id 12-\")\nif (m != null) {\n  const ix = m.indices\n  if (ix != null) {\n    println(`${ix.length} ${ix[0]:?} ${ix[1]:?} ${ix[2]:?}`)   // 3 [3, 6] [3, 5] null\n  }\n}"
             }
           ],
-          "source": "core/regex.pi:1033",
+          "source": "core/regex.pi:1042",
           "members": [
             {
               "name": "groups",
@@ -20712,7 +20758,7 @@
               "signature": "public readonly groups: Map<string, [int, int]?>?",
               "doc": "<p>The named groups' positions by name, or <code>null</code> when the pattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1036",
+              "source": "core/regex.pi:1045",
               "members": []
             },
             {
@@ -20726,7 +20772,7 @@
                   "code": "// They usually come from a `d`-flag match; they can also be built directly.\nconst ix = new RegExpIndices([[0, 2], null], null)\nprintln(`${ix[0]:?} ${ix[1]:?}`)   // [0, 2] null"
                 }
               ],
-              "source": "core/regex.pi:1046",
+              "source": "core/regex.pi:1055",
               "members": []
             },
             {
@@ -20740,7 +20786,7 @@
                   "code": "const m = /(a)(b)?/d.exec(\"a\")\nprintln(m?.indices?.length)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1058",
+              "source": "core/regex.pi:1067",
               "members": []
             }
           ]
@@ -20756,7 +20802,7 @@
               "code": "const m = /(?<year>\\d{4})-(\\d{2})/.exec(\"due 2024-03\")\nif (m != null) {\n  println(m[0])                       // 2024-03\n  println(m[2])                       // 03\n  println(m.index)                    // 4\n  println(m.groups?.get(\"year\"))      // 2024\n}"
             }
           ],
-          "source": "core/regex.pi:1081",
+          "source": "core/regex.pi:1090",
           "members": [
             {
               "name": "index",
@@ -20764,7 +20810,7 @@
               "signature": "public readonly index: int",
               "doc": "<p>Where the match starts in <code>input</code>, in code points (-1 for a <code>g</code>-flag <code>string.match</code> result).</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1084",
+              "source": "core/regex.pi:1093",
               "members": []
             },
             {
@@ -20773,7 +20819,7 @@
               "signature": "public readonly input: string",
               "doc": "<p>The string that was searched.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1086",
+              "source": "core/regex.pi:1095",
               "members": []
             },
             {
@@ -20782,7 +20828,7 @@
               "signature": "public readonly groups: Map<string, string?>?",
               "doc": "<p>The named groups' texts by name (<code>null</code> for one that didn't take part), or <code>null</code> when the\npattern has no named groups.</p>\n",
               "examples": [],
-              "source": "core/regex.pi:1089",
+              "source": "core/regex.pi:1098",
               "members": []
             },
             {
@@ -20796,7 +20842,7 @@
                   "code": "const m = /a(?<b>b+)/d.exec(\"xabb\")\nif (m != null) {\n  println(`${m.indices?.[0]:?} ${m.indices?.[1]:?}`)    // [1, 4] [2, 4]\n  println(`${m.indices?.groups?.get(\"b\"):?}`)           // [2, 4]\n}"
                 }
               ],
-              "source": "core/regex.pi:1101",
+              "source": "core/regex.pi:1110",
               "members": []
             },
             {
@@ -20810,7 +20856,7 @@
                   "code": "// Matches usually come from `exec` or `string.match`; one can also be built directly.\nconst m = new RegExpMatch([\"ab\", \"b\"], 3, \"xxxab\", null)\nprintln(m[0])      // ab\nprintln(m.index)   // 3"
                 }
               ],
-              "source": "core/regex.pi:1112",
+              "source": "core/regex.pi:1121",
               "members": []
             },
             {
@@ -20824,7 +20870,7 @@
                   "code": "const m = /(\\w+)@(\\w+)/.exec(\"mail ann@home\")\nif (m != null) {\n  println(m.length)   // 3\n}"
                 }
               ],
-              "source": "core/regex.pi:1128",
+              "source": "core/regex.pi:1137",
               "members": []
             },
             {
@@ -20838,7 +20884,7 @@
                   "code": "const m = /(\\d+)x(\\d+)?/.exec(\"size 640x\")\nif (m != null) {\n  const parts = m.toArray()\n  println(parts.length)                               // 3\n  println(parts.map(s => s ?? \"(none)\").join(\", \"))   // 640x, 640, (none)\n}"
                 }
               ],
-              "source": "core/regex.pi:1147",
+              "source": "core/regex.pi:1156",
               "members": []
             },
             {
@@ -20852,7 +20898,7 @@
                   "code": "const m = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(\"2024-03-10\")\nif (m != null) {\n  for (const part of m) {\n    println(part)\n  }\n}\n// Prints:\n// 2024-03-10\n// 2024\n// 03\n// 10"
                 }
               ],
-              "source": "core/regex.pi:1167",
+              "source": "core/regex.pi:1176",
               "members": []
             }
           ]
@@ -21492,6 +21538,15 @@
               "examples": [],
               "source": "core/streams.pi:70",
               "members": []
+            },
+            {
+              "name": "signal",
+              "kind": "field",
+              "signature": "signal?: AbortSignal",
+              "doc": "<p>Stops the pipe when aborted (#63): the source is cancelled and the destination errored\n(unless <code>preventCancel</code>/<code>preventAbort</code>), and the pipe rejects with the signal's reason.</p>\n",
+              "examples": [],
+              "source": "core/streams.pi:73",
+              "members": []
             }
           ]
         },
@@ -21506,7 +21561,7 @@
               "code": "let n = 0\nconst source: UnderlyingSource<int> = {\n  start: (c) => c.enqueue(0),\n  pull: (c) => {\n    n += 1\n    if (n <= 2) c.enqueue(n) else c.close()\n  },\n  cancel: (_reason) => println(\"cancelled\"),\n}\nfor await (const x of new ReadableStream<int>(source)) {\n  println(x)\n}\n// 0\n// 1\n// 2"
             }
           ],
-          "source": "core/streams.pi:104",
+          "source": "core/streams.pi:107",
           "members": [
             {
               "name": "start",
@@ -21514,7 +21569,7 @@
               "signature": "start?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Runs once, inside the constructor (it can already enqueue chunks).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:106",
+              "source": "core/streams.pi:109",
               "members": []
             },
             {
@@ -21523,7 +21578,7 @@
               "signature": "pull?: (c: ReadableStreamDefaultController<T>) => void",
               "doc": "<p>Called when the stream wants more chunks (a waiting read, or room below the high-water mark);\nnot again while it runs. The first call comes after <code>start</code>, as a microtask.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:109",
+              "source": "core/streams.pi:112",
               "members": []
             },
             {
@@ -21532,7 +21587,7 @@
               "signature": "pullAsync?: (c: ReadableStreamDefaultController<T>) => Promise<void, Error>",
               "doc": "<p>Like <code>pull</code>, but finishes when the promise settles (not called again until then); a rejection\nfails the stream. Used instead of <code>pull</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:112",
+              "source": "core/streams.pi:115",
               "members": []
             },
             {
@@ -21541,7 +21596,7 @@
               "signature": "cancel?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is cancelled.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:114",
+              "source": "core/streams.pi:117",
               "members": []
             }
           ]
@@ -21557,7 +21612,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c: ReadableStreamDefaultController<string>) => {\n    c.enqueue(\"one\")\n    c.enqueue(\"two\")\n    c.close()\n  },\n})\nfor await (const x of s) {\n  println(x)\n}\n// one\n// two"
             }
           ],
-          "source": "core/streams.pi:134",
+          "source": "core/streams.pi:137",
           "members": [
             {
               "name": "constructor",
@@ -21570,7 +21625,7 @@
                   "code": "// A stream makes its controller and hands it to its source's callbacks.\nconst s = new ReadableStream<int>({\n  start: (c: ReadableStreamDefaultController<int>) => {\n    c.enqueue(42)\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // 42"
                 }
               ],
-              "source": "core/streams.pi:150",
+              "source": "core/streams.pi:153",
               "members": []
             },
             {
@@ -21584,7 +21639,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    println(c.desiredSize)   // 2\n    c.enqueue(1)\n    println(c.desiredSize)   // 1\n  },\n}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:166",
+              "source": "core/streams.pi:169",
               "members": []
             },
             {
@@ -21598,7 +21653,7 @@
                   "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"hello\")\n    c.close()\n  },\n})\nprintln((await s.getReader().read()).value)   // hello"
                 }
               ],
-              "source": "core/streams.pi:183",
+              "source": "core/streams.pi:186",
               "members": []
             },
             {
@@ -21612,7 +21667,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => {\n    c.enqueue(1)\n    c.close()   // ends after the queued chunk\n  },\n})\nconst reader = s.getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).done)    // true"
                 }
               ],
-              "source": "core/streams.pi:201",
+              "source": "core/streams.pi:204",
               "members": []
             },
             {
@@ -21626,7 +21681,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.error(new Error(\"disk on fire\")),\n})\ntry {\n  const r = await s.getReader().read()\n  println(r.done)\n} catch (e) {\n  println(e.message)   // disk on fire\n}"
                 }
               ],
-              "source": "core/streams.pi:219",
+              "source": "core/streams.pi:222",
               "members": []
             }
           ]
@@ -21642,7 +21697,7 @@
               "code": "const s = new ReadableStream<string>({\n  start: (c) => {\n    c.enqueue(\"a\")\n    c.enqueue(\"b\")\n    c.close()\n  },\n})\nfor await (const chunk of s) {\n  println(chunk)\n}\n// a\n// b"
             }
           ],
-          "source": "core/streams.pi:248",
+          "source": "core/streams.pi:251",
           "members": [
             {
               "name": "constructor",
@@ -21655,7 +21710,7 @@
                   "code": "let i = 0\nconst counter = new ReadableStream<int>({\n  pull: (c) => {\n    i += 1\n    if (i <= 3) c.enqueue(i * 10) else c.close()\n  },\n}, { highWaterMark: 1 })\nfor await (const x of counter) {\n  println(x)\n}\n// 10\n// 20\n// 30"
                 }
               ],
-              "source": "core/streams.pi:285",
+              "source": "core/streams.pi:288",
               "members": []
             },
             {
@@ -21669,7 +21724,7 @@
                   "code": "for await (const word of ReadableStream.from([\"red\", \"green\"])) {\n  println(word)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:311",
+              "source": "core/streams.pi:314",
               "members": []
             },
             {
@@ -21683,7 +21738,7 @@
                   "code": "function* count(): Iterator<int> {\n  yield 1\n  yield 2\n}\nfor await (const n of ReadableStream.from(count())) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:339",
+              "source": "core/streams.pi:342",
               "members": []
             },
             {
@@ -21697,7 +21752,7 @@
                   "code": "async function* words(): AsyncIterator<string> {\n  yield \"red\"\n  yield \"green\"\n}\nfor await (const w of ReadableStream.from(words())) {\n  println(w)\n}\n// red\n// green"
                 }
               ],
-              "source": "core/streams.pi:367",
+              "source": "core/streams.pi:370",
               "members": []
             },
             {
@@ -21711,7 +21766,7 @@
                   "code": "const [a, b] = ReadableStream.from([1, 2]).tee()\nfor await (const x of a) {\n  println(`a ${x}`)\n}\nfor await (const x of b) {\n  println(`b ${x}`)\n}\n// a 1\n// a 2\n// b 1\n// b 2"
                 }
               ],
-              "source": "core/streams.pi:391",
+              "source": "core/streams.pi:394",
               "members": []
             },
             {
@@ -21725,7 +21780,7 @@
                   "code": "const s = ReadableStream.from([1])\nprintln(s.locked)   // false\nconst reader = s.getReader()\nprintln(s.locked)   // true\nreader.releaseLock()\nprintln(s.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:449",
+              "source": "core/streams.pi:452",
               "members": []
             },
             {
@@ -21739,7 +21794,7 @@
                   "code": "const reader = ReadableStream.from([\"x\", \"y\"]).getReader()\nwhile (true) {\n  const r = await reader.read()\n  if (r.done) break\n  println(r.value)\n}\n// x\n// y"
                 }
               ],
-              "source": "core/streams.pi:466",
+              "source": "core/streams.pi:469",
               "members": []
             },
             {
@@ -21753,7 +21808,7 @@
                   "code": "const s = ReadableStream.from([7, 8])\nprintln(await s.next())   // 7\nprintln(await s.next())   // 8\nprintln(await s.next())   // null"
                 }
               ],
-              "source": "core/streams.pi:479",
+              "source": "core/streams.pi:482",
               "members": []
             },
             {
@@ -21767,7 +21822,7 @@
                   "code": "let total = 0\nfor await (const n of ReadableStream.from([1, 2, 3])) {\n  total += n\n}\nprintln(total)   // 6"
                 }
               ],
-              "source": "core/streams.pi:496",
+              "source": "core/streams.pi:499",
               "members": []
             },
             {
@@ -21781,7 +21836,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (reason) => println(`cancelled: ${reason?.message}`),\n})\nawait s.cancel(new Error(\"not needed\"))   // cancelled: not needed\nprintln(await s.next())                   // null"
                 }
               ],
-              "source": "core/streams.pi:512",
+              "source": "core/streams.pi:515",
               "members": []
             },
             {
@@ -21795,7 +21850,7 @@
                   "code": "const lines: string[] = []\nconst sink = new WritableStream<string>({\n  write: (chunk, _c) => lines.push(chunk),\n  close: () => println(\"closed\"),\n})\nawait ReadableStream.from([\"a\", \"b\", \"c\"]).pipeTo(sink)   // closed\nprintln(lines.join(\",\"))   // a,b,c"
                 }
               ],
-              "source": "core/streams.pi:545",
+              "source": "core/streams.pi:548",
               "members": []
             },
             {
@@ -21809,7 +21864,7 @@
                   "code": "const upper = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),\n})\nfor await (const s of ReadableStream.from([\"hi\", \"there\"]).pipeThrough(upper)) {\n  println(s)\n}\n// HI\n// THERE"
                 }
               ],
-              "source": "core/streams.pi:591",
+              "source": "core/streams.pi:607",
               "members": []
             }
           ]
@@ -21825,7 +21880,7 @@
               "code": "const reader: ReadableStreamDefaultReader<int> = ReadableStream.from([1, 2]).getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).value)   // 2\nprintln((await reader.read()).done)    // true"
             }
           ],
-          "source": "core/streams.pi:772",
+          "source": "core/streams.pi:788",
           "members": [
             {
               "name": "constructor",
@@ -21838,7 +21893,7 @@
                   "code": "const s = ReadableStream.from([\"only\"])\nconst reader = new ReadableStreamDefaultReader<string>(s)\nprintln(s.locked)                      // true\nprintln((await reader.read()).value)   // only"
                 }
               ],
-              "source": "core/streams.pi:785",
+              "source": "core/streams.pi:801",
               "members": []
             },
             {
@@ -21852,7 +21907,7 @@
                   "code": "const reader = ReadableStream.from([\"a\", \"b\"]).getReader()\nlet r = await reader.read()\nwhile (!r.done) {\n  println(r.value)\n  r = await reader.read()\n}\n// a\n// b"
                 }
               ],
-              "source": "core/streams.pi:812",
+              "source": "core/streams.pi:828",
               "members": []
             },
             {
@@ -21866,7 +21921,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (_reason) => println(\"source cancelled\"),\n})\nconst reader = s.getReader()\nawait reader.cancel()                 // source cancelled\nprintln((await reader.read()).done)   // true"
                 }
               ],
-              "source": "core/streams.pi:833",
+              "source": "core/streams.pi:849",
               "members": []
             },
             {
@@ -21880,7 +21935,7 @@
                   "code": "const reader = ReadableStream.from([1]).getReader()\nprintln((await reader.read()).value)   // 1\nawait reader.closed\nprintln(\"closed\")                      // closed"
                 }
               ],
-              "source": "core/streams.pi:847",
+              "source": "core/streams.pi:863",
               "members": []
             },
             {
@@ -21894,7 +21949,7 @@
                   "code": "const s = ReadableStream.from([1, 2])\nconst first = s.getReader()\nprintln((await first.read()).value)   // 1\nfirst.releaseLock()\nconst second = s.getReader()\nprintln((await second.read()).value)  // 2"
                 }
               ],
-              "source": "core/streams.pi:862",
+              "source": "core/streams.pi:878",
               "members": []
             }
           ]
@@ -21910,7 +21965,7 @@
               "code": "const sink = new WritableStream<int>({\n  write: (chunk, c: WritableStreamDefaultController) => {\n    if (chunk < 0) c.error(new Error(\"negative\"))\n  },\n})\nconst writer = sink.getWriter()\nawait writer.write(1)\ntry {\n  await writer.write(-1)\n  await writer.write(2)\n} catch (e) {\n  println(e.message)   // negative\n}"
             }
           ],
-          "source": "core/streams.pi:888",
+          "source": "core/streams.pi:904",
           "members": [
             {
               "name": "constructor",
@@ -21923,7 +21978,7 @@
                   "code": "// A stream makes its controller and hands it to its sink's callbacks.\nconst sink = new WritableStream<string>({\n  start: (c: WritableStreamDefaultController) => println(\"started\"),   // started\n})\nprintln(sink.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:901",
+              "source": "core/streams.pi:917",
               "members": []
             },
             {
@@ -21937,7 +21992,7 @@
                   "code": "const sink = new WritableStream<string>({\n  write: (chunk, c) => c.error(new Error(`can't store ${chunk}`)),\n})\nconst writer = sink.getWriter()\ntry {\n  await writer.write(\"x\")\n  await writer.write(\"y\")\n} catch (e) {\n  println(e.message)   // can't store x\n}"
                 }
               ],
-              "source": "core/streams.pi:920",
+              "source": "core/streams.pi:936",
               "members": []
             }
           ]
@@ -21953,7 +22008,7 @@
               "code": "const got: int[] = []\nconst sink: UnderlyingSink<int> = {\n  start: (_c) => println(\"start\"),\n  write: (chunk, _c) => got.push(chunk),\n  close: () => println(`close after ${got.length}`),\n}\nawait ReadableStream.from([1, 2, 3]).pipeTo(new WritableStream<int>(sink))\n// start\n// close after 3"
             }
           ],
-          "source": "core/streams.pi:942",
+          "source": "core/streams.pi:958",
           "members": [
             {
               "name": "start",
@@ -21961,7 +22016,7 @@
               "signature": "start?: (c: WritableStreamDefaultController) => void",
               "doc": "<p>Runs once, inside the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:944",
+              "source": "core/streams.pi:960",
               "members": []
             },
             {
@@ -21970,7 +22025,7 @@
               "signature": "write?: (chunk: T, c: WritableStreamDefaultController) => void",
               "doc": "<p>Takes a chunk; the next one comes after it returns.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:946",
+              "source": "core/streams.pi:962",
               "members": []
             },
             {
@@ -21979,7 +22034,7 @@
               "signature": "writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>",
               "doc": "<p>Like <code>write</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>write</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:949",
+              "source": "core/streams.pi:965",
               "members": []
             },
             {
@@ -21988,7 +22043,7 @@
               "signature": "close?: () => void",
               "doc": "<p>Runs after the last queued chunk is written, when the stream is closed.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:951",
+              "source": "core/streams.pi:967",
               "members": []
             },
             {
@@ -21997,7 +22052,7 @@
               "signature": "closeAsync?: () => Promise<void, Error>",
               "doc": "<p>Like <code>close</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>close</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:954",
+              "source": "core/streams.pi:970",
               "members": []
             },
             {
@@ -22006,7 +22061,7 @@
               "signature": "abort?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is aborted (before the queued writes reject).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:956",
+              "source": "core/streams.pi:972",
               "members": []
             }
           ]
@@ -22022,7 +22077,7 @@
               "code": "const out: string[] = []\nconst ws = new WritableStream<string>({\n  write: (chunk, _c) => out.push(chunk),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"hello\")\nawait writer.write(\"world\")\nawait writer.close()\nprintln(out.join(\" \"))   // hello world"
             }
           ],
-          "source": "core/streams.pi:979",
+          "source": "core/streams.pi:995",
           "members": [
             {
               "name": "constructor",
@@ -22035,7 +22090,7 @@
                   "code": "let bytes = 0\nconst counter = new WritableStream<Uint8Array>({\n  write: (chunk, _c) => {\n    bytes += chunk.length\n  },\n}, { highWaterMark: 4 })\nconst writer = counter.getWriter()\nprintln(writer.desiredSize)   // 4\nawait writer.write(new Uint8Array(10))\nawait writer.close()\nprintln(bytes)   // 10"
                 }
               ],
-              "source": "core/streams.pi:1012",
+              "source": "core/streams.pi:1028",
               "members": []
             },
             {
@@ -22049,7 +22104,7 @@
                   "code": "const ws = new WritableStream<int>({})\nprintln(ws.locked)   // false\nconst writer = ws.getWriter()\nprintln(ws.locked)   // true\nwriter.releaseLock()\nprintln(ws.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:1039",
+              "source": "core/streams.pi:1055",
               "members": []
             },
             {
@@ -22063,7 +22118,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`got ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"x\")   // got x"
                 }
               ],
-              "source": "core/streams.pi:1053",
+              "source": "core/streams.pi:1069",
               "members": []
             },
             {
@@ -22077,7 +22132,7 @@
                   "code": "const ws = new WritableStream<int>({\n  close: () => println(\"sink closed\"),\n})\nawait ws.close()   // sink closed"
                 }
               ],
-              "source": "core/streams.pi:1066",
+              "source": "core/streams.pi:1082",
               "members": []
             },
             {
@@ -22091,7 +22146,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`aborted: ${reason?.message}`),\n})\nawait ws.abort(new Error(\"user cancelled\"))   // aborted: user cancelled"
                 }
               ],
-              "source": "core/streams.pi:1082",
+              "source": "core/streams.pi:1098",
               "members": []
             }
           ]
@@ -22107,7 +22162,7 @@
               "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer: WritableStreamDefaultWriter<string> = ws.getWriter()\nawait writer.ready\nawait writer.write(\"one\")   // one\nawait writer.close()"
             }
           ],
-          "source": "core/streams.pi:1307",
+          "source": "core/streams.pi:1323",
           "members": [
             {
               "name": "constructor",
@@ -22120,7 +22175,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = new WritableStreamDefaultWriter<int>(ws)\nprintln(ws.locked)   // true\nawait writer.write(5)   // 5"
                 }
               ],
-              "source": "core/streams.pi:1322",
+              "source": "core/streams.pi:1338",
               "members": []
             },
             {
@@ -22134,7 +22189,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`stored ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"a\")   // stored a\nawait writer.write(\"b\")   // stored b"
                 }
               ],
-              "source": "core/streams.pi:1347",
+              "source": "core/streams.pi:1363",
               "members": []
             },
             {
@@ -22148,7 +22203,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n  close: () => println(\"done\"),\n})\nconst writer = ws.getWriter()\nwriter.write(\"last\")\nawait writer.close()\n// last\n// done"
                 }
               ],
-              "source": "core/streams.pi:1366",
+              "source": "core/streams.pi:1382",
               "members": []
             },
             {
@@ -22162,7 +22217,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`abort: ${reason?.message}`),\n})\nconst writer = ws.getWriter()\nawait writer.abort(new Error(\"stop\"))   // abort: stop"
                 }
               ],
-              "source": "core/streams.pi:1381",
+              "source": "core/streams.pi:1397",
               "members": []
             },
             {
@@ -22176,7 +22231,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = ws.getWriter()\nfor (const n of [1, 2, 3]) {\n  await writer.ready   // waits while the queue is full\n  writer.write(n)\n}\nawait writer.close()\n// 1\n// 2\n// 3"
                 }
               ],
-              "source": "core/streams.pi:1403",
+              "source": "core/streams.pi:1419",
               "members": []
             },
             {
@@ -22190,7 +22245,7 @@
                   "code": "const ws = new WritableStream<int>({}, { highWaterMark: 3 })\nconst writer = ws.getWriter()\nprintln(writer.desiredSize)   // 3"
                 }
               ],
-              "source": "core/streams.pi:1415",
+              "source": "core/streams.pi:1431",
               "members": []
             },
             {
@@ -22204,7 +22259,7 @@
                   "code": "const ws = new WritableStream<int>({})\nconst writer = ws.getWriter()\nwriter.closed.then((_v) => println(\"closed\"))\nawait writer.close()\nawait writer.closed   // closed"
                 }
               ],
-              "source": "core/streams.pi:1429",
+              "source": "core/streams.pi:1445",
               "members": []
             },
             {
@@ -22218,7 +22273,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst first = ws.getWriter()\nawait first.write(\"from the first\")    // from the first\nfirst.releaseLock()\nconst second = ws.getWriter()\nawait second.write(\"from the second\")  // from the second"
                 }
               ],
-              "source": "core/streams.pi:1446",
+              "source": "core/streams.pi:1462",
               "members": []
             }
           ]
@@ -22234,7 +22289,7 @@
               "code": "const t = new TransformStream<int, int>({\n  transform: (n, c: TransformStreamDefaultController<int>) => {\n    c.enqueue(n)\n    c.enqueue(n * 100)\n  },\n})\nfor await (const x of ReadableStream.from([1, 2]).pipeThrough(t)) {\n  println(x)\n}\n// 1\n// 100\n// 2\n// 200"
             }
           ],
-          "source": "core/streams.pi:1472",
+          "source": "core/streams.pi:1488",
           "members": [
             {
               "name": "constructor",
@@ -22247,7 +22302,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1494",
+              "source": "core/streams.pi:1510",
               "members": []
             },
             {
@@ -22261,7 +22316,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1509",
+              "source": "core/streams.pi:1525",
               "members": []
             },
             {
@@ -22275,7 +22330,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1530",
+              "source": "core/streams.pi:1546",
               "members": []
             },
             {
@@ -22289,7 +22344,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1557",
+              "source": "core/streams.pi:1573",
               "members": []
             },
             {
@@ -22303,7 +22358,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1579",
+              "source": "core/streams.pi:1595",
               "members": []
             }
           ]
@@ -22319,7 +22374,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1606",
+          "source": "core/streams.pi:1622",
           "members": [
             {
               "name": "start",
@@ -22327,7 +22382,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1608",
+              "source": "core/streams.pi:1624",
               "members": []
             },
             {
@@ -22336,7 +22391,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1611",
+              "source": "core/streams.pi:1627",
               "members": []
             },
             {
@@ -22345,7 +22400,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1613",
+              "source": "core/streams.pi:1629",
               "members": []
             },
             {
@@ -22354,7 +22409,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1616",
+              "source": "core/streams.pi:1632",
               "members": []
             }
           ]
@@ -22370,7 +22425,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1717",
+          "source": "core/streams.pi:1733",
           "members": [
             {
               "name": "readable",
@@ -22378,7 +22433,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1719",
+              "source": "core/streams.pi:1735",
               "members": []
             },
             {
@@ -22387,7 +22442,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1721",
+              "source": "core/streams.pi:1737",
               "members": []
             },
             {
@@ -22401,7 +22456,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1740",
+              "source": "core/streams.pi:1756",
               "members": []
             }
           ]
@@ -22459,7 +22514,7 @@
               "code": "import { describe, it, expect } from \"std/test\"\n\ndescribe(\"Array\", () => {\n  describe(\"push\", () => {\n    it(\"adds to the end\", () => {\n      const xs = [1, 2]\n      xs.push(3)\n      expect(xs).toEqual([1, 2, 3])\n    })\n  })\n})\n// pico test: ✓ Array > push > adds to the end"
             }
           ],
-          "source": "test.pi:133",
+          "source": "test.pi:134",
           "members": []
         },
         {
@@ -22473,7 +22528,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"adds\", () => {\n  expect(1 + 2).toBe(3)\n})\n// pico test: ✓ adds"
             }
           ],
-          "source": "test.pi:151",
+          "source": "test.pi:152",
           "members": []
         },
         {
@@ -22487,7 +22542,7 @@
               "code": "import { test, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function waitsForATimer(): Promise<void> throws AbortError {\n  await delay(5)\n  expect(await Promise.resolve(2)).toBe(2)\n}\n\ntest(\"waits for a timer\", waitsForATimer)\ntest(\"an async lambda\", async () => {\n  await delay(1)\n  expect(\"ok\").toBe(\"ok\")\n})\n// pico test: ✓ waits for a timer, ✓ an async lambda"
             }
           ],
-          "source": "test.pi:174",
+          "source": "test.pi:175",
           "members": []
         },
         {
@@ -22501,7 +22556,7 @@
               "code": "import { describe, it, expect } from \"std/test\"\n\ndescribe(\"string\", () => {\n  it(\"uppercases\", () => {\n    expect(\"pico\".toUpperCase()).toBe(\"PICO\")\n  })\n})\n// pico test: ✓ string > uppercases"
             }
           ],
-          "source": "test.pi:192",
+          "source": "test.pi:193",
           "members": []
         },
         {
@@ -22515,7 +22570,7 @@
               "code": "import { it, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function settlesLater(): Promise<void> throws AbortError {\n  await delay(5)\n  expect([1, 2].length).toBe(2)\n}\n\nit(\"settles later\", settlesLater)\n// pico test: ✓ settles later"
             }
           ],
-          "source": "test.pi:209",
+          "source": "test.pi:210",
           "members": []
         },
         {
@@ -22529,7 +22584,7 @@
               "code": "import { test, skip, expect } from \"std/test\"\n\ntest(\"runs\", () => {\n  expect(true).toBeTruthy()\n})\nskip(\"flaky on CI\", () => {\n  expect(1).toBe(2)   // not run\n})\n// pico test: ✓ runs, - flaky on CI (skipped)"
             }
           ],
-          "source": "test.pi:225",
+          "source": "test.pi:226",
           "members": []
         },
         {
@@ -22543,7 +22598,7 @@
               "code": "import { skip, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function slowNetworkCall(): Promise<void> throws AbortError {\n  await delay(5000)\n  expect(1).toBe(1)\n}\n\nskip(\"slow network call\", slowNetworkCall)\n// pico test: - slow network call (skipped)"
             }
           ],
-          "source": "test.pi:244",
+          "source": "test.pi:245",
           "members": []
         },
         {
@@ -22557,7 +22612,7 @@
               "code": "import { test, only, expect } from \"std/test\"\n\nonly(\"the one being debugged\", () => {\n  expect(2 * 21).toBe(42)\n})\ntest(\"everything else\", () => {\n  expect(1).toBe(1)\n})\n// pico test: ✓ the one being debugged, - everything else (skipped)"
             }
           ],
-          "source": "test.pi:262",
+          "source": "test.pi:263",
           "members": []
         },
         {
@@ -22571,7 +22626,7 @@
               "code": "import { test, only, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function debugThis(): Promise<void> throws AbortError {\n  await delay(1)\n  expect(\"a\" + \"b\").toBe(\"ab\")\n}\n\nonly(\"debug this\", debugThis)\ntest(\"not now\", () => {})\n// pico test: ✓ debug this, - not now (skipped)"
             }
           ],
-          "source": "test.pi:283",
+          "source": "test.pi:284",
           "members": []
         },
         {
@@ -22585,7 +22640,7 @@
               "code": "import { todo } from \"std/test\"\n\ntodo(\"parses negative numbers\")\n// pico test: - parses negative numbers (skipped)"
             }
           ],
-          "source": "test.pi:296",
+          "source": "test.pi:297",
           "members": []
         },
         {
@@ -22599,7 +22654,7 @@
               "code": "import { describe, it, beforeEach, expect } from \"std/test\"\n\ndescribe(\"cart\", () => {\n  let items: string[] = []\n  beforeEach(() => {\n    items = []   // a fresh cart for every test\n  })\n  it(\"starts empty\", () => {\n    expect(items).toHaveLength(0)\n  })\n  it(\"adds\", () => {\n    items.push(\"apple\")\n    expect(items).toHaveLength(1)\n  })\n})\n// pico test: ✓ cart > starts empty, ✓ cart > adds"
             }
           ],
-          "source": "test.pi:323",
+          "source": "test.pi:324",
           "members": []
         },
         {
@@ -22613,7 +22668,7 @@
               "code": "import { beforeEach, it, expect } from \"std/test\"\n\nlet ready = false\nbeforeEach(async () => {\n  await 0\n  ready = true   // awaited before each test\n})\nit(\"is ready\", () => {\n  expect(ready).toBe(true)\n})\n// pico test: ✓ is ready"
             }
           ],
-          "source": "test.pi:340",
+          "source": "test.pi:341",
           "members": []
         },
         {
@@ -22627,7 +22682,7 @@
               "code": "import { it, afterEach, expect } from \"std/test\"\n\nconst opened: string[] = []\nafterEach(() => {\n  opened.pop()   // clean up after each test, even a failed one\n})\nit(\"opens one\", () => {\n  opened.push(\"db\")\n  expect(opened).toHaveLength(1)\n})\nit(\"still one\", () => {\n  opened.push(\"db\")\n  expect(opened).toHaveLength(1)\n})\n// pico test: ✓ opens one, ✓ still one"
             }
           ],
-          "source": "test.pi:365",
+          "source": "test.pi:366",
           "members": []
         },
         {
@@ -22641,7 +22696,7 @@
               "code": "import { afterEach, it, expect } from \"std/test\"\n\nlet cleaned = 0\nafterEach(async () => {\n  await 0\n  cleaned += 1   // awaited after each test\n})\nit(\"runs\", () => {\n  expect(1).toBe(1)\n})\n// pico test: ✓ runs"
             }
           ],
-          "source": "test.pi:382",
+          "source": "test.pi:383",
           "members": []
         },
         {
@@ -22655,7 +22710,7 @@
               "code": "import { describe, it, beforeAll, expect } from \"std/test\"\n\ndescribe(\"config\", () => {\n  const settings = new Map<string, string>()\n  beforeAll(() => {\n    settings.set(\"mode\", \"test\")   // once, before the first test\n  })\n  it(\"has a mode\", () => {\n    expect(settings.get(\"mode\")).toBe(\"test\")\n  })\n})\n// pico test: ✓ config > has a mode"
             }
           ],
-          "source": "test.pi:404",
+          "source": "test.pi:405",
           "members": []
         },
         {
@@ -22669,7 +22724,7 @@
               "code": "import { beforeAll, it, expect } from \"std/test\"\n\nlet n = 0\nbeforeAll(async () => {\n  n = await 41   // once, awaited before the first test\n})\nit(\"sees it\", () => {\n  expect(n).toBe(41)\n})\n// pico test: ✓ sees it"
             }
           ],
-          "source": "test.pi:420",
+          "source": "test.pi:421",
           "members": []
         },
         {
@@ -22683,7 +22738,7 @@
               "code": "import { describe, it, afterAll, expect } from \"std/test\"\n\ndescribe(\"suite\", () => {\n  afterAll(() => {\n    println(\"all done\")   // once, after the last test\n  })\n  it(\"works\", () => {\n    expect(1).toBe(1)\n  })\n})\n// pico test: ✓ suite > works (and prints \"all done\")"
             }
           ],
-          "source": "test.pi:441",
+          "source": "test.pi:442",
           "members": []
         },
         {
@@ -22697,7 +22752,7 @@
               "code": "import { afterAll, it, expect } from \"std/test\"\n\nafterAll(async () => {\n  await 0\n  println(\"cleaned up\")   // once, after the last test\n})\nit(\"works\", () => {\n  expect(1).toBe(1)\n})\n// pico test: ✓ works (and prints \"cleaned up\")"
             }
           ],
-          "source": "test.pi:457",
+          "source": "test.pi:458",
           "members": []
         },
         {
@@ -22711,7 +22766,7 @@
               "code": "import { bench } from \"std/test\"\n\nbench(\"join 100 strings\", () => {\n  const parts: string[] = []\n  for (let i = 0; i < 100; i++) {\n    parts.push(`${i}`)\n  }\n  parts.join(\",\")\n})\n// pico bench: join 100 strings, its mean, median and standard deviation per iteration"
             }
           ],
-          "source": "test.pi:483",
+          "source": "test.pi:484",
           "members": []
         },
         {
@@ -22725,7 +22780,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nstruct Point {\n  x: int\n  y: int\n}\n\ntest(\"structs compare by fields\", () => {\n  const p: Point = { x: 1, y: 2 }\n  expect(p).toEqual({ x: 1, y: 2 })\n})\n// pico test: ✓ structs compare by fields"
             }
           ],
-          "source": "test.pi:720",
+          "source": "test.pi:721",
           "members": [
             {
               "name": "actual",
@@ -22733,7 +22788,7 @@
               "signature": "public readonly actual: T",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:722",
+              "source": "test.pi:723",
               "members": []
             },
             {
@@ -22742,7 +22797,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:724",
+              "source": "test.pi:725",
               "members": []
             },
             {
@@ -22756,7 +22811,7 @@
                   "code": "import { test, Expect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  const e = new Expect<string?>(null)   // what `expect(value)` makes\n  e.toBeNull()\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:738",
+              "source": "test.pi:739",
               "members": []
             },
             {
@@ -22770,7 +22825,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  const m = new Map<string, int>()\n  m.set(\"a\", 1)\n  expect(m.get(\"a\")).not.toBeNull()\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:756",
+              "source": "test.pi:757",
               "members": []
             },
             {
@@ -22784,7 +22839,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\nstruct User {\n  name: string\n}\n\ntest(\"same string form\", () => {\n  const u: User = { name: \"ada\" }\n  expect(u).toBe({ name: \"ada\" })\n})\n// pico test: ✓ same string form"
                 }
               ],
-              "source": "test.pi:781",
+              "source": "test.pi:782",
               "members": []
             },
             {
@@ -22798,7 +22853,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"nullable values\", () => {\n  const found: int? = [1, 2, 3].find((x: int) => x > 1)\n  expect(found).toEqual(2)\n})\n// pico test: ✓ nullable values"
                 }
               ],
-              "source": "test.pi:795",
+              "source": "test.pi:796",
               "members": []
             },
             {
@@ -22812,7 +22867,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"missing key\", () => {\n  const ages = new Map<string, int>()\n  expect(ages.get(\"nobody\")).toBeNull()\n})\n// pico test: ✓ missing key"
                 }
               ],
-              "source": "test.pi:809",
+              "source": "test.pi:810",
               "members": []
             },
             {
@@ -22826,7 +22881,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"present key\", () => {\n  const ages = new Map<string, int>()\n  ages.set(\"ada\", 36)\n  expect(ages.get(\"ada\")).toBeDefined()\n})\n// pico test: ✓ present key"
                 }
               ],
-              "source": "test.pi:824",
+              "source": "test.pi:825",
               "members": []
             }
           ]
@@ -22842,7 +22897,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"ints\", () => {\n  const n = [3, 1, 2].length\n  expect(n).toBe(3)\n  expect(n).toBeGreaterThan(2)\n})\n// pico test: ✓ ints"
             }
           ],
-          "source": "test.pi:844",
+          "source": "test.pi:845",
           "members": [
             {
               "name": "actual",
@@ -22850,7 +22905,7 @@
               "signature": "public readonly actual: int",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:846",
+              "source": "test.pi:847",
               "members": []
             },
             {
@@ -22859,7 +22914,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:848",
+              "source": "test.pi:849",
               "members": []
             },
             {
@@ -22873,7 +22928,7 @@
                   "code": "import { test, IntExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new IntExpect(5).toBe(5)               // what `expect(5)` makes\n  new IntExpect(5, negated: true).toBe(6)   // what `expect(5).not` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:862",
+              "source": "test.pi:863",
               "members": []
             },
             {
@@ -22887,7 +22942,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(7).not.toBe(8)\n  expect(7).not.toBeLessThan(7)\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:880",
+              "source": "test.pi:881",
               "members": []
             },
             {
@@ -22901,7 +22956,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect(6 * 7).toBe(42)\n})\n// pico test: ✓ toBe (`expect(6 * 7).toBe(41)` fails with: expected 42 to be 41)"
                 }
               ],
-              "source": "test.pi:897",
+              "source": "test.pi:898",
               "members": []
             },
             {
@@ -22915,7 +22970,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(\"abc\".length).toEqual(3)\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:909",
+              "source": "test.pi:910",
               "members": []
             },
             {
@@ -22929,7 +22984,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeGreaterThan\", () => {\n  expect(10).toBeGreaterThan(9)\n})\n// pico test: ✓ toBeGreaterThan"
                 }
               ],
-              "source": "test.pi:921",
+              "source": "test.pi:922",
               "members": []
             },
             {
@@ -22943,7 +22998,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeGreaterThanOrEqual\", () => {\n  expect(10).toBeGreaterThanOrEqual(10)\n})\n// pico test: ✓ toBeGreaterThanOrEqual"
                 }
               ],
-              "source": "test.pi:933",
+              "source": "test.pi:934",
               "members": []
             },
             {
@@ -22957,7 +23012,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeLessThan\", () => {\n  expect(-1).toBeLessThan(0)\n})\n// pico test: ✓ toBeLessThan"
                 }
               ],
-              "source": "test.pi:945",
+              "source": "test.pi:946",
               "members": []
             },
             {
@@ -22971,7 +23026,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeLessThanOrEqual\", () => {\n  expect([1, 2].length).toBeLessThanOrEqual(2)\n})\n// pico test: ✓ toBeLessThanOrEqual"
                 }
               ],
-              "source": "test.pi:957",
+              "source": "test.pi:958",
               "members": []
             }
           ]
@@ -22987,7 +23042,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"numbers\", () => {\n  expect(0.1 + 0.2).toBeCloseTo(0.3)\n  expect(1.5).toBeGreaterThan(1.0)\n})\n// pico test: ✓ numbers"
             }
           ],
-          "source": "test.pi:972",
+          "source": "test.pi:973",
           "members": [
             {
               "name": "actual",
@@ -22995,7 +23050,7 @@
               "signature": "public readonly actual: number",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:974",
+              "source": "test.pi:975",
               "members": []
             },
             {
@@ -23004,7 +23059,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:976",
+              "source": "test.pi:977",
               "members": []
             },
             {
@@ -23018,7 +23073,7 @@
                   "code": "import { test, NumberExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new NumberExpect(2.5).toBe(2.5)   // what `expect(2.5)` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:989",
+              "source": "test.pi:990",
               "members": []
             },
             {
@@ -23032,7 +23087,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(Math.sqrt(2.0)).not.toBe(1.4)\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:1006",
+              "source": "test.pi:1007",
               "members": []
             },
             {
@@ -23046,7 +23101,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect(1.0 / 4.0).toBe(0.25)\n})\n// pico test: ✓ toBe"
                 }
               ],
-              "source": "test.pi:1024",
+              "source": "test.pi:1025",
               "members": []
             },
             {
@@ -23060,7 +23115,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(Math.abs(-3.5)).toEqual(3.5)\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1036",
+              "source": "test.pi:1037",
               "members": []
             },
             {
@@ -23074,7 +23129,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeGreaterThan\", () => {\n  expect(Math.PI).toBeGreaterThan(3.14)\n})\n// pico test: ✓ toBeGreaterThan"
                 }
               ],
-              "source": "test.pi:1048",
+              "source": "test.pi:1049",
               "members": []
             },
             {
@@ -23088,7 +23143,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeGreaterThanOrEqual\", () => {\n  expect(Math.max(1.0, 2.0)).toBeGreaterThanOrEqual(2.0)\n})\n// pico test: ✓ toBeGreaterThanOrEqual"
                 }
               ],
-              "source": "test.pi:1060",
+              "source": "test.pi:1061",
               "members": []
             },
             {
@@ -23102,7 +23157,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeLessThan\", () => {\n  expect(Math.random()).toBeLessThan(1.0)\n})\n// pico test: ✓ toBeLessThan"
                 }
               ],
-              "source": "test.pi:1072",
+              "source": "test.pi:1073",
               "members": []
             },
             {
@@ -23116,7 +23171,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeLessThanOrEqual\", () => {\n  expect(Math.min(1.0, 2.0)).toBeLessThanOrEqual(1.0)\n})\n// pico test: ✓ toBeLessThanOrEqual"
                 }
               ],
-              "source": "test.pi:1084",
+              "source": "test.pi:1085",
               "members": []
             },
             {
@@ -23130,7 +23185,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeNaN\", () => {\n  expect(Math.sqrt(-1.0)).toBeNaN()\n})\n// pico test: ✓ toBeNaN"
                 }
               ],
-              "source": "test.pi:1096",
+              "source": "test.pi:1097",
               "members": []
             },
             {
@@ -23144,7 +23199,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeCloseTo\", () => {\n  expect(0.1 + 0.2).toBeCloseTo(0.3)              // within ±0.005\n  expect(Math.PI).toBeCloseTo(3.1416, digits: 4)  // within ±0.00005\n})\n// pico test: ✓ toBeCloseTo"
                 }
               ],
-              "source": "test.pi:1110",
+              "source": "test.pi:1111",
               "members": []
             }
           ]
@@ -23160,7 +23215,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"strings\", () => {\n  const greeting = \"hello, world\"\n  expect(greeting).toContain(\"world\")\n  expect(greeting).toHaveLength(12)\n})\n// pico test: ✓ strings"
             }
           ],
-          "source": "test.pi:1129",
+          "source": "test.pi:1130",
           "members": [
             {
               "name": "actual",
@@ -23168,7 +23223,7 @@
               "signature": "public readonly actual: string",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1131",
+              "source": "test.pi:1132",
               "members": []
             },
             {
@@ -23177,7 +23232,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:1133",
+              "source": "test.pi:1134",
               "members": []
             },
             {
@@ -23191,7 +23246,7 @@
                   "code": "import { test, StringExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new StringExpect(\"pico\").toBe(\"pico\")   // what `expect(\"pico\")` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1146",
+              "source": "test.pi:1147",
               "members": []
             },
             {
@@ -23205,7 +23260,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(\"release\").not.toContain(\"debug\")\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:1163",
+              "source": "test.pi:1164",
               "members": []
             },
             {
@@ -23219,7 +23274,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect([\"a\", \"b\"].join(\"-\")).toBe(\"a-b\")\n})\n// pico test: ✓ toBe (`toBe(\"a+b\")` fails with: expected \"a-b\" to be \"a+b\")"
                 }
               ],
-              "source": "test.pi:1181",
+              "source": "test.pi:1182",
               "members": []
             },
             {
@@ -23233,7 +23288,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(\"Pico\".toLowerCase()).toEqual(\"pico\")\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1194",
+              "source": "test.pi:1195",
               "members": []
             },
             {
@@ -23247,7 +23302,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toContain\", () => {\n  expect(\"error: file not found\").toContain(\"not found\")\n})\n// pico test: ✓ toContain"
                 }
               ],
-              "source": "test.pi:1207",
+              "source": "test.pi:1208",
               "members": []
             },
             {
@@ -23261,7 +23316,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toMatch\", () => {\n  expect(\"user_42\").toMatch(/^[a-z]+_\\d+$/)\n})\n// pico test: ✓ toMatch"
                 }
               ],
-              "source": "test.pi:1220",
+              "source": "test.pi:1221",
               "members": []
             },
             {
@@ -23275,7 +23330,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toHaveLength\", () => {\n  expect(\"abc\").toHaveLength(3)\n})\n// pico test: ✓ toHaveLength"
                 }
               ],
-              "source": "test.pi:1233",
+              "source": "test.pi:1234",
               "members": []
             }
           ]
@@ -23291,7 +23346,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"bools\", () => {\n  expect([1, 2].includes(2)).toBe(true)\n  expect(\"\".length == 0).toBeTruthy()\n})\n// pico test: ✓ bools"
             }
           ],
-          "source": "test.pi:1248",
+          "source": "test.pi:1249",
           "members": [
             {
               "name": "actual",
@@ -23299,7 +23354,7 @@
               "signature": "public readonly actual: bool",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1250",
+              "source": "test.pi:1251",
               "members": []
             },
             {
@@ -23308,7 +23363,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:1252",
+              "source": "test.pi:1253",
               "members": []
             },
             {
@@ -23322,7 +23377,7 @@
                   "code": "import { test, BoolExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new BoolExpect(true).toBeTruthy()   // what `expect(true)` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1265",
+              "source": "test.pi:1266",
               "members": []
             },
             {
@@ -23336,7 +23391,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(\"abc\".startsWith(\"b\")).not.toBe(true)\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:1282",
+              "source": "test.pi:1283",
               "members": []
             },
             {
@@ -23350,7 +23405,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect(\"abc\".endsWith(\"c\")).toBe(true)\n})\n// pico test: ✓ toBe"
                 }
               ],
-              "source": "test.pi:1299",
+              "source": "test.pi:1300",
               "members": []
             },
             {
@@ -23364,7 +23419,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(\"\".length == 0).toEqual(true)\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1311",
+              "source": "test.pi:1312",
               "members": []
             },
             {
@@ -23378,7 +23433,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeTruthy\", () => {\n  expect(\"pico\".includes(\"i\")).toBeTruthy()\n})\n// pico test: ✓ toBeTruthy"
                 }
               ],
-              "source": "test.pi:1324",
+              "source": "test.pi:1325",
               "members": []
             },
             {
@@ -23392,7 +23447,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeFalsy\", () => {\n  expect([1, 2, 3].includes(4)).toBeFalsy()\n})\n// pico test: ✓ toBeFalsy"
                 }
               ],
-              "source": "test.pi:1336",
+              "source": "test.pi:1337",
               "members": []
             }
           ]
@@ -23408,7 +23463,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"arrays\", () => {\n  const xs = [3, 1, 2].sort()\n  expect(xs).toEqual([1, 2, 3])\n  expect(xs).toContain(2)\n})\n// pico test: ✓ arrays"
             }
           ],
-          "source": "test.pi:1352",
+          "source": "test.pi:1353",
           "members": [
             {
               "name": "actual",
@@ -23416,7 +23471,7 @@
               "signature": "public readonly actual: T[]",
               "doc": "<p>The array under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1354",
+              "source": "test.pi:1355",
               "members": []
             },
             {
@@ -23425,7 +23480,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:1356",
+              "source": "test.pi:1357",
               "members": []
             },
             {
@@ -23439,7 +23494,7 @@
                   "code": "import { test, ArrayExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new ArrayExpect<string>([\"a\"]).toHaveLength(1)   // what `expect([\"a\"])` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1369",
+              "source": "test.pi:1370",
               "members": []
             },
             {
@@ -23453,7 +23508,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect([\"a\", \"b\"]).not.toContain(\"c\")\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:1386",
+              "source": "test.pi:1387",
               "members": []
             },
             {
@@ -23467,7 +23522,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect([1, 2].map((x: int) => x * 10)).toBe([10, 20])   // equal elements: passes\n})\n// pico test: ✓ toBe"
                 }
               ],
-              "source": "test.pi:1403",
+              "source": "test.pi:1404",
               "members": []
             },
             {
@@ -23481,7 +23536,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(\"a,b,c\".split(\",\")).toEqual([\"a\", \"b\", \"c\"])\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1416",
+              "source": "test.pi:1417",
               "members": []
             },
             {
@@ -23495,7 +23550,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toHaveLength\", () => {\n  expect([1, 2, 3].filter((x: int) => x > 1)).toHaveLength(2)\n})\n// pico test: ✓ toHaveLength"
                 }
               ],
-              "source": "test.pi:1429",
+              "source": "test.pi:1430",
               "members": []
             },
             {
@@ -23509,7 +23564,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toContain\", () => {\n  expect([\"red\", \"green\"]).toContain(\"green\")\n})\n// pico test: ✓ toContain"
                 }
               ],
-              "source": "test.pi:1442",
+              "source": "test.pi:1443",
               "members": []
             }
           ]
@@ -23525,7 +23580,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nfunction parsePort(s: string): int throws Error {\n  if (!/^\\d+$/.test(s)) throw new Error(`bad port: ${s}`)\n  return parseInt(s)\n}\n\ntest(\"rejects a bad port\", () => {\n  expect(() => { parsePort(\"x\") }).toThrow(\"bad port\")\n})\n// pico test: ✓ rejects a bad port"
             }
           ],
-          "source": "test.pi:1464",
+          "source": "test.pi:1475",
           "members": [
             {
               "name": "f",
@@ -23533,7 +23588,7 @@
               "signature": "public readonly f: () => void throws Error",
               "doc": "<p>The function under test (<code>toThrow</code> and <code>toPanic</code> call it).</p>\n",
               "examples": [],
-              "source": "test.pi:1466",
+              "source": "test.pi:1477",
               "members": []
             },
             {
@@ -23542,7 +23597,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:1468",
+              "source": "test.pi:1479",
               "members": []
             },
             {
@@ -23556,7 +23611,7 @@
                   "code": "import { test, FnExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new FnExpect(() => { throw new Error(\"no\") }).toThrow()   // what `expect(f)` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1481",
+              "source": "test.pi:1492",
               "members": []
             },
             {
@@ -23570,7 +23625,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(() => { println(\"fine\") }).not.toThrow()\n})\n// pico test: ✓ not (and prints \"fine\")"
                 }
               ],
-              "source": "test.pi:1498",
+              "source": "test.pi:1509",
               "members": []
             },
             {
@@ -23584,7 +23639,21 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toThrow\", () => {\n  expect(() => { throw new Error(\"disk full\") }).toThrow()          // any error\n  expect(() => { throw new Error(\"disk full\") }).toThrow(\"full\")    // its message contains \"full\"\n})\n// pico test: ✓ toThrow"
                 }
               ],
-              "source": "test.pi:1512",
+              "source": "test.pi:1523",
+              "members": []
+            },
+            {
+              "name": "toThrowType",
+              "kind": "method",
+              "signature": "public toThrowType<E extends Error>(message: string = \"\"): void",
+              "doc": "<p>It throws an <code>E</code> (<code>E</code> or a subclass of it; #70), whose message contains <code>message</code> when\ngiven. (A class can't be passed as a value, so the type is the type argument.)</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\nclass ParseError extends Error {}\n\ntest(\"toThrowType\", () => {\n  expect(() => { throw new ParseError(\"bad digit\") }).toThrowType<ParseError>()\n  expect(() => { throw new ParseError(\"bad digit\") }).toThrowType<Error>(\"digit\")\n  expect(() => { throw new Error(\"plain\") }).not.toThrowType<ParseError>()\n})\n// pico test: ✓ toThrowType"
+                }
+              ],
+              "source": "test.pi:1564",
               "members": []
             },
             {
@@ -23598,7 +23667,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toPanic\", () => {\n  expect(() => { panic(\"unreachable state\") }).toPanic(\"unreachable\")\n})\n// pico test: ✓ toPanic"
                 }
               ],
-              "source": "test.pi:1548",
+              "source": "test.pi:1602",
               "members": []
             }
           ]
@@ -23614,7 +23683,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nasync function promises(): Promise<void> {\n  await expect(Promise.resolve(42)).resolves.toBe(42)\n  await expect(Promise.reject<int>(new Error(\"not found\"))).rejects.toThrow(\"not found\")\n}\n\ntest(\"promises\", promises)\n// pico test: ✓ promises"
             }
           ],
-          "source": "test.pi:1583",
+          "source": "test.pi:1637",
           "members": [
             {
               "name": "p",
@@ -23622,7 +23691,7 @@
               "signature": "public readonly p: Promise<T, E>",
               "doc": "<p>The promise under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1585",
+              "source": "test.pi:1639",
               "members": []
             },
             {
@@ -23636,7 +23705,7 @@
                   "code": "import { test, PromiseExpect } from \"std/test\"\n\nasync function byHand(): Promise<void> {\n  await new PromiseExpect<int, Error>(Promise.resolve(1)).resolves.toBe(1)   // what `expect(p)` makes\n}\n\ntest(\"by hand\", byHand)\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1600",
+              "source": "test.pi:1654",
               "members": []
             },
             {
@@ -23650,7 +23719,7 @@
                   "code": "import { test, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function double(n: int): Promise<int> throws AbortError {\n  await delay(1)\n  return n * 2\n}\n\ntest(\"resolves\", async () => {\n  await expect(double(21)).resolves.toBe(42)\n})\n// pico test: ✓ resolves"
                 }
               ],
-              "source": "test.pi:1621",
+              "source": "test.pi:1675",
               "members": []
             },
             {
@@ -23664,7 +23733,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"rejects\", async () => {\n  await expect(Promise.reject<string>(new Error(\"timeout\"))).rejects.toThrow()\n})\n// pico test: ✓ rejects"
                 }
               ],
-              "source": "test.pi:1633",
+              "source": "test.pi:1687",
               "members": []
             }
           ]
@@ -23680,7 +23749,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"resolves\", async () => {\n  await expect(Promise.resolve(\"ok\")).resolves.toEqual(\"ok\")\n})\n// pico test: ✓ resolves"
             }
           ],
-          "source": "test.pi:1648",
+          "source": "test.pi:1702",
           "members": [
             {
               "name": "p",
@@ -23688,7 +23757,7 @@
               "signature": "public readonly p: Promise<T, E>",
               "doc": "<p>The promise under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1650",
+              "source": "test.pi:1704",
               "members": []
             },
             {
@@ -23702,7 +23771,7 @@
                   "code": "import { test, Resolves } from \"std/test\"\n\ntest(\"by hand\", async () => {\n  await new Resolves<int, Error>(Promise.resolve(3)).toBe(3)   // what `expect(p).resolves` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1663",
+              "source": "test.pi:1717",
               "members": []
             },
             {
@@ -23716,7 +23785,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", async () => {\n  await expect(Promise.resolve([1, 2].length)).resolves.toBe(2)\n})\n// pico test: ✓ toBe"
                 }
               ],
-              "source": "test.pi:1678",
+              "source": "test.pi:1732",
               "members": []
             },
             {
@@ -23730,7 +23799,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\nstruct Reply {\n  status: int\n}\n\ntest(\"toEqual\", async () => {\n  const r: Reply = { status: 200 }\n  await expect(Promise.resolve(r)).resolves.toEqual({ status: 200 })\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1703",
+              "source": "test.pi:1757",
               "members": []
             }
           ]
@@ -23746,7 +23815,7 @@
               "code": "import { test, expect } from \"std/test\"\nimport { readText } from \"std/fs\"\n\ntest(\"missing file\", async () => {\n  await expect(readText(\"/no/such/file\")).rejects.toThrow(\"no such file\")\n})\n// pico test: ✓ missing file"
             }
           ],
-          "source": "test.pi:1721",
+          "source": "test.pi:1775",
           "members": [
             {
               "name": "p",
@@ -23754,7 +23823,7 @@
               "signature": "public readonly p: Promise<T, E>",
               "doc": "<p>The promise under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1723",
+              "source": "test.pi:1777",
               "members": []
             },
             {
@@ -23768,7 +23837,7 @@
                   "code": "import { test, Rejects } from \"std/test\"\n\ntest(\"by hand\", async () => {\n  await new Rejects<int, Error>(Promise.reject<int>(new Error(\"x\"))).toThrow()   // what `expect(p).rejects` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1736",
+              "source": "test.pi:1790",
               "members": []
             },
             {
@@ -23782,7 +23851,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toThrow\", async () => {\n  const p = Promise.reject<int>(new Error(\"connection refused\"))\n  await expect(p).rejects.toThrow(\"refused\")\n})\n// pico test: ✓ toThrow"
                 }
               ],
-              "source": "test.pi:1752",
+              "source": "test.pi:1806",
               "members": []
             }
           ]
@@ -23798,7 +23867,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"an int\", () => {\n  expect([1, 2, 3].length).toBe(3)\n  expect(10 % 3).toBeLessThan(2)\n})\n// pico test: ✓ an int"
             }
           ],
-          "source": "test.pi:1775",
+          "source": "test.pi:1829",
           "members": []
         },
         {
@@ -23812,7 +23881,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a number\", () => {\n  expect(0.1 + 0.2).toBeCloseTo(0.3)\n  expect(0.0 / 0.0).toBeNaN()\n})\n// pico test: ✓ a number"
             }
           ],
-          "source": "test.pi:1789",
+          "source": "test.pi:1843",
           "members": []
         },
         {
@@ -23826,7 +23895,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a string\", () => {\n  expect(\"pico\".toUpperCase()).toBe(\"PICO\")\n  expect(\"v1.2.3\").toMatch(/^v\\d+\\.\\d+\\.\\d+$/)\n})\n// pico test: ✓ a string"
             }
           ],
-          "source": "test.pi:1802",
+          "source": "test.pi:1856",
           "members": []
         },
         {
@@ -23840,7 +23909,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a bool\", () => {\n  expect(\"abc\".includes(\"b\")).toBeTruthy()\n})\n// pico test: ✓ a bool"
             }
           ],
-          "source": "test.pi:1814",
+          "source": "test.pi:1868",
           "members": []
         },
         {
@@ -23854,7 +23923,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"an array\", () => {\n  expect(\"a b\".split(\" \")).toEqual([\"a\", \"b\"])\n  expect([1, 2, 3]).toContain(2)\n})\n// pico test: ✓ an array"
             }
           ],
-          "source": "test.pi:1827",
+          "source": "test.pi:1881",
           "members": []
         },
         {
@@ -23868,7 +23937,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a function\", () => {\n  expect(() => { throw new Error(\"bad input\") }).toThrow(\"bad\")\n})\n// pico test: ✓ a function"
             }
           ],
-          "source": "test.pi:1839",
+          "source": "test.pi:1893",
           "members": []
         },
         {
@@ -23882,7 +23951,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a promise\", async () => {\n  await expect(Promise.resolve(7)).resolves.toBe(7)\n})\n// pico test: ✓ a promise"
             }
           ],
-          "source": "test.pi:1851",
+          "source": "test.pi:1905",
           "members": []
         },
         {
@@ -23896,7 +23965,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nstruct Size {\n  w: int\n  h: int\n}\n\ntest(\"anything else\", () => {\n  const s: Size = { w: 2, h: 3 }\n  expect(s).toEqual({ w: 2, h: 3 })\n  expect(new Map<string, int>().get(\"x\")).toBeNull()\n})\n// pico test: ✓ anything else"
             }
           ],
-          "source": "test.pi:1871",
+          "source": "test.pi:1925",
           "members": []
         }
       ]

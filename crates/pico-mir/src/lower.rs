@@ -2198,20 +2198,29 @@ impl FnBuilder<'_, '_> {
                 )
             }
             M::Methods => {
-                let names: Vec<String> = match &def {
-                    Some((d, _, _)) => d
+                let names: Vec<(String, String)> = match &def {
+                    Some((d, sid, args)) => d
                         .methods
                         .iter()
                         .filter(|(n, _)| visible(n, d))
-                        .map(|(n, _)| n.clone())
+                        .map(|(n, f)| {
+                            let sig = method_signature(
+                                self.cx.program,
+                                self.cx.types,
+                                *f,
+                                Ty::type_owner(*sid),
+                                args,
+                            );
+                            (n.clone(), sig)
+                        })
                         .collect(),
                     None => Vec::new(),
                 };
                 let vals = names
                     .into_iter()
-                    .map(|n| {
+                    .map(|(n, sig)| {
                         self.rvalue_to_temp(
-                            Rvalue::Aggregate(elem.clone(), vec![s(n)]),
+                            Rvalue::Aggregate(elem.clone(), vec![s(n), s(sig)]),
                             elem.clone(),
                             span,
                         )
@@ -5482,10 +5491,11 @@ impl FnBuilder<'_, '_> {
                 );
                 fields.push(fo);
             }
-            for (n, _) in &d.methods {
+            for (n, f) in &d.methods {
                 if visible(n, d) {
+                    let sig = method_signature(program, self.cx.types, *f, owner, &args);
                     let m = self.rvalue_to_temp(
-                        Rvalue::Aggregate(method_ty.clone(), vec![s(n.clone())]),
+                        Rvalue::Aggregate(method_ty.clone(), vec![s(n.clone()), s(sig)]),
                         method_ty.clone(),
                         span,
                     );
@@ -8552,4 +8562,31 @@ fn int_const(v: i128, ty: &Ty) -> Operand {
         Ty::Float(ft) => Operand::Const(Const::Float(v as f64, *ft)),
         _ => Operand::Const(Const::Int(v, IntTy::I64)),
     }
+}
+
+/// `(a: i64, ...rest: string[]): bool`: method `f`'s parameters (without `this`) and result,
+/// with the type arguments `args` of its type `owner` in place (reflection's
+/// `MethodInfo.signature`, #56).
+fn method_signature(
+    program: &hir::Program,
+    types: &Types,
+    f: FnId,
+    owner: u32,
+    args: &[Ty],
+) -> String {
+    let func = &program.fns[f.0 as usize];
+    let sig = &types.sigs[f.0 as usize];
+    let n = func.params.len();
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .zip(&sig.params)
+        .enumerate()
+        .filter(|(_, (p, _))| func.local(**p).name != "this")
+        .map(|(i, (p, t))| {
+            let rest = if func.rest && i + 1 == n { "..." } else { "" };
+            format!("{rest}{}: {}", func.local(*p).name, t.subst(owner, args))
+        })
+        .collect();
+    format!("({}): {}", params.join(", "), sig.ret.subst(owner, args))
 }
