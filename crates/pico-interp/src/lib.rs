@@ -774,6 +774,9 @@ impl Interp<'_, '_> {
             | Builtin::Panic
             | Builtin::CatchPanic
             | Builtin::Identical
+            | Builtin::ThrownTag
+            | Builtin::ThrownRaw
+            | Builtin::ThrownText
             | Builtin::ReactivityOn => {
                 unreachable!("lowered to control flow")
             }

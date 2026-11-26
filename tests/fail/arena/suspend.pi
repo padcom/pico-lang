@@ -1,0 +1,35 @@
+// error: E0344
+// at: 13:5
+// error: E0344
+// at: 20:5
+// error: E0344
+// at: 29:7
+//
+// `yield` and `await` can't suspend inside an `arena` block (#52): the suspended frame would
+// keep the arena's objects while other code runs with the arena open. A lambda inside an arena
+// suspends in its own frame, so that's fine.
+function* inside(): Iterator<string> {
+  arena {
+    yield ["a", "b"].join("")
+  }
+}
+
+async function waits(): Promise<int> {
+  let n = 0
+  arena {
+    await Promise.resolve(1)
+    n = [1, 2].length
+  }
+  n
+}
+
+async function nested(): Promise<void> {
+  arena {
+    for (let i = 0; i < 2; i++) {
+      await Promise.resolve(i)
+    }
+    const later = async () => {
+      await Promise.resolve(0)
+    }
+  }
+}

@@ -710,7 +710,7 @@
               "code": "class Session implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"session closed\")\n  }\n}\n\nasync function run(): Promise<void> {\n  await using s = new Session()\n  println(\"working\")   // working\n}                      // session closed\n\nawait run()"
             }
           ],
-          "source": "core/promise.pi:664",
+          "source": "core/promise.pi:701",
           "members": [
             {
               "name": "disposeAsync",
@@ -723,7 +723,7 @@
                   "code": "class Upload implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"upload finished\")\n  }\n}\n\nconst u = new Upload()\nawait u.disposeAsync()   // upload finished"
                 }
               ],
-              "source": "core/promise.pi:678",
+              "source": "core/promise.pi:715",
               "members": []
             }
           ]
@@ -731,7 +731,7 @@
         {
           "name": "AsyncIterator",
           "kind": "class",
-          "signature": "class AsyncIterator<T, E extends Error = never>",
+          "signature": "class AsyncIterator<T, E extends Throwable = never>",
           "doc": "<p>An async iterator (spec §5.7): <code>next()</code> promises the next value, or <code>null</code> once done\n(so, like <code>Iterator</code>, a <code>T</code> that is itself nullable can't be told apart from the end).\n<code>async function* g(): AsyncIterator&lt;T&gt; throws E</code> makes one: its step function yields\nsuspensions, both for <code>await</code> and, after storing the value, for <code>yield v</code>.</p>\n",
           "examples": [
             {
@@ -739,7 +739,7 @@
               "code": "async function* countdown(n: int): AsyncIterator<int> {\n  for (let i = n; i > 0; i--) {\n    yield i\n  }\n}\n\nfor await (const i of countdown(3)) {\n  println(i)   // 3, 2, 1\n}"
             }
           ],
-          "source": "core/promise.pi:500",
+          "source": "core/promise.pi:527",
           "members": [
             {
               "name": "constructor",
@@ -752,7 +752,7 @@
                   "code": "// `async function*` makes the iterators that produce values; this one is empty.\nconst it = new AsyncIterator<int>()\nprintln(it.asyncIterator() == it)   // true"
                 }
               ],
-              "source": "core/promise.pi:520",
+              "source": "core/promise.pi:547",
               "members": []
             },
             {
@@ -766,7 +766,7 @@
                   "code": "async function* letters(): AsyncIterator<string> {\n  yield \"a\"\n  yield \"b\"\n}\n\nconst it = letters()\nprintln(await it.next())   // a\nprintln(await it.next())   // b\nprintln(await it.next())   // null"
                 }
               ],
-              "source": "core/promise.pi:552",
+              "source": "core/promise.pi:579",
               "members": []
             },
             {
@@ -780,7 +780,7 @@
                   "code": "async function* one(): AsyncIterator<int> {\n  yield 1\n}\n\nconst it = one()\nprintln(it.asyncIterator() == it)   // true"
                 }
               ],
-              "source": "core/promise.pi:576",
+              "source": "core/promise.pi:603",
               "members": []
             }
           ]
@@ -5024,7 +5024,7 @@
         {
           "name": "Promise",
           "kind": "class",
-          "signature": "class Promise<T, E extends Error = never>",
+          "signature": "class Promise<T, E extends Throwable = never>",
           "doc": "<p>A value that arrives later (spec §10.1): settles once, with a <code>T</code> or an error. <code>E</code> is what\nawaiting it can throw (an <code>async function</code>'s <code>throws</code>). <code>await p</code> waits for it inside an async\nfunction (or at the top level); reactions run as microtasks, so the ordering is JavaScript's. An\n<code>async function f(): Promise&lt;T&gt; throws E</code> returns a <code>Promise&lt;T, E&gt;</code>.</p>\n",
           "examples": [
             {
@@ -5045,7 +5045,7 @@
                   "code": "const p = new Promise<int>()\nprintln(p.settled)   // false"
                 }
               ],
-              "source": "core/promise.pi:45",
+              "source": "core/promise.pi:50",
               "members": []
             },
             {
@@ -5059,7 +5059,7 @@
                   "code": "const p = new Promise<int>((resolve, reject) => {\n  setTimeout(() => resolve(42), 10)\n})\nprintln(await p)   // 42"
                 }
               ],
-              "source": "core/promise.pi:56",
+              "source": "core/promise.pi:61",
               "members": []
             },
             {
@@ -5073,7 +5073,7 @@
                   "code": "const p = Promise.resolve(1)\nprintln(p.settled)   // true\nprintln(new Promise<int>().settled)   // false"
                 }
               ],
-              "source": "core/promise.pi:148",
+              "source": "core/promise.pi:179",
               "members": []
             },
             {
@@ -5087,7 +5087,7 @@
                   "code": "const doubled = Promise.resolve(21).then((n) => n * 2)\nprintln(await doubled)   // 42"
                 }
               ],
-              "source": "core/promise.pi:159",
+              "source": "core/promise.pi:190",
               "members": []
             },
             {
@@ -5101,7 +5101,7 @@
                   "code": "const p = Promise.reject<int>(new Error(\"offline\"))\nconst value = await p.catch((e) => {\n  println(e.message)   // offline\n  return 0\n})\nprintln(value)   // 0"
                 }
               ],
-              "source": "core/promise.pi:184",
+              "source": "core/promise.pi:214",
               "members": []
             },
             {
@@ -5115,7 +5115,7 @@
                   "code": "const p = Promise.resolve(\"done\").finally(() => println(\"cleaning up\"))\nprintln(await p)   // cleaning up, then: done"
                 }
               ],
-              "source": "core/promise.pi:204",
+              "source": "core/promise.pi:234",
               "members": []
             },
             {
@@ -5129,7 +5129,7 @@
                   "code": "const p = Promise.resolve(\"cached\")\nprintln(await p)   // cached"
                 }
               ],
-              "source": "core/promise.pi:225",
+              "source": "core/promise.pi:254",
               "members": []
             },
             {
@@ -5143,13 +5143,13 @@
                   "code": "const p = Promise.reject<int>(new Error(\"not found\"))\ntry {\n  println(await p)\n} catch (e: Error) {\n  println(e.message)   // not found\n}"
                 }
               ],
-              "source": "core/promise.pi:242",
+              "source": "core/promise.pi:271",
               "members": []
             },
             {
               "name": "all",
               "kind": "method",
-              "signature": "public static all<U, F extends Error>(ps: Promise<U, F>[]): Promise<U[], F>",
+              "signature": "public static all<U, F extends Throwable>(ps: Promise<U, F>[]): Promise<U[], F>",
               "doc": "<p>All the values, in order; rejected with the first error.</p>\n",
               "examples": [
                 {
@@ -5157,13 +5157,13 @@
                   "code": "import { delay } from \"std/timers\"\n\nasync function square(n: int): Promise<int> throws AbortError {\n  await delay(n)\n  return n * n\n}\n\nconst all = await Promise.all([square(3), square(1), square(2)])\nprintln(all.join(\", \"))   // 9, 1, 4"
                 }
               ],
-              "source": "core/promise.pi:262",
+              "source": "core/promise.pi:291",
               "members": []
             },
             {
               "name": "race",
               "kind": "method",
-              "signature": "public static race<U, F extends Error>(ps: Promise<U, F>[]): Promise<U, F>",
+              "signature": "public static race<U, F extends Throwable>(ps: Promise<U, F>[]): Promise<U, F>",
               "doc": "<p>Settles like the first of <code>ps</code> to settle.</p>\n",
               "examples": [
                 {
@@ -5171,13 +5171,13 @@
                   "code": "import { delay } from \"std/timers\"\n\nasync function after(ms: int, label: string): Promise<string> throws AbortError {\n  await delay(ms)\n  return label\n}\n\nprintln(await Promise.race([after(50, \"slow\"), after(5, \"fast\")]))   // fast"
                 }
               ],
-              "source": "core/promise.pi:307",
+              "source": "core/promise.pi:335",
               "members": []
             },
             {
               "name": "withResolvers",
               "kind": "method",
-              "signature": "public static withResolvers<U, F extends Error>(): PromiseWithResolvers<U, F>",
+              "signature": "public static withResolvers<U, F extends Throwable>(): PromiseWithResolvers<U, F>",
               "doc": "<p>A pending promise and the functions that settle it (ES2024), for code that settles it from\noutside an executor: <code>const r = Promise.withResolvers&lt;int, Error&gt;()</code>, then <code>r.resolve(1)</code>.</p>\n",
               "examples": [
                 {
@@ -5185,13 +5185,13 @@
                   "code": "const r = Promise.withResolvers<int, Error>()\nsetTimeout(() => r.resolve(7), 10)\nprintln(await r.promise)   // 7"
                 }
               ],
-              "source": "core/promise.pi:331",
+              "source": "core/promise.pi:358",
               "members": []
             },
             {
               "name": "allSettled",
               "kind": "method",
-              "signature": "public static allSettled<U, F extends Error>(ps: Promise<U, F>[]): Promise<Settled<U>[]>",
+              "signature": "public static allSettled<U, F extends Throwable>(ps: Promise<U, F>[]): Promise<Settled<U>[]>",
               "doc": "<p>Waits for all of <code>ps</code>, never rejecting: how each one ended.</p>\n",
               "examples": [
                 {
@@ -5199,7 +5199,7 @@
                   "code": "const results = await Promise.allSettled([Promise.resolve(1), Promise.reject<int>(new Error(\"boom\"))])\nfor (const r of results) {\n  println(r.status)   // fulfilled, then: rejected\n}\nprintln(results[1].reason!.message)   // boom"
                 }
               ],
-              "source": "core/promise.pi:345",
+              "source": "core/promise.pi:372",
               "members": []
             }
           ]
@@ -5207,7 +5207,7 @@
         {
           "name": "PromiseWithResolvers",
           "kind": "class",
-          "signature": "class PromiseWithResolvers<T, E extends Error>",
+          "signature": "class PromiseWithResolvers<T, E extends Throwable>",
           "doc": "<p>What <code>Promise.withResolvers()</code> gives: the promise and the functions that settle it (the first\ncall of either wins).</p>\n",
           "examples": [
             {
@@ -5215,7 +5215,7 @@
               "code": "const r = Promise.withResolvers<string, Error>()\nr.resolve(\"ready\")\nprintln(await r.promise)   // ready"
             }
           ],
-          "source": "core/promise.pi:387",
+          "source": "core/promise.pi:414",
           "members": [
             {
               "name": "promise",
@@ -5223,7 +5223,7 @@
               "signature": "public readonly promise: Promise<T, E>",
               "doc": "<p>The pending promise.</p>\n",
               "examples": [],
-              "source": "core/promise.pi:389",
+              "source": "core/promise.pi:416",
               "members": []
             },
             {
@@ -5237,7 +5237,7 @@
                   "code": "const r = new PromiseWithResolvers<int, Error>(new Promise<int, Error>())\nr.resolve(5)\nprintln(await r.promise)   // 5"
                 }
               ],
-              "source": "core/promise.pi:397",
+              "source": "core/promise.pi:424",
               "members": []
             },
             {
@@ -5251,7 +5251,7 @@
                   "code": "const r = Promise.withResolvers<int, Error>()\nr.resolve(1)\nr.resolve(2)               // ignored: the first call wins\nprintln(await r.promise)   // 1"
                 }
               ],
-              "source": "core/promise.pi:410",
+              "source": "core/promise.pi:437",
               "members": []
             },
             {
@@ -5265,7 +5265,7 @@
                   "code": "const r = Promise.withResolvers<int, Error>()\nr.reject(new Error(\"cancelled\"))\ntry {\n  println(await r.promise)\n} catch (e: Error) {\n  println(e.message)   // cancelled\n}"
                 }
               ],
-              "source": "core/promise.pi:426",
+              "source": "core/promise.pi:453",
               "members": []
             }
           ]
@@ -6616,7 +6616,7 @@
               "code": "const [a, b] = await Promise.allSettled([Promise.resolve(10), Promise.reject<int>(new Error(\"bad\"))])\nprintln(`${a.status} ${a.value}`)            // fulfilled 10\nprintln(`${b.status} ${b.reason!.message}`)  // rejected bad"
             }
           ],
-          "source": "core/promise.pi:440",
+          "source": "core/promise.pi:467",
           "members": [
             {
               "name": "status",
@@ -6624,7 +6624,7 @@
               "signature": "status: string",
               "doc": "<p><code>\"fulfilled\"</code> or <code>\"rejected\"</code>.</p>\n",
               "examples": [],
-              "source": "core/promise.pi:442",
+              "source": "core/promise.pi:469",
               "members": []
             },
             {
@@ -6633,7 +6633,7 @@
               "signature": "value: T?",
               "doc": "<p>The value, if it was fulfilled (else <code>null</code>).</p>\n",
               "examples": [],
-              "source": "core/promise.pi:444",
+              "source": "core/promise.pi:471",
               "members": []
             },
             {
@@ -6642,7 +6642,7 @@
               "signature": "reason: Error?",
               "doc": "<p>The error, if it was rejected (else <code>null</code>).</p>\n",
               "examples": [],
-              "source": "core/promise.pi:446",
+              "source": "core/promise.pi:473",
               "members": []
             }
           ]

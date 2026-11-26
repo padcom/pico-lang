@@ -802,6 +802,13 @@ pub enum Builtin {
     /// `__ref_id(x)`: an object's (or array's) identity as an int (its address natively), for
     /// `WeakMap`. Unique among live objects.
     RefId,
+    /// What a promise keeps of a value thrown in async code (#52), per instance of its `E`:
+    /// `__thrown_tag(e)` its exception tag (0 for an `Error`), `__thrown_raw(e)` an `Error`
+    /// value as an `Error`, `__thrown_text(e)` a throwable's message (its `message()`, an
+    /// enum's form). Lowered inline.
+    ThrownTag,
+    ThrownRaw,
+    ThrownText,
     /// `__identical(a, b)`: whether two values of a type are the same value (spec §16.2): the
     /// same reference for classes, arrays, maps and functions, the same value for primitives and
     /// strings, field by field for structs. Never calls `equals`. Lowered to comparisons.
@@ -961,6 +968,9 @@ impl Builtin {
             Builtin::GcStat => "__gc_stat",
             Builtin::RefId => "__ref_id",
             Builtin::Identical => "__identical",
+            Builtin::ThrownTag => "__thrown_tag",
+            Builtin::ThrownRaw => "__thrown_raw",
+            Builtin::ThrownText => "__thrown_text",
             Builtin::ReactivityOn => "__reactivity_on",
             Builtin::ArenaEnter => "<arena enter>",
             Builtin::ArenaExit => "<arena exit>",
@@ -999,6 +1009,9 @@ impl Builtin {
             "__gc_stat" => Builtin::GcStat,
             "__ref_id" => Builtin::RefId,
             "__identical" => Builtin::Identical,
+            "__thrown_tag" => Builtin::ThrownTag,
+            "__thrown_raw" => Builtin::ThrownRaw,
+            "__thrown_text" => Builtin::ThrownText,
             "__reactivity_on" => Builtin::ReactivityOn,
             "__raw_arena_new" => Builtin::RawArenaNew,
             "__raw_arena_free" => Builtin::RawArenaFree,
