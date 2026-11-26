@@ -119,6 +119,9 @@
     "Hash": "std-crypto#Hash",
     "Aead": "std-crypto#Aead",
     "EcKeyPair": "std-crypto#EcKeyPair",
+    "CsvOptions": "std-encoding#CsvOptions",
+    "CsvWriteOptions": "std-encoding#CsvWriteOptions",
+    "Csv": "std-encoding#Csv",
     "FormatSpec": "std-fmt#FormatSpec",
     "FileInfo": "std-fs#FileInfo",
     "DirEntry": "std-fs#DirEntry",
@@ -1833,7 +1836,7 @@
               "code": "const d = new Date(Date.UTC(2024, 2, 10, 12, 30))\nprintln(d.toISOString())      // 2024-03-10T12:30:00.000Z\nprintln(d.getUTCMonth())      // 2 (months are 0-based)\nconst local = new Date(2024, 4, 15, 9, 45)\nprintln(local.getHours())     // 9\nprintln(local.toDateString())   // Wed May 15 2024"
             }
           ],
-          "source": "core/time.pi:649",
+          "source": "core/time.pi:666",
           "members": [
             {
               "name": "constructor",
@@ -1846,7 +1849,7 @@
                   "code": "println(new Date(0).toISOString())                     // 1970-01-01T00:00:00.000Z\nprintln(new Date(\"2024-03-10T12:30:00Z\").getTime())    // 1710073800000\n// 31 January 2024, 18:05 local time (months are 0-based):\nconst local = new Date(2024, 0, 31, 18, 5)\nprintln(local.getMonth())                              // 0\nprintln(local.getMinutes())                            // 5\nprintln(new Date(\"garbage\"))                           // Invalid Date\nconst now = new Date()\nprintln(now.getTime() > 0.0)                           // true"
                 }
               ],
-              "source": "core/time.pi:667",
+              "source": "core/time.pi:684",
               "members": []
             },
             {
@@ -1860,7 +1863,7 @@
                   "code": "const t = Date.now()\nprintln(t)              // e.g. 1795451940937\nprintln(t > 0.0)        // true"
                 }
               ],
-              "source": "core/time.pi:695",
+              "source": "core/time.pi:712",
               "members": []
             },
             {
@@ -1874,7 +1877,7 @@
                   "code": "const t = Date.UTC(2024, 2, 10, 12, 30)\nprintln(t)                            // 1710073800000\nprintln(new Date(t).toISOString())    // 2024-03-10T12:30:00.000Z\nprintln(Date.UTC(2024))               // 1704067200000"
                 }
               ],
-              "source": "core/time.pi:708",
+              "source": "core/time.pi:725",
               "members": []
             },
             {
@@ -1888,7 +1891,7 @@
                   "code": "println(Date.parse(\"2024-03-10\"))                       // 1710028800000\nprintln(Date.parse(\"2024-03-10T12:30:00.5Z\"))           // 1710073800500\nprintln(Date.parse(\"2024-03-10T12:30:00+01:00\"))        // 1710070200000\nprintln(Date.parse(\"Sun, 10 Mar 2024 11:30:00 GMT\"))    // 1710070200000\nprintln(Date.parse(\"not a date\"))                       // NaN"
                 }
               ],
-              "source": "core/time.pi:724",
+              "source": "core/time.pi:741",
               "members": []
             },
             {
@@ -1902,7 +1905,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00Z\")\nprintln(d.getTime())   // 1710073800000\nprintln(new Date(\"garbage\").getTime())   // NaN"
                 }
               ],
-              "source": "core/time.pi:806",
+              "source": "core/time.pi:823",
               "members": []
             },
             {
@@ -1916,7 +1919,7 @@
                   "code": "const a = new Date(\"2024-03-10T12:00:00Z\")\nconst b = new Date(\"2024-03-10T12:30:00Z\")\nprintln(b.valueOf() - a.valueOf())   // 1800000"
                 }
               ],
-              "source": "core/time.pi:815",
+              "source": "core/time.pi:832",
               "members": []
             },
             {
@@ -1930,7 +1933,7 @@
                   "code": "const d = new Date(2024, 4, 15)\nprintln(d.getFullYear())   // 2024"
                 }
               ],
-              "source": "core/time.pi:823",
+              "source": "core/time.pi:840",
               "members": []
             },
             {
@@ -1944,7 +1947,7 @@
                   "code": "const d = new Date(2024, 4, 15)\nprintln(d.getMonth())   // 4 (May: months are 0-based)"
                 }
               ],
-              "source": "core/time.pi:831",
+              "source": "core/time.pi:848",
               "members": []
             },
             {
@@ -1958,7 +1961,7 @@
                   "code": "const d = new Date(2024, 4, 15)\nprintln(d.getDate())   // 15"
                 }
               ],
-              "source": "core/time.pi:839",
+              "source": "core/time.pi:856",
               "members": []
             },
             {
@@ -1972,7 +1975,7 @@
                   "code": "const d = new Date(2024, 4, 15)\nprintln(d.getDay())   // 3 (Wednesday; Sunday is 0)"
                 }
               ],
-              "source": "core/time.pi:847",
+              "source": "core/time.pi:864",
               "members": []
             },
             {
@@ -1986,7 +1989,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 45, 30)\nprintln(d.getHours())   // 9"
                 }
               ],
-              "source": "core/time.pi:855",
+              "source": "core/time.pi:872",
               "members": []
             },
             {
@@ -2000,7 +2003,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 45, 30)\nprintln(d.getMinutes())   // 45"
                 }
               ],
-              "source": "core/time.pi:863",
+              "source": "core/time.pi:880",
               "members": []
             },
             {
@@ -2014,7 +2017,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 45, 30)\nprintln(d.getSeconds())   // 30"
                 }
               ],
-              "source": "core/time.pi:871",
+              "source": "core/time.pi:888",
               "members": []
             },
             {
@@ -2028,7 +2031,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 45, 30, 125)\nprintln(d.getMilliseconds())   // 125"
                 }
               ],
-              "source": "core/time.pi:879",
+              "source": "core/time.pi:896",
               "members": []
             },
             {
@@ -2042,7 +2045,7 @@
                   "code": "const d = new Date(\"2024-12-31T23:30:00Z\")\nprintln(d.getUTCFullYear())   // 2024"
                 }
               ],
-              "source": "core/time.pi:887",
+              "source": "core/time.pi:904",
               "members": []
             },
             {
@@ -2056,7 +2059,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00Z\")\nprintln(d.getUTCMonth())   // 2 (March: months are 0-based)"
                 }
               ],
-              "source": "core/time.pi:895",
+              "source": "core/time.pi:912",
               "members": []
             },
             {
@@ -2070,7 +2073,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00Z\")\nprintln(d.getUTCDate())   // 10"
                 }
               ],
-              "source": "core/time.pi:903",
+              "source": "core/time.pi:920",
               "members": []
             },
             {
@@ -2084,7 +2087,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00Z\")\nprintln(d.getUTCDay())   // 0 (Sunday)"
                 }
               ],
-              "source": "core/time.pi:911",
+              "source": "core/time.pi:928",
               "members": []
             },
             {
@@ -2098,7 +2101,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:45.5Z\")\nprintln(d.getUTCHours())   // 12"
                 }
               ],
-              "source": "core/time.pi:919",
+              "source": "core/time.pi:936",
               "members": []
             },
             {
@@ -2112,7 +2115,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:45.5Z\")\nprintln(d.getUTCMinutes())   // 30"
                 }
               ],
-              "source": "core/time.pi:927",
+              "source": "core/time.pi:944",
               "members": []
             },
             {
@@ -2126,7 +2129,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:45.5Z\")\nprintln(d.getUTCSeconds())   // 45"
                 }
               ],
-              "source": "core/time.pi:935",
+              "source": "core/time.pi:952",
               "members": []
             },
             {
@@ -2140,7 +2143,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:45.5Z\")\nprintln(d.getUTCMilliseconds())   // 500"
                 }
               ],
-              "source": "core/time.pi:943",
+              "source": "core/time.pi:960",
               "members": []
             },
             {
@@ -2154,7 +2157,7 @@
                   "code": "const d = new Date(Date.UTC(2024, 0, 15))\nprintln(d.getTimezoneOffset())   // depends on the system's zone: -60 in Warsaw, 300 in New York, 0 in UTC"
                 }
               ],
-              "source": "core/time.pi:952",
+              "source": "core/time.pi:969",
               "members": []
             },
             {
@@ -2168,7 +2171,7 @@
                   "code": "const d = new Date(0)\nprintln(d.setTime(1710073800000.9))   // 1710073800000\nprintln(d.toISOString())              // 2024-03-10T12:30:00.000Z"
                 }
               ],
-              "source": "core/time.pi:965",
+              "source": "core/time.pi:982",
               "members": []
             },
             {
@@ -2182,7 +2185,7 @@
                   "code": "const d = new Date(2024, 1, 29)\nd.setFullYear(2025)\nprintln(d.toDateString())   // Sat Mar 01 2025\nd.setFullYear(2026, 11, 24)\nprintln(d.toDateString())   // Thu Dec 24 2026"
                 }
               ],
-              "source": "core/time.pi:1001",
+              "source": "core/time.pi:1018",
               "members": []
             },
             {
@@ -2196,7 +2199,7 @@
                   "code": "const d = new Date(2024, 0, 31)\nd.setMonth(3)\nprintln(d.toDateString())   // Wed May 01 2024\nd.setMonth(13, 5)\nprintln(d.toDateString())   // Wed Feb 05 2025"
                 }
               ],
-              "source": "core/time.pi:1013",
+              "source": "core/time.pi:1030",
               "members": []
             },
             {
@@ -2210,7 +2213,7 @@
                   "code": "const d = new Date(2024, 2, 15)\nd.setDate(0)\nprintln(d.toDateString())   // Thu Feb 29 2024\nd.setDate(31)\nprintln(d.toDateString())   // Sat Mar 02 2024"
                 }
               ],
-              "source": "core/time.pi:1025",
+              "source": "core/time.pi:1042",
               "members": []
             },
             {
@@ -2224,7 +2227,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 0)\nd.setHours(26)\nprintln(d.toDateString())   // Thu May 16 2024\nprintln(d.getHours())       // 2\nd.setHours(14, 30, 0, 0)\nprintln(d.getMinutes())     // 30"
                 }
               ],
-              "source": "core/time.pi:1038",
+              "source": "core/time.pi:1055",
               "members": []
             },
             {
@@ -2238,7 +2241,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 0)\nd.setMinutes(90)\nprintln(d.getHours())     // 10\nprintln(d.getMinutes())   // 30"
                 }
               ],
-              "source": "core/time.pi:1049",
+              "source": "core/time.pi:1066",
               "members": []
             },
             {
@@ -2252,7 +2255,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 0)\nd.setSeconds(75, 500)\nprintln(d.getMinutes())        // 1\nprintln(d.getSeconds())        // 15\nprintln(d.getMilliseconds())   // 500"
                 }
               ],
-              "source": "core/time.pi:1061",
+              "source": "core/time.pi:1078",
               "members": []
             },
             {
@@ -2266,7 +2269,7 @@
                   "code": "const d = new Date(2024, 4, 15, 9, 0)\nd.setMilliseconds(1500)\nprintln(d.getSeconds())        // 1\nprintln(d.getMilliseconds())   // 500"
                 }
               ],
-              "source": "core/time.pi:1072",
+              "source": "core/time.pi:1089",
               "members": []
             },
             {
@@ -2280,7 +2283,7 @@
                   "code": "const d = new Date(\"2024-02-29T12:00:00Z\")\nd.setUTCFullYear(2025)\nprintln(d.toISOString())   // 2025-03-01T12:00:00.000Z"
                 }
               ],
-              "source": "core/time.pi:1082",
+              "source": "core/time.pi:1099",
               "members": []
             },
             {
@@ -2294,7 +2297,7 @@
                   "code": "const d = new Date(\"2024-01-31T12:00:00Z\")\nd.setUTCMonth(1)\nprintln(d.toISOString())   // 2024-03-02T12:00:00.000Z"
                 }
               ],
-              "source": "core/time.pi:1092",
+              "source": "core/time.pi:1109",
               "members": []
             },
             {
@@ -2308,7 +2311,7 @@
                   "code": "const d = new Date(\"2024-03-15T12:00:00Z\")\nd.setUTCDate(0)\nprintln(d.toISOString())   // 2024-02-29T12:00:00.000Z"
                 }
               ],
-              "source": "core/time.pi:1102",
+              "source": "core/time.pi:1119",
               "members": []
             },
             {
@@ -2322,7 +2325,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:00:00Z\")\nprintln(d.setUTCHours(23, 59))   // 1710115140000\nprintln(d.toISOString())         // 2024-03-10T23:59:00.000Z"
                 }
               ],
-              "source": "core/time.pi:1112",
+              "source": "core/time.pi:1129",
               "members": []
             },
             {
@@ -2336,7 +2339,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:00:00Z\")\nd.setUTCMinutes(45, 30)\nprintln(d.toISOString())   // 2024-03-10T12:45:30.000Z"
                 }
               ],
-              "source": "core/time.pi:1122",
+              "source": "core/time.pi:1139",
               "members": []
             },
             {
@@ -2350,7 +2353,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:00:00Z\")\nd.setUTCSeconds(61)\nprintln(d.toISOString())   // 2024-03-10T12:01:01.000Z"
                 }
               ],
-              "source": "core/time.pi:1132",
+              "source": "core/time.pi:1149",
               "members": []
             },
             {
@@ -2364,7 +2367,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:00:00Z\")\nd.setUTCMilliseconds(250)\nprintln(d.toISOString())   // 2024-03-10T12:00:00.250Z"
                 }
               ],
-              "source": "core/time.pi:1142",
+              "source": "core/time.pi:1159",
               "members": []
             },
             {
@@ -2378,7 +2381,7 @@
                   "code": "const d = new Date(Date.UTC(2024, 2, 10, 12, 30, 5, 250))\nprintln(d.toISOString())   // 2024-03-10T12:30:05.250Z"
                 }
               ],
-              "source": "core/time.pi:1151",
+              "source": "core/time.pi:1168",
               "members": []
             },
             {
@@ -2392,7 +2395,7 @@
                   "code": "println(new Date(Date.UTC(2024, 2, 10)).toJSON())   // 2024-03-10T00:00:00.000Z\nprintln(new Date(\"garbage\").toJSON() ?? \"null\")     // null"
                 }
               ],
-              "source": "core/time.pi:1167",
+              "source": "core/time.pi:1184",
               "members": []
             },
             {
@@ -2406,7 +2409,7 @@
                   "code": "const d = new Date(2024, 2, 10, 12, 30)\nprintln(d.toDateString())   // Sun Mar 10 2024"
                 }
               ],
-              "source": "core/time.pi:1182",
+              "source": "core/time.pi:1199",
               "members": []
             },
             {
@@ -2420,7 +2423,7 @@
                   "code": "const d = new Date(2024, 4, 15, 12, 30)\nprintln(d.toTimeString())   // e.g. 12:30:00 GMT+0200 (CEST), in the system's zone"
                 }
               ],
-              "source": "core/time.pi:1195",
+              "source": "core/time.pi:1212",
               "members": []
             },
             {
@@ -2434,7 +2437,7 @@
                   "code": "const d = new Date(2024, 4, 15, 12, 30)\nprintln(d.toString())   // e.g. Wed May 15 2024 12:30:00 GMT+0200 (CEST), in the system's zone\nprintln(`${d}`)         // the same"
                 }
               ],
-              "source": "core/time.pi:1211",
+              "source": "core/time.pi:1228",
               "members": []
             },
             {
@@ -2448,7 +2451,7 @@
                   "code": "const d = new Date(\"2024-03-10T12:30:00+01:00\")\nprintln(d.toUTCString())   // Sun, 10 Mar 2024 11:30:00 GMT"
                 }
               ],
-              "source": "core/time.pi:1222",
+              "source": "core/time.pi:1239",
               "members": []
             }
           ]
@@ -4838,6 +4841,15 @@
               "examples": [],
               "source": "core/comptime.pi:81",
               "members": []
+            },
+            {
+              "name": "signature",
+              "kind": "field",
+              "signature": "signature: string",
+              "doc": "<p>Its parameters and result, as messages show types: <code>(a: i64, b: string): bool</code> (#56).</p>\n",
+              "examples": [],
+              "source": "core/comptime.pi:83",
+              "members": []
             }
           ]
         },
@@ -4977,7 +4989,7 @@
               "code": "const start = performance.now()\nlet sum = 0\nfor (let i = 0; i < 1000; i++) sum += i\nconst elapsed = performance.now() - start\nprintln(sum)              // 499500\nprintln(elapsed >= 0.0)   // true"
             }
           ],
-          "source": "core/time.pi:599",
+          "source": "core/time.pi:616",
           "members": [
             {
               "name": "now",
@@ -4990,7 +5002,7 @@
                   "code": "const t0 = performance.now()\nprintln(t0)                         // e.g. 24.407417 (ms since the program started)\nprintln(performance.now() >= t0)    // true"
                 }
               ],
-              "source": "core/time.pi:608",
+              "source": "core/time.pi:625",
               "members": []
             },
             {
@@ -5004,7 +5016,7 @@
                   "code": "const origin = performance.timeOrigin()\nprintln(origin)                                     // e.g. 1795451940937\nprintln(new Date(origin).getTime() <= Date.now())   // true"
                 }
               ],
-              "source": "core/time.pi:620",
+              "source": "core/time.pi:637",
               "members": []
             }
           ]
@@ -13432,7 +13444,7 @@
     {
       "name": "std/encoding",
       "id": "std-encoding",
-      "about": "<p><code>std/encoding</code>: bytes as text (spec §13.5): <code>base64</code> (RFC 4648, also the URL-safe alphabet)\nand <code>hex</code>. The classes are in the core library (<code>&lt;core&gt;/encoding.pi</code>).</p>\n",
+      "about": "<p><code>std/encoding</code>: bytes as text (spec §13.5): <code>base64</code> (RFC 4648, also the URL-safe alphabet)\nand <code>hex</code>; and <code>csv</code> (RFC 4180). The classes are in the core library (<code>&lt;core&gt;/encoding.pi</code>).</p>\n",
       "items": [
         {
           "name": "base64",
@@ -13450,6 +13462,129 @@
           "doc": "<p>Hexadecimal: <code>hex.encode(bytes)</code> (lowercase) and <code>hex.decode(text)</code>.</p>\n",
           "examples": [],
           "source": "encoding.pi:10",
+          "members": []
+        },
+        {
+          "name": "CsvOptions",
+          "kind": "struct",
+          "signature": "struct CsvOptions",
+          "doc": "<p><code>csv.parse</code> options.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { csv } from \"std/encoding\"\n\nprintln(csv.parse(\"a;b\", { separator: \";\" })[0].length)   // 2"
+            }
+          ],
+          "source": "encoding.pi:20",
+          "members": [
+            {
+              "name": "separator",
+              "kind": "field",
+              "signature": "separator?: string",
+              "doc": "<p>The field separator, one character (<code>\",\"</code> by default).</p>\n",
+              "examples": [],
+              "source": "encoding.pi:22",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "CsvWriteOptions",
+          "kind": "struct",
+          "signature": "struct CsvWriteOptions",
+          "doc": "<p><code>csv.stringify</code> options.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { csv } from \"std/encoding\"\n\nprint(csv.stringify([[\"a\", \"b\"]], { separator: \"\\t\", lineEnding: \"\\r\\n\" }))   // a\tb (and CRLF)"
+            }
+          ],
+          "source": "encoding.pi:33",
+          "members": [
+            {
+              "name": "separator",
+              "kind": "field",
+              "signature": "separator?: string",
+              "doc": "<p>The field separator, one character (<code>\",\"</code> by default).</p>\n",
+              "examples": [],
+              "source": "encoding.pi:35",
+              "members": []
+            },
+            {
+              "name": "lineEnding",
+              "kind": "field",
+              "signature": "lineEnding?: string",
+              "doc": "<p>What ends each row (<code>\"\\n\"</code> by default; RFC 4180 says <code>\"\\r\\n\"</code>).</p>\n",
+              "examples": [],
+              "source": "encoding.pi:37",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "Csv",
+          "kind": "class",
+          "signature": "class Csv",
+          "doc": "<p>Comma-separated values (RFC 4180; #63): <code>csv.parse(text)</code> into rows of fields, and\n<code>csv.stringify(rows)</code>.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { csv } from \"std/encoding\"\n\nconst rows = csv.parse(\"name,note\\nAda,\\\"likes \\\"\\\"math\\\"\\\", tea\\\"\\n\")\nprintln(rows[1][1])            // likes \"math\", tea\nprint(csv.stringify(rows))     // name,note / Ada,\"likes \"\"math\"\", tea\""
+            }
+          ],
+          "source": "encoding.pi:51",
+          "members": [
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor()",
+              "doc": "<p>A CSV codec (<code>std/encoding</code> exports one as <code>csv</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { Csv } from \"std/encoding\"\n\nprintln(new Csv().parse(\"x,y\").length)   // 1"
+                }
+              ],
+              "source": "encoding.pi:60",
+              "members": []
+            },
+            {
+              "name": "parse",
+              "kind": "method",
+              "signature": "public parse(text: string, options: CsvOptions = {}): string[][] throws SyntaxError",
+              "doc": "<p>The rows of <code>text</code>: fields split at the separator, rows at line ends (<code>\\n</code> or <code>\\r\\n</code>), a\nquoted field (<code>\"a, \"\"b\"\"\"</code>) taking separators, quotes (doubled) and line ends; a last\nline end ends the last row. A quote inside an unquoted field is kept. Throws a\n<code>SyntaxError</code> for a quoted field that isn't closed, or text after its closing quote.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { csv } from \"std/encoding\"\n\nconst rows = csv.parse(\"a,\\\"b\\nc\\\"\\r\\n1,2\")\nprintln(rows.length)       // 2\nprintln(rows[0][1])        // b (a line break) c\ntry {\n  csv.parse(\"\\\"open\")\n} catch (e: SyntaxError) {\n  println(e.message)       // CSV: a quoted field isn't closed (line 1)\n}"
+                }
+              ],
+              "source": "encoding.pi:80",
+              "members": []
+            },
+            {
+              "name": "stringify",
+              "kind": "method",
+              "signature": "public stringify(rows: string[][], options: CsvWriteOptions = {}): string",
+              "doc": "<p><code>rows</code> as CSV text: fields joined by the separator, each row ended by the line ending; a\nfield with the separator, a quote, a line end or leading or trailing spaces is quoted\n(its quotes doubled).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { csv } from \"std/encoding\"\n\nprint(csv.stringify([[\"id\", \"note\"], [\"1\", \"a, \\\"b\\\"\"]]))\n// id,note\n// 1,\"a, \"\"b\"\"\""
+                }
+              ],
+              "source": "encoding.pi:161",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "csv",
+          "kind": "constant",
+          "signature": "const csv",
+          "doc": "<p>CSV (RFC 4180): <code>csv.parse(text)</code> and <code>csv.stringify(rows)</code>.</p>\n",
+          "examples": [],
+          "source": "encoding.pi:178",
           "members": []
         },
         {
@@ -19548,7 +19683,7 @@
                   "code": "import { env } from \"std/process\"\n\nenv.set(\"TEMP_FLAG\", \"1\")\nenv.delete(\"TEMP_FLAG\")\nprintln(env.has(\"TEMP_FLAG\"))   // false"
                 }
               ],
-              "source": "process.pi:213",
+              "source": "process.pi:214",
               "members": []
             },
             {
@@ -19562,7 +19697,7 @@
                   "code": "import { env } from \"std/process\"\n\nconst vars = env.toObject()\nprintln(vars.has(\"PATH\"))   // true\nprintln(vars.size > 0)      // true"
                 }
               ],
-              "source": "process.pi:227",
+              "source": "process.pi:229",
               "members": []
             }
           ]
@@ -19573,7 +19708,7 @@
           "signature": "const env",
           "doc": "<p>This process's environment variables.</p>\n",
           "examples": [],
-          "source": "process.pi:240",
+          "source": "process.pi:242",
           "members": []
         },
         {
@@ -19587,7 +19722,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"hello\"], stdout: \"pipe\").spawn()\nprintln((await child.stdout.text()).trim())   // hello\nawait child.status()"
             }
           ],
-          "source": "process.pi:281",
+          "source": "process.pi:283",
           "members": [
             {
               "name": "name",
@@ -19595,7 +19730,7 @@
               "signature": "public readonly name: string",
               "doc": "<p>The stream's name (<code>\"stdin\"</code>, <code>\"stdout\"</code> or <code>\"stderr\"</code>), used in panics and as the <code>path</code> of\nits <code>IoError</code>s.</p>\n",
               "examples": [],
-              "source": "process.pi:285",
+              "source": "process.pi:287",
               "members": []
             },
             {
@@ -19609,7 +19744,7 @@
                   "code": "import { Reader, stdin } from \"std/process\"\n\nconst input: Reader = stdin   // `stdin` and a piped child's `stdout`/`stderr` are Readers\nprintln(input.name)           // stdin"
                 }
               ],
-              "source": "process.pi:304",
+              "source": "process.pi:306",
               "members": []
             },
             {
@@ -19623,7 +19758,7 @@
                   "code": "import { stdin } from \"std/process\"\n\nif (stdin.isTerminal) {\n  println(\"type something, then Ctrl-D\")   // when run from a terminal\n} else {\n  println(\"reading piped input\")           // with `echo hi | myprogram`\n}"
                 }
               ],
-              "source": "process.pi:323",
+              "source": "process.pi:325",
               "members": []
             },
             {
@@ -19637,7 +19772,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"streamed\"], stdout: \"pipe\").spawn()\nconst reader = child.stdout.readable.getReader()\nconst first = await reader.read()\nprintln(first.value?.length)   // 9\nawait child.status()"
                 }
               ],
-              "source": "process.pi:339",
+              "source": "process.pi:341",
               "members": []
             },
             {
@@ -19651,7 +19786,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"chunk\"], stdout: \"pipe\").spawn()\nconst bytes = await child.stdout.read()\nif (bytes != null) {\n  println(new TextDecoder().decode(bytes).trim())   // chunk\n}\nprintln(await child.stdout.read())   // null: the end\nawait child.status()"
                 }
               ],
-              "source": "process.pi:381",
+              "source": "process.pi:383",
               "members": []
             },
             {
@@ -19665,7 +19800,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"sleep\", [\"5\"], stdout: \"pipe\").spawn()\nconst pending = child.stdout.read()\nchild.stdout.close()\nprintln(await pending)   // null\nchild.kill()\nawait child.status()"
                 }
               ],
-              "source": "process.pi:420",
+              "source": "process.pi:422",
               "members": []
             },
             {
@@ -19679,7 +19814,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"hi\"], stdout: \"pipe\").spawn()\nconst chunk = await child.stdout.next()\nprintln(chunk?.length)   // 3\nawait child.status()"
                 }
               ],
-              "source": "process.pi:444",
+              "source": "process.pi:446",
               "members": []
             },
             {
@@ -19693,7 +19828,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"printf\", [\"a\\\\nb\\\\n\"], stdout: \"pipe\").spawn()\nlet total = 0\nfor await (const chunk of child.stdout) {\n  total += chunk.length\n}\nprintln(total)   // 4\nawait child.status()"
                 }
               ],
-              "source": "process.pi:462",
+              "source": "process.pi:464",
               "members": []
             },
             {
@@ -19707,7 +19842,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"printf\", [\"one\\\\ntwo\\\\n\"], stdout: \"pipe\").spawn()\nconst text = await child.stdout.text()\nprintln(text.split(\"\\n\").length)   // 3\nawait child.status()"
                 }
               ],
-              "source": "process.pi:487",
+              "source": "process.pi:489",
               "members": []
             }
           ]
@@ -19723,7 +19858,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"cat\", stdin: \"pipe\", stdout: \"pipe\").spawn()\nawait child.stdin.writeText(\"piped through cat\")\nchild.stdin.close()\nprintln(await child.stdout.text())   // piped through cat\nawait child.status()"
             }
           ],
-          "source": "process.pi:534",
+          "source": "process.pi:536",
           "members": [
             {
               "name": "name",
@@ -19731,7 +19866,7 @@
               "signature": "public readonly name: string",
               "doc": "<p>The stream's name (<code>\"stdin\"</code>, <code>\"stdout\"</code> or <code>\"stderr\"</code>), used in panics and as the <code>path</code> of\nits <code>IoError</code>s.</p>\n",
               "examples": [],
-              "source": "process.pi:538",
+              "source": "process.pi:540",
               "members": []
             },
             {
@@ -19745,7 +19880,7 @@
                   "code": "import { Writer, stdout } from \"std/process\"\n\nconst out: Writer = stdout   // `stdout`, `stderr` and a piped child's `stdin` are Writers\nprintln(out.name)            // stdout"
                 }
               ],
-              "source": "process.pi:557",
+              "source": "process.pi:559",
               "members": []
             },
             {
@@ -19759,7 +19894,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"cat\", stdin: \"pipe\", stdout: \"pipe\").spawn()\nconst writer = child.stdin.writable.getWriter()\nawait writer.write(new TextEncoder().encode(\"via a stream\"))\nawait writer.close()\nprintln(await child.stdout.text())   // via a stream\nawait child.status()"
                 }
               ],
-              "source": "process.pi:576",
+              "source": "process.pi:578",
               "members": []
             },
             {
@@ -19773,7 +19908,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nconst n = await stdout.write(new TextEncoder().encode(\"bytes\\n\"))   // bytes\nprintln(n)                                                           // 6"
                 }
               ],
-              "source": "process.pi:612",
+              "source": "process.pi:614",
               "members": []
             },
             {
@@ -19787,7 +19922,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nif (stdout.isTerminal) {\n  println(\"on a terminal\")         // when run from a terminal\n} else {\n  println(\"piped or redirected\")   // with `myprogram > out.txt`\n}"
                 }
               ],
-              "source": "process.pi:629",
+              "source": "process.pi:631",
               "members": []
             },
             {
@@ -19801,7 +19936,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nconst red = if (stdout.hasColors()) \"\\u{1b}[31merror\\u{1b}[0m\" else \"error\"\nprintln(red)   // error (in red on a colour terminal)"
                 }
               ],
-              "source": "process.pi:645",
+              "source": "process.pi:647",
               "members": []
             },
             {
@@ -19815,7 +19950,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nconst width = stdout.columns ?? 80\nprintln(\"-\".repeat(width))   // a line as wide as the terminal (80 when it isn't one)"
                 }
               ],
-              "source": "process.pi:661",
+              "source": "process.pi:663",
               "members": []
             },
             {
@@ -19829,7 +19964,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nprintln(stdout.rows ?? 24)   // the terminal's height, e.g. 50 (24 when it isn't one)"
                 }
               ],
-              "source": "process.pi:674",
+              "source": "process.pi:676",
               "members": []
             },
             {
@@ -19843,7 +19978,7 @@
                   "code": "import { stdout, stderr } from \"std/process\"\n\nawait stdout.writeText(\"no newline, \")\nawait stdout.writeText(\"then one\\n\")    // no newline, then one\nawait stderr.writeText(\"a warning\\n\")   // (on standard error) a warning"
                 }
               ],
-              "source": "process.pi:689",
+              "source": "process.pi:691",
               "members": []
             },
             {
@@ -19857,7 +19992,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"wc\", [\"-c\"], stdin: \"pipe\", stdout: \"pipe\").spawn()\nchild.stdin.writeText(\"12345\")\nchild.stdin.close()   // after the write: wc sees the end of its input\nprintln((await child.stdout.text()).trim())   // 5\nawait child.status()"
                 }
               ],
-              "source": "process.pi:706",
+              "source": "process.pi:708",
               "members": []
             }
           ]
@@ -19868,7 +20003,7 @@
           "signature": "const stdin",
           "doc": "<p>This process's standard input.</p>\n",
           "examples": [],
-          "source": "process.pi:761",
+          "source": "process.pi:763",
           "members": []
         },
         {
@@ -19877,7 +20012,7 @@
           "signature": "const stdout",
           "doc": "<p>This process's standard output: writes are in order with <code>print</code>.</p>\n",
           "examples": [],
-          "source": "process.pi:763",
+          "source": "process.pi:765",
           "members": []
         },
         {
@@ -19886,7 +20021,7 @@
           "signature": "const stderr",
           "doc": "<p>This process's standard error: writes are in order with <code>print</code>.</p>\n",
           "examples": [],
-          "source": "process.pi:765",
+          "source": "process.pi:767",
           "members": []
         },
         {
@@ -19895,7 +20030,7 @@
           "signature": "type Stdio = \"inherit\" | \"pipe\" | \"null\"",
           "doc": "<p>What a child's standard stream is connected to: this process's (<code>\"inherit\"</code>), a pipe to\nthis process (<code>\"pipe\"</code>), or nothing (<code>\"null\"</code>).</p>\n",
           "examples": [],
-          "source": "process.pi:769",
+          "source": "process.pi:771",
           "members": []
         },
         {
@@ -19909,7 +20044,7 @@
               "code": "import { Command, ExitStatus } from \"std/process\"\n\nconst s: ExitStatus = await Command.shell(\"exit 3\").status()\nprintln(s.success)   // false\nprintln(s.code)      // 3\nprintln(s.signal)    // null"
             }
           ],
-          "source": "process.pi:787",
+          "source": "process.pi:789",
           "members": [
             {
               "name": "success",
@@ -19917,7 +20052,7 @@
               "signature": "success: bool",
               "doc": "<p>Whether it exited with code 0 (and no signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:789",
+              "source": "process.pi:791",
               "members": []
             },
             {
@@ -19926,7 +20061,7 @@
               "signature": "code: i32",
               "doc": "<p>The exit code (128 + the signal's number when a signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:791",
+              "source": "process.pi:793",
               "members": []
             },
             {
@@ -19935,7 +20070,7 @@
               "signature": "signal: i32?",
               "doc": "<p>The number of the signal that ended it (on Windows, the one <code>kill</code> was given), or <code>null</code>.</p>\n",
               "examples": [],
-              "source": "process.pi:793",
+              "source": "process.pi:795",
               "members": []
             }
           ]
@@ -19951,7 +20086,7 @@
               "code": "import { Command, Output } from \"std/process\"\n\nconst out: Output = await new Command(\"echo\", [\"hi\"]).output()\nprintln(out.success)          // true\nprintln(out.stdout.trim())    // hi\nprintln(out.stderr == \"\")     // true"
             }
           ],
-          "source": "process.pi:807",
+          "source": "process.pi:809",
           "members": [
             {
               "name": "success",
@@ -19959,7 +20094,7 @@
               "signature": "success: bool",
               "doc": "<p>Whether it exited with code 0 (and no signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:809",
+              "source": "process.pi:811",
               "members": []
             },
             {
@@ -19968,7 +20103,7 @@
               "signature": "code: i32",
               "doc": "<p>The exit code (128 + the signal's number when a signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:811",
+              "source": "process.pi:813",
               "members": []
             },
             {
@@ -19977,7 +20112,7 @@
               "signature": "signal: i32?",
               "doc": "<p>The number of the signal that ended it (on Windows, the one <code>kill</code> was given), or <code>null</code>.</p>\n",
               "examples": [],
-              "source": "process.pi:813",
+              "source": "process.pi:815",
               "members": []
             },
             {
@@ -19986,7 +20121,7 @@
               "signature": "stdout: string",
               "doc": "<p>Everything it wrote to its standard output (<code>\"\"</code> when that wasn't piped).</p>\n",
               "examples": [],
-              "source": "process.pi:815",
+              "source": "process.pi:817",
               "members": []
             },
             {
@@ -19995,7 +20130,7 @@
               "signature": "stderr: string",
               "doc": "<p>Everything it wrote to its standard error (<code>\"\"</code> when that wasn't piped).</p>\n",
               "examples": [],
-              "source": "process.pi:817",
+              "source": "process.pi:819",
               "members": []
             }
           ]
@@ -20011,7 +20146,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"from a child\"], stdout: \"pipe\").spawn()\nprintln(child.pid > 0)                   // true\nprintln((await child.stdout.text()).trim())   // from a child\nprintln((await child.status()).success)  // true"
             }
           ],
-          "source": "process.pi:831",
+          "source": "process.pi:833",
           "members": [
             {
               "name": "pid",
@@ -20019,7 +20154,7 @@
               "signature": "public readonly pid: int",
               "doc": "<p>0 when it couldn't be started.</p>\n",
               "examples": [],
-              "source": "process.pi:833",
+              "source": "process.pi:835",
               "members": []
             },
             {
@@ -20028,7 +20163,7 @@
               "signature": "public readonly stdin: Writer",
               "doc": "<p>Its standard input, when spawned with <code>stdin: \"pipe\"</code> (writing to it otherwise panics).</p>\n",
               "examples": [],
-              "source": "process.pi:835",
+              "source": "process.pi:837",
               "members": []
             },
             {
@@ -20037,7 +20172,7 @@
               "signature": "public readonly stdout: Reader",
               "doc": "<p>Its standard output, when spawned with <code>stdout: \"pipe\"</code> (reading it otherwise panics).</p>\n",
               "examples": [],
-              "source": "process.pi:837",
+              "source": "process.pi:839",
               "members": []
             },
             {
@@ -20046,7 +20181,7 @@
               "signature": "public readonly stderr: Reader",
               "doc": "<p>Its standard error, when spawned with <code>stderr: \"pipe\"</code> (reading it otherwise panics).</p>\n",
               "examples": [],
-              "source": "process.pi:839",
+              "source": "process.pi:841",
               "members": []
             },
             {
@@ -20060,7 +20195,7 @@
                   "code": "import { Command, Child } from \"std/process\"\n\nconst child: Child = new Command(\"true\").spawn()   // Command.spawn makes Children\nprintln((await child.status()).code)               // 0"
                 }
               ],
-              "source": "process.pi:855",
+              "source": "process.pi:857",
               "members": []
             },
             {
@@ -20074,7 +20209,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"true\").spawn()\nconst s = await child.status()\nprintln(s.success)   // true\nprintln(s.code)      // 0"
                 }
               ],
-              "source": "process.pi:876",
+              "source": "process.pi:878",
               "members": []
             },
             {
@@ -20088,7 +20223,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = Command.shell(\"echo out; echo err >&2\", stdout: \"pipe\", stderr: \"pipe\").spawn()\nconst o = await child.output()\nprintln(o.stdout.trim())   // out\nprintln(o.stderr.trim())   // err"
                 }
               ],
-              "source": "process.pi:915",
+              "source": "process.pi:917",
               "members": []
             },
             {
@@ -20102,7 +20237,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"sleep\", [\"10\"]).spawn()\nchild.kill()\nconst s = await child.status()\nprintln(s.signal)   // 15\nprintln(s.code)     // 143"
                 }
               ],
-              "source": "process.pi:944",
+              "source": "process.pi:946",
               "members": []
             }
           ]
@@ -20118,7 +20253,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst out = await new Command(\"echo\", [\"one\", \"two\"]).output()\nprintln(out.stdout.trim())   // one two"
             }
           ],
-          "source": "process.pi:965",
+          "source": "process.pi:967",
           "members": [
             {
               "name": "program",
@@ -20126,7 +20261,7 @@
               "signature": "public readonly program: string",
               "doc": "<p>The program to run: a path, or a name looked up in <code>PATH</code>.</p>\n",
               "examples": [],
-              "source": "process.pi:967",
+              "source": "process.pi:969",
               "members": []
             },
             {
@@ -20135,7 +20270,7 @@
               "signature": "public readonly args: string[]",
               "doc": "<p>The arguments after the program.</p>\n",
               "examples": [],
-              "source": "process.pi:969",
+              "source": "process.pi:971",
               "members": []
             },
             {
@@ -20149,7 +20284,7 @@
                   "code": "import { Command } from \"std/process\"\nimport { tmpDir } from \"std/os\"\n\nconst vars = new Map<string, string>()\nvars.set(\"NAME\", \"Ada\")\nconst cmd = new Command(\"/bin/sh\", [\"-c\", \"echo $NAME in $(pwd)\"], cwd: tmpDir(), env: vars)\nprintln((await cmd.output()).stdout.trim())   // e.g. Ada in /tmp"
                 }
               ],
-              "source": "process.pi:994",
+              "source": "process.pi:996",
               "members": []
             },
             {
@@ -20163,7 +20298,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst out = await Command.shell(\"echo a | tr a b\").output()\nprintln(out.stdout.trim())   // b"
                 }
               ],
-              "source": "process.pi:1016",
+              "source": "process.pi:1018",
               "members": []
             },
             {
@@ -20177,7 +20312,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"spawned\"], stdout: \"pipe\").spawn()\nprintln((await child.stdout.text()).trim())   // spawned\nawait child.status()"
                 }
               ],
-              "source": "process.pi:1041",
+              "source": "process.pi:1043",
               "members": []
             },
             {
@@ -20191,7 +20326,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst out = await new Command(\"ls\", [\"/\"]).output()\nprintln(out.success)                     // true\nprintln(out.stdout.split(\"\\n\").length > 1)   // true"
                 }
               ],
-              "source": "process.pi:1086",
+              "source": "process.pi:1088",
               "members": []
             },
             {
@@ -20205,7 +20340,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst s = await new Command(\"true\").status()\nprintln(s.success)   // true\nconst f = await new Command(\"false\").status()\nprintln(f.code)      // 1"
                 }
               ],
-              "source": "process.pi:1101",
+              "source": "process.pi:1103",
               "members": []
             }
           ]

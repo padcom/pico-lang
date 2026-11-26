@@ -1,5 +1,5 @@
 // `std/encoding`: bytes as text (spec §13.5): `base64` (RFC 4648, also the URL-safe alphabet)
-// and `hex`. The classes are in the core library (`<core>/encoding.pi`).
+// and `hex`; and `csv` (RFC 4180). The classes are in the core library (`<core>/encoding.pi`).
 
 export { Base64, Hex }
 
@@ -8,3 +8,171 @@ export { Base64, Hex }
 export const base64 = new Base64()
 /// Hexadecimal: `hex.encode(bytes)` (lowercase) and `hex.decode(text)`.
 export const hex = new Hex()
+
+/// `csv.parse` options.
+///
+/// @example
+/// ```ts
+/// import { csv } from "std/encoding"
+///
+/// println(csv.parse("a;b", { separator: ";" })[0].length)   // 2
+/// ```
+export struct CsvOptions {
+  /// The field separator, one character (`","` by default).
+  separator?: string
+}
+
+/// `csv.stringify` options.
+///
+/// @example
+/// ```ts
+/// import { csv } from "std/encoding"
+///
+/// print(csv.stringify([["a", "b"]], { separator: "\t", lineEnding: "\r\n" }))   // a	b (and CRLF)
+/// ```
+export struct CsvWriteOptions {
+  /// The field separator, one character (`","` by default).
+  separator?: string
+  /// What ends each row (`"\n"` by default; RFC 4180 says `"\r\n"`).
+  lineEnding?: string
+}
+
+/// Comma-separated values (RFC 4180; #63): `csv.parse(text)` into rows of fields, and
+/// `csv.stringify(rows)`.
+///
+/// @example
+/// ```ts
+/// import { csv } from "std/encoding"
+///
+/// const rows = csv.parse("name,note\nAda,\"likes \"\"math\"\", tea\"\n")
+/// println(rows[1][1])            // likes "math", tea
+/// print(csv.stringify(rows))     // name,note / Ada,"likes ""math"", tea"
+/// ```
+export class Csv {
+  /// A CSV codec (`std/encoding` exports one as `csv`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Csv } from "std/encoding"
+  ///
+  /// println(new Csv().parse("x,y").length)   // 1
+  /// ```
+  constructor() {}
+
+  /// The rows of `text`: fields split at the separator, rows at line ends (`\n` or `\r\n`), a
+  /// quoted field (`"a, ""b"""`) taking separators, quotes (doubled) and line ends; a last
+  /// line end ends the last row. A quote inside an unquoted field is kept. Throws a
+  /// `SyntaxError` for a quoted field that isn't closed, or text after its closing quote.
+  ///
+  /// @example
+  /// ```ts
+  /// import { csv } from "std/encoding"
+  ///
+  /// const rows = csv.parse("a,\"b\nc\"\r\n1,2")
+  /// println(rows.length)       // 2
+  /// println(rows[0][1])        // b (a line break) c
+  /// try {
+  ///   csv.parse("\"open")
+  /// } catch (e: SyntaxError) {
+  ///   println(e.message)       // CSV: a quoted field isn't closed (line 1)
+  /// }
+  /// ```
+  public parse(text: string, options: CsvOptions = {}): string[][] throws SyntaxError {
+    const sep = options.separator ?? ","
+    if (sep.length != 1 || sep == "\"" || sep == "\n" || sep == "\r") {
+      throw new SyntaxError(`CSV: the separator must be one character other than a quote or a line end (${sep:?})`)
+    }
+    const cs: string[] = []
+    for (const c of text) cs.push(`${c}`)
+    const rows: string[][] = []
+    let row: string[] = []
+    let field = ""
+    let line = 1
+    let i = 0
+    // Whether the current row has begun (a field or a separator seen).
+    let started = false
+    while (i < cs.length) {
+      const c = cs[i]
+      if (c == "\"" && field.length == 0) {
+        // A quoted field.
+        const at = line
+        i += 1
+        let closed = false
+        while (i < cs.length) {
+          if (cs[i] == "\"") {
+            if (i + 1 < cs.length && cs[i + 1] == "\"") {
+              field = field + "\""
+              i += 2
+              continue
+            }
+            closed = true
+            i += 1
+            break
+          }
+          if (cs[i] == "\n") line += 1
+          field = field + cs[i]
+          i += 1
+        }
+        if (!closed) throw new SyntaxError(`CSV: a quoted field isn't closed (line ${at})`)
+        started = true
+        if (i < cs.length && cs[i] != sep && cs[i] != "\n" && cs[i] != "\r") {
+          throw new SyntaxError(`CSV: text after a quoted field's closing quote (line ${line})`)
+        }
+        continue
+      }
+      if (c == sep) {
+        row.push(field)
+        field = ""
+        started = true
+        i += 1
+      } else if (c == "\n" || (c == "\r" && i + 1 < cs.length && cs[i + 1] == "\n")) {
+        row.push(field)
+        rows.push(row)
+        row = []
+        field = ""
+        started = false
+        line += 1
+        i += if (c == "\r") 2 else 1
+      } else {
+        field = field + c
+        started = true
+        i += 1
+      }
+    }
+    if (started || field.length > 0 || row.length > 0) {
+      row.push(field)
+      rows.push(row)
+    }
+    return rows
+  }
+
+  /// `rows` as CSV text: fields joined by the separator, each row ended by the line ending; a
+  /// field with the separator, a quote, a line end or leading or trailing spaces is quoted
+  /// (its quotes doubled).
+  ///
+  /// @example
+  /// ```ts
+  /// import { csv } from "std/encoding"
+  ///
+  /// print(csv.stringify([["id", "note"], ["1", "a, \"b\""]]))
+  /// // id,note
+  /// // 1,"a, ""b"""
+  /// ```
+  public stringify(rows: string[][], options: CsvWriteOptions = {}): string {
+    const sep = options.separator ?? ","
+    const end = options.lineEnding ?? "\n"
+    const out: string[] = []
+    for (const row of rows) {
+      const fields: string[] = []
+      for (const f of row) {
+        const quote = f.includes(sep) || f.includes("\"") || f.includes("\n") || f.includes("\r") || (f.length > 0 && (f.startsWith(" ") || f.endsWith(" ")))
+        fields.push(if (quote) `"${f.replaceAll("\"", "\"\"")}"` else f)
+      }
+      out.push(fields.join(sep) + end)
+    }
+    return out.join("")
+  }
+}
+
+/// CSV (RFC 4180): `csv.parse(text)` and `csv.stringify(rows)`.
+export const csv = new Csv()

@@ -533,10 +533,27 @@ function __zoneNamed(id: string): __Zone? {
   return z
 }
 
+/// The local time zone, worked out once (#61: it was read again at every local-time use) and
+/// kept in the zone cache under a key no zone has; `std/process`'s `env.set`/`env.delete` of
+/// `TZ` forget it (`__localZoneChanged`).
+function __localZone(): __Zone {
+  const cache = __zones()
+  const hit = cache.get("\u{0}local")
+  if (hit != null) return hit
+  const z = __findLocalZone()
+  cache.set("\u{0}local", z)
+  return z
+}
+
+/// Forgets the local time zone (`TZ` changed).
+function __localZoneChanged(): void {
+  __zones().delete("\u{0}local")
+}
+
 /// The local time zone: `TZ` (a zone name, `:name`, a file path or a POSIX rule), else the
 /// system's setting (Windows' zone, mapped to its IANA id), else `/etc/localtime` (named after
 /// its link target), else UTC.
-function __localZone(): __Zone {
+function __findLocalZone(): __Zone {
   const tz = __envVar("TZ")
   if (tz != null) {
     const spec = if (tz.startsWith(":")) tz.slice(1) else tz

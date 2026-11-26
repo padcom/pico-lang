@@ -79,6 +79,8 @@ struct FieldInfo {
 struct MethodInfo {
   /// The method's name.
   name: string
+  /// Its parameters and result, as messages show types: `(a: i64, b: string): bool` (#56).
+  signature: string
 }
 
 /// Hashing helpers for generated code (`Args.hashKey()` in `std/meta`).
