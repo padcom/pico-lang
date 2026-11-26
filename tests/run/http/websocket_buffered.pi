@@ -31,6 +31,14 @@ await new Promise<void>((resolve, _reject) => {
   }
 })
 await both
+// (The server can have both before this side has seen its writes finish: wait for that, up to 2 s.)
+let waited = 0
+while (ws.bufferedAmount > 0 && waited < 2000) {
+  await new Promise<void>((resolve, _reject) => {
+    setTimeout(() => resolve(__void()), 10)
+  })
+  waited += 10
+}
 println(`once written: ${ws.bufferedAmount}`)
 ws.close()
 await server.shutdown()
