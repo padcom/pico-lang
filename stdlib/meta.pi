@@ -1,6 +1,7 @@
 // `std/meta`: what decorators see of the declarations they decorate (spec §11.2).
 //
-// A `decorator function` takes a `ClassDecl` (classes and structs) or a `FunctionDecl` first,
+// A `decorator function` takes a `ClassDecl` (classes, structs and enums), a `FunctionDecl`
+// (functions and methods), a `FieldDecl` or a `ParamDecl` first,
 // then the decorator's own arguments (`@route("GET", "/users")`). The compiler runs it at
 // compile time, before the decorated declaration is compiled, and applies what it asked for:
 // added members, hidden statics, wrapped bodies and diagnostics. Code is written as strings
@@ -9,6 +10,8 @@
 export {
   __ClassDecl as ClassDecl,
   __FunctionDecl as FunctionDecl,
+  __FieldDecl as FieldDecl,
+  __ParamDecl as ParamDecl,
   __Args as Args,
   __ast as ast,
 }

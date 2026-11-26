@@ -36,11 +36,68 @@ impl Expansion {
     }
 }
 
+/// What a use decorates, inside its statement (#54).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Target {
+    /// The declaration itself: a class, struct, enum or function.
+    Decl,
+    /// Member `i` of a class, struct or enum: a method or a field.
+    Member(usize),
+    /// Parameter `j` of the function (`None`) or of method `i`.
+    Param(Option<usize>, usize),
+}
+
+/// The members of a class, struct or enum declaration.
+fn members_of(d: &ast::Decl) -> Option<&Vec<ast::Member>> {
+    match &d.kind {
+        DeclKind::Class(c) => Some(&c.members),
+        DeclKind::Struct(s) => Some(&s.members),
+        DeclKind::Enum(e) => Some(&e.members),
+        _ => None,
+    }
+}
+
+fn members_of_mut(d: &mut ast::Decl) -> Option<&mut Vec<ast::Member>> {
+    match &mut d.kind {
+        DeclKind::Class(c) => Some(&mut c.members),
+        DeclKind::Struct(s) => Some(&mut s.members),
+        DeclKind::Enum(e) => Some(&mut e.members),
+        _ => None,
+    }
+}
+
+/// The function a target belongs to: the declaration's, or method `i`'s.
+fn function_of(d: &mut ast::Decl, method: Option<usize>) -> Option<&mut ast::FnDecl> {
+    match method {
+        None => match &mut d.kind {
+            DeclKind::Function(f) => Some(f),
+            _ => None,
+        },
+        Some(i) => match &mut members_of_mut(d)?.get_mut(i)?.kind {
+            MemberKind::Method(f) => Some(f),
+            _ => None,
+        },
+    }
+}
+
+/// What a decorator taking `takes` can be used on, for messages.
+fn kinds_for(what: &str) -> &'static str {
+    match what {
+        "FunctionDecl" => "functions and methods",
+        "ClassDecl" => "classes, structs and enums",
+        "FieldDecl" => "fields",
+        "ParamDecl" => "parameters",
+        _ => "bindings",
+    }
+}
+
 /// A use of a decorator on a declaration.
 struct Use {
     id: usize,
     /// The decorated statement.
     stmt: usize,
+    /// What in it.
+    target: Target,
     /// The decorator: its module and its name there.
     decorator: (FileId, String),
     span: Span,
@@ -83,43 +140,91 @@ pub fn expand(
     if decorators.is_empty() {
         return out;
     }
-    // The uses.
+    // The uses: on declarations, their members and parameters (#54).
     let mut uses: Vec<Use> = Vec::new();
     for (i, st) in stmts.iter().enumerate() {
         let StmtKind::Decl(d) = &st.kind else {
             continue;
         };
+        let file = st.span.file;
+        // (Decorator, what it's on, what that is as a descriptor.)
+        let mut found: Vec<(&ast::Decorator, Target, &str)> = Vec::new();
+        let decl_kind = match &d.kind {
+            DeclKind::Function(_) => Some("FunctionDecl"),
+            DeclKind::Class(_) | DeclKind::Struct(_) | DeclKind::Enum(_) => Some("ClassDecl"),
+            _ => None,
+        };
         for dec in &d.decorators {
+            match decl_kind {
+                Some(k) => found.push((dec, Target::Decl, k)),
+                None => {
+                    if matches!(&dec.path[..], [n] if find_decorator(&decorators, modules, file, &n.name).is_some())
+                    {
+                        out.diags.push(
+                            Diagnostic::error(
+                                codes::NOT_IMPLEMENTED,
+                                "decorators on this kind of declaration aren't implemented yet",
+                            )
+                            .primary(
+                                dec.span,
+                                "classes, structs, enums, functions, methods, fields and parameters",
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        if let DeclKind::Function(f) = &d.kind {
+            for (j, p) in f.params.iter().enumerate() {
+                for dec in &p.decorators {
+                    found.push((dec, Target::Param(None, j), "ParamDecl"));
+                }
+            }
+        }
+        if let Some(members) = members_of(d) {
+            for (mi, m) in members.iter().enumerate() {
+                let what = match &m.kind {
+                    MemberKind::Method(_) => Some("FunctionDecl"),
+                    MemberKind::Field { .. } => Some("FieldDecl"),
+                    _ => None,
+                };
+                if let Some(w) = what {
+                    for dec in &m.decorators {
+                        found.push((dec, Target::Member(mi), w));
+                    }
+                }
+                if let MemberKind::Method(f) = &m.kind {
+                    for (j, p) in f.params.iter().enumerate() {
+                        for dec in &p.decorators {
+                            found.push((dec, Target::Param(Some(mi), j), "ParamDecl"));
+                        }
+                    }
+                }
+            }
+        }
+        for (dec, target_in, what) in found {
             let [name] = &dec.path[..] else { continue };
-            let Some(target) = find_decorator(&decorators, modules, st.span.file, &name.name)
-            else {
+            let Some(target) = find_decorator(&decorators, modules, file, &name.name) else {
                 continue;
             };
-            let what = match &d.kind {
-                DeclKind::Function(_) => "FunctionDecl",
-                DeclKind::Class(_) | DeclKind::Struct(_) => "ClassDecl",
-                _ => {
-                    out.diags.push(
-                        Diagnostic::error(
-                            codes::NOT_IMPLEMENTED,
-                            "decorators on this kind of declaration aren't implemented yet",
-                        )
-                        .primary(dec.span, "only classes, structs and functions for now"),
-                    );
-                    continue;
-                }
-            };
             let takes = decorators[&target].trim_start_matches("__");
-            if (takes == "FunctionDecl" || takes == "ClassDecl") && takes != what {
-                let kind = if what == "FunctionDecl" {
-                    "functions"
-                } else {
-                    "classes and structs"
-                };
+            let known = [
+                "FunctionDecl",
+                "ClassDecl",
+                "FieldDecl",
+                "ParamDecl",
+                "BindingDecl",
+            ];
+            if known.contains(&takes) && takes != what {
                 out.diags.push(
                     Diagnostic::error(
                         codes::DECORATOR,
-                        format!("`@{}` decorates a `{takes}`, not {kind}", name.name),
+                        format!(
+                            "`@{}` decorates a `{takes}` ({}), not {}",
+                            name.name,
+                            kinds_for(takes),
+                            kinds_for(what)
+                        ),
                     )
                     .primary(dec.span, "used on the wrong kind of declaration"),
                 );
@@ -144,6 +249,7 @@ pub fn expand(
                 bare,
                 id: uses.len(),
                 stmt: i,
+                target: target_in,
                 decorator: target,
                 span: dec.span,
                 args,
@@ -178,6 +284,7 @@ pub fn expand(
     let user = |file: FileId, d: &ast::Decorator| matches!(&d.path[..], [n] if find_decorator(&decorators, modules, file, &n.name).is_some());
     let mut kept = Vec::with_capacity(stmts.len());
     let mut type_decorators = Vec::new();
+    let mut member_decorators = Vec::new();
     for mut st in std::mem::take(stmts) {
         if let StmtKind::Decl(d) = &mut st.kind {
             if let DeclKind::Function(f) = &mut d.kind
@@ -222,12 +329,64 @@ pub fn expand(
                     type_decorators.push((ns, seen));
                 }
             }
+            // A field's or method's too (#54).
+            if let Some(members) = members_of(d) {
+                for m in members {
+                    let ns = match &m.kind {
+                        MemberKind::Field { name, .. } => name.span,
+                        MemberKind::Method(f) => match &f.name {
+                            Some(n) => n.span,
+                            None => continue,
+                        },
+                        _ => continue,
+                    };
+                    let seen: Vec<(String, Vec<String>)> = m
+                        .decorators
+                        .iter()
+                        .filter(|dec| user(file, dec))
+                        .map(|dec| {
+                            let name: Vec<&str> =
+                                dec.path.iter().map(|p| p.name.as_str()).collect();
+                            let args = dec
+                                .args
+                                .iter()
+                                .flatten()
+                                .map(|a| match &a.name {
+                                    Some(n) => format!("{}: {}", n.name, text(sm, a.value.span)),
+                                    None => text(sm, a.value.span),
+                                })
+                                .collect();
+                            (name.join("."), args)
+                        })
+                        .collect();
+                    if !seen.is_empty() {
+                        member_decorators.push((ns, seen));
+                    }
+                }
+            }
             d.decorators.retain(|dec| !user(file, dec));
+            // And from members and parameters (#54).
+            if let DeclKind::Function(f) = &mut d.kind {
+                for p in &mut f.params {
+                    p.decorators.retain(|dec| !user(file, dec));
+                }
+            }
+            if let Some(members) = members_of_mut(d) {
+                for m in members {
+                    m.decorators.retain(|dec| !user(file, dec));
+                    if let MemberKind::Method(f) = &mut m.kind {
+                        for p in &mut f.params {
+                            p.decorators.retain(|dec| !user(file, dec));
+                        }
+                    }
+                }
+            }
         }
         kept.push(st);
     }
     *stmts = kept;
     modules.type_decorators.extend(type_decorators);
+    modules.member_decorators.extend(member_decorators);
     out
 }
 
@@ -287,94 +446,216 @@ fn str_list(xs: &[String]) -> String {
     format!("[{}]", parts.join(", "))
 }
 
-/// `new ClassDecl(…)` / `new FunctionDecl(…)` for a use, with the class named as the
-/// decorator's parameter names it.
-fn descriptor(sm: &SourceMap, d: &ast::Decl, id: usize, class: &str) -> String {
-    match &d.kind {
-        DeclKind::Function(f) => {
-            let (mut names, mut types) = (Vec::new(), Vec::new());
-            for p in &f.params {
-                names.push(match &p.pat.kind {
-                    ast::PatternKind::Ident(n) => n.name.clone(),
-                    _ => text(sm, p.pat.span),
-                });
-                types.push(p.ty.as_ref().map(|t| text(sm, t.span)).unwrap_or_default());
+/// `new __FunctionDecl(…)` for a function or method.
+fn fn_descriptor(sm: &SourceMap, f: &ast::FnDecl, id: usize) -> String {
+    let (mut names, mut types) = (Vec::new(), Vec::new());
+    for p in &f.params {
+        names.push(match &p.pat.kind {
+            ast::PatternKind::Ident(n) => n.name.clone(),
+            _ => text(sm, p.pat.span),
+        });
+        types.push(p.ty.as_ref().map(|t| text(sm, t.span)).unwrap_or_default());
+    }
+    let ret = f
+        .ret
+        .as_ref()
+        .map(|t| text(sm, t.span))
+        .unwrap_or_else(|| "void".into());
+    let name = f.name.as_ref().map(|n| n.name.clone()).unwrap_or_default();
+    format!(
+        "new __FunctionDecl({id}, {}, {}, {}, {}, {})",
+        quote(&name),
+        str_list(&names),
+        str_list(&types),
+        quote(&ret),
+        f.flags.is_async
+    )
+}
+
+/// `new __ClassDecl(…)` for a class, struct or enum.
+fn class_descriptor(sm: &SourceMap, d: &ast::Decl, id: usize) -> String {
+    let (name, kind, generics) = match &d.kind {
+        DeclKind::Class(c) => (&c.name, "class", &c.generics),
+        DeclKind::Struct(s) => (&s.name, "struct", &s.generics),
+        DeclKind::Enum(e) => (&e.name, "enum", &e.generics),
+        _ => unreachable!("checked"),
+    };
+    let (mut fields, mut types, mut methods) = (Vec::new(), Vec::new(), Vec::new());
+    for m in members_of(d)
+        .into_iter()
+        .flatten()
+        .filter(|m| !m.mods.is_static)
+    {
+        match &m.kind {
+            MemberKind::Field { name, ty, .. } => {
+                fields.push(name.name.clone());
+                types.push(ty.as_ref().map(|t| text(sm, t.span)).unwrap_or_default());
             }
-            let ret = f
-                .ret
-                .as_ref()
-                .map(|t| text(sm, t.span))
-                .unwrap_or_else(|| "void".into());
-            let name = f.name.as_ref().map(|n| n.name.clone()).unwrap_or_default();
-            format!(
-                "new {class}({id}, {}, {}, {}, {}, {})",
-                quote(&name),
-                str_list(&names),
-                str_list(&types),
-                quote(&ret),
-                f.flags.is_async
-            )
-        }
-        DeclKind::Class(ast::ClassDecl { name, members, .. })
-        | DeclKind::Struct(ast::StructDecl { name, members, .. }) => {
-            let kind = if matches!(d.kind, DeclKind::Class(_)) {
-                "class"
-            } else {
-                "struct"
-            };
-            let (mut fields, mut types, mut methods) = (Vec::new(), Vec::new(), Vec::new());
-            for m in members.iter().filter(|m| !m.mods.is_static) {
-                match &m.kind {
-                    MemberKind::Field { name, ty, .. } => {
-                        fields.push(name.name.clone());
-                        types.push(ty.as_ref().map(|t| text(sm, t.span)).unwrap_or_default());
+            // Parameter properties: `constructor(public id: i64)`.
+            MemberKind::Constructor(c) => {
+                for p in c.params.iter().filter(|p| !p.mods.is_empty()) {
+                    if let ast::PatternKind::Ident(n) = &p.pat.kind {
+                        fields.push(n.name.clone());
+                        types.push(p.ty.as_ref().map(|t| text(sm, t.span)).unwrap_or_default());
                     }
-                    // Parameter properties: `constructor(public id: i64)`.
-                    MemberKind::Constructor(c) => {
-                        for p in c.params.iter().filter(|p| !p.mods.is_empty()) {
-                            if let ast::PatternKind::Ident(n) = &p.pat.kind {
-                                fields.push(n.name.clone());
-                                types.push(
-                                    p.ty.as_ref().map(|t| text(sm, t.span)).unwrap_or_default(),
-                                );
-                            }
-                        }
-                    }
-                    MemberKind::Method(f) => {
-                        if let Some(n) = &f.name {
-                            methods.push(n.name.clone());
-                        }
-                    }
-                    _ => {}
                 }
             }
-            let generics = match &d.kind {
-                DeclKind::Class(c) => &c.generics,
-                DeclKind::Struct(s) => &s.generics,
+            MemberKind::Method(f) => {
+                if let Some(n) = &f.name {
+                    methods.push(n.name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    let params: Vec<String> = generics.iter().map(|g| g.name.name.clone()).collect();
+    format!(
+        "new __ClassDecl({id}, {}, {}, {}, {}, {}, {})",
+        quote(&name.name),
+        quote(kind),
+        str_list(&fields),
+        str_list(&types),
+        str_list(&methods),
+        str_list(&params)
+    )
+}
+
+/// What a use's decorator receives: a `ClassDecl` or `FunctionDecl` for a declaration or a
+/// method, a `FieldDecl` or `ParamDecl` (with its owner's description) for a field or a
+/// parameter (#54).
+fn descriptor(sm: &SourceMap, d: &ast::Decl, target: Target, id: usize) -> String {
+    let mut d = d.clone();
+    match target {
+        Target::Decl => match &d.kind {
+            DeclKind::Function(f) => fn_descriptor(sm, f, id),
+            _ => class_descriptor(sm, &d, id),
+        },
+        Target::Member(i) => {
+            let m = members_of(&d).expect("checked")[i].clone();
+            match &m.kind {
+                MemberKind::Method(f) => fn_descriptor(sm, f, id),
+                MemberKind::Field { name, ty, .. } => format!(
+                    "new __FieldDecl({id}, {}, {}, {})",
+                    quote(&name.name),
+                    quote(&ty.as_ref().map(|t| text(sm, t.span)).unwrap_or_default()),
+                    class_descriptor(sm, &d, id)
+                ),
                 _ => unreachable!("checked"),
+            }
+        }
+        Target::Param(method, j) => {
+            let f = function_of(&mut d, method).expect("checked").clone();
+            let p = &f.params[j];
+            let name = match &p.pat.kind {
+                ast::PatternKind::Ident(n) => n.name.clone(),
+                _ => text(sm, p.pat.span),
             };
-            let params: Vec<String> = generics.iter().map(|g| g.name.name.clone()).collect();
             format!(
-                "new {class}({id}, {}, {}, {}, {}, {}, {})",
-                quote(&name.name),
-                quote(kind),
-                str_list(&fields),
-                str_list(&types),
-                str_list(&methods),
-                str_list(&params)
+                "new __ParamDecl({id}, {}, {}, {j}, {})",
+                quote(&name),
+                quote(&p.ty.as_ref().map(|t| text(sm, t.span)).unwrap_or_default()),
+                fn_descriptor(sm, &f, id)
             )
         }
-        _ => unreachable!("checked"),
     }
 }
 
-/// The names a declaration's source text uses.
-fn idents(sm: &SourceMap, s: Span) -> Vec<String> {
+/// The names a declaration's source text uses but doesn't bind itself: what it may need from
+/// the module. Its own `const`/`let` names, `catch` bindings, lambda parameters and function
+/// parameters are left out, so a decorator's `(c: ClassDecl)` doesn't pull in the program's
+/// own top-level `const c` (which may use a decorated declaration the decorator program
+/// doesn't have). An over-approximation still: names are names, scopes aren't followed.
+fn free_idents(sm: &SourceMap, s: Span) -> Vec<String> {
+    use pico_syntax::token::{Kw, Punct};
     let (tokens, _) = pico_syntax::lex(s.file, &text(sm, s));
-    tokens
-        .into_iter()
-        .filter_map(|t| match t.kind {
-            TokenKind::Ident(n) => Some(n),
+    let kinds: Vec<&TokenKind> = tokens.iter().map(|t| &t.kind).collect();
+    let mut bound: HashSet<String> = HashSet::new();
+    // The names in a parameter list, `(a: T, b)`, from its `(` at `open`.
+    let params = |open: usize, bound: &mut HashSet<String>| {
+        let mut depth = 0;
+        for k in open..kinds.len() {
+            match kinds[k] {
+                TokenKind::Punct(Punct::LParen | Punct::LBracket | Punct::LBrace) => depth += 1,
+                TokenKind::Punct(Punct::RParen | Punct::RBracket | Punct::RBrace) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return;
+                    }
+                }
+                TokenKind::Ident(n)
+                    if depth == 1
+                        && matches!(
+                            kinds.get(k + 1),
+                            Some(TokenKind::Punct(
+                                Punct::Colon | Punct::Comma | Punct::RParen
+                            ))
+                        )
+                        && matches!(
+                            kinds.get(k.wrapping_sub(1)),
+                            Some(TokenKind::Punct(Punct::LParen | Punct::Comma))
+                        ) =>
+                {
+                    bound.insert(n.clone());
+                }
+                _ => {}
+            }
+        }
+    };
+    for (i, k) in kinds.iter().enumerate() {
+        match k {
+            TokenKind::Kw(Kw::Const | Kw::Let) => {
+                if let Some(TokenKind::Ident(n)) = kinds.get(i + 1) {
+                    bound.insert(n.clone());
+                }
+            }
+            TokenKind::Kw(Kw::Catch) => {
+                if let Some(TokenKind::Ident(n)) = kinds.get(i + 2) {
+                    bound.insert(n.clone());
+                }
+            }
+            // `function name(…)`: its parameters.
+            TokenKind::Kw(Kw::Function) => {
+                if let Some(open) = (i + 1..kinds.len().min(i + 4))
+                    .find(|&j| matches!(kinds[j], TokenKind::Punct(Punct::LParen)))
+                {
+                    params(open, &mut bound);
+                }
+            }
+            // A lambda's parameters: `x =>` or `(a, b) =>`.
+            TokenKind::Punct(Punct::FatArrow) if i > 0 => match kinds[i - 1] {
+                TokenKind::Ident(n) => {
+                    bound.insert(n.clone());
+                }
+                TokenKind::Punct(Punct::RParen) => {
+                    let mut depth = 0;
+                    let mut j = i - 1;
+                    loop {
+                        match kinds[j] {
+                            TokenKind::Punct(Punct::RParen) => depth += 1,
+                            TokenKind::Punct(Punct::LParen) => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    params(j, &mut bound);
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        if j == 0 {
+                            break;
+                        }
+                        j -= 1;
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    kinds
+        .iter()
+        .filter_map(|k| match k {
+            TokenKind::Ident(n) if !bound.contains(n) => Some(n.clone()),
             _ => None,
         })
         .collect()
@@ -441,7 +722,7 @@ fn run_decorators(
         {
             keep.insert(i);
             let m = module_of(st.span.file);
-            work.extend(idents(sm, st.span).into_iter().map(|n| (m, n)));
+            work.extend(free_idents(sm, st.span).into_iter().map(|n| (m, n)));
         }
     }
     while let Some((m, n)) = work.pop() {
@@ -472,7 +753,7 @@ fn run_decorators(
             }
             if module_of(st.span.file) == m && declares(st).contains(&n) {
                 keep.insert(i);
-                work.extend(idents(sm, st.span).into_iter().map(|n| (m, n)));
+                work.extend(free_idents(sm, st.span).into_iter().map(|n| (m, n)));
             }
         }
     }
@@ -501,8 +782,7 @@ fn run_decorators(
         let StmtKind::Decl(d) = &stmts[u.stmt].kind else {
             unreachable!("a declaration")
         };
-        let class = &decorators[&u.decorator];
-        let mut args = vec![descriptor(sm, d, u.id, class)];
+        let mut args = vec![descriptor(sm, d, u.target, u.id)];
         // A bare name the decorator's module doesn't declare is passed as a string
         // (`@derive(Eq)`).
         for (a, bare) in u.args.iter().zip(&u.bare) {
@@ -617,10 +897,13 @@ fn apply(
                 let StmtKind::Decl(d) = &mut stmts[u.stmt].kind else {
                     continue;
                 };
-                let (kw, members) = match &mut d.kind {
-                    DeclKind::Class(c) => ("class", &mut c.members),
-                    DeclKind::Struct(s) => ("struct", &mut s.members),
-                    _ => continue,
+                // (To the class, struct or enum, whatever in it the decorator was on.)
+                let kw = match &d.kind {
+                    DeclKind::Struct(_) => "struct",
+                    _ => "class",
+                };
+                let Some(members) = members_of_mut(d) else {
+                    continue;
                 };
                 let code = format!("{kw} __Generated {{\n{}\n}}\n", e.a);
                 let (m, mut ds) = generated(
@@ -655,7 +938,13 @@ fn apply(
                 let StmtKind::Decl(d) = &mut stmts[u.stmt].kind else {
                     continue;
                 };
-                let DeclKind::Function(f) = &mut d.kind else {
+                // The function, the method, or the one a parameter belongs to.
+                let method = match u.target {
+                    Target::Decl => None,
+                    Target::Member(i) => Some(i),
+                    Target::Param(m, _) => m,
+                };
+                let Some(f) = function_of(d, method) else {
                     continue;
                 };
                 let code = format!("function __wrapped() {{\n{}\n}}\n", e.a);

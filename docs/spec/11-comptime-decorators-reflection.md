@@ -116,9 +116,19 @@ module's other code) and returns its name, `wrapBody(f)` replaces the body with 
 returns, in which `call` runs the original body (`args.hashKey()`, `args.list()` and
 `args.names` describe the arguments), and `error`/`warn`/`note` report at the decorator (an
 error is E0354). A decorator taking a `ClassDecl` used on a function (or the reverse) is
-E0354. Decorator functions and their uses are then removed from the program. For now:
-top-level classes, structs and functions only; generated code is parsed as written, so
-mistakes in it are reported in a generated file named after the decorator.
+E0354. Decorator functions and their uses are then removed from the program. Generated code
+is parsed as written, so mistakes in it are reported in a generated file named after the
+decorator.
+
+What a decorator receives depends on what it's on (#54): a class, struct or **enum** gets a
+`ClassDecl` (`kind` says which; an enum's `addField` is an error), a function or **method** a
+`FunctionDecl` (`wrapBody` wraps the method), a **field** a `FieldDecl` (`name`, `typeName`,
+and `owner`, the type's `ClassDecl`, through which it adds members) and a **parameter** a
+`ParamDecl` (`name`, `typeName`, `index`, and `owner`, the function's `FunctionDecl`, whose
+body it can wrap). Each has `error`/`warn`/`note`. A decorator used on the wrong kind of
+declaration is E0354. The user decorators that were on a field or method stay visible to
+reflection: `decorators` of a runtime field and of `MethodInfo`, and of comptime `T.fields`
+and `T.methods` (`DecoratorInfo` is a struct, `{ name, args }`).
 
 ## 11.3 Runtime reflection
 Reflection metadata is produced **on demand for the whole program**: the compiler emits it for

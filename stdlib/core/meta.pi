@@ -131,7 +131,7 @@ class __ClassDecl {
     public id: int,
     /// The type's name, without type parameters.
     public name: string,
-    /// `"class"` or `"struct"`.
+    /// `"class"`, `"struct"` or `"enum"`.
     public kind: string,
     /// The instance fields' names, in declaration order (parameter properties included).
     public fieldNames: string[],
@@ -186,7 +186,7 @@ class __ClassDecl {
   public get fields(): FieldInfo[] {
     const out: FieldInfo[] = []
     for (const i of 0..this.fieldNames.length) {
-      out.push({ name: this.fieldNames[i], typeName: this.fieldTypes[i] })
+      out.push({ name: this.fieldNames[i], typeName: this.fieldTypes[i] , decorators: [] })
     }
     return out
   }
@@ -297,6 +297,10 @@ class __ClassDecl {
   /// println(new Doc("notes").version)   // 1
   /// ```
   public addField(code: string): void {
+    if (this.kind == "enum") {
+      this.error("an enum has no fields: add a method instead")
+      return
+    }
     this.addMember(code)
   }
 
@@ -390,6 +394,210 @@ class __ClassDecl {
   }
 }
 
+/// A decorated field (#54): its name and type, and the class, struct or enum it's in (`owner`),
+/// through which the decorator adds members.
+///
+/// @example
+/// ```ts
+/// import { FieldDecl } from "std/meta"
+///
+/// decorator function getter(f: FieldDecl): void {
+///   const cap = `${f.name.slice(0, 1).toUpperCase()}${f.name.slice(1)}`
+///   f.owner.addMethod(`public get${cap}(): ${f.typeName} { return this.${f.name} }`)
+/// }
+///
+/// class User {
+///   @getter name: string = "Ada"
+/// }
+///
+/// println(new User().getName())   // Ada
+/// ```
+class __FieldDecl {
+  /// Made by the compiler for each use of a field decorator.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ClassDecl, FieldDecl } from "std/meta"
+  ///
+  /// const owner = new ClassDecl(0, "User", "class", ["name"], ["string"], [], [])
+  /// println(new FieldDecl(0, "name", "string", owner).typeName)   // string
+  /// ```
+  constructor(
+    /// Which declaration this is (for the compiler).
+    public id: int,
+    /// The field's name.
+    public name: string,
+    /// Its type as written (`""` without an annotation).
+    public typeName: string,
+    /// The class, struct or enum it's in.
+    public owner: __ClassDecl,
+  ) {}
+
+  /// A compile error at the decorated field (the build stops).
+  ///
+  /// @example
+  /// ```ts
+  /// import { FieldDecl } from "std/meta"
+  ///
+  /// decorator function typed(f: FieldDecl): void {
+  ///   if (f.typeName == "") f.error(`${f.name} needs a type`)
+  /// }
+  ///
+  /// class Point {
+  ///   @typed x: int = 1
+  /// }
+  ///
+  /// println(new Point().x)   // 1
+  /// ```
+  public error(message: string): void {
+    __meta_emit(this.id, "error", message, "")
+  }
+
+  /// A compile warning at the decorated field (the build goes on).
+  ///
+  /// @example
+  /// ```ts
+  /// import { FieldDecl } from "std/meta"
+  ///
+  /// decorator function typed(f: FieldDecl): void {
+  ///   if (f.typeName == "") f.warn(`${f.name} should have a type`)
+  /// }
+  ///
+  /// class Point {
+  ///   @typed x: int = 1
+  /// }
+  ///
+  /// println(new Point().x)   // 1
+  /// ```
+  public warn(message: string): void {
+    __meta_emit(this.id, "warn", message, "")
+  }
+
+  /// A note (information, not a problem) at the decorated field.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FieldDecl } from "std/meta"
+  ///
+  /// decorator function typed(f: FieldDecl): void {
+  ///   f.note(`${f.name}: ${f.typeName}`)
+  /// }
+  ///
+  /// class Point {
+  ///   @typed x: int = 1
+  /// }
+  ///
+  /// println(new Point().x)   // 1
+  /// ```
+  public note(message: string): void {
+    __meta_emit(this.id, "note", message, "")
+  }
+}
+
+/// A decorated parameter (#54): its name, type and position, and the function or method it
+/// belongs to (`owner`), whose body the decorator can wrap.
+///
+/// @example
+/// ```ts
+/// import { ParamDecl } from "std/meta"
+///
+/// decorator function positive(p: ParamDecl): void {
+///   p.owner.wrapBody((args, call) => `
+///     if (${p.name} <= 0) panic("${p.name} must be positive")
+///     ${call}
+///   `)
+/// }
+///
+/// function half(@positive n: int): int {
+///   n / 2
+/// }
+///
+/// println(half(8))   // 4
+/// ```
+class __ParamDecl {
+  /// Made by the compiler for each use of a parameter decorator.
+  ///
+  /// @example
+  /// ```ts
+  /// import { FunctionDecl, ParamDecl } from "std/meta"
+  ///
+  /// const owner = new FunctionDecl(0, "half", ["n"], ["int"], "int", false)
+  /// println(new ParamDecl(0, "n", "int", 0, owner).index)   // 0
+  /// ```
+  constructor(
+    /// Which declaration this is (for the compiler).
+    public id: int,
+    /// The parameter's name.
+    public name: string,
+    /// Its type as written (`""` without an annotation).
+    public typeName: string,
+    /// Its position among the parameters (from 0).
+    public index: int,
+    /// The function or method it belongs to.
+    public owner: __FunctionDecl,
+  ) {}
+
+  /// A compile error at the decorated parameter (the build stops).
+  ///
+  /// @example
+  /// ```ts
+  /// import { ParamDecl } from "std/meta"
+  ///
+  /// decorator function checked(p: ParamDecl): void {
+  ///   if (p.typeName == "") p.error(`${p.name} needs a type`)
+  /// }
+  ///
+  /// function twice(@checked n: int): int {
+  ///   n * 2
+  /// }
+  ///
+  /// println(twice(4))   // 8
+  /// ```
+  public error(message: string): void {
+    __meta_emit(this.id, "error", message, "")
+  }
+
+  /// A compile warning at the decorated parameter (the build goes on).
+  ///
+  /// @example
+  /// ```ts
+  /// import { ParamDecl } from "std/meta"
+  ///
+  /// decorator function checked(p: ParamDecl): void {
+  ///   if (p.index > 2) p.warn(`${p.name}: too many parameters`)
+  /// }
+  ///
+  /// function twice(@checked n: int): int {
+  ///   n * 2
+  /// }
+  ///
+  /// println(twice(4))   // 8
+  /// ```
+  public warn(message: string): void {
+    __meta_emit(this.id, "warn", message, "")
+  }
+
+  /// A note (information, not a problem) at the decorated parameter.
+  ///
+  /// @example
+  /// ```ts
+  /// import { ParamDecl } from "std/meta"
+  ///
+  /// decorator function checked(p: ParamDecl): void {
+  ///   p.note(`${p.owner.name} takes ${p.name}`)
+  /// }
+  ///
+  /// function twice(@checked n: int): int {
+  ///   n * 2
+  /// }
+  ///
+  /// println(twice(4))   // 8
+  /// ```
+  public note(message: string): void {
+    __meta_emit(this.id, "note", message, "")
+  }
+}
+
 /// A decorated function.
 ///
 /// @example
@@ -462,7 +670,7 @@ class __FunctionDecl {
   public get params(): FieldInfo[] {
     const out: FieldInfo[] = []
     for (const i of 0..this.paramNames.length) {
-      out.push({ name: this.paramNames[i], typeName: this.paramTypes[i] })
+      out.push({ name: this.paramNames[i], typeName: this.paramTypes[i] , decorators: [] })
     }
     return out
   }

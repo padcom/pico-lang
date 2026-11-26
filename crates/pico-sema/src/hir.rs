@@ -241,6 +241,8 @@ pub struct StructDef {
     /// The decorators on the declaration (kept for reflection, spec §11.3): each one's name
     /// and its arguments' source text.
     pub decorators: Vec<(String, Vec<String>)>,
+    /// The same for its fields and methods, by name (#54).
+    pub member_decorators: HashMap<String, Vec<(String, Vec<String>)>>,
 }
 
 impl StructDef {
@@ -267,6 +269,7 @@ impl StructDef {
             final_slots: Default::default(),
             protected: Default::default(),
             declared_in: HashMap::new(),
+            member_decorators: HashMap::new(),
             readonly_methods: Default::default(),
             getters: Vec::new(),
             setters: Vec::new(),

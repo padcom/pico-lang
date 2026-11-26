@@ -1,0 +1,7 @@
+// error: E0354
+// at: 6:1
+// A decorator taking a `FieldDecl` can't decorate a class (#54).
+import { FieldDecl } from "std/meta"
+decorator function column(f: FieldDecl): void {}
+@column
+class A {}
