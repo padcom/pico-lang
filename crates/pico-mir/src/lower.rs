@@ -3698,18 +3698,22 @@ impl FnBuilder<'_, '_> {
                 op,
                 target: hir::Target::Field { id, object, .. },
                 value,
-            } if self.cx.cell_read(object.id).is_some()
-                && matches!(self.ty_of(object), Ty::Struct(..)) =>
-            {
+            } if self.struct_in_cell(object).is_some() => {
                 // `point.x = v` with `point` reactive: the struct is a value, so the whole
-                // value is written back (spec §16.6).
-                let cell_ty = self.cx.cell_read(object.id).expect("a cell read");
-                let st = self.ty_of(object);
-                let cell = self.expr_inner(object);
+                // value is written back (spec §16.6); also through nested struct fields
+                // (`state.pos.x = v`, #71).
+                let (base, path) = self.struct_in_cell(object).expect("checked");
+                let cell_ty = self.cx.cell_read(base.id).expect("a cell read");
+                let st = self.ty_of(base);
+                let cell = self.expr_inner(base);
                 let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
                 let tmp = Place::local(self.temp(st));
                 self.assign(tmp.clone(), Rvalue::Use(cur), e.span);
-                let field = tmp.field(self.cx.types.fields[id]);
+                let mut inner = tmp.clone();
+                for i in path {
+                    inner = inner.field(i);
+                }
+                let field = inner.field(self.cx.types.fields[id]);
                 let v = match op {
                     None => self.expr(value),
                     Some(op) => {
@@ -3733,6 +3737,48 @@ impl FnBuilder<'_, '_> {
                 let result = self.assign_to(e, op, value, place, checks);
                 self.place_hook("__triggerObject", &hook_place, e.span);
                 result
+            }
+            ExprKind::IncDec {
+                target: hir::Target::Field { id, object, .. },
+                inc,
+                prefix,
+            } if self.struct_in_cell(object).is_some() => {
+                // `point.x++` with `point` reactive (or `state.pos.x++`): written back as a
+                // whole, as an assignment is (#71; it was lost).
+                let (base, path) = self.struct_in_cell(object).expect("checked");
+                let cell_ty = self.cx.cell_read(base.id).expect("a cell read");
+                let st = self.ty_of(base);
+                let cell = self.expr_inner(base);
+                let cur = self.cell_get(cell.clone(), &cell_ty, e.span);
+                let tmp = Place::local(self.temp(st));
+                self.assign(tmp.clone(), Rvalue::Use(cur), e.span);
+                let mut inner = tmp.clone();
+                for i in path {
+                    inner = inner.field(i);
+                }
+                let field = inner.field(self.cx.types.fields[id]);
+                let vt = self.place_ty(&field);
+                let Ty::Int(it) = vt else {
+                    return Operand::Const(Const::Void);
+                };
+                let old = self.rvalue_to_temp(
+                    Rvalue::Use(Operand::Copy(field.clone())),
+                    vt.clone(),
+                    e.span,
+                );
+                let op = if *inc {
+                    mir::BinOp::Add
+                } else {
+                    mir::BinOp::Sub
+                };
+                let new = self.rvalue_to_temp(
+                    Rvalue::Binary(op, old.clone(), Operand::Const(Const::Int(1, it))),
+                    vt,
+                    e.span,
+                );
+                self.assign(field, Rvalue::Use(new.clone()), e.span);
+                self.cell_set(cell, &cell_ty, Operand::Copy(tmp), e.span);
+                if *prefix { new } else { old }
             }
             ExprKind::IncDec {
                 target,
@@ -7491,6 +7537,30 @@ impl FnBuilder<'_, '_> {
         }
         let t = self.place_ty(&parent);
         self.object_hook(name, Operand::Copy(parent), &t, span);
+    }
+
+    /// `object` read through struct fields from a struct held in a reactive cell (`s`, or
+    /// `s.pos` in `s.pos.x = v`): that read of the cell, and the field indices from it down to
+    /// `object` (#71).
+    fn struct_in_cell<'e>(&self, object: &'e Expr) -> Option<(&'e Expr, Vec<u32>)> {
+        let mut path = Vec::new();
+        let mut cur = object;
+        loop {
+            if !matches!(self.ty_of(cur), Ty::Struct(..)) {
+                return None;
+            }
+            if self.cx.cell_read(cur.id).is_some() {
+                path.reverse();
+                return Some((cur, path));
+            }
+            match &cur.kind {
+                ExprKind::Member { object: inner, .. } => {
+                    path.push(*self.cx.types.fields.get(&cur.id)?);
+                    cur = inner;
+                }
+                _ => return None,
+            }
+        }
     }
 
     /// A tracked read of a reactive cell.

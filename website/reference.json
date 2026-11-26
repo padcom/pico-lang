@@ -1420,7 +1420,7 @@
               "code": "const view = new DataView(new ArrayBuffer(6))\nview.setUint16(0, 0xCAFE)\nview.setUint32(2, 1, true)\nprintln(view.getUint8(0))          // 202\nprintln(view.getUint16(0, true))   // 65226\nprintln(view.getUint32(2, true))   // 1"
             }
           ],
-          "source": "core/buffer.pi:1118",
+          "source": "core/buffer.pi:1137",
           "members": [
             {
               "name": "buffer",
@@ -1428,7 +1428,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:1120",
+              "source": "core/buffer.pi:1139",
               "members": []
             },
             {
@@ -1437,7 +1437,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:1122",
+              "source": "core/buffer.pi:1141",
               "members": []
             },
             {
@@ -1451,7 +1451,7 @@
                   "code": "const buf = new ArrayBuffer(8)\nconst header = new DataView(buf, 0, 4)\nconst body = new DataView(buf, 4)\nprintln(header.byteLength)   // 4\nprintln(body.byteLength)     // 4"
                 }
               ],
-              "source": "core/buffer.pi:1136",
+              "source": "core/buffer.pi:1155",
               "members": []
             },
             {
@@ -1465,7 +1465,7 @@
                   "code": "const bytes = Uint8Array.from([0x00, 0x01, 0x00, 0x00])\nconst view = new DataView(bytes)\nprintln(view.getUint16(0))   // 1"
                 }
               ],
-              "source": "core/buffer.pi:1151",
+              "source": "core/buffer.pi:1170",
               "members": []
             },
             {
@@ -1479,7 +1479,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(12), 4)\nprintln(view.byteLength)   // 8"
                 }
               ],
-              "source": "core/buffer.pi:1164",
+              "source": "core/buffer.pi:1183",
               "members": []
             },
             {
@@ -1493,7 +1493,7 @@
                   "code": "const view = new DataView(Uint8Array.from([200, 7]))\nprintln(view.getUint8(0))   // 200\nprintln(view.getUint8(1))   // 7"
                 }
               ],
-              "source": "core/buffer.pi:1209",
+              "source": "core/buffer.pi:1230",
               "members": []
             },
             {
@@ -1507,7 +1507,7 @@
                   "code": "const view = new DataView(Uint8Array.from([253, 7]))\nprintln(view.getInt8(0))   // -3\nprintln(view.getInt8(1))   // 7"
                 }
               ],
-              "source": "core/buffer.pi:1219",
+              "source": "core/buffer.pi:1240",
               "members": []
             },
             {
@@ -1521,7 +1521,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint16(0, 513)\nprintln(view.getUint16(0))         // 513\nprintln(view.getUint16(0, true))   // 258 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1230",
+              "source": "core/buffer.pi:1251",
               "members": []
             },
             {
@@ -1535,7 +1535,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt16(0, -2)\nprintln(view.getInt16(0))         // -2\nprintln(view.getInt16(0, true))   // -257 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1241",
+              "source": "core/buffer.pi:1262",
               "members": []
             },
             {
@@ -1549,7 +1549,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setUint32(0, 3000000000)\nprintln(view.getUint32(0))         // 3000000000\nprintln(view.getUint32(0, true))   // 6213810 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1252",
+              "source": "core/buffer.pi:1273",
               "members": []
             },
             {
@@ -1563,7 +1563,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setInt32(0, -100000)\nprintln(view.getInt32(0))         // -100000\nprintln(view.getInt32(0, true))   // 1618607871 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1263",
+              "source": "core/buffer.pi:1284",
               "members": []
             },
             {
@@ -1577,7 +1577,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, -5)\nprintln(view.getBigInt64(0))   // -5"
                 }
               ],
-              "source": "core/buffer.pi:1273",
+              "source": "core/buffer.pi:1294",
               "members": []
             },
             {
@@ -1591,7 +1591,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, -1)\nprintln(view.getBigUint64(0))   // 18446744073709551615"
                 }
               ],
-              "source": "core/buffer.pi:1283",
+              "source": "core/buffer.pi:1304",
               "members": []
             },
             {
@@ -1605,7 +1605,7 @@
                   "code": "const view = new DataView(Uint8Array.from([0x3C, 0x00]))\nprintln(view.getFloat16(0))   // 1"
                 }
               ],
-              "source": "core/buffer.pi:1294",
+              "source": "core/buffer.pi:1315",
               "members": []
             },
             {
@@ -1619,7 +1619,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setFloat32(0, 0.75)\nprintln(view.getFloat32(0))   // 0.75"
                 }
               ],
-              "source": "core/buffer.pi:1304",
+              "source": "core/buffer.pi:1325",
               "members": []
             },
             {
@@ -1633,7 +1633,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setFloat64(0, 6.5, true)\nprintln(view.getFloat64(0, true))   // 6.5"
                 }
               ],
-              "source": "core/buffer.pi:1314",
+              "source": "core/buffer.pi:1335",
               "members": []
             },
             {
@@ -1647,7 +1647,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint8(0, 200)\nprintln(view.getUint8(0))   // 200\nprintln(view.getUint8(0))    // 200"
                 }
               ],
-              "source": "core/buffer.pi:1327",
+              "source": "core/buffer.pi:1348",
               "members": []
             },
             {
@@ -1661,7 +1661,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt8(0, -3)\nprintln(view.getInt8(0))   // -3\nprintln(view.getUint8(0))    // 253"
                 }
               ],
-              "source": "core/buffer.pi:1338",
+              "source": "core/buffer.pi:1359",
               "members": []
             },
             {
@@ -1675,7 +1675,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint16(0, 513, true)     // little-endian\nprintln(view.getUint16(0, true))   // 513\nprintln(view.getUint8(0))          // 1"
                 }
               ],
-              "source": "core/buffer.pi:1349",
+              "source": "core/buffer.pi:1370",
               "members": []
             },
             {
@@ -1689,7 +1689,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt16(0, -2, true)     // little-endian\nprintln(view.getInt16(0, true))   // -2\nprintln(view.getUint8(0))          // 254"
                 }
               ],
-              "source": "core/buffer.pi:1360",
+              "source": "core/buffer.pi:1381",
               "members": []
             },
             {
@@ -1703,7 +1703,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setUint32(0, 3000000000, true)     // little-endian\nprintln(view.getUint32(0, true))   // 3000000000\nprintln(view.getUint8(0))          // 0"
                 }
               ],
-              "source": "core/buffer.pi:1371",
+              "source": "core/buffer.pi:1392",
               "members": []
             },
             {
@@ -1717,7 +1717,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setInt32(0, -100000, true)     // little-endian\nprintln(view.getInt32(0, true))   // -100000\nprintln(view.getUint8(0))          // 96"
                 }
               ],
-              "source": "core/buffer.pi:1382",
+              "source": "core/buffer.pi:1403",
               "members": []
             },
             {
@@ -1731,7 +1731,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, 1234567890123)\nprintln(view.getBigInt64(0))   // 1234567890123"
                 }
               ],
-              "source": "core/buffer.pi:1392",
+              "source": "core/buffer.pi:1413",
               "members": []
             },
             {
@@ -1745,7 +1745,7 @@
                   "code": "const big: u64 = 18446744073709551615\nconst view = new DataView(new ArrayBuffer(8))\nview.setBigUint64(0, big)\nprintln(view.getBigUint64(0))   // 18446744073709551615\nprintln(view.getInt8(0))        // -1"
                 }
               ],
-              "source": "core/buffer.pi:1404",
+              "source": "core/buffer.pi:1425",
               "members": []
             },
             {
@@ -1759,7 +1759,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setFloat16(0, 0.1)\nprintln(view.getFloat16(0))   // 0.0999755859375"
                 }
               ],
-              "source": "core/buffer.pi:1416",
+              "source": "core/buffer.pi:1437",
               "members": []
             },
             {
@@ -1773,7 +1773,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setFloat32(0, 1.5, true)\nprintln(view.getUint8(3))           // 63\nprintln(view.getFloat32(0, true))   // 1.5"
                 }
               ],
-              "source": "core/buffer.pi:1427",
+              "source": "core/buffer.pi:1448",
               "members": []
             },
             {
@@ -1787,7 +1787,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setFloat64(0, -2.5)\nprintln(view.getFloat64(0))   // -2.5"
                 }
               ],
-              "source": "core/buffer.pi:1437",
+              "source": "core/buffer.pi:1458",
               "members": []
             }
           ]
@@ -2760,7 +2760,7 @@
               "code": "const xs = new Float32Array(3)\nxs.set(0, 0.5)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // 0.5"
             }
           ],
-          "source": "core/buffer.pi:854",
+          "source": "core/buffer.pi:869",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -2768,7 +2768,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:856",
+              "source": "core/buffer.pi:871",
               "members": []
             },
             {
@@ -2777,7 +2777,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:858",
+              "source": "core/buffer.pi:873",
               "members": []
             },
             {
@@ -2786,7 +2786,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:860",
+              "source": "core/buffer.pi:875",
               "members": []
             },
             {
@@ -2800,7 +2800,7 @@
                   "code": "const xs = new Float32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:871",
+              "source": "core/buffer.pi:886",
               "members": []
             },
             {
@@ -2814,7 +2814,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Float32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:886",
+              "source": "core/buffer.pi:901",
               "members": []
             },
             {
@@ -2828,7 +2828,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Float32Array(buf, 4, 2)\ntwo.set(0, 0.5)\nprintln(two.length)                 // 2\nprintln(new Float32Array(buf, 0)[1])   // 0.5"
                 }
               ],
-              "source": "core/buffer.pi:904",
+              "source": "core/buffer.pi:919",
               "members": []
             },
             {
@@ -2842,7 +2842,7 @@
                   "code": "const xs = new Float32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:917",
+              "source": "core/buffer.pi:932",
               "members": []
             },
             {
@@ -2856,7 +2856,7 @@
                   "code": "const xs = new Float32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:928",
+              "source": "core/buffer.pi:943",
               "members": []
             },
             {
@@ -2870,7 +2870,7 @@
                   "code": "const xs = new Float32Array(2)\nxs.set(1, 0.5)\nprintln(xs.get(1))   // 0.5\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:947",
+              "source": "core/buffer.pi:962",
               "members": []
             },
             {
@@ -2884,7 +2884,7 @@
                   "code": "const xs = new Float32Array(2)\nxs.set(0, 1.25)\nprintln(xs[0])   // 1.25"
                 }
               ],
-              "source": "core/buffer.pi:960",
+              "source": "core/buffer.pi:976",
               "members": []
             }
           ]
@@ -2900,7 +2900,7 @@
               "code": "const xs = new Float64Array(3)\nxs.set(0, 3.25)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 24\nprintln(xs[0])           // 3.25"
             }
           ],
-          "source": "core/buffer.pi:984",
+          "source": "core/buffer.pi:1001",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -2908,7 +2908,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 8",
               "doc": "<p>The size of an element: 8 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:986",
+              "source": "core/buffer.pi:1003",
               "members": []
             },
             {
@@ -2917,7 +2917,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:988",
+              "source": "core/buffer.pi:1005",
               "members": []
             },
             {
@@ -2926,7 +2926,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:990",
+              "source": "core/buffer.pi:1007",
               "members": []
             },
             {
@@ -2940,7 +2940,7 @@
                   "code": "const xs = new Float64Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 32"
                 }
               ],
-              "source": "core/buffer.pi:1001",
+              "source": "core/buffer.pi:1018",
               "members": []
             },
             {
@@ -2954,7 +2954,7 @@
                   "code": "const buf = new ArrayBuffer(32)\nconst rest = new Float64Array(buf, 8)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:1016",
+              "source": "core/buffer.pi:1033",
               "members": []
             },
             {
@@ -2968,7 +2968,7 @@
                   "code": "const buf = new ArrayBuffer(32)\nconst two = new Float64Array(buf, 8, 2)\ntwo.set(0, 3.25)\nprintln(two.length)                 // 2\nprintln(new Float64Array(buf, 0)[1])   // 3.25"
                 }
               ],
-              "source": "core/buffer.pi:1034",
+              "source": "core/buffer.pi:1051",
               "members": []
             },
             {
@@ -2982,7 +2982,7 @@
                   "code": "const xs = new Float64Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:1047",
+              "source": "core/buffer.pi:1064",
               "members": []
             },
             {
@@ -2996,7 +2996,7 @@
                   "code": "const xs = new Float64Array(10)\nprintln(xs.byteLength)   // 80"
                 }
               ],
-              "source": "core/buffer.pi:1058",
+              "source": "core/buffer.pi:1075",
               "members": []
             },
             {
@@ -3010,7 +3010,7 @@
                   "code": "const xs = new Float64Array(2)\nxs.set(1, 3.25)\nprintln(xs.get(1))   // 3.25\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:1077",
+              "source": "core/buffer.pi:1094",
               "members": []
             },
             {
@@ -3024,7 +3024,7 @@
                   "code": "const xs = new Float64Array(2)\nxs.set(0, 1.25)\nprintln(xs[0])   // 1.25"
                 }
               ],
-              "source": "core/buffer.pi:1090",
+              "source": "core/buffer.pi:1108",
               "members": []
             }
           ]
@@ -3299,7 +3299,7 @@
               "code": "const xs = new Int32Array(3)\nxs.set(0, -7)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // -7"
             }
           ],
-          "source": "core/buffer.pi:589",
+          "source": "core/buffer.pi:600",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -3307,7 +3307,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:591",
+              "source": "core/buffer.pi:602",
               "members": []
             },
             {
@@ -3316,7 +3316,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:593",
+              "source": "core/buffer.pi:604",
               "members": []
             },
             {
@@ -3325,7 +3325,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:595",
+              "source": "core/buffer.pi:606",
               "members": []
             },
             {
@@ -3339,7 +3339,7 @@
                   "code": "const xs = new Int32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:606",
+              "source": "core/buffer.pi:617",
               "members": []
             },
             {
@@ -3353,7 +3353,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Int32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:621",
+              "source": "core/buffer.pi:632",
               "members": []
             },
             {
@@ -3367,7 +3367,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Int32Array(buf, 4, 2)\ntwo.set(0, -7)\nprintln(two.length)                 // 2\nprintln(new Int32Array(buf, 0)[1])   // -7"
                 }
               ],
-              "source": "core/buffer.pi:639",
+              "source": "core/buffer.pi:650",
               "members": []
             },
             {
@@ -3381,7 +3381,7 @@
                   "code": "const xs = new Int32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:652",
+              "source": "core/buffer.pi:663",
               "members": []
             },
             {
@@ -3395,7 +3395,7 @@
                   "code": "const xs = new Int32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:663",
+              "source": "core/buffer.pi:674",
               "members": []
             },
             {
@@ -3409,7 +3409,7 @@
                   "code": "const xs = new Int32Array(2)\nxs.set(1, -7)\nprintln(xs.get(1))   // -7\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:682",
+              "source": "core/buffer.pi:693",
               "members": []
             },
             {
@@ -3423,7 +3423,7 @@
                   "code": "const xs = new Int32Array(2)\nxs.set(0, 123)\nxs.set(1, 0x80000000)   // wraps\nprintln(xs[0])   // 123\nprintln(xs[1])   // -2147483648"
                 }
               ],
-              "source": "core/buffer.pi:697",
+              "source": "core/buffer.pi:709",
               "members": []
             }
           ]
@@ -8071,7 +8071,7 @@
               "code": "const xs = new Uint32Array(3)\nxs.set(0, 4000000000)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // 4000000000"
             }
           ],
-          "source": "core/buffer.pi:721",
+          "source": "core/buffer.pi:734",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -8079,7 +8079,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:723",
+              "source": "core/buffer.pi:736",
               "members": []
             },
             {
@@ -8088,7 +8088,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:725",
+              "source": "core/buffer.pi:738",
               "members": []
             },
             {
@@ -8097,7 +8097,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:727",
+              "source": "core/buffer.pi:740",
               "members": []
             },
             {
@@ -8111,7 +8111,7 @@
                   "code": "const xs = new Uint32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:738",
+              "source": "core/buffer.pi:751",
               "members": []
             },
             {
@@ -8125,7 +8125,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Uint32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:753",
+              "source": "core/buffer.pi:766",
               "members": []
             },
             {
@@ -8139,7 +8139,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Uint32Array(buf, 4, 2)\ntwo.set(0, 4000000000)\nprintln(two.length)                 // 2\nprintln(new Uint32Array(buf, 0)[1])   // 4000000000"
                 }
               ],
-              "source": "core/buffer.pi:771",
+              "source": "core/buffer.pi:784",
               "members": []
             },
             {
@@ -8153,7 +8153,7 @@
                   "code": "const xs = new Uint32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:784",
+              "source": "core/buffer.pi:797",
               "members": []
             },
             {
@@ -8167,7 +8167,7 @@
                   "code": "const xs = new Uint32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:795",
+              "source": "core/buffer.pi:808",
               "members": []
             },
             {
@@ -8181,7 +8181,7 @@
                   "code": "const xs = new Uint32Array(2)\nxs.set(1, 4000000000)\nprintln(xs.get(1))   // 4000000000\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:815",
+              "source": "core/buffer.pi:828",
               "members": []
             },
             {
@@ -8195,7 +8195,7 @@
                   "code": "const xs = new Uint32Array(2)\nxs.set(0, 123)\nxs.set(1, -1)   // wraps\nprintln(xs[0])   // 123\nprintln(xs[1])   // 4294967295"
                 }
               ],
-              "source": "core/buffer.pi:830",
+              "source": "core/buffer.pi:844",
               "members": []
             }
           ]
@@ -8335,7 +8335,7 @@
                   "code": "const bytes = new Uint8Array(2)\nbytes.set(0, 65)\nbytes.set(1, 257)       // stored as 1\nprintln(bytes[0])       // 65\nprintln(bytes[1])       // 1"
                 }
               ],
-              "source": "core/buffer.pi:371",
+              "source": "core/buffer.pi:372",
               "members": []
             },
             {
@@ -8349,7 +8349,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nconst mid = bytes.subarray(1, 3)\nmid.set(0, 9)\nprintln(mid.length)   // 2\nprintln(bytes[1])     // 9"
                 }
               ],
-              "source": "core/buffer.pi:400",
+              "source": "core/buffer.pi:402",
               "members": []
             },
             {
@@ -8363,7 +8363,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nconst copy = bytes.slice(-2)\ncopy.set(0, 0)\nprintln(copy.length)   // 2\nprintln(bytes[3])      // 4"
                 }
               ],
-              "source": "core/buffer.pi:417",
+              "source": "core/buffer.pi:419",
               "members": []
             },
             {
@@ -8377,7 +8377,7 @@
                   "code": "const out = new Uint8Array(5)\nout.setAll(Uint8Array.from([7, 8]), 2)\nprintln(out[2])   // 7\nprintln(out[3])   // 8"
                 }
               ],
-              "source": "core/buffer.pi:436",
+              "source": "core/buffer.pi:439",
               "members": []
             },
             {
@@ -8391,7 +8391,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nbytes.copyWithin(0, 3)\nprintln(bytes[0])   // 4\nprintln(bytes[1])   // 5\nprintln(bytes[2])   // 3"
                 }
               ],
-              "source": "core/buffer.pi:459",
+              "source": "core/buffer.pi:465",
               "members": []
             },
             {
@@ -8405,7 +8405,7 @@
                   "code": "const bytes = Uint8Array.from([10, 20, 30, 20])\nprintln(bytes.indexOf(20))      // 1\nprintln(bytes.indexOf(20, 2))   // 3\nprintln(bytes.indexOf(99))      // -1"
                 }
               ],
-              "source": "core/buffer.pi:483",
+              "source": "core/buffer.pi:490",
               "members": []
             },
             {
@@ -8419,7 +8419,7 @@
                   "code": "const bytes = Uint8Array.from([0x50, 0x4B, 0x03])\nprintln(bytes.includes(0x4B))   // true\nprintln(bytes.includes(0xFF))   // false"
                 }
               ],
-              "source": "core/buffer.pi:504",
+              "source": "core/buffer.pi:512",
               "members": []
             },
             {
@@ -8433,7 +8433,7 @@
                   "code": "const bytes = new Uint8Array(4).fill(255, 1, 3)\nprintln(bytes[0])   // 0\nprintln(bytes[1])   // 255\nprintln(bytes[3])   // 0"
                 }
               ],
-              "source": "core/buffer.pi:518",
+              "source": "core/buffer.pi:526",
               "members": []
             },
             {
@@ -8447,7 +8447,7 @@
                   "code": "const a = Uint8Array.from([1, 2, 3])\nconst b = Uint8Array.from([1, 2, 3])\nprintln(a.equals(b))                    // true\nprintln(a.equals(b.subarray(0, 2)))     // false"
                 }
               ],
-              "source": "core/buffer.pi:537",
+              "source": "core/buffer.pi:546",
               "members": []
             },
             {
@@ -8461,7 +8461,7 @@
                   "code": "const bytes = Uint8Array.from([72, 105, 256 + 33])\nprintln(bytes.length)   // 3\nprintln(bytes[2])       // 33"
                 }
               ],
-              "source": "core/buffer.pi:570",
+              "source": "core/buffer.pi:581",
               "members": []
             }
           ]
