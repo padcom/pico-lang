@@ -140,6 +140,10 @@ name resolution, type checking and the C and JavaScript signatures. `pico lint` 
 lowering, so errors only a build finds (a constant expression that always panics, failing
 `comptime` code) are `pico build`'s. Files are linted in parallel: `-j N` at a time, by default
 one per CPU but no more than the available memory holds (about 256 MB each, #166).
+`pico lint --fix` applies the fixes warnings come with and rewrites the files, linting again until
+none are left, then reports the rest (#80): unused imports are removed (a name, or the whole
+import), a function's result gets its `return`, and missing blank lines (`blankLines`) are
+inserted; names (`naming`) are left to the language server's rename, which updates every use.
 
 A comment turns warnings off for one line (#80), as ESLint's do: `// pico-lint-disable-line` at
 the end of a line, or `// pico-lint-disable-next-line` on the line above. Without names it covers
@@ -173,7 +177,7 @@ one character, and a pattern without `/` matches the file name in any directory.
 | Rule | Checks |
 |------|--------|
 | `naming` | camelCase values and functions, PascalCase types, enum variants and type parameters (decision 39); constants, static fields and static getters may be UPPER_SNAKE_CASE; a leading `_` and a trailing one (`async_`, avoiding a keyword) are ignored, and `__` names (the core library's internals) aren't checked |
-| `unused` | variables (read, not only assigned), parameters after the last used one (not those an overridden or implemented method fixes), module-level bindings that aren't exported, private methods and imports that are never used. Exempt: names starting with `_`, bindings with a type test (`catch (e: E)`, `s: string =>`, `c as R`), `comptime` bindings, and the protocol methods the language calls itself (`toString`, `equals`, `hashCode`, `compareTo`, `format`, `iterator`, `next`, `dispose`, `disposeAsync`). Private fields aren't checked (printing, reflection and derived methods read them) |
+| `unused` | variables (read, not only assigned), parameters after the last used one (not those an overridden or implemented method fixes), module-level bindings that aren't exported, private methods and imports that are never used. Exempt: names starting with `_`, bindings with a type test (`catch (e: E)`, `s: string =>`, `c as R`), `comptime` bindings, and the protocol methods the language calls itself (`toString`, `equals`, `hashCode`, `compareTo`, `format`, `iterator`, `next`, `dispose`, `disposeAsync`). Private fields are reported when never read in their file (writes don't count; #80), unless something may read the class's fields behind the scenes: its values reach a template, a built-in or core-library call (`println`, `JSON.stringify`, `reflect.typeOf`, …) or a generic function, it's a type argument or a type value, or it has decorators |
 | `complexity` | the cyclomatic complexity of each function: at most `true` → 4, or the number given (`{ "max": n }` too) |
 | `blankLines` | a blank line before a statement `if` (not `else if`), `switch`, `match`, `return`, loop (`for`, `while`, `do`, `loop`), `try`, block statement, `export`, and before a function, method, constructor, getter, setter or class, unless it's the first in its block or type body; one after the imports (`import`), and one between class members after a multi-line member (`member`). Loops, `try` and blocks don't need one after a `const`/`let` or an `if`. Comments and decorators that belong to it go after the blank line. `{ "before": ["if", "function", …] }` picks the constructs |
 | `docs` | a doc comment (`/** … */` or `///`, with a description) on every exported declaration of a module, and on the public members (methods, getters, setters, fields) of exported types; a member that implements or overrides a documented member is documented by it |

@@ -49,7 +49,8 @@ function __cryptoOp(op: int, fields: Uint8Array[]): Uint8Array throws CryptoErro
     packed.set(at + 2, (len >> 16) & 255)
     packed.set(at + 3, (len >> 24) & 255)
     at += 4
-    for (let i = 0; i < len; i++) packed.set(at + i, f.get(i))
+    // (One copy, not a call per byte: #69.)
+    packed.setAll(f, at)
     at += len
   }
   const job = __io(140, op, packed.buffer.__handle, n, "", "")
@@ -594,7 +595,7 @@ struct Crypto {
   getRandomValues(array: Uint8Array): Uint8Array {
     if (array.length > 65536) panic("crypto.getRandomValues: more than 65536 bytes")
     const r = __randomBytes(array.length)
-    for (let i = 0; i < array.length; i++) array.set(i, r.get(i))
+    array.setAll(r, 0)
     return array
   }
 

@@ -256,8 +256,8 @@ program's end while it's open (a return, `exit()`, a panic, and natively SIGINT,
 and crash signals whose action is the default; not SIGKILL). A socket file that
 nothing listens on (a server that crashed left it) is replaced; a live listener's, or a file
 that isn't a socket, gives `AddrInUse` (decision 325).
-A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (one at a time; `null` once
-closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
+A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (several at once each get a
+connection, #65; `null` once closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
 connections stay open). A `Conn` has `localAddr`, `remoteAddr`, `read(n = 65536):
 Promise<Uint8Array?, NetError>` (`null` once the other side finished writing or this side is
 closed), `for await` over chunks, `text()` (the rest as UTF-8), `write(data)` and
@@ -412,8 +412,12 @@ Globals, as WHATWG URL: `new URL(input, base?)` (throws `TypeError: Invalid URL:
 `hostname`, `port` (`""` for the scheme's default), `pathname`, `search`, `hash`, `origin`,
 `searchParams` (changing it changes the URL), `toString()`, `toJSON()`. Special schemes (http,
 https, ws, wss, ftp, file) get an authority, dot-segment removal and default ports; others an
-opaque path. Not covered yet: IDNA (non-ASCII hosts are percent-encoded), IPv4 number forms,
-setters. `URLSearchParams(init: string | [string, string][])` has `append`, `delete`, `get`,
+opaque path. `pathname`, `search`, `hash`, `host` and `protocol` can be set (#66): the part is
+replaced and the URL parsed again (`searchParams` follows); what the URL Standard rejects (a path
+of an opaque URL, a host where there's none, a scheme between special and other) is ignored;
+`username`, `password`, `hostname` and `port` are plain fields; `href` has no setter (make a new
+`URL`). Not covered yet: IDNA (non-ASCII hosts are percent-encoded), IPv4 number forms.
+`URLSearchParams(init: string | [string, string][])` has `append`, `delete`, `get`,
 `getAll`, `has`, `set`, `sort`, `size`, `keys`, `entries`, `for…of` and `toString()`
 (`application/x-www-form-urlencoded`).
 
@@ -651,7 +655,8 @@ Results are `Uint8Array`s, failures reject with `CryptoError` (`kind`: `InvalidA
 `InvalidAccess`), and a raw ECDSA/ECDH public key must be a point on its curve.
 
 `std/crypto` is synchronous: `digest(alg, data)` and `hmac(alg, key, data)` (SHA-1, SHA-224,
-SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), `hkdf`, `pbkdf2`,
+SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), streaming
+hashes (`createHash(alg)`: `update(data)` any number of times, then `digest()` once; #69), `hkdf`, `pbkdf2`,
 `Aead.aesGcm(key)` / `Aead.chacha20Poly1305(key)` with `seal(nonce, plaintext, aad)` (giving the
 ciphertext then the tag) and `open` (which throws `CryptoError` when the data doesn't
 authenticate), `EcKeyPair.generate(curve)` / `fromPrivateKey`, with `sign(hash, message)`
