@@ -186,7 +186,7 @@ class __ClassDecl {
   public get fields(): FieldInfo[] {
     const out: FieldInfo[] = []
     for (const i of 0..this.fieldNames.length) {
-      out.push({ name: this.fieldNames[i], typeName: this.fieldTypes[i] , decorators: [] })
+      out.push({ name: this.fieldNames[i], typeName: this.fieldTypes[i], decorators: [] })
     }
     return out
   }
@@ -756,7 +756,7 @@ class __FunctionDecl {
   public get params(): FieldInfo[] {
     const out: FieldInfo[] = []
     for (const i of 0..this.paramNames.length) {
-      out.push({ name: this.paramNames[i], typeName: this.paramTypes[i] , decorators: [] })
+      out.push({ name: this.paramNames[i], typeName: this.paramTypes[i], decorators: [] })
     }
     return out
   }
