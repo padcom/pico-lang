@@ -7596,6 +7596,76 @@
               "members": []
             },
             {
+              "name": "pathname",
+              "kind": "property",
+              "signature": "public set pathname(value: string)",
+              "doc": "<p>Replaces the path (#66): percent-encoded as the parser does, <code>?</code> and <code>#</code> kept in it, a\nleading <code>/</code> added for special schemes. Ignored for an opaque path (<code>mailto:a@b</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/a?x=1\")\nurl.pathname = \"/docs/read me\"\nprintln(url.href)   // https://example.com/docs/read%20me?x=1"
+                }
+              ],
+              "source": "core/url.pi:822",
+              "members": []
+            },
+            {
+              "name": "search",
+              "kind": "property",
+              "signature": "public set search(value: string)",
+              "doc": "<p>Replaces the query (#66; a leading <code>?</code> is optional, <code>\"\"</code> removes it). <code>searchParams</code>\nfollows.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/find?q=old#top\")\nurl.search = \"q=new&page=2\"\nprintln(url.href)                    // https://example.com/find?q=new&page=2#top\nprintln(url.searchParams.get(\"page\"))   // 2"
+                }
+              ],
+              "source": "core/url.pi:839",
+              "members": []
+            },
+            {
+              "name": "hash",
+              "kind": "property",
+              "signature": "public set hash(value: string)",
+              "doc": "<p>Replaces the fragment (#66; a leading <code>#</code> is optional, <code>\"\"</code> removes it).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/guide\")\nurl.hash = \"install\"\nprintln(url.href)   // https://example.com/guide#install"
+                }
+              ],
+              "source": "core/url.pi:852",
+              "members": []
+            },
+            {
+              "name": "host",
+              "kind": "property",
+              "signature": "public set host(value: string)",
+              "doc": "<p>Replaces the host and port (<code>example.com:8080</code>; #66): up to a <code>/</code>, <code>?</code> or <code>#</code>. Ignored\nwithout a host (an opaque URL) or for an invalid host.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/a\")\nurl.host = \"pico.dev:8443\"\nprintln(url.href)   // https://pico.dev:8443/a"
+                }
+              ],
+              "source": "core/url.pi:866",
+              "members": []
+            },
+            {
+              "name": "protocol",
+              "kind": "property",
+              "signature": "public set protocol(value: string)",
+              "doc": "<p>Replaces the scheme (<code>\"http\"</code> or <code>\"http:\"</code>; #66), as the URL Standard allows: between\ntwo special schemes (<code>http</code>, <code>https</code>, <code>ws</code>, <code>wss</code>, <code>ftp</code>) or two others, not to or from\n<code>file</code>; anything else is ignored. A port that's the new scheme's default goes.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"http://example.com:443/\")\nurl.protocol = \"https\"\nprintln(url.href)   // https://example.com/"
+                }
+              ],
+              "source": "core/url.pi:887",
+              "members": []
+            },
+            {
               "name": "toString",
               "kind": "method",
               "signature": "public toString(): string",
@@ -7606,7 +7676,7 @@
                   "code": "const url = new URL(\"https://example.com/path\")\nprintln(url.toString())   // https://example.com/path\nprintln(`link: ${url}`)   // link: https://example.com/path"
                 }
               ],
-              "source": "core/url.pi:821",
+              "source": "core/url.pi:934",
               "members": []
             },
             {
@@ -7620,7 +7690,7 @@
                   "code": "const url = new URL(\"https://example.com/a\")\nprintln(url.toJSON())   // https://example.com/a"
                 }
               ],
-              "source": "core/url.pi:832",
+              "source": "core/url.pi:945",
               "members": []
             }
           ]
