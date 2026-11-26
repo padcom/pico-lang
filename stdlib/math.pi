@@ -1675,8 +1675,33 @@ export class BigInt implements Formattable {
 
   operator *(o: BigInt): BigInt {
     if (this.sign == 0 || o.sign == 0) return new BigInt(0)
-    const a = this.limbs
-    const b = o.limbs
+    BigInt.__make(this.sign * o.sign, BigInt.__mulMag(this.limbs, o.limbs))
+  }
+
+  /// `a · b` of magnitudes: Karatsuba above 32 limbs (#60; O(n^1.585)), schoolbook below.
+  static __mulMag(a: int[], b: int[]): int[] {
+    const n = if (a.length > b.length) a.length else b.length
+    const small = if (a.length < b.length) a.length else b.length
+    if (small < 32) return BigInt.__schoolMul(a, b)
+    const m = n / 2
+    const a0 = BigInt.__trim(a.slice(0, if (m < a.length) m else a.length))
+    const a1 = BigInt.__trim(if (m < a.length) a.slice(m) else [])
+    const b0 = BigInt.__trim(b.slice(0, if (m < b.length) m else b.length))
+    const b1 = BigInt.__trim(if (m < b.length) b.slice(m) else [])
+    const z0 = BigInt.__trim(BigInt.__mulMag(a0, b0))
+    const z2 = BigInt.__trim(BigInt.__mulMag(a1, b1))
+    const s = BigInt.__trim(BigInt.__mulMag(BigInt.__addMag(a0, a1), BigInt.__addMag(b0, b1)))
+    const z1 = BigInt.__trim(BigInt.__subMag(BigInt.__trim(BigInt.__subMag(s, z2)), z0))
+    const r: int[] = []
+    for (let i = 0; i < a.length + b.length + 1; i++) r.push(0)
+    BigInt.__addInto(r, z0, 0)
+    BigInt.__addInto(r, z1, m)
+    BigInt.__addInto(r, z2, 2 * m)
+    return BigInt.__trim(r)
+  }
+
+  /// `a · b` of magnitudes, digit by digit.
+  static __schoolMul(a: int[], b: int[]): int[] {
     const r: int[] = []
     for (let i = 0; i < a.length + b.length; i++) r.push(0)
     for (let i = 0; i < a.length; i++) {
@@ -1694,7 +1719,26 @@ export class BigInt implements Formattable {
         k += 1
       }
     }
-    BigInt.__make(this.sign * o.sign, r)
+    return r
+  }
+
+  /// `x` without its leading zero limbs.
+  static __trim(x: int[]): int[] {
+    let n = x.length
+    while (n > 0 && x[n - 1] == 0) n -= 1
+    return if (n == x.length) x else x.slice(0, n)
+  }
+
+  /// Adds `x · BASE^at` into `r` (long enough), carrying.
+  static __addInto(r: int[], x: int[], at: int): void {
+    let carry = 0
+    let i = 0
+    while (i < x.length || carry > 0) {
+      const cur = r[at + i] + (if (i < x.length) x[i] else 0) + carry
+      r[at + i] = cur % __BASE
+      carry = cur / __BASE
+      i += 1
+    }
   }
 
   /// `[quotient, remainder]` of the magnitudes (`b` not zero): schoolbook long division,
