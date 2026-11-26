@@ -595,7 +595,7 @@ struct Crypto {
   getRandomValues(array: Uint8Array): Uint8Array {
     if (array.length > 65536) panic("crypto.getRandomValues: more than 65536 bytes")
     const r = __randomBytes(array.length)
-    for (let i = 0; i < array.length; i++) array.set(i, r.get(i))
+    array.setAll(r, 0)
     return array
   }
 
