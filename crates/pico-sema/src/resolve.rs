@@ -233,6 +233,7 @@ pub fn resolve_modules(
         distincts: 0,
         outer_fns: Vec::new(),
         name_refs: Vec::new(),
+        field_initializers: HashMap::new(),
         param_decls: HashMap::new(),
         binding_decorators: modules.binding_decorators.clone(),
         maybe_cells: HashSet::new(),
@@ -469,6 +470,8 @@ struct Resolver {
     outer_fns: Vec<FnState>,
     /// See [`Program::name_refs`].
     name_refs: Vec<(Span, Span)>,
+    /// See [`Program::field_initializers`].
+    field_initializers: HashMap<StructId, (FnId, Vec<u32>)>,
     /// Where each type parameter is declared, by (owner, index), for the language server's
     /// links from uses of it (#81).
     param_decls: HashMap<(u32, u32), Span>,
@@ -981,6 +984,10 @@ impl Resolver {
                 let ctor = self.constructor(c, *id, *decl);
                 self.fns[id.0 as usize] = Some(ctor);
             }
+            if let Some(id) = c.init_fields {
+                let f = self.field_initializer(c);
+                self.fns[id.0 as usize] = Some(f);
+            }
             if let Some(id) = c.static_init {
                 let init = self.static_init(c);
                 self.fns[id.0 as usize] = Some(init);
@@ -1110,6 +1117,7 @@ impl Resolver {
             externs: std::mem::take(&mut self.externs),
             links: std::mem::take(&mut self.links),
             name_refs: std::mem::take(&mut self.name_refs),
+            field_initializers: std::mem::take(&mut self.field_initializers),
             public_names: HashMap::new(),
             async_promises: std::mem::take(&mut self.async_promises),
             async_closures: std::mem::take(&mut self.async_closures),
@@ -2746,6 +2754,7 @@ impl Resolver {
             static_inits: Vec::new(),
             reactive_fields: HashMap::new(),
             static_blocks: Vec::new(),
+            init_fields: None,
         };
         let mut seen: HashMap<String, Span> = HashMap::new();
         let inherited_fields: HashSet<String> = self.structs[sid.0 as usize]
@@ -3112,6 +3121,25 @@ impl Resolver {
             let id = FnId(self.fns.len() as u32);
             self.fns.push(None);
             info.static_init = Some(id);
+        }
+        // (Field initializers as a method, for `JSON.parse`'s missing fields, #58.)
+        let with_init: Vec<u32> = info
+            .field_inits
+            .iter()
+            .filter(|(_, init)| init.is_some())
+            .filter_map(|(name, _)| {
+                let def = &self.structs[sid.0 as usize];
+                def.fields
+                    .iter()
+                    .position(|f| f.name == name.name)
+                    .map(|i| i as u32)
+            })
+            .collect();
+        if !with_init.is_empty() && self.structs[sid.0 as usize].is_class {
+            let id = FnId(self.fns.len() as u32);
+            self.fns.push(None);
+            info.init_fields = Some(id);
+            self.field_initializers.insert(sid, (id, with_init));
         }
         info
     }
@@ -3505,6 +3533,67 @@ impl Resolver {
             rest: has_rest,
             c_variadic: false,
             throws,
+            infer_throws: false,
+            generator: false,
+        }
+    }
+
+    /// `Class.__initFields(this)`: the class's field initializers, in order, on `this` (what
+    /// the constructor runs before its body, without parameter properties; #58).
+    fn field_initializer(&mut self, c: &ClassInfo) -> Function {
+        self.enter_module(c.decl.name.span);
+        let sid = c.sid;
+        let class_name = self.structs[sid.0 as usize].name.clone();
+        let span = c.decl.name.span;
+        self.f = FnState {
+            owner: Some(sid),
+            ..Default::default()
+        };
+        self.enter_type_params(sid);
+        self.f.scopes.push(Scope::default());
+        let this_ty = self.struct_ty(sid);
+        let this = LocalId(self.f.locals.len() as u32);
+        self.f.locals.push(Binding {
+            name: "this".into(),
+            mutable: false,
+            ty: Some(this_ty),
+            span,
+            boxed: false,
+        });
+        self.f.this = Some((this, sid));
+        let mut stmts = Vec::new();
+        for (name, init) in &c.field_inits {
+            let Some(e) = init else { continue };
+            let value = match c.reactive_fields.get(&name.name) {
+                Some(t) => self.lower_expr(&reactive_cell(e, *t)),
+                None => self.lower_expr(e),
+            };
+            let assign = self.field_assign(this, &name.name, name.span, value);
+            stmts.push(Stmt::Expr(assign));
+        }
+        Function {
+            name: format!("{class_name}.__initFields"),
+            name_span: span,
+            params: Vec::new(),
+            ret: Some(Ty::Void),
+            ret_span: None,
+            locals: std::mem::take(&mut self.f.locals),
+            body: Block {
+                stmts,
+                tail: None,
+                span,
+            },
+            span,
+            is_entry: false,
+            is_unsafe: false,
+            this: self.f.this,
+            owner: Some(sid),
+            generics: Vec::new(),
+            closure: None,
+            defaults: Vec::new(),
+            rest: false,
+            c_variadic: false,
+            throws: Vec::new(),
             infer_throws: false,
             generator: false,
         }
@@ -7783,6 +7872,8 @@ struct ClassInfo<'a> {
     /// becomes `__reactive<T>(init)`.
     reactive_fields: HashMap<String, Option<&'a ast::Type>>,
     static_blocks: Vec<&'a ast::Block>,
+    /// The hidden method running the field initializers (`Program::field_initializers`).
+    init_fields: Option<FnId>,
 }
 
 /// An `operator` member as a method: `op+`, `op-u` (unary), `op[]`, `op[]=`. The declaration
