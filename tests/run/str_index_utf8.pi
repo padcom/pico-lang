@@ -1,0 +1,49 @@
+// expect: 2000 4000
+// expect: é ü
+// expect: true
+// expect: true
+// expect: true
+// expect: true
+// expect: 8 2000
+// expect: aé-ü-xaé-ü-x
+//
+// Character indexing of non-ASCII text, forwards, backwards and back and forth (#73): each
+// position is found from the nearest of the start, the end and the last one looked up.
+const unit = "aéüx"
+const s = unit.repeat(500)
+println(`${s.length} ${s.length * 2}`)
+println(`${s[1]} ${s[s.length - 2]}`)
+
+// Every character, forwards and backwards, against a plain array of them.
+const cs: char[] = []
+for (const c of s) cs.push(c)
+let ok = true
+for (let i = 0; i < s.length; i++) if (s[i] != cs[i]) ok = false
+println(ok)
+ok = true
+for (let i = s.length - 1; i >= 0; i--) if (s[i] != cs[i]) ok = false
+println(ok)
+// Back and forth: near the end, then the start, then the middle.
+ok = true
+for (let k = 0; k < 200; k++) {
+  const i = (k * 7919) % s.length
+  if (s[i] != cs[i] || s[s.length - 1 - i] != cs[s.length - 1 - i]) ok = false
+}
+println(ok)
+// Slices anywhere, compared with the characters.
+ok = true
+for (let k = 0; k < 100; k++) {
+  const a = (k * 37) % s.length
+  const b = a + (k % 9)
+  const part = s.slice(a, b)
+  let i = 0
+  for (const c of part) {
+    if (c != cs[a + i]) ok = false
+    i++
+  }
+  if (part.length != (if (b <= s.length) b - a else s.length - a)) ok = false
+}
+println(ok)
+const t = "é".repeat(5) + "needle" + "ü".repeat(2000)
+println(`${t.indexOf("dle")} ${t.lastIndexOf("ü") - 10}`)
+println("aéüx".replaceAll("ü", "-ü-").repeat(2))

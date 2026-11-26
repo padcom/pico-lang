@@ -337,14 +337,19 @@ static uint32_t utf8_decode(const unsigned char *p) {
     }
 }
 
-uint32_t pico_str_char_at(PicoStr *s, int64_t i, const char *file, int64_t file_len, int32_t line,
-                         int32_t col) {
-    if (i < 0 || i >= s->char_len) {
-        pico_panic("index out of bounds", 19, file, file_len, line, col);
+/* The byte offset of character `i` (0 <= i <= char_len) of a string that isn't ASCII: walked
+ * from the nearest of its start, its end and the last character looked up in it, forwards or
+ * back, so stepping through it (`s[i]`, `slice`, also backwards and back and forth, as
+ * `indexOf` does) costs the distance moved, not `i` (#73). The last position is kept in the
+ * string, except in literals (`cache_char` -1): constants shared by every thread. */
+static int64_t str_byte_of(PicoStr *s, int64_t i) {
+    int64_t c = 0, b = 0, d = i;
+    if (s->char_len - i < d) {
+        c = s->char_len;
+        b = s->byte_len;
+        d = s->char_len - i;
     }
-    if (s->byte_len == s->char_len) return (unsigned char)s->data[i]; /* ASCII */
-    int64_t c = 0, b = 0;
-    if (i >= s->cache_char && s->cache_char >= 0) {
+    if (s->cache_char >= 0 && (s->cache_char > i ? s->cache_char - i : i - s->cache_char) < d) {
         c = s->cache_char;
         b = s->cache_byte;
     }
@@ -352,12 +357,25 @@ uint32_t pico_str_char_at(PicoStr *s, int64_t i, const char *file, int64_t file_
         b += utf8_len((unsigned char)s->data[b]);
         c++;
     }
-    /* Literals (`cache_char` -1) are constants shared by every thread: no cache. */
+    while (c > i) {
+        do b--;
+        while (((unsigned char)s->data[b] & 0xC0) == 0x80);
+        c--;
+    }
     if (s->cache_char >= 0) {
         s->cache_char = c;
         s->cache_byte = b;
     }
-    return utf8_decode((const unsigned char *)s->data + b);
+    return b;
+}
+
+uint32_t pico_str_char_at(PicoStr *s, int64_t i, const char *file, int64_t file_len, int32_t line,
+                         int32_t col) {
+    if (i < 0 || i >= s->char_len) {
+        pico_panic("index out of bounds", 19, file, file_len, line, col);
+    }
+    if (s->byte_len == s->char_len) return (unsigned char)s->data[i]; /* ASCII */
+    return utf8_decode((const unsigned char *)s->data + str_byte_of(s, i));
 }
 
 PicoStr *pico_str_slice(const PicoStr *s, int64_t a, int64_t b) {
@@ -369,21 +387,14 @@ PicoStr *pico_str_slice(const PicoStr *s, int64_t a, int64_t b) {
         e->char_len = 0;
         return e;
     }
-    int64_t from = 0, to;
+    int64_t from, to;
     if (s->byte_len == n) {
         from = a;
         to = b;
     } else {
-        int64_t c = 0;
-        while (c < a) {
-            from += utf8_len((unsigned char)s->data[from]);
-            c++;
-        }
-        to = from;
-        while (c < b) {
-            to += utf8_len((unsigned char)s->data[to]);
-            c++;
-        }
+        /* (The cache is a lookup aid, not the string's value: writing it is fine.) */
+        from = str_byte_of((PicoStr *)s, a);
+        to = str_byte_of((PicoStr *)s, b);
     }
     PicoStr *r = str_alloc(to - from);
     memcpy(r->data, s->data + from, (size_t)(to - from));

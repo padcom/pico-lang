@@ -294,7 +294,23 @@ struct Interp<'p, 'o> {
     comptime: Option<comptime::State>,
     /// A global read before it was set (comptime only: it's only set when the program runs).
     uninit_global: std::cell::Cell<Option<u32>>,
+    /// The last two long strings indexed, most recent first (see [`StrPos`]).
+    str_pos: [Option<StrPos>; 2],
 }
+
+/// A long string's character count and the last position looked up in it: stepping through it
+/// (`s[i]`, `slice`, `length`) costs the distance moved, not the index (#73). The `Rc` keeps
+/// the string alive, so the pointer can't be another one's. Two of them, because loops
+/// compare one string with another (`indexOf`).
+struct StrPos {
+    s: Rc<str>,
+    chars: usize,
+    c: usize,
+    b: usize,
+}
+
+/// Strings shorter than this (in bytes) are just walked.
+const STR_POS_MIN: usize = 64;
 
 struct Frame<'p> {
     f: &'p mir::Function,
@@ -801,6 +817,75 @@ impl Interp<'_, '_> {
         out
     }
 
+    /// The [`StrPos`] of a long string (made, evicting the older one, if it has none).
+    fn str_pos(&mut self, s: &Rc<str>) -> &mut StrPos {
+        if !self.str_pos[0]
+            .as_ref()
+            .is_some_and(|p| Rc::ptr_eq(&p.s, s))
+        {
+            if self.str_pos[1]
+                .as_ref()
+                .is_some_and(|p| Rc::ptr_eq(&p.s, s))
+            {
+                self.str_pos.swap(0, 1);
+            } else {
+                self.str_pos[1] = self.str_pos[0].take();
+                self.str_pos[0] = Some(StrPos {
+                    s: s.clone(),
+                    chars: s.chars().count(),
+                    c: 0,
+                    b: 0,
+                });
+            }
+        }
+        self.str_pos[0].as_mut().expect("just set")
+    }
+
+    /// `s.length`, in characters.
+    fn str_chars(&mut self, s: &Rc<str>) -> usize {
+        if s.len() < STR_POS_MIN {
+            return s.chars().count();
+        }
+        self.str_pos(s).chars
+    }
+
+    /// The byte offset of character `i` (at most the length): walked from the nearest of the
+    /// start, the end and the last position looked up.
+    fn str_byte(&mut self, s: &Rc<str>, i: usize) -> usize {
+        if s.len() < STR_POS_MIN {
+            return s.char_indices().nth(i).map_or(s.len(), |(b, _)| b);
+        }
+        let p = self.str_pos(s);
+        if p.chars == s.len() {
+            return i; // (ASCII)
+        }
+        let (mut c, mut b) = (0, 0);
+        let mut d = i;
+        if p.chars - i < d {
+            (c, b, d) = (p.chars, s.len(), p.chars - i);
+        }
+        if p.c.abs_diff(i) < d {
+            (c, b) = (p.c, p.b);
+        }
+        let bytes = s.as_bytes();
+        while c < i {
+            b += 1;
+            while b < bytes.len() && bytes[b] & 0xC0 == 0x80 {
+                b += 1;
+            }
+            c += 1;
+        }
+        while c > i {
+            b -= 1;
+            while bytes[b] & 0xC0 == 0x80 {
+                b -= 1;
+            }
+            c -= 1;
+        }
+        (p.c, p.b) = (c, b);
+        b
+    }
+
     fn rvalue(&mut self, frame: &Frame, rv: &Rvalue, loc: Loc) -> Result<Value, Panic> {
         match rv {
             Rvalue::Use(o) => Ok(self.operand(frame, o)),
@@ -911,13 +996,17 @@ impl Interp<'_, '_> {
                 ))
             }
             Rvalue::StrLen(o) => match self.operand(frame, o) {
-                Value::Str(s) => Ok(Value::Int(s.chars().count() as i128)),
+                Value::Str(s) => Ok(Value::Int(self.str_chars(&s) as i128)),
                 v => unreachable!("length of {v:?}"),
             },
             Rvalue::StrCharAt(o, i) => match (self.operand(frame, o), self.operand(frame, i)) {
                 (Value::Str(s), Value::Int(i)) => usize::try_from(i)
                     .ok()
-                    .and_then(|i| s.chars().nth(i))
+                    .filter(|&i| i < self.str_chars(&s))
+                    .and_then(|i| {
+                        let b = self.str_byte(&s, i);
+                        s[b..].chars().next()
+                    })
                     .map(Value::Char)
                     .ok_or_else(|| self.panic(panics::INDEX, loc)),
                 v => unreachable!("indexing {v:?}"),
@@ -929,15 +1018,15 @@ impl Interp<'_, '_> {
                     self.operand(frame, b),
                 ) {
                     (Value::Str(s), Value::Int(a), Value::Int(b)) => {
-                        let n = s.chars().count() as i128;
+                        let n = self.str_chars(&s) as i128;
                         let norm = |i: i128| if i < 0 { (n + i).max(0) } else { i.min(n) };
                         let (a, b) = (norm(a), norm(b));
-                        let out: String = if b > a {
-                            s.chars().skip(a as usize).take((b - a) as usize).collect()
-                        } else {
-                            String::new()
-                        };
-                        Ok(Value::Str(out.into()))
+                        if b <= a {
+                            return Ok(Value::Str("".into()));
+                        }
+                        let from = self.str_byte(&s, a as usize);
+                        let to = self.str_byte(&s, b as usize);
+                        Ok(Value::Str(s[from..to].into()))
                     }
                     v => unreachable!("slice of {v:?}"),
                 }
