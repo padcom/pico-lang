@@ -1,0 +1,153 @@
+---
+source: crates/pico-driver/tests/mir.rs
+expression: "mir(r#\"\nstruct Size {\n  w: i32\n  h: i32\n}\nfunction area(): i32 {\n  const s = Size { w: 3, h: 4 }\n  return s.w * s.h\n}\nfunction base(): i32 { return 40 }\nfunction answer(): i32 { return base() + 2 }\nfunction noisy(): i32 {\n  println(\"side effect\")\n  return 1\n}\nprintln(`${area()} ${answer()} ${noisy()}`)\n\"#)"
+---
+global @g0: () => bool[]? // __finalizationRegistries
+global @g1: i64 // __finalizedAtCycle
+global @g2: i64 // __stepsSinceFinalizers
+global @g3: __Reactivity? // __reactivity
+global @g4: bool // __tracking
+global @g5: i64 // __reactiveObjects
+global @g6: __Loop? // __loop
+global @g7: i64 // __lastJob
+global @g8: FinalizationRegistry<i64>? // __buffers
+global @g9: i64 // __reclaimedAtCycle
+global @g10: i64 // __bytesSinceReclaim
+global @g11: __ConnPool? // __pool
+global @g12: Map<string, __Zone>? // __zoneCache
+global @g13: Performance // performance
+global @g14: __Xoshiro128? // __mathRng
+global @g15: Crypto // crypto
+global @g16: i64 // Uint8Array.BYTES_PER_ELEMENT
+global @g17: i64 // Int32Array.BYTES_PER_ELEMENT
+global @g18: i64 // Uint32Array.BYTES_PER_ELEMENT
+global @g19: i64 // Float32Array.BYTES_PER_ELEMENT
+global @g20: i64 // Float64Array.BYTES_PER_ELEMENT
+
+fn area() -> i32 {
+    let _0: Size // s
+    let _1: Size
+    let _2: i32
+  bb0:
+    _1 = struct#141{const 3_i32, const 4_i32}
+    _0 = _1
+    return const 12_i32
+  bb1:
+    unreachable
+}
+
+fn base() -> i32 {
+  bb0:
+    return const 40_i32
+  bb1:
+    unreachable
+}
+
+fn answer() -> i32 {
+    let _0: i32
+    let _1: i32
+  bb0:
+    goto bb1
+  bb1:
+    return const 42_i32
+  bb2:
+    unreachable
+}
+
+fn noisy() -> i32 {
+  bb0:
+    call builtin println(const "side effect") -> bb1
+  bb1:
+    return const 1_i32
+  bb2:
+    unreachable
+}
+
+fn Uint8Array.<static>() -> void {
+  bb0:
+    @g16 = const 1_i64
+    return
+}
+
+fn Int32Array.<static>() -> void {
+  bb0:
+    @g17 = const 4_i64
+    return
+}
+
+fn Uint32Array.<static>() -> void {
+  bb0:
+    @g18 = const 4_i64
+    return
+}
+
+fn Float32Array.<static>() -> void {
+  bb0:
+    @g19 = const 4_i64
+    return
+}
+
+fn Float64Array.<static>() -> void {
+  bb0:
+    @g20 = const 8_i64
+    return
+}
+
+fn <main>() -> void {
+    let _0: Performance
+    let _1: SubtleCrypto
+    let _2: Crypto
+    let _3: i32
+    let _4: string
+    let _5: i32
+    let _6: string
+    let _7: i32
+    let _8: string
+    let _9: string
+    let _10: string
+    let _11: string
+    let _12: string
+  bb0:
+    call Uint8Array.<static>() -> bb1
+  bb1:
+    call Int32Array.<static>() -> bb2
+  bb2:
+    call Uint32Array.<static>() -> bb3
+  bb3:
+    call Float32Array.<static>() -> bb4
+  bb4:
+    call Float64Array.<static>() -> bb5
+  bb5:
+    @g0 = const null<() => bool[]?>
+    @g1 = const -1_i64
+    @g2 = const 0_i64
+    @g3 = const null<__Reactivity?>
+    @g4 = const false
+    @g5 = const 0_i64
+    @g6 = const null<__Loop?>
+    @g7 = const -1_i64
+    @g8 = const null<FinalizationRegistry<i64>?>
+    @g9 = const -1_i64
+    @g10 = const 0_i64
+    @g11 = const null<__ConnPool?>
+    @g12 = const null<Map<string, __Zone>?>
+    _0 = struct#128{}
+    @g13 = _0
+    @g14 = const null<__Xoshiro128?>
+    _1 = struct#139{}
+    _2 = struct#140{_1}
+    @g15 = _2
+    goto bb6
+  bb6:
+    goto bb7
+  bb7:
+    _7 = call noisy() -> bb8
+  bb8:
+    _8 = ToStr(_7)
+    _12 = Add(const "12 42 ", _8)
+    call builtin println(_12) -> bb9
+  bb9:
+    goto bb10
+  bb10:
+    return
+}

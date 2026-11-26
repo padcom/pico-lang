@@ -111,13 +111,13 @@ fn <main>() -> void {
     _2 = struct#140{_1}
     @g15 = _2
     @g16 = const "pico"
-    _3 = call greet() -> bb6
+    goto bb6
   bb6:
-    call builtin println(_3) -> bb7
+    call builtin println(const "hello, pico!") -> bb7
   bb7:
-    _4 = call tag() -> bb8
+    goto bb8
   bb8:
-    call builtin println(_4) -> bb9
+    call builtin println(const "3-true-x") -> bb9
   bb9:
     goto bb10
   bb10:
