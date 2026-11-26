@@ -1,0 +1,31 @@
+// expect: listening on ::1: true
+// expect: tcp: PING from ::1
+// expect: udp: hello from ::1, port matches: true
+// IPv6 only (#65): a TCP listener and a client on `::1`, and UDP sockets bound to `::1`; the
+// addresses come back in IPv6 form.
+import { listen, connect, bind } from "std/net"
+
+const listener = await listen(0, "::1")
+println(`listening on ::1: ${listener.addr.hostname == "::1" && listener.addr.port > 0}`)
+const accepting = listener.accept()
+const client = await connect(listener.addr.port, "::1")
+const server = await accepting
+if (server != null) {
+  await client.writeText("ping")
+  client.closeWrite()
+  const text = await server.text()
+  println(`tcp: ${text.toUpperCase()} from ${server.remoteAddr.hostname}`)
+  server.close()
+}
+client.close()
+listener.close()
+
+const a = await bind(0, "::1")
+const b = await bind(0, "::1")
+await a.sendText("hello", b.addr.port, "::1")
+const got = await b.receive()
+if (got != null) {
+  println(`udp: ${string.fromUtf8(got.data)} from ${got.addr.hostname}, port matches: ${got.addr.port == a.addr.port}`)
+}
+a.close()
+b.close()

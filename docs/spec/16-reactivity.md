@@ -30,7 +30,9 @@ class Counter {
 - `reactive` is a **contextual** keyword: it starts a declaration when it's followed by a name at
   the start of a statement or class member, and is an ordinary identifier everywhere else.
 - A reactive binding needs an initial value, a reactive field too (E0357): its cell exists
-  before the constructor runs, so assigning it in the constructor is a write.
+  before the constructor runs, so assigning it in the constructor is a write. A constructor
+  parameter property can be reactive (`constructor(public reactive count: int)`, #71): its cell
+  is made from the argument.
 - `T` comes from the type annotation or the initializer, as for `let` (§4). Reactive bindings
   can't be destructuring patterns, `comptime`, or fields of structs (structs are values, §2).
 

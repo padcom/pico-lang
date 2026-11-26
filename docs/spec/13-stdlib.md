@@ -256,8 +256,8 @@ program's end while it's open (a return, `exit()`, a panic, and natively SIGINT,
 and crash signals whose action is the default; not SIGKILL). A socket file that
 nothing listens on (a server that crashed left it) is replaced; a live listener's, or a file
 that isn't a socket, gives `AddrInUse` (decision 325).
-A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (one at a time; `null` once
-closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
+A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (several at once each get a
+connection, #65; `null` once closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
 connections stay open). A `Conn` has `localAddr`, `remoteAddr`, `read(n = 65536):
 Promise<Uint8Array?, NetError>` (`null` once the other side finished writing or this side is
 closed), `for await` over chunks, `text()` (the rest as UTF-8), `write(data)` and
