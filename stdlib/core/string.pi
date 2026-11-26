@@ -713,3 +713,81 @@ function __string_fromCBytes(bytes: Uint8Array): string {
 extern "C" {
   function pico_str_from_c(p: ptr<u8>): string
 }
+
+/// A string built piece by piece, in time linear in its length: appending to a `string` with `+`
+/// copies everything so far each time (O(n²) for a long one). The pieces are joined once, by
+/// `toString()`.
+///
+/// @example
+/// ```ts
+/// const b = new StringBuilder()
+/// for (let i = 1; i <= 3; i++) b.append(i).append(",")
+/// println(b.toString())   // 1,2,3,
+/// println(b.length)       // 6
+/// ```
+class StringBuilder {
+  parts: string[] = []
+  chars: int = 0
+
+  /// An empty builder.
+  ///
+  /// @example
+  /// ```ts
+  /// println(new StringBuilder().length)   // 0
+  /// ```
+  constructor() {}
+
+  /// Adds `x`'s string form (as `${x}` gives it) at the end; the builder itself, to chain.
+  ///
+  /// @example
+  /// ```ts
+  /// const b = new StringBuilder()
+  /// b.append("x = ").append(4.5).append(true)
+  /// println(b.toString())   // x = 4.5true
+  /// ```
+  public append<T>(x: T): StringBuilder {
+    const s = `${x}`
+    if (s.length > 0) {
+      this.parts.push(s)
+      this.chars += s.length
+    }
+    return this
+  }
+
+  /// How many characters (code points) it holds.
+  ///
+  /// @example
+  /// ```ts
+  /// println(new StringBuilder().append("héllo").length)   // 5
+  /// ```
+  public get length(): int {
+    this.chars
+  }
+
+  /// Empties it, to build another string.
+  ///
+  /// @example
+  /// ```ts
+  /// const b = new StringBuilder().append("a")
+  /// b.clear()
+  /// println(b.append("b").toString())   // b
+  /// ```
+  public clear(): void {
+    this.parts = []
+    this.chars = 0
+  }
+
+  /// The string built so far.
+  ///
+  /// @example
+  /// ```ts
+  /// println(new StringBuilder().append("a").append("b").toString())   // ab
+  /// ```
+  public toString(): string {
+    // (Joined into one piece, so asking again doesn't join again.)
+    if (this.parts.length > 1) {
+      this.parts = [this.parts.join("")]
+    }
+    if (this.parts.length == 0) "" else this.parts[0]
+  }
+}
