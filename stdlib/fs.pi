@@ -701,14 +701,14 @@ export struct WatchEvent {
 /// waits for an event are compared as a whole when the next one is asked for, so a file
 /// created and changed in between is one `create`, and one created and removed is nothing.
 ///
-/// How changes are found depends on the platform. On Linux, inotify says which directories
-/// changed and only those are looked at again, so an idle watcher costs nothing. On macOS and
-/// Windows the OS only says that something changed, so the watcher looks at the whole tree
-/// each time, and also every 250 ms while an event is awaited: on a big tree (tens of
-/// thousands of entries) that's noticeable CPU. On macOS, in a tree of more than 256 entries,
-/// a change to a file's contents is only noticed by that 250 ms look. Linux falls back to the
-/// same when it can't be exact: inotify's watch limit (`fs.inotify.max_user_watches`) reached,
-/// its queue overflowed, or the root missing.
+/// The OS says which directories changed (inotify on Linux, FSEvents on macOS,
+/// `ReadDirectoryChangesW` on Windows) and only those are looked at again, so an idle watcher
+/// costs nothing, even on a big tree. When it can't say, the watcher looks at the whole tree
+/// each time, and also every 250 ms while an event is awaited, which on a big tree (tens of
+/// thousands of entries) is noticeable CPU: when the OS dropped events (its queue or buffer
+/// overflowed), Linux's watch limit (`fs.inotify.max_user_watches`) is reached, the watched
+/// path is a file, or it's gone. (On macOS then, in a tree of more than 256 entries, a change
+/// to a file's contents is only noticed by that 250 ms look.)
 ///
 /// @example
 /// ```ts

@@ -207,15 +207,14 @@ snapshots of the tree (kind, size, modification time, inode per entry), compared
 asked for and again while one waits, in path order. So changes made while nobody waits arrive
 together as one difference (a file created and written is one `create`; created and removed,
 nothing), a rename is a `remove` and a `create`, and directories are never `modify`d.
-`close()` (twice is fine) makes waiting and later `next()` calls return `null`. On Linux inotify
-says which directories changed, and only those are looked at again (nothing without a change); a
-full look when it can't say (its queue overflowed, a watch couldn't be added, the root is a file or
-is gone, which is then looked at every 250 ms). Elsewhere the OS notifications (kqueue, a Windows
-change notification) only say that something changed, so the watcher looks at the whole tree, and
-also every 250 ms. This is a known limitation: on a big tree (tens of thousands of entries) an idle
-macOS or Windows watcher costs noticeable CPU, and on macOS a change to a file's contents in a tree
-of more than 256 entries (only directories get a kqueue descriptor then) is only noticed by the
-250 ms look.
+`close()` (twice is fine) makes waiting and later `next()` calls return `null`. The OS says which
+directories changed (inotify on Linux, FSEvents on macOS, `ReadDirectoryChangesW` on Windows), and
+only those are looked at again (nothing without a change). When it can't say (dropped events, an
+overflowed queue or buffer, Linux's watch limit, a watched file, a root that's gone), the watcher
+looks at the whole tree, the OS notification (inotify, kqueue, a Windows change notification) only
+waking it up, and also every 250 ms: on a big tree (tens of thousands of entries) that costs
+noticeable CPU, and on macOS a change to a file's contents in a tree of more than 256 entries (only
+directories get a kqueue descriptor then) is only noticed by the 250 ms look.
 
 ### `std/path`
 Node's `path`: `sep`, `delimiter`, `isAbsolute`, `normalize` (`a//b/../c/` → `a/c/`),
