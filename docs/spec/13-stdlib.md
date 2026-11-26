@@ -650,7 +650,8 @@ Results are `Uint8Array`s, failures reject with `CryptoError` (`kind`: `InvalidA
 `InvalidAccess`), and a raw ECDSA/ECDH public key must be a point on its curve.
 
 `std/crypto` is synchronous: `digest(alg, data)` and `hmac(alg, key, data)` (SHA-1, SHA-224,
-SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), `hkdf`, `pbkdf2`,
+SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), streaming
+hashes (`createHash(alg)`: `update(data)` any number of times, then `digest()` once; #69), `hkdf`, `pbkdf2`,
 `Aead.aesGcm(key)` / `Aead.chacha20Poly1305(key)` with `seal(nonce, plaintext, aad)` (giving the
 ciphertext then the tag) and `open` (which throws `CryptoError` when the data doesn't
 authenticate), `EcKeyPair.generate(curve)` / `fromPrivateKey`, with `sign(hash, message)`

@@ -1,6 +1,7 @@
 // `std/crypto` (spec §13.2): synchronous cryptography over Mbed TLS: hashes, HMAC, HKDF,
 // PBKDF2, AEAD (AES-GCM, ChaCha20-Poly1305), elliptic-curve keys (P-256, P-384, X25519),
-// ECDSA and ECDH. The `crypto` global has Web Crypto's async `subtle` over the same code.
+// ECDSA and ECDH; streaming hashes (`createHash`). The `crypto` global has Web Crypto's async
+// `subtle` over the same code.
 // Strings are taken as their UTF-8 bytes.
 
 export { CryptoError, CryptoKey, KeyAlgorithm, Algorithm, CryptoKeyPair, SubtleCrypto }
@@ -18,6 +19,94 @@ export { CryptoError, CryptoKey, KeyAlgorithm, Algorithm, CryptoKeyPair, SubtleC
 /// ```
 export function digest(algorithm: HashAlgorithm, data: Uint8Array | string): Uint8Array {
   __digest(algorithm, __bytes(data))
+}
+
+/// A hash computed piece by piece (#69): `update` with each chunk, then `digest` once, for
+/// data that doesn't fit in memory or arrives in parts. The same algorithms as `digest`.
+///
+/// @example
+/// ```ts
+/// import { createHash } from "std/crypto"
+/// import { hex } from "std/encoding"
+///
+/// const h = createHash("SHA-256")
+/// h.update("a").update("bc")
+/// println(hex.encode(h.digest()))
+/// // ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+/// ```
+export function createHash(algorithm: HashAlgorithm): Hash {
+  return new Hash(algorithm)
+}
+
+/// Frees the hash state of a `Hash` collected without `digest`.
+const __hashStates = new FinalizationRegistry<Uint8Array>((state: Uint8Array) => {
+  try! __cryptoOp(1800, [state])
+})
+
+/// A hash computed piece by piece (`createHash`).
+///
+/// @example
+/// ```ts
+/// import { Hash } from "std/crypto"
+/// import { hex } from "std/encoding"
+///
+/// const h = new Hash("SHA-1")
+/// h.update(new TextEncoder().encode("abc"))
+/// println(hex.encode(h.digest()))   // a9993e364706816aba3e25717850c26c9cd0d89d
+/// ```
+export class Hash {
+  /// The algorithm.
+  public readonly algorithm: HashAlgorithm
+  state: Uint8Array? = null
+
+  /// A hash of nothing yet, by `algorithm` (as `createHash(algorithm)`).
+  ///
+  /// @example
+  /// ```ts
+  /// import { Hash } from "std/crypto"
+  ///
+  /// println(new Hash("SHA-512").algorithm)   // SHA-512
+  /// ```
+  constructor(algorithm: HashAlgorithm) {
+    this.algorithm = algorithm
+    const s = try! __cryptoOp(1500 + __hashId(algorithm), [])
+    this.state = s
+    __hashStates.registerWithToken(this, s, this)
+  }
+
+  /// Adds `data` (a string as its UTF-8 bytes); returns the hash, for chaining. Panics after
+  /// `digest`.
+  ///
+  /// @example
+  /// ```ts
+  /// import { createHash } from "std/crypto"
+  ///
+  /// const h = createHash("SHA-256").update("part one, ").update("part two")
+  /// println(h.digest().length)   // 32
+  /// ```
+  public update(data: Uint8Array | string): Hash {
+    const s = this.state
+    if (s == null) panic("Hash.update after digest")
+    try! __cryptoOp(1600, [s!, __bytes(data)])
+    return this
+  }
+
+  /// The hash of everything added. A hash is digested once (again panics).
+  ///
+  /// @example
+  /// ```ts
+  /// import { createHash } from "std/crypto"
+  /// import { hex } from "std/encoding"
+  ///
+  /// println(hex.encode(createHash("SHA-1").digest()))   // da39a3ee5e6b4b0d3255bfef95601890afd80709
+  /// ```
+  public digest(): Uint8Array {
+    const s = this.state
+    if (s == null) panic("Hash.digest called twice")
+    this.state = null
+    __hashStates.unregister(this)
+    return try! __cryptoOp(1700, [s!])
+  }
 }
 
 /// The HMAC of `data` under `key`.
