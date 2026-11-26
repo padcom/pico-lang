@@ -600,6 +600,21 @@ static void watch_dir_os(Watcher *w, const char *rel);
 static void watch_drain_os(Watcher *w);
 /* Stops reporting directories that aren't in `s` any more. */
 static void watch_prune_os(Watcher *w, const Snap *s);
+/* What reports the changes (for `PICO_WATCH_TRACE`). */
+static const char *watch_name_os(Watcher *w);
+
+/* `PICO_WATCH_TRACE=1`: on stderr, how each watcher finds changes ("watch: open exact
+ * (inotify)", or "scans" and what wakes it up) and each look at the tree ("watch: look
+ * incremental (2 directories)" or "watch: look full"). The golden test `fs/watch_trace`
+ * checks the exact backend is the one used on each platform. */
+static int watch_trace(void) {
+    static int t = -1;
+    if (t < 0) {
+        const char *e = getenv("PICO_WATCH_TRACE");
+        t = e && !strcmp(e, "1");
+    }
+    return t;
+}
 
 static pthread_mutex_t watch_lock = PTHREAD_MUTEX_INITIALIZER;
 static Watcher *watchers;
@@ -845,7 +860,12 @@ static int deliver(Watcher *w) {
     watch_drain_os(w);
     if (w->exact && !w->full && w->ndirty == 0) return 0;
     Snap now = {0};
-    if (w->exact && !w->full && w->root_dir) rescan_dirty(w, &now);
+    int incremental = w->exact && !w->full && w->root_dir;
+    if (watch_trace()) {
+        if (incremental) fprintf(stderr, "watch: look incremental (%zu directories)\n", w->ndirty);
+        else fprintf(stderr, "watch: look full\n");
+    }
+    if (incremental) rescan_dirty(w, &now);
     else scan(w, w->root, w->recursive, &now);
     dirty_clear(w);
     watch_prune_os(w, &now);
@@ -914,6 +934,8 @@ static void watch_open(Job *j) {
         return;
     }
     w->snap = s;
+    if (watch_trace())
+        fprintf(stderr, "watch: open %s (%s)\n", w->exact ? "exact" : "scans", watch_name_os(w));
     pthread_mutex_init(&w->lock, NULL);
     pthread_cond_init(&w->cond, NULL);
     wake_open(w);
@@ -1483,6 +1505,7 @@ static void watch_free_os(Watcher *w) { (void)w; }
 static void watch_dir_os(Watcher *w, const char *rel) { (void)w, (void)rel; }
 static void watch_drain_os(Watcher *w) { (void)w; }
 static void watch_prune_os(Watcher *w, const Snap *s) { (void)w, (void)s; }
+static const char *watch_name_os(Watcher *w) { (void)w; return "polling"; }
 #endif
 
 #if defined(__wasi__)
@@ -1712,6 +1735,8 @@ static void watch_drain_os(Watcher *w) {
 
 static void watch_prune_os(Watcher *w, const Snap *s) { (void)w, (void)s; }
 
+static const char *watch_name_os(Watcher *w) { return w->os ? "FSEvents" : "kqueue"; }
+
 static void wait_kqueue(Watcher *w, int ms);
 
 /* Waits up to `ms` for FSEvents or for the wake pipe (`deliver` takes the events). */
@@ -1853,6 +1878,8 @@ static void watch_prune_os(Watcher *w, const Snap *s) {
         }
     }
 }
+
+static const char *watch_name_os(Watcher *w) { return w->ino >= 0 ? "inotify" : "polling"; }
 
 /* Waits up to `ms` for an inotify event or for the wake pipe (`deliver` reads the events). */
 static void wait_os(Watcher *w, int ms) {
@@ -3691,6 +3718,10 @@ static void watch_drain_os(Watcher *w) {
 }
 
 static void watch_prune_os(Watcher *w, const Snap *s) { (void)w, (void)s; }
+
+static const char *watch_name_os(Watcher *w) {
+    return w->os ? "ReadDirectoryChangesW" : "change notification";
+}
 
 /* With ReadDirectoryChangesW, waits for it; otherwise for a change notification on the
  * watched directory (a watched file's directory). */
