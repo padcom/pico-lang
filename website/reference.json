@@ -446,7 +446,7 @@
               "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const params: Algorithm = { name: \"AES-GCM\", iv: crypto.getRandomValues(new Uint8Array(12)) }\n  const sealed = await crypto.subtle.encrypt(params, key, new TextEncoder().encode(\"hi\"))\n  println(sealed.length)   // 18 (2 bytes of ciphertext + a 16-byte tag)\n}"
             }
           ],
-          "source": "core/crypto.pi:212",
+          "source": "core/crypto.pi:213",
           "members": [
             {
               "name": "name",
@@ -454,7 +454,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"AES-GCM\"</code>, <code>\"HMAC\"</code>, <code>\"ECDSA\"</code>, <code>\"ECDH\"</code>, <code>\"HKDF\"</code>, <code>\"PBKDF2\"</code>; any\ncase), or, for <code>digest</code>, the hash's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:215",
+              "source": "core/crypto.pi:216",
               "members": []
             },
             {
@@ -463,7 +463,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:217",
+              "source": "core/crypto.pi:218",
               "members": []
             },
             {
@@ -472,7 +472,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve for <code>generateKey</code> and <code>importKey</code> of ECDSA (<code>\"P-256\"</code>, <code>\"P-384\"</code>) and ECDH keys\n(also <code>\"X25519\"</code>).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:220",
+              "source": "core/crypto.pi:221",
               "members": []
             },
             {
@@ -481,7 +481,7 @@
               "signature": "length?: int",
               "doc": "<p>The key length in bits for <code>generateKey</code> (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:222",
+              "source": "core/crypto.pi:223",
               "members": []
             },
             {
@@ -490,7 +490,7 @@
               "signature": "iv?: Uint8Array",
               "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual), or AES-CBC's initialization vector (16\nbytes).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:225",
+              "source": "core/crypto.pi:226",
               "members": []
             },
             {
@@ -499,7 +499,7 @@
               "signature": "counter?: Uint8Array",
               "doc": "<p>AES-CTR's initial counter block (16 bytes); <code>length</code> is then how many of its rightmost\nbits count up (#69).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:228",
+              "source": "core/crypto.pi:229",
               "members": []
             },
             {
@@ -508,7 +508,7 @@
               "signature": "additionalData?: Uint8Array",
               "doc": "<p>AES-GCM's authenticated, unencrypted data (none unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:230",
+              "source": "core/crypto.pi:231",
               "members": []
             },
             {
@@ -517,7 +517,7 @@
               "signature": "tagLength?: int",
               "doc": "<p>AES-GCM's tag length in bits: only 128 (the default) is supported.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:232",
+              "source": "core/crypto.pi:233",
               "members": []
             },
             {
@@ -526,7 +526,7 @@
               "signature": "public?: CryptoKey",
               "doc": "<p>ECDH's peer public key, for <code>deriveBits</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:234",
+              "source": "core/crypto.pi:235",
               "members": []
             },
             {
@@ -535,7 +535,7 @@
               "signature": "salt?: Uint8Array",
               "doc": "<p>The HKDF or PBKDF2 salt (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:236",
+              "source": "core/crypto.pi:237",
               "members": []
             },
             {
@@ -544,7 +544,7 @@
               "signature": "info?: Uint8Array",
               "doc": "<p>HKDF's context info (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:238",
+              "source": "core/crypto.pi:239",
               "members": []
             },
             {
@@ -553,7 +553,7 @@
               "signature": "iterations?: int",
               "doc": "<p>PBKDF2's iteration count.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:240",
+              "source": "core/crypto.pi:241",
               "members": []
             }
           ]
@@ -1228,7 +1228,7 @@
               "code": "const id = crypto.randomUUID()\nprintln(id.length)   // 36\nconst bytes = crypto.getRandomValues(new Uint8Array(4))\nprintln(bytes.length)   // 4"
             }
           ],
-          "source": "core/crypto.pi:582",
+          "source": "core/crypto.pi:583",
           "members": [
             {
               "name": "subtle",
@@ -1236,7 +1236,7 @@
               "signature": "subtle: SubtleCrypto",
               "doc": "<p>Web Crypto's asynchronous operations (keys, signatures, encryption, derivation).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:584",
+              "source": "core/crypto.pi:585",
               "members": []
             },
             {
@@ -1250,7 +1250,7 @@
                   "code": "const nonce = crypto.getRandomValues(new Uint8Array(12))\nprintln(nonce.length)   // 12 (random bytes, different each run)"
                 }
               ],
-              "source": "core/crypto.pi:594",
+              "source": "core/crypto.pi:595",
               "members": []
             },
             {
@@ -1264,7 +1264,7 @@
                   "code": "const id = crypto.randomUUID()\nprintln(id)          // e.g. 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed\nprintln(id[14])      // 4 (the version)"
                 }
               ],
-              "source": "core/crypto.pi:609",
+              "source": "core/crypto.pi:610",
               "members": []
             }
           ]
@@ -1318,7 +1318,7 @@
               "code": "const raw = new TextEncoder().encode(\"secret\")\nconst key = await crypto.subtle.importKey(\"raw\", raw, { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nprintln(key.type)                   // secret\nprintln(key.algorithm.name)         // HMAC\nprintln(key.algorithm.length)       // 48\nprintln(key.usages.join(\", \"))      // sign"
             }
           ],
-          "source": "core/crypto.pi:144",
+          "source": "core/crypto.pi:145",
           "members": [
             {
               "name": "type",
@@ -1326,7 +1326,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"secret\"</code>, <code>\"private\"</code> or <code>\"public\"</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:146",
+              "source": "core/crypto.pi:147",
               "members": []
             },
             {
@@ -1335,7 +1335,7 @@
               "signature": "public readonly extractable: bool",
               "doc": "<p>Whether <code>exportKey</code> may export a non-public key's bytes.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:148",
+              "source": "core/crypto.pi:149",
               "members": []
             },
             {
@@ -1344,7 +1344,7 @@
               "signature": "public readonly algorithm: KeyAlgorithm",
               "doc": "<p>The algorithm the key is for, with its hash, curve or length.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:150",
+              "source": "core/crypto.pi:151",
               "members": []
             },
             {
@@ -1353,7 +1353,7 @@
               "signature": "public readonly usages: string[]",
               "doc": "<p>What the key may be used for (<code>\"sign\"</code>, <code>\"verify\"</code>, <code>\"encrypt\"</code>, <code>\"decrypt\"</code>,\n<code>\"deriveBits\"</code>): another use rejects with an <code>\"InvalidAccess\"</code> <code>CryptoError</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:153",
+              "source": "core/crypto.pi:154",
               "members": []
             },
             {
@@ -1367,7 +1367,7 @@
                   "code": "const alg: KeyAlgorithm = { name: \"HMAC\", hash: \"SHA-256\", length: 128 }\nconst key = new CryptoKey(\"secret\", true, alg, [\"sign\", \"verify\"], new Uint8Array(16))\nprintln(key.extractable)   // true\nprintln(key.type)          // secret"
                 }
               ],
-              "source": "core/crypto.pi:165",
+              "source": "core/crypto.pi:166",
               "members": []
             }
           ]
@@ -1383,7 +1383,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDH\", namedCurve: \"X25519\" }, false, [\"deriveBits\"])\nif (pair is CryptoKeyPair) {\n  println(pair.publicKey.type)    // public\n  println(pair.privateKey.type)   // private\n}"
             }
           ],
-          "source": "core/crypto.pi:253",
+          "source": "core/crypto.pi:254",
           "members": [
             {
               "name": "publicKey",
@@ -1391,7 +1391,7 @@
               "signature": "publicKey: CryptoKey",
               "doc": "<p>The public key (always extractable).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:255",
+              "source": "core/crypto.pi:256",
               "members": []
             },
             {
@@ -1400,7 +1400,7 @@
               "signature": "privateKey: CryptoKey",
               "doc": "<p>The private key (extractable as <code>generateKey</code> was told).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:257",
+              "source": "core/crypto.pi:258",
               "members": []
             }
           ]
@@ -3060,7 +3060,7 @@
           "signature": "type HashAlgorithm = \"SHA-1\" | \"SHA-224\" | \"SHA-256\" | \"SHA-384\" | \"SHA-512\" | \"SHA3-256\" | \"SHA3-384\" | \"SHA3-512\"",
           "doc": "<p>The hash algorithms, by Web Crypto name.</p>\n",
           "examples": [],
-          "source": "core/crypto.pi:81",
+          "source": "core/crypto.pi:82",
           "members": []
         },
         {
@@ -3737,7 +3737,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const alg: KeyAlgorithm = pair.publicKey.algorithm\n  println(alg.name)         // ECDSA\n  println(alg.namedCurve)   // P-256\n}"
             }
           ],
-          "source": "core/crypto.pi:186",
+          "source": "core/crypto.pi:187",
           "members": [
             {
               "name": "name",
@@ -3745,7 +3745,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"HMAC\"</code>, <code>\"AES-GCM\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:188",
+              "source": "core/crypto.pi:189",
               "members": []
             },
             {
@@ -3754,7 +3754,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …), for HMAC keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:190",
+              "source": "core/crypto.pi:191",
               "members": []
             },
             {
@@ -3763,7 +3763,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve (<code>\"P-256\"</code>, <code>\"P-384\"</code>, <code>\"X25519\"</code>), for ECDSA and ECDH keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:192",
+              "source": "core/crypto.pi:193",
               "members": []
             },
             {
@@ -3772,7 +3772,7 @@
               "signature": "length?: int",
               "doc": "<p>The key's length in bits, for secret keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:194",
+              "source": "core/crypto.pi:195",
               "members": []
             }
           ]
@@ -4855,7 +4855,7 @@
           "signature": "type NamedCurve = \"P-256\" | \"P-384\" | \"X25519\"",
           "doc": "<p>The named curves: <code>P-256</code>, <code>P-384</code> (ECDSA and ECDH) and <code>X25519</code> (ECDH).</p>\n",
           "examples": [],
-          "source": "core/crypto.pi:96",
+          "source": "core/crypto.pi:97",
           "members": []
         },
         {
@@ -6705,7 +6705,7 @@
               "code": "import { hex } from \"std/encoding\"\n\nconst digest = await crypto.subtle.digest(\"SHA-1\", new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(digest))   // a9993e364706816aba3e25717850c26c9cd0d89d"
             }
           ],
-          "source": "core/crypto.pi:305",
+          "source": "core/crypto.pi:306",
           "members": [
             {
               "name": "digest",
@@ -6718,7 +6718,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst data = new TextEncoder().encode(\"hello\")\nconst hash = await crypto.subtle.digest(\"SHA-256\", data)\nprintln(hex.encode(hash))   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
               ],
-              "source": "core/crypto.pi:317",
+              "source": "core/crypto.pi:318",
               "members": []
             },
             {
@@ -6732,7 +6732,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(hex.encode(tag))   // 8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b"
                 }
               ],
-              "source": "core/crypto.pi:336",
+              "source": "core/crypto.pi:337",
               "members": []
             },
             {
@@ -6746,7 +6746,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"HMAC\", hash: \"SHA-256\" }, true, [\"sign\"])\nif (key is CryptoKey) {\n  const raw = await crypto.subtle.exportKey(\"raw\", key)\n  println(raw.length)   // 32\n}"
                 }
               ],
-              "source": "core/crypto.pi:371",
+              "source": "core/crypto.pi:372",
               "members": []
             },
             {
@@ -6760,7 +6760,7 @@
                   "code": "const aes = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 128 }, false, [\"encrypt\", \"decrypt\"])\nmatch (aes) {\n  k: CryptoKey => println(`${k.algorithm.name} ${k.algorithm.length}`),   // AES-GCM 128\n  p: CryptoKeyPair => println(\"a key pair\"),\n}"
                 }
               ],
-              "source": "core/crypto.pi:387",
+              "source": "core/crypto.pi:388",
               "members": []
             },
             {
@@ -6774,7 +6774,7 @@
                   "code": "const enc = new TextEncoder()\nconst pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const data = enc.encode(\"release-1.0.tar.gz\")\n  const sig = await crypto.subtle.sign({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.privateKey, data)\n  println(sig.length)   // 64 (r ‖ s)\n  println(await crypto.subtle.verify({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.publicKey, sig, data))   // true\n}"
                 }
               ],
-              "source": "core/crypto.pi:419",
+              "source": "core/crypto.pi:420",
               "members": []
             },
             {
@@ -6788,7 +6788,7 @@
                   "code": "const enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\", \"verify\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"message\")))    // true\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"tampered\")))   // false"
                 }
               ],
-              "source": "core/crypto.pi:445",
+              "source": "core/crypto.pi:446",
               "members": []
             },
             {
@@ -6802,7 +6802,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  println(sealed.length)   // 30 (14 bytes of ciphertext + a 16-byte tag)\n}"
                 }
               ],
-              "source": "core/crypto.pi:472",
+              "source": "core/crypto.pi:473",
               "members": []
             },
             {
@@ -6816,7 +6816,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  const plain = await crypto.subtle.decrypt({ name: \"AES-GCM\", iv }, key, sealed)\n  println(new TextDecoder().decode(plain))   // attack at dawn\n}"
                 }
               ],
-              "source": "core/crypto.pi:499",
+              "source": "core/crypto.pi:500",
               "members": []
             },
             {
@@ -6830,7 +6830,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst pw = await crypto.subtle.importKey(\"raw\", enc.encode(\"password\"), \"PBKDF2\", false, [\"deriveBits\"])\nconst bits = await crypto.subtle.deriveBits({ name: \"PBKDF2\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), iterations: 1000 }, pw, 128)\nprintln(hex.encode(bits))   // 632c2812e46d4604102ba7618e9d6d7d\nconst ikm = await crypto.subtle.importKey(\"raw\", enc.encode(\"input key\"), \"HKDF\", false, [\"deriveBits\"])\nconst okm = await crypto.subtle.deriveBits({ name: \"HKDF\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), info: enc.encode(\"context\") }, ikm, 128)\nprintln(hex.encode(okm))    // 49060e83486a86844130609b08a2c02c"
                 }
               ],
-              "source": "core/crypto.pi:529",
+              "source": "core/crypto.pi:530",
               "members": []
             }
           ]
@@ -12953,7 +12953,7 @@
               "code": "const raw = new TextEncoder().encode(\"secret\")\nconst key = await crypto.subtle.importKey(\"raw\", raw, { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nprintln(key.type)                   // secret\nprintln(key.algorithm.name)         // HMAC\nprintln(key.algorithm.length)       // 48\nprintln(key.usages.join(\", \"))      // sign"
             }
           ],
-          "source": "core/crypto.pi:144",
+          "source": "core/crypto.pi:145",
           "members": [
             {
               "name": "type",
@@ -12961,7 +12961,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"secret\"</code>, <code>\"private\"</code> or <code>\"public\"</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:146",
+              "source": "core/crypto.pi:147",
               "members": []
             },
             {
@@ -12970,7 +12970,7 @@
               "signature": "public readonly extractable: bool",
               "doc": "<p>Whether <code>exportKey</code> may export a non-public key's bytes.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:148",
+              "source": "core/crypto.pi:149",
               "members": []
             },
             {
@@ -12979,7 +12979,7 @@
               "signature": "public readonly algorithm: KeyAlgorithm",
               "doc": "<p>The algorithm the key is for, with its hash, curve or length.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:150",
+              "source": "core/crypto.pi:151",
               "members": []
             },
             {
@@ -12988,7 +12988,7 @@
               "signature": "public readonly usages: string[]",
               "doc": "<p>What the key may be used for (<code>\"sign\"</code>, <code>\"verify\"</code>, <code>\"encrypt\"</code>, <code>\"decrypt\"</code>,\n<code>\"deriveBits\"</code>): another use rejects with an <code>\"InvalidAccess\"</code> <code>CryptoError</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:153",
+              "source": "core/crypto.pi:154",
               "members": []
             },
             {
@@ -13002,7 +13002,7 @@
                   "code": "const alg: KeyAlgorithm = { name: \"HMAC\", hash: \"SHA-256\", length: 128 }\nconst key = new CryptoKey(\"secret\", true, alg, [\"sign\", \"verify\"], new Uint8Array(16))\nprintln(key.extractable)   // true\nprintln(key.type)          // secret"
                 }
               ],
-              "source": "core/crypto.pi:165",
+              "source": "core/crypto.pi:166",
               "members": []
             }
           ]
@@ -13018,7 +13018,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const alg: KeyAlgorithm = pair.publicKey.algorithm\n  println(alg.name)         // ECDSA\n  println(alg.namedCurve)   // P-256\n}"
             }
           ],
-          "source": "core/crypto.pi:186",
+          "source": "core/crypto.pi:187",
           "members": [
             {
               "name": "name",
@@ -13026,7 +13026,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"HMAC\"</code>, <code>\"AES-GCM\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:188",
+              "source": "core/crypto.pi:189",
               "members": []
             },
             {
@@ -13035,7 +13035,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …), for HMAC keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:190",
+              "source": "core/crypto.pi:191",
               "members": []
             },
             {
@@ -13044,7 +13044,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve (<code>\"P-256\"</code>, <code>\"P-384\"</code>, <code>\"X25519\"</code>), for ECDSA and ECDH keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:192",
+              "source": "core/crypto.pi:193",
               "members": []
             },
             {
@@ -13053,7 +13053,7 @@
               "signature": "length?: int",
               "doc": "<p>The key's length in bits, for secret keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:194",
+              "source": "core/crypto.pi:195",
               "members": []
             }
           ]
@@ -13069,7 +13069,7 @@
               "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const params: Algorithm = { name: \"AES-GCM\", iv: crypto.getRandomValues(new Uint8Array(12)) }\n  const sealed = await crypto.subtle.encrypt(params, key, new TextEncoder().encode(\"hi\"))\n  println(sealed.length)   // 18 (2 bytes of ciphertext + a 16-byte tag)\n}"
             }
           ],
-          "source": "core/crypto.pi:212",
+          "source": "core/crypto.pi:213",
           "members": [
             {
               "name": "name",
@@ -13077,7 +13077,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"AES-GCM\"</code>, <code>\"HMAC\"</code>, <code>\"ECDSA\"</code>, <code>\"ECDH\"</code>, <code>\"HKDF\"</code>, <code>\"PBKDF2\"</code>; any\ncase), or, for <code>digest</code>, the hash's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:215",
+              "source": "core/crypto.pi:216",
               "members": []
             },
             {
@@ -13086,7 +13086,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:217",
+              "source": "core/crypto.pi:218",
               "members": []
             },
             {
@@ -13095,7 +13095,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve for <code>generateKey</code> and <code>importKey</code> of ECDSA (<code>\"P-256\"</code>, <code>\"P-384\"</code>) and ECDH keys\n(also <code>\"X25519\"</code>).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:220",
+              "source": "core/crypto.pi:221",
               "members": []
             },
             {
@@ -13104,7 +13104,7 @@
               "signature": "length?: int",
               "doc": "<p>The key length in bits for <code>generateKey</code> (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:222",
+              "source": "core/crypto.pi:223",
               "members": []
             },
             {
@@ -13113,7 +13113,7 @@
               "signature": "iv?: Uint8Array",
               "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual), or AES-CBC's initialization vector (16\nbytes).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:225",
+              "source": "core/crypto.pi:226",
               "members": []
             },
             {
@@ -13122,7 +13122,7 @@
               "signature": "counter?: Uint8Array",
               "doc": "<p>AES-CTR's initial counter block (16 bytes); <code>length</code> is then how many of its rightmost\nbits count up (#69).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:228",
+              "source": "core/crypto.pi:229",
               "members": []
             },
             {
@@ -13131,7 +13131,7 @@
               "signature": "additionalData?: Uint8Array",
               "doc": "<p>AES-GCM's authenticated, unencrypted data (none unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:230",
+              "source": "core/crypto.pi:231",
               "members": []
             },
             {
@@ -13140,7 +13140,7 @@
               "signature": "tagLength?: int",
               "doc": "<p>AES-GCM's tag length in bits: only 128 (the default) is supported.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:232",
+              "source": "core/crypto.pi:233",
               "members": []
             },
             {
@@ -13149,7 +13149,7 @@
               "signature": "public?: CryptoKey",
               "doc": "<p>ECDH's peer public key, for <code>deriveBits</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:234",
+              "source": "core/crypto.pi:235",
               "members": []
             },
             {
@@ -13158,7 +13158,7 @@
               "signature": "salt?: Uint8Array",
               "doc": "<p>The HKDF or PBKDF2 salt (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:236",
+              "source": "core/crypto.pi:237",
               "members": []
             },
             {
@@ -13167,7 +13167,7 @@
               "signature": "info?: Uint8Array",
               "doc": "<p>HKDF's context info (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:238",
+              "source": "core/crypto.pi:239",
               "members": []
             },
             {
@@ -13176,7 +13176,7 @@
               "signature": "iterations?: int",
               "doc": "<p>PBKDF2's iteration count.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:240",
+              "source": "core/crypto.pi:241",
               "members": []
             }
           ]
@@ -13192,7 +13192,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDH\", namedCurve: \"X25519\" }, false, [\"deriveBits\"])\nif (pair is CryptoKeyPair) {\n  println(pair.publicKey.type)    // public\n  println(pair.privateKey.type)   // private\n}"
             }
           ],
-          "source": "core/crypto.pi:253",
+          "source": "core/crypto.pi:254",
           "members": [
             {
               "name": "publicKey",
@@ -13200,7 +13200,7 @@
               "signature": "publicKey: CryptoKey",
               "doc": "<p>The public key (always extractable).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:255",
+              "source": "core/crypto.pi:256",
               "members": []
             },
             {
@@ -13209,7 +13209,7 @@
               "signature": "privateKey: CryptoKey",
               "doc": "<p>The private key (extractable as <code>generateKey</code> was told).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:257",
+              "source": "core/crypto.pi:258",
               "members": []
             }
           ]
@@ -13225,7 +13225,7 @@
               "code": "import { hex } from \"std/encoding\"\n\nconst digest = await crypto.subtle.digest(\"SHA-1\", new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(digest))   // a9993e364706816aba3e25717850c26c9cd0d89d"
             }
           ],
-          "source": "core/crypto.pi:305",
+          "source": "core/crypto.pi:306",
           "members": [
             {
               "name": "digest",
@@ -13238,7 +13238,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst data = new TextEncoder().encode(\"hello\")\nconst hash = await crypto.subtle.digest(\"SHA-256\", data)\nprintln(hex.encode(hash))   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
               ],
-              "source": "core/crypto.pi:317",
+              "source": "core/crypto.pi:318",
               "members": []
             },
             {
@@ -13252,7 +13252,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(hex.encode(tag))   // 8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b"
                 }
               ],
-              "source": "core/crypto.pi:336",
+              "source": "core/crypto.pi:337",
               "members": []
             },
             {
@@ -13266,7 +13266,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"HMAC\", hash: \"SHA-256\" }, true, [\"sign\"])\nif (key is CryptoKey) {\n  const raw = await crypto.subtle.exportKey(\"raw\", key)\n  println(raw.length)   // 32\n}"
                 }
               ],
-              "source": "core/crypto.pi:371",
+              "source": "core/crypto.pi:372",
               "members": []
             },
             {
@@ -13280,7 +13280,7 @@
                   "code": "const aes = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 128 }, false, [\"encrypt\", \"decrypt\"])\nmatch (aes) {\n  k: CryptoKey => println(`${k.algorithm.name} ${k.algorithm.length}`),   // AES-GCM 128\n  p: CryptoKeyPair => println(\"a key pair\"),\n}"
                 }
               ],
-              "source": "core/crypto.pi:387",
+              "source": "core/crypto.pi:388",
               "members": []
             },
             {
@@ -13294,7 +13294,7 @@
                   "code": "const enc = new TextEncoder()\nconst pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const data = enc.encode(\"release-1.0.tar.gz\")\n  const sig = await crypto.subtle.sign({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.privateKey, data)\n  println(sig.length)   // 64 (r ‖ s)\n  println(await crypto.subtle.verify({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.publicKey, sig, data))   // true\n}"
                 }
               ],
-              "source": "core/crypto.pi:419",
+              "source": "core/crypto.pi:420",
               "members": []
             },
             {
@@ -13308,7 +13308,7 @@
                   "code": "const enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\", \"verify\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"message\")))    // true\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"tampered\")))   // false"
                 }
               ],
-              "source": "core/crypto.pi:445",
+              "source": "core/crypto.pi:446",
               "members": []
             },
             {
@@ -13322,7 +13322,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  println(sealed.length)   // 30 (14 bytes of ciphertext + a 16-byte tag)\n}"
                 }
               ],
-              "source": "core/crypto.pi:472",
+              "source": "core/crypto.pi:473",
               "members": []
             },
             {
@@ -13336,7 +13336,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  const plain = await crypto.subtle.decrypt({ name: \"AES-GCM\", iv }, key, sealed)\n  println(new TextDecoder().decode(plain))   // attack at dawn\n}"
                 }
               ],
-              "source": "core/crypto.pi:499",
+              "source": "core/crypto.pi:500",
               "members": []
             },
             {
@@ -13350,7 +13350,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst pw = await crypto.subtle.importKey(\"raw\", enc.encode(\"password\"), \"PBKDF2\", false, [\"deriveBits\"])\nconst bits = await crypto.subtle.deriveBits({ name: \"PBKDF2\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), iterations: 1000 }, pw, 128)\nprintln(hex.encode(bits))   // 632c2812e46d4604102ba7618e9d6d7d\nconst ikm = await crypto.subtle.importKey(\"raw\", enc.encode(\"input key\"), \"HKDF\", false, [\"deriveBits\"])\nconst okm = await crypto.subtle.deriveBits({ name: \"HKDF\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), info: enc.encode(\"context\") }, ikm, 128)\nprintln(hex.encode(okm))    // 49060e83486a86844130609b08a2c02c"
                 }
               ],
-              "source": "core/crypto.pi:529",
+              "source": "core/crypto.pi:530",
               "members": []
             }
           ]
