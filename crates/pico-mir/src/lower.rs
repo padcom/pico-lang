@@ -714,6 +714,9 @@ enum Imp {
 
 /// Type arguments for owners of type parameters (`Ty::Param`'s first field).
 type Subst = Vec<(u32, Vec<Ty>)>;
+/// An enum variant as JSON sees it (#58): its name, whether it's a unit variant (written as
+/// its name), and its fields' JSON keys and types.
+type JsonVariant = (String, bool, Vec<(String, Ty)>);
 
 /// The type tables lowering reads: the program's, or a generic instance's substituted copy
 /// (shared by the instances with the same substitution).
@@ -5941,7 +5944,7 @@ impl FnBuilder<'_, '_> {
             Ty::Enum(eid, _, eargs) => {
                 let def = self.cx.program.enum_def(*eid);
                 let owner = Ty::enum_owner(*eid);
-                let variants: Vec<(String, bool, Vec<(String, Ty)>)> = def
+                let variants: Vec<JsonVariant> = def
                     .variants
                     .iter()
                     .map(|v| {
@@ -6392,7 +6395,7 @@ impl FnBuilder<'_, '_> {
             Ty::Enum(eid, _, eargs) => {
                 let def = self.cx.program.enum_def(*eid);
                 let owner = Ty::enum_owner(*eid);
-                let variants: Vec<(String, bool, Vec<(String, Ty)>)> = def
+                let variants: Vec<JsonVariant> = def
                     .variants
                     .iter()
                     .map(|v| {
