@@ -48,7 +48,8 @@ const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl
 - Types are values at comptime (`comptime T: type`, as a generic or a value parameter:
   `schema(Point)`). A type answers `T.name`, `T.kind` (`"struct"`, `"class"`, `"enum"`,
   `"primitive"`, …), `T.fields` (`FieldInfo { name, typeName }`) and `T.methods`
-  (`MethodInfo { name }`); private members are listed only inside the declaring module
+  (`MethodInfo { name, signature }`, the signature as `(a: i64, ...rest: string[]): bool`, #56;
+  also in run-time reflection's `methods`); private members are listed only inside the declaring module
   (decision 222).
 - **Limit**: 10 million evaluation steps per top-level comptime evaluation, after which a compile
   error shows the comptime backtrace. Override it with `@comptimeLimit(50_000_000)` on the
