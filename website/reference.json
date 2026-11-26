@@ -118,6 +118,9 @@
     "BitSet": "std-collections#BitSet",
     "Aead": "std-crypto#Aead",
     "EcKeyPair": "std-crypto#EcKeyPair",
+    "CsvOptions": "std-encoding#CsvOptions",
+    "CsvWriteOptions": "std-encoding#CsvWriteOptions",
+    "Csv": "std-encoding#Csv",
     "FormatSpec": "std-fmt#FormatSpec",
     "FileInfo": "std-fs#FileInfo",
     "DirEntry": "std-fs#DirEntry",
@@ -13360,7 +13363,7 @@
     {
       "name": "std/encoding",
       "id": "std-encoding",
-      "about": "<p><code>std/encoding</code>: bytes as text (spec §13.5): <code>base64</code> (RFC 4648, also the URL-safe alphabet)\nand <code>hex</code>. The classes are in the core library (<code>&lt;core&gt;/encoding.pi</code>).</p>\n",
+      "about": "<p><code>std/encoding</code>: bytes as text (spec §13.5): <code>base64</code> (RFC 4648, also the URL-safe alphabet)\nand <code>hex</code>; and <code>csv</code> (RFC 4180). The classes are in the core library (<code>&lt;core&gt;/encoding.pi</code>).</p>\n",
       "items": [
         {
           "name": "base64",
@@ -13378,6 +13381,129 @@
           "doc": "<p>Hexadecimal: <code>hex.encode(bytes)</code> (lowercase) and <code>hex.decode(text)</code>.</p>\n",
           "examples": [],
           "source": "encoding.pi:10",
+          "members": []
+        },
+        {
+          "name": "CsvOptions",
+          "kind": "struct",
+          "signature": "struct CsvOptions",
+          "doc": "<p><code>csv.parse</code> options.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { csv } from \"std/encoding\"\n\nprintln(csv.parse(\"a;b\", { separator: \";\" })[0].length)   // 2"
+            }
+          ],
+          "source": "encoding.pi:20",
+          "members": [
+            {
+              "name": "separator",
+              "kind": "field",
+              "signature": "separator?: string",
+              "doc": "<p>The field separator, one character (<code>\",\"</code> by default).</p>\n",
+              "examples": [],
+              "source": "encoding.pi:22",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "CsvWriteOptions",
+          "kind": "struct",
+          "signature": "struct CsvWriteOptions",
+          "doc": "<p><code>csv.stringify</code> options.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { csv } from \"std/encoding\"\n\nprint(csv.stringify([[\"a\", \"b\"]], { separator: \"\\t\", lineEnding: \"\\r\\n\" }))   // a\tb (and CRLF)"
+            }
+          ],
+          "source": "encoding.pi:33",
+          "members": [
+            {
+              "name": "separator",
+              "kind": "field",
+              "signature": "separator?: string",
+              "doc": "<p>The field separator, one character (<code>\",\"</code> by default).</p>\n",
+              "examples": [],
+              "source": "encoding.pi:35",
+              "members": []
+            },
+            {
+              "name": "lineEnding",
+              "kind": "field",
+              "signature": "lineEnding?: string",
+              "doc": "<p>What ends each row (<code>\"\\n\"</code> by default; RFC 4180 says <code>\"\\r\\n\"</code>).</p>\n",
+              "examples": [],
+              "source": "encoding.pi:37",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "Csv",
+          "kind": "class",
+          "signature": "class Csv",
+          "doc": "<p>Comma-separated values (RFC 4180; #63): <code>csv.parse(text)</code> into rows of fields, and\n<code>csv.stringify(rows)</code>.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { csv } from \"std/encoding\"\n\nconst rows = csv.parse(\"name,note\\nAda,\\\"likes \\\"\\\"math\\\"\\\", tea\\\"\\n\")\nprintln(rows[1][1])            // likes \"math\", tea\nprint(csv.stringify(rows))     // name,note / Ada,\"likes \"\"math\"\", tea\""
+            }
+          ],
+          "source": "encoding.pi:51",
+          "members": [
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor()",
+              "doc": "<p>A CSV codec (<code>std/encoding</code> exports one as <code>csv</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { Csv } from \"std/encoding\"\n\nprintln(new Csv().parse(\"x,y\").length)   // 1"
+                }
+              ],
+              "source": "encoding.pi:60",
+              "members": []
+            },
+            {
+              "name": "parse",
+              "kind": "method",
+              "signature": "public parse(text: string, options: CsvOptions = {}): string[][] throws SyntaxError",
+              "doc": "<p>The rows of <code>text</code>: fields split at the separator, rows at line ends (<code>\\n</code> or <code>\\r\\n</code>), a\nquoted field (<code>\"a, \"\"b\"\"\"</code>) taking separators, quotes (doubled) and line ends; a last\nline end ends the last row. A quote inside an unquoted field is kept. Throws a\n<code>SyntaxError</code> for a quoted field that isn't closed, or text after its closing quote.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { csv } from \"std/encoding\"\n\nconst rows = csv.parse(\"a,\\\"b\\nc\\\"\\r\\n1,2\")\nprintln(rows.length)       // 2\nprintln(rows[0][1])        // b (a line break) c\ntry {\n  csv.parse(\"\\\"open\")\n} catch (e: SyntaxError) {\n  println(e.message)       // CSV: a quoted field isn't closed (line 1)\n}"
+                }
+              ],
+              "source": "encoding.pi:80",
+              "members": []
+            },
+            {
+              "name": "stringify",
+              "kind": "method",
+              "signature": "public stringify(rows: string[][], options: CsvWriteOptions = {}): string",
+              "doc": "<p><code>rows</code> as CSV text: fields joined by the separator, each row ended by the line ending; a\nfield with the separator, a quote, a line end or leading or trailing spaces is quoted\n(its quotes doubled).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { csv } from \"std/encoding\"\n\nprint(csv.stringify([[\"id\", \"note\"], [\"1\", \"a, \\\"b\\\"\"]]))\n// id,note\n// 1,\"a, \"\"b\"\"\""
+                }
+              ],
+              "source": "encoding.pi:161",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "csv",
+          "kind": "constant",
+          "signature": "const csv",
+          "doc": "<p>CSV (RFC 4180): <code>csv.parse(text)</code> and <code>csv.stringify(rows)</code>.</p>\n",
+          "examples": [],
+          "source": "encoding.pi:178",
           "members": []
         },
         {

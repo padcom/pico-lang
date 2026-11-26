@@ -356,6 +356,10 @@ previous?)` and `crc32(bytes, previous = 0)` (zlib's) do it in one call.
 `base64.encode(data, url = false)` (RFC 4648; `url` uses `-`/`_` without padding) and
 `base64.decode(text): Uint8Array throws TypeError` (either alphabet, padding optional,
 whitespace skipped); `hex.encode(data)` (lowercase) and `hex.decode(text) throws TypeError`.
+`csv.parse(text, { separator }): string[][] throws SyntaxError` reads RFC 4180 (quoted fields
+with separators, doubled quotes and line breaks; `\n` or `\r\n` rows; a quote inside an unquoted
+field kept; an unclosed quoted field, or text after one, is a `SyntaxError` with its line), and
+`csv.stringify(rows, { separator, lineEnding = "\n" })` quotes the fields that need it (#63).
 
 ### `std/streams`
 WHATWG Streams with chunk-counting queues, globals as on the Web (`std/streams` exports them
