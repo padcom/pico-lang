@@ -1,0 +1,42 @@
+// expect: watching 5
+// expect: stopped: true
+// A watcher that's never closed is closed once it's collected (#64): its thread (natively, one
+// per watcher; counted in /proc on Linux) ends after `gc.collect()` runs its finalizer.
+import { watch, mkdir, readText } from "std/fs"
+import { gc } from "std/gc"
+
+async function threads(): Promise<int> {
+  comptime if (target.os == "linux") {
+    try {
+      const status = await readText("/proc/self/status")
+      for (const line of status.split("\n")) {
+        if (line.startsWith("Threads:")) return parseInt(line.slice(8).trim())
+      }
+    } catch (_e: IoError) {}
+  }
+  return 0
+}
+
+async function watchSome(n: int): Promise<int> throws IoError {
+  await mkdir("watched", recursive: true)
+  let made = 0
+  for (let i = 0; i < n; i++) {
+    const w = await watch("watched")
+    if (w.path == "watched") made += 1
+  }
+  return made
+}
+
+const base = await threads()
+println(`watching ${await watchSome(5)}`)
+gc.collect()
+// (Finalizers run on the event loop; the threads end soon after.)
+let now = await threads()
+let tries = 0
+while (now > base && tries < 100) {
+  await new Promise<void>((resolve, _reject) => setTimeout(() => resolve(__void()), 10))
+  gc.collect()
+  now = await threads()
+  tries += 1
+}
+println(`stopped: ${now <= base}`)
