@@ -16,7 +16,8 @@ export function stripAnsi(text: string): string {
   if (!text.includes("\u{1b}")) return text
   const cs: char[] = []
   for (const c of text) cs.push(c)
-  let out = ""
+  // (Pieces joined once: appending is O(n²), #73.)
+  const out: string[] = []
   let i = 0
   while (i < cs.length) {
     if (cs[i] == '\u{1b}' && i + 1 < cs.length) {
@@ -26,10 +27,10 @@ export function stripAnsi(text: string): string {
         continue
       }
     }
-    out += cs[i].toString()
+    out.push(cs[i].toString())
     i += 1
   }
-  return out
+  return out.join("")
 }
 
 /// Where the escape at `cs[i]` ends (just after it), or `i` when it isn't a complete one.
