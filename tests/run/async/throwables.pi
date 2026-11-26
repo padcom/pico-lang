@@ -1,0 +1,119 @@
+// expect: 3
+// expect: eof
+// expect: unexpected 'x' at 0
+// expect: bad digit: q
+// expect: then passes it on: eof
+// expect: finally ran
+// expect: finally passes it on: bad digit: z
+// expect: all: eof
+// expect: allSettled: fulfilled 2, rejected ParseFail.Eof
+// expect: race: eof
+// expect: .catch: ParseFail.Unexpected(ch: 'x', at: 0)
+// expect: .catch: bad digit: q
+// expect: for await: 1
+// expect: for await: eof
+// expect: Error still: nope
+//
+// Throwable structs and enums thrown in async code (#52): a promise carries the value as the
+// exception did, so `await` rethrows it as itself (caught by its type), `then`/`finally`/
+// `all`/`race` pass it on, and `.catch`/`allSettled` see an `Error` with its message.
+enum ParseFail implements Throwable {
+  Eof,
+  Unexpected(ch: char, at: int),
+}
+
+struct DigitError implements Throwable {
+  ch: string
+  message(): string {
+    `bad digit: ${this.ch}`
+  }
+}
+
+async function parse(s: string): Promise<int> throws ParseFail {
+  if (s.length == 0) throw ParseFail.Eof
+  if (s == "x") throw ParseFail.Unexpected('x', 0)
+  return s.length
+}
+
+async function digit(s: string): Promise<int> throws DigitError {
+  if (s < "0" || s > "9") throw DigitError { ch: s }
+  return parseInt(s)!
+}
+
+function show(e: ParseFail): string {
+  match (e) {
+    ParseFail.Eof => "eof",
+    ParseFail.Unexpected(c, at) => `unexpected '${c}' at ${at}`,
+  }
+}
+
+async function run(): Promise<void> {
+  try {
+    println(await parse("abc"))
+    await parse("")
+  } catch (e: ParseFail) {
+    println(show(e))
+  }
+  try {
+    await parse("x")
+  } catch (e: ParseFail) {
+    println(show(e))
+  }
+  try {
+    await digit("q")
+  } catch (e: DigitError) {
+    println(e.message())
+  }
+  try {
+    await parse("").then((n: int) => n * 2)
+  } catch (e: ParseFail) {
+    println(`then passes it on: ${show(e)}`)
+  }
+  try {
+    await digit("z").finally(() => println("finally ran"))
+  } catch (e: DigitError) {
+    println(`finally passes it on: ${e.message()}`)
+  }
+  try {
+    await Promise.all([parse("ab"), parse("")])
+  } catch (e: ParseFail) {
+    println(`all: ${show(e)}`)
+  }
+  const settled = await Promise.allSettled([parse("ab"), parse("")])
+  println(`allSettled: ${settled[0].status} ${settled[0].value!}, ${settled[1].status} ${settled[1].reason!.message}`)
+  try {
+    await Promise.race([parse(""), parse("abc")])
+  } catch (e: ParseFail) {
+    println(`race: ${show(e)}`)
+  }
+  await parse("x").catch((e: Error) => {
+    println(`.catch: ${e.message}`)
+    0
+  })
+  await digit("q").catch((e: Error) => {
+    println(`.catch: ${e.message}`)
+    0
+  })
+}
+
+async function* numbers(): AsyncIterator<int> throws ParseFail {
+  yield 1
+  throw ParseFail.Eof
+}
+
+class Bad extends Error {}
+async function bad(): Promise<int> throws Bad {
+  throw new Bad("nope")
+}
+
+await run()
+try {
+  for await (const n of numbers()) println(`for await: ${n}`)
+} catch (e: ParseFail) {
+  println(`for await: ${show(e)}`)
+}
+try {
+  await bad()
+} catch (e: Bad) {
+  println(`Error still: ${e.message}`)
+}

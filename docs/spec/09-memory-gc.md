@@ -86,6 +86,9 @@ const total = arena {
   The interpreter doesn't check at run time.
 - `return`, `break`, `continue`, exceptions and panics all close the arena. An exception
   leaving the block is copied out of the arena first (with what it reaches).
+- `yield` and `await` can't suspend inside the block (E0344): the suspended frame would keep the
+  arena's objects while other code runs with the arena open. An arena between two of them, or a
+  lambda inside one that suspends in its own frame, is fine.
 - Arena objects are roots for the collector while the arena is open, and are never
   collected individually.
 

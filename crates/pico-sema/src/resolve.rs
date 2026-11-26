@@ -372,6 +372,8 @@ struct FnState {
     async_step: bool,
     /// An async generator's step (`yield v` hands `v` to its iterator `__it`).
     async_gen: bool,
+    /// `arena { … }` blocks open around the code being resolved (in this function only).
+    arena_depth: u32,
 }
 
 /// The methods of one name declared in one struct or class: one, or several overloads.
@@ -6030,6 +6032,22 @@ impl Resolver {
             A::Function(decl) => self.closure(decl, span),
             A::Tailcall(inner) => ExprKind::Tailcall(Box::new(self.lower_expr(inner))),
             A::Throw(inner) => ExprKind::Throw(Box::new(self.lower_expr(inner))),
+            // Suspending inside an arena would keep the arena's objects in the suspended frame,
+            // while other code runs (and allocates) with the arena still open (#52).
+            A::Yield { .. } | A::Await(_) if self.f.arena_depth > 0 => {
+                let what = if matches!(&e.kind, A::Await(_)) {
+                    "await"
+                } else {
+                    "yield"
+                };
+                self.error(
+                    codes::ARENA_ESCAPE,
+                    span,
+                    format!("`{what}` inside an `arena` block"),
+                    "the arena's objects would outlive it while suspended; end the arena first",
+                );
+                ExprKind::Error
+            }
             A::Yield {
                 expr: Some(inner),
                 delegate: false,
@@ -6717,7 +6735,9 @@ impl Resolver {
             A::Unsafe(b) => ExprKind::Unsafe(self.block(b)),
             A::Arena(b) => {
                 let first = self.f.locals.len() as u32;
+                self.f.arena_depth += 1;
                 let body = self.block(b);
+                self.f.arena_depth -= 1;
                 ExprKind::Arena {
                     body,
                     first,

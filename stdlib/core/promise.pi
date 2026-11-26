@@ -24,12 +24,17 @@
 /// const name = await fetchUser(7)
 /// println(name)   // user 7
 /// ```
-class Promise<T, E extends Error = never> {
+class Promise<T, E extends Throwable = never> {
   /// 0: pending, 1: fulfilled, 2: rejected.
   state: int = 0
   /// The value once fulfilled (one element).
   values: T[] = []
   error: Error? = null
+  /// 0, or the exception tag of the throwable struct or enum that rejected it (#52): `thrown`
+  /// holds the value itself (to throw again when awaited) and `error` an `Error` with its
+  /// message (for `catch`, `allSettled` and reports).
+  errorTag: u32 = 0
+  thrown: E[] = []
   /// Reactions waiting for it to settle.
   waiters: (() => void)[] = []
   /// Whether something awaits it or reacts to it (else a rejection ends the program).
@@ -78,6 +83,28 @@ class Promise<T, E extends Error = never> {
     this.wake()
   }
 
+  /// Rejects with what an async body threw: an `Error`, or a throwable struct or enum.
+  public __rejectWith(e: E): void {
+    const tag = __thrown_tag(e)
+    if (tag == 0) {
+      this.__reject(__thrown_raw(e))
+    } else if (this.state == 0) {
+      this.thrown = [e]
+      this.errorTag = tag
+      this.__reject(new Error(__thrown_text(e)))
+    }
+  }
+
+  /// Rejects as `other` was rejected (its throwable too).
+  public __rejectAs<U>(other: Promise<U, E>): void {
+    if (other.errorTag != 0 && this.state == 0) {
+      this.thrown = other.thrown
+      this.errorTag = other.errorTag
+    }
+    const e = other.error
+    if (e != null) this.__reject(e)
+  }
+
   wake(): void {
     const ws = this.waiters
     this.waiters = []
@@ -112,6 +139,9 @@ class Promise<T, E extends Error = never> {
   /// The value, or the error rethrown (after it settled).
   public __get(): T throws E {
     if (this.state == 2) {
+      if (this.errorTag != 0) {
+        throw this.thrown[0]
+      }
       const e = this.error
       if (e != null) {
         __throw_unchecked(e)
@@ -125,8 +155,9 @@ class Promise<T, E extends Error = never> {
     let s: ((k: () => void) => void)? = null
     try {
       s = step()
-    } catch (e) {
-      this.__reject(e)
+    } catch (e: E) {
+      // (Typed by `E`: a throwable struct or enum too, not only an `Error`.)
+      this.__rejectWith(e)
       return
     }
     if (s != null) {
@@ -159,9 +190,8 @@ class Promise<T, E extends Error = never> {
   public then<U>(f: (value: T) => U): Promise<U, E> {
     const p = new Promise<U, E>()
     this.__onSettle(() => {
-      const e = this.error
-      if (this.state == 2 && e != null) {
-        p.__reject(e)
+      if (this.state == 2 && this.error != null) {
+        p.__rejectAs(this)
       } else {
         p.__resolve(f(this.values[0]))
       }
@@ -205,9 +235,8 @@ class Promise<T, E extends Error = never> {
     const p = new Promise<T, E>()
     this.__onSettle(() => {
       f()
-      const e = this.error
-      if (this.state == 2 && e != null) {
-        p.__reject(e)
+      if (this.state == 2 && this.error != null) {
+        p.__rejectAs(this)
       } else {
         p.__resolve(this.values[0])
       }
@@ -259,7 +288,7 @@ class Promise<T, E extends Error = never> {
   /// const all = await Promise.all([square(3), square(1), square(2)])
   /// println(all.join(", "))   // 9, 1, 4
   /// ```
-  public static all<U, F extends Error>(ps: Promise<U, F>[]): Promise<U[], F> {
+  public static all<U, F extends Throwable>(ps: Promise<U, F>[]): Promise<U[], F> {
     const out = new Promise<U[], F>()
     const slots: U[][] = []
     for (const _ of ps) {
@@ -272,9 +301,8 @@ class Promise<T, E extends Error = never> {
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i]
       p.__onSettle(() => {
-        const e = p.error
-        if (p.state == 2 && e != null) {
-          out.__reject(e)
+        if (p.state == 2 && p.error != null) {
+          out.__rejectAs(p)
           return
         }
         slots[i].push(p.values[0])
@@ -304,13 +332,12 @@ class Promise<T, E extends Error = never> {
   ///
   /// println(await Promise.race([after(50, "slow"), after(5, "fast")]))   // fast
   /// ```
-  public static race<U, F extends Error>(ps: Promise<U, F>[]): Promise<U, F> {
+  public static race<U, F extends Throwable>(ps: Promise<U, F>[]): Promise<U, F> {
     const out = new Promise<U, F>()
     for (const p of ps) {
       p.__onSettle(() => {
-        const e = p.error
-        if (p.state == 2 && e != null) {
-          out.__reject(e)
+        if (p.state == 2 && p.error != null) {
+          out.__rejectAs(p)
         } else {
           out.__resolve(p.values[0])
         }
@@ -328,7 +355,7 @@ class Promise<T, E extends Error = never> {
   /// setTimeout(() => r.resolve(7), 10)
   /// println(await r.promise)   // 7
   /// ```
-  public static withResolvers<U, F extends Error>(): PromiseWithResolvers<U, F> {
+  public static withResolvers<U, F extends Throwable>(): PromiseWithResolvers<U, F> {
     new PromiseWithResolvers<U, F>(new Promise<U, F>())
   }
 
@@ -342,7 +369,7 @@ class Promise<T, E extends Error = never> {
   /// }
   /// println(results[1].reason!.message)   // boom
   /// ```
-  public static allSettled<U, F extends Error>(ps: Promise<U, F>[]): Promise<Settled<U>[]> {
+  public static allSettled<U, F extends Throwable>(ps: Promise<U, F>[]): Promise<Settled<U>[]> {
     const out = new Promise<Settled<U>[]>()
     const slots: Settled<U>[][] = []
     for (const _ of ps) {
@@ -384,7 +411,7 @@ class Promise<T, E extends Error = never> {
 /// r.resolve("ready")
 /// println(await r.promise)   // ready
 /// ```
-class PromiseWithResolvers<T, E extends Error> {
+class PromiseWithResolvers<T, E extends Throwable> {
   /// The pending promise.
   public readonly promise: Promise<T, E>
 
@@ -449,7 +476,7 @@ struct Settled<T> {
 /// `await p` at the top level of the entry module: runs the event loop until `p` settles
 /// (and its reaction runs, as a microtask would), then gives its value or throws.
 // `await x` of a promise: the promise itself (#52).
-function __awaitable<T, E extends Error>(p: Promise<T, E>): Promise<T, E> {
+function __awaitable<T, E extends Throwable>(p: Promise<T, E>): Promise<T, E> {
   return p
 }
 
@@ -458,7 +485,7 @@ function __awaitable<T>(value: T): Promise<T> {
   return Promise.resolve(value)
 }
 
-function __awaitTop<T, E extends Error>(p: Promise<T, E>): T throws E {
+function __awaitTop<T, E extends Throwable>(p: Promise<T, E>): T throws E {
   let done = false
   p.__onSettle(() => {
     done = true
@@ -497,7 +524,7 @@ function __void(): void {}
 ///   println(i)   // 3, 2, 1
 /// }
 /// ```
-class AsyncIterator<T, E extends Error = never> {
+class AsyncIterator<T, E extends Throwable = never> {
   step: (() => ((k: () => void) => void)? throws E)? = null
   /// `next()` promises not fulfilled yet, oldest first.
   requests: Promise<T?, E>[] = []
@@ -603,8 +630,8 @@ class AsyncIterator<T, E extends Error = never> {
     let s: ((k: () => void) => void)? = null
     try {
       s = step()
-    } catch (e) {
-      this.finish(e)
+    } catch (e: E) {
+      this.fail(e)
       return
     }
     if (s == null) {
@@ -625,6 +652,16 @@ class AsyncIterator<T, E extends Error = never> {
       return
     }
     s(() => this.pump())
+  }
+
+  /// Ends with what the body threw (the first waiting request gets it).
+  fail(e: E): void {
+    const rs = this.requests
+    if (rs.length > 0) {
+      this.requests = rs.slice(1)
+      rs[0].__rejectWith(e)
+    }
+    this.finish(null)
   }
 
   finish(e: Error?): void {

@@ -108,6 +108,8 @@ fn catches(p: &Program, pat: &Pattern) -> Catch {
                 Ty::Class(sid, ..) if Some(*sid) == p.error_class => Catch::Errors,
                 Ty::Class(sid, ..) => Catch::Class(*sid),
                 t if p.throw_tag(t).is_some() => Catch::Value(t.clone()),
+                // `catch (e: E)`: exactly what's typed `E` (#52).
+                Ty::Param(..) => Catch::Value(ty.clone()),
                 _ => Catch::Nothing,
             }
         }
