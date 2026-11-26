@@ -8921,7 +8921,7 @@
               "signature": "public protocol: string = \"\"",
               "doc": "<p>The subprotocol the server chose (\"\" for none).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:332",
+              "source": "core/websocket.pi:334",
               "members": []
             },
             {
@@ -8930,7 +8930,7 @@
               "signature": "public onopen: ((e: Event) => void)? = null",
               "doc": "<p>Called once the connection is open (an <code>\"open\"</code> event).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:334",
+              "source": "core/websocket.pi:336",
               "members": []
             },
             {
@@ -8939,7 +8939,7 @@
               "signature": "public onmessage: ((e: MessageEvent) => void)? = null",
               "doc": "<p>Called for each message received while the socket is open (fragmented ones arrive whole).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:336",
+              "source": "core/websocket.pi:338",
               "members": []
             },
             {
@@ -8948,7 +8948,7 @@
               "signature": "public onclose: ((e: CloseEvent) => void)? = null",
               "doc": "<p>Called once when the connection ends, cleanly or not.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:338",
+              "source": "core/websocket.pi:340",
               "members": []
             },
             {
@@ -8957,7 +8957,7 @@
               "signature": "public onerror: ((e: Event) => void)? = null",
               "doc": "<p>Called when connecting fails (an <code>\"error\"</code> event), just before <code>onclose</code> with code 1006.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:340",
+              "source": "core/websocket.pi:342",
               "members": []
             },
             {
@@ -8971,7 +8971,21 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
                 }
               ],
-              "source": "core/websocket.pi:386",
+              "source": "core/websocket.pi:388",
+              "members": []
+            },
+            {
+              "name": "bufferedAmount",
+              "kind": "property",
+              "signature": "public get bufferedAmount(): int",
+              "doc": "<p>The bytes of messages <code>send</code> was given that aren't written to the connection yet (#67):\nwhat a sender checks to keep from queuing too much. Frame headers, pings and the closing\nhandshake don't count.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"hello\")\n    println(ws.bufferedAmount)   // 5 (until it's written)\n    ws.close()\n  }\n  ws.onclose = (e) => resolve(__void())\n})\nawait server.shutdown()"
+                }
+              ],
+              "source": "core/websocket.pi:666",
               "members": []
             },
             {
@@ -8985,7 +8999,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:681",
+              "source": "core/websocket.pi:716",
               "members": []
             },
             {
@@ -8999,7 +9013,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:718",
+              "source": "core/websocket.pi:753",
               "members": []
             }
           ]

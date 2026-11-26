@@ -1,0 +1,36 @@
+// expect: right after send: 8
+// expect: server got: hello
+// expect: server got: abc
+// expect: once written: 0
+// `WebSocket.bufferedAmount` (#67): the bytes of messages handed to `send` that aren't written
+// yet (5 + 3 here); back to 0 once they are.
+import { serve, upgradeWebSocket } from "std/http"
+
+let got = 0
+const both = new Promise<void>()
+async function handle(req: Request): Promise<Response> throws Error {
+  const up = upgradeWebSocket(req)
+  up.socket.onmessage = (e) => {
+    match (e.data) {
+      s: string => println(`server got: ${s}`),
+      b: Uint8Array => println(`server got: ${string.fromUtf8(b)}`),
+    }
+    got += 1
+    if (got == 2) both.__resolve(__void())
+  }
+  return up.response
+}
+const server = await serve({ port: 0 }, handle)
+const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+await new Promise<void>((resolve, _reject) => {
+  ws.onopen = (_e) => {
+    ws.send("hello")
+    ws.send(Uint8Array.from([97, 98, 99]))
+    println(`right after send: ${ws.bufferedAmount}`)
+    resolve(__void())
+  }
+})
+await both
+println(`once written: ${ws.bufferedAmount}`)
+ws.close()
+await server.shutdown()

@@ -328,6 +328,8 @@ class WebSocket {
   public readonly url: string
   /// The connection's state: `CONNECTING`, `OPEN`, `CLOSING` or `CLOSED` (0–3).
   public readyState: int = 0
+  /// Message bytes handed to `send` that aren't written yet (`bufferedAmount`).
+  queued: int = 0
   /// The subprotocol the server chose ("" for none).
   public protocol: string = ""
   /// Called once the connection is open (an `"open"` event).
@@ -637,6 +639,39 @@ class WebSocket {
     await c.write(frame)
   }
 
+  /// The bytes of messages `send` was given that aren't written to the connection yet (#67):
+  /// what a sender checks to keep from queuing too much. Frame headers, pings and the closing
+  /// handshake don't count.
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, upgradeWebSocket } from "std/http"
+  ///
+  /// async function handle(req: Request): Promise<Response> throws Error {
+  ///   const up = upgradeWebSocket(req)
+  ///   up.response
+  /// }
+  /// const server = await serve({ port: 0 }, handle)
+  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+  /// await new Promise<void>((resolve, reject) => {
+  ///   ws.onopen = (e) => {
+  ///     ws.send("hello")
+  ///     println(ws.bufferedAmount)   // 5 (until it's written)
+  ///     ws.close()
+  ///   }
+  ///   ws.onclose = (e) => resolve(__void())
+  /// })
+  /// await server.shutdown()
+  /// ```
+  public get bufferedAmount(): int { return this.queued }
+
+  /// Sends a message, counted in `bufferedAmount` until it's written.
+  async sendCounted(op: int, payload: Uint8Array): Promise<void> {
+    this.queued += payload.length
+    await this.sendSafely(op, payload)
+    this.queued -= payload.length
+  }
+
   async sendSafely(op: int, payload: Uint8Array): Promise<void> {
     try {
       await this.sendFrame(op, payload)
@@ -686,8 +721,8 @@ class WebSocket {
       return
     }
     match (data) {
-      s: string => this.sendSafely(1, new TextEncoder().encode(s)),
-      b: Uint8Array => this.sendSafely(2, b),
+      s: string => this.sendCounted(1, new TextEncoder().encode(s)),
+      b: Uint8Array => this.sendCounted(2, b),
     };
   }
 
