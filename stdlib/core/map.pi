@@ -26,7 +26,7 @@ class __MapEntry<K, V> {
 /// // ann: 31
 /// // bob: 27
 /// ```
-class Map<K extends Hashable<K>, V> {
+class Map<K extends Hashable<K>, V> implements Iterable<[K, V]> {
   /// In insertion order; deleted entries stay (not `live`) until the next rehash, which comes once
   /// they outnumber the live ones.
   items: __MapEntry<K, V>[] = []
@@ -368,7 +368,7 @@ class Map<K extends Hashable<K>, V> {
 /// // a
 /// // b
 /// ```
-class Set<T extends Hashable<T>> {
+class Set<T extends Hashable<T>> implements Iterable<T> {
   map: Map<T, bool> = new Map()
 
   /// An empty set (`new Set<string>()`).

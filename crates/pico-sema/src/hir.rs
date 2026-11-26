@@ -51,6 +51,8 @@ pub struct Program {
     pub std_files: std::collections::HashSet<pico_diag::FileId>,
     /// The prelude's `Throwable` interface.
     pub throwable_iface: Option<StructId>,
+    /// The prelude's `Iterable` interface (arrays and strings meet it too).
+    pub iterable_iface: Option<StructId>,
     /// Methods of built-in types written in pico: top-level functions `__Array_map`,
     /// `__String_…` whose first parameter is the receiver, by (`Array`/`String`, method name).
     pub extensions: HashMap<(String, String), Vec<FnId>>,
@@ -723,6 +725,9 @@ pub struct TypeParam {
     pub name: String,
     pub span: Span,
     pub bounds: Vec<Bound>,
+    /// The type arguments of its generic interface bounds (`B extends Box<T>`: `Box`, `[T]`),
+    /// for calls of their methods on a `B` (#51).
+    pub iface_args: Vec<(StructId, Vec<Ty>)>,
     /// `T = i64`: used when a type is written without its arguments.
     pub default: Option<Ty>,
     /// `comptime N: i32`: a constant of this type, not a type (the argument is a literal

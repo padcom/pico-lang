@@ -9,6 +9,7 @@
     "Arena": "core#Arena",
     "ArrayBuffer": "core#ArrayBuffer",
     "AsyncDisposable": "core#AsyncDisposable",
+    "AsyncIterable": "core#AsyncIterable",
     "AsyncIterator": "core#AsyncIterator",
     "Base64": "core#Base64",
     "BindOptions": "core#BindOptions",
@@ -39,6 +40,7 @@
     "Hex": "core#Hex",
     "Int32Array": "core#Int32Array",
     "IoError": "core#IoError",
+    "Iterable": "core#Iterable",
     "Iterator": "core#Iterator",
     "JSON": "core#JSON",
     "JsonError": "core#JsonError",
@@ -710,7 +712,7 @@
               "code": "class Session implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"session closed\")\n  }\n}\n\nasync function run(): Promise<void> {\n  await using s = new Session()\n  println(\"working\")   // working\n}                      // session closed\n\nawait run()"
             }
           ],
-          "source": "core/promise.pi:701",
+          "source": "core/promise.pi:745",
           "members": [
             {
               "name": "disposeAsync",
@@ -723,7 +725,36 @@
                   "code": "class Upload implements AsyncDisposable {\n  public async disposeAsync(): Promise<void> {\n    println(\"upload finished\")\n  }\n}\n\nconst u = new Upload()\nawait u.disposeAsync()   // upload finished"
                 }
               ],
-              "source": "core/promise.pi:715",
+              "source": "core/promise.pi:759",
+              "members": []
+            }
+          ]
+        },
+        {
+          "name": "AsyncIterable",
+          "kind": "interface",
+          "signature": "interface AsyncIterable<T, E extends Throwable = never>",
+          "doc": "<p>What <code>for await</code> walks: anything with an <code>asyncIterator()</code> (async generators, streams).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "async function* count(n: int): AsyncIterator<int> {\n  for (let i = 1; i <= n; i++) yield i\n}\n\nasync function sum(xs: AsyncIterable<int>): Promise<int> {\n  let n = 0\n  for await (const x of xs) n += x\n  n\n}\nprintln(await sum(count(3)))   // 6"
+            }
+          ],
+          "source": "core/promise.pi:525",
+          "members": [
+            {
+              "name": "asyncIterator",
+              "kind": "method",
+              "signature": "asyncIterator(): AsyncIterator<T, E>",
+              "doc": "<p>An async iterator over the values.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "async function* two(): AsyncIterator<string> {\n  yield \"a\"\n  yield \"b\"\n}\n\nconst xs: AsyncIterable<string> = two()\nprintln(await xs.asyncIterator().next())   // a"
+                }
+              ],
+              "source": "core/promise.pi:538",
               "members": []
             }
           ]
@@ -731,7 +762,7 @@
         {
           "name": "AsyncIterator",
           "kind": "class",
-          "signature": "class AsyncIterator<T, E extends Throwable = never>",
+          "signature": "class AsyncIterator<T, E extends Throwable = never> implements AsyncIterable<T, E>",
           "doc": "<p>An async iterator (spec §5.7): <code>next()</code> promises the next value, or <code>null</code> once done\n(so, like <code>Iterator</code>, a <code>T</code> that is itself nullable can't be told apart from the end).\n<code>async function* g(): AsyncIterator&lt;T&gt; throws E</code> makes one: its step function yields\nsuspensions, both for <code>await</code> and, after storing the value, for <code>yield v</code>.</p>\n",
           "examples": [
             {
@@ -739,7 +770,7 @@
               "code": "async function* countdown(n: int): AsyncIterator<int> {\n  for (let i = n; i > 0; i--) {\n    yield i\n  }\n}\n\nfor await (const i of countdown(3)) {\n  println(i)   // 3, 2, 1\n}"
             }
           ],
-          "source": "core/promise.pi:527",
+          "source": "core/promise.pi:558",
           "members": [
             {
               "name": "constructor",
@@ -752,7 +783,7 @@
                   "code": "// `async function*` makes the iterators that produce values; this one is empty.\nconst it = new AsyncIterator<int>()\nprintln(it.asyncIterator() == it)   // true"
                 }
               ],
-              "source": "core/promise.pi:547",
+              "source": "core/promise.pi:578",
               "members": []
             },
             {
@@ -766,7 +797,7 @@
                   "code": "async function* letters(): AsyncIterator<string> {\n  yield \"a\"\n  yield \"b\"\n}\n\nconst it = letters()\nprintln(await it.next())   // a\nprintln(await it.next())   // b\nprintln(await it.next())   // null"
                 }
               ],
-              "source": "core/promise.pi:579",
+              "source": "core/promise.pi:610",
               "members": []
             },
             {
@@ -780,7 +811,7 @@
                   "code": "async function* one(): AsyncIterator<int> {\n  yield 1\n}\n\nconst it = one()\nprintln(it.asyncIterator() == it)   // true"
                 }
               ],
-              "source": "core/promise.pi:603",
+              "source": "core/promise.pi:634",
               "members": []
             }
           ]
@@ -853,7 +884,7 @@
               "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1236",
+          "source": "core/net.pi:1238",
           "members": [
             {
               "name": "reuseAddress",
@@ -861,7 +892,7 @@
               "signature": "reuseAddress?: bool",
               "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1239",
+              "source": "core/net.pi:1241",
               "members": []
             }
           ]
@@ -1009,7 +1040,7 @@
         {
           "name": "Conn",
           "kind": "class",
-          "signature": "class Conn",
+          "signature": "class Conn implements AsyncIterable<Uint8Array, NetError>",
           "doc": "<p>A TCP connection: chunks of bytes with <code>read</code> or <code>for await</code>, the rest as text with\n<code>text()</code>, writes (in the order they're made) with <code>write</code>/<code>writeText</code>. One read at a time.</p>\n",
           "examples": [
             {
@@ -1110,15 +1141,15 @@
             {
               "name": "asyncIterator",
               "kind": "method",
-              "signature": "public asyncIterator(): Conn",
-              "doc": "<p>The connection itself (<code>for await (const chunk of conn)</code>).</p>\n",
+              "signature": "public asyncIterator(): AsyncIterator<Uint8Array, NetError>",
+              "doc": "<p>An async iterator over the chunks read (each <code>next()</code>), so a connection is an\n<code>AsyncIterable</code> (<code>for await (const chunk of conn)</code>).</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  await client.writeText(\"hello\")\n  client.close()\n  let total = 0\n  for await (const chunk of server) {\n    total += chunk.length\n  }\n  println(total)   // 5\n  server.close()\n}\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:425",
+              "source": "core/net.pi:426",
               "members": []
             },
             {
@@ -1132,7 +1163,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  await server.writeText(\"line 1\\nline 2\\n\")\n  server.close()\n  const all = await client.text()\n  println(all.split(\"\\n\").length)   // 3\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:449",
+              "source": "core/net.pi:450",
               "members": []
             },
             {
@@ -1146,7 +1177,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  const n = await client.write(new TextEncoder().encode(\"bytes\"))\n  println(n)   // 5\n  server.close()\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:492",
+              "source": "core/net.pi:493",
               "members": []
             },
             {
@@ -1160,7 +1191,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  println(await client.writeText(\"żółw\"))   // 7 (bytes of UTF-8)\n  server.close()\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:513",
+              "source": "core/net.pi:514",
               "members": []
             },
             {
@@ -1174,7 +1205,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nclient.setNoDelay()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:531",
+              "source": "core/net.pi:532",
               "members": []
             },
             {
@@ -1188,7 +1219,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nclient.setKeepAlive(true, 30000)\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:549",
+              "source": "core/net.pi:550",
               "members": []
             },
             {
@@ -1202,7 +1233,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  await client.writeText(\"question\")\n  client.closeWrite()                  // the server's text() can finish…\n  const q = await server.text()\n  await server.writeText(`answer to ${q}`)\n  server.close()\n  println(await client.text())         // …and the client still reads: answer to question\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:587",
+              "source": "core/net.pi:588",
               "members": []
             },
             {
@@ -1216,7 +1247,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nclient.close()\nclient.close()                     // twice is fine\nif (server != null) {\n  println(await server.read())     // null\n  server.close()\n}\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:613",
+              "source": "core/net.pi:614",
               "members": []
             }
           ]
@@ -1803,7 +1834,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"hi\", b.addr.port)\nconst d: Datagram? = await b.receive()\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // hi\n  println(d.addr.port == a.addr.port)         // true\n}\na.close()\nb.close()"
             }
           ],
-          "source": "core/net.pi:961",
+          "source": "core/net.pi:963",
           "members": [
             {
               "name": "data",
@@ -1811,7 +1842,7 @@
               "signature": "data: Uint8Array",
               "doc": "<p>The datagram's bytes (cut to the size <code>receive</code> asked for).</p>\n",
               "examples": [],
-              "source": "core/net.pi:963",
+              "source": "core/net.pi:965",
               "members": []
             },
             {
@@ -1820,7 +1851,7 @@
               "signature": "addr: Addr",
               "doc": "<p>The address it came from.</p>\n",
               "examples": [],
-              "source": "core/net.pi:965",
+              "source": "core/net.pi:967",
               "members": []
             }
           ]
@@ -3070,7 +3101,7 @@
         {
           "name": "Headers",
           "kind": "class",
-          "signature": "class Headers",
+          "signature": "class Headers implements Iterable<[string, string]>",
           "doc": "<p>HTTP header fields: names are case-insensitive (kept lowercase), values trimmed.</p>\n",
           "examples": [
             {
@@ -3490,9 +3521,38 @@
           ]
         },
         {
+          "name": "Iterable",
+          "kind": "interface",
+          "signature": "interface Iterable<T>",
+          "doc": "<p>What <code>for-of</code> walks (spec §5.7): anything with an <code>iterator()</code>. Arrays, strings (their\ncharacters), <code>Map</code>, <code>Set</code>, iterators themselves and the collections are <code>Iterable</code>s, so a\nfunction can take any of them.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "function total(xs: Iterable<int>): int {\n  let n = 0\n  for (const x of xs) n += x\n  n\n}\nprintln(total([1, 2, 3]))   // 6\nprintln(total(\"ab\".iterator().map((c) => c as int - 96)))   // 3"
+            }
+          ],
+          "source": "core/iterator.pi:19",
+          "members": [
+            {
+              "name": "iterator",
+              "kind": "method",
+              "signature": "iterator(): Iterator<T>",
+              "doc": "<p>A fresh iterator over the values.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const xs: Iterable<int> = [1, 2, 3]\nprintln(xs.iterator().map((x) => x * 2).toArray().join(\", \"))   // 2, 4, 6"
+                }
+              ],
+              "source": "core/iterator.pi:27",
+              "members": []
+            }
+          ]
+        },
+        {
           "name": "Iterator",
           "kind": "class",
-          "signature": "class Iterator<T>",
+          "signature": "class Iterator<T> implements Iterable<T>",
           "doc": "<p>Values produced on demand (spec §5.7): <code>function*</code> generators return one, <code>for-of</code> walks one (or\nanything with an <code>iterator()</code> method), and its adapters (<code>map</code>, <code>filter</code>, <code>take</code>, …) build new\nones without running anything until values are asked for. An iterator is used up as it goes:\nwalk it once.</p>\n",
           "examples": [
             {
@@ -3500,7 +3560,7 @@
               "code": "function* naturals(): Iterator<int> {\n  let n = 1\n  while (true) {\n    yield n\n    n += 1\n  }\n}\n\nconst squares = naturals().map((n) => n * n).take(4).toArray()\nprintln(squares.join(\", \"))   // 1, 4, 9, 16"
             }
           ],
-          "source": "core/iterator.pi:23",
+          "source": "core/iterator.pi:90",
           "members": [
             {
               "name": "constructor",
@@ -3513,7 +3573,7 @@
                   "code": "let n = 0\nconst countdown = new Iterator<int>(() => {\n  n += 1\n  if (n > 3) null else 4 - n\n})\nfor (const x of countdown) {\n  println(x)\n}\n// 3\n// 2\n// 1"
                 }
               ],
-              "source": "core/iterator.pi:43",
+              "source": "core/iterator.pi:110",
               "members": []
             },
             {
@@ -3527,7 +3587,7 @@
                   "code": "const it = [\"a\", \"b\"].iterator()\nprintln(it.next())   // a\nprintln(it.next())   // b\nprintln(it.next())   // null"
                 }
               ],
-              "source": "core/iterator.pi:56",
+              "source": "core/iterator.pi:123",
               "members": []
             },
             {
@@ -3541,7 +3601,7 @@
                   "code": "const it = [1, 2, 3].iterator()\nit.next()\nfor (const x of it.iterator()) {\n  println(x)\n}\n// 2\n// 3"
                 }
               ],
-              "source": "core/iterator.pi:80",
+              "source": "core/iterator.pi:147",
               "members": []
             },
             {
@@ -3555,7 +3615,7 @@
                   "code": "const lengths = [\"one\", \"three\"].iterator().map((s) => s.length)\nprintln(lengths.toArray().join(\", \"))   // 3, 5"
                 }
               ],
-              "source": "core/iterator.pi:91",
+              "source": "core/iterator.pi:158",
               "members": []
             },
             {
@@ -3569,7 +3629,7 @@
                   "code": "const odd = [1, 2, 3, 4, 5].iterator().filter((x) => x % 2 == 1)\nprintln(odd.toArray().join(\", \"))   // 1, 3, 5"
                 }
               ],
-              "source": "core/iterator.pi:106",
+              "source": "core/iterator.pi:173",
               "members": []
             },
             {
@@ -3583,7 +3643,7 @@
                   "code": "const firstTwo = [10, 20, 30].iterator().take(2)\nprintln(firstTwo.toArray().join(\", \"))   // 10, 20"
                 }
               ],
-              "source": "core/iterator.pi:128",
+              "source": "core/iterator.pi:195",
               "members": []
             },
             {
@@ -3597,7 +3657,7 @@
                   "code": "const rest = [10, 20, 30].iterator().skip(1)\nprintln(rest.toArray().join(\", \"))   // 20, 30"
                 }
               ],
-              "source": "core/iterator.pi:147",
+              "source": "core/iterator.pi:214",
               "members": []
             },
             {
@@ -3611,7 +3671,7 @@
                   "code": "const names = [\"ann\", \"bob\", \"cy\"].iterator()\nconst ages = [31, 27].iterator()\nfor (const [name, age] of names.zip(ages)) {\n  println(`${name} is ${age}`)\n}\n// ann is 31\n// bob is 27"
                 }
               ],
-              "source": "core/iterator.pi:171",
+              "source": "core/iterator.pi:238",
               "members": []
             },
             {
@@ -3625,7 +3685,7 @@
                   "code": "for (const [i, s] of [\"a\", \"b\"].iterator().enumerate()) {\n  println(`${i}: ${s}`)\n}\n// 0: a\n// 1: b"
                 }
               ],
-              "source": "core/iterator.pi:196",
+              "source": "core/iterator.pi:263",
               "members": []
             },
             {
@@ -3639,7 +3699,7 @@
                   "code": "const it = [1, 2, 3, 4].iterator()\nit.next()\nprintln(it.toArray().join(\",\"))   // 2,3,4"
                 }
               ],
-              "source": "core/iterator.pi:218",
+              "source": "core/iterator.pi:285",
               "members": []
             },
             {
@@ -3653,7 +3713,7 @@
                   "code": "[\"x\", \"y\"].iterator().forEach((s) => println(s))\n// x\n// y"
                 }
               ],
-              "source": "core/iterator.pi:238",
+              "source": "core/iterator.pi:305",
               "members": []
             }
           ]
@@ -3784,7 +3844,7 @@
         {
           "name": "Listener",
           "kind": "class",
-          "signature": "class Listener",
+          "signature": "class Listener implements AsyncIterable<Conn, NetError>",
           "doc": "<p>A TCP listener: <code>accept()</code> or <code>for await (const conn of listener)</code>.</p>\n",
           "examples": [
             {
@@ -3792,7 +3852,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nprintln(server != null)   // true\nserver?.close()\nclient.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:692",
+          "source": "core/net.pi:693",
           "members": [
             {
               "name": "addr",
@@ -3800,7 +3860,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it listens on (with the port chosen when <code>listen</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:695",
+              "source": "core/net.pi:696",
               "members": []
             },
             {
@@ -3814,7 +3874,7 @@
                   "code": "import { listen } from \"std/net\"\n\n// Listeners come from `listen` (and `listenUnix`).\nconst listener: Listener = await listen(0)\nprintln(listener.addr.hostname)   // 127.0.0.1\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:713",
+              "source": "core/net.pi:714",
               "members": []
             },
             {
@@ -3828,7 +3888,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn?.remoteAddr.port == client.localAddr.port)   // true\nconn?.close()\nclient.close()\nlistener.close()\nprintln(await listener.accept())   // null (closed)"
                 }
               ],
-              "source": "core/net.pi:746",
+              "source": "core/net.pi:747",
               "members": []
             },
             {
@@ -3842,21 +3902,21 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.next()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn != null)   // true\nconn?.close()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:793",
+              "source": "core/net.pi:794",
               "members": []
             },
             {
               "name": "asyncIterator",
               "kind": "method",
-              "signature": "public asyncIterator(): Listener",
-              "doc": "<p>The listener itself (<code>for await (const conn of listener)</code>).</p>\n",
+              "signature": "public asyncIterator(): AsyncIterator<Conn, NetError>",
+              "doc": "<p>An async iterator over the accepted connections (each <code>next()</code>), so a listener is an\n<code>AsyncIterable</code> (<code>for await (const conn of listener)</code>).</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nawait client.writeText(\"hello\")\nclient.close()\nfor await (const conn of listener) {\n  println(await conn.text())   // hello\n  conn.close()\n  listener.close()             // ends the loop\n}"
                 }
               ],
-              "source": "core/net.pi:813",
+              "source": "core/net.pi:815",
               "members": []
             },
             {
@@ -3870,7 +3930,7 @@
                   "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst waiting = listener.accept()\nlistener.close()\nprintln(await waiting)   // null"
                 }
               ],
-              "source": "core/net.pi:829",
+              "source": "core/net.pi:831",
               "members": []
             }
           ]
@@ -3878,7 +3938,7 @@
         {
           "name": "Map",
           "kind": "class",
-          "signature": "class Map<K extends Hashable<K>, V>",
+          "signature": "class Map<K extends Hashable<K>, V> implements Iterable<[K, V]>",
           "doc": "<p>A hash table from keys to values, iterated in insertion order like JavaScript's (spec §13.1).\nKeys are compared with <code>==</code> and hashed with <code>hashCode()</code>: numbers, strings, <code>bool</code>, <code>char</code>, and\nclasses or structs with a <code>hashCode(): u64</code> method (the <code>Hashable</code> protocol, spec §2.8).\n<code>for (const [k, v] of map)</code> walks the entries.</p>\n",
           "examples": [
             {
@@ -4920,7 +4980,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
             }
           ],
-          "source": "core/net.pi:1252",
+          "source": "core/net.pi:1254",
           "members": [
             {
               "name": "name",
@@ -4928,7 +4988,7 @@
               "signature": "name: string",
               "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
               "examples": [],
-              "source": "core/net.pi:1254",
+              "source": "core/net.pi:1256",
               "members": []
             },
             {
@@ -4937,7 +4997,7 @@
               "signature": "family: int",
               "doc": "<p>4 or 6.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1256",
+              "source": "core/net.pi:1258",
               "members": []
             },
             {
@@ -4946,7 +5006,7 @@
               "signature": "address: string",
               "doc": "<p>The address, as text.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1258",
+              "source": "core/net.pi:1260",
               "members": []
             },
             {
@@ -4955,7 +5015,7 @@
               "signature": "up: bool",
               "doc": "<p>Whether it's up.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1260",
+              "source": "core/net.pi:1262",
               "members": []
             },
             {
@@ -4964,7 +5024,7 @@
               "signature": "loopback: bool",
               "doc": "<p>Whether it's the loopback interface.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1262",
+              "source": "core/net.pi:1264",
               "members": []
             },
             {
@@ -4973,7 +5033,7 @@
               "signature": "multicast: bool",
               "doc": "<p>Whether it can send and receive multicast.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1264",
+              "source": "core/net.pi:1266",
               "members": []
             }
           ]
@@ -5388,7 +5448,7 @@
         {
           "name": "ReadableStream",
           "kind": "class",
-          "signature": "class ReadableStream<T>",
+          "signature": "class ReadableStream<T> implements AsyncIterable<T, Error>",
           "doc": "<p>A stream of chunks to read: with a reader (<code>getReader()</code>), <code>for await</code>, or piped into a\n<code>WritableStream</code>.</p>\n",
           "examples": [
             {
@@ -5513,15 +5573,15 @@
             {
               "name": "asyncIterator",
               "kind": "method",
-              "signature": "public asyncIterator(): ReadableStream<T>",
-              "doc": "<p><code>for await</code> uses the stream itself (see <code>next</code>).</p>\n",
+              "signature": "public asyncIterator(): AsyncIterator<T, Error>",
+              "doc": "<p>An async iterator over the chunks (each <code>next()</code>), so a stream is an <code>AsyncIterable</code>:\n<code>for await</code> walks it.</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "let total = 0\nfor await (const n of ReadableStream.from([1, 2, 3])) {\n  total += n\n}\nprintln(total)   // 6"
                 }
               ],
-              "source": "core/streams.pi:499",
+              "source": "core/streams.pi:500",
               "members": []
             },
             {
@@ -5535,7 +5595,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (reason) => println(`cancelled: ${reason?.message}`),\n})\nawait s.cancel(new Error(\"not needed\"))   // cancelled: not needed\nprintln(await s.next())                   // null"
                 }
               ],
-              "source": "core/streams.pi:515",
+              "source": "core/streams.pi:516",
               "members": []
             },
             {
@@ -5549,7 +5609,7 @@
                   "code": "const lines: string[] = []\nconst sink = new WritableStream<string>({\n  write: (chunk, _c) => lines.push(chunk),\n  close: () => println(\"closed\"),\n})\nawait ReadableStream.from([\"a\", \"b\", \"c\"]).pipeTo(sink)   // closed\nprintln(lines.join(\",\"))   // a,b,c"
                 }
               ],
-              "source": "core/streams.pi:548",
+              "source": "core/streams.pi:549",
               "members": []
             },
             {
@@ -5563,7 +5623,7 @@
                   "code": "const upper = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),\n})\nfor await (const s of ReadableStream.from([\"hi\", \"there\"]).pipeThrough(upper)) {\n  println(s)\n}\n// HI\n// THERE"
                 }
               ],
-              "source": "core/streams.pi:607",
+              "source": "core/streams.pi:608",
               "members": []
             }
           ]
@@ -5664,7 +5724,7 @@
               "code": "const reader: ReadableStreamDefaultReader<int> = ReadableStream.from([1, 2]).getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).value)   // 2\nprintln((await reader.read()).done)    // true"
             }
           ],
-          "source": "core/streams.pi:788",
+          "source": "core/streams.pi:789",
           "members": [
             {
               "name": "constructor",
@@ -5677,7 +5737,7 @@
                   "code": "const s = ReadableStream.from([\"only\"])\nconst reader = new ReadableStreamDefaultReader<string>(s)\nprintln(s.locked)                      // true\nprintln((await reader.read()).value)   // only"
                 }
               ],
-              "source": "core/streams.pi:801",
+              "source": "core/streams.pi:802",
               "members": []
             },
             {
@@ -5691,7 +5751,7 @@
                   "code": "const reader = ReadableStream.from([\"a\", \"b\"]).getReader()\nlet r = await reader.read()\nwhile (!r.done) {\n  println(r.value)\n  r = await reader.read()\n}\n// a\n// b"
                 }
               ],
-              "source": "core/streams.pi:828",
+              "source": "core/streams.pi:829",
               "members": []
             },
             {
@@ -5705,7 +5765,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (_reason) => println(\"source cancelled\"),\n})\nconst reader = s.getReader()\nawait reader.cancel()                 // source cancelled\nprintln((await reader.read()).done)   // true"
                 }
               ],
-              "source": "core/streams.pi:849",
+              "source": "core/streams.pi:850",
               "members": []
             },
             {
@@ -5719,7 +5779,7 @@
                   "code": "const reader = ReadableStream.from([1]).getReader()\nprintln((await reader.read()).value)   // 1\nawait reader.closed\nprintln(\"closed\")                      // closed"
                 }
               ],
-              "source": "core/streams.pi:863",
+              "source": "core/streams.pi:864",
               "members": []
             },
             {
@@ -5733,7 +5793,7 @@
                   "code": "const s = ReadableStream.from([1, 2])\nconst first = s.getReader()\nprintln((await first.read()).value)   // 1\nfirst.releaseLock()\nconst second = s.getReader()\nprintln((await second.read()).value)  // 2"
                 }
               ],
-              "source": "core/streams.pi:878",
+              "source": "core/streams.pi:879",
               "members": []
             }
           ]
@@ -6003,7 +6063,7 @@
         {
           "name": "RegExpMatch",
           "kind": "class",
-          "signature": "class RegExpMatch",
+          "signature": "class RegExpMatch implements Iterable<string?>",
           "doc": "<p>A match: element 0 is the matched text, then each capture group's (<code>null</code> when it didn't\ntake part); <code>index</code> is where it starts and <code>groups</code> holds named groups. With the <code>g</code>\nflag, <code>string.match</code> gives every match's text as the elements instead (<code>index</code> -1).</p>\n",
           "examples": [
             {
@@ -6453,7 +6513,7 @@
         {
           "name": "Set",
           "kind": "class",
-          "signature": "class Set<T extends Hashable<T>>",
+          "signature": "class Set<T extends Hashable<T>> implements Iterable<T>",
           "doc": "<p>A set of distinct values, iterated in insertion order like JavaScript's (spec §13.1). Values are\ncompared with <code>==</code> and hashed with <code>hashCode()</code>, as <code>Map</code> keys are. <code>for (const x of set)</code> walks\nit.</p>\n",
           "examples": [
             {
@@ -7195,7 +7255,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1733",
+          "source": "core/streams.pi:1734",
           "members": [
             {
               "name": "readable",
@@ -7203,7 +7263,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1735",
+              "source": "core/streams.pi:1736",
               "members": []
             },
             {
@@ -7212,7 +7272,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1737",
+              "source": "core/streams.pi:1738",
               "members": []
             },
             {
@@ -7226,7 +7286,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1756",
+              "source": "core/streams.pi:1757",
               "members": []
             }
           ]
@@ -7242,7 +7302,7 @@
               "code": "const t = new TransformStream<int, int>({\n  transform: (n, c: TransformStreamDefaultController<int>) => {\n    c.enqueue(n)\n    c.enqueue(n * 100)\n  },\n})\nfor await (const x of ReadableStream.from([1, 2]).pipeThrough(t)) {\n  println(x)\n}\n// 1\n// 100\n// 2\n// 200"
             }
           ],
-          "source": "core/streams.pi:1488",
+          "source": "core/streams.pi:1489",
           "members": [
             {
               "name": "constructor",
@@ -7255,7 +7315,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1510",
+              "source": "core/streams.pi:1511",
               "members": []
             },
             {
@@ -7269,7 +7329,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1525",
+              "source": "core/streams.pi:1526",
               "members": []
             },
             {
@@ -7283,7 +7343,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1546",
+              "source": "core/streams.pi:1547",
               "members": []
             },
             {
@@ -7297,7 +7357,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1573",
+              "source": "core/streams.pi:1574",
               "members": []
             },
             {
@@ -7311,7 +7371,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1595",
+              "source": "core/streams.pi:1596",
               "members": []
             }
           ]
@@ -7327,7 +7387,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1622",
+          "source": "core/streams.pi:1623",
           "members": [
             {
               "name": "start",
@@ -7335,7 +7395,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1624",
+              "source": "core/streams.pi:1625",
               "members": []
             },
             {
@@ -7344,7 +7404,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1627",
+              "source": "core/streams.pi:1628",
               "members": []
             },
             {
@@ -7353,7 +7413,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1629",
+              "source": "core/streams.pi:1630",
               "members": []
             },
             {
@@ -7362,7 +7422,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1632",
+              "source": "core/streams.pi:1633",
               "members": []
             }
           ]
@@ -7702,7 +7762,7 @@
         {
           "name": "URLSearchParams",
           "kind": "class",
-          "signature": "class URLSearchParams",
+          "signature": "class URLSearchParams implements Iterable<[string, string]>",
           "doc": "<p>A query string's name/value pairs (<code>a=1&amp;b=two%20words</code>), in order.</p>\n",
           "examples": [
             {
@@ -7907,7 +7967,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst server = await bind(0)\nconst client = await bind(0)\nawait client.sendText(\"ping\", server.addr.port)\nconst d = await server.receive()\nif (d != null) {\n  await server.sendText(\"pong\", d.addr.port, d.addr.hostname)\n}\nconst reply = await client.receive()\nif (reply != null) {\n  println(new TextDecoder().decode(reply.data))   // pong\n}\nserver.close()\nclient.close()"
             }
           ],
-          "source": "core/net.pi:988",
+          "source": "core/net.pi:990",
           "members": [
             {
               "name": "addr",
@@ -7915,7 +7975,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it's bound to (with the port chosen when <code>bind</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:991",
+              "source": "core/net.pi:993",
               "members": []
             },
             {
@@ -7929,7 +7989,7 @@
                   "code": "import { bind } from \"std/net\"\n\n// UDP sockets come from `bind`.\nconst socket: UdpSocket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.hostname)   // 127.0.0.1\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1008",
+              "source": "core/net.pi:1010",
               "members": []
             },
             {
@@ -7943,7 +8003,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1037",
+              "source": "core/net.pi:1039",
               "members": []
             },
             {
@@ -7957,7 +8017,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1052",
+              "source": "core/net.pi:1054",
               "members": []
             },
             {
@@ -7971,7 +8031,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1067",
+              "source": "core/net.pi:1069",
               "members": []
             },
             {
@@ -7985,7 +8045,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1082",
+              "source": "core/net.pi:1084",
               "members": []
             },
             {
@@ -7999,7 +8059,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1097",
+              "source": "core/net.pi:1099",
               "members": []
             },
             {
@@ -8013,7 +8073,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1138",
+              "source": "core/net.pi:1140",
               "members": []
             },
             {
@@ -8027,7 +8087,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1156",
+              "source": "core/net.pi:1158",
               "members": []
             },
             {
@@ -8041,7 +8101,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1177",
+              "source": "core/net.pi:1179",
               "members": []
             },
             {
@@ -8055,7 +8115,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1212",
+              "source": "core/net.pi:1214",
               "members": []
             }
           ]
@@ -8477,7 +8537,7 @@
               "code": "const got: int[] = []\nconst sink: UnderlyingSink<int> = {\n  start: (_c) => println(\"start\"),\n  write: (chunk, _c) => got.push(chunk),\n  close: () => println(`close after ${got.length}`),\n}\nawait ReadableStream.from([1, 2, 3]).pipeTo(new WritableStream<int>(sink))\n// start\n// close after 3"
             }
           ],
-          "source": "core/streams.pi:958",
+          "source": "core/streams.pi:959",
           "members": [
             {
               "name": "start",
@@ -8485,7 +8545,7 @@
               "signature": "start?: (c: WritableStreamDefaultController) => void",
               "doc": "<p>Runs once, inside the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:960",
+              "source": "core/streams.pi:961",
               "members": []
             },
             {
@@ -8494,7 +8554,7 @@
               "signature": "write?: (chunk: T, c: WritableStreamDefaultController) => void",
               "doc": "<p>Takes a chunk; the next one comes after it returns.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:962",
+              "source": "core/streams.pi:963",
               "members": []
             },
             {
@@ -8503,7 +8563,7 @@
               "signature": "writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>",
               "doc": "<p>Like <code>write</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>write</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:965",
+              "source": "core/streams.pi:966",
               "members": []
             },
             {
@@ -8512,7 +8572,7 @@
               "signature": "close?: () => void",
               "doc": "<p>Runs after the last queued chunk is written, when the stream is closed.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:967",
+              "source": "core/streams.pi:968",
               "members": []
             },
             {
@@ -8521,7 +8581,7 @@
               "signature": "closeAsync?: () => Promise<void, Error>",
               "doc": "<p>Like <code>close</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>close</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:970",
+              "source": "core/streams.pi:971",
               "members": []
             },
             {
@@ -8530,7 +8590,7 @@
               "signature": "abort?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is aborted (before the queued writes reject).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:972",
+              "source": "core/streams.pi:973",
               "members": []
             }
           ]
@@ -9194,7 +9254,7 @@
               "code": "const out: string[] = []\nconst ws = new WritableStream<string>({\n  write: (chunk, _c) => out.push(chunk),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"hello\")\nawait writer.write(\"world\")\nawait writer.close()\nprintln(out.join(\" \"))   // hello world"
             }
           ],
-          "source": "core/streams.pi:995",
+          "source": "core/streams.pi:996",
           "members": [
             {
               "name": "constructor",
@@ -9207,7 +9267,7 @@
                   "code": "let bytes = 0\nconst counter = new WritableStream<Uint8Array>({\n  write: (chunk, _c) => {\n    bytes += chunk.length\n  },\n}, { highWaterMark: 4 })\nconst writer = counter.getWriter()\nprintln(writer.desiredSize)   // 4\nawait writer.write(new Uint8Array(10))\nawait writer.close()\nprintln(bytes)   // 10"
                 }
               ],
-              "source": "core/streams.pi:1028",
+              "source": "core/streams.pi:1029",
               "members": []
             },
             {
@@ -9221,7 +9281,7 @@
                   "code": "const ws = new WritableStream<int>({})\nprintln(ws.locked)   // false\nconst writer = ws.getWriter()\nprintln(ws.locked)   // true\nwriter.releaseLock()\nprintln(ws.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:1055",
+              "source": "core/streams.pi:1056",
               "members": []
             },
             {
@@ -9235,7 +9295,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`got ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"x\")   // got x"
                 }
               ],
-              "source": "core/streams.pi:1069",
+              "source": "core/streams.pi:1070",
               "members": []
             },
             {
@@ -9249,7 +9309,7 @@
                   "code": "const ws = new WritableStream<int>({\n  close: () => println(\"sink closed\"),\n})\nawait ws.close()   // sink closed"
                 }
               ],
-              "source": "core/streams.pi:1082",
+              "source": "core/streams.pi:1083",
               "members": []
             },
             {
@@ -9263,7 +9323,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`aborted: ${reason?.message}`),\n})\nawait ws.abort(new Error(\"user cancelled\"))   // aborted: user cancelled"
                 }
               ],
-              "source": "core/streams.pi:1098",
+              "source": "core/streams.pi:1099",
               "members": []
             }
           ]
@@ -9279,7 +9339,7 @@
               "code": "const sink = new WritableStream<int>({\n  write: (chunk, c: WritableStreamDefaultController) => {\n    if (chunk < 0) c.error(new Error(\"negative\"))\n  },\n})\nconst writer = sink.getWriter()\nawait writer.write(1)\ntry {\n  await writer.write(-1)\n  await writer.write(2)\n} catch (e) {\n  println(e.message)   // negative\n}"
             }
           ],
-          "source": "core/streams.pi:904",
+          "source": "core/streams.pi:905",
           "members": [
             {
               "name": "constructor",
@@ -9292,7 +9352,7 @@
                   "code": "// A stream makes its controller and hands it to its sink's callbacks.\nconst sink = new WritableStream<string>({\n  start: (c: WritableStreamDefaultController) => println(\"started\"),   // started\n})\nprintln(sink.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:917",
+              "source": "core/streams.pi:918",
               "members": []
             },
             {
@@ -9306,7 +9366,7 @@
                   "code": "const sink = new WritableStream<string>({\n  write: (chunk, c) => c.error(new Error(`can't store ${chunk}`)),\n})\nconst writer = sink.getWriter()\ntry {\n  await writer.write(\"x\")\n  await writer.write(\"y\")\n} catch (e) {\n  println(e.message)   // can't store x\n}"
                 }
               ],
-              "source": "core/streams.pi:936",
+              "source": "core/streams.pi:937",
               "members": []
             }
           ]
@@ -9322,7 +9382,7 @@
               "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer: WritableStreamDefaultWriter<string> = ws.getWriter()\nawait writer.ready\nawait writer.write(\"one\")   // one\nawait writer.close()"
             }
           ],
-          "source": "core/streams.pi:1323",
+          "source": "core/streams.pi:1324",
           "members": [
             {
               "name": "constructor",
@@ -9335,7 +9395,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = new WritableStreamDefaultWriter<int>(ws)\nprintln(ws.locked)   // true\nawait writer.write(5)   // 5"
                 }
               ],
-              "source": "core/streams.pi:1338",
+              "source": "core/streams.pi:1339",
               "members": []
             },
             {
@@ -9349,7 +9409,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`stored ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"a\")   // stored a\nawait writer.write(\"b\")   // stored b"
                 }
               ],
-              "source": "core/streams.pi:1363",
+              "source": "core/streams.pi:1364",
               "members": []
             },
             {
@@ -9363,7 +9423,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n  close: () => println(\"done\"),\n})\nconst writer = ws.getWriter()\nwriter.write(\"last\")\nawait writer.close()\n// last\n// done"
                 }
               ],
-              "source": "core/streams.pi:1382",
+              "source": "core/streams.pi:1383",
               "members": []
             },
             {
@@ -9377,7 +9437,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`abort: ${reason?.message}`),\n})\nconst writer = ws.getWriter()\nawait writer.abort(new Error(\"stop\"))   // abort: stop"
                 }
               ],
-              "source": "core/streams.pi:1397",
+              "source": "core/streams.pi:1398",
               "members": []
             },
             {
@@ -9391,7 +9451,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = ws.getWriter()\nfor (const n of [1, 2, 3]) {\n  await writer.ready   // waits while the queue is full\n  writer.write(n)\n}\nawait writer.close()\n// 1\n// 2\n// 3"
                 }
               ],
-              "source": "core/streams.pi:1419",
+              "source": "core/streams.pi:1420",
               "members": []
             },
             {
@@ -9405,7 +9465,7 @@
                   "code": "const ws = new WritableStream<int>({}, { highWaterMark: 3 })\nconst writer = ws.getWriter()\nprintln(writer.desiredSize)   // 3"
                 }
               ],
-              "source": "core/streams.pi:1431",
+              "source": "core/streams.pi:1432",
               "members": []
             },
             {
@@ -9419,7 +9479,7 @@
                   "code": "const ws = new WritableStream<int>({})\nconst writer = ws.getWriter()\nwriter.closed.then((_v) => println(\"closed\"))\nawait writer.close()\nawait writer.closed   // closed"
                 }
               ],
-              "source": "core/streams.pi:1445",
+              "source": "core/streams.pi:1446",
               "members": []
             },
             {
@@ -9433,7 +9493,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst first = ws.getWriter()\nawait first.write(\"from the first\")    // from the first\nfirst.releaseLock()\nconst second = ws.getWriter()\nawait second.write(\"from the second\")  // from the second"
                 }
               ],
-              "source": "core/streams.pi:1462",
+              "source": "core/streams.pi:1463",
               "members": []
             }
           ]
@@ -9794,6 +9854,20 @@
             }
           ],
           "source": "core/string.pi:12",
+          "members": []
+        },
+        {
+          "name": "iterator",
+          "kind": "method",
+          "signature": "iterator(): Iterator<char>",
+          "doc": "<p>The string's characters, lazily.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "const it = \"héllo\".iterator()\nprintln(it.next())                       // h\nprintln(it.take(2).toArray().join(\"\"))   // él"
+            }
+          ],
+          "source": "core/iterator.pi:343",
           "members": []
         },
         {
@@ -10234,7 +10308,7 @@
               "code": "const it = [1, 2, 3].iterator()\nprintln(it.next())   // 1\nprintln(it.map((x) => x * 10).toArray().join(\", \"))   // 20, 30"
             }
           ],
-          "source": "core/iterator.pi:257",
+          "source": "core/iterator.pi:324",
           "members": []
         },
         {
@@ -11038,7 +11112,7 @@
         {
           "name": "Deque",
           "kind": "class",
-          "signature": "class Deque<T>",
+          "signature": "class Deque<T> implements Iterable<T>",
           "doc": "<p>A double-ended queue: push and pop at both ends in amortized O(1), index in O(1).</p>\n",
           "examples": [
             {
@@ -11291,7 +11365,7 @@
         {
           "name": "PriorityQueue",
           "kind": "class",
-          "signature": "class PriorityQueue<T>",
+          "signature": "class PriorityQueue<T> implements Iterable<T>",
           "doc": "<p>A priority queue: <code>pop</code> gives the smallest element by <code>compare</code> (negative when <code>a</code> comes\nfirst), so <code>(a, b) =&gt; b - a</code> makes a max-queue. Push and pop are O(log n).</p>\n",
           "examples": [
             {
@@ -11446,7 +11520,7 @@
         {
           "name": "SortedMap",
           "kind": "class",
-          "signature": "class SortedMap<K extends Comparable<K>, V>",
+          "signature": "class SortedMap<K extends Comparable<K>, V> implements Iterable<[K, V]>",
           "doc": "<p>A map whose keys stay sorted (by <code>compareTo</code>), as a balanced (AVL) tree: lookups, inserts\nand deletes in O(log n) (#59), plus ordered queries (<code>floorKey</code>, <code>ceilingKey</code>, <code>range</code>).</p>\n",
           "examples": [
             {
@@ -11713,7 +11787,7 @@
         {
           "name": "SortedSet",
           "kind": "class",
-          "signature": "class SortedSet<T extends Comparable<T>>",
+          "signature": "class SortedSet<T extends Comparable<T>> implements Iterable<T>",
           "doc": "<p>A set whose values stay sorted (by <code>compareTo</code>): adds, deletes and lookups in O(log n), and\nthe ordered queries of <code>SortedMap</code> (#59).</p>\n",
           "examples": [
             {
@@ -11924,7 +11998,7 @@
         {
           "name": "MultiMap",
           "kind": "class",
-          "signature": "class MultiMap<K extends Hashable<K>, V>",
+          "signature": "class MultiMap<K extends Hashable<K>, V> implements Iterable<[K, V]>",
           "doc": "<p>A map from each key to a list of values, in the order they were added (#59).</p>\n",
           "examples": [
             {
@@ -12093,7 +12167,7 @@
         {
           "name": "LinkedList",
           "kind": "class",
-          "signature": "class LinkedList<T>",
+          "signature": "class LinkedList<T> implements Iterable<T>",
           "doc": "<p>A doubly linked list: adding and removing at either end in O(1) (#59). <code>Deque</code> is usually\nfaster; this one never moves its elements.</p>\n",
           "examples": [
             {
@@ -12426,7 +12500,7 @@
         {
           "name": "BitSet",
           "kind": "class",
-          "signature": "class BitSet",
+          "signature": "class BitSet implements Iterable<int>",
           "doc": "<p>A growable set of small non-negative integers, one bit each.</p>\n",
           "examples": [
             {
@@ -14519,7 +14593,7 @@
         {
           "name": "Watcher",
           "kind": "class",
-          "signature": "class Watcher implements Disposable",
+          "signature": "class Watcher implements Disposable, AsyncIterable<WatchEvent>",
           "doc": "<p>Watches a file or a directory (with <code>recursive</code>, the whole tree below it): an async\niterator of <code>WatchEvent</code>s, ended by <code>close()</code> (or <code>using</code>). Changes made while nobody\nwaits for an event are compared as a whole when the next one is asked for, so a file\ncreated and changed in between is one <code>create</code>, and one created and removed is nothing.</p>\n<p>The OS says which directories changed (inotify on Linux, FSEvents on macOS,\n<code>ReadDirectoryChangesW</code> on Windows) and only those are looked at again, so an idle watcher\ncosts nothing, even on a big tree. When it can't say, the watcher looks at the whole tree\neach time, and also every 250 ms while an event is awaited, which on a big tree (tens of\nthousands of entries) is noticeable CPU: when the OS dropped events (its queue or buffer\noverflowed), Linux's watch limit (<code>fs.inotify.max_user_watches</code>) is reached, the watched\npath is a file, or it's gone. (On macOS then, in a tree of more than 256 entries, a change\nto a file's contents is only noticed by that 250 ms look.)</p>\n",
           "examples": [
             {
@@ -14569,15 +14643,15 @@
             {
               "name": "asyncIterator",
               "kind": "method",
-              "signature": "public asyncIterator(): Watcher",
-              "doc": "<p><code>for await</code> uses the watcher itself.</p>\n",
+              "signature": "public asyncIterator(): AsyncIterator<WatchEvent>",
+              "doc": "<p>An async iterator over the events (each <code>next()</code>), so a watcher is an <code>AsyncIterable</code>:\n<code>for await</code> walks it.</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-iter-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nawait writeText(join(dir, \"f.txt\"), \"x\")\nfor await (const e of w.asyncIterator()) {\n  println(e.kind)   // create\n  w.close()\n}\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:804",
+              "source": "fs.pi:805",
               "members": []
             },
             {
@@ -14591,7 +14665,7 @@
                   "code": "import { watch, mkdir, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-close-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nconst pending = w.next()\nw.close()\nprintln(await pending == null)   // true\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:824",
+              "source": "fs.pi:825",
               "members": []
             },
             {
@@ -14605,7 +14679,7 @@
                   "code": "import { watch, mkdir, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-using-example\")\nawait mkdir(dir, recursive: true)\n{\n  using w = await watch(dir)\n  println(w.path == dir)   // true\n}   // w.dispose() stops watching here\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:850",
+              "source": "fs.pi:851",
               "members": []
             }
           ]
@@ -14621,7 +14695,7 @@
               "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watch-example\")\nawait mkdir(join(dir, \"src\"), recursive: true)\nconst w = await watch(dir, recursive: true)\nawait writeText(join(dir, \"src\", \"main.pi\"), \"println(1)\")\nconst e = await w.next()\nprintln(e?.kind)   // create\nw.close()\nawait remove(dir, recursive: true)"
             }
           ],
-          "source": "fs.pi:916",
+          "source": "fs.pi:917",
           "members": []
         },
         {
@@ -14635,7 +14709,7 @@
               "code": "import { FileStream, writeBytes, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-example.bin\")\nawait writeBytes(path, Uint8Array.from([1, 2, 3, 4, 5]))\nconst stream = new FileStream(path, chunkSize: 2)\nlet chunk = await stream.read()\nwhile (chunk != null) {\n  println(chunk.length)   // 2, 2, then 1\n  chunk = await stream.read()\n}\nawait remove(path)"
             }
           ],
-          "source": "fs.pi:950",
+          "source": "fs.pi:951",
           "members": [
             {
               "name": "path",
@@ -14643,7 +14717,7 @@
               "signature": "public readonly path: string",
               "doc": "<p>The file's path.</p>\n",
               "examples": [],
-              "source": "fs.pi:952",
+              "source": "fs.pi:953",
               "members": []
             },
             {
@@ -14657,7 +14731,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { ByteStream } from \"std/streams\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-ctor-example.bin\")\nawait writeText(path, \"recorded\")\nconst replay: ByteStream = new FileStream(path)\nprintln((await replay.read())?.length)   // 8\nreplay.close()\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:971",
+              "source": "fs.pi:972",
               "members": []
             },
             {
@@ -14671,7 +14745,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-read-example.txt\")\nawait writeText(path, \"abc\")\nconst stream = new FileStream(path)\nconst bytes = await stream.read()\nif (bytes != null) {\n  println(new TextDecoder().decode(bytes))   // abc\n}\nprintln(await stream.read())   // null: the end\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:992",
+              "source": "fs.pi:993",
               "members": []
             },
             {
@@ -14685,7 +14759,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-write-example.txt\")\nawait writeText(path, \"data\")\nconst stream = new FileStream(path)\nawait stream.write(Uint8Array.from([1, 2]))   // discarded: the file is unchanged\nprintln((await stream.read())?.length)          // 4\nstream.close()\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:1022",
+              "source": "fs.pi:1023",
               "members": []
             },
             {
@@ -14699,7 +14773,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-close-example.txt\")\nawait writeText(path, \"data\")\nconst stream = new FileStream(path)\nstream.close()\nprintln(await stream.read())   // null\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:1039",
+              "source": "fs.pi:1040",
               "members": []
             }
           ]
@@ -18182,7 +18256,7 @@
               "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0, \"127.0.0.1\")\nprintln(listener.addr.port > 0)   // true\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:860",
+          "source": "core/net.pi:862",
           "members": []
         },
         {
@@ -18196,7 +18270,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst conn = await connect(listener.addr.port, \"127.0.0.1\")\nprintln(conn.remoteAddr.hostname)   // 127.0.0.1\nconn.close()\nconst server = await accepting\nserver?.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:882",
+          "source": "core/net.pi:884",
           "members": []
         },
         {
@@ -18210,7 +18284,7 @@
               "code": "import { connectUnix, listenUnix } from \"std/net\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)\nconst listener = await listenUnix(path)\nprintln(listener.addr.port)   // -1\nconst accepting = listener.accept()\nconst client = await connectUnix(path)\nawait client.writeText(\"over a socket file\")\nclient.close()\nconst server = await accepting\nif (server != null) {\n  println(await server.text())   // over a socket file\n  server.close()\n}\nlistener.close()                // removes the socket file"
             }
           ],
-          "source": "core/net.pi:913",
+          "source": "core/net.pi:915",
           "members": []
         },
         {
@@ -18224,7 +18298,7 @@
               "code": "import { connectUnix, listenUnix } from \"std/net\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)\nconst listener = await listenUnix(path)\nconst accepting = listener.accept()\nconst conn = await connectUnix(path)\nprintln(conn.remoteAddr.hostname == path)   // true\nconn.close()\nconst server = await accepting\nserver?.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:937",
+          "source": "core/net.pi:939",
           "members": []
         },
         {
@@ -18238,7 +18312,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.port > 0)   // true\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1310",
+          "source": "core/net.pi:1312",
           "members": []
         },
         {
@@ -18252,7 +18326,7 @@
               "code": "import { resolve } from \"std/net\"\n\nprintln((await resolve(\"127.0.0.1\")).join(\", \"))      // 127.0.0.1\nconst local = await resolve(\"localhost\")\nprintln(local.length > 0)                            // true (e.g. 127.0.0.1 and ::1)"
             }
           ],
-          "source": "core/net.pi:1328",
+          "source": "core/net.pi:1330",
           "members": []
         },
         {
@@ -18266,7 +18340,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nconst loopback = networkInterfaces().filter((i) => i.loopback && i.family == 4)\nprintln(loopback.length > 0)   // true"
             }
           ],
-          "source": "core/net.pi:1277",
+          "source": "core/net.pi:1279",
           "members": []
         },
         {
@@ -18280,7 +18354,7 @@
               "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1236",
+          "source": "core/net.pi:1238",
           "members": [
             {
               "name": "reuseAddress",
@@ -18288,7 +18362,7 @@
               "signature": "reuseAddress?: bool",
               "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1239",
+              "source": "core/net.pi:1241",
               "members": []
             }
           ]
@@ -18304,7 +18378,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
             }
           ],
-          "source": "core/net.pi:1252",
+          "source": "core/net.pi:1254",
           "members": [
             {
               "name": "name",
@@ -18312,7 +18386,7 @@
               "signature": "name: string",
               "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
               "examples": [],
-              "source": "core/net.pi:1254",
+              "source": "core/net.pi:1256",
               "members": []
             },
             {
@@ -18321,7 +18395,7 @@
               "signature": "family: int",
               "doc": "<p>4 or 6.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1256",
+              "source": "core/net.pi:1258",
               "members": []
             },
             {
@@ -18330,7 +18404,7 @@
               "signature": "address: string",
               "doc": "<p>The address, as text.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1258",
+              "source": "core/net.pi:1260",
               "members": []
             },
             {
@@ -18339,7 +18413,7 @@
               "signature": "up: bool",
               "doc": "<p>Whether it's up.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1260",
+              "source": "core/net.pi:1262",
               "members": []
             },
             {
@@ -18348,7 +18422,7 @@
               "signature": "loopback: bool",
               "doc": "<p>Whether it's the loopback interface.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1262",
+              "source": "core/net.pi:1264",
               "members": []
             },
             {
@@ -18357,7 +18431,7 @@
               "signature": "multicast: bool",
               "doc": "<p>Whether it can send and receive multicast.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1264",
+              "source": "core/net.pi:1266",
               "members": []
             }
           ]
@@ -18445,7 +18519,7 @@
         {
           "name": "Conn",
           "kind": "class",
-          "signature": "class Conn",
+          "signature": "class Conn implements AsyncIterable<Uint8Array, NetError>",
           "doc": "<p>A TCP connection: chunks of bytes with <code>read</code> or <code>for await</code>, the rest as text with\n<code>text()</code>, writes (in the order they're made) with <code>write</code>/<code>writeText</code>. One read at a time.</p>\n",
           "examples": [
             {
@@ -18546,15 +18620,15 @@
             {
               "name": "asyncIterator",
               "kind": "method",
-              "signature": "public asyncIterator(): Conn",
-              "doc": "<p>The connection itself (<code>for await (const chunk of conn)</code>).</p>\n",
+              "signature": "public asyncIterator(): AsyncIterator<Uint8Array, NetError>",
+              "doc": "<p>An async iterator over the chunks read (each <code>next()</code>), so a connection is an\n<code>AsyncIterable</code> (<code>for await (const chunk of conn)</code>).</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  await client.writeText(\"hello\")\n  client.close()\n  let total = 0\n  for await (const chunk of server) {\n    total += chunk.length\n  }\n  println(total)   // 5\n  server.close()\n}\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:425",
+              "source": "core/net.pi:426",
               "members": []
             },
             {
@@ -18568,7 +18642,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  await server.writeText(\"line 1\\nline 2\\n\")\n  server.close()\n  const all = await client.text()\n  println(all.split(\"\\n\").length)   // 3\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:449",
+              "source": "core/net.pi:450",
               "members": []
             },
             {
@@ -18582,7 +18656,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  const n = await client.write(new TextEncoder().encode(\"bytes\"))\n  println(n)   // 5\n  server.close()\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:492",
+              "source": "core/net.pi:493",
               "members": []
             },
             {
@@ -18596,7 +18670,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  println(await client.writeText(\"żółw\"))   // 7 (bytes of UTF-8)\n  server.close()\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:513",
+              "source": "core/net.pi:514",
               "members": []
             },
             {
@@ -18610,7 +18684,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nclient.setNoDelay()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:531",
+              "source": "core/net.pi:532",
               "members": []
             },
             {
@@ -18624,7 +18698,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nclient.setKeepAlive(true, 30000)\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:549",
+              "source": "core/net.pi:550",
               "members": []
             },
             {
@@ -18638,7 +18712,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nif (server != null) {\n  await client.writeText(\"question\")\n  client.closeWrite()                  // the server's text() can finish…\n  const q = await server.text()\n  await server.writeText(`answer to ${q}`)\n  server.close()\n  println(await client.text())         // …and the client still reads: answer to question\n}\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:587",
+              "source": "core/net.pi:588",
               "members": []
             },
             {
@@ -18652,7 +18726,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nclient.close()\nclient.close()                     // twice is fine\nif (server != null) {\n  println(await server.read())     // null\n  server.close()\n}\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:613",
+              "source": "core/net.pi:614",
               "members": []
             }
           ]
@@ -18660,7 +18734,7 @@
         {
           "name": "Listener",
           "kind": "class",
-          "signature": "class Listener",
+          "signature": "class Listener implements AsyncIterable<Conn, NetError>",
           "doc": "<p>A TCP listener: <code>accept()</code> or <code>for await (const conn of listener)</code>.</p>\n",
           "examples": [
             {
@@ -18668,7 +18742,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nprintln(server != null)   // true\nserver?.close()\nclient.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:692",
+          "source": "core/net.pi:693",
           "members": [
             {
               "name": "addr",
@@ -18676,7 +18750,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it listens on (with the port chosen when <code>listen</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:695",
+              "source": "core/net.pi:696",
               "members": []
             },
             {
@@ -18690,7 +18764,7 @@
                   "code": "import { listen } from \"std/net\"\n\n// Listeners come from `listen` (and `listenUnix`).\nconst listener: Listener = await listen(0)\nprintln(listener.addr.hostname)   // 127.0.0.1\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:713",
+              "source": "core/net.pi:714",
               "members": []
             },
             {
@@ -18704,7 +18778,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn?.remoteAddr.port == client.localAddr.port)   // true\nconn?.close()\nclient.close()\nlistener.close()\nprintln(await listener.accept())   // null (closed)"
                 }
               ],
-              "source": "core/net.pi:746",
+              "source": "core/net.pi:747",
               "members": []
             },
             {
@@ -18718,21 +18792,21 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.next()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn != null)   // true\nconn?.close()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:793",
+              "source": "core/net.pi:794",
               "members": []
             },
             {
               "name": "asyncIterator",
               "kind": "method",
-              "signature": "public asyncIterator(): Listener",
-              "doc": "<p>The listener itself (<code>for await (const conn of listener)</code>).</p>\n",
+              "signature": "public asyncIterator(): AsyncIterator<Conn, NetError>",
+              "doc": "<p>An async iterator over the accepted connections (each <code>next()</code>), so a listener is an\n<code>AsyncIterable</code> (<code>for await (const conn of listener)</code>).</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nawait client.writeText(\"hello\")\nclient.close()\nfor await (const conn of listener) {\n  println(await conn.text())   // hello\n  conn.close()\n  listener.close()             // ends the loop\n}"
                 }
               ],
-              "source": "core/net.pi:813",
+              "source": "core/net.pi:815",
               "members": []
             },
             {
@@ -18746,7 +18820,7 @@
                   "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst waiting = listener.accept()\nlistener.close()\nprintln(await waiting)   // null"
                 }
               ],
-              "source": "core/net.pi:829",
+              "source": "core/net.pi:831",
               "members": []
             }
           ]
@@ -18762,7 +18836,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"hi\", b.addr.port)\nconst d: Datagram? = await b.receive()\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // hi\n  println(d.addr.port == a.addr.port)         // true\n}\na.close()\nb.close()"
             }
           ],
-          "source": "core/net.pi:961",
+          "source": "core/net.pi:963",
           "members": [
             {
               "name": "data",
@@ -18770,7 +18844,7 @@
               "signature": "data: Uint8Array",
               "doc": "<p>The datagram's bytes (cut to the size <code>receive</code> asked for).</p>\n",
               "examples": [],
-              "source": "core/net.pi:963",
+              "source": "core/net.pi:965",
               "members": []
             },
             {
@@ -18779,7 +18853,7 @@
               "signature": "addr: Addr",
               "doc": "<p>The address it came from.</p>\n",
               "examples": [],
-              "source": "core/net.pi:965",
+              "source": "core/net.pi:967",
               "members": []
             }
           ]
@@ -18795,7 +18869,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst server = await bind(0)\nconst client = await bind(0)\nawait client.sendText(\"ping\", server.addr.port)\nconst d = await server.receive()\nif (d != null) {\n  await server.sendText(\"pong\", d.addr.port, d.addr.hostname)\n}\nconst reply = await client.receive()\nif (reply != null) {\n  println(new TextDecoder().decode(reply.data))   // pong\n}\nserver.close()\nclient.close()"
             }
           ],
-          "source": "core/net.pi:988",
+          "source": "core/net.pi:990",
           "members": [
             {
               "name": "addr",
@@ -18803,7 +18877,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it's bound to (with the port chosen when <code>bind</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:991",
+              "source": "core/net.pi:993",
               "members": []
             },
             {
@@ -18817,7 +18891,7 @@
                   "code": "import { bind } from \"std/net\"\n\n// UDP sockets come from `bind`.\nconst socket: UdpSocket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.hostname)   // 127.0.0.1\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1008",
+              "source": "core/net.pi:1010",
               "members": []
             },
             {
@@ -18831,7 +18905,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1037",
+              "source": "core/net.pi:1039",
               "members": []
             },
             {
@@ -18845,7 +18919,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1052",
+              "source": "core/net.pi:1054",
               "members": []
             },
             {
@@ -18859,7 +18933,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1067",
+              "source": "core/net.pi:1069",
               "members": []
             },
             {
@@ -18873,7 +18947,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1082",
+              "source": "core/net.pi:1084",
               "members": []
             },
             {
@@ -18887,7 +18961,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1097",
+              "source": "core/net.pi:1099",
               "members": []
             },
             {
@@ -18901,7 +18975,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1138",
+              "source": "core/net.pi:1140",
               "members": []
             },
             {
@@ -18915,7 +18989,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1156",
+              "source": "core/net.pi:1158",
               "members": []
             },
             {
@@ -18929,7 +19003,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1177",
+              "source": "core/net.pi:1179",
               "members": []
             },
             {
@@ -18943,7 +19017,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1212",
+              "source": "core/net.pi:1214",
               "members": []
             }
           ]
@@ -19798,7 +19872,7 @@
         {
           "name": "Reader",
           "kind": "class",
-          "signature": "class Reader",
+          "signature": "class Reader implements AsyncIterable<Uint8Array, IoError>",
           "doc": "<p>The reading end of a pipe (a child's <code>stdout</code>/<code>stderr</code>) or this process's <code>stdin</code>: chunks\nof bytes with <code>read</code>, <code>for await</code>, or everything at once with <code>text()</code>. One read at a time.</p>\n",
           "examples": [
             {
@@ -19904,15 +19978,15 @@
             {
               "name": "asyncIterator",
               "kind": "method",
-              "signature": "public asyncIterator(): Reader",
-              "doc": "<p><code>for await</code> uses the reader itself.</p>\n",
+              "signature": "public asyncIterator(): AsyncIterator<Uint8Array, IoError>",
+              "doc": "<p>An async iterator over the chunks (each <code>next()</code>), so a reader is an <code>AsyncIterable</code>:\n<code>for await</code> walks it.</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"printf\", [\"a\\\\nb\\\\n\"], stdout: \"pipe\").spawn()\nlet total = 0\nfor await (const chunk of child.stdout) {\n  total += chunk.length\n}\nprintln(total)   // 4\nawait child.status()"
                 }
               ],
-              "source": "process.pi:464",
+              "source": "process.pi:465",
               "members": []
             },
             {
@@ -19926,7 +20000,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"printf\", [\"one\\\\ntwo\\\\n\"], stdout: \"pipe\").spawn()\nconst text = await child.stdout.text()\nprintln(text.split(\"\\n\").length)   // 3\nawait child.status()"
                 }
               ],
-              "source": "process.pi:489",
+              "source": "process.pi:490",
               "members": []
             }
           ]
@@ -19942,7 +20016,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"cat\", stdin: \"pipe\", stdout: \"pipe\").spawn()\nawait child.stdin.writeText(\"piped through cat\")\nchild.stdin.close()\nprintln(await child.stdout.text())   // piped through cat\nawait child.status()"
             }
           ],
-          "source": "process.pi:536",
+          "source": "process.pi:537",
           "members": [
             {
               "name": "name",
@@ -19950,7 +20024,7 @@
               "signature": "public readonly name: string",
               "doc": "<p>The stream's name (<code>\"stdin\"</code>, <code>\"stdout\"</code> or <code>\"stderr\"</code>), used in panics and as the <code>path</code> of\nits <code>IoError</code>s.</p>\n",
               "examples": [],
-              "source": "process.pi:540",
+              "source": "process.pi:541",
               "members": []
             },
             {
@@ -19964,7 +20038,7 @@
                   "code": "import { Writer, stdout } from \"std/process\"\n\nconst out: Writer = stdout   // `stdout`, `stderr` and a piped child's `stdin` are Writers\nprintln(out.name)            // stdout"
                 }
               ],
-              "source": "process.pi:559",
+              "source": "process.pi:560",
               "members": []
             },
             {
@@ -19978,7 +20052,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"cat\", stdin: \"pipe\", stdout: \"pipe\").spawn()\nconst writer = child.stdin.writable.getWriter()\nawait writer.write(new TextEncoder().encode(\"via a stream\"))\nawait writer.close()\nprintln(await child.stdout.text())   // via a stream\nawait child.status()"
                 }
               ],
-              "source": "process.pi:578",
+              "source": "process.pi:579",
               "members": []
             },
             {
@@ -19992,7 +20066,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nconst n = await stdout.write(new TextEncoder().encode(\"bytes\\n\"))   // bytes\nprintln(n)                                                           // 6"
                 }
               ],
-              "source": "process.pi:614",
+              "source": "process.pi:615",
               "members": []
             },
             {
@@ -20006,7 +20080,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nif (stdout.isTerminal) {\n  println(\"on a terminal\")         // when run from a terminal\n} else {\n  println(\"piped or redirected\")   // with `myprogram > out.txt`\n}"
                 }
               ],
-              "source": "process.pi:631",
+              "source": "process.pi:632",
               "members": []
             },
             {
@@ -20020,7 +20094,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nconst red = if (stdout.hasColors()) \"\\u{1b}[31merror\\u{1b}[0m\" else \"error\"\nprintln(red)   // error (in red on a colour terminal)"
                 }
               ],
-              "source": "process.pi:647",
+              "source": "process.pi:648",
               "members": []
             },
             {
@@ -20034,7 +20108,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nconst width = stdout.columns ?? 80\nprintln(\"-\".repeat(width))   // a line as wide as the terminal (80 when it isn't one)"
                 }
               ],
-              "source": "process.pi:663",
+              "source": "process.pi:664",
               "members": []
             },
             {
@@ -20048,7 +20122,7 @@
                   "code": "import { stdout } from \"std/process\"\n\nprintln(stdout.rows ?? 24)   // the terminal's height, e.g. 50 (24 when it isn't one)"
                 }
               ],
-              "source": "process.pi:676",
+              "source": "process.pi:677",
               "members": []
             },
             {
@@ -20062,7 +20136,7 @@
                   "code": "import { stdout, stderr } from \"std/process\"\n\nawait stdout.writeText(\"no newline, \")\nawait stdout.writeText(\"then one\\n\")    // no newline, then one\nawait stderr.writeText(\"a warning\\n\")   // (on standard error) a warning"
                 }
               ],
-              "source": "process.pi:691",
+              "source": "process.pi:692",
               "members": []
             },
             {
@@ -20076,7 +20150,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"wc\", [\"-c\"], stdin: \"pipe\", stdout: \"pipe\").spawn()\nchild.stdin.writeText(\"12345\")\nchild.stdin.close()   // after the write: wc sees the end of its input\nprintln((await child.stdout.text()).trim())   // 5\nawait child.status()"
                 }
               ],
-              "source": "process.pi:708",
+              "source": "process.pi:709",
               "members": []
             }
           ]
@@ -20087,7 +20161,7 @@
           "signature": "const stdin",
           "doc": "<p>This process's standard input.</p>\n",
           "examples": [],
-          "source": "process.pi:763",
+          "source": "process.pi:764",
           "members": []
         },
         {
@@ -20096,7 +20170,7 @@
           "signature": "const stdout",
           "doc": "<p>This process's standard output: writes are in order with <code>print</code>.</p>\n",
           "examples": [],
-          "source": "process.pi:765",
+          "source": "process.pi:766",
           "members": []
         },
         {
@@ -20105,7 +20179,7 @@
           "signature": "const stderr",
           "doc": "<p>This process's standard error: writes are in order with <code>print</code>.</p>\n",
           "examples": [],
-          "source": "process.pi:767",
+          "source": "process.pi:768",
           "members": []
         },
         {
@@ -20114,7 +20188,7 @@
           "signature": "type Stdio = \"inherit\" | \"pipe\" | \"null\"",
           "doc": "<p>What a child's standard stream is connected to: this process's (<code>\"inherit\"</code>), a pipe to\nthis process (<code>\"pipe\"</code>), or nothing (<code>\"null\"</code>).</p>\n",
           "examples": [],
-          "source": "process.pi:771",
+          "source": "process.pi:772",
           "members": []
         },
         {
@@ -20128,7 +20202,7 @@
               "code": "import { Command, ExitStatus } from \"std/process\"\n\nconst s: ExitStatus = await Command.shell(\"exit 3\").status()\nprintln(s.success)   // false\nprintln(s.code)      // 3\nprintln(s.signal)    // null"
             }
           ],
-          "source": "process.pi:789",
+          "source": "process.pi:790",
           "members": [
             {
               "name": "success",
@@ -20136,7 +20210,7 @@
               "signature": "success: bool",
               "doc": "<p>Whether it exited with code 0 (and no signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:791",
+              "source": "process.pi:792",
               "members": []
             },
             {
@@ -20145,7 +20219,7 @@
               "signature": "code: i32",
               "doc": "<p>The exit code (128 + the signal's number when a signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:793",
+              "source": "process.pi:794",
               "members": []
             },
             {
@@ -20154,7 +20228,7 @@
               "signature": "signal: i32?",
               "doc": "<p>The number of the signal that ended it (on Windows, the one <code>kill</code> was given), or <code>null</code>.</p>\n",
               "examples": [],
-              "source": "process.pi:795",
+              "source": "process.pi:796",
               "members": []
             }
           ]
@@ -20170,7 +20244,7 @@
               "code": "import { Command, Output } from \"std/process\"\n\nconst out: Output = await new Command(\"echo\", [\"hi\"]).output()\nprintln(out.success)          // true\nprintln(out.stdout.trim())    // hi\nprintln(out.stderr == \"\")     // true"
             }
           ],
-          "source": "process.pi:809",
+          "source": "process.pi:810",
           "members": [
             {
               "name": "success",
@@ -20178,7 +20252,7 @@
               "signature": "success: bool",
               "doc": "<p>Whether it exited with code 0 (and no signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:811",
+              "source": "process.pi:812",
               "members": []
             },
             {
@@ -20187,7 +20261,7 @@
               "signature": "code: i32",
               "doc": "<p>The exit code (128 + the signal's number when a signal ended it).</p>\n",
               "examples": [],
-              "source": "process.pi:813",
+              "source": "process.pi:814",
               "members": []
             },
             {
@@ -20196,7 +20270,7 @@
               "signature": "signal: i32?",
               "doc": "<p>The number of the signal that ended it (on Windows, the one <code>kill</code> was given), or <code>null</code>.</p>\n",
               "examples": [],
-              "source": "process.pi:815",
+              "source": "process.pi:816",
               "members": []
             },
             {
@@ -20205,7 +20279,7 @@
               "signature": "stdout: string",
               "doc": "<p>Everything it wrote to its standard output (<code>\"\"</code> when that wasn't piped).</p>\n",
               "examples": [],
-              "source": "process.pi:817",
+              "source": "process.pi:818",
               "members": []
             },
             {
@@ -20214,7 +20288,7 @@
               "signature": "stderr: string",
               "doc": "<p>Everything it wrote to its standard error (<code>\"\"</code> when that wasn't piped).</p>\n",
               "examples": [],
-              "source": "process.pi:819",
+              "source": "process.pi:820",
               "members": []
             }
           ]
@@ -20230,7 +20304,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"from a child\"], stdout: \"pipe\").spawn()\nprintln(child.pid > 0)                   // true\nprintln((await child.stdout.text()).trim())   // from a child\nprintln((await child.status()).success)  // true"
             }
           ],
-          "source": "process.pi:833",
+          "source": "process.pi:834",
           "members": [
             {
               "name": "pid",
@@ -20238,7 +20312,7 @@
               "signature": "public readonly pid: int",
               "doc": "<p>0 when it couldn't be started.</p>\n",
               "examples": [],
-              "source": "process.pi:835",
+              "source": "process.pi:836",
               "members": []
             },
             {
@@ -20247,7 +20321,7 @@
               "signature": "public readonly stdin: Writer",
               "doc": "<p>Its standard input, when spawned with <code>stdin: \"pipe\"</code> (writing to it otherwise panics).</p>\n",
               "examples": [],
-              "source": "process.pi:837",
+              "source": "process.pi:838",
               "members": []
             },
             {
@@ -20256,7 +20330,7 @@
               "signature": "public readonly stdout: Reader",
               "doc": "<p>Its standard output, when spawned with <code>stdout: \"pipe\"</code> (reading it otherwise panics).</p>\n",
               "examples": [],
-              "source": "process.pi:839",
+              "source": "process.pi:840",
               "members": []
             },
             {
@@ -20265,7 +20339,7 @@
               "signature": "public readonly stderr: Reader",
               "doc": "<p>Its standard error, when spawned with <code>stderr: \"pipe\"</code> (reading it otherwise panics).</p>\n",
               "examples": [],
-              "source": "process.pi:841",
+              "source": "process.pi:842",
               "members": []
             },
             {
@@ -20279,7 +20353,7 @@
                   "code": "import { Command, Child } from \"std/process\"\n\nconst child: Child = new Command(\"true\").spawn()   // Command.spawn makes Children\nprintln((await child.status()).code)               // 0"
                 }
               ],
-              "source": "process.pi:857",
+              "source": "process.pi:858",
               "members": []
             },
             {
@@ -20293,7 +20367,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"true\").spawn()\nconst s = await child.status()\nprintln(s.success)   // true\nprintln(s.code)      // 0"
                 }
               ],
-              "source": "process.pi:878",
+              "source": "process.pi:879",
               "members": []
             },
             {
@@ -20307,7 +20381,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = Command.shell(\"echo out; echo err >&2\", stdout: \"pipe\", stderr: \"pipe\").spawn()\nconst o = await child.output()\nprintln(o.stdout.trim())   // out\nprintln(o.stderr.trim())   // err"
                 }
               ],
-              "source": "process.pi:917",
+              "source": "process.pi:918",
               "members": []
             },
             {
@@ -20321,7 +20395,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"sleep\", [\"10\"]).spawn()\nchild.kill()\nconst s = await child.status()\nprintln(s.signal)   // 15\nprintln(s.code)     // 143"
                 }
               ],
-              "source": "process.pi:946",
+              "source": "process.pi:947",
               "members": []
             }
           ]
@@ -20337,7 +20411,7 @@
               "code": "import { Command } from \"std/process\"\n\nconst out = await new Command(\"echo\", [\"one\", \"two\"]).output()\nprintln(out.stdout.trim())   // one two"
             }
           ],
-          "source": "process.pi:967",
+          "source": "process.pi:968",
           "members": [
             {
               "name": "program",
@@ -20345,7 +20419,7 @@
               "signature": "public readonly program: string",
               "doc": "<p>The program to run: a path, or a name looked up in <code>PATH</code>.</p>\n",
               "examples": [],
-              "source": "process.pi:969",
+              "source": "process.pi:970",
               "members": []
             },
             {
@@ -20354,7 +20428,7 @@
               "signature": "public readonly args: string[]",
               "doc": "<p>The arguments after the program.</p>\n",
               "examples": [],
-              "source": "process.pi:971",
+              "source": "process.pi:972",
               "members": []
             },
             {
@@ -20368,7 +20442,7 @@
                   "code": "import { Command } from \"std/process\"\nimport { tmpDir } from \"std/os\"\n\nconst vars = new Map<string, string>()\nvars.set(\"NAME\", \"Ada\")\nconst cmd = new Command(\"/bin/sh\", [\"-c\", \"echo $NAME in $(pwd)\"], cwd: tmpDir(), env: vars)\nprintln((await cmd.output()).stdout.trim())   // e.g. Ada in /tmp"
                 }
               ],
-              "source": "process.pi:996",
+              "source": "process.pi:997",
               "members": []
             },
             {
@@ -20382,7 +20456,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst out = await Command.shell(\"echo a | tr a b\").output()\nprintln(out.stdout.trim())   // b"
                 }
               ],
-              "source": "process.pi:1018",
+              "source": "process.pi:1019",
               "members": []
             },
             {
@@ -20396,7 +20470,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst child = new Command(\"echo\", [\"spawned\"], stdout: \"pipe\").spawn()\nprintln((await child.stdout.text()).trim())   // spawned\nawait child.status()"
                 }
               ],
-              "source": "process.pi:1043",
+              "source": "process.pi:1044",
               "members": []
             },
             {
@@ -20410,7 +20484,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst out = await new Command(\"ls\", [\"/\"]).output()\nprintln(out.success)                     // true\nprintln(out.stdout.split(\"\\n\").length > 1)   // true"
                 }
               ],
-              "source": "process.pi:1088",
+              "source": "process.pi:1089",
               "members": []
             },
             {
@@ -20424,7 +20498,7 @@
                   "code": "import { Command } from \"std/process\"\n\nconst s = await new Command(\"true\").status()\nprintln(s.success)   // true\nconst f = await new Command(\"false\").status()\nprintln(f.code)      // 1"
                 }
               ],
-              "source": "process.pi:1103",
+              "source": "process.pi:1104",
               "members": []
             }
           ]
@@ -21085,7 +21159,7 @@
         {
           "name": "RegExpMatch",
           "kind": "class",
-          "signature": "class RegExpMatch",
+          "signature": "class RegExpMatch implements Iterable<string?>",
           "doc": "<p>A match: element 0 is the matched text, then each capture group's (<code>null</code> when it didn't\ntake part); <code>index</code> is where it starts and <code>groups</code> holds named groups. With the <code>g</code>\nflag, <code>string.match</code> gives every match's text as the elements instead (<code>index</code> -1).</p>\n",
           "examples": [
             {
@@ -21318,7 +21392,7 @@
         {
           "name": "Channel",
           "kind": "class",
-          "signature": "class Channel<T>",
+          "signature": "class Channel<T> implements AsyncIterable<T>",
           "doc": "<p>An unbounded queue between async code: <code>send</code> never waits, <code>receive</code> waits for a value. Once\nit's closed, the values already sent are still received, then <code>receive</code> gives null. Also\n<code>for await (const v of channel)</code>.</p>\n",
           "examples": [
             {
@@ -21429,7 +21503,7 @@
             {
               "name": "asyncIterator",
               "kind": "method",
-              "signature": "public asyncIterator(): Channel<T>",
+              "signature": "public asyncIterator(): AsyncIterator<T>",
               "doc": "",
               "examples": [
                 {
@@ -21980,7 +22054,7 @@
         {
           "name": "ReadableStream",
           "kind": "class",
-          "signature": "class ReadableStream<T>",
+          "signature": "class ReadableStream<T> implements AsyncIterable<T, Error>",
           "doc": "<p>A stream of chunks to read: with a reader (<code>getReader()</code>), <code>for await</code>, or piped into a\n<code>WritableStream</code>.</p>\n",
           "examples": [
             {
@@ -22105,15 +22179,15 @@
             {
               "name": "asyncIterator",
               "kind": "method",
-              "signature": "public asyncIterator(): ReadableStream<T>",
-              "doc": "<p><code>for await</code> uses the stream itself (see <code>next</code>).</p>\n",
+              "signature": "public asyncIterator(): AsyncIterator<T, Error>",
+              "doc": "<p>An async iterator over the chunks (each <code>next()</code>), so a stream is an <code>AsyncIterable</code>:\n<code>for await</code> walks it.</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "let total = 0\nfor await (const n of ReadableStream.from([1, 2, 3])) {\n  total += n\n}\nprintln(total)   // 6"
                 }
               ],
-              "source": "core/streams.pi:499",
+              "source": "core/streams.pi:500",
               "members": []
             },
             {
@@ -22127,7 +22201,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (reason) => println(`cancelled: ${reason?.message}`),\n})\nawait s.cancel(new Error(\"not needed\"))   // cancelled: not needed\nprintln(await s.next())                   // null"
                 }
               ],
-              "source": "core/streams.pi:515",
+              "source": "core/streams.pi:516",
               "members": []
             },
             {
@@ -22141,7 +22215,7 @@
                   "code": "const lines: string[] = []\nconst sink = new WritableStream<string>({\n  write: (chunk, _c) => lines.push(chunk),\n  close: () => println(\"closed\"),\n})\nawait ReadableStream.from([\"a\", \"b\", \"c\"]).pipeTo(sink)   // closed\nprintln(lines.join(\",\"))   // a,b,c"
                 }
               ],
-              "source": "core/streams.pi:548",
+              "source": "core/streams.pi:549",
               "members": []
             },
             {
@@ -22155,7 +22229,7 @@
                   "code": "const upper = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.toUpperCase()),\n})\nfor await (const s of ReadableStream.from([\"hi\", \"there\"]).pipeThrough(upper)) {\n  println(s)\n}\n// HI\n// THERE"
                 }
               ],
-              "source": "core/streams.pi:607",
+              "source": "core/streams.pi:608",
               "members": []
             }
           ]
@@ -22171,7 +22245,7 @@
               "code": "const reader: ReadableStreamDefaultReader<int> = ReadableStream.from([1, 2]).getReader()\nprintln((await reader.read()).value)   // 1\nprintln((await reader.read()).value)   // 2\nprintln((await reader.read()).done)    // true"
             }
           ],
-          "source": "core/streams.pi:788",
+          "source": "core/streams.pi:789",
           "members": [
             {
               "name": "constructor",
@@ -22184,7 +22258,7 @@
                   "code": "const s = ReadableStream.from([\"only\"])\nconst reader = new ReadableStreamDefaultReader<string>(s)\nprintln(s.locked)                      // true\nprintln((await reader.read()).value)   // only"
                 }
               ],
-              "source": "core/streams.pi:801",
+              "source": "core/streams.pi:802",
               "members": []
             },
             {
@@ -22198,7 +22272,7 @@
                   "code": "const reader = ReadableStream.from([\"a\", \"b\"]).getReader()\nlet r = await reader.read()\nwhile (!r.done) {\n  println(r.value)\n  r = await reader.read()\n}\n// a\n// b"
                 }
               ],
-              "source": "core/streams.pi:828",
+              "source": "core/streams.pi:829",
               "members": []
             },
             {
@@ -22212,7 +22286,7 @@
                   "code": "const s = new ReadableStream<int>({\n  start: (c) => c.enqueue(1),\n  cancel: (_reason) => println(\"source cancelled\"),\n})\nconst reader = s.getReader()\nawait reader.cancel()                 // source cancelled\nprintln((await reader.read()).done)   // true"
                 }
               ],
-              "source": "core/streams.pi:849",
+              "source": "core/streams.pi:850",
               "members": []
             },
             {
@@ -22226,7 +22300,7 @@
                   "code": "const reader = ReadableStream.from([1]).getReader()\nprintln((await reader.read()).value)   // 1\nawait reader.closed\nprintln(\"closed\")                      // closed"
                 }
               ],
-              "source": "core/streams.pi:863",
+              "source": "core/streams.pi:864",
               "members": []
             },
             {
@@ -22240,7 +22314,7 @@
                   "code": "const s = ReadableStream.from([1, 2])\nconst first = s.getReader()\nprintln((await first.read()).value)   // 1\nfirst.releaseLock()\nconst second = s.getReader()\nprintln((await second.read()).value)  // 2"
                 }
               ],
-              "source": "core/streams.pi:878",
+              "source": "core/streams.pi:879",
               "members": []
             }
           ]
@@ -22256,7 +22330,7 @@
               "code": "const sink = new WritableStream<int>({\n  write: (chunk, c: WritableStreamDefaultController) => {\n    if (chunk < 0) c.error(new Error(\"negative\"))\n  },\n})\nconst writer = sink.getWriter()\nawait writer.write(1)\ntry {\n  await writer.write(-1)\n  await writer.write(2)\n} catch (e) {\n  println(e.message)   // negative\n}"
             }
           ],
-          "source": "core/streams.pi:904",
+          "source": "core/streams.pi:905",
           "members": [
             {
               "name": "constructor",
@@ -22269,7 +22343,7 @@
                   "code": "// A stream makes its controller and hands it to its sink's callbacks.\nconst sink = new WritableStream<string>({\n  start: (c: WritableStreamDefaultController) => println(\"started\"),   // started\n})\nprintln(sink.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:917",
+              "source": "core/streams.pi:918",
               "members": []
             },
             {
@@ -22283,7 +22357,7 @@
                   "code": "const sink = new WritableStream<string>({\n  write: (chunk, c) => c.error(new Error(`can't store ${chunk}`)),\n})\nconst writer = sink.getWriter()\ntry {\n  await writer.write(\"x\")\n  await writer.write(\"y\")\n} catch (e) {\n  println(e.message)   // can't store x\n}"
                 }
               ],
-              "source": "core/streams.pi:936",
+              "source": "core/streams.pi:937",
               "members": []
             }
           ]
@@ -22299,7 +22373,7 @@
               "code": "const got: int[] = []\nconst sink: UnderlyingSink<int> = {\n  start: (_c) => println(\"start\"),\n  write: (chunk, _c) => got.push(chunk),\n  close: () => println(`close after ${got.length}`),\n}\nawait ReadableStream.from([1, 2, 3]).pipeTo(new WritableStream<int>(sink))\n// start\n// close after 3"
             }
           ],
-          "source": "core/streams.pi:958",
+          "source": "core/streams.pi:959",
           "members": [
             {
               "name": "start",
@@ -22307,7 +22381,7 @@
               "signature": "start?: (c: WritableStreamDefaultController) => void",
               "doc": "<p>Runs once, inside the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:960",
+              "source": "core/streams.pi:961",
               "members": []
             },
             {
@@ -22316,7 +22390,7 @@
               "signature": "write?: (chunk: T, c: WritableStreamDefaultController) => void",
               "doc": "<p>Takes a chunk; the next one comes after it returns.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:962",
+              "source": "core/streams.pi:963",
               "members": []
             },
             {
@@ -22325,7 +22399,7 @@
               "signature": "writeAsync?: (chunk: T, c: WritableStreamDefaultController) => Promise<void, Error>",
               "doc": "<p>Like <code>write</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>write</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:965",
+              "source": "core/streams.pi:966",
               "members": []
             },
             {
@@ -22334,7 +22408,7 @@
               "signature": "close?: () => void",
               "doc": "<p>Runs after the last queued chunk is written, when the stream is closed.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:967",
+              "source": "core/streams.pi:968",
               "members": []
             },
             {
@@ -22343,7 +22417,7 @@
               "signature": "closeAsync?: () => Promise<void, Error>",
               "doc": "<p>Like <code>close</code>, but finishes when the promise settles; a rejection fails the stream. Used\ninstead of <code>close</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:970",
+              "source": "core/streams.pi:971",
               "members": []
             },
             {
@@ -22352,7 +22426,7 @@
               "signature": "abort?: (reason: Error?) => void",
               "doc": "<p>Called with the reason when the stream is aborted (before the queued writes reject).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:972",
+              "source": "core/streams.pi:973",
               "members": []
             }
           ]
@@ -22368,7 +22442,7 @@
               "code": "const out: string[] = []\nconst ws = new WritableStream<string>({\n  write: (chunk, _c) => out.push(chunk),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"hello\")\nawait writer.write(\"world\")\nawait writer.close()\nprintln(out.join(\" \"))   // hello world"
             }
           ],
-          "source": "core/streams.pi:995",
+          "source": "core/streams.pi:996",
           "members": [
             {
               "name": "constructor",
@@ -22381,7 +22455,7 @@
                   "code": "let bytes = 0\nconst counter = new WritableStream<Uint8Array>({\n  write: (chunk, _c) => {\n    bytes += chunk.length\n  },\n}, { highWaterMark: 4 })\nconst writer = counter.getWriter()\nprintln(writer.desiredSize)   // 4\nawait writer.write(new Uint8Array(10))\nawait writer.close()\nprintln(bytes)   // 10"
                 }
               ],
-              "source": "core/streams.pi:1028",
+              "source": "core/streams.pi:1029",
               "members": []
             },
             {
@@ -22395,7 +22469,7 @@
                   "code": "const ws = new WritableStream<int>({})\nprintln(ws.locked)   // false\nconst writer = ws.getWriter()\nprintln(ws.locked)   // true\nwriter.releaseLock()\nprintln(ws.locked)   // false"
                 }
               ],
-              "source": "core/streams.pi:1055",
+              "source": "core/streams.pi:1056",
               "members": []
             },
             {
@@ -22409,7 +22483,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`got ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"x\")   // got x"
                 }
               ],
-              "source": "core/streams.pi:1069",
+              "source": "core/streams.pi:1070",
               "members": []
             },
             {
@@ -22423,7 +22497,7 @@
                   "code": "const ws = new WritableStream<int>({\n  close: () => println(\"sink closed\"),\n})\nawait ws.close()   // sink closed"
                 }
               ],
-              "source": "core/streams.pi:1082",
+              "source": "core/streams.pi:1083",
               "members": []
             },
             {
@@ -22437,7 +22511,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`aborted: ${reason?.message}`),\n})\nawait ws.abort(new Error(\"user cancelled\"))   // aborted: user cancelled"
                 }
               ],
-              "source": "core/streams.pi:1098",
+              "source": "core/streams.pi:1099",
               "members": []
             }
           ]
@@ -22453,7 +22527,7 @@
               "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer: WritableStreamDefaultWriter<string> = ws.getWriter()\nawait writer.ready\nawait writer.write(\"one\")   // one\nawait writer.close()"
             }
           ],
-          "source": "core/streams.pi:1323",
+          "source": "core/streams.pi:1324",
           "members": [
             {
               "name": "constructor",
@@ -22466,7 +22540,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = new WritableStreamDefaultWriter<int>(ws)\nprintln(ws.locked)   // true\nawait writer.write(5)   // 5"
                 }
               ],
-              "source": "core/streams.pi:1338",
+              "source": "core/streams.pi:1339",
               "members": []
             },
             {
@@ -22480,7 +22554,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(`stored ${chunk}`),\n})\nconst writer = ws.getWriter()\nawait writer.write(\"a\")   // stored a\nawait writer.write(\"b\")   // stored b"
                 }
               ],
-              "source": "core/streams.pi:1363",
+              "source": "core/streams.pi:1364",
               "members": []
             },
             {
@@ -22494,7 +22568,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n  close: () => println(\"done\"),\n})\nconst writer = ws.getWriter()\nwriter.write(\"last\")\nawait writer.close()\n// last\n// done"
                 }
               ],
-              "source": "core/streams.pi:1382",
+              "source": "core/streams.pi:1383",
               "members": []
             },
             {
@@ -22508,7 +22582,7 @@
                   "code": "const ws = new WritableStream<int>({\n  abort: (reason) => println(`abort: ${reason?.message}`),\n})\nconst writer = ws.getWriter()\nawait writer.abort(new Error(\"stop\"))   // abort: stop"
                 }
               ],
-              "source": "core/streams.pi:1397",
+              "source": "core/streams.pi:1398",
               "members": []
             },
             {
@@ -22522,7 +22596,7 @@
                   "code": "const ws = new WritableStream<int>({\n  write: (chunk, _c) => println(chunk),\n})\nconst writer = ws.getWriter()\nfor (const n of [1, 2, 3]) {\n  await writer.ready   // waits while the queue is full\n  writer.write(n)\n}\nawait writer.close()\n// 1\n// 2\n// 3"
                 }
               ],
-              "source": "core/streams.pi:1419",
+              "source": "core/streams.pi:1420",
               "members": []
             },
             {
@@ -22536,7 +22610,7 @@
                   "code": "const ws = new WritableStream<int>({}, { highWaterMark: 3 })\nconst writer = ws.getWriter()\nprintln(writer.desiredSize)   // 3"
                 }
               ],
-              "source": "core/streams.pi:1431",
+              "source": "core/streams.pi:1432",
               "members": []
             },
             {
@@ -22550,7 +22624,7 @@
                   "code": "const ws = new WritableStream<int>({})\nconst writer = ws.getWriter()\nwriter.closed.then((_v) => println(\"closed\"))\nawait writer.close()\nawait writer.closed   // closed"
                 }
               ],
-              "source": "core/streams.pi:1445",
+              "source": "core/streams.pi:1446",
               "members": []
             },
             {
@@ -22564,7 +22638,7 @@
                   "code": "const ws = new WritableStream<string>({\n  write: (chunk, _c) => println(chunk),\n})\nconst first = ws.getWriter()\nawait first.write(\"from the first\")    // from the first\nfirst.releaseLock()\nconst second = ws.getWriter()\nawait second.write(\"from the second\")  // from the second"
                 }
               ],
-              "source": "core/streams.pi:1462",
+              "source": "core/streams.pi:1463",
               "members": []
             }
           ]
@@ -22580,7 +22654,7 @@
               "code": "const t = new TransformStream<int, int>({\n  transform: (n, c: TransformStreamDefaultController<int>) => {\n    c.enqueue(n)\n    c.enqueue(n * 100)\n  },\n})\nfor await (const x of ReadableStream.from([1, 2]).pipeThrough(t)) {\n  println(x)\n}\n// 1\n// 100\n// 2\n// 200"
             }
           ],
-          "source": "core/streams.pi:1488",
+          "source": "core/streams.pi:1489",
           "members": [
             {
               "name": "constructor",
@@ -22593,7 +22667,7 @@
                   "code": "// A transform stream makes its controller and hands it to its transformer's callbacks.\nconst t = new TransformStream<string, int>({\n  transform: (s, c: TransformStreamDefaultController<int>) => c.enqueue(s.length),\n})\nfor await (const n of ReadableStream.from([\"abc\", \"de\"]).pipeThrough(t)) {\n  println(n)\n}\n// 3\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1510",
+              "source": "core/streams.pi:1511",
               "members": []
             },
             {
@@ -22607,7 +22681,7 @@
                   "code": "const t = new TransformStream<int, int>({\n  start: (c) => println(c.desiredSize),   // 2\n  transform: (n, c) => c.enqueue(n),\n}, {}, { highWaterMark: 2 })"
                 }
               ],
-              "source": "core/streams.pi:1525",
+              "source": "core/streams.pi:1526",
               "members": []
             },
             {
@@ -22621,7 +22695,7 @@
                   "code": "const words = new TransformStream<string, string>({\n  transform: (line, c) => {\n    for (const w of line.split(\" \")) c.enqueue(w)\n  },\n})\nfor await (const w of ReadableStream.from([\"to be\", \"or not\"]).pipeThrough(words)) {\n  println(w)\n}\n// to\n// be\n// or\n// not"
                 }
               ],
-              "source": "core/streams.pi:1546",
+              "source": "core/streams.pi:1547",
               "members": []
             },
             {
@@ -22635,7 +22709,7 @@
                   "code": "const strict = new TransformStream<int, int>({\n  transform: (n, c) => {\n    if (n < 0) c.error(new Error(`negative: ${n}`)) else c.enqueue(n)\n  },\n})\ntry {\n  for await (const n of ReadableStream.from([1, -2, 3]).pipeThrough(strict)) {\n    println(n)\n  }\n} catch (e) {\n  println(e.message)\n}\n// 1\n// negative: -2"
                 }
               ],
-              "source": "core/streams.pi:1573",
+              "source": "core/streams.pi:1574",
               "members": []
             },
             {
@@ -22649,7 +22723,7 @@
                   "code": "const firstTwo = new TransformStream<int, int>({\n  transform: (n, c) => {\n    c.enqueue(n)\n    if (n == 2) c.terminate()\n  },\n})\nfor await (const n of ReadableStream.from([1, 2, 3, 4]).pipeThrough(firstTwo)) {\n  println(n)\n}\n// 1\n// 2"
                 }
               ],
-              "source": "core/streams.pi:1595",
+              "source": "core/streams.pi:1596",
               "members": []
             }
           ]
@@ -22665,7 +22739,7 @@
               "code": "let count = 0\nconst transformer: Transformer<string, string> = {\n  transform: (line, c) => {\n    count += 1\n    c.enqueue(`${count}: ${line}`)\n  },\n  flush: (c) => c.enqueue(`(${count} lines)`),\n}\nfor await (const s of ReadableStream.from([\"a\", \"b\"]).pipeThrough(new TransformStream(transformer))) {\n  println(s)\n}\n// 1: a\n// 2: b\n// (2 lines)"
             }
           ],
-          "source": "core/streams.pi:1622",
+          "source": "core/streams.pi:1623",
           "members": [
             {
               "name": "start",
@@ -22673,7 +22747,7 @@
               "signature": "start?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs once, at the end of the constructor.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1624",
+              "source": "core/streams.pi:1625",
               "members": []
             },
             {
@@ -22682,7 +22756,7 @@
               "signature": "transform?: (chunk: I, c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Turns a written chunk into output (<code>c.enqueue</code>); any number of chunks, or none. Used instead\nof <code>transformAsync</code> when both are given.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1627",
+              "source": "core/streams.pi:1628",
               "members": []
             },
             {
@@ -22691,7 +22765,7 @@
               "signature": "transformAsync?: (chunk: I, c: TransformStreamDefaultController<O>) => Promise<void, Error>",
               "doc": "<p>Like <code>transform</code>, but finishes when the promise settles; a rejection fails the writable side.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1629",
+              "source": "core/streams.pi:1630",
               "members": []
             },
             {
@@ -22700,7 +22774,7 @@
               "signature": "flush?: (c: TransformStreamDefaultController<O>) => void",
               "doc": "<p>Runs when the writable side is closed, before the readable side closes (it can enqueue final\noutput).</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1632",
+              "source": "core/streams.pi:1633",
               "members": []
             }
           ]
@@ -22716,7 +22790,7 @@
               "code": "const t = new TransformStream<string, string>({\n  transform: (chunk, c) => c.enqueue(chunk.split(\"\").reverse().join(\"\")),\n})\nconst writer = t.writable.getWriter()\nwriter.write(\"pico\")\nwriter.close()\nfor await (const s of t.readable) {\n  println(s)   // ocip\n}"
             }
           ],
-          "source": "core/streams.pi:1733",
+          "source": "core/streams.pi:1734",
           "members": [
             {
               "name": "readable",
@@ -22724,7 +22798,7 @@
               "signature": "public readonly readable: ReadableStream<O>",
               "doc": "<p>The side the output is read from.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1735",
+              "source": "core/streams.pi:1736",
               "members": []
             },
             {
@@ -22733,7 +22807,7 @@
               "signature": "public readonly writable: WritableStream<I>",
               "doc": "<p>The side the input is written to.</p>\n",
               "examples": [],
-              "source": "core/streams.pi:1737",
+              "source": "core/streams.pi:1738",
               "members": []
             },
             {
@@ -22747,7 +22821,7 @@
                   "code": "const double = new TransformStream<int, int>({\n  transform: (n, c) => c.enqueue(n * 2),\n}, { highWaterMark: 1 }, { highWaterMark: 0 })\nfor await (const n of ReadableStream.from([1, 2, 3]).pipeThrough(double)) {\n  println(n)\n}\n// 2\n// 4\n// 6"
                 }
               ],
-              "source": "core/streams.pi:1756",
+              "source": "core/streams.pi:1757",
               "members": []
             }
           ]
