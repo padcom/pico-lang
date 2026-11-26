@@ -1,0 +1,10 @@
+// A rejection with a throwable enum that nothing awaits ends the program as an `Error`'s does
+// (#52; its report gives the value's form as the message).
+// expect: still running
+// exit: 1
+enum Oops implements Throwable { Late }
+async function fail(): Promise<int> throws Oops {
+  throw Oops.Late
+}
+fail()
+println("still running")

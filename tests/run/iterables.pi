@@ -8,10 +8,13 @@
 // expect: x y
 // expect: 6
 // expect: h él
+// expect: a+b+c
+// expect: 3
 //
 // `Iterable<T>` and `AsyncIterable<T, E>` (#51): a function takes anything `for-of` walks:
 // an array, a string, a `Map`/`Set`, an iterator, a collection; through a bound too.
 import { Deque } from "std/collections"
+import { Channel } from "std/streams"
 
 function total(xs: Iterable<int>): int {
   let n = 0
@@ -66,3 +69,21 @@ async function sum(xs: AsyncIterable<int>): Promise<int> {
 println(await sum(count(3)))
 const it = "héllo".iterator()
 println(`${it.next()!} ${it.take(2).toArray().join("")}`)
+
+// Streams, sockets, watchers, process output and channels are `AsyncIterable`s too.
+async function chunks(xs: AsyncIterable<string, Error>): Promise<string> throws Error {
+  const out: string[] = []
+  for await (const x of xs) out.push(x)
+  out.join("+")
+}
+println(await chunks(ReadableStream.from(["a", "b", "c"])))
+const ch = new Channel<int>()
+ch.send(1)
+ch.send(2)
+ch.close()
+async function ints(xs: AsyncIterable<int>): Promise<int> {
+  let n = 0
+  for await (const x of xs) n += x
+  n
+}
+println(await ints(ch))

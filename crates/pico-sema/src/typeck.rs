@@ -2277,6 +2277,11 @@ impl<'p> Checker<'p> {
                 let t = self.infer(inner);
                 let ok = match (&t, self.program.error_class) {
                     (Ty::Class(sid, ..), Some(err)) => self.program.is_subclass(*sid, err),
+                    // `E extends Throwable` (or `Error`): its instance's type is thrown (#52).
+                    (Ty::Param(..), _) => self.bounds_of(&t).iter().any(|b| {
+                        *b == Bound::Error
+                            || matches!(b, Bound::Iface(i) if Some(*i) == self.program.throwable_iface)
+                    }),
                     _ => t.is_error() || self.program.throw_tag(&t).is_some(),
                 };
                 if !ok {
@@ -2310,6 +2315,17 @@ impl<'p> Checker<'p> {
                     // look at an `Error`.
                     match &c.pat.kind {
                         PatKind::Type { ty, .. } if self.program.throw_tag(ty).is_some() => {
+                            let ty = ty.clone();
+                            self.check_pattern(&c.pat, &ty)
+                        }
+                        // `catch (e: E)` with `E extends Throwable` (or `Error`): whatever the
+                        // instance's `E` is, struct, enum or class (#52).
+                        PatKind::Type { ty: ty @ Ty::Param(..), .. }
+                            if self.bounds_of(ty).iter().any(|b| {
+                                *b == Bound::Error
+                                    || matches!(b, Bound::Iface(i) if Some(*i) == self.program.throwable_iface)
+                            }) =>
+                        {
                             let ty = ty.clone();
                             self.check_pattern(&c.pat, &ty)
                         }
@@ -7394,9 +7410,14 @@ impl<'p> Checker<'p> {
         if t.is_error() {
             return true;
         }
+        // `E extends Throwable`: whatever can be thrown (#52), an `Error` too, though `Error`
+        // doesn't implement the interface nominally.
+        let throwable =
+            matches!(bound, Bound::Iface(i) if Some(*i) == self.program.throwable_iface);
         if let Ty::Param(..) = t {
             let own = self.bounds_of(t);
             return own.contains(bound)
+                || (throwable && own.contains(&Bound::Error))
                 || (*bound == Bound::Equatable
                     && (own.contains(&Bound::Comparable) || own.contains(&Bound::Hashable)));
         }
@@ -7415,6 +7436,20 @@ impl<'p> Checker<'p> {
                 (Ty::Class(s, ..), Some(err)) => self.program.is_subclass(*s, err),
                 _ => false,
             },
+            Bound::Iface(_) if throwable && matches!(t, Ty::Never) => true,
+            // (A throwable enum is marked, not listed among its interfaces.)
+            Bound::Iface(_)
+                if throwable
+                    && matches!(t, Ty::Enum(e, ..) if self.program.enum_def(*e).throwable) =>
+            {
+                true
+            }
+            Bound::Iface(_)
+                if throwable
+                    && matches!((t, self.program.error_class), (Ty::Class(s, ..), Some(err)) if self.program.is_subclass(*s, err)) =>
+            {
+                true
+            }
             Bound::Iface(i) => match t {
                 Ty::Struct(s, _, _) | Ty::Class(s, _, _) | Ty::Iface(s, _, _) => {
                     self.program.implements(*s, *i)
@@ -7996,7 +8031,14 @@ impl<'p> Checker<'p> {
                     args_ty.push(generics[i].default.clone().expect("checked"))
                 }
                 // An error parameter nothing determines: nothing is thrown.
-                None if generics[i].bounds.contains(&Bound::Error) => args_ty.push(Ty::Never),
+                // (`Error` or `Throwable`.)
+                None if generics[i].bounds.iter().any(|b| {
+                    *b == Bound::Error
+                        || matches!(b, Bound::Iface(t) if Some(*t) == self.program.throwable_iface)
+                }) =>
+                {
+                    args_ty.push(Ty::Never)
+                }
                 None if errored => args_ty.push(Ty::Error),
                 None => {
                     let name = &generics[i].name;
@@ -8367,6 +8409,18 @@ impl<'p> Checker<'p> {
                 (arity(&[1]), Ty::INT)
             }
             Builtin::ReactivityOn => (arity(&[0]), Ty::Bool),
+            Builtin::ThrownTag | Builtin::ThrownRaw | Builtin::ThrownText => {
+                if let Some(x) = args.first() {
+                    self.infer(x);
+                }
+                let t = match (b, self.program.error_class) {
+                    (Builtin::ThrownRaw, Some(err)) => self.program.struct_def(err).self_ty(err),
+                    (Builtin::ThrownRaw, None) => Ty::Error,
+                    (Builtin::ThrownText, _) => Ty::Str,
+                    _ => Ty::Int(IntTy::U32),
+                };
+                (arity(&[1]), t)
+            }
             Builtin::Identical => {
                 if let [a, b] = args {
                     let t = self.infer(a);
@@ -8394,6 +8448,7 @@ impl<'p> Checker<'p> {
                 | Builtin::ComptimeInfo
                 | Builtin::ComptimeReadFile => "1 argument",
                 Builtin::WorkerOp | Builtin::Identical => "2 arguments",
+                Builtin::ThrownTag | Builtin::ThrownRaw | Builtin::ThrownText => "1 argument",
                 Builtin::Math => "3 arguments",
                 Builtin::CatchPanic => "1 argument",
                 Builtin::PanicTaken => "no arguments",

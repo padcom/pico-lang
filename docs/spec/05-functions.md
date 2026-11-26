@@ -166,4 +166,5 @@ An async generator may `await` and `yield`; it runs lazily, up to the next `yiel
 what it throws like a promise; `for await` rethrows that (checked). `for await` works in async
 functions and at the entry's top level, over anything with an
 `asyncIterator(): AsyncIterator<T, E>` method (an `AsyncIterator` is its own): the interface
-`AsyncIterable<T, E>`.
+`AsyncIterable<T, E>`, which streams, sockets and listeners, file watchers, a process's output
+readers and channels implement too.

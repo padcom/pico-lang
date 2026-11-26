@@ -248,7 +248,7 @@ function __resolvedVoid(): Promise<void, Error> {
 /// // a
 /// // b
 /// ```
-class ReadableStream<T> {
+class ReadableStream<T> implements AsyncIterable<T, Error> {
   source: UnderlyingSource<T>
   hwm: int
   queue: T[] = []
@@ -486,7 +486,8 @@ class ReadableStream<T> {
     this.__read()
   }
 
-  /// `for await` uses the stream itself (see `next`).
+  /// An async iterator over the chunks (each `next()`), so a stream is an `AsyncIterable`:
+  /// `for await` walks it.
   ///
   /// @example
   /// ```ts
@@ -496,8 +497,8 @@ class ReadableStream<T> {
   /// }
   /// println(total)   // 6
   /// ```
-  public asyncIterator(): ReadableStream<T> {
-    this
+  public asyncIterator(): AsyncIterator<T, Error> {
+    __asyncOf(() => this.next())
   }
 
   /// Gives up on the stream: queued chunks are dropped, waiting reads get the end, and the

@@ -2860,12 +2860,24 @@ impl FnBuilder<'_, '_> {
     /// Matches a `catch` clause against the taken exception; continues at `fail` otherwise.
     fn catch_pattern(&mut self, pat: &hir::Pattern, exc: &Place, tag: &Place, fail: BlockId) {
         let span = pat.span;
+        // `catch (e: E)` with `E = never`: nothing is thrown, it never matches.
+        if let hir::PatKind::Type { ty, .. } = &pat.kind
+            && matches!(self.mono(ty), Ty::Never)
+        {
+            self.terminate(Terminator::Goto(fail));
+            let dead = self.new_block();
+            self.switch_to(dead);
+            return;
+        }
+        // (A type parameter, `catch (e: E)`, is the instance's type: #52.)
         let throwable = match &pat.kind {
-            hir::PatKind::Type { ty, bind, fields } => self
-                .cx
-                .program
-                .throw_tag(ty)
-                .map(|k| (k, ty.clone(), *bind, fields)),
+            hir::PatKind::Type { ty, bind, fields } => {
+                let ty = self.mono(ty);
+                self.cx
+                    .program
+                    .throw_tag(&ty)
+                    .map(|k| (k, ty, *bind, fields))
+            }
             _ => None,
         };
         if let Some((k, ty, bind, fields)) = throwable {
@@ -2887,6 +2899,16 @@ impl FnBuilder<'_, '_> {
             if let Some(l) = bind {
                 self.bind(l, &place, span);
             }
+            // The taken exception isn't needed past here; clear it, so an `await` in the clause
+            // (which saves every local into the async frame, where the slot is an `Error`)
+            // doesn't save a boxed throwable as one (WasmGC casts it; #52).
+            let err = self.cx.program.error_class.expect("prelude");
+            let err_ty = self.cx.program.struct_def(err).self_ty(err);
+            self.assign(
+                exc.clone(),
+                Rvalue::Use(Operand::Const(Const::Undef(err_ty))),
+                span,
+            );
             if let Some(fps) = fields {
                 let idx = self.cx.types.pat_fields[&pat.id].clone();
                 for (f, i) in fps.iter().zip(idx) {
@@ -4199,6 +4221,12 @@ impl FnBuilder<'_, '_> {
                 self.set_exception(v, tag, e.span);
                 let target = self.raise_target();
                 self.diverge(Terminator::Goto(target));
+                Operand::Const(Const::Void)
+            }
+            ExprKind::Throw(inner) if matches!(self.ty(inner), Ty::Never) => {
+                // (`throw` of a `never` value, an `E = never` instance's: it doesn't run.)
+                self.expr(inner);
+                self.diverge(Terminator::Unreachable);
                 Operand::Const(Const::Void)
             }
             ExprKind::Throw(inner) => {
@@ -8776,6 +8804,53 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::Builtin(Builtin::ReactivityOn) => {
                 Operand::Const(Const::Bool(self.cx.types.uses_reactivity))
+            }
+            ExprKind::Builtin(
+                b @ (Builtin::ThrownTag | Builtin::ThrownRaw | Builtin::ThrownText),
+            ) => {
+                let t = self.ty_of(&args[0]);
+                let tag = self.cx.program.throw_tag(&t);
+                if *b == Builtin::ThrownTag {
+                    return Operand::Const(Const::Int(tag.unwrap_or(0) as i128, IntTy::U32));
+                }
+                let p = self.cx.program;
+                let err = p.error_class.expect("prelude");
+                let err_ty = p.struct_def(err).self_ty(err);
+                if *b == Builtin::ThrownRaw {
+                    // (An `Error`: itself, upcast. A throwable's or `never`'s call is in a
+                    // branch that doesn't run for it.)
+                    return match &t {
+                        Ty::Class(..) => {
+                            let v = self.expr(&args[0]);
+                            let raw = Place::local(self.temp(err_ty));
+                            self.assign(raw.clone(), Rvalue::Use(v), e.span);
+                            Operand::Copy(raw)
+                        }
+                        _ => Operand::Const(Const::Undef(err_ty)),
+                    };
+                }
+                // `__thrown_text`: a struct's `message()`, an enum's form.
+                match &t {
+                    Ty::Struct(sid, ..) if tag.is_some() => {
+                        let v = self.expr(&args[0]);
+                        let m = p
+                            .struct_def(*sid)
+                            .method("message")
+                            .expect("checked by conformance");
+                        let boxed = self.rvalue_to_temp(
+                            Rvalue::BoxNew(t.clone(), v),
+                            Ty::Ref(Box::new(t.clone())),
+                            e.span,
+                        );
+                        self.call_fn_value(m, vec![boxed], Ty::Str, e.span)
+                    }
+                    Ty::Enum(..) if tag.is_some() => {
+                        let v = self.expr(&args[0]);
+                        let spec = pico_sema::format::parse("?").expect("valid spec");
+                        self.rvalue_to_temp(Rvalue::Format(v, spec), Ty::Str, e.span)
+                    }
+                    _ => Operand::Const(Const::Str(String::new())),
+                }
             }
             ExprKind::Builtin(Builtin::Identical) => {
                 let t = self.ty_of(&args[0]);

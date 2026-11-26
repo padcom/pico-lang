@@ -170,7 +170,7 @@ export interface ByteStream {
 ///   println(v)   // a, then b
 /// }
 /// ```
-export class Channel<T> {
+export class Channel<T> implements AsyncIterable<T> {
   items: T[] = []
   head: int = 0
   waiters: ((value: T?) => void)[] = []
@@ -328,8 +328,8 @@ export class Channel<T> {
   /// }
   /// println(sum)   // 3
   /// ```
-  public asyncIterator(): Channel<T> {
-    return this
+  public asyncIterator(): AsyncIterator<T> {
+    return __asyncOf(() => this.next())
   }
 }
 

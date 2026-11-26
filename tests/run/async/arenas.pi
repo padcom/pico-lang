@@ -1,0 +1,52 @@
+// expect: 0 1 3 6
+// expect: 36
+// expect: 2 4
+//
+// Arenas inside generators and async code (#52): an arena between two `yield`s or `await`s
+// (suspending inside one is E0344, see tests/fail/arena/suspend.pi).
+function* sums(n: int): Iterator<int> {
+  for (let i = 0; i < n; i++) {
+    let s = 0
+    arena {
+      const xs: int[] = []
+      for (let k = 0; k <= i; k++) xs.push(k)
+      for (const x of xs) s += x
+    }
+    yield s
+  }
+}
+println(sums(4).toArray().join(" "))
+
+function delay(ms: int): Promise<void> {
+  new Promise<void>((resolve: (v: void) => void, reject: (e: Error) => void) => {
+    setTimeout(() => resolve(), ms)
+  })
+}
+
+async function work(): Promise<int> {
+  let total = 0
+  arena {
+    const xs: int[] = [1, 2, 3]
+    for (const x of xs) total += x
+  }
+  await delay(5)
+  arena {
+    const ys = [10, 20]
+    for (const y of ys) total += y
+  }
+  return total
+}
+println(await work())
+
+async function* doubled(n: int): AsyncIterator<int> {
+  for (let i = 1; i <= n; i++) {
+    let v = 0
+    arena {
+      v = [i, i].length * i
+    }
+    yield v
+  }
+}
+const out: int[] = []
+for await (const v of doubled(2)) out.push(v)
+println(out.join(" "))
