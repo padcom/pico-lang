@@ -1,0 +1,29 @@
+// expect: x 1 name a n 0
+// expect: x 1 name b n 0
+// expect: x 5 name b n 0
+// expect: x 6 name b n 0
+// expect: x 16 name b n 0
+// expect: x 16 name b n 1
+// expect: x 7 name b n 1
+// expect: final 7
+// Writes into a struct held by reactive state go back to its cell (#71): through nested
+// struct fields (`s.pos.x = 5`, `+=`), and `++` at any depth (both were lost).
+struct Pos {
+  x: int
+  y: int
+}
+struct State {
+  pos: Pos
+  name: string
+  n: int
+}
+
+reactive s: State = State { pos: Pos { x: 1, y: 2 }, name: "a", n: 0 }
+watchEffect(() => println(`x ${s.pos.x} name ${s.name} n ${s.n}`))
+s.name = "b"
+s.pos.x = 5
+s.pos.x++
+s.pos.x += 10
+s.n++
+s.pos = Pos { x: 7, y: 0 }
+println(`final ${s.pos.x}`)

@@ -175,8 +175,9 @@ println(left)          // 0
   `delete` and `clear`, which use a map).
 - The granularity is the object: reading any field depends on all of it, and mutating any field
   triggers everything that read it.
-- Structs are values: assigning a field of a struct held by a reactive binding (`point.x = 1`)
-  writes the binding.
+- Structs are values: assigning a field of a struct held by a reactive binding (`point.x = 1`,
+  also `+=` and `++`, and through nested struct fields: `state.pos.x = 1`, #71) writes the
+  binding.
 - Only programs whose own code uses reactive state pay for this: there, reads and mutations of
   objects test a flag (about half a nanosecond each); other programs don't (decision 309).
 
