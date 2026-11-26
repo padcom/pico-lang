@@ -1,0 +1,37 @@
+// expect: SHA-256 abc: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+// expect: chunked = whole: true true true
+// expect: empty SHA-1: da39a3ee5e6b4b0d3255bfef95601890afd80709
+// expect: SHA3-256 a million a: 5c8875ae474a3634ba4fd55ec85bffd661f32aca75c6d699d0cdcb6c115891c1
+// expect: abandoned: fine
+// Streaming hashes (#69): `createHash(alg).update(…).digest()` gives what `digest(alg, all)`
+// does, for every algorithm, over chunks of any size; a hash never digested is freed.
+import { createHash, digest } from "std/crypto"
+import { hex } from "std/encoding"
+
+const h = createHash("SHA-256")
+h.update("a").update("bc")
+println(`SHA-256 abc: ${hex.encode(h.digest())}`)
+
+const text = "The quick brown fox jumps over the lazy dog, again and again. ".repeat(50)
+let ok = ""
+const algs: HashAlgorithm[] = ["SHA-1", "SHA-512", "SHA3-384"]
+for (const alg of algs) {
+  const s = createHash(alg)
+  let i = 0
+  while (i < text.length) {
+    s.update(text.slice(i, i + 37))
+    i += 37
+  }
+  ok = `${ok} ${hex.encode(s.digest()) == hex.encode(digest(alg, text))}`
+}
+println(`chunked = whole:${ok}`)
+println(`empty SHA-1: ${hex.encode(createHash("SHA-1").digest())}`)
+
+// The SHA3-256 test vector of a million "a"s, in 1000-byte chunks.
+const big = createHash("SHA3-256")
+const chunk = new TextEncoder().encode("a".repeat(1000))
+for (let k = 0; k < 1000; k++) big.update(chunk)
+println(`SHA3-256 a million a: ${hex.encode(big.digest())}`)
+
+for (let k = 0; k < 100; k++) createHash("SHA-256").update("left behind")
+println("abandoned: fine")

@@ -132,12 +132,20 @@ impl Blank<'_, '_> {
         let blank =
             (prev_end + 1..first).any(|l| lines.get(l).is_some_and(|t| t.trim().is_empty()));
         if !blank {
-            self.out.push(
-                Diagnostic::warning(format!("a blank line is needed {what}"))
-                    .with_code(codes::LINT_BLANK_LINE)
-                    .primary(at, "add a blank line above")
-                    .note("it's not the first in its block, so it's set apart (lint rule `blankLines`)"),
-            );
+            let mut d = Diagnostic::warning(format!("a blank line is needed {what}"))
+                .with_code(codes::LINT_BLANK_LINE)
+                .primary(at, "add a blank line above")
+                .note(
+                    "it's not the first in its block, so it's set apart (lint rule `blankLines`)",
+                );
+            // (The fix: a line break at the start of its first line, comments and decorators
+            // included; not when it shares a line with what comes before.)
+            if first > prev_end {
+                let offset: usize = lines[..first].iter().map(|l| l.len() + 1).sum();
+                let o = offset as u32;
+                d = d.fix(Span::new(span.file, o, o), "\n");
+            }
+            self.out.push(d);
         }
     }
 

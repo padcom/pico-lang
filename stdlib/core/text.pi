@@ -168,9 +168,7 @@ class TextDecoder {
       for (let i = 0; i < this.pending.length; i++) {
         joined.set(i, this.pending[i])
       }
-      for (let i = 0; i < input.length; i++) {
-        joined.set(this.pending.length + i, input.get(i))
-      }
+      joined.setAll(input, this.pending.length)
       this.pending = []
       bytes = joined
     }

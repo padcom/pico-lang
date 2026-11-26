@@ -96,6 +96,30 @@ println(`${third()} ${over()} ${fine()}`)
 "#));
 }
 
+/// Aggregates and calls fold (#55): a field of a struct value made of constants is that
+/// constant, and a call of a function that only returns a constant (no parameters, no other
+/// effect) is that constant, through chains of them; a function with an effect stays a call.
+#[test]
+fn aggregate_and_call_folding() {
+    insta::assert_snapshot!(mir(r#"
+struct Size {
+  w: i32
+  h: i32
+}
+function area(): i32 {
+  const s = Size { w: 3, h: 4 }
+  return s.w * s.h
+}
+function base(): i32 { return 40 }
+function answer(): i32 { return base() + 2 }
+function noisy(): i32 {
+  println("side effect")
+  return 1
+}
+println(`${area()} ${answer()} ${noisy()}`)
+"#));
+}
+
 /// Strings fold too (#55): concatenation of constants and the string forms of integers, `bool`s
 /// and `char`s, also through `const`s.
 #[test]

@@ -116,6 +116,7 @@
     "LinkedList": "std-collections#LinkedList",
     "LruCache": "std-collections#LruCache",
     "BitSet": "std-collections#BitSet",
+    "Hash": "std-crypto#Hash",
     "Aead": "std-crypto#Aead",
     "EcKeyPair": "std-crypto#EcKeyPair",
     "CsvOptions": "std-encoding#CsvOptions",
@@ -449,7 +450,7 @@
               "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const params: Algorithm = { name: \"AES-GCM\", iv: crypto.getRandomValues(new Uint8Array(12)) }\n  const sealed = await crypto.subtle.encrypt(params, key, new TextEncoder().encode(\"hi\"))\n  println(sealed.length)   // 18 (2 bytes of ciphertext + a 16-byte tag)\n}"
             }
           ],
-          "source": "core/crypto.pi:212",
+          "source": "core/crypto.pi:213",
           "members": [
             {
               "name": "name",
@@ -457,7 +458,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"AES-GCM\"</code>, <code>\"HMAC\"</code>, <code>\"ECDSA\"</code>, <code>\"ECDH\"</code>, <code>\"HKDF\"</code>, <code>\"PBKDF2\"</code>; any\ncase), or, for <code>digest</code>, the hash's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:215",
+              "source": "core/crypto.pi:216",
               "members": []
             },
             {
@@ -466,7 +467,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:217",
+              "source": "core/crypto.pi:218",
               "members": []
             },
             {
@@ -475,7 +476,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve for <code>generateKey</code> and <code>importKey</code> of ECDSA (<code>\"P-256\"</code>, <code>\"P-384\"</code>) and ECDH keys\n(also <code>\"X25519\"</code>).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:220",
+              "source": "core/crypto.pi:221",
               "members": []
             },
             {
@@ -484,7 +485,7 @@
               "signature": "length?: int",
               "doc": "<p>The key length in bits for <code>generateKey</code> (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:222",
+              "source": "core/crypto.pi:223",
               "members": []
             },
             {
@@ -493,7 +494,7 @@
               "signature": "iv?: Uint8Array",
               "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual), or AES-CBC's initialization vector (16\nbytes).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:225",
+              "source": "core/crypto.pi:226",
               "members": []
             },
             {
@@ -502,7 +503,7 @@
               "signature": "counter?: Uint8Array",
               "doc": "<p>AES-CTR's initial counter block (16 bytes); <code>length</code> is then how many of its rightmost\nbits count up (#69).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:228",
+              "source": "core/crypto.pi:229",
               "members": []
             },
             {
@@ -511,7 +512,7 @@
               "signature": "additionalData?: Uint8Array",
               "doc": "<p>AES-GCM's authenticated, unencrypted data (none unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:230",
+              "source": "core/crypto.pi:231",
               "members": []
             },
             {
@@ -520,7 +521,7 @@
               "signature": "tagLength?: int",
               "doc": "<p>AES-GCM's tag length in bits: only 128 (the default) is supported.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:232",
+              "source": "core/crypto.pi:233",
               "members": []
             },
             {
@@ -529,7 +530,7 @@
               "signature": "public?: CryptoKey",
               "doc": "<p>ECDH's peer public key, for <code>deriveBits</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:234",
+              "source": "core/crypto.pi:235",
               "members": []
             },
             {
@@ -538,7 +539,7 @@
               "signature": "salt?: Uint8Array",
               "doc": "<p>The HKDF or PBKDF2 salt (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:236",
+              "source": "core/crypto.pi:237",
               "members": []
             },
             {
@@ -547,7 +548,7 @@
               "signature": "info?: Uint8Array",
               "doc": "<p>HKDF's context info (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:238",
+              "source": "core/crypto.pi:239",
               "members": []
             },
             {
@@ -556,7 +557,7 @@
               "signature": "iterations?: int",
               "doc": "<p>PBKDF2's iteration count.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:240",
+              "source": "core/crypto.pi:241",
               "members": []
             }
           ]
@@ -852,7 +853,7 @@
               "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1220",
+          "source": "core/net.pi:1236",
           "members": [
             {
               "name": "reuseAddress",
@@ -860,7 +861,7 @@
               "signature": "reuseAddress?: bool",
               "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1223",
+              "source": "core/net.pi:1239",
               "members": []
             }
           ]
@@ -918,7 +919,7 @@
               "code": "const e = new CloseEvent(1000, \"done\", true)\nprintln(`${e.type} ${e.code} ${e.reason} ${e.wasClean}`)   // close 1000 done true"
             }
           ],
-          "source": "core/websocket.pi:178",
+          "source": "core/websocket.pi:176",
           "members": [
             {
               "name": "type",
@@ -926,7 +927,7 @@
               "signature": "public readonly type: string = \"close\"",
               "doc": "<p>Always <code>\"close\"</code>.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:180",
+              "source": "core/websocket.pi:178",
               "members": []
             },
             {
@@ -935,7 +936,7 @@
               "signature": "public readonly code: int",
               "doc": "<p>The close code: the peer's, 1005 when its close frame had none, 1006 when the connection was\nlost or failed.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:183",
+              "source": "core/websocket.pi:181",
               "members": []
             },
             {
@@ -944,7 +945,7 @@
               "signature": "public readonly reason: string",
               "doc": "<p>The peer's close reason (\"\" for none).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:185",
+              "source": "core/websocket.pi:183",
               "members": []
             },
             {
@@ -953,7 +954,7 @@
               "signature": "public readonly wasClean: bool",
               "doc": "<p>Whether the closing handshake completed.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:187",
+              "source": "core/websocket.pi:185",
               "members": []
             },
             {
@@ -967,7 +968,7 @@
                   "code": "const lost = new CloseEvent(1006, \"\", false)\nprintln(lost.code)       // 1006\nprintln(lost.wasClean)   // false"
                 }
               ],
-              "source": "core/websocket.pi:196",
+              "source": "core/websocket.pi:194",
               "members": []
             }
           ]
@@ -1231,7 +1232,7 @@
               "code": "const id = crypto.randomUUID()\nprintln(id.length)   // 36\nconst bytes = crypto.getRandomValues(new Uint8Array(4))\nprintln(bytes.length)   // 4"
             }
           ],
-          "source": "core/crypto.pi:582",
+          "source": "core/crypto.pi:583",
           "members": [
             {
               "name": "subtle",
@@ -1239,7 +1240,7 @@
               "signature": "subtle: SubtleCrypto",
               "doc": "<p>Web Crypto's asynchronous operations (keys, signatures, encryption, derivation).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:584",
+              "source": "core/crypto.pi:585",
               "members": []
             },
             {
@@ -1253,7 +1254,7 @@
                   "code": "const nonce = crypto.getRandomValues(new Uint8Array(12))\nprintln(nonce.length)   // 12 (random bytes, different each run)"
                 }
               ],
-              "source": "core/crypto.pi:594",
+              "source": "core/crypto.pi:595",
               "members": []
             },
             {
@@ -1267,7 +1268,7 @@
                   "code": "const id = crypto.randomUUID()\nprintln(id)          // e.g. 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed\nprintln(id[14])      // 4 (the version)"
                 }
               ],
-              "source": "core/crypto.pi:609",
+              "source": "core/crypto.pi:610",
               "members": []
             }
           ]
@@ -1321,7 +1322,7 @@
               "code": "const raw = new TextEncoder().encode(\"secret\")\nconst key = await crypto.subtle.importKey(\"raw\", raw, { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nprintln(key.type)                   // secret\nprintln(key.algorithm.name)         // HMAC\nprintln(key.algorithm.length)       // 48\nprintln(key.usages.join(\", \"))      // sign"
             }
           ],
-          "source": "core/crypto.pi:144",
+          "source": "core/crypto.pi:145",
           "members": [
             {
               "name": "type",
@@ -1329,7 +1330,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"secret\"</code>, <code>\"private\"</code> or <code>\"public\"</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:146",
+              "source": "core/crypto.pi:147",
               "members": []
             },
             {
@@ -1338,7 +1339,7 @@
               "signature": "public readonly extractable: bool",
               "doc": "<p>Whether <code>exportKey</code> may export a non-public key's bytes.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:148",
+              "source": "core/crypto.pi:149",
               "members": []
             },
             {
@@ -1347,7 +1348,7 @@
               "signature": "public readonly algorithm: KeyAlgorithm",
               "doc": "<p>The algorithm the key is for, with its hash, curve or length.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:150",
+              "source": "core/crypto.pi:151",
               "members": []
             },
             {
@@ -1356,7 +1357,7 @@
               "signature": "public readonly usages: string[]",
               "doc": "<p>What the key may be used for (<code>\"sign\"</code>, <code>\"verify\"</code>, <code>\"encrypt\"</code>, <code>\"decrypt\"</code>,\n<code>\"deriveBits\"</code>): another use rejects with an <code>\"InvalidAccess\"</code> <code>CryptoError</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:153",
+              "source": "core/crypto.pi:154",
               "members": []
             },
             {
@@ -1370,7 +1371,7 @@
                   "code": "const alg: KeyAlgorithm = { name: \"HMAC\", hash: \"SHA-256\", length: 128 }\nconst key = new CryptoKey(\"secret\", true, alg, [\"sign\", \"verify\"], new Uint8Array(16))\nprintln(key.extractable)   // true\nprintln(key.type)          // secret"
                 }
               ],
-              "source": "core/crypto.pi:165",
+              "source": "core/crypto.pi:166",
               "members": []
             }
           ]
@@ -1386,7 +1387,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDH\", namedCurve: \"X25519\" }, false, [\"deriveBits\"])\nif (pair is CryptoKeyPair) {\n  println(pair.publicKey.type)    // public\n  println(pair.privateKey.type)   // private\n}"
             }
           ],
-          "source": "core/crypto.pi:253",
+          "source": "core/crypto.pi:254",
           "members": [
             {
               "name": "publicKey",
@@ -1394,7 +1395,7 @@
               "signature": "publicKey: CryptoKey",
               "doc": "<p>The public key (always extractable).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:255",
+              "source": "core/crypto.pi:256",
               "members": []
             },
             {
@@ -1403,7 +1404,7 @@
               "signature": "privateKey: CryptoKey",
               "doc": "<p>The private key (extractable as <code>generateKey</code> was told).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:257",
+              "source": "core/crypto.pi:258",
               "members": []
             }
           ]
@@ -1419,7 +1420,7 @@
               "code": "const view = new DataView(new ArrayBuffer(6))\nview.setUint16(0, 0xCAFE)\nview.setUint32(2, 1, true)\nprintln(view.getUint8(0))          // 202\nprintln(view.getUint16(0, true))   // 65226\nprintln(view.getUint32(2, true))   // 1"
             }
           ],
-          "source": "core/buffer.pi:1118",
+          "source": "core/buffer.pi:1137",
           "members": [
             {
               "name": "buffer",
@@ -1427,7 +1428,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:1120",
+              "source": "core/buffer.pi:1139",
               "members": []
             },
             {
@@ -1436,7 +1437,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:1122",
+              "source": "core/buffer.pi:1141",
               "members": []
             },
             {
@@ -1450,7 +1451,7 @@
                   "code": "const buf = new ArrayBuffer(8)\nconst header = new DataView(buf, 0, 4)\nconst body = new DataView(buf, 4)\nprintln(header.byteLength)   // 4\nprintln(body.byteLength)     // 4"
                 }
               ],
-              "source": "core/buffer.pi:1136",
+              "source": "core/buffer.pi:1155",
               "members": []
             },
             {
@@ -1464,7 +1465,7 @@
                   "code": "const bytes = Uint8Array.from([0x00, 0x01, 0x00, 0x00])\nconst view = new DataView(bytes)\nprintln(view.getUint16(0))   // 1"
                 }
               ],
-              "source": "core/buffer.pi:1151",
+              "source": "core/buffer.pi:1170",
               "members": []
             },
             {
@@ -1478,7 +1479,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(12), 4)\nprintln(view.byteLength)   // 8"
                 }
               ],
-              "source": "core/buffer.pi:1164",
+              "source": "core/buffer.pi:1183",
               "members": []
             },
             {
@@ -1492,7 +1493,7 @@
                   "code": "const view = new DataView(Uint8Array.from([200, 7]))\nprintln(view.getUint8(0))   // 200\nprintln(view.getUint8(1))   // 7"
                 }
               ],
-              "source": "core/buffer.pi:1209",
+              "source": "core/buffer.pi:1230",
               "members": []
             },
             {
@@ -1506,7 +1507,7 @@
                   "code": "const view = new DataView(Uint8Array.from([253, 7]))\nprintln(view.getInt8(0))   // -3\nprintln(view.getInt8(1))   // 7"
                 }
               ],
-              "source": "core/buffer.pi:1219",
+              "source": "core/buffer.pi:1240",
               "members": []
             },
             {
@@ -1520,7 +1521,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint16(0, 513)\nprintln(view.getUint16(0))         // 513\nprintln(view.getUint16(0, true))   // 258 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1230",
+              "source": "core/buffer.pi:1251",
               "members": []
             },
             {
@@ -1534,7 +1535,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt16(0, -2)\nprintln(view.getInt16(0))         // -2\nprintln(view.getInt16(0, true))   // -257 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1241",
+              "source": "core/buffer.pi:1262",
               "members": []
             },
             {
@@ -1548,7 +1549,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setUint32(0, 3000000000)\nprintln(view.getUint32(0))         // 3000000000\nprintln(view.getUint32(0, true))   // 6213810 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1252",
+              "source": "core/buffer.pi:1273",
               "members": []
             },
             {
@@ -1562,7 +1563,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setInt32(0, -100000)\nprintln(view.getInt32(0))         // -100000\nprintln(view.getInt32(0, true))   // 1618607871 (the bytes read little-endian)"
                 }
               ],
-              "source": "core/buffer.pi:1263",
+              "source": "core/buffer.pi:1284",
               "members": []
             },
             {
@@ -1576,7 +1577,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, -5)\nprintln(view.getBigInt64(0))   // -5"
                 }
               ],
-              "source": "core/buffer.pi:1273",
+              "source": "core/buffer.pi:1294",
               "members": []
             },
             {
@@ -1590,7 +1591,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, -1)\nprintln(view.getBigUint64(0))   // 18446744073709551615"
                 }
               ],
-              "source": "core/buffer.pi:1283",
+              "source": "core/buffer.pi:1304",
               "members": []
             },
             {
@@ -1604,7 +1605,7 @@
                   "code": "const view = new DataView(Uint8Array.from([0x3C, 0x00]))\nprintln(view.getFloat16(0))   // 1"
                 }
               ],
-              "source": "core/buffer.pi:1294",
+              "source": "core/buffer.pi:1315",
               "members": []
             },
             {
@@ -1618,7 +1619,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setFloat32(0, 0.75)\nprintln(view.getFloat32(0))   // 0.75"
                 }
               ],
-              "source": "core/buffer.pi:1304",
+              "source": "core/buffer.pi:1325",
               "members": []
             },
             {
@@ -1632,7 +1633,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setFloat64(0, 6.5, true)\nprintln(view.getFloat64(0, true))   // 6.5"
                 }
               ],
-              "source": "core/buffer.pi:1314",
+              "source": "core/buffer.pi:1335",
               "members": []
             },
             {
@@ -1646,7 +1647,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint8(0, 200)\nprintln(view.getUint8(0))   // 200\nprintln(view.getUint8(0))    // 200"
                 }
               ],
-              "source": "core/buffer.pi:1327",
+              "source": "core/buffer.pi:1348",
               "members": []
             },
             {
@@ -1660,7 +1661,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt8(0, -3)\nprintln(view.getInt8(0))   // -3\nprintln(view.getUint8(0))    // 253"
                 }
               ],
-              "source": "core/buffer.pi:1338",
+              "source": "core/buffer.pi:1359",
               "members": []
             },
             {
@@ -1674,7 +1675,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setUint16(0, 513, true)     // little-endian\nprintln(view.getUint16(0, true))   // 513\nprintln(view.getUint8(0))          // 1"
                 }
               ],
-              "source": "core/buffer.pi:1349",
+              "source": "core/buffer.pi:1370",
               "members": []
             },
             {
@@ -1688,7 +1689,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setInt16(0, -2, true)     // little-endian\nprintln(view.getInt16(0, true))   // -2\nprintln(view.getUint8(0))          // 254"
                 }
               ],
-              "source": "core/buffer.pi:1360",
+              "source": "core/buffer.pi:1381",
               "members": []
             },
             {
@@ -1702,7 +1703,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setUint32(0, 3000000000, true)     // little-endian\nprintln(view.getUint32(0, true))   // 3000000000\nprintln(view.getUint8(0))          // 0"
                 }
               ],
-              "source": "core/buffer.pi:1371",
+              "source": "core/buffer.pi:1392",
               "members": []
             },
             {
@@ -1716,7 +1717,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setInt32(0, -100000, true)     // little-endian\nprintln(view.getInt32(0, true))   // -100000\nprintln(view.getUint8(0))          // 96"
                 }
               ],
-              "source": "core/buffer.pi:1382",
+              "source": "core/buffer.pi:1403",
               "members": []
             },
             {
@@ -1730,7 +1731,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setBigInt64(0, 1234567890123)\nprintln(view.getBigInt64(0))   // 1234567890123"
                 }
               ],
-              "source": "core/buffer.pi:1392",
+              "source": "core/buffer.pi:1413",
               "members": []
             },
             {
@@ -1744,7 +1745,7 @@
                   "code": "const big: u64 = 18446744073709551615\nconst view = new DataView(new ArrayBuffer(8))\nview.setBigUint64(0, big)\nprintln(view.getBigUint64(0))   // 18446744073709551615\nprintln(view.getInt8(0))        // -1"
                 }
               ],
-              "source": "core/buffer.pi:1404",
+              "source": "core/buffer.pi:1425",
               "members": []
             },
             {
@@ -1758,7 +1759,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(2))\nview.setFloat16(0, 0.1)\nprintln(view.getFloat16(0))   // 0.0999755859375"
                 }
               ],
-              "source": "core/buffer.pi:1416",
+              "source": "core/buffer.pi:1437",
               "members": []
             },
             {
@@ -1772,7 +1773,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(4))\nview.setFloat32(0, 1.5, true)\nprintln(view.getUint8(3))           // 63\nprintln(view.getFloat32(0, true))   // 1.5"
                 }
               ],
-              "source": "core/buffer.pi:1427",
+              "source": "core/buffer.pi:1448",
               "members": []
             },
             {
@@ -1786,7 +1787,7 @@
                   "code": "const view = new DataView(new ArrayBuffer(8))\nview.setFloat64(0, -2.5)\nprintln(view.getFloat64(0))   // -2.5"
                 }
               ],
-              "source": "core/buffer.pi:1437",
+              "source": "core/buffer.pi:1458",
               "members": []
             }
           ]
@@ -1802,7 +1803,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"hi\", b.addr.port)\nconst d: Datagram? = await b.receive()\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // hi\n  println(d.addr.port == a.addr.port)         // true\n}\na.close()\nb.close()"
             }
           ],
-          "source": "core/net.pi:945",
+          "source": "core/net.pi:961",
           "members": [
             {
               "name": "data",
@@ -1810,7 +1811,7 @@
               "signature": "data: Uint8Array",
               "doc": "<p>The datagram's bytes (cut to the size <code>receive</code> asked for).</p>\n",
               "examples": [],
-              "source": "core/net.pi:947",
+              "source": "core/net.pi:963",
               "members": []
             },
             {
@@ -1819,7 +1820,7 @@
               "signature": "addr: Addr",
               "doc": "<p>The address it came from.</p>\n",
               "examples": [],
-              "source": "core/net.pi:949",
+              "source": "core/net.pi:965",
               "members": []
             }
           ]
@@ -2617,7 +2618,7 @@
               "code": "const e = new Event(\"open\")\nprintln(e.type)   // open"
             }
           ],
-          "source": "core/websocket.pi:124",
+          "source": "core/websocket.pi:122",
           "members": [
             {
               "name": "type",
@@ -2625,7 +2626,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"open\"</code> or <code>\"error\"</code>.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:126",
+              "source": "core/websocket.pi:124",
               "members": []
             },
             {
@@ -2639,7 +2640,7 @@
                   "code": "const e = new Event(\"error\")\nprintln(e.type)   // error"
                 }
               ],
-              "source": "core/websocket.pi:134",
+              "source": "core/websocket.pi:132",
               "members": []
             }
           ]
@@ -2759,7 +2760,7 @@
               "code": "const xs = new Float32Array(3)\nxs.set(0, 0.5)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // 0.5"
             }
           ],
-          "source": "core/buffer.pi:854",
+          "source": "core/buffer.pi:869",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -2767,7 +2768,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:856",
+              "source": "core/buffer.pi:871",
               "members": []
             },
             {
@@ -2776,7 +2777,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:858",
+              "source": "core/buffer.pi:873",
               "members": []
             },
             {
@@ -2785,7 +2786,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:860",
+              "source": "core/buffer.pi:875",
               "members": []
             },
             {
@@ -2799,7 +2800,7 @@
                   "code": "const xs = new Float32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:871",
+              "source": "core/buffer.pi:886",
               "members": []
             },
             {
@@ -2813,7 +2814,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Float32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:886",
+              "source": "core/buffer.pi:901",
               "members": []
             },
             {
@@ -2827,7 +2828,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Float32Array(buf, 4, 2)\ntwo.set(0, 0.5)\nprintln(two.length)                 // 2\nprintln(new Float32Array(buf, 0)[1])   // 0.5"
                 }
               ],
-              "source": "core/buffer.pi:904",
+              "source": "core/buffer.pi:919",
               "members": []
             },
             {
@@ -2841,7 +2842,7 @@
                   "code": "const xs = new Float32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:917",
+              "source": "core/buffer.pi:932",
               "members": []
             },
             {
@@ -2855,7 +2856,7 @@
                   "code": "const xs = new Float32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:928",
+              "source": "core/buffer.pi:943",
               "members": []
             },
             {
@@ -2869,7 +2870,7 @@
                   "code": "const xs = new Float32Array(2)\nxs.set(1, 0.5)\nprintln(xs.get(1))   // 0.5\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:947",
+              "source": "core/buffer.pi:962",
               "members": []
             },
             {
@@ -2883,7 +2884,7 @@
                   "code": "const xs = new Float32Array(2)\nxs.set(0, 1.25)\nprintln(xs[0])   // 1.25"
                 }
               ],
-              "source": "core/buffer.pi:960",
+              "source": "core/buffer.pi:976",
               "members": []
             }
           ]
@@ -2899,7 +2900,7 @@
               "code": "const xs = new Float64Array(3)\nxs.set(0, 3.25)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 24\nprintln(xs[0])           // 3.25"
             }
           ],
-          "source": "core/buffer.pi:984",
+          "source": "core/buffer.pi:1001",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -2907,7 +2908,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 8",
               "doc": "<p>The size of an element: 8 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:986",
+              "source": "core/buffer.pi:1003",
               "members": []
             },
             {
@@ -2916,7 +2917,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:988",
+              "source": "core/buffer.pi:1005",
               "members": []
             },
             {
@@ -2925,7 +2926,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:990",
+              "source": "core/buffer.pi:1007",
               "members": []
             },
             {
@@ -2939,7 +2940,7 @@
                   "code": "const xs = new Float64Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 32"
                 }
               ],
-              "source": "core/buffer.pi:1001",
+              "source": "core/buffer.pi:1018",
               "members": []
             },
             {
@@ -2953,7 +2954,7 @@
                   "code": "const buf = new ArrayBuffer(32)\nconst rest = new Float64Array(buf, 8)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:1016",
+              "source": "core/buffer.pi:1033",
               "members": []
             },
             {
@@ -2967,7 +2968,7 @@
                   "code": "const buf = new ArrayBuffer(32)\nconst two = new Float64Array(buf, 8, 2)\ntwo.set(0, 3.25)\nprintln(two.length)                 // 2\nprintln(new Float64Array(buf, 0)[1])   // 3.25"
                 }
               ],
-              "source": "core/buffer.pi:1034",
+              "source": "core/buffer.pi:1051",
               "members": []
             },
             {
@@ -2981,7 +2982,7 @@
                   "code": "const xs = new Float64Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:1047",
+              "source": "core/buffer.pi:1064",
               "members": []
             },
             {
@@ -2995,7 +2996,7 @@
                   "code": "const xs = new Float64Array(10)\nprintln(xs.byteLength)   // 80"
                 }
               ],
-              "source": "core/buffer.pi:1058",
+              "source": "core/buffer.pi:1075",
               "members": []
             },
             {
@@ -3009,7 +3010,7 @@
                   "code": "const xs = new Float64Array(2)\nxs.set(1, 3.25)\nprintln(xs.get(1))   // 3.25\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:1077",
+              "source": "core/buffer.pi:1094",
               "members": []
             },
             {
@@ -3023,7 +3024,7 @@
                   "code": "const xs = new Float64Array(2)\nxs.set(0, 1.25)\nprintln(xs[0])   // 1.25"
                 }
               ],
-              "source": "core/buffer.pi:1090",
+              "source": "core/buffer.pi:1108",
               "members": []
             }
           ]
@@ -3063,7 +3064,7 @@
           "signature": "type HashAlgorithm = \"SHA-1\" | \"SHA-224\" | \"SHA-256\" | \"SHA-384\" | \"SHA-512\" | \"SHA3-256\" | \"SHA3-384\" | \"SHA3-512\"",
           "doc": "<p>The hash algorithms, by Web Crypto name.</p>\n",
           "examples": [],
-          "source": "core/crypto.pi:81",
+          "source": "core/crypto.pi:82",
           "members": []
         },
         {
@@ -3298,7 +3299,7 @@
               "code": "const xs = new Int32Array(3)\nxs.set(0, -7)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // -7"
             }
           ],
-          "source": "core/buffer.pi:589",
+          "source": "core/buffer.pi:600",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -3306,7 +3307,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:591",
+              "source": "core/buffer.pi:602",
               "members": []
             },
             {
@@ -3315,7 +3316,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:593",
+              "source": "core/buffer.pi:604",
               "members": []
             },
             {
@@ -3324,7 +3325,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:595",
+              "source": "core/buffer.pi:606",
               "members": []
             },
             {
@@ -3338,7 +3339,7 @@
                   "code": "const xs = new Int32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:606",
+              "source": "core/buffer.pi:617",
               "members": []
             },
             {
@@ -3352,7 +3353,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Int32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:621",
+              "source": "core/buffer.pi:632",
               "members": []
             },
             {
@@ -3366,7 +3367,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Int32Array(buf, 4, 2)\ntwo.set(0, -7)\nprintln(two.length)                 // 2\nprintln(new Int32Array(buf, 0)[1])   // -7"
                 }
               ],
-              "source": "core/buffer.pi:639",
+              "source": "core/buffer.pi:650",
               "members": []
             },
             {
@@ -3380,7 +3381,7 @@
                   "code": "const xs = new Int32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:652",
+              "source": "core/buffer.pi:663",
               "members": []
             },
             {
@@ -3394,7 +3395,7 @@
                   "code": "const xs = new Int32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:663",
+              "source": "core/buffer.pi:674",
               "members": []
             },
             {
@@ -3408,7 +3409,7 @@
                   "code": "const xs = new Int32Array(2)\nxs.set(1, -7)\nprintln(xs.get(1))   // -7\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:682",
+              "source": "core/buffer.pi:693",
               "members": []
             },
             {
@@ -3422,7 +3423,7 @@
                   "code": "const xs = new Int32Array(2)\nxs.set(0, 123)\nxs.set(1, 0x80000000)   // wraps\nprintln(xs[0])   // 123\nprintln(xs[1])   // -2147483648"
                 }
               ],
-              "source": "core/buffer.pi:697",
+              "source": "core/buffer.pi:709",
               "members": []
             }
           ]
@@ -3674,7 +3675,7 @@
               "name": "parse",
               "kind": "method",
               "signature": "public static parse<T>(text: string): T throws JsonError",
-              "doc": "<p>The <code>T</code> that <code>text</code> holds. Struct and class fields are matched by name (or by\n<code>@json.name</code>); unknown keys are skipped; a missing field is an error unless it's\nnullable (then it's <code>null</code>).</p>\n",
+              "doc": "<p>The <code>T</code> that <code>text</code> holds. Struct and class fields are matched by name (or by\n<code>@json.name</code>); unknown keys are skipped; a missing field is an error unless it's\nnullable (then it's <code>null</code>) or a class field with an initializer (then it takes it).</p>\n",
               "examples": [
                 {
                   "caption": "",
@@ -3740,7 +3741,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const alg: KeyAlgorithm = pair.publicKey.algorithm\n  println(alg.name)         // ECDSA\n  println(alg.namedCurve)   // P-256\n}"
             }
           ],
-          "source": "core/crypto.pi:186",
+          "source": "core/crypto.pi:187",
           "members": [
             {
               "name": "name",
@@ -3748,7 +3749,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"HMAC\"</code>, <code>\"AES-GCM\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:188",
+              "source": "core/crypto.pi:189",
               "members": []
             },
             {
@@ -3757,7 +3758,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …), for HMAC keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:190",
+              "source": "core/crypto.pi:191",
               "members": []
             },
             {
@@ -3766,7 +3767,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve (<code>\"P-256\"</code>, <code>\"P-384\"</code>, <code>\"X25519\"</code>), for ECDSA and ECDH keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:192",
+              "source": "core/crypto.pi:193",
               "members": []
             },
             {
@@ -3775,7 +3776,7 @@
               "signature": "length?: int",
               "doc": "<p>The key's length in bits, for secret keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:194",
+              "source": "core/crypto.pi:195",
               "members": []
             }
           ]
@@ -3791,7 +3792,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nprintln(server != null)   // true\nserver?.close()\nclient.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:684",
+          "source": "core/net.pi:692",
           "members": [
             {
               "name": "addr",
@@ -3799,7 +3800,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it listens on (with the port chosen when <code>listen</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:687",
+              "source": "core/net.pi:695",
               "members": []
             },
             {
@@ -3813,21 +3814,21 @@
                   "code": "import { listen } from \"std/net\"\n\n// Listeners come from `listen` (and `listenUnix`).\nconst listener: Listener = await listen(0)\nprintln(listener.addr.hostname)   // 127.0.0.1\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:703",
+              "source": "core/net.pi:713",
               "members": []
             },
             {
               "name": "accept",
               "kind": "method",
               "signature": "public accept(): Promise<Conn?, NetError>",
-              "doc": "<p>The next connection, or <code>null</code> once the listener is closed. One at a time.</p>\n",
+              "doc": "<p>The next connection, or <code>null</code> once the listener is closed. Several calls at once each get\na connection (#65: a call made while another waits accepts after it).</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn?.remoteAddr.port == client.localAddr.port)   // true\nconn?.close()\nclient.close()\nlistener.close()\nprintln(await listener.accept())   // null (closed)"
                 }
               ],
-              "source": "core/net.pi:735",
+              "source": "core/net.pi:746",
               "members": []
             },
             {
@@ -3841,7 +3842,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.next()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn != null)   // true\nconn?.close()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:777",
+              "source": "core/net.pi:793",
               "members": []
             },
             {
@@ -3855,7 +3856,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nawait client.writeText(\"hello\")\nclient.close()\nfor await (const conn of listener) {\n  println(await conn.text())   // hello\n  conn.close()\n  listener.close()             // ends the loop\n}"
                 }
               ],
-              "source": "core/net.pi:797",
+              "source": "core/net.pi:813",
               "members": []
             },
             {
@@ -3869,7 +3870,7 @@
                   "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst waiting = listener.accept()\nlistener.close()\nprintln(await waiting)   // null"
                 }
               ],
-              "source": "core/net.pi:813",
+              "source": "core/net.pi:829",
               "members": []
             }
           ]
@@ -4783,7 +4784,7 @@
               "code": "const text = new MessageEvent(\"hi\")\nmatch (text.data) {\n  s: string => println(`text: ${s}`),              // text: hi\n  b: Uint8Array => println(`${b.length} bytes`),\n}\nprintln(text.type)   // message"
             }
           ],
-          "source": "core/websocket.pi:150",
+          "source": "core/websocket.pi:148",
           "members": [
             {
               "name": "type",
@@ -4791,7 +4792,7 @@
               "signature": "public readonly type: string = \"message\"",
               "doc": "<p>Always <code>\"message\"</code>.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:152",
+              "source": "core/websocket.pi:150",
               "members": []
             },
             {
@@ -4800,7 +4801,7 @@
               "signature": "public readonly data: string | Uint8Array",
               "doc": "<p>The message: a <code>string</code> for a text message, a <code>Uint8Array</code> for a binary one.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:154",
+              "source": "core/websocket.pi:152",
               "members": []
             },
             {
@@ -4814,7 +4815,7 @@
                   "code": "const e = new MessageEvent(Uint8Array.from([1, 2, 3]))\nmatch (e.data) {\n  s: string => println(s),\n  b: Uint8Array => println(`${b.length} bytes`),   // 3 bytes\n}"
                 }
               ],
-              "source": "core/websocket.pi:165",
+              "source": "core/websocket.pi:163",
               "members": []
             }
           ]
@@ -4858,7 +4859,7 @@
           "signature": "type NamedCurve = \"P-256\" | \"P-384\" | \"X25519\"",
           "doc": "<p>The named curves: <code>P-256</code>, <code>P-384</code> (ECDSA and ECDH) and <code>X25519</code> (ECDH).</p>\n",
           "examples": [],
-          "source": "core/crypto.pi:96",
+          "source": "core/crypto.pi:97",
           "members": []
         },
         {
@@ -4919,7 +4920,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
             }
           ],
-          "source": "core/net.pi:1236",
+          "source": "core/net.pi:1252",
           "members": [
             {
               "name": "name",
@@ -4927,7 +4928,7 @@
               "signature": "name: string",
               "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
               "examples": [],
-              "source": "core/net.pi:1238",
+              "source": "core/net.pi:1254",
               "members": []
             },
             {
@@ -4936,7 +4937,7 @@
               "signature": "family: int",
               "doc": "<p>4 or 6.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1240",
+              "source": "core/net.pi:1256",
               "members": []
             },
             {
@@ -4945,7 +4946,7 @@
               "signature": "address: string",
               "doc": "<p>The address, as text.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1242",
+              "source": "core/net.pi:1258",
               "members": []
             },
             {
@@ -4954,7 +4955,7 @@
               "signature": "up: bool",
               "doc": "<p>Whether it's up.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1244",
+              "source": "core/net.pi:1260",
               "members": []
             },
             {
@@ -4963,7 +4964,7 @@
               "signature": "loopback: bool",
               "doc": "<p>Whether it's the loopback interface.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1246",
+              "source": "core/net.pi:1262",
               "members": []
             },
             {
@@ -4972,7 +4973,7 @@
               "signature": "multicast: bool",
               "doc": "<p>Whether it can send and receive multicast.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1248",
+              "source": "core/net.pi:1264",
               "members": []
             }
           ]
@@ -6122,7 +6123,7 @@
               "code": "const req = new Request(\"http://127.0.0.1:8080/echo?x=1\", { method: \"put\", body: \"hello\" })\nprintln(req.method)          // PUT\nprintln(req.url)             // http://127.0.0.1:8080/echo?x=1\nprintln(await req.text())    // hello"
             }
           ],
-          "source": "core/fetch.pi:415",
+          "source": "core/fetch.pi:414",
           "members": [
             {
               "name": "method",
@@ -6130,7 +6131,7 @@
               "signature": "public readonly method: string",
               "doc": "<p>The method, uppercased (<code>\"GET\"</code>, <code>\"POST\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:417",
+              "source": "core/fetch.pi:416",
               "members": []
             },
             {
@@ -6139,7 +6140,7 @@
               "signature": "public readonly url: string",
               "doc": "<p>The URL, normalized (as <code>URL.href</code>).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:419",
+              "source": "core/fetch.pi:418",
               "members": []
             },
             {
@@ -6148,7 +6149,7 @@
               "signature": "public readonly redirect: string",
               "doc": "<p>How <code>fetch</code> treats redirects: <code>\"follow\"</code>, <code>\"manual\"</code> or <code>\"error\"</code>.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:421",
+              "source": "core/fetch.pi:420",
               "members": []
             },
             {
@@ -6157,7 +6158,7 @@
               "signature": "public readonly signal: AbortSignal?",
               "doc": "<p>The signal that cancels this request, if any.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:425",
+              "source": "core/fetch.pi:424",
               "members": []
             },
             {
@@ -6171,7 +6172,7 @@
                   "code": "const req = new Request(new URL(\"http://localhost/a/../b\"))\nprintln(req.method)   // GET\nprintln(req.url)      // http://localhost/b\ntry {\n  const bad = new Request(\"http://localhost/\", { method: \"GET\", body: \"x\" })\n  println(bad.url)\n} catch (e: TypeError) {\n  println(e.message)   // a GET request can't have a body\n}"
                 }
               ],
-              "source": "core/fetch.pi:446",
+              "source": "core/fetch.pi:445",
               "members": []
             },
             {
@@ -6185,7 +6186,7 @@
                   "code": "const req = new Request(\"http://localhost/items\", { method: \"POST\", body: \"x=1\" })\nconst copy = req.clone()\nprintln(`${copy.method} ${copy.url}`)   // POST http://localhost/items\nprintln(await req.text())                // x=1\nprintln(await copy.text())               // x=1"
                 }
               ],
-              "source": "core/fetch.pi:478",
+              "source": "core/fetch.pi:477",
               "members": []
             }
           ]
@@ -6201,7 +6202,7 @@
               "code": "const init: RequestInit = {\n  method: \"POST\",\n  headers: { \"Content-Type\": \"application/json\" },\n  body: \"{\\\"id\\\":1}\",\n}\nconst req = new Request(\"http://127.0.0.1:8080/items\", init)\nprintln(req.method)                        // POST\nprintln(req.headers.get(\"content-type\"))   // application/json"
             }
           ],
-          "source": "core/fetch.pi:380",
+          "source": "core/fetch.pi:379",
           "members": [
             {
               "name": "method",
@@ -6209,7 +6210,7 @@
               "signature": "method?: string",
               "doc": "<p>The method (uppercased; <code>\"GET\"</code> by default).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:382",
+              "source": "core/fetch.pi:381",
               "members": []
             },
             {
@@ -6218,7 +6219,7 @@
               "signature": "headers?: HeadersInit",
               "doc": "<p>The header fields (copied): pairs, a map (<code>{ \"Content-Type\": \"application/json\" }</code>) or\n<code>Headers</code>.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:385",
+              "source": "core/fetch.pi:384",
               "members": []
             },
             {
@@ -6227,7 +6228,7 @@
               "signature": "body?: BodyInit",
               "doc": "<p>The body; a <code>GET</code> or <code>HEAD</code> request can't have one.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:387",
+              "source": "core/fetch.pi:386",
               "members": []
             },
             {
@@ -6236,7 +6237,7 @@
               "signature": "redirect?: string",
               "doc": "<p><code>\"follow\"</code> (the default: up to 20 redirects), <code>\"manual\"</code> (the 3xx response) or <code>\"error\"</code>.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:389",
+              "source": "core/fetch.pi:388",
               "members": []
             },
             {
@@ -6245,7 +6246,7 @@
               "signature": "caCerts?: string[]",
               "doc": "<p>(pico) Extra certificates (PEM) to trust for https:, besides the system's roots.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:391",
+              "source": "core/fetch.pi:390",
               "members": []
             },
             {
@@ -6254,7 +6255,7 @@
               "signature": "signal?: AbortSignal",
               "doc": "<p>Cancels the request: once it's aborted, <code>fetch</code> rejects with the signal's <code>AbortError</code>\nand closes the connection (<code>AbortSignal.timeout(ms)</code> gives a deadline).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:394",
+              "source": "core/fetch.pi:393",
               "members": []
             },
             {
@@ -6263,7 +6264,7 @@
               "signature": "timeout?: int",
               "doc": "<p>(pico) Milliseconds for the whole fetch, redirects and body included; past it, <code>fetch</code>\nrejects with an <code>AbortError</code> whose <code>cause</code> says it timed out (#136).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:397",
+              "source": "core/fetch.pi:396",
               "members": []
             },
             {
@@ -6272,7 +6273,7 @@
               "signature": "connectTimeout?: int",
               "doc": "<p>(pico) Milliseconds for each connection to be made, TLS handshake included; past it,\n<code>fetch</code> rejects with an <code>AbortError</code> (#136).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:400",
+              "source": "core/fetch.pi:399",
               "members": []
             },
             {
@@ -6281,7 +6282,7 @@
               "signature": "maxBodyBytes?: int",
               "doc": "<p>(pico) The most bytes a response body may have: <code>fetch</code> rejects with a <code>TypeError</code> as\nsoon as the body passes it, or before reading it when its <code>content-length</code> does (#136).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:403",
+              "source": "core/fetch.pi:402",
               "members": []
             }
           ]
@@ -6297,7 +6298,7 @@
               "code": "const res = new Response(\"not here\", { status: 404 })\nprintln(`${res.status} ${res.statusText}`)   // 404 Not Found\nprintln(res.ok)                              // false\nprintln(await res.text())                    // not here"
             }
           ],
-          "source": "core/fetch.pi:557",
+          "source": "core/fetch.pi:556",
           "members": [
             {
               "name": "status",
@@ -6305,7 +6306,7 @@
               "signature": "public readonly status: int",
               "doc": "<p>The status code (<code>200</code>, <code>404</code>, …).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:559",
+              "source": "core/fetch.pi:558",
               "members": []
             },
             {
@@ -6314,7 +6315,7 @@
               "signature": "public readonly statusText: string",
               "doc": "<p>The reason phrase (<code>\"OK\"</code>, <code>\"Not Found\"</code>, …): the server's for a fetched response.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:561",
+              "source": "core/fetch.pi:560",
               "members": []
             },
             {
@@ -6323,7 +6324,7 @@
               "signature": "public url: string = \"\"",
               "doc": "<p>The URL it came from (after redirects); \"\" for one made here.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:563",
+              "source": "core/fetch.pi:562",
               "members": []
             },
             {
@@ -6332,7 +6333,7 @@
               "signature": "public redirected: bool = false",
               "doc": "<p>Whether <code>fetch</code> followed at least one redirect to get it.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:565",
+              "source": "core/fetch.pi:564",
               "members": []
             },
             {
@@ -6346,7 +6347,7 @@
                   "code": "const res = new Response(\"<h1>Hi</h1>\", { headers: { \"Content-Type\": \"text/html\" } })\nprintln(res.status)                        // 200\nprintln(res.headers.get(\"content-type\"))   // text/html\nprintln(await res.text())                  // <h1>Hi</h1>"
                 }
               ],
-              "source": "core/fetch.pi:579",
+              "source": "core/fetch.pi:578",
               "members": []
             },
             {
@@ -6360,7 +6361,7 @@
                   "code": "const res = new Response(\"hello\", { status: 201 })\nconst copy = res.clone()\nprintln(`${copy.status} ${await copy.text()}`)   // 201 hello\nprintln(await res.text())                         // hello"
                 }
               ],
-              "source": "core/fetch.pi:601",
+              "source": "core/fetch.pi:600",
               "members": []
             },
             {
@@ -6374,7 +6375,7 @@
                   "code": "println(new Response(\"fine\").ok)                       // true\nprintln(new Response(\"oops\", { status: 500 }).ok)      // false"
                 }
               ],
-              "source": "core/fetch.pi:620",
+              "source": "core/fetch.pi:619",
               "members": []
             },
             {
@@ -6388,7 +6389,7 @@
                   "code": "struct Point {\n  x: int\n  y: int\n}\n\nconst p: Point = { x: 1, y: 2 }\nconst res = Response.json(p, { status: 201 })\nprintln(res.headers.get(\"content-type\"))   // application/json\nprintln(await res.text())                  // {\"x\":1,\"y\":2}"
                 }
               ],
-              "source": "core/fetch.pi:638",
+              "source": "core/fetch.pi:637",
               "members": []
             },
             {
@@ -6402,7 +6403,7 @@
                   "code": "const res = Response.redirect(\"/login\", 303)\nprintln(res.status)                    // 303\nprintln(res.headers.get(\"location\"))   // /login"
                 }
               ],
-              "source": "core/fetch.pi:655",
+              "source": "core/fetch.pi:654",
               "members": []
             }
           ]
@@ -6418,7 +6419,7 @@
               "code": "const init: ResponseInit = { status: 201, headers: [[\"Location\", \"/items/7\"]] }\nconst res = new Response(\"created\", init)\nprintln(res.status)                   // 201\nprintln(res.statusText)               // Created\nprintln(res.headers.get(\"location\"))  // /items/7"
             }
           ],
-          "source": "core/fetch.pi:504",
+          "source": "core/fetch.pi:503",
           "members": [
             {
               "name": "status",
@@ -6426,7 +6427,7 @@
               "signature": "status?: int",
               "doc": "<p>The status code (200 by default; 101 or 200–599).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:506",
+              "source": "core/fetch.pi:505",
               "members": []
             },
             {
@@ -6435,7 +6436,7 @@
               "signature": "statusText?: string",
               "doc": "<p>The reason phrase (by default the usual one for <code>status</code>, or \"\").</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:508",
+              "source": "core/fetch.pi:507",
               "members": []
             },
             {
@@ -6444,7 +6445,7 @@
               "signature": "headers?: HeadersInit",
               "doc": "<p>The header fields (copied): pairs, a map or <code>Headers</code>.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:510",
+              "source": "core/fetch.pi:509",
               "members": []
             }
           ]
@@ -6708,7 +6709,7 @@
               "code": "import { hex } from \"std/encoding\"\n\nconst digest = await crypto.subtle.digest(\"SHA-1\", new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(digest))   // a9993e364706816aba3e25717850c26c9cd0d89d"
             }
           ],
-          "source": "core/crypto.pi:305",
+          "source": "core/crypto.pi:306",
           "members": [
             {
               "name": "digest",
@@ -6721,7 +6722,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst data = new TextEncoder().encode(\"hello\")\nconst hash = await crypto.subtle.digest(\"SHA-256\", data)\nprintln(hex.encode(hash))   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
               ],
-              "source": "core/crypto.pi:317",
+              "source": "core/crypto.pi:318",
               "members": []
             },
             {
@@ -6735,7 +6736,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(hex.encode(tag))   // 8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b"
                 }
               ],
-              "source": "core/crypto.pi:336",
+              "source": "core/crypto.pi:337",
               "members": []
             },
             {
@@ -6749,7 +6750,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"HMAC\", hash: \"SHA-256\" }, true, [\"sign\"])\nif (key is CryptoKey) {\n  const raw = await crypto.subtle.exportKey(\"raw\", key)\n  println(raw.length)   // 32\n}"
                 }
               ],
-              "source": "core/crypto.pi:371",
+              "source": "core/crypto.pi:372",
               "members": []
             },
             {
@@ -6763,7 +6764,7 @@
                   "code": "const aes = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 128 }, false, [\"encrypt\", \"decrypt\"])\nmatch (aes) {\n  k: CryptoKey => println(`${k.algorithm.name} ${k.algorithm.length}`),   // AES-GCM 128\n  p: CryptoKeyPair => println(\"a key pair\"),\n}"
                 }
               ],
-              "source": "core/crypto.pi:387",
+              "source": "core/crypto.pi:388",
               "members": []
             },
             {
@@ -6777,7 +6778,7 @@
                   "code": "const enc = new TextEncoder()\nconst pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const data = enc.encode(\"release-1.0.tar.gz\")\n  const sig = await crypto.subtle.sign({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.privateKey, data)\n  println(sig.length)   // 64 (r ‖ s)\n  println(await crypto.subtle.verify({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.publicKey, sig, data))   // true\n}"
                 }
               ],
-              "source": "core/crypto.pi:419",
+              "source": "core/crypto.pi:420",
               "members": []
             },
             {
@@ -6791,7 +6792,7 @@
                   "code": "const enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\", \"verify\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"message\")))    // true\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"tampered\")))   // false"
                 }
               ],
-              "source": "core/crypto.pi:445",
+              "source": "core/crypto.pi:446",
               "members": []
             },
             {
@@ -6805,7 +6806,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  println(sealed.length)   // 30 (14 bytes of ciphertext + a 16-byte tag)\n}"
                 }
               ],
-              "source": "core/crypto.pi:472",
+              "source": "core/crypto.pi:473",
               "members": []
             },
             {
@@ -6819,7 +6820,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  const plain = await crypto.subtle.decrypt({ name: \"AES-GCM\", iv }, key, sealed)\n  println(new TextDecoder().decode(plain))   // attack at dawn\n}"
                 }
               ],
-              "source": "core/crypto.pi:499",
+              "source": "core/crypto.pi:500",
               "members": []
             },
             {
@@ -6833,7 +6834,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst pw = await crypto.subtle.importKey(\"raw\", enc.encode(\"password\"), \"PBKDF2\", false, [\"deriveBits\"])\nconst bits = await crypto.subtle.deriveBits({ name: \"PBKDF2\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), iterations: 1000 }, pw, 128)\nprintln(hex.encode(bits))   // 632c2812e46d4604102ba7618e9d6d7d\nconst ikm = await crypto.subtle.importKey(\"raw\", enc.encode(\"input key\"), \"HKDF\", false, [\"deriveBits\"])\nconst okm = await crypto.subtle.deriveBits({ name: \"HKDF\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), info: enc.encode(\"context\") }, ikm, 128)\nprintln(hex.encode(okm))    // 49060e83486a86844130609b08a2c02c"
                 }
               ],
-              "source": "core/crypto.pi:529",
+              "source": "core/crypto.pi:530",
               "members": []
             }
           ]
@@ -7599,6 +7600,76 @@
               "members": []
             },
             {
+              "name": "pathname",
+              "kind": "property",
+              "signature": "public set pathname(value: string)",
+              "doc": "<p>Replaces the path (#66): percent-encoded as the parser does, <code>?</code> and <code>#</code> kept in it, a\nleading <code>/</code> added for special schemes. Ignored for an opaque path (<code>mailto:a@b</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/a?x=1\")\nurl.pathname = \"/docs/read me\"\nprintln(url.href)   // https://example.com/docs/read%20me?x=1"
+                }
+              ],
+              "source": "core/url.pi:822",
+              "members": []
+            },
+            {
+              "name": "search",
+              "kind": "property",
+              "signature": "public set search(value: string)",
+              "doc": "<p>Replaces the query (#66; a leading <code>?</code> is optional, <code>\"\"</code> removes it). <code>searchParams</code>\nfollows.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/find?q=old#top\")\nurl.search = \"q=new&page=2\"\nprintln(url.href)                    // https://example.com/find?q=new&page=2#top\nprintln(url.searchParams.get(\"page\"))   // 2"
+                }
+              ],
+              "source": "core/url.pi:839",
+              "members": []
+            },
+            {
+              "name": "hash",
+              "kind": "property",
+              "signature": "public set hash(value: string)",
+              "doc": "<p>Replaces the fragment (#66; a leading <code>#</code> is optional, <code>\"\"</code> removes it).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/guide\")\nurl.hash = \"install\"\nprintln(url.href)   // https://example.com/guide#install"
+                }
+              ],
+              "source": "core/url.pi:852",
+              "members": []
+            },
+            {
+              "name": "host",
+              "kind": "property",
+              "signature": "public set host(value: string)",
+              "doc": "<p>Replaces the host and port (<code>example.com:8080</code>; #66): up to a <code>/</code>, <code>?</code> or <code>#</code>. Ignored\nwithout a host (an opaque URL) or for an invalid host.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"https://example.com/a\")\nurl.host = \"pico.dev:8443\"\nprintln(url.href)   // https://pico.dev:8443/a"
+                }
+              ],
+              "source": "core/url.pi:866",
+              "members": []
+            },
+            {
+              "name": "protocol",
+              "kind": "property",
+              "signature": "public set protocol(value: string)",
+              "doc": "<p>Replaces the scheme (<code>\"http\"</code> or <code>\"http:\"</code>; #66), as the URL Standard allows: between\ntwo special schemes (<code>http</code>, <code>https</code>, <code>ws</code>, <code>wss</code>, <code>ftp</code>) or two others, not to or from\n<code>file</code>; anything else is ignored. A port that's the new scheme's default goes.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "const url = new URL(\"http://example.com:443/\")\nurl.protocol = \"https\"\nprintln(url.href)   // https://example.com/"
+                }
+              ],
+              "source": "core/url.pi:887",
+              "members": []
+            },
+            {
               "name": "toString",
               "kind": "method",
               "signature": "public toString(): string",
@@ -7609,7 +7680,7 @@
                   "code": "const url = new URL(\"https://example.com/path\")\nprintln(url.toString())   // https://example.com/path\nprintln(`link: ${url}`)   // link: https://example.com/path"
                 }
               ],
-              "source": "core/url.pi:821",
+              "source": "core/url.pi:934",
               "members": []
             },
             {
@@ -7623,7 +7694,7 @@
                   "code": "const url = new URL(\"https://example.com/a\")\nprintln(url.toJSON())   // https://example.com/a"
                 }
               ],
-              "source": "core/url.pi:832",
+              "source": "core/url.pi:945",
               "members": []
             }
           ]
@@ -7836,7 +7907,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst server = await bind(0)\nconst client = await bind(0)\nawait client.sendText(\"ping\", server.addr.port)\nconst d = await server.receive()\nif (d != null) {\n  await server.sendText(\"pong\", d.addr.port, d.addr.hostname)\n}\nconst reply = await client.receive()\nif (reply != null) {\n  println(new TextDecoder().decode(reply.data))   // pong\n}\nserver.close()\nclient.close()"
             }
           ],
-          "source": "core/net.pi:972",
+          "source": "core/net.pi:988",
           "members": [
             {
               "name": "addr",
@@ -7844,7 +7915,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it's bound to (with the port chosen when <code>bind</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:975",
+              "source": "core/net.pi:991",
               "members": []
             },
             {
@@ -7858,7 +7929,7 @@
                   "code": "import { bind } from \"std/net\"\n\n// UDP sockets come from `bind`.\nconst socket: UdpSocket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.hostname)   // 127.0.0.1\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:992",
+              "source": "core/net.pi:1008",
               "members": []
             },
             {
@@ -7872,7 +7943,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1021",
+              "source": "core/net.pi:1037",
               "members": []
             },
             {
@@ -7886,7 +7957,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1036",
+              "source": "core/net.pi:1052",
               "members": []
             },
             {
@@ -7900,7 +7971,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1051",
+              "source": "core/net.pi:1067",
               "members": []
             },
             {
@@ -7914,7 +7985,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1066",
+              "source": "core/net.pi:1082",
               "members": []
             },
             {
@@ -7928,7 +7999,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1081",
+              "source": "core/net.pi:1097",
               "members": []
             },
             {
@@ -7942,7 +8013,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1122",
+              "source": "core/net.pi:1138",
               "members": []
             },
             {
@@ -7956,7 +8027,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1140",
+              "source": "core/net.pi:1156",
               "members": []
             },
             {
@@ -7970,7 +8041,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1161",
+              "source": "core/net.pi:1177",
               "members": []
             },
             {
@@ -7984,7 +8055,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1196",
+              "source": "core/net.pi:1212",
               "members": []
             }
           ]
@@ -8000,7 +8071,7 @@
               "code": "const xs = new Uint32Array(3)\nxs.set(0, 4000000000)\nprintln(xs.length)       // 3\nprintln(xs.byteLength)   // 12\nprintln(xs[0])           // 4000000000"
             }
           ],
-          "source": "core/buffer.pi:721",
+          "source": "core/buffer.pi:734",
           "members": [
             {
               "name": "BYTES_PER_ELEMENT",
@@ -8008,7 +8079,7 @@
               "signature": "public static BYTES_PER_ELEMENT: int = 4",
               "doc": "<p>The size of an element: 4 bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:723",
+              "source": "core/buffer.pi:736",
               "members": []
             },
             {
@@ -8017,7 +8088,7 @@
               "signature": "public buffer: ArrayBuffer",
               "doc": "<p>The <code>ArrayBuffer</code> whose bytes the view reads and writes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:725",
+              "source": "core/buffer.pi:738",
               "members": []
             },
             {
@@ -8026,7 +8097,7 @@
               "signature": "public byteOffset: int",
               "doc": "<p>Where the view starts in <code>buffer</code>, in bytes.</p>\n",
               "examples": [],
-              "source": "core/buffer.pi:727",
+              "source": "core/buffer.pi:740",
               "members": []
             },
             {
@@ -8040,7 +8111,7 @@
                   "code": "const xs = new Uint32Array(4)\nprintln(xs.length)              // 4\nprintln(xs.buffer.byteLength)   // 16"
                 }
               ],
-              "source": "core/buffer.pi:738",
+              "source": "core/buffer.pi:751",
               "members": []
             },
             {
@@ -8054,7 +8125,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst rest = new Uint32Array(buf, 4)\nprintln(rest.length)   // 3"
                 }
               ],
-              "source": "core/buffer.pi:753",
+              "source": "core/buffer.pi:766",
               "members": []
             },
             {
@@ -8068,7 +8139,7 @@
                   "code": "const buf = new ArrayBuffer(16)\nconst two = new Uint32Array(buf, 4, 2)\ntwo.set(0, 4000000000)\nprintln(two.length)                 // 2\nprintln(new Uint32Array(buf, 0)[1])   // 4000000000"
                 }
               ],
-              "source": "core/buffer.pi:771",
+              "source": "core/buffer.pi:784",
               "members": []
             },
             {
@@ -8082,7 +8153,7 @@
                   "code": "const xs = new Uint32Array(10)\nprintln(xs.length)   // 10"
                 }
               ],
-              "source": "core/buffer.pi:784",
+              "source": "core/buffer.pi:797",
               "members": []
             },
             {
@@ -8096,7 +8167,7 @@
                   "code": "const xs = new Uint32Array(10)\nprintln(xs.byteLength)   // 40"
                 }
               ],
-              "source": "core/buffer.pi:795",
+              "source": "core/buffer.pi:808",
               "members": []
             },
             {
@@ -8110,7 +8181,7 @@
                   "code": "const xs = new Uint32Array(2)\nxs.set(1, 4000000000)\nprintln(xs.get(1))   // 4000000000\nprintln(xs[0])       // 0"
                 }
               ],
-              "source": "core/buffer.pi:815",
+              "source": "core/buffer.pi:828",
               "members": []
             },
             {
@@ -8124,7 +8195,7 @@
                   "code": "const xs = new Uint32Array(2)\nxs.set(0, 123)\nxs.set(1, -1)   // wraps\nprintln(xs[0])   // 123\nprintln(xs[1])   // 4294967295"
                 }
               ],
-              "source": "core/buffer.pi:830",
+              "source": "core/buffer.pi:844",
               "members": []
             }
           ]
@@ -8264,7 +8335,7 @@
                   "code": "const bytes = new Uint8Array(2)\nbytes.set(0, 65)\nbytes.set(1, 257)       // stored as 1\nprintln(bytes[0])       // 65\nprintln(bytes[1])       // 1"
                 }
               ],
-              "source": "core/buffer.pi:371",
+              "source": "core/buffer.pi:372",
               "members": []
             },
             {
@@ -8278,7 +8349,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nconst mid = bytes.subarray(1, 3)\nmid.set(0, 9)\nprintln(mid.length)   // 2\nprintln(bytes[1])     // 9"
                 }
               ],
-              "source": "core/buffer.pi:400",
+              "source": "core/buffer.pi:402",
               "members": []
             },
             {
@@ -8292,7 +8363,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nconst copy = bytes.slice(-2)\ncopy.set(0, 0)\nprintln(copy.length)   // 2\nprintln(bytes[3])      // 4"
                 }
               ],
-              "source": "core/buffer.pi:417",
+              "source": "core/buffer.pi:419",
               "members": []
             },
             {
@@ -8306,7 +8377,7 @@
                   "code": "const out = new Uint8Array(5)\nout.setAll(Uint8Array.from([7, 8]), 2)\nprintln(out[2])   // 7\nprintln(out[3])   // 8"
                 }
               ],
-              "source": "core/buffer.pi:436",
+              "source": "core/buffer.pi:439",
               "members": []
             },
             {
@@ -8320,7 +8391,7 @@
                   "code": "const bytes = Uint8Array.from([1, 2, 3, 4, 5])\nbytes.copyWithin(0, 3)\nprintln(bytes[0])   // 4\nprintln(bytes[1])   // 5\nprintln(bytes[2])   // 3"
                 }
               ],
-              "source": "core/buffer.pi:459",
+              "source": "core/buffer.pi:465",
               "members": []
             },
             {
@@ -8334,7 +8405,7 @@
                   "code": "const bytes = Uint8Array.from([10, 20, 30, 20])\nprintln(bytes.indexOf(20))      // 1\nprintln(bytes.indexOf(20, 2))   // 3\nprintln(bytes.indexOf(99))      // -1"
                 }
               ],
-              "source": "core/buffer.pi:483",
+              "source": "core/buffer.pi:490",
               "members": []
             },
             {
@@ -8348,7 +8419,7 @@
                   "code": "const bytes = Uint8Array.from([0x50, 0x4B, 0x03])\nprintln(bytes.includes(0x4B))   // true\nprintln(bytes.includes(0xFF))   // false"
                 }
               ],
-              "source": "core/buffer.pi:504",
+              "source": "core/buffer.pi:512",
               "members": []
             },
             {
@@ -8362,7 +8433,7 @@
                   "code": "const bytes = new Uint8Array(4).fill(255, 1, 3)\nprintln(bytes[0])   // 0\nprintln(bytes[1])   // 255\nprintln(bytes[3])   // 0"
                 }
               ],
-              "source": "core/buffer.pi:518",
+              "source": "core/buffer.pi:526",
               "members": []
             },
             {
@@ -8376,7 +8447,7 @@
                   "code": "const a = Uint8Array.from([1, 2, 3])\nconst b = Uint8Array.from([1, 2, 3])\nprintln(a.equals(b))                    // true\nprintln(a.equals(b.subarray(0, 2)))     // false"
                 }
               ],
-              "source": "core/buffer.pi:537",
+              "source": "core/buffer.pi:546",
               "members": []
             },
             {
@@ -8390,7 +8461,7 @@
                   "code": "const bytes = Uint8Array.from([72, 105, 256 + 33])\nprintln(bytes.length)   // 3\nprintln(bytes[2])       // 33"
                 }
               ],
-              "source": "core/buffer.pi:570",
+              "source": "core/buffer.pi:581",
               "members": []
             }
           ]
@@ -8768,7 +8839,7 @@
               "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nprintln(ws.readyState == WebSocket.CONNECTING)   // true\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.send(\"hello\")\n  ws.onmessage = (e) => {\n    println(e.data)   // hello\n    ws.close()\n  }\n  ws.onclose = (e) => {\n    println(e.code)   // 1000\n    resolve()\n  }\n})\nawait server.shutdown()"
             }
           ],
-          "source": "core/websocket.pi:242",
+          "source": "core/websocket.pi:240",
           "members": [
             {
               "name": "CONNECTING",
@@ -8781,7 +8852,7 @@
                   "code": "const ws = new WebSocket(\"ws://127.0.0.1:9/\")\nprintln(ws.readyState == WebSocket.CONNECTING)   // true (just created)\nprintln(WebSocket.CONNECTING)                    // 0\nws.close()"
                 }
               ],
-              "source": "core/websocket.pi:253",
+              "source": "core/websocket.pi:251",
               "members": []
             },
             {
@@ -8795,7 +8866,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(ws.readyState == WebSocket.OPEN)   // true\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:278",
+              "source": "core/websocket.pi:276",
               "members": []
             },
             {
@@ -8809,7 +8880,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.close()\n    println(ws.readyState == WebSocket.CLOSING)   // true\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:303",
+              "source": "core/websocket.pi:301",
               "members": []
             },
             {
@@ -8823,7 +8894,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close()\n  ws.onclose = (e) => resolve()\n})\nprintln(ws.readyState == WebSocket.CLOSED)   // true\nprintln(WebSocket.CLOSED)                    // 3\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:327",
+              "source": "core/websocket.pi:325",
               "members": []
             },
             {
@@ -8832,7 +8903,7 @@
               "signature": "public readonly url: string",
               "doc": "<p>The URL connected to, normalized (as <code>URL.href</code>); \"\" for a server-side socket.</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:330",
+              "source": "core/websocket.pi:328",
               "members": []
             },
             {
@@ -8841,7 +8912,7 @@
               "signature": "public readyState: int = 0",
               "doc": "<p>The connection's state: <code>CONNECTING</code>, <code>OPEN</code>, <code>CLOSING</code> or <code>CLOSED</code> (0–3).</p>\n",
               "examples": [],
-              "source": "core/websocket.pi:332",
+              "source": "core/websocket.pi:330",
               "members": []
             },
             {
@@ -8900,7 +8971,21 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)\nprintln(ws.url)   // e.g. ws://127.0.0.1:41234/chat\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    println(e.type)   // open\n    ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()\ntry {\n  const bad = new WebSocket(\"ftp://example.com/\")\n  bad.close()\n} catch (e: TypeError) {\n  println(\"not a ws: URL\")   // not a ws: URL\n}"
                 }
               ],
-              "source": "core/websocket.pi:390",
+              "source": "core/websocket.pi:388",
+              "members": []
+            },
+            {
+              "name": "bufferedAmount",
+              "kind": "property",
+              "signature": "public get bufferedAmount(): int",
+              "doc": "<p>The bytes of messages <code>send</code> was given that aren't written to the connection yet (#67):\nwhat a sender checks to keep from queuing too much. Frame headers, pings and the closing\nhandshake don't count.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"hello\")\n    println(ws.bufferedAmount)   // 5 (until it's written)\n    ws.close()\n  }\n  ws.onclose = (e) => resolve(__void())\n})\nawait server.shutdown()"
+                }
+              ],
+              "source": "core/websocket.pi:666",
               "members": []
             },
             {
@@ -8914,7 +8999,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => {\n    ws.send(\"text\")\n    ws.send(Uint8Array.from([1, 2, 3]))\n  }\n  let got = 0\n  ws.onmessage = (e) => {\n    match (e.data) {\n      s: string => println(`text: ${s}`),             // text: text\n      b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes\n    }\n    got += 1\n    if (got == 2) ws.close()\n  }\n  ws.onclose = (e) => resolve()\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:689",
+              "source": "core/websocket.pi:716",
               "members": []
             },
             {
@@ -8928,7 +9013,7 @@
                   "code": "import { serve, upgradeWebSocket } from \"std/http\"\n\n// An echo server on 127.0.0.1.\nasync function handle(req: Request): Promise<Response> throws Error {\n  const up = upgradeWebSocket(req)\n  up.socket.onmessage = (e) => up.socket.send(e.data)\n  up.response\n}\nconst server = await serve({ port: 0 }, handle)\n\nconst ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)\nawait new Promise<void>((resolve, reject) => {\n  ws.onopen = (e) => ws.close(4000, \"bye\")\n  ws.onclose = (e) => {\n    println(`${e.code} ${e.reason} ${e.wasClean}`)   // 4000 bye true\n    resolve()\n  }\n})\nawait server.shutdown()"
                 }
               ],
-              "source": "core/websocket.pi:726",
+              "source": "core/websocket.pi:753",
               "members": []
             }
           ]
@@ -9490,7 +9575,7 @@
               "code": "import { serve } from \"std/http\"\n\nasync function handle(req: Request): Promise<Response> throws Error {\n  new Response(`you asked for ${new URL(req.url).pathname}`)\n}\n\nconst server = await serve({ port: 0 }, handle)\nconst res = await fetch(`http://127.0.0.1:${server.addr.port}/hello`)\nprintln(res.status)         // 200\nprintln(await res.text())   // you asked for /hello\nawait server.shutdown()"
             }
           ],
-          "source": "core/fetch.pi:1261",
+          "source": "core/fetch.pi:1262",
           "members": []
         },
         {
@@ -12610,7 +12695,7 @@
     {
       "name": "std/crypto",
       "id": "std-crypto",
-      "about": "<p><code>std/crypto</code> (spec §13.2): synchronous cryptography over Mbed TLS: hashes, HMAC, HKDF,\nPBKDF2, AEAD (AES-GCM, ChaCha20-Poly1305), elliptic-curve keys (P-256, P-384, X25519),\nECDSA and ECDH. The <code>crypto</code> global has Web Crypto's async <code>subtle</code> over the same code.\nStrings are taken as their UTF-8 bytes.</p>\n",
+      "about": "<p><code>std/crypto</code> (spec §13.2): synchronous cryptography over Mbed TLS: hashes, HMAC, HKDF,\nPBKDF2, AEAD (AES-GCM, ChaCha20-Poly1305), elliptic-curve keys (P-256, P-384, X25519),\nECDSA and ECDH; streaming hashes (<code>createHash</code>). The <code>crypto</code> global has Web Crypto's async\n<code>subtle</code> over the same code.\nStrings are taken as their UTF-8 bytes.</p>\n",
       "items": [
         {
           "name": "digest",
@@ -12623,8 +12708,88 @@
               "code": "import { digest } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nprintln(hex.encode(digest(\"SHA-256\", \"abc\")))\n// ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
             }
           ],
-          "source": "crypto.pi:19",
+          "source": "crypto.pi:20",
           "members": []
+        },
+        {
+          "name": "createHash",
+          "kind": "function",
+          "signature": "function createHash(algorithm: HashAlgorithm): Hash",
+          "doc": "<p>A hash computed piece by piece (#69): <code>update</code> with each chunk, then <code>digest</code> once, for\ndata that doesn't fit in memory or arrives in parts. The same algorithms as <code>digest</code>.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { createHash } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst h = createHash(\"SHA-256\")\nh.update(\"a\").update(\"bc\")\nprintln(hex.encode(h.digest()))\n// ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            }
+          ],
+          "source": "crypto.pi:37",
+          "members": []
+        },
+        {
+          "name": "Hash",
+          "kind": "class",
+          "signature": "class Hash",
+          "doc": "<p>A hash computed piece by piece (<code>createHash</code>).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { Hash } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst h = new Hash(\"SHA-1\")\nh.update(new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(h.digest()))   // a9993e364706816aba3e25717850c26c9cd0d89d"
+            }
+          ],
+          "source": "crypto.pi:57",
+          "members": [
+            {
+              "name": "algorithm",
+              "kind": "field",
+              "signature": "public readonly algorithm: HashAlgorithm",
+              "doc": "<p>The algorithm.</p>\n",
+              "examples": [],
+              "source": "crypto.pi:59",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(algorithm: HashAlgorithm)",
+              "doc": "<p>A hash of nothing yet, by <code>algorithm</code> (as <code>createHash(algorithm)</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { Hash } from \"std/crypto\"\n\nprintln(new Hash(\"SHA-512\").algorithm)   // SHA-512"
+                }
+              ],
+              "source": "crypto.pi:70",
+              "members": []
+            },
+            {
+              "name": "update",
+              "kind": "method",
+              "signature": "public update(data: Uint8Array | string): Hash",
+              "doc": "<p>Adds <code>data</code> (a string as its UTF-8 bytes); returns the hash, for chaining. Panics after\n<code>digest</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { createHash } from \"std/crypto\"\n\nconst h = createHash(\"SHA-256\").update(\"part one, \").update(\"part two\")\nprintln(h.digest().length)   // 32"
+                }
+              ],
+              "source": "crypto.pi:87",
+              "members": []
+            },
+            {
+              "name": "digest",
+              "kind": "method",
+              "signature": "public digest(): Uint8Array",
+              "doc": "<p>The hash of everything added. A hash is digested once (again panics).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { createHash } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nprintln(hex.encode(createHash(\"SHA-1\").digest()))   // da39a3ee5e6b4b0d3255bfef95601890afd80709"
+                }
+              ],
+              "source": "crypto.pi:103",
+              "members": []
+            }
+          ]
         },
         {
           "name": "hmac",
@@ -12637,7 +12802,7 @@
               "code": "import { hmac } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst mac = hmac(\"SHA-256\", \"secret key\", \"message\")\nprintln(mac.length)            // 32\nprintln(hex.encode(mac).slice(0, 8))   //"
             }
           ],
-          "source": "crypto.pi:34",
+          "source": "crypto.pi:123",
           "members": []
         },
         {
@@ -12651,7 +12816,7 @@
               "code": "import { hkdf } from \"std/crypto\"\n\nconst ikm = new TextEncoder().encode(\"input key material\")\nconst salt = new TextEncoder().encode(\"salt\")\nconst info = new TextEncoder().encode(\"session key\")\nconst key = hkdf(\"SHA-256\", ikm, salt, info, 32)\nprintln(key.length)   // 32"
             }
           ],
-          "source": "crypto.pi:50",
+          "source": "crypto.pi:139",
           "members": []
         },
         {
@@ -12665,7 +12830,7 @@
               "code": "import { pbkdf2 } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst salt = new TextEncoder().encode(\"salt\")\nconst key = pbkdf2(\"SHA-256\", \"password\", salt, 1, 32)\nprintln(hex.encode(key))\n// 120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b"
             }
           ],
-          "source": "crypto.pi:66",
+          "source": "crypto.pi:155",
           "members": []
         },
         {
@@ -12679,7 +12844,7 @@
               "code": "import { hmac, timingSafeEqual } from \"std/crypto\"\n\nconst expected = hmac(\"SHA-256\", \"key\", \"data\")\nconst received = hmac(\"SHA-256\", \"key\", \"data\")\nprintln(timingSafeEqual(expected, received))   // true\nprintln(timingSafeEqual(expected, hmac(\"SHA-256\", \"key\", \"other\")))   // false"
             }
           ],
-          "source": "crypto.pi:81",
+          "source": "crypto.pi:170",
           "members": []
         },
         {
@@ -12693,7 +12858,7 @@
               "code": "import { randomBytes } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst nonce = randomBytes(12)\nprintln(nonce.length)       // 12\nprintln(hex.encode(nonce))  // e.g. 9f3c0a… (different every run)"
             }
           ],
-          "source": "crypto.pi:96",
+          "source": "crypto.pi:185",
           "members": []
         },
         {
@@ -12707,7 +12872,7 @@
               "code": "import { Aead, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(32))\nconst nonce = randomBytes(12)\nconst sealed = cipher.seal(nonce, \"attack at dawn\")\nprintln(sealed.length)   // 30 (14 bytes of text + 16-byte tag)\nprintln(new TextDecoder().decode(cipher.open(nonce, sealed)))   // attack at dawn"
             }
           ],
-          "source": "crypto.pi:114",
+          "source": "crypto.pi:203",
           "members": [
             {
               "name": "constructor",
@@ -12720,7 +12885,7 @@
                   "code": "import { Aead } from \"std/crypto\"\n\n// `new Aead(…)` doesn't check the key: prefer `Aead.aesGcm` or `Aead.chacha20Poly1305`.\nconst cipher = new Aead(2, new Uint8Array(32))\nconst sealed = cipher.seal(new Uint8Array(12), \"hi\")\nprintln(sealed.length)   // 18"
                 }
               ],
-              "source": "crypto.pi:131",
+              "source": "crypto.pi:220",
               "members": []
             },
             {
@@ -12734,7 +12899,7 @@
                   "code": "import { Aead, CryptoError, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(16))\nprintln(cipher.seal(randomBytes(12), \"x\").length)   // 17\ntry {\n  Aead.aesGcm(randomBytes(10)).seal(randomBytes(12), \"x\")\n  println(\"unreachable\")\n} catch (e: CryptoError) {\n  println(e.message)   // AES keys are 16, 24 or 32 bytes\n}"
                 }
               ],
-              "source": "crypto.pi:151",
+              "source": "crypto.pi:240",
               "members": []
             },
             {
@@ -12748,7 +12913,7 @@
                   "code": "import { Aead, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.chacha20Poly1305(randomBytes(32))\nconst nonce = randomBytes(12)\nconst sealed = cipher.seal(nonce, \"hello\")\nprintln(new TextDecoder().decode(cipher.open(nonce, sealed)))   // hello"
                 }
               ],
-              "source": "crypto.pi:167",
+              "source": "crypto.pi:256",
               "members": []
             },
             {
@@ -12762,7 +12927,7 @@
                   "code": "import { Aead, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(32))\nconst nonce = randomBytes(12)\nconst header = new TextEncoder().encode(\"v1\")\nconst sealed = cipher.seal(nonce, \"payload\", header)\nprintln(sealed.length)   // 23"
                 }
               ],
-              "source": "crypto.pi:186",
+              "source": "crypto.pi:275",
               "members": []
             },
             {
@@ -12776,7 +12941,7 @@
                   "code": "import { Aead, CryptoError, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(32))\nconst nonce = randomBytes(12)\nconst sealed = cipher.seal(nonce, \"secret\")\nprintln(new TextDecoder().decode(cipher.open(nonce, sealed)))   // secret\nsealed.set(0, sealed.get(0) ^ 1)\ntry {\n  cipher.open(nonce, sealed)\n  println(\"unreachable\")\n} catch (e: CryptoError) {\n  println(e.kind)   // AuthenticationFailed\n}"
                 }
               ],
-              "source": "crypto.pi:209",
+              "source": "crypto.pi:298",
               "members": []
             }
           ]
@@ -12792,7 +12957,7 @@
               "code": "import { EcKeyPair, ecdsaVerify } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-256\")\nprintln(keys.publicKey.length)   // 65\nconst sig = keys.sign(\"SHA-256\", \"hello\")\nprintln(ecdsaVerify(\"P-256\", \"SHA-256\", keys.publicKey, \"hello\", sig))   // true"
             }
           ],
-          "source": "crypto.pi:227",
+          "source": "crypto.pi:316",
           "members": [
             {
               "name": "curve",
@@ -12800,7 +12965,7 @@
               "signature": "public readonly curve: NamedCurve",
               "doc": "<p>The curve both keys belong to.</p>\n",
               "examples": [],
-              "source": "crypto.pi:229",
+              "source": "crypto.pi:318",
               "members": []
             },
             {
@@ -12809,7 +12974,7 @@
               "signature": "public readonly privateKey: Uint8Array",
               "doc": "<p>The private key: a big-endian scalar (for X25519, the 32-byte RFC 7748 form). Keep it secret.</p>\n",
               "examples": [],
-              "source": "crypto.pi:231",
+              "source": "crypto.pi:320",
               "members": []
             },
             {
@@ -12818,7 +12983,7 @@
               "signature": "public readonly publicKey: Uint8Array",
               "doc": "<p>The public key: an uncompressed point <code>04 ‖ x ‖ y</code> (for X25519, 32 bytes).</p>\n",
               "examples": [],
-              "source": "crypto.pi:233",
+              "source": "crypto.pi:322",
               "members": []
             },
             {
@@ -12832,7 +12997,7 @@
                   "code": "import { EcKeyPair } from \"std/crypto\"\n\nconst generated = EcKeyPair.generate(\"X25519\")\nconst copy = new EcKeyPair(\"X25519\", generated.privateKey, generated.publicKey)\nprintln(copy.curve)   // X25519"
                 }
               ],
-              "source": "crypto.pi:245",
+              "source": "crypto.pi:334",
               "members": []
             },
             {
@@ -12846,7 +13011,7 @@
                   "code": "import { EcKeyPair } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-384\")\nprintln(keys.privateKey.length)   // 48\nprintln(keys.publicKey.length)    // 97"
                 }
               ],
-              "source": "crypto.pi:261",
+              "source": "crypto.pi:350",
               "members": []
             },
             {
@@ -12860,7 +13025,7 @@
                   "code": "import { EcKeyPair, timingSafeEqual } from \"std/crypto\"\n\nconst original = EcKeyPair.generate(\"P-256\")\nconst restored = EcKeyPair.fromPrivateKey(\"P-256\", original.privateKey)\nprintln(timingSafeEqual(restored.publicKey, original.publicKey))   // true"
                 }
               ],
-              "source": "crypto.pi:276",
+              "source": "crypto.pi:365",
               "members": []
             },
             {
@@ -12874,7 +13039,7 @@
                   "code": "import { EcKeyPair } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-256\")\nconst signature = keys.sign(\"SHA-256\", \"release v1.0\")\nprintln(signature.length)   // 64 (r ‖ s)"
                 }
               ],
-              "source": "crypto.pi:291",
+              "source": "crypto.pi:380",
               "members": []
             },
             {
@@ -12888,7 +13053,7 @@
                   "code": "import { EcKeyPair, timingSafeEqual } from \"std/crypto\"\n\nconst alice = EcKeyPair.generate(\"X25519\")\nconst bob = EcKeyPair.generate(\"X25519\")\nconst s1 = alice.agree(bob.publicKey)\nconst s2 = bob.agree(alice.publicKey)\nprintln(s1.length)                  // 32\nprintln(timingSafeEqual(s1, s2))    // true"
                 }
               ],
-              "source": "crypto.pi:309",
+              "source": "crypto.pi:398",
               "members": []
             }
           ]
@@ -12904,7 +13069,7 @@
               "code": "import { EcKeyPair, ecdsaVerify } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-256\")\nconst sig = keys.sign(\"SHA-256\", \"msg\")\nprintln(ecdsaVerify(\"P-256\", \"SHA-256\", keys.publicKey, \"msg\", sig))       // true\nprintln(ecdsaVerify(\"P-256\", \"SHA-256\", keys.publicKey, \"tampered\", sig))  // false"
             }
           ],
-          "source": "crypto.pi:325",
+          "source": "crypto.pi:414",
           "members": []
         },
         {
@@ -12956,7 +13121,7 @@
               "code": "const raw = new TextEncoder().encode(\"secret\")\nconst key = await crypto.subtle.importKey(\"raw\", raw, { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nprintln(key.type)                   // secret\nprintln(key.algorithm.name)         // HMAC\nprintln(key.algorithm.length)       // 48\nprintln(key.usages.join(\", \"))      // sign"
             }
           ],
-          "source": "core/crypto.pi:144",
+          "source": "core/crypto.pi:145",
           "members": [
             {
               "name": "type",
@@ -12964,7 +13129,7 @@
               "signature": "public readonly type: string",
               "doc": "<p><code>\"secret\"</code>, <code>\"private\"</code> or <code>\"public\"</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:146",
+              "source": "core/crypto.pi:147",
               "members": []
             },
             {
@@ -12973,7 +13138,7 @@
               "signature": "public readonly extractable: bool",
               "doc": "<p>Whether <code>exportKey</code> may export a non-public key's bytes.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:148",
+              "source": "core/crypto.pi:149",
               "members": []
             },
             {
@@ -12982,7 +13147,7 @@
               "signature": "public readonly algorithm: KeyAlgorithm",
               "doc": "<p>The algorithm the key is for, with its hash, curve or length.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:150",
+              "source": "core/crypto.pi:151",
               "members": []
             },
             {
@@ -12991,7 +13156,7 @@
               "signature": "public readonly usages: string[]",
               "doc": "<p>What the key may be used for (<code>\"sign\"</code>, <code>\"verify\"</code>, <code>\"encrypt\"</code>, <code>\"decrypt\"</code>,\n<code>\"deriveBits\"</code>): another use rejects with an <code>\"InvalidAccess\"</code> <code>CryptoError</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:153",
+              "source": "core/crypto.pi:154",
               "members": []
             },
             {
@@ -13005,7 +13170,7 @@
                   "code": "const alg: KeyAlgorithm = { name: \"HMAC\", hash: \"SHA-256\", length: 128 }\nconst key = new CryptoKey(\"secret\", true, alg, [\"sign\", \"verify\"], new Uint8Array(16))\nprintln(key.extractable)   // true\nprintln(key.type)          // secret"
                 }
               ],
-              "source": "core/crypto.pi:165",
+              "source": "core/crypto.pi:166",
               "members": []
             }
           ]
@@ -13021,7 +13186,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const alg: KeyAlgorithm = pair.publicKey.algorithm\n  println(alg.name)         // ECDSA\n  println(alg.namedCurve)   // P-256\n}"
             }
           ],
-          "source": "core/crypto.pi:186",
+          "source": "core/crypto.pi:187",
           "members": [
             {
               "name": "name",
@@ -13029,7 +13194,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"HMAC\"</code>, <code>\"AES-GCM\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:188",
+              "source": "core/crypto.pi:189",
               "members": []
             },
             {
@@ -13038,7 +13203,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …), for HMAC keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:190",
+              "source": "core/crypto.pi:191",
               "members": []
             },
             {
@@ -13047,7 +13212,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve (<code>\"P-256\"</code>, <code>\"P-384\"</code>, <code>\"X25519\"</code>), for ECDSA and ECDH keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:192",
+              "source": "core/crypto.pi:193",
               "members": []
             },
             {
@@ -13056,7 +13221,7 @@
               "signature": "length?: int",
               "doc": "<p>The key's length in bits, for secret keys.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:194",
+              "source": "core/crypto.pi:195",
               "members": []
             }
           ]
@@ -13072,7 +13237,7 @@
               "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const params: Algorithm = { name: \"AES-GCM\", iv: crypto.getRandomValues(new Uint8Array(12)) }\n  const sealed = await crypto.subtle.encrypt(params, key, new TextEncoder().encode(\"hi\"))\n  println(sealed.length)   // 18 (2 bytes of ciphertext + a 16-byte tag)\n}"
             }
           ],
-          "source": "core/crypto.pi:212",
+          "source": "core/crypto.pi:213",
           "members": [
             {
               "name": "name",
@@ -13080,7 +13245,7 @@
               "signature": "name: string",
               "doc": "<p>The algorithm's name (<code>\"AES-GCM\"</code>, <code>\"HMAC\"</code>, <code>\"ECDSA\"</code>, <code>\"ECDH\"</code>, <code>\"HKDF\"</code>, <code>\"PBKDF2\"</code>; any\ncase), or, for <code>digest</code>, the hash's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:215",
+              "source": "core/crypto.pi:216",
               "members": []
             },
             {
@@ -13089,7 +13254,7 @@
               "signature": "hash?: string",
               "doc": "<p>The hash (<code>\"SHA-256\"</code>, …) for HMAC, ECDSA, HKDF and PBKDF2. HMAC falls back on the key's.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:217",
+              "source": "core/crypto.pi:218",
               "members": []
             },
             {
@@ -13098,7 +13263,7 @@
               "signature": "namedCurve?: string",
               "doc": "<p>The curve for <code>generateKey</code> and <code>importKey</code> of ECDSA (<code>\"P-256\"</code>, <code>\"P-384\"</code>) and ECDH keys\n(also <code>\"X25519\"</code>).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:220",
+              "source": "core/crypto.pi:221",
               "members": []
             },
             {
@@ -13107,7 +13272,7 @@
               "signature": "length?: int",
               "doc": "<p>The key length in bits for <code>generateKey</code> (AES-GCM: 128, 192 or 256; HMAC: 256 unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:222",
+              "source": "core/crypto.pi:223",
               "members": []
             },
             {
@@ -13116,7 +13281,7 @@
               "signature": "iv?: Uint8Array",
               "doc": "<p>AES-GCM's nonce (required; 12 bytes is usual), or AES-CBC's initialization vector (16\nbytes).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:225",
+              "source": "core/crypto.pi:226",
               "members": []
             },
             {
@@ -13125,7 +13290,7 @@
               "signature": "counter?: Uint8Array",
               "doc": "<p>AES-CTR's initial counter block (16 bytes); <code>length</code> is then how many of its rightmost\nbits count up (#69).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:228",
+              "source": "core/crypto.pi:229",
               "members": []
             },
             {
@@ -13134,7 +13299,7 @@
               "signature": "additionalData?: Uint8Array",
               "doc": "<p>AES-GCM's authenticated, unencrypted data (none unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:230",
+              "source": "core/crypto.pi:231",
               "members": []
             },
             {
@@ -13143,7 +13308,7 @@
               "signature": "tagLength?: int",
               "doc": "<p>AES-GCM's tag length in bits: only 128 (the default) is supported.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:232",
+              "source": "core/crypto.pi:233",
               "members": []
             },
             {
@@ -13152,7 +13317,7 @@
               "signature": "public?: CryptoKey",
               "doc": "<p>ECDH's peer public key, for <code>deriveBits</code>.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:234",
+              "source": "core/crypto.pi:235",
               "members": []
             },
             {
@@ -13161,7 +13326,7 @@
               "signature": "salt?: Uint8Array",
               "doc": "<p>The HKDF or PBKDF2 salt (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:236",
+              "source": "core/crypto.pi:237",
               "members": []
             },
             {
@@ -13170,7 +13335,7 @@
               "signature": "info?: Uint8Array",
               "doc": "<p>HKDF's context info (empty unless given).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:238",
+              "source": "core/crypto.pi:239",
               "members": []
             },
             {
@@ -13179,7 +13344,7 @@
               "signature": "iterations?: int",
               "doc": "<p>PBKDF2's iteration count.</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:240",
+              "source": "core/crypto.pi:241",
               "members": []
             }
           ]
@@ -13195,7 +13360,7 @@
               "code": "const pair = await crypto.subtle.generateKey({ name: \"ECDH\", namedCurve: \"X25519\" }, false, [\"deriveBits\"])\nif (pair is CryptoKeyPair) {\n  println(pair.publicKey.type)    // public\n  println(pair.privateKey.type)   // private\n}"
             }
           ],
-          "source": "core/crypto.pi:253",
+          "source": "core/crypto.pi:254",
           "members": [
             {
               "name": "publicKey",
@@ -13203,7 +13368,7 @@
               "signature": "publicKey: CryptoKey",
               "doc": "<p>The public key (always extractable).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:255",
+              "source": "core/crypto.pi:256",
               "members": []
             },
             {
@@ -13212,7 +13377,7 @@
               "signature": "privateKey: CryptoKey",
               "doc": "<p>The private key (extractable as <code>generateKey</code> was told).</p>\n",
               "examples": [],
-              "source": "core/crypto.pi:257",
+              "source": "core/crypto.pi:258",
               "members": []
             }
           ]
@@ -13228,7 +13393,7 @@
               "code": "import { hex } from \"std/encoding\"\n\nconst digest = await crypto.subtle.digest(\"SHA-1\", new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(digest))   // a9993e364706816aba3e25717850c26c9cd0d89d"
             }
           ],
-          "source": "core/crypto.pi:305",
+          "source": "core/crypto.pi:306",
           "members": [
             {
               "name": "digest",
@@ -13241,7 +13406,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst data = new TextEncoder().encode(\"hello\")\nconst hash = await crypto.subtle.digest(\"SHA-256\", data)\nprintln(hex.encode(hash))   // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
                 }
               ],
-              "source": "core/crypto.pi:317",
+              "source": "core/crypto.pi:318",
               "members": []
             },
             {
@@ -13255,7 +13420,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(hex.encode(tag))   // 8b5f48702995c1598c573db1e21866a9b825d4a794d169d7060a03605796360b"
                 }
               ],
-              "source": "core/crypto.pi:336",
+              "source": "core/crypto.pi:337",
               "members": []
             },
             {
@@ -13269,7 +13434,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"HMAC\", hash: \"SHA-256\" }, true, [\"sign\"])\nif (key is CryptoKey) {\n  const raw = await crypto.subtle.exportKey(\"raw\", key)\n  println(raw.length)   // 32\n}"
                 }
               ],
-              "source": "core/crypto.pi:371",
+              "source": "core/crypto.pi:372",
               "members": []
             },
             {
@@ -13283,7 +13448,7 @@
                   "code": "const aes = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 128 }, false, [\"encrypt\", \"decrypt\"])\nmatch (aes) {\n  k: CryptoKey => println(`${k.algorithm.name} ${k.algorithm.length}`),   // AES-GCM 128\n  p: CryptoKeyPair => println(\"a key pair\"),\n}"
                 }
               ],
-              "source": "core/crypto.pi:387",
+              "source": "core/crypto.pi:388",
               "members": []
             },
             {
@@ -13297,7 +13462,7 @@
                   "code": "const enc = new TextEncoder()\nconst pair = await crypto.subtle.generateKey({ name: \"ECDSA\", namedCurve: \"P-256\" }, false, [\"sign\", \"verify\"])\nif (pair is CryptoKeyPair) {\n  const data = enc.encode(\"release-1.0.tar.gz\")\n  const sig = await crypto.subtle.sign({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.privateKey, data)\n  println(sig.length)   // 64 (r ‖ s)\n  println(await crypto.subtle.verify({ name: \"ECDSA\", hash: \"SHA-256\" }, pair.publicKey, sig, data))   // true\n}"
                 }
               ],
-              "source": "core/crypto.pi:419",
+              "source": "core/crypto.pi:420",
               "members": []
             },
             {
@@ -13311,7 +13476,7 @@
                   "code": "const enc = new TextEncoder()\nconst key = await crypto.subtle.importKey(\"raw\", enc.encode(\"secret\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\", \"verify\"])\nconst tag = await crypto.subtle.sign(\"HMAC\", key, enc.encode(\"message\"))\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"message\")))    // true\nprintln(await crypto.subtle.verify(\"HMAC\", key, tag, enc.encode(\"tampered\")))   // false"
                 }
               ],
-              "source": "core/crypto.pi:445",
+              "source": "core/crypto.pi:446",
               "members": []
             },
             {
@@ -13325,7 +13490,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  println(sealed.length)   // 30 (14 bytes of ciphertext + a 16-byte tag)\n}"
                 }
               ],
-              "source": "core/crypto.pi:472",
+              "source": "core/crypto.pi:473",
               "members": []
             },
             {
@@ -13339,7 +13504,7 @@
                   "code": "const key = await crypto.subtle.generateKey({ name: \"AES-GCM\", length: 256 }, false, [\"encrypt\", \"decrypt\"])\nif (key is CryptoKey) {\n  const iv = crypto.getRandomValues(new Uint8Array(12))\n  const sealed = await crypto.subtle.encrypt({ name: \"AES-GCM\", iv }, key, new TextEncoder().encode(\"attack at dawn\"))\n  const plain = await crypto.subtle.decrypt({ name: \"AES-GCM\", iv }, key, sealed)\n  println(new TextDecoder().decode(plain))   // attack at dawn\n}"
                 }
               ],
-              "source": "core/crypto.pi:499",
+              "source": "core/crypto.pi:500",
               "members": []
             },
             {
@@ -13353,7 +13518,7 @@
                   "code": "import { hex } from \"std/encoding\"\n\nconst enc = new TextEncoder()\nconst pw = await crypto.subtle.importKey(\"raw\", enc.encode(\"password\"), \"PBKDF2\", false, [\"deriveBits\"])\nconst bits = await crypto.subtle.deriveBits({ name: \"PBKDF2\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), iterations: 1000 }, pw, 128)\nprintln(hex.encode(bits))   // 632c2812e46d4604102ba7618e9d6d7d\nconst ikm = await crypto.subtle.importKey(\"raw\", enc.encode(\"input key\"), \"HKDF\", false, [\"deriveBits\"])\nconst okm = await crypto.subtle.deriveBits({ name: \"HKDF\", hash: \"SHA-256\", salt: enc.encode(\"salt\"), info: enc.encode(\"context\") }, ikm, 128)\nprintln(hex.encode(okm))    // 49060e83486a86844130609b08a2c02c"
                 }
               ],
-              "source": "core/crypto.pi:529",
+              "source": "core/crypto.pi:530",
               "members": []
             }
           ]
@@ -14355,14 +14520,14 @@
           "name": "Watcher",
           "kind": "class",
           "signature": "class Watcher implements Disposable",
-          "doc": "<p>Watches a file or a directory (with <code>recursive</code>, the whole tree below it): an async\niterator of <code>WatchEvent</code>s, ended by <code>close()</code> (or <code>using</code>). Changes made while nobody\nwaits for an event are compared as a whole when the next one is asked for, so a file\ncreated and changed in between is one <code>create</code>, and one created and removed is nothing.</p>\n",
+          "doc": "<p>Watches a file or a directory (with <code>recursive</code>, the whole tree below it): an async\niterator of <code>WatchEvent</code>s, ended by <code>close()</code> (or <code>using</code>). Changes made while nobody\nwaits for an event are compared as a whole when the next one is asked for, so a file\ncreated and changed in between is one <code>create</code>, and one created and removed is nothing.</p>\n<p>How changes are found depends on the platform. On Linux, inotify says which directories\nchanged and only those are looked at again, so an idle watcher costs nothing. On macOS and\nWindows the OS only says that something changed, so the watcher looks at the whole tree\neach time, and also every 250 ms while an event is awaited: on a big tree (tens of\nthousands of entries) that's noticeable CPU. On macOS, in a tree of more than 256 entries,\na change to a file's contents is only noticed by that 250 ms look. Linux falls back to the\nsame when it can't be exact: inotify's watch limit (<code>fs.inotify.max_user_watches</code>) reached,\nits queue overflowed, or the root missing.</p>\n",
           "examples": [
             {
               "caption": "",
               "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nawait writeText(join(dir, \"a.txt\"), \"1\")\nfor await (const e of w) {\n  println(`${e.kind} a.txt`)   // create a.txt\n  w.close()                    // ends the loop\n}\nawait remove(dir, recursive: true)"
             }
           ],
-          "source": "fs.pi:720",
+          "source": "fs.pi:729",
           "members": [
             {
               "name": "path",
@@ -14370,7 +14535,7 @@
               "signature": "public readonly path: string",
               "doc": "<p>The path being watched, as given to <code>watch</code>.</p>\n",
               "examples": [],
-              "source": "fs.pi:723",
+              "source": "fs.pi:732",
               "members": []
             },
             {
@@ -14384,7 +14549,7 @@
                   "code": "import { watch, Watcher, mkdir, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-ctor-example\")\nawait mkdir(dir, recursive: true)\nconst w: Watcher = await watch(dir)   // `watch` makes Watchers\nprintln(w.path == dir)                // true\nw.close()\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:747",
+              "source": "fs.pi:756",
               "members": []
             },
             {
@@ -14398,7 +14563,7 @@
                   "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-next-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nconst next = w.next()\nawait writeText(join(dir, \"f.txt\"), \"x\")\nprintln((await next)?.kind)   // create\nw.close()\nprintln(await w.next() == null)   // true: closed\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:770",
+              "source": "fs.pi:779",
               "members": []
             },
             {
@@ -14412,7 +14577,7 @@
                   "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-iter-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nawait writeText(join(dir, \"f.txt\"), \"x\")\nfor await (const e of w.asyncIterator()) {\n  println(e.kind)   // create\n  w.close()\n}\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:795",
+              "source": "fs.pi:804",
               "members": []
             },
             {
@@ -14426,7 +14591,7 @@
                   "code": "import { watch, mkdir, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-close-example\")\nawait mkdir(dir, recursive: true)\nconst w = await watch(dir)\nconst pending = w.next()\nw.close()\nprintln(await pending == null)   // true\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:815",
+              "source": "fs.pi:824",
               "members": []
             },
             {
@@ -14440,7 +14605,7 @@
                   "code": "import { watch, mkdir, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watcher-using-example\")\nawait mkdir(dir, recursive: true)\n{\n  using w = await watch(dir)\n  println(w.path == dir)   // true\n}   // w.dispose() stops watching here\nawait remove(dir, recursive: true)"
                 }
               ],
-              "source": "fs.pi:840",
+              "source": "fs.pi:850",
               "members": []
             }
           ]
@@ -14449,14 +14614,14 @@
           "name": "watch",
           "kind": "function",
           "signature": "function watch(path: string, recursive: bool = true): Promise<Watcher, IoError>",
-          "doc": "<p>Starts watching <code>path</code> (see <code>Watcher</code>); rejects if it can't be looked at.</p>\n",
+          "doc": "<p>Starts watching <code>path</code> (see <code>Watcher</code>, also for what it costs on each platform); rejects\nif it can't be looked at.</p>\n",
           "examples": [
             {
               "caption": "",
               "code": "import { watch, writeText, remove, mkdir } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst dir = join(tmpDir(), \"watch-example\")\nawait mkdir(join(dir, \"src\"), recursive: true)\nconst w = await watch(dir, recursive: true)\nawait writeText(join(dir, \"src\", \"main.pi\"), \"println(1)\")\nconst e = await w.next()\nprintln(e?.kind)   // create\nw.close()\nawait remove(dir, recursive: true)"
             }
           ],
-          "source": "fs.pi:905",
+          "source": "fs.pi:916",
           "members": []
         },
         {
@@ -14470,7 +14635,7 @@
               "code": "import { FileStream, writeBytes, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-example.bin\")\nawait writeBytes(path, Uint8Array.from([1, 2, 3, 4, 5]))\nconst stream = new FileStream(path, chunkSize: 2)\nlet chunk = await stream.read()\nwhile (chunk != null) {\n  println(chunk.length)   // 2, 2, then 1\n  chunk = await stream.read()\n}\nawait remove(path)"
             }
           ],
-          "source": "fs.pi:928",
+          "source": "fs.pi:950",
           "members": [
             {
               "name": "path",
@@ -14478,7 +14643,7 @@
               "signature": "public readonly path: string",
               "doc": "<p>The file's path.</p>\n",
               "examples": [],
-              "source": "fs.pi:930",
+              "source": "fs.pi:952",
               "members": []
             },
             {
@@ -14492,7 +14657,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { ByteStream } from \"std/streams\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-ctor-example.bin\")\nawait writeText(path, \"recorded\")\nconst replay: ByteStream = new FileStream(path)\nprintln((await replay.read())?.length)   // 8\nreplay.close()\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:949",
+              "source": "fs.pi:971",
               "members": []
             },
             {
@@ -14506,7 +14671,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-read-example.txt\")\nawait writeText(path, \"abc\")\nconst stream = new FileStream(path)\nconst bytes = await stream.read()\nif (bytes != null) {\n  println(new TextDecoder().decode(bytes))   // abc\n}\nprintln(await stream.read())   // null: the end\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:970",
+              "source": "fs.pi:992",
               "members": []
             },
             {
@@ -14520,7 +14685,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-write-example.txt\")\nawait writeText(path, \"data\")\nconst stream = new FileStream(path)\nawait stream.write(Uint8Array.from([1, 2]))   // discarded: the file is unchanged\nprintln((await stream.read())?.length)          // 4\nstream.close()\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:1000",
+              "source": "fs.pi:1022",
               "members": []
             },
             {
@@ -14534,7 +14699,7 @@
                   "code": "import { FileStream, writeText, remove } from \"std/fs\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), \"file-stream-close-example.txt\")\nawait writeText(path, \"data\")\nconst stream = new FileStream(path)\nstream.close()\nprintln(await stream.read())   // null\nawait remove(path)"
                 }
               ],
-              "source": "fs.pi:1017",
+              "source": "fs.pi:1039",
               "members": []
             }
           ]
@@ -18017,7 +18182,7 @@
               "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0, \"127.0.0.1\")\nprintln(listener.addr.port > 0)   // true\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:844",
+          "source": "core/net.pi:860",
           "members": []
         },
         {
@@ -18031,7 +18196,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst conn = await connect(listener.addr.port, \"127.0.0.1\")\nprintln(conn.remoteAddr.hostname)   // 127.0.0.1\nconn.close()\nconst server = await accepting\nserver?.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:866",
+          "source": "core/net.pi:882",
           "members": []
         },
         {
@@ -18045,7 +18210,7 @@
               "code": "import { connectUnix, listenUnix } from \"std/net\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)\nconst listener = await listenUnix(path)\nprintln(listener.addr.port)   // -1\nconst accepting = listener.accept()\nconst client = await connectUnix(path)\nawait client.writeText(\"over a socket file\")\nclient.close()\nconst server = await accepting\nif (server != null) {\n  println(await server.text())   // over a socket file\n  server.close()\n}\nlistener.close()                // removes the socket file"
             }
           ],
-          "source": "core/net.pi:897",
+          "source": "core/net.pi:913",
           "members": []
         },
         {
@@ -18059,7 +18224,7 @@
               "code": "import { connectUnix, listenUnix } from \"std/net\"\nimport { tmpDir } from \"std/os\"\nimport { join } from \"std/path\"\n\nconst path = join(tmpDir(), `pico-doc-${crypto.randomUUID()}.sock`)\nconst listener = await listenUnix(path)\nconst accepting = listener.accept()\nconst conn = await connectUnix(path)\nprintln(conn.remoteAddr.hostname == path)   // true\nconn.close()\nconst server = await accepting\nserver?.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:921",
+          "source": "core/net.pi:937",
           "members": []
         },
         {
@@ -18073,7 +18238,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.port > 0)   // true\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1294",
+          "source": "core/net.pi:1310",
           "members": []
         },
         {
@@ -18087,7 +18252,7 @@
               "code": "import { resolve } from \"std/net\"\n\nprintln((await resolve(\"127.0.0.1\")).join(\", \"))      // 127.0.0.1\nconst local = await resolve(\"localhost\")\nprintln(local.length > 0)                            // true (e.g. 127.0.0.1 and ::1)"
             }
           ],
-          "source": "core/net.pi:1312",
+          "source": "core/net.pi:1328",
           "members": []
         },
         {
@@ -18101,7 +18266,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nconst loopback = networkInterfaces().filter((i) => i.loopback && i.family == 4)\nprintln(loopback.length > 0)   // true"
             }
           ],
-          "source": "core/net.pi:1261",
+          "source": "core/net.pi:1277",
           "members": []
         },
         {
@@ -18115,7 +18280,7 @@
               "code": "import { bind } from \"std/net\"\n\n// mDNS listens on port 5353, which the system's responder may already have.\nconst options: BindOptions = { reuseAddress: true }\nconst socket = await bind(0, \"0.0.0.0\", options)\nsocket.close()"
             }
           ],
-          "source": "core/net.pi:1220",
+          "source": "core/net.pi:1236",
           "members": [
             {
               "name": "reuseAddress",
@@ -18123,7 +18288,7 @@
               "signature": "reuseAddress?: bool",
               "doc": "<p>Lets other sockets bind the same address and port (<code>SO_REUSEADDR</code>, and <code>SO_REUSEPORT</code>\nwhere there is one), so several programs can receive one multicast group's datagrams.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1223",
+              "source": "core/net.pi:1239",
               "members": []
             }
           ]
@@ -18139,7 +18304,7 @@
               "code": "import { networkInterfaces } from \"std/net\"\n\nfor (const i of networkInterfaces()) {\n  if (i.loopback && i.family == 4) println(i.address)   // 127.0.0.1\n}"
             }
           ],
-          "source": "core/net.pi:1236",
+          "source": "core/net.pi:1252",
           "members": [
             {
               "name": "name",
@@ -18147,7 +18312,7 @@
               "signature": "name: string",
               "doc": "<p>The interface's name (<code>lo</code>, <code>eth0</code>, <code>en0</code>, <code>Ethernet</code>, …).</p>\n",
               "examples": [],
-              "source": "core/net.pi:1238",
+              "source": "core/net.pi:1254",
               "members": []
             },
             {
@@ -18156,7 +18321,7 @@
               "signature": "family: int",
               "doc": "<p>4 or 6.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1240",
+              "source": "core/net.pi:1256",
               "members": []
             },
             {
@@ -18165,7 +18330,7 @@
               "signature": "address: string",
               "doc": "<p>The address, as text.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1242",
+              "source": "core/net.pi:1258",
               "members": []
             },
             {
@@ -18174,7 +18339,7 @@
               "signature": "up: bool",
               "doc": "<p>Whether it's up.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1244",
+              "source": "core/net.pi:1260",
               "members": []
             },
             {
@@ -18183,7 +18348,7 @@
               "signature": "loopback: bool",
               "doc": "<p>Whether it's the loopback interface.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1246",
+              "source": "core/net.pi:1262",
               "members": []
             },
             {
@@ -18192,7 +18357,7 @@
               "signature": "multicast: bool",
               "doc": "<p>Whether it can send and receive multicast.</p>\n",
               "examples": [],
-              "source": "core/net.pi:1248",
+              "source": "core/net.pi:1264",
               "members": []
             }
           ]
@@ -18503,7 +18668,7 @@
               "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst server = await accepting\nprintln(server != null)   // true\nserver?.close()\nclient.close()\nlistener.close()"
             }
           ],
-          "source": "core/net.pi:684",
+          "source": "core/net.pi:692",
           "members": [
             {
               "name": "addr",
@@ -18511,7 +18676,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it listens on (with the port chosen when <code>listen</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:687",
+              "source": "core/net.pi:695",
               "members": []
             },
             {
@@ -18525,21 +18690,21 @@
                   "code": "import { listen } from \"std/net\"\n\n// Listeners come from `listen` (and `listenUnix`).\nconst listener: Listener = await listen(0)\nprintln(listener.addr.hostname)   // 127.0.0.1\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:703",
+              "source": "core/net.pi:713",
               "members": []
             },
             {
               "name": "accept",
               "kind": "method",
               "signature": "public accept(): Promise<Conn?, NetError>",
-              "doc": "<p>The next connection, or <code>null</code> once the listener is closed. One at a time.</p>\n",
+              "doc": "<p>The next connection, or <code>null</code> once the listener is closed. Several calls at once each get\na connection (#65: a call made while another waits accepts after it).</p>\n",
               "examples": [
                 {
                   "caption": "",
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.accept()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn?.remoteAddr.port == client.localAddr.port)   // true\nconn?.close()\nclient.close()\nlistener.close()\nprintln(await listener.accept())   // null (closed)"
                 }
               ],
-              "source": "core/net.pi:735",
+              "source": "core/net.pi:746",
               "members": []
             },
             {
@@ -18553,7 +18718,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst accepting = listener.next()\nconst client = await connect(listener.addr.port)\nconst conn = await accepting\nprintln(conn != null)   // true\nconn?.close()\nclient.close()\nlistener.close()"
                 }
               ],
-              "source": "core/net.pi:777",
+              "source": "core/net.pi:793",
               "members": []
             },
             {
@@ -18567,7 +18732,7 @@
                   "code": "import { connect, listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst client = await connect(listener.addr.port)\nawait client.writeText(\"hello\")\nclient.close()\nfor await (const conn of listener) {\n  println(await conn.text())   // hello\n  conn.close()\n  listener.close()             // ends the loop\n}"
                 }
               ],
-              "source": "core/net.pi:797",
+              "source": "core/net.pi:813",
               "members": []
             },
             {
@@ -18581,7 +18746,7 @@
                   "code": "import { listen } from \"std/net\"\n\nconst listener = await listen(0)\nconst waiting = listener.accept()\nlistener.close()\nprintln(await waiting)   // null"
                 }
               ],
-              "source": "core/net.pi:813",
+              "source": "core/net.pi:829",
               "members": []
             }
           ]
@@ -18597,7 +18762,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"hi\", b.addr.port)\nconst d: Datagram? = await b.receive()\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // hi\n  println(d.addr.port == a.addr.port)         // true\n}\na.close()\nb.close()"
             }
           ],
-          "source": "core/net.pi:945",
+          "source": "core/net.pi:961",
           "members": [
             {
               "name": "data",
@@ -18605,7 +18770,7 @@
               "signature": "data: Uint8Array",
               "doc": "<p>The datagram's bytes (cut to the size <code>receive</code> asked for).</p>\n",
               "examples": [],
-              "source": "core/net.pi:947",
+              "source": "core/net.pi:963",
               "members": []
             },
             {
@@ -18614,7 +18779,7 @@
               "signature": "addr: Addr",
               "doc": "<p>The address it came from.</p>\n",
               "examples": [],
-              "source": "core/net.pi:949",
+              "source": "core/net.pi:965",
               "members": []
             }
           ]
@@ -18630,7 +18795,7 @@
               "code": "import { bind } from \"std/net\"\n\nconst server = await bind(0)\nconst client = await bind(0)\nawait client.sendText(\"ping\", server.addr.port)\nconst d = await server.receive()\nif (d != null) {\n  await server.sendText(\"pong\", d.addr.port, d.addr.hostname)\n}\nconst reply = await client.receive()\nif (reply != null) {\n  println(new TextDecoder().decode(reply.data))   // pong\n}\nserver.close()\nclient.close()"
             }
           ],
-          "source": "core/net.pi:972",
+          "source": "core/net.pi:988",
           "members": [
             {
               "name": "addr",
@@ -18638,7 +18803,7 @@
               "signature": "public readonly addr: Addr",
               "doc": "<p>The address it's bound to (with the port chosen when <code>bind</code> was given 0).</p>\n",
               "examples": [],
-              "source": "core/net.pi:975",
+              "source": "core/net.pi:991",
               "members": []
             },
             {
@@ -18652,7 +18817,7 @@
                   "code": "import { bind } from \"std/net\"\n\n// UDP sockets come from `bind`.\nconst socket: UdpSocket = await bind(0, \"127.0.0.1\")\nprintln(socket.addr.hostname)   // 127.0.0.1\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:992",
+              "source": "core/net.pi:1008",
               "members": []
             },
             {
@@ -18666,7 +18831,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\", { reuseAddress: true })\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1021",
+              "source": "core/net.pi:1037",
               "members": []
             },
             {
@@ -18680,7 +18845,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.addMembership(\"239.255.0.1\")\nsocket.dropMembership(\"239.255.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1036",
+              "source": "core/net.pi:1052",
               "members": []
             },
             {
@@ -18694,7 +18859,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastTTL(255)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1051",
+              "source": "core/net.pi:1067",
               "members": []
             },
             {
@@ -18708,7 +18873,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastLoopback(false)\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1066",
+              "source": "core/net.pi:1082",
               "members": []
             },
             {
@@ -18722,7 +18887,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0, \"0.0.0.0\")\nsocket.setMulticastInterface(\"127.0.0.1\")\nsocket.close()"
                 }
               ],
-              "source": "core/net.pi:1081",
+              "source": "core/net.pi:1097",
               "members": []
             },
             {
@@ -18736,7 +18901,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.send(Uint8Array.from([0xCA, 0xFE]), b.addr.port))   // 2\nconst d = await b.receive()\nprintln(d?.data.length)   // 2\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1122",
+              "source": "core/net.pi:1138",
               "members": []
             },
             {
@@ -18750,7 +18915,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nprintln(await a.sendText(\"hello\", b.addr.port, \"127.0.0.1\"))   // 5\nconst d = await b.receive()\nprintln(d?.data.length)   // 5\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1140",
+              "source": "core/net.pi:1156",
               "members": []
             },
             {
@@ -18764,7 +18929,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst a = await bind(0)\nconst b = await bind(0)\nawait a.sendText(\"a long datagram\", b.addr.port)\nconst d = await b.receive(6)\nif (d != null) {\n  println(new TextDecoder().decode(d.data))   // a long (the rest is dropped)\n}\na.close()\nb.close()"
                 }
               ],
-              "source": "core/net.pi:1161",
+              "source": "core/net.pi:1177",
               "members": []
             },
             {
@@ -18778,7 +18943,7 @@
                   "code": "import { bind } from \"std/net\"\n\nconst socket = await bind(0)\nconst waiting = socket.receive()\nsocket.close()\nprintln((await waiting) == null)   // true"
                 }
               ],
-              "source": "core/net.pi:1196",
+              "source": "core/net.pi:1212",
               "members": []
             }
           ]

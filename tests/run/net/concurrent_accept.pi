@@ -1,0 +1,27 @@
+// expect: accepted 3, ports match: true
+// expect: after close: null null
+// Several `accept()` calls at once on one listener (#65): each gets a connection (it was a
+// panic, "already accepting"); waiting calls get `null` once the listener closes.
+import { connect, listen } from "std/net"
+
+const listener = await listen(0)
+const a = listener.accept()
+const b = listener.accept()
+const c = listener.accept()
+const clients = [await connect(listener.addr.port), await connect(listener.addr.port), await connect(listener.addr.port)]
+const conns = [await a, await b, await c]
+const remote: int[] = []
+for (const conn of conns) {
+  if (conn != null) remote.push(conn.remoteAddr.port)
+}
+const local: int[] = clients.map((cl) => cl.localAddr.port)
+remote.sort()
+local.sort()
+println(`accepted ${remote.length}, ports match: ${remote.join(",") == local.join(",")}`)
+for (const conn of conns) conn?.close()
+for (const cl of clients) cl.close()
+
+const late1 = listener.accept()
+const late2 = listener.accept()
+listener.close()
+println(`after close: ${await late1} ${await late2}`)

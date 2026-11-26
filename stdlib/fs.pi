@@ -701,6 +701,15 @@ export struct WatchEvent {
 /// waits for an event are compared as a whole when the next one is asked for, so a file
 /// created and changed in between is one `create`, and one created and removed is nothing.
 ///
+/// How changes are found depends on the platform. On Linux, inotify says which directories
+/// changed and only those are looked at again, so an idle watcher costs nothing. On macOS and
+/// Windows the OS only says that something changed, so the watcher looks at the whole tree
+/// each time, and also every 250 ms while an event is awaited: on a big tree (tens of
+/// thousands of entries) that's noticeable CPU. On macOS, in a tree of more than 256 entries,
+/// a change to a file's contents is only noticed by that 250 ms look. Linux falls back to the
+/// same when it can't be exact: inotify's watch limit (`fs.inotify.max_user_watches`) reached,
+/// its queue overflowed, or the root missing.
+///
 /// @example
 /// ```ts
 /// import { watch, writeText, remove, mkdir } from "std/fs"
@@ -817,6 +826,7 @@ export class Watcher implements Disposable {
       return
     }
     closed = true
+    __watchers.unregister(this)
     __io(106, id, 0, 0, "", "");
     serve()
   }
@@ -885,7 +895,8 @@ export class Watcher implements Disposable {
   }
 }
 
-/// Starts watching `path` (see `Watcher`); rejects if it can't be looked at.
+/// Starts watching `path` (see `Watcher`, also for what it costs on each platform); rejects
+/// if it can't be looked at.
 ///
 /// @example
 /// ```ts
@@ -903,8 +914,19 @@ export class Watcher implements Disposable {
 /// await remove(dir, recursive: true)
 /// ```
 export function watch(path: string, recursive: bool = true): Promise<Watcher, IoError> {
-  __job<Watcher>(15, if (recursive) 1 else 0, 0, 0, path, "", path, (res: __IoResult) => new Watcher(res.r, path))
+  __job<Watcher>(15, if (recursive) 1 else 0, 0, 0, path, "", path, (res: __IoResult) => {
+    const w = new Watcher(res.r, path)
+    // (A watcher dropped without `close()` is closed once it's collected, #64.)
+    __watchers.registerWithToken(w, res.r, w)
+    return w
+  })
 }
+
+/// Closes the runtime watcher (its thread and descriptors) of a `Watcher` that was collected
+/// without `close()` (#64).
+const __watchers = new FinalizationRegistry<int>((id: int) => {
+  __io(106, id, 0, 0, "", "");
+})
 
 /// A file read as a `ByteStream` (`std/streams`), `chunkSize` bytes at a time: a recording for
 /// protocol code to replay. Writes are discarded, so that code can still answer.

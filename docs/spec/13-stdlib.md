@@ -207,8 +207,15 @@ snapshots of the tree (kind, size, modification time, inode per entry), compared
 asked for and again while one waits, in path order. So changes made while nobody waits arrive
 together as one difference (a file created and written is one `create`; created and removed,
 nothing), a rename is a `remove` and a `create`, and directories are never `modify`d.
-`close()` (twice is fine) makes waiting and later `next()` calls return `null`. The OS
-notifications (kqueue, inotify) only wake the watcher up; it also looks every 250 ms.
+`close()` (twice is fine) makes waiting and later `next()` calls return `null`. On Linux inotify
+says which directories changed, and only those are looked at again (nothing without a change); a
+full look when it can't say (its queue overflowed, a watch couldn't be added, the root is a file or
+is gone, which is then looked at every 250 ms). Elsewhere the OS notifications (kqueue, a Windows
+change notification) only say that something changed, so the watcher looks at the whole tree, and
+also every 250 ms. This is a known limitation: on a big tree (tens of thousands of entries) an idle
+macOS or Windows watcher costs noticeable CPU, and on macOS a change to a file's contents in a tree
+of more than 256 entries (only directories get a kqueue descriptor then) is only noticed by the
+250 ms look.
 
 ### `std/path`
 Node's `path`: `sep`, `delimiter`, `isAbsolute`, `normalize` (`a//b/../c/` → `a/c/`),
@@ -256,8 +263,8 @@ program's end while it's open (a return, `exit()`, a panic, and natively SIGINT,
 and crash signals whose action is the default; not SIGKILL). A socket file that
 nothing listens on (a server that crashed left it) is replaced; a live listener's, or a file
 that isn't a socket, gives `AddrInUse` (decision 325).
-A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (one at a time; `null` once
-closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
+A `Listener` has `addr`, `accept(): Promise<Conn?, NetError>` (several at once each get a
+connection, #65; `null` once closed), `for await`, and `close()` (twice is fine; a waiting `accept` gives `null`; accepted
 connections stay open). A `Conn` has `localAddr`, `remoteAddr`, `read(n = 65536):
 Promise<Uint8Array?, NetError>` (`null` once the other side finished writing or this side is
 closed), `for await` over chunks, `text()` (the rest as UTF-8), `write(data)` and
@@ -412,8 +419,12 @@ Globals, as WHATWG URL: `new URL(input, base?)` (throws `TypeError: Invalid URL:
 `hostname`, `port` (`""` for the scheme's default), `pathname`, `search`, `hash`, `origin`,
 `searchParams` (changing it changes the URL), `toString()`, `toJSON()`. Special schemes (http,
 https, ws, wss, ftp, file) get an authority, dot-segment removal and default ports; others an
-opaque path. Not covered yet: IDNA (non-ASCII hosts are percent-encoded), IPv4 number forms,
-setters. `URLSearchParams(init: string | [string, string][])` has `append`, `delete`, `get`,
+opaque path. `pathname`, `search`, `hash`, `host` and `protocol` can be set (#66): the part is
+replaced and the URL parsed again (`searchParams` follows); what the URL Standard rejects (a path
+of an opaque URL, a host where there's none, a scheme between special and other) is ignored;
+`username`, `password`, `hostname` and `port` are plain fields; `href` has no setter (make a new
+`URL`). Not covered yet: IDNA (non-ASCII hosts are percent-encoded), IPv4 number forms.
+`URLSearchParams(init: string | [string, string][])` has `append`, `delete`, `get`,
 `getAll`, `has`, `set`, `sort`, `size`, `keys`, `entries`, `for…of` and `toString()`
 (`application/x-www-form-urlencoded`).
 
@@ -478,7 +489,8 @@ A global, as WHATWG WebSockets (RFC 6455): `new WebSocket(url, protocols = [], o
 (`ws:` or `wss:`; `options.caCerts`, a pico extension, as for `fetch`; `options.maxMessageBytes`,
 the largest message to receive, a bigger one failing the connection with 1009 before it's read,
 #67, also for `upgradeWebSocket(req, protocol, options)`) connects in the background. `readyState` (`CONNECTING`
-0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`; callbacks `onopen(Event)`,
+0, `OPEN` 1, `CLOSING` 2, `CLOSED` 3), `protocol`, `url`, `bufferedAmount` (the bytes of sent
+messages not written yet, #67); callbacks `onopen(Event)`,
 `onmessage(MessageEvent)` (`data: string | Uint8Array`: text or binary; fragments are joined),
 `onerror(Event)` and `onclose(CloseEvent)` (`code`, `reason`, `wasClean`; 1006 when the
 connection was lost); `send(data: string | Uint8Array)` (panics while connecting) and
@@ -650,7 +662,8 @@ Results are `Uint8Array`s, failures reject with `CryptoError` (`kind`: `InvalidA
 `InvalidAccess`), and a raw ECDSA/ECDH public key must be a point on its curve.
 
 `std/crypto` is synchronous: `digest(alg, data)` and `hmac(alg, key, data)` (SHA-1, SHA-224,
-SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), `hkdf`, `pbkdf2`,
+SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), streaming
+hashes (`createHash(alg)`: `update(data)` any number of times, then `digest()` once; #69), `hkdf`, `pbkdf2`,
 `Aead.aesGcm(key)` / `Aead.chacha20Poly1305(key)` with `seal(nonce, plaintext, aad)` (giving the
 ciphertext then the tag) and `open` (which throws `CryptoError` when the data doesn't
 authenticate), `EcKeyPair.generate(curve)` / `fromPrivateKey`, with `sign(hash, message)`

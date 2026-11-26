@@ -536,11 +536,15 @@ static void run_solo(Job *j) {
 /* `watch` (spec §13.4): a watcher keeps a snapshot of the tree (path, kind, size, mtime,
  * inode per entry, sorted by path). While a "next" job (op 16) waits on it, its thread
  * compares a fresh scan with the snapshot and delivers the differences as events
- * ("c|m|r <relative path>\0" each, in path order). kqueue (macOS), inotify (Linux) or a
- * change notification (Windows) only wake the thread up; a timeout catches whatever they
- * miss. Between two `next` jobs changes aren't looked at, so they arrive as one difference
- * (the interpreter does the same). The platform parts are `fs_info`, `dir_*`, `wake_*` and
- * `wait_os`. */
+ * ("c|m|r <relative path>\0" each, in path order). kqueue (macOS) or a change notification
+ * (Windows) only wake the thread up, and it scans the whole tree, a timeout catching
+ * whatever they miss. inotify (Linux) is exact: one descriptor for the watcher's life,
+ * each directory watched before it's listed, so only the directories it names are looked
+ * at again (`rescan_dirty`), and nothing at all without an event; a full scan when it can't
+ * be (queue overflow, a watch it couldn't add, a root that's a file or is gone). Between
+ * two `next` jobs changes aren't looked at (inotify queues them), so they arrive as one
+ * difference (the interpreter does the same). The platform parts are `fs_info`, `dir_*`,
+ * `wake_*`, `wait_os` and `watch_*_os`. */
 typedef struct Entry {
     char *rel;
     char kind;
@@ -563,6 +567,17 @@ typedef struct Watcher {
     Job *waiting; /* the "next" job, if one waits */
     int closed;
     intptr_t wake[2]; /* signalled on close, to end the OS wait (wake_*) */
+    int root_dir;     /* the root is a directory (as of the last full scan) */
+    int exact;        /* the OS reports every change: no scan without one (inotify) */
+    int full;         /* look at the whole tree again */
+    char **dirty;     /* directories (relative) to look at again, if not `full` */
+    size_t ndirty, capdirty;
+    int ino;          /* the inotify descriptor, or -1 */
+    struct Wd {
+        int wd;
+        char *rel;
+    } *wds; /* inotify watch → its directory */
+    size_t nwd, capwd;
     struct Watcher *next;
 } Watcher;
 
@@ -571,6 +586,16 @@ static void wake_signal(Watcher *w);
 static void wake_close(Watcher *w);
 /* Waits up to `ms` for a change in the tree or for the wake signal. */
 static void wait_os(Watcher *w, int ms);
+/* The OS's change reporting for a watcher (sets `exact` if it's exact), and its end. */
+static void watch_init_os(Watcher *w);
+static void watch_free_os(Watcher *w);
+/* Has the OS report changes in directory `rel` (before it's listed); clears `exact` if it
+ * can't. */
+static void watch_dir_os(Watcher *w, const char *rel);
+/* Takes the changes reported so far into `dirty`/`full`, without waiting. */
+static void watch_drain_os(Watcher *w);
+/* Stops reporting directories that aren't in `s` any more. */
+static void watch_prune_os(Watcher *w, const Snap *s);
 
 static pthread_mutex_t watch_lock = PTHREAD_MUTEX_INITIALIZER;
 static Watcher *watchers;
@@ -608,7 +633,8 @@ static char *join_rel(const char *root, const char *rel) {
     return m;
 }
 
-static void scan_dir(Snap *s, const char *root, const char *rel, int recursive) {
+static void scan_dir(Watcher *w, Snap *s, const char *root, const char *rel, int recursive) {
+    if (w && *rel) watch_dir_os(w, rel);
     char *dir = join_rel(root, rel);
     DirIter *d = dir_open(dir);
     free(dir);
@@ -621,7 +647,7 @@ static void scan_dir(Snap *s, const char *root, const char *rel, int recursive) 
         Info in;
         if (fs_info(full, 0, &in) == 0) {
             snap_add(s, child, &in);
-            if (recursive && in.kind == 'd') scan_dir(s, root, child, recursive);
+            if (recursive && in.kind == 'd') scan_dir(w, s, root, child, recursive);
         }
         free(full);
         free(child);
@@ -634,14 +660,142 @@ static int entry_cmp(const void *a, const void *b) {
 }
 
 /* The tree at `root`: its entries, or the file itself (as ""). -1 (errno set) if it can't
- * be looked at. */
-static int scan(const char *root, int recursive, Snap *out) {
+ * be looked at. With a watcher, its directories are watched (as they're listed) and
+ * `exact` says whether all of them could be. */
+static int scan(Watcher *w, const char *root, int recursive, Snap *out) {
+    if (w) {
+        w->exact = w->ino >= 0;
+        watch_dir_os(w, "");
+    }
     Info in;
-    if (fs_info(root, 1, &in) < 0) return -1;
-    if (in.kind == 'd') scan_dir(out, root, "", recursive);
+    if (fs_info(root, 1, &in) < 0) {
+        if (w) w->exact = 0; /* (nothing tells us when it's back) */
+        return -1;
+    }
+    if (w) w->root_dir = in.kind == 'd';
+    if (in.kind == 'd') scan_dir(w, out, root, "", recursive);
     else snap_add(out, "", &in);
     if (out->n > 1) qsort(out->e, out->n, sizeof *out->e, entry_cmp);
     return 0;
+}
+
+static const Entry *snap_find(const Snap *s, const char *rel) {
+    Entry key = {.rel = (char *)rel};
+    return s->n ? bsearch(&key, s->e, s->n, sizeof *s->e, entry_cmp) : NULL;
+}
+
+/* Whether `rel` is inside directory `dir` (at any depth). */
+static int rel_inside(const char *rel, const char *dir) {
+    if (!*dir) return *rel != 0;
+    size_t n = strlen(dir);
+    return strncmp(rel, dir, n) == 0 && rel[n] == PICO_SEP;
+}
+
+/* Whether `rel`'s directory is `dir` ("" for a top-level entry). */
+static int rel_in(const char *rel, const char *dir) {
+    const char *sep = strrchr(rel, PICO_SEP);
+    if (!sep) return !*dir;
+    size_t n = (size_t)(sep - rel);
+    return strlen(dir) == n && strncmp(rel, dir, n) == 0;
+}
+
+static void dirty_add(Watcher *w, const char *rel) {
+    for (size_t i = 0; i < w->ndirty; i++)
+        if (!strcmp(w->dirty[i], rel)) return;
+    if (w->ndirty == w->capdirty) {
+        w->capdirty = w->capdirty ? w->capdirty * 2 : 8;
+        w->dirty = realloc(w->dirty, w->capdirty * sizeof *w->dirty);
+        if (!w->dirty) abort();
+    }
+    w->dirty[w->ndirty] = strdup(rel);
+    if (!w->dirty[w->ndirty++]) abort();
+}
+
+static void dirty_clear(Watcher *w) {
+    for (size_t i = 0; i < w->ndirty; i++) free(w->dirty[i]);
+    w->ndirty = 0;
+    w->full = 0;
+}
+
+/* The snapshot with the directories in `dirty` listed again (and directories new in them
+ * scanned in full), everything else kept from the last one: an entry goes when its
+ * directory is listed again (it's in the listing if it's still there) or it was inside a
+ * directory that's gone (or was replaced). */
+static void rescan_dirty(Watcher *w, Snap *out) {
+    const Snap *old = &w->snap;
+    Snap fresh = {0};
+    char **gone = NULL;
+    size_t ngone = 0, capgone = 0;
+    char **done = NULL; /* the dirty directories that were listed */
+    size_t ndone = 0;
+    done = calloc(w->ndirty ? w->ndirty : 1, sizeof *done);
+    if (!done) abort();
+    for (size_t k = 0; k < w->ndirty; k++) {
+        const char *d = w->dirty[k];
+        if (*d) {
+            const Entry *e = snap_find(old, d);
+            if (!e || e->kind != 'd') continue; /* (new: scanned with its directory) */
+        }
+        if (*d && !w->recursive) continue;
+        done[ndone++] = w->dirty[k];
+        Snap now = {0};
+        scan_dir(NULL, &now, w->root, d, 0);
+        if (now.n > 1) qsort(now.e, now.n, sizeof *now.e, entry_cmp);
+        for (size_t i = 0; i < old->n; i++) {
+            const Entry *o = &old->e[i];
+            if (o->kind != 'd' || !rel_in(o->rel, d)) continue;
+            const Entry *e = snap_find(&now, o->rel);
+            if (!e || e->kind != 'd' || e->ino != o->ino) {
+                if (ngone == capgone) {
+                    capgone = capgone ? capgone * 2 : 8;
+                    gone = realloc(gone, capgone * sizeof *gone);
+                    if (!gone) abort();
+                }
+                gone[ngone++] = o->rel;
+            }
+        }
+        for (size_t i = 0; i < now.n; i++) {
+            const Entry *e = &now.e[i];
+            Info in = {.kind = e->kind, .size = e->size, .mtime_ns = e->mtime_ns, .ino = e->ino};
+            snap_add(&fresh, e->rel, &in);
+            const Entry *o = snap_find(old, e->rel);
+            if (e->kind == 'd' && w->recursive && (!o || o->kind != 'd' || o->ino != e->ino))
+                scan_dir(w, &fresh, w->root, e->rel, 1);
+        }
+        snap_free(&now);
+    }
+    for (size_t i = 0; i < old->n; i++) {
+        const Entry *o = &old->e[i];
+        int keep = 1;
+        for (size_t k = 0; keep && k < ndone; k++)
+            if (rel_in(o->rel, done[k])) keep = 0;
+        for (size_t k = 0; keep && k < ngone; k++)
+            if (rel_inside(o->rel, gone[k])) keep = 0;
+        if (keep) {
+            Info in = {.kind = o->kind, .size = o->size, .mtime_ns = o->mtime_ns, .ino = o->ino};
+            snap_add(out, o->rel, &in);
+        }
+    }
+    for (size_t i = 0; i < fresh.n; i++) {
+        const Entry *e = &fresh.e[i];
+        Info in = {.kind = e->kind, .size = e->size, .mtime_ns = e->mtime_ns, .ino = e->ino};
+        snap_add(out, e->rel, &in);
+    }
+    snap_free(&fresh);
+    free(gone);
+    free(done);
+    if (out->n > 1) qsort(out->e, out->n, sizeof *out->e, entry_cmp);
+    /* (A directory listed twice, once as dirty and once as new.) */
+    size_t m = 0;
+    for (size_t i = 0; i < out->n; i++) {
+        if (m && !strcmp(out->e[m - 1].rel, out->e[i].rel)) {
+            free(out->e[m - 1].rel);
+            out->e[m - 1] = out->e[i];
+        } else {
+            out->e[m++] = out->e[i];
+        }
+    }
+    out->n = m;
 }
 
 static void event(Job *j, char k, const char *rel) {
@@ -684,8 +838,13 @@ static Watcher *find_watcher(int64_t id) {
 
 /* Scans; if anything changed, hands the events to the waiting job. Whether it did. */
 static int deliver(Watcher *w) {
+    watch_drain_os(w);
+    if (w->exact && !w->full && w->ndirty == 0) return 0;
     Snap now = {0};
-    scan(w->root, w->recursive, &now);
+    if (w->exact && !w->full && w->root_dir) rescan_dirty(w, &now);
+    else scan(w, w->root, w->recursive, &now);
+    dirty_clear(w);
+    watch_prune_os(w, &now);
     Job tmp = {0};
     if (diff(&w->snap, &now, &tmp) == 0) {
         snap_free(&now);
@@ -721,6 +880,9 @@ static void *watch_main(void *arg) {
     }
     /* Closed (and no longer listed): nobody else uses it now. */
     snap_free(&w->snap);
+    dirty_clear(w);
+    free(w->dirty);
+    watch_free_os(w);
     wake_close(w);
     pthread_mutex_destroy(&w->lock);
     pthread_cond_destroy(&w->cond);
@@ -730,16 +892,23 @@ static void *watch_main(void *arg) {
 }
 
 static void watch_open(Job *j) {
-    Snap s = {0};
-    if (scan(j->s, (int)j->a, &s) < 0) {
-        fail(j);
-        return;
-    }
     Watcher *w = calloc(1, sizeof *w);
     if (!w) abort();
     w->root = strdup(j->s);
     if (!w->root) abort();
     w->recursive = (int)j->a;
+    w->ino = -1;
+    watch_init_os(w);
+    Snap s = {0};
+    if (scan(w, j->s, (int)j->a, &s) < 0) {
+        int e = errno;
+        watch_free_os(w);
+        free(w->root);
+        free(w);
+        errno = e;
+        fail(j);
+        return;
+    }
     w->snap = s;
     pthread_mutex_init(&w->lock, NULL);
     pthread_cond_init(&w->cond, NULL);
@@ -1301,6 +1470,18 @@ static void wake_open(Watcher *w) { (void)w; }
 static void wake_signal(Watcher *w) { (void)w; }
 static void wake_close(Watcher *w) { (void)w; }
 static void wait_os(Watcher *w, int ms) { (void)w, (void)ms; }
+#endif
+
+#if !defined(__linux__)
+/* (Not exact: every look is a full scan.) */
+static void watch_init_os(Watcher *w) { (void)w; }
+static void watch_free_os(Watcher *w) { (void)w; }
+static void watch_dir_os(Watcher *w, const char *rel) { (void)w, (void)rel; }
+static void watch_drain_os(Watcher *w) { (void)w; }
+static void watch_prune_os(Watcher *w, const Snap *s) { (void)w, (void)s; }
+#endif
+
+#if defined(__wasi__)
 #else
 static void wake_open(Watcher *w) {
     int p[2];
@@ -1363,27 +1544,101 @@ static void wait_os(Watcher *w, int ms) {
 #include <poll.h>
 #include <sys/inotify.h>
 
-/* Waits up to `ms` for a change to the root or a directory in the snapshot, or for the
- * wake pipe. */
-static void wait_os(Watcher *w, int ms) {
-    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    if (fd < 0) {
-        usleep((useconds_t)ms * 1000);
-        return;
-    }
+static void watch_init_os(Watcher *w) { w->ino = inotify_init1(IN_NONBLOCK | IN_CLOEXEC); }
+
+static void watch_free_os(Watcher *w) {
+    if (w->ino >= 0) close(w->ino);
+    w->ino = -1;
+    for (size_t i = 0; i < w->nwd; i++) free(w->wds[i].rel);
+    free(w->wds);
+    w->wds = NULL;
+    w->nwd = w->capwd = 0;
+}
+
+static void watch_dir_os(Watcher *w, const char *rel) {
+    if (w->ino < 0) return;
     uint32_t mask = IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO |
                     IN_ATTRIB | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF;
-    inotify_add_watch(fd, w->root, mask);
-    for (size_t i = 0; i < w->snap.n; i++) {
-        if (w->snap.e[i].kind != 'd') continue;
-        char *full = join_rel(w->root, w->snap.e[i].rel);
-        inotify_add_watch(fd, full, mask);
-        free(full);
+    char *full = join_rel(w->root, rel);
+    int wd = inotify_add_watch(w->ino, full, mask);
+    free(full);
+    if (wd < 0) {
+        /* (A directory gone again is seen from its parent; the root isn't.) */
+        if (errno != ENOENT || !*rel) w->exact = 0;
+        return;
     }
-    struct pollfd p[2] = {{fd, POLLIN, 0}, {(int)w->wake[0], POLLIN, 0}};
+    /* (The same directory under a new name keeps its watch.) */
+    for (size_t i = 0; i < w->nwd; i++)
+        if (w->wds[i].wd == wd) {
+            if (strcmp(w->wds[i].rel, rel)) {
+                free(w->wds[i].rel);
+                w->wds[i].rel = strdup(rel);
+                if (!w->wds[i].rel) abort();
+            }
+            return;
+        }
+    if (w->nwd == w->capwd) {
+        w->capwd = w->capwd ? w->capwd * 2 : 16;
+        w->wds = realloc(w->wds, w->capwd * sizeof *w->wds);
+        if (!w->wds) abort();
+    }
+    w->wds[w->nwd].wd = wd;
+    w->wds[w->nwd].rel = strdup(rel);
+    if (!w->wds[w->nwd++].rel) abort();
+}
+
+static void watch_drain_os(Watcher *w) {
+    if (w->ino < 0) return;
+    char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+    for (;;) {
+        ssize_t n = read(w->ino, buf, sizeof buf);
+        if (n <= 0) return;
+        for (char *p = buf; p < buf + n;) {
+            const struct inotify_event *ev = (const struct inotify_event *)p;
+            p += sizeof *ev + ev->len;
+            if (ev->mask & IN_Q_OVERFLOW) {
+                w->full = 1;
+                continue;
+            }
+            size_t i = 0;
+            while (i < w->nwd && w->wds[i].wd != ev->wd) i++;
+            if (i == w->nwd) continue;
+            if (ev->mask & IN_IGNORED) { /* (the directory is gone) */
+                free(w->wds[i].rel);
+                w->wds[i] = w->wds[--w->nwd];
+                continue;
+            }
+            const char *rel = w->wds[i].rel;
+            if (!*rel && (!w->root_dir || ev->mask & (IN_DELETE_SELF | IN_MOVE_SELF))) w->full = 1;
+            else dirty_add(w, rel);
+        }
+    }
+}
+
+static void watch_prune_os(Watcher *w, const Snap *s) {
+    for (size_t i = 0; i < w->nwd;) {
+        const char *rel = w->wds[i].rel;
+        const Entry *e = *rel ? snap_find(s, rel) : NULL;
+        if (*rel && (!e || e->kind != 'd')) {
+            inotify_rm_watch(w->ino, w->wds[i].wd);
+            free(w->wds[i].rel);
+            w->wds[i] = w->wds[--w->nwd];
+        } else {
+            i++;
+        }
+    }
+}
+
+/* Waits up to `ms` for an inotify event or for the wake pipe (`deliver` reads the events). */
+static void wait_os(Watcher *w, int ms) {
+    if (w->ino < 0) {
+        struct pollfd p = {(int)w->wake[0], POLLIN, 0};
+        poll(&p, 1, ms);
+        return;
+    }
+    struct pollfd p[2] = {{w->ino, POLLIN, 0}, {(int)w->wake[0], POLLIN, 0}};
     int got = poll(p, 2, ms);
-    close(fd);
-    if (got > 0) usleep(20000); /* let a burst of changes finish */
+    if (got > 0 && p[0].revents) usleep(20000); /* let a burst of changes finish */
 }
 #endif
 
@@ -3105,6 +3360,13 @@ static void wake_open(Watcher *w) {
 static void wake_signal(Watcher *w) { SetEvent((HANDLE)w->wake[0]); }
 
 static void wake_close(Watcher *w) { CloseHandle((HANDLE)w->wake[0]); }
+
+/* (Not exact: every look is a full scan.) */
+static void watch_init_os(Watcher *w) { (void)w; }
+static void watch_free_os(Watcher *w) { (void)w; }
+static void watch_dir_os(Watcher *w, const char *rel) { (void)w, (void)rel; }
+static void watch_drain_os(Watcher *w) { (void)w; }
+static void watch_prune_os(Watcher *w, const Snap *s) { (void)w, (void)s; }
 
 /* A change notification on the watched directory (a watched file's directory). */
 static void wait_os(Watcher *w, int ms) {

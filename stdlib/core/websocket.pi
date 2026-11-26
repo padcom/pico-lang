@@ -38,9 +38,7 @@ function __sha1(data: Uint8Array): Uint8Array {
   const n = data.length
   const total = ((n + 8) / 64 + 1) * 64
   const m = new Uint8Array(total)
-  for (let i = 0; i < n; i++) {
-    m.set(i, data.get(i))
-  }
+  m.setAll(data, 0)
   m.set(n, 0x80)
   const bits = n * 8
   for (let i = 0; i < 8; i++) {
@@ -330,6 +328,8 @@ class WebSocket {
   public readonly url: string
   /// The connection's state: `CONNECTING`, `OPEN`, `CLOSING` or `CLOSED` (0–3).
   public readyState: int = 0
+  /// Message bytes handed to `send` that aren't written yet (`bufferedAmount`).
+  queued: int = 0
   /// The subprotocol the server chose ("" for none).
   public protocol: string = ""
   /// Called once the connection is open (an `"open"` event).
@@ -346,8 +346,6 @@ class WebSocket {
   /// Clients mask what they send; servers don't.
   client: bool = true
   sentClose: bool = false
-  closeCode: int = 1005
-  closeReason: string = ""
   closed: bool = false
   tls: bool = false
   caCerts: string = ""
@@ -631,18 +629,47 @@ class WebSocket {
     }
     if (this.client) {
       const key = __randomBytes(4)
-      for (let k = 0; k < 4; k++) {
-        frame.set(i + k, key.get(k))
-      }
+      frame.setAll(key, i)
       for (let k = 0; k < n; k++) {
         frame.set(i + 4 + k, payload.get(k) ^ key.get(k % 4))
       }
     } else {
-      for (let k = 0; k < n; k++) {
-        frame.set(i + k, payload.get(k))
-      }
+      frame.setAll(payload, i)
     }
     await c.write(frame)
+  }
+
+  /// The bytes of messages `send` was given that aren't written to the connection yet (#67):
+  /// what a sender checks to keep from queuing too much. Frame headers, pings and the closing
+  /// handshake don't count.
+  ///
+  /// @example
+  /// ```ts
+  /// import { serve, upgradeWebSocket } from "std/http"
+  ///
+  /// async function handle(req: Request): Promise<Response> throws Error {
+  ///   const up = upgradeWebSocket(req)
+  ///   up.response
+  /// }
+  /// const server = await serve({ port: 0 }, handle)
+  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+  /// await new Promise<void>((resolve, reject) => {
+  ///   ws.onopen = (e) => {
+  ///     ws.send("hello")
+  ///     println(ws.bufferedAmount)   // 5 (until it's written)
+  ///     ws.close()
+  ///   }
+  ///   ws.onclose = (e) => resolve(__void())
+  /// })
+  /// await server.shutdown()
+  /// ```
+  public get bufferedAmount(): int { return this.queued }
+
+  /// Sends a message, counted in `bufferedAmount` until it's written.
+  async sendCounted(op: int, payload: Uint8Array): Promise<void> {
+    this.queued += payload.length
+    await this.sendSafely(op, payload)
+    this.queued -= payload.length
   }
 
   async sendSafely(op: int, payload: Uint8Array): Promise<void> {
@@ -694,8 +721,8 @@ class WebSocket {
       return
     }
     match (data) {
-      s: string => this.sendSafely(1, new TextEncoder().encode(s)),
-      b: Uint8Array => this.sendSafely(2, b),
+      s: string => this.sendCounted(1, new TextEncoder().encode(s)),
+      b: Uint8Array => this.sendCounted(2, b),
     };
   }
 
@@ -743,9 +770,7 @@ class WebSocket {
     const payload = new Uint8Array(2 + why.length)
     payload.set(0, (code >> 8) & 255)
     payload.set(1, code & 255)
-    for (let i = 0; i < why.length; i++) {
-      payload.set(2 + i, why.get(i))
-    }
+    payload.setAll(why, 2)
     this.sendSafely(8, payload);
   }
 }
