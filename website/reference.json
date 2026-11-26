@@ -116,6 +116,7 @@
     "LinkedList": "std-collections#LinkedList",
     "LruCache": "std-collections#LruCache",
     "BitSet": "std-collections#BitSet",
+    "Hash": "std-crypto#Hash",
     "Aead": "std-crypto#Aead",
     "EcKeyPair": "std-crypto#EcKeyPair",
     "FormatSpec": "std-fmt#FormatSpec",
@@ -12598,7 +12599,7 @@
     {
       "name": "std/crypto",
       "id": "std-crypto",
-      "about": "<p><code>std/crypto</code> (spec §13.2): synchronous cryptography over Mbed TLS: hashes, HMAC, HKDF,\nPBKDF2, AEAD (AES-GCM, ChaCha20-Poly1305), elliptic-curve keys (P-256, P-384, X25519),\nECDSA and ECDH. The <code>crypto</code> global has Web Crypto's async <code>subtle</code> over the same code.\nStrings are taken as their UTF-8 bytes.</p>\n",
+      "about": "<p><code>std/crypto</code> (spec §13.2): synchronous cryptography over Mbed TLS: hashes, HMAC, HKDF,\nPBKDF2, AEAD (AES-GCM, ChaCha20-Poly1305), elliptic-curve keys (P-256, P-384, X25519),\nECDSA and ECDH; streaming hashes (<code>createHash</code>). The <code>crypto</code> global has Web Crypto's async\n<code>subtle</code> over the same code.\nStrings are taken as their UTF-8 bytes.</p>\n",
       "items": [
         {
           "name": "digest",
@@ -12611,8 +12612,88 @@
               "code": "import { digest } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nprintln(hex.encode(digest(\"SHA-256\", \"abc\")))\n// ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
             }
           ],
-          "source": "crypto.pi:19",
+          "source": "crypto.pi:20",
           "members": []
+        },
+        {
+          "name": "createHash",
+          "kind": "function",
+          "signature": "function createHash(algorithm: HashAlgorithm): Hash",
+          "doc": "<p>A hash computed piece by piece (#69): <code>update</code> with each chunk, then <code>digest</code> once, for\ndata that doesn't fit in memory or arrives in parts. The same algorithms as <code>digest</code>.</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { createHash } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst h = createHash(\"SHA-256\")\nh.update(\"a\").update(\"bc\")\nprintln(hex.encode(h.digest()))\n// ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            }
+          ],
+          "source": "crypto.pi:37",
+          "members": []
+        },
+        {
+          "name": "Hash",
+          "kind": "class",
+          "signature": "class Hash",
+          "doc": "<p>A hash computed piece by piece (<code>createHash</code>).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { Hash } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst h = new Hash(\"SHA-1\")\nh.update(new TextEncoder().encode(\"abc\"))\nprintln(hex.encode(h.digest()))   // a9993e364706816aba3e25717850c26c9cd0d89d"
+            }
+          ],
+          "source": "crypto.pi:57",
+          "members": [
+            {
+              "name": "algorithm",
+              "kind": "field",
+              "signature": "public readonly algorithm: HashAlgorithm",
+              "doc": "<p>The algorithm.</p>\n",
+              "examples": [],
+              "source": "crypto.pi:59",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(algorithm: HashAlgorithm)",
+              "doc": "<p>A hash of nothing yet, by <code>algorithm</code> (as <code>createHash(algorithm)</code>).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { Hash } from \"std/crypto\"\n\nprintln(new Hash(\"SHA-512\").algorithm)   // SHA-512"
+                }
+              ],
+              "source": "crypto.pi:70",
+              "members": []
+            },
+            {
+              "name": "update",
+              "kind": "method",
+              "signature": "public update(data: Uint8Array | string): Hash",
+              "doc": "<p>Adds <code>data</code> (a string as its UTF-8 bytes); returns the hash, for chaining. Panics after\n<code>digest</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { createHash } from \"std/crypto\"\n\nconst h = createHash(\"SHA-256\").update(\"part one, \").update(\"part two\")\nprintln(h.digest().length)   // 32"
+                }
+              ],
+              "source": "crypto.pi:87",
+              "members": []
+            },
+            {
+              "name": "digest",
+              "kind": "method",
+              "signature": "public digest(): Uint8Array",
+              "doc": "<p>The hash of everything added. A hash is digested once (again panics).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { createHash } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nprintln(hex.encode(createHash(\"SHA-1\").digest()))   // da39a3ee5e6b4b0d3255bfef95601890afd80709"
+                }
+              ],
+              "source": "crypto.pi:103",
+              "members": []
+            }
+          ]
         },
         {
           "name": "hmac",
@@ -12625,7 +12706,7 @@
               "code": "import { hmac } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst mac = hmac(\"SHA-256\", \"secret key\", \"message\")\nprintln(mac.length)            // 32\nprintln(hex.encode(mac).slice(0, 8))   //"
             }
           ],
-          "source": "crypto.pi:34",
+          "source": "crypto.pi:123",
           "members": []
         },
         {
@@ -12639,7 +12720,7 @@
               "code": "import { hkdf } from \"std/crypto\"\n\nconst ikm = new TextEncoder().encode(\"input key material\")\nconst salt = new TextEncoder().encode(\"salt\")\nconst info = new TextEncoder().encode(\"session key\")\nconst key = hkdf(\"SHA-256\", ikm, salt, info, 32)\nprintln(key.length)   // 32"
             }
           ],
-          "source": "crypto.pi:50",
+          "source": "crypto.pi:139",
           "members": []
         },
         {
@@ -12653,7 +12734,7 @@
               "code": "import { pbkdf2 } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst salt = new TextEncoder().encode(\"salt\")\nconst key = pbkdf2(\"SHA-256\", \"password\", salt, 1, 32)\nprintln(hex.encode(key))\n// 120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b"
             }
           ],
-          "source": "crypto.pi:66",
+          "source": "crypto.pi:155",
           "members": []
         },
         {
@@ -12667,7 +12748,7 @@
               "code": "import { hmac, timingSafeEqual } from \"std/crypto\"\n\nconst expected = hmac(\"SHA-256\", \"key\", \"data\")\nconst received = hmac(\"SHA-256\", \"key\", \"data\")\nprintln(timingSafeEqual(expected, received))   // true\nprintln(timingSafeEqual(expected, hmac(\"SHA-256\", \"key\", \"other\")))   // false"
             }
           ],
-          "source": "crypto.pi:81",
+          "source": "crypto.pi:170",
           "members": []
         },
         {
@@ -12681,7 +12762,7 @@
               "code": "import { randomBytes } from \"std/crypto\"\nimport { hex } from \"std/encoding\"\n\nconst nonce = randomBytes(12)\nprintln(nonce.length)       // 12\nprintln(hex.encode(nonce))  // e.g. 9f3c0a… (different every run)"
             }
           ],
-          "source": "crypto.pi:96",
+          "source": "crypto.pi:185",
           "members": []
         },
         {
@@ -12695,7 +12776,7 @@
               "code": "import { Aead, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(32))\nconst nonce = randomBytes(12)\nconst sealed = cipher.seal(nonce, \"attack at dawn\")\nprintln(sealed.length)   // 30 (14 bytes of text + 16-byte tag)\nprintln(new TextDecoder().decode(cipher.open(nonce, sealed)))   // attack at dawn"
             }
           ],
-          "source": "crypto.pi:114",
+          "source": "crypto.pi:203",
           "members": [
             {
               "name": "constructor",
@@ -12708,7 +12789,7 @@
                   "code": "import { Aead } from \"std/crypto\"\n\n// `new Aead(…)` doesn't check the key: prefer `Aead.aesGcm` or `Aead.chacha20Poly1305`.\nconst cipher = new Aead(2, new Uint8Array(32))\nconst sealed = cipher.seal(new Uint8Array(12), \"hi\")\nprintln(sealed.length)   // 18"
                 }
               ],
-              "source": "crypto.pi:131",
+              "source": "crypto.pi:220",
               "members": []
             },
             {
@@ -12722,7 +12803,7 @@
                   "code": "import { Aead, CryptoError, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(16))\nprintln(cipher.seal(randomBytes(12), \"x\").length)   // 17\ntry {\n  Aead.aesGcm(randomBytes(10)).seal(randomBytes(12), \"x\")\n  println(\"unreachable\")\n} catch (e: CryptoError) {\n  println(e.message)   // AES keys are 16, 24 or 32 bytes\n}"
                 }
               ],
-              "source": "crypto.pi:151",
+              "source": "crypto.pi:240",
               "members": []
             },
             {
@@ -12736,7 +12817,7 @@
                   "code": "import { Aead, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.chacha20Poly1305(randomBytes(32))\nconst nonce = randomBytes(12)\nconst sealed = cipher.seal(nonce, \"hello\")\nprintln(new TextDecoder().decode(cipher.open(nonce, sealed)))   // hello"
                 }
               ],
-              "source": "crypto.pi:167",
+              "source": "crypto.pi:256",
               "members": []
             },
             {
@@ -12750,7 +12831,7 @@
                   "code": "import { Aead, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(32))\nconst nonce = randomBytes(12)\nconst header = new TextEncoder().encode(\"v1\")\nconst sealed = cipher.seal(nonce, \"payload\", header)\nprintln(sealed.length)   // 23"
                 }
               ],
-              "source": "crypto.pi:186",
+              "source": "crypto.pi:275",
               "members": []
             },
             {
@@ -12764,7 +12845,7 @@
                   "code": "import { Aead, CryptoError, randomBytes } from \"std/crypto\"\n\nconst cipher = Aead.aesGcm(randomBytes(32))\nconst nonce = randomBytes(12)\nconst sealed = cipher.seal(nonce, \"secret\")\nprintln(new TextDecoder().decode(cipher.open(nonce, sealed)))   // secret\nsealed.set(0, sealed.get(0) ^ 1)\ntry {\n  cipher.open(nonce, sealed)\n  println(\"unreachable\")\n} catch (e: CryptoError) {\n  println(e.kind)   // AuthenticationFailed\n}"
                 }
               ],
-              "source": "crypto.pi:209",
+              "source": "crypto.pi:298",
               "members": []
             }
           ]
@@ -12780,7 +12861,7 @@
               "code": "import { EcKeyPair, ecdsaVerify } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-256\")\nprintln(keys.publicKey.length)   // 65\nconst sig = keys.sign(\"SHA-256\", \"hello\")\nprintln(ecdsaVerify(\"P-256\", \"SHA-256\", keys.publicKey, \"hello\", sig))   // true"
             }
           ],
-          "source": "crypto.pi:227",
+          "source": "crypto.pi:316",
           "members": [
             {
               "name": "curve",
@@ -12788,7 +12869,7 @@
               "signature": "public readonly curve: NamedCurve",
               "doc": "<p>The curve both keys belong to.</p>\n",
               "examples": [],
-              "source": "crypto.pi:229",
+              "source": "crypto.pi:318",
               "members": []
             },
             {
@@ -12797,7 +12878,7 @@
               "signature": "public readonly privateKey: Uint8Array",
               "doc": "<p>The private key: a big-endian scalar (for X25519, the 32-byte RFC 7748 form). Keep it secret.</p>\n",
               "examples": [],
-              "source": "crypto.pi:231",
+              "source": "crypto.pi:320",
               "members": []
             },
             {
@@ -12806,7 +12887,7 @@
               "signature": "public readonly publicKey: Uint8Array",
               "doc": "<p>The public key: an uncompressed point <code>04 ‖ x ‖ y</code> (for X25519, 32 bytes).</p>\n",
               "examples": [],
-              "source": "crypto.pi:233",
+              "source": "crypto.pi:322",
               "members": []
             },
             {
@@ -12820,7 +12901,7 @@
                   "code": "import { EcKeyPair } from \"std/crypto\"\n\nconst generated = EcKeyPair.generate(\"X25519\")\nconst copy = new EcKeyPair(\"X25519\", generated.privateKey, generated.publicKey)\nprintln(copy.curve)   // X25519"
                 }
               ],
-              "source": "crypto.pi:245",
+              "source": "crypto.pi:334",
               "members": []
             },
             {
@@ -12834,7 +12915,7 @@
                   "code": "import { EcKeyPair } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-384\")\nprintln(keys.privateKey.length)   // 48\nprintln(keys.publicKey.length)    // 97"
                 }
               ],
-              "source": "crypto.pi:261",
+              "source": "crypto.pi:350",
               "members": []
             },
             {
@@ -12848,7 +12929,7 @@
                   "code": "import { EcKeyPair, timingSafeEqual } from \"std/crypto\"\n\nconst original = EcKeyPair.generate(\"P-256\")\nconst restored = EcKeyPair.fromPrivateKey(\"P-256\", original.privateKey)\nprintln(timingSafeEqual(restored.publicKey, original.publicKey))   // true"
                 }
               ],
-              "source": "crypto.pi:276",
+              "source": "crypto.pi:365",
               "members": []
             },
             {
@@ -12862,7 +12943,7 @@
                   "code": "import { EcKeyPair } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-256\")\nconst signature = keys.sign(\"SHA-256\", \"release v1.0\")\nprintln(signature.length)   // 64 (r ‖ s)"
                 }
               ],
-              "source": "crypto.pi:291",
+              "source": "crypto.pi:380",
               "members": []
             },
             {
@@ -12876,7 +12957,7 @@
                   "code": "import { EcKeyPair, timingSafeEqual } from \"std/crypto\"\n\nconst alice = EcKeyPair.generate(\"X25519\")\nconst bob = EcKeyPair.generate(\"X25519\")\nconst s1 = alice.agree(bob.publicKey)\nconst s2 = bob.agree(alice.publicKey)\nprintln(s1.length)                  // 32\nprintln(timingSafeEqual(s1, s2))    // true"
                 }
               ],
-              "source": "crypto.pi:309",
+              "source": "crypto.pi:398",
               "members": []
             }
           ]
@@ -12892,7 +12973,7 @@
               "code": "import { EcKeyPair, ecdsaVerify } from \"std/crypto\"\n\nconst keys = EcKeyPair.generate(\"P-256\")\nconst sig = keys.sign(\"SHA-256\", \"msg\")\nprintln(ecdsaVerify(\"P-256\", \"SHA-256\", keys.publicKey, \"msg\", sig))       // true\nprintln(ecdsaVerify(\"P-256\", \"SHA-256\", keys.publicKey, \"tampered\", sig))  // false"
             }
           ],
-          "source": "crypto.pi:325",
+          "source": "crypto.pi:414",
           "members": []
         },
         {
