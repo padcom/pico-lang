@@ -1,0 +1,27 @@
+// expect: zażółć "gęślą" jaźń 😀 ok
+// expect: names: Łódź, Kraków
+// expect: 3000 rows, last: wiersz 2999 — ąę
+// expect: error: invalid JSON at 1:20: expected ',' or '}'
+// `JSON.parse` of non-ASCII text (#58): read as UTF-8 bytes (indexing a non-ASCII string walks
+// it from the start, so reading was quadratic); strings with escapes and raw non-ASCII text
+// mixed; error columns count characters.
+struct Row {
+  name: string
+}
+struct City {
+  names: string[]
+}
+
+println(JSON.parse<string>(`"zażółć \\"gęślą\\" jaźń \\ud83d\\ude00 ok"`))
+const c = JSON.parse<City>(`{"names": ["Łódź", "Kraków"]}`)
+println(`names: ${c.names.join(", ")}`)
+const rows: Row[] = []
+for (let i = 0; i < 3000; i++) rows.push(Row { name: `wiersz ${i} — ąę` })
+const back = JSON.parse<Row[]>(JSON.stringify(rows))
+println(`${back.length} rows, last: ${back[back.length - 1].name}`)
+try {
+  const bad = JSON.parse<City>(`{"names": ["Łódź"] "x": 1}`)
+  println(bad.names.length)
+} catch (e: JsonError) {
+  println(`error: ${e.message}`)
+}
