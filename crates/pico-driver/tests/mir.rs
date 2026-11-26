@@ -80,6 +80,22 @@ println(`${ratio} ${big}`)
 "#));
 }
 
+/// Checks of constants fold (#55): a bounds check with a constant index and length, and the
+/// overflow test of checked arithmetic on constants (`Overflows` → `true`/`false`).
+#[test]
+fn check_folding() {
+    insta::assert_snapshot!(mir(r#"
+function third(): i32 {
+  const xs: [i32; 3] = [1, 2, 3]
+  return xs[2]
+}
+const small: i8 = 100
+function over(): i8? { small.checkedAdd(28) }
+function fine(): i8? { small.checkedMul(1) }
+println(`${third()} ${over()} ${fine()}`)
+"#));
+}
+
 /// Strings fold too (#55): concatenation of constants and the string forms of integers, `bool`s
 /// and `char`s, also through `const`s.
 #[test]

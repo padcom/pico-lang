@@ -48,7 +48,8 @@ const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl
 - Types are values at comptime (`comptime T: type`, as a generic or a value parameter:
   `schema(Point)`). A type answers `T.name`, `T.kind` (`"struct"`, `"class"`, `"enum"`,
   `"primitive"`, …), `T.fields` (`FieldInfo { name, typeName }`) and `T.methods`
-  (`MethodInfo { name }`); private members are listed only inside the declaring module
+  (`MethodInfo { name, signature }`, the signature as `(a: i64, ...rest: string[]): bool`, #56;
+  also in run-time reflection's `methods`); private members are listed only inside the declaring module
   (decision 222).
 - **Limit**: 10 million evaluation steps per top-level comptime evaluation, after which a compile
   error shows the comptime backtrace. Override it with `@comptimeLimit(50_000_000)` on the
@@ -102,6 +103,8 @@ pieces splice into templates (`${ast.string(fn.name)}`); errors in generated cod
 reported where it was generated, with a label at the decorator that generated it.
 
 Decorators are allowed on classes, structs, enums, functions, methods, fields and parameters.
+A decorator is used by its name in the module: declared there, imported (also through modules
+that re-export it with `export { d } from` or `export *`, #54), or the core library's.
 
 **How they run** (decision 223): before the program is compiled, its decorators run in a
 program of their own (the core library, `std/meta`, and the declarations the decorator

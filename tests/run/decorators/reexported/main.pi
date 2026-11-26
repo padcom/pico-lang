@@ -1,0 +1,13 @@
+// expect: describe: User
+// expect: a class
+// Decorators imported through re-exports (#54): `export { d } from` and `export *`.
+import { describable } from "./named"
+import { kinded } from "./all"
+
+@describable
+@kinded
+class User { constructor(public id: i64) {} }
+
+const u = new User(1)
+println(u.describe())
+println(u.kind())

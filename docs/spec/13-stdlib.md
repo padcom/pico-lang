@@ -356,6 +356,10 @@ previous?)` and `crc32(bytes, previous = 0)` (zlib's) do it in one call.
 `base64.encode(data, url = false)` (RFC 4648; `url` uses `-`/`_` without padding) and
 `base64.decode(text): Uint8Array throws TypeError` (either alphabet, padding optional,
 whitespace skipped); `hex.encode(data)` (lowercase) and `hex.decode(text) throws TypeError`.
+`csv.parse(text, { separator }): string[][] throws SyntaxError` reads RFC 4180 (quoted fields
+with separators, doubled quotes and line breaks; `\n` or `\r\n` rows; a quote inside an unquoted
+field kept; an unclosed quoted field, or text after one, is a `SyntaxError` with its line), and
+`csv.stringify(rows, { separator, lineEnding = "\n" })` quotes the fields that need it (#63).
 
 ### `std/streams`
 WHATWG Streams with chunk-counting queues, globals as on the Web (`std/streams` exports them
@@ -618,7 +622,8 @@ recent first) and `BitSet` (`add`, `delete`, `has`, `set(i, on)`, `flip`, `size`
 rounding matches templates; precisions up to 20), `formatString(s, spec)`, `formatBool(b,
 spec)`, `pad(text, width, align, fill)` and `groupDigits(text, separator = ",", size = 3)`. An
 invalid spec panics. `DateTime` (`${dt:yyyy-MM-dd}` is its `format` pattern) and `std/math`'s
-vectors and quaternions (`${v:.2f}` per component) are `Formattable`. `wrap(text, width,
+vectors, quaternions and `Mat4` (`${v:.2f}` per component or element) and `BigInt` (the integer
+specs: `${b:#x}`, `${b:>30}`, …; #57) are `Formattable`. `wrap(text, width,
 measure?)` wraps at spaces to `width` (measured by `measure`, by default code points): line
 breaks and a line's leading spaces stay, the spaces at a break go, a longer word stays whole.
 
