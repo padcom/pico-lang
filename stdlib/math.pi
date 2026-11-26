@@ -2027,13 +2027,15 @@ export class BigInt implements Formattable {
     if (this.sign == 0) return "0"
     let s = ""
     if (radix == 10) {
+      // (Pieces joined once: appending is O(n²) in the digits, #73.)
       let i = this.limbs.length - 1
-      s = `${this.limbs[i]}`
+      const parts: string[] = [`${this.limbs[i]}`]
       i -= 1
       while (i >= 0) {
-        s = s + `${this.limbs[i]}`.padStart(9, "0")
+        parts.push(`${this.limbs[i]}`.padStart(9, "0"))
         i -= 1
       }
+      s = parts.join("")
     } else {
       const digits = "0123456789abcdefghijklmnopqrstuvwxyz"
       const r = new BigInt(radix)
@@ -2045,11 +2047,7 @@ export class BigInt implements Formattable {
         out.push(`${digits[d]}`)
         v = qr[0]
       }
-      let i = out.length - 1
-      while (i >= 0) {
-        s = s + out[i]
-        i -= 1
-      }
+      s = out.reverse().join("")
     }
     if (this.sign < 0) "-" + s else s
   }

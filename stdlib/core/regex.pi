@@ -1542,27 +1542,27 @@ function __rExpand(replacement: string, m: RegExpMatch, s: string): string {
   const r = __rChars(replacement)
   const whole = m[0]
   const matched = if (whole != null) whole else ""
-  let out = ""
+  const out: string[] = [] // (pieces joined once: appending is O(n²), #73)
   let i = 0
   while (i < r.length) {
     const c = r[i]
     if (c != 36 || i + 1 >= r.length) {
-      out = `${out}${c as u32 as char}`
+      out.push(`${c as u32 as char}`)
       i += 1
       continue
     }
     const d = r[i + 1]
     if (d == 36) {
-      out = out + "$"
+      out.push("$")
       i += 2
     } else if (d == 38) {
-      out = out + matched
+      out.push(matched)
       i += 2
     } else if (d == 96) {
-      out = out + s.slice(0, m.index)
+      out.push(s.slice(0, m.index))
       i += 2
     } else if (d == 39) {
-      out = out + s.slice(m.index + matched.length)
+      out.push(s.slice(m.index + matched.length))
       i += 2
     } else if (d >= 48 && d <= 57) {
       let n = d - 48
@@ -1573,10 +1573,10 @@ function __rExpand(replacement: string, m: RegExpMatch, s: string): string {
       }
       if (n >= 1 && n < m.length) {
         const g = m[n]
-        out = out + (if (g != null) g else "")
+        out.push((if (g != null) g else ""))
         i += used
       } else {
-        out = out + "$"
+        out.push("$")
         i += 1
       }
     } else if (d == 60 && m.groups != null) {
@@ -1591,20 +1591,20 @@ function __rExpand(replacement: string, m: RegExpMatch, s: string): string {
         if (gs != null) {
           const v = gs.get(name)
           if (v != null) {
-            out = out + (if (v != null) v else "")
+            out.push((if (v != null) v else ""))
           }
         }
         i = k + 1
       } else {
-        out = out + "$"
+        out.push("$")
         i += 1
       }
     } else {
-      out = out + "$"
+      out.push("$")
       i += 1
     }
   }
-  return out
+  return out.join("")
 }
 
 /// A function giving a match's replacement.
@@ -1623,7 +1623,7 @@ function __rReplaceWith(rep: __Replacement, m: RegExpMatch, s: string): string {
 /// Replaces the first match of `re` (every match with the `g` flag).
 function __rReplace(s: string, re: RegExp, rep: __Replacement, all: bool): string {
   const cs = __rChars(s)
-  let out = ""
+  const out: string[] = [] // (pieces joined once: appending is O(n²), #73)
   let last = 0
   let from = if (re.sticky) re.lastIndex else 0
   while (from <= cs.length) {
@@ -1632,7 +1632,7 @@ function __rReplace(s: string, re: RegExp, rep: __Replacement, all: bool): strin
       break
     }
     const m = re.__match(s, caps)
-    out = out + s.slice(last, caps[0]) + __rReplaceWith(rep, m, s)
+    out.push(s.slice(last, caps[0]) + __rReplaceWith(rep, m, s))
     last = caps[1]
     if (!all) {
       break
@@ -1642,7 +1642,8 @@ function __rReplace(s: string, re: RegExp, rep: __Replacement, all: bool): strin
   if (re.global || re.sticky) {
     re.lastIndex = 0
   }
-  return out + s.slice(last)
+  out.push(s.slice(last))
+  return out.join("")
 }
 
 /// Every match of `re` in `s`.

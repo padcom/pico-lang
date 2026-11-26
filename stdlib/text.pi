@@ -90,16 +90,17 @@ export function snakeCase(s: string): string {
 /// `s` cut at every character in `separators` (empty pieces kept).
 function splitAt(s: string, separators: string): string[] {
   const out: string[] = []
-  let current = ""
+  // (The current piece's characters, joined once: appending is O(n²), #73.)
+  let current: string[] = []
   for (const c of s) {
     if (separators.includes(c.toString())) {
-      out.push(current)
-      current = ""
+      out.push(current.join(""))
+      current = []
     } else {
-      current += c.toString()
+      current.push(c.toString())
     }
   }
-  out.push(current)
+  out.push(current.join(""))
   return out
 }
 

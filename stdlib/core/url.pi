@@ -38,16 +38,17 @@ function __pctChar(c: char): string {
 
 /// `s` with the characters of `set` (and controls, and everything past ASCII) encoded.
 function __encode(s: string, chars: string): string {
-  let out = ""
+  // (Pieces joined once: appending is O(n²), #73.)
+  const out: string[] = []
   for (const c of s) {
     const n = c as u32
     if (n < 0x21 || n > 0x7E || chars.includes(`${c}`)) {
-      out = out + __pctChar(c)
+      out.push(__pctChar(c))
     } else {
-      out = `${out}${c}`
+      out.push(`${c}`)
     }
   }
-  return out
+  return out.join("")
 }
 
 /// The bytes `%XX` stand for, decoded as UTF-8 (`plus`: `+` is a space).
@@ -88,17 +89,17 @@ function __decode(s: string, plus: bool): string {
 
 /// `application/x-www-form-urlencoded`: letters, digits and `*-._` stay, a space is `+`.
 function __formEncode(s: string): string {
-  let out = ""
+  const out: string[] = []
   for (const c of s) {
     if (c.isAlpha() || c.isDigit() || c == '*' || c == '-' || c == '.' || c == '_') {
-      out = `${out}${c}`
+      out.push(`${c}`)
     } else if (c == ' ') {
-      out = out + "+"
+      out.push("+")
     } else {
-      out = out + __pctChar(c)
+      out.push(__pctChar(c))
     }
   }
-  return out
+  return out.join("")
 }
 
 /// A query string's name/value pairs (`a=1&b=two%20words`), in order.
