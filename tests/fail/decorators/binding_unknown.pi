@@ -1,0 +1,7 @@
+// error: E0900
+// at: 5:3
+// A decorator on a local binding that isn't a `decorator function` is still an error (#54).
+function f(): int {
+  @nope const x = 1
+  x
+}

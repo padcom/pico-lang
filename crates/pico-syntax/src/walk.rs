@@ -1,7 +1,7 @@
 //! A visitor over the syntax tree: each method visits its node's children by default
 //! (`walk_*`); a rule overrides the nodes it looks at and calls `walk_*` to keep going.
 
-use pico_syntax::ast::*;
+use crate::ast::*;
 
 pub trait Visit<'a> {
     fn stmt(&mut self, s: &'a Stmt) {

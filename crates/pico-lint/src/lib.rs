@@ -22,7 +22,7 @@ mod sizes;
 mod style;
 mod suppress;
 mod unused;
-mod walk;
+pub(crate) use pico_syntax::walk;
 
 pub use config::Config;
 use pico_diag::{Diagnostic, FileId};

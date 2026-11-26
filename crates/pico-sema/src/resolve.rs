@@ -41,6 +41,9 @@ pub struct Modules {
     pub type_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
     /// The same for fields and methods, by the member's name span (#54).
     pub member_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
+    /// Decorators on local bindings that ran (their spans): the binding is then an ordinary
+    /// one (#54).
+    pub expanded_decorators: std::collections::HashSet<Span>,
     /// Code generated into a module (by decorators) lives in a file of its own, part of the
     /// module of the file it maps to.
     pub file_modules: HashMap<FileId, FileId>,
@@ -242,6 +245,7 @@ pub fn resolve_modules(
         maybe_cells: HashSet::new(),
         type_decorators: modules.type_decorators.clone(),
         member_decorators: modules.member_decorators.clone(),
+        expanded_decorators: modules.expanded_decorators.clone(),
         comptime_limit: None,
         comptime_depth: 0,
         len_params: HashSet::new(),
@@ -404,6 +408,8 @@ struct Resolver {
     type_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
     /// See [`Modules::member_decorators`].
     member_decorators: HashMap<Span, Vec<(String, Vec<String>)>>,
+    /// See [`Modules::expanded_decorators`].
+    expanded_decorators: std::collections::HashSet<Span>,
     /// The `@comptimeLimit` of the binding whose `comptime` initializer is being lowered.
     comptime_limit: Option<u64>,
     /// How many `comptime` expressions the code being lowered is inside.
@@ -5735,6 +5741,31 @@ impl Resolver {
             } => {
                 let e = self.for_of(*is_await, *kind, pat, iter, body, s.span);
                 out.push(Stmt::Expr(e));
+            }
+            // A local binding whose decorators ran (#54): an ordinary binding.
+            ast::StmtKind::Decl(d)
+                if matches!(d.kind, ast::DeclKind::Binding(_))
+                    && d.decorators
+                        .iter()
+                        .all(|dec| self.expanded_decorators.contains(&dec.span)) =>
+            {
+                let ast::DeclKind::Binding(inner) = &d.kind else {
+                    unreachable!("a binding")
+                };
+                self.lower_stmt(inner, out, tail);
+            }
+            ast::StmtKind::Decl(d) if matches!(d.kind, ast::DeclKind::Binding(_)) => {
+                let left: Vec<ast::Decorator> = d
+                    .decorators
+                    .iter()
+                    .filter(|dec| !self.expanded_decorators.contains(&dec.span))
+                    .cloned()
+                    .collect();
+                self.unknown_decorators(&left);
+                // (The binding itself is still there.)
+                if let ast::DeclKind::Binding(inner) = &d.kind {
+                    self.lower_stmt(inner, out, tail);
+                }
             }
             ast::StmtKind::Decl(d) => {
                 let what = match &d.kind {

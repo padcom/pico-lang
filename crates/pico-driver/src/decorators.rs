@@ -45,6 +45,53 @@ enum Target {
     Member(usize),
     /// Parameter `j` of the function (`None`) or of method `i`.
     Param(Option<usize>, usize),
+    /// A binding: the statement itself (top-level) or a local one inside it.
+    Binding,
+}
+
+/// A decorated binding's name, type as written and whether it's a `const` (#54).
+type BindingInfo = (String, String, bool);
+
+/// What a binding decorator receives.
+fn binding_descriptor(b: &BindingInfo, id: usize) -> String {
+    format!(
+        "new __BindingDecl({id}, {}, {}, {})",
+        quote(&b.0),
+        quote(&b.1),
+        b.2
+    )
+}
+
+fn binding_info(sm: &SourceMap, s: &ast::Stmt) -> Option<BindingInfo> {
+    let StmtKind::Let { kind, pat, ty, .. } = &s.kind else {
+        return None;
+    };
+    let name = match &pat.kind {
+        ast::PatternKind::Ident(n) => n.name.clone(),
+        _ => text(sm, pat.span),
+    };
+    let ty = ty.as_ref().map(|t| text(sm, t.span)).unwrap_or_default();
+    Some((name, ty, matches!(kind, ast::BindingKind::Const)))
+}
+
+/// The decorated local bindings in a statement (their decorators, what they bind).
+struct LocalBindings<'a> {
+    sm: &'a SourceMap,
+    found: Vec<(&'a ast::Decorator, BindingInfo)>,
+}
+
+impl<'a> pico_syntax::walk::Visit<'a> for LocalBindings<'a> {
+    fn stmt(&mut self, s: &'a ast::Stmt) {
+        if let StmtKind::Decl(d) = &s.kind
+            && let DeclKind::Binding(inner) = &d.kind
+            && let Some(info) = binding_info(self.sm, inner)
+        {
+            for dec in &d.decorators {
+                self.found.push((dec, info.clone()));
+            }
+        }
+        pico_syntax::walk::walk_stmt(self, s);
+    }
 }
 
 /// The members of a class, struct or enum declaration.
@@ -93,11 +140,12 @@ fn kinds_for(what: &str) -> &'static str {
 
 /// A use of a decorator on a declaration.
 struct Use {
-    id: usize,
     /// The decorated statement.
     stmt: usize,
     /// What in it.
     target: Target,
+    /// What its decorator receives (`new __ClassDecl(…)`, …).
+    desc: String,
     /// The decorator's name as the using module writes it (#54: its call runs there).
     written: String,
     /// The decorator: its module and its name there.
@@ -144,13 +192,53 @@ pub fn expand(
     }
     // The uses: on declarations, their members and parameters (#54).
     let mut uses: Vec<Use> = Vec::new();
+    let mut local_uses: Vec<Span> = Vec::new();
     for (i, st) in stmts.iter().enumerate() {
-        let StmtKind::Decl(d) = &st.kind else {
+        let file = st.span.file;
+        // (Decorator, what it's on, what that is, a binding's facts.)
+        let mut found: Vec<(&ast::Decorator, Target, &str, Option<(BindingInfo, bool)>)> =
+            Vec::new();
+        // Bindings: top-level ones (their decorators kept aside when modules are read) and
+        // local ones anywhere inside.
+        if let Some(decs) = modules.binding_decorators.get(&st.span)
+            && let Some(info) = binding_info(sm, st)
+        {
+            for dec in decs {
+                found.push((
+                    dec,
+                    Target::Binding,
+                    "BindingDecl",
+                    Some((info.clone(), false)),
+                ));
+            }
+        }
+        let mut locals = LocalBindings {
+            sm,
+            found: Vec::new(),
+        };
+        pico_syntax::walk::walk_stmt(&mut locals, st);
+        for (dec, info) in locals.found {
+            found.push((dec, Target::Binding, "BindingDecl", Some((info, true))));
+        }
+        let decl = match &st.kind {
+            StmtKind::Decl(d) => Some(d),
+            _ => None,
+        };
+        let Some(d) = decl else {
+            push_uses(
+                sm,
+                &decorators,
+                modules,
+                &mut out,
+                &mut uses,
+                &mut local_uses,
+                None,
+                i,
+                file,
+                found,
+            );
             continue;
         };
-        let file = st.span.file;
-        // (Decorator, what it's on, what that is as a descriptor.)
-        let mut found: Vec<(&ast::Decorator, Target, &str)> = Vec::new();
         let decl_kind = match &d.kind {
             DeclKind::Function(_) => Some("FunctionDecl"),
             DeclKind::Class(_) | DeclKind::Struct(_) | DeclKind::Enum(_) => Some("ClassDecl"),
@@ -158,7 +246,7 @@ pub fn expand(
         };
         for dec in &d.decorators {
             match decl_kind {
-                Some(k) => found.push((dec, Target::Decl, k)),
+                Some(k) => found.push((dec, Target::Decl, k, None)),
                 None => {
                     if matches!(&dec.path[..], [n] if find_decorator(&decorators, modules, file, &n.name).is_some())
                     {
@@ -179,7 +267,7 @@ pub fn expand(
         if let DeclKind::Function(f) = &d.kind {
             for (j, p) in f.params.iter().enumerate() {
                 for dec in &p.decorators {
-                    found.push((dec, Target::Param(None, j), "ParamDecl"));
+                    found.push((dec, Target::Param(None, j), "ParamDecl", None));
                 }
             }
         }
@@ -192,72 +280,30 @@ pub fn expand(
                 };
                 if let Some(w) = what {
                     for dec in &m.decorators {
-                        found.push((dec, Target::Member(mi), w));
+                        found.push((dec, Target::Member(mi), w, None));
                     }
                 }
                 if let MemberKind::Method(f) = &m.kind {
                     for (j, p) in f.params.iter().enumerate() {
                         for dec in &p.decorators {
-                            found.push((dec, Target::Param(Some(mi), j), "ParamDecl"));
+                            found.push((dec, Target::Param(Some(mi), j), "ParamDecl", None));
                         }
                     }
                 }
             }
         }
-        for (dec, target_in, what) in found {
-            let [name] = &dec.path[..] else { continue };
-            let Some(target) = find_decorator(&decorators, modules, file, &name.name) else {
-                continue;
-            };
-            let takes = decorators[&target].trim_start_matches("__");
-            let known = [
-                "FunctionDecl",
-                "ClassDecl",
-                "FieldDecl",
-                "ParamDecl",
-                "BindingDecl",
-            ];
-            if known.contains(&takes) && takes != what {
-                out.diags.push(
-                    Diagnostic::error(
-                        codes::DECORATOR,
-                        format!(
-                            "`@{}` decorates a `{takes}` ({}), not {}",
-                            name.name,
-                            kinds_for(takes),
-                            kinds_for(what)
-                        ),
-                    )
-                    .primary(dec.span, "used on the wrong kind of declaration"),
-                );
-                continue;
-            }
-            let args = dec
-                .args
-                .iter()
-                .flatten()
-                .map(|a| text(sm, a.value.span))
-                .collect();
-            let bare = dec
-                .args
-                .iter()
-                .flatten()
-                .map(|a| match &a.value.kind {
-                    ast::ExprKind::Ident(n) => Some(n.clone()),
-                    _ => None,
-                })
-                .collect();
-            uses.push(Use {
-                bare,
-                id: uses.len(),
-                stmt: i,
-                target: target_in,
-                written: name.name.clone(),
-                decorator: target,
-                span: dec.span,
-                args,
-            });
-        }
+        push_uses(
+            sm,
+            &decorators,
+            modules,
+            &mut out,
+            &mut uses,
+            &mut local_uses,
+            Some(d),
+            i,
+            file,
+            found,
+        );
     }
     if out.diags.iter().any(Diagnostic::is_error) {
         return out;
@@ -388,9 +434,112 @@ pub fn expand(
         kept.push(st);
     }
     *stmts = kept;
+    // Bindings: a top-level one's user decorators are gone (`@comptimeLimit` stays); a local
+    // one's are marked as run, so it resolves as an ordinary binding (#54).
+    let bindings: Vec<(Span, Vec<ast::Decorator>)> = modules
+        .binding_decorators
+        .clone()
+        .into_iter()
+        .map(|(span, decs)| {
+            let left = decs
+                .into_iter()
+                .filter(|dec| !user(span.file, dec))
+                .collect();
+            (span, left)
+        })
+        .collect();
+    for (span, left) in bindings {
+        if left.is_empty() {
+            modules.binding_decorators.remove(&span);
+        } else {
+            modules.binding_decorators.insert(span, left);
+        }
+    }
     modules.type_decorators.extend(type_decorators);
     modules.member_decorators.extend(member_decorators);
+    modules.expanded_decorators.extend(local_uses);
     out
+}
+
+/// Adds the uses among `found` (of statement `stmt`, declaration `d` unless it's a binding)
+/// whose decorators are user decorators, checking each fits what it's on.
+#[allow(clippy::too_many_arguments)]
+fn push_uses(
+    sm: &SourceMap,
+    decorators: &HashMap<(FileId, String), String>,
+    modules: &Modules,
+    out: &mut Expansion,
+    uses: &mut Vec<Use>,
+    local_uses: &mut Vec<Span>,
+    d: Option<&ast::Decl>,
+    i: usize,
+    file: FileId,
+    found: Vec<(&ast::Decorator, Target, &str, Option<(BindingInfo, bool)>)>,
+) {
+    for (dec, target_in, what, binding) in found {
+        let [name] = &dec.path[..] else { continue };
+        let Some(target) = find_decorator(decorators, modules, file, &name.name) else {
+            continue;
+        };
+        let takes = decorators[&target].trim_start_matches("__");
+        let known = [
+            "FunctionDecl",
+            "ClassDecl",
+            "FieldDecl",
+            "ParamDecl",
+            "BindingDecl",
+        ];
+        if known.contains(&takes) && takes != what {
+            out.diags.push(
+                Diagnostic::error(
+                    codes::DECORATOR,
+                    format!(
+                        "`@{}` decorates a `{takes}` ({}), not {}",
+                        name.name,
+                        kinds_for(takes),
+                        kinds_for(what)
+                    ),
+                )
+                .primary(dec.span, "used on the wrong kind of declaration"),
+            );
+            continue;
+        }
+        let args = dec
+            .args
+            .iter()
+            .flatten()
+            .map(|a| text(sm, a.value.span))
+            .collect();
+        let bare = dec
+            .args
+            .iter()
+            .flatten()
+            .map(|a| match &a.value.kind {
+                ast::ExprKind::Ident(n) => Some(n.clone()),
+                _ => None,
+            })
+            .collect();
+        let id = uses.len();
+        let desc = match (&binding, d) {
+            (Some((b, _)), _) => binding_descriptor(b, id),
+            (None, Some(d)) => descriptor(sm, d, target_in, id),
+            (None, None) => continue,
+        };
+        // (A local binding's: the resolver treats it as an ordinary binding once it ran.)
+        if let Some((_, true)) = &binding {
+            local_uses.push(dec.span);
+        }
+        uses.push(Use {
+            bare,
+            desc,
+            stmt: i,
+            target: target_in,
+            written: name.name.clone(),
+            decorator: target,
+            span: dec.span,
+            args,
+        });
+    }
 }
 
 /// The decorator `name` means in module `file`: declared there, or imported.
@@ -546,6 +695,7 @@ fn descriptor(sm: &SourceMap, d: &ast::Decl, target: Target, id: usize) -> Strin
                 _ => unreachable!("checked"),
             }
         }
+        Target::Binding => unreachable!("a binding's is `binding_descriptor`"),
         Target::Param(method, j) => {
             let f = function_of(&mut d, method).expect("checked").clone();
             let p = &f.params[j];
@@ -798,11 +948,8 @@ fn run_decorators(
     let mut modules = modules.clone();
     let mut by_module: HashMap<FileId, String> = HashMap::new();
     for u in uses {
-        let StmtKind::Decl(d) = &stmts[u.stmt].kind else {
-            unreachable!("a declaration")
-        };
         let um = module_of(stmts[u.stmt].span.file);
-        let mut args = vec![descriptor(sm, d, u.target, u.id)];
+        let mut args = vec![u.desc.clone()];
         // A bare name the using module has no value for is passed as a string (`@derive(Eq)`).
         for (a, bare) in u.args.iter().zip(&u.bare) {
             match bare {
@@ -959,6 +1106,7 @@ fn apply(
                 };
                 // The function, the method, or the one a parameter belongs to.
                 let method = match u.target {
+                    Target::Binding => continue,
                     Target::Decl => None,
                     Target::Member(i) => Some(i),
                     Target::Param(m, _) => m,

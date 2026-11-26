@@ -598,6 +598,92 @@ class __ParamDecl {
   }
 }
 
+/// A decorated binding (#54): a `const` or `let`, top-level or local. Its decorator checks it
+/// (`error`, `warn`, `note`); it doesn't generate code.
+///
+/// @example
+/// ```ts
+/// import { BindingDecl } from "std/meta"
+///
+/// decorator function constant(b: BindingDecl): void {
+///   if (!b.isConst) b.error(`${b.name} should be a const`)
+/// }
+///
+/// @constant const limit = 10
+/// println(limit)   // 10
+/// ```
+class __BindingDecl {
+  /// Made by the compiler for each use of a binding decorator.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BindingDecl } from "std/meta"
+  ///
+  /// println(new BindingDecl(0, "limit", "int", true).isConst)   // true
+  /// ```
+  constructor(
+    /// Which declaration this is (for the compiler).
+    public id: int,
+    /// The bound name (the pattern's text for a destructuring one).
+    public name: string,
+    /// Its type as written (`""` without an annotation).
+    public typeName: string,
+    /// `const` (not `let`).
+    public isConst: bool,
+  ) {}
+
+  /// A compile error at the decorated binding (the build stops).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BindingDecl } from "std/meta"
+  ///
+  /// decorator function checked(b: BindingDecl): void {
+  ///   if (b.name.length == 1) b.error(`${b.name}: a longer name, please`)
+  /// }
+  ///
+  /// @checked const count: int = 3
+  /// println(count)   // 3
+  /// ```
+  public error(message: string): void {
+    __meta_emit(this.id, "error", message, "")
+  }
+
+  /// A compile warning at the decorated binding (the build goes on).
+  ///
+  /// @example
+  /// ```ts
+  /// import { BindingDecl } from "std/meta"
+  ///
+  /// decorator function checked(b: BindingDecl): void {
+  ///   if (b.typeName == "") b.warn(`${b.name} has no type annotation`)
+  /// }
+  ///
+  /// @checked const count: int = 3
+  /// println(count)   // 3
+  /// ```
+  public warn(message: string): void {
+    __meta_emit(this.id, "warn", message, "")
+  }
+
+  /// A note (information, not a problem) at the decorated binding.
+  ///
+  /// @example
+  /// ```ts
+  /// import { BindingDecl } from "std/meta"
+  ///
+  /// decorator function checked(b: BindingDecl): void {
+  ///   b.note(`${b.name} is checked`)
+  /// }
+  ///
+  /// @checked const count: int = 3
+  /// println(count)   // 3
+  /// ```
+  public note(message: string): void {
+    __meta_emit(this.id, "note", message, "")
+  }
+}
+
 /// A decorated function.
 ///
 /// @example

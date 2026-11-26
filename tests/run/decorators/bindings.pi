@@ -1,0 +1,21 @@
+// expect: 22
+// Decorators on bindings (#54): a `BindingDecl` for top-level and local `const`/`let`s, to
+// check them; `@comptimeLimit` still works beside one.
+import { BindingDecl } from "std/meta"
+
+decorator function constant(b: BindingDecl): void {
+  if (!b.isConst) b.error(`${b.name} should be a const`)
+}
+
+decorator function named(b: BindingDecl, min: int): void {
+  if (b.name.length < min) b.error(`${b.name} is too short a name`)
+}
+
+function f(): int {
+  @constant const x = 1
+  @named(1) let y: int = 2
+  x + y
+}
+@constant const top = 3
+@comptimeLimit(1000) @constant comptime const sq = 4 * 4
+println(f() + top + sq)

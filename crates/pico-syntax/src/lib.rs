@@ -8,6 +8,7 @@ pub mod lexer;
 pub mod newline;
 pub mod parser;
 pub mod token;
+pub mod walk;
 
 pub use lexer::lex;
 pub use parser::{parse_expr, parse_module};

@@ -109,7 +109,9 @@ that re-export it with `export { d } from` or `export *`, #54), or the core libr
 **How they run** (decision 223): before the program is compiled, its decorators run in a
 program of their own (the core library, `std/meta`, and the declarations the decorator
 functions use), one call per use with a fresh `ClassDecl` (classes and structs) or
-`FunctionDecl`, followed by the decorator's arguments (evaluated in the decorator's module).
+`FunctionDecl`, followed by the decorator's arguments, evaluated in the module that uses the
+decorator (#54: `@route(PREFIX + "/users")` sees that module's `PREFIX`; a bare name it has
+no value for is passed as a string, as in `@derive(Eq)`).
 Their requests apply in order: `addMethod`/`addField`/`addMember(code)` parse a member into
 the class, `addStatic(name, init)` adds a module-level hidden `const` (initialized before the
 module's other code) and returns its name, `wrapBody(f)` replaces the body with the code `f`
@@ -125,7 +127,9 @@ What a decorator receives depends on what it's on (#54): a class, struct or **en
 `FunctionDecl` (`wrapBody` wraps the method), a **field** a `FieldDecl` (`name`, `typeName`,
 and `owner`, the type's `ClassDecl`, through which it adds members) and a **parameter** a
 `ParamDecl` (`name`, `typeName`, `index`, and `owner`, the function's `FunctionDecl`, whose
-body it can wrap). Each has `error`/`warn`/`note`. A decorator used on the wrong kind of
+body it can wrap) and a **binding** (`const`/`let`, top-level or local) a `BindingDecl`
+(`name`, `typeName`, `isConst`) to check it: it doesn't generate code. Each has
+`error`/`warn`/`note`. A decorator used on the wrong kind of
 declaration is E0354. The user decorators that were on a field or method stay visible to
 reflection: `decorators` of a runtime field and of `MethodInfo`, and of comptime `T.fields`
 and `T.methods` (`DecoratorInfo` is a struct, `{ name, args }`).

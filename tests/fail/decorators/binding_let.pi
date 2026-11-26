@@ -1,0 +1,11 @@
+// error: E0354
+// at: 9:3
+// A binding decorator reports at the binding it checks (#54).
+import { BindingDecl } from "std/meta"
+decorator function constant(b: BindingDecl): void {
+  if (!b.isConst) b.error(`${b.name} should be a const`)
+}
+function f(): int {
+  @constant let x = 1
+  x
+}
