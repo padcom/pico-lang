@@ -798,6 +798,9 @@ impl<'p> Checker<'p> {
     /// Whether a `from` reference converts to `to` as an upcast (a subclass to a base class,
     /// possibly into a nullable).
     fn upcasts(&self, from: &Ty, to: &Ty) -> bool {
+        if self.builtin_iterable(from, to) {
+            return true;
+        }
         match (from, to) {
             // A function throwing less (or subclasses) fits where one throwing more is expected.
             // So does one returning a subclass (same representation: a reference), such as
@@ -7208,7 +7211,9 @@ impl<'p> Checker<'p> {
     /// method for lowering).
     fn iterable_elem(&mut self, iter: &Expr, t: &Ty) -> Option<Ty> {
         let (sid, args) = match t {
-            Ty::Class(s, _, a) | Ty::Struct(s, _, a) => (*s, a.clone()),
+            // (An interface too, `Iterable<T>`: its `iterator()` is called through the
+            // interface.)
+            Ty::Class(s, _, a) | Ty::Struct(s, _, a) | Ty::Iface(s, _, a) => (*s, a.clone()),
             _ => return None,
         };
         let m = self.program.struct_def(sid).method("iterator")?;
@@ -7319,6 +7324,31 @@ impl<'p> Checker<'p> {
     }
 
     /// The bounds of a type parameter.
+    /// A type parameter's declaration.
+    fn type_param(&self, t: &Ty) -> Option<&'p TypeParam> {
+        match t {
+            Ty::Param(owner, i, _) if let Some(e) = Ty::owner_enum(*owner) => {
+                self.program.enum_def(e).generics.get(*i as usize)
+            }
+            Ty::Param(owner, i, _) if owner & 0x8000_0000 != 0 => self
+                .program
+                .struct_def(StructId(owner & 0x7fff_ffff))
+                .generics
+                .get(*i as usize),
+            Ty::Param(owner, i, _) => self.program.func(FnId(*owner)).generics.get(*i as usize),
+            _ => None,
+        }
+    }
+
+    /// The type arguments a type parameter's bound gives generic interface `i`.
+    fn param_iface_args(&self, t: &Ty, i: StructId) -> Option<Vec<Ty>> {
+        let tp = self.type_param(t)?;
+        tp.iface_args
+            .iter()
+            .find(|(s, _)| *s == i)
+            .map(|(_, a)| a.clone())
+    }
+
     fn bounds_of(&self, t: &Ty) -> &'p [Bound] {
         match t {
             Ty::Param(owner, i, _) if let Some(e) = Ty::owner_enum(*owner) => self
@@ -7340,6 +7370,22 @@ impl<'p> Checker<'p> {
                 .get(*i as usize)
                 .map_or(&[][..], |p| &p.bounds[..]),
             _ => &[],
+        }
+    }
+
+    /// An array (or a string, of `char`s) where an `Iterable` of its elements is expected:
+    /// lowering wraps it (`__arrayIterable`, `__stringIterable`).
+    fn builtin_iterable(&self, from: &Ty, to: &Ty) -> bool {
+        let Ty::Iface(i, _, args) = to else {
+            return false;
+        };
+        if Some(*i) != self.program.iterable_iface || args.len() != 1 {
+            return false;
+        }
+        match from {
+            Ty::Array(t) => **t == args[0],
+            Ty::Str => args[0] == Ty::Char,
+            _ => false,
         }
     }
 
@@ -7374,6 +7420,8 @@ impl<'p> Checker<'p> {
                     self.program.implements(*s, *i)
                 }
                 Ty::Enum(e, _, _) => self.program.enum_iface_args(*e, *i).is_some(),
+                // (`T extends Iterable<U>` with `T` an array or a string.)
+                Ty::Array(_) | Ty::Str => Some(*i) == self.program.iterable_iface,
                 _ => false,
             },
         }
@@ -8126,6 +8174,21 @@ impl<'p> Checker<'p> {
                 && let Some(m) = self.program.struct_def(*i).method(name)
             {
                 self.types.param_calls.insert(e.id, name.to_string());
+                // A generic interface's method sees the bound's arguments (`B extends Box<T>`:
+                // `get()` gives `T`, #51).
+                if let Some(recv) = self.param_iface_args(t, *i) {
+                    let (ret, _) = self.call_inferring(
+                        e,
+                        m,
+                        &args.iter().collect::<Vec<_>>(),
+                        &[],
+                        m.0,
+                        &[],
+                        Some((Ty::type_owner(*i), &recv)),
+                    );
+                    self.types.recv_args.insert(e.id, recv);
+                    return Some(ret);
+                }
                 return Some(self.call_fn(e, m, args));
             }
         }

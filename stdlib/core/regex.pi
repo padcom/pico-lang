@@ -1087,7 +1087,7 @@ class RegExpIndices {
 ///   println(m.groups?.get("year"))      // 2024
 /// }
 /// ```
-class RegExpMatch {
+class RegExpMatch implements Iterable<string?> {
   public __items: (string?)[]
   /// Where the match starts in `input`, in code points (-1 for a `g`-flag `string.match` result).
   public readonly index: int

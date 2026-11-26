@@ -110,7 +110,7 @@ function __formEncode(s: string): string {
 /// println(params.get("q"))       // pico
 /// println(params.toString())     // q=pico&page=2
 /// ```
-class URLSearchParams {
+class URLSearchParams implements Iterable<[string, string]> {
   list: [string, string][] = []
   /// The URL whose query this is (kept in step).
   public __owner: URL? = null

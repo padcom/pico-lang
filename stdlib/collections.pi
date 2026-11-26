@@ -17,7 +17,7 @@
 /// println(d.popBack())               // 4
 /// println(d.toArray().join(", "))    // 2, 3
 /// ```
-export class Deque<T> {
+export class Deque<T> implements Iterable<T> {
   /// The front half, reversed (its last element is the deque's first).
   front: T[] = []
   back: T[] = []
@@ -293,7 +293,7 @@ export class Deque<T> {
 /// println(tasks.pop())   // 1
 /// println(tasks.pop())   // 2
 /// ```
-export class PriorityQueue<T> {
+export class PriorityQueue<T> implements Iterable<T> {
   heap: T[] = []
   compare: (a: T, b: T) => int
 
@@ -559,7 +559,7 @@ function __balance<K, V>(n: __TreeNode<K, V>): __TreeNode<K, V> {
 /// println(ages.keys().join(", "))   // alice, bob, carol
 /// println(ages.get("bob"))          // 25
 /// ```
-export class SortedMap<K extends Comparable<K>, V> {
+export class SortedMap<K extends Comparable<K>, V> implements Iterable<[K, V]> {
   root: __TreeNode<K, V>? = null
   count: int = 0
 
@@ -954,7 +954,7 @@ export class SortedMap<K extends Comparable<K>, V> {
 /// println(s.values().join(", "))   // 1, 3, 5
 /// println(s.ceiling(2))            // 3
 /// ```
-export class SortedSet<T extends Comparable<T>> {
+export class SortedSet<T extends Comparable<T>> implements Iterable<T> {
   map: SortedMap<T, bool> = new SortedMap<T, bool>()
 
   /// An empty set.
@@ -1137,7 +1137,7 @@ export class SortedSet<T extends Comparable<T>> {
 /// println(tags.get("fruit").join(", "))   // apple, pear
 /// println(tags.size)                      // 3
 /// ```
-export class MultiMap<K extends Hashable<K>, V> {
+export class MultiMap<K extends Hashable<K>, V> implements Iterable<[K, V]> {
   map: Map<K, V[]> = new Map<K, V[]>()
   count: int = 0
 
@@ -1319,7 +1319,7 @@ class __ListNode<T> {
 /// println(list.toArray().join(", "))   // a, b, c
 /// println(list.shift())                // a
 /// ```
-export class LinkedList<T> {
+export class LinkedList<T> implements Iterable<T> {
   head: __ListNode<T>? = null
   tail: __ListNode<T>? = null
   count: int = 0
@@ -1742,7 +1742,7 @@ export class LruCache<K extends Hashable<K>, V> {
 /// println(flags.has(5))   // true
 /// println(flags)          // {1, 5, 64}
 /// ```
-export class BitSet {
+export class BitSet implements Iterable<int> {
   /// 32 bits per word.
   words: int[] = []
 

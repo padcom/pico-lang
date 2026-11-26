@@ -497,7 +497,7 @@ function __void(): void {}
 ///   println(i)   // 3, 2, 1
 /// }
 /// ```
-class AsyncIterator<T, E extends Error = never> {
+class AsyncIterator<T, E extends Error = never> implements AsyncIterable<T, E> {
   step: (() => ((k: () => void) => void)? throws E)? = null
   /// `next()` promises not fulfilled yet, oldest first.
   requests: Promise<T?, E>[] = []

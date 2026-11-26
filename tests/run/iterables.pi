@@ -1,0 +1,68 @@
+// expect: 6
+// expect: 9
+// expect: 30
+// expect: a|é|b
+// expect: a=1,b=2
+// expect: 3
+// expect: 7
+// expect: x y
+// expect: 6
+// expect: h él
+//
+// `Iterable<T>` and `AsyncIterable<T, E>` (#51): a function takes anything `for-of` walks:
+// an array, a string, a `Map`/`Set`, an iterator, a collection; through a bound too.
+import { Deque } from "std/collections"
+
+function total(xs: Iterable<int>): int {
+  let n = 0
+  for (const x of xs) n += x
+  n
+}
+println(total([1, 2, 3]))
+const s = new Set<int>()
+s.add(4)
+s.add(5)
+println(total(s))
+println(total([10, 20].iterator()))
+
+function letters(xs: Iterable<char>): string {
+  const out: string[] = []
+  for (const c of xs) out.push(`${c}`)
+  out.join("|")
+}
+println(letters("aéb"))
+
+function pairs<K, V>(xs: Iterable<[K, V]>): string {
+  const out: string[] = []
+  for (const [k, v] of xs) out.push(`${k}=${v}`)
+  out.join(",")
+}
+const m = new Map<string, int>()
+m.set("a", 1)
+m.set("b", 2)
+println(pairs(m))
+
+const d = new Deque<int>()
+d.push(1)
+d.push(2)
+println(total(d))
+
+// Through a bound: `I extends Iterable<T>`, an array included.
+function first<T, I extends Iterable<T>>(xs: I): T? {
+  xs.iterator().next()
+}
+println(first<int, int[]>([7, 8])!)
+const words: Iterable<string> = ["x", "y"]
+println(words.iterator().toArray().join(" "))
+
+async function* count(n: int): AsyncIterator<int> {
+  for (let i = 1; i <= n; i++) yield i
+}
+async function sum(xs: AsyncIterable<int>): Promise<int> {
+  let n = 0
+  for await (const x of xs) n += x
+  n
+}
+println(await sum(count(3)))
+const it = "héllo".iterator()
+println(`${it.next()!} ${it.take(2).toArray().join("")}`)

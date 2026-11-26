@@ -185,6 +185,7 @@ pub fn resolve_modules(
     modules: &Modules,
 ) -> (Program, Vec<Diagnostic>) {
     let mut r = Resolver {
+        bound_args: Vec::new(),
         async_methods: HashSet::new(),
         awaits: 0,
         worker_files: Vec::new(),
@@ -386,6 +387,9 @@ struct MethodGroup {
 }
 
 struct Resolver {
+    /// The generic interface bounds `bounds()` met since it was last drained, with their type
+    /// arguments (see `TypeParam::iface_args`).
+    bound_args: Vec<(StructId, Vec<Ty>)>,
     /// Declarations (by name span) of `const`s initialized by a call: they may hold a
     /// `Reactive<T>` (spec §16.2), so assigning them is left to the type checker.
     maybe_cells: HashSet<Span>,
@@ -1100,6 +1104,11 @@ impl Resolver {
                 .top_structs
                 .prelude()
                 .find(|(n, _)| *n == "Throwable")
+                .map(|(_, v)| *v),
+            iterable_iface: self
+                .top_structs
+                .prelude()
+                .find(|(n, _)| *n == "Iterable")
                 .map(|(_, v)| *v),
             extensions: self
                 .top_fns
@@ -1892,6 +1901,7 @@ impl Resolver {
                     name: pname.name.clone(),
                     span: pname.span,
                     bounds: Vec::new(),
+                    iface_args: Vec::new(),
                     default: None,
                     comptime: None,
                     value_param: Some(src_i),
@@ -1912,6 +1922,7 @@ impl Resolver {
                     name: pname.name.clone(),
                     span: pname.span,
                     bounds: Vec::new(),
+                    iface_args: Vec::new(),
                     default: None,
                     comptime: None,
                     value_param: Some(src_i),
@@ -2197,6 +2208,7 @@ impl Resolver {
                 name: g.name.name.clone(),
                 span: g.name.span,
                 bounds: Vec::new(),
+                iface_args: Vec::new(),
                 default: None,
                 comptime,
                 value_param: None,
@@ -2218,8 +2230,10 @@ impl Resolver {
         for (i, g) in params.iter().enumerate() {
             if let ast::GenericKind::Type { bound: Some(b), .. } = &g.kind {
                 let bs = self.bounds(b);
+                let args = std::mem::take(&mut self.bound_args);
                 if let Some(tp) = out.get_mut(i) {
                     tp.bounds.extend(bs);
+                    tp.iface_args.extend(args);
                 }
             }
         }
@@ -2233,7 +2247,9 @@ impl Resolver {
             match target {
                 Some(i) => {
                     let bs = self.bounds(&w.bound);
+                    let args = std::mem::take(&mut self.bound_args);
                     out[i].bounds.extend(bs);
+                    out[i].iface_args.extend(args);
                 }
                 None => self.error(
                     codes::UNKNOWN_TYPE,
@@ -2272,7 +2288,12 @@ impl Resolver {
                 vec![Bound::Sendable]
             }
             _ => match self.resolve_type(t) {
-                Ty::Iface(sid, _, _) => vec![Bound::Iface(sid)],
+                Ty::Iface(sid, _, args) => {
+                    if !args.is_empty() {
+                        self.bound_args.push((sid, args.to_vec()));
+                    }
+                    vec![Bound::Iface(sid)]
+                }
                 // `E extends Error`: what a function throws.
                 Ty::Class(sid, _, _)
                     if Some(sid)
