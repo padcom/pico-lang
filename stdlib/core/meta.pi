@@ -444,7 +444,7 @@ class __FieldDecl {
   /// }
   ///
   /// class Point {
-  ///   @typed x: int = 1
+  ///   @typed public x: int = 1
   /// }
   ///
   /// println(new Point().x)   // 1
@@ -464,7 +464,7 @@ class __FieldDecl {
   /// }
   ///
   /// class Point {
-  ///   @typed x: int = 1
+  ///   @typed public x: int = 1
   /// }
   ///
   /// println(new Point().x)   // 1
@@ -484,7 +484,7 @@ class __FieldDecl {
   /// }
   ///
   /// class Point {
-  ///   @typed x: int = 1
+  ///   @typed public x: int = 1
   /// }
   ///
   /// println(new Point().x)   // 1
