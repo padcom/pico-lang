@@ -356,6 +356,10 @@ previous?)` and `crc32(bytes, previous = 0)` (zlib's) do it in one call.
 `base64.encode(data, url = false)` (RFC 4648; `url` uses `-`/`_` without padding) and
 `base64.decode(text): Uint8Array throws TypeError` (either alphabet, padding optional,
 whitespace skipped); `hex.encode(data)` (lowercase) and `hex.decode(text) throws TypeError`.
+`csv.parse(text, { separator }): string[][] throws SyntaxError` reads RFC 4180 (quoted fields
+with separators, doubled quotes and line breaks; `\n` or `\r\n` rows; a quote inside an unquoted
+field kept; an unclosed quoted field, or text after one, is a `SyntaxError` with its line), and
+`csv.stringify(rows, { separator, lineEnding = "\n" })` quotes the fields that need it (#63).
 
 ### `std/streams`
 WHATWG Streams with chunk-counting queues, globals as on the Web (`std/streams` exports them
@@ -650,7 +654,8 @@ Results are `Uint8Array`s, failures reject with `CryptoError` (`kind`: `InvalidA
 `InvalidAccess`), and a raw ECDSA/ECDH public key must be a point on its curve.
 
 `std/crypto` is synchronous: `digest(alg, data)` and `hmac(alg, key, data)` (SHA-1, SHA-224,
-SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), `hkdf`, `pbkdf2`,
+SHA-256, SHA-384, SHA-512, SHA3-256/384/512; data as bytes or a UTF-8 string), streaming
+hashes (`createHash(alg)`: `update(data)` any number of times, then `digest()` once; #69), `hkdf`, `pbkdf2`,
 `Aead.aesGcm(key)` / `Aead.chacha20Poly1305(key)` with `seal(nonce, plaintext, aad)` (giving the
 ciphertext then the tag) and `open` (which throws `CryptoError` when the data doesn't
 authenticate), `EcKeyPair.generate(curve)` / `fromPrivateKey`, with `sign(hash, message)`

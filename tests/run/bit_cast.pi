@@ -1,0 +1,17 @@
+// expect: 4607182418800017408 1 -4613937818241073152
+// expect: 1065353216 1
+// expect: 255 -1 65535 -1
+// expect: 4294967295 -1 18446744073709551615
+// `unsafe.cast` between number types of one size (the same bits): floats and integers of 64
+// and 32 bits, and integers of each width whatever their signedness (#78: also on WasmGC).
+unsafe {
+  const one = unsafe.cast<i64>(1.0)
+  println(`${one} ${unsafe.cast<f64>(one)} ${unsafe.cast<i64>(-1.5)}`)
+  const bits = unsafe.cast<u32>(1.0 as f32)
+  println(`${bits} ${unsafe.cast<f32>(bits)}`)
+  const b: i8 = -1
+  const h: i16 = -1
+  println(`${unsafe.cast<u8>(b)} ${unsafe.cast<i8>(unsafe.cast<u8>(b))} ${unsafe.cast<u16>(h)} ${unsafe.cast<i16>(65535 as u16)}`)
+  const w: i32 = -1
+  println(`${unsafe.cast<u32>(w)} ${unsafe.cast<i32>(4294967295 as u32)} ${unsafe.cast<u64>(-1 as i64)}`)
+}
