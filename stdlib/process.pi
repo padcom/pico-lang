@@ -198,6 +198,7 @@ export class Env {
   /// ```
   public set(name: string, value: string): void {
     __io(115, 0, 0, 0, name, value);
+    if (name == "TZ") __localZoneChanged()
   }
 
   /// Unsets the variable (nothing happens if it isn't set).
@@ -212,6 +213,7 @@ export class Env {
   /// ```
   public delete(name: string): void {
     __io(116, 0, 0, 0, name, "");
+    if (name == "TZ") __localZoneChanged()
   }
 
   /// Every variable, by name.
