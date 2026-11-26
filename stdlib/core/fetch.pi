@@ -234,11 +234,10 @@ function __concatBytes(parts: Uint8Array[]): Uint8Array {
   }
   const out = new Uint8Array(n)
   let k = 0
+  // (One copy per part, not a call per byte: #66.)
   for (const p of parts) {
-    for (let i = 0; i < p.length; i++) {
-      out.set(k, p.get(i))
-      k += 1
-    }
+    out.setAll(p, k)
+    k += p.length
   }
   return out
 }
@@ -682,12 +681,9 @@ class __HttpReader {
     }
     const left = this.buf.length - this.pos
     const n = new Uint8Array(left + c.length)
-    for (let i = 0; i < left; i++) {
-      n.set(i, this.buf.get(this.pos + i))
-    }
-    for (let i = 0; i < c.length; i++) {
-      n.set(left + i, c.get(i))
-    }
+    // (Two copies, not a call per byte: #66.)
+    n.setAll(this.buf.subarray(this.pos), 0)
+    n.setAll(c, left)
     this.buf = n
     this.pos = 0
     return true
@@ -713,12 +709,15 @@ class __HttpReader {
     let from = this.pos
     while (true) {
       const b = this.buf
-      for (let i = from; i + 3 < b.length; i++) {
-        if (b.get(i) == 13 && b.get(i + 1) == 10 && b.get(i + 2) == 13 && b.get(i + 3) == 10) {
+      // (Each CR found by `indexOf`, not by a call per byte: #66.)
+      let i = b.indexOf(13, from)
+      while (i >= 0 && i + 3 < b.length) {
+        if (b.get(i + 1) == 10 && b.get(i + 2) == 13 && b.get(i + 3) == 10) {
           const text = this.latin1(this.pos, i)
           this.pos = i + 4
           return text
         }
+        i = b.indexOf(13, i + 1)
       }
       if (this.buf.length - this.pos > 65536) {
         throw new TypeError("the HTTP head is too large")
@@ -740,12 +739,14 @@ class __HttpReader {
     let from = this.pos
     while (true) {
       const b = this.buf
-      for (let i = from; i + 1 < b.length; i++) {
-        if (b.get(i) == 13 && b.get(i + 1) == 10) {
+      let i = b.indexOf(13, from)
+      while (i >= 0 && i + 1 < b.length) {
+        if (b.get(i + 1) == 10) {
           const text = this.latin1(this.pos, i)
           this.pos = i + 2
           return text
         }
+        i = b.indexOf(13, i + 1)
       }
       const seen = this.buf.length - this.pos
       if (!(await this.more())) {
