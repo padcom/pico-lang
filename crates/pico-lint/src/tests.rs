@@ -801,3 +801,43 @@ let Bad_Seven = 7
     assert_eq!(on(9), ["W0001", "W0002"], "a string isn't a comment: {out}");
     assert_eq!(on(11), ["W0001", "W0002"], "{out}");
 }
+
+/// Unused private fields (#80, the user's design): reported when never read (writes don't
+/// count), unless something may read the class's fields behind the scenes: printing,
+/// `JSON.stringify`, reflection or a generic function, or a decorator.
+#[test]
+fn unused_private_fields() {
+    let text = r#"class Counter {
+  private hits = 0
+  private seen = 0
+  private _skip = 0
+  public bump(): int {
+    hits += 1
+    seen = 1
+    return hits
+  }
+}
+class Printed {
+  private secret = 1
+}
+class AsJson {
+  private token = "t"
+}
+class Reflected {
+  private inner = 2
+}
+function names<T>(): string { return T.fields.map(f => f.name).join(",") }
+const c = new Counter()
+println(c.bump())
+println(new Printed())
+println(JSON.stringify(new AsJson()))
+println(names<Reflected>())
+"#;
+    let out = run("private_fields", "{}", text, &[]);
+    let fields: Vec<&str> = out
+        .lines()
+        .filter(|l| l.contains("private field"))
+        .collect();
+    assert_eq!(fields.len(), 1, "{out}");
+    assert!(fields[0].contains("`seen`"), "{out}");
+}
