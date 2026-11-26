@@ -16988,7 +16988,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(5).not())    // -6\nprintln(BigInt.of(-1).not())   // 0"
                 }
               ],
-              "source": "math.pi:1784",
+              "source": "math.pi:1828",
               "members": []
             },
             {
@@ -17002,7 +17002,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(1).shiftLeft(100))   // 1267650600228229401496703205376\nprintln(BigInt.of(-3).shiftLeft(2))    // -12"
                 }
               ],
-              "source": "math.pi:1797",
+              "source": "math.pi:1841",
               "members": []
             },
             {
@@ -17016,7 +17016,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(1000).shiftRight(3))   // 125\nprintln(BigInt.of(-9).shiftRight(1))     // -5"
                 }
               ],
-              "source": "math.pi:1812",
+              "source": "math.pi:1856",
               "members": []
             },
             {
@@ -17030,7 +17030,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(100))   // 1267650600228229401496703205376\nprintln(BigInt.of(7).pow(0))     // 1"
                 }
               ],
-              "source": "math.pi:1882",
+              "source": "math.pi:1926",
               "members": []
             },
             {
@@ -17044,7 +17044,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(-12).abs())   // 12"
                 }
               ],
-              "source": "math.pi:1903",
+              "source": "math.pi:1947",
               "members": []
             },
             {
@@ -17058,7 +17058,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst a = BigInt.of(10).pow(20)\nconst b = BigInt.of(10).pow(19)\nprintln(a.compareTo(b))   // 1\nprintln(b.compareTo(a))   // -1\nprintln(a.compareTo(a))   // 0"
                 }
               ],
-              "source": "math.pi:1917",
+              "source": "math.pi:1961",
               "members": []
             },
             {
@@ -17072,7 +17072,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(10).equals(BigInt.of(1024)))   // true"
                 }
               ],
-              "source": "math.pi:1931",
+              "source": "math.pi:1975",
               "members": []
             },
             {
@@ -17086,7 +17086,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst n = BigInt.of(-2).pow(65)\nprintln(n.toString())   // -36893488147419103232\nprintln(`n = ${n}`)     // n = -36893488147419103232"
                 }
               ],
-              "source": "math.pi:1943",
+              "source": "math.pi:1987",
               "members": []
             },
             {
@@ -17100,7 +17100,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst b = BigInt.parse(\"-12345678901234567890\")\nprintln(`[${b:>24}] [${b:#x}] [${b:+026}]`)\n// [   -12345678901234567890] [-0xab54a98ceb1f0ad2] [-0000012345678901234567890]"
                 }
               ],
-              "source": "math.pi:1957",
+              "source": "math.pi:2001",
               "members": []
             },
             {
@@ -17114,7 +17114,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(255).toStringRadix(16))   // ff\nprintln(BigInt.of(-5).toStringRadix(2))     // -101"
                 }
               ],
-              "source": "math.pi:1981",
+              "source": "math.pi:2025",
               "members": []
             }
           ]
