@@ -622,7 +622,8 @@ recent first) and `BitSet` (`add`, `delete`, `has`, `set(i, on)`, `flip`, `size`
 rounding matches templates; precisions up to 20), `formatString(s, spec)`, `formatBool(b,
 spec)`, `pad(text, width, align, fill)` and `groupDigits(text, separator = ",", size = 3)`. An
 invalid spec panics. `DateTime` (`${dt:yyyy-MM-dd}` is its `format` pattern) and `std/math`'s
-vectors and quaternions (`${v:.2f}` per component) are `Formattable`. `wrap(text, width,
+vectors, quaternions and `Mat4` (`${v:.2f}` per component or element) and `BigInt` (the integer
+specs: `${b:#x}`, `${b:>30}`, …; #57) are `Formattable`. `wrap(text, width,
 measure?)` wraps at spaces to `width` (measured by `measure`, by default code points): line
 breaks and a line's leading spaces stay, the spaces at a break go, a longer word stays whole.
 

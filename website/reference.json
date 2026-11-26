@@ -4840,6 +4840,15 @@
               "examples": [],
               "source": "core/comptime.pi:81",
               "members": []
+            },
+            {
+              "name": "signature",
+              "kind": "field",
+              "signature": "signature: string",
+              "doc": "<p>Its parameters and result, as messages show types: <code>(a: i64, b: string): bool</code> (#56).</p>\n",
+              "examples": [],
+              "source": "core/comptime.pi:83",
+              "members": []
             }
           ]
         },
@@ -16387,7 +16396,7 @@
         {
           "name": "Mat4",
           "kind": "struct",
-          "signature": "struct Mat4",
+          "signature": "struct Mat4 implements Formattable",
           "doc": "<p>A 4×4 matrix, column-major (<code>m[col * 4 + row]</code>, as OpenGL and WebGPU upload it), acting on\ncolumn vectors: <code>a * b</code> applies <code>b</code> first.</p>\n",
           "examples": [
             {
@@ -16713,6 +16722,20 @@
               ],
               "source": "math.pi:1242",
               "members": []
+            },
+            {
+              "name": "format",
+              "kind": "method",
+              "signature": "format(spec: string): string",
+              "doc": "<p>Row by row as <code>toString</code>, each element formatted by <code>spec</code> (<code>${m:.2f}</code>; #57).</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { Mat4 } from \"std/math\"\n\nprintln(`${Mat4.rotationZ(Math.PI / 4):.2f}`)\n// [0.71, -0.71, 0.00, 0.00; 0.71, 0.71, 0.00, 0.00; 0.00, 0.00, 1.00, 0.00; 0.00, 0.00, 0.00, 1.00]"
+                }
+              ],
+              "source": "math.pi:1261",
+              "members": []
             }
           ]
         },
@@ -16727,7 +16750,7 @@
               "code": "import { Random } from \"std/math\"\n\nconst rng = new Random(42)          // the same numbers on every run and target\nconst die = rng.int(1, 7)           // 1 to 6\nprintln(die >= 1 && die <= 6)       // true\nconst dice = new Random()           // seeded from the system: different every run\nprintln(dice.float() < 1)           // true"
             }
           ],
-          "source": "math.pi:1268",
+          "source": "math.pi:1287",
           "members": [
             {
               "name": "constructor",
@@ -16740,7 +16763,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst a = new Random(7)\nconst b = new Random(7)\nprintln(a.nextU32() == b.nextU32())   // true"
                 }
               ],
-              "source": "math.pi:1281",
+              "source": "math.pi:1300",
               "members": []
             },
             {
@@ -16754,7 +16777,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random(42)\nprintln(rng.nextU32())   // 4210423199"
                 }
               ],
-              "source": "math.pi:1294",
+              "source": "math.pi:1313",
               "members": []
             },
             {
@@ -16768,7 +16791,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random()\nconst x = rng.float()\nprintln(x >= 0 && x < 1)   // true"
                 }
               ],
-              "source": "math.pi:1306",
+              "source": "math.pi:1325",
               "members": []
             },
             {
@@ -16782,7 +16805,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random()\nconst roll = rng.int(1, 7)\nprintln(roll >= 1 && roll <= 6)   // true"
                 }
               ],
-              "source": "math.pi:1318",
+              "source": "math.pi:1337",
               "members": []
             },
             {
@@ -16796,7 +16819,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random()\nprintln(rng.bool(1))   // true\nprintln(rng.bool(0))   // false\nprintln(rng.bool())    // true or false, each half of the time"
                 }
               ],
-              "source": "math.pi:1354",
+              "source": "math.pi:1373",
               "members": []
             },
             {
@@ -16810,7 +16833,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random(1)\nlet sum = 0.0\nfor (let i = 0; i < 10000; i++) sum += rng.gaussian(100, 15)\nprintln(Math.abs(sum / 10000 - 100) < 1)   // true (the mean is close to 100)"
                 }
               ],
-              "source": "math.pi:1367",
+              "source": "math.pi:1386",
               "members": []
             },
             {
@@ -16824,7 +16847,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst rng = new Random()\nconst colour = rng.pick([\"red\", \"green\", \"blue\"])\nprintln(colour)   // one of red, green, blue"
                 }
               ],
-              "source": "math.pi:1384",
+              "source": "math.pi:1403",
               "members": []
             },
             {
@@ -16838,7 +16861,7 @@
                   "code": "import { Random } from \"std/math\"\n\nconst cards = [1, 2, 3, 4, 5]\nnew Random().shuffle(cards)\nprintln(cards.join(\" \"))   // e.g. 3 1 5 2 4"
                 }
               ],
-              "source": "math.pi:1399",
+              "source": "math.pi:1418",
               "members": []
             }
           ]
@@ -16846,7 +16869,7 @@
         {
           "name": "BigInt",
           "kind": "class",
-          "signature": "class BigInt",
+          "signature": "class BigInt implements Formattable",
           "doc": "<p>An arbitrary-precision integer: <code>+ - * / %</code> (division truncates towards zero, as in\nJavaScript), comparisons, <code>pow</code>, <code>toString()</code>/<code>toStringRadix(radix)</code> and <code>parse</code>.</p>\n",
           "examples": [
             {
@@ -16854,7 +16877,7 @@
               "code": "import { BigInt } from \"std/math\"\n\nconst a = BigInt.of(2).pow(64)\nconst b = new BigInt(1000)\nprintln(a)                       // 18446744073709551616\nprintln(a * b + BigInt.of(1))    // 18446744073709551616001\nprintln(a / b)                   // 18446744073709551\nprintln(a % b)                   // 616"
             }
           ],
-          "source": "math.pi:1429",
+          "source": "math.pi:1448",
           "members": [
             {
               "name": "constructor",
@@ -16867,7 +16890,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(new BigInt(-42))   // -42\nprintln(new BigInt())      // 0"
                 }
               ],
-              "source": "math.pi:1444",
+              "source": "math.pi:1463",
               "members": []
             },
             {
@@ -16881,7 +16904,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(9007199254740993) * BigInt.of(3))   // 27021597764222979"
                 }
               ],
-              "source": "math.pi:1476",
+              "source": "math.pi:1495",
               "members": []
             },
             {
@@ -16895,7 +16918,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\ntry {\n  println(BigInt.parse(\"123456789012345678901234567890\"))   // 123456789012345678901234567890\n  println(BigInt.parse(\"ff\", 16))                           // 255\n  println(BigInt.parse(\"0b1010\"))                           // 10\n  println(BigInt.parse(\"12x\"))\n} catch (e) {\n  println(\"not a number\")                                   // not a number\n}"
                 }
               ],
-              "source": "math.pi:1494",
+              "source": "math.pi:1513",
               "members": []
             },
             {
@@ -16909,7 +16932,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(0).isZero)                    // true\nprintln((BigInt.of(5) - BigInt.of(5)).isZero)   // true"
                 }
               ],
-              "source": "math.pi:1531",
+              "source": "math.pi:1550",
               "members": []
             },
             {
@@ -16923,7 +16946,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(-3).isNegative)   // true\nprintln(BigInt.of(0).isNegative)    // false"
                 }
               ],
-              "source": "math.pi:1541",
+              "source": "math.pi:1560",
               "members": []
             },
             {
@@ -16937,7 +16960,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst n = BigInt.of(10).pow(12) / BigInt.of(4)\nprintln(n.toInt() + 1)   // 250000000001"
                 }
               ],
-              "source": "math.pi:1552",
+              "source": "math.pi:1571",
               "members": []
             },
             {
@@ -16951,7 +16974,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(70).toNumber())   // 1.1805916207174113e+21"
                 }
               ],
-              "source": "math.pi:1576",
+              "source": "math.pi:1595",
               "members": []
             },
             {
@@ -16965,7 +16988,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(5).not())    // -6\nprintln(BigInt.of(-1).not())   // 0"
                 }
               ],
-              "source": "math.pi:1765",
+              "source": "math.pi:1784",
               "members": []
             },
             {
@@ -16979,7 +17002,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(1).shiftLeft(100))   // 1267650600228229401496703205376\nprintln(BigInt.of(-3).shiftLeft(2))    // -12"
                 }
               ],
-              "source": "math.pi:1778",
+              "source": "math.pi:1797",
               "members": []
             },
             {
@@ -16993,7 +17016,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(1000).shiftRight(3))   // 125\nprintln(BigInt.of(-9).shiftRight(1))     // -5"
                 }
               ],
-              "source": "math.pi:1793",
+              "source": "math.pi:1812",
               "members": []
             },
             {
@@ -17007,7 +17030,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(100))   // 1267650600228229401496703205376\nprintln(BigInt.of(7).pow(0))     // 1"
                 }
               ],
-              "source": "math.pi:1863",
+              "source": "math.pi:1882",
               "members": []
             },
             {
@@ -17021,7 +17044,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(-12).abs())   // 12"
                 }
               ],
-              "source": "math.pi:1884",
+              "source": "math.pi:1903",
               "members": []
             },
             {
@@ -17035,7 +17058,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst a = BigInt.of(10).pow(20)\nconst b = BigInt.of(10).pow(19)\nprintln(a.compareTo(b))   // 1\nprintln(b.compareTo(a))   // -1\nprintln(a.compareTo(a))   // 0"
                 }
               ],
-              "source": "math.pi:1898",
+              "source": "math.pi:1917",
               "members": []
             },
             {
@@ -17049,7 +17072,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(2).pow(10).equals(BigInt.of(1024)))   // true"
                 }
               ],
-              "source": "math.pi:1912",
+              "source": "math.pi:1931",
               "members": []
             },
             {
@@ -17063,7 +17086,21 @@
                   "code": "import { BigInt } from \"std/math\"\n\nconst n = BigInt.of(-2).pow(65)\nprintln(n.toString())   // -36893488147419103232\nprintln(`n = ${n}`)     // n = -36893488147419103232"
                 }
               ],
-              "source": "math.pi:1924",
+              "source": "math.pi:1943",
+              "members": []
+            },
+            {
+              "name": "format",
+              "kind": "method",
+              "signature": "public format(spec: string): string",
+              "doc": "<p>The integer as a template's format spec says (#57), as <code>int</code>s are: <code>d</code> (decimal, the\ndefault), <code>x</code>/<code>X</code> (hex), <code>o</code>, <code>b</code>, with <code>+</code>/space signs, <code>#</code> prefixes (<code>0x</code>, <code>0o</code>, <code>0b</code>),\nwidth, alignment, fill and <code>0</code> padding. A precision or a float kind panics.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { BigInt } from \"std/math\"\n\nconst b = BigInt.parse(\"-12345678901234567890\")\nprintln(`[${b:>24}] [${b:#x}] [${b:+026}]`)\n// [   -12345678901234567890] [-0xab54a98ceb1f0ad2] [-0000012345678901234567890]"
+                }
+              ],
+              "source": "math.pi:1957",
               "members": []
             },
             {
@@ -17077,7 +17114,7 @@
                   "code": "import { BigInt } from \"std/math\"\n\nprintln(BigInt.of(255).toStringRadix(16))   // ff\nprintln(BigInt.of(-5).toStringRadix(2))     // -101"
                 }
               ],
-              "source": "math.pi:1935",
+              "source": "math.pi:1981",
               "members": []
             }
           ]

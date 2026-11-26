@@ -1,0 +1,20 @@
+// expect: [12345678901234567890] [-12345678901234567890]
+// expect: [     12345678901234567890|] [12345678901234567890     |] [**12345678901234567890***]
+// expect: ab54a98ceb1f0ad2 AB54A98CEB1F0AD2 0xab54a98ceb1f0ad2 -0o1255245230635307605322
+// expect: 0b101 +5 [ 5] [-0005] [0x0f]
+// expect: [1.0, 0.0, 0.0, 2.5; 0.0, 1.0, 0.0, -1.0; 0.0, 0.0, 1.0, 0.0; 0.0, 0.0, 0.0, 1.0]
+// expect: same as toString: true
+// `BigInt` is `Formattable` (#57): the integer format specs, as `int`s have them (kinds, signs,
+// `#` prefixes, width, alignment, fill, zero padding); `Mat4` formats each element.
+import { BigInt, Mat4, Vec3 } from "std/math"
+
+const b = BigInt.parse("12345678901234567890")
+const n = -b
+println(`[${b}] [${n}]`)
+println(`[${b:>25}|] [${b:<25}|] [${b:*^25}]`)
+println(`${b:x} ${b:X} ${b:#x} ${n:#o}`)
+const five = new BigInt(5)
+println(`${five:#b} ${five:+} [${five: }] [${(-five):05}] [${new BigInt(15):#04x}]`)
+const t = Mat4.translation(Vec3.of(2.5, -1, 0))
+println(`${t:.1f}`)
+println(`same as toString: ${`${t}` == t.toString()}`)
