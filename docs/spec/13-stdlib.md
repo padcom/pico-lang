@@ -307,8 +307,11 @@ signatures don't link. `open(path, flags, ...)`, `fcntl(fd, cmd, ...)`, `ioctl(f
 
 ## 13.5 Streams and encoding
 ### `TextEncoder` and `TextDecoder`
-Globals, as WHATWG Encoding, UTF-8 only. `new TextEncoder().encode(text): Uint8Array`.
-`new TextDecoder(label = "utf-8", { fatal, ignoreBOM })` (another label throws a `RangeError`);
+Globals, as WHATWG Encoding: the encoder writes UTF-8, the decoder reads UTF-8 or UTF-16.
+`new TextEncoder().encode(text): Uint8Array`. `new TextDecoder(label = "utf-8", { fatal,
+ignoreBOM })` takes the Web's labels of UTF-8, UTF-16LE (`"utf-16"`, `"ucs-2"`, …) and UTF-16BE
+(`encoding` says which; #63: lone surrogates and an odd last byte are errors as below, a surrogate
+pair can be split across streamed chunks); another label throws a `RangeError`;
 `decode(bytes = empty, { stream }): string throws TypeError`: each invalid sequence becomes
 U+FFFD (the WHATWG "maximal subpart" rule) or, with `fatal`, throws `TypeError` (`The encoded
 data was not valid utf-8 (at byte 1)`); a leading BOM is dropped unless `ignoreBOM`; with
