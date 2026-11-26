@@ -761,7 +761,7 @@ class StringBuilder {
   /// println(new StringBuilder().append("héllo").length)   // 5
   /// ```
   public get length(): int {
-    this.chars
+    return this.chars
   }
 
   /// Empties it, to build another string.
