@@ -27,37 +27,6 @@ interface Iterable<T> {
   iterator(): Iterator<T>
 }
 
-/// What `for await` walks: anything with an `asyncIterator()` (async generators, streams).
-///
-/// @example
-/// ```ts
-/// async function* count(n: int): AsyncIterator<int> {
-///   for (let i = 1; i <= n; i++) yield i
-/// }
-///
-/// async function sum(xs: AsyncIterable<int>): Promise<int> {
-///   let n = 0
-///   for await (const x of xs) n += x
-///   n
-/// }
-/// println(await sum(count(3)))   // 6
-/// ```
-interface AsyncIterable<T, E extends Error = never> {
-  /// An async iterator over the values.
-  ///
-  /// @example
-  /// ```ts
-  /// async function* two(): AsyncIterator<string> {
-  ///   yield "a"
-  ///   yield "b"
-  /// }
-  ///
-  /// const xs: AsyncIterable<string> = two()
-  /// println(await xs.asyncIterator().next())   // a
-  /// ```
-  asyncIterator(): AsyncIterator<T, E>
-}
-
 /// An array as an `Iterable` (where one is expected, an array becomes this).
 class __ArrayIterable<T> implements Iterable<T> {
   xs: T[]
@@ -378,6 +347,6 @@ function __String_iterator(s: string): Iterator<char> {
       return null
     }
     i += 1
-    s[i - 1]
+    return s[i - 1]
   })
 }
