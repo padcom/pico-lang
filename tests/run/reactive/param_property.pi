@@ -1,0 +1,18 @@
+// expect: count 1 (step 2)
+// expect: count 5 (step 2)
+// expect: count 7 (step 2)
+// Reactive constructor parameter properties (#71): `public reactive count: int` declares a
+// reactive field set from the argument; effects that read it run again when it changes. A
+// plain parameter property beside it stays plain.
+class Counter {
+  constructor(public reactive count: int, public step: int) {}
+
+  public tick() {
+    count += step
+  }
+}
+
+const c = new Counter(1, 2)
+watchEffect(() => println(`count ${c.count} (step ${c.step})`))
+c.count = 5
+c.tick()

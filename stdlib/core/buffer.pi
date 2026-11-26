@@ -354,6 +354,7 @@ class Uint8Array {
   /// ```
   public get(i: int): int {
     this.check(i)
+    if (__reactivity_on()) __trackObject(this.buffer)
     __buf_op(11, this.buffer.__handle, this.byteOffset + i, 0)
   }
 
@@ -371,6 +372,7 @@ class Uint8Array {
   public set(i: int, value: int): void {
     this.check(i)
     __buf_op(21, this.buffer.__handle, this.byteOffset + i, value);
+    if (__reactivity_on()) __triggerObject(this.buffer)
   }
 
   operator [](i: int): int {
@@ -415,6 +417,7 @@ class Uint8Array {
   /// println(bytes[3])      // 4
   /// ```
   public slice(begin: int = 0, end: int? = null): Uint8Array {
+    if (__reactivity_on()) __trackObject(this.buffer)
     const a = this.clamp(begin)
     const e = end
     const b = if (e != null) this.clamp(e) else this.length
@@ -434,6 +437,7 @@ class Uint8Array {
   /// println(out[3])   // 8
   /// ```
   public setAll(source: Uint8Array, offset: int = 0): void {
+    if (__reactivity_on()) __trackObject(source.buffer)
     const n = source.length
     if (offset < 0 || offset > this.length - n) {
       panic(`Uint8Array.setAll: ${n} bytes at offset ${offset} don't fit in ${this.length}`)
@@ -442,6 +446,8 @@ class Uint8Array {
       const to = this.buffer.__handle + this.byteOffset + offset
       __buf_op(4, to, source.buffer.__handle + source.byteOffset, n);
     }
+    // (Triggered after the bytes changed, as `Map` does, for effects that run at once.)
+    if (__reactivity_on()) __triggerObject(this.buffer)
   }
 
   /// Copies the bytes from `start` to `end` (default: the end) to position `target`, as on the
@@ -467,6 +473,7 @@ class Uint8Array {
       const base = this.buffer.__handle + this.byteOffset
       __buf_op(4, base + t, base + s, n);
     }
+    if (__reactivity_on()) __triggerObject(this.buffer)
     this
   }
 
@@ -481,6 +488,7 @@ class Uint8Array {
   /// println(bytes.indexOf(99))      // -1
   /// ```
   public indexOf(value: int, fromIndex: int = 0): int {
+    if (__reactivity_on()) __trackObject(this.buffer)
     const n = this.length
     if (value < 0 || value > 255) {
       return -1
@@ -522,6 +530,7 @@ class Uint8Array {
     for (let i = a; i < b; i++) {
       __buf_op(21, this.buffer.__handle, this.byteOffset + i, value);
     }
+    if (__reactivity_on()) __triggerObject(this.buffer)
     this
   }
 
@@ -535,6 +544,8 @@ class Uint8Array {
   /// println(a.equals(b.subarray(0, 2)))     // false
   /// ```
   public equals(other: Uint8Array): bool {
+    if (__reactivity_on()) __trackObject(this.buffer)
+    if (__reactivity_on()) __trackObject(other.buffer)
     const n = this.length
     if (other.length != n) {
       return false
@@ -681,6 +692,7 @@ class Int32Array {
   /// ```
   public get(i: int): int {
     this.check(i)
+    if (__reactivity_on()) __trackObject(this.buffer)
     unsafe { unsafe.cast<i32>(__buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0) as u32) as int }
   }
 
@@ -697,6 +709,7 @@ class Int32Array {
   public set(i: int, value: int): void {
     this.check(i)
     __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, value);
+    if (__reactivity_on()) __triggerObject(this.buffer)
   }
 
   operator [](i: int): int {
@@ -814,6 +827,7 @@ class Uint32Array {
   /// ```
   public get(i: int): int {
     this.check(i)
+    if (__reactivity_on()) __trackObject(this.buffer)
     __buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0)
   }
 
@@ -830,6 +844,7 @@ class Uint32Array {
   public set(i: int, value: int): void {
     this.check(i)
     __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, value);
+    if (__reactivity_on()) __triggerObject(this.buffer)
   }
 
   operator [](i: int): int {
@@ -946,6 +961,7 @@ class Float32Array {
   /// ```
   public get(i: int): f32 {
     this.check(i)
+    if (__reactivity_on()) __trackObject(this.buffer)
     unsafe { unsafe.cast<f32>(__buf_op(14, this.buffer.__handle, this.byteOffset + i * 4, 0) as u32) }
   }
 
@@ -960,6 +976,7 @@ class Float32Array {
   public set(i: int, value: f32): void {
     this.check(i)
     __buf_op(24, this.buffer.__handle, this.byteOffset + i * 4, unsafe { unsafe.cast<u32>(value) as int });
+    if (__reactivity_on()) __triggerObject(this.buffer)
   }
 
   operator [](i: int): f32 {
@@ -1076,6 +1093,7 @@ class Float64Array {
   /// ```
   public get(i: int): f64 {
     this.check(i)
+    if (__reactivity_on()) __trackObject(this.buffer)
     unsafe { unsafe.cast<f64>(__buf_op(18, this.buffer.__handle, this.byteOffset + i * 8, 0)) }
   }
 
@@ -1090,6 +1108,7 @@ class Float64Array {
   public set(i: int, value: f64): void {
     this.check(i)
     __buf_op(28, this.buffer.__handle, this.byteOffset + i * 8, unsafe { unsafe.cast<i64>(value) });
+    if (__reactivity_on()) __triggerObject(this.buffer)
   }
 
   operator [](i: int): f64 {
@@ -1177,6 +1196,7 @@ class DataView {
   read(at: int, size: int, littleEndian: bool): int {
     const o = this.offset(at, size)
     const h = this.buffer.__handle
+    if (__reactivity_on()) __trackObject(this.buffer)
     if (littleEndian) {
       return __buf_op(10 + size, h, o, 0)
     }
@@ -1193,11 +1213,12 @@ class DataView {
     const h = this.buffer.__handle
     if (littleEndian) {
       __buf_op(20 + size, h, o, v);
-      return
+    } else {
+      for (let i = 0; i < size; i++) {
+        __buf_op(21, h, o + i, v >> ((size - 1 - i) * 8));
+      }
     }
-    for (let i = 0; i < size; i++) {
-      __buf_op(21, h, o + i, v >> ((size - 1 - i) * 8));
-    }
+    if (__reactivity_on()) __triggerObject(this.buffer)
   }
 
   /// @example

@@ -67,6 +67,33 @@ pub fn lint(checked: &Checked, file: FileId, cfg: &Config) -> Vec<Diagnostic> {
     out
 }
 
+/// `text` with the fixes of `warnings` (in `file`) applied (`pico lint --fix`, #80), or `None`
+/// when there are none. Edits that overlap an earlier one are left for the next round (the
+/// caller lints again).
+pub fn apply_fixes(text: &str, file: FileId, warnings: &[Diagnostic]) -> Option<String> {
+    let mut edits: Vec<(usize, usize, &str)> = warnings
+        .iter()
+        .flat_map(|d| &d.fixes)
+        .filter(|(s, _)| s.file == file && (s.end as usize) <= text.len())
+        .map(|(s, t)| (s.start as usize, s.end as usize, t.as_str()))
+        .collect();
+    edits.sort_by_key(|e| (e.0, e.1));
+    let mut kept: Vec<(usize, usize, &str)> = Vec::new();
+    for e in edits {
+        if kept.last().is_none_or(|k| k.1 <= e.0) {
+            kept.push(e);
+        }
+    }
+    if kept.is_empty() {
+        return None;
+    }
+    let mut out = text.to_string();
+    for (a, b, t) in kept.into_iter().rev() {
+        out.replace_range(a..b, t);
+    }
+    Some(out)
+}
+
 /// The file a check was made for (its entry: the first file added).
 pub fn entry_file(checked: &Checked) -> FileId {
     checked

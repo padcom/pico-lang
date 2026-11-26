@@ -80,6 +80,10 @@ enum Command {
     Lint {
         /// Files or directories (default: the project around the current directory).
         paths: Vec<PathBuf>,
+        /// Apply the fixes the warnings come with (unused imports, `return`, blank lines),
+        /// rewriting the files, then report what's left.
+        #[arg(long)]
+        fix: bool,
         /// How many files are linted at once (default: the number of CPUs, but no more than
         /// the available memory holds).
         #[arg(short, long)]
@@ -293,9 +297,11 @@ fn main() -> ExitCode {
             )
         }),
         Some(Command::Fmt { paths, check }) => fmt(&paths, check),
-        Some(Command::Lint { paths, jobs }) => {
-            lint(&paths, jobs.unwrap_or_else(|| default_jobs(LINT_JOB_MB)))
-        }
+        Some(Command::Lint { paths, fix, jobs }) => lint(
+            &paths,
+            fix,
+            jobs.unwrap_or_else(|| default_jobs(LINT_JOB_MB)),
+        ),
         Some(Command::Dap) => dap::run(),
         Some(Command::Fetch) => fetch(),
         Some(Command::Doc { std, out, json }) => doc::run(std, out.as_deref(), json.as_deref()),
@@ -974,7 +980,7 @@ fn available_memory_mb() -> Option<u64> {
     Some(kb / 1024)
 }
 
-fn lint(paths: &[PathBuf], jobs: usize) -> ExitCode {
+fn lint(paths: &[PathBuf], fix: bool, jobs: usize) -> ExitCode {
     let mut files = Vec::new();
     if paths.is_empty() {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -999,7 +1005,7 @@ fn lint(paths: &[PathBuf], jobs: usize) -> ExitCode {
                     loop {
                         let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(f) = files.get(i) else { break };
-                        let r = lint_one(f);
+                        let r = lint_one(f, fix);
                         reports.lock().expect("lint reports").push((i, r));
                     }
                 })
@@ -1038,8 +1044,8 @@ struct LintReport {
     output: String,
 }
 
-fn lint_one(f: &Path) -> LintReport {
-    let Ok(text) = std::fs::read_to_string(f) else {
+fn lint_one(f: &Path, fix: bool) -> LintReport {
+    let Ok(mut text) = std::fs::read_to_string(f) else {
         return LintReport {
             warnings: 0,
             errors: 1,
@@ -1047,8 +1053,30 @@ fn lint_one(f: &Path) -> LintReport {
             output: format!("error: cannot read {}\n", f.display()),
         };
     };
-    let (cfg, config_errors) = pico_lint::Config::for_dir(f.parent().unwrap_or(Path::new(".")));
-    let (checked, found) = pico_lint::lint_file(f, &text, &cfg);
+    // (`pico lint main.pi`: its parent is "", the current directory.)
+    let dir = f
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let (cfg, config_errors) = pico_lint::Config::for_dir(dir);
+    let (mut checked, mut found) = pico_lint::lint_file(f, &text, &cfg);
+    // `--fix` (#80): apply the warnings' fixes and lint again, until none are left.
+    let mut fixed = false;
+    for _ in 0..10 {
+        if !fix {
+            break;
+        }
+        let entry = pico_lint::entry_file(&checked);
+        let Some(new) = pico_lint::apply_fixes(&text, entry, &found) else {
+            break;
+        };
+        if std::fs::write(f, &new).is_err() {
+            break;
+        }
+        text = new;
+        fixed = true;
+        (checked, found) = pico_lint::lint_file(f, &text, &cfg);
+    }
     // (Only the file's own errors: an imported module's are reported with it.)
     let entry = pico_lint::entry_file(&checked);
     let own: Vec<pico_diag::Diagnostic> = checked
@@ -1057,7 +1085,12 @@ fn lint_one(f: &Path) -> LintReport {
         .filter(|d| d.is_error() && d.main_span().is_none_or(|s| s.file == entry))
         .cloned()
         .collect();
-    let mut output = pico_diag::render_all(&own, &checked.sm);
+    let mut output = if fixed {
+        format!("fixed {}\n", f.display())
+    } else {
+        String::new()
+    };
+    output.push_str(&pico_diag::render_all(&own, &checked.sm));
     output.push_str(&pico_diag::render_all(&found, &checked.sm));
     LintReport {
         warnings: found.len(),

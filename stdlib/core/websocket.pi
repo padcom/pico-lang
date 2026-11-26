@@ -344,8 +344,6 @@ class WebSocket {
   /// Clients mask what they send; servers don't.
   client: bool = true
   sentClose: bool = false
-  closeCode: int = 1005
-  closeReason: string = ""
   closed: bool = false
   tls: bool = false
   caCerts: string = ""
