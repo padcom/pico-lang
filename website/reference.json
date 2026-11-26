@@ -6119,7 +6119,7 @@
               "code": "const req = new Request(\"http://127.0.0.1:8080/echo?x=1\", { method: \"put\", body: \"hello\" })\nprintln(req.method)          // PUT\nprintln(req.url)             // http://127.0.0.1:8080/echo?x=1\nprintln(await req.text())    // hello"
             }
           ],
-          "source": "core/fetch.pi:415",
+          "source": "core/fetch.pi:414",
           "members": [
             {
               "name": "method",
@@ -6127,7 +6127,7 @@
               "signature": "public readonly method: string",
               "doc": "<p>The method, uppercased (<code>\"GET\"</code>, <code>\"POST\"</code>, …).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:417",
+              "source": "core/fetch.pi:416",
               "members": []
             },
             {
@@ -6136,7 +6136,7 @@
               "signature": "public readonly url: string",
               "doc": "<p>The URL, normalized (as <code>URL.href</code>).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:419",
+              "source": "core/fetch.pi:418",
               "members": []
             },
             {
@@ -6145,7 +6145,7 @@
               "signature": "public readonly redirect: string",
               "doc": "<p>How <code>fetch</code> treats redirects: <code>\"follow\"</code>, <code>\"manual\"</code> or <code>\"error\"</code>.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:421",
+              "source": "core/fetch.pi:420",
               "members": []
             },
             {
@@ -6154,7 +6154,7 @@
               "signature": "public readonly signal: AbortSignal?",
               "doc": "<p>The signal that cancels this request, if any.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:425",
+              "source": "core/fetch.pi:424",
               "members": []
             },
             {
@@ -6168,7 +6168,7 @@
                   "code": "const req = new Request(new URL(\"http://localhost/a/../b\"))\nprintln(req.method)   // GET\nprintln(req.url)      // http://localhost/b\ntry {\n  const bad = new Request(\"http://localhost/\", { method: \"GET\", body: \"x\" })\n  println(bad.url)\n} catch (e: TypeError) {\n  println(e.message)   // a GET request can't have a body\n}"
                 }
               ],
-              "source": "core/fetch.pi:446",
+              "source": "core/fetch.pi:445",
               "members": []
             },
             {
@@ -6182,7 +6182,7 @@
                   "code": "const req = new Request(\"http://localhost/items\", { method: \"POST\", body: \"x=1\" })\nconst copy = req.clone()\nprintln(`${copy.method} ${copy.url}`)   // POST http://localhost/items\nprintln(await req.text())                // x=1\nprintln(await copy.text())               // x=1"
                 }
               ],
-              "source": "core/fetch.pi:478",
+              "source": "core/fetch.pi:477",
               "members": []
             }
           ]
@@ -6198,7 +6198,7 @@
               "code": "const init: RequestInit = {\n  method: \"POST\",\n  headers: { \"Content-Type\": \"application/json\" },\n  body: \"{\\\"id\\\":1}\",\n}\nconst req = new Request(\"http://127.0.0.1:8080/items\", init)\nprintln(req.method)                        // POST\nprintln(req.headers.get(\"content-type\"))   // application/json"
             }
           ],
-          "source": "core/fetch.pi:380",
+          "source": "core/fetch.pi:379",
           "members": [
             {
               "name": "method",
@@ -6206,7 +6206,7 @@
               "signature": "method?: string",
               "doc": "<p>The method (uppercased; <code>\"GET\"</code> by default).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:382",
+              "source": "core/fetch.pi:381",
               "members": []
             },
             {
@@ -6215,7 +6215,7 @@
               "signature": "headers?: HeadersInit",
               "doc": "<p>The header fields (copied): pairs, a map (<code>{ \"Content-Type\": \"application/json\" }</code>) or\n<code>Headers</code>.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:385",
+              "source": "core/fetch.pi:384",
               "members": []
             },
             {
@@ -6224,7 +6224,7 @@
               "signature": "body?: BodyInit",
               "doc": "<p>The body; a <code>GET</code> or <code>HEAD</code> request can't have one.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:387",
+              "source": "core/fetch.pi:386",
               "members": []
             },
             {
@@ -6233,7 +6233,7 @@
               "signature": "redirect?: string",
               "doc": "<p><code>\"follow\"</code> (the default: up to 20 redirects), <code>\"manual\"</code> (the 3xx response) or <code>\"error\"</code>.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:389",
+              "source": "core/fetch.pi:388",
               "members": []
             },
             {
@@ -6242,7 +6242,7 @@
               "signature": "caCerts?: string[]",
               "doc": "<p>(pico) Extra certificates (PEM) to trust for https:, besides the system's roots.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:391",
+              "source": "core/fetch.pi:390",
               "members": []
             },
             {
@@ -6251,7 +6251,7 @@
               "signature": "signal?: AbortSignal",
               "doc": "<p>Cancels the request: once it's aborted, <code>fetch</code> rejects with the signal's <code>AbortError</code>\nand closes the connection (<code>AbortSignal.timeout(ms)</code> gives a deadline).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:394",
+              "source": "core/fetch.pi:393",
               "members": []
             },
             {
@@ -6260,7 +6260,7 @@
               "signature": "timeout?: int",
               "doc": "<p>(pico) Milliseconds for the whole fetch, redirects and body included; past it, <code>fetch</code>\nrejects with an <code>AbortError</code> whose <code>cause</code> says it timed out (#136).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:397",
+              "source": "core/fetch.pi:396",
               "members": []
             },
             {
@@ -6269,7 +6269,7 @@
               "signature": "connectTimeout?: int",
               "doc": "<p>(pico) Milliseconds for each connection to be made, TLS handshake included; past it,\n<code>fetch</code> rejects with an <code>AbortError</code> (#136).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:400",
+              "source": "core/fetch.pi:399",
               "members": []
             },
             {
@@ -6278,7 +6278,7 @@
               "signature": "maxBodyBytes?: int",
               "doc": "<p>(pico) The most bytes a response body may have: <code>fetch</code> rejects with a <code>TypeError</code> as\nsoon as the body passes it, or before reading it when its <code>content-length</code> does (#136).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:403",
+              "source": "core/fetch.pi:402",
               "members": []
             }
           ]
@@ -6294,7 +6294,7 @@
               "code": "const res = new Response(\"not here\", { status: 404 })\nprintln(`${res.status} ${res.statusText}`)   // 404 Not Found\nprintln(res.ok)                              // false\nprintln(await res.text())                    // not here"
             }
           ],
-          "source": "core/fetch.pi:557",
+          "source": "core/fetch.pi:556",
           "members": [
             {
               "name": "status",
@@ -6302,7 +6302,7 @@
               "signature": "public readonly status: int",
               "doc": "<p>The status code (<code>200</code>, <code>404</code>, …).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:559",
+              "source": "core/fetch.pi:558",
               "members": []
             },
             {
@@ -6311,7 +6311,7 @@
               "signature": "public readonly statusText: string",
               "doc": "<p>The reason phrase (<code>\"OK\"</code>, <code>\"Not Found\"</code>, …): the server's for a fetched response.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:561",
+              "source": "core/fetch.pi:560",
               "members": []
             },
             {
@@ -6320,7 +6320,7 @@
               "signature": "public url: string = \"\"",
               "doc": "<p>The URL it came from (after redirects); \"\" for one made here.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:563",
+              "source": "core/fetch.pi:562",
               "members": []
             },
             {
@@ -6329,7 +6329,7 @@
               "signature": "public redirected: bool = false",
               "doc": "<p>Whether <code>fetch</code> followed at least one redirect to get it.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:565",
+              "source": "core/fetch.pi:564",
               "members": []
             },
             {
@@ -6343,7 +6343,7 @@
                   "code": "const res = new Response(\"<h1>Hi</h1>\", { headers: { \"Content-Type\": \"text/html\" } })\nprintln(res.status)                        // 200\nprintln(res.headers.get(\"content-type\"))   // text/html\nprintln(await res.text())                  // <h1>Hi</h1>"
                 }
               ],
-              "source": "core/fetch.pi:579",
+              "source": "core/fetch.pi:578",
               "members": []
             },
             {
@@ -6357,7 +6357,7 @@
                   "code": "const res = new Response(\"hello\", { status: 201 })\nconst copy = res.clone()\nprintln(`${copy.status} ${await copy.text()}`)   // 201 hello\nprintln(await res.text())                         // hello"
                 }
               ],
-              "source": "core/fetch.pi:601",
+              "source": "core/fetch.pi:600",
               "members": []
             },
             {
@@ -6371,7 +6371,7 @@
                   "code": "println(new Response(\"fine\").ok)                       // true\nprintln(new Response(\"oops\", { status: 500 }).ok)      // false"
                 }
               ],
-              "source": "core/fetch.pi:620",
+              "source": "core/fetch.pi:619",
               "members": []
             },
             {
@@ -6385,7 +6385,7 @@
                   "code": "struct Point {\n  x: int\n  y: int\n}\n\nconst p: Point = { x: 1, y: 2 }\nconst res = Response.json(p, { status: 201 })\nprintln(res.headers.get(\"content-type\"))   // application/json\nprintln(await res.text())                  // {\"x\":1,\"y\":2}"
                 }
               ],
-              "source": "core/fetch.pi:638",
+              "source": "core/fetch.pi:637",
               "members": []
             },
             {
@@ -6399,7 +6399,7 @@
                   "code": "const res = Response.redirect(\"/login\", 303)\nprintln(res.status)                    // 303\nprintln(res.headers.get(\"location\"))   // /login"
                 }
               ],
-              "source": "core/fetch.pi:655",
+              "source": "core/fetch.pi:654",
               "members": []
             }
           ]
@@ -6415,7 +6415,7 @@
               "code": "const init: ResponseInit = { status: 201, headers: [[\"Location\", \"/items/7\"]] }\nconst res = new Response(\"created\", init)\nprintln(res.status)                   // 201\nprintln(res.statusText)               // Created\nprintln(res.headers.get(\"location\"))  // /items/7"
             }
           ],
-          "source": "core/fetch.pi:504",
+          "source": "core/fetch.pi:503",
           "members": [
             {
               "name": "status",
@@ -6423,7 +6423,7 @@
               "signature": "status?: int",
               "doc": "<p>The status code (200 by default; 101 or 200–599).</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:506",
+              "source": "core/fetch.pi:505",
               "members": []
             },
             {
@@ -6432,7 +6432,7 @@
               "signature": "statusText?: string",
               "doc": "<p>The reason phrase (by default the usual one for <code>status</code>, or \"\").</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:508",
+              "source": "core/fetch.pi:507",
               "members": []
             },
             {
@@ -6441,7 +6441,7 @@
               "signature": "headers?: HeadersInit",
               "doc": "<p>The header fields (copied): pairs, a map or <code>Headers</code>.</p>\n",
               "examples": [],
-              "source": "core/fetch.pi:510",
+              "source": "core/fetch.pi:509",
               "members": []
             }
           ]
@@ -9487,7 +9487,7 @@
               "code": "import { serve } from \"std/http\"\n\nasync function handle(req: Request): Promise<Response> throws Error {\n  new Response(`you asked for ${new URL(req.url).pathname}`)\n}\n\nconst server = await serve({ port: 0 }, handle)\nconst res = await fetch(`http://127.0.0.1:${server.addr.port}/hello`)\nprintln(res.status)         // 200\nprintln(await res.text())   // you asked for /hello\nawait server.shutdown()"
             }
           ],
-          "source": "core/fetch.pi:1261",
+          "source": "core/fetch.pi:1262",
           "members": []
         },
         {
