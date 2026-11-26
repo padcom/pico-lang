@@ -2829,6 +2829,15 @@ impl Resolver {
                             continue;
                         }
                         set_vis(self, &pname.name, &p.mods);
+                        // `public reactive count: int` (#71): a reactive field, set from the
+                        // argument.
+                        let ty = if p.mods.reactive {
+                            info.reactive_fields
+                                .insert(pname.name.clone(), p.ty.as_ref());
+                            self.reactive_ty(ty)
+                        } else {
+                            ty
+                        };
                         self.structs[sid.0 as usize].fields.push(FieldDef {
                             name: pname.name.clone(),
                             ty,
@@ -3425,7 +3434,12 @@ impl Resolver {
         }
         if !delegates {
             for (pid, pname) in props {
-                let value = self.expr(ExprKind::Var(Var::Local(pid)), pname.span);
+                let value = match c.reactive_fields.get(&pname.name) {
+                    Some(t) => {
+                        self.lower_expr(&reactive_cell(&build::ident(&pname.name, pname.span), *t))
+                    }
+                    None => self.expr(ExprKind::Var(Var::Local(pid)), pname.span),
+                };
                 let assign = self.field_assign(this, &pname.name, pname.span, value);
                 stmts.push(Stmt::Expr(assign));
             }
