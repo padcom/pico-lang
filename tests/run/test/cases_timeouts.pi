@@ -1,0 +1,42 @@
+// `std/test` (#70): `test(name, cases, fn)` makes one test per case (`%s` the case, `%#` its
+// index, or the case in parentheses), sync or async; `test(name, fn, ms)` gives a time limit.
+// exit: 1
+// expect:   ✓ doubles 1
+// expect:   ✓ doubles 2
+// expect:   ✓ doubles 3
+// expect:   ✓ case 0 is a
+// expect:   ✓ case 1 is b
+// expect:   ✓ plain (true)
+// expect:   ✓ async 5
+// expect:   ✗ too slow
+// expect:       timed out after 20 ms
+// expect:   ✓ in time
+// expect:   ✓ sync in time
+// expect: pico-test: 9 passed, 1 failed, 0 skipped
+import { env } from "std/process"
+import { test, expect } from "std/test"
+import { delay } from "std/timers"
+
+env.set("PICO_TEST_TIMES", "0")
+test("doubles %s", [1, 2, 3], (n: int) => {
+  expect(n * 2).toBe(n + n)
+})
+test("case %# is %s", ["a", "b"], (s: string) => {
+  expect(s.length).toBe(1)
+})
+test("plain", [true], (b: bool) => {
+  expect(b).toBe(true)
+})
+test("async %s", [5], async (n: int) => {
+  await delay(1)
+  expect(n).toBe(5)
+})
+test("too slow", async () => {
+  await delay(200)
+}, 20)
+test("in time", async () => {
+  await delay(1)
+}, 1000)
+test("sync in time", () => {
+  expect(1).toBe(1)
+}, 1000)

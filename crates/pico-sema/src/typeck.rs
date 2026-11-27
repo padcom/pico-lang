@@ -684,7 +684,16 @@ fn shape_fits(p: &Ty, t: &Ty) -> bool {
                 && a1.len() == a2.len()
                 && a1.iter().zip(a2.iter()).all(|(x, y)| shape_fits(x, y))
         }
-        (Ty::Fn(p1, _, _), Ty::Fn(p2, _, _)) => p1.len() == p2.len(),
+        // (A known result type must fit too: `(c: T) => Promise<…>` isn't a lambda returning
+        // `void`; a `void` one takes any, which it drops. #70)
+        (Ty::Fn(p1, r1, _), Ty::Fn(p2, r2, _)) => {
+            p1.len() == p2.len()
+                && (r1.has_any_params()
+                    || **r1 == Ty::Void
+                    || matches!(**r2, Ty::Never | Ty::Error)
+                    || shape_fits(r1, r2)
+                    || matches!((&**r1, &**r2), (Ty::Class(a, _, _), Ty::Class(b, _, _)) if a == b))
+        }
         // Other generic shapes (interfaces, maps…) are left to the full check.
         (Ty::Array(_) | Ty::Fixed(..) | Ty::Tuple(_) | Ty::Fn(..), _) => false,
         (Ty::Class(..) | Ty::Struct(..), Ty::Param(..)) => true,
