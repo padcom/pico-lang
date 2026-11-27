@@ -10,6 +10,7 @@ run/time/date        reads the environment (std/process isn't available in the b
 run/gc/finalizers_busy_loop  measures resident memory through /proc (std/fs isn't available in the browser)
 run/test/runner      reads the environment (std/process isn't available in the browser)
 run/test/to_throw_type  reads the environment (std/process isn't available in the browser)
+run/test/identity    reads the environment (std/process isn't available in the browser)
 run/gc/buffers_sync_loop  measures resident memory through /proc (std/fs isn't available in the browser)
 run/collections/map_churn  measures resident memory through /proc (std/fs isn't available in the browser)
 run/ffi/fn_pointers   no signal or dlsym in the browser
