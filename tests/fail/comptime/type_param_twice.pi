@@ -1,0 +1,5 @@
+// error: E0302
+// at: 5:22
+// Each parameter is given once, `comptime` type parameters too (#53).
+function f(comptime T: type, n: int): int { n }
+println(f(int, n: 1, n: 2))

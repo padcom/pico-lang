@@ -48,7 +48,9 @@ const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl
 - `target` (`os`, `arch`, `triple`) and `build` (`mode`, `flags`) are compile-time constants,
   usable anywhere (unless the program declares its own names `target`/`build`).
 - Types are values at comptime (`comptime T: type`, as a generic or a value parameter:
-  `schema(Point)`). A type answers `T.name`, `T.kind` (`"struct"`, `"class"`, `"enum"`,
+  `schema(Point)`; as a value parameter it's given by position or by name like the others,
+  `schema(prefix: "> ", T: Point)`, and the runtime parameters around it keep their defaults,
+  #53). A type answers `T.name`, `T.kind` (`"struct"`, `"class"`, `"enum"`,
   `"primitive"`, …), `T.fields` (`FieldInfo { name, typeName }`) and `T.methods`
   (`MethodInfo { name, signature }`, the signature as `(a: i64, ...rest: string[]): bool`, #56;
   also in run-time reflection's `methods`); private members are listed only inside the declaring module
