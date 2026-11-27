@@ -1,8 +1,8 @@
 /* Raw DEFLATE streams over miniz (third_party/miniz), for WebSocket permessage-deflate
  * (RFC 7692, #67): `__zlib_op` 41 makes a stream (`a` 0 to compress, 1 to decompress; `b`
  * the most bytes one message may decompress to, 0 for no limit), 42 runs a message through it
- * (`a` the stream, `b` the address of its bytes, `c` how many; the result's length, or -1 when
- * it's corrupt or over the limit), 43 hands over that result (malloc'd: an `ArrayBuffer`
+ * (`a` the stream, `b` the address of its bytes, `c` how many; the result's length, -1 when
+ * it's corrupt, -2 when it's over the limit), 43 hands over that result (malloc'd: an `ArrayBuffer`
  * adopts it), 44 frees the stream, 45 the last result's length, 46 frees memory `a` (the
  * interpreter's copy).
  *
@@ -75,7 +75,7 @@ static int64_t zs_run(Zs *s, const unsigned char *in, size_t n) {
             int r = mz_inflate(&s->z, MZ_SYNC_FLUSH);
             s->len = s->cap - s->z.avail_out;
             if (r != MZ_OK && r != MZ_BUF_ERROR && r != MZ_STREAM_END) return -1;
-            if (s->limit > 0 && (int64_t)s->len > s->limit) return -1;
+            if (s->limit > 0 && (int64_t)s->len > s->limit) return -2;
             if (r == MZ_BUF_ERROR && s->z.avail_out != 0) break; /* (no progress) */
         }
     }
@@ -87,7 +87,7 @@ static int64_t zs_run(Zs *s, const unsigned char *in, size_t n) {
         int r = mz_inflate(&s->z, MZ_SYNC_FLUSH);
         size_t got = s->cap - s->z.avail_out - s->len;
         s->len += got;
-        if (s->limit > 0 && (int64_t)s->len > s->limit) return -1;
+        if (s->limit > 0 && (int64_t)s->len > s->limit) return -2;
         if (got == 0 || r != MZ_OK) break;
     }
     return (int64_t)s->len;

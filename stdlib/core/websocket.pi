@@ -1,7 +1,7 @@
 // `WebSocket` (WHATWG WebSockets over RFC 6455, spec §13.6), a global: the client
 // (`new WebSocket("ws://…")`) and the socket `std/http`'s `upgradeWebSocket` hands a server.
 // Text and binary messages (fragmented ones are joined), ping/pong, and the closing
-// handshake, over `ws:` or `wss:` (TLS); no extensions.
+// handshake, over `ws:` or `wss:` (TLS); permessage-deflate (RFC 7692) when both sides agree.
 
 /// `n` random bytes from the system.
 function __randomBytes(n: int): Uint8Array {
@@ -88,8 +88,7 @@ function __wsDeflateAccepted(answer: string): bool {
   return true
 }
 
-/// Runs `data` through DEFLATE stream `z` (`__zlib_op` 41): the result, or null when it's
-/// corrupt or decompresses to more than the stream's limit.
+/// Compresses `data` with DEFLATE stream `z` (`__zlib_op` 41): the result, or null on failure.
 function __zlibRun(z: int, data: Uint8Array): Uint8Array? {
   const n = __zlib_op(42, z, data.buffer.__handle + data.byteOffset, data.length)
   if (n < 0) {
@@ -997,13 +996,17 @@ class WebSocket extends EventTarget {
           const joined = if (parts.length == 1) parts[0] else __concatBytes(parts)
           parts = []
           size = 0
-          // (A decompressed message bigger than `maxMessageBytes` fails with 1009 too.)
-          const inflated = if (compressed) __zlibRun(this.inflater, joined) else joined
-          if (inflated == null) {
-            await this.failWith(if (this.__maxMessageBytes > 0) 1009 else 1007)
-            return
+          let whole = joined
+          if (compressed) {
+            // (Corrupt: 1007; decompressing past `maxMessageBytes`: 1009, as a big message.)
+            const at = joined.buffer.__handle + joined.byteOffset
+            const n = __zlib_op(42, this.inflater, at, joined.length)
+            if (n < 0) {
+              await this.failWith(if (n == -2) 1009 else 1007)
+              return
+            }
+            whole = new Uint8Array(new ArrayBuffer(__zlib_op(43, this.inflater, 0, 0), n, true), 0)
           }
-          const whole: Uint8Array = inflated
           if (this.readyState == 1) {
             if (messageOp == 1) {
               const text = __wsText(whole)

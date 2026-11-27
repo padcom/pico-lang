@@ -87,7 +87,10 @@ fn main() {
     for d in pico_runtime_miniz_defines() {
         zlib.define(d, None);
     }
-    zlib.std("c99").opt_level(2).warnings(false).compile("pico_zlib");
+    zlib.std("c99")
+        .opt_level(2)
+        .warnings(false)
+        .compile("pico_zlib");
     // (`compile` printed the link lines for both, glue first: the order static linking needs.)
     // On Windows (MinGW) the runtime needs winpthreads, the certificate store and the system
     // random source, for the interpreter's copy too.
@@ -149,7 +152,12 @@ fn embed(runtime: &std::path::Path) {
             files.extend(headers.into_iter().map(|(p, d)| (format!("clang/{p}"), d)));
         }
     }
-    for lib in ["libpico_rt.a", "libpico_crypto.a", "libpico_mbedtls.a", "libpico_zlib.a"] {
+    for lib in [
+        "libpico_rt.a",
+        "libpico_crypto.a",
+        "libpico_mbedtls.a",
+        "libpico_zlib.a",
+    ] {
         let data = std::fs::read(out.join(lib)).expect(lib);
         files.push((format!("lib/{lib}"), data));
     }

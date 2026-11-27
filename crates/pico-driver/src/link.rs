@@ -111,8 +111,14 @@ pub fn link_macos(
         };
         format!("linking failed:\n{e}{hint}")
     })?;
-    write_notices(notices, &[(Part::MbedTls, &prefixed(&runtime, "mbedtls_")),
-            (Part::Miniz, &prefixed(&runtime, "miniz_"))], &[])
+    write_notices(
+        notices,
+        &[
+            (Part::MbedTls, &prefixed(&runtime, "mbedtls_")),
+            (Part::Miniz, &prefixed(&runtime, "miniz_")),
+        ],
+        &[],
+    )
 }
 
 /// Writes the notices file (if one is wanted) from the map the link wrote (#106).

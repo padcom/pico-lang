@@ -1,18 +1,19 @@
 // permessage-deflate (RFC 7692, #67): a client offers it and takes a server's answer; frames
 // with RSV1 are decompressed (RFC 7692 §7.2.3's own examples, whole and fragmented); what
-// the client sends is compressed; a pico server and client agree on it, and a message
+// the client sends is compressed; a corrupt message fails with 1007; a pico server and client agree on it, and a message
 // decompressing past `maxMessageBytes` fails with 1009.
 // expect: offered true
 // expect: raw extensions: permessage-deflate
 // expect: raw message: Hello
 // expect: raw message: Hello
+// expect: raw close 1007
 // expect: client frame compressed: true
-// expect: server extensions: permessage-deflate; server_no_context_takeover
 // expect: client extensions: permessage-deflate; server_no_context_takeover
 // expect: echo ok: true
 // expect: binary ok: true
 // expect: uncompressed extensions: ""
 // expect: bomb close 1009
+// expect: server extensions: [permessage-deflate; server_no_context_takeover, , permessage-deflate; server_no_context_takeover]
 import { listen, Conn } from "std/net"
 import { digest } from "std/crypto"
 import { base64 } from "std/encoding"
@@ -43,9 +44,12 @@ async function rawServer(conn: Conn): Promise<void> throws Error {
   await conn.write(Uint8Array.from([0xC1, 7, 0xF2, 0x48, 0xCD, 0xC9, 0xC9, 0x07, 0x00]))
   await conn.write(Uint8Array.from([0x41, 3, 0xF2, 0x48, 0xCD]))
   await conn.write(Uint8Array.from([0x80, 4, 0xC9, 0xC9, 0x07, 0x00]))
-  for await (const chunk of conn) {
-    if (clientFrame.length == 0) clientFrame = chunk
-  }
+  // (Not DEFLATE: block type 3 is reserved. The client fails the connection with 1007.)
+  await conn.write(Uint8Array.from([0xC1, 2, 0xFF, 0xFF]))
+  // (The client's first frame; then the connection ends from this side.)
+  const first = await conn.read()
+  if (first != null) clientFrame = first
+  conn.close()
 }
 
 const raw = await listen()
@@ -62,17 +66,25 @@ rc.onmessage = (e) => {
   if (got == 2) rc.send("a fairly repetitive message, repetitive enough to compress well")
 }
 rc.onopen = (e) => println(`raw extensions: ${rc.extensions}`)
+rc.onclose = (e) => println(`raw close ${e.code}`)
 await delay(400)
 // (RSV1 set, and fewer payload bytes than the 63 sent.)
 println(`client frame compressed: ${clientFrame.length > 2 && (clientFrame[0] & 0x40) != 0 && (clientFrame[1] & 127) < 63}`)
-rc.close()
 raw.close()
 
 // A pico server and client.
+const serverExtensions: string[] = []
 async function handle(req: Request): Promise<Response> throws Error {
   const up = upgradeWebSocket(req, "", { maxMessageBytes: 200000 })
-  up.socket.onopen = (e) => println(`server extensions: ${up.socket.extensions}`)
-  up.socket.onmessage = (e) => up.socket.send(e.data)
+  up.socket.onopen = (e) => serverExtensions.push(up.socket.extensions)
+  up.socket.binaryType = "arraybuffer"
+  up.socket.onmessage = (e) => {
+    match (e.data) {
+      s: string => up.socket.send(s),
+      a: ArrayBuffer => up.socket.send(a),
+      blob: Blob => up.socket.send(blob),
+    }
+  }
   up.response
 }
 const server = await serve({ port: 0 }, handle)
@@ -80,6 +92,7 @@ const big = "pico ".repeat(20000)
 const bytes = new Uint8Array(5000)
 for (let i = 0; i < bytes.length; i++) bytes[i] = i % 7
 const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+ws.binaryType = "arraybuffer"
 await new Promise<void>((resolve, _reject) => {
   ws.onopen = (e) => {
     println(`client extensions: ${ws.extensions}`)
@@ -91,7 +104,8 @@ await new Promise<void>((resolve, _reject) => {
         println(`echo ok: ${s == big}`)
         ws.send(bytes)
       },
-      b: Uint8Array => {
+      a: ArrayBuffer => {
+        const b = new Uint8Array(a, 0)
         let same = b.length == bytes.length
         for (let i = 0; same && i < b.length; i++) same = b[i] == bytes[i]
         println(`binary ok: ${same}`)
@@ -122,3 +136,4 @@ await new Promise<void>((resolve, _reject) => {
   }
 })
 await server.shutdown()
+println(`server extensions: [${serverExtensions.join(", ")}]`)
