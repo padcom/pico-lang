@@ -136,6 +136,7 @@ fn wasmgc() {
             "inheritance",
             "interfaces",
             "unions",
+            "union_widening",
             "to_string",
             "async/basics",
             "async/timers",

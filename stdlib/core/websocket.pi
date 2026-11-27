@@ -529,13 +529,7 @@ function __wsText(bytes: Uint8Array): string? {
 /// // An echo server on 127.0.0.1.
 /// async function handle(req: Request): Promise<Response> throws Error {
 ///   const up = upgradeWebSocket(req)
-///   up.socket.onmessage = (e) => {
-///     match (e.data) {
-///       s: string => up.socket.send(s),
-///       blob: Blob => up.socket.send(blob),
-///       a: ArrayBuffer => up.socket.send(a),
-///     }
-///   }
+///   up.socket.onmessage = (e) => up.socket.send(e.data)
 ///   up.response
 /// }
 /// const server = await serve({ port: 0 }, handle)
@@ -576,13 +570,7 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => {
-  ///     match (e.data) {
-  ///       s: string => up.socket.send(s),
-  ///       blob: Blob => up.socket.send(blob),
-  ///       a: ArrayBuffer => up.socket.send(a),
-  ///     }
-  ///   }
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -607,13 +595,7 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => {
-  ///     match (e.data) {
-  ///       s: string => up.socket.send(s),
-  ///       blob: Blob => up.socket.send(blob),
-  ///       a: ArrayBuffer => up.socket.send(a),
-  ///     }
-  ///   }
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -638,13 +620,7 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => {
-  ///     match (e.data) {
-  ///       s: string => up.socket.send(s),
-  ///       blob: Blob => up.socket.send(blob),
-  ///       a: ArrayBuffer => up.socket.send(a),
-  ///     }
-  ///   }
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -741,13 +717,7 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => {
-  ///     match (e.data) {
-  ///       s: string => up.socket.send(s),
-  ///       blob: Blob => up.socket.send(blob),
-  ///       a: ArrayBuffer => up.socket.send(a),
-  ///     }
-  ///   }
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -1124,13 +1094,7 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => {
-  ///     match (e.data) {
-  ///       s: string => up.socket.send(s),
-  ///       blob: Blob => up.socket.send(blob),
-  ///       a: ArrayBuffer => up.socket.send(a),
-  ///     }
-  ///   }
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -1178,13 +1142,7 @@ class WebSocket extends EventTarget {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => {
-  ///     match (e.data) {
-  ///       s: string => up.socket.send(s),
-  ///       blob: Blob => up.socket.send(blob),
-  ///       a: ArrayBuffer => up.socket.send(a),
-  ///     }
-  ///   }
+  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
