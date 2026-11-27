@@ -77,6 +77,9 @@ pub struct Types {
     pub object_variants: HashMap<ExprId, (EnumId, u32, Vec<u32>)>,
     /// Patterns that test which member a union value holds (by member index).
     pub union_tests: HashMap<ExprId, u32>,
+    /// The patterns of `match` arms that can never match (earlier arms without guards cover
+    /// them; #53): the `unreachableArm` lint warns about them.
+    pub unreachable_arms: Vec<Span>,
     /// Patterns that test what an `unknown` value holds (#53): a type pattern (its type) or
     /// `null`.
     pub unknown_tests: HashMap<ExprId, Ty>,
@@ -216,6 +219,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             variant_fields: HashMap::new(),
             object_variants: HashMap::new(),
             union_tests: HashMap::new(),
+            unreachable_arms: Vec::new(),
             unknown_tests: HashMap::new(),
             instances: HashMap::new(),
             recv_args: HashMap::new(),
@@ -3343,6 +3347,28 @@ impl<'p> Checker<'p> {
             });
             results.push((&arm.body, t));
         }
+        if !st.is_error() {
+            // An arm none of whose alternatives is useful after the earlier unguarded arms can
+            // never match (#53).
+            let ex = exhaust::Checker {
+                program: self.program,
+            };
+            let col = std::slice::from_ref(&st);
+            let mut before: Vec<Vec<Pat>> = Vec::new();
+            for arm in arms {
+                let alts = self.to_pat(&arm.pat, &st);
+                let dead = !before.is_empty()
+                    && alts
+                        .iter()
+                        .all(|q| ex.useful(&before, std::slice::from_ref(q), col).is_none());
+                if dead {
+                    self.types.unreachable_arms.push(arm.pat.span);
+                }
+                if arm.guard.is_none() {
+                    before.extend(alts.into_iter().map(|q| vec![q]));
+                }
+            }
+        }
         if !st.is_error() && !statement {
             let rows: Vec<Pat> = arms
                 .iter()
@@ -4023,6 +4049,10 @@ impl<'p> Checker<'p> {
                 let mut cols = vec![vec![Pat::Wild]; tys.len()];
                 self.named_subpats(p, fps, &tys, &mut cols);
                 product(cols, Ctor::Single)
+            }
+            // (A downcast covers only the subclass's objects: never the whole type.)
+            PatKind::Type { ty, .. } if self.types.downcasts.contains(&p.id) => {
+                leaf(Ctor::Str(format!("{ty}")))
             }
             PatKind::Type { .. } => vec![Pat::Wild],
             PatKind::Slice {

@@ -30,6 +30,30 @@ pub fn check(cx: &Cx, out: &mut Vec<Diagnostic>) {
     for s in &cx.module.stmts {
         m.stmt(s);
     }
+    unreachable_arms(cx, out);
+}
+
+/// `unreachableArm` (#53): the `match` arms the type checker found earlier arms cover.
+fn unreachable_arms(cx: &Cx, out: &mut Vec<Diagnostic>) {
+    if cx.on("unreachableArm").is_none() {
+        return;
+    }
+    let Some(types) = &cx.checked.types else {
+        return;
+    };
+    for span in &types.unreachable_arms {
+        if span.file == cx.file {
+            out.push(
+                cx.warn(
+                    "unreachableArm",
+                    "this arm never matches",
+                    *span,
+                    "unreachable arm",
+                )
+                .help("the arms before it (without `if` guards) already match everything it does"),
+            );
+        }
+    }
 }
 
 fn kind_name(k: Kind) -> &'static str {

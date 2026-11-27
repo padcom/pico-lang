@@ -105,6 +105,7 @@ lints! {
     LINT_DOC_FORMAT = 62: "docFormat": "a doc comment's layout is off",
     LINT_UNDERSCORE_DANGLE = 63: "underscoreDangle": "a used name starts or ends with `_`",
     LINT_PREFER_NAMED_CAPTURE_GROUP = 64: "preferNamedCaptureGroup": "a regex has an unnamed capture group",
+    LINT_UNREACHABLE_ARM = 65: "unreachableArm": "a `match` arm can never match: earlier arms cover what it matches",
 }
 
 impl fmt::Debug for Code {

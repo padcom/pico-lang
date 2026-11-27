@@ -202,6 +202,7 @@ The rules from the author's ESLint configuration (decision 332), each off unless
 | `unsafeFinally` | `return`, `throw`, and `break`/`continue` of a loop outside it, in a `finally` block |
 | `requireYield` | a generator with a body but no `yield` |
 | `forDirection` | a `for (…; i < n; i--)` whose update moves the counter away from the condition's limit |
+| `unreachableArm` | a `match` arm that the arms before it (without guards) already cover: a repeated case, one after `_`, a subclass after its base class (#53; **on by default**) |
 | `emptyBlock` | an empty block, `catch` or `switch` (not a function body; a comment inside makes it non-empty) |
 | `dupeElseIf` | an `else if` condition that an earlier one in the chain (or one side of its `\|\|`) already tested |
 | `uselessCatch` | a last `catch` whose body only rethrows what it caught |

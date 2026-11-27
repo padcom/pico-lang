@@ -1,0 +1,7 @@
+---
+source: crates/pico-lint/src/tests.rs
+expression: "run(\"unreachable_arms\", ALL_OFF, ARMS, &[])"
+---
+7:5 W0065 this arm never matches (the arms before it (without `if` guards) already match everything it does)
+9:5 W0065 this arm never matches (the arms before it (without `if` guards) already match everything it does)
+22:5 W0065 this arm never matches (the arms before it (without `if` guards) already match everything it does)

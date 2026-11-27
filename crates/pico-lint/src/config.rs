@@ -52,6 +52,8 @@ pub const RULES: &[(&str, Opt, bool)] = &[
     ("shadow", Opt::Flag, false),
     ("unusedExpressions", Opt::Flag, false),
     ("unreachable", Opt::Flag, false),
+    // (On by default, the user's decision for #53: the compiler itself stays warning-free.)
+    ("unreachableArm", Opt::Flag, true),
     ("selfCompare", Opt::Flag, false),
     ("selfAssign", Opt::Flag, false),
     ("constantBinary", Opt::Flag, false),
