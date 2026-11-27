@@ -53,10 +53,10 @@ class __Type {
   /// ```
   constructor(
     /// As messages show it: `string`, `Point`, `i64[]`.
-    public name: string,
+    public readonly name: string,
     /// `"struct"`, `"class"`, `"interface"`, `"enum"`, `"primitive"`, `"array"`, … (as
     /// `TypeInfo.kind`).
-    public kind: string,
+    public readonly kind: string,
   ) {}
   /// Its `name`.
   ///
@@ -167,19 +167,19 @@ class __TypeInfo<T> {
   /// ```
   constructor(
     /// As messages show it: `Point`, `Box<i64>`, `i64[]`.
-    public name: string,
+    public readonly name: string,
     /// `"struct"`, `"class"`, `"interface"`, `"enum"`, `"primitive"`, `"array"`, … (as `T.kind`).
-    public kind: string,
+    public readonly kind: string,
     /// Instance fields, inherited ones first (private ones only in the declaring module).
-    public fields: __Field<T>[],
+    public readonly fields: __Field<T>[],
     /// Instance methods.
-    public methods: MethodInfo[],
+    public readonly methods: MethodInfo[],
     /// The interfaces it declares with `implements`.
-    public interfaces: __Type[],
+    public readonly interfaces: __Type[],
     /// The base class.
-    public base: __TypeInfo<T>?,
+    public readonly base: __TypeInfo<T>?,
     /// The decorators on its declaration, in order.
-    public decorators: __DecoratorInfo[],
+    public readonly decorators: __DecoratorInfo[],
   ) {}
 
   /// The field called `name`.
@@ -247,14 +247,14 @@ class __Field<T> {
   /// ```
   constructor(
     /// The field's name.
-    public name: string,
+    public readonly name: string,
     /// The field's declared type.
-    public type: __Type,
+    public readonly type: __Type,
     /// The decorators on the field, in order.
-    public decorators: __DecoratorInfo[],
+    public readonly decorators: __DecoratorInfo[],
     /// Whether it's `readonly` (`set` panics for it).
-    public isReadonly: bool,
-    private id: int,
+    public readonly isReadonly: bool,
+    private readonly id: int,
   ) {}
 
   /// The field's value in `obj`.

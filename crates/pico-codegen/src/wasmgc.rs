@@ -3073,13 +3073,10 @@ impl<'p> Gen<'p> {
                 s.struct_set(idx, 0);
                 s.local_get(tmp);
             }
-            Rvalue::InstanceOf(o, sid) => {
+            Rvalue::InstanceOf(o, class) => {
                 self.operand(fx, s, o)?;
-                let cls = self.struct_type(&Ty::Class(
-                    *sid,
-                    self.p.layout(*sid).name.as_str().into(),
-                    Vec::new().into(),
-                ));
+                // (A generic class's instance is its own struct type: #56.)
+                let cls = self.struct_type(class);
                 s.ref_test_non_null(HeapType::Concrete(cls));
             }
             Rvalue::ShowEnter(o) => {

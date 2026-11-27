@@ -40,6 +40,7 @@ pub fn lower(
         skip_files: program.workers.iter().copied().collect(),
         inline_entry: false,
         synths: Vec::new(),
+        synth_globals: Vec::new(),
     };
     // Generic functions get a placeholder; their instances are lowered on demand.
     let mut fns: Vec<mir::Function> = (0..program.fns.len())
@@ -189,6 +190,15 @@ pub fn lower(
             ty: t.clone(),
             span: Some(g.span),
         })
+        .chain(
+            cx.synth_globals
+                .iter()
+                .map(|(_, name, ty)| mir::GlobalDecl {
+                    name: name.clone(),
+                    ty: ty.clone(),
+                    span: None,
+                }),
+        )
         .collect();
     let structs = program
         .structs
@@ -766,6 +776,10 @@ struct Cx<'a> {
     /// The requested synthesized functions (see `Synth`) and their placeholder ids
     /// (`SYNTH_BASE + i`), fixed up once every function exists.
     synths: Vec<(Synth, FnId)>,
+    /// Globals the lowering adds (after the program's): a key, the name and the type. The
+    /// cached `TypeInfo` descriptions (#56), per type, the type it's seen as and the asking
+    /// file (which decides whether private members show).
+    synth_globals: Vec<((Ty, Ty, pico_diag::FileId), String, Ty)>,
 }
 
 /// The core library's reflection functions, which calls replace with synthesized ones.
@@ -868,15 +882,65 @@ fn field_id(p: &hir::Program, mut sid: StructId, i: usize) -> i64 {
     ((sid.0 as i64) << 20) | i as i64
 }
 
-/// The non-generic classes deriving from `sid`, directly or not.
-fn subclasses(p: &hir::Program, sid: StructId) -> Vec<StructId> {
-    (0..p.structs.len())
-        .map(|i| StructId(i as u32))
-        .filter(|s| {
-            let d = p.struct_def(*s);
-            *s != sid && d.is_class && d.generics.is_empty() && p.is_subclass(*s, sid)
-        })
-        .collect()
+/// The direct subclasses of class type `t` as instances (#56): `Sub<int>` for
+/// `class Sub<T> extends Box<T>` and `t = Box<int>`, `IntBox` for `class IntBox extends
+/// Box<int>`. A subclass whose type arguments `t` doesn't determine, or that extends another
+/// instance of the base, isn't one.
+fn subclass_instances(p: &hir::Program, t: &Ty) -> Vec<Ty> {
+    let Ty::Class(sid, _, args) = t else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for i in 0..p.structs.len() {
+        let s = StructId(i as u32);
+        let d = p.struct_def(s);
+        if !d.is_class || d.base != Some(*sid) {
+            continue;
+        }
+        let owner = Ty::type_owner(s);
+        let mut solved: Vec<Option<Ty>> = vec![None; d.generics.len()];
+        let fits = d.base_args.len() == args.len()
+            && d.base_args
+                .iter()
+                .zip(args.iter())
+                .all(|(pat, a)| bind_params(pat, a, owner, &mut solved));
+        if !fits {
+            continue;
+        }
+        let Some(solved) = solved.into_iter().collect::<Option<Vec<Ty>>>() else {
+            continue;
+        };
+        out.push(p.struct_ty(s).subst(owner, &solved));
+    }
+    out
+}
+
+/// Matches `pat` (in the type parameters of `owner`) against `t`, recording what each
+/// parameter stands for; false when they don't match.
+fn bind_params(pat: &Ty, t: &Ty, owner: u32, solved: &mut [Option<Ty>]) -> bool {
+    match (pat, t) {
+        (Ty::Param(o, i, _), _) if *o == owner => match &solved[*i as usize] {
+            Some(prev) => prev == t,
+            None => {
+                solved[*i as usize] = Some(t.clone());
+                true
+            }
+        },
+        (Ty::Array(a), Ty::Array(b)) | (Ty::Nullable(a), Ty::Nullable(b)) => {
+            bind_params(a, b, owner, solved)
+        }
+        (Ty::Class(a, _, xs), Ty::Class(b, _, ys))
+        | (Ty::Struct(a, _, xs), Ty::Struct(b, _, ys))
+        | (Ty::Iface(a, _, xs), Ty::Iface(b, _, ys)) => {
+            a == b
+                && xs.len() == ys.len()
+                && xs
+                    .iter()
+                    .zip(ys.iter())
+                    .all(|(x, y)| bind_params(x, y, owner, solved))
+        }
+        _ => pat == t,
+    }
 }
 
 /// `T.kind` (and `TypeInfo.kind`) for type `t`.
@@ -1017,6 +1081,38 @@ impl Cx<'_> {
         let f = FnId(SYNTH_BASE + self.synths.len() as u32);
         self.synths.push((what, f));
         f
+    }
+
+    /// The global holding the cached description of `of` seen as `seen` from `file` (#56):
+    /// `null` until first asked for.
+    fn info_cache(&mut self, seen: &Ty, of: &Ty, file: pico_diag::FileId) -> hir::GlobalId {
+        let base = self.program.globals.len();
+        let key = (seen.clone(), of.clone(), file);
+        if let Some(i) = self.synth_globals.iter().position(|(k, _, _)| *k == key) {
+            return hir::GlobalId((base + i) as u32);
+        }
+        let ty = Ty::Nullable(Box::new(self.type_info_ty(seen)));
+        let name = format!("__typeInfo{}", self.synth_globals.len());
+        self.synth_globals.push((key, name, ty));
+        hir::GlobalId((base + self.synth_globals.len() - 1) as u32)
+    }
+
+    /// Class `sid` without type arguments (an `InstanceOf` target that only names the class).
+    fn bare_class(&self, sid: StructId) -> Ty {
+        Ty::Class(
+            sid,
+            self.program.struct_def(sid).name.as_str().into(),
+            Vec::new().into(),
+        )
+    }
+
+    /// The type of global `g` (the program's or one the lowering added).
+    fn global_ty(&self, g: hir::GlobalId) -> Ty {
+        let n = self.types.globals.len();
+        match self.types.globals.get(g.0 as usize) {
+            Some(t) => t.clone(),
+            None => self.synth_globals[g.0 as usize - n].2.clone(),
+        }
     }
 
     /// A core-library class (by its name there, like `__TypeInfo`).
@@ -2588,7 +2684,7 @@ impl FnBuilder<'_, '_> {
         self.assign(msg.clone(), Rvalue::Use(text), span);
         for (_, s) in classes {
             let is = self.rvalue_to_temp(
-                Rvalue::InstanceOf(Operand::Copy(raw.clone()), s),
+                Rvalue::InstanceOf(Operand::Copy(raw.clone()), self.cx.bare_class(s)),
                 Ty::Bool,
                 span,
             );
@@ -2995,7 +3091,7 @@ impl FnBuilder<'_, '_> {
     fn place_ty(&self, p: &Place) -> Ty {
         let mut t = match p.base {
             mir::Base::Local(l) => self.locals[l.0 as usize].ty.clone(),
-            mir::Base::Global(g) => self.cx.types.globals[g.0 as usize].clone(),
+            mir::Base::Global(g) => self.cx.global_ty(g),
             mir::Base::Deref(l) => match &self.locals[l.0 as usize].ty {
                 Ty::Ref(inner) => (**inner).clone(),
                 other => unreachable!("deref of {other}"),
@@ -3987,7 +4083,8 @@ impl FnBuilder<'_, '_> {
             }
             ExprKind::InstanceOf { expr, class } => {
                 let v = self.expr(expr);
-                self.rvalue_to_temp(Rvalue::InstanceOf(v, *class), Ty::Bool, e.span)
+                let c = self.cx.bare_class(*class);
+                self.rvalue_to_temp(Rvalue::InstanceOf(v, c), Ty::Bool, e.span)
             }
             ExprKind::New { args, .. } => {
                 let cty = ty.clone();
@@ -5173,11 +5270,11 @@ impl FnBuilder<'_, '_> {
         if !self.cx.types.downcasts.contains(&p.id) {
             return place.clone();
         }
-        let Ty::Class(sid, _, _) = to else {
+        let Ty::Class(..) = to else {
             return place.clone();
         };
         let ok = self.rvalue_to_temp(
-            Rvalue::InstanceOf(Operand::Copy(place.clone()), *sid),
+            Rvalue::InstanceOf(Operand::Copy(place.clone()), to.clone()),
             Ty::Bool,
             p.span,
         );
@@ -5571,16 +5668,12 @@ impl FnBuilder<'_, '_> {
         let info_ty = self.cx.type_info_ty(seen);
         let res = Place::local(self.temp(info_ty.clone()));
         let done = self.new_block();
-        if let (Some(v), Ty::Class(sid, _, args)) = (v, of)
-            && args.is_empty()
-        {
-            let direct: Vec<StructId> = subclasses(self.cx.program, *sid)
-                .into_iter()
-                .filter(|s| self.cx.program.struct_def(*s).base == Some(*sid))
-                .collect();
-            for d in direct {
+        if let Some(v) = v {
+            // (Generic subclasses too, as instances: #56.)
+            for sub in subclass_instances(self.cx.program, of) {
+                let Ty::Class(..) = sub else { continue };
                 let is = self.rvalue_to_temp(
-                    Rvalue::InstanceOf(Operand::Copy(Place::local(v)), d),
+                    Rvalue::InstanceOf(Operand::Copy(Place::local(v)), sub.clone()),
                     Ty::Bool,
                     span,
                 );
@@ -5593,7 +5686,7 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(yes);
                 let f = self.cx.synth(Synth::Info {
                     seen: seen.clone(),
-                    of: self.cx.program.struct_ty(d),
+                    of: sub,
                     file,
                     dynamic: true,
                 });
@@ -5602,8 +5695,36 @@ impl FnBuilder<'_, '_> {
                 self.switch_to(no);
             }
         }
+        // One description per type, built when first asked for (#56; its fields are
+        // readonly).
+        let cache = Place {
+            base: mir::Base::Global(self.cx.info_cache(seen, of, file)),
+            proj: Vec::new(),
+        };
+        let cached =
+            self.rvalue_to_temp(Rvalue::IsNull(Operand::Copy(cache.clone())), Ty::Bool, span);
+        let (build, hit) = (self.new_block(), self.new_block());
+        self.terminate(Terminator::Branch {
+            cond: cached,
+            then: build,
+            else_: hit,
+        });
+        self.switch_to(hit);
+        self.assign(
+            res.clone(),
+            Rvalue::Unwrap(Operand::Copy(cache.clone())),
+            span,
+        );
+        self.terminate(Terminator::Goto(done));
+        self.switch_to(build);
         let info = self.describe(seen, of, file, span);
         self.assign(res.clone(), Rvalue::Use(info), span);
+        let nullable = Ty::Nullable(Box::new(info_ty));
+        self.assign(
+            cache,
+            Rvalue::WrapSome(Operand::Copy(res.clone()), nullable),
+            span,
+        );
         self.terminate(Terminator::Goto(done));
         self.switch_to(done);
         Operand::Copy(res)
@@ -5785,7 +5906,8 @@ impl FnBuilder<'_, '_> {
     ) {
         let program = self.cx.program;
         // (the class or struct the field is in, its index, its type, its id, a downcast)
-        let mut cands: Vec<(StructId, usize, Ty, i64, bool)> = Vec::new();
+        // (Declaring class, index, type, id, and the subclass instance to downcast to.)
+        let mut cands: Vec<(StructId, usize, Ty, i64, Option<Ty>)> = Vec::new();
         let (sid, args) = match t {
             Ty::Struct(sid, _, args) | Ty::Class(sid, _, args) => (*sid, args.clone()),
             _ => {
@@ -5801,18 +5923,26 @@ impl FnBuilder<'_, '_> {
                 i,
                 f.ty.subst(owner, &args),
                 field_id(program, sid, i),
-                false,
+                None,
             ));
         }
-        if matches!(t, Ty::Class(..)) && args.is_empty() {
+        if matches!(t, Ty::Class(..)) {
+            // The subclasses' own fields, generic subclasses as instances (#56).
             let own = program.struct_def(sid).fields.len();
-            for s in subclasses(program, sid) {
-                for (i, f) in program.struct_def(s).fields.iter().enumerate().skip(own) {
-                    let id = field_id(program, s, i);
+            let mut queue = subclass_instances(program, t);
+            while let Some(st) = queue.pop() {
+                let Ty::Class(s, _, sargs) = &st else {
+                    continue;
+                };
+                let so = Ty::type_owner(*s);
+                for (i, f) in program.struct_def(*s).fields.iter().enumerate().skip(own) {
+                    let id = field_id(program, *s, i);
                     if cands.iter().all(|c| c.3 != id) {
-                        cands.push((StructId((id >> 20) as u32), i, f.ty.clone(), id, true));
+                        let fty = f.ty.subst(so, sargs);
+                        cands.push((StructId((id >> 20) as u32), i, fty, id, Some(st.clone())));
                     }
                 }
+                queue.extend(subclass_instances(program, &st));
             }
         }
         let is_struct = matches!(t, Ty::Struct(..));
@@ -5835,9 +5965,9 @@ impl FnBuilder<'_, '_> {
             self.switch_to(yes);
             let kd = program.struct_def(k);
             let fname = kd.fields[i].name.clone();
-            let place = if downcast {
+            let place = if let Some(st) = downcast {
                 let ok = self.rvalue_to_temp(
-                    Rvalue::InstanceOf(Operand::Copy(Place::local(obj)), k),
+                    Rvalue::InstanceOf(Operand::Copy(Place::local(obj)), st.clone()),
                     Ty::Bool,
                     span,
                 );
@@ -5857,7 +5987,6 @@ impl FnBuilder<'_, '_> {
                 );
                 self.terminate(Terminator::Unreachable);
                 self.switch_to(fine);
-                let st = program.struct_ty(k);
                 let o =
                     self.rvalue_to_temp(Rvalue::Use(Operand::Copy(Place::local(obj))), st, span);
                 let Operand::Copy(p) = o else { unreachable!() };
@@ -6719,16 +6848,12 @@ impl FnBuilder<'_, '_> {
         }
         let res = Place::local(self.temp(Ty::Str));
         let done = self.new_block();
-        if args.is_empty() {
-            let subs: Vec<StructId> = (0..self.cx.program.structs.len())
-                .map(|i| StructId(i as u32))
-                .filter(|s| {
-                    let d = self.cx.program.struct_def(*s);
-                    d.is_class && d.base == Some(*sid) && d.generics.is_empty()
-                })
-                .collect();
-            for s in subs {
-                let is = self.rvalue_to_temp(Rvalue::InstanceOf(obj(), s), Ty::Bool, span);
+        {
+            // (Generic subclasses too, as instances: #56.)
+            let subs = subclass_instances(self.cx.program, t);
+            for st in subs {
+                let Ty::Class(..) = st else { continue };
+                let is = self.rvalue_to_temp(Rvalue::InstanceOf(obj(), st.clone()), Ty::Bool, span);
                 let (yes, no) = (self.new_block(), self.new_block());
                 self.terminate(Terminator::Branch {
                     cond: is,
@@ -6736,7 +6861,6 @@ impl FnBuilder<'_, '_> {
                     else_: no,
                 });
                 self.switch_to(yes);
-                let st = self.cx.program.struct_ty(s);
                 let sub = self.rvalue_to_temp(Rvalue::Use(obj()), st.clone(), span);
                 let text = self.show_value(sub, &st, span, false);
                 self.assign(res.clone(), Rvalue::Use(text), span);

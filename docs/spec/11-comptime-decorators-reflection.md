@@ -149,7 +149,9 @@ t.field("age")!.set<int>(user, age + 1)
   MethodInfo[]`, `interfaces: Type[]` (those declared with `implements`), `base: TypeInfo<T>?`,
   `decorators: DecoratorInfo[]`, and `field(name): Field<T>?`. For a class value,
   `typeOf(value)` describes its **runtime class** (a `User` variable holding an `Admin`
-  describes `Admin`; generic classes describe the static type).
+  describes `Admin`; a `Box<int>` holding a `Labeled<int>`, for `class Labeled<T> extends
+  Box<T>`, describes `Labeled<int>`, #56). Printing a value and the field accessors dispatch
+  the same way.
 - A `Field<T>` has `name`, `type: Type` (`name`, `kind`), `decorators`, `isReadonly`, and
   typed accessors: `get<V>(obj: T): V`, `set<V>(obj: T, value: V)` and `show(obj: T): string`
   (the value as a class's default string form shows it, §6.1). There's no `unknown`-typed
@@ -157,12 +159,13 @@ t.field("age")!.set<int>(user, age + 1)
   the field belongs to (a subclass's field on a base-class object), for a `readonly` field
   (`set`), and on a struct (`set`; structs are passed by value).
 - `DecoratorInfo` has `name` (`json.name`) and `args`: each argument's source text
-  (`@table("users")` → `["\"users\""]`). Only decorators on classes and structs are kept for
-  now (others aren't implemented, §11.2).
+  (`@table("users")` → `["\"users\""]`). A type's, field's (`Field.decorators`) and method's
+  (`MethodInfo.decorators`) decorators are kept (#54).
 - Private members are visible to reflection only in the declaring module (the module that
   calls `reflect.typeOf`).
-- Metadata is built where `typeOf` runs (a new `TypeInfo` per call), only for the types that
-  reach it; a program that doesn't reflect compiles exactly as without `std/reflect`.
+- Metadata is built where `typeOf` runs, once per type (#56): later calls return the same
+  `TypeInfo` (per thread), whose fields are `readonly`. Only the types that reach `typeOf`
+  get metadata; a program that doesn't reflect compiles exactly as without `std/reflect`.
 
 ## 11.4 JSON
 `JSON.parse<T>(text): T throws JsonError` and `JSON.stringify(value)` are generated at **compile

@@ -1141,6 +1141,7 @@ impl Interp<'_, '_> {
             },
             Rvalue::InstanceOf(o, target) => match self.operand(frame, o) {
                 Value::Object(obj) => {
+                    let target = &pico_mir::mir::class_id(target);
                     let mut c = Some(pico_sema::ty::StructId(obj.class));
                     while let Some(k) = c {
                         if k == *target {
