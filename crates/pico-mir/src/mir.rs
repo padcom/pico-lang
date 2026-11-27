@@ -151,6 +151,9 @@ pub struct StructLayout {
     /// Per field: `@weak` (spec §9.3; a `C?` or `T[]?` field of a class that the collector
     /// clears when its target dies).
     pub weak: Vec<bool>,
+    /// Per field: `@ephemeron` (#72): its references count only while the `@weak` field's
+    /// target lives.
+    pub ephemeron: Vec<bool>,
     /// A class: instances live on the heap behind a header.
     pub is_class: bool,
     pub meta: ClassMeta,

@@ -53,8 +53,12 @@ registry.unregister(owner)
 - A weak reference is cleared when a collection finds its target unreachable (a nursery
   collection for young targets, the end of a major marking for old ones); `gc.collect()`
   clears every one whose target is unreachable.
-- `WeakMap` holds its values strongly: a value that refers to its own key keeps the entry
-  alive (no ephemerons).
+- `WeakMap` values are ephemerons (#72), as in JavaScript: a value is held only while its key
+  is reachable some other way, so a value that refers to its own key doesn't keep the entry,
+  and a reachable key keeps its value and what that reaches (other keys included). In the
+  interpreter, which counts references, such a cycle lives on as any cycle does; in the browser
+  build, entries are held as before (the browser's collector has no hook for them).
+- A popped array element isn't kept alive by the array (#72).
 - Until there is an event loop (§10), the due finalization callbacks run once the entry
   module's top-level code has finished (after a full collection); a program without a
   `FinalizationRegistry` does no work at exit.
@@ -90,7 +94,9 @@ const total = arena {
   arena's objects while other code runs with the arena open. An arena between two of them, or a
   lambda inside one that suspends in its own frame, is fine.
 - Arena objects are roots for the collector while the arena is open, and are never
-  collected individually.
+  collected individually. A nursery collection scans only the arena objects allocated since
+  the last one and those on the arena's written cards (#72), so its cost doesn't grow with the
+  arena's size.
 
 **Arena object (unsafe).** Explicit lifetime control for advanced uses:
 ```ts
