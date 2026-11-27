@@ -875,3 +875,51 @@ fn fixes() {
         "import { dot } from \"./geo\"\n\nfunction twice(x: int): int {\n  const y = x * 2\n\n  return y\n}\n\nfunction show(n: int) {\n  println(n)\n\n  if (n > 1) {\n    println(\"big\")\n  }\n}\nshow(twice(dot(1, 2)))\n"
     );
 }
+
+const ARMS: &str = r#"class Animal {}
+class Dog extends Animal {}
+enum Color { Red, Green, Blue }
+function f(n: int, c: Color, a: Animal, s: string?): void {
+  match (n) {
+    1 => println("one"),
+    1 => println("again"),
+    _ => println("other"),
+    2 => println("never"),
+  }
+  match (c) {
+    Color.Red => println("r"),
+    Color.Red | Color.Green => println("g"),
+    _ => println("b"),
+  }
+  match (a) {
+    d: Dog => println("dog"),
+    x: Animal => println("animal"),
+  }
+  match (a) {
+    x: Animal => println("animal"),
+    d: Dog => println("dog"),
+  }
+  match (n) {
+    k if k > 3 => println("big"),
+    k => println(k),
+  }
+  match (s) {
+    null => println("none"),
+    t: string => println(t),
+  }
+}
+"#;
+
+/// `unreachableArm` (#53), on by default: an arm after ones that cover it; a downcast doesn't
+/// cover its base class, nor an arm with a guard what comes after it.
+#[test]
+fn unreachable_arms() {
+    insta::assert_snapshot!(run("unreachable_arms", ALL_OFF, ARMS, &[]));
+    let off = run(
+        "unreachable_arms_off",
+        r#"{ "naming": false, "unused": false, "unreachableArm": false }"#,
+        ARMS,
+        &[],
+    );
+    assert!(!off.contains("W0065"), "{off}");
+}
