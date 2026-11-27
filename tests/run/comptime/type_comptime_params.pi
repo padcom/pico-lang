@@ -1,0 +1,28 @@
+// `comptime` parameters on generic types (#53): `N` is a constant in the type's members (a
+// value, an array length), and `Vec<3>`'s argument has the parameter's type.
+// expect: 3 6 6
+// expect: 4 x
+// expect: 2
+struct Vec<comptime N: i32> {
+  items: [f64; N]
+  size(): i32 { N }
+  sum(): f64 {
+    let s = 0.0
+    for (const x of this.items) s += x
+    s
+  }
+}
+class Ring<T, comptime N: i32> {
+  public items: [T; N]
+  constructor(fill: T) {
+    this.items = [fill; N]
+  }
+  public cap(): i32 { N }
+}
+function total<comptime N: i32>(v: Vec<N>): f64 { v.sum() }
+const v = Vec<3> { items: [1.0, 2.0, 3.0] }
+println(`${v.size()} ${v.sum()} ${total(v)}`)
+const r = new Ring<string, 4>("x")
+println(`${r.cap()} ${r.items[3]}`)
+const w: Vec<2> = Vec<2> { items: [1.0, 2.0] }
+println(w.size())

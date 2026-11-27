@@ -7687,6 +7687,14 @@ impl<'p> Checker<'p> {
                 .get(*i as usize)
                 .and_then(|g| g.comptime.clone())
                 .unwrap_or(Ty::Error),
+            // A generic type's `comptime` parameter, in its members (#53).
+            Ty::Param(o, i, _) if *o & 0xC000_0000 == 0x8000_0000 => self
+                .program
+                .struct_def(StructId(*o & 0x3FFF_FFFF))
+                .generics
+                .get(*i as usize)
+                .and_then(|g| g.comptime.clone())
+                .unwrap_or(Ty::Error),
             _ => Ty::Error,
         }
     }
