@@ -74,6 +74,23 @@ fn main() {
         .extra_warnings(true)
         .flag_if_supported("-Werror")
         .compile("pico_crypto");
+    // DEFLATE: miniz (third_party/miniz, vendored and unmodified) and `pico_zlib_op` over it.
+    let miniz = root.join("../third_party/miniz");
+    println!("cargo:rerun-if-changed={}", miniz.display());
+    let mut zlib = cc::Build::new();
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        zlib.flag(format!("-mmacosx-version-min={MACOS_MIN}"));
+    }
+    zlib.file(root.join("src/pico_zlib.c"))
+        .file(miniz.join("miniz.c"))
+        .include(&miniz);
+    for d in pico_runtime_miniz_defines() {
+        zlib.define(d, None);
+    }
+    zlib.std("c99")
+        .opt_level(2)
+        .warnings(false)
+        .compile("pico_zlib");
     // (`compile` printed the link lines for both, glue first: the order static linking needs.)
     // On Windows (MinGW) the runtime needs winpthreads, the certificate store and the system
     // random source, for the interpreter's copy too.
@@ -92,6 +109,17 @@ fn main() {
     );
     #[cfg(feature = "embed")]
     embed(&root);
+}
+
+/// miniz's configuration: only the raw `mz_deflate`/`mz_inflate` streams. Must match
+/// `pico_runtime::MINIZ_DEFINES`.
+fn pico_runtime_miniz_defines() -> [&'static str; 4] {
+    [
+        "MINIZ_NO_STDIO",
+        "MINIZ_NO_ARCHIVE_APIS",
+        "MINIZ_NO_TIME",
+        "MINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+    ]
 }
 
 /// With feature `embed` (release builds, decision 297): the resources an installed pico needs
@@ -124,7 +152,12 @@ fn embed(runtime: &std::path::Path) {
             files.extend(headers.into_iter().map(|(p, d)| (format!("clang/{p}"), d)));
         }
     }
-    for lib in ["libpico_rt.a", "libpico_crypto.a", "libpico_mbedtls.a"] {
+    for lib in [
+        "libpico_rt.a",
+        "libpico_crypto.a",
+        "libpico_mbedtls.a",
+        "libpico_zlib.a",
+    ] {
         let data = std::fs::read(out.join(lib)).expect(lib);
         files.push((format!("lib/{lib}"), data));
     }

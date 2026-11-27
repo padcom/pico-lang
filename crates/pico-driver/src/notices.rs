@@ -12,6 +12,8 @@ pub(crate) enum Part {
     /// The runtime and the standard library: always.
     Pico,
     MbedTls,
+    /// DEFLATE (WebSocket compression).
+    Miniz,
     Musl,
     Mingw,
     WasiLibc,
@@ -22,6 +24,7 @@ pub(crate) enum Part {
 
 const PICO: &str = include_str!("../../../LICENSE");
 const MBEDTLS: &str = include_str!("../../../third_party/mbedtls/LICENSE");
+const MINIZ: &str = include_str!("../../../third_party/miniz/LICENSE");
 const MUSL: &str = include_str!("../../../third_party/musl/COPYRIGHT");
 const MINGW: &str = include_str!("../../../third_party/zig-libc/mingw/COPYING");
 const WASI_LIBC: &str = include_str!("../../../third_party/zig-libc/wasi/LICENSE");
@@ -64,6 +67,7 @@ impl Part {
         match self {
             Part::Pico => "Pico (the runtime and the standard library), MIT",
             Part::MbedTls => "Mbed TLS 3.6, Apache-2.0 (chosen of Apache-2.0 OR GPL-2.0-or-later)",
+            Part::Miniz => "miniz 3.1.2, MIT",
             Part::Musl => "musl libc, MIT",
             Part::Mingw => "mingw-w64 (the CRT, ZPL-2.1, and winpthreads, MIT)",
             Part::WasiLibc => {
@@ -81,6 +85,7 @@ impl Part {
         match self {
             Part::Pico => vec![("LICENSE", PICO)],
             Part::MbedTls => vec![("LICENSE", MBEDTLS)],
+            Part::Miniz => vec![("LICENSE", MINIZ)],
             Part::Musl => vec![("COPYRIGHT", MUSL)],
             Part::Mingw => vec![("COPYING", MINGW), ("winpthreads", WINPTHREADS)],
             Part::WasiLibc => vec![

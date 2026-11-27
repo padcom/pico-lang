@@ -720,6 +720,7 @@ impl Interp<'_, '_> {
             }
             Builtin::WorkerError => return self.worker_error(&vals[0]),
             Builtin::BufOp => return self.buf_op(vals),
+            Builtin::ZlibOp => return self.zlib_op(vals),
             Builtin::Io => return self.io(vals),
             Builtin::IoText => return self.io_text(vals),
             Builtin::ClockMs => {

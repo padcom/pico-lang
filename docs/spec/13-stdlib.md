@@ -527,7 +527,12 @@ async function handle(req: Request): Promise<Response> throws TypeError {
 ```
 `upgradeWebSocket(req, protocol = "")` checks `upgrade: websocket` and the key, and returns
 `{ socket, response }`; once `serve` has sent the 101 response, the connection belongs to the
-socket (`onopen` runs then). No extensions (`permessage-deflate`).
+socket (`onopen` runs then). Messages are compressed with permessage-deflate (RFC 7692, #67)
+when both sides agree, as browsers do: a client offers it, a server accepts an offer it can take,
+and `extensions` says what was agreed (`""` for none; `options.compress: false`, a pico
+extension, turns it off). Each message is compressed on its own (`server_no_context_takeover`;
+messages under 32 bytes aren't); a decompressed message bigger than `maxMessageBytes` fails
+with 1009. The browser build (WasmGC) neither offers nor accepts it.
 
 ## 13.7 Regular expressions
 `RegExp` (a global, also exported by `std/regex`) has ECMAScript syntax and semantics:

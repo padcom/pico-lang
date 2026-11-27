@@ -1083,7 +1083,7 @@ impl<'ctx> Gen<'ctx, '_> {
                 &[i64t.into(), ptr.into(), i64t.into(), ptr.into(), ptr.into()],
                 false,
             ),
-            "pico_buf_op" => i64t.fn_type(&[i64t.into(); 4], false),
+            "pico_buf_op" | "pico_zlib_op" => i64t.fn_type(&[i64t.into(); 4], false),
             "pico_io" => i64t.fn_type(
                 &[
                     i64t.into(),
@@ -4555,11 +4555,13 @@ impl<'ctx> Gen<'ctx, '_> {
                         | Builtin::WorkerOp
                         | Builtin::WorkerError
                         | Builtin::BufOp
+                        | Builtin::ZlibOp
                         | Builtin::Io
                         | Builtin::IoText),
                     ) => {
                         let name = match b {
                             Builtin::BufOp => "pico_buf_op",
+                            Builtin::ZlibOp => "pico_zlib_op",
                             Builtin::Io => "pico_io",
                             Builtin::IoText => "pico_io_text",
                             Builtin::RawArenaNew => "pico_raw_arena_new",
