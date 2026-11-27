@@ -192,6 +192,7 @@
     "PromiseExpect": "std-test#PromiseExpect",
     "Resolves": "std-test#Resolves",
     "Rejects": "std-test#Rejects",
+    "ObjectExpect": "std-test#ObjectExpect",
     "DurationParts": "std-time#DurationParts",
     "Duration": "std-time#Duration",
     "Instant": "std-time#Instant",
@@ -25051,6 +25052,123 @@
           "members": []
         },
         {
+          "name": "ObjectExpect",
+          "kind": "class",
+          "signature": "class ObjectExpect<T>",
+          "doc": "<p>Expectations on an object (a class instance; #70): <code>toBe</code> is identity (the same object),\n<code>toEqual</code> compares string forms (the same fields).</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { test, expect } from \"std/test\"\n\nclass Box {\n  constructor(public v: int) {}\n}\n\ntest(\"objects\", () => {\n  const a = new Box(1)\n  expect(a).toBe(a)\n  expect(a).not.toBe(new Box(1))   // another object\n  expect(a).toEqual(new Box(1))    // with the same fields\n})\n// pico test: ✓ objects"
+            }
+          ],
+          "source": "test.pi:1925",
+          "members": [
+            {
+              "name": "actual",
+              "kind": "field",
+              "signature": "public readonly actual: T",
+              "doc": "<p>The object under test.</p>\n",
+              "examples": [],
+              "source": "test.pi:1927",
+              "members": []
+            },
+            {
+              "name": "negated",
+              "kind": "field",
+              "signature": "public readonly negated: bool",
+              "doc": "<p>Whether this is a <code>.not</code> expectation.</p>\n",
+              "examples": [],
+              "source": "test.pi:1929",
+              "members": []
+            },
+            {
+              "name": "constructor",
+              "kind": "constructor",
+              "signature": "constructor(actual: T, negated: bool = false)",
+              "doc": "<p>What <code>expect(obj)</code> makes.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { ObjectExpect } from \"std/test\"\n\nclass Box {}\n\nconst e = new ObjectExpect<Box>(new Box())\nprintln(e.negated)   // false"
+                }
+              ],
+              "source": "test.pi:1942",
+              "members": []
+            },
+            {
+              "name": "not",
+              "kind": "property",
+              "signature": "public get not(): ObjectExpect<T>",
+              "doc": "<p>The same expectations, negated.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\nclass Box {}\n\ntest(\"different objects\", () => {\n  expect(new Box()).not.toBe(new Box())\n})\n// pico test: ✓ different objects"
+                }
+              ],
+              "source": "test.pi:1960",
+              "members": []
+            },
+            {
+              "name": "toBe",
+              "kind": "method",
+              "signature": "public toBe(expected: T): void",
+              "doc": "<p>The same object as <code>expected</code> (identity, not equal fields); fails with <code>expected &lt;actual&gt; to be the same object as &lt;expected&gt;</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\nclass Box {\n  constructor(public v: int) {}\n}\n\ntest(\"identity\", () => {\n  const a = new Box(1)\n  const b = a\n  expect(b).toBe(a)\n})\n// pico test: ✓ identity"
+                }
+              ],
+              "source": "test.pi:1986",
+              "members": []
+            },
+            {
+              "name": "toEqual",
+              "kind": "method",
+              "signature": "public toEqual(expected: T): void",
+              "doc": "<p>Equal string forms (the same fields, as for other values); fails with <code>expected &lt;actual&gt; to equal &lt;expected&gt;</code>.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\nclass Box {\n  constructor(public v: int) {}\n}\n\ntest(\"equal fields\", () => {\n  expect(new Box(1)).toEqual(new Box(1))\n})\n// pico test: ✓ equal fields"
+                }
+              ],
+              "source": "test.pi:2006",
+              "members": []
+            },
+            {
+              "name": "toBeNull",
+              "kind": "method",
+              "signature": "public toBeNull(): void",
+              "doc": "<p>Fails (an object is never null); <code>.not.toBeNull()</code> passes.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\nclass Box {}\n\ntest(\"not null\", () => {\n  expect(new Box()).not.toBeNull()\n})\n// pico test: ✓ not null"
+                }
+              ],
+              "source": "test.pi:2023",
+              "members": []
+            },
+            {
+              "name": "toBeDefined",
+              "kind": "method",
+              "signature": "public toBeDefined(): void",
+              "doc": "<p>Passes (an object is always defined); <code>.not.toBeDefined()</code> fails.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\nclass Box {}\n\ntest(\"defined\", () => {\n  expect(new Box()).toBeDefined()\n})\n// pico test: ✓ defined"
+                }
+              ],
+              "source": "test.pi:2038",
+              "members": []
+            }
+          ]
+        },
+        {
           "name": "expect",
           "kind": "function",
           "signature": "function expect<T>(actual: T): Expect<T>",
@@ -25061,7 +25179,21 @@
               "code": "import { test, expect } from \"std/test\"\n\nstruct Size {\n  w: int\n  h: int\n}\n\ntest(\"anything else\", () => {\n  const s: Size = { w: 2, h: 3 }\n  expect(s).toEqual({ w: 2, h: 3 })\n  expect(new Map<string, int>().get(\"x\")).toBeNull()\n})\n// pico test: ✓ anything else"
             }
           ],
-          "source": "test.pi:1925",
+          "source": "test.pi:2060",
+          "members": []
+        },
+        {
+          "name": "expect",
+          "kind": "function",
+          "signature": "function expect<T extends object>(actual: T): ObjectExpect<T>",
+          "doc": "<p>Expectations on an object (#70): <code>toBe</code> is identity. (Picked over <code>expect&lt;T&gt;</code> for class\ninstances: its bound says more.)</p>\n",
+          "examples": [
+            {
+              "caption": "",
+              "code": "import { test, expect } from \"std/test\"\n\nclass Box {}\n\ntest(\"an object\", () => {\n  const b = new Box()\n  expect(b).toBe(b)\n})\n// pico test: ✓ an object"
+            }
+          ],
+          "source": "test.pi:2076",
           "members": []
         }
       ]

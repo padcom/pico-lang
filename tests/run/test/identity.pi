@@ -7,7 +7,11 @@
 // expect:       expected Box { v: 1 } to be the same object as Box { v: 1 }
 // expect:   ✓ nullable and struct values
 // expect: pico-test: 2 passed, 1 failed, 0 skipped
+import { env } from "std/process"
 import { test, expect } from "std/test"
+
+// (No durations in the report.)
+env.set("PICO_TEST_TIMES", "0")
 
 class Box {
   constructor(public v: int) {}
