@@ -48,14 +48,14 @@ class AbortError extends Error {
 /// c.abort()            // stopping
 /// println(s.aborted)   // true
 /// ```
-class AbortSignal {
+class AbortSignal extends EventTarget {
   /// Whether it has been aborted.
   public aborted: bool = false
   /// Why it was aborted: an `AbortError` (with the reason as its `cause`).
   public reason: AbortError? = null
   /// Called once when it's aborted (`addEventListener("abort", …)` adds more).
   public onabort: (() => void)? = null
-  listeners: (() => void)[] = []
+  plain: (() => void)[] = []
 
   /// A signal that isn't aborted (`AbortController` makes one; `AbortSignal.abort` and
   /// `AbortSignal.timeout` make others).
@@ -67,24 +67,14 @@ class AbortSignal {
   /// ```
   constructor() {}
 
-  /// Calls `f` when the signal is aborted (`type` must be `"abort"`); right away (as a
-  /// microtask) if it already is.
-  ///
-  /// @example
-  /// ```ts
-  /// const c = new AbortController()
-  /// c.signal.addEventListener("abort", () => println("aborted"))
-  /// c.abort()   // aborted
-  /// ```
-  public addEventListener(type: string, f: () => void): void {
-    if (type != "abort") {
-      return
-    }
+  /// Calls `f` once this is aborted (at once, in a microtask, if it is already): the
+  /// library's own use, beside the `EventTarget` listeners.
+  public __onAbort(f: () => void): void {
     if (this.aborted) {
       queueMicrotask(f)
       return
     }
-    this.listeners.push(f)
+    this.plain.push(f)
   }
 
   /// Throws the `AbortError` if it has been aborted.
@@ -115,11 +105,13 @@ class AbortSignal {
     if (f != null) {
       f()
     }
-    const ls = this.listeners
-    this.listeners = []
+    const ls = this.plain
+    this.plain = []
     for (const l of ls) {
       l()
     }
+    // (And the `EventTarget` listeners, `(e: Event) => …`, #67.)
+    this.dispatchEvent(new Event("abort"))
   }
 
   /// A signal that is already aborted.

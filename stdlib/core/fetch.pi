@@ -1270,7 +1270,7 @@ async function fetch(input: string | URL | Request, init: RequestInit = {}): Pro
   if (signal != null) {
     signal.throwIfAborted()
     const s: AbortSignal = signal
-    s.addEventListener("abort", () => ctl.stop(s.reason ?? new AbortError("This operation was aborted")))
+    s.__onAbort(() => ctl.stop(s.reason ?? new AbortError("This operation was aborted")))
   }
   const total = init.timeout ?? req.__timeout
   if (total != null) {
@@ -1326,4 +1326,134 @@ async function __fetchFollowing(first: Request, ctl: __FetchControl): Promise<Re
     }
   }
   throw new TypeError("fetch failed")
+}
+
+/// Binary data as Web APIs take it: an `ArrayBuffer`, or a view of one (a typed array or a
+/// `DataView`).
+type BufferSource = ArrayBuffer | Uint8Array | Int32Array | Uint32Array | Float32Array |
+Float64Array | DataView
+
+/// What a `Blob` is made of, as in browsers: text (UTF-8), binary data, or another blob.
+type BlobPart = string | BufferSource | Blob
+
+/// The bytes of a part (a view, not a copy, except for text).
+function __partBytes(p: BlobPart): Uint8Array {
+  return match (p) {
+    s: string => new TextEncoder().encode(s),
+    o: Blob => o.__bytes,
+    a: ArrayBuffer => new Uint8Array(a, 0),
+    b: Uint8Array => b,
+    v: Int32Array => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+    v: Uint32Array => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+    v: Float32Array => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+    v: Float64Array => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+    v: DataView => new Uint8Array(v.buffer, v.byteOffset, v.byteLength),
+  }
+}
+
+/// `bytes` as an `ArrayBuffer` of their own (`bytes.buffer` when they're all of it).
+function __ownBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (bytes.byteOffset == 0 && bytes.length == bytes.buffer.byteLength) {
+    return bytes.buffer
+  }
+  return bytes.slice().buffer
+}
+
+/// Immutable bytes with a media type, as the Web has them (#67): a WebSocket message with
+/// `binaryType = "blob"`, or made from parts. Read it with `text()`, `bytes()`,
+/// `arrayBuffer()` or `stream()`; `slice()` makes a smaller one.
+///
+/// @example
+/// ```ts
+/// const b = new Blob(["hello, ", Uint8Array.from([119, 111, 114, 108, 100])], type: "text/plain")
+/// println(b.size)           // 12
+/// println(b.type)           // text/plain
+/// println(await b.text())   // hello, world
+/// ```
+class Blob {
+  public __bytes: Uint8Array
+  /// The media type it was given (`""` for none), lower-cased.
+  public readonly type: string
+
+  /// A blob of `parts` joined: strings as UTF-8, bytes copied, blobs' bytes.
+  ///
+  /// @example
+  /// ```ts
+  /// const b = new Blob(["ab", new Blob(["c"])])
+  /// println(b.size)   // 3
+  /// ```
+  constructor(parts: BlobPart[] = [], type: string = "") {
+    // (One copy of everything: a blob doesn't change when its parts do.)
+    this.__bytes = __concatBytes(parts.map((p) => __partBytes(p)))
+    this.type = type.toLowerCase()
+  }
+
+  /// How many bytes it holds.
+  ///
+  /// @example
+  /// ```ts
+  /// println(new Blob(["héllo"]).size)   // 6
+  /// ```
+  public get size(): int {
+    return this.__bytes.length
+  }
+
+  /// Its bytes as text (UTF-8; invalid sequences as U+FFFD).
+  ///
+  /// @example
+  /// ```ts
+  /// println(await new Blob(["hi"]).text())   // hi
+  /// ```
+  public text(): Promise<string> {
+    Promise.resolve(string.fromUtf8(this.__bytes))
+  }
+
+  /// A copy of its bytes.
+  ///
+  /// @example
+  /// ```ts
+  /// const bytes = await new Blob(["ab"]).bytes()
+  /// println(bytes.get(0))   // 97
+  /// ```
+  public bytes(): Promise<Uint8Array> {
+    Promise.resolve(this.__bytes.slice())
+  }
+
+  /// A copy of its bytes as an `ArrayBuffer`.
+  ///
+  /// @example
+  /// ```ts
+  /// const buf = await new Blob(["abc"]).arrayBuffer()
+  /// println(buf.byteLength)   // 3
+  /// ```
+  public arrayBuffer(): Promise<ArrayBuffer> {
+    Promise.resolve(this.__bytes.slice().buffer)
+  }
+
+  /// Bytes `start` up to `end` as a new blob (negative counts from the end, as with arrays),
+  /// with media type `type`.
+  ///
+  /// @example
+  /// ```ts
+  /// const b = new Blob(["hello"])
+  /// println(await b.slice(1, 3).text())   // el
+  /// println(await b.slice(-2).text())     // lo
+  /// ```
+  public slice(start: int = 0, end: int? = null, type: string = ""): Blob {
+    const out = new Blob([], type)
+    out.__bytes = this.__bytes.slice(start, end)
+    return out
+  }
+
+  /// Its bytes as a stream (one chunk).
+  ///
+  /// @example
+  /// ```ts
+  /// for await (const chunk of new Blob(["abc"]).stream()) {
+  ///   println(chunk.length)   // 3
+  /// }
+  /// ```
+  public stream(): ReadableStream<Uint8Array> {
+    ReadableStream.from([this.__bytes.slice()])
+  }
 }

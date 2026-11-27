@@ -289,7 +289,15 @@ impl Checker<'_> {
             (Pat::Ctor(Ctor::Variant(i), args), Ty::Union(_, ms)) => {
                 let m = &ms[*i as usize];
                 match &args[..] {
-                    [Pat::Wild] => format!("_: {m}"),
+                    // (A type pattern needs a name: `b: Blob`, as one would write it.)
+                    [Pat::Wild] => {
+                        let name = m
+                            .to_string()
+                            .chars()
+                            .find(|c| c.is_alphabetic())
+                            .map_or("v".to_string(), |c| c.to_lowercase().to_string());
+                        format!("{name}: {m}")
+                    }
                     [a] => self.show(m, a),
                     _ => "_".into(),
                 }

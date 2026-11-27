@@ -32,7 +32,7 @@ export function delay(ms: int, signal: AbortSignal? = null): Promise<void, Abort
   const id = setTimeout(() => p.__resolve(__void()), ms)
   if (signal != null) {
     const s: AbortSignal = signal
-    s.addEventListener("abort", () => {
+    s.__onAbort(() => {
       clearTimeout(id)
       const r = s.reason
       if (r != null) {

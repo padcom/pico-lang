@@ -43,7 +43,8 @@ async function handle(req: Request): Promise<Response> {
         }
         ws.send(s.toUpperCase().replaceAll("X", "x").replace("A LONG MESSAGE", "a long message"))
       },
-      b: Uint8Array => ws.send(b),
+      a: ArrayBuffer => ws.send(a),
+      blob: Blob => ws.send(blob),
     }
   }
   ws.onclose = (e) => {
@@ -55,6 +56,7 @@ async function handle(req: Request): Promise<Response> {
 
 const server = await serve({ port: 0 }, handle)
 const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/chat`)
+ws.binaryType = "arraybuffer"
 let replies = 0
 ws.onopen = (e) => {
   println("open")
@@ -64,7 +66,11 @@ ws.onmessage = (e) => {
   replies += 1
   match (e.data) {
     s: string => println(`client got: ${s}`),
-    b: Uint8Array => println(`client got ${b.length} bytes, last ${b[b.length - 1]}`),
+    a: ArrayBuffer => {
+      const b = new Uint8Array(a, 0)
+      println(`client got ${b.length} bytes, last ${b[b.length - 1]}`)
+    },
+    blob: Blob => {},
   }
   if (replies == 1) {
     const bytes = new Uint8Array(300)

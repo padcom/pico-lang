@@ -112,7 +112,8 @@ function __wsAccept(key: string): string {
   new Base64().encode(__sha1(new TextEncoder().encode(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)))
 }
 
-/// A plain event (`open`, `error`).
+/// An event, as the DOM has them: its `type`, and the `EventTarget` it was dispatched on
+/// (`target`, `null` until then). `MessageEvent` and `CloseEvent` add what they carry (#67).
 ///
 /// @example
 /// ```ts
@@ -120,8 +121,11 @@ function __wsAccept(key: string): string {
 /// println(e.type)   // open
 /// ```
 class Event {
-  /// `"open"` or `"error"`.
+  /// The kind of event: `"open"`, `"error"`, `"abort"`, …
   public readonly type: string
+  /// What it was dispatched on (`dispatchEvent`), `null` until then.
+  public target: EventTarget? = null
+
   /// An event of type `type`.
   ///
   /// @example
@@ -134,33 +138,277 @@ class Event {
   }
 }
 
-/// A received message: text (`string`) or binary (`Uint8Array`) `data`.
+/// A listener of an `EventTarget`: what's called, and the function as it was given (one of
+/// `ev`, `plain`, `msg`, `close`), which removal compares.
+struct __Listener {
+  type: string
+  f: (e: Event) => void
+  once: bool
+  ev: ((e: Event) => void)?
+  plain: (() => void)?
+  msg: ((e: MessageEvent) => void)?
+  close: ((e: CloseEvent) => void)?
+}
+
+/// Whether two listeners are the same function for the same type.
+function __sameListener(a: __Listener, b: __Listener): bool {
+  if (a.type != b.type) {
+    return false
+  }
+  const x1 = a.ev
+  const x2 = b.ev
+  if (x1 != null && x2 != null) {
+    return __identical(x1, x2)
+  }
+  const p1 = a.plain
+  const p2 = b.plain
+  if (p1 != null && p2 != null) {
+    return __identical(p1, p2)
+  }
+  const m1 = a.msg
+  const m2 = b.msg
+  if (m1 != null && m2 != null) {
+    return __identical(m1, m2)
+  }
+  const c1 = a.close
+  const c2 = b.close
+  if (c1 != null && c2 != null) {
+    return __identical(c1, c2)
+  }
+  return false
+}
+
+/// Something events are dispatched on, as in the DOM (#67): listeners added per type with
+/// `addEventListener` (once each: adding the same function again does nothing), run in the
+/// order they were added by `dispatchEvent`. A listener takes the `Event`, or nothing; for
+/// `"message"` and `"close"` it can take a `MessageEvent` or `CloseEvent` (a `WebSocket`'s).
+///
+/// @example
+/// ```ts
+/// const t = new EventTarget()
+/// const hello = (e: Event) => println(`got ${e.type}`)
+/// t.addEventListener("ping", hello)
+/// t.addEventListener("ping", () => println("once"), once: true)
+/// t.dispatchEvent(new Event("ping"))   // got ping, then: once
+/// t.removeEventListener("ping", hello)
+/// t.dispatchEvent(new Event("ping"))   // (nothing)
+/// ```
+class EventTarget {
+  listeners: __Listener[] = []
+
+  /// A target without listeners.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// println(t.dispatchEvent(new Event("x")))   // true
+  /// ```
+  constructor() {}
+
+  /// Adds `l` unless the same function listens to that type already.
+  add(l: __Listener): void {
+    for (const x of this.listeners) {
+      if (__sameListener(x, l)) {
+        return
+      }
+    }
+    this.listeners.push(l)
+  }
+
+  /// Calls `listener` with each event of `type` dispatched on this target (`once`: only the
+  /// next one). The same listener added twice for a type is called once.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// t.addEventListener("tick", (e) => println(e.type))
+  /// t.dispatchEvent(new Event("tick"))   // tick
+  /// ```
+  public addEventListener(type: string, listener: (e: Event) => void, once: bool = false): void {
+    this.add({ type, f: listener, once, ev: listener, plain: null, msg: null, close: null })
+  }
+
+  /// Calls `listener` (taking no event) for each event of `type`.
+  ///
+  /// @example
+  /// ```ts
+  /// const c = new AbortController()
+  /// c.signal.addEventListener("abort", () => println("aborted"))
+  /// c.abort()   // aborted
+  /// ```
+  public addEventListener(type: string, listener: () => void, once: bool = false): void {
+    const f = (_e: Event) => listener()
+    this.add({ type, f, once, ev: null, plain: listener, msg: null, close: null })
+  }
+
+  /// Calls `listener` with each message (a `WebSocket`'s, after its `onmessage`).
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// t.addEventListener("message", (e) => {
+  ///   match (e.data) {
+  ///     s: string => println(s),   // hi
+  ///     _ => {},
+  ///   }
+  /// })
+  /// t.dispatchEvent(new MessageEvent("hi"))
+  /// ```
+  public addEventListener(type: "message", listener: (e: MessageEvent) => void, once: bool = false): void {
+    const f = (e: Event) => {
+      match (e) {
+        m: MessageEvent => listener(m),
+        _ => {},
+      }
+    }
+    this.add({ type, f, once, ev: null, plain: null, msg: listener, close: null })
+  }
+
+  /// Calls `listener` when a `WebSocket` closes (after its `onclose`).
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// t.addEventListener("close", (e) => println(e.code))
+  /// t.dispatchEvent(new CloseEvent(1000, "", true))   // 1000
+  /// ```
+  public addEventListener(type: "close", listener: (e: CloseEvent) => void, once: bool = false): void {
+    const f = (e: Event) => {
+      match (e) {
+        c: CloseEvent => listener(c),
+        _ => {},
+      }
+    }
+    this.add({ type, f, once, ev: null, plain: null, msg: null, close: listener })
+  }
+
+  /// Stops calling `listener` for events of `type` (the same function that was added).
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// const f = (e: Event) => println("called")
+  /// t.addEventListener("tick", f)
+  /// t.removeEventListener("tick", f)
+  /// t.dispatchEvent(new Event("tick"))   // (nothing)
+  /// ```
+  public removeEventListener(type: string, listener: (e: Event) => void): void {
+    this.remove({ type, f: listener, once: false, ev: listener, plain: null, msg: null, close: null })
+  }
+
+  /// Stops calling a listener taking no event.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// const f = () => println("called")
+  /// t.addEventListener("tick", f)
+  /// t.removeEventListener("tick", f)
+  /// t.dispatchEvent(new Event("tick"))   // (nothing)
+  /// ```
+  public removeEventListener(type: string, listener: () => void): void {
+    const f = (_e: Event) => listener()
+    this.remove({ type, f, once: false, ev: null, plain: listener, msg: null, close: null })
+  }
+
+  /// Stops calling a `"message"` listener.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// const f = (e: MessageEvent) => println("message")
+  /// t.addEventListener("message", f)
+  /// t.removeEventListener("message", f)
+  /// t.dispatchEvent(new MessageEvent("x"))   // (nothing)
+  /// ```
+  public removeEventListener(type: "message", listener: (e: MessageEvent) => void): void {
+    const f = (_e: Event) => {}
+    this.remove({ type, f, once: false, ev: null, plain: null, msg: listener, close: null })
+  }
+
+  /// Stops calling a `"close"` listener.
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// const f = (e: CloseEvent) => println(e.code)
+  /// t.addEventListener("close", f)
+  /// t.removeEventListener("close", f)
+  /// t.dispatchEvent(new CloseEvent(1000, "", true))   // (nothing)
+  /// ```
+  public removeEventListener(type: "close", listener: (e: CloseEvent) => void): void {
+    const f = (_e: Event) => {}
+    this.remove({ type, f, once: false, ev: null, plain: null, msg: null, close: listener })
+  }
+
+  remove(l: __Listener): void {
+    const kept: __Listener[] = []
+    for (const x of this.listeners) {
+      if (!__sameListener(x, l)) {
+        kept.push(x)
+      }
+    }
+    this.listeners = kept
+  }
+
+  /// Runs the listeners of `e.type` with `e` (its `target` set to this), in the order they were
+  /// added; `true` (nothing cancels an event here).
+  ///
+  /// @example
+  /// ```ts
+  /// const t = new EventTarget()
+  /// t.addEventListener("tick", (e) => println(e.target != null))
+  /// t.dispatchEvent(new Event("tick"))   // true
+  /// ```
+  public dispatchEvent(e: Event): bool {
+    e.target = this
+    // (The listeners as they are now: one added or removed by a listener waits for the next.)
+    const now: __Listener[] = []
+    for (const l of this.listeners) {
+      if (l.type == e.type) {
+        now.push(l)
+      }
+    }
+    for (const l of now) {
+      if (l.once) {
+        this.remove(l)
+      }
+      const f = l.f
+      f(e)
+    }
+    return true
+  }
+}
+
+/// A received message: text (`string`) or binary (`Blob` or `ArrayBuffer`) `data`.
 ///
 /// @example
 /// ```ts
 /// const text = new MessageEvent("hi")
 /// match (text.data) {
 ///   s: string => println(`text: ${s}`),              // text: hi
-///   b: Uint8Array => println(`${b.length} bytes`),
+///   a: ArrayBuffer => println(`${a.byteLength} bytes`),
+///   blob: Blob => println(`${blob.size} bytes`),
 /// }
 /// println(text.type)   // message
 /// ```
-class MessageEvent {
-  /// Always `"message"`.
-  public readonly type: string = "message"
-  /// The message: a `string` for a text message, a `Uint8Array` for a binary one.
-  public readonly data: string | Uint8Array
+class MessageEvent extends Event {
+  /// The message, as in browsers: a `string` for a text message; a binary one as a `Blob`, or
+  /// an `ArrayBuffer` when the socket's `binaryType` is `"arraybuffer"` (#67).
+  public readonly data: string | ArrayBuffer | Blob
   /// A message event carrying `data`.
   ///
   /// @example
   /// ```ts
-  /// const e = new MessageEvent(Uint8Array.from([1, 2, 3]))
+  /// const e = new MessageEvent(Uint8Array.from([1, 2, 3]).buffer)
   /// match (e.data) {
   ///   s: string => println(s),
-  ///   b: Uint8Array => println(`${b.length} bytes`),   // 3 bytes
+  ///   a: ArrayBuffer => println(`${a.byteLength} bytes`),   // 3 bytes
+  ///   blob: Blob => {},
   /// }
   /// ```
-  constructor(data: string | Uint8Array) {
+  constructor(data: string | ArrayBuffer | Blob) {
+    super("message")
     this.data = data
   }
 }
@@ -173,9 +421,7 @@ class MessageEvent {
 /// const e = new CloseEvent(1000, "done", true)
 /// println(`${e.type} ${e.code} ${e.reason} ${e.wasClean}`)   // close 1000 done true
 /// ```
-class CloseEvent {
-  /// Always `"close"`.
-  public readonly type: string = "close"
+class CloseEvent extends Event {
   /// The close code: the peer's, 1005 when its close frame had none, 1006 when the connection was
   /// lost or failed.
   public readonly code: int
@@ -192,6 +438,7 @@ class CloseEvent {
   /// println(lost.wasClean)   // false
   /// ```
   constructor(code: int, reason: string, wasClean: bool) {
+    super("close")
     this.code = code
     this.reason = reason
     this.wasClean = wasClean
@@ -217,7 +464,13 @@ function __wsText(bytes: Uint8Array): string? {
 /// // An echo server on 127.0.0.1.
 /// async function handle(req: Request): Promise<Response> throws Error {
 ///   const up = upgradeWebSocket(req)
-///   up.socket.onmessage = (e) => up.socket.send(e.data)
+///   up.socket.onmessage = (e) => {
+///     match (e.data) {
+///       s: string => up.socket.send(s),
+///       blob: Blob => up.socket.send(blob),
+///       a: ArrayBuffer => up.socket.send(a),
+///     }
+///   }
 ///   up.response
 /// }
 /// const server = await serve({ port: 0 }, handle)
@@ -237,7 +490,7 @@ function __wsText(bytes: Uint8Array): string? {
 /// })
 /// await server.shutdown()
 /// ```
-class WebSocket {
+class WebSocket extends EventTarget {
   // (Getters: static fields would be set up at every program's start.)
   /// `readyState` 0: the handshake hasn't finished yet.
   ///
@@ -258,7 +511,13 @@ class WebSocket {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -283,7 +542,13 @@ class WebSocket {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -308,7 +573,13 @@ class WebSocket {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -340,6 +611,9 @@ class WebSocket {
   public onclose: ((e: CloseEvent) => void)? = null
   /// Called when connecting fails (an `"error"` event), just before `onclose` with code 1006.
   public onerror: ((e: Event) => void)? = null
+  /// How binary messages arrive in `data` (#67), as in browsers: `"blob"` (the default) as a
+  /// `Blob`, `"arraybuffer"` as an `ArrayBuffer` (`new Uint8Array(buf, 0)` reads it).
+  public binaryType: "blob" | "arraybuffer" = "blob"
   protocols: string[]
   conn: Conn? = null
   reader: __HttpReader? = null
@@ -352,6 +626,24 @@ class WebSocket {
   /// `WebSocketOptions.maxMessageBytes` (0: no limit).
   public __maxMessageBytes: int = 0
 
+  /// `onmessage`, then the `"message"` listeners (`EventTarget`).
+  emitMessage(e: MessageEvent): void {
+    const f = this.onmessage
+    if (f != null) {
+      f(e)
+    }
+    this.dispatchEvent(e)
+  }
+
+  /// `onclose`, then the `"close"` listeners (`EventTarget`).
+  emitClose(e: CloseEvent): void {
+    const f = this.onclose
+    if (f != null) {
+      f(e)
+    }
+    this.dispatchEvent(e)
+  }
+
   /// Connects to `url` (`ws:`/`wss:`, or `http:`/`https:` as the same). An invalid URL or
   /// another scheme throws a `TypeError`. (pico) `options.caCerts` adds trusted certificates
   /// (PEM) for `wss:`.
@@ -363,7 +655,13 @@ class WebSocket {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -451,9 +749,11 @@ class WebSocket {
     this.reader = r
     this.readyState = 1
     const f = this.onopen
+    const open = new Event("open")
     if (f != null) {
-      f(new Event("open"))
+      f(open)
     }
+    this.dispatchEvent(open)
     this.receive();
   }
 
@@ -463,9 +763,11 @@ class WebSocket {
       return
     }
     const f = this.onerror
+    const err = new Event("error")
     if (f != null) {
-      f(new Event("error"))
+      f(err)
     }
+    this.dispatchEvent(err)
     this.finish(1006, "", false)
   }
 
@@ -479,10 +781,7 @@ class WebSocket {
     if (c != null) {
       c.close()
     }
-    const f = this.onclose
-    if (f != null) {
-      f(new CloseEvent(code, reason, clean))
-    }
+    this.emitClose(new CloseEvent(code, reason, clean))
   }
 
   /// Text that isn't UTF-8 fails the connection with code 1007 (RFC 6455 §8.1, #48): a close
@@ -581,17 +880,18 @@ class WebSocket {
           const whole = if (parts.length == 1) parts[0] else __concatBytes(parts)
           parts = []
           size = 0
-          const f = this.onmessage
-          if (f != null && this.readyState == 1) {
+          if (this.readyState == 1) {
             if (messageOp == 1) {
               const text = __wsText(whole)
               if (text == null) {
                 await this.failInvalidText()
                 return
               }
-              f(new MessageEvent(text))
+              this.emitMessage(new MessageEvent(text))
+            } else if (this.binaryType == "blob") {
+              this.emitMessage(new MessageEvent(new Blob([whole])))
             } else {
-              f(new MessageEvent(whole))
+              this.emitMessage(new MessageEvent(__ownBuffer(whole)))
             }
           }
         }
@@ -689,7 +989,13 @@ class WebSocket {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)
@@ -704,7 +1010,8 @@ class WebSocket {
   ///   ws.onmessage = (e) => {
   ///     match (e.data) {
   ///       s: string => println(`text: ${s}`),             // text: text
-  ///       b: Uint8Array => println(`${b.length} bytes`),  // 3 bytes
+  ///       blob: Blob => println(`${blob.size} bytes`),    // 3 bytes
+  ///       a: ArrayBuffer => {},
   ///     }
   ///     got += 1
   ///     if (got == 2) ws.close()
@@ -713,7 +1020,7 @@ class WebSocket {
   /// })
   /// await server.shutdown()
   /// ```
-  public send(data: string | Uint8Array): void {
+  public send(data: string | BufferSource | Blob): void {
     if (this.readyState == 0) {
       panic("WebSocket: send() before the connection is open")
     }
@@ -722,7 +1029,8 @@ class WebSocket {
     }
     match (data) {
       s: string => this.sendCounted(1, new TextEncoder().encode(s)),
-      b: Uint8Array => this.sendCounted(2, b),
+      // (Binary data or a blob's bytes, as a binary message.)
+      _ => this.sendCounted(2, __partBytes(data)),
     };
   }
 
@@ -735,7 +1043,13 @@ class WebSocket {
   /// // An echo server on 127.0.0.1.
   /// async function handle(req: Request): Promise<Response> throws Error {
   ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onmessage = (e) => up.socket.send(e.data)
+  ///   up.socket.onmessage = (e) => {
+  ///     match (e.data) {
+  ///       s: string => up.socket.send(s),
+  ///       blob: Blob => up.socket.send(blob),
+  ///       a: ArrayBuffer => up.socket.send(a),
+  ///     }
+  ///   }
   ///   up.response
   /// }
   /// const server = await serve({ port: 0 }, handle)

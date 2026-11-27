@@ -1,0 +1,28 @@
+// expect: typed message hi
+// expect: base open true
+// A string literal argument picks the overload typed with that literal over `string`, and an
+// untyped lambda then gets that overload's parameter types (#67, the user's decision).
+class Ev { public readonly type: string; constructor(type: string) { this.type = type } }
+class Msg extends Ev {
+  public data: string
+  constructor(d: string) {
+    super("message")
+    this.data = d
+  }
+}
+class Target {
+  public virtual on(type: string, f: (e: Ev) => void, once: bool = false): void {
+    println(`base ${type} ${once}`)
+  }
+}
+class Sock extends Target {
+  public on(type: "message", f: (e: Msg) => void, once: bool = false): void {
+    f(new Msg("hi"))
+  }
+  public override on(type: string, f: (e: Ev) => void, once: bool = false): void {
+    super.on(type, f, once)
+  }
+}
+const s = new Sock()
+s.on("message", (e) => println(`typed message ${e.data}`))
+s.on("open", (e) => println(e.type), once: true)

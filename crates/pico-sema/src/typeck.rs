@@ -6519,9 +6519,17 @@ impl<'p> Checker<'p> {
                     let p = &p;
                     for i in &indices {
                         used.push(p.clone());
-                        let fit = match &tys[*i] {
-                            Some(t) => {
-                                t == p
+                        // A string literal fits a literal type holding it (`"message"`
+                        // where `type: "message"` is expected): overloads per event name.
+                        let lit_member = matches!(
+                            (&Self::arg_value(&args[*i]).kind, p),
+                            (ExprKind::Str(v), Ty::Lits(_, vals))
+                                if vals.iter().any(|l| matches!(l, LitVal::Str(x) if **x == **v))
+                        );
+                        let fit = lit_member
+                            || match &tys[*i] {
+                                Some(t) => {
+                                    t == p
                                 || t.widens_to(p)
                                 || self.upcasts(t, p)
                                 || self.fits_union(t, p)
@@ -6533,9 +6541,9 @@ impl<'p> Checker<'p> {
                                     (ExprKind::Closure(_), Ty::Fn(p1, _, t1), Ty::Fn(p2, r2, _))
                                         if p1 == p2 && **r2 == Ty::Void
                                             && self.upcasts(&Ty::Fn(p1.clone(), Box::new(Ty::Void), t1.clone()), p))
-                            }
-                            None => self.literal_fits(Self::arg_value(&args[*i]), p),
-                        };
+                                }
+                                None => self.literal_fits(Self::arg_value(&args[*i]), p),
+                            };
                         fits &= fit;
                     }
                 }
@@ -6560,9 +6568,20 @@ impl<'p> Checker<'p> {
                 _ => None,
             })
             .collect();
+        // (An untyped closure argument doesn't rank overloads: only the chosen one types it.)
+        let untyped: Vec<bool> = args
+            .iter()
+            .map(|a| self.untyped_closure(Self::arg_value(a)))
+            .collect();
         let more_specific = |a: &[Ty], b: &[Ty]| {
             a.iter().zip(b).enumerate().all(|(i, (x, y))| {
                 at_least_as_specific(x, y)
+                    // (Neutral only between function types returning the same: what's left to
+                    // rank is their parameters, which only the closure's checking decides.)
+                    || (untyped.get(i).copied().unwrap_or(false)
+                        && matches!((x, y), (Ty::Fn(_, rx, _), Ty::Fn(_, ry, _)) if rx == ry))
+                    // A literal type is more specific than its base (`"message"` over `string`).
+                    || matches!(x, Ty::Lits(base, _) if **base == *y)
                     || lit_ty
                         .get(i)
                         .cloned()

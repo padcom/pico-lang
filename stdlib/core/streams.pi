@@ -556,7 +556,7 @@ class ReadableStream<T> implements AsyncIterable<T, Error> {
     let piping = true
     if (signal != null && options.preventCancel != true) {
       // (Cancelling the source ends a read that's waiting for a chunk.)
-      signal.addEventListener("abort", () => {
+      signal.__onAbort(() => {
         if (piping && this.state == 0) this.cancel(signal.reason)
       })
     }

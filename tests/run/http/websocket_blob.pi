@@ -1,0 +1,53 @@
+// expect: blob 3 bytes: abc
+// expect: text: hello
+// expect: echoed blob 5 bytes
+// `binaryType = "blob"` (#67, the default, as in browsers): binary messages arrive as a `Blob` in `data` (text stays a
+// `string`), and `send` takes a `Blob`.
+import { serve, upgradeWebSocket } from "std/http"
+
+async function handle(req: Request): Promise<Response> throws Error {
+  const up = upgradeWebSocket(req)
+  up.socket.onopen = (_e) => {
+    up.socket.send(Uint8Array.from([97, 98, 99]))
+    up.socket.send("hello")
+  }
+  // (The server side takes them as an `ArrayBuffer` and echoes them back.)
+  up.socket.binaryType = "arraybuffer"
+  up.socket.onmessage = (e) => {
+    match (e.data) {
+      a: ArrayBuffer => up.socket.send(a),
+      s: string => {},
+      blob: Blob => {},
+    }
+  }
+  return up.response
+}
+const server = await serve({ port: 0 }, handle)
+const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
+ws.binaryType = "blob"
+let seen = 0
+await new Promise<void>((resolve, _reject) => {
+  ws.onmessage = (e) => {
+    seen += 1
+    match (e.data) {
+      blob: Blob => {
+        if (seen == 1) {
+          const size = blob.size
+          blob.text().then((t: string) => {
+            println(`blob ${size} bytes: ${t}`)
+          });
+        } else {
+          println(`echoed blob ${blob.size} bytes`)
+          resolve(__void())
+        }
+      },
+      s: string => {
+        println(`text: ${s}`)
+        ws.send(new Blob(["hi", Uint8Array.from([33, 33, 33])]))
+      },
+      a: ArrayBuffer => println("bytes?"),
+    }
+  }
+})
+ws.close()
+await server.shutdown()

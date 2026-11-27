@@ -10,10 +10,12 @@ let got = 0
 const both = new Promise<void>()
 async function handle(req: Request): Promise<Response> throws Error {
   const up = upgradeWebSocket(req)
+  up.socket.binaryType = "arraybuffer"
   up.socket.onmessage = (e) => {
     match (e.data) {
       s: string => println(`server got: ${s}`),
-      b: Uint8Array => println(`server got: ${string.fromUtf8(b)}`),
+      a: ArrayBuffer => println(`server got: ${string.fromUtf8(new Uint8Array(a, 0))}`),
+      blob: Blob => {},
     }
     got += 1
     if (got == 2) both.__resolve(__void())
