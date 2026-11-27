@@ -270,8 +270,16 @@ class __Field<T> {
   /// const u = new User("Ada", 36)
   /// const age = reflect.typeOf(u).field("age")!.get<int>(u)
   /// println(age)   // 36
+  /// // Without a type: an `unknown`, whatever the field's type (#56).
+  /// for (const f of reflect.typeOf(u).fields) {
+  ///   match (f.get(u)) {
+  ///     s: string => println(`${f.name}: "${s}"`),   // name: "Ada"
+  ///     n: int => println(`${f.name}: ${n}`),        // age: 36
+  ///     _ => {},
+  ///   }
+  /// }
   /// ```
-  public get<V>(obj: T): V { __reflectGet<T, V>(obj, id) }
+  public get<V = unknown>(obj: T): V { __reflectGet<T, V>(obj, id) }
 
   /// Sets the field in `obj` (a class instance; a struct is passed by value). Panics for a
   /// `readonly` field (`isReadonly`).

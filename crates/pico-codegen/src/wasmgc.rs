@@ -1553,7 +1553,8 @@ impl<'p> Gen<'p> {
                 ref_to(self.register(Key::Opt(v), |_| Def::Opt(v)))
             }
             Ty::Enum(eid, _, _) => ref_to(self.enum_type(eid)),
-            Ty::Iface(..) => ref_to(self.register(Key::Iface, |_| Def::Iface)),
+            // (`unknown` has an interface value's shape: the payload, then the tag. #53)
+            Ty::Iface(..) | Ty::Unknown => ref_to(self.register(Key::Iface, |_| Def::Iface)),
             Ty::Fn(ps, r, _) => {
                 let sig = self.closure_sig(&ps, &r)?;
                 // (One per wasm signature: function values of covariant types share it.)
@@ -3192,6 +3193,33 @@ impl<'p> Gen<'p> {
                 }
                 s.i32_const(self.itable_base[*i as usize] as i32);
                 s.struct_new(it);
+            }
+            Rvalue::ToUnknown(o, tag) => {
+                let it = self.register(Key::Iface, |_| Def::Iface);
+                match o {
+                    Operand::Const(Const::Void) => {
+                        s.ref_null(RefType::ANYREF.heap_type);
+                    }
+                    _ => self.operand(fx, s, o)?,
+                }
+                s.i32_const(*tag as i32);
+                s.struct_new(it);
+            }
+            Rvalue::UnknownTag(o) => {
+                let it = self.register(Key::Iface, |_| Def::Iface);
+                self.operand(fx, s, o)?;
+                s.struct_get(it, 1);
+            }
+            Rvalue::FromUnknown(o, to) => {
+                let it = self.register(Key::Iface, |_| Def::Iface);
+                self.operand(fx, s, o)?;
+                s.struct_get(it, 0);
+                match self.wasm_ty(to) {
+                    Some(ValType::Ref(r)) => {
+                        s.ref_cast_nullable(r.heap_type);
+                    }
+                    _ => return unsupported(format!("an `unknown` holding `{to}`")),
+                }
             }
             Rvalue::IfaceData(o) => {
                 let it = self.register(Key::Iface, |_| Def::Iface);

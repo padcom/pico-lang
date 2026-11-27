@@ -1,0 +1,8 @@
+// error: E0318
+// at: 6:3
+// A pattern on `unknown` tests its type first (#53).
+const u: unknown = 1
+match (u) {
+  1 => println("one"),
+  _ => {},
+}

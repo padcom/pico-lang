@@ -1162,9 +1162,21 @@ impl Interp<'_, '_> {
                     fields: RefCell::new(vec![Value::Uninit; self.p.layout(*sid).fields.len()]),
                 })))
             }
-            Rvalue::Tag(o) => match self.operand(frame, o) {
+            Rvalue::Tag(o) | Rvalue::UnknownTag(o) => match self.operand(frame, o) {
                 Value::Enum(v, _) => Ok(Value::Int(v as i128)),
                 v => unreachable!("tag of {v:?}"),
+            },
+            // `unknown` (#53): an enum value whose one field is the payload.
+            Rvalue::ToUnknown(o, tag) => {
+                let v = match o {
+                    Operand::Const(Const::Void) => Value::Null,
+                    o => self.operand(frame, o),
+                };
+                Ok(Value::Enum(*tag, vec![v]))
+            }
+            Rvalue::FromUnknown(o, _) => match self.operand(frame, o) {
+                Value::Enum(_, mut fields) => Ok(fields.pop().unwrap_or(Value::Null)),
+                v => unreachable!("payload of {v:?}"),
             },
             Rvalue::IsNull(o) => Ok(Value::Bool(self.operand(frame, o) == Value::Null)),
             Rvalue::ShowEnter(o) => match self.operand(frame, o) {

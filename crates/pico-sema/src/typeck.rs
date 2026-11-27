@@ -77,6 +77,9 @@ pub struct Types {
     pub object_variants: HashMap<ExprId, (EnumId, u32, Vec<u32>)>,
     /// Patterns that test which member a union value holds (by member index).
     pub union_tests: HashMap<ExprId, u32>,
+    /// Patterns that test what an `unknown` value holds (#53): a type pattern (its type) or
+    /// `null`.
+    pub unknown_tests: HashMap<ExprId, Ty>,
     /// Calls of generic functions: the type arguments (may mention the caller's own type
     /// parameters; monomorphization substitutes them).
     pub instances: HashMap<ExprId, Vec<Ty>>,
@@ -213,6 +216,7 @@ pub fn check(program: &Program) -> (Types, Vec<Diagnostic>) {
             variant_fields: HashMap::new(),
             object_variants: HashMap::new(),
             union_tests: HashMap::new(),
+            unknown_tests: HashMap::new(),
             instances: HashMap::new(),
             recv_args: HashMap::new(),
             arg_slots: HashMap::new(),
@@ -882,6 +886,11 @@ impl<'p> Checker<'p> {
         if found == want.ty || found == Ty::Never || found.is_error() || want.ty.is_error() {
             return want.ty.clone();
         }
+        // Anything goes into `unknown` (#53), boxed with its type's tag.
+        if want.ty == Ty::Unknown {
+            self.types.coercions.insert(e.id, Ty::Unknown);
+            return Ty::Unknown;
+        }
         let into_union = match &want.ty {
             Ty::Union(_, ms) => self.union_member(&found, ms).is_some(),
             Ty::Nullable(inner) => match &**inner {
@@ -1184,6 +1193,8 @@ impl<'p> Checker<'p> {
         match t {
             Ty::Int(_) | Ty::Float(_) | Ty::Bool | Ty::Char | Ty::Str | Ty::Void | Ty::Null => true,
             Ty::Never | Ty::Error | Ty::Range(_) => true,
+            // (Its value isn't known until it's narrowed: maybe a function.)
+            Ty::Unknown => false,
             Ty::Array(e) | Ty::Fixed(e, _) | Ty::FixedN(e, _) | Ty::Nullable(e) => {
                 self.sendable(e, seen)
             }
@@ -2755,6 +2766,9 @@ impl<'p> Checker<'p> {
                     (Ty::Int(IntTy::U8 | IntTy::U32), Ty::Char) => true,
                     // Raw pointers to any other pointee (`ptr<void>` for C; spec §12.1).
                     (Ty::Ref(_), Ty::Ref(_)) => true,
+                    // A checked conversion out of `unknown` (#53): panics if it holds another
+                    // type.
+                    (Ty::Unknown, _) | (_, Ty::Unknown) => true,
                     // Null pointers too (`ptr<T>?`, address 0).
                     (Ty::Ref(_), Ty::Nullable(b)) => matches!(**b, Ty::Ref(_)),
                     (Ty::Nullable(a), Ty::Nullable(b)) => {
@@ -3469,6 +3483,32 @@ impl<'p> Checker<'p> {
 
     /// Checks a pattern against the type of the value it matches, typing its bindings.
     fn check_pattern(&mut self, p: &Pattern, ty: &Ty) {
+        // On `unknown` (#53): a type test (then the pattern on that type) or `null`.
+        if *ty == Ty::Unknown {
+            match &p.kind {
+                PatKind::Type { ty: want, .. } => {
+                    self.types.unknown_tests.insert(p.id, want.clone());
+                    return self.check_pattern(p, &want.clone());
+                }
+                PatKind::Lit(LitPat::Null) => {
+                    self.types.unknown_tests.insert(p.id, Ty::Null);
+                    self.types.exprs[p.id.0 as usize] = Ty::Unknown;
+                    return;
+                }
+                PatKind::Wild | PatKind::Bind(_) | PatKind::Or(_) | PatKind::As(..) => {}
+                _ => {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::PATTERN_MISMATCH,
+                            "an `unknown` value is matched by its type first",
+                        )
+                        .primary(p.span, "this pattern needs a known type")
+                        .note("test the type: `n: int => …`, then match on `n`"),
+                    );
+                    return;
+                }
+            }
+        }
         let union = match ty {
             Ty::Union(_, ms) => Some(ms.clone()),
             // A non-null pattern on `(A | B)?` tests the union inside (#2).
@@ -3864,6 +3904,15 @@ impl<'p> Checker<'p> {
     /// of an or-pattern (expanded through nested patterns, capped).
     fn to_pat(&self, p: &Pattern, ty: &Ty) -> Vec<Pat> {
         const CAP: usize = 256;
+        // A type test on `unknown` never covers it (there are infinitely many types, #53).
+        if let (Some(want), Ty::Unknown) = (self.types.unknown_tests.get(&p.id), ty) {
+            let c = if *want == Ty::Null {
+                Ctor::Null
+            } else {
+                Ctor::Str(format!("{want}"))
+            };
+            return vec![Pat::Ctor(c, Vec::new())];
+        }
         if let (Some(_), Ty::Nullable(inner)) = (self.types.union_tests.get(&p.id), ty)
             && matches!(**inner, Ty::Union(..))
         {

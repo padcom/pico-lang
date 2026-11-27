@@ -1,0 +1,21 @@
+// `Field.get` without a type argument gives an `unknown` (#56), whatever the field's type.
+// expect: 36
+// expect: name: "Ada"
+// expect: age: 36
+// expect: tags: 1 tag(s)
+import { reflect } from "std/reflect"
+
+class User {
+  constructor(public name: string, public age: int, public tags: string[]) {}
+}
+
+const u = new User("Ada", 36, ["x"])
+println(reflect.typeOf(u).field("age")!.get<int>(u))
+for (const f of reflect.typeOf(u).fields) {
+  match (f.get(u)) {
+    s: string => println(`${f.name}: "${s}"`),
+    n: int => println(`${f.name}: ${n}`),
+    a: string[] => println(`${f.name}: ${a.length} tag(s)`),
+    _ => {},
+  }
+}

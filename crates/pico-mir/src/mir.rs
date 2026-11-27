@@ -195,7 +195,7 @@ impl Program {
             Ty::Float(FloatTy::F64) => (8, 8),
             Ty::Bool => (1, 1),
             Ty::Str | Ty::Array(_) | Ty::Ref(_) | Ty::Class(..) => (ptr, ptr),
-            Ty::Iface(..) | Ty::Fn(..) => (2 * ptr, ptr),
+            Ty::Iface(..) | Ty::Fn(..) | Ty::Unknown => (2 * ptr, ptr),
             Ty::Nullable(inner) if inner.is_ref() => (ptr, ptr),
             Ty::Nullable(inner) => struct_layout(&[(1, 1), self.size_align_with(inner, ptr)]),
             Ty::Struct(sid, _, args) => {
@@ -280,9 +280,13 @@ impl Program {
     /// Whether values of `t` hold GC references, which the collector traces (spec §9.1).
     pub fn traced(&self, t: &Ty) -> bool {
         match &t.erase() {
-            Ty::Str | Ty::Array(_) | Ty::Class(..) | Ty::Iface(..) | Ty::Fn(..) | Ty::Ref(_) => {
-                true
-            }
+            Ty::Str
+            | Ty::Array(_)
+            | Ty::Class(..)
+            | Ty::Iface(..)
+            | Ty::Fn(..)
+            | Ty::Ref(_)
+            | Ty::Unknown => true,
             Ty::Nullable(t) => self.traced(t),
             Ty::Struct(sid, _, args) => {
                 let owner = Ty::type_owner(*sid);
@@ -627,6 +631,14 @@ pub enum Rvalue {
     /// A new heap cell of the type holding the value (`Const::Void`: uninitialized); the
     /// result is a reference to it (captured `let` variables).
     BoxNew(Ty, Operand),
+    /// An `unknown` value (#53): a type tag (0 null, 1 a class object, others per type) and
+    /// the payload, the object itself or a reference to a box holding the value
+    /// (`Const::Void`: none).
+    ToUnknown(Operand, u32),
+    /// The tag of an `unknown` value (`u32`).
+    UnknownTag(Operand),
+    /// The payload of an `unknown` value, as the type its tag says (a class or `Ref<T>`).
+    FromUnknown(Operand, Ty),
     /// The `u64` hash of a primitive or string (the same in every backend).
     Hash(Operand),
     /// Mixes a field's hash into an accumulated one.
@@ -672,6 +684,9 @@ macro_rules! rvalue_operands {
             | ToIface(a, _)
             | IfaceData(a)
             | BoxNew(_, a)
+            | ToUnknown(a, _)
+            | UnknownTag(a)
+            | FromUnknown(a, _)
             | Hash(a) => $f(a),
             Binary(_, a, b)
             | Overflows(_, a, b)
@@ -969,6 +984,9 @@ impl fmt::Display for Rvalue {
                 write!(f, "Closure(fn#{}, [{}])", id.0, ops.join(", "))
             }
             Rvalue::BoxNew(t, a) => write!(f, "BoxNew<{t}>({a})"),
+            Rvalue::ToUnknown(a, tag) => write!(f, "ToUnknown({a}, tag {tag})"),
+            Rvalue::UnknownTag(a) => write!(f, "UnknownTag({a})"),
+            Rvalue::FromUnknown(a, t) => write!(f, "FromUnknown<{t}>({a})"),
             Rvalue::Comptime(id, _) => write!(f, "Comptime(fn#{})", id.0),
             Rvalue::Hash(a) => write!(f, "Hash({a})"),
             Rvalue::HashCombine(a, b) => write!(f, "HashCombine({a}, {b})"),

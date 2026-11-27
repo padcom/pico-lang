@@ -1,0 +1,5 @@
+// panic: `unknown` value of another type than `i64`
+// `as` out of `unknown` is checked (#53).
+const u: unknown = "s"
+const n = u as int
+println(n)

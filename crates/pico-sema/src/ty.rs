@@ -133,6 +133,9 @@ pub enum Ty {
     Str,
     Void,
     Never,
+    /// `unknown` (#53): the top type. Any value converts to it (boxed, with its type's tag);
+    /// it's used only after narrowing (`match`, `is`, a checked `as`).
+    Unknown,
     /// The type of the `null` literal.
     Null,
     /// A user-defined struct (the name is kept for messages) and its type arguments.
@@ -221,6 +224,7 @@ impl Ty {
             "string" => Ty::Str,
             "void" => Ty::Void,
             "never" => Ty::Never,
+            "unknown" => Ty::Unknown,
             _ => return None,
         })
     }
@@ -479,6 +483,7 @@ impl fmt::Display for Ty {
             Ty::Str => f.write_str("string"),
             Ty::Void => f.write_str("void"),
             Ty::Never => f.write_str("never"),
+            Ty::Unknown => f.write_str("unknown"),
             Ty::Null => f.write_str("null"),
             Ty::Struct(_, name, args)
             | Ty::Class(_, name, args)

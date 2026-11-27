@@ -41,6 +41,7 @@ pub fn lower(
         inline_entry: false,
         synths: Vec::new(),
         synth_globals: Vec::new(),
+        unknown_tags: Vec::new(),
     };
     // Generic functions get a placeholder; their instances are lowered on demand.
     let mut fns: Vec<mir::Function> = (0..program.fns.len())
@@ -667,7 +668,7 @@ fn erase_program(p: &mut mir::Program) {
 /// checked further up, which recursive types reach again).
 fn debuggable(p: &hir::Program, t: &Ty, seen: &mut Vec<Ty>) -> bool {
     match t {
-        Ty::Fn(..) | Ty::Ref(_) | Ty::Iface(..) => false,
+        Ty::Fn(..) | Ty::Ref(_) | Ty::Iface(..) | Ty::Unknown => false,
         Ty::Nullable(e)
         | Ty::Array(e)
         | Ty::Fixed(e, _)
@@ -781,6 +782,9 @@ struct Cx<'a> {
     /// cached `TypeInfo` descriptions (#56), per type, the type it's seen as and the asking
     /// file (which decides whether private members show).
     synth_globals: Vec<((Ty, Ty, pico_diag::FileId), String, Ty)>,
+    /// The types values of `unknown` were made from (#53), by tag (from 2: 0 is null, 1 a class
+    /// object).
+    unknown_tags: Vec<Ty>,
 }
 
 /// The core library's reflection functions, which calls replace with synthesized ones.
@@ -1113,6 +1117,23 @@ impl Cx<'_> {
         match self.types.globals.get(g.0 as usize) {
             Some(t) => t.clone(),
             None => self.synth_globals[g.0 as usize - n].2.clone(),
+        }
+    }
+
+    /// The tag an `unknown` value made from a `t` has (#53): 0 null, 1 a class object (tested
+    /// with `InstanceOf`), others one per type.
+    fn unknown_tag(&mut self, t: &Ty) -> u32 {
+        let t = t.erase();
+        match t {
+            Ty::Null => 0,
+            Ty::Class(..) => 1,
+            _ => match self.unknown_tags.iter().position(|x| *x == t) {
+                Some(i) => i as u32 + 2,
+                None => {
+                    self.unknown_tags.push(t);
+                    self.unknown_tags.len() as u32 + 1
+                }
+            },
         }
     }
 
@@ -3426,6 +3447,124 @@ impl FnBuilder<'_, '_> {
         }
     }
 
+    /// `v` (a `from`) as an `unknown` (#53): `null` without a payload, a class object as
+    /// itself, anything else in a box, each with its type's tag.
+    fn box_unknown(&mut self, v: Operand, from: &Ty, span: Span) -> Operand {
+        match from.erase() {
+            Ty::Unknown => v,
+            Ty::Null => self.rvalue_to_temp(
+                Rvalue::ToUnknown(Operand::Const(Const::Void), 0),
+                Ty::Unknown,
+                span,
+            ),
+            Ty::Nullable(inner) => {
+                let res = Place::local(self.temp(Ty::Unknown));
+                let is_null = self.rvalue_to_temp(Rvalue::IsNull(v.clone()), Ty::Bool, span);
+                let (null_bb, some_bb, join) =
+                    (self.new_block(), self.new_block(), self.new_block());
+                self.terminate(Terminator::Branch {
+                    cond: is_null,
+                    then: null_bb,
+                    else_: some_bb,
+                });
+                self.switch_to(null_bb);
+                self.assign(
+                    res.clone(),
+                    Rvalue::ToUnknown(Operand::Const(Const::Void), 0),
+                    span,
+                );
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(some_bb);
+                let x = self.rvalue_to_temp(Rvalue::Unwrap(v), (*inner).clone(), span);
+                let u = self.box_unknown(x, &inner, span);
+                self.assign(res.clone(), Rvalue::Use(u), span);
+                self.terminate(Terminator::Goto(join));
+                self.switch_to(join);
+                Operand::Copy(res)
+            }
+            t @ Ty::Class(..) => {
+                let tag = self.cx.unknown_tag(&t);
+                self.rvalue_to_temp(Rvalue::ToUnknown(v, tag), Ty::Unknown, span)
+            }
+            t => {
+                let tag = self.cx.unknown_tag(&t);
+                let boxed = if has_value(&t) {
+                    self.rvalue_to_temp(Rvalue::BoxNew(t.clone(), v), Ty::Ref(Box::new(t)), span)
+                } else {
+                    Operand::Const(Const::Void)
+                };
+                self.rvalue_to_temp(Rvalue::ToUnknown(boxed, tag), Ty::Unknown, span)
+            }
+        }
+    }
+
+    /// Whether the `unknown` value `u` holds a `t` (#53): its tag, and for a class the
+    /// object's runtime class.
+    fn unknown_is(&mut self, u: Operand, t: &Ty, span: Span) -> Operand {
+        if *t == Ty::Unknown {
+            return Operand::Const(Const::Bool(true));
+        }
+        let want = self.cx.unknown_tag(t);
+        let tag = self.rvalue_to_temp(Rvalue::UnknownTag(u.clone()), Ty::Int(IntTy::U32), span);
+        let eq = self.rvalue_to_temp(
+            Rvalue::Binary(
+                mir::BinOp::Eq,
+                tag,
+                Operand::Const(Const::Int(want as i128, IntTy::U32)),
+            ),
+            Ty::Bool,
+            span,
+        );
+        let Ty::Class(..) = t.erase() else {
+            return eq;
+        };
+        // (A class object: then `InstanceOf`, on the payload only when it is one.)
+        let res = Place::local(self.temp(Ty::Bool));
+        self.assign(
+            res.clone(),
+            Rvalue::Use(Operand::Const(Const::Bool(false))),
+            span,
+        );
+        let (yes, done) = (self.new_block(), self.new_block());
+        self.terminate(Terminator::Branch {
+            cond: eq,
+            then: yes,
+            else_: done,
+        });
+        self.switch_to(yes);
+        let obj = self.rvalue_to_temp(Rvalue::FromUnknown(u, t.erase()), t.erase(), span);
+        self.assign(res.clone(), Rvalue::InstanceOf(obj, t.erase()), span);
+        self.terminate(Terminator::Goto(done));
+        self.switch_to(done);
+        Operand::Copy(res)
+    }
+
+    /// The value an `unknown` holding a `t` holds, as a place (#53; after `unknown_is`).
+    fn unknown_value(&mut self, u: Operand, t: &Ty, span: Span) -> Place {
+        if *t == Ty::Unknown {
+            let p = Place::local(self.temp(Ty::Unknown));
+            self.assign(p.clone(), Rvalue::Use(u), span);
+            return p;
+        }
+        if let Ty::Class(..) = t.erase() {
+            let p = Place::local(self.temp(t.clone()));
+            self.assign(p.clone(), Rvalue::FromUnknown(u, t.erase()), span);
+            return p;
+        }
+        if !has_value(t) {
+            let p = Place::local(self.temp(t.clone()));
+            self.assign(p.clone(), Rvalue::Use(Operand::Const(Const::Void)), span);
+            return p;
+        }
+        let r = self.temp(Ty::Ref(Box::new(t.erase())));
+        self.assign(
+            Place::local(r),
+            Rvalue::FromUnknown(u, Ty::Ref(Box::new(t.erase()))),
+            span,
+        );
+        Place::deref(r)
+    }
+
     fn convert(&mut self, v: Operand, from: &Ty, to: &Ty, span: Span) -> Operand {
         if from == to || *from == Ty::Never {
             return v;
@@ -3437,6 +3576,9 @@ impl FnBuilder<'_, '_> {
         {
             let v = self.cell_get(v, from, span);
             return self.convert(v, &inner, to, span);
+        }
+        if *to == Ty::Unknown {
+            return self.box_unknown(v, from, span);
         }
         if *from == Ty::Null {
             return Operand::Const(Const::Null(to.clone()));
@@ -4494,6 +4636,31 @@ impl FnBuilder<'_, '_> {
                 if from == *to {
                     return v;
                 }
+                if *to == Ty::Unknown {
+                    return self.box_unknown(v, &from, e.span);
+                }
+                if from == Ty::Unknown {
+                    // A checked conversion (#53): the value, or a panic.
+                    let ok = self.unknown_is(v.clone(), to, e.span);
+                    let (fine, bad) = (self.new_block(), self.new_block());
+                    self.terminate(Terminator::Branch {
+                        cond: ok,
+                        then: fine,
+                        else_: bad,
+                    });
+                    self.switch_to(bad);
+                    self.panic_with(
+                        format!("`unknown` value of another type than `{to}`"),
+                        e.span,
+                    );
+                    self.terminate(Terminator::Unreachable);
+                    self.switch_to(fine);
+                    if *to == Ty::Null {
+                        return Operand::Const(Const::Null(to.clone()));
+                    }
+                    let p = self.unknown_value(v, to, e.span);
+                    return self.rvalue_to_temp(Rvalue::Use(Operand::Copy(p)), to.clone(), e.span);
+                }
                 if let (Operand::Const(Const::Int(n, _)), Ty::Int(it)) = (&v, to)
                     && it.contains(*n)
                 {
@@ -5027,6 +5194,17 @@ impl FnBuilder<'_, '_> {
     /// Branches to `fail` unless the value at `place` matches `p`; binds as it goes (a later
     /// failure leaves some bindings set, which is harmless: they're only read after a match).
     fn match_pattern(&mut self, p: &hir::Pattern, place: &Place, fail: BlockId) {
+        if let Some(want) = self.cx.types.unknown_tests.get(&p.id).cloned()
+            && self.place_ty(place) == Ty::Unknown
+        {
+            let ok = self.unknown_is(Operand::Copy(place.clone()), &want, p.span);
+            self.branch_unless(ok, fail);
+            if want == Ty::Null {
+                return;
+            }
+            let inner = self.unknown_value(Operand::Copy(place.clone()), &want, p.span);
+            return self.match_pattern_inner(p, &inner, fail);
+        }
         if let Some(&i) = self.cx.types.union_tests.get(&p.id) {
             // On `(A | B)?`: not null, then the union inside (#2).
             if matches!(self.place_ty(place), Ty::Nullable(_)) {
@@ -6002,6 +6180,13 @@ impl FnBuilder<'_, '_> {
                         self.rvalue_to_temp(Rvalue::Use(Operand::Copy(fplace)), fty.clone(), span);
                     let text = self.show_value(v, &fty, span, true);
                     self.terminate(Terminator::Return(Some(text)));
+                }
+                // Untyped (#56): the value as an `unknown`, whatever the field's type.
+                Access::Get(v) if *v == Ty::Unknown => {
+                    let x =
+                        self.rvalue_to_temp(Rvalue::Use(Operand::Copy(fplace)), fty.clone(), span);
+                    let u = self.box_unknown(x, &fty, span);
+                    self.terminate(Terminator::Return(Some(u)));
                 }
                 Access::Get(v) | Access::Set(v) if fty.erase() != v.erase() => {
                     self.panic_with(
