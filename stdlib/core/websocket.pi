@@ -186,18 +186,6 @@ function __wsText(bytes: Uint8Array): string? {
   }
 }
 
-/// A typed `"message"` listener of a `WebSocket`.
-struct __MessageListener {
-  f: (e: MessageEvent) => void
-  once: bool
-}
-
-/// A typed `"close"` listener of a `WebSocket`.
-struct __CloseListener {
-  f: (e: CloseEvent) => void
-  once: bool
-}
-
 /// A WebSocket connection. Assign `onopen`, `onmessage`, `onclose` and `onerror` right after
 /// creating it (they're called from the event loop); `send` text or bytes once it's open.
 ///
@@ -335,9 +323,6 @@ class WebSocket extends EventTarget {
   /// `data`, `"blob"` as a `Blob`. (Browsers default to `"blob"`; here bytes are the usual
   /// thing to work with.)
   public binaryType: "arraybuffer" | "blob" = "arraybuffer"
-  /// `addEventListener("message", …)`'s and `("close", …)`'s, typed (#67).
-  messageListeners: __MessageListener[] = []
-  closeListeners: __CloseListener[] = []
   protocols: string[]
   conn: Conn? = null
   reader: __HttpReader? = null
@@ -350,147 +335,20 @@ class WebSocket extends EventTarget {
   /// `WebSocketOptions.maxMessageBytes` (0: no limit).
   public __maxMessageBytes: int = 0
 
-  /// Calls `listener` with each message received (after `onmessage`; `once`: only the next).
-  ///
-  /// @example
-  /// ```ts
-  /// import { serve, upgradeWebSocket } from "std/http"
-  ///
-  /// async function handle(req: Request): Promise<Response> throws Error {
-  ///   const up = upgradeWebSocket(req)
-  ///   up.socket.onopen = (_e) => up.socket.send("hi")
-  ///   return up.response
-  /// }
-  /// const server = await serve({ port: 0 }, handle)
-  /// const ws = new WebSocket(`ws://127.0.0.1:${server.addr.port}/`)
-  /// await new Promise<void>((resolve, _reject) => {
-  ///   ws.addEventListener("message", (e) => {
-  ///     match (e.data) {
-  ///       s: string => println(s),   // hi
-  ///       _ => {},
-  ///     }
-  ///     resolve(__void())
-  ///   }, once: true)
-  /// })
-  /// ws.close()
-  /// await server.shutdown()
-  /// ```
-  public addEventListener(type: "message", listener: (e: MessageEvent) => void, once: bool = false): void {
-    for (const l of this.messageListeners) {
-      if (__identical(l.f, listener)) {
-        return
-      }
-    }
-    this.messageListeners.push({ f: listener, once })
-  }
-
-  /// Calls `listener` when the connection ends (after `onclose`).
-  ///
-  /// @example
-  /// ```ts
-  /// const ws = new WebSocket("ws://127.0.0.1:9/")   // nothing listens there
-  /// await new Promise<void>((resolve, _reject) => {
-  ///   ws.addEventListener("close", (e) => {
-  ///     println(e.code)   // 1006
-  ///     resolve(__void())
-  ///   })
-  /// })
-  /// ```
-  public addEventListener(type: "close", listener: (e: CloseEvent) => void, once: bool = false): void {
-    for (const l of this.closeListeners) {
-      if (__identical(l.f, listener)) {
-        return
-      }
-    }
-    this.closeListeners.push({ f: listener, once })
-  }
-
-  /// Calls `listener` with each `"open"` or `"error"` event (or any other type dispatched).
-  ///
-  /// @example
-  /// ```ts
-  /// const ws = new WebSocket("ws://127.0.0.1:9/")   // nothing listens there
-  /// await new Promise<void>((resolve, _reject) => {
-  ///   ws.addEventListener("error", (e) => {
-  ///     println(e.type)   // error
-  ///     resolve(__void())
-  ///   })
-  /// })
-  /// ```
-  public override addEventListener(type: string, listener: (e: Event) => void, once: bool = false): void {
-    super.addEventListener(type, listener, once)
-  }
-
-  /// Stops calling a `"message"` listener.
-  ///
-  /// @example
-  /// ```ts
-  /// const ws = new WebSocket("ws://127.0.0.1:9/")
-  /// const f = (e: MessageEvent) => println("message")
-  /// ws.addEventListener("message", f)
-  /// ws.removeEventListener("message", f)
-  /// ws.close()
-  /// ```
-  public removeEventListener(type: "message", listener: (e: MessageEvent) => void): void {
-    this.messageListeners = this.messageListeners.filter((l) => !__identical(l.f, listener))
-  }
-
-  /// Stops calling a `"close"` listener.
-  ///
-  /// @example
-  /// ```ts
-  /// const ws = new WebSocket("ws://127.0.0.1:9/")
-  /// const f = (e: CloseEvent) => println(e.code)
-  /// ws.addEventListener("close", f)
-  /// ws.removeEventListener("close", f)
-  /// ws.close()
-  /// ```
-  public removeEventListener(type: "close", listener: (e: CloseEvent) => void): void {
-    this.closeListeners = this.closeListeners.filter((l) => !__identical(l.f, listener))
-  }
-
-  /// Stops calling an `"open"`/`"error"` (or other) listener.
-  ///
-  /// @example
-  /// ```ts
-  /// const ws = new WebSocket("ws://127.0.0.1:9/")
-  /// const f = (e: Event) => println(e.type)
-  /// ws.addEventListener("error", f)
-  /// ws.removeEventListener("error", f)
-  /// ws.close()
-  /// ```
-  public override removeEventListener(type: string, listener: (e: Event) => void): void {
-    super.removeEventListener(type, listener)
-  }
-
-  /// `onmessage`, the `"message"` listeners, then any others of the type.
+  /// `onmessage`, then the `"message"` listeners (`EventTarget`).
   emitMessage(e: MessageEvent): void {
     const f = this.onmessage
     if (f != null) {
       f(e)
     }
-    for (const l of this.messageListeners.slice(0)) {
-      if (l.once) {
-        this.removeEventListener("message", l.f)
-      }
-      const g = l.f
-      g(e)
-    }
     this.dispatchEvent(e)
   }
 
-  /// `onclose`, the `"close"` listeners, then any others of the type.
+  /// `onclose`, then the `"close"` listeners (`EventTarget`).
   emitClose(e: CloseEvent): void {
     const f = this.onclose
     if (f != null) {
       f(e)
-    }
-    for (const l of this.closeListeners.slice(0)) {
-      if (l.once) {
-        this.removeEventListener("close", l.f)
-      }
-      const g = l.f
-      g(e)
     }
     this.dispatchEvent(e)
   }

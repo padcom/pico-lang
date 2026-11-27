@@ -67,19 +67,9 @@ class AbortSignal extends EventTarget {
   /// ```
   constructor() {}
 
-  /// Calls `f` when the signal is aborted (`type` must be `"abort"`); right away (as a
-  /// microtask) if it already is.
-  ///
-  /// @example
-  /// ```ts
-  /// const c = new AbortController()
-  /// c.signal.addEventListener("abort", () => println("aborted"))
-  /// c.abort()   // aborted
-  /// ```
-  public addEventListener(type: string, f: () => void): void {
-    if (type != "abort") {
-      return
-    }
+  /// Calls `f` once this is aborted (at once, in a microtask, if it is already): the
+  /// library's own use, beside the `EventTarget` listeners.
+  public __onAbort(f: () => void): void {
     if (this.aborted) {
       queueMicrotask(f)
       return

@@ -1270,7 +1270,7 @@ async function fetch(input: string | URL | Request, init: RequestInit = {}): Pro
   if (signal != null) {
     signal.throwIfAborted()
     const s: AbortSignal = signal
-    s.addEventListener("abort", () => ctl.stop(s.reason ?? new AbortError("This operation was aborted")))
+    s.__onAbort(() => ctl.stop(s.reason ?? new AbortError("This operation was aborted")))
   }
   const total = init.timeout ?? req.__timeout
   if (total != null) {

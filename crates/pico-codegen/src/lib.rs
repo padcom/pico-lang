@@ -839,7 +839,11 @@ impl<'ctx> Gen<'ctx, '_> {
                 // The browser's runtime resumes the loop from JavaScript (`pico_resume`).
                 ("pico_run_event_loop".to_string(), Linkage::External)
             } else {
-                (format!("pico.{}", f.name), Linkage::Internal)
+                // (No `@` in a symbol: ELF reads it as a version, `<closure@12>`.)
+                (
+                    format!("pico.{}", f.name.replace('@', "#")),
+                    Linkage::Internal,
+                )
             };
             let func = self.m.add_function(&name, fn_ty, Some(linkage));
             if let Some(e) = self.p.exports.iter().find(|e| e.wrapper.0 as usize == i)
