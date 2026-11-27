@@ -58,7 +58,7 @@ describe("add", () => {
 })
 ```
 Tests run in parallel, one isolated process per file (`pico test [paths] [-t filter] [--interp]
-[--watch] [-j jobs]`; it finds `*.test.pi` files under the paths; `-j` defaults to one file per
+[--watch] [-j jobs] [-u]`; it finds `*.test.pi` files under the paths; `-j` defaults to one file per
 CPU, but no more than the available memory holds at about 512 MB each). Coverage is planned.
 
 - Registering: `describe(name, fn)` (nesting; names show as `group > test`), `test`/`it(name,
@@ -77,7 +77,11 @@ CPU, but no more than the available memory holds at about 512 MB each). Coverage
   `toContain`, `toHaveLength`), functions (`toThrow(message?)`, `toThrowType<E>(message?)`: an `E` or a subclass, #70;
   `toPanic(message?)`), promises
   (`await expect(p).resolves.toBe(v)`, `await expect(p).rejects.toThrow(message?)`) and any
-  other value (`toBe`, `toEqual`, `toBeNull`, `toBeDefined`). `.not` negates. Values compare by
+  other value (`toBe`, `toEqual`, `toBeNull`, `toBeDefined`). `.not` negates. Every `expect`
+  also has `toMatchSnapshot()` (#70): the value's debug form (a string's text) is stored in
+  `__snapshots__/<file>.snap` next to the test file the first time and compared after that,
+  per test and in order; a difference fails with both versions, and `pico test -u` stores
+  them again. Values compare by
   their debug form (a class by its string form), except that `toBe` on a class instance
   (`expect<T extends object>`) tests identity, the same object (#70); `toEqual` compares its
   fields.

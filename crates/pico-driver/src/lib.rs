@@ -312,7 +312,12 @@ fn check(name: String, text: String, dir: &Path, opts: BuildOptions, mode: Mode)
     let mut comptime_output = String::new();
     // Decorators run first: they change the declarations the rest compiles.
     let mut expansion = decorators::Expansion::default();
-    let cfg = comptime_config(dir, &opts);
+    let mut cfg = comptime_config(dir, &opts);
+    let entry_name = sm.file(file).name.clone();
+    let base = std::path::Path::new(&entry_name)
+        .file_name()
+        .unwrap_or_default();
+    cfg.entry = dir.join(base).display().to_string();
     if !diags.iter().any(Diagnostic::is_error) {
         expansion =
             decorators::expand(&mut sm, &mut module.stmts, &mut modules, file, &cfg, editor);

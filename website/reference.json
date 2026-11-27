@@ -1071,6 +1071,15 @@
               "examples": [],
               "source": "core/comptime.pi:32",
               "members": []
+            },
+            {
+              "name": "entry",
+              "kind": "field",
+              "signature": "entry: string",
+              "doc": "<p>The path of the program's entry file, as compiled (#70).</p>\n",
+              "examples": [],
+              "source": "core/comptime.pi:34",
+              "members": []
             }
           ]
         },
@@ -2977,7 +2986,7 @@
               "code": "struct Point {\n  x: f64\n  label: string\n}\n\nfor (const f of comptime Point.fields) {\n  println(`${f.name}: ${f.typeName}`)\n}\n// x: f64\n// label: string"
             }
           ],
-          "source": "core/comptime.pi:57",
+          "source": "core/comptime.pi:61",
           "members": [
             {
               "name": "name",
@@ -2985,7 +2994,7 @@
               "signature": "name: string",
               "doc": "<p>The field's name.</p>\n",
               "examples": [],
-              "source": "core/comptime.pi:59",
+              "source": "core/comptime.pi:63",
               "members": []
             },
             {
@@ -2994,7 +3003,7 @@
               "signature": "typeName: string",
               "doc": "<p>The field's type as written in messages, e.g. <code>\"f64\"</code> or <code>\"string[]\"</code>.</p>\n",
               "examples": [],
-              "source": "core/comptime.pi:61",
+              "source": "core/comptime.pi:65",
               "members": []
             },
             {
@@ -3003,7 +3012,7 @@
               "signature": "decorators: DecoratorInfo[]",
               "doc": "<p>The user decorators that were on it (#54).</p>\n",
               "examples": [],
-              "source": "core/comptime.pi:63",
+              "source": "core/comptime.pi:67",
               "members": []
             }
           ]
@@ -5181,7 +5190,7 @@
               "code": "class Greeter {\n  public hello(): void {}\n  public bye(): void {}\n}\n\nfor (const m of comptime Greeter.methods) {\n  println(m.name)\n}\n// hello\n// bye"
             }
           ],
-          "source": "core/comptime.pi:81",
+          "source": "core/comptime.pi:85",
           "members": [
             {
               "name": "name",
@@ -5189,7 +5198,7 @@
               "signature": "name: string",
               "doc": "<p>The method's name.</p>\n",
               "examples": [],
-              "source": "core/comptime.pi:83",
+              "source": "core/comptime.pi:87",
               "members": []
             },
             {
@@ -5198,7 +5207,7 @@
               "signature": "signature: string",
               "doc": "<p>Its parameters and result, as messages show types: <code>(a: i64, b: string): bool</code> (#56).</p>\n",
               "examples": [],
-              "source": "core/comptime.pi:85",
+              "source": "core/comptime.pi:89",
               "members": []
             },
             {
@@ -5207,7 +5216,7 @@
               "signature": "decorators: DecoratorInfo[]",
               "doc": "<p>The user decorators that were on it (#54).</p>\n",
               "examples": [],
-              "source": "core/comptime.pi:87",
+              "source": "core/comptime.pi:91",
               "members": []
             }
           ]
@@ -23611,7 +23620,7 @@
               "code": "import { describe, it, expect } from \"std/test\"\n\ndescribe(\"Array\", () => {\n  describe(\"push\", () => {\n    it(\"adds to the end\", () => {\n      const xs = [1, 2]\n      xs.push(3)\n      expect(xs).toEqual([1, 2, 3])\n    })\n  })\n})\n// pico test: ✓ Array > push > adds to the end"
             }
           ],
-          "source": "test.pi:156",
+          "source": "test.pi:228",
           "members": []
         },
         {
@@ -23625,7 +23634,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"adds\", () => {\n  expect(1 + 2).toBe(3)\n})\n// pico test: ✓ adds"
             }
           ],
-          "source": "test.pi:174",
+          "source": "test.pi:246",
           "members": []
         },
         {
@@ -23639,7 +23648,7 @@
               "code": "import { test, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function waitsForATimer(): Promise<void> throws AbortError {\n  await delay(5)\n  expect(await Promise.resolve(2)).toBe(2)\n}\n\ntest(\"waits for a timer\", waitsForATimer)\ntest(\"an async lambda\", async () => {\n  await delay(1)\n  expect(\"ok\").toBe(\"ok\")\n})\n// pico test: ✓ waits for a timer, ✓ an async lambda"
             }
           ],
-          "source": "test.pi:197",
+          "source": "test.pi:269",
           "members": []
         },
         {
@@ -23653,7 +23662,7 @@
               "code": "import { test, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\ntest(\"quick enough\", async () => {\n  await delay(1)\n  expect(1).toBe(1)\n}, 1000)\n// pico test: ✓ quick enough"
             }
           ],
-          "source": "test.pi:216",
+          "source": "test.pi:288",
           "members": []
         },
         {
@@ -23667,7 +23676,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"fast\", () => {\n  expect([1, 2].length).toBe(2)\n}, 1000)\n// pico test: ✓ fast"
             }
           ],
-          "source": "test.pi:231",
+          "source": "test.pi:303",
           "members": []
         },
         {
@@ -23681,7 +23690,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"doubles %s\", [1, 2, 3], (n: int) => {\n  expect(n * 2 / 2).toBe(n)\n})\n// pico test: ✓ doubles 1, ✓ doubles 2, ✓ doubles 3"
             }
           ],
-          "source": "test.pi:247",
+          "source": "test.pi:319",
           "members": []
         },
         {
@@ -23695,7 +23704,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"resolves %s\", [\"a\", \"b\"], async (s: string) => {\n  expect(await Promise.resolve(s)).toBe(s)\n})\n// pico test: ✓ resolves a, ✓ resolves b"
             }
           ],
-          "source": "test.pi:265",
+          "source": "test.pi:337",
           "members": []
         },
         {
@@ -23709,7 +23718,7 @@
               "code": "import { describe, it, expect } from \"std/test\"\n\ndescribe(\"string\", () => {\n  it(\"uppercases\", () => {\n    expect(\"pico\".toUpperCase()).toBe(\"PICO\")\n  })\n})\n// pico test: ✓ string > uppercases"
             }
           ],
-          "source": "test.pi:286",
+          "source": "test.pi:358",
           "members": []
         },
         {
@@ -23723,7 +23732,7 @@
               "code": "import { it, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function settlesLater(): Promise<void> throws AbortError {\n  await delay(5)\n  expect([1, 2].length).toBe(2)\n}\n\nit(\"settles later\", settlesLater)\n// pico test: ✓ settles later"
             }
           ],
-          "source": "test.pi:303",
+          "source": "test.pi:375",
           "members": []
         },
         {
@@ -23737,7 +23746,7 @@
               "code": "import { test, skip, expect } from \"std/test\"\n\ntest(\"runs\", () => {\n  expect(true).toBeTruthy()\n})\nskip(\"flaky on CI\", () => {\n  expect(1).toBe(2)   // not run\n})\n// pico test: ✓ runs, - flaky on CI (skipped)"
             }
           ],
-          "source": "test.pi:319",
+          "source": "test.pi:391",
           "members": []
         },
         {
@@ -23751,7 +23760,7 @@
               "code": "import { skip, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function slowNetworkCall(): Promise<void> throws AbortError {\n  await delay(5000)\n  expect(1).toBe(1)\n}\n\nskip(\"slow network call\", slowNetworkCall)\n// pico test: - slow network call (skipped)"
             }
           ],
-          "source": "test.pi:338",
+          "source": "test.pi:410",
           "members": []
         },
         {
@@ -23765,7 +23774,7 @@
               "code": "import { test, only, expect } from \"std/test\"\n\nonly(\"the one being debugged\", () => {\n  expect(2 * 21).toBe(42)\n})\ntest(\"everything else\", () => {\n  expect(1).toBe(1)\n})\n// pico test: ✓ the one being debugged, - everything else (skipped)"
             }
           ],
-          "source": "test.pi:356",
+          "source": "test.pi:428",
           "members": []
         },
         {
@@ -23779,7 +23788,7 @@
               "code": "import { test, only, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function debugThis(): Promise<void> throws AbortError {\n  await delay(1)\n  expect(\"a\" + \"b\").toBe(\"ab\")\n}\n\nonly(\"debug this\", debugThis)\ntest(\"not now\", () => {})\n// pico test: ✓ debug this, - not now (skipped)"
             }
           ],
-          "source": "test.pi:377",
+          "source": "test.pi:449",
           "members": []
         },
         {
@@ -23793,7 +23802,7 @@
               "code": "import { todo } from \"std/test\"\n\ntodo(\"parses negative numbers\")\n// pico test: - parses negative numbers (skipped)"
             }
           ],
-          "source": "test.pi:390",
+          "source": "test.pi:462",
           "members": []
         },
         {
@@ -23807,7 +23816,7 @@
               "code": "import { describe, it, beforeEach, expect } from \"std/test\"\n\ndescribe(\"cart\", () => {\n  let items: string[] = []\n  beforeEach(() => {\n    items = []   // a fresh cart for every test\n  })\n  it(\"starts empty\", () => {\n    expect(items).toHaveLength(0)\n  })\n  it(\"adds\", () => {\n    items.push(\"apple\")\n    expect(items).toHaveLength(1)\n  })\n})\n// pico test: ✓ cart > starts empty, ✓ cart > adds"
             }
           ],
-          "source": "test.pi:417",
+          "source": "test.pi:489",
           "members": []
         },
         {
@@ -23821,7 +23830,7 @@
               "code": "import { beforeEach, it, expect } from \"std/test\"\n\nlet ready = false\nbeforeEach(async () => {\n  await 0\n  ready = true   // awaited before each test\n})\nit(\"is ready\", () => {\n  expect(ready).toBe(true)\n})\n// pico test: ✓ is ready"
             }
           ],
-          "source": "test.pi:434",
+          "source": "test.pi:506",
           "members": []
         },
         {
@@ -23835,7 +23844,7 @@
               "code": "import { it, afterEach, expect } from \"std/test\"\n\nconst opened: string[] = []\nafterEach(() => {\n  opened.pop()   // clean up after each test, even a failed one\n})\nit(\"opens one\", () => {\n  opened.push(\"db\")\n  expect(opened).toHaveLength(1)\n})\nit(\"still one\", () => {\n  opened.push(\"db\")\n  expect(opened).toHaveLength(1)\n})\n// pico test: ✓ opens one, ✓ still one"
             }
           ],
-          "source": "test.pi:459",
+          "source": "test.pi:531",
           "members": []
         },
         {
@@ -23849,7 +23858,7 @@
               "code": "import { afterEach, it, expect } from \"std/test\"\n\nlet cleaned = 0\nafterEach(async () => {\n  await 0\n  cleaned += 1   // awaited after each test\n})\nit(\"runs\", () => {\n  expect(1).toBe(1)\n})\n// pico test: ✓ runs"
             }
           ],
-          "source": "test.pi:476",
+          "source": "test.pi:548",
           "members": []
         },
         {
@@ -23863,7 +23872,7 @@
               "code": "import { describe, it, beforeAll, expect } from \"std/test\"\n\ndescribe(\"config\", () => {\n  const settings = new Map<string, string>()\n  beforeAll(() => {\n    settings.set(\"mode\", \"test\")   // once, before the first test\n  })\n  it(\"has a mode\", () => {\n    expect(settings.get(\"mode\")).toBe(\"test\")\n  })\n})\n// pico test: ✓ config > has a mode"
             }
           ],
-          "source": "test.pi:498",
+          "source": "test.pi:570",
           "members": []
         },
         {
@@ -23877,7 +23886,7 @@
               "code": "import { beforeAll, it, expect } from \"std/test\"\n\nlet n = 0\nbeforeAll(async () => {\n  n = await 41   // once, awaited before the first test\n})\nit(\"sees it\", () => {\n  expect(n).toBe(41)\n})\n// pico test: ✓ sees it"
             }
           ],
-          "source": "test.pi:514",
+          "source": "test.pi:586",
           "members": []
         },
         {
@@ -23891,7 +23900,7 @@
               "code": "import { describe, it, afterAll, expect } from \"std/test\"\n\ndescribe(\"suite\", () => {\n  afterAll(() => {\n    println(\"all done\")   // once, after the last test\n  })\n  it(\"works\", () => {\n    expect(1).toBe(1)\n  })\n})\n// pico test: ✓ suite > works (and prints \"all done\")"
             }
           ],
-          "source": "test.pi:535",
+          "source": "test.pi:607",
           "members": []
         },
         {
@@ -23905,7 +23914,7 @@
               "code": "import { afterAll, it, expect } from \"std/test\"\n\nafterAll(async () => {\n  await 0\n  println(\"cleaned up\")   // once, after the last test\n})\nit(\"works\", () => {\n  expect(1).toBe(1)\n})\n// pico test: ✓ works (and prints \"cleaned up\")"
             }
           ],
-          "source": "test.pi:551",
+          "source": "test.pi:623",
           "members": []
         },
         {
@@ -23919,7 +23928,7 @@
               "code": "import { bench } from \"std/test\"\n\nbench(\"join 100 strings\", () => {\n  const parts: string[] = []\n  for (let i = 0; i < 100; i++) {\n    parts.push(`${i}`)\n  }\n  parts.join(\",\")\n})\n// pico bench: join 100 strings, its mean, median and standard deviation per iteration"
             }
           ],
-          "source": "test.pi:577",
+          "source": "test.pi:649",
           "members": []
         },
         {
@@ -23933,7 +23942,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nstruct Point {\n  x: int\n  y: int\n}\n\ntest(\"structs compare by fields\", () => {\n  const p: Point = { x: 1, y: 2 }\n  expect(p).toEqual({ x: 1, y: 2 })\n})\n// pico test: ✓ structs compare by fields"
             }
           ],
-          "source": "test.pi:826",
+          "source": "test.pi:914",
           "members": [
             {
               "name": "actual",
@@ -23941,7 +23950,7 @@
               "signature": "public readonly actual: T",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:828",
+              "source": "test.pi:916",
               "members": []
             },
             {
@@ -23950,7 +23959,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:830",
+              "source": "test.pi:918",
               "members": []
             },
             {
@@ -23964,7 +23973,7 @@
                   "code": "import { test, Expect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  const e = new Expect<string?>(null)   // what `expect(value)` makes\n  e.toBeNull()\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:844",
+              "source": "test.pi:932",
               "members": []
             },
             {
@@ -23978,7 +23987,21 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  const m = new Map<string, int>()\n  m.set(\"a\", 1)\n  expect(m.get(\"a\")).not.toBeNull()\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:862",
+              "source": "test.pi:950",
+              "members": []
+            },
+            {
+              "name": "toMatchSnapshot",
+              "kind": "method",
+              "signature": "public toMatchSnapshot(): void",
+              "doc": "<p>Matches the test's stored snapshot (#70): the value's debug form, kept in <code>__snapshots__/&lt;file&gt;.snap</code>\nnext to the test file the first time (or with <code>pico test -u</code>), compared after that.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\ntest(\"a snapshot\", () => {\n  expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()\n})"
+                }
+              ],
+              "source": "test.pi:969",
               "members": []
             },
             {
@@ -23992,7 +24015,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\nstruct User {\n  name: string\n}\n\ntest(\"same string form\", () => {\n  const u: User = { name: \"ada\" }\n  expect(u).toBe({ name: \"ada\" })\n})\n// pico test: ✓ same string form"
                 }
               ],
-              "source": "test.pi:887",
+              "source": "test.pi:988",
               "members": []
             },
             {
@@ -24006,7 +24029,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"nullable values\", () => {\n  const found: int? = [1, 2, 3].find((x: int) => x > 1)\n  expect(found).toEqual(2)\n})\n// pico test: ✓ nullable values"
                 }
               ],
-              "source": "test.pi:901",
+              "source": "test.pi:1002",
               "members": []
             },
             {
@@ -24020,7 +24043,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"missing key\", () => {\n  const ages = new Map<string, int>()\n  expect(ages.get(\"nobody\")).toBeNull()\n})\n// pico test: ✓ missing key"
                 }
               ],
-              "source": "test.pi:915",
+              "source": "test.pi:1016",
               "members": []
             },
             {
@@ -24034,7 +24057,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"present key\", () => {\n  const ages = new Map<string, int>()\n  ages.set(\"ada\", 36)\n  expect(ages.get(\"ada\")).toBeDefined()\n})\n// pico test: ✓ present key"
                 }
               ],
-              "source": "test.pi:930",
+              "source": "test.pi:1031",
               "members": []
             }
           ]
@@ -24050,7 +24073,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"ints\", () => {\n  const n = [3, 1, 2].length\n  expect(n).toBe(3)\n  expect(n).toBeGreaterThan(2)\n})\n// pico test: ✓ ints"
             }
           ],
-          "source": "test.pi:950",
+          "source": "test.pi:1051",
           "members": [
             {
               "name": "actual",
@@ -24058,7 +24081,7 @@
               "signature": "public readonly actual: int",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:952",
+              "source": "test.pi:1053",
               "members": []
             },
             {
@@ -24067,7 +24090,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:954",
+              "source": "test.pi:1055",
               "members": []
             },
             {
@@ -24081,7 +24104,7 @@
                   "code": "import { test, IntExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new IntExpect(5).toBe(5)               // what `expect(5)` makes\n  new IntExpect(5, negated: true).toBe(6)   // what `expect(5).not` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:968",
+              "source": "test.pi:1069",
               "members": []
             },
             {
@@ -24095,7 +24118,21 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(7).not.toBe(8)\n  expect(7).not.toBeLessThan(7)\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:986",
+              "source": "test.pi:1087",
+              "members": []
+            },
+            {
+              "name": "toMatchSnapshot",
+              "kind": "method",
+              "signature": "public toMatchSnapshot(): void",
+              "doc": "<p>Matches the test's stored snapshot (#70): the value's debug form, kept in <code>__snapshots__/&lt;file&gt;.snap</code>\nnext to the test file the first time (or with <code>pico test -u</code>), compared after that.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\ntest(\"a snapshot\", () => {\n  expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()\n})"
+                }
+              ],
+              "source": "test.pi:1104",
               "members": []
             },
             {
@@ -24109,7 +24146,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect(6 * 7).toBe(42)\n})\n// pico test: ✓ toBe (`expect(6 * 7).toBe(41)` fails with: expected 42 to be 41)"
                 }
               ],
-              "source": "test.pi:1003",
+              "source": "test.pi:1117",
               "members": []
             },
             {
@@ -24123,7 +24160,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(\"abc\".length).toEqual(3)\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1015",
+              "source": "test.pi:1129",
               "members": []
             },
             {
@@ -24137,7 +24174,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeGreaterThan\", () => {\n  expect(10).toBeGreaterThan(9)\n})\n// pico test: ✓ toBeGreaterThan"
                 }
               ],
-              "source": "test.pi:1027",
+              "source": "test.pi:1141",
               "members": []
             },
             {
@@ -24151,7 +24188,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeGreaterThanOrEqual\", () => {\n  expect(10).toBeGreaterThanOrEqual(10)\n})\n// pico test: ✓ toBeGreaterThanOrEqual"
                 }
               ],
-              "source": "test.pi:1039",
+              "source": "test.pi:1153",
               "members": []
             },
             {
@@ -24165,7 +24202,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeLessThan\", () => {\n  expect(-1).toBeLessThan(0)\n})\n// pico test: ✓ toBeLessThan"
                 }
               ],
-              "source": "test.pi:1051",
+              "source": "test.pi:1165",
               "members": []
             },
             {
@@ -24179,7 +24216,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeLessThanOrEqual\", () => {\n  expect([1, 2].length).toBeLessThanOrEqual(2)\n})\n// pico test: ✓ toBeLessThanOrEqual"
                 }
               ],
-              "source": "test.pi:1063",
+              "source": "test.pi:1177",
               "members": []
             }
           ]
@@ -24195,7 +24232,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"numbers\", () => {\n  expect(0.1 + 0.2).toBeCloseTo(0.3)\n  expect(1.5).toBeGreaterThan(1.0)\n})\n// pico test: ✓ numbers"
             }
           ],
-          "source": "test.pi:1078",
+          "source": "test.pi:1192",
           "members": [
             {
               "name": "actual",
@@ -24203,7 +24240,7 @@
               "signature": "public readonly actual: number",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1080",
+              "source": "test.pi:1194",
               "members": []
             },
             {
@@ -24212,7 +24249,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:1082",
+              "source": "test.pi:1196",
               "members": []
             },
             {
@@ -24226,7 +24263,7 @@
                   "code": "import { test, NumberExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new NumberExpect(2.5).toBe(2.5)   // what `expect(2.5)` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1095",
+              "source": "test.pi:1209",
               "members": []
             },
             {
@@ -24240,7 +24277,21 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(Math.sqrt(2.0)).not.toBe(1.4)\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:1112",
+              "source": "test.pi:1226",
+              "members": []
+            },
+            {
+              "name": "toMatchSnapshot",
+              "kind": "method",
+              "signature": "public toMatchSnapshot(): void",
+              "doc": "<p>Matches the test's stored snapshot (#70): the value's debug form, kept in <code>__snapshots__/&lt;file&gt;.snap</code>\nnext to the test file the first time (or with <code>pico test -u</code>), compared after that.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\ntest(\"a snapshot\", () => {\n  expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()\n})"
+                }
+              ],
+              "source": "test.pi:1243",
               "members": []
             },
             {
@@ -24254,7 +24305,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect(1.0 / 4.0).toBe(0.25)\n})\n// pico test: ✓ toBe"
                 }
               ],
-              "source": "test.pi:1130",
+              "source": "test.pi:1257",
               "members": []
             },
             {
@@ -24268,7 +24319,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(Math.abs(-3.5)).toEqual(3.5)\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1142",
+              "source": "test.pi:1269",
               "members": []
             },
             {
@@ -24282,7 +24333,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeGreaterThan\", () => {\n  expect(Math.PI).toBeGreaterThan(3.14)\n})\n// pico test: ✓ toBeGreaterThan"
                 }
               ],
-              "source": "test.pi:1154",
+              "source": "test.pi:1281",
               "members": []
             },
             {
@@ -24296,7 +24347,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeGreaterThanOrEqual\", () => {\n  expect(Math.max(1.0, 2.0)).toBeGreaterThanOrEqual(2.0)\n})\n// pico test: ✓ toBeGreaterThanOrEqual"
                 }
               ],
-              "source": "test.pi:1166",
+              "source": "test.pi:1293",
               "members": []
             },
             {
@@ -24310,7 +24361,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeLessThan\", () => {\n  expect(Math.random()).toBeLessThan(1.0)\n})\n// pico test: ✓ toBeLessThan"
                 }
               ],
-              "source": "test.pi:1178",
+              "source": "test.pi:1305",
               "members": []
             },
             {
@@ -24324,7 +24375,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeLessThanOrEqual\", () => {\n  expect(Math.min(1.0, 2.0)).toBeLessThanOrEqual(1.0)\n})\n// pico test: ✓ toBeLessThanOrEqual"
                 }
               ],
-              "source": "test.pi:1190",
+              "source": "test.pi:1317",
               "members": []
             },
             {
@@ -24338,7 +24389,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeNaN\", () => {\n  expect(Math.sqrt(-1.0)).toBeNaN()\n})\n// pico test: ✓ toBeNaN"
                 }
               ],
-              "source": "test.pi:1202",
+              "source": "test.pi:1329",
               "members": []
             },
             {
@@ -24352,7 +24403,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeCloseTo\", () => {\n  expect(0.1 + 0.2).toBeCloseTo(0.3)              // within ±0.005\n  expect(Math.PI).toBeCloseTo(3.1416, digits: 4)  // within ±0.00005\n})\n// pico test: ✓ toBeCloseTo"
                 }
               ],
-              "source": "test.pi:1216",
+              "source": "test.pi:1343",
               "members": []
             }
           ]
@@ -24368,7 +24419,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"strings\", () => {\n  const greeting = \"hello, world\"\n  expect(greeting).toContain(\"world\")\n  expect(greeting).toHaveLength(12)\n})\n// pico test: ✓ strings"
             }
           ],
-          "source": "test.pi:1235",
+          "source": "test.pi:1362",
           "members": [
             {
               "name": "actual",
@@ -24376,7 +24427,7 @@
               "signature": "public readonly actual: string",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1237",
+              "source": "test.pi:1364",
               "members": []
             },
             {
@@ -24385,7 +24436,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:1239",
+              "source": "test.pi:1366",
               "members": []
             },
             {
@@ -24399,7 +24450,7 @@
                   "code": "import { test, StringExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new StringExpect(\"pico\").toBe(\"pico\")   // what `expect(\"pico\")` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1252",
+              "source": "test.pi:1379",
               "members": []
             },
             {
@@ -24413,7 +24464,21 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(\"release\").not.toContain(\"debug\")\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:1269",
+              "source": "test.pi:1396",
+              "members": []
+            },
+            {
+              "name": "toMatchSnapshot",
+              "kind": "method",
+              "signature": "public toMatchSnapshot(): void",
+              "doc": "<p>Matches the test's stored snapshot (#70): the text, kept in <code>__snapshots__/&lt;file&gt;.snap</code>\nnext to the test file the first time (or with <code>pico test -u</code>), compared after that.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\ntest(\"a snapshot\", () => {\n  expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()\n})"
+                }
+              ],
+              "source": "test.pi:1413",
               "members": []
             },
             {
@@ -24427,7 +24492,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect([\"a\", \"b\"].join(\"-\")).toBe(\"a-b\")\n})\n// pico test: ✓ toBe (`toBe(\"a+b\")` fails with: expected \"a-b\" to be \"a+b\")"
                 }
               ],
-              "source": "test.pi:1287",
+              "source": "test.pi:1427",
               "members": []
             },
             {
@@ -24441,7 +24506,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(\"Pico\".toLowerCase()).toEqual(\"pico\")\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1300",
+              "source": "test.pi:1440",
               "members": []
             },
             {
@@ -24455,7 +24520,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toContain\", () => {\n  expect(\"error: file not found\").toContain(\"not found\")\n})\n// pico test: ✓ toContain"
                 }
               ],
-              "source": "test.pi:1313",
+              "source": "test.pi:1453",
               "members": []
             },
             {
@@ -24469,7 +24534,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toMatch\", () => {\n  expect(\"user_42\").toMatch(/^[a-z]+_\\d+$/)\n})\n// pico test: ✓ toMatch"
                 }
               ],
-              "source": "test.pi:1326",
+              "source": "test.pi:1466",
               "members": []
             },
             {
@@ -24483,7 +24548,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toHaveLength\", () => {\n  expect(\"abc\").toHaveLength(3)\n})\n// pico test: ✓ toHaveLength"
                 }
               ],
-              "source": "test.pi:1339",
+              "source": "test.pi:1479",
               "members": []
             }
           ]
@@ -24499,7 +24564,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"bools\", () => {\n  expect([1, 2].includes(2)).toBe(true)\n  expect(\"\".length == 0).toBeTruthy()\n})\n// pico test: ✓ bools"
             }
           ],
-          "source": "test.pi:1354",
+          "source": "test.pi:1494",
           "members": [
             {
               "name": "actual",
@@ -24507,7 +24572,7 @@
               "signature": "public readonly actual: bool",
               "doc": "<p>The value under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1356",
+              "source": "test.pi:1496",
               "members": []
             },
             {
@@ -24516,7 +24581,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:1358",
+              "source": "test.pi:1498",
               "members": []
             },
             {
@@ -24530,7 +24595,7 @@
                   "code": "import { test, BoolExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new BoolExpect(true).toBeTruthy()   // what `expect(true)` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1371",
+              "source": "test.pi:1511",
               "members": []
             },
             {
@@ -24544,7 +24609,21 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(\"abc\".startsWith(\"b\")).not.toBe(true)\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:1388",
+              "source": "test.pi:1528",
+              "members": []
+            },
+            {
+              "name": "toMatchSnapshot",
+              "kind": "method",
+              "signature": "public toMatchSnapshot(): void",
+              "doc": "<p>Matches the test's stored snapshot (#70): the value's debug form, kept in <code>__snapshots__/&lt;file&gt;.snap</code>\nnext to the test file the first time (or with <code>pico test -u</code>), compared after that.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\ntest(\"a snapshot\", () => {\n  expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()\n})"
+                }
+              ],
+              "source": "test.pi:1545",
               "members": []
             },
             {
@@ -24558,7 +24637,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect(\"abc\".endsWith(\"c\")).toBe(true)\n})\n// pico test: ✓ toBe"
                 }
               ],
-              "source": "test.pi:1405",
+              "source": "test.pi:1558",
               "members": []
             },
             {
@@ -24572,7 +24651,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(\"\".length == 0).toEqual(true)\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1417",
+              "source": "test.pi:1570",
               "members": []
             },
             {
@@ -24586,7 +24665,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeTruthy\", () => {\n  expect(\"pico\".includes(\"i\")).toBeTruthy()\n})\n// pico test: ✓ toBeTruthy"
                 }
               ],
-              "source": "test.pi:1430",
+              "source": "test.pi:1583",
               "members": []
             },
             {
@@ -24600,7 +24679,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBeFalsy\", () => {\n  expect([1, 2, 3].includes(4)).toBeFalsy()\n})\n// pico test: ✓ toBeFalsy"
                 }
               ],
-              "source": "test.pi:1442",
+              "source": "test.pi:1595",
               "members": []
             }
           ]
@@ -24616,7 +24695,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"arrays\", () => {\n  const xs = [3, 1, 2].sort()\n  expect(xs).toEqual([1, 2, 3])\n  expect(xs).toContain(2)\n})\n// pico test: ✓ arrays"
             }
           ],
-          "source": "test.pi:1458",
+          "source": "test.pi:1611",
           "members": [
             {
               "name": "actual",
@@ -24624,7 +24703,7 @@
               "signature": "public readonly actual: T[]",
               "doc": "<p>The array under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1460",
+              "source": "test.pi:1613",
               "members": []
             },
             {
@@ -24633,7 +24712,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:1462",
+              "source": "test.pi:1615",
               "members": []
             },
             {
@@ -24647,7 +24726,7 @@
                   "code": "import { test, ArrayExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new ArrayExpect<string>([\"a\"]).toHaveLength(1)   // what `expect([\"a\"])` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1475",
+              "source": "test.pi:1628",
               "members": []
             },
             {
@@ -24661,7 +24740,21 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect([\"a\", \"b\"]).not.toContain(\"c\")\n})\n// pico test: ✓ not"
                 }
               ],
-              "source": "test.pi:1492",
+              "source": "test.pi:1645",
+              "members": []
+            },
+            {
+              "name": "toMatchSnapshot",
+              "kind": "method",
+              "signature": "public toMatchSnapshot(): void",
+              "doc": "<p>Matches the test's stored snapshot (#70): the value's debug form, kept in <code>__snapshots__/&lt;file&gt;.snap</code>\nnext to the test file the first time (or with <code>pico test -u</code>), compared after that.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\ntest(\"a snapshot\", () => {\n  expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()\n})"
+                }
+              ],
+              "source": "test.pi:1662",
               "members": []
             },
             {
@@ -24675,7 +24768,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", () => {\n  expect([1, 2].map((x: int) => x * 10)).toBe([10, 20])   // equal elements: passes\n})\n// pico test: ✓ toBe"
                 }
               ],
-              "source": "test.pi:1509",
+              "source": "test.pi:1675",
               "members": []
             },
             {
@@ -24689,7 +24782,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toEqual\", () => {\n  expect(\"a,b,c\".split(\",\")).toEqual([\"a\", \"b\", \"c\"])\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1522",
+              "source": "test.pi:1688",
               "members": []
             },
             {
@@ -24703,7 +24796,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toHaveLength\", () => {\n  expect([1, 2, 3].filter((x: int) => x > 1)).toHaveLength(2)\n})\n// pico test: ✓ toHaveLength"
                 }
               ],
-              "source": "test.pi:1535",
+              "source": "test.pi:1701",
               "members": []
             },
             {
@@ -24717,7 +24810,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toContain\", () => {\n  expect([\"red\", \"green\"]).toContain(\"green\")\n})\n// pico test: ✓ toContain"
                 }
               ],
-              "source": "test.pi:1548",
+              "source": "test.pi:1714",
               "members": []
             }
           ]
@@ -24733,7 +24826,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nfunction parsePort(s: string): int throws Error {\n  if (!/^\\d+$/.test(s)) throw new Error(`bad port: ${s}`)\n  return parseInt(s)\n}\n\ntest(\"rejects a bad port\", () => {\n  expect(() => { parsePort(\"x\") }).toThrow(\"bad port\")\n})\n// pico test: ✓ rejects a bad port"
             }
           ],
-          "source": "test.pi:1580",
+          "source": "test.pi:1746",
           "members": [
             {
               "name": "f",
@@ -24741,7 +24834,7 @@
               "signature": "public readonly f: () => void throws Error",
               "doc": "<p>The function under test (<code>toThrow</code> and <code>toPanic</code> call it).</p>\n",
               "examples": [],
-              "source": "test.pi:1582",
+              "source": "test.pi:1748",
               "members": []
             },
             {
@@ -24750,7 +24843,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether the matchers are negated (by <code>.not</code>).</p>\n",
               "examples": [],
-              "source": "test.pi:1584",
+              "source": "test.pi:1750",
               "members": []
             },
             {
@@ -24764,7 +24857,7 @@
                   "code": "import { test, FnExpect } from \"std/test\"\n\ntest(\"by hand\", () => {\n  new FnExpect(() => { throw new Error(\"no\") }).toThrow()   // what `expect(f)` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1597",
+              "source": "test.pi:1763",
               "members": []
             },
             {
@@ -24778,7 +24871,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"not\", () => {\n  expect(() => { println(\"fine\") }).not.toThrow()\n})\n// pico test: ✓ not (and prints \"fine\")"
                 }
               ],
-              "source": "test.pi:1614",
+              "source": "test.pi:1780",
               "members": []
             },
             {
@@ -24792,7 +24885,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toThrow\", () => {\n  expect(() => { throw new Error(\"disk full\") }).toThrow()          // any error\n  expect(() => { throw new Error(\"disk full\") }).toThrow(\"full\")    // its message contains \"full\"\n})\n// pico test: ✓ toThrow"
                 }
               ],
-              "source": "test.pi:1628",
+              "source": "test.pi:1794",
               "members": []
             },
             {
@@ -24806,7 +24899,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\nclass ParseError extends Error {}\n\ntest(\"toThrowType\", () => {\n  expect(() => { throw new ParseError(\"bad digit\") }).toThrowType<ParseError>()\n  expect(() => { throw new ParseError(\"bad digit\") }).toThrowType<Error>(\"digit\")\n  expect(() => { throw new Error(\"plain\") }).not.toThrowType<ParseError>()\n})\n// pico test: ✓ toThrowType"
                 }
               ],
-              "source": "test.pi:1669",
+              "source": "test.pi:1835",
               "members": []
             },
             {
@@ -24820,7 +24913,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toPanic\", () => {\n  expect(() => { panic(\"unreachable state\") }).toPanic(\"unreachable\")\n})\n// pico test: ✓ toPanic"
                 }
               ],
-              "source": "test.pi:1707",
+              "source": "test.pi:1873",
               "members": []
             }
           ]
@@ -24836,7 +24929,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nasync function promises(): Promise<void> {\n  await expect(Promise.resolve(42)).resolves.toBe(42)\n  await expect(Promise.reject<int>(new Error(\"not found\"))).rejects.toThrow(\"not found\")\n}\n\ntest(\"promises\", promises)\n// pico test: ✓ promises"
             }
           ],
-          "source": "test.pi:1742",
+          "source": "test.pi:1908",
           "members": [
             {
               "name": "p",
@@ -24844,7 +24937,7 @@
               "signature": "public readonly p: Promise<T, E>",
               "doc": "<p>The promise under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1744",
+              "source": "test.pi:1910",
               "members": []
             },
             {
@@ -24858,7 +24951,7 @@
                   "code": "import { test, PromiseExpect } from \"std/test\"\n\nasync function byHand(): Promise<void> {\n  await new PromiseExpect<int, Error>(Promise.resolve(1)).resolves.toBe(1)   // what `expect(p)` makes\n}\n\ntest(\"by hand\", byHand)\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1759",
+              "source": "test.pi:1925",
               "members": []
             },
             {
@@ -24872,7 +24965,7 @@
                   "code": "import { test, expect } from \"std/test\"\nimport { delay } from \"std/timers\"\n\nasync function double(n: int): Promise<int> throws AbortError {\n  await delay(1)\n  return n * 2\n}\n\ntest(\"resolves\", async () => {\n  await expect(double(21)).resolves.toBe(42)\n})\n// pico test: ✓ resolves"
                 }
               ],
-              "source": "test.pi:1780",
+              "source": "test.pi:1946",
               "members": []
             },
             {
@@ -24886,7 +24979,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"rejects\", async () => {\n  await expect(Promise.reject<string>(new Error(\"timeout\"))).rejects.toThrow()\n})\n// pico test: ✓ rejects"
                 }
               ],
-              "source": "test.pi:1792",
+              "source": "test.pi:1958",
               "members": []
             }
           ]
@@ -24902,7 +24995,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"resolves\", async () => {\n  await expect(Promise.resolve(\"ok\")).resolves.toEqual(\"ok\")\n})\n// pico test: ✓ resolves"
             }
           ],
-          "source": "test.pi:1807",
+          "source": "test.pi:1973",
           "members": [
             {
               "name": "p",
@@ -24910,7 +25003,7 @@
               "signature": "public readonly p: Promise<T, E>",
               "doc": "<p>The promise under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1809",
+              "source": "test.pi:1975",
               "members": []
             },
             {
@@ -24924,7 +25017,7 @@
                   "code": "import { test, Resolves } from \"std/test\"\n\ntest(\"by hand\", async () => {\n  await new Resolves<int, Error>(Promise.resolve(3)).toBe(3)   // what `expect(p).resolves` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1822",
+              "source": "test.pi:1988",
               "members": []
             },
             {
@@ -24938,7 +25031,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toBe\", async () => {\n  await expect(Promise.resolve([1, 2].length)).resolves.toBe(2)\n})\n// pico test: ✓ toBe"
                 }
               ],
-              "source": "test.pi:1837",
+              "source": "test.pi:2003",
               "members": []
             },
             {
@@ -24952,7 +25045,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\nstruct Reply {\n  status: int\n}\n\ntest(\"toEqual\", async () => {\n  const r: Reply = { status: 200 }\n  await expect(Promise.resolve(r)).resolves.toEqual({ status: 200 })\n})\n// pico test: ✓ toEqual"
                 }
               ],
-              "source": "test.pi:1862",
+              "source": "test.pi:2028",
               "members": []
             }
           ]
@@ -24968,7 +25061,7 @@
               "code": "import { test, expect } from \"std/test\"\nimport { readText } from \"std/fs\"\n\ntest(\"missing file\", async () => {\n  await expect(readText(\"/no/such/file\")).rejects.toThrow(\"no such file\")\n})\n// pico test: ✓ missing file"
             }
           ],
-          "source": "test.pi:1880",
+          "source": "test.pi:2046",
           "members": [
             {
               "name": "p",
@@ -24976,7 +25069,7 @@
               "signature": "public readonly p: Promise<T, E>",
               "doc": "<p>The promise under test.</p>\n",
               "examples": [],
-              "source": "test.pi:1882",
+              "source": "test.pi:2048",
               "members": []
             },
             {
@@ -24990,7 +25083,7 @@
                   "code": "import { test, Rejects } from \"std/test\"\n\ntest(\"by hand\", async () => {\n  await new Rejects<int, Error>(Promise.reject<int>(new Error(\"x\"))).toThrow()   // what `expect(p).rejects` makes\n})\n// pico test: ✓ by hand"
                 }
               ],
-              "source": "test.pi:1895",
+              "source": "test.pi:2061",
               "members": []
             },
             {
@@ -25004,7 +25097,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\ntest(\"toThrow\", async () => {\n  const p = Promise.reject<int>(new Error(\"connection refused\"))\n  await expect(p).rejects.toThrow(\"refused\")\n})\n// pico test: ✓ toThrow"
                 }
               ],
-              "source": "test.pi:1911",
+              "source": "test.pi:2077",
               "members": []
             }
           ]
@@ -25020,7 +25113,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"an int\", () => {\n  expect([1, 2, 3].length).toBe(3)\n  expect(10 % 3).toBeLessThan(2)\n})\n// pico test: ✓ an int"
             }
           ],
-          "source": "test.pi:1934",
+          "source": "test.pi:2100",
           "members": []
         },
         {
@@ -25034,7 +25127,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a number\", () => {\n  expect(0.1 + 0.2).toBeCloseTo(0.3)\n  expect(0.0 / 0.0).toBeNaN()\n})\n// pico test: ✓ a number"
             }
           ],
-          "source": "test.pi:1948",
+          "source": "test.pi:2114",
           "members": []
         },
         {
@@ -25048,7 +25141,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a string\", () => {\n  expect(\"pico\".toUpperCase()).toBe(\"PICO\")\n  expect(\"v1.2.3\").toMatch(/^v\\d+\\.\\d+\\.\\d+$/)\n})\n// pico test: ✓ a string"
             }
           ],
-          "source": "test.pi:1961",
+          "source": "test.pi:2127",
           "members": []
         },
         {
@@ -25062,7 +25155,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a bool\", () => {\n  expect(\"abc\".includes(\"b\")).toBeTruthy()\n})\n// pico test: ✓ a bool"
             }
           ],
-          "source": "test.pi:1973",
+          "source": "test.pi:2139",
           "members": []
         },
         {
@@ -25076,7 +25169,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"an array\", () => {\n  expect(\"a b\".split(\" \")).toEqual([\"a\", \"b\"])\n  expect([1, 2, 3]).toContain(2)\n})\n// pico test: ✓ an array"
             }
           ],
-          "source": "test.pi:1986",
+          "source": "test.pi:2152",
           "members": []
         },
         {
@@ -25090,7 +25183,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a function\", () => {\n  expect(() => { throw new Error(\"bad input\") }).toThrow(\"bad\")\n})\n// pico test: ✓ a function"
             }
           ],
-          "source": "test.pi:1998",
+          "source": "test.pi:2164",
           "members": []
         },
         {
@@ -25104,7 +25197,7 @@
               "code": "import { test, expect } from \"std/test\"\n\ntest(\"a promise\", async () => {\n  await expect(Promise.resolve(7)).resolves.toBe(7)\n})\n// pico test: ✓ a promise"
             }
           ],
-          "source": "test.pi:2010",
+          "source": "test.pi:2176",
           "members": []
         },
         {
@@ -25118,7 +25211,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nclass Box {\n  constructor(public v: int) {}\n}\n\ntest(\"objects\", () => {\n  const a = new Box(1)\n  expect(a).toBe(a)\n  expect(a).not.toBe(new Box(1))   // another object\n  expect(a).toEqual(new Box(1))    // with the same fields\n})\n// pico test: ✓ objects"
             }
           ],
-          "source": "test.pi:2030",
+          "source": "test.pi:2196",
           "members": [
             {
               "name": "actual",
@@ -25126,7 +25219,7 @@
               "signature": "public readonly actual: T",
               "doc": "<p>The object under test.</p>\n",
               "examples": [],
-              "source": "test.pi:2032",
+              "source": "test.pi:2198",
               "members": []
             },
             {
@@ -25135,7 +25228,7 @@
               "signature": "public readonly negated: bool",
               "doc": "<p>Whether this is a <code>.not</code> expectation.</p>\n",
               "examples": [],
-              "source": "test.pi:2034",
+              "source": "test.pi:2200",
               "members": []
             },
             {
@@ -25149,7 +25242,7 @@
                   "code": "import { ObjectExpect } from \"std/test\"\n\nclass Box {}\n\nconst e = new ObjectExpect<Box>(new Box())\nprintln(e.negated)   // false"
                 }
               ],
-              "source": "test.pi:2047",
+              "source": "test.pi:2213",
               "members": []
             },
             {
@@ -25163,7 +25256,21 @@
                   "code": "import { test, expect } from \"std/test\"\n\nclass Box {}\n\ntest(\"different objects\", () => {\n  expect(new Box()).not.toBe(new Box())\n})\n// pico test: ✓ different objects"
                 }
               ],
-              "source": "test.pi:2065",
+              "source": "test.pi:2231",
+              "members": []
+            },
+            {
+              "name": "toMatchSnapshot",
+              "kind": "method",
+              "signature": "public toMatchSnapshot(): void",
+              "doc": "<p>Matches the test's stored snapshot (#70): the value's debug form, kept in <code>__snapshots__/&lt;file&gt;.snap</code>\nnext to the test file the first time (or with <code>pico test -u</code>), compared after that.</p>\n",
+              "examples": [
+                {
+                  "caption": "",
+                  "code": "import { test, expect } from \"std/test\"\n\ntest(\"a snapshot\", () => {\n  expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()\n})"
+                }
+              ],
+              "source": "test.pi:2250",
               "members": []
             },
             {
@@ -25177,7 +25284,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\nclass Box {\n  constructor(public v: int) {}\n}\n\ntest(\"identity\", () => {\n  const a = new Box(1)\n  const b = a\n  expect(b).toBe(a)\n})\n// pico test: ✓ identity"
                 }
               ],
-              "source": "test.pi:2091",
+              "source": "test.pi:2270",
               "members": []
             },
             {
@@ -25191,7 +25298,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\nclass Box {\n  constructor(public v: int) {}\n}\n\ntest(\"equal fields\", () => {\n  expect(new Box(1)).toEqual(new Box(1))\n})\n// pico test: ✓ equal fields"
                 }
               ],
-              "source": "test.pi:2111",
+              "source": "test.pi:2290",
               "members": []
             },
             {
@@ -25205,7 +25312,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\nclass Box {}\n\ntest(\"not null\", () => {\n  expect(new Box()).not.toBeNull()\n})\n// pico test: ✓ not null"
                 }
               ],
-              "source": "test.pi:2128",
+              "source": "test.pi:2307",
               "members": []
             },
             {
@@ -25219,7 +25326,7 @@
                   "code": "import { test, expect } from \"std/test\"\n\nclass Box {}\n\ntest(\"defined\", () => {\n  expect(new Box()).toBeDefined()\n})\n// pico test: ✓ defined"
                 }
               ],
-              "source": "test.pi:2143",
+              "source": "test.pi:2322",
               "members": []
             }
           ]
@@ -25235,7 +25342,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nstruct Size {\n  w: int\n  h: int\n}\n\ntest(\"anything else\", () => {\n  const s: Size = { w: 2, h: 3 }\n  expect(s).toEqual({ w: 2, h: 3 })\n  expect(new Map<string, int>().get(\"x\")).toBeNull()\n})\n// pico test: ✓ anything else"
             }
           ],
-          "source": "test.pi:2165",
+          "source": "test.pi:2344",
           "members": []
         },
         {
@@ -25249,7 +25356,7 @@
               "code": "import { test, expect } from \"std/test\"\n\nclass Box {}\n\ntest(\"an object\", () => {\n  const b = new Box()\n  expect(b).toBe(b)\n})\n// pico test: ✓ an object"
             }
           ],
-          "source": "test.pi:2181",
+          "source": "test.pi:2360",
           "members": []
         }
       ]

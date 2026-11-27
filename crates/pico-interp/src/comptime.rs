@@ -37,6 +37,9 @@ pub struct Config {
     pub triple: String,
     /// `build.mode`: `"debug"` or `"release"`.
     pub mode: String,
+    /// `build.entry`: the path of the program's entry file (#70: `std/test`'s snapshots go
+    /// next to it).
+    pub entry: String,
 }
 
 impl Config {
@@ -56,6 +59,7 @@ impl Config {
             arch,
             triple,
             mode: if release { "release" } else { "debug" }.into(),
+            entry: String::new(),
         }
     }
 }
@@ -111,6 +115,7 @@ impl Interp<'_, '_> {
                     1 => &st.cfg.arch,
                     2 => &st.cfg.triple,
                     3 => &st.cfg.mode,
+                    4 => &st.cfg.entry,
                     _ => return Some(Err(self.panic("unknown comptime fact", loc))),
                 };
                 Ok(Value::Str(s.as_str().into()))

@@ -10,6 +10,8 @@
 // benchmarks instead), `PICO_TEST_TIMES=0` (no durations, for reproducible output).
 
 import { env, exit } from "std/process"
+import { exists, mkdir, readText, writeText } from "std/fs"
+import { basename, dirname, join } from "std/path"
 import { reflect, TypeInfo } from "std/reflect"
 
 // ---- registry ----
@@ -84,8 +86,78 @@ class __Run {
   public failures: string[] = []
   /// Whether the running test is in its synchronous part (a failure then stops it).
   public inSync: bool = false
+  /// The running test's full name, and how many snapshots it has taken (#70).
+  public current: string = ""
+  public snapCount: int = 0
+  /// The file's snapshots (by `<test> <n>`), whether they changed, and whether this run
+  /// updates them (`pico test -u`).
+  public snaps: Map<string, string> = new Map<string, string>()
+  public snapsChanged: bool = false
+  public snapUpdate: bool = false
 
   constructor() {}
+}
+
+/// Where the file's snapshots are kept: `__snapshots__/<file>.snap` next to it (#70).
+function __snapPath(): string {
+  return join(dirname(build.entry), "__snapshots__", `${basename(build.entry)}.snap`)
+}
+
+/// The snapshot file's text for `snaps`: per entry its key in brackets, then its lines, each
+/// indented two spaces.
+function __snapText(snaps: Map<string, string>): string {
+  const keys: string[] = []
+  for (const k of snaps.keys()) keys.push(k)
+  keys.sort()
+  const out: string[] = ["// pico test snapshots: `pico test -u` updates them."]
+  for (const k of keys) {
+    out.push("")
+    out.push(`[${k}]`)
+    for (const line of (snaps.get(k) ?? "").split("\n")) out.push(`  ${line}`)
+  }
+  out.push("")
+  return out.join("\n")
+}
+
+/// The entries of a snapshot file (as `__snapText` writes them).
+function __snapParse(text: string): Map<string, string> {
+  const out = new Map<string, string>()
+  let key = ""
+  let lines: string[] = []
+  const flush = () => {
+    if (key != "") out.set(key, lines.join("\n"))
+  }
+  for (const line of text.split("\n")) {
+    if (line.startsWith("[") && line.endsWith("]")) {
+      flush()
+      key = line.slice(1, line.length - 1)
+      lines = []
+    } else if (line.startsWith("  ")) {
+      lines.push(line.slice(2))
+    }
+  }
+  flush()
+  return out
+}
+
+/// Compares `text` with the running test's next snapshot (#70): a new one (or every one, when
+/// updating) is kept; one that differs fails, with both.
+function __snapshot(text: string): void {
+  const r = __run()
+  r.snapCount += 1
+  const key = `${r.current} ${r.snapCount}`
+  const old = r.snaps.get(key)
+  if (old == null || r.snapUpdate) {
+    if (old != text) {
+      r.snaps.set(key, text)
+      r.snapsChanged = true
+    }
+    return
+  }
+  if (old != text) {
+    const shown = (s: string, sign: string) => s.split("\n").map((l) => `${sign} ${l}`).join("\n")
+    __fail(`snapshot \`${key}\` doesn't match (\`pico test -u\` updates it):\n${shown(old, "-")}\n${shown(text, "+")}`)
+  }
 }
 
 const __state = new __Run()
@@ -631,6 +703,11 @@ async function __runAll(): Promise<void> {
     __runBenches(r)
     return
   }
+  // The snapshots taken before (#70).
+  r.snapUpdate = env.get("PICO_TEST_UPDATE") == "1"
+  try {
+    if (await exists(__snapPath())) r.snaps = __snapParse(await readText(__snapPath()))
+  } catch (_e) {}
   const anyOnly = r.tests.some((t) => t.only)
   for (const t of r.tests) {
     for (const s of t.suites) s.remaining += 1
@@ -658,6 +735,8 @@ async function __runAll(): Promise<void> {
       for (const h of s.beforeEach) await __hook(r, h)
     }
     const start = performance.now()
+    r.current = t.fullName
+    r.snapCount = 0
     if (r.failures.length == 0) {
       const sync = t.sync
       const async_ = t.async_
@@ -721,6 +800,15 @@ async function __runAll(): Promise<void> {
       }
     }
     await __finished(r, t)
+  }
+  if (r.snapsChanged) {
+    try {
+      await mkdir(dirname(__snapPath()), recursive: true)
+      await writeText(__snapPath(), __snapText(r.snaps))
+    } catch (e) {
+      println(`  ✗ snapshots: can't write ${__snapPath()}: ${e.message}`)
+      r.failed += 1
+    }
   }
   println(`pico-test: ${r.passed} passed, ${r.failed} failed, ${r.skipped} skipped`)
   if (r.failed > 0) exit(1)
@@ -867,6 +955,19 @@ export class Expect<T> {
     }
   }
 
+  /// Matches the test's stored snapshot (#70): the value's debug form, kept in `__snapshots__/<file>.snap`
+  /// next to the test file the first time (or with `pico test -u`), compared after that.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("a snapshot", () => {
+  ///   expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()
+  /// })
+  /// ```
+  public toMatchSnapshot(): void { __snapshot(__show(this.actual)) }
+
   /// Passes when `actual` and `expected` have the same string form (their debug form, or a class's
   /// `toString`), so it doesn't test identity; fails with `expected <actual> to be <expected>`.
   ///
@@ -988,6 +1089,19 @@ export class IntExpect {
   __check(ok: bool, what: string): void {
     if (ok == this.negated) __fail(`expected ${this.actual} ${if (this.negated) "not " else ""}${what}`)
   }
+
+  /// Matches the test's stored snapshot (#70): the value's debug form, kept in `__snapshots__/<file>.snap`
+  /// next to the test file the first time (or with `pico test -u`), compared after that.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("a snapshot", () => {
+  ///   expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()
+  /// })
+  /// ```
+  public toMatchSnapshot(): void { __snapshot(__show(this.actual)) }
 
   /// Passes when `actual == expected`; fails with `expected <actual> to be <expected>`.
   ///
@@ -1114,6 +1228,19 @@ export class NumberExpect {
   __check(ok: bool, what: string): void {
     if (ok == this.negated) __fail(`expected ${this.actual} ${if (this.negated) "not " else ""}${what}`)
   }
+
+  /// Matches the test's stored snapshot (#70): the value's debug form, kept in `__snapshots__/<file>.snap`
+  /// next to the test file the first time (or with `pico test -u`), compared after that.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("a snapshot", () => {
+  ///   expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()
+  /// })
+  /// ```
+  public toMatchSnapshot(): void { __snapshot(__show(this.actual)) }
 
   /// Passes when `actual == expected` (so `NaN` never passes, and `-0.0` equals `0.0`; for rounding
   /// errors use `toBeCloseTo`); fails with `expected <actual> to be <expected>`.
@@ -1272,6 +1399,19 @@ export class StringExpect {
     if (ok == this.negated) __fail(`expected ${this.actual:?} ${if (this.negated) "not " else ""}${what}`)
   }
 
+  /// Matches the test's stored snapshot (#70): the text, kept in `__snapshots__/<file>.snap`
+  /// next to the test file the first time (or with `pico test -u`), compared after that.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("a snapshot", () => {
+  ///   expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()
+  /// })
+  /// ```
+  public toMatchSnapshot(): void { __snapshot(this.actual) }
+
   /// Passes when `actual == expected`; fails with `expected "<actual>" to be "<expected>"` (both
   /// quoted).
   ///
@@ -1391,6 +1531,19 @@ export class BoolExpect {
     if (ok == this.negated) __fail(`expected ${this.actual} ${if (this.negated) "not " else ""}${what}`)
   }
 
+  /// Matches the test's stored snapshot (#70): the value's debug form, kept in `__snapshots__/<file>.snap`
+  /// next to the test file the first time (or with `pico test -u`), compared after that.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("a snapshot", () => {
+  ///   expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()
+  /// })
+  /// ```
+  public toMatchSnapshot(): void { __snapshot(__show(this.actual)) }
+
   /// Passes when `actual == expected`; fails with `expected <actual> to be <expected>`.
   ///
   /// @example
@@ -1494,6 +1647,19 @@ export class ArrayExpect<T> {
   __check(ok: bool, what: string): void {
     if (ok == this.negated) __fail(`expected ${__show(this.actual)} ${if (this.negated) "not " else ""}${what}`)
   }
+
+  /// Matches the test's stored snapshot (#70): the value's debug form, kept in `__snapshots__/<file>.snap`
+  /// next to the test file the first time (or with `pico test -u`), compared after that.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("a snapshot", () => {
+  ///   expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()
+  /// })
+  /// ```
+  public toMatchSnapshot(): void { __snapshot(__show(this.actual)) }
 
   /// The same as `toEqual` (equal elements, not the same array).
   ///
@@ -2069,6 +2235,19 @@ export class ObjectExpect<T> {
       __fail(`expected ${__show(this.actual)} ${if (this.negated) "not " else ""}${what}`)
     }
   }
+
+  /// Matches the test's stored snapshot (#70): the value's debug form, kept in `__snapshots__/<file>.snap`
+  /// next to the test file the first time (or with `pico test -u`), compared after that.
+  ///
+  /// @example
+  /// ```ts
+  /// import { test, expect } from "std/test"
+  ///
+  /// test("a snapshot", () => {
+  ///   expect([1, 2, 3].map((x: int) => x * 2)).toMatchSnapshot()
+  /// })
+  /// ```
+  public toMatchSnapshot(): void { __snapshot(__show(this.actual)) }
 
   /// The same object as `expected` (identity, not equal fields); fails with `expected <actual>
   /// to be the same object as <expected>`.

@@ -45,7 +45,8 @@ const impl = comptime if (target.arch == "wasm32") wasmImpl else nativeImpl
   chosen branch, which may be any runtime value (a function, as above).
 - `comptime const x = e` is `const x = comptime e`. Output of comptime code is the compile-time
   log, which the compiler prints.
-- `target` (`os`, `arch`, `triple`) and `build` (`mode`, `flags`) are compile-time constants,
+- `target` (`os`, `arch`, `triple`) and `build` (`mode`, `flags`, `entry`: the entry file's path,
+  #70) are compile-time constants,
   usable anywhere (unless the program declares its own names `target`/`build`).
 - Types are values at comptime (`comptime T: type`, as a generic or a value parameter:
   `schema(Point)`; as a value parameter it's given by position or by name like the others,

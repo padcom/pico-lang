@@ -109,6 +109,9 @@ enum Command {
         /// How many files run at once (default: the number of CPUs).
         #[arg(short, long)]
         jobs: Option<usize>,
+        /// Store the snapshots `toMatchSnapshot` takes again, replacing the old ones (#70).
+        #[arg(short = 'u', long)]
+        update_snapshots: bool,
     },
     /// Run the benchmarks (`bench(…)` from `std/test`) in `*.bench.pi` and `*.test.pi`
     /// files, one file at a time, optimized.
@@ -425,6 +428,7 @@ fn main() -> ExitCode {
             release,
             watch,
             jobs,
+            update_snapshots,
         }) => {
             let t = TestRun {
                 paths: if paths.is_empty() {
@@ -437,6 +441,7 @@ fn main() -> ExitCode {
                 release,
                 bench: false,
                 jobs: jobs.unwrap_or_else(|| default_jobs(TEST_JOB_MB)),
+                update_snapshots,
             };
             if watch { t.watch() } else { t.run() }
         }
@@ -451,6 +456,7 @@ fn main() -> ExitCode {
             release: true,
             bench: true,
             jobs: 1,
+            update_snapshots: false,
         }
         .run(),
         None => ExitCode::SUCCESS,
@@ -466,6 +472,8 @@ struct TestRun {
     release: bool,
     bench: bool,
     jobs: usize,
+    /// `-u`: `toMatchSnapshot` stores its snapshots again.
+    update_snapshots: bool,
 }
 
 /// One file's result.
@@ -525,6 +533,9 @@ impl TestRun {
         }
         cmd.arg(file);
         cmd.env("PICO_TEST_MODE", if self.bench { "bench" } else { "test" });
+        if self.update_snapshots {
+            cmd.env("PICO_TEST_UPDATE", "1");
+        }
         match &self.filter {
             Some(f) => cmd.env("PICO_TEST_FILTER", f),
             None => cmd.env_remove("PICO_TEST_FILTER"),

@@ -30,6 +30,8 @@ struct BuildInfo {
   mode: string
   /// Flags given to the build (none yet).
   flags: string[]
+  /// The path of the program's entry file, as compiled (#70).
+  entry: string
 }
 
 /// `target` and `build` (outside of a program's own declarations by those names) mean
@@ -37,7 +39,9 @@ struct BuildInfo {
 function __target(): Target {
   return { os: __comptime_info(0), arch: __comptime_info(1), triple: __comptime_info(2) }
 }
-function __build(): BuildInfo { return { mode: __comptime_info(3), flags: [] } }
+function __build(): BuildInfo {
+  return { mode: __comptime_info(3), flags: [], entry: __comptime_info(4) }
+}
 
 /// A field of a type, as `T.fields` describes it (spec §11.1).
 ///
